@@ -1,0 +1,26 @@
+# same_thing.v1 (theseus-nzzz4): whether two categories of one kind are one
+# thing named two ways. The ontology's nightly sweep asks it of each pair of
+# categories a machine wrote under one parent whose names share a word of
+# four letters or more (or one holds the other), off every turn's path. The
+# state is the kind and, for each category, its name, its path, its
+# description and up to five of its sessions' titles. One Noul. At the act
+# band the sweep merges them as its own write (`theseus ontology undo`
+# takes it back); below it nothing is written.
+id = "same_thing"
+version = 1
+jev_model = "jev-1.13.0"
+point = "consolidation"
+state = "same_thing"
+state_cap_tokens = 2000
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "Whether two categories of one kind of the ontology are one thing, named two ways."
+
+[questions.same_thing]
+type = "noul"
+instructions = "Are the two categories in the state the same thing, named two ways?"
+act = 0.85
+confirm = 0.60
+when_true = "Both categories hold sessions about one subject: either one's description and session titles would fit the other, and the names differ in wording only."
+when_false = "The categories cover two subjects, or one covers part of what the other does, even when their names share a word."

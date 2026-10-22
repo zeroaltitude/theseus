@@ -26,6 +26,7 @@ pub mod consolidation;
 pub mod digest;
 pub mod lines;
 pub mod morning;
+mod morning_google;
 pub mod promise;
 pub mod rate;
 pub mod speak;

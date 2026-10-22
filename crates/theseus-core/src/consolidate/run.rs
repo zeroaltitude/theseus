@@ -252,15 +252,26 @@ impl Core {
 
     /// The profile a cluster's synthesis is written with, or why it waits.
     fn synth_profile(&self, sources: &[Source]) -> Result<String, (&'static str, String)> {
+        let sessions: Vec<&str> = sources.iter().map(|s| s.node.session_id.as_str()).collect();
+        self.session_profile(&sessions)
+    }
+
+    /// `synth_profile`'s rule over `sessions`: the configured profile, or with
+    /// `"session"` the one profile every session last used (the dream's
+    /// guidance asks it of a category's sessions too).
+    pub(crate) fn session_profile(
+        &self,
+        sessions: &[&str],
+    ) -> Result<String, (&'static str, String)> {
         let word = &self.runner.memory.cfg().synth_profile;
         if word != SUMMARY_SESSION {
             return Ok(word.clone());
         }
         let mut seen = BTreeSet::new();
-        for s in sources {
+        for session_id in sessions {
             let last = self
                 .store
-                .get_session::<SessionRecord>(&s.node.session_id)
+                .get_session::<SessionRecord>(session_id)
                 .ok()
                 .flatten()
                 .and_then(|r| r.last_target);
@@ -271,7 +282,7 @@ impl Core {
                 None => {
                     return Err((
                         "no_profile",
-                        format!("{} has used no profile yet", s.node.session_id),
+                        format!("{session_id} has used no profile yet"),
                     ))
                 }
             }

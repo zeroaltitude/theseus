@@ -57,6 +57,8 @@ pub struct Row {
     pub level: Level,
     /// Done until seen (the client's rule, design §2.2).
     pub done: bool,
+    /// A failed task the owner dismissed: it reads `✗ dismissed`, never done.
+    pub dismissed: bool,
     /// What it needs, as the sidebar says it: `confirm proc.run`, `turn 2`.
     pub label: String,
     pub name: String,
@@ -448,10 +450,11 @@ impl Board {
         );
         // The daemon's own title names a session `session.list` has not
         // answered for yet (or never will: a task's row is made of it).
-        match (names::words(kind, label, title), self.work.title(sid)) {
+        let name = match (names::words(kind, label, title), self.work.title(sid)) {
             (None, Some(t)) => names::name(kind, None, Some(t), sid),
             _ => names::name(kind, label, title, sid),
-        }
+        };
+        crate::glyph::tidy(&name).into_owned()
     }
 
     /// The sidebar: with `Only::All` and no text, every session as a tree (a
@@ -558,8 +561,11 @@ impl Board {
             last,
             level: v.attention.level,
             done,
+            dismissed: v.dismissed && v.state == "failed",
             label: if done {
                 "done".to_string()
+            } else if v.dismissed && v.state == "failed" {
+                "dismissed".to_string()
             } else {
                 short_label(&v.attention)
             },
@@ -696,7 +702,8 @@ pub fn short(id: &str) -> String {
 
 /// The first line of a text, trimmed.
 pub fn one_line(s: &str) -> String {
-    s.lines().next().unwrap_or_default().trim().to_string()
+    let line = s.lines().next().unwrap_or_default().trim();
+    crate::glyph::tidy(line).into_owned()
 }
 
 /// progress' view of a row's line (theseus-xlias), read through tui-rows'

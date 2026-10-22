@@ -14,8 +14,15 @@ use base64::Engine;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
+pub mod gmail;
+
 use crate::http1::{read_request, write_response, Req};
 use crate::scopes::Service;
+
+mod calendar;
+pub mod drive;
+mod sheets;
+mod slides;
 
 /// A canned answer.
 #[derive(Debug, Clone)]
@@ -23,6 +30,8 @@ pub struct Reply {
     pub status: u16,
     pub body: Value,
     pub headers: Vec<(String, String)>,
+    /// A body that is not JSON (an export, a download): its content type and bytes.
+    pub raw: Option<(String, Vec<u8>)>,
 }
 
 impl Reply {
@@ -31,6 +40,14 @@ impl Reply {
             status,
             body,
             headers: Vec::new(),
+            raw: None,
+        }
+    }
+
+    pub fn raw(content_type: &str, bytes: Vec<u8>) -> Self {
+        Self {
+            raw: Some((content_type.into(), bytes)),
+            ..Self::json(200, Value::Null)
         }
     }
 
@@ -83,6 +100,9 @@ struct Inner {
     failures: VecDeque<Reply>,
     disabled: Option<(Service, String)>,
     forms: Vec<std::collections::BTreeMap<String, String>>,
+    mail: gmail::Mailbox,
+    sheets: sheets::State,
+    slides: slides::State,
 }
 
 pub struct Fake {
@@ -124,6 +144,9 @@ impl Fake {
             failures: VecDeque::new(),
             disabled: None,
             forms: Vec::new(),
+            mail: gmail::Mailbox::default(),
+            sheets: Default::default(),
+            slides: Default::default(),
         }));
         let me = inner.clone();
         let task = tokio::spawn(async move {
@@ -146,9 +169,14 @@ impl Fake {
                         .iter()
                         .map(|(k, v)| (k.as_str(), v.clone()))
                         .collect();
-                    let body = serde_json::to_vec(&reply.body).unwrap_or_default();
-                    write_response(&mut stream, reply.status, "application/json", &extra, &body)
-                        .await;
+                    let (kind, body) = match &reply.raw {
+                        Some((kind, bytes)) => (kind.as_str(), bytes.clone()),
+                        None => (
+                            "application/json",
+                            serde_json::to_vec(&reply.body).unwrap_or_default(),
+                        ),
+                    };
+                    write_response(&mut stream, reply.status, kind, &extra, &body).await;
                 });
             }
         });
@@ -199,7 +227,7 @@ impl Fake {
         self.with(|i| i.disabled = Some((service, project.to_string())));
     }
 
-    /// `verb path` answers with `handler`.
+    /// `verb path` answers with `handler`; a `*` segment matches any one.
     pub fn route(
         &self,
         verb: &str,
@@ -212,6 +240,11 @@ impl Fake {
     /// `verb path` answers a fixed JSON body.
     pub fn json(&self, verb: &str, path: &str, body: Value) {
         self.route(verb, path, move |_| Reply::json(200, body.clone()));
+    }
+
+    /// The mailbox the Gmail stubs answer from.
+    pub fn mail(&self) -> gmail::Mailbox {
+        self.with(|i| i.mail.clone())
     }
 
     /// Every API request seen, oldest first.
@@ -288,6 +321,19 @@ fn disabled_reply(service: Service, project: &str) -> Reply {
     )
 }
 
+/// A route's path against a request's: equal, or equal but for `*`, which
+/// stands for one segment.
+fn path_matches(pattern: &str, path: &str) -> bool {
+    let (mut a, mut b) = (pattern.split('/'), path.split('/'));
+    loop {
+        match (a.next(), b.next()) {
+            (None, None) => return true,
+            (Some(p), Some(s)) if p == s || (p == "*" && !s.is_empty()) => {}
+            _ => return false,
+        }
+    }
+}
+
 fn service_of(path: &str) -> Option<Service> {
     crate::methods::service_of_path(path)
 }
@@ -332,17 +378,33 @@ fn answer(me: &Arc<Mutex<Inner>>, req: &Req) -> Reply {
         .routes
         .iter()
         .rev()
-        .find(|(v, p, _)| *v == req.method && p == req.path())
+        .find(|(v, p, _)| *v == req.method && path_matches(p, req.path()))
         .map(|(_, _, h)| h.clone());
+    if handler.is_none() {
+        // The services' own stubs, behind a test's routes.
+        if let Some(r) =
+            sheets::answer(&mut i.sheets, req).or_else(|| slides::answer(&mut i.slides, req))
+        {
+            return r;
+        }
+    }
     let account = i.account.clone();
+    let mail = i.mail.clone();
     drop(i);
     if let Some(h) = handler {
         return h(req);
     }
+    if let Some(r) = gmail::answer(&mail, req) {
+        return r;
+    }
+    if let Some(r) = calendar::stub(req, &account) {
+        return r;
+    }
     match (req.method.as_str(), req.path()) {
         ("GET", "/gmail/v1/users/me/profile") => Reply::json(
             200,
-            json!({"emailAddress": account, "messagesTotal": 3, "threadsTotal": 2, "historyId": "100"}),
+            json!({"emailAddress": account, "messagesTotal": 3, "threadsTotal": 2,
+                "historyId": mail.history_id().to_string()}),
         ),
         ("GET", "/drive/v3/about") => {
             Reply::json(200, json!({"user": {"emailAddress": account, "me": true}}))

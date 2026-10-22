@@ -152,6 +152,7 @@ impl TurnRunner {
         self.prefix_touched(&compiled, spec);
         Self::recall_compiled(t, &mut compiled);
         t.fill = super::fill_step::Fill::of(&compiled, self.fill_window(spec));
+        self.home_size_checked(t, compiled.est_tokens, i);
         // A clearing pass (theseus-3ki0): one row a pass.
         if let Some(pass) = compiled.cleared {
             t.record(&fact::compaction::Cleared {

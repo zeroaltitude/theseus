@@ -72,3 +72,14 @@ fn a_key_is_read_and_a_bad_one_is_refused_with_its_name() {
         assert!(format!("{e:#}").contains(word), "{bad}: {e:#}");
     }
 }
+
+#[test]
+fn the_sweeps_daily_cap_is_a_dollar_and_zero_turns_the_model_off() {
+    let (cfg, _) = Config::parse(&doc("")).unwrap();
+    assert_eq!(cfg.ontology.sweep_usd_per_day, 1.0);
+    let (cfg, _) = Config::parse(&doc("[ontology]\nsweep_usd_per_day = 0\n")).unwrap();
+    assert_eq!(cfg.ontology.sweep_usd_per_day, 0.0);
+    assert!(!cfg.ontology.is_default());
+    let e = Config::parse(&doc("[ontology]\nsweep_usd_per_day = -1\n")).unwrap_err();
+    assert!(format!("{e:#}").contains("sweep_usd_per_day"), "{e:#}");
+}

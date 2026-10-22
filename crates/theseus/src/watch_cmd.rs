@@ -226,6 +226,7 @@ async fn run(conn: &mut Conn, json: bool, cmd: WatchesCmd) -> Result<()> {
                 every,
                 for_at_most,
                 then: Some(WatchThen { kind: then, brief }),
+                follow_up: None,
                 session_id: session,
                 author: None,
                 discord: None,

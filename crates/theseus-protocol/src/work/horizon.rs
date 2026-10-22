@@ -287,6 +287,20 @@ pub fn horizon_of(v: &WorkView, now_ms: u64, day: &LocalDay) -> Horizon {
     }
 }
 
+/// A mail watch's line on the board: how long it has waited for a reply and,
+/// when a follow-up is set, the day it follows up on (`follow_up_day`, as the
+/// caller words a weekday: `Fri`): `waiting: reply on 'Dana?' (2 d, follow-up
+/// Fri)`. Pure, so every surface shows the same words.
+pub fn reply_wait(title: &str, waited_ms: u64, follow_up_day: Option<&str>) -> String {
+    let age = match waited_ms / 60_000 {
+        m if m >= 1440 => format!("{} d", m / 1440),
+        m if m >= 60 => format!("{} h", m / 60),
+        m => format!("{m} min"),
+    };
+    let then = follow_up_day.map_or_else(String::new, |d| format!(", follow-up {d}"));
+    format!("waiting: reply on '{}' ({age}{then})", title.trim())
+}
+
 /// `work.agenda`: every occurrence in a window.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

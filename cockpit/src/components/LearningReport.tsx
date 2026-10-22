@@ -2,11 +2,13 @@
 // per class, calibration (Brier, ECE, and a reliability strip), agreement with the baseline, bands, cost, latency per
 // class, and the frozen holdout, as the core computed them (`learning.report`). It reads the report stored for the day
 // shown (`?report=<date>`, today by default); "run now" runs it, confirmed first, since a run writes its rows.
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { LearningReport as Report, PackReport, QuestionReport } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { cn, ms, usd } from '@/lib/format'
+import { useHistoryRows } from '@/lib/history'
+import { ONTO_PACK, ontoKindWords, ontoLine, ontoStatsOf } from '@/lib/ontostats'
 import { Empty } from '@/components/ui'
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${Math.round(v * 100)}%`)
@@ -33,15 +35,19 @@ export function LearningReport({ date, pack, onDate }: { date: string; pack: str
             {data.date} ({data.trigger}) · labels: {data.labels.operator} operator, {data.labels.system} system, {data.labels.audit} audit
           </div>
           {!data.packs.length && <Empty>no judgments to report</Empty>}
-          {data.packs.map((p) => <PackBlock key={p.pack} p={p} />)}
+          {data.packs.map((p) => <PackBlock key={p.pack} p={p} date={data.date} />)}
         </>
       )}
     </div>
   )
 }
 
-function PackBlock({ p }: { p: PackReport }) {
+function PackBlock({ p, date }: { p: PackReport; date: string }) {
   const h = p.holdout
+  // The ontology pack's line (theseus-0vhyn): its judgments, acts, confirms and undos, and the undo rate per kind, counted
+  // from the ledger's rows for the report's day: the report itself holds none of the pack's writes.
+  const { rows } = useHistoryRows()
+  const onto = useMemo(() => (p.pack === ONTO_PACK ? ontoStatsOf(rows, { day: date }) : null), [p.pack, rows, date])
   return (
     <div className="border-t border-line pt-2">
       <div className="num flex flex-wrap gap-x-3 text-ink">
@@ -51,6 +57,8 @@ function PackBlock({ p }: { p: PackReport }) {
         <span title={`against the baseline, ${p.baseline}: ${p.disagreements} disagree`}>agrees {pct(p.agreement)}</span>
         <span>{usd(p.cost_usd, 6)}</span>
       </div>
+      {onto && <div className="num text-[11px] text-ink-faint">{ontoLine(onto)}</div>}
+      {onto && ontoKindWords(onto) && <div className="num text-[11px] text-ink-faint">{ontoKindWords(onto)}</div>}
       {p.latency.map((l) => (
         <div key={l.class} className="num text-[11px] text-ink-faint">latency {l.class} ({l.n}): p50 {ms(l.p50_ms)} · p95 {ms(l.p95_ms)} · p99 {ms(l.p99_ms)}</div>
       ))}

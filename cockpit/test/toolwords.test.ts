@@ -2,7 +2,7 @@
 // pill's title, and a result's status (theseus-vm3n.6). Invented paths.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { byteWords, callSummary, decisionWords, diffLines, l1Words, looksLikeDiff, previewFor, previewOf, resultWords, wireToName } from '../src/lib/toolwords.ts'
+import { byteWords, callSummary, decisionWords, diffLines, l1Words, looksLikeDiff, mailLines, previewFor, previewOf, resultWords, wireToName } from '../src/lib/toolwords.ts'
 
 test('a call reads in the terms of its tool', () => {
   assert.equal(callSummary('proc.run', { argv: ['cargo', 'test'], cwd: '/w/app' }), 'cargo test   (in /w/app)')
@@ -59,4 +59,15 @@ test('the daemon\'s preview wins over the one built from the input (theseus-z6au
   // Without one (an older daemon), the cockpit builds its own.
   assert.equal(previewFor(undefined, 'fs.edit', input)?.kind, 'diff')
   assert.equal(previewFor(undefined, 'git.log', {}), null)
+})
+
+test('a send card shows its draft, flags new recipients and keeps the digest line', () => {
+  const body = 'draft r1 from owner@example.test\nTo: sam@example.test, pat@example.test (new)\nSubject: Re: Budget\nBody (first 2 of 2 lines):\n  Numbers attached.\n  Thanks.\nAttachments: ledger.csv\nDraft 0123456789ab'
+  assert.equal(previewFor({ kind: 'mail', body }, 'gmail.send', {})?.kind, 'mail')
+  const lines = mailLines(body)
+  assert.deepEqual(lines[0], { kind: 'field', label: 'From', parts: [{ text: 'owner@example.test', fresh: false }] })
+  assert.deepEqual(lines[1].parts, [{ text: 'sam@example.test', fresh: false }, { text: 'pat@example.test', fresh: true }])
+  assert.deepEqual(lines[4], { kind: 'body', parts: [{ text: 'Numbers attached.', fresh: false }] })
+  assert.equal(lines[6].label, 'Attachments')
+  assert.deepEqual(lines[7], { kind: 'digest', parts: [{ text: 'Draft 0123456789ab', fresh: false }] })
 })

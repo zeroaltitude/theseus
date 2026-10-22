@@ -159,12 +159,13 @@ impl Entry {
             state: self.state(),
             text,
             detail: json!({"message_id": message_id, "author": author, "external": true}),
+            keep: None,
         })
     }
 }
 
 /// `text` as a quote: scrubbed, one line, at most `QUOTE_CHARS`.
-fn quote_of(scrubbed: &str) -> String {
+pub(super) fn quote_of(scrubbed: &str) -> String {
     let one: String = scrubbed.split_whitespace().collect::<Vec<_>>().join(" ");
     let q: String = one.chars().take(QUOTE_CHARS).collect();
     if q.chars().count() < one.chars().count() {

@@ -15,6 +15,7 @@ use theseus_protocol::{LedgerKind, Proactive};
 use theseus_store::{kinds, NewRecord};
 
 use super::lines::Line;
+use super::morning_google::Day;
 use super::speak::Facts;
 use crate::rpc::Core;
 use crate::wake::local;
@@ -104,7 +105,15 @@ impl Core {
     }
 
     /// What happened in the last day, as the note's facts: none, nothing to say.
-    pub(crate) fn morning_facts(&self, now: u64) -> Option<(String, u64)> {
+    /// With `[google]`, the day's meetings and mail join them (`google`), and
+    /// what waits on the owner says so. `ontology` is how many writes the
+    /// night's sweep and dream made.
+    pub(crate) fn morning_facts(
+        &self,
+        now: u64,
+        google: Option<&Day>,
+        ontology: u64,
+    ) -> Option<(String, u64)> {
         let since = now.saturating_sub(DAY_MS);
         let count = |k| {
             self.synthesis_rows(k, Some(since))
@@ -122,8 +131,10 @@ impl Core {
                 count(LedgerKind::SynthesisProposed),
                 "memory notes proposed",
             ),
+            (ontology, "ontology changes by the night's sweep and dream"),
         ];
-        let total: u64 = items.iter().map(|(n, _)| n).sum();
+        let total: u64 =
+            items.iter().map(|(n, _)| n).sum::<u64>() + google.map_or(0, Day::happened);
         if total == 0 {
             return None;
         }
@@ -133,22 +144,45 @@ impl Core {
             .map(|(n, what)| format!("- {n} {what}"))
             .collect::<Vec<_>>()
             .join("\n");
-        Some((
-            format!("In the last day:\n{brief}\nNothing is waiting on the owner."),
-            total,
-        ))
+        let mut text = match brief.is_empty() {
+            true => String::new(),
+            false => format!("In the last day:\n{brief}\n"),
+        };
+        if let Some(g) = google.filter(|g| !g.lines.is_empty()) {
+            text.push_str(&format!("Today and waiting:\n{}\n", g.lines.join("\n")));
+        }
+        text.push_str(&match google.map_or(0, |g| g.drafts) {
+            0 => "Nothing is waiting on the owner.".to_string(),
+            1 => "1 draft waits for the owner to send.".to_string(),
+            n => format!("{n} drafts wait for the owner to send."),
+        });
+        Some((text, total))
     }
 
     async fn morning_note(self: &Arc<Self>, day: &str, now: u64) {
-        if let Some((brief, n)) = self.morning_facts(now) {
-            let spoken = self
+        let google = self.morning_google(now).await;
+        // The ontology's writes go in verbatim after the voiced words: the
+        // model never rewords an undo id (theseus-0umqz).
+        let ontology = self.onto_night_lines(now);
+        if let Some((brief, n)) = self.morning_facts(now, google.as_ref(), ontology.len() as u64) {
+            let waiting = google.as_ref().is_some_and(|g| g.drafts > 0);
+            let mut spoken = self
                 .initiative_speak(&Facts {
                     kind: "morning",
                     brief: &brief,
-                    line: Line::Morning,
+                    line: if waiting {
+                        Line::MorningWaiting
+                    } else {
+                        Line::Morning
+                    },
                     n,
+                    // The brief holds the owner's Google content.
+                    private: google.as_ref().is_some_and(|g| g.happened() + g.drafts > 0),
                 })
                 .await;
+            if !ontology.is_empty() {
+                spoken.text = format!("{}\n\n{}", spoken.text, ontology.join("\n"));
+            }
             if let Err(e) = self.initiative_post("morning", &spoken) {
                 tracing::warn!(error = %format!("{e:#}"), "the morning note was not written");
             }

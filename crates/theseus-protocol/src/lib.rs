@@ -25,6 +25,7 @@ mod cost;
 pub mod cred;
 pub mod defer;
 pub mod diff;
+pub mod digest_google;
 pub mod earned;
 mod events;
 mod exec_list;

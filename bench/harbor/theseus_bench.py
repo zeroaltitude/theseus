@@ -146,11 +146,14 @@ def settings(
     routed: bool = False,
     day_ceiling_usd: float | None = None,
     effort_bounds: str | list[str] | None = None,
+    end_note: bool = True,
 ) -> dict[tuple[str, str], Any]:
     """The `(table, key)` values a trial sets in the profile: the lines it
     marks "set by the adapter", and the optional system text and API base.
     The day ceiling is `day_ceiling_usd`, else `day_ceiling`'s. `effort_bounds`
-    (a plan's, `plan.effort_bounds`) caps the efforts Jev may ask for."""
+    (a plan's, `plan.effort_bounds`) caps the efforts Jev may ask for.
+    `end_note` false writes `[model] end_note = false`; true leaves the
+    daemon's default (on)."""
     s: dict[tuple[str, str], Any] = {
         ("model", "model"): model,
         ("profiles.bench", "model"): model,
@@ -170,11 +173,18 @@ def settings(
         s[("model", "api_base")] = api_base
     if effort_bounds is not None:
         s[("routing", "effort_bounds")] = planmod.effort_bounds(effort_bounds)
+    if not end_note:
+        s[("model", "end_note")] = False
     if routed:
         # The profiles the router may pick run as many loops as `bench` does.
         for name in ROUTED_PROFILES:
             s[(f"profiles.{name}", "max_loops")] = max_loops
     return s
+
+
+def end_note_on(value: Any) -> bool:
+    """`--ak end_note=…`: off for `off`, `0`, `false`, `no`; else on (none is on)."""
+    return str(value).strip().lower() not in ("off", "0", "false", "no")
 
 
 def day_ceiling(spend_limit_usd: float, env: dict[str, str] | None = None) -> float:

@@ -43,6 +43,9 @@ pub struct Facts<'a> {
     pub brief: &'a str,
     pub line: Line,
     pub n: u64,
+    /// The brief holds the owner's Google content: the call is made as a
+    /// private session's, so a model of restricted origin is never asked.
+    pub private: bool,
 }
 
 /// What was said, and what saying it cost.
@@ -175,7 +178,10 @@ impl Core {
             Err(_) => return template(0.0, None),
         };
         let mut quiet = |_: crate::provider::Delta<'_>| {};
-        let answered = provider.stream_message(&request, &mut quiet).await;
+        let answered = crate::google::private::scoped(facts.private, || {
+            provider.stream_message(&request, &mut quiet)
+        })
+        .await;
         let cost = answered
             .as_ref()
             .map_or(need, |r| self.runner.priced(r, &target.model, need));

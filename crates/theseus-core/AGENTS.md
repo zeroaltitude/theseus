@@ -263,14 +263,35 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   characters, only where none exists (`GuidanceSet`), each row with its `undo` (a guidance written where none was
   is undone to an empty one, one version on; a kind or guidance put back is one version on). **The ontology's
   nightly sweep** (theseus-63tfk, R5 slice one; `judge/onto/sweep.rs`, `[ontology] sweep`, default on, run by
-  `Core::onto_sweep_after_serving` at `[judge] learning_hour` and once after a start): no model, no spend;
+  `Core::onto_sweep_after_serving` at `[judge] learning_hour` and once after a start): the deterministic plan uses no model, no spend;
   `Ontology::sweep_plan(now_ms)` (theseus-ontology's `sweep.rs`) gives the steps, each written as its own machine
   write of the sweep's (id `sweep-<ms>-<n>-decay|merge`, undone by `Core::ontology_undo`): decay of machine
   memberships older than 30 days (one write), and a merge of each duplicate category (same kind and parent, names
   folded to lowercase letters and digits; only a category a machine wrote, with no guidance, no children, and no
   operator or import membership) into the operator's, else the better held, else the earlier-id twin. The
   sweep's row is its writes' own rows (`ontology.category` with `merged_into`, `ontology.membership`); no
-  `ontology.swept` row yet. Tests: `tests_ontology.rs`, `tests_ontology_bind.rs`, `tests_onto_sweep.rs`.
+  `ontology.swept` row: the morning note builds its lines from those rows (below). **Beyond the deterministic plan**
+  (theseus-81zx7, theseus-nzzz4, theseus-olt3h, theseus-0umqz; no store format change: META keys and ledger rows
+  that exist): (1) `kind_of_thing = other` at the act band is `Step::Other` in `decide.rs` and a step of the
+  `onto.filed` row (names, confidence; no record, no card); (2) `judge/onto/mint.rs`: three distinct sessions' `other`
+  rows in the last 7 days that share a folded mined name mint a kind, one category and the memberships as one write
+  (`sweep-<ms>-<n>-kind`), a name no kind can take or the table holds counted as `refused`, a name a kind lists in
+  `examples` (an undone one too) not clustered again; (3) `judge/onto/judged.rs` (`[ontology] sweep_usd_per_day`, 1.0,
+  0 turns this part off and the deterministic sweep still runs): `same_thing.v1` asks of machine pairs that look alike
+  (theseus-ontology's `judged.rs`: a shared word of 4 letters or more, at most 20 a run) and merges at the act band by
+  the one survivor rule (`Ontology::plan_pair_merge`); `two_things.v1` asks of a machine category 12 sessions or more
+  hold (at most 3 a run) and splits it into two named children, moving the sampled sessions it placed at the act band
+  (`plan_split`); the day's spend and what was asked (not again for 30 days) are META `onto.sweep.judged`, and every
+  call also passes the judge's day budget; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
+  its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
+  held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
+  under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`), an answer over 400
+  characters refused, never cut; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream write of
+  the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim after
+  the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours, so a
+  night post would wake the owner; the morning note is the one place they are told. Tests: `tests_ontology.rs`,
+  `tests_ontology_bind.rs`, `tests_onto_sweep.rs`, `tests_onto_other.rs`, `tests_onto_mint.rs`,
+  `tests_onto_judged.rs`, `consolidate/tests_guidance.rs`, `tests_onto_digest.rs`.
 - **Standing** (theseus-a7vi; `standing.rs`, `rpc/standing.rs`, `turn/standing_step.rs`, `fact/standing.rs`): the owner's
   standing orders, preferences and facts, one `protocol::StandingRecord` each as a META key `standing:<id>` (store
   format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).
@@ -702,6 +723,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **A job's handle** (theseus-n8gk): a job that goes on in the background, past `proc_sync_secs` or at once with
   `proc.run {background: true}`, gets a short id in its session (`j1`, `j2`, …; `toolrun/handles.rs`), which its
   placeholder's meta names (`job`), so a restart reads the map again from the transcript; the long id still works.
+  A job a restart found alive gets its short id too (`toolrun/resume.rs`, `check_dispatched`: the same meta, and words naming
+  its command and the job tools).
   `job.read`, `job.wait` and `job.stop` (schemas in theseus-tools' `jobs.rs`) run in `toolrun/jobs_tools.rs`, through
   the core (`Board`, attached as `memory.lookup`'s is): a read is the one tail reader, `toolrun/peek.rs`
   (`crate::toolrun::peek`, bounded: 64 KiB by seek, lines counted only up to 8 MiB), which the work board's
@@ -726,6 +749,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   of a 5-minute entry, or `[cache] keep_warm_every_minutes` of an hour's, beside its other events, so a settle, a message or a
   stop ends it and a read in flight is dropped unbooked. The stash dies with the turn (`KeepWarm::turn_ended`). Tests:
   `tests_wait_cost.rs` (paused clock, `Gated` launcher holding the job; the measure prints with `--nocapture`).
+  **A silent job's wait returns at a beat** (theseus-53ujg.6; `[tools] job_wait_beat_secs`, 600, 0 off, else at
+  most 3600 and tied to neither `proc_sync_secs` nor the cap, since the bench profile's 900 s foreground wait keeps it; `toolrun/jobs_tools/wait_facts.rs`): a job whose spool output file has not
+  grown for that long in this wait (each look stats it; growth restarts the window) returns the wait early, with
+  meta `beat` and `silent_secs`, and every still-running result carries the same facts: the job's run time and this
+  wait's, its CPU time and share of one CPU where its cgroup gives one (`theseus_kernel::cgroup::job_cpu_usec`; none
+  for an L1 job or a daemon with no delegated cgroup, and then no CPU words), and its output through `peek` (no output
+  since it started, or no new output for N s and the last 10 lines). Facts only, no advice. The beat is off for a job
+  past its file's head. With the beat 0 the result is byte for byte the old one. Tests: `tests_wait_beat.rs` (a child
+  of `tests_wait_cost.rs`, whose config turns the beat off), `wait_facts::tests`, the kernel's cgroup test.
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late
@@ -1635,9 +1667,23 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     the confirm band (`PersonalAnswer::warns`) posts one `privacy_warning` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
     courier sends it with Jev's notices, never to the place) quoting the message's first 200 characters, scrubbed, each line quoted and each link fenced, at most one post per
     place in 10 minutes (`may_post`; the rest `folded`), and writes `privacy.warned` (choice, confidence, place class,
-    judgment, posted, folded). A late verdict, kept for the next message, warns nothing (a known gap). Nothing is held: the turn and its reply go on, and
-    the place rule keeps private recall out of shared places. Read beside `engage_verdict` in the route step, so a message
-    that steered a running turn is not read. Tests: `tests_personal_warn.rs`, `turn/personal_step.rs`.
+    judgment, posted, folded, held). A late verdict, kept for the next message, warns nothing and holds nothing (a known gap).
+    In a place only the owner writes in, nothing is held: the turn and its reply go on. **In a shared place the reply is held**
+    (theseus-i1z13, the owner's 2026-10-18 20:46 spec): `warn` sets `RouteState::held`, and the turn loop, once the first compile
+    returns, ends the turn with `hold_reply` and no model call: `I don't share that here.` (`HELD_REPLY`) is the turn's assistant
+    node and output (so the next turn's history reads it), the stop reason stays `end_turn` (a footer says nothing of why),
+    and the owner's DM carries the case: who asked (`RouteState::asker`, the inbound author), where (the place's bound name),
+    the message and why. The hold is not folded by the one-post window, only the DM is: a second reach in it is held and not
+    posted again. A task's turn is warned about, never held. Read beside `engage_verdict` in the route step, so a message
+    that steered a running turn is not read. Tests: `tests_personal_hold.rs`, `tests_personal_warn.rs`, `turn/personal_step.rs`.
+  - **A home past its size** (theseus-jg1eg, the follow-up of theseus-vydhq; `turn/home_size_step.rs`): a place's own session (`Outbox::place_session`,
+    never a task's or a thread's) whose first-loop request (`Compiled::est_tokens`) passes `[threads] working_tokens` (the tokens a
+    thread's request stays within; 60,000) posts one `home_size` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
+    courier sends it with Jev's notices) naming the size, the bound, `theseus thread split home@<place> NAME --first @A --last @B --dry-run`
+    and `thread unsplit`. Nothing splits itself: a split moves context. Once is the META row `home.size.warned.<session>` (`warned`,
+    written in the post's frame, so a restart keeps it and a successor home starts unwarned); a request back at or under the bound
+    writes it `warned: false`, so the home is told again if it grows back. With no owner DM bound nothing is posted or marked.
+    Tests: `tests_home_size.rs`, `turn/home_size_step.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web

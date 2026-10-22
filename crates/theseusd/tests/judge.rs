@@ -154,6 +154,9 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "route.v7: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-19))",
             "directive.v1: off",
             "onto.v1: off",
+            // The sweep's merge and split packs, live from their landing (theseus-nzzz4).
+            "same_thing.v1: live",
+            "two_things.v1: live",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",

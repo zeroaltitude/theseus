@@ -58,6 +58,20 @@ impl Core {
                             tracing::warn!(error = %format!("{e:#}"), "consolidation: the nightly run did not run");
                         }
                     }
+                    // The dream's guidance, after its own run (theseus-olt3h).
+                    match c.dream_guidance(theseus_protocol::now_unix_ms()).await {
+                        Ok(d) => tracing::info!(
+                            written = d.written.len(),
+                            refused = d.refused,
+                            waiting = d.waiting,
+                            spent = d.spent,
+                            stopped = d.stopped.as_deref().unwrap_or(""),
+                            "dream: the guidance ran"
+                        ),
+                        Err(e) => {
+                            tracing::warn!(error = %format!("{e:#}"), "dream: the guidance did not run");
+                        }
+                    }
                 }
             };
             tend(started, next, run).await;

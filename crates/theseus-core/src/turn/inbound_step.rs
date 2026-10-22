@@ -37,6 +37,7 @@ impl TurnRunner {
                 .chars()
                 .take(crate::tools_defer::want::ASK_CHARS)
                 .collect();
+            t.route.asker = author.to_string();
         }
         // A message the router placed (theseus-rha2): its point was begun
         // before the choice, and the row of its choice rides this turn's frame.

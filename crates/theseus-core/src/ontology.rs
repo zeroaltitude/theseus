@@ -227,6 +227,34 @@ pub fn given(place: Option<&str>, snapshot: &Ontology, now_ms: u64) -> Vec<Membe
         .collect()
 }
 
+/// A session's thread and project as the manifest records them
+/// (theseus-w0vyp): `thread:<slug>` and `project:<task id>`, the keys recall's
+/// category term reads, origin `transport` (the harness's own records), no
+/// confidence. Nothing is stored and no category is made for either: the
+/// compile reads the thread's card and the project's slice already, and these
+/// say so in the manifest.
+pub fn harness_given(
+    thread: Option<&str>,
+    project: Option<&str>,
+    now_ms: u64,
+) -> Vec<MembershipUsed> {
+    [("thread", thread), ("project", project)]
+        .into_iter()
+        .filter_map(|(kind, local)| {
+            Some(MembershipUsed {
+                kind: kind.into(),
+                category: CategoryId::new(kind, local?).ok()?,
+                origin: Origin::Transport,
+                confidence: None,
+                as_of_ms: now_ms,
+            })
+        })
+        .collect()
+}
+
+/// The kinds the harness gives and the compile never composes.
+const HARNESS_KINDS: [&str; 2] = ["thread", "project"];
+
 /// The category a bound guild makes at its first bind: named by its id, as
 /// the binding does not carry the guild's name to the core.
 pub fn guild_category(guild: &str) -> Option<Category> {
@@ -278,9 +306,23 @@ pub struct Walk {
     /// The place's class: a shared place composes its given memberships
     /// alone.
     pub class: PlaceClass,
+    /// The session's thread and project, which the manifest records and the
+    /// composition never reads (`harness_given`).
+    pub harness: Vec<MembershipUsed>,
 }
 
 impl Walk {
+    /// This walk recording the session's thread and project too.
+    pub fn with_harness(
+        mut self,
+        thread: Option<&str>,
+        project: Option<&str>,
+        now_ms: u64,
+    ) -> Self {
+        self.harness = harness_given(thread, project, now_ms);
+        self
+    }
+
     /// A thread's topics as the operator's memberships of its session, for
     /// the topics the ontology holds (theseus-h4a7): the guidance of the
     /// third layer is the thread's own.
@@ -328,14 +370,21 @@ impl Walk {
             snapshot,
             current,
             class,
+            harness: Vec::new(),
         })
     }
 
     /// Compose `memberships`: the place rule's filter first (a shared place
     /// takes only the transport's), then the snapshot's composition.
     pub fn compose(&self, memberships: &[Membership]) -> Composition {
-        match self.class {
-            PlaceClass::Private => self.snapshot.compose(memberships),
+        // A recorded thread or project is the walk's own again, never composed.
+        let memberships: Vec<Membership> = memberships
+            .iter()
+            .filter(|m| !HARNESS_KINDS.contains(&m.kind()))
+            .cloned()
+            .collect();
+        let mut c = match self.class {
+            PlaceClass::Private => self.snapshot.compose(&memberships),
             PlaceClass::Shared => {
                 let given: Vec<Membership> = memberships
                     .iter()
@@ -344,7 +393,9 @@ impl Walk {
                     .collect();
                 self.snapshot.compose(&given)
             }
-        }
+        };
+        c.memberships.extend(self.harness.iter().cloned());
+        c
     }
 }
 
@@ -402,11 +453,43 @@ impl crate::turn::TurnRunner {
             class,
             theseus_protocol::now_unix_ms(),
         )
-        .map(|w| match self.thread_topics(session) {
-            Some(topics) => w.with_topics(&topics, theseus_protocol::now_unix_ms()),
-            None => w,
+        .map(|w| {
+            let now = theseus_protocol::now_unix_ms();
+            let (thread, project) = self.thread_and_project(session);
+            let w = match &thread {
+                Some(t) => w.with_topics(&t.topics, now),
+                None => w,
+            };
+            w.with_harness(
+                thread.as_ref().map(|t| t.slug.as_str()),
+                project.as_deref(),
+                now,
+            )
         })
         .map(Arc::new)
+    }
+
+    /// The thread a session serves (the board, read once) and the project it
+    /// is attached to: what the compile reads, and the manifest records.
+    pub(crate) fn thread_and_project(
+        &self,
+        session: &str,
+    ) -> (
+        Option<theseus_protocol::threads::ThreadInfo>,
+        Option<String>,
+    ) {
+        let thread = self
+            .threads
+            .all(&self.store)
+            .ok()
+            .and_then(|b| b.of_session(session).cloned());
+        let project = self
+            .store
+            .get_session::<crate::session::SessionRecord>(session)
+            .ok()
+            .flatten()
+            .and_then(|r| r.project);
+        (thread, project)
     }
 
     /// Where a session speaks, as `class_of` reads it: its place's target,

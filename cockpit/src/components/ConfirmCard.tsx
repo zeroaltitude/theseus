@@ -10,7 +10,7 @@ import { CircleCheck, OctagonX, ShieldCheck, Siren, Zap } from 'lucide-react'
 import type { ConfirmPreview, ConfirmRequest } from '@protocol'
 import { call } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
-import { decisionWords, diffLines, previewFor } from '@/lib/toolwords'
+import { decisionWords, diffLines, mailLines, previewFor } from '@/lib/toolwords'
 import { ago, cn, ms, short, usd } from '@/lib/format'
 import { changeQuestion } from '@/lib/taskgraph'
 import { answerParams, buttonsOf } from '@/lib/answers'
@@ -33,10 +33,29 @@ export function useAct() {
   return { busy, run }
 }
 
+/** The draft a send is bound to: its fields, a recipient never mailed before highlighted, and the digest in small text. */
+function MailDraft({ text, here }: { text: string; here?: boolean }) {
+  return (
+    <div className={cn("overflow-auto rounded-md bg-black/30 p-2.5 text-[12px] text-ink-dim ring-1 ring-line", here ? "max-h-28" : "max-h-60")}>
+      {mailLines(text).map((l, i) => l.kind === 'digest'
+        ? <div key={i} className="num mt-1.5 text-[10px] text-ink-faint">{l.parts[0].text}</div>
+        : (
+          <div key={i} className={cn(l.kind === 'body' && 'whitespace-pre-wrap pl-3 font-mono text-[11.5px]')}>
+            {l.label && <span className="text-ink-faint">{l.label}: </span>}
+            {l.parts.map((q, j) => (
+              <span key={j}>{j > 0 && ', '}<span className={cn(q.fresh && 'rounded bg-fault/20 px-1 text-fault')}>{q.text}</span>{q.fresh && <span className="ml-1 text-[10px] text-fault">new</span>}</span>
+            ))}
+          </div>
+        ))}
+    </div>
+  )
+}
+
 /** What an approval would do, as the Observatory showed it: an edit as a diff, a write as its text, a command as typed. */
 function Preview({ tool, input, here, daemon }: { tool: string; input: unknown; here?: boolean; /** the daemon's own preview, made when the call was planned (theseus-z6au): it wins */ daemon?: ConfirmPreview }) {
   const p = previewFor(daemon, tool, input)
   if (!p) return input !== undefined && input !== null ? <JsonView value={input} maxHeight="180px" /> : null
+  if (p.kind === 'mail') return <MailDraft text={p.text} here={here} />
   return (
     <div>
       {p.caption && <div className="num mb-1 text-[11px] text-ink-faint">{p.caption}</div>}

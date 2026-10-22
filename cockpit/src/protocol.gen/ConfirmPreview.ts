@@ -7,6 +7,6 @@
  */
 export type ConfirmPreview = { 
 /**
- * `diff`, `command` or `text`.
+ * `diff`, `command`, `text` or `mail`.
  */
 kind: string, body: string, };

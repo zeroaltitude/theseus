@@ -1,0 +1,41 @@
+{
+ "name": "threadbench-t13-onto",
+ "k": 3,
+ "about": "The attempt plan of threadbench's first +onto run (T13), committed before it: the ontology arm against its control, on the development progression, three runs of each. A1o is A1 with [ontology] judge and recall_boost on; A1 is the same arm with both off, so the pair differs by the ontology alone (th_threads.OVERRIDES). A3 and A5 are the before run's arms and are read from the T12 runs on the same frozen binaries, never rerun here: if the binaries differ from T12's, rerun them under this plan's seeds and say so in the report. Jev is reached through the overlay bench/threads/jev-overlay.example.toml. The held-out progression is run once, after the development run is read. Nothing is tuned between the runs; the report is written whatever it says.",
+ "comparison": {
+  "pair": ["A1o", "A1"],
+  "read_from_t12": ["A3", "A5"],
+  "rerun_only_if": "the binaries differ from the T12 run's",
+  "reads": "per-stream correctness, contamination, routing accuracy, context tokens and dollars per turn, latency, and the decisions column, each A1o minus A1; the replay's accuracy against the import's labels (theseus judge replay --onto) is a separate run on the owner's daemon"
+ },
+ "model": "anthropic/claude-sonnet-5-5",
+ "effort": "medium",
+ "size": "standard",
+ "arms": [
+  "A1o",
+  "A1"
+ ],
+ "progressions": {
+  "dev": {
+   "seed": 11,
+   "digest": "011a0c8319c615d320ad0b999e6114500661444c79220c1f783b18ef4955ffbe"
+  },
+  "held_out": {
+   "seed": 29,
+   "digest": "c3743e47879058dea4259f3cdd481cb1f7bdecd0e9c275ad47b07639fc8cff25",
+   "runs": "once, after the development run is read"
+  },
+  "prefix": {
+   "seed": 11,
+   "digest": "ee857fa84be7e08a4df1cdec1cc10f346f0b6d60e624f251c2ead1dd5e574ea5",
+   "track": "prefix",
+   "runs": "not run in T13: the ontology changes no prefix byte"
+  }
+ },
+ "budget_usd": {
+  "expected_low": 54,
+  "expected_high": 90,
+  "pause": 90
+ },
+ "spend_limit_usd_per_arm": 25
+}

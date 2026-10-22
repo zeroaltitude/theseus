@@ -52,7 +52,11 @@ mod tests_task_channels;
 #[cfg(test)]
 mod tests_task_home;
 #[cfg(test)]
+mod tests_task_owed;
+#[cfg(test)]
 mod tests_task_threads;
+#[cfg(test)]
+mod tests_task_watch;
 #[cfg(test)]
 mod tests_typing;
 #[cfg(test)]

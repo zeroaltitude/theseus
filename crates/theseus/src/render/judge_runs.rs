@@ -2,7 +2,9 @@
 //! versions side by side; an audit; a backfill. Apart from `render.rs`,
 //! whose length the shape budget caps.
 
-use theseus_protocol::judge_runs::{JudgeAuditResult, JudgeBackfillResult, JudgeReplayResult};
+use theseus_protocol::judge_runs::{
+    JudgeAuditResult, JudgeBackfillResult, JudgeReplayResult, OntoReplayReport,
+};
 use theseus_protocol::learning::{PackReport, QuestionReport};
 
 fn share(v: Option<f64>) -> String {
@@ -80,9 +82,32 @@ fn side_rows(a: &PackReport, b: &PackReport, out: &mut Vec<String>) {
     }
 }
 
+/// `theseus judge replay --onto`: the Markdown the +onto report quotes, then
+/// what the run cost and the sessions it left out, each with why.
+fn onto_lines(r: &JudgeReplayResult, o: &OntoReplayReport) -> Vec<String> {
+    let mut out: Vec<String> = o.markdown.lines().map(str::to_string).collect();
+    out.push(String::new());
+    out.push(format!(
+        "{} · {} of an estimated {} (limit {})",
+        r.id,
+        format_args!("${:.4}", r.cost_usd),
+        format_args!("${:.4}", r.estimate_usd),
+        format_args!("${:.2}", r.limit_usd),
+    ));
+    out.extend(
+        r.left_out
+            .iter()
+            .map(|l| format!("  left out {}: {}", l.judgment, l.reason)),
+    );
+    out
+}
+
 /// `theseus judge replay`: the run, both versions side by side, what the
 /// candidate fixed and broke, and what was left out.
 pub fn judge_replay_lines(r: &JudgeReplayResult) -> Vec<String> {
+    if let Some(o) = &r.onto {
+        return onto_lines(r, o);
+    }
     let mut out = vec![format!(
         "{} replayed {} (sha256 {}) beside {} over the {}{}{}: {} judgments, labels {}.",
         r.id,
@@ -218,4 +243,50 @@ pub fn judge_backfill_lines(r: &JudgeBackfillResult) -> Vec<String> {
         out.push(format!("  left out {}: {}", l.judgment, l.reason));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use theseus_protocol::judge_runs::{ReplayLeftOut, UndoRate};
+
+    use super::*;
+
+    /// `judge replay --onto` prints the Markdown the +onto report quotes,
+    /// then the run's cost and each session left out with its reason.
+    #[test]
+    fn an_onto_replay_prints_its_markdown_then_its_cost() {
+        let r = JudgeReplayResult {
+            id: "rpl_1".into(),
+            cost_usd: 0.0123,
+            estimate_usd: 0.02,
+            limit_usd: 1.0,
+            left_out: vec![ReplayLeftOut {
+                judgment: "ses_a".into(),
+                reason: "no first message from a person can be read".into(),
+            }],
+            onto: Some(OntoReplayReport {
+                pack: "onto.v1".into(),
+                undo: vec![UndoRate {
+                    kind: "topic".into(),
+                    writes: 4,
+                    undone: 1,
+                    rate: Some(0.25),
+                }],
+                markdown: "# onto.v1 against the import's labels\n\n3 sessions replayed.\n".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            judge_replay_lines(&r),
+            [
+                "# onto.v1 against the import's labels",
+                "",
+                "3 sessions replayed.",
+                "",
+                "rpl_1 · $0.0123 of an estimated $0.0200 (limit $1.00)",
+                "  left out ses_a: no first message from a person can be read",
+            ]
+        );
+    }
 }

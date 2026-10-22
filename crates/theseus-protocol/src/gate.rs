@@ -126,6 +126,12 @@ pub struct Plan {
     /// `AwsPlan::guardrail`: the record keeps the verdict in its reason.
     #[serde(skip)]
     pub authority: Option<String>,
+    /// The facts a card shows for a call that reaches other people (a mail
+    /// send's from, recipients, subject, body head, attachments), as data for
+    /// each surface to render. Held in memory, as `authority`.
+    #[serde(skip)]
+    #[cfg_attr(test, ts(skip))]
+    pub card: Option<Value>,
 }
 
 /// A proposed tool call as the model (or a test) states it: what a

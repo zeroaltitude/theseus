@@ -186,13 +186,15 @@ pub(crate) fn run(
 /// not exist (a missing one would fail every job).
 fn spec(args: &WrapperArgs, l1: &L1, env: Vec<(String, String)>) -> (Spec, Vec<String>) {
     let cwd = args.cwd.clone().unwrap_or_else(|| PathBuf::from("/"));
-    let mut spec = Spec::new(args.argv.clone(), cwd);
+    let (argv, line) = crate::job_line::runner(&args.argv);
+    let mut spec = Spec::new(argv, cwd);
     spec.home = env
         .iter()
         .find(|(k, _)| k == "HOME")
         .map(|(_, v)| PathBuf::from(v))
         .filter(|h| h.is_absolute() && h.parent().is_some());
     spec.env = env;
+    spec.env.extend(line.map(|(k, v)| (k.to_string(), v)));
     let (present, mut missing): (Vec<&PathBuf>, Vec<&PathBuf>) =
         l1.ro_paths.iter().partition(|p| p.exists());
     // A read-write bind that is not a directory is skipped and said, as a

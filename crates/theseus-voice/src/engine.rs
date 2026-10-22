@@ -629,6 +629,15 @@ impl Engine {
         self
     }
 
+    /// Whether a judge is attached (`with_judge`): the binding's `[voice]
+    /// judge_unclear` decides it, and a test reads it here (theseus-sa4m5),
+    /// since the engine's events are the rules' alone either way when the
+    /// judge has nothing to say.
+    #[must_use]
+    pub fn has_judge(&self) -> bool {
+        self.judge.is_some()
+    }
+
     /// Run the call until [`Command::Leave`], the handle's drop, or the
     /// call's end.
     pub async fn run(mut self) {

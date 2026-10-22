@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-19 00:40 MST. Version 1.0.0 (v1); the design document is at v0.89._
+_Updated 2026-10-21 00:10 MST. Version 1.0.0 (v1); the design document is at v0.91._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -90,6 +90,8 @@ follow.
     messages with a scripted Jev.
   - The thread benchmark (`bench/threads/`) is built and has not been run on the real model.
   - A Discord thread for each thread needs `discord_channel`, which is off by default.
+  - A place's home that grows past `[threads] working_tokens` (60,000 tokens a request unless set) tells the owner once,
+    in the DM, with its size and `theseus thread split home@<place>` (undone by `thread unsplit`). Nothing splits on its own.
 - **Personas** (`[personas.<name>]`). Five are set up on the owner's daemon.
   - Addressing a persona by name (`name,`, `@name` or `/as name`) and binding one to a channel work live.
   - Jev's per-message pick (the `persona` question of `route.v5` and `route.v6`) runs in shadow
@@ -506,12 +508,24 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-21: voice layer 3 and 4's switches are proven** (theseus-sa4m5; the echo canceller joined 2026-10-19, the
+  judge of unclear transcripts after it): Theseus cancels its own voice from a listener's stream (`[voice] echo_cancel`,
+  default on), so a reply read back by the speakers no longer cuts itself off; `[voice] judge_unclear` (default on) lets Jev
+  read a short or unclear transcript. Each switch, and a config with no `[voice]` section, now has a test that reads it
+  where the call is built, since a line that stopped copying one would have left the feature dead with every test
+  green (Item 255).
+- **2026-10-21: a reach for the owner's personal details is held in a shared place** (theseus-i1z13, finishing
+  theseus-gasov's spec): when Jev reads a message in a shared place as trying to draw out the owner's personal details
+  (or to open a conversation where they could come out), the turn makes no model call. The person who asked is told "I
+  don't share that here.", and the owner's DM gets the case: who asked, where, the message and why. In a place only the
+  owner writes in, it is still a warning only. A verdict that comes too late to be waited for neither warns nor holds,
+  and a task's turn is warned about, never held.
 - **2026-10-19 (night): v1 patch1's data and routing lane** (theseus-xs5ah, theseus-a1wvq, theseus-gasov):
   `[privacy] sensitive_names` go only to models of US origin, an allowlist that fails closed beneath the China-origin
   block; a conversation's turn the route placed asks a checkpoint when its loops keep failing, and moves up, as a task
   does; `route.v7` rewords Jev's data question (content, not the place; `private` needs a sign; work whose owner the
-  message does not show is `unclear`) and asks a new `personal` question, whose yes warns the owner by DM and holds
-  nothing.
+  message does not show is `unclear`) and asks a new `personal` question, whose yes warns the owner by DM (since 2026-10-21, with the reply held in a
+  shared place: see the entry above).
 - **2026-10-19 (night):** the README adds Jev's judgments and the compiled context as features 7 and 8, and features 7
   to 10 become 9 to 12; [On, and still being hardened](#on-and-still-being-hardened) gains both (theseus-dqn4h).
 - **2026-10-18 (late evening):** the README adds voice, activity threads, personas and earned autonomy as features 7

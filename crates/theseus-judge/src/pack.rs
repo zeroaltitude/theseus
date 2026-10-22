@@ -71,6 +71,8 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         include_str!("../packs/people_seen.v1.toml"),
     ),
     ("onto.v1", include_str!("../packs/onto.v1.toml")),
+    ("same_thing.v1", include_str!("../packs/same_thing.v1.toml")),
+    ("two_things.v1", include_str!("../packs/two_things.v1.toml")),
     (
         "recall_cross.v1",
         include_str!("../packs/recall_cross.v1.toml"),
@@ -132,6 +134,10 @@ pub enum Builder {
     Compare,
     /// `heard.v1`'s: a short or unclear transcript in a voice call (theseus-s3dwj).
     Heard,
+    /// `same_thing.v1`'s: two categories of one kind (theseus-nzzz4).
+    SameThing,
+    /// `two_things.v1`'s: one category and a sample of its sessions (theseus-nzzz4).
+    TwoThings,
     /// `recall_cross.v1`'s: the message and the notes the thread lens dropped
     /// near the bar (theseus-98bz.10).
     RecallCross,
@@ -238,6 +244,10 @@ pub enum Source {
     /// The pictures the state carries, one item each (`onto.v1`'s image
     /// questions, theseus-und4g): asked only when there are some.
     Images,
+    /// The sessions `two_things.v1` samples from a category, numbered: the
+    /// first ten, and the rest (a per-item Noul asks at most ten).
+    Sessions,
+    MoreSessions,
     /// The tool families a request hides (`families.v1`, theseus-xlri5): the
     /// first ten, and the next ten (a per-item Noul asks at most ten).
     Families,
@@ -1461,10 +1471,10 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            24,
+            26,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v7, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
-             onto.v1, recall_cross.v1 and families.v1"
+             onto.v1, same_thing.v1, two_things.v1, recall_cross.v1 and families.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

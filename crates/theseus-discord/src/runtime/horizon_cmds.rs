@@ -450,6 +450,7 @@ pub(super) fn watch_params(
         every: get("every"),
         for_at_most: get("for"),
         then: None,
+        follow_up: None,
         session_id: None,
         author,
         discord,

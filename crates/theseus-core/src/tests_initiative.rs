@@ -411,6 +411,7 @@ async fn the_day_cap_counts_what_the_voiced_notes_spent() {
         brief: "Tonight's memory pass wrote notes.",
         line: crate::initiative::lines::Line::Consolidation,
         n: 2,
+        private: false,
     };
     let first = r.core.initiative_speak(&facts).await;
     assert!(first.voiced, "{first:?}");

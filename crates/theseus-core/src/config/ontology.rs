@@ -24,6 +24,12 @@
 //!   unconfirmed for 30 days decays, and a duplicate category a machine wrote
 //!   merges into its twin, each an undoable write. No model, no spend; off
 //!   is the rollback.
+//! - `sweep_usd_per_day`: what the sweep's model calls may spend a local day
+//!   (theseus-nzzz4, 1.0): `same_thing.v1` asks of each pair of categories
+//!   that look alike whether they are one, and `two_things.v1` of each large
+//!   category whether it holds two; a call whose worst case would pass what
+//!   is left of the day's cap is not begun. 0 turns the model's part off and
+//!   the deterministic sweep still runs: that is its rollback.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -47,6 +53,8 @@ pub struct OntologyConfig {
     pub private_mark: bool,
     #[serde(default = "default_sweep")]
     pub sweep: bool,
+    #[serde(default = "default_sweep_usd_per_day")]
+    pub sweep_usd_per_day: f64,
 }
 
 /// Which request carries `onto.v1`.
@@ -65,6 +73,9 @@ fn default_judge() -> bool {
 }
 fn default_sweep() -> bool {
     true
+}
+fn default_sweep_usd_per_day() -> f64 {
+    1.0
 }
 fn default_act() -> f64 {
     0.80
@@ -90,6 +101,7 @@ impl Default for OntologyConfig {
             recall_boost: default_recall_boost(),
             private_mark: false,
             sweep: default_sweep(),
+            sweep_usd_per_day: default_sweep_usd_per_day(),
         }
     }
 }
@@ -111,6 +123,13 @@ impl OntologyConfig {
             bail!(
                 "[ontology] recall_boost is a gain from 0 (off) to 1, not {}",
                 self.recall_boost
+            );
+        }
+        if !(self.sweep_usd_per_day.is_finite() && self.sweep_usd_per_day >= 0.0) {
+            bail!(
+                "[ontology] sweep_usd_per_day is dollars a day, 0 or more (0 turns the model's \
+                 part of the sweep off), not {}",
+                self.sweep_usd_per_day
             );
         }
         if self.name_profile.trim().is_empty() {

@@ -42,6 +42,12 @@ pub enum WatchCheck {
         #[cfg_attr(test, ts(optional))]
         words: Option<String>,
     },
+    /// Mail: a new message in the owner's Gmail that matches `q`, a Gmail
+    /// search query (`from:dana@example.test subject:contract`). Polled from the
+    /// account's history, with no model; it only ever notices (a stranger's
+    /// mail never starts a turn), or starts a task for a sender the config
+    /// trusts.
+    Mail { q: String },
 }
 
 /// What happens when the condition holds.
@@ -80,6 +86,11 @@ pub struct WatchCreateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub then: Option<WatchThen>,
+    /// A mail watch's follow-up (a brief): when it gives up at its deadline
+    /// with no match, a task with this brief starts. Needs `for_at_most`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub follow_up: Option<String>,
     /// The conversation it lives in; none is the owner's Home.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -102,7 +113,7 @@ pub struct WatchInfo {
     pub session_id: String,
     pub execution_id: String,
     pub title: String,
-    /// `run`, `fetch`, `file` or `reply`.
+    /// `run`, `fetch`, `file`, `reply` or `mail`.
     pub kind: String,
     /// The command, the URL or the path, as people read it.
     pub target: String,

@@ -35,10 +35,16 @@ use crate::config::GoogleConfig;
 use crate::secrets::{Secret, SecretBoard, Waited};
 
 pub mod auth;
+pub mod calendar;
 pub mod call;
+pub mod drive;
 pub mod external;
+pub mod mail;
+pub mod mime;
 pub mod private;
 pub mod send_cap;
+pub mod sheets;
+pub mod slides;
 pub mod tend;
 
 #[cfg(test)]
@@ -46,16 +52,42 @@ pub(crate) mod tests;
 #[cfg(test)]
 mod tests_auth;
 #[cfg(test)]
+mod tests_calendar;
+#[cfg(test)]
 mod tests_config;
+#[cfg(test)]
+mod tests_drive;
 #[cfg(test)]
 mod tests_gate;
 #[cfg(test)]
+mod tests_mail;
+#[cfg(test)]
+mod tests_morning;
+#[cfg(test)]
 mod tests_private;
+#[cfg(test)]
+mod tests_sheets_slides;
 
 pub use external::{finish, Finished, Source};
 
 /// The Google tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 1] = [call::NAME];
+pub const NAMES: [&str; 15] = [
+    call::NAME,
+    mail::SEARCH,
+    mail::READ,
+    mail::DRAFT,
+    mail::SEND,
+    mail::LABEL,
+    drive::FIND,
+    drive::READ,
+    drive::WRITE,
+    drive::SHARE,
+    sheets::READ,
+    sheets::WRITE,
+    slides::WRITE,
+    calendar::EVENTS,
+    calendar::PUT,
+];
 
 /// How long a call waits for the account's check, as a turn waits for a secret.
 pub const BIND_WAIT: Duration = Duration::from_secs(30);
@@ -204,13 +236,16 @@ impl Google {
     /// never touch.
     pub fn tools(self: &Arc<Self>) -> Vec<Arc<dyn Tool>> {
         let mut all: Vec<Arc<dyn Tool>> = Vec::new();
-        // gw-mail: all.extend(mail::tools(self));
+        // gw-mail:
+        all.extend(mail::tools(self));
         //
-        // gw-drive: all.extend(drive::tools(self));
+        all.extend(drive::tools(self));
         //
-        // gw-sheets-slides: all.extend(sheets::tools(self)); all.extend(slides::tools(self));
+        // gw-sheets-slides:
+        all.extend(sheets::tools(self));
+        all.extend(slides::tools(self));
         //
-        // gw-calendar: all.extend(calendar::tools(self));
+        all.extend(calendar::tools(self));
         //
         all.extend([call::tool(self)]);
         all

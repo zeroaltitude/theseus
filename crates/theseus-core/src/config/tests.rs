@@ -96,6 +96,33 @@ fn job_wait_max_secs_has_a_default_and_a_range() {
     }
 }
 
+/// theseus-53ujg.6: `[tools] job_wait_beat_secs` is 600 in the template and by
+/// default; 0 is off, else it is at most the tool's deadline, whatever
+/// `proc_sync_secs` and `job_wait_max_secs` say (a beat past the longest wait
+/// never fires).
+#[test]
+fn job_wait_beat_secs_has_a_default_and_a_range() {
+    let t = Config::example().tools;
+    assert_eq!(t.job_wait_beat_secs, default_job_wait_beat_secs());
+    assert_eq!(t.job_wait_beat_secs, 600);
+    assert_eq!(ToolsConfig::default().job_wait_beat_secs, 600);
+    let mut cfg = Config::example();
+    for (beat, ok) in [(0, true), (1, true), (3600, true), (3601, false)] {
+        cfg.tools.job_wait_beat_secs = beat;
+        let r = cfg.validate();
+        assert_eq!(r.is_ok(), ok, "beat {beat}: {r:?}");
+        if let Err(e) = r {
+            assert!(format!("{e:#}").contains("job_wait_beat_secs"), "{e:#}");
+        }
+    }
+    // The default is valid beside the bench's 900 s foreground run and a short cap.
+    cfg.tools.job_wait_beat_secs = default_job_wait_beat_secs();
+    (cfg.tools.proc_sync_secs, cfg.tools.job_wait_max_secs) = (900, 1800);
+    cfg.validate().unwrap();
+    (cfg.tools.proc_sync_secs, cfg.tools.job_wait_max_secs) = (60, 60);
+    cfg.validate().unwrap();
+}
+
 /// theseus-n88g.1 (D6): a secret may come from outside the vault, from
 /// the daemon's environment or a private file, and a malformed entry is
 /// refused by its name.
@@ -194,10 +221,11 @@ fn example_template_uncommented_still_parses() {
     assert_eq!(cfg.policy.tools["aws.stack.apply"], Posture::Approve);
     assert_eq!(cfg.policy.tools["extend.propose"], Posture::Notify);
     assert_eq!(cfg.policy.tools["channel.post"], Posture::Notify);
-    // The two lines the model's wake.move and wake.cancel joined with (theseus-lherl), one (pw1q.8),
-    // the model's routine.create (theseus-pvm5c), `watch` (f2r2b) and
-    // project.attach (theseus-n5ui2), and google.call (theseus-batvg.1).
-    assert_eq!(cfg.policy.tools.len(), 60);
+    // wake.move and wake.cancel (theseus-lherl), one (pw1q.8), routine.create (theseus-pvm5c),
+    // `watch` (f2r2b), project.attach (theseus-n5ui2), google.call (batvg.1), gmail.* (five,
+    // batvg.2), drive.* (four, batvg.3), sheets.* and slides.* (three, batvg.4) and calendar.*
+    // (two, batvg.5).
+    assert_eq!(cfg.policy.tools.len(), 74);
     // The AWS account's table, and [policy.aws]'s lines (rows 29 and 30, C1 and C2).
     let a = &cfg.aws.accounts["111122223333"];
     assert_eq!(a.credentials, AwsCredentialNames::default());

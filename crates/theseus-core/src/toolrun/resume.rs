@@ -364,7 +364,23 @@ impl ToolRuntime {
                 .and_then(|sp| sp.read_pid(corr))
                 .is_some_and(|pid| theseus_kernel::job::wrapper_alive(pid, corr));
         if alive {
-            self.answer(tc, ResultNode { correlation_id: Some(corr), ..ResultNode::new(&u.id, &name, ResultStatus::Background, format!("Still running as background job {corr} (the harness restarted meanwhile). Its result will arrive in a later message.")) })?;
+            // Its handle, as any job that goes on in the background has one.
+            let argv = super::jobs_tools::argv_of(tc.store, a);
+            let job = self
+                .jobs
+                .handles
+                .assign(tc.store, tc.session_id, corr, &argv);
+            let pid = self.spool.as_ref().and_then(|sp| sp.read_pid(corr));
+            let text = adopted_text(&job, &argv, a.resource.as_deref());
+            let meta = serde_json::json!({"pid": pid, super::handles::KEY: job});
+            self.answer(
+                tc,
+                ResultNode {
+                    correlation_id: Some(corr),
+                    meta,
+                    ..ResultNode::new(&u.id, &name, ResultStatus::Background, text)
+                },
+            )?;
             return Ok(CallOutcome::Background {
                 correlation_id: corr.clone(),
             });
@@ -492,5 +508,40 @@ fn approved_at(a: &Action) -> crate::policy::Posture {
     match a.confirm {
         Some(_) => crate::policy::Posture::Approve,
         None => crate::policy::Posture::Open,
+    }
+}
+
+/// The words for a job a restart found running: its handle, its command and
+/// directory, and the tools that act on it.
+fn adopted_text(job: &str, argv: &[String], dir: Option<&str>) -> String {
+    let cmd = match super::jobs_tools::label(argv) {
+        c if c.is_empty() => String::new(),
+        c => format!(" ({c})"),
+    };
+    let dir = dir.map_or(String::new(), |d| format!(" in {d}"));
+    format!(
+        "Still running as job {job}{cmd}{dir}: the harness restarted meanwhile and found it \
+         running. job_read, job_wait or job_stop it; its result also arrives by itself when it \
+         ends."
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::adopted_text;
+
+    #[test]
+    fn a_job_found_running_is_named_with_its_handle_and_tools() {
+        let argv = ["sh".to_string(), "-c".into(), "make".into()];
+        let t = adopted_text("j3", &argv, Some("/srv/app"));
+        assert!(
+            t.starts_with("Still running as job j3 (sh -c make) in /srv/app: "),
+            "{t}"
+        );
+        assert!(t.contains("the harness restarted meanwhile"), "{t}");
+        assert!(t.contains("job_read, job_wait or job_stop"), "{t}");
+        // No command or directory to name: the words still hold.
+        let t = adopted_text("j1", &[], None);
+        assert!(t.starts_with("Still running as job j1: "), "{t}");
     }
 }

@@ -476,6 +476,7 @@ transcribe_max_minutes = 60             # the most of one recording file_read he
 max_entries = 500                       # cap on fs.list / fs.glob / fs.grep entries
 proc_sync_secs = 60                     # a turn waits this long for proc.run, then it continues in the background
 job_wait_max_secs = 1800                # the longest one job_wait waits (at least proc_sync_secs, at most 3600); it still returns at once when the job ends or a message arrives
+job_wait_beat_secs = 600               # a job_wait on a job that has printed nothing for this long returns with what it saw (0 is off; at most 3600; one past job_wait_max_secs never fires); a job that prints keeps its wait
 parallel_runs = 16                      # the most programs of one response that run at once, each its own job (the rest wait for a slot); one response's programs run together unless they share a terminal, an MCP server, a file name in their argvs, or an operand (a service, container, host, port, directory)
 parallel_reads = 32                     # the most reads of one response that run at once (the rest wait for a slot, the results in order)
 parallel_writes = 16                    # the most writes, to different paths, of one response that run at once
@@ -588,6 +589,7 @@ judge_wait_ms = 200                     # the most a turn waits for that judgmen
 # account = "owner@example.test"        # the address the consent is for; a token for any other is refused
 # services = ["gmail", "drive", "sheets", "slides", "docs", "calendar"]   # the tools on, and the scopes the consent asks for (all six by default)
 # max_sends_per_day = 25                # sends per local day, a runaway brake (0: no sends)
+# trusted_senders = ["dana@example.test"]   # whose mail may start a task through a mail watch (then: task); empty: a mail watch only notices
 # credentials = { client = "google_client", refresh_token = "google_refresh_token" }   # [secrets] names (these, by default)
 # endpoint = "http://127.0.0.1:7499"    # tests and scratch daemons only: a stand-in for Google on this machine
 
@@ -752,12 +754,32 @@ window_days = 7                         # the window the approvals are counted i
 # and path
 # "google.call" = "notify"
 # gw-mail: the gmail.* lines
+# "gmail.search" = "notify"      # reads take [policy] enforcement; "open" reads mail unasked
+# "gmail.read" = "notify"        # saving attachments writes files, so that asks like a write
+# "gmail.draft" = "notify"       # a draft reaches no one until it is sent, so the outside-text hold does not stop it
+# "gmail.send" = "approve"       # sends an existing draft, and asks the owner every time whatever this line says
+# "gmail.label" = "notify"       # trash asks whatever this line says; in a session that read mail, every label asks
 #
 # gw-drive: the drive.* lines
+# drive.find and drive.read inherit enforcement; drive.write keeps Drive's own
+# revisions, so it notifies; drive.share (a permission change, a trash) asks at
+# every posture, whatever a line here says
+# "drive.find" = "notify"
+# "drive.read" = "notify"
+# "drive.write" = "notify"
+# "drive.share" = "approve"
 #
 # gw-sheets-slides: the sheets.* and slides.* lines
+# "sheets.read" = "notify"     # a read inherits enforcement unless a line says otherwise
+# "sheets.write" = "notify"    # Drive keeps the revisions, so a write can be undone
+# "slides.write" = "notify"
 #
 # gw-calendar: the calendar.* lines
+# calendar.events reads, and takes enforcement's posture. calendar.put asks at every
+# posture, whatever this says, when it invites attendees, cancels, or notifies the
+# attendees of a change
+# "calendar.events" = "notify"
+# "calendar.put" = "notify"
 # The language servers' tools, when [lsp] is on: the reads inherit enforcement
 # (the first call for a project starts its server, judged as proc.run is);
 # a rename's plan writes nothing, and its apply is a write of every file it names
@@ -1193,7 +1215,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # empty. Each run carves its budget from the routine's month, which resets on
 # the 1st of the local month; a spent month skips its runs and says so once.
 # `theseus routine add "weekdays 08:00" "Summarize ..." --budget 0.50 --to dm`.
-# A routine's runs use the tools in its grant (`--grant gog.gmail.search,web.fetch`)
+# A routine's runs use the tools in its grant (`--grant gmail.search,web.fetch`)
 # without asking, even after reading outside text; any other call asks, and a
 # question nobody answers by the run's deadline ends the run blocked, naming the
 # tool, in one notice. `theseus routine try <id>` runs it once while you watch.
@@ -1355,6 +1377,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 #                                         # you say on: the mark changes what later requests may send to models outside
 #                                         # the US allowlist (theseus-und4g).
 # sweep = true                            # nightly: a machine's membership unconfirmed for 30 days decays, and a duplicate category a machine wrote merges into its twin (each undoable; no model, no spend); false is the rollback
+# sweep_usd_per_day = 1.0                 # the sweep's model calls a local day (theseus-nzzz4): Jev judges two categories that look alike (same_thing.v1: merged at 0.85) and a category of 12 sessions or more (two_things.v1: split in two at 0.85); a call that would pass what is left of the day's cap is not begun; 0 turns the model's part off and the deterministic sweep still runs
 
 # ---------------------------------------------------------------- import
 # The nightly OpenClaw sync (`theseus import sync`, run by a systemd user timer that

@@ -10,7 +10,9 @@ use std::sync::Arc;
 use theseus_kernel::probe_run::ProbeRun;
 
 use super::cond::{self, Condition, Observed};
-use super::spec::{Check, Spec};
+use super::spec::Check;
+use super::step::Entry;
+use crate::google::Google;
 use crate::scrub::Scrubber;
 use crate::web::Web;
 
@@ -28,10 +30,18 @@ pub struct Tools {
     pub web: Arc<Web>,
     pub scrubber: Arc<Scrubber>,
     pub run: RunHook,
+    /// The account a mail watch reads; none without `[google]`.
+    pub google: Option<Arc<Google>>,
 }
 
-/// One look, or why there was none.
-pub async fn observe(tools: &Tools, spec: &Spec) -> Result<Observed, String> {
+/// One look at `e`'s watch, or why there was none. A mail look's
+/// `google.called` rows are left in `rows` for the caller to record.
+pub async fn observe(
+    tools: &Tools,
+    e: &Entry,
+    rows: &mut Vec<serde_json::Value>,
+) -> Result<Observed, String> {
+    let spec = &e.spec;
     match &spec.check {
         Check::File { path } => {
             let (path, scrubber) = (path.clone(), tools.scrubber.clone());
@@ -46,6 +56,13 @@ pub async fn observe(tools: &Tools, spec: &Spec) -> Result<Observed, String> {
         }
         // Never called for a reply (it is not due); a look would see nothing.
         Check::Reply { .. } => Ok(Observed::default()),
+        Check::Mail { q } => {
+            let g = tools
+                .google
+                .as_deref()
+                .ok_or("mail watches need [google] with gmail")?;
+            super::mail::look(g, q, e.cursor.as_deref(), &tools.scrubber, rows).await
+        }
         Check::Run { argv, json } => {
             let (argv, run) = (argv.clone(), tools.run.clone());
             let ran = blocking(move || Ok(run(&argv))).await?;
@@ -83,6 +100,7 @@ fn file(path: &str, scrubber: &Scrubber) -> Result<Observed, String> {
         value: scrubber.scrub(&text).0.trim().to_string(),
         code: None,
         exists: true,
+        mail: None,
     })
 }
 
@@ -112,6 +130,7 @@ pub fn of_run(ran: &ProbeRun, cond: &Condition, json: Option<&str>) -> Result<Ob
         value,
         code,
         exists: code == Some(0),
+        mail: None,
     })
 }
 
@@ -131,6 +150,7 @@ fn value_of(
         value,
         code,
         exists: true,
+        mail: None,
     })
 }
 

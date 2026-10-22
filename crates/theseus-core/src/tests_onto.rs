@@ -24,9 +24,9 @@ use theseus_protocol::SessionKind;
 const SAID: &str = "let's plan the Lantern Ledger migration";
 const PROVIDER_MS: u64 = 400;
 
-struct Rig {
-    core: Arc<Core>,
-    jev: FakeJev,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) jev: FakeJev,
     /// The profile `[ontology] name_profile` names runs on this provider.
     namer: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
@@ -58,12 +58,12 @@ fn rig_with(jev: FakeJev, namer: Vec<Scripted>, more: impl FnOnce(&mut Config)) 
     }
 }
 
-fn rig(jev: FakeJev) -> Rig {
+pub(crate) fn rig(jev: FakeJev) -> Rig {
     rig_with(jev, Vec::new(), |_| {})
 }
 
 /// A session bound to the owner's DM `dm:42`.
-fn bound(core: &Core) -> String {
+pub(crate) fn bound(core: &Core) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     core.outbox.bind_place("dm:42", &rec.session_id).unwrap();
@@ -112,7 +112,7 @@ fn frames_in(f: impl FnOnce()) -> u64 {
 
 /// A turn in `sid`, then the sink's frame written now, and how many frames
 /// that was: the filing rides the judgments' own.
-async fn said(r: &Rig, sid: &str, text: &str) -> u64 {
+pub(crate) async fn said(r: &Rig, sid: &str, text: &str) -> u64 {
     crate::tests_route::turn(&r.core, Some(sid), text, None).await;
     let judge = r.core.runner.judge.clone();
     tokio::task::spawn_blocking(move || {
@@ -124,7 +124,7 @@ async fn said(r: &Rig, sid: &str, text: &str) -> u64 {
     .unwrap()
 }
 
-fn cards(core: &Core) -> Vec<Value> {
+pub(crate) fn cards(core: &Core) -> Vec<Value> {
     core.outbox
         .open_for(OPERATOR_TARGET)
         .iter()

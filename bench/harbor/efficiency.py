@@ -632,16 +632,46 @@ def read_json(path: Path) -> Any:
         return None
 
 
+def paths_in(listed: Any) -> int:
+    """How many paths a turn result's `PathList` (`paths`, `more`) names."""
+    if not isinstance(listed, dict):
+        return 0
+    paths = listed.get("paths")
+    more = listed.get("more")
+    return (len(paths) if isinstance(paths, list) else 0) + (more if isinstance(more, int) else 0)
+
+
+def end_note_counts(turn: Any) -> dict[str, Any]:
+    """What the turn-end note did in a trial (theseus-53ujg.5), from the turn
+    result's `files`: whether the turn was given the note, whether the model
+    acted on it (a tool call after it; null when none was given), the new
+    files its commands left (`left`), the files edited after its last command
+    (`unrun`, the note's), and the files its file tools wrote (`changed`)."""
+    files = turn.get("files") if isinstance(turn, dict) else None
+    if not isinstance(files, dict):
+        return {"noted": False, "acted": None, "left": 0, "unrun": 0, "changed": 0}
+    note = files.get("end_note")
+    note = note if isinstance(note, dict) else None
+    unrun = note.get("unrun") if note else 0
+    return {"noted": note is not None,
+            "acted": bool(note.get("acted")) if note else None,
+            "left": paths_in(files.get("left")),
+            "unrun": unrun if isinstance(unrun, int) else 0,
+            "changed": paths_in(files.get("changed"))}
+
+
 def theseus_record(logs: Path, turn_file: str = "theseus-turn.json",
                    history_file: str = "theseus-history.json") -> dict[str, Any]:
     """A Theseus trial's record, from its agent directory."""
     turn = read_json(logs / turn_file)
     history = read_json(logs / history_file)
     elapsed = (turn or {}).get("elapsed_ms")
-    return record("theseus", theseus_spend(turn if isinstance(turn, dict) else None,
-                                           history if isinstance(history, dict) else None),
-                  read_json(logs / SAMPLER_SUMMARY),
-                  wall_s=None if elapsed is None else elapsed / 1000)
+    rec = record("theseus", theseus_spend(turn if isinstance(turn, dict) else None,
+                                          history if isinstance(history, dict) else None),
+                 read_json(logs / SAMPLER_SUMMARY),
+                 wall_s=None if elapsed is None else elapsed / 1000)
+    rec["end_note"] = end_note_counts(turn)
+    return rec
 
 
 ROUTED_ARM = "theseus-routed"

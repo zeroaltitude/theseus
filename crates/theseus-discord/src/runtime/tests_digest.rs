@@ -28,6 +28,7 @@ fn result(lines: Vec<theseus_protocol::DigestLine>) -> WorkDigestResult {
         now: Rollup::default(),
         questions: vec![],
         more: None,
+        google: None,
     }
 }
 

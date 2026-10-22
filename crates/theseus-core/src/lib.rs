@@ -161,6 +161,7 @@ pub mod watch;
 pub mod watch_tool;
 pub mod web;
 pub mod webui;
+mod wrapper_lost;
 
 pub use config::Config;
 pub use rpc::Core;
@@ -245,6 +246,8 @@ mod tests_check;
 #[cfg(test)]
 mod tests_check_view;
 #[cfg(test)]
+mod tests_checkpoint_effort;
+#[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
 mod tests_commitments;
@@ -311,6 +314,8 @@ mod tests_grants;
 #[cfg(test)]
 mod tests_harness;
 #[cfg(test)]
+mod tests_home_size;
+#[cfg(test)]
 mod tests_horizon;
 #[cfg(test)]
 mod tests_inbound;
@@ -337,6 +342,8 @@ mod tests_ladder_unread;
 #[cfg(test)]
 mod tests_layouts;
 #[cfg(test)]
+mod tests_leaks;
+#[cfg(test)]
 mod tests_learn_loop;
 #[cfg(test)]
 mod tests_learning;
@@ -348,6 +355,8 @@ mod tests_lsp;
 mod tests_lsp_edits;
 #[cfg(test)]
 mod tests_m3;
+#[cfg(test)]
+mod tests_manifest_harness;
 #[cfg(test)]
 mod tests_mcp_memory;
 #[cfg(test)]
@@ -365,7 +374,15 @@ mod tests_one_turn;
 #[cfg(test)]
 mod tests_onto;
 #[cfg(test)]
+mod tests_onto_digest;
+#[cfg(test)]
+mod tests_onto_judged;
+#[cfg(test)]
 mod tests_onto_mark;
+#[cfg(test)]
+mod tests_onto_mint;
+#[cfg(test)]
+mod tests_onto_other;
 #[cfg(test)]
 mod tests_onto_sweep;
 #[cfg(test)]
@@ -388,6 +405,8 @@ mod tests_persona;
 mod tests_persona_layer;
 #[cfg(test)]
 mod tests_persona_recall;
+#[cfg(test)]
+mod tests_personal_hold;
 #[cfg(test)]
 mod tests_personal_warn;
 #[cfg(test)]
@@ -576,3 +595,5 @@ mod tests_wakes;
 mod tests_web_offer;
 #[cfg(test)]
 mod tests_work;
+#[cfg(test)]
+mod tests_work_doing;

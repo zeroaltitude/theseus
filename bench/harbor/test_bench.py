@@ -66,6 +66,16 @@ class Profile(unittest.TestCase):
         self.assertFalse(cfg["web"]["enabled"] or cfg["discord"]["enabled"])
         self.assertNotIn("op://", text)
 
+    def test_end_note_off_writes_the_switch(self):
+        # `--ak end_note=off` (theseus-53ujg.5): the config says it, and by
+        # default it says nothing (the daemon's default is on).
+        for ak, off in ((None, False), ("on", False), ("off", True), ("false", True), ("0", True)):
+            values = tb.settings("claude-sonnet-5-5", "/app", end_note=tb.end_note_on(ak))
+            cfg = tomllib.loads(tb.profile(tb.PROFILE.read_text(), values))
+            self.assertEqual(cfg["model"].get("end_note"), False if off else None, ak)
+        plain = tomllib.loads(tb.profile(tb.PROFILE.read_text(), tb.settings("claude-sonnet-5-5", "/app")))
+        self.assertNotIn("end_note", plain["model"])
+
     def test_a_trial_keeps_the_limits_that_end_it(self):
         # The defaults notify and go on (theseus-usei); a trial keeps the old
         # stops, so it ends at its limit (exit 5) and at its loop cap (exit 8).

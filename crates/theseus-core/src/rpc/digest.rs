@@ -231,6 +231,7 @@ impl Core {
             now: read.now,
             questions: read.questions,
             more,
+            google: self.digest_google(since),
         })
     }
 

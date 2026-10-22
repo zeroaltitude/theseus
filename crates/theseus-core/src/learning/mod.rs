@@ -25,14 +25,18 @@ pub mod audit;
 pub mod backfill;
 pub mod items;
 pub mod labels;
+pub(crate) mod onto_undo;
 pub mod propose;
 pub mod prove;
 pub mod rebuild;
 pub mod replay;
+pub(crate) mod replay_onto;
 pub mod report;
 pub mod rerank;
 pub mod system;
 pub mod tender;
+#[cfg(test)]
+mod tests_replay_onto;
 
 use std::collections::{BTreeMap, HashMap};
 
