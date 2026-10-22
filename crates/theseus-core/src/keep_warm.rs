@@ -417,48 +417,14 @@ impl TurnRunner {
         spec.defer = self.deferral(sid, false, &spec);
         // The standing block, as the turn puts it (theseus-rr15: it was left
         // out, so a session with a record recompiled here and was never read).
-        if let Some(b) = self.standing_block(sid, place.class, self.restricted(&target.profile)) {
+        if let Some(b) =
+            self.standing_block(sid, place.class, self.restricted_profile(&target.profile))
+        {
             b.apply(&mut spec);
         }
-        let built = (|| -> anyhow::Result<_> {
-            let nodes = self.store.transcript(sid)?;
-            // The stubs in force: a read is warm, so it never decides.
-            let (nodes, _) = self.stubbed_view(sid, &spec.model, &rec.not_shown, nodes, None);
-            let current = match rec.compilation_id.as_deref() {
-                Some(id) => self.store.get_compilation(id)?,
-                None => None,
-            };
-            let recalls = nodes
-                .iter()
-                .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
-            let sources = self
-                .memory
-                .read_sources(&self.store, recalls.map(|(_, n)| &**n));
-            let situation = crate::compiler::situation::given(false, false, false);
-            // The prefix library's header, replayed as the next append has it.
-            let replayed = self.prefix_replayed(&spec, current.as_ref());
-            let input = crate::compiler::CompileInput {
-                session_id: sid,
-                current: current.as_ref(),
-                nodes: &nodes,
-                last_position: self.store.last_position(),
-                spec: replayed.as_ref().unwrap_or(&spec),
-                catalog: &self.catalog,
-                force: None,
-                window_override: self.working_window(&spec),
-                blobs: Some(self.store.blobs()),
-                hidden: &rec.not_shown,
-                strip: None,
-                overflowed: None,
-                sources: &sources,
-                signals: None,
-                assembled: None,
-                situation: &situation,
-                kept: None,
-            };
-            Ok((current.is_some(), crate::compiler::compile(input)))
-        })()
-        .map_err(|e| (false, format!("its compile failed: {e:#}")))?;
+        let built = self
+            .keep_warm_compile(rec, &spec)
+            .map_err(|e| (false, format!("its compile failed: {e:#}")))?;
         let (had, compiled) = built;
         // A recompile writes the prefix anew whatever is read now.
         if !had || compiled.new_compilation {
@@ -788,6 +754,51 @@ impl TurnRunner {
         let r = got.records.first()?;
         let n: crate::node::Node = r.decode().ok()?;
         Some(n.created_at_ms)
+    }
+
+    /// The compile of a keep-warm read: `(had a compilation, the compile)`.
+    fn keep_warm_compile(
+        &self,
+        rec: &SessionRecord,
+        spec: &crate::compiler::RequestSpec,
+    ) -> anyhow::Result<(bool, crate::compiler::Compiled)> {
+        let sid = rec.session_id.as_str();
+        let nodes = self.store.transcript(sid)?;
+        // The stubs in force: a read is warm, so it never decides.
+        let (nodes, _) = self.stubbed_view(sid, &spec.model, &rec.not_shown, nodes, None);
+        let current = match rec.compilation_id.as_deref() {
+            Some(id) => self.store.get_compilation(id)?,
+            None => None,
+        };
+        let recalls = nodes
+            .iter()
+            .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
+        let sources = self
+            .memory
+            .read_sources(&self.store, recalls.map(|(_, n)| &**n));
+        let situation = crate::compiler::situation::given(false, false, false);
+        // The prefix library's header, replayed as the next append has it.
+        let replayed = self.prefix_replayed(spec, current.as_ref());
+        let input = crate::compiler::CompileInput {
+            session_id: sid,
+            current: current.as_ref(),
+            nodes: &nodes,
+            last_position: self.store.last_position(),
+            spec: replayed.as_ref().unwrap_or(spec),
+            catalog: &self.catalog,
+            force: None,
+            window_override: self.working_window(spec),
+            blobs: Some(self.store.blobs()),
+            hidden: &rec.not_shown,
+            strip: None,
+            overflowed: None,
+            sources: &sources,
+            signals: None,
+            assembled: None,
+            situation: &situation,
+            kept: None,
+        };
+        Ok((current.is_some(), crate::compiler::compile(input)))
     }
 }
 

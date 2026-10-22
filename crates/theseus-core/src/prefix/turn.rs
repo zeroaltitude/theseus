@@ -179,7 +179,7 @@ impl TurnRunner {
         if let Some(b) = self.standing_block(
             session_id,
             place.content_class(),
-            self.restricted(&target.profile),
+            self.restricted_profile(&target.profile),
         ) {
             b.apply(&mut spec);
         }
