@@ -175,14 +175,33 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     match kind {
         "action.failed" => {
             let p = word(&d["producer"]);
-            o.key = format!("action.failed:{p}");
-            o.title = format!("Calls from {p} fail");
-            o.note = format!(
-                "action {} failed after {} ms",
-                d["correlation_id"], d["duration_ms"]
-            );
             o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
             o.task_failed = true;
+            if p == "wrapper" {
+                // A job's command that ran and exited nonzero is the
+                // command's own result (a failing test, a `grep` with no
+                // match), not a fault in Theseus; rows from before the
+                // ledger said how a job failed are read the same way.
+                // Only a job that did not run or finish is a cause, and by
+                // how it failed.
+                let how = word(&d["failure"]);
+                if matches!(how.as_str(), "exit" | "unknown") {
+                    return None;
+                }
+                o.key = format!("action.failed:wrapper:{how}");
+                o.title = format!("Jobs fail: {}", job_failure_words(&how));
+                o.note = format!(
+                    "job {} failed ({how}) after {} ms",
+                    d["correlation_id"], d["duration_ms"]
+                );
+            } else {
+                o.key = format!("action.failed:{p}");
+                o.title = format!("Calls from {p} fail");
+                o.note = format!(
+                    "action {} failed after {} ms",
+                    d["correlation_id"], d["duration_ms"]
+                );
+            }
         }
         "turn.failed" => {
             let r = word(&d["reason"]);
@@ -467,5 +486,75 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+/// A job's failure class, in words, for a title.
+fn job_failure_words(how: &str) -> &'static str {
+    match how {
+        "spawn" => "the command did not start",
+        "deadline" => "the command ran past its deadline",
+        "stopped" => "the command was stopped",
+        "sandbox" => "the sandbox failed",
+        "signal" => "a signal ended the command",
+        _ => "the job ended without a result",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn failed(producer: &str, failure: Option<&str>) -> LedgerRow {
+        let mut data = json!({
+            "correlation_id": "act_1", "producer": producer, "duration_ms": 5,
+            "cost_usd": null,
+        });
+        if let Some(f) = failure {
+            data["failure"] = json!(f);
+        }
+        LedgerRow {
+            at_unix_ms: 1,
+            kind: "action.failed".into(),
+            session_id: None,
+            turn_id: None,
+            data,
+        }
+    }
+
+    /// A command that ran and exited nonzero is its own result, not a cause:
+    /// every failing test or `grep` once made `action.failed:wrapper`.
+    #[test]
+    fn a_commands_own_nonzero_exit_is_not_a_cause() {
+        assert_eq!(of_row(1, &failed("wrapper:4242", Some("exit"))), None);
+        // A row from before the ledger said how, read the same way.
+        assert_eq!(of_row(2, &failed("wrapper:4242", None)), None);
+    }
+
+    /// A job that did not start or finish is a cause, one per way it failed.
+    #[test]
+    fn a_job_that_did_not_run_is_a_cause_by_how_it_failed() {
+        let keys: Vec<String> = ["spawn", "deadline", "sandbox"]
+            .iter()
+            .map(|f| of_row(1, &failed("wrapper:4242", Some(f))).unwrap().key)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "action.failed:wrapper:spawn",
+                "action.failed:wrapper:deadline",
+                "action.failed:wrapper:sandbox"
+            ]
+        );
+        let o = of_row(1, &failed("wrapper:7", Some("spawn"))).unwrap();
+        assert!(o.task_failed && o.title.contains("did not start"), "{o:?}");
+    }
+
+    /// The other producers keep their one cause each.
+    #[test]
+    fn other_producers_keep_their_keys() {
+        let o = of_row(1, &failed("provider:anthropic", None)).unwrap();
+        assert_eq!(o.key, "action.failed:provider");
     }
 }

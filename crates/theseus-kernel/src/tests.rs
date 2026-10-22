@@ -2401,3 +2401,37 @@ fn the_observer_sees_each_committed_frame_with_its_positions() {
         .collect();
     assert_eq!(at[&other.id], seen[0].1[0]);
 }
+
+/// The failed row of one job's completion, by how its wrapper reported it.
+fn failed_job_row(producer: &str, detail: Option<serde_json::Value>) -> serde_json::Value {
+    let w = world();
+    let (s, _e, g) = running(&w);
+    let a = dispatched(&w, &g, "proc.run", 0);
+    let mut c = completion(&a.correlation_id, Outcome::Failed, None);
+    c.producer = producer.into();
+    c.detail = detail;
+    w.kernel.accept_completion(&c).unwrap();
+    let mut failed = rows(&w, &s, "action.failed");
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    failed.remove(0)
+}
+
+/// A failed job's row says how it failed, so the nightly read can tell a
+/// command's own nonzero exit from a job that never ran or ran out of time:
+/// without it every failed command was one `action.failed:wrapper` cause.
+#[test]
+fn a_failed_jobs_row_says_how_it_failed() {
+    let by = |d| failed_job_row("wrapper:4242", Some(d))["failure"].clone();
+    assert_eq!(by(json!({"exit_code": 1, "signal": null})), "exit");
+    assert_eq!(by(json!({"spawn_error": "No such file"})), "spawn");
+    assert_eq!(
+        by(json!({"exit_code": null, "timed_out": true})),
+        "deadline"
+    );
+    assert_eq!(by(json!({"exit_code": null, "signal": 9})), "signal");
+    assert_eq!(by(json!({"stopped": true, "exit_code": null})), "stopped");
+    assert_eq!(by(json!({"sandbox": {"error": {"stage": "x"}}})), "sandbox");
+    assert_eq!(failed_job_row("wrapper:1", None)["failure"], "other");
+    // Other producers' rows keep their shape.
+    assert!(failed_job_row("provider:x", None).get("failure").is_none());
+}

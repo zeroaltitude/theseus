@@ -2453,6 +2453,12 @@ impl Kernel {
         if book {
             crate::earlier::booked_row(&mut data, &a);
         }
+        // A job's failed row says how it failed, so a reader can tell a
+        // command's own nonzero exit from a spawn, a deadline or a sandbox
+        // that failed (the nightly backlog's `action.failed:wrapper`).
+        if kind == LedgerKind::ActionFailed && c.producer.starts_with("wrapper:") {
+            data["failure"] = json!(job_failure(c.detail.as_ref()));
+        }
         frame.push(self.ledger(kind, Some(&a.session_id), data)?);
         // Every queue writes its row, in its frame (theseus-2xep).
         if queued {
@@ -2954,6 +2960,31 @@ impl Kernel {
         step(5, "accepting", t)?;
         rep.elapsed_us = t0.elapsed().as_micros() as u64;
         Ok(rep)
+    }
+}
+
+/// How a failed job failed, from the wrapper's own report: `spawn` (the
+/// command never started), `deadline` (it ran out its time), `stopped`,
+/// `sandbox` (the L1 jail failed), `signal` (a signal ended it), `exit` (the
+/// command ran and exited nonzero: its own result, not a fault of ours) or
+/// `other`.
+pub(crate) fn job_failure(detail: Option<&Value>) -> &'static str {
+    let Some(d) = detail else { return "other" };
+    let set = |k: &str| d.get(k).is_some_and(|v| !v.is_null() && *v != json!(false));
+    if set("spawn_error") {
+        "spawn"
+    } else if set("timed_out") {
+        "deadline"
+    } else if set("stopped") {
+        "stopped"
+    } else if d.pointer("/sandbox/error").is_some() {
+        "sandbox"
+    } else if d.get("exit_code").is_some_and(Value::is_number) {
+        "exit"
+    } else if set("signal") {
+        "signal"
+    } else {
+        "other"
     }
 }
 
