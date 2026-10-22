@@ -204,6 +204,21 @@ pub(super) struct Timed {
     answered_ms: Option<u64>,
 }
 
+impl Timed {
+    /// The times of a turn that waited `w` for its verdict from `started`.
+    fn of(w: &Waited, late: bool, started: std::time::Instant) -> Self {
+        let answered = w
+            .answered
+            .map(|at| at.into_std().saturating_duration_since(started));
+        Self {
+            est_tokens: 0,
+            waited: w.waited,
+            late,
+            answered_ms: answered.map(|d| d.as_millis() as u64),
+        }
+    }
+}
+
 /// Run `compile`, then wait for the verdict at most `max_wait` after it
 /// ends (not waiting at all when `wait` is false): the verdict's call
 /// started before the compile, so its time runs beside it.
@@ -530,7 +545,7 @@ impl TurnRunner {
 
     /// The first loop's compile, the wait for the verdict beside it, and the
     /// decision: the first compile kept, a switch's compile, or a detour's.
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    #[allow(clippy::too_many_arguments)]
     async fn compile_first<'a>(
         &self,
         t: &mut Turn<'a>,
@@ -559,25 +574,15 @@ impl TurnRunner {
         let (compiled, w) = beside(compile, &mut rx, max_wait, wait).await;
         // Missed: the turn decides without its own verdict (theseus-ddbi).
         let late = live && steering.is_none() && w.got == Got::Late;
-        let answered_ms = w.answered.map(|at| {
-            at.into_std()
-                .saturating_duration_since(t.started)
-                .as_millis() as u64
-        });
         if live && steering.is_none() {
             self.judge.record_route_wait(w.waited, late);
         }
-        let (got, waited) = (w.got, w.waited);
+        let timed = Timed::of(&w, late, t.started);
+        let got = w.got;
         t.route.defer_persist = false;
         let compiled = match compiled? {
             Ok(c) => c,
             Err(f) => {
-                let timed = Timed {
-                    waited,
-                    late,
-                    answered_ms,
-                    ..Timed::default()
-                };
                 let seen = (got, live, unreachable);
                 let held = self.held(t, f, seen, rx, session, (timed, steering.as_ref()));
                 return Ok(Err(held));
@@ -611,9 +616,7 @@ impl TurnRunner {
             reason,
             Timed {
                 est_tokens: compiled.est_tokens,
-                waited,
-                late,
-                answered_ms,
+                ..timed
             },
             steering.as_ref(),
         );
