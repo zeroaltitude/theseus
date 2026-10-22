@@ -48,6 +48,10 @@ pub const CLUSTER: usize = 3;
 /// The kinds one run mints at most.
 pub const PER_RUN: usize = 3;
 
+/// The sentence a kind's description ends with when Jev's pick named it: the
+/// morning note and the cockpit read it (`lib/ontology.ts` has the same words).
+pub const NAMED_NOTE: &str = "Jev picked its name.";
+
 /// What the `other` steps of the window said: a session, a name, and the
 /// most sure answer that named it.
 #[derive(Debug, Clone, PartialEq)]
@@ -160,10 +164,12 @@ fn listed_in(o: &Ontology) -> BTreeSet<String> {
         .collect()
 }
 
-/// The pairs of unlisted names no one session shares, whose sessions together
-/// make a cluster that neither makes alone, largest union first, in a fixed
-/// order: what `same_kind.v1` may be asked (a pair that mints twice anyway is
-/// not).
+/// The pairs of unlisted names whose sessions together add to either's, largest
+/// union first, in a fixed order: what `same_kind.v1` may be asked. A pair is
+/// asked when a yes could make a cluster, now or by a chain (`a~b`, `b~c`):
+/// the open names reach [`CLUSTER`] sessions between them. Two names that are
+/// each a cluster are asked too, so one thing does not mint twice. A run asks
+/// at most `KIND_PAIRS_MAX` of them (`renamed.rs`).
 pub fn kind_pairs(o: &Ontology, names: &Folds<'_>) -> Vec<(String, String)> {
     let listed = listed_in(o);
     let open: Vec<(&String, &BTreeMap<&str, f64>)> = names
@@ -171,12 +177,18 @@ pub fn kind_pairs(o: &Ontology, names: &Folds<'_>) -> Vec<(String, String)> {
         .filter(|(f, _)| !listed.contains(*f))
         .map(|(f, (_, s))| (f, s))
         .collect();
+    let reach = open
+        .iter()
+        .flat_map(|(_, s)| s.keys())
+        .collect::<BTreeSet<_>>();
+    if reach.len() < CLUSTER {
+        return Vec::new();
+    }
     let mut pairs: Vec<(Reverse<usize>, &String, &String)> = Vec::new();
     for (i, (a, sa)) in open.iter().enumerate() {
         for (b, sb) in &open[i + 1..] {
             let union = sa.keys().chain(sb.keys()).collect::<BTreeSet<_>>().len();
-            let both = sa.len() >= CLUSTER && sb.len() >= CLUSTER;
-            if union >= CLUSTER && union > sa.len().max(sb.len()) && !both {
+            if union > sa.len().max(sb.len()) {
                 pairs.push((Reverse(union), a, b));
             }
         }
@@ -354,26 +366,28 @@ fn mint(
 ) -> Option<Minted> {
     let name = examples[0].as_str();
     let by = format!("sweep:{write}");
-    let kind = Kind {
-        name: kind_name(name),
-        basis: Basis::Interpreted,
-        assigned_by: vec![Origin::Operator, Origin::Jev, Origin::Sweep],
-        per_session: PerSession::AtMost(3),
-        parent: None,
-        precedence: (precedence / 10 + 1) * 10,
-        rule: Rule::Chain,
-        description: format!(
+    let kind =
+        Kind {
+            name: kind_name(name),
+            basis: Basis::Interpreted,
+            assigned_by: vec![Origin::Operator, Origin::Jev, Origin::Sweep],
+            per_session: PerSession::AtMost(3),
+            parent: None,
+            precedence: (precedence / 10 + 1) * 10,
+            rule: Rule::Chain,
+            description: format!(
             "A kind the sweep made from {} sessions whose messages were about none of the listed \
-             kinds: {}.",
+             kinds: {}.{}",
             sessions.len(),
-            examples.join(", ")
+            examples.join(", "),
+            if named { format!(" {NAMED_NOTE}") } else { String::new() }
         ),
-        version: 1,
-        added_by: by.clone(),
-        retired_ms: None,
-        examples: examples.to_vec(),
-        mined_from: Vec::new(),
-    };
+            version: 1,
+            added_by: by.clone(),
+            retired_ms: None,
+            examples: examples.to_vec(),
+            mined_from: Vec::new(),
+        };
     if kind.check_row().is_err() || working.kind(&kind.name).is_some() {
         return None;
     }

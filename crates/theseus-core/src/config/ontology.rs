@@ -26,8 +26,10 @@
 //!   is the rollback.
 //! - `sweep_usd_per_day`: what the sweep's model calls may spend a local day
 //!   (theseus-nzzz4, 1.0): `same_thing.v1` asks of each pair of categories
-//!   that look alike whether they are one, and `two_things.v1` of each large
-//!   category whether it holds two; a call whose worst case would pass what
+//!   that look alike whether they are one, `two_things.v1` of each large
+//!   category whether it holds two, `name_it.v1` of a stale category or a
+//!   minted kind which mined name names it, and `same_kind.v1` of two mined
+//!   names whether they are one kind; a call whose worst case would pass what
 //!   is left of the day's cap is not begun. 0 turns the model's part off and
 //!   the deterministic sweep still runs: that is its rollback.
 //! - `dream_guidance`: after the nightly consolidation, a category a machine

@@ -80,13 +80,19 @@ fn describe(w: &Write, name_of: &dyn Fn(&str) -> Option<String>) -> String {
     }
     match word {
         "kind" => {
-            let made = of("ontology.kind")
-                .find_map(|r| r.data["name"].as_str())
-                .unwrap_or_default();
+            let made = of("ontology.kind").next();
+            let held = |field: &str| {
+                made.and_then(|r| r.data[field].as_str())
+                    .unwrap_or_default()
+            };
+            let named = made
+                .and_then(|r| r.data["undo"]["wrote"]["description"].as_str())
+                .is_some_and(|d| d.ends_with(super::mint::NAMED_NOTE));
             format!(
-                "made the kind {} from {}",
-                quoted(made),
-                count(sessions, "session", "sessions")
+                "made the kind {} from {}{}",
+                quoted(held("name")),
+                count(sessions, "session", "sessions"),
+                if named { ", named by Jev" } else { "" }
             )
         }
         "merge" => {

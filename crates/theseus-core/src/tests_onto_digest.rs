@@ -272,3 +272,35 @@ fn a_rename_is_a_line_with_both_names() {
         )]
     );
 }
+
+/// A kind Jev named (theseus-e3pxa) says so in its line; one the most shared
+/// name named does not.
+#[test]
+fn a_kind_jev_named_says_so_in_its_line() {
+    use crate::judge::onto::mint::{plan_with, Hints, Said};
+    let now = now_unix_ms();
+    let said: Vec<Said> = ["s1", "s2", "s3"]
+        .iter()
+        .map(|s| Said {
+            session: s.to_string(),
+            names: vec!["Lantern Ledger".into()],
+            confidence: 0.9,
+        })
+        .collect();
+    for (pick, tail) in [(Some("Ledger Works"), ", named by Jev"), (None, "")] {
+        let r = rig(|_| {});
+        let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+        let mut hints = Hints::default();
+        hints
+            .named
+            .extend(pick.map(|p| ("lanternledger".to_string(), p.to_string())));
+        let plan = plan_with(&o, &said, now, |n| format!("sweep-{now}-{n}-kind"), &hints);
+        let m = &plan.minted[0];
+        r.core
+            .ontology_machine_write(Origin::Sweep, &m.write, m.records.clone())
+            .unwrap();
+        let lines = r.core.onto_night_lines(now + 1_000);
+        let want = format!("from 3 sessions{tail} · undo");
+        assert!(lines[0].contains(&want), "{pick:?}: {lines:?}");
+    }
+}
