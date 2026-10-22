@@ -47,16 +47,25 @@ impl Lane {
     }
 
     /// The board is drawn elsewhere now: forget this lane's, and any state
-    /// of it waiting, and remove the message at the next turn of the loop.
+    /// of it waiting, and remove the message at the next turn of the loop. A
+    /// lane with no board of its own looks among the pins for one an earlier
+    /// run drew (its id went with that process).
     pub(super) fn board_moved(&mut self) {
         self.live.retain(|o| o.key() != Some(BOARD_KEY));
         self.sent.remove(BOARD_KEY);
         self.stale_board = self.msgs.remove(BOARD_KEY);
+        self.seek_stale = self.stale_board.is_none() && !self.board_sought;
     }
 
-    /// Delete the board `board_moved` set aside; a message already gone is done.
+    /// Delete the board `board_moved` set aside, or the pinned one of an
+    /// earlier run; a message already gone is done.
     pub(super) async fn drop_stale_board(&mut self) {
-        let Some((channel, message)) = self.stale_board.take() else {
+        let stale = match self.stale_board.take() {
+            Some(b) => Some(b),
+            None if std::mem::take(&mut self.seek_stale) => self.earlier_board().await,
+            None => None,
+        };
+        let Some((channel, message)) = stale else {
             return;
         };
         let sent = self
@@ -70,6 +79,16 @@ impl Lane {
             }
             tracing::info!(place = %self.label, error = %e, "the old task board was not removed");
         }
+    }
+
+    /// The bot's pinned board, V2 or text, that this lane did not make.
+    async fn earlier_board(&mut self) -> Option<(u64, u64)> {
+        let channel = self.place_channel().await.ok()?;
+        let found = match self.find_board_v2(channel).await {
+            Some(m) => Some(m),
+            None => self.find_board(channel).await,
+        };
+        found.map(|m| (channel, m))
     }
 
     /// The bot's pinned board in `channel`, if it has one.

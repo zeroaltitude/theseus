@@ -48,7 +48,7 @@ use super::{Place, Shared};
 use crate::bindings::Bindings;
 use crate::render::{board_v2, task_view, v2};
 
-mod archive;
+pub(crate) mod archive;
 
 /// A card is edited at most once in this long.
 pub(crate) const CARD_EVERY: Duration = Duration::from_secs(2);

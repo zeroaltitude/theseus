@@ -306,7 +306,7 @@ impl Lane {
 
     /// The bot's pinned V2 board in `channel`: its message that carries the
     /// board's Clear button.
-    async fn find_board_v2(&self, channel: u64) -> Option<u64> {
+    pub(super) async fn find_board_v2(&self, channel: u64) -> Option<u64> {
         let req = Request::builder(&HttpRoute::GetPins {
             channel_id: channel,
             limit: None,

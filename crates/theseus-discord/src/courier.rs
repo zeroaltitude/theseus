@@ -337,6 +337,8 @@ pub(crate) struct Lane {
     pub pin_refused: bool,
     /// A board this lane made that is to be removed (`LaneMsg::BoardMoved`).
     pub stale_board: Option<(u64, u64)>,
+    /// An earlier run's board is to be looked for among the pins.
+    pub seek_stale: bool,
     /// A persona's signature: its webhook and the messages it wrote
     /// (theseus-sjzm).
     signing: persona::Signing,
@@ -383,6 +385,7 @@ impl Lane {
             board_sought: false,
             pin_refused: false,
             stale_board: None,
+            seek_stale: false,
             signing: Default::default(),
             v2: v2::State::default(),
             catchup: catchup::State::default(),
