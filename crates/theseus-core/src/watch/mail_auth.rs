@@ -5,9 +5,15 @@
 //! on arrival (authserv-id `mx.google.com`), above anything the sender wrote,
 //! so the **first** such header is Gmail's and any lower one is the sender's.
 //! A message is authenticated when that header says DMARC passed for the
-//! From's domain, or DKIM passed for a domain aligned with it. Anything else
-//! (no header, another server's, a fail, a misaligned pass) is not: fail
-//! closed.
+//! From's domain, or DKIM passed for a domain aligned with it. Alignment is
+//! DMARC's relaxed rule: the two domains have the same organizational domain,
+//! the registrable domain under the public suffix list (the `psl` crate's
+//! compiled-in copy, private section included, so `github.io` is a suffix and
+//! `a.github.io` and `b.github.io` are two organizations). A name with no
+//! organizational domain, a public suffix itself, aligns with nothing. A
+//! top-level domain the list does not know follows its default rule (`*`).
+//! Anything else (no header, another server's, a fail, a misaligned pass) is
+//! not: fail closed.
 
 use serde_json::Value;
 
@@ -59,12 +65,12 @@ pub fn authenticated(payload: &Value, from: &str) -> bool {
     })
 }
 
-/// Relaxed alignment: equal, or one a subdomain of the other at a dot
-/// boundary. A bare suffix (`evilexample.test`) is not.
+/// Relaxed alignment: both names have an organizational domain, and it is the
+/// same one. Case and a trailing dot do not matter.
 fn aligned(a: &str, b: &str) -> bool {
-    let under =
-        |long: &str, short: &str| long.strip_suffix(short).is_some_and(|p| p.ends_with('.'));
-    !a.is_empty() && !b.is_empty() && (a == b || under(a, b) || under(b, a))
+    let org =
+        |d: &str| psl::domain_str(&d.trim_end_matches('.').to_ascii_lowercase()).map(str::to_owned);
+    matches!((org(a), org(b)), (Some(x), Some(y)) if x == y)
 }
 
 /// `text` with its parenthesised comments (nesting allowed) taken out.
@@ -164,5 +170,32 @@ mod tests {
         assert!(!passes(&[
             "mx.google.com (dkim=pass header.d=example.test)"
         ]));
+    }
+
+    #[test]
+    fn a_pass_for_a_public_suffix_never_aligns() {
+        let at = |d: &str, from: &str| {
+            authenticated(
+                &payload(&[&format!("mx.google.com; dkim=pass header.d={d}")]),
+                from,
+            )
+        };
+        assert!(!at("co.uk", "dana@shop.example.co.uk"));
+        assert!(!at("github.io", "dana@site.github.io"));
+        assert!(!at("other.github.io", "dana@site.github.io"));
+        assert!(at("mail.example.co.uk", "dana@example.co.uk"));
+    }
+
+    #[test]
+    fn hosts_of_one_organization_align() {
+        let at = |d: &str, from: &str| {
+            authenticated(
+                &payload(&[&format!("mx.google.com; dkim=pass header.d={d}")]),
+                from,
+            )
+        };
+        assert!(at("news.example.test", "dana@shop.example.test"));
+        assert!(!at("example.test.evil.test", "dana@example.test"));
+        assert!(at("Example.Test.", "dana@shop.example.test"));
     }
 }

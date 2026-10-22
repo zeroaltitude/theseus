@@ -21,7 +21,7 @@ const LAST_MAX: usize = 160;
 /// Post one status line to the session's place, when `[tools]
 /// job_wait_status` is on and the session has a place. The wait's result
 /// never depends on it: a failed post is logged and dropped. Reads the disk
-/// and writes a frame.
+/// and writes a frame, so its caller runs it in the beat's blocking closure.
 pub(super) fn post(core: &Core, f: &Found, clock: &Clock, silence: &Silence) {
     if !core.cfg.tools.job_wait_status {
         return;

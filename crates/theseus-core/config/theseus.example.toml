@@ -587,7 +587,7 @@ hide_after_days = 14                    # a family loaded by default and unused 
 # account = "owner@example.test"        # the address the consent is for; a token for any other is refused
 # services = ["gmail", "drive", "sheets", "slides", "docs", "calendar"]   # the tools on, and the scopes the consent asks for (all six by default)
 # max_sends_per_day = 25                # sends per local day, a runaway brake (0: no sends)
-# trusted_senders = ["dana@example.test"]   # whose mail may start a task through a mail watch (then: task); empty: a mail watch only notices
+# trusted_senders = ["dana@example.test"]   # whose mail may start a task through a mail watch (then: task), only when Gmail authenticated the sender (DMARC pass, or DKIM aligned with the From); else the watch only notices; empty: a mail watch only notices
 # credentials = { client = "google_client", refresh_token = "google_refresh_token" }   # [secrets] names (these, by default)
 # endpoint = "http://127.0.0.1:7499"    # tests and scratch daemons only: a stand-in for Google on this machine
 

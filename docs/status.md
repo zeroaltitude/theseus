@@ -514,6 +514,14 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   read a short or unclear transcript. Each switch, and a config with no `[voice]` section, now has a test that reads it
   where the call is built, since a line that stopped copying one would have left the feature dead with every test
   green (Item 255).
+- **2026-10-21: v1 patch1 tail** (theseus-jt4nr, theseus-by0vj, theseus-l6u2q, theseus-1qexl). Mail from a trusted
+  sender starts a task through a mail watch only when Gmail itself authenticated the sender: DMARC passed for the From's
+  domain, or DKIM passed for a domain aligned with it, by organizational domain under the public suffix list (a pass for
+  `co.uk` or `github.io` aligns with nothing; two hosts of one organization align). Otherwise the watch only notices. A
+  silent `job_wait` posts one status line to the session's place at each beat (`[tools] job_wait_status`, on, no model
+  call), and the wait's backstop looks at least once a minute. A profile a routing class chose never runs below its own
+  effort (`effort_reason` `floored`), and a checkpoint can raise a turn's effort without moving it. The recall scorer
+  tells an honest abstention from a misleading one.
 - **2026-10-21: a reach for the owner's personal details is held in a shared place** (theseus-i1z13, finishing
   theseus-gasov's spec): when Jev reads a message in a shared place as trying to draw out the owner's personal details
   (or to open a conversation where they could come out), the turn makes no model call. The person who asked is told "I

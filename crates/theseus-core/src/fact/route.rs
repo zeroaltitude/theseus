@@ -119,7 +119,9 @@ impl Fact for RouteDecided<'_> {
             (_, true) if self.checkpoint.is_some() => {
                 let c = self.checkpoint.as_ref().expect("checked");
                 let (source, what) = match self.source {
-                    Some(s) if s.starts_with("turn checkpoint") => ("turn checkpoint", "turn"),
+                    Some(s) if s.starts_with("turn checkpoint") => {
+                        ("turn checkpoint", "conversation")
+                    }
                     _ => ("task checkpoint", "task"),
                 };
                 format!(
