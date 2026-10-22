@@ -55,7 +55,7 @@ async fn a_message_naming_two_threads_by_title_asks_which() {
 }
 
 /// The e31an case beside the same threads: a request that shares one word
-/// with a title and names neither runs at home, with no question.
+/// with each title and names neither runs at home, with no question.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_plainly_new_request_still_runs_at_home() {
     let jev = FakeJev::start().unwrap();
@@ -70,7 +70,7 @@ async fn a_plainly_new_request_still_runs_at_home() {
             method::TURN_SUBMIT,
             params(
                 &dm,
-                "start two tasks: a census of the disk, and a slow load",
+                "start two tasks: a census of the disk, and some notes on a slow load",
                 None,
             ),
         )
@@ -80,4 +80,43 @@ async fn a_plainly_new_request_still_runs_at_home() {
     assert_eq!(res.session_id, dm);
     assert_eq!(tag(&res).how, RouteHow::Home);
     assert!(rows(c, "thread.asked").is_empty(), "nothing was asked");
+}
+
+/// Both titles named while the turn runs in a directory, beside a third
+/// thread rooted elsewhere: the directory rule leaves that thread apart and
+/// rescores every thread, and the two named ones keep their titles, so the
+/// router still asks which (theseus-4qdh8).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_titles_named_still_ask_beside_a_far_thread() {
+    let jev = FakeJev::start().unwrap();
+    thread_answer(&jev, "docs-census", 0.29);
+    let r = rig_with_jev(&jev);
+    let c = &r.core;
+    young_threads(c);
+    thread(c, "ops", "ops rota", ws(&["#977"], &[], &["/w/srv/ops"]));
+    let dm = home(c, None);
+    let mut w = Wire::open(c);
+    let mut p = params(&dm, BOTH, None);
+    p.dir = Some("/w/projects/walkthrough".into());
+    let id = w.send(method::TURN_SUBMIT, p).await;
+    let asked = w.notice("thread.asked").await;
+    let q = asked["question"].as_str().unwrap();
+    assert!(
+        q.contains("Docs word census") && q.contains("Harbour log notes"),
+        "{q}"
+    );
+    let mut a = Wire::open(c);
+    let aid = a
+        .send(
+            method::THREAD_ANSWER,
+            ThreadAnswerParams {
+                ask_id: asked["ask_id"].as_str().unwrap().into(),
+                choice: "home".into(),
+                author: None,
+                discord: None,
+            },
+        )
+        .await;
+    a.response(aid).await;
+    w.response(id).await;
 }

@@ -677,8 +677,13 @@ pub fn apart_by_dir<'b>(
         p.entity = entity;
         p.sticky = sticky;
         p.chain = chain;
-        p.hits = h.into_iter().map(|(_, e)| e).collect();
-        p.score = noisy_or(&[entity, sticky, chain]);
+        // A named title still counts for a thread the directory rule left
+        // alone (theseus-4qdh8); an apart thread loses it with the rest.
+        let title = (!apart).then(|| title_hit(text, &p.title)).flatten();
+        p.hits = (h.into_iter().map(|(_, e)| e))
+            .chain(title.map(|_| p.title.clone()))
+            .collect();
+        p.score = noisy_or(&[entity, title.unwrap_or(0.0), sticky, chain]);
         match apart {
             true => p.learned = false,
             // The owner's correction lifted this score past what it stands on.
