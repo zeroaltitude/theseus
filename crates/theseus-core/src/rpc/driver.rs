@@ -242,7 +242,7 @@ impl Core {
             )
             .await;
         self.end_terminals_left(id, crate::term::BY_CANCEL).await;
-        self.runner.draft_ended(&session_id).await;
+        self.runner.draft_cancelled(&session_id).await;
         // The jobs' last steps and their facts' rows, and what the cancel
         // left unanswered in the transcript (theseus-0o8), in one frame
         // (theseus-dwoj): the calls it stopped are answered where they

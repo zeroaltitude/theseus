@@ -24,7 +24,7 @@ use crate::tests_route::{decided, mode, rig_parts, Rig};
 use crate::tests_tasks::{answers_a_call, first_user, posts};
 
 /// The owner's coding ask, judged open.
-const ASK: &str = "In notes.txt, change the word beta to gamma.";
+pub(crate) const ASK: &str = "In notes.txt, change the word beta to gamma.";
 /// A message Jev judges private.
 const PRIVATE: &str = "My Widgetco salary review is notes-mark-5521.";
 
@@ -32,18 +32,27 @@ const PRIVATE: &str = "My Widgetco salary review is notes-mark-5521.";
 pub(crate) struct By {
     script: Box<dyn Fn(&ProviderRequest) -> Scripted + Send + Sync>,
     pub(crate) requests: Mutex<Vec<ProviderRequest>>,
+    /// A request whose first user message holds this never gets an answer.
+    hang: Mutex<Option<String>>,
 }
 
 impl By {
-    fn new(f: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static) -> Arc<Self> {
+    pub(crate) fn new(
+        f: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
+    ) -> Arc<Self> {
         Arc::new(Self {
             script: Box::new(f),
             requests: Mutex::default(),
+            hang: Mutex::default(),
         })
     }
 
-    fn sent(&self) -> Vec<ProviderRequest> {
+    pub(crate) fn sent(&self) -> Vec<ProviderRequest> {
         self.requests.lock().unwrap().clone()
+    }
+
+    pub(crate) fn hang_on(&self, words: &str) {
+        *self.hang.lock().unwrap() = Some(words.into());
     }
 }
 
@@ -58,6 +67,10 @@ impl Provider for By {
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
             self.requests.lock().unwrap().push(req.clone());
+            let hang = self.hang.lock().unwrap().clone();
+            if hang.is_some_and(|h| first_user(req).contains(&h)) {
+                std::future::pending::<()>().await;
+            }
             let f = FakeProvider::scripted(vec![(self.script)(req)]);
             f.stream_message(req, on_delta).await
         })
@@ -65,7 +78,7 @@ impl Provider for By {
 }
 
 /// `git` in `dir`, which must succeed: its stdout.
-fn git(dir: &Path, args: &[&str]) -> String {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> String {
     let o = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -94,18 +107,28 @@ fn repo(at: &Path) -> PathBuf {
     at.canonicalize().unwrap()
 }
 
+/// A test's tampering with the review's tree.
+pub(crate) type Tamper = Box<dyn FnOnce(&Path) + Send>;
+
 /// What the draft and the review do, and what the review saw.
 #[derive(Default)]
 pub(crate) struct Plan {
     /// The draft's call: none reports at once.
-    draft_call: Option<(String, Value)>,
+    pub(crate) draft_call: Option<(String, Value)>,
     /// More calls the draft makes beside it, in the same answer.
     draft_also: Vec<(String, Value)>,
     /// The review's edit of the tree (old, new), before it reports.
     review_edit: Option<(String, String)>,
     review_report: String,
     /// The owner's file as the review found it.
-    seen_by_review: Option<String>,
+    pub(crate) seen_by_review: Option<String>,
+    /// What the first pass reports, and whether it fails instead.
+    pub(crate) first_pass_report: String,
+    pub(crate) first_pass_fails: bool,
+    /// Run in the review's first request with its tree: a test's tampering.
+    pub(crate) tamper: Option<Tamper>,
+    /// The review's first request, whole.
+    pub(crate) review_saw: Option<String>,
 }
 
 pub(crate) struct Draft {
@@ -128,6 +151,44 @@ fn tree_in(req: &ProviderRequest) -> Option<PathBuf> {
     Some(PathBuf::from(&body[start..end]))
 }
 
+/// The review's answer: its edit of the tree once, then its report.
+fn review_answer(plan: &Mutex<Plan>, owner_file: &Path, req: &ProviderRequest) -> Scripted {
+    if !first_user(req).contains("Review the draft") {
+        return Scripted::text("ok");
+    }
+    let mut p = plan.lock().unwrap();
+    p.seen_by_review
+        .get_or_insert_with(|| std::fs::read_to_string(owner_file).unwrap());
+    review_peek(&mut p, req);
+    if !answers_a_call(req) {
+        if let Some((old, new)) = p.review_edit.take() {
+            let path = tree_in(req).unwrap_or_default().join("notes.txt");
+            let edit = json!({"path": path, "old_string": old, "new_string": new});
+            return Scripted::tools("Fixing.", &[("r1", "fs_edit", edit)]);
+        }
+    }
+    Scripted::text(&p.review_report)
+}
+
+/// The first pass's answer: its findings, or a refusal.
+fn first_pass_answer(p: &Plan) -> Scripted {
+    match p.first_pass_fails {
+        true => Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+            status: 400,
+            message: "invalid_request_error: the first pass was refused".into(),
+        }),
+        false => Scripted::text(&p.first_pass_report),
+    }
+}
+
+/// What the test keeps of the review's first request, and its tampering.
+fn review_peek(p: &mut Plan, req: &ProviderRequest) {
+    p.review_saw.get_or_insert_with(|| first_user(req));
+    if let Some(tamper) = p.tamper.take() {
+        tamper(&tree_in(req).unwrap_or_default());
+    }
+}
+
 pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
     let jev = jev();
     let tmp = tempfile::tempdir().unwrap();
@@ -142,6 +203,9 @@ pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
     let (p, q) = (plan.clone(), plan.clone());
     let zai = By::new(move |req| {
         let mut p = p.lock().unwrap();
+        if first_user(req).contains(crate::draft::first_pass::FIRST_PASS_HEADER) {
+            return first_pass_answer(&p);
+        }
         if answers_a_call(req) {
             return Scripted::text("Changed beta to gamma in notes.txt.");
         }
@@ -168,29 +232,7 @@ pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
             None => Scripted::text("Changed beta to gamma in notes.txt."),
         }
     });
-    let claude = By::new(move |req| {
-        if !first_user(req).contains("Review the draft") {
-            return Scripted::text("ok");
-        }
-        let mut p = q.lock().unwrap();
-        p.seen_by_review
-            .get_or_insert_with(|| std::fs::read_to_string(&owner_file).unwrap());
-        if !answers_a_call(req) {
-            if let Some((old, new)) = p.review_edit.take() {
-                let tree = tree_in(req).unwrap_or_default();
-                let path = tree.join("notes.txt");
-                return Scripted::tools(
-                    "Fixing.",
-                    &[(
-                        "r1",
-                        "fs_edit",
-                        json!({"path": path, "old_string": old, "new_string": new}),
-                    )],
-                );
-            }
-        }
-        Scripted::text(&p.review_report)
-    });
+    let claude = By::new(move |req| review_answer(&q, &owner_file, req));
     let (z, c) = (zai.clone(), claude.clone());
     let w = work.clone();
     let r = rig_parts(
@@ -251,7 +293,7 @@ fn jev() -> FakeJev {
 
 impl Draft {
     /// The owner's DM, working in `dir`.
-    fn dm(&self, dir: &Path) -> String {
+    pub(crate) fn dm(&self, dir: &Path) -> String {
         let mut r = SessionRecord::new(SessionKind::Conversation, None);
         r.dir = Some(dir.to_string_lossy().into_owned());
         self.r.core.store.put_session(&r.session_id, &r).unwrap();
@@ -263,12 +305,12 @@ impl Draft {
         r.session_id
     }
 
-    fn drive(&self) {
+    pub(crate) fn drive(&self) {
         tokio::spawn(crate::harness::drive(self.r.core.clone()));
     }
 
     /// The tasks `parent` opened, oldest first.
-    fn tasks(&self, parent: &str) -> Vec<SessionRecord> {
+    pub(crate) fn tasks(&self, parent: &str) -> Vec<SessionRecord> {
         let rec: SessionRecord = self.r.core.store.get_session(parent).unwrap().unwrap();
         let exec = rec.execution_id.unwrap();
         let mut out: Vec<SessionRecord> = self
@@ -291,19 +333,19 @@ impl Draft {
         out
     }
 
-    fn file(&self) -> String {
+    pub(crate) fn file(&self) -> String {
         std::fs::read_to_string(self.repo.join("notes.txt")).unwrap()
     }
 
     /// The `task.draft` rows.
-    fn drafts(&self) -> Vec<Value> {
+    pub(crate) fn drafts(&self) -> Vec<Value> {
         rows(&self.r.core, "task.draft")
             .into_iter()
             .map(|r| r.data)
             .collect()
     }
 
-    async fn settled(&self) -> Value {
+    pub(crate) async fn settled(&self) -> Value {
         until_within("the task.draft row", 60, || !self.drafts().is_empty()).await;
         let mut d = self.drafts();
         assert_eq!(d.len(), 1, "{d:?}");
@@ -311,7 +353,7 @@ impl Draft {
     }
 
     /// Every post's text of `kind`, with its session.
-    fn texts(&self, kind: &str) -> Vec<(String, String)> {
+    pub(crate) fn texts(&self, kind: &str) -> Vec<(String, String)> {
         posts(&self.r.core, kind)
             .into_iter()
             .map(|a| {
@@ -322,7 +364,7 @@ impl Draft {
     }
 }
 
-fn draft_edit() -> (String, Value) {
+pub(crate) fn draft_edit() -> (String, Value) {
     (
         "fs_edit".into(),
         json!({"path": "TREE/notes.txt", "old_string": "beta", "new_string": "gamma"}),
@@ -660,7 +702,7 @@ async fn draft_and_review_costs_are_recorded() {
 }
 
 /// The template with `routing` appended, loaded and checked as the daemon does.
-fn load(routing: &str) -> Result<crate::Config, String> {
+pub(crate) fn load(routing: &str) -> Result<crate::Config, String> {
     let extra = "[providers.deepseek]\napi_base = \"https://api.deepseek.com/anthropic\"\n\
         api_key_secret = \"zai_api_key\"\n[profiles.dsflash]\nprovider = \"deepseek\"\n\
         model = \"deepseek-flash\"\n";

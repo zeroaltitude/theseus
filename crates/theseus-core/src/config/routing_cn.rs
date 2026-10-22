@@ -82,6 +82,11 @@ fn drafts(
         if !t.final_review.is_empty() {
             bail!("routing.classes.{m}.final: it reviews a draft, and the class has no cn_draft");
         }
+        if t.first_pass.is_some() {
+            bail!(
+                "routing.classes.{m}.first_pass: it reads a draft, and the class has no cn_draft"
+            );
+        }
         return Ok(());
     };
     if !DRAFTING.contains(&m) {
@@ -101,6 +106,15 @@ fn drafts(
             "routing.classes.{m}.final: cn_draft needs it: name the Claude profiles that \
              review every draft, as final = [\"sonnet\"]"
         );
+    }
+    if let Some(f) = &t.first_pass {
+        if restricted(f).is_none() {
+            bail!(
+                "routing.classes.{m}.first_pass: {f:?} is not a configured profile of restricted \
+                 origin: a Claude profile reviews in final, and the first pass is a cheaper \
+                 model's first read"
+            );
+        }
     }
     for p in &t.final_review {
         if !claude(cfg, catalog, p) {

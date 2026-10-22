@@ -286,6 +286,10 @@ mod tests_disk_watch;
 #[cfg(test)]
 mod tests_draft;
 #[cfg(test)]
+mod tests_draft_first_pass;
+#[cfg(test)]
+mod tests_draft_hardening;
+#[cfg(test)]
 mod tests_effort_sticky;
 #[cfg(test)]
 mod tests_egress;

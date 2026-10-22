@@ -49,6 +49,10 @@ use crate::session::{title_from, SessionRecord, TargetRef, TaskOf};
 use crate::task::short;
 use crate::turn::TurnRunner;
 
+pub(crate) mod first_pass;
+mod flight;
+mod sweep;
+
 /// The draft's brief, before the open run's person messages.
 pub const DRAFT_HEADER: &str = "Draft this change in your tree. You can read, search and edit \
 files there; you cannot run programs, so don't try to build or test: a Claude reviewer will run \
@@ -110,6 +114,24 @@ pub struct Draft {
     /// The `task.draft` row is written: nothing more happens.
     #[serde(default)]
     pub settled: bool,
+    /// The tree's own git dir, recorded when it was made (theseus-b0ozi,
+    /// LOW-6): the core's git runs against it, never the `.git` file the
+    /// tree holds now. Empty in a record from before it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub git_dir: String,
+    /// The first-pass reviewer, when the class has one (`first_pass.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_pass: Option<first_pass::FirstPass>,
+}
+
+impl Draft {
+    /// The tree, pinned to the git dir recorded for it.
+    pub(crate) fn pinned(&self) -> Pinned<'_> {
+        Pinned {
+            tree: Path::new(&self.tree),
+            git_dir: &self.git_dir,
+        }
+    }
 }
 
 pub fn meta_key(draft_session: &str) -> String {
@@ -140,6 +162,11 @@ pub fn is_draft_session(store: &crate::store::Store, id: &str) -> bool {
 pub(crate) fn own_tree(rt: &crate::toolrun::ToolRuntime, session: &str) -> Option<PathBuf> {
     let core = rt.self_pr.core()?;
     let rec: SessionRecord = core.store.get_session(session).ok().flatten()?;
+    if let Some(m) = first_pass::mark_of(&core.store, session) {
+        let d: Draft = core.store.get_meta(&meta_key(&m.draft)).ok().flatten()?;
+        return (!d.settled)
+            .then(|| theseus_tools::paths::canonical_best_effort(Path::new(&m.tree)));
+    }
     let of = match is_draft(&rec) {
         true => rec.session_id,
         false => rec.task?.check?.checked_task,
@@ -191,6 +218,15 @@ pub fn tests_fixed(report: &str) -> Option<u64> {
 
 // ------------------------------------------------------------ git
 
+/// What the core's git is told on every call (theseus-b0ozi, LOW-6): a
+/// draft's tree is written by a restricted model, so nothing a tree holds may
+/// choose a program the core runs.
+const SAFE: [&str; 2] = ["-c", "core.fsmonitor=false"];
+
+/// The flags of every diff the core reads or applies: no external diff
+/// program and no textconv filter.
+const DIFF: [&str; 2] = ["--no-ext-diff", "--no-textconv"];
+
 /// `git -C <dir> <args>`, a child of the daemon's, never prompting, with
 /// `input` on its stdin when given. Blocking: call it on the blocking pool.
 fn git_in(dir: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Output> {
@@ -198,6 +234,7 @@ fn git_in(dir: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Output> {
     let mut c = Command::new("git");
     c.arg("-C")
         .arg(dir)
+        .args(SAFE)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(if input.is_some() {
@@ -217,7 +254,10 @@ fn git_in(dir: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Output> {
 
 /// `git` that must succeed: its stdout, trimmed.
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let o = git_in(dir, args, None)?;
+    stdout_of(git_in(dir, args, None)?, args)
+}
+
+fn stdout_of(o: Output, args: &[&str]) -> Result<String> {
     if !o.status.success() {
         bail!(
             "git {} failed: {}",
@@ -228,6 +268,33 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
+/// A draft's tree as the core's git runs in it: the git dir recorded when the
+/// tree was made, never the one the tree's own `.git` file names now. A record
+/// from before the pin has none and runs as plain `-C <tree>`.
+pub(crate) struct Pinned<'a> {
+    pub tree: &'a Path,
+    pub git_dir: &'a str,
+}
+
+impl Pinned<'_> {
+    fn run(&self, args: &[&str], input: Option<&[u8]>) -> Result<Output> {
+        if self.git_dir.is_empty() {
+            return git_in(self.tree, args, input);
+        }
+        let (gd, wt) = (
+            format!("--git-dir={}", self.git_dir),
+            format!("--work-tree={}", self.tree.display()),
+        );
+        let mut all = vec![gd.as_str(), wt.as_str()];
+        all.extend_from_slice(args);
+        git_in(self.tree, &all, input)
+    }
+
+    fn git(&self, args: &[&str]) -> Result<String> {
+        stdout_of(self.run(args, None)?, args)
+    }
+}
+
 /// The top of the git work tree holding `dir`, canonical, or none.
 pub fn work_tree(dir: &Path) -> Option<PathBuf> {
     git(dir, &["rev-parse", "--show-toplevel"])
@@ -236,33 +303,47 @@ pub fn work_tree(dir: &Path) -> Option<PathBuf> {
         .map(|o| theseus_tools::paths::canonical_best_effort(Path::new(&o)))
 }
 
-/// A worktree of `dir` at `HEAD` in `tree`, on a new `branch`: `HEAD`'s sha.
-pub fn open_tree(dir: &Path, tree: &Path, branch: &str) -> Result<String> {
+/// A worktree of `dir` at `HEAD` in `tree`, on a new `branch`: `HEAD`'s sha
+/// and the worktree's own git dir, which the draft pins its git to.
+pub fn open_tree(dir: &Path, tree: &Path, branch: &str) -> Result<(String, String)> {
     let base = git(dir, &["rev-parse", "HEAD"])?;
     if let Some(up) = tree.parent() {
         std::fs::create_dir_all(up)?;
     }
     let at = tree.to_string_lossy();
     git(dir, &["worktree", "add", "-b", branch, &at, &base])?;
-    Ok(base)
+    let git_dir = git(tree, &["rev-parse", "--absolute-git-dir"])?;
+    Ok((base, git_dir))
+}
+
+/// A worktree of `dir` at `commit` with no branch, for a first pass to read.
+pub(crate) fn detach_tree(dir: &Path, tree: &Path, commit: &str) -> Result<()> {
+    if let Some(up) = tree.parent() {
+        std::fs::create_dir_all(up)?;
+    }
+    let at = tree.to_string_lossy();
+    git(dir, &["worktree", "add", "--detach", &at, commit]).map(drop)
 }
 
 /// Commit everything in `tree` as `message`, when anything changed: the
 /// tree's `HEAD` after.
-fn commit(tree: &Path, message: &str) -> Result<String> {
-    if !git(tree, &["status", "--porcelain"])?.is_empty() {
-        git(tree, &["add", "-A"])?;
+fn commit(tree: &Pinned<'_>, message: &str) -> Result<String> {
+    if !tree.git(&["status", "--porcelain"])?.is_empty() {
+        tree.git(&["add", "-A"])?;
         let mut args = IDENT.to_vec();
         args.extend(["commit", "-q", "--no-verify", "-m", message]);
-        git(tree, &args)?;
+        tree.git(&args)?;
     }
-    git(tree, &["rev-parse", "HEAD"])
+    tree.git(&["rev-parse", "HEAD"])
 }
 
 /// Added plus deleted lines from `from` to `to` (`--numstat`; a binary
 /// file counts none).
-fn numstat(tree: &Path, from: &str, to: &str) -> Result<u64> {
-    let out = git(tree, &["diff", "--numstat", from, to])?;
+fn numstat(tree: &Pinned<'_>, from: &str, to: &str) -> Result<u64> {
+    let mut args = vec!["diff", "--numstat"];
+    args.extend(DIFF);
+    args.extend([from, to]);
+    let out = tree.git(&args)?;
     Ok(out
         .lines()
         .filter_map(|l| {
@@ -283,8 +364,11 @@ enum Apply {
 
 /// `git diff <base>..<fin>` of the tree applied to `dir`: checked first, and
 /// never staged in its index nor merged with conflict markers.
-fn apply(dir: &Path, tree: &Path, base: &str, fin: &str) -> Result<Apply> {
-    let o = git_in(tree, &["diff", "--binary", base, fin], None)?;
+fn apply(dir: &Path, tree: &Pinned<'_>, base: &str, fin: &str) -> Result<Apply> {
+    let mut args = vec!["diff", "--binary"];
+    args.extend(DIFF);
+    args.extend([base, fin]);
+    let o = tree.run(&args, None)?;
     if !o.status.success() {
         bail!(
             "git diff failed: {}",
@@ -319,6 +403,17 @@ pub(crate) fn close_tree(dir: &Path, tree: &Path) -> Result<()> {
     .map(drop)
 }
 
+/// Remove a draft that never opened: its tree, then its branch
+/// (theseus-b0ozi, LOW-7), so the owner's repository is as it was.
+pub(crate) fn drop_draft(dir: &Path, tree: &Path, branch: &str) {
+    if let Err(e) = close_tree(dir, tree) {
+        tracing::warn!(error = %format!("{e:#}"), tree = %tree.display(), "a draft that did not open: its tree was not removed");
+    }
+    if let Err(e) = git(dir, &["branch", "-D", branch]) {
+        tracing::warn!(error = %format!("{e:#}"), branch, "a draft that did not open: its branch was not removed");
+    }
+}
+
 /// The commits and the apply after a review, on the blocking pool.
 struct Settled {
     fin: String,
@@ -327,15 +422,15 @@ struct Settled {
 }
 
 fn settle_tree(d: &Draft, review: &str, completed: bool) -> Result<Settled> {
-    let (dir, tree) = (Path::new(&d.dir), Path::new(&d.tree));
-    let fin = commit(tree, &format!("review by {review}"))?;
+    let (dir, tree) = (Path::new(&d.dir), d.pinned());
+    let fin = commit(&tree, &format!("review by {review}"))?;
     let from = d.draft_commit.as_deref().unwrap_or(&d.base);
-    let lines = numstat(tree, from, &fin)?;
+    let lines = numstat(&tree, from, &fin)?;
     let applied = match completed {
-        true => apply(dir, tree, &d.base, &fin),
+        true => apply(dir, &tree, &d.base, &fin),
         false => Ok(Apply::NoChange),
     };
-    if let Err(e) = close_tree(dir, tree) {
+    if let Err(e) = close_tree(dir, tree.tree) {
         tracing::warn!(error = %format!("{e:#}"), tree = %d.tree, "a reviewed draft's tree was not removed");
     }
     Ok(Settled {
@@ -359,19 +454,30 @@ fn outcome_of(r: &crate::task::Report) -> &'static str {
 
 impl TurnRunner {
     /// A task session ended (its end's frame, or a cancel's, is written): a
-    /// draft's end opens its review, and a review's end applies and settles.
-    /// Any other session pays one record read.
+    /// draft's end opens its first pass or its review, a first pass's end
+    /// opens the review, and a review's end applies and settles. Any other
+    /// session pays one record read. One step of a draft at a time
+    /// (`flight.rs`), and a step run again finds its work done.
     pub async fn draft_ended(&self, session_id: &str) {
         let Ok(Some(rec)) = self.store.get_session::<SessionRecord>(session_id) else {
             return;
         };
-        let done = if is_draft(&rec) {
-            self.open_review(&rec).await
-        } else if let Some(c) = rec.task.as_ref().and_then(|t| t.check.as_ref()) {
-            let checked = c.checked_task.clone();
-            self.finish_review(&rec, &checked).await
-        } else {
-            return;
+        let fp = is_draft(&rec)
+            .then(|| first_pass::mark_of(&self.store, session_id))
+            .flatten();
+        let checked = rec.task.as_ref().and_then(|t| t.check.as_ref());
+        let key = match (&fp, checked) {
+            (Some(m), _) => m.draft.as_str(),
+            (None, _) if is_draft(&rec) => session_id,
+            (None, Some(c)) => c.checked_task.as_str(),
+            (None, None) => return,
+        };
+        let _one = flight::hold(key).await;
+        let done = match (&fp, checked) {
+            (Some(m), _) => self.first_pass_ended(&rec, m).await,
+            (None, _) if is_draft(&rec) => self.open_review(&rec).await,
+            (None, Some(c)) => self.finish_review(&rec, &c.checked_task).await,
+            (None, None) => return,
         };
         if let Err(e) = done {
             tracing::warn!(error = %format!("{e:#}"), session_id, "a draft's next step failed");
@@ -390,26 +496,55 @@ impl TurnRunner {
             .and_then(|p| self.tools.profiles.get(p).cloned())
     }
 
-    /// The draft ended: commit its tree, then open its review, or tell the
-    /// place that none can run.
+    /// The draft ended: commit its tree, then open its first pass when the
+    /// class has one, else its review, or tell the place that none can run.
     async fn open_review(&self, rec: &SessionRecord) -> Result<()> {
         let sid = rec.session_id.clone();
         let Some(mut d) = self.draft_of(&sid)? else {
             bail!("draft {sid} has no record");
         };
-        if d.settled || d.review.is_some() {
+        if d.settled || d.review.is_some() || first_pass::started(&d) {
             return Ok(());
         }
         let exec = rec.execution_id.clone().unwrap_or_default();
         let report = crate::task::load_report(&self.store, &self.kernel, &exec)?
             .context("the draft has no execution")?;
         let outcome = outcome_of(&report);
-        let tree = PathBuf::from(&d.tree);
+        let (tree, git_dir) = (d.tree.clone(), d.git_dir.clone());
         let message = format!("draft by {}", d.profile);
-        let made = tokio::task::spawn_blocking(move || commit(&tree, &message)).await??;
+        let made = tokio::task::spawn_blocking(move || {
+            commit(
+                &Pinned {
+                    tree: Path::new(&tree),
+                    git_dir: &git_dir,
+                },
+                &message,
+            )
+        })
+        .await??;
         d.draft_commit = Some(made);
         d.outcome = Some(outcome.into());
         d.draft_cost_usd = micros_to_usd(report.spent_micros);
+        if self
+            .start_first_pass(&sid, &mut d, outcome == "complete")
+            .await?
+        {
+            return Ok(());
+        }
+        self.launch_review(&sid, d)
+    }
+
+    /// Open the review of the draft `sid` (its record `d`, its commit made),
+    /// whatever its first pass found.
+    fn launch_review(&self, sid: &str, d: Draft) -> Result<()> {
+        let sid = sid.to_string();
+        let Some(rec) = self.store.get_session::<SessionRecord>(&sid)? else {
+            bail!("draft {sid} has no session");
+        };
+        let exec = rec.execution_id.unwrap_or_default();
+        let report = crate::task::load_report(&self.store, &self.kernel, &exec)?
+            .context("the draft has no execution")?;
+        let outcome = outcome_of(&report);
         let claim_text = match (&report.text, outcome) {
             (Some(t), "complete") => t.clone(),
             _ => format!(
@@ -425,6 +560,9 @@ impl TurnRunner {
             .kernel
             .execution(&d.parent_execution)?
             .context("the draft's conversation has no execution")?;
+        if parent.state.is_terminal() {
+            return self.unreviewed(&sid, d, "the conversation was cancelled");
+        }
         let want =
             parent.budget.available() / crate::task::DEFAULT_SHARE.1 * crate::task::DEFAULT_SHARE.0;
         let how = Opening {
@@ -488,7 +626,8 @@ impl TurnRunner {
     ) -> Result<(Vec<NewRecord>, theseus_protocol::TaskCheck)> {
         let sid = &task.session_id;
         let author = format!("session:{}", d.parent_session);
-        let text = brief(&review_header(&d.base), &d.asks);
+        let mut text = brief(&review_header(&d.base), &d.asks);
+        text.push_str(&first_pass::note(d.first_pass.as_ref()));
         let brief_node = Node::relayed(sid, None, Origin::Agent, &author, &text);
         let mut arrangement = Node::arrangement(sid, &author, vec![], false);
         if let Body::Arrangement { claim: c, .. } = &mut arrangement.body {
@@ -573,6 +712,7 @@ impl TurnRunner {
              to review it when that clears.",
             d.profile, d.branch
         );
+        d.settled = true;
         let row = crate::fact::draft::TaskDraft {
             draft_task: draft_session,
             draft_profile: &d.profile,
@@ -584,8 +724,8 @@ impl TurnRunner {
             tests_fixed_reported: None,
             applied: false,
             why,
+            first_pass: first_pass::passed(&d),
         };
-        d.settled = true;
         self.settle(draft_session, &d, &text, &row)
     }
 
@@ -635,6 +775,7 @@ impl TurnRunner {
                 d.profile, reviewer.profile
             ),
         };
+        d.settled = true;
         let row = crate::fact::draft::TaskDraft {
             draft_task: draft_session,
             draft_profile: &d.profile,
@@ -651,8 +792,8 @@ impl TurnRunner {
             tests_fixed_reported: report.text.as_deref().and_then(tests_fixed),
             applied,
             why: &why,
+            first_pass: first_pass::passed(&d),
         };
-        d.settled = true;
         self.settle(draft_session, &d, &text, &row)
     }
 

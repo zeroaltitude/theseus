@@ -26,6 +26,19 @@ pub struct TaskDraft<'a> {
     pub tests_fixed_reported: Option<u64>,
     pub applied: bool,
     pub why: &'a str,
+    /// The first-pass reviewer's task, profile, model, cost and outcome
+    /// (theseus-a1wvq.17): none when the class has none, or it did not run.
+    pub first_pass: Option<Passed<'a>>,
+}
+
+/// The first-pass half of a `task.draft` row.
+pub struct Passed<'a> {
+    pub task: &'a str,
+    pub profile: &'a str,
+    pub model: &'a str,
+    pub cost_usd: f64,
+    /// `complete`, `failed`, `cancelled`, `stopped` or `unfinished`.
+    pub outcome: &'a str,
 }
 
 /// The review half of a `task.draft` row.
@@ -41,6 +54,7 @@ impl Fact for TaskDraft<'_> {
 
     fn row(&self) -> Value {
         let r = self.review.as_ref();
+        let f = self.first_pass.as_ref();
         let mut row = json!({
             "draft_task": self.draft_task,
             "draft_profile": self.draft_profile,
@@ -51,6 +65,11 @@ impl Fact for TaskDraft<'_> {
             "review_profile": r.map(|r| r.profile),
             "review_model": r.map(|r| r.model),
             "review_cost_usd": r.map(|r| r.cost_usd),
+            "first_pass_task": f.map(|f| f.task),
+            "first_pass_profile": f.map(|f| f.profile),
+            "first_pass_model": f.map(|f| f.model),
+            "first_pass_cost_usd": f.map(|f| f.cost_usd),
+            "first_pass_outcome": f.map(|f| f.outcome),
             "lines_changed": self.lines_changed,
             "applied": self.applied,
             "why": self.why,
