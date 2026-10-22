@@ -47,6 +47,10 @@ unknown origin carries only what the open request cleared for that one request: 
 open, with none of the owner's private files, facts, preferences or memories, no home directory in a path, and no tool
 that would start work later. Any other request to such a model is refused before it is sent.
 
+Theseus's own replies are judged like your messages: a reply Jev is sure is open may stay in the run a China-origin
+model sees, so the next open message keeps its context; any other reply, or one not judged in time, ends the run. The
+reply text goes to Jev (the same judge your messages go to), never to the restricted model unless it was judged open.
+
 Such a model only drafts code: in its own copy of an open repository, with no programs, and a Claude model reviews and
 fixes the draft before anything is applied.
 

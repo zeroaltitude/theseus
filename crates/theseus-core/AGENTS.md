@@ -1689,6 +1689,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     workspace reads are private to routing and the open view (`turn/data_step.rs`), so the directory opens nothing; an
     open session holds no thread card, so `thread_spec` adds none of a thread's text to it.
     Tests: `tests_open_request.rs`, `tests_cn_follow.rs`.
+    **Replies in the run** (theseus-a1wvq.15): the run includes Theseus's own reply only when Jev's data question
+    (`reply_data.v1`, route.v7's `data` question about the reply, asked off the turn's path by `judge/reply_data.rs` for
+    a reply that continues an open run, a `data.reply` row each) judges it `open` at the act band; the write is a compare
+    and set on the stored run (`data::reply::lands`). Only a reply of text (and thinking) is asked about: one carrying a
+    call or any other block (a provider's own tool call and its result) is never asked. A missing, late, private,
+    unclear, below-act answer, a refused reservation, a taint or a moved run leaves the reply a run-ender. `admits` is
+    unchanged. Tests: `tests_reply_data.rs`.
     **Background calls** (theseus-a1wvq.10; `turn/compaction/gate.rs`): a compaction in an open request summarizes only a
     range its run clears (`data::clearance` over the nodes the summary renders and the run's last, the stored run until the
     turn's admission is read, and only for an open session: `stored_run`, theseus-pohih), with a pass of its own, and only such a summary joins the run (`Held.summaries`, read by
