@@ -38,6 +38,9 @@ struct Model {
     panes: Vec<Pane>,
     labels: std::collections::HashMap<String, String>,
     n: u32,
+    /// The workspace in front, and whether no client is attached to show a switch.
+    front: Option<String>,
+    detached: bool,
 }
 
 type Reply = Result<Value, (&'static str, String)>;
@@ -105,7 +108,8 @@ impl Model {
 
     fn ws_info(&self, number: usize, id: &str, label: &str) -> Value {
         let tabs = self.tab_ids(id);
-        json!({"workspace_id": id, "number": number, "label": label, "focused": false,
+        json!({"workspace_id": id, "number": number, "label": label,
+               "focused": self.front.as_deref() == Some(id),
                "pane_count": self.panes.iter().filter(|p| p.ws == id).count(),
                "tab_count": tabs.len(), "active_tab_id": tabs.first().cloned().unwrap_or_default(),
                "agent_status": "idle"})
@@ -136,6 +140,18 @@ impl Model {
                 let number = self.workspaces.len();
                 json!({"type": "workspace_created", "workspace": self.ws_info(number, &ws, &label),
                        "tab": self.tab_info(&pane.tab), "root_pane": Self::pane_info(&pane)})
+            }
+            "workspace.focus" => {
+                let id = p["workspace_id"].as_str().unwrap_or_default().to_string();
+                if !self.detached {
+                    self.front = Some(id.clone());
+                }
+                let label = self.workspaces.iter().find(|(i, _)| *i == id);
+                let number = self.workspaces.iter().position(|(i, _)| *i == id);
+                let (Some((_, label)), Some(number)) = (label, number) else {
+                    return Err(("workspace_not_found", format!("workspace {id} not found")));
+                };
+                json!({"type": "workspace_info", "workspace": self.ws_info(number + 1, &id, label)})
             }
             "pane.list" => {
                 let panes: Vec<Value> = self.panes.iter().map(Self::pane_info).collect();
@@ -857,6 +873,44 @@ fn boot_makes_the_board_tab_and_exits() {
         "a second boot wrote: {methods:?}"
     );
     assert_eq!(herdr.tab_labels(), ["main", "board"]);
+}
+
+/// `up` from a shell brings the `theseus` workspace to the front and says which; with no client
+/// attached it says how to attach; `--no-focus` and the startup hook leave the front alone; a
+/// second `up` finds it in front and sends only reads (theseus-v54l9).
+#[test]
+fn herdr_up_focuses_the_theseus_workspace_and_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path(), Model::default());
+    let daemon = FakeDaemon::start(dir.path(), vec![]);
+    let out = up_with(&daemon, &herdr, &["--follow"]);
+    assert_eq!(herdr.requests("workspace.focus").len(), 1, "{out}");
+    assert!(
+        out.contains("herdr: switched to workspace 1 (theseus)"),
+        "{out}"
+    );
+    assert!(out.contains("returns now"), "{out}");
+    herdr.clear();
+    let out = up_with(&daemon, &herdr, &["--follow"]);
+    assert!(herdr.requests("workspace.focus").is_empty(), "{out}");
+    // No client attached: the call is made, nothing shows, and the line says how to attach.
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(
+        dir.path(),
+        Model {
+            detached: true,
+            ..Model::default()
+        },
+    );
+    let out = up_with(&daemon, &herdr, &["--follow"]);
+    assert!(out.contains("run `herdr` to attach"), "{out}");
+    // The owner's choice, and herdr's own startup hook, never move the front.
+    for args in [&["--follow", "--no-focus"][..], &["--boot"][..]] {
+        let dir = tempfile::tempdir().unwrap();
+        let herdr = FakeHerdr::start(dir.path(), Model::default());
+        up_with(&daemon, &herdr, args);
+        assert!(herdr.requests("workspace.focus").is_empty(), "{args:?}");
+    }
 }
 
 /// After a herdr restart the workspace is back as shells without tokens: boot closes them, and
