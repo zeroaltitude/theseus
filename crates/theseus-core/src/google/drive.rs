@@ -29,7 +29,8 @@ use theseus_tools::{
 };
 
 use super::external::{finish, Finished, Source};
-use super::{CallFailed, Called, Google, Meta};
+use super::sheets::{failed, refused, with_rows};
+use super::{Called, Google, Meta};
 
 pub const FIND: &str = "drive.find";
 pub const READ: &str = "drive.read";
@@ -104,6 +105,8 @@ struct WriteArgs {
     r#as: Option<String>,
     move_to: Option<String>,
     rename: Option<String>,
+    #[serde(default)]
+    into_shared: bool,
 }
 
 #[derive(Deserialize)]
@@ -167,6 +170,27 @@ fn type_word(mime: &str) -> &str {
     }
 }
 
+/// Whether `q`'s parentheses and single quotes (with `\'` escapes) pair up, so
+/// wrapping it in parentheses keeps it one group.
+fn balanced(q: &str) -> bool {
+    let (mut depth, mut quoted, mut chars) = (0u32, false, q.chars());
+    while let Some(c) = chars.next() {
+        match (quoted, c) {
+            (true, '\\') => {
+                chars.next();
+            }
+            (_, '\'') => quoted = !quoted,
+            (false, '(') => depth += 1,
+            (false, ')') => match depth.checked_sub(1) {
+                Some(d) => depth = d,
+                None => return false,
+            },
+            _ => {}
+        }
+    }
+    depth == 0 && !quoted
+}
+
 /// `find`'s `q`: the raw `q` and each typed field, all of them and not trashed.
 pub fn compile_q(
     q: Option<&str>,
@@ -177,6 +201,11 @@ pub fn compile_q(
 ) -> Result<String, String> {
     let mut parts = Vec::new();
     if let Some(q) = q.filter(|q| !q.trim().is_empty()) {
+        if !balanced(q) {
+            return Err(format!(
+                "`q` has unbalanced parentheses or quotes: {q:?} (a parenthesis inside a quoted string is fine)"
+            ));
+        }
         parts.push(format!("({q})"));
     }
     if let Some(t) = text {
@@ -250,14 +279,6 @@ impl Info {
             if self.shared { "" } else { "not " },
             self.link
         )
-    }
-}
-
-/// A call's failure as the tool's: the words, and the row in its meta.
-fn failed(f: CallFailed) -> ToolFailure {
-    ToolFailure {
-        message: f.message,
-        meta: json!({"private": true, "google_called": f.row, "outcome_unknown": f.unknown}),
     }
 }
 
@@ -364,9 +385,8 @@ impl Tool for DriveTool {
                  needs `save_to`. Private; outside text unless the owner's own and unshared."
             }
             Op::Write => {
-                "Write to Drive. No `id`: create `name` from `content` or workspace `from_path` (.md \
-                 is a Doc, .csv a Sheet; `as` sets it). With `id`: replace content, \
-                 `move_to`, or `rename`."
+                "No `id`: create `name` from `content` or `from_path` (.md Doc, .csv Sheet). With \
+                 `id`: replace/`move_to`/`rename`. `into_shared` asks owner."
             }
             Op::Share => {
                 "Share a Drive file with `email` or `anyone_with_link` as `role`, `remove` that \
@@ -410,7 +430,8 @@ impl Tool for DriveTool {
                     "from_path": {"type": "string"},
                     "as": {"type": "string", "enum": ["doc", "sheet", "raw"]},
                     "move_to": {"type": "string"},
-                    "rename": {"type": "string"}
+                    "rename": {"type": "string"},
+                    "into_shared": {"type": "boolean"}
                 },
                 "additionalProperties": false
             }),
@@ -477,9 +498,18 @@ impl Tool for DriveTool {
             }
             Op::Write => {
                 let w = Writing::of(input, ctx)?;
+                let asks = w.into_shared;
                 Ok(Plan {
                     summary: w.summary(),
                     resources: w.from.iter().map(|p| resource(p, Access::Read)).collect(),
+                    class: asks.then_some(ToolClass::Write),
+                    authority: asks.then(|| {
+                        format!(
+                            "{}, into a shared folder, which shares the file with its members, so \
+                             the owner decides it, every time, at every posture",
+                            w.summary()
+                        )
+                    }),
                     ..Default::default()
                 })
             }
@@ -551,8 +581,20 @@ fn meta(tool: &'static str, method: &str, id: Option<&str>, class: &'static str)
     }
 }
 
-async fn call(g: &Google, m: Meta, req: Request) -> Result<Called, ToolFailure> {
-    g.call(m, req).await.map_err(failed)
+/// One call, its row kept in `rows`; a failure carries every row so far.
+async fn call(
+    g: &Google,
+    rows: &mut Vec<Value>,
+    m: Meta,
+    req: Request,
+) -> Result<Called, ToolFailure> {
+    match g.call(m, req).await {
+        Ok(done) => {
+            rows.push(done.row.clone());
+            Ok(done)
+        }
+        Err(f) => Err(failed(f, std::mem::take(rows), "")),
+    }
 }
 
 // -------------------------------------------------------------------- find
@@ -592,8 +634,10 @@ impl Find {
         if self.recent {
             query.push(("orderBy", "modifiedTime desc"));
         }
+        let mut rows = Vec::new();
         let done = call(
             g,
+            &mut rows,
             meta(FIND, "drive.files.list", None, "read"),
             get("/drive/v3/files".into(), &query),
         )
@@ -618,13 +662,8 @@ impl Find {
                 label: "drive:find",
             }
         };
-        Ok(finish(
-            g.account(),
-            text,
-            json!({"files": files.len(), "q": self.q}),
-            done.row,
-            source,
-        ))
+        let (m, row) = with_rows(json!({"files": files.len(), "q": self.q}), rows);
+        Ok(finish(g.account(), text, m, row, source))
     }
 }
 
@@ -649,8 +688,10 @@ impl Reading {
     async fn run(self, g: &Google, umask: Option<u32>) -> Result<Finished, ToolFailure> {
         let id = self.id.as_str();
         let file = format!("/drive/v3/files/{id}");
+        let mut rows = Vec::new();
         let info = call(
             g,
+            &mut rows,
             meta(READ, "drive.files.get", Some(id), "read"),
             get(
                 file.clone(),
@@ -659,90 +700,117 @@ impl Reading {
         )
         .await?;
         let i = Info::of(&info.response.json());
-        let (bytes, row) = match i.mime.as_str() {
+        let bytes = match i.mime.as_str() {
             FOLDER => {
-                return Err(ToolFailure::new(format!(
-                    "{} is a folder: `drive.find` with folder={id} lists it",
-                    i.name
-                )))
+                return Err(refused(
+                    format!(
+                        "{} is a folder: `drive.find` with folder={id} lists it",
+                        i.name
+                    ),
+                    rows,
+                ))
             }
             DOC => {
                 let d = call(
                     g,
+                    &mut rows,
                     meta(READ, "drive.files.export", Some(id), "read"),
                     get(format!("{file}/export"), &[("mimeType", "text/markdown")]),
                 )
                 .await?;
-                (d.response.body, d.row)
+                d.response.body
             }
-            SHEET => {
-                let (table, row) = self.sheet(g).await?;
-                (table.into_bytes(), row)
-            }
-            SLIDES => {
-                let (text, row) = self.slides(g).await?;
-                (text.into_bytes(), row)
-            }
+            SHEET => self.sheet(g, &mut rows).await?.into_bytes(),
+            SLIDES => self.slides(g, &mut rows).await?.into_bytes(),
             m if m.starts_with("application/vnd.google-apps.") => {
-                return Err(ToolFailure::new(format!(
-                    "{} is a Google {}: it has no text read here; `google.call` with \
-                     drive.files.export reads it in a format Drive offers",
-                    i.name,
-                    m.rsplit('.').next().unwrap_or(m)
-                )))
+                return Err(refused(
+                    format!(
+                        "{} is a Google {}: it has no text read here; `google.call` with \
+                         drive.files.export reads it in a format Drive offers",
+                        i.name,
+                        m.rsplit('.').next().unwrap_or(m)
+                    ),
+                    rows,
+                ))
             }
             _ => {
                 if i.size > INLINE_MAX && self.save_to.is_none() {
-                    return Err(ToolFailure::new(format!(
-                        "{} is {} bytes, over 1 MB: `save_to` writes it to a workspace path",
-                        i.name, i.size
-                    )));
+                    return Err(refused(
+                        format!(
+                            "{} is {} bytes, over 1 MB: `save_to` writes it to a workspace path",
+                            i.name, i.size
+                        ),
+                        rows,
+                    ));
                 }
                 let d = call(
                     g,
+                    &mut rows,
                     meta(READ, "drive.files.get", Some(id), "read"),
                     get(file, &[("alt", "media"), ("supportsAllDrives", "true")]),
                 )
                 .await?;
-                (d.response.body, d.row)
+                d.response.body
             }
         };
         let head = format!("{} ({}, {})", i.name, type_word(&i.mime), i.id);
         let mut m = json!({"id": i.id, "name": i.name, "mime": i.mime, "bytes": bytes.len()});
-        let text = match &self.save_to {
-            Some(path) => {
-                let (p, b) = (path.clone(), bytes.clone());
-                theseus_store::blocking(move || theseus_tools::fs::write_atomic(&p, &b, umask))
-                    .map_err(|e| {
-                        ToolFailure::new(format!("{head}; writing {}: {e}", path.display()))
-                    })?;
-                m["saved_to"] = json!(path);
-                format!("{head}: {} bytes written to {}\n", bytes.len(), path.display())
-            }
-            None => match String::from_utf8(bytes) {
-                Ok(t) if (t.len() as u64) <= INLINE_MAX => format!("{head}\n\n{t}\n"),
-                Ok(t) => {
-                    return Err(ToolFailure::new(format!(
-                        "{head} is {} bytes of text, over 1 MB: `save_to` writes it to a workspace path",
-                        t.len()
-                    )))
-                }
-                Err(_) => {
-                    return Err(ToolFailure::new(format!(
-                        "{head} is not text: `save_to` writes it to a workspace path"
-                    )))
-                }
-            },
-        };
+        let text = self.shown(&head, bytes, &mut m, umask, &mut rows)?;
+        let (m, row) = with_rows(m, rows);
         Ok(finish(g.account(), text, m, row, i.source()))
     }
 
+    /// The result's text: the file saved to `save_to`, or its text whole.
+    fn shown(
+        &self,
+        head: &str,
+        bytes: Vec<u8>,
+        m: &mut Value,
+        umask: Option<u32>,
+        rows: &mut Vec<Value>,
+    ) -> Result<String, ToolFailure> {
+        match &self.save_to {
+            Some(path) => {
+                let (p, b) = (path.clone(), bytes.clone());
+                if let Err(e) =
+                    theseus_store::blocking(move || theseus_tools::fs::write_atomic(&p, &b, umask))
+                {
+                    return Err(refused(
+                        format!("{head}; writing {}: {e}", path.display()),
+                        std::mem::take(rows),
+                    ));
+                }
+                m["saved_to"] = json!(path);
+                Ok(format!("{head}: {} bytes written to {}\n", bytes.len(), path.display()))
+            }
+            None => match String::from_utf8(bytes) {
+                Ok(t) if (t.len() as u64) <= INLINE_MAX => Ok(format!("{head}\n\n{t}\n")),
+                Ok(t) => {
+                    Err(refused(
+                        format!(
+                            "{head} is {} bytes of text, over 1 MB: `save_to` writes it to a workspace path",
+                            t.len()
+                        ),
+                        std::mem::take(rows),
+                    ))
+                }
+                Err(_) => {
+                    Err(refused(
+                        format!("{head} is not text: `save_to` writes it to a workspace path"),
+                        std::mem::take(rows),
+                    ))
+                }
+            },
+        }
+    }
+
     /// A Sheet: its tabs, then the first rows of the first tab, or `range`.
-    async fn sheet(&self, g: &Google) -> Result<(String, Value), ToolFailure> {
+    async fn sheet(&self, g: &Google, rows: &mut Vec<Value>) -> Result<String, ToolFailure> {
         let id = self.id.as_str();
         let base = format!("/v4/spreadsheets/{id}");
         let tabs = call(
             g,
+            rows,
             meta(READ, "sheets.spreadsheets.get", Some(id), "read"),
             sent(
                 Service::Sheets,
@@ -773,10 +841,13 @@ impl Reading {
         let range = match (&self.range, titles.first()) {
             (Some(r), _) => r.clone(),
             (None, Some((t, ..))) => format!("{}!1:{SHEET_ROWS}", quote_tab(t)),
-            (None, None) => return Err(ToolFailure::new("the spreadsheet has no tabs")),
+            (None, None) => {
+                return Err(refused("the spreadsheet has no tabs", std::mem::take(rows)))
+            }
         };
         let vals = call(
             g,
+            rows,
             meta(
                 READ,
                 "sheets.spreadsheets.values.batchGet",
@@ -808,16 +879,17 @@ impl Reading {
             v["valueRanges"][0]["range"].as_str().unwrap_or(&range),
             table(&rows)
         ));
-        Ok((out, vals.row))
+        Ok(out)
     }
 
     /// Slides: each slide's text by object id, with its layout.
-    async fn slides(&self, g: &Google) -> Result<(String, Value), ToolFailure> {
+    async fn slides(&self, g: &Google, rows: &mut Vec<Value>) -> Result<String, ToolFailure> {
         let id = self.id.as_str();
         const MASK: &str = "slides(objectId,slideProperties(layoutObjectId),pageElements(objectId,\
             shape(text(textElements(textRun(content)))))),layouts(objectId,layoutProperties(displayName))";
         let d = call(
             g,
+            rows,
             meta(READ, "slides.presentations.get", Some(id), "read"),
             sent(
                 Service::Slides,
@@ -875,7 +947,7 @@ impl Reading {
             }
             out.push('\n');
         }
-        Ok((out, d.row))
+        Ok(out)
     }
 }
 
@@ -927,6 +999,8 @@ struct Writing {
     media: &'static str,
     move_to: Option<String>,
     rename: Option<String>,
+    /// The owner is asked, so a shared `folder` or `move_to` is allowed.
+    into_shared: bool,
 }
 
 impl Writing {
@@ -1005,6 +1079,7 @@ impl Writing {
                 .transpose()?
                 .map(String::from),
             rename: a.rename,
+            into_shared: a.into_shared,
         })
     }
 
@@ -1055,9 +1130,10 @@ impl Writing {
 
     async fn run(self, g: &Google) -> Result<Finished, ToolFailure> {
         let bytes = self.body()?;
+        let mut rows = Vec::new();
         let (done, what) = match &self.id {
-            None => (self.create(g, bytes).await?, "created"),
-            Some(id) => (self.change(g, id, bytes).await?, "changed"),
+            None => (self.create(g, &mut rows, bytes).await?, "created"),
+            Some(id) => (self.change(g, &mut rows, id, bytes).await?, "changed"),
         };
         let i = Info::of(&done.response.json());
         let text = format!(
@@ -1068,11 +1144,57 @@ impl Writing {
             i.link
         );
         let m = json!({"id": i.id, "name": i.name, "mime": i.mime});
+        let (m, row) = with_rows(m, rows);
         // The owner's own write: no one else's text came back.
-        Ok(finish(g.account(), text, m, done.row, Source::None))
+        Ok(finish(g.account(), text, m, row, Source::None))
     }
 
-    async fn create(&self, g: &Google, bytes: Option<Vec<u8>>) -> Result<Called, ToolFailure> {
+    /// A file put into a shared folder (or a shared drive) is shared with its
+    /// members: refused before anything is written, unless the owner was asked.
+    async fn shared_target(
+        &self,
+        g: &Google,
+        rows: &mut Vec<Value>,
+        folder: &str,
+    ) -> Result<(), ToolFailure> {
+        if self.into_shared {
+            return Ok(());
+        }
+        let got = call(
+            g,
+            rows,
+            meta(WRITE, "drive.files.get", Some(folder), "read"),
+            get(
+                format!("/drive/v3/files/{folder}"),
+                &[
+                    ("fields", "shared,driveId,mimeType"),
+                    ("supportsAllDrives", "true"),
+                ],
+            ),
+        )
+        .await?;
+        let f = got.response.json();
+        if f["shared"] == true || f["driveId"].as_str().is_some_and(|d| !d.is_empty()) {
+            return Err(refused(
+                format!(
+                    "{folder} is shared: a file put there is shared with its members. \
+                     `into_shared: true` asks the owner first, or `drive.share` shares the file itself."
+                ),
+                std::mem::take(rows),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn create(
+        &self,
+        g: &Google,
+        rows: &mut Vec<Value>,
+        bytes: Option<Vec<u8>>,
+    ) -> Result<Called, ToolFailure> {
+        if let Some(f) = &self.folder {
+            self.shared_target(g, rows, f).await?;
+        }
         let mut m = json!({"name": self.name});
         if let Some(t) = self.target {
             m["mimeType"] = t.into();
@@ -1115,15 +1237,19 @@ impl Writing {
                 )
             }
         };
-        call(g, meta, req).await
+        call(g, rows, meta, req).await
     }
 
     async fn change(
         &self,
         g: &Google,
+        rows: &mut Vec<Value>,
         id: &str,
         bytes: Option<Vec<u8>>,
     ) -> Result<Called, ToolFailure> {
+        if let Some(to) = &self.move_to {
+            self.shared_target(g, rows, to).await?;
+        }
         let query = [("fields", FIELDS), ("supportsAllDrives", "true")];
         // One read of the file, when a replace of inline content needs its type
         // (a native Doc converts only markdown, a Sheet only CSV: plain text
@@ -1131,6 +1257,7 @@ impl Writing {
         let cur = if (bytes.is_some() && self.from.is_none()) || self.move_to.is_some() {
             let got = call(
                 g,
+                rows,
                 meta(WRITE, "drive.files.get", Some(id), "read"),
                 get(
                     format!("/drive/v3/files/{id}"),
@@ -1165,7 +1292,15 @@ impl Writing {
                 },
                 Repeat::Safe,
             );
-            done = Some(call(g, meta(WRITE, "drive.files.update", Some(id), "write"), req).await?);
+            done = Some(
+                call(
+                    g,
+                    rows,
+                    meta(WRITE, "drive.files.update", Some(id), "write"),
+                    req,
+                )
+                .await?,
+            );
         }
         if self.move_to.is_some() || self.rename.is_some() {
             // A move adds the new parent and removes the ones the file has.
@@ -1201,9 +1336,17 @@ impl Writing {
                 Body::Json(body),
                 Repeat::Safe,
             );
-            done = Some(call(g, meta(WRITE, "drive.files.update", Some(id), "write"), req).await?);
+            done = Some(
+                call(
+                    g,
+                    rows,
+                    meta(WRITE, "drive.files.update", Some(id), "write"),
+                    req,
+                )
+                .await?,
+            );
         }
-        done.ok_or_else(|| ToolFailure::new("nothing to change"))
+        done.ok_or_else(|| refused("nothing to change", std::mem::take(rows)))
     }
 }
 
@@ -1307,7 +1450,8 @@ impl Sharing {
     async fn run(self, g: &Google) -> Result<Finished, ToolFailure> {
         let id = self.id.as_str();
         let files = format!("/drive/v3/files/{id}");
-        let done = match &self.change {
+        let mut rows = Vec::new();
+        match &self.change {
             Change::Trash(t) => {
                 let req = sent(
                     Service::Drive,
@@ -1319,10 +1463,11 @@ impl Sharing {
                 );
                 call(
                     g,
+                    &mut rows,
                     meta(SHARE, "drive.files.update", Some(id), "authority"),
                     req,
                 )
-                .await?
+                .await?;
             }
             Change::Grant { who, role, notify } => {
                 let body = match who {
@@ -1343,14 +1488,16 @@ impl Sharing {
                 );
                 call(
                     g,
+                    &mut rows,
                     meta(SHARE, "drive.permissions.create", Some(id), "authority"),
                     req,
                 )
-                .await?
+                .await?;
             }
             Change::Revoke(who) => {
                 let list = call(
                     g,
+                    &mut rows,
                     meta(SHARE, "drive.permissions.list", Some(id), "read"),
                     get(
                         format!("{files}/permissions"),
@@ -1373,10 +1520,11 @@ impl Sharing {
                             })
                             .and_then(|p| p["id"].as_str().map(String::from))
                     });
-                let pid = found.ok_or_else(|| {
-                    ToolFailure::new(format!("{}: no such access to remove", self.summary()))
-                })?;
-                let pid = id_of(&pid).map_err(ToolFailure::new)?;
+                let Some(pid) = found else {
+                    let said = format!("{}: no such access to remove", self.summary());
+                    return Err(refused(said, rows));
+                };
+                let pid = id_of(&pid).map_err(|e| refused(e, std::mem::take(&mut rows)))?;
                 let req = sent(
                     Service::Drive,
                     "DELETE",
@@ -1387,19 +1535,15 @@ impl Sharing {
                 );
                 call(
                     g,
+                    &mut rows,
                     meta(SHARE, "drive.permissions.delete", Some(id), "authority"),
                     req,
                 )
-                .await?
+                .await?;
             }
-        };
+        }
         let text = format!("done: {}\n", self.summary());
-        Ok(finish(
-            g.account(),
-            text,
-            json!({"id": id}),
-            done.row,
-            Source::None,
-        ))
+        let (m, row) = with_rows(json!({"id": id}), rows);
+        Ok(finish(g.account(), text, m, row, Source::None))
     }
 }

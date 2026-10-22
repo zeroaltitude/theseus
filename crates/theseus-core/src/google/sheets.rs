@@ -74,6 +74,16 @@ pub(super) fn failed(f: CallFailed, earlier: Vec<Value>, note: &str) -> ToolFail
     }
 }
 
+/// An error after the calls in `rows` went through: no call of its own failed.
+pub(super) fn refused(message: impl Into<String>, rows: Vec<Value>) -> ToolFailure {
+    let (mut meta, last) = with_rows(json!({"private": true}), rows);
+    meta["google_called"] = last;
+    ToolFailure {
+        message: message.into(),
+        meta,
+    }
+}
+
 /// A result's meta with every call's row: the last is the result's own.
 pub(super) fn with_rows(mut meta: Value, mut rows: Vec<Value>) -> (Value, Value) {
     let last = rows.pop().unwrap_or(Value::Null);
@@ -477,7 +487,9 @@ impl Tool for Write {
                         .map_err(|f| failed(f, vec![], ""))?;
                     rows.push(made.row);
                     let j = made.response.json();
-                    let id = j["spreadsheetId"].as_str().unwrap_or("").to_string();
+                    let Some(id) = j["spreadsheetId"].as_str().map(String::from) else {
+                        return Err(refused("the create answer named no spreadsheet id", rows));
+                    };
                     note = format!("The spreadsheet {id} was created, but writing to it failed: ");
                     (id, j["spreadsheetUrl"].as_str().map(String::from))
                 }

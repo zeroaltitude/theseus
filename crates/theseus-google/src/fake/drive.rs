@@ -14,6 +14,7 @@ use crate::http1::Req;
 pub const DOC: &str = "application/vnd.google-apps.document";
 pub const SHEET: &str = "application/vnd.google-apps.spreadsheet";
 pub const SLIDES: &str = "application/vnd.google-apps.presentation";
+pub const FOLDER: &str = "application/vnd.google-apps.folder";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Content {
@@ -63,6 +64,10 @@ impl File {
 
     pub fn doc(id: &str, name: &str, markdown: &str) -> File {
         File::new(id, name, DOC, Content::Bytes(markdown.as_bytes().to_vec()))
+    }
+
+    pub fn folder(id: &str, name: &str) -> File {
+        File::new(id, name, FOLDER, Content::Bytes(Vec::new()))
     }
 
     pub fn binary(id: &str, name: &str, mime: &str, bytes: Vec<u8>) -> File {
