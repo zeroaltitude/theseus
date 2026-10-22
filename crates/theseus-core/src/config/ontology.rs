@@ -30,6 +30,11 @@
 //!   category whether it holds two; a call whose worst case would pass what
 //!   is left of the day's cap is not begun. 0 turns the model's part off and
 //!   the deterministic sweep still runs: that is its rollback.
+//! - `dream_guidance`: after the nightly consolidation, a category a machine
+//!   wrote that five private sessions hold and that has no guidance gets its
+//!   first, written by the dream (theseus-olt3h; `consolidate/guidance.rs`),
+//!   under `[memory] synth_limit_usd_per_day`. On by default; off is its
+//!   rollback (theseus-23wd8): nothing is read, called or written.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -55,6 +60,8 @@ pub struct OntologyConfig {
     pub sweep: bool,
     #[serde(default = "default_sweep_usd_per_day")]
     pub sweep_usd_per_day: f64,
+    #[serde(default = "default_dream_guidance")]
+    pub dream_guidance: bool,
 }
 
 /// Which request carries `onto.v1`.
@@ -72,6 +79,9 @@ fn default_judge() -> bool {
     true
 }
 fn default_sweep() -> bool {
+    true
+}
+fn default_dream_guidance() -> bool {
     true
 }
 fn default_sweep_usd_per_day() -> f64 {
@@ -102,6 +112,7 @@ impl Default for OntologyConfig {
             private_mark: false,
             sweep: default_sweep(),
             sweep_usd_per_day: default_sweep_usd_per_day(),
+            dream_guidance: default_dream_guidance(),
         }
     }
 }
