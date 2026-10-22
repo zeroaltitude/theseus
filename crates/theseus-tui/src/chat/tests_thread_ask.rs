@@ -261,6 +261,34 @@ async fn a_placed_threads_other_turn_does_not_ask_in_this_chat() {
     r.shows("y yes").await;
 }
 
+/// A task change of another turn of the placed thread's session is not
+/// counted in this chat; one with no turn (a background worker's) is.
+#[tokio::test(start_paused = true)]
+async fn a_placed_threads_other_turns_task_is_not_shown_but_a_workers_is() {
+    use theseus_protocol::tasks::{TaskChanged, TaskRecord, TaskState};
+    let task = |turn: Option<&str>| {
+        Event::TaskChanged(TaskChanged {
+            session_id: PLACED.into(),
+            verb: "update".into(),
+            turn_id: turn.map(str::to_string),
+            task: TaskRecord {
+                id: "tsk_1".into(),
+                state: TaskState::InProgress,
+                ..Default::default()
+            },
+        })
+    };
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.tell(task(Some("turn_other")));
+    r.advance(300).await;
+    assert!(!r.text().contains("1 task"), "{}", r.text());
+    r.tell(task(None));
+    r.until("the worker's task", |r| r.text().contains("◐ 1 task"))
+        .await;
+}
+
 /// After a reconnect the work board is watched again with the placed
 /// thread's session among its roots (theseus-axgln).
 #[tokio::test(start_paused = true)]
