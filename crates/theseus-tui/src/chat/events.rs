@@ -309,7 +309,10 @@ impl Chat {
                     if title.is_empty() { "untitled" } else { title }
                 )
             });
-        self.say_plain(Sty::Dim, &head);
+        // Coming back from a task, `back in main` says where we are: no head of its own.
+        if self.back.is_none() {
+            self.say_plain(Sty::Dim, &head);
+        }
         self.earlier = None;
         if folded > 0 {
             self.earlier = h.nodes.get(from).map(|n| n.position);

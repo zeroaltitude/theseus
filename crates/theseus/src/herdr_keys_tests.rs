@@ -166,13 +166,13 @@ fn next_is_the_task_that_has_waited_longest() {
     assert!(pane_of(&panes, "ses_none").is_none());
 }
 
-/// `stop` cancels a task by its short id and halts a conversation by its session; a pane that is
+/// `stop` cancels a task by its session id and halts a conversation by its session; a pane that is
 /// not Theseus's stops nothing.
 #[test]
 fn stop_is_cancel_for_a_task_and_halt_for_a_conversation() {
     assert_eq!(
-        stop_for(&json!({"kind": "task", "session": "ses_a", "task": "a1b2c3"})),
-        Some(Stop::Cancel("a1b2c3".into()))
+        stop_for(&json!({"kind": "task", "session": "ses_a", "task": "[walkthrough] drift"})),
+        Some(Stop::Cancel("ses_a".into()))
     );
     assert_eq!(
         stop_for(&json!({"kind": "conversation", "session": "ses_a"})),
@@ -197,8 +197,30 @@ fn plugin_says_where_it_is_and_how_to_link_it() {
         "{lines:?}"
     );
     assert!(plugin_dir(std::path::Path::new("/nowhere"))
+        .unwrap()
         .join("herdr-plugin.toml")
         .is_file());
+}
+
+/// A directory is named only when it holds the plugin: with none, the lines say where they looked.
+#[test]
+fn plugin_dir_names_only_a_directory_that_holds_the_plugin() {
+    if let Some(dir) = plugin_dir(std::path::Path::new("/nowhere/bin/theseus")) {
+        assert!(dir.join("herdr-plugin.toml").is_file(), "{dir:?}");
+    }
+    let candidates = plugin_candidates(std::path::Path::new("/nowhere/bin/theseus"));
+    assert!(candidates.iter().any(|c| c.starts_with("/nowhere")));
+    // The same lines, when no candidate holds the plugin.
+    let lines = plugin_lines_for(None, &candidates);
+    assert!(lines[0].contains("found no plugin directory"), "{lines:?}");
+    assert!(
+        lines[1].contains("/nowhere/bin/contrib/herdr/theseus"),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().all(|l| !l.starts_with("link it once")),
+        "{lines:?}"
+    );
 }
 
 /// prefix+i reads the focused pane's task, and nothing else's.
@@ -264,4 +286,36 @@ fn pause_holds_nothing_that_is_not_a_task_at_work() {
         .map_err(words)
         .unwrap_err()
         .contains("is over"));
+}
+
+/// The tokens a task pane holds, as `herdr_slots::slots` writes them, as `pane.get` returns them.
+fn pane_tokens(name: &str, session: &str, kind: theseus_protocol::SessionKind) -> Value {
+    let facts = crate::herdr_slots::Facts {
+        kind: Some(kind),
+        session_id: session.into(),
+        name: name.into(),
+        ..Default::default()
+    };
+    let slots = crate::herdr_slots::slots(None, &facts, 1_000);
+    let map: serde_json::Map<String, Value> = slots
+        .tokens
+        .into_iter()
+        .filter_map(|(k, v)| v.map(|v| (k.to_string(), Value::String(v))))
+        .collect();
+    Value::Object(map)
+}
+
+/// A task pane's `task` token is its title: stop cancels by the session the pane also carries.
+#[test]
+fn stop_cancels_a_task_pane_by_its_session() {
+    let tokens = pane_tokens(
+        "[walkthrough] drift",
+        "ses_01a1772ee8",
+        theseus_protocol::SessionKind::Task,
+    );
+    assert_eq!(tokens["task"], "[walkthrough] drift");
+    assert_eq!(
+        stop_for(&tokens),
+        Some(Stop::Cancel("ses_01a1772ee8".into()))
+    );
 }

@@ -540,9 +540,14 @@ impl Chat {
         )]
     }
 
-    /// Esc: with the line empty, back to the conversation. Nothing stops.
+    /// Esc: with the line empty, back to the conversation, or out of a `--inspect` popup, which
+    /// is a read-only look with no conversation of its own. Nothing stops.
     pub(super) fn view_escape(&mut self) -> Vec<Effect> {
         if self.editor.is_empty() {
+            let popup = matches!(self.cfg.task, Some((_, false)));
+            if popup && self.view.as_ref().is_some_and(|v| !v.join) {
+                return vec![Effect::Quit];
+            }
             return self.return_main();
         }
         Vec::new()

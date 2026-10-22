@@ -3294,7 +3294,7 @@ impl TurnRunner {
             cites,
             thread: None,
             filed: None,
-            inspect_url: Some(self.cfg.cockpit.turn_url(t.tc.session_id, t.tc.turn_id)),
+            inspect_url: self.cfg.cockpit.turn_link(t.tc.session_id, t.tc.turn_id),
         };
         self.defer_ended(&mut t);
         self.initiative_rows(&mut t, &result);

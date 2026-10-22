@@ -90,12 +90,18 @@ fn patch_files(patch: &str) -> Vec<String> {
 /// tides.py`, `Read README.md`, `Search for `retry` in src/`. A tool this does
 /// not know is its name and its argument.
 pub fn summarize(tool: &str, input: &Value) -> String {
-    let arg = argument(tool, input);
+    // A call whose input was never seen (a late result's end) has no argument to say.
+    let arg = if input.is_null() {
+        String::new()
+    } else {
+        argument(tool, input)
+    };
     let path = || text(input, "path").unwrap_or_else(|| arg.clone());
     let quoted = |k: &str| text(input, k).map(|p| format!("`{}`", p.replace('`', "'")));
     let line = match tool {
         "proc.run" => match input.get("steps").and_then(Value::as_array) {
             Some(steps) if input.get("argv").is_none() => format!("Run {} commands", steps.len()),
+            _ if arg.is_empty() => "Run a command".to_string(),
             _ => format!("Run `{arg}`"),
         },
         "fs.read" => format!("Read {}", path()),
@@ -134,6 +140,7 @@ pub fn summarize(tool: &str, input: &Value) -> String {
         "term.read" => format!("Read terminal {arg}"),
         "term.close" => format!("Close terminal {arg}"),
         "job.read" => format!("Read job {arg}"),
+        "job.wait" if arg.is_empty() => "Wait for a job".to_string(),
         "job.wait" => format!("Wait for job {arg}"),
         "job.stop" => format!("Stop job {arg}"),
         "plan.present" => {
@@ -191,6 +198,13 @@ mod tests {
         assert_eq!(cut("héllo", 2), "hé");
         assert_eq!(cut("hi", 9), "hi");
         assert_eq!(cut(&"x".repeat(300), 200).chars().count(), 200);
+    }
+
+    /// A call whose input was never seen says what it is, never `Run `null``.
+    #[test]
+    fn a_call_with_no_input_is_said_without_an_argument() {
+        assert_eq!(summarize("proc.run", &Value::Null), "Run a command");
+        assert_eq!(summarize("job.wait", &Value::Null), "Wait for a job");
     }
 
     #[test]
