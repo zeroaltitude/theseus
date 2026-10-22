@@ -159,6 +159,17 @@ export const BLOCKS = [
 ] as const
 export type BlockKey = (typeof BLOCKS)[number]['key']
 
+/** Whether the parts table has a bytes column: a detour's row records tokens only (theseus-q9qx5). */
+export const hasBytes = (x: { detour?: unknown }): boolean => !x.detour
+
+/** The footnote under the parts: a detour's parts are its row's token counts, a compiled turn's are counted from bytes. */
+export function anatomyNote(x: { detour?: unknown; compiled?: { est_tokens: number; estimate?: { method?: string } | null } | null }): string | null {
+  if (x.detour) return 'The parts are the detour’s row’s token counts: its request was never stored, so no bytes are counted.'
+  const c = x.compiled
+  if (!c) return null
+  return `Every part is counted from its bytes at the model’s figures, the conversation as the turn’s request less the parts above. The turn’s last loop itself estimated ${count(c.est_tokens)} tokens${c.estimate?.method === 'counted' ? ', part of it the provider’s own count' : ', from its bytes'}.`
+}
+
 /** A turn's tokens by block, in the request's order, blocks with none left out. */
 export function anatomy(parts: ContextPart[]): { key: BlockKey; word: string; what: string; tokens: number; parts: number }[] {
   return BLOCKS.map((b) => {
