@@ -527,12 +527,17 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 ## Recently landed
 
 - **2026-10-22: v1 patch1 tail, part 4** (theseus-v54l9, theseus-tlhjt, theseus-hwv3t, theseus-dowi0.1, theseus-4qdh8,
-  theseus-rcb2u). `theseus herdr up` switches herdr to the `theseus` workspace (`--no-focus` to skip) and says which, or
+  theseus-rcb2u, theseus-ono8g, theseus-p5g63, theseus-63tfk.1). `theseus herdr up` switches herdr to the `theseus` workspace (`--no-focus` to skip) and says which, or
   how to attach; the TUI board's `c` refuses an ended task and takes the cursor's row; the chat footer follows a running
   job's last line (views apply by position, then time); the answer card lists waiting questions in tab order. A message
   that names a live thread by its title (every content word of it) gives that thread 0.35 pre-router evidence, so two
   titles named ask which, and one title named can tip a guess toward its thread; an open request carries no place
-  digest.
+  digest. The Discord approval card speaks the plain words (who wants to do what, risk, why it asks, what each button
+  does; owner-approved 2026-10-22), and the stand-in keeps the forums the bot made, which ended the second forum and the
+  tag 404 in scratch runs. The nightly ontology sweep can also rename a stale machine category (Jev picks among names
+  mined from its sessions' titles; the old name is kept in the description; undoable), join `other` answers under
+  different names into one kind (`same_kind.v1`), and let Jev name a minted kind (`name_it.v1`); all at the act band and
+  under the sweep's day cap.
 - **2026-10-22: v1 patch1 tail, part 3** (theseus-xe77s, theseus-efb8i, theseus-94782, theseus-wy8pt, theseus-ysp2k,
   theseus-we57k, theseus-40cuo). A double quote in a raw Drive `q` now pairs up as a single quote does (`\"` escapes
   included), so `name = "a(b"` passes and an unpaired `"` is refused as unbalanced instead of slipping past the check
