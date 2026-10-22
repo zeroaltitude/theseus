@@ -993,7 +993,7 @@ async fn a_day_ceiling_notice_goes_to_the_owners_dm_alone() {
 }
 
 /// A home past its size (theseus-jg1eg): a turn in `#lab`, bound shared, whose request passes
-/// `[threads] working_tokens` earns one post that names the size and the split command, in the
+/// `[threads] home_warn_percent` of the window earns one post that names the place and the size, in the
 /// owner's DM alone and never in `#lab`; a second message in `#lab` adds none.
 #[tokio::test]
 async fn a_home_size_warning_goes_to_the_owners_dm_alone() {
@@ -1004,11 +1004,14 @@ async fn a_home_size_warning_goes_to_the_owners_dm_alone() {
     let asked = fake.clone();
     let model = move |_: &Path, _| -> Arc<dyn Provider> { fake.clone() };
     let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], |c| {
-        c.threads.working_tokens = 2_000;
+        c.threads.home_warn_percent = 1;
     })
     .await;
-    r.say((ANA, "ana"), Some(LAB), "Hello there.");
-    let is_post = |m: &Msg| m.versions[0].contains("theseus thread split home@");
+    let long = "the design chat goes on and on. ".repeat(1_500);
+    r.say((ANA, "ana"), Some(LAB), &long);
+    let is_post = |m: &Msg| {
+        m.versions[0].contains("home is") && m.versions[0].contains("of the model's window")
+    };
     r.until("the warning in ana's DM", || {
         r.posted(ANA_DM).iter().any(is_post)
     })

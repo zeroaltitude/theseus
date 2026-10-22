@@ -1678,13 +1678,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     posted again. A task's turn is warned about, never held. Read beside `engage_verdict` in the route step, so a message
     that steered a running turn is not read. Tests: `tests_personal_hold.rs`, `tests_personal_warn.rs`, `turn/personal_step.rs`.
   - **A home past its size** (theseus-jg1eg, the follow-up of theseus-vydhq; `turn/home_size_step.rs`): a place's own session (`Outbox::place_session`,
-    never a task's or a thread's) whose first-loop request (`Compiled::est_tokens`) passes `[threads] working_tokens` (the tokens a
-    thread's request stays within; 60,000) posts one `home_size` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
-    courier sends it with Jev's notices) naming the size, the bound, `theseus thread split home@<place> NAME --first @A --last @B --dry-run`
-    and `thread unsplit`. Nothing splits itself: a split moves context. Once is the META row `home.size.warned.<session>` (`warned`,
-    written in the post's frame, so a restart keeps it and a successor home starts unwarned); a request back at or under the bound
-    writes it `warned: false`, so the home is told again if it grows back. With no owner DM bound nothing is posted or marked.
-    Tests: `tests_home_size.rs`, `turn/home_size_step.rs`.
+    never a task's or a thread's) whose first-loop request (`Compiled::est_tokens`) passes `[threads] home_warn_percent` (50) of the
+    serving model's context window (`Turn.fill.window`, the catalog's or `[context] working_window_tokens`'s; 1,000,000 when none is
+    known; theseus-d9je7, the owner, 2026-10-21: long sessions are fine, so no smaller figure warns, and `working_tokens` is a
+    thread's cold-resume bound, not this) posts one `home_size` to the owner's DM alone (`stage_to_operator(None, …)`; the Discord
+    courier sends it with Jev's notices): the place's name as the owner sees it, the size and its share of the window, and a dry-run
+    `theseus thread split home@<stored place> earlier-<date> --first @A --last @B --dry-run` over the home's oldest settled stretch
+    (its first unmoved turn through the turn before the newest `[threads] resume_keep_turns`; none when no turn is left, then
+    `theseus history` only), with `thread unsplit` and the id the split prints. Nothing splits itself: a split moves context. Once is
+    the META row `home.size.warned.<session>` (`warned`, written in the post's frame, so a restart keeps it and a successor home
+    starts unwarned; `threshold` the computed bound); a request back at or under the bound writes it `warned: false`, so the home is
+    told again if it grows back. With no owner DM bound nothing is posted or marked. Tests: `tests_home_size.rs`,
+    `turn/home_size_step.rs`, `config/threads.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
     `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
     unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web

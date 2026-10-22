@@ -75,6 +75,9 @@
 //!   message finds its cache gone (6; `thread-context`).
 //! - `working_tokens`: what a thread's request stays within after such a cold
 //!   resume (60,000), its newest turn aside.
+//! - `home_warn_percent`: the share of the serving model's context window a place's home may
+//!   reach before the owner's DM is told once (50; 1 to 100). A long session is otherwise fine;
+//!   the warning is for a home near the window. Not `working_tokens`.
 //! - `persona_engage` (`shadow`): whether Jev's `persona` verdict (route.v5,
 //!   theseus-c1uz) engages a persona. An explicit address (a name at the
 //!   message's start, `@name`, `/as name`) always does; `shadow` records
@@ -149,6 +152,8 @@ pub struct ThreadsConfig {
     pub resume_keep_turns: u32,
     #[serde(default = "default_working_tokens")]
     pub working_tokens: u64,
+    #[serde(default = "default_home_warn_percent")]
+    pub home_warn_percent: u8,
     #[serde(default)]
     pub persona_engage: PersonaEngage,
     #[serde(default)]
@@ -199,6 +204,9 @@ fn default_resume_keep_turns() -> u32 {
 fn default_working_tokens() -> u64 {
     60_000
 }
+fn default_home_warn_percent() -> u8 {
+    50
+}
 
 impl Default for ThreadsConfig {
     fn default() -> Self {
@@ -225,6 +233,7 @@ impl Default for ThreadsConfig {
             ask_every_thread: true,
             resume_keep_turns: default_resume_keep_turns(),
             working_tokens: default_working_tokens(),
+            home_warn_percent: default_home_warn_percent(),
             persona_engage: PersonaEngage::default(),
             seal_recommend: false,
             link_proposals: true,
@@ -282,6 +291,12 @@ impl ThreadsConfig {
         }
         if self.working_tokens < 2_000 {
             bail!("threads.working_tokens is under 2,000: a resume could not keep a turn");
+        }
+        if !(1..=100).contains(&self.home_warn_percent) {
+            bail!(
+                "threads.home_warn_percent is {}: a share of the model's window, 1 to 100 (default 50)",
+                self.home_warn_percent
+            );
         }
         Ok(())
     }
@@ -448,5 +463,22 @@ mod tests {
         assert!(crate::Config::EXAMPLE_TOML.contains("# link_proposals = true"));
         let off = crate::Config::from_toml("[threads]\nlink_proposals = false\n").unwrap();
         assert!(!off.threads.link_proposals);
+    }
+
+    /// `home_warn_percent` is 50 by default, named in the template, read back, and refused
+    /// outside 1 to 100.
+    #[test]
+    fn the_home_warning_is_a_share_of_the_window() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert_eq!(cfg.threads.home_warn_percent, 50);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# home_warn_percent = 50"));
+        let set = crate::Config::from_toml("[threads]\nhome_warn_percent = 80\n").unwrap();
+        assert_eq!(set.threads.home_warn_percent, 80);
+        let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
+        for bad in [0, 101] {
+            let note = format!("{secrets}\n[threads]\nhome_warn_percent = {bad}\n");
+            let e = crate::Config::parse(&note).unwrap_err().to_string();
+            assert!(e.contains("home_warn_percent"), "{bad}: {e}");
+        }
     }
 }

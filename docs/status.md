@@ -508,6 +508,13 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-22: the home-size warning fires only for a truly large home, and says something runnable** (theseus-d9je7; the
+  owner, 2026-10-21: "long sessions can get quite large, and we're comfortable with those"): a place's home now warns the
+  owner's DM, once, only past `[threads] home_warn_percent` (50) of the serving model's context window (about 500,000 tokens
+  on a 1M model), no longer past `working_tokens`. The text names the place as the owner sees it, the size and its share of
+  the window, and one dry-run `theseus thread split` command over the home's oldest settled stretch, with real `@` positions
+  and an `earlier-<date>` name.
+
 - **2026-10-21: voice layer 3 and 4's switches are proven** (theseus-sa4m5; the echo canceller joined 2026-10-19, the
   judge of unclear transcripts after it): Theseus cancels its own voice from a listener's stream (`[voice] echo_cancel`,
   default on), so a reply read back by the speakers no longer cuts itself off; `[voice] judge_unclear` (default on) lets Jev
