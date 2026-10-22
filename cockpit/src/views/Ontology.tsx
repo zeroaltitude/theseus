@@ -12,6 +12,7 @@ import { ChevronDown, ChevronRight, Compass, ListTree, Pencil, Plus, Shapes } fr
 import type { OntologyCategory, OntologyCategoryAddParams, OntologyGuidance, OntologyGuidanceSetParams } from '@protocol'
 import { ancestorsOf, confidenceWords, FOLD_AT, groupKeyOf, groupsOf, ORIGIN_CHOICES, originCounts, originFilter, originOf, originParam, originsOf, parents, parseOriginParam, shown, treeOrder, withinCounts, type FilteredRow, type KindGroup } from '@/lib/ontology'
 import { useHistoryRows } from '@/lib/history'
+import { openGroups, toggled } from '@/lib/groupfold'
 import { cn, clock } from '@/lib/format'
 import { useAsOf } from '@/lib/timemachine'
 import { Empty, Panel, Pill } from '@/components/ui'
@@ -41,10 +42,11 @@ export default function Ontology() {
     for (const a of ancestorsOf(rows, selected)) s.add(a)
     return s
   }, [opened, rows, branches, selected])
-  // The groups start closed (theseus-7mow); a selected category's is open so it shows.
+  // The groups start closed (theseus-7mow); a selected category's is open so it shows, and a filter opens every group. The
+  // folds are the reader's own (theseus-5kd37, `lib/groupfold.ts`): a filter neither takes nor changes them.
   const [groupsOpen, setGroupsOpen] = useState<Set<string>>(new Set())
-  const gopen = useMemo(() => { const s = new Set(groupsOpen); const k = groupKeyOf(groups, selected); if (k) s.add(k); if (wanted.size) for (const g of groups) s.add(g.key); return s }, [groupsOpen, groups, selected, wanted])
-  const toggleGroup = (key: string) => setGroupsOpen(() => { const s = new Set(gopen); if (s.has(key)) s.delete(key); else s.add(key); return s })
+  const gopen = useMemo(() => openGroups(groupsOpen, groupKeyOf(groups, selected), wanted.size > 0, groups.map((g) => g.key)), [groupsOpen, groups, selected, wanted])
+  const toggleGroup = (key: string) => setGroupsOpen((s) => toggled(s, key, wanted.size > 0))
   // The origin filter (theseus-tq7s8): each category's origin and confidence from the ledger's first row of it, the picked
   // origins in the address (`?origin=`). A category that matches keeps its ancestors as context; nothing else is hidden,
   // and a category the ledger has no row for is `unknown`, an option of its own.
@@ -128,8 +130,8 @@ export default function Ontology() {
                   <Fragment key={g.key}>
                     <tr className="border-t border-line/50 bg-white/[0.02]">
                       <td colSpan={8} className="py-1">
-                        <button type="button" aria-label={`${gopen.has(g.key) ? 'fold' : 'open'} ${g.label}`} aria-expanded={gopen.has(g.key)} onClick={() => toggleGroup(g.key)}
-                          className="inline-flex items-center gap-1 rounded text-ink hover:text-live">
+                        <button type="button" aria-label={filtering ? `${g.label}: the filter shows its matches whole` : `${gopen.has(g.key) ? 'fold' : 'open'} ${g.label}`} aria-expanded={gopen.has(g.key)} disabled={filtering} onClick={() => toggleGroup(g.key)}
+                          className="inline-flex items-center gap-1 rounded text-ink hover:text-live disabled:hover:text-ink">
                           {gopen.has(g.key) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                           <span>{g.label}</span>
                           <span className="num text-[10px] text-ink-faint">· {filtering ? `${(kept.get(g.key) ?? []).filter((r) => !r.context).length.toLocaleString()} of ${g.count.toLocaleString()}` : g.count.toLocaleString()}</span>
