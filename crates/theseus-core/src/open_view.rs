@@ -58,7 +58,8 @@ pub fn runs_tool(name: &str) -> bool {
 }
 
 /// The public tools an open request is offered (theseus-qul8y): those that
-/// read, or act on a task's own record (`task.update`, `task.close`), but
+/// read, or act on a task's own record, by id (`task.update`, `task.close`:
+/// the gate refuses another task's, `toolrun::batch`), but
 /// none that starts or schedules work outside this request (`task.create`,
 /// `task.split`, `task.claim`, `wake.at`), which would run later, on another
 /// model, with the owner's trust. An allowlist, so a public tool added later
@@ -244,7 +245,7 @@ impl TurnRunner {
         let (mut spec, _) = self.request_spec(target, session.kind, view);
         spec.session_text = self.session_block(session.dir.as_deref(), view);
         spec.walk = self.walk(sid, class);
-        if let Some(b) = self.standing_block(sid, class, self.restricted(&target.profile)) {
+        if let Some(b) = self.standing_block(sid, class, self.restricted_profile(&target.profile)) {
             b.apply(&mut spec);
         }
         // The thread's tools as a turn takes them; its card is the owner's.

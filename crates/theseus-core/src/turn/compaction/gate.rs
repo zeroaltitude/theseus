@@ -87,13 +87,25 @@ impl TurnRunner {
 fn open_run(t: &Turn<'_>) -> Option<data::OpenRun> {
     match &t.route.admitted.0 {
         Ok(run) => Some(run.clone()),
-        Err(DataWhy::Unchecked) => {
-            let rec: SessionRecord = t.tc.store.get_session(t.tc.session_id).ok()??;
-            let state = rec.data.as_deref()?;
-            state.taint.is_none().then(|| state.run.clone()).flatten()
-        }
+        Err(DataWhy::Unchecked) => stored_run(t.tc.open.is_some(), || {
+            t.tc.store.get_session(t.tc.session_id).ok().flatten()
+        }),
         Err(_) => None,
     }
+}
+
+/// The session's stored run, unless it is tainted: only an open session has
+/// one, so `read` (the record's read) is not called for any other.
+pub(crate) fn stored_run(
+    open: bool,
+    read: impl FnOnce() -> Option<SessionRecord>,
+) -> Option<data::OpenRun> {
+    if !open {
+        return None;
+    }
+    let rec = read()?;
+    let state = rec.data.as_deref()?;
+    state.taint.is_none().then(|| state.run.clone()).flatten()
 }
 
 /// The clearance of the range `ring` dropped: the nodes the summary call

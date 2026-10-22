@@ -317,6 +317,7 @@ facts![
     data::DataGateBlocked<'static>,
     data::SessionDataOpened,
     data::SessionDataTainted<'static>,
+    data::SessionDataScreened<'static>,
     place::Published<'static>,
     place::GlidePosted<'static>,
     place::GlideRead<'static>,

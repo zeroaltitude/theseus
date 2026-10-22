@@ -30,7 +30,7 @@ use theseus_kernel::{
 };
 use theseus_protocol::memory::{BudgetDrop, BudgetRange};
 
-mod gate;
+pub(crate) mod gate;
 
 /// The profile the `[model]` section builds: where a restricted background call falls back.
 pub(crate) use super::data_step::DEFAULT_PROFILE;

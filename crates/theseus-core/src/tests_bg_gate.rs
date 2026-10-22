@@ -337,3 +337,26 @@ async fn a_later_loop_compacts_over_this_turns_screened_results() {
         .count();
     assert!(screened >= 2, "{screened} results");
 }
+
+/// theseus-pohih: the first loop's gate reads the stored run only for an open
+/// session, and asks whether it is open before it reads the record: a closed
+/// session's record is never read, though it holds a run.
+#[test]
+fn the_first_loop_gate_reads_no_record_for_a_closed_session() {
+    use crate::turn::compaction::gate::stored_run;
+    let run = data::OpenRun {
+        from: "nde_a".into(),
+        through: "nde_b".into(),
+    };
+    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+    rec.data = Some(data::DataState::new(None, Some(run.clone()), None).into());
+    let reads = std::cell::Cell::new(0);
+    let read = || {
+        reads.set(reads.get() + 1);
+        Some(rec.clone())
+    };
+    assert_eq!(stored_run(false, read), None);
+    assert_eq!(reads.get(), 0, "a closed session's record was read");
+    assert_eq!(stored_run(true, read), Some(run));
+    assert_eq!(reads.get(), 1);
+}

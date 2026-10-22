@@ -61,12 +61,6 @@ impl TurnRunner {
             .0
     }
 
-    /// Whether `profile`'s model is of restricted origin (`restricted_profile`,
-    /// for the callers outside `turn`).
-    pub(crate) fn restricted(&self, profile: &str) -> bool {
-        self.restricted_profile(profile)
-    }
-
     /// The system's block and the tail's (the records of `surface`) of
     /// `session_id`'s scope in a place of `class`, from memory. For a
     /// `restricted` target the records a Google-private session authored are
