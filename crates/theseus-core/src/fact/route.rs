@@ -221,3 +221,68 @@ impl Fact for RouteCorrected<'_> {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::narrative::Narrator;
+
+    /// The line a checkpoint's switch narrates, from a source of `source`.
+    fn moved(source: &str) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let narrator = Narrator::new(true);
+        let rec = super::super::Rec {
+            narrator: &narrator,
+            session: Some("ses_a"),
+            turn: None,
+            to: super::super::To::Nobody,
+            store: &store,
+        };
+        rec.announce(&RouteDecided {
+            mode: None,
+            confidence: None,
+            judgment: None,
+            from: "sonnet",
+            profile: "fable",
+            reason: "switch",
+            detour: false,
+            switch: true,
+            est_tokens: 0,
+            wait_ms: 0,
+            late: false,
+            answered_ms: None,
+            source: Some(source),
+            follows: None,
+            effort: None,
+            effort_confidence: None,
+            effort_reason: None,
+            effort_applied: false,
+            effort_ran: None,
+            effort_sent: None,
+            checkpoint: Some(Checkpointed {
+                trigger: "failing",
+                loop_index: 3,
+                cold: None,
+                cost_usd: 0.0,
+            }),
+        });
+        let lines = narrator.tail();
+        assert_eq!(lines.len(), 1);
+        lines[0].text.clone()
+    }
+
+    /// A turn checkpoint moves the conversation, a task checkpoint the task (theseus-1qexl:
+    /// before it, both said "the turn moves").
+    #[test]
+    fn a_checkpoints_move_names_what_moves() {
+        assert_eq!(
+            moved("turn checkpoint"),
+            "Routing (turn checkpoint: failing): the conversation moves from sonnet to fable."
+        );
+        assert_eq!(
+            moved("task checkpoint"),
+            "Routing (task checkpoint: failing): the task moves from sonnet to fable."
+        );
+    }
+}

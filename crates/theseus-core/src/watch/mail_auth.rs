@@ -11,7 +11,9 @@
 //! compiled-in copy, private section included, so `github.io` is a suffix and
 //! `a.github.io` and `b.github.io` are two organizations). A name with no
 //! organizational domain, a public suffix itself, aligns with nothing. A
-//! top-level domain the list does not know follows its default rule (`*`).
+//! top-level domain the list does not know follows its default rule (`*`). The list is the one
+//! compiled into the `psl` release `Cargo.lock` names: a suffix added later reaches this check only
+//! with a crate bump.
 //! Anything else (no header, another server's, a fail, a misaligned pass) is
 //! not: fail closed.
 

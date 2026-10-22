@@ -1687,8 +1687,17 @@ fn a_line_sent_on_to_main_does_not_leave_the_pane_sending() {
             "session.list" => Ok(json!({"sessions": [task]})),
             "turn.submit" if p["session_id"] == S => {
                 // Unbounded: a report that never comes fails the waits below, and nextest
-                // kills a test that hangs.
-                let _ = sending_rx.lock().unwrap().recv();
+                // kills a test that hangs; a line every 30 s says what is awaited.
+                let t0 = std::time::Instant::now();
+                let rx = sending_rx.lock().unwrap();
+                while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                    rx.recv_timeout(Duration::from_secs(30))
+                {
+                    eprintln!(
+                        "waiting for herdr's \"sending your message\" ({} s)",
+                        t0.elapsed().as_secs()
+                    );
+                }
                 Err(json!({"code": -32000,
                     "message": "the task is complete", "data": {"class": "execution_complete"}}))
             }

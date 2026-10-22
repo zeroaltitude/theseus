@@ -59,6 +59,8 @@ theseus-discord = { path = "crates/theseus-discord" }
 theseus-files = { path = "crates/theseus-files" }
 
 anyhow = "1"
+# The public suffix list is compiled into the release: a new suffix reaches mail_auth only with a bump.
+psl = "2"
 base64 = "0.22"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

@@ -17,7 +17,7 @@ use crate::node::Body;
 use crate::provider::{ProviderRequest, Scripted};
 use crate::tests_route::{mode, rig, turn};
 
-fn effort(jev: &FakeJev, level: &str, confidence: f64) {
+pub(crate) fn effort(jev: &FakeJev, level: &str, confidence: f64) {
     jev.script(
         "reply_effort",
         Jev::Choice {
@@ -28,7 +28,7 @@ fn effort(jev: &FakeJev, level: &str, confidence: f64) {
 }
 
 /// The effort-only system message of `level`.
-fn says(level: &str) -> Value {
+pub(crate) fn says(level: &str) -> Value {
     json!({"role": "system", "content": [], "output_config": {"effort": level}})
 }
 

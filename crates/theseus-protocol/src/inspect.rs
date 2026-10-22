@@ -156,7 +156,8 @@ pub struct TurnInspectResult {
     pub session_id: String,
     pub turn_id: String,
     pub prompt: InspectPrompt,
-    /// The turn in the cockpit (`[cockpit] public_url`): what `theseus open turn` opens.
+    /// The turn in the cockpit (`[cockpit] public_url`): what `theseus open turn` opens. Empty when
+    /// no web UI runs and no `public_url` names one.
     pub url: String,
     /// `ended`, `failed`, `refused` or `running`.
     pub outcome: String,
