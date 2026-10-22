@@ -68,6 +68,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a cross-stream state is the notes the thread lens dropped at that turn, read from \
              the index as it stood then, which is not kept",
         ),
+        Builder::Families => Some(
+            "a families state is the tool families the turn's request hid, from the catalog and \
+             the board's counts as they stood then, which are not kept",
+        ),
         Builder::Heard => Some(
             "a voice transcript's state is one utterance's text, the sentences it may echo and \
              its timing, which the record keeps only in the judgment's blob",

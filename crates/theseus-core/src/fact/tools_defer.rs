@@ -21,7 +21,7 @@ impl Fact for ToolsUsed<'_> {
 
     fn row(&self) -> Value {
         let t = self.turn;
-        json!({
+        let mut row = json!({
             "place": t.kind.as_str(),
             "mechanism": t.mechanism.map(|m| m.as_str()),
             "loaded": t.loaded,
@@ -29,7 +29,12 @@ impl Fact for ToolsUsed<'_> {
             "used": t.used,
             "searched": t.searched,
             "unused": t.unused,
-        })
+        });
+        // Only when a family took the request past the place's budget (theseus-xlri5).
+        if let Some(r) = &t.raised {
+            row["raised"] = json!(r);
+        }
+        row
     }
 }
 

@@ -45,7 +45,8 @@ impl TurnRunner {
             .is_some()
             .then(|| super::detour_step::detour_spec(spec));
         let counted = sent.as_ref().unwrap_or(&*spec);
-        spec.defer = self.deferral_in(t.tc.session_id, kind, (&*spec, counted), &t.route.ask);
+        let jev = t.route.families.relevant.as_deref().unwrap_or_default();
+        spec.defer = self.deferral_in(t.tc.session_id, kind, (&*spec, counted), &t.route.ask, jev);
     }
 
     /// A loaded flow's tool stays in the request only where the flow is
@@ -83,7 +84,7 @@ impl TurnRunner {
 
     /// The fresh choice for a session's request on `spec`.
     pub(crate) fn deferral(&self, sid: &str, task: bool, spec: &RequestSpec) -> Option<Deferral> {
-        self.deferral_in(sid, self.place_kind(sid, task), (spec, spec), "")
+        self.deferral_in(sid, self.place_kind(sid, task), (spec, spec), "", &[])
     }
 
     /// The same for a census: a fresh session's first request on a kind of place the daemon has no
@@ -96,22 +97,24 @@ impl TurnRunner {
         spec: &RequestSpec,
     ) -> Option<Deferral> {
         match fresh.and_then(PlaceKind::parse) {
-            Some(kind) => self.deferral_in(sid, kind, (spec, spec), ""),
+            Some(kind) => self.deferral_in(sid, kind, (spec, spec), "", &[]),
             None => self.deferral(sid, task, spec),
         }
     }
 
     /// The fresh choice in a kind of place for a turn whose message said
     /// `ask`: where the model has no tool search, the families the message
-    /// names load too (`tools_defer::want`, theseus-jpjcd). `(spec, counted)`
-    /// is the spec the families are chosen from and the request whose size
-    /// they are held to (a detour's is smaller).
+    /// names load too (`tools_defer::want`, theseus-jpjcd), and those Jev
+    /// judged relevant to it (`jev`, theseus-xlri5). `(spec, counted)` is the
+    /// spec the families are chosen from and the request whose size they are
+    /// held to (a detour's is smaller).
     fn deferral_in(
         &self,
         sid: &str,
         kind: PlaceKind,
         (spec, counted): (&RequestSpec, &RequestSpec),
         ask: &str,
+        jev: &[(String, f64)],
     ) -> Option<Deferral> {
         let cfg = &self.cfg.tools.defer;
         if !cfg.enabled {
@@ -136,8 +139,8 @@ impl TurnRunner {
             .catalog
             .get(&spec.model)
             .map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
-        let fit = Fit::of(kind, counted, rates, mechanism);
-        let offer = |extra: &BTreeSet<String>| {
+        let mut fit = Fit::of(kind, counted, rates, mechanism, cfg.admit_ceiling);
+        let offer = |extra: &BTreeSet<String>, fit: &Fit| {
             board
                 .select(
                     sid,
@@ -147,18 +150,25 @@ impl TurnRunner {
                     &Offer {
                         known: &known,
                         extra,
-                        fit: Some(&fit),
+                        fit: Some(fit),
                     },
                 )
                 .loaded()
         };
-        let mut loaded = offer(&extra);
+        let mut loaded = offer(&extra, &fit);
+        let mut raised = None;
         if mechanism == Mechanism::Find {
-            // A family the message names is held to the whole request, as the learned loads are (`fit`).
-            let wanted = tools_defer::want::extra(ask, &spec.tools, &loaded, &fit);
+            // A family the message names, or Jev judged relevant, is held to the whole request, as
+            // the learned loads are (`fit`), and may raise it past the budget to the ceiling
+            // (theseus-xlri5); the learned families stay held to the budget plus that raise.
+            let wanted = tools_defer::want::extra(ask, jev, &spec.tools, &loaded, &fit);
             if !wanted.is_empty() {
-                extra.extend(wanted);
-                loaded = offer(&extra);
+                let base = fit.total(&loaded);
+                let whole = base + wanted.iter().map(|a| a.tokens).sum::<u64>();
+                fit.raised = whole.saturating_sub(fit.budget);
+                raised = (fit.raised > 0).then(|| tools_defer::raised(&fit, base, whole, &wanted));
+                extra.extend(wanted.into_iter().map(|a| a.family));
+                loaded = offer(&extra, &fit);
             }
         }
         Some(Deferral {
@@ -166,6 +176,7 @@ impl TurnRunner {
             loaded,
             resolved: false,
             added: BTreeSet::new(),
+            raised,
         })
     }
 
@@ -209,6 +220,14 @@ impl TurnRunner {
             ),
             None => (None, BTreeSet::new(), vec![]),
         };
+        // The raise holds where the compile took the fresh set: an append over a set recorded
+        // before it raised nothing this turn (theseus-xlri5).
+        let raised = spec
+            .defer
+            .as_ref()
+            .and_then(|d| d.raised.clone())
+            .filter(|r| r.families.iter().all(|f| loaded.contains(&f.family)));
+        self.tools.defer.note_raised(sid, raised);
         self.tools
             .defer
             .note_request(sid, kind, mechanism, loaded, hidden);
@@ -269,16 +288,20 @@ impl TurnRunner {
         Ok((rest, answered))
     }
 
-    /// The turn's rows: its use of its tools, and each search it made.
-    pub(super) fn defer_ended(&self, t: &mut Turn<'_>) {
+    /// The turn's rows: its use of its tools, and each search it made. Returns
+    /// what its request admitted past the place's budget, for its result.
+    pub(super) fn defer_ended(
+        &self,
+        t: &mut Turn<'_>,
+    ) -> Option<theseus_protocol::route::ToolsRaised> {
         if !self.cfg.tools.defer.enabled {
-            return;
+            return None;
         }
         let sid = t.tc.session_id;
         let kind = self.place_kind(sid, t.tc.task.is_some());
         let turn = self.tools.defer.end_turn(sid, kind, self.kernel.now_ms());
         if turn.loaded.is_empty() && turn.used.is_empty() && turn.searches.is_empty() {
-            return;
+            return turn.raised;
         }
         let board = &self.tools.defer;
         board.emit("used", turn.kind, &turn.used);
@@ -296,5 +319,6 @@ impl TurnRunner {
                 search: s,
             });
         }
+        turn.raised
     }
 }

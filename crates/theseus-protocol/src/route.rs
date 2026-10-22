@@ -211,6 +211,72 @@ impl TurnFallback {
     }
 }
 
+/// The families admitted past a first request's base budget (theseus-xlri5): a
+/// family the message names, or Jev judges relevant, loads past the place's
+/// budget by exactly its size, under the ceiling. `TurnSubmitResult.raised`
+/// and `tools.used`'s `raised` carry it; absent when nothing passed the budget.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ToolsRaised {
+    /// The place kind's first-request budget, in tokens.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub budget: u64,
+    /// The hard ceiling (`budget × [tools.defer] admit_ceiling`).
+    #[cfg_attr(test, ts(type = "number"))]
+    pub ceiling: u64,
+    /// The whole first request with the admitted families, as estimated.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub tokens: u64,
+    /// The families that took it past the budget, in the order admitted.
+    pub families: Vec<RaisedFamily>,
+}
+
+/// One family that raised a request: its tokens, and who admitted it
+/// (`named`: the message names it; `jev`: Jev judged it relevant).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RaisedFamily {
+    pub family: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub tokens: u64,
+    pub by: String,
+}
+
+impl ToolsRaised {
+    /// `Tools raised the request to 9,612 tokens (budget 8,000, ceiling
+    /// 16,000): aws +1,012 (named), terminals +1,264 (Jev).`
+    pub fn line(&self) -> String {
+        let families: Vec<String> = self
+            .families
+            .iter()
+            .map(|f| {
+                let by = if f.by == "jev" { "Jev" } else { f.by.as_str() };
+                format!("{} +{} ({by})", f.family, grouped(f.tokens))
+            })
+            .collect();
+        format!(
+            "Tools raised the request to {} tokens (budget {}, ceiling {}): {}.",
+            grouped(self.tokens),
+            grouped(self.budget),
+            grouped(self.ceiling),
+            families.join(", ")
+        )
+    }
+}
+
+/// `9612` as `9,612`.
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// A model as a person names it: `claude-sonnet-5-5` is Sonnet 5.5, and a
 /// date after the version (`claude-haiku-4-5-20251001`) is dropped. Any other
 /// id is itself.

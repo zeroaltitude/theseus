@@ -80,23 +80,20 @@ async fn a_detour_without_tool_search_reaches_a_tool_the_message_names() {
 
 /// theseus-3msy0: the AWS tools are 6,869 tokens whole, more than any place can add, so a detour that
 /// named `aws_whoami` loaded nothing and Haiku never reached it. The tools are six families by use
-/// now: the message loads the one that holds the tool, and the request's tools stay within the place's
+/// now: the message loads the one that holds the tool, and the request's tools stay within the cli's
 /// budget, as the rule for a named family counts them (`want::extra`).
 ///
-/// theseus-3bs4e: the rule counts the whole request, and at the cli a detour's request is already 7,300
-/// tokens before any named family (the tools of files, commands and memory are 6,100 of them), so no AWS
-/// family fits beside them there: the test runs in the owner's DM, whose budget is 15,000. The cli's
-/// side of it is `tests_detour::a_detour_naming_a_family_stays_within_its_place_budget`.
+/// theseus-xlri5: back at the cli. At the cli a detour's request is about 7,300 tokens before any
+/// named family (theseus-3bs4e), so the AWS family it names passes the budget: it is admitted past it
+/// by its own size, under the ceiling, and the result's `raised` names it, `by: named`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.95);
     let (r, haiku) = rig_detouring_to(&jev, "aws_whoami", true);
-    let dm =
-        crate::tests_places::session(&r.core, Some(&format!("dm:{}", crate::tests_places::OWNER)));
     let res = turn(
         &r.core,
-        Some(&dm),
+        None,
         "Call the aws_whoami tool once and tell me in one line which account you are on.",
         None,
     )
@@ -116,11 +113,21 @@ async fn a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget() {
         "only the family that holds the tool loads: {names:?}"
     );
     let tokens = crate::tools_defer::tools_bytes(&first.tools) * 10 / 24;
-    let budget = crate::first_request::DM_TOKENS;
+    let budget = crate::first_request::CLI_TASK_TOKENS;
     assert!(
         tokens <= budget,
         "the request's tools are {tokens} tokens, over {budget}"
     );
     assert_eq!(res.tool_calls, 1, "the call reached the tool");
     assert!(rows(&r.core, "tools.missed").is_empty());
+    let raised = res
+        .raised
+        .as_ref()
+        .expect("the AWS family raised the request");
+    let by: Vec<(&str, &str)> = raised
+        .families
+        .iter()
+        .map(|f| (f.family.as_str(), f.by.as_str()))
+        .collect();
+    assert_eq!(by, [("aws", "named")], "{raised:?}");
 }

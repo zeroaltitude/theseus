@@ -8,7 +8,10 @@
 //! turn's own words decide: a hidden family whose tool the message names, or
 //! whose name it says, loads with the request, as far as the place's budget
 //! for the whole first request allows: the system, what deferring costs, the
-//! families already loaded and this one (`Fit`, theseus-3bs4e). The same matching `tools_find` does for the model, applied
+//! families already loaded and this one (`Fit`, theseus-3bs4e), and since
+//! theseus-xlri5 past it by exactly the admitted families' size, under the
+//! ceiling; Jev's judgment of the prompt (`families.v1`) admits the families it
+//! finds relevant after the named ones. The same matching `tools_find` does for the model, applied
 //! for it, once a turn (the loaded set still changes only where the
 //! conversation recompiles). A model with tool search never reaches this: its
 //! first request is as it was.
@@ -71,33 +74,79 @@ pub fn named(ask: &str, hidden: &[HiddenTool]) -> Vec<String> {
     out.into_iter().map(|(f, _)| f.to_string()).collect()
 }
 
-/// The families to add to `loaded` for a message: those it names that are
-/// hidden and hideable, best first, each kept only while the whole first
-/// request stays within the place kind's budget: `fit`'s system, what
-/// deferring costs, the families already loaded and the ones kept so far,
-/// and this one. A family that does not fit is skipped and a smaller one
-/// after it is still tried, so the set kept is the best-ranked set that fits.
-/// Nothing when `ask` names nothing, or the request already exceeds the
-/// budget.
+/// Who admitted a family past the fresh choice (theseus-xlri5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum By {
+    /// The message names it (`named`).
+    Named,
+    /// Jev judged it relevant to the message (`families.v1`).
+    Jev,
+}
+
+impl By {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            By::Named => "named",
+            By::Jev => "jev",
+        }
+    }
+}
+
+/// A family admitted for a message: what its tools cost, and who admitted it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Admitted {
+    pub family: String,
+    pub tokens: u64,
+    pub by: By,
+}
+
+/// The families to add to `loaded` for a message, in order: those `ask` names
+/// (best first), then those Jev judged relevant (`jev`, most confident first),
+/// each hidden and hideable. Each is kept while the whole first request stays
+/// at or under `fit.ceiling` (theseus-xlri5): the cap is soft by exactly the
+/// admitted families' size. A family that does not fit is skipped and a
+/// smaller one after it is still tried. Nothing when the request without them
+/// already exceeds the place's budget (`fit.budget`), or nothing is asked.
 pub fn extra(
     ask: &str,
+    jev: &[(String, f64)],
     catalog: &[Value],
     loaded: &BTreeSet<String>,
     fit: &Fit,
-) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    if ask.trim().is_empty() {
+) -> Vec<Admitted> {
+    let mut out = Vec::new();
+    if fit.total(loaded) > fit.budget {
         return out;
     }
     let hidden: Vec<HiddenTool> = super::hidden_of(catalog, &[])
         .into_iter()
         .filter(|h| family::hideable(&h.family) && !loaded.contains(&h.family))
         .collect();
+    let mut judged: Vec<&(String, f64)> = jev
+        .iter()
+        .filter(|(f, _)| hidden.iter().any(|h| &h.family == f))
+        .collect();
+    judged.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+    let named = match ask.trim().is_empty() {
+        true => Vec::new(),
+        false => named(ask, &hidden),
+    };
+    let order = named
+        .into_iter()
+        .map(|f| (f, By::Named))
+        .chain(judged.into_iter().map(|(f, _)| (f.clone(), By::Jev)));
     let mut now = loaded.clone();
-    for fam in named(ask, &hidden) {
-        now.insert(fam.clone());
-        if fit.total(&now) <= fit.budget {
-            out.insert(fam);
+    for (fam, by) in order {
+        if !now.insert(fam.clone()) {
+            continue;
+        }
+        if fit.total(&now) <= fit.ceiling {
+            let tokens = fit.tokens(&fam);
+            out.push(Admitted {
+                family: fam,
+                tokens,
+                by,
+            });
         } else {
             now.remove(&fam);
         }
@@ -189,8 +238,22 @@ mod tests {
         json!({"name": name, "description": "x".repeat(pad), "input_schema": {"type": "object"}})
     }
 
+    /// The families the named rule alone admits (no Jev), as a set: the tests before theseus-xlri5.
+    fn extra(
+        ask: &str,
+        catalog: &[Value],
+        loaded: &BTreeSet<String>,
+        fit: &Fit,
+    ) -> BTreeSet<String> {
+        super::extra(ask, &[], catalog, loaded, fit)
+            .into_iter()
+            .map(|a| a.family)
+            .collect()
+    }
+
     /// The fit of a request whose tools are `catalog`, at the request's own figures (2.4 bytes to the
-    /// token), beside a system of `system` tokens.
+    /// token), beside a system of `system` tokens. Its ceiling is the budget (`admit_ceiling = 1.0`,
+    /// the cap before theseus-xlri5), which the tests written before it hold.
     fn fit_of(kind: PlaceKind, catalog: &[Value], system: u64) -> Fit {
         let mut cost = std::collections::BTreeMap::new();
         for t in catalog {
@@ -201,6 +264,8 @@ mod tests {
         }
         Fit {
             budget: kind.tools_budget_tokens(),
+            ceiling: kind.tools_budget_tokens(),
+            raised: 0,
             system,
             held: 0,
             cost,
@@ -272,5 +337,66 @@ mod tests {
         // With a system that leaves room for neither, nothing is added.
         let full = fit_of(PlaceKind::Cli, &catalog, 7_800);
         assert!(extra(ask, &catalog, &loaded, &full).is_empty());
+    }
+
+    /// theseus-xlri5: named families first, then Jev's, most confident first; each is kept while
+    /// the whole stays under the ceiling, so one past it is skipped and a smaller one after it still
+    /// loads; a base already over the budget admits nothing, and a family the message names and Jev
+    /// judged is admitted once, as named.
+    #[test]
+    fn admission_stops_at_the_ceiling() {
+        // files ~60, aws ~2,550, terminals ~3,800, tasks ~6,300, the mcp server's ~420 tokens.
+        let catalog = vec![
+            def("fs_read", 100),
+            def("aws_whoami", 6_000),
+            def("term_open", 9_000),
+            def("task_create", 15_000),
+            def("mcp__docs__search", 900),
+        ];
+        let loaded: BTreeSet<String> = ["files".to_string()].into();
+        let mut fit = fit_of(PlaceKind::Cli, &catalog, 6_000);
+        fit.ceiling = 16_000;
+        let jev = vec![
+            ("tasks".to_string(), 0.95),
+            ("mcp:docs".to_string(), 0.70),
+            ("aws".to_string(), 0.80),
+        ];
+        let got = super::extra(
+            "run aws_whoami and open a terminal",
+            &jev,
+            &catalog,
+            &loaded,
+            &fit,
+        );
+        let fams: Vec<(&str, By)> = got.iter().map(|a| (a.family.as_str(), a.by)).collect();
+        // 6,060 + aws 2,550 + terminals 3,800 is 12,400: tasks (6,300) would pass 16,000 and is
+        // skipped, the docs server's after it fits; aws, named, is not admitted again as Jev's.
+        assert_eq!(
+            fams,
+            [
+                ("aws", By::Named),
+                ("terminals", By::Named),
+                ("mcp:docs", By::Jev)
+            ]
+        );
+        assert_eq!(got[0].tokens, fit.tokens("aws"));
+        let mut all = loaded.clone();
+        all.extend(got.iter().map(|a| a.family.clone()));
+        assert!(fit.total(&all) <= fit.ceiling);
+        // Jev's alone, with nothing said: by confidence, under the same ceiling.
+        let judged = super::extra("", &jev, &catalog, &loaded, &fit);
+        assert_eq!(judged[0].family, "tasks");
+        assert!(judged.iter().all(|a| a.by == By::Jev));
+        // A family Jev judged that the catalog does not hide is no admission.
+        let loaded_aws: BTreeSet<String> = ["files".to_string(), "aws".to_string()].into();
+        let none = super::extra("", &[("aws".into(), 0.9)], &catalog, &loaded_aws, &fit);
+        assert!(none.is_empty());
+        // A base over the budget admits nothing, however high the ceiling.
+        let over = fit_of(PlaceKind::Cli, &catalog, 8_100);
+        let over = Fit {
+            ceiling: 16_000,
+            ..over
+        };
+        assert!(super::extra("run aws_whoami", &jev, &catalog, &loaded, &over).is_empty());
     }
 }
