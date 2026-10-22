@@ -973,6 +973,32 @@ class TheseusDriver(unittest.TestCase):
             self.assertEqual((s["recall_accuracy"], s["abstention_accuracy"]), (1.0, 1.0))
             self.assertEqual(s["moved"], 0)
 
+    def test_the_smoke_compacts_once_however_early_the_index_comes_up(self):
+        """theseus-93lkm: the index tender starts 2 s after serving, and from
+        then on each turn of the second session writes a recall note into its
+        tail. Held back 8 s before the first turn, the run's second session
+        has them from its start: the plan's reserve for them holds, and only
+        the mark compacts (the plan once reserved one note, and a machine
+        whose tender came up early compacted again at turn 23)."""
+        real = self.measured()
+        prog = generate.build(7, "smoke", real)
+        first_turn = pg.apply_before
+
+        def held(t, root):
+            if t.index == 0:
+                time.sleep(8)
+            return first_turn(t, root)
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(pg, "apply_before", held):
+            rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
+            self.assertEqual(rc, 0, said)
+            run = json.loads((out / "run.json").read_text())
+            mark = prog.marks()[0]
+            self.assertIn(run["compactions"], ([mark], [mark + 1]), run["compaction_rows"])
+            recalls = [n for s in (1, 2) for n in json.loads((out / "raw" / f"history-{s}.json").read_text())["nodes"]
+                       if n["kind"] == "recall"]
+            self.assertGreater(len(recalls), 3)
+
     def test_a_run_plans_at_the_overhead_it_measures_and_records_it(self):
         """theseus-cs8k: no constant: the driver measures the daemon's system
         prompt and tools with a probe exchange on a throwaway daemon, plans
