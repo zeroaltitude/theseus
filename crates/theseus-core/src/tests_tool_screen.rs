@@ -414,7 +414,7 @@ fn a_fetch_that_redirects_into_the_owners_network_fails_the_screen() {
     for private in [
         "http://127.0.0.1:8080/admin",
         "http://169.254.169.254/latest/meta-data/",
-        "http://192.168.1.10/",
+        "http://10.0.0.10/",
     ] {
         assert_eq!(screen(Some(private)), Err(Unscreened::Outside), "{private}");
     }
