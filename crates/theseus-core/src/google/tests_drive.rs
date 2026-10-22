@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_google::fake::drive::{Drive, File};
+use theseus_tools::ToolFailure;
 use theseus_tools::{External, Tool, ToolCtx, ToolOutput};
 
 use super::tests::*;
@@ -178,6 +179,7 @@ async fn markdown_round_trips_through_a_doc() {
         "text/markdown"
     );
     // Replacing the content, then moving and renaming, keep the file.
+    drive.add(File::folder("folder9", "Archive"));
     ok(
         &r,
         "drive.write",
@@ -541,4 +543,178 @@ async fn a_write_names_what_it_needs_and_a_path_it_reads() {
         .find(|l| l.path == "/upload/drive/v3/files")
         .unwrap();
     assert_eq!(up.verb, "POST");
+}
+
+/// The tool's own failure, meta and all (`run` keeps only the message).
+async fn failure(r: &Rig, name: &str, input: Value) -> ToolFailure {
+    let ctx = ToolCtx::for_tests(r.dir.path());
+    match tool(r, name).run_async(&input, &ctx).await {
+        Ok(_) => panic!("{name} should have failed"),
+        Err(f) => f,
+    }
+}
+
+fn methods(meta: &Value) -> Vec<String> {
+    let also = meta["google_called_also"].as_array().into_iter().flatten();
+    also.chain(meta.get("google_called"))
+        .map(|row| row["method"].as_str().unwrap_or("?").to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_sheet_read_keeps_every_calls_row() {
+    let (r, drive) = drive_rig(vec![]).await;
+    drive.add(File::sheet(
+        "sh1",
+        "Tides",
+        vec![("Sheet1", vec![vec!["port", "depth"], vec!["Arden", "7"]])],
+    ));
+    let (out, _) = ok(&r, "drive.read", json!({"id": "sh1"})).await;
+    assert_eq!(
+        methods(&out.meta),
+        [
+            "drive.files.get",
+            "sheets.spreadsheets.get",
+            "sheets.spreadsheets.values.batchGet"
+        ]
+    );
+    crate::fact::google::of_result(&r.core.rec(None), &out.meta);
+    let rows = ledgered(&r.core, "google.called");
+    let said: Vec<_> = rows.iter().map(|r| r["method"].as_str().unwrap()).collect();
+    assert_eq!(
+        said,
+        [
+            "drive.files.get",
+            "sheets.spreadsheets.get",
+            "sheets.spreadsheets.values.batchGet"
+        ],
+        "{rows:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_error_after_a_call_keeps_its_row() {
+    let (r, drive) = drive_rig(vec![]).await;
+    drive.add(File::folder("fold1", "Archive"));
+    drive.add(File::doc("doc1", "Plan", "# Plan\n"));
+    let f = failure(&r, "drive.read", json!({"id": "fold1"})).await;
+    assert!(f.message.contains("is a folder"), "{}", f.message);
+    assert_eq!(methods(&f.meta), ["drive.files.get"], "{:?}", f.meta);
+    assert_eq!(f.meta["private"], true);
+    // A revoke of an address with no access: the list went through, the delete never ran.
+    let f = failure(
+        &r,
+        "drive.share",
+        json!({"id": "doc1", "email": "nobody@example.test", "remove": true}),
+    )
+    .await;
+    assert!(f.message.contains("no such access"), "{}", f.message);
+    assert_eq!(methods(&f.meta), ["drive.permissions.list"], "{:?}", f.meta);
+}
+
+#[tokio::test]
+async fn a_move_keeps_the_get_and_the_patch() {
+    let (r, drive) = drive_rig(vec![]).await;
+    drive.add(File::doc("doc1", "Plan", "# Plan\n"));
+    drive.add(File::folder("fold2", "Archive"));
+    let (out, _) = ok(&r, "drive.write", json!({"id": "doc1", "move_to": "fold2"})).await;
+    // The folder's sharing, the file's parents, then the move itself.
+    assert_eq!(
+        methods(&out.meta),
+        ["drive.files.get", "drive.files.get", "drive.files.update"],
+        "{:?}",
+        out.meta
+    );
+    assert_eq!(drive.file("doc1").unwrap().parents, ["fold2".to_string()]);
+}
+
+#[tokio::test]
+async fn a_write_into_a_shared_folder_asks_first() {
+    let open = |c: &mut crate::Config| {
+        c.policy.enforcement = Posture::Open;
+        c.policy.tools.insert("drive.write".into(), Posture::Open);
+    };
+    let r = rig_with(
+        Some(theseus_google::fake::REFRESH_TOKEN),
+        |_| "file:/tmp/unused-google-refresh-token".into(),
+        vec![],
+        open,
+    )
+    .await;
+    let drive = Drive::install(&r.fake);
+    drive.add(File::folder("team1", "Team").shared());
+    drive.add(File::folder("mine1", "Mine"));
+    drive.add(File::doc("doc1", "Plan", "# Plan\n"));
+    let writes = |r: &Rig| {
+        r.fake
+            .log()
+            .into_iter()
+            .filter(|l| l.verb == "POST" || l.verb == "PATCH")
+            .count()
+    };
+    let create = json!({"name": "Notes", "content": "hello", "folder": "team1"});
+    let mv = json!({"id": "doc1", "move_to": "team1"});
+    for input in [&create, &mv] {
+        let f = failure(&r, "drive.write", input.clone()).await;
+        assert!(f.message.contains("into_shared"), "{}", f.message);
+        assert!(f.message.contains("shared"), "{}", f.message);
+        assert_eq!(methods(&f.meta), ["drive.files.get"], "{:?}", f.meta);
+    }
+    assert_eq!(writes(&r), 0, "nothing was created or moved");
+    assert_eq!(drive.file("doc1").unwrap().parents, ["root".to_string()]);
+    // A shared drive's folder counts too, though the folder itself is not shared.
+    r.fake.route("GET", "/drive/v3/files/sd1", |_| {
+        theseus_google::fake::Reply::json(
+            200,
+            json!({"id": "sd1", "mimeType": "application/vnd.google-apps.folder", "driveId": "drv1"}),
+        )
+    });
+    let f = failure(
+        &r,
+        "drive.write",
+        json!({"name": "Notes", "content": "hello", "folder": "sd1"}),
+    )
+    .await;
+    assert!(f.message.contains("into_shared"), "{}", f.message);
+    // An unshared folder writes as before.
+    ok(
+        &r,
+        "drive.write",
+        json!({"name": "Notes", "content": "hello", "folder": "mine1"}),
+    )
+    .await;
+    assert_eq!(writes(&r), 1);
+    // `into_shared` makes the plan the owner's, at every posture, and the run then writes.
+    let asked =
+        json!({"name": "Notes", "content": "hello", "folder": "team1", "into_shared": true});
+    let plain = plan_of(&r, "drive.write", create.clone()).unwrap();
+    assert!(plain.authority.is_none(), "{plain:?}");
+    let plan = plan_of(&r, "drive.write", asked.clone()).unwrap();
+    assert!(plan.authority.is_some(), "{plan:?}");
+    assert_eq!(plan.class, Some(theseus_tools::ToolClass::Write));
+    let t = tool(&r, "drive.write");
+    let d = r.core.tools.policy.decide(t.as_ref(), &plan);
+    assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
+    assert!(!r.core.tools.policy.posture_only(t.as_ref(), &plan));
+    ok(&r, "drive.write", asked).await;
+    assert_eq!(writes(&r), 2, "the file was created in the shared folder");
+}
+
+#[test]
+fn a_raw_q_must_balance() {
+    use super::drive::compile_q;
+    let q = |q| compile_q(Some(q), None, None, None, None);
+    let e = q("a) or (b").unwrap_err();
+    assert!(e.contains("unbalanced"), "{e}");
+    assert!(q("(a").is_err());
+    assert!(q("name = 'x").is_err());
+    assert_eq!(
+        q("name contains '(draft'").unwrap(),
+        "(name contains '(draft') and trashed = false"
+    );
+    assert_eq!(
+        q("name = 'it\\'s )'").unwrap(),
+        "(name = 'it\\'s )') and trashed = false"
+    );
+    assert_eq!(q("(a or b)").unwrap(), "((a or b)) and trashed = false");
 }

@@ -434,7 +434,8 @@ about the case at hand, and returns [a refusal] to the requester". The owner cho
 - In a shared place, a turn whose own verdict reads `elicit` or `expose` at the act band, or at the confirm band (the
   bands `PersonalAnswer::warns` already used there), makes **no model call**: the loop's first compile returns, the turn
   ends with `hold_reply`, and `I don't share that here.` is its assistant node and its output, so the reply post and the
-  next turn's history both carry it. The stop reason stays `end_turn`: a footer says nothing of why.
+  next turn's history both carry it. The stop reason is `held` (theseus-2rvwv): the footers say the reply was held
+  and name no model.
 - The owner's DM carries the case: who asked (the message's author), where (the place's bound name), the message's first
   200 characters quoted and scrubbed, which of the two reaches it read as, and that the requester was told the line.
 - The hold is not rate-limited as the DM is: a second reach in the same place within ten minutes is held and answered, and

@@ -8,6 +8,8 @@ use std::collections::HashMap;
 
 use theseus_client::Conn;
 use theseus_protocol::method;
+use theseus_protocol::work::progress_line::{aged_said, step_words};
+use theseus_protocol::work::WorkView;
 use theseus_protocol::{WorkWatchParams, WorkWatchResult};
 
 /// Each session's progress line, for the sessions whose view has one.
@@ -25,15 +27,26 @@ pub async fn lines(conn: &mut Conn) -> HashMap<String, String> {
     let Ok(r) = serde_json::from_value::<WorkWatchResult>(v) else {
         return HashMap::new();
     };
-    of_views(&r.views)
+    of_views(&r.views, crate::herdr::now_ms())
 }
 
-/// The lines of a snapshot's views, by session.
-pub fn of_views(views: &[theseus_protocol::work::WorkView]) -> HashMap<String, String> {
+/// The lines of a snapshot's views, by session: `Progress::line`'s wording, with
+/// the model's words carrying their age when they are old news (`aged_said`).
+pub fn of_views(views: &[WorkView], now_ms: u64) -> HashMap<String, String> {
     views
         .iter()
         .filter_map(|v| {
-            let line = v.progress.as_ref()?.line()?;
+            let p = v.progress.as_ref()?;
+            let doing = v.doing.as_ref().map(|d| d.since_ms);
+            let said = p
+                .said
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .map(|s| aged_said(s, p.at_ms, doing, now_ms));
+            let line = match (step_words(p.steps_done, p.steps_total), said) {
+                (Some(c), Some(s)) => format!("{c} · {s}"),
+                (c, s) => c.or(s)?,
+            };
             Some((v.session_id.clone()?, line))
         })
         .collect()
@@ -66,12 +79,30 @@ mod tests {
                 {"steps_done": 0, "steps_total": 0, "said": "Reading the config", "at_ms": 1}})),
             view(json!({"session_id": "ses_c"})),
         ];
-        let got = of_views(&views);
+        let got = of_views(&views, 1);
         assert_eq!(
             got["ses_a"],
             "step 4 of 5 · Running the tests again with the fix…"
         );
         assert_eq!(got["ses_b"], "Reading the config");
         assert!(!got.contains_key("ses_c"));
+    }
+
+    /// The words carry their age when they are over a minute older than what
+    /// the task does now, and none when they are fresh (theseus-ztkhg.1).
+    #[test]
+    fn old_words_carry_their_age() {
+        let said = |at_ms: u64| {
+            view(json!({"session_id": "ses_a",
+                "doing": {"what": "tool", "label": "fs.read", "since_ms": 200_000, "turn": 1, "loop_index": 0},
+                "progress": {"steps_done": 3, "steps_total": 5, "said": "Round 1 done. Continuing.", "at_ms": at_ms}}))
+        };
+        let old = of_views(&[said(80_000)], 200_000);
+        assert_eq!(
+            old["ses_a"],
+            "step 4 of 5 · Round 1 done. Continuing. (2 min ago)"
+        );
+        let fresh = of_views(&[said(170_000)], 200_000);
+        assert_eq!(fresh["ses_a"], "step 4 of 5 · Round 1 done. Continuing.");
     }
 }

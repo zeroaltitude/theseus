@@ -2,8 +2,8 @@
 //! trusted sender's mail may start, and the follow-up at a deadline.
 //!
 //! - **Stranger text never starts a turn.** A match is a notice. Only when
-//!   every matching message's `From` address is in `[google] trusted_senders`
-//!   and the watch said `then: task`, the owner's brief starts a task, with the
+//!   every matching message's `From` address is in `[google] trusted_senders`,
+//!   Gmail authenticated each (`mail_auth`), and the watch said `then: task`, the owner's brief starts a task, with the
 //!   mail as its one quote: outside text, so the task's session holds it
 //!   before its first turn (its first call that acts asks), and private from
 //!   its start. Otherwise the notice says why it is only a notice.
@@ -27,12 +27,24 @@ use crate::rpc::Core;
 
 impl Core {
     /// Whether every sender of a look is on the config's list.
-    pub(super) fn mail_trusted(&self, m: &Seen) -> bool {
+    pub(super) fn mail_listed(&self, m: &Seen) -> bool {
         let list = &self.cfg.google.trusted_senders;
         !m.senders.is_empty()
             && m.senders
                 .iter()
                 .all(|s| list.iter().any(|t| t.eq_ignore_ascii_case(s)))
+    }
+
+    /// Whether a look may start a task: every sender is listed and Gmail
+    /// authenticated every message (the `From` alone is the sender's claim).
+    /// A look with an unlisted sender keeps no `unverified`: the notice names
+    /// that reason, which wins.
+    pub(super) fn mail_trust(&self, m: &mut Seen) {
+        let listed = self.mail_listed(m);
+        m.trusted = listed && m.unverified.is_empty();
+        if !listed {
+            m.unverified.clear();
+        }
     }
 
     /// Start the task `news` calls for, once, and say so in its text. Returns
@@ -47,9 +59,11 @@ impl Core {
                     return None;
                 };
                 if news.detail["trusted"] != true {
-                    news.text.push_str(
-                        "\nfrom a sender not in trusted_senders: notice only, no task started",
-                    );
+                    news.text.push_str(if news.detail["unverified"] == true {
+                        "\nfrom a trusted address Gmail did not authenticate (no DKIM or DMARC pass): notice only, no task started"
+                    } else {
+                        "\nfrom a sender not in trusted_senders: notice only, no task started"
+                    });
                     return None;
                 }
                 (brief.clone(), Some(news.text.clone()), true)

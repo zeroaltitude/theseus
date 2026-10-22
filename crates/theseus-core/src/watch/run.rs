@@ -13,6 +13,7 @@ use theseus_protocol::WatchInfo;
 
 use super::check::{self, Tools};
 use super::cond::Observed;
+use super::quiet::{self, Quiet};
 use super::spec::Spec;
 use super::step::{Entry, Step};
 use crate::fact::{
@@ -132,22 +133,58 @@ impl Core {
             let id = e.wake_id.clone();
             // A mail look's calls are rows like any tool's; who sent what is
             // decided here, where the config is.
-            let result = core.watch_seen(&rows, result);
+            let result = core.watch_seen(&id, &rows, result);
             let _ = tokio::task::spawn_blocking(move || core.watch_finish(&id, result)).await;
         }));
     }
 
     /// A look finished, before an entry takes it: a mail look's calls are rows
     /// like any tool's, and who sent what is decided here, where the config is.
+    /// A quiet look's rows go to its entry's tally instead (`quiet.rs`), which
+    /// is written, ahead of the rows, with whatever a later look writes.
     pub(crate) fn watch_seen(
         &self,
+        wake_id: &str,
         rows: &[serde_json::Value],
         result: Result<Observed, String>,
     ) -> Result<Observed, String> {
+        let now = self.kernel.now_ms();
+        let quiet = quiet::is_quiet(rows, &result);
+        // The first look reads the profile: it is the baseline, never quiet.
+        let tally = self.watches.with(wake_id, |e| {
+            if quiet && e.cursor.is_some() {
+                e.quiet.add(rows, now);
+                (
+                    e.quiet
+                        .due(now)
+                        .then(|| std::mem::take(&mut e.quiet).take())
+                        .flatten(),
+                    false,
+                )
+            } else {
+                (std::mem::take(&mut e.quiet).take(), true)
+            }
+        });
+        let (tally, with_rows) = tally.unwrap_or((None, true));
         // One frame for the look's rows, however many calls it made.
         let rec = self.rec(None);
+        let rows = tally.iter().chain(rows.iter().filter(|_| with_rows));
+        self.write_rows(&rec, rows);
+        result.map(|mut seen| {
+            if let Some(m) = &mut seen.mail {
+                self.mail_trust(m);
+            }
+            seen
+        })
+    }
+
+    /// `google.called` rows, in one frame.
+    fn write_rows<'a>(
+        &self,
+        rec: &fact::Rec<'_>,
+        rows: impl Iterator<Item = &'a serde_json::Value>,
+    ) {
         let records: Vec<_> = rows
-            .iter()
             .filter_map(|row| rec.row(&fact::google::GoogleCalled { row }).ok())
             .collect();
         if !records.is_empty() {
@@ -155,12 +192,17 @@ impl Core {
                 tracing::warn!(error = %format!("{e:#}"), "a mail look's rows were not written");
             }
         }
-        result.map(|mut seen| {
-            if let Some(m) = &mut seen.mail {
-                m.trusted = self.mail_trusted(m);
-            }
-            seen
-        })
+    }
+
+    /// A watch leaves the board: its tally of quiet looks is written first.
+    fn watch_leave(&self, wake_id: &str) {
+        let tally = self
+            .watches
+            .with(wake_id, |e| std::mem::take(&mut e.quiet).take());
+        self.watches.remove(wake_id);
+        if let Some(row) = tally.flatten() {
+            self.write_rows(&self.rec(None), std::iter::once(&row));
+        }
     }
 
     /// What a check came to: the entry takes it, and news is written.
@@ -186,18 +228,24 @@ impl Core {
             ProbeVerdict::Met { .. } | ProbeVerdict::Expired
         );
         if ends {
-            self.watches.remove(wake_id);
+            self.watch_leave(wake_id);
         }
         match self.watch_write(&before, &news) {
             Ok(true) => {}
             // Cancelled, or its conversation ended.
-            Ok(false) => self.watches.remove(wake_id),
+            Ok(false) => self.watch_leave(wake_id),
             Err(e) => {
                 tracing::warn!(wake_id, error = %format!("{e:#}"), "a watch's news was not written; it is checked again");
                 let again = Entry {
                     next_ms: now + 30_000,
                     running: false,
                     started,
+                    // A leaving watch's tally was written as it left.
+                    quiet: if ends {
+                        Quiet::default()
+                    } else {
+                        before.quiet.clone()
+                    },
                     ..before
                 };
                 match ends {

@@ -393,7 +393,8 @@ def abstained_as(reply: str, p: pg.Probe, facts: list[pg.Fact]) -> str:
     of the kind. `neighbours`: it admits, and every value it gives sits in a
     clause that names another fact's subject and nothing of the asked one's.
     `misleading`: anything else, which a reader could take for the asked
-    subject's value. Words both subjects share name neither."""
+    subject's value. Words both subjects share name neither, unless the asked
+    subject has no word of its own, when they name it."""
     values_of = lambda text: pg.find_values(p.value_kind, text)
     admits = re.search(pg.ADMIT, checks.fold(reply), re.I) is not None
     if not admits:
@@ -403,6 +404,8 @@ def abstained_as(reply: str, p: pg.Probe, facts: list[pg.Fact]) -> str:
     own = _subject_words(p.subject)
     others = set().union(*(_subject_words(f.subject) for f in facts if f.kind == p.value_kind)) - own
     own -= set().union(*(_subject_words(f.subject) for f in facts if f.kind == p.value_kind))
+    if not own:
+        own = _subject_words(p.subject)
     for c in _clauses(reply):
         if not values_of(c):
             continue

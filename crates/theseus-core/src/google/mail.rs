@@ -254,14 +254,14 @@ fn parse_draft(draft: &Value) -> Parsed {
 impl Parsed {
     /// The digest a send is bound to: every field the card shows, the thread
     /// the message joins, the HTML part even beside a plain one, and each
-    /// attachment's name, type and size (reading the bytes would cost a call
-    /// apiece, and Gmail gives an attachment a new id on every read, so the id
-    /// names nothing).
+    /// attachment's name, type, size and the hash of its bytes (Gmail gives an
+    /// attachment a new id on every read, so the id names nothing, and a file
+    /// swapped for another of the same name and size must still change it).
     fn digest(&self) -> String {
         let files: Vec<_> = self
             .files
             .iter()
-            .map(|f| json!([f.name, f.mime, f.size]))
+            .map(|f| json!([f.name, f.mime, f.size, f.sha256]))
             .collect();
         let canon = json!([
             self.thread,
@@ -370,8 +370,29 @@ impl Mail {
             )
             .await?;
         let v = r.json();
-        let parsed = parse_draft(&v);
+        let mut parsed = parse_draft(&v);
+        // The digest binds to each attachment's bytes: one read apiece, and a
+        // read that fails fails the card or the send.
+        let mid = v["message"]["id"].as_str().unwrap_or(id);
+        for f in parsed.files.iter_mut().filter(|f| f.sha256.is_empty()) {
+            f.sha256 = mime::sha_hex(&self.attachment(rows, tool, mid, &f.id).await?);
+        }
         Ok((v, parsed))
+    }
+
+    /// One attachment's bytes (`messages.attachments.get`), the one read
+    /// `save` and a draft's digest share.
+    async fn attachment(
+        &self,
+        rows: &mut Vec<Value>,
+        tool: &'static str,
+        mid: &str,
+        id: &str,
+    ) -> Result<Vec<u8>, CallFailed> {
+        let path = format!("/gmail/v1/users/me/messages/{mid}/attachments/{id}");
+        let m = (tool, "gmail.users.messages.attachments.get", "read");
+        let r = self.rest(rows, m, Some(mid.into()), get(path, &[])).await?;
+        Ok(mime::unbase64(r.json()["data"].as_str().unwrap_or("")))
     }
 
     /// The addresses a card does not flag: the account, the thread's own, and
@@ -820,13 +841,12 @@ impl Mail {
                 MAX_ATTACHMENT >> 20
             )));
         }
-        let path = format!("/gmail/v1/users/me/messages/{mid}/attachments/{}", f.id);
-        let m = (READ, "gmail.users.messages.attachments.get", "read");
-        let r = self
-            .rest(rows, m, Some(mid.into()), get(path, &[]))
-            .await
-            .map_err(Err)?;
-        let bytes = mime::unbase64(r.json()["data"].as_str().unwrap_or(""));
+        if f.id.is_empty() {
+            return Err(Ok(
+                "it is stored inside the message, with no attachment to fetch".into(),
+            ));
+        }
+        let bytes = self.attachment(rows, READ, mid, &f.id).await.map_err(Err)?;
         tokio::fs::create_dir_all(dir)
             .await
             .map_err(|e| Ok(e.to_string()))?;

@@ -139,7 +139,7 @@ pub(super) async fn look(core: &Arc<Core>, wake_id: &str) {
         .expect("the watch is on the board");
     let mut rows = Vec::new();
     let result = crate::watch::check::observe(&core.watch_tools(), &e, &mut rows).await;
-    let result = core.watch_seen(&rows, result);
+    let result = core.watch_seen(wake_id, &rows, result);
     let (c, id) = (core.clone(), wake_id.to_string());
     tokio::task::spawn_blocking(move || c.watch_finish(&id, result))
         .await

@@ -5,8 +5,9 @@
 //!   matches yet. Every later look is `users.history.list` from the cursor
 //!   (`messageAdded` only): with no new message that is the whole look, one
 //!   call of about 2 quota units. With some, one `messages.list` for the
-//!   watch's query keeps the added ids it returns, and each is read for its
-//!   `From`, `Subject` and snippet (metadata only: never a body).
+//!   watch's query (never the owner's own drafts or sent mail) keeps the added
+//!   ids it returns, and each is read for its `From`, `Subject`, snippet and
+//!   Gmail's own verdict on the sender (metadata only: never a body).
 //! - **A 404** on the history (the cursor is older than Gmail keeps) reads the
 //!   profile again and starts from there; the look says so (`Seen.rebaselined`),
 //!   and the watch's row does too: never silently.
@@ -22,6 +23,7 @@ use serde_json::Value;
 use theseus_google::{Request, Response};
 
 use super::cond::Observed;
+use super::mail_auth;
 use super::reply::quote_of;
 use crate::google::{mail, mime, CallFailed, Google, Meta};
 use crate::scrub::Scrubber;
@@ -47,6 +49,10 @@ pub struct Seen {
     /// Every one of them is in `[google] trusted_senders`: set by the core,
     /// which holds the config, before the look is applied.
     pub trusted: bool,
+    /// The senders (lower case) whose mail Gmail did not authenticate (no
+    /// DKIM or DMARC pass for the From's domain, `mail_auth`): a listed
+    /// address is not trusted on its own `From`.
+    pub unverified: Vec<String>,
 }
 
 async fn call(
@@ -106,6 +112,62 @@ fn sender_of(from: &str) -> String {
         .unwrap_or_default()
 }
 
+/// One matching message, as the look keeps it.
+struct Read {
+    line: String,
+    sender: String,
+    /// Gmail's own `Authentication-Results` passes the From's domain.
+    authenticated: bool,
+}
+
+/// Read one match's metadata: none for the owner's own draft or sent mail
+/// (the guard that does not depend on the query's terms).
+async fn read_one(
+    g: &Google,
+    rows: &mut Vec<Value>,
+    id: String,
+    scrubber: &Scrubber,
+) -> Result<Option<Read>, String> {
+    let query = [
+        ("format", "metadata"),
+        ("metadataHeaders", "From"),
+        ("metadataHeaders", "Subject"),
+        ("metadataHeaders", "Authentication-Results"),
+    ];
+    let path = format!("/gmail/v1/users/me/messages/{id}");
+    let msg = call(
+        g,
+        rows,
+        "gmail.users.messages.get",
+        Some(id),
+        mail::get(path, &query),
+    )
+    .await
+    .map_err(|f| f.message)?
+    .json();
+    let own = |l: &str| {
+        msg["labelIds"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|x| x == l))
+    };
+    if own("DRAFT") || own("SENT") {
+        return Ok(None);
+    }
+    let head = |n: &str| mime::header(&msg["payload"], n).unwrap_or_default();
+    let (from, subject) = (head("From"), head("Subject"));
+    let said = |t: &str| quote_of(&scrubber.scrub(t).0);
+    Ok(Some(Read {
+        line: format!(
+            "From: {} · Subject: {} · {}",
+            said(&from),
+            said(&subject),
+            said(msg["snippet"].as_str().unwrap_or(""))
+        ),
+        sender: sender_of(&from),
+        authenticated: mail_auth::authenticated(&msg["payload"], &from),
+    }))
+}
+
 /// One look at the mailbox for `q`, from `cursor` (none: the first look).
 pub async fn look(
     g: &Google,
@@ -151,9 +213,12 @@ pub async fn look(
     if added.is_empty() {
         return Ok(nothing(cursor, false));
     }
+    // The owner's own drafts and sent mail are added to the mailbox too, and
+    // are never news (the parentheses keep an `OR` in the query its meaning).
+    let q = format!("({q}) -in:drafts -in:sent");
     let req = mail::get(
         "/gmail/v1/users/me/messages".into(),
-        &[("q", q), ("maxResults", "50")],
+        &[("q", q.as_str()), ("maxResults", "50")],
     );
     let listed = call(g, rows, "gmail.users.messages.list", None, req)
         .await
@@ -171,34 +236,18 @@ pub async fn look(
     if matched.is_empty() {
         return Ok(nothing(cursor, false));
     }
-    let (mut lines, mut senders) = (Vec::new(), Vec::new());
+    let (mut lines, mut senders, mut unverified) = (Vec::new(), Vec::new(), Vec::new());
     for id in matched {
-        let query = [
-            ("format", "metadata"),
-            ("metadataHeaders", "From"),
-            ("metadataHeaders", "Subject"),
-        ];
-        let path = format!("/gmail/v1/users/me/messages/{id}");
-        let msg = call(
-            g,
-            rows,
-            "gmail.users.messages.get",
-            Some(id),
-            mail::get(path, &query),
-        )
-        .await
-        .map_err(|f| f.message)?
-        .json();
-        let head = |n: &str| mime::header(&msg["payload"], n).unwrap_or_default();
-        let (from, subject) = (head("From"), head("Subject"));
-        senders.push(sender_of(&from));
-        let said = |t: &str| quote_of(&scrubber.scrub(t).0);
-        lines.push(format!(
-            "From: {} · Subject: {} · {}",
-            said(&from),
-            said(&subject),
-            said(msg["snippet"].as_str().unwrap_or(""))
-        ));
+        if let Some(m) = read_one(g, rows, id, scrubber).await? {
+            lines.push(m.line);
+            if !m.authenticated {
+                unverified.push(m.sender.clone());
+            }
+            senders.push(m.sender);
+        }
+    }
+    if lines.is_empty() {
+        return Ok(nothing(cursor, false));
     }
     Ok(Observed {
         value: lines.join("\n"),
@@ -206,6 +255,7 @@ pub async fn look(
         mail: Some(Seen {
             cursor,
             senders,
+            unverified,
             ..Default::default()
         }),
         ..Default::default()

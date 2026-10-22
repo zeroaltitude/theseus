@@ -186,3 +186,16 @@ fn the_card_says_the_question_whole() {
         "{text}"
     );
 }
+
+/// Esc closes the card; an Esc among other keys is neither an answer nor a decline.
+#[test]
+fn esc_closes_the_answer_card() {
+    let ks = keys(&q("act_2", "ses_a", 1, json!({})));
+    assert_eq!(decide("\x1b\n", &ks), Decision::Quit);
+    assert_eq!(decide("\x1b\x1b \r\n", &ks), Decision::Quit);
+    assert_eq!(decide("\x1by\n", &ks), Decision::Unknown("y".into()));
+    assert_eq!(
+        decide("note \x1b[A", &ks),
+        Decision::Unknown("note [A".into())
+    );
+}

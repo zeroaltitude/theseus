@@ -1651,10 +1651,21 @@ fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
 #[test]
 fn a_line_sent_on_to_main_does_not_leave_the_pane_sending() {
     let dir = tempfile::tempdir().unwrap();
-    let herdr = FakeHerdr::start(dir.path());
+    // The task's refusal of the line is held until herdr has heard "sending your message": the
+    // label going back follows that answer, so the two reports can never share a batch for the
+    // adapter to coalesce into one (theseus-fumkt).
+    let (sending_tx, sending_rx) = std::sync::mpsc::channel::<()>();
+    let sending_tx = Mutex::new(sending_tx);
+    let herdr = FakeHerdr::answering(dir.path(), move |r| {
+        if r["method"] == "pane.report_agent" && r["params"]["message"] == "sending your message" {
+            let _ = sending_tx.lock().unwrap().send(());
+        }
+        Ok(json!({"type": "ok"}))
+    });
     let main = "ses_main0a1b2c";
     let mut ended = view(30, "complete", "ready", "done", None, 0.4);
     ended["kind"] = json!("task");
+    let sending_rx = Mutex::new(sending_rx);
     let d = FakeDaemon::start(dir.path(), move |req| {
         let p = &req["params"];
         let task = json!({"session_id": S, "kind": "task", "label": "task",
@@ -1674,8 +1685,13 @@ fn a_line_sent_on_to_main_does_not_leave_the_pane_sending() {
                 Ok(json!({"sessions": [parent]}))
             }
             "session.list" => Ok(json!({"sessions": [task]})),
-            "turn.submit" if p["session_id"] == S => Err(json!({"code": -32000,
-                "message": "the task is complete", "data": {"class": "execution_complete"}})),
+            "turn.submit" if p["session_id"] == S => {
+                // Unbounded: a report that never comes fails the waits below, and nextest
+                // kills a test that hangs.
+                let _ = sending_rx.lock().unwrap().recv();
+                Err(json!({"code": -32000,
+                    "message": "the task is complete", "data": {"class": "execution_complete"}}))
+            }
             "turn.submit" => Ok(json!({"session_id": main, "turn_id": "trn_1", "loops": 1,
                 "output": "Noted.", "stop_reason": "end_turn", "provider_stop_reason": null,
                 "model": "invented-model", "usage": {"input_tokens": 1, "output_tokens": 1},
@@ -1736,4 +1752,84 @@ fn one_question_one_prompt_in_a_pane() {
     assert_eq!(count(&|l| l == "  approve? [y/N/t/note]"), 1, "{err}");
     assert_eq!(count(&|l| l.contains("[answer]")), 1, "{err}");
     assert_eq!(count(&|l| l.contains("proc.run")), 1, "one card: {err}");
+}
+
+/// prefix+shift+s on a task's pane cancels the task the pane shows: the pane's `task` token is the
+/// title, so the cancel names the pane's session (theseus-dtvqa).
+#[test]
+fn a_stop_cancels_the_task_a_pane_shows() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::answering(dir.path(), |req| match req["method"].as_str() {
+        Some("pane.get") => Ok(
+            json!({"type": "pane_info", "pane": {"pane_id": PANE, "tokens": {
+            "kind": "task", "session": "ses_01a1772ee8", "task": "[walkthrough] drift"}}}),
+        ),
+        _ => Ok(json!({"type": "ok"})),
+    });
+    let d = FakeDaemon::start(dir.path(), |req| {
+        Some(match req["method"].as_str().unwrap() {
+            "wake.cancel" => Err(json!({"code": -32002, "message": "no pending wake is named"})),
+            "task.cancel" => Ok(json!({"task": {"short": "a1b2c3", "state": "cancelled"},
+                "cancelled_actions": []})),
+            other => Err(json!({"code": -32601, "message": format!("no {other}")})),
+        })
+    });
+    let out = Command::new(THESEUS)
+        .arg("--socket")
+        .arg(&d.sock)
+        .args([
+            "--json",
+            "herdr",
+            "stop",
+            "--pane",
+            PANE,
+            "--yes",
+            "--herdr-socket",
+        ])
+        .arg(&herdr.sock)
+        .env_remove("THESEUS_SOCKET")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let cancel = d.wait_for("task.cancel", 1);
+    assert_eq!(cancel[0]["params"]["task"], "ses_01a1772ee8");
+}
+
+/// A call that starts while a question waits prints below the question; in a herdr pane that
+/// does not say the prompt again: the pane's prompt is one per question (theseus-xgfps).
+#[test]
+fn a_pane_says_its_prompt_once_when_events_print_below_the_question() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(dir.path());
+    let waiting = view(
+        20,
+        "waiting",
+        "needs_you",
+        "confirm proc.run: run the tide tables",
+        Some("act_m3"),
+        0.0,
+    );
+    let d = daemon(dir.path(), waiting, vec![question("act_m3")]);
+    let mut w = Watch::start(&d, Some(&herdr), &["--interactive"]);
+    w.wait_prompt(1);
+    for n in 1..=2 {
+        d.push(
+            "tool.started",
+            json!({"session_id": S, "turn_id": "trn_1", "tool_use_id": format!("tu_{n}"),
+                "tool": "fs.read", "correlation_id": format!("act_r{n}"), "backend": "inproc"}),
+        );
+        w.wait_err("fs.read", n);
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    drop(w.child.stdin.take());
+    let (_, err) = w.finish();
+    let count = err
+        .lines()
+        .filter(|l| *l == "  approve? [y/N/t/note]")
+        .count();
+    assert_eq!(count, 1, "{err}");
 }

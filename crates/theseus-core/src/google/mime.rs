@@ -266,7 +266,21 @@ pub struct Attachment {
     pub name: String,
     pub mime: String,
     pub size: u64,
+    /// Where to fetch it; empty for a part that carries its bytes inline.
     pub id: String,
+    /// The SHA-256 of its bytes: known at once for an inline part, else set
+    /// by the caller that reads it (a send's digest binds to what a file is,
+    /// not only to what it is called).
+    pub sha256: String,
+}
+
+/// The SHA-256 of `bytes`, in hex.
+pub fn sha_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// What a message says: its text and its files.
@@ -309,12 +323,17 @@ fn walk(
     let name = part["filename"].as_str().unwrap_or("");
     let body = &part["body"];
     if !name.is_empty() {
-        if let Some(id) = body["attachmentId"].as_str() {
+        let inline = body["data"].as_str().map(unbase64);
+        if let Some(id) = body["attachmentId"]
+            .as_str()
+            .or(inline.as_ref().map(|_| ""))
+        {
             files.push(Attachment {
                 name: name.to_string(),
                 mime: mime.to_string(),
                 size: body["size"].as_u64().unwrap_or(0),
                 id: id.to_string(),
+                sha256: inline.map(|b| sha_hex(&b)).unwrap_or_default(),
             });
         }
     } else if let Some(data) = body["data"].as_str() {

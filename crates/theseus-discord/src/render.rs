@@ -78,6 +78,8 @@ pub enum Buttons {
     Again(String),
     /// A proposed seal's Seal this thread and Not needed, for this thread (theseus-f2g0).
     Seal(String),
+    /// A proposed link's Link these threads and Not needed, for this pair (theseus-98bz.12).
+    Link(String, String),
     /// A mint's card (theseus-xzxqv): Undo, for this write (the judgment's id).
     OntoUndo(String),
     /// A capture's card (theseus-slvl.5): `(mode, id, everywhere)`, a kept record's Undo or an ask's keep and not.
@@ -1225,7 +1227,8 @@ fn footer(r: &TurnSubmitResult) -> String {
     if !r.profile.is_empty() {
         bits.push(r.profile.clone());
     }
-    bits.push(r.model.clone());
+    // A held turn made no model call (theseus-2rvwv).
+    bits.push(["held: no model ran", &r.model][usize::from(r.stop_reason != "held")].into());
     // Where routing ran it: ⬆️ or ⬇️ on the reply corrects it (theseus-q31l).
     bits.extend(crate::runtime::route::routed(r));
     // Which thread it ran in, with a move handle when the router was unsure
@@ -1257,7 +1260,10 @@ fn footer(r: &TurnSubmitResult) -> String {
     }
     if r.awaiting_confirm.is_some() {
         bits.push("waiting for your approval".into());
-    } else if !matches!(r.stop_reason.as_str(), "" | "no_tool_calls" | "end_turn") {
+    } else if !matches!(
+        r.stop_reason.as_str(),
+        "" | "no_tool_calls" | "end_turn" | "held"
+    ) {
         bits.push(format!("stopped: {}", r.stop_reason));
     }
     // The turn in the cockpit (theseus-x9swu): a masked link, its brackets
@@ -1430,6 +1436,27 @@ mod tests {
                "provider_stop_reason": null, "model": "claude-sonnet-5", "provider": "anthropic", "profile": "sonnet",
                "usage": {"input_tokens": 1, "output_tokens": 2, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
                "elapsed_ms": 4200, "tool_calls": 1, "cost_usd": 0.0123, "session_cost_usd": 47.52, "awaiting_confirm": awaiting, "continuation": false})
+    }
+
+    /// A held turn's footer says so instead of naming a model (theseus-2rvwv).
+    #[test]
+    fn a_held_turns_footer_names_no_model() {
+        let mut v = ended("t1", None);
+        v["stop_reason"] = json!("held");
+        let held = footer(&result_of(v));
+        assert!(
+            held.starts_with("-# sonnet · held: no model ran · 2 loops"),
+            "{held}"
+        );
+        assert!(
+            !held.contains("claude-sonnet-5") && !held.contains("stopped"),
+            "{held}"
+        );
+        let done = footer(&result_of(ended("t2", None)));
+        assert!(
+            done.starts_with("-# sonnet · claude-sonnet-5 · 2 loops"),
+            "{done}"
+        );
     }
 
     #[test]

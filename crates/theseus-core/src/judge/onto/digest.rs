@@ -223,18 +223,22 @@ impl Core {
     /// The last day's machine writes, one line each (`lines`): nothing when
     /// there is none, or while the index is built. The kinds' rows are put
     /// back in the ledger's order, so the lines keep the order the writes
-    /// were made in.
+    /// were made in. The reads are off the runtime's worker
+    /// (`theseus_store::blocking`): the morning note calls it from a task.
     pub(crate) fn onto_night_lines(&self, now_ms: u64) -> Vec<String> {
         let since = now_ms.saturating_sub(DAY_MS);
-        let mut found = Vec::new();
-        for kind in KINDS {
-            if let Ok(Some(rows)) = self.onto_rows_at(kind, since) {
-                found.extend(rows);
+        let (mut found, o) = theseus_store::blocking(|| {
+            let mut found = Vec::new();
+            for kind in KINDS {
+                if let Ok(Some(rows)) = self.onto_rows_at(kind, since) {
+                    found.extend(rows);
+                }
             }
-        }
+            (found, self.runner.ontology.snapshot(&self.store))
+        });
         found.sort_by_key(|(at, _)| *at);
         let rows: Vec<LedgerRow> = found.into_iter().map(|(_, r)| r).collect();
-        let Ok(o) = self.runner.ontology.snapshot(&self.store) else {
+        let Ok(o) = o else {
             return Vec::new();
         };
         lines(&rows, &|id| {

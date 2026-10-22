@@ -485,7 +485,7 @@ fn proposals(c: &Core) -> Vec<serde_json::Value> {
         .open_for(OPERATOR_TARGET)
         .iter()
         .map(|a| crate::outbox::body_of(a).clone())
-        .filter(|b| b["kind"] == "onto_card")
+        .filter(|b| b["kind"] == "link_card")
         .collect()
 }
 
@@ -513,6 +513,10 @@ async fn a_pair_admitted_twice_is_proposed_once() {
         text.contains("Notes of \u{ab}datatidy stats\u{bb} answered questions in \u{ab}datatidy pipeline\u{bb} twice")
             && text.ends_with("theseus thread link pipeline stats"),
         "{text}"
+    );
+    assert_eq!(
+        (posts[0]["here"].as_str(), posts[0]["other"].as_str()),
+        (Some("pipeline"), Some("stats"))
     );
     assert_eq!(rows(c, "thread.link_proposed").len(), 1);
     assert!(

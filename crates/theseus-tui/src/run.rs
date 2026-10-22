@@ -11,14 +11,15 @@ use std::future::Future;
 use std::io::Write;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::Event as TermEvent;
 use ratatui::backend::Backend;
 use ratatui::Terminal;
-use theseus_client::notify::Notifier;
+use theseus_client::notify::{Env, Notifier, Powershell, Spawner};
+use theseus_client::render::Tag;
 use theseus_client::Conn;
 use theseus_protocol::{Id, Message};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -68,6 +69,9 @@ pub struct Runner<B: Backend> {
     pub delivery: Delivery,
     /// Carries a ping out; a toast is the worker's, never this loop's.
     pub notifier: Notifier,
+    /// What the notifier said from its worker thread: the notice line's words, never stderr, which
+    /// would land on the drawn frame.
+    told: Arc<Mutex<Vec<String>>>,
     /// SIGTERM or SIGHUP, in the binary: the loop ends as a quit does, and
     /// puts the terminal's modes back (theseus-8hcg).
     pub signals: Option<UnboundedReceiver<()>>,
@@ -84,6 +88,25 @@ enum Woke {
     Signal,
 }
 
+/// The notifier of a screen that owns the terminal: a bell goes to stdout, and what its worker
+/// has to say goes to `told`, for the notice line, never to stderr (the drawn frame).
+pub(crate) fn notifier(
+    told: &Arc<Mutex<Vec<String>>>,
+    detect: Box<dyn Fn() -> Env + Send + Sync>,
+    spawner: Arc<dyn Spawner>,
+) -> Notifier {
+    let told = told.clone();
+    Notifier::with(
+        detect,
+        spawner,
+        Arc::new(|b| {
+            let mut out = std::io::stdout();
+            let _ = out.write_all(b).and_then(|()| out.flush());
+        }),
+        Arc::new(move |m| told.lock().unwrap().push(m.to_string())),
+    )
+}
+
 impl<B: Backend> Runner<B> {
     pub fn new(
         app: App,
@@ -92,6 +115,7 @@ impl<B: Backend> Runner<B> {
         events: UnboundedReceiver<TermEvent>,
         clock: fn() -> u64,
     ) -> Self {
+        let told = Arc::new(Mutex::new(Vec::new()));
         Self {
             app,
             term,
@@ -112,10 +136,8 @@ impl<B: Backend> Runner<B> {
             // A bell, as before: the binary sets what `--notify` (else the
             // config) says, `auto` by default, so a test never toasts.
             delivery: Delivery::Bell,
-            notifier: Notifier::new(Arc::new(|b| {
-                let mut out = std::io::stdout();
-                let _ = out.write_all(b).and_then(|()| out.flush());
-            })),
+            notifier: notifier(&told, Box::new(Env::detect), Arc::new(Powershell)),
+            told,
             signals: None,
             #[cfg(test)]
             terminal_events: 0,
@@ -177,6 +199,11 @@ impl<B: Backend> Runner<B> {
             }
         };
         self.app.now_ms = (self.clock)();
+        let told = std::mem::take(&mut *self.told.lock().unwrap());
+        if let Some(m) = told.last() {
+            self.app.flash = Some((Tag::Warn, m.clone()));
+            self.dirty = true;
+        }
         match woke {
             Woke::Daemon(Ok(Some(msg))) => self.message(msg).await,
             Woke::Daemon(Ok(None)) => self.lost_connection(),

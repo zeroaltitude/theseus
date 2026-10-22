@@ -313,6 +313,11 @@ impl Spool {
     }
     pub fn remove_pid(&self, id: &CorrelationId) {
         let _ = fs::remove_file(self.pid_path(id));
+        self.remove_argv(id);
+    }
+
+    /// Take job `id`'s argv file away, if there is one (best effort, as `remove_pid` is).
+    pub fn remove_argv(&self, id: &str) {
         let _ = fs::remove_file(self.argv_path(id));
     }
 

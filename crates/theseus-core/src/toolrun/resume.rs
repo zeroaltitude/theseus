@@ -357,12 +357,11 @@ impl ToolRuntime {
             )?;
             return Ok(done(status));
         }
-        let alive = is_job
-            && self
-                .spool
-                .as_ref()
-                .and_then(|sp| sp.read_pid(corr))
-                .is_some_and(|pid| theseus_kernel::job::wrapper_alive(pid, corr));
+        // Read once: the wrapper's end removes the file between two reads.
+        let pid = is_job
+            .then(|| self.spool.as_ref().and_then(|sp| sp.read_pid(corr)))
+            .flatten();
+        let alive = pid.is_some_and(|pid| theseus_kernel::job::wrapper_alive(pid, corr));
         if alive {
             // Its handle, as any job that goes on in the background has one.
             let argv = super::jobs_tools::argv_of(tc.store, a);
@@ -370,7 +369,6 @@ impl ToolRuntime {
                 .jobs
                 .handles
                 .assign(tc.store, tc.session_id, corr, &argv);
-            let pid = self.spool.as_ref().and_then(|sp| sp.read_pid(corr));
             let text = adopted_text(&job, &argv, a.resource.as_deref());
             let meta = serde_json::json!({"pid": pid, super::handles::KEY: job});
             self.answer(

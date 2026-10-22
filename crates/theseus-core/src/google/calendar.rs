@@ -149,6 +149,16 @@ fn organized_by(e: &Value, account: &str) -> bool {
         || text(e, &["organizer", "email"]).is_some_and(|m| m.eq_ignore_ascii_case(account))
 }
 
+/// Whether `e`'s text is the account's own: it organizes and created the event,
+/// and Gmail did not add it from mail (a stranger's email text, whoever Google names).
+fn own_text(e: &Value, account: &str) -> bool {
+    let creator = &e["creator"];
+    let made_by_account = creator.is_null()
+        || creator["self"] == true
+        || text(e, &["creator", "email"]).is_some_and(|m| m.eq_ignore_ascii_case(account));
+    organized_by(e, account) && e["eventType"] != "fromGmail" && made_by_account
+}
+
 /// The event's video call: Meet's link, else a conference's video entry point.
 fn call_link(e: &Value) -> Option<String> {
     text(e, &["hangoutLink"]).map(str::to_string).or_else(|| {
@@ -349,7 +359,7 @@ fn listed(
         text.push_str("(more events follow: narrow from and to, or raise max)\n");
     }
     let ids: Vec<&str> = events.iter().filter_map(|e| text_of(e, "id")).collect();
-    let stranger = events.iter().find(|e| !organized_by(e, account));
+    let stranger = events.iter().find(|e| !own_text(e, account));
     let first = stranger.or(events.first()).and_then(|e| text_of(e, "id"));
     let meta = json!({"calendar": calendar, "count": events.len(), "events": ids});
     (
@@ -702,7 +712,7 @@ impl Tool for Put {
                     format!("{verb}:\n{}", render(&event, g.account(), &stamp::system)),
                     Source::Event {
                         id,
-                        organizer_is_account: organized_by(&event, g.account()),
+                        organizer_is_account: own_text(&event, g.account()),
                     },
                 )
             };

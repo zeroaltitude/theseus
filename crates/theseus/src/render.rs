@@ -35,6 +35,8 @@ mod features;
 mod flight;
 pub mod fork;
 mod google;
+#[cfg(test)]
+mod held_tests;
 pub mod history;
 pub mod horizon;
 mod imported;
@@ -528,11 +530,16 @@ pub fn status_line(r: &TurnSubmitResult) -> String {
             (None, false) => format!("{who} · route {}{effort}", ro.reason),
         }
     });
+    // A held turn made no model call (theseus-2rvwv).
+    let who = if r.stop_reason == "held" {
+        "held, no model ran".to_string()
+    } else {
+        format!("{}/{}", r.provider, r.model)
+    };
     format!(
-        "[{} → {}/{}{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}{}{}]",
+        "[{} → {}{} · {} loop(s){}{} · {} · tokens in {} out {}{}{} · {} ms{} · session {}{}{}]",
         r.profile,
-        r.provider,
-        r.model,
+        who,
         route,
         r.loops,
         if r.tool_calls > 0 {

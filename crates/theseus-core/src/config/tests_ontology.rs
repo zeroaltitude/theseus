@@ -83,3 +83,20 @@ fn the_sweeps_daily_cap_is_a_dollar_and_zero_turns_the_model_off() {
     let e = Config::parse(&doc("[ontology]\nsweep_usd_per_day = -1\n")).unwrap_err();
     assert!(format!("{e:#}").contains("sweep_usd_per_day"), "{e:#}");
 }
+
+/// The dream's guidance (theseus-23wd8) ships on, has a switch of its own, and
+/// the template's `[ontology]` names it.
+#[test]
+fn the_dreams_guidance_is_a_key_that_is_on_by_default() {
+    let (cfg, _) = Config::parse(&doc("")).unwrap();
+    assert!(cfg.ontology.dream_guidance);
+    let (cfg, _) = Config::parse(&doc("[ontology]\ndream_guidance = false\n")).unwrap();
+    assert!(!cfg.ontology.dream_guidance);
+    assert!(!cfg.ontology.is_default());
+    let section = Config::EXAMPLE_TOML
+        .split("# [ontology]\n")
+        .nth(1)
+        .and_then(|s| s.split("\n\n").next())
+        .unwrap();
+    assert!(section.contains("\n# dream_guidance = true "), "{section}");
+}

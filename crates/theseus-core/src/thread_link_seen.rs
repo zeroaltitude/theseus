@@ -5,8 +5,8 @@
 //! in a task of its own after the recall, never before the request leaves.
 //!
 //! The count is the META record `thread.link_seen.<a>.<b>` (the slugs sorted): `{recalls, asked}`.
-//! The post is Discord's `onto_card` with no write and no undo: a plain text card in the owner's DM,
-//! the one kind that is Jev's own offer about how things are filed and has no button to answer.
+//! The post is a `link_card` (theseus-98bz.12) naming the two slugs: Discord draws it with **Link
+//! these threads** and **Not needed**; its last line says the CLI form for a DM with no buttons.
 
 use std::sync::{Mutex, PoisonError};
 
@@ -51,7 +51,7 @@ impl Pair {
 
     fn text(&self) -> String {
         format!(
-            "🔗 Notes of «{}» answered questions in «{}» twice. If the two belong together: theseus thread link {} {}",
+            "🔗 Notes of «{}» answered questions in «{}» twice.\ntheseus thread link {} {}",
             self.other.1, self.here.1, self.here.0, self.other.0
         )
     }
@@ -70,7 +70,9 @@ fn count(store: &Store, outbox: &Outbox, pair: &Pair, text: &str, dm: bool) -> R
         return store.put_meta(&key, &seen);
     }
     seen.asked = true;
-    let body = json!({"kind": "onto_card", "undo": false, "text": text});
+    let body = json!({
+        "kind": "link_card", "text": text, "here": pair.here.0, "other": pair.other.0,
+    });
     let (post, more) = outbox.stage_to_operator(None, body)?;
     let mut frame = vec![
         NewRecord::json(kinds::META, Some(&key), &seen)?,

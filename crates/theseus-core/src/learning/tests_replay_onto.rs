@@ -366,3 +366,182 @@ fn undo_rates_count_the_owners_undos_per_kind() {
     assert_eq!(of("resource"), (1, 0, Some(0.0)));
     assert_eq!(rates.len(), 2);
 }
+
+/// KEY (theseus-oswj4): a run the day ceiling cuts short after its first call
+/// scores the one session it reached and leaves out each of the other two,
+/// every one with the reason the run stopped, so scored and left out cover
+/// every case and the Markdown counts both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replay_cut_short_leaves_out_every_later_case() {
+    let jev = FakeJev::start().unwrap();
+    let r = onto_rig(&jev, consenting);
+    let c = &r.core;
+    let cases = c.onto_cases(50).unwrap().cases;
+    assert_eq!(cases.len(), 3);
+    // What each case's call reserves; the ceiling admits the dearest once.
+    let (pack, _) = super::replay::candidate_of(&JudgeReplayParams {
+        candidate: Some("onto.v1".into()),
+        ..Default::default()
+    })
+    .unwrap();
+    let asks = theseus_judge::replay::onto_asks(&pack, &cases, &json!({})).unwrap();
+    let built = c.runner.judge.jev().unwrap();
+    let need = asks
+        .iter()
+        .map(|a| {
+            built
+                .jev()
+                .reserve_micros(std::slice::from_ref(&a.ask))
+                .unwrap()
+        })
+        .max()
+        .unwrap();
+    let d = c.kernel.day_ceiling();
+    let t = d.today(d.now());
+    d.set_rules(false, d.runaway(), d.step(), 0);
+    d.set_limit(t.spent + t.held + need);
+    let out: JudgeReplayResult = c.judge_replay(params(), "cli").await.unwrap();
+    assert_eq!(jev.seen().len(), 1, "one call was admitted");
+    assert_eq!(out.judgments, 3, "the result counts every case");
+    let onto = out.onto.expect("an onto replay's numbers");
+    assert_eq!((onto.sessions, onto.left_out), (1, 2));
+    let left: Vec<&str> = out.left_out.iter().map(|l| l.judgment.as_str()).collect();
+    let later: Vec<&str> = cases[1..].iter().map(|k| k.session.as_str()).collect();
+    assert_eq!(left, later, "each later case, in order");
+    let why = &out.left_out[0].reason;
+    assert!(!why.is_empty() && out.left_out.iter().all(|l| &l.reason == why));
+    assert!(
+        onto.markdown
+            .contains("\n2 labelled sessions were left out"),
+        "{}",
+        onto.markdown
+    );
+}
+
+/// The daemon refuses what `--onto` would ignore, as the CLI's parse does, for
+/// a client that calls the method itself, and sends nothing (theseus-hdqkt).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_onto_replay_refuses_a_set_it_would_ignore() {
+    let jev = FakeJev::start().unwrap();
+    let r = onto_rig(&jev, consenting);
+    let mut p = params();
+    p.errors = true;
+    let err = r.core.judge_replay(p, "cli").await.unwrap_err();
+    let said = format!("{err:#}");
+    assert!(
+        said.contains("--errors") && said.contains("Nothing was sent"),
+        "{said}"
+    );
+    let mut p = params();
+    p.split = Some("train".into());
+    let said = format!("{:#}", r.core.judge_replay(p, "cli").await.unwrap_err());
+    assert!(said.contains("--split"), "{said}");
+    assert!(jev.seen().is_empty(), "a call was made");
+    let rows = r.core.store.scope_after("judge.replay:onto", 0).unwrap();
+    assert!(rows.is_empty(), "a row was written");
+}
+
+/// The replay's state is the session's at its first message (theseus-bpsnj):
+/// a labelled session that also holds a topic Jev filed and a resource the
+/// operator filed shows Jev none of them as its own, a category it alone
+/// held last has no use from it, and no suggested name is offered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_replay_hides_the_sessions_own_memberships() {
+    let jev = FakeJev::start().unwrap();
+    let r = onto_rig(&jev, consenting);
+    let c = &r.core;
+    let late = 9_000_000;
+    write_as(
+        c,
+        Origin::Jev,
+        vec![
+            Record::Category(Category::new(id("topic:delta"), "delta", "jev:jdg_d")),
+            Record::Members(MemberList {
+                session: sid(1),
+                kind: "topic".into(),
+                members: vec![
+                    Membership::import(id("topic:alpha"), 1_000),
+                    Membership {
+                        category: id("topic:delta"),
+                        origin: Origin::Jev,
+                        confidence: Some(0.9),
+                        as_of_ms: late,
+                    },
+                ],
+            }),
+        ],
+    );
+    write_as(
+        c,
+        Origin::Operator,
+        vec![Record::Members(MemberList {
+            session: sid(1),
+            kind: "resource".into(),
+            members: vec![
+                Membership::import(id("resource:repo-a"), 1_000),
+                Membership {
+                    category: id("resource:repo-c"),
+                    origin: Origin::Operator,
+                    confidence: None,
+                    as_of_ms: late,
+                },
+            ],
+        })],
+    );
+    let case = c
+        .onto_cases(50)
+        .unwrap()
+        .cases
+        .into_iter()
+        .find(|k| k.session == sid(1))
+        .unwrap();
+    let o = case.input.onto.as_ref().unwrap();
+    let pool: Vec<&theseus_judge::builders::OntoItem> =
+        o.kinds.iter().flat_map(|k| k.pool.iter()).collect();
+    assert!(pool.iter().all(|i| !i.session), "{pool:?}");
+    let used = |i: &str| pool.iter().find(|p| p.id == i).unwrap().used_ms;
+    assert_eq!(used("topic:delta"), 0, "only this session held it");
+    assert!(
+        used("resource:repo-c") < late,
+        "this session's use is not counted"
+    );
+    assert!(o.suggested.is_empty());
+    let out: JudgeReplayResult = c.judge_replay(params(), "cli").await.unwrap();
+    assert_eq!(out.called, 3);
+    for s in jev.seen() {
+        let state = s.body.to_string();
+        assert!(
+            !state.contains("memberships"),
+            "a membership reached Jev: {state}"
+        );
+    }
+}
+
+/// The one definition's other edges (theseus-ukmbn), which the cockpit's own
+/// tally counted until it read the stored report: a write of two kinds is one
+/// write of each, and a second undo of a write counts once.
+#[test]
+fn undo_rates_count_a_write_once_a_kind_and_a_repeated_undo_once() {
+    let now = 10_000_000;
+    let rows = vec![
+        write_row("ontology.membership", now, "jdg_k2", "topic"),
+        write_row("ontology.membership", now, "jdg_k2", "person"),
+        write_row("ontology.membership", now, "jdg_k1", "topic"),
+        row(
+            "ontology.undo",
+            now + 1,
+            json!({"write": "jdg_k2", "label": "wrong"}),
+        ),
+        row(
+            "ontology.undo",
+            now + 2,
+            json!({"write": "jdg_k2", "label": "wrong"}),
+        ),
+    ];
+    let rates = undo_rates(&rows, 1_000);
+    let of: Vec<(&str, u32, u32)> = rates
+        .iter()
+        .map(|r| (r.kind.as_str(), r.writes, r.undone))
+        .collect();
+    assert_eq!(of, [("person", 1, 1), ("topic", 2, 1)]);
+}

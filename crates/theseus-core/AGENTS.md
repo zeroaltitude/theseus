@@ -657,9 +657,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   each other thread it drew on (live, unsealed, not merged, not linked, never the place's own conversation) is counted once a
   recall, in a spawned blocking task after the recall (META `thread.link_seen.<a>.<b>`, the slugs sorted: `{recalls, asked}`; no
   frame of any turn's). At a pair's second recall, with the owner's DM bound, one frame holds the record with `asked`, a
-  `thread.link_proposed` row and one outbox post to the owner's DM: Discord's `onto_card` with `undo: false` and no `write`, a text
-  card with no button (`theseus thread link a b` is in its words); a pair is asked once, whatever the owner did. Off, nothing is
-  counted, written or posted. Not yet: a card with Link / Not needed buttons and a Discord `/thread link` (theseus-98bz.12).
+  `thread.link_proposed` row and one outbox post to the owner's DM: `{kind: "link_card", text, here, other}` (theseus-98bz.12),
+  which Discord draws with **Link these threads** (`thread.link` as the presser, judged as `theseus thread link` is) and **Not
+  needed** (writes nothing); its words end with the CLI form, `theseus thread link a b`. A pair is asked once, whatever the owner
+  did. Off, nothing is counted, written or posted. Discord's `/thread link` and `/thread unlink` are the same calls.
   Tests: `rpc/tests_thread_link.rs`, the layouts' format-47 thread sample.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
@@ -746,6 +747,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   since it started, or no new output for N s and the last 10 lines). Facts only, no advice. The beat is off for a job
   past its file's head. With the beat 0 the result is byte for byte the old one. Tests: `tests_wait_beat.rs` (a child
   of `tests_wait_cost.rs`, whose config turns the beat off), `wait_facts::tests`, the kernel's cgroup test.
+  At each beat the session's place also gets one status line, a `notice` post written from the facts the beat holds
+  (the job, its run and quiet time, its CPU share where a cgroup reads, its last line, scrubbed; `[tools]
+  job_wait_status`, on; no model call, `jobs_tools/wait_status.rs`), and `waits::LOOK` stays at 60 s or less (a test
+  pins it).
 - **Hands** (step 40, theseus-mgw.6 and .11): `aws/hands/`. `aws.hands.run` (`tool.rs`, `launch.rs`: the request, the
   backend Lambda or Fargate as §3.3 chooses, the stacks' outputs read once per account, each launch and its tags) runs
   through `toolrun/hands.rs`, not `run_inproc`: its call answers `background`, and the group's aggregate is its late
@@ -1582,8 +1587,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     and on a switch `cold_tokens` and `cache_usd`). The judgment's settled cost is charged to the task's execution by the
     judge (`Kernel::charge_execution`: no row, no word to the day ceiling, since `judge.budget` already holds it), a task
     that cannot cover `RESERVE_MICROS` skips the ask (reason `budget`), and its `loop.ended` rows say `on` while it is off
-    its base (the work board's `moved_to`, the progress line's `on sonnet`). Tests: `tests_task_checkpoint.rs`,
+    its base (the work board's `moved_to`, the progress line's `on sonnet`). **Effort without a move** (theseus-53ujg.3): a
+    verdict that keeps the profile and asks more effort raises it by `route_effort`'s rule, with no slot; the sticky rule
+    never holds that raise, a model that takes per-message effort records it as not applied, and a checkpoint never lowers
+    effort. An ineligible turn's checkpoint state stays `Off` (`checkpoint_apply` no longer puts it back as `Unread`).
+    Tests: `tests_task_checkpoint.rs`, `tests_checkpoint_effort.rs`,
     `routing::checkpoint::tests`. Not covered: a task a model made with `task.create` (it has no brief mark).
+    **A routed profile's effort floor** (theseus-53ujg.3; `routing/effort.rs`): on a profile a routing class chose (not the
+    session's base), the turn runs at no less than the profile's own `effort`. It applies after the 0.70 gate and before
+    `effort_bounds`, is not gated, and `effort_reason` is `floored` only when it raised the level; on the base profile Jev
+    may still go below.
     **The effort** (route.v3, theseus-qe3v; xhigh and max only above `[routing] high_effort_confidence`, 0.70, else
     `high` with `effort_reason` `held_high`, theseus-p8dy): `reply_effort` rides the route pack's one request beside `mode`;
     `routing/effort.rs` decides, purely: Jev's level over the profile's `effort` unless `effort_fixed`, clamped to
@@ -1595,15 +1608,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     **A turn's effort keeps the cache** (theseus-o719, `compiler/effort.rs`): a change of the top-level
     `output_config.effort` restarts the provider's cache of the messages (only tools and system stay: a 625k DM on
     Fable 5.1 wrote 612k again for one `low` turn). On a model that takes per-message effort (`effort::default_of`:
-    Fable 5.1 alone, the one seen to take it live; Sonnet 5.5 answered it with a 400 on 2026-10-11, theseus-posww;
+    Fable 5.1 and Sonnet 5.5; the 400s of 2026-10-11 and 2026-10-21 were requests sent without the beta, theseus-blzt6;
     Anthropic's API only) the top-level effort stays the profile's own, and
     a turn at another level gets an effort-only system message before its user message
     (`mid-conversation-output-config-2026-07-01`). Its first answer records the level (`effort`, store format 27);
     the render puts each record's message back before the user message its answer follows, so later requests repeat
-    the bytes. Never derive these messages from the spec: a history edit breaks the cache and preserved thinking.
+    the bytes; the beta rides every request that carries one, at every loop (`place`, `retarget`: `sync_beta`). Never derive these messages from the spec: a history edit breaks the cache and preserved thinking.
     A 400 naming `output_config` on a request that carries one is asked again once without them, the level at the
-    top, and the model takes none for the daemon's life (`turn/effort_step.rs`, `provider.effort_refused`).
-    Tests: `tests_turn_effort.rs`.
+    top, and the model takes none for an hour, `REFUSAL_HOLDS_MS` (`turn/effort_step.rs`, `provider.effort_refused`).
+    Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`.
   - **Which persona answers a message** (route.v5, theseus-c1uz, T10a; no store format: nothing new is stored; `engage.rs`,
     `turn/persona_engage.rs`, `judge/seal.rs`, `fact/persona.rs`). With two or more `[personas]` (`Config::persona_engaging`) **in a place where a message can engage another persona**
     (`TurnRunner::engages`, `Target.engages`: a DM, a channel, a thread; a cli, task or headless session's persona is fixed, so
@@ -1659,7 +1672,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     In a place only the owner writes in, nothing is held: the turn and its reply go on. **In a shared place the reply is held**
     (theseus-i1z13, the owner's 2026-10-18 20:46 spec): `warn` sets `RouteState::held`, and the turn loop, once the first compile
     returns, ends the turn with `hold_reply` and no model call: `I don't share that here.` (`HELD_REPLY`) is the turn's assistant
-    node and output (so the next turn's history reads it), the stop reason stays `end_turn` (a footer says nothing of why),
+    node and output (so the next turn's history reads it), the stop reason is `held` (theseus-2rvwv: the footers say the reply was held and name no model),
     and the owner's DM carries the case: who asked (`RouteState::asker`, the inbound author), where (the place's bound name),
     the message and why. The hold is not folded by the one-post window, only the DM is: a second reach in it is held and not
     posted again. A task's turn is warned about, never held. Read beside `engage_verdict` in the route step, so a message

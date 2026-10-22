@@ -190,6 +190,7 @@ pub fn spawn_detached(
         || cmd.spawn(),
         |c| Some(c.id()),
     )
+    .inspect_err(|_| spool.remove_argv(&args.correlation_id))
     .context("spawning job wrapper")?;
     let pid = child.id();
     spool.write_pid(&args.correlation_id, pid)?;
@@ -1527,6 +1528,50 @@ mod tests {
         let mut v = args.join("\0").into_bytes();
         v.push(0);
         v
+    }
+
+    fn spawn_args(dir: &Path, id: &str) -> WrapperArgs {
+        WrapperArgs {
+            spool_dir: dir.to_path_buf(),
+            correlation_id: id.into(),
+            deadline_ms: 10_000,
+            notify_socket: None,
+            argv: vec!["echo".into(), "a typed path /home/someone/notes".into()],
+            cwd: None,
+            env: vec![],
+            umask: None,
+            redact: vec![],
+            output_max_bytes: DEFAULT_OUTPUT_MAX_BYTES,
+            sandbox: None,
+            cgroup: None,
+        }
+    }
+
+    /// A wrapper that never started leaves no argv file: the job's command
+    /// text would sit in the spool for good (theseus-vymxh). A wrapper that
+    /// did start still finds its file while it runs.
+    #[test]
+    fn a_failed_spawn_leaves_no_argv_file() {
+        let d = tempfile::tempdir().unwrap();
+        let spool = Spool::open(d.path()).unwrap();
+        let args = spawn_args(d.path(), "act_nospawn");
+        let missing = d.path().join("no-such-wrapper");
+        assert!(spawn_detached(&missing, &[WRAPPER_MODE], &spool, &args).is_err());
+        assert!(!spool.argv_path("act_nospawn").exists());
+
+        // `sh` stands in for a wrapper that runs: it sleeps, ignoring the flags.
+        let args = spawn_args(d.path(), "act_spawned");
+        let pid = spawn_detached(
+            Path::new("sh"),
+            &["-c", "sleep 5", "job-wrapper"],
+            &spool,
+            &args,
+        )
+        .unwrap();
+        assert!(spool.argv_path("act_spawned").exists());
+        let _ = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status();
     }
 
     /// A job's raw output is 0600 whatever the process's umask (theseus-wz2):

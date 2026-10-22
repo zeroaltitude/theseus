@@ -192,7 +192,7 @@ async fn the_historys_messages_follow_the_records() {
 /// (Sonnet 5.5 did, 2026-10-11): the provider's 400 that names `output_config`
 /// is asked again once in the same turn, without the effort-only messages and
 /// with the turn's level at the top; a `provider.effort_refused` row says so,
-/// and the model takes none for the rest of the daemon's life (theseus-posww).
+/// and the model takes none for the next hour (theseus-posww).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_400_on_the_messages_asks_again_without_them_and_remembers() {
     let jev = FakeJev::start().unwrap();

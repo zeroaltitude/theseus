@@ -42,11 +42,14 @@ impl Alerts {
                 .ok()
         };
         let rings = tty();
-        let notifier = Notifier::new(Arc::new(move |b| {
-            if let Some(mut t) = rings.as_ref() {
-                let _ = t.write_all(b);
-            }
-        }));
+        let notifier = Notifier::new(
+            Arc::new(move |b| {
+                if let Some(mut t) = rings.as_ref() {
+                    let _ = t.write_all(b);
+                }
+            }),
+            Arc::new(|m| eprintln!("{m}")),
+        );
         Some(Self::with(how, notifier, tty()))
     }
 

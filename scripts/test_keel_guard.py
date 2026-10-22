@@ -54,6 +54,14 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
     }
 }
 
+pub fn margin_ms(phase: &str) -> f64 {
+    match phase {
+        "cold" | "vault" => 7.0,
+        "shutdown" => 4.0,
+        _ => 0.0,
+    }
+}
+
 pub const CANCEL_FRAMES: usize = 2;
 """
 
@@ -169,6 +177,8 @@ BASE = {
     ".github/workflows/ci.yml": CI,
     "crates/demo/src/timing.rs": TIMING,
     "crates/theseus-sim/src/lifecycle.rs": LIFECYCLE,
+    "crates/theseus-sim/src/lifecycle/surfaces.rs": "pub const BUDGET_MS: f64 = 50.0;\n",
+    "crates/theseus-sim/src/perf.rs": "pub const BATCH_OVER_ONE_CALL_MS: f64 = 300.0;\n",
     "crates/theseus-core/src/first_request.rs": FIRST_REQUEST,
     "bench/theseus-bench.toml": BENCH,
     "scripts/long-files.txt": LONG,
@@ -569,6 +579,94 @@ class NonFindings(Case):
     def test_a_comment_in_a_budget(self):
         self.assertClean({"crates/theseus-sim/src/lifecycle.rs": sub(
             LIFECYCLE, '        "shutdown" => Some(100.0),', '        // 120 once, now 100.\n        "shutdown" => Some(100.0),')})
+
+
+class BudgetArms(Case):
+    """A keel fn's match read as a value per pattern, and the sim crate's budget constants by name (theseus-qfohm)."""
+
+    LC = "crates/theseus-sim/src/lifecycle.rs"
+    FALL = "        _ => 0.0,\n"
+
+    def arms(self, *arms):
+        """LIFECYCLE with these arms added to margin_ms, over its fall-through."""
+        return sub(LIFECYCLE, self.FALL, "".join(f"        {a},\n" for a in arms) + self.FALL)
+
+    def test_a_margin_arm_added_over_the_fall_through(self):
+        self.assertCaught("budget-raised", self.LC, {self.LC: self.arms('"seed" => 2.0')})
+        code, out = self.findings()
+        self.assertIn('"seed" => 2.0', out)
+        self.assertIn("_ => 0.0 (the fall-through)", out)
+
+    def test_a_margin_arm_added_at_zero_is_clean(self):
+        self.assertClean({self.LC: self.arms('"seed" => 0.0')})
+        # And an unbudgeted phase gaining a budget, under budget_ms's `_ => None`: a tightening.
+        self.assertClean({self.LC: sub(self.arms('"seed" => 0.0'), "        _ => None,",
+                                       '        "seed" => Some(2.0),\n        _ => None,')})
+
+    def test_a_margin_arm_split_keeps_its_value(self):
+        self.assertClean({self.LC: sub(LIFECYCLE, '"cold" | "vault" => 7.0,',
+                                       '"cold" => 7.0,\n        "vault" => 7.0,')})
+
+    def test_a_margin_arm_split_and_raised_is_caught_on_the_raise(self):
+        self.assertCaught("budget-raised", self.LC, {
+            self.LC: sub(LIFECYCLE, '"cold" | "vault" => 7.0,', '"cold" => 7.0,\n        "vault" => 8.0,')})
+        code, out = self.findings()
+        self.assertEqual(out.count("budget-raised: "), 1, out)
+        self.assertIn('"cold" | "vault" => 7.0 -> "vault" => 8.0', out)
+
+    def test_a_margin_lowered(self):
+        self.assertClean({self.LC: sub(LIFECYCLE, '"shutdown" => 4.0', '"shutdown" => 3.0')})
+
+    def test_a_fall_through_raised(self):
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(LIFECYCLE, "_ => 0.0", "_ => 1.0")})
+
+    def test_the_lane_margin_shape_is_caught(self):
+        # 94eb8a7d's shape: two arms added over the fall-through at once, under a doc comment on the fn.
+        lc = sub(self.arms('"seed" => 2.0', '"health" => 3.0'),
+                 "pub fn margin_ms", "/// The seed and health carry a margin now.\npub fn margin_ms")
+        self.assertCaught("budget-raised", self.LC, {self.LC: lc})
+        code, out = self.findings()
+        self.assertEqual(out.count("budget-raised: "), 2, out)
+        self.assertIn('_ => 0.0 (the fall-through) -> "seed" => 2.0', out)
+        self.assertIn('_ => 0.0 (the fall-through) -> "health" => 3.0', out)
+
+    SURFACES = "crates/theseus-sim/src/lifecycle/surfaces.rs"
+
+    def test_a_sim_budget_const_raised(self):
+        self.assertCaught("budget-raised", self.SURFACES, {self.SURFACES: "pub const BUDGET_MS: f64 = 60.0;\n"})
+
+    def test_a_sim_budget_const_lowered(self):
+        self.assertClean({self.SURFACES: "pub const BUDGET_MS: f64 = 40.0;\n"})
+
+    def test_a_sim_budget_const_moved(self):
+        self.assertClean({self.SURFACES: None,
+                          "crates/theseus-sim/src/surfaces.rs": "pub const BUDGET_MS: f64 = 50.0;\n"})
+
+    def test_a_new_sim_slack_const(self):
+        self.assertClean({"crates/theseus-sim/src/jobs.rs": "pub const SLACK_MS: f64 = 9.0;\n"})
+
+    def test_a_budget_const_raised_outside_the_sim_crate(self):
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"crates/demo/src/lib.rs": LIB + "pub const BUDGET_MS: f64 = 50.0;\n"}, "a demo budget")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.assertClean({"crates/demo/src/lib.rs": LIB + "pub const BUDGET_MS: f64 = 60.0;\n"})
+
+    def test_a_batch_allowance_raised(self):
+        self.assertCaught("budget-raised", "crates/theseus-sim/src/perf.rs", {
+            "crates/theseus-sim/src/perf.rs": "pub const BATCH_OVER_ONE_CALL_MS: f64 = 400.0;\n"})
+
+
+class AckLines(Case):
+    def test_a_keel_line_above_the_trailers_is_refused(self):
+        # 94eb8a7d's shape: the Keel: line in its own paragraph above Co-Authored-By, so git reads no trailer there.
+        self.head({"crates/theseus-sim/src/lifecycle.rs": sub(LIFECYCLE, "_ => 0.0", "_ => 1.0")},
+                  "raise it\n\nKeel: budget-raise crates/theseus-sim/src/lifecycle.rs margin_ms — the owner's yes\n\n"
+                  "Co-Authored-By: Wren Fixture <wren@example.invalid>\n")
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertIn("refused the ack `Keel: budget-raise", out)
+        self.assertIn("not a trailer: git reads trailers from the message's last paragraph only", out)
+        self.assertIn("; and `budget-raise` is not a rule", out)
 
 
 class Ranges(Case):
@@ -980,6 +1078,26 @@ class Acks(unittest.TestCase):
                              "Keel: ceiling-raised scripts/shape.sh — wrong path\n", sign=self.listed)
         code, out = self.repo.guard()
         self.assertEqual(code, 1, out)
+
+    def test_an_ack_with_no_such_rule_is_refused(self):
+        self.repo.commit({"crates/theseus-sim/src/lifecycle.rs": sub(LIFECYCLE, "_ => 0.0", "_ => 1.0")},
+                         "ack\n\nKeel: budget-raise crates/theseus-sim/src/lifecycle.rs — the owner's yes\n"
+                         + self.ACK.split("\n\n", 1)[1], sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("refused the ack `Keel: budget-raise", out)
+        self.assertIn("`budget-raise` is not a rule (the rules: test-removed,", out)
+        self.assertIn("  crates/theseus-sim/src/lifecycle.rs:", out)
+
+    def test_an_ack_with_a_space_in_a_path_is_refused(self):
+        self.repo.commit({"crates/theseus-sim/src/lifecycle.rs": sub(LIFECYCLE, "_ => 0.0", "_ => 1.0")},
+                         "ack\n\nKeel: budget-raised crates/theseus-sim/src/lifecycle.rs margin_ms — the yes\n"
+                         + self.ACK.split("\n\n", 1)[1], sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("refused the ack", out)
+        self.assertIn("a path holds a space: `crates/theseus-sim/src/lifecycle.rs margin_ms` "
+                      "(paths are comma-separated)", out)
 
     def test_a_branch_cannot_list_its_own_key(self):
         self.repo.commit({"scripts/keel-signers": f"# the keel's signers\n{self.listed}\n{self.stranger}\n"},

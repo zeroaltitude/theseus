@@ -265,6 +265,13 @@ pub(super) fn rows(store: &Store, kind: &str) -> Vec<LedgerRow> {
         .collect()
 }
 
+/// Until no session's live decision is running: each exchange end's task has ended.
+async fn until_not_deciding(core: &Core) {
+    while !core.runner.judge.people.deciding.lock().unwrap().is_empty() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 pub(super) async fn until_rows(store: &Store, kind: &str, n: usize) -> Vec<LedgerRow> {
     let t0 = Instant::now();
     loop {
@@ -530,7 +537,8 @@ async fn a_shared_place_gets_nothing_and_a_private_one_proposes() {
     let r = rig(Some(&jev), 2 * EVERY, people_on);
     let shared = session(&r.core, Some("channel:314159265358979323"));
     moorings(&r.core, &shared, EVERY).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // The shared session's decision has ended: the extractor looked and chose nothing.
+    until_not_deciding(&r.core).await;
     assert!(rows(&r.core.store, "people.extracted").is_empty());
     assert_eq!(
         r.fake.requests().len(),
@@ -546,6 +554,9 @@ async fn a_shared_place_gets_nothing_and_a_private_one_proposes() {
     let x = until_rows(&r.core.store, "people.extracted", 1).await;
     assert_eq!(x[0].session_id.as_deref(), Some(private.as_str()));
     assert_eq!(x[0].data["purpose"], "live");
+    // The judgment is settled before the extraction's row is written, and the sink writes it
+    // after a window and a quiet stretch; a flush writes it now (theseus-f4tg1).
+    r.core.runner.judge.flush_sink();
     until_rows(&r.core.store, "judge.call", 1).await;
     let mark: Option<crate::judge::categorize::Mark> = r
         .core

@@ -44,8 +44,8 @@ export function LearningReport({ date, pack, onDate }: { date: string; pack: str
 
 function PackBlock({ p, date }: { p: PackReport; date: string }) {
   const h = p.holdout
-  // The ontology pack's line (theseus-0vhyn): its judgments, acts, confirms and undos, and the undo rate per kind, counted
-  // from the ledger's rows for the report's day: the report itself holds none of the pack's writes.
+  // The ontology pack's line (theseus-0vhyn): its judgments, acts and confirms, counted from the ledger's rows for the
+  // report's day; and the undo rate per kind, the stored report's own (`pack.undo`, theseus-2tqqs), with its window.
   const { rows } = useHistoryRows()
   const onto = useMemo(() => (p.pack === ONTO_PACK ? ontoStatsOf(rows, { day: date }) : null), [p.pack, rows, date])
   return (
@@ -58,7 +58,7 @@ function PackBlock({ p, date }: { p: PackReport; date: string }) {
         <span>{usd(p.cost_usd, 6)}</span>
       </div>
       {onto && <div className="num text-[11px] text-ink-faint">{ontoLine(onto)}</div>}
-      {onto && ontoKindWords(onto) && <div className="num text-[11px] text-ink-faint">{ontoKindWords(onto)}</div>}
+      {ontoKindWords(p.undo ?? [], date) && <div className="num text-[11px] text-ink-faint">{ontoKindWords(p.undo ?? [], date)}</div>}
       {p.latency.map((l) => (
         <div key={l.class} className="num text-[11px] text-ink-faint">latency {l.class} ({l.n}): p50 {ms(l.p50_ms)} · p95 {ms(l.p95_ms)} · p99 {ms(l.p99_ms)}</div>
       ))}

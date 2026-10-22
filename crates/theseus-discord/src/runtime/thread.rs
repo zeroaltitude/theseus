@@ -12,8 +12,8 @@
 
 use theseus_protocol::method;
 use theseus_protocol::threads::{
-    ThreadListParams, ThreadListResult, ThreadMergeParams, ThreadMergeResult, ThreadNewParams,
-    ThreadRow,
+    ThreadLinkParams, ThreadListParams, ThreadListResult, ThreadMergeParams, ThreadMergeResult,
+    ThreadNewParams, ThreadRow,
 };
 use theseus_protocol::{DiscordOrigin, LedgerKind};
 use twilight_model::application::command::{Command, CommandType};
@@ -65,7 +65,22 @@ pub(super) fn command() -> Command {
             .option(StringBuilder::new("from", "The thread to retire").required(true))
             .option(StringBuilder::new("into", "The thread that takes it").required(true)),
     )
+    .option(link_command(
+        "link",
+        "Let two threads' notes pass between them",
+    ))
+    .option(link_command(
+        "unlink",
+        "Stop two threads' notes passing between them",
+    ))
     .build()
+}
+
+/// `link` and `unlink`: two threads, `a` and `b`.
+fn link_command(name: &str, about: &str) -> SubCommandBuilder {
+    SubCommandBuilder::new(name, about)
+        .option(StringBuilder::new("a", "The first thread").required(true))
+        .option(StringBuilder::new("b", "The thread to link it with").required(true))
 }
 
 /// A context size as `12.4k`.
@@ -288,24 +303,12 @@ impl Shared {
                 let channel = i.channel.as_ref().map(|c| c.id.get());
                 self.thread_unbind(discord, who, channel).await
             }
-            Some(("merge", args)) => {
-                let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
-                let p = ThreadMergeParams {
-                    from: get("from").unwrap_or_default(),
-                    into: get("into").unwrap_or_default(),
-                    author: Some(who.to_string()),
-                    discord,
-                };
-                match self
-                    .rpc
-                    .call::<_, ThreadMergeResult>(method::THREAD_MERGE, p)
+            Some(("merge", args)) => self.thread_merge_said(&args, who, discord).await,
+            Some((sub @ ("link" | "unlink"), args)) => {
+                self.thread_link_said(sub == "link", &args, who, discord)
                     .await
-                {
-                    Ok(r) => merged(&r),
-                    Err(e) => format!("⚠️ Nothing was merged: {}", e.message),
-                }
             }
-            _ => "⚠️ `/thread new`, `list`, `bind slug:`, `unbind` or `merge from: into:`."
+            _ => "⚠️ `/thread new`, `list`, `bind slug:`, `unbind`, `merge from: into:`, `link a: b:` or `unlink a: b:`."
                 .to_string(),
         };
         let resp = InteractionResponse {
@@ -326,6 +329,59 @@ impl Shared {
             self.board.error("thread response", None, e);
         }
         true
+    }
+}
+
+impl Shared {
+    /// `/thread merge from: into:`: `thread.merge` as the presser, and what it said.
+    async fn thread_merge_said(
+        &self,
+        args: &[(&str, String)],
+        who: &str,
+        discord: Option<DiscordOrigin>,
+    ) -> String {
+        let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+        let p = ThreadMergeParams {
+            from: get("from").unwrap_or_default(),
+            into: get("into").unwrap_or_default(),
+            author: Some(who.to_string()),
+            discord,
+        };
+        match self
+            .rpc
+            .call::<_, ThreadMergeResult>(method::THREAD_MERGE, p)
+            .await
+        {
+            Ok(r) => merged(&r),
+            Err(e) => format!("⚠️ Nothing was merged: {}", e.message),
+        }
+    }
+
+    /// `/thread link` or `unlink`: `thread.link` or `thread.unlink` as the presser, and what it said.
+    async fn thread_link_said(
+        &self,
+        linking: bool,
+        args: &[(&str, String)],
+        who: &str,
+        discord: Option<DiscordOrigin>,
+    ) -> String {
+        let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+        let (a, b) = (get("a").unwrap_or_default(), get("b").unwrap_or_default());
+        let p = ThreadLinkParams {
+            slug: a.clone(),
+            other: b.clone(),
+            author: Some(who.to_string()),
+            discord,
+        };
+        let (m, did) = match linking {
+            true => (method::THREAD_LINK, "linked"),
+            false => (method::THREAD_UNLINK, "unlinked"),
+        };
+        match self.rpc.call::<_, ThreadRow>(m, p).await {
+            Ok(_) if linking => format!("🔗 `{a}` and `{b}` are linked."),
+            Ok(_) => format!("`{a}` and `{b}` are no longer linked."),
+            Err(e) => format!("⚠️ Nothing was {did}: {}", e.message),
+        }
     }
 }
 
@@ -371,7 +427,10 @@ mod tests {
         let c = command();
         assert_eq!(c.name, "thread");
         let names: Vec<&str> = c.options.iter().map(|o| o.name.as_str()).collect();
-        assert_eq!(names, ["new", "list", "bind", "unbind", "merge"]);
+        assert_eq!(
+            names,
+            ["new", "list", "bind", "unbind", "merge", "link", "unlink"]
+        );
     }
 
     /// A sealed thread carries a lock in the list, and one with a seal

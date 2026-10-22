@@ -95,7 +95,21 @@ pub fn links_under(c: &ConfirmRequest, herdr_env: Option<&str>) -> Option<String
 /// `theseus herdr plugin`: where the plugin is, and the one command that links it. Plugins are
 /// global to the user, so the owner links it; this prints and changes nothing.
 pub fn plugin_lines(exe: &Path) -> Vec<String> {
-    let dir = plugin_dir(exe);
+    plugin_lines_for(plugin_dir(exe), &plugin_candidates(exe))
+}
+
+/// The lines for a directory found, or for none, with where it was looked for.
+fn plugin_lines_for(dir: Option<PathBuf>, candidates: &[PathBuf]) -> Vec<String> {
+    let Some(dir) = dir else {
+        let looked: Vec<String> = candidates.iter().map(|p| p.display().to_string()).collect();
+        return vec![
+            "plugin: found no plugin directory (contrib/herdr/theseus holding herdr-plugin.toml)"
+                .to_string(),
+            format!("looked in: {}", looked.join(", ")),
+            "run this from a checkout of the repository, or link its contrib/herdr/theseus by hand"
+                .to_string(),
+        ];
+    };
     vec![
         format!("plugin: {}", dir.display()),
         format!("link it once: herdr plugin link {}", dir.display()),
@@ -104,16 +118,30 @@ pub fn plugin_lines(exe: &Path) -> Vec<String> {
     ]
 }
 
-/// The plugin's directory: `contrib/herdr/theseus` of the checkout this binary was built from, else
-/// beside the binary's own checkout, else the path the docs name.
-pub fn plugin_dir(exe: &Path) -> PathBuf {
-    let from_build = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contrib/herdr/theseus");
-    let near_exe = exe
-        .ancestors()
-        .map(|a| a.join("contrib/herdr/theseus"))
-        .find(|p| p.join("herdr-plugin.toml").is_file());
-    let dir = near_exe.unwrap_or(from_build);
-    dir.canonicalize().unwrap_or(dir)
+/// Where the plugin may be: a checkout beside the binary, the tree this binary was built in, then
+/// the current directory and its ancestors.
+fn plugin_candidates(exe: &Path) -> Vec<PathBuf> {
+    let rel = "contrib/herdr/theseus";
+    let build = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cwd = std::env::current_dir().ok();
+    exe.ancestors()
+        .map(Path::to_path_buf)
+        .chain(std::iter::once(build))
+        .chain(
+            cwd.iter()
+                .flat_map(|c| c.ancestors().map(Path::to_path_buf)),
+        )
+        .map(|a| a.join(rel))
+        .collect()
+}
+
+/// The plugin's directory: the first candidate that holds `herdr-plugin.toml`. A path that is not
+/// there is never returned.
+pub fn plugin_dir(exe: &Path) -> Option<PathBuf> {
+    let dir = plugin_candidates(exe)
+        .into_iter()
+        .find(|p| p.join("herdr-plugin.toml").is_file())?;
+    Some(dir.canonicalize().unwrap_or(dir))
 }
 
 /// The panes of a herdr session that are Theseus's, with their tokens.
@@ -176,8 +204,8 @@ pub async fn next(conn: &mut Conn, herdr_socket: Option<PathBuf>) -> Result<()> 
     Ok(())
 }
 
-/// What `stop` does for a pane of this kind: a task is cancelled by its short id, a conversation's
-/// work is halted by its session.
+/// What `stop` does for a pane of this kind: a task is cancelled by its session id (the pane's
+/// `task` token is its title, not an id), a conversation's work is halted by its session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stop {
     Cancel(String),
@@ -188,12 +216,7 @@ pub enum Stop {
 pub fn stop_for(tokens: &Value) -> Option<Stop> {
     let session = tokens["session"].as_str()?.to_string();
     match tokens["kind"].as_str()? {
-        "task" => Some(Stop::Cancel(
-            tokens["task"]
-                .as_str()
-                .filter(|t| !t.is_empty())
-                .map_or_else(|| session.clone(), str::to_string),
-        )),
+        "task" => Some(Stop::Cancel(session)),
         "conversation" => Some(Stop::Halt(session)),
         _ => None,
     }

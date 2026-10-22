@@ -161,6 +161,17 @@ impl JobDone {
 mod tests {
     use super::*;
 
+    /// The owner's "checker cycle time 60 seconds or faster" (theseus-5d204):
+    /// a waiting turn looks at its job at least this often.
+    #[test]
+    fn the_waiters_look_is_a_minute_or_less() {
+        assert!(
+            LOOK <= Duration::from_secs(60),
+            "the waiter's look is {LOOK:?}: the owner's rule is a checker cycle of 60 seconds or \
+             faster (theseus-5d204)"
+        );
+    }
+
     /// A wake reaches the turn waiting on its job, even one that came before
     /// the turn began to wait, and none other; once the wait drops, the job
     /// is nobody's, so the drain takes its completion.

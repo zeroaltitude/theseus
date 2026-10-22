@@ -23,7 +23,8 @@
 //! **Money.** `[ontology] sweep_usd_per_day` (1.0; 0 turns this part off and
 //! the deterministic sweep still runs) caps the local day: a call whose worst
 //! case would pass what is left is not begun, and the day's spend is the META
-//! record [`MARK`], read back at a restart. Each call also passes the judge's
+//! record [`MARK`], read back at a restart and written after each paid
+//! question (theseus-23wd8), so a stop mid-run keeps what it spent and asked. Each call also passes the judge's
 //! own day budget (`JudgeService::reserve`), as `people.v1`'s does; no judge
 //! budget is raised.
 //!
@@ -179,6 +180,27 @@ fn acts(j: &Judgment) -> bool {
     j.actionable() && j.mode != Mode::Shadow
 }
 
+/// `id` as the sweep shows it, with the titles of `held`'s sessions.
+fn sweep_category(o: &Ontology, id: &CategoryId, held: &Held) -> Option<SweepCategory> {
+    let c = o.category(id)?;
+    Some(SweepCategory {
+        name: c.name.clone(),
+        path: o
+            .path(id)
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+            .join(" › "),
+        description: c.description.clone(),
+        titles: held
+            .sessions
+            .iter()
+            .take(TITLES)
+            .map(|(_, t)| t.clone())
+            .collect(),
+    })
+}
+
 /// Whether a Noul question's answer is yes (or no) at the act band.
 fn noul(j: &Judgment, question: &str, yes: bool) -> bool {
     j.answer(question).is_some_and(|a| match yes {
@@ -203,50 +225,32 @@ struct Held {
 }
 
 impl Core {
+    /// A store scan, off the runtime's worker (`theseus_store::blocking`).
     fn held_by(&self, o: &Ontology, id: &CategoryId) -> Held {
         let mut found: Vec<(u64, String, String)> = Vec::new();
-        for l in o.lists().filter(|l| l.kind == id.kind()) {
-            if !l.members.iter().any(|m| &m.category == id) {
-                continue;
+        theseus_store::blocking(|| {
+            for l in o.lists().filter(|l| l.kind == id.kind()) {
+                if !l.members.iter().any(|m| &m.category == id) {
+                    continue;
+                }
+                let Ok(Some(s)) = self.store.get_session::<SessionRecord>(&l.session) else {
+                    continue;
+                };
+                let title = s.title.clone().unwrap_or_default();
+                if title.trim().is_empty()
+                    || s.task.is_some()
+                    || s.imported.is_some()
+                    || self.runner.class_of(&s.session_id) != PlaceClass::Private
+                {
+                    continue;
+                }
+                found.push((s.last_active_ms, s.session_id, title));
             }
-            let Ok(Some(s)) = self.store.get_session::<SessionRecord>(&l.session) else {
-                continue;
-            };
-            let title = s.title.clone().unwrap_or_default();
-            if title.trim().is_empty()
-                || s.task.is_some()
-                || s.imported.is_some()
-                || self.runner.class_of(&s.session_id) != PlaceClass::Private
-            {
-                continue;
-            }
-            found.push((s.last_active_ms, s.session_id, title));
-        }
+        });
         found.sort_by(|a, b| b.cmp(a));
         Held {
             sessions: found.into_iter().map(|(_, id, t)| (id, t)).collect(),
         }
-    }
-
-    fn sweep_category(&self, o: &Ontology, id: &CategoryId) -> Option<SweepCategory> {
-        let c = o.category(id)?;
-        let held = self.held_by(o, id);
-        Some(SweepCategory {
-            name: c.name.clone(),
-            path: o
-                .path(id)
-                .iter()
-                .map(|p| p.name.as_str())
-                .collect::<Vec<_>>()
-                .join(" › "),
-            description: c.description.clone(),
-            titles: held
-                .sessions
-                .into_iter()
-                .take(TITLES)
-                .map(|(_, t)| t)
-                .collect(),
-        })
     }
 
     /// The model's part of one run at `now_ms`: pairs, then splits, under
@@ -273,17 +277,15 @@ impl Core {
             now_ms,
             cap,
             spent: 0,
+            before,
             mark,
         };
         let merges = run.pairs(&o).await;
         let splits = run.splits(&o).await;
-        let Run { spent, mark, .. } = run;
-        out.spent += spent;
-        let mark = Mark {
-            spent_usd: before + micros_to_usd(spent),
-            ..mark
-        };
-        theseus_store::blocking(|| self.store.put_meta(MARK, &mark))?;
+        // Kept after each paid question too (`Run::paid`), so a stop mid-run
+        // keeps what was spent and asked; this keeps a run that asked nothing.
+        run.keep()?;
+        out.spent += run.spent;
         // The writes, after every question: each is checked against the
         // ontology as it stands, so one write never builds on another's.
         self.onto_judged_writes(now_ms, merges, splits, out);
@@ -360,10 +362,29 @@ struct Run<'a> {
     now_ms: u64,
     cap: Micros,
     spent: Micros,
+    /// What the day had spent before the run.
+    before: f64,
     mark: Mark,
 }
 
 impl Run<'_> {
+    /// The day's mark as the run stands, written where a restart reads it.
+    fn keep(&mut self) -> Result<()> {
+        self.mark.spent_usd = self.before + micros_to_usd(self.spent);
+        theseus_store::blocking(|| self.core.store.put_meta(MARK, &self.mark))
+    }
+
+    /// A paid question's answer: its cost and its key go into the mark, and
+    /// the mark is written at once (theseus-23wd8), so a stop before the run
+    /// ends loses neither.
+    fn paid(&mut self, key: String, cost: Micros) {
+        self.spent += cost;
+        self.mark.asked.insert(key, self.now_ms);
+        if let Err(e) = self.keep() {
+            tracing::warn!(error = %format!("{e:#}"), "ontology: the sweep's day mark was not written");
+        }
+    }
+
     fn left(&self) -> Micros {
         self.cap.saturating_sub(self.spent)
     }
@@ -386,8 +407,8 @@ impl Run<'_> {
                 continue;
             }
             let (Some(first), Some(second)) = (
-                self.core.sweep_category(o, &a),
-                self.core.sweep_category(o, &b),
+                sweep_category(o, &a, &self.core.held_by(o, &a)),
+                sweep_category(o, &b, &self.core.held_by(o, &b)),
             ) else {
                 continue;
             };
@@ -407,8 +428,7 @@ impl Run<'_> {
             {
                 Asked::Answered(j, cost) => {
                     asked += 1;
-                    self.spent += cost;
-                    self.mark.asked.insert(key, self.now_ms);
+                    self.paid(key, cost);
                     if acts(&j) && noul(&j, "same_thing", true) {
                         yes.push((a, b));
                     }
@@ -438,10 +458,12 @@ impl Run<'_> {
             if self.mark.asked.contains_key(&key) {
                 continue;
             }
-            let Some(category) = self.core.sweep_category(o, &parent) else {
+            // One scan of the category's sessions: the sample is its newest.
+            let held = self.core.held_by(o, &parent);
+            let Some(category) = sweep_category(o, &parent, &held) else {
                 continue;
             };
-            let mut sample = self.core.held_by(o, &parent).sessions;
+            let mut sample = held.sessions;
             sample.truncate(SAMPLE);
             if sample.len() < SAMPLE_MIN {
                 continue;
@@ -467,8 +489,7 @@ impl Run<'_> {
             {
                 Asked::Answered(j, cost) => {
                     asked += 1;
-                    self.spent += cost;
-                    self.mark.asked.insert(key, self.now_ms);
+                    self.paid(key, cost);
                     if let Some(s) = splitting(&j, &parent, &names, &sampled) {
                         out.push(s);
                     }
