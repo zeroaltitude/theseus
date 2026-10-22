@@ -4,7 +4,7 @@
 //! goldens, for an output change you mean, with the diff read.
 
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::Duration;
 
 use theseus_client::render::md::Markdown;
 use theseus_client::render::style::{Mode, StyledLine};
@@ -177,9 +177,24 @@ fn no_line_is_wider_than_the_width() {
     }
 }
 
+/// This thread's CPU time (`CLOCK_THREAD_CPUTIME_ID`), as theseus-core's
+/// learning loop reads its own.
+fn thread_cpu() -> Duration {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: clock_gettime writes the timespec it is given, nothing else.
+    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
+
 /// Rendering costs at most 2 ms per 100 lines (theseus-rn7s). This is a debug
 /// build of the workspace's own crate, the slow case; the bound below is the
-/// median of five runs on the cloud VM times three.
+/// median of five runs on the cloud VM times three. Each run is timed by this
+/// thread's CPU time, not the wall clock (theseus-fauy3): rendering is pure
+/// computation, so a loaded gate host that leaves the test waiting for a core
+/// no longer counts against it, while a render that does more work still does.
 #[test]
 fn rendering_costs_little_per_hundred_lines() {
     let mut text = String::new();
@@ -192,17 +207,30 @@ fn rendering_costs_little_per_hundred_lines() {
     let mut times = Vec::new();
     let mut lines = 0;
     for _ in 0..5 {
-        let at = Instant::now();
+        let at = thread_cpu();
         lines = Markdown::render(&text, 100, Mode::Ansi).len();
-        times.push(at.elapsed());
+        times.push(thread_cpu() - at);
     }
     times.sort();
     let per_100 = times[2].as_secs_f64() * 1000.0 * 100.0 / lines as f64;
     eprintln!(
-        "markdown: {lines} lines, median {:?}, {per_100:.3} ms per 100 lines",
+        "markdown: {lines} lines, median {:?} CPU, {per_100:.3} ms per 100 lines",
         times[2]
     );
     assert!(per_100 < BOUND_MS_PER_100, "{per_100:.3} ms per 100 lines");
+}
+
+/// The clock above counts work, not waiting (theseus-fauy3): a thread that
+/// sleeps spends no CPU, so a wait for a core on a loaded host costs nothing.
+#[test]
+fn the_render_clock_does_not_count_a_wait() {
+    let at = thread_cpu();
+    std::thread::sleep(Duration::from_millis(50));
+    let spent = thread_cpu() - at;
+    assert!(
+        spent < Duration::from_millis(10),
+        "a 50 ms sleep cost {spent:?}"
+    );
 }
 
 /// Measured on the cloud VM in a debug build, then times three.
