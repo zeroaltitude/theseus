@@ -396,6 +396,11 @@ pub struct TaskChanged {
     pub session_id: String,
     pub verb: String,
     pub task: TaskRecord,
+    /// The turn whose call made the change, when a turn did: a chat follows
+    /// a thread's session and shows only the changes of its own turns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub turn_id: Option<String>,
 }
 
 /// What a turn's request showed of the task graph (`context.compiled`):

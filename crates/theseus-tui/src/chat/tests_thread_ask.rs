@@ -234,6 +234,60 @@ async fn another_turn_of_the_thread_is_not_the_chats() {
     assert!(r.text().contains("thinking"), "{}", r.text());
 }
 
+fn asking(turn: Option<&str>) -> Event {
+    Event::ConfirmRequested(theseus_protocol::ConfirmRequest {
+        correlation_id: format!("act_{}", turn.unwrap_or("none")),
+        session_id: PLACED.into(),
+        turn_id: turn.map(str::to_string),
+        tool: "proc.run".into(),
+        reason: "run the vault tests".into(),
+        input: json!({"argv": ["cargo", "test"]}),
+        ..Default::default()
+    })
+}
+
+/// A question or a task of another turn of the placed thread's session (one
+/// sent from Discord, say) is not shown here; the chat's own placed turn's
+/// is (theseus-dos5f).
+#[tokio::test(start_paused = true)]
+async fn a_placed_threads_other_turn_does_not_ask_in_this_chat() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.tell(asking(Some("turn_other")));
+    r.advance(300).await;
+    assert!(!r.text().contains("y yes"), "{}", r.text());
+    r.tell(asking(Some("turn_t1")));
+    r.shows("y yes").await;
+}
+
+/// After a reconnect the work board is watched again with the placed
+/// thread's session among its roots (theseus-axgln).
+#[tokio::test(start_paused = true)]
+async fn a_reconnect_keeps_following_the_placed_thread() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.settle().await;
+    r.daemon.close();
+    r.until("the status line to say offline", |r| {
+        r.text().contains("offline")
+    })
+    .await;
+    r.advance(1_000).await;
+    r.until("the dock to leave offline", |r| {
+        !r.text().contains("offline")
+    })
+    .await;
+    let later = r.later.lock().unwrap();
+    let watches = later[0].asked("work.watch");
+    assert_eq!(
+        watches.last().unwrap()["roots"],
+        json!([SID, PLACED]),
+        "{watches:?}"
+    );
+}
+
 /// A turn that ran no model: held in a shared place.
 #[tokio::test(start_paused = true)]
 async fn a_held_turn_names_no_model_in_the_chat() {

@@ -423,6 +423,7 @@ pub fn question(sid: &str, correlation_id: &str, reason: &str, at: u64) -> Confi
         correlation_id: correlation_id.to_string(),
         session_id: sid.to_string(),
         execution_id: format!("exe_{sid}"),
+        turn_id: None,
         tool: "proc.run".to_string(),
         input: json!({"argv": ["scripts/gate.sh"]}),
         resource: None,

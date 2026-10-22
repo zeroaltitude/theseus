@@ -450,7 +450,9 @@ impl Chat {
             Event::ToolEnded(t) if self.ours_in(&t.session_id, Some(&t.turn_id)) => {
                 self.tool_ended(&t);
             }
-            Event::ConfirmRequested(c) if self.ours_in(&c.session_id, None) => self.ask(c),
+            Event::ConfirmRequested(c) if self.ours_in(&c.session_id, c.turn_id.as_deref()) => {
+                self.ask(c)
+            }
             e @ (Event::ThreadAsked(_) | Event::ThreadPlaced(_)) => {
                 effects.extend(self.thread_event(e));
             }
@@ -477,7 +479,9 @@ impl Chat {
                     }
                 }
             }
-            Event::TaskChanged(t) if self.ours_in(&t.session_id, None) => self.task_changed(&t),
+            Event::TaskChanged(t) if self.ours_in(&t.session_id, t.turn_id.as_deref()) => {
+                self.task_changed(&t);
+            }
             Event::WorkChanged(c) => self.work_changed(c),
             Event::WorkNotice(n) => effects = self.work_notice(&n),
             Event::TurnFailed(f) if self.ours_in(&f.session_id, f.turn_id.as_deref()) => {

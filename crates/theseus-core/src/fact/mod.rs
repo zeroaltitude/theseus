@@ -223,8 +223,12 @@ impl<'a> Rec<'a> {
     /// The fact's notification and its sentences: every channel but its row.
     pub fn announce<F: Fact>(&self, f: &F) {
         if F::METHOD.is_some() {
-            if let Some(e) = f.event() {
+            if let Some(mut e) = f.event() {
                 debug_assert_eq!(Some(e.method()), F::METHOD, "a fact sends its METHOD");
+                // A task's change names the turn that made it.
+                if let Event::TaskChanged(c) = &mut e {
+                    c.turn_id = self.turn.map(str::to_string);
+                }
                 self.to.send(e);
             }
         }
