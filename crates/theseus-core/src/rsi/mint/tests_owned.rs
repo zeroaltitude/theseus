@@ -19,7 +19,7 @@ use crate::store::Store;
 const DAY: u64 = 86_400_000;
 
 fn acting() -> Arc<Core> {
-    let dir = std::env::temp_dir().join(format!("theseus-owned-{}", crate::new_id("t")));
+    let dir = crate::scratch::dir("owned");
     let store = Store::open(&dir.join("store")).unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
@@ -87,7 +87,7 @@ fn a_flow_on_the_record_is_never_deployed_again() {
 fn a_mint_does_not_replace_an_owners_flow() {
     let c = acting();
     for (name, by) in [("owned", "owner"), ("minted", "self")] {
-        let path = std::env::temp_dir().join(format!("{name}-{}.flow.json", crate::new_id("f")));
+        let path = crate::scratch::file(name, "flow.json");
         std::fs::write(&path, spec(name).to_string()).unwrap();
         c.flow_load(&path, by, "cli").unwrap();
     }

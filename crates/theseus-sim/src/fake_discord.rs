@@ -667,7 +667,7 @@ impl FakeDiscord {
             .ok()
             .and_then(|t| serde_json::from_str::<Guild>(&t).ok())
         {
-            self.set_guild(g);
+            self.keep_forums_set_guild(g);
         }
     }
 
@@ -2125,6 +2125,8 @@ fn reply_empty(mut stream: TcpStream) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod reread;
 
     /// Discord notifies a mentioned user only when `allowed_mentions` allows
     /// it, and every mentioned user when a create sends none (theseus-9j9).

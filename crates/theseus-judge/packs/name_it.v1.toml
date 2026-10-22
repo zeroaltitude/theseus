@@ -1,0 +1,31 @@
+# name_it.v1 (theseus-63tfk.1): what to call a category or a kind, among names
+# code mined (titles, project and repository names, paths, hosts, capitalised
+# terms; at most ten). Jev writes no name. The nightly sweep asks it, off every
+# turn's path, for a category whose name has gone stale (the state shows the
+# current name; `none` keeps it) and for a kind it is about to mint from
+# sessions that said `other` (no current name; `none` leaves the name to the
+# sweep's most-shared rule). The state is the kind, the current name and
+# description when there is one, up to twelve session titles, and the names.
+# One Choice. At the act band the sweep uses the pick; below it nothing changes.
+id = "name_it"
+version = 1
+jev_model = "jev-1.13.0"
+point = "consolidation"
+state = "name_it"
+state_cap_tokens = 2500
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "Which of the mined names best names a category or a kind the sessions in the state are about."
+
+[questions.name]
+type = "choice"
+instructions = "Which of the listed names best names the thing these sessions are about, keeping the current name (none) unless a listed name fits clearly better?"
+act = 0.85
+confirm = 0.60
+options_from = "names"
+only_when = "names"
+no_match = "none"
+options = [
+  { id = "none", means = "None of the listed names fits clearly better than the current name, or none fits at all." },
+]

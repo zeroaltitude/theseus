@@ -102,7 +102,7 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
 /// Health's lines once the turn's judged point has read the ladder: the
 /// three packs the owner put live stand as his adoption, under the
 /// config's ceiling (26a).
-const INBOUND_ALONE: [&str; 21] = [
+const INBOUND_ALONE: [&str; 23] = [
     "loop.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v4: live",
@@ -112,6 +112,8 @@ const INBOUND_ALONE: [&str; 21] = [
     "onto.v1: off",
     "same_thing.v1: live",
     "two_things.v1: live",
+    "same_kind.v1: live",
+    "name_it.v1: live",
     "continue.v1: off",
     "categorize.v1: off",
     "rerank.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",

@@ -1,0 +1,10 @@
+{
+  "first": {
+    "names": ["Lantern Ledger", "ledger.example.org"],
+    "titles": ["Plan the Lantern Ledger migration", "Ledger import on staging"]
+  },
+  "second": {
+    "names": ["Beacon Books"],
+    "titles": ["Beacon Books year-end close", "Reconcile Beacon Books totals"]
+  }
+}

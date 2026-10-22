@@ -73,6 +73,8 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("onto.v1", include_str!("../packs/onto.v1.toml")),
     ("same_thing.v1", include_str!("../packs/same_thing.v1.toml")),
     ("two_things.v1", include_str!("../packs/two_things.v1.toml")),
+    ("same_kind.v1", include_str!("../packs/same_kind.v1.toml")),
+    ("name_it.v1", include_str!("../packs/name_it.v1.toml")),
     (
         "recall_cross.v1",
         include_str!("../packs/recall_cross.v1.toml"),
@@ -138,6 +140,10 @@ pub enum Builder {
     SameThing,
     /// `two_things.v1`'s: one category and a sample of its sessions (theseus-nzzz4).
     TwoThings,
+    /// `same_kind.v1`'s: two groups of `other` answers (theseus-63tfk.1).
+    SameKind,
+    /// `name_it.v1`'s: a group of sessions and the names to choose among (theseus-63tfk.1).
+    NameIt,
     /// `recall_cross.v1`'s: the message and the notes the thread lens dropped
     /// near the bar (theseus-98bz.10).
     RecallCross,
@@ -1471,10 +1477,10 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            26,
+            28,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v7, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
-             onto.v1, same_thing.v1, two_things.v1, recall_cross.v1 and families.v1"
+             onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1 and families.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

@@ -239,3 +239,36 @@ fn writes_in_one_millisecond_are_listed_in_the_ledgers_order() {
     assert!(lines[0].ends_with("undo sweep-5-1-kind"), "{lines:?}");
     assert!(lines[1].ends_with("undo dream-5-0"), "{lines:?}");
 }
+
+/// A rename (theseus-63tfk.1) is told with both names and the id that undoes it.
+#[test]
+fn a_rename_is_a_line_with_both_names() {
+    let r = rig(|_| {});
+    let now = now_unix_ms();
+    r.core
+        .ontology_machine_write(
+            Origin::Jev,
+            "j-0001",
+            vec![Record::Category(Category::new(
+                id("topic:scratch-notes"),
+                "scratch notes",
+                "jev:j-0001",
+            ))],
+        )
+        .unwrap();
+    let write = format!("sweep-{now}-0-rename");
+    let mut o = (*r.core.runner.ontology.snapshot(&r.core.store).unwrap()).clone();
+    let step = o
+        .plan_rename(&id("topic:scratch-notes"), "Lantern Ledger", &write)
+        .unwrap();
+    r.core
+        .ontology_machine_write(Origin::Sweep, &write, step.records().to_vec())
+        .unwrap();
+    assert_eq!(
+        r.core.onto_night_lines(now + 1_000),
+        vec![format!(
+            "- renamed topic \"scratch notes\" to \"Lantern Ledger\" · undo: theseus ontology \
+             undo {write}"
+        )]
+    );
+}

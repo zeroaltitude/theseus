@@ -495,6 +495,8 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
         "onto.v1: off",
         "same_thing.v1: live",
         "two_things.v1: live",
+        "same_kind.v1: live",
+        "name_it.v1: live",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",

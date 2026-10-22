@@ -333,11 +333,14 @@ fn a_restart_settles_the_jobs_whose_wrappers_went_while_no_daemon_ran() {
     });
     let settled_in = t0.elapsed();
     // A late result the start delivered wakes its turn, whose model call
-    // is dispatched for a moment: `actions_by_state` counts it too.
-    r.wait("the live wrapper's job alone dispatched", || {
-        (r.count("dispatched") == 1).then_some(())
+    // is dispatched for a moment: `actions_by_state` counts it too, so the
+    // assert reads the snapshot the wait saw, never a second read (another
+    // late turn may dispatch in between). A gone job left dispatched holds
+    // the count above one for good, and this wait fails at its 30 s.
+    let a = r.wait("the live wrapper's job alone dispatched", || {
+        let a = r.actions();
+        (a["dispatched"] == 1).then_some(a)
     });
-    let a = r.actions();
     assert_eq!(a["dispatched"], 1, "the live wrapper's job runs on: {a}");
     assert!(
         !r.path(&format!("state/spool/{}.json", quick[0].0)).exists(),

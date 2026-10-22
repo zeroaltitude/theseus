@@ -17,13 +17,13 @@ use crate::store::Store;
 use crate::tests_judge::{board, judge_config, texts, warm};
 use crate::{Config, Core};
 
-struct Rig {
-    core: Arc<Core>,
-    jev: FakeJev,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) jev: FakeJev,
     _dir: tempfile::TempDir,
 }
 
-fn rig(jev: FakeJev, more: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig(jev: FakeJev, more: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = judge_config(dir.path(), Some(&jev));
     more(&mut cfg);
@@ -40,11 +40,11 @@ fn rig(jev: FakeJev, more: impl FnOnce(&mut Config)) -> Rig {
     }
 }
 
-fn id(s: &str) -> CategoryId {
+pub(crate) fn id(s: &str) -> CategoryId {
     CategoryId::parse(s).unwrap()
 }
 
-fn session(core: &Core, sid: &str, title: &str, active: u64) {
+pub(crate) fn session(core: &Core, sid: &str, title: &str, active: u64) {
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);
     rec.session_id = sid.into();
     rec.title = Some(title.into());
@@ -52,7 +52,7 @@ fn session(core: &Core, sid: &str, title: &str, active: u64) {
     core.store.put_session(sid, &rec).unwrap();
 }
 
-fn held(sid: &str, category: &str, at: u64) -> Record {
+pub(crate) fn held(sid: &str, category: &str, at: u64) -> Record {
     Record::Members(MemberList {
         session: sid.into(),
         kind: "topic".into(),
@@ -65,20 +65,20 @@ fn held(sid: &str, category: &str, at: u64) -> Record {
     })
 }
 
-fn machine(core: &Core, write: &str, records: Vec<Record>) {
+pub(crate) fn machine(core: &Core, write: &str, records: Vec<Record>) {
     core.ontology_machine_write(Origin::Jev, write, records)
         .unwrap();
 }
 
-fn topic(i: &str, name: &str) -> Record {
+pub(crate) fn topic(i: &str, name: &str) -> Record {
     Record::Category(Category::new(id(i), name, "jev:j-0001"))
 }
 
-fn snapshot(core: &Core) -> Arc<Ontology> {
+pub(crate) fn snapshot(core: &Core) -> Arc<Ontology> {
     core.runner.ontology.snapshot(&core.store).unwrap()
 }
 
-fn fresh() -> u64 {
+pub(crate) fn fresh() -> u64 {
     now_unix_ms()
 }
 

@@ -646,3 +646,30 @@ async fn a_long_question_is_told_once() {
         .count();
     assert_eq!(told, 1, "{}", r.text());
 }
+
+/// A job's last line is sampled between frames: the view keeps its position and takes a later
+/// time. The footer follows it (theseus-hwv3t).
+#[tokio::test(start_paused = true)]
+async fn the_footer_follows_a_running_jobs_last_line() {
+    let job = |line: &str, at_ms: u64| {
+        view(json!({
+            "id": "act_job01", "kind": "job", "parent": "exe_t1", "title": "census", "position": 7,
+            "at_ms": at_ms, "started_at_ms": T0 - 20_000,
+            "doing": {"what": "job", "label": "running", "since_ms": T0 - 20_000, "turn": 1,
+                      "loop_index": 0, "last_line": line}
+        }))
+    };
+    let mut r = ready(
+        100,
+        30,
+        &[
+            conversation(),
+            task(1, "Census run", 3),
+            job("census step 2/9", T0),
+        ],
+    )
+    .await;
+    r.shows("census step 2/9").await;
+    push(&r, 7, vec![job("census step 7/9", T0 + 1_000)]);
+    r.shows("census step 7/9").await;
+}

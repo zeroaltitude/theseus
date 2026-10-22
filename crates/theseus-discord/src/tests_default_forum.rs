@@ -269,6 +269,61 @@ async fn the_forum_is_made_once_private_with_its_tags_and_found_again() {
     assert_eq!(r.fake.forums_made().len(), 1);
 }
 
+/// The stand-in reads its guild from a file at every request, as the scratch
+/// runs do (`watch_guild_file`); it once dropped the channels the bot made.
+fn watched(f: &FakeDiscord) {
+    let d = tempfile::tempdir().unwrap();
+    let file = d.path().join("guild.json");
+    std::fs::write(&file, serde_json::to_string(&guild(false)).unwrap()).unwrap();
+    f.watch_guild_file(&file).unwrap();
+    std::mem::forget(d);
+}
+
+/// One start on a guild with no forum makes one forum, however many looks
+/// race for it (the start's own, a gateway READY, a second binding over the
+/// same store): the recorded forum is the one the tags and the posts use
+/// (theseus-p5g63).
+#[tokio::test]
+async fn one_start_on_a_guild_with_no_forum_makes_one_forum() {
+    let home = |c: &mut Config| c.discord.task_home = "theseus-tasks".into();
+    let r = rig(vec![], |_| vec![], &bindings(true, ""), watched, home).await;
+    let forum = forum_up(&r).await;
+    let guild = DEFAULT_GUILD.to_string();
+    let (a, b) = (
+        crate::runtime::shared_for_tests(&r.core),
+        crate::runtime::shared_for_tests(&r.core),
+    );
+    let (x, y) = tokio::join!(
+        a.look_for_forum(&guild, "theseus"),
+        b.look_for_forum(&guild, "theseus")
+    );
+    for s in [x, y] {
+        assert!(matches!(s, Stand::On(ref f) if f.channel == forum), "{s:?}");
+    }
+    assert_eq!(r.fake.forums_made().len(), 1, "{:#?}", r.fake.forums_made());
+}
+
+/// A task's post on the forum the bot made carries its running tag, and the
+/// tags were read from that forum: no `task forum tags` error (theseus-p5g63).
+#[tokio::test]
+async fn task_posts_get_their_tags_on_a_forum_the_bot_made() {
+    let r = rig(
+        vec![start(&[REEF]), Scripted::text("Started.")],
+        |dir| vec![(REEF, [vec![gate(dir)], sleeps(1, "Reef charted.")].concat())],
+        &bindings(true, ""),
+        watched,
+        |_| {},
+    )
+    .await;
+    r.say((ANA, "ana"), None, ASK);
+    let forum = forum_up(&r).await;
+    until(&r, "the task's post", || !posts(&r, forum).is_empty()).await;
+    let post = posts(&r, forum).remove(0);
+    assert_eq!(post.tag_sets[0], [tag_id(&r, forum, "running")]);
+    assert_eq!(r.fake.forums_made().len(), 1);
+    open_gate(&r);
+}
+
 /// A forum of that name already there is the forum, whatever case: none is made.
 #[tokio::test]
 async fn a_forum_of_that_name_is_reused_and_none_is_made() {

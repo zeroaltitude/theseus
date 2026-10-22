@@ -144,6 +144,7 @@ pub mod thread_read;
 pub mod thread_recall;
 pub mod thread_route;
 pub mod thread_split;
+pub mod thread_title;
 pub mod threads;
 pub mod threads_import;
 pub mod tighten;
@@ -206,6 +207,8 @@ pub fn id_ms(id: &str) -> Option<u64> {
     (u.get_version_num() == 7).then(|| (u.as_u128() >> 80) as u64)
 }
 
+#[cfg(test)]
+mod scratch;
 #[cfg(test)]
 pub(crate) mod test_support;
 #[cfg(test)]
@@ -404,6 +407,8 @@ mod tests_onto_judged;
 mod tests_onto_mark;
 #[cfg(test)]
 mod tests_onto_mint;
+#[cfg(test)]
+mod tests_onto_names;
 #[cfg(test)]
 mod tests_onto_other;
 #[cfg(test)]

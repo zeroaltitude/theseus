@@ -127,7 +127,7 @@ fn core_resolving(
     resolved: bool,
     edit: impl FnOnce(&mut Config),
 ) -> Arc<Core> {
-    let dir = std::env::temp_dir().join(format!("theseus-test-{}", crate::new_id("t")));
+    let dir = crate::scratch::dir("t");
     let store = Store::open(&dir.join("store")).unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();

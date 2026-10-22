@@ -125,6 +125,7 @@ fn the_workspace_and_pane_builders_match() {
     valid(&s, "agent.focus", &json!({"target": "w1:p2"}));
     valid(&s, "pane.list", &json!({}));
     valid(&s, "workspace.list", &json!({}));
+    valid(&s, "workspace.focus", &wire::focus_params("w1"));
 }
 
 #[test]

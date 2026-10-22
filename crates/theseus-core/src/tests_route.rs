@@ -68,7 +68,7 @@ pub(crate) fn restricted_placements(c: &mut Config) {
 }
 
 pub(crate) fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
-    let dir = Arc::new(tempfile::tempdir().unwrap());
+    let dir = Arc::new(crate::scratch::tempdir());
     rig_on(dir, jev, n, tweak, board())
 }
 
@@ -80,7 +80,7 @@ pub(crate) fn rig_parts(
     tweak: impl FnOnce(&mut Config),
     parts: impl FnOnce(&mut Parts),
 ) -> Rig {
-    let dir = Arc::new(tempfile::tempdir().unwrap());
+    let dir = Arc::new(crate::scratch::tempdir());
     rig_built(dir, jev, n, tweak, board(), parts)
 }
 
@@ -106,7 +106,7 @@ pub(crate) fn rig_on_clock(
     tweak: impl FnOnce(&mut Config),
     clock: Arc<dyn theseus_kernel::Clock>,
 ) -> Rig {
-    let dir = Arc::new(tempfile::tempdir().unwrap());
+    let dir = Arc::new(crate::scratch::tempdir());
     rig_with(dir, jev, n, tweak, board(), |_| {}, clock)
 }
 

@@ -52,6 +52,9 @@ pub const HEARD_VERSION: u32 = 1;
 /// `same_thing.v1`'s and `two_things.v1`'s builders (module `sweep`, theseus-nzzz4).
 pub const SAME_THING_VERSION: u32 = 1;
 pub const TWO_THINGS_VERSION: u32 = 1;
+/// `same_kind.v1`'s and `name_it.v1`'s builders (module `sweep_names`, theseus-63tfk.1).
+pub const SAME_KIND_VERSION: u32 = 1;
+pub const NAME_IT_VERSION: u32 = 1;
 /// `recall_cross.v1`'s builder (module `cross`, theseus-98bz.10).
 pub const RECALL_CROSS_VERSION: u32 = 1;
 
@@ -400,6 +403,10 @@ pub enum Input {
     SameThing(SameThingInput),
     /// `two_things.v1`'s (theseus-nzzz4): one category and a sample of its sessions.
     TwoThings(TwoThingsInput),
+    /// `same_kind.v1`'s (theseus-63tfk.1): two groups of `other` answers.
+    SameKind(SameKindInput),
+    /// `name_it.v1`'s (theseus-63tfk.1): a group of sessions and names to choose among.
+    NameIt(NameItInput),
     /// `recall_cross.v1`'s (theseus-98bz.10): the message and another
     /// stream's notes near the bar.
     RecallCross(CrossInput),
@@ -428,6 +435,8 @@ impl Input {
             Input::Heard(_) => Builder::Heard,
             Input::SameThing(_) => Builder::SameThing,
             Input::TwoThings(_) => Builder::TwoThings,
+            Input::SameKind(_) => Builder::SameKind,
+            Input::NameIt(_) => Builder::NameIt,
             Input::RecallCross(_) => Builder::RecallCross,
             Input::Families(_) => Builder::Families,
         }
@@ -453,6 +462,8 @@ impl Input {
             Builder::Heard => Input::Heard(serde_json::from_str(json)?),
             Builder::SameThing => Input::SameThing(serde_json::from_str(json)?),
             Builder::TwoThings => Input::TwoThings(serde_json::from_str(json)?),
+            Builder::SameKind => Input::SameKind(serde_json::from_str(json)?),
+            Builder::NameIt => Input::NameIt(serde_json::from_str(json)?),
             Builder::RecallCross => Input::RecallCross(serde_json::from_str(json)?),
             Builder::Families => Input::Families(serde_json::from_str(json)?),
         })
@@ -495,6 +506,8 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::Heard(i) => heard::heard(i, cap, scrub),
         Input::SameThing(i) => sweep::same_thing(i, cap, scrub),
         Input::TwoThings(i) => sweep::two_things(i, cap, scrub),
+        Input::SameKind(i) => sweep_names::same_kind(i, cap, scrub),
+        Input::NameIt(i) => sweep_names::name_it(i, cap, scrub),
         Input::RecallCross(i) => cross::cross(i, cap, scrub),
         Input::Families(i) => families::families(i, cap, scrub),
     })
@@ -703,6 +716,7 @@ mod people;
 mod rerank;
 mod security2;
 mod sweep;
+mod sweep_names;
 
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use compare::{CompareInput, CompareReply};
@@ -716,6 +730,7 @@ pub use sweep::{
     SameThingInput, SweepCategory, TwoThingsInput, FIRST_ASKED, SAMPLE as SWEEP_SAMPLE,
     TITLES as SWEEP_TITLES,
 };
+pub use sweep_names::{KindSide, NameItInput, SameKindInput};
 
 /// `security.v1`: the call (tool, class, posture and why), its arguments
 /// (argv, paths, and a URL as host, path, and query, each clipped), the
@@ -1271,6 +1286,8 @@ pub(crate) mod tests {
             "heard.v1",
             "same_thing.v1",
             "two_things.v1",
+            "same_kind.v1",
+            "name_it.v1",
             "recall_cross.v1",
             "families.v1",
         ] {

@@ -91,6 +91,27 @@ pub fn queue(qs: &[ConfirmRequest]) -> Vec<usize> {
     order
 }
 
+/// The other questions in the order `tab` walks them from `shown`: the one after it first, the
+/// card lists them so (theseus-dowi0.1).
+pub fn others_after<'a>(
+    qs: &'a [ConfirmRequest],
+    shown: &ConfirmRequest,
+) -> Vec<&'a ConfirmRequest> {
+    let order = queue(qs);
+    let at = order
+        .iter()
+        .position(|&n| qs[n].correlation_id == shown.correlation_id)
+        .map_or(0, |p| p + 1);
+    order
+        .iter()
+        .cycle()
+        .skip(at)
+        .take(order.len())
+        .map(|&n| &qs[n])
+        .filter(|q| q.correlation_id != shown.correlation_id)
+        .collect()
+}
+
 /// One answer the card offers: the key that picks it and the option it sends.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Key {
@@ -393,11 +414,7 @@ async fn waiting(conn: &mut Conn) -> Result<Vec<ConfirmRequest>> {
 /// The asking session and its parent, for the card.
 async fn context(conn: &mut Conn, qs: &[ConfirmRequest], shown: &ConfirmRequest) -> Context {
     let mut ctx = Context {
-        others: qs
-            .iter()
-            .filter(|q| q.correlation_id != shown.correlation_id)
-            .map(word_of)
-            .collect(),
+        others: others_after(qs, shown).into_iter().map(word_of).collect(),
         ..Context::default()
     };
     let one = |id: String| json!({ "ids": [id] });
@@ -518,20 +535,10 @@ impl Card {
             Decision::Nothing => {}
             Decision::Quit => return Ok(Flow::Done),
             Decision::Unknown(w) => println!("`{w}` is no answer here"),
-            Decision::Next => {
-                let order = queue(&self.qs);
-                let pos = order
-                    .iter()
-                    .position(|&n| self.qs[n].correlation_id == q.correlation_id)
-                    .unwrap_or(0);
-                if order.len() > 1 {
-                    self.at = self.qs[order[(pos + 1) % order.len()]]
-                        .correlation_id
-                        .clone();
-                } else {
-                    println!("no other question waits");
-                }
-            }
+            Decision::Next => match others_after(&self.qs, q).first() {
+                Some(next) => self.at = next.correlation_id.clone(),
+                None => println!("no other question waits"),
+            },
             Decision::Answer { option, note } => return self.answer(q, &option, note).await,
         }
         Ok(Flow::Go)

@@ -52,7 +52,7 @@ fn a_constant_is_short_and_has_no_absolute_path_outside_the_repository() {
 #[test]
 fn a_repository_is_keyed_by_its_path_and_its_origins_path() {
     let mk = |url: &str| {
-        let d = std::env::temp_dir().join(format!("theseus-scope-{}", crate::new_id("s")));
+        let d = crate::scratch::dir("scope");
         std::fs::create_dir_all(d.join(".git")).unwrap();
         std::fs::create_dir_all(d.join("crates/a")).unwrap();
         std::fs::write(
@@ -71,7 +71,7 @@ fn a_repository_is_keyed_by_its_path_and_its_origins_path() {
     let b = mk("git@example.org:harbor/harbord.git");
     assert_ne!(scope_of(&b.display().to_string()).0, k1);
     // A directory in no repository is its own scope.
-    let loose = std::env::temp_dir().join(format!("theseus-loose-{}", crate::new_id("l")));
+    let loose = crate::scratch::dir("loose");
     std::fs::create_dir_all(&loose).unwrap();
     assert!(scope_of(&loose.display().to_string()).0.starts_with("d:"));
     // The key holds neither the path nor the host.
@@ -188,7 +188,7 @@ fn flow_turn(store: &Store, steps: bool) {
 #[test]
 fn a_flows_steps_are_not_by_hand_calls() {
     let read = |steps: bool| {
-        let dir = std::env::temp_dir().join(format!("theseus-flow-steps-{}", crate::new_id("s")));
+        let dir = crate::scratch::dir("flow-steps");
         let store = Store::open(&dir.join("store")).unwrap();
         flow_turn(&store, steps);
         let clean = |_: &str| true;

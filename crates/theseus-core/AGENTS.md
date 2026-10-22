@@ -282,7 +282,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the one survivor rule (`Ontology::plan_pair_merge`); `two_things.v1` asks of a machine category 12 sessions or more
   hold (at most 3 a run) and splits it into two named children, moving the sampled sessions it placed at the act band
   (`plan_split`); the day's spend and what was asked (not again for 30 days) are META `onto.sweep.judged`, and every
-  call also passes the judge's day budget; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
+  call also passes the judge's day budget; (3b) `judge/onto/renamed.rs` (theseus-63tfk.1; three more asks under the same
+  money, mark and not-again rule, each a Choice among mined names so Jev writes none): `name_it.v1` renames a machine
+  category with 5 titled sessions or more whose name is in none of their titles while one mined name is in half of them
+  (`stale_names`; at most 3 a run), writing `Ontology::plan_rename` (the old name in the description as `was: <old>`;
+  `Step::Rename`, `sweep-<ms>-<n>-rename`, undone like a merge); `same_kind.v1` asks, before the plan mints, of pairs of
+  mined `other` names no session shares whose sessions together make a cluster (at most 20 a run) and a yes joins them
+  (`mint::Hints::same`); `name_it.v1` names a kind about to be minted from a cluster of two names or more, and `none`, a
+  pick below the act band or no answer leaves the most shared name (`Hints::named`, `Swept.named_kinds`). The night runs
+  hints, then the plan, then the pair, split and rename asks (`onto_sweep_night`); `onto_sweep` alone is the plan with
+  no model; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
   its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
   under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each
@@ -293,7 +302,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   after the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours,
   so a night post would wake the owner; the morning note is the one place they are told. Tests: `tests_ontology.rs`,
   `tests_ontology_bind.rs`, `tests_onto_sweep.rs`, `tests_onto_other.rs`, `tests_onto_mint.rs`, `tests_onto_judged.rs`,
-  `consolidate/tests_guidance.rs`, `tests_onto_digest.rs`.
+  `tests_onto_names.rs`, `consolidate/tests_guidance.rs`, `tests_onto_digest.rs`.
 - **Standing** (theseus-a7vi; `standing.rs`, `rpc/standing.rs`, `turn/standing_step.rs`, `fact/standing.rs`): the owner's
   standing orders, preferences and facts, one `protocol::StandingRecord` each as a META key `standing:<id>` (store
   format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).
@@ -577,7 +586,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   addressing by place, an explicit word (`#slug`, `/t slug`, "in the … thread:") and a reply to a routed turn
   (`thread_route::address`, certain, no judge); then the in-memory pre-router (`thread_route.rs`, pure: entity matches
   against each live thread's working set, stickiness `[threads] sticky_half_life_secs`, the reply chain, fused as a
-  noisy-or; `thread_flow.rs` holds its `State`: the last thread per home session, routed turns, pending asks,
+  noisy-or, a thread whose title the message names in every content word adding 0.35 unshared (`thread_title.rs`,
+  theseus-4qdh8: two titles named contend and are asked); `thread_flow.rs` holds its `State`: the last thread per home session, routed turns, pending asks,
   correction memory); then `classify.v2`'s `thread` question (`Source::Threads`, at most 50 options plus `new_thread`
   and `home`), which rides **the same inbound request** as the rest of the batch: `JudgeService::inbound_early` begins
   the point before the turn and the turn takes the handed-off `Early` (keyed by session, with a pre-minted turn id), so
@@ -3146,6 +3156,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - `Core::build_with_clock` (test-only) builds a core whose kernel runs on a given clock, so a test drives an hour
   with a `VirtualClock` (`tests_effort_lapse.rs`, theseus-2ix1k). `test_support::until_event(what, f)` waits with no
   deadline of its own and prints `waiting for <what>` every 30 s, so a hang names itself in nextest's output.
+- A test's temp directory or file comes from `crate::scratch` (`dir`, `file`, `tempdir`; theseus-5hr6i) and is
+  removed when the process exits, leaked into a task or not; a killed process's are pruned once six hours old. Prefer it
+  over a bare `tempfile::tempdir()` whenever the fixture can be leaked into a task.
 - `Store::fail_turn_frame` (test-only) fails the first turn frame whose records match, once, as a full disk would.
 - Debug builds assert, at every read, that a turn's kept transcript equals a fresh read of the store, by positions and
   record keys, decoding nothing. A node written past the turn's handle panics a debug daemon.

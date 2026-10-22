@@ -109,6 +109,11 @@ pub fn workspace_params() -> Value {
     json!({"label": WORKSPACE, "focus": false})
 }
 
+/// `workspace.focus`'s params: the workspace to bring to the front.
+pub fn focus_params(workspace_id: &str) -> Value {
+    json!({ "workspace_id": workspace_id })
+}
+
 /// `layout.apply`'s params for one tab: a single pane running the spec's argv. herdr's
 /// `layout.apply` makes one tab a call; a pane's tokens are set after, by `pane_tokens_params`.
 pub fn tab_params(at: &Where, exe: &Path, socket: &str, t: &TabSpec, focus: bool) -> Value {

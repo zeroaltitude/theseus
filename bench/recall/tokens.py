@@ -157,12 +157,32 @@ def census_of_messages(messages: list[dict]) -> Census:
     return c
 
 
+# A deferred tool costs one constant for all of them, the search tool its own
+# (theseus-core's tools_defer.rs, theseus-7m7w.2).
+SEARCH_TOOL = "tool_search_tool_bm25"
+SEARCH_BYTES = 634
+DEFERRED_BYTES = 223
+
+
+def tools_bytes(tools: list) -> int:
+    """`tools_defer::tools_bytes`: each loaded tool's schema as json, the
+    search tool its constant, and the deferred ones a single constant."""
+    n, deferred = 0, False
+    for t in tools:
+        if t.get("defer_loading") is True:
+            deferred = True
+        elif t.get("name") == SEARCH_TOOL:
+            n += SEARCH_BYTES
+        else:
+            n += _json_len(t)
+    return n + (DEFERRED_BYTES if deferred else 0)
+
+
 def census_of_request(req: dict) -> Census:
-    """`ProviderRequest::census`: the messages, each tool's schema as json,
-    and each system block as a message of text."""
+    """`ProviderRequest::census`: the messages, the tools as `tools_bytes`
+    counts them, and each system block as a message of text."""
     c = census_of_messages(req.get("messages", []))
-    for t in req.get("tools", []) or []:
-        c.json += _json_len(t)
+    c.json += tools_bytes(req.get("tools", []) or [])
     system = req.get("system") or []
     if isinstance(system, str):
         system = [{"type": "text", "text": system}]

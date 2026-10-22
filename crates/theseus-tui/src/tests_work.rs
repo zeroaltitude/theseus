@@ -113,7 +113,7 @@ fn regatta() -> (Vec<ExecutionView>, Vec<Value>) {
     (vec![reg, sound, fetch, paint, gauge, boats], work)
 }
 
-fn regatta_world(work: Option<Vec<Value>>) -> Arc<Mutex<World>> {
+pub(crate) fn regatta_world(work: Option<Vec<Value>>) -> Arc<Mutex<World>> {
     let (views, mut works) = regatta();
     let mut w = World {
         board: json!({"position": 200, "executions": views, "total": 6,
@@ -168,7 +168,7 @@ fn regatta_world(work: Option<Vec<Value>>) -> Arc<Mutex<World>> {
     Arc::new(Mutex::new(w))
 }
 
-async fn rig(width: u16, world: Arc<Mutex<World>>) -> (Rig, Captured) {
+pub(crate) async fn rig(width: u16, world: Arc<Mutex<World>>) -> (Rig, Captured) {
     NOW.with(|n| n.set(T0));
     let mut rig = Rig::new(width, 30, crate::tests::script(world));
     let out = Captured::default();
