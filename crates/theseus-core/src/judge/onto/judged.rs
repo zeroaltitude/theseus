@@ -24,9 +24,9 @@
 //! the deterministic sweep still runs) caps the local day: a call whose worst
 //! case would pass what is left is not begun, and the day's spend is the META
 //! record [`MARK`], read back at a restart and written after each paid
-//! question (theseus-23wd8), so a stop mid-run keeps what it spent and asked. Each call also passes the judge's
-//! own day budget (`JudgeService::reserve`), as `people.v1`'s does; no judge
-//! budget is raised.
+//! question (theseus-23wd8), so a stop mid-run keeps what it spent and asked.
+//! Each call also passes the judge's own day budget (`JudgeService::reserve`),
+//! as `people.v1`'s does; no judge budget is raised.
 //!
 //! **Not asked again.** A pair or a category asked is not asked again for
 //! [`AGAIN_MS`] (30 days), whatever the answer, so a "no" costs once a

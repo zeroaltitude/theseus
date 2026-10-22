@@ -77,7 +77,36 @@ async fn the_learning_report_carries_the_onto_undo_line() {
             rate: Some(0.5),
         }]
     );
+    assert_eq!(pack("onto.v1").undo_days, 7, "the window rides the report");
     let other = pack("loop.v1");
     assert!(other.undo.is_empty());
     assert!(serde_json::to_value(other).unwrap().get("undo").is_none());
+}
+
+/// A store that cannot read the undo rows leaves the line out and the rest
+/// of the report stands (theseus-efb8i).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_undo_read_leaves_the_rest_of_the_learning_report() {
+    let r = rig_on(texts(0), None, |c| {
+        c.judge.enabled = true;
+        c.judge.api_base = "http://127.0.0.1:9".into();
+        for (p, _) in crate::judge::WIRED {
+            c.judge.packs.insert((*p).into(), off());
+        }
+        c.secrets
+            .entry("jev_api_key".into())
+            .or_insert_with(|| "env:THESEUS_TEST_JEV".into());
+    });
+    let c = &r.core;
+    let now = now_unix_ms();
+    let j = judgment("jdg_a", "onto.v1", vec![], json!({}), 10);
+    c.store.append(&[call_row(&j, now - 1_000)]).unwrap();
+    jev_files(c, "jdg_a", "kelp", "ses_a");
+    c.store.fail_ledger_pages();
+    let rep = c
+        .run_learning(now_unix_ms() + 1_000, "on_demand", |_| {})
+        .unwrap();
+    let p = rep.packs.iter().find(|p| p.pack == "onto.v1").unwrap();
+    assert_eq!(p.calls, 1, "the pack's own numbers stand");
+    assert!(p.undo.is_empty());
 }

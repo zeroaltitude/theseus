@@ -93,8 +93,10 @@ fn holdout_lines(h: &Holdout, date: &str, out: &mut Vec<String>) {
 /// The ontology pack's undo rate per kind, with its window (theseus-2tqqs), in
 /// the cockpit's words (`ontoKindWords`): `undo rate by kind (Jev's writes, 7
 /// days to 2026-10-21): person 1 of 1 (100%) · topic 1 of 2 (50%)`. None for a
-/// pack that carries none.
-pub fn undo_words(undo: &[UndoRate], date: &str) -> Option<String> {
+/// pack that carries none. `days` is the report's window (`PackReport.undo_days`;
+/// 0 for a report stored before it, which counted 7).
+pub fn undo_words(undo: &[UndoRate], date: &str, days: u32) -> Option<String> {
+    let days = if days == 0 { 7 } else { days };
     if undo.is_empty() {
         return None;
     }
@@ -106,7 +108,7 @@ pub fn undo_words(undo: &[UndoRate], date: &str) -> Option<String> {
         })
         .collect();
     Some(format!(
-        "undo rate by kind (Jev's writes, 7 days to {date}): {}",
+        "undo rate by kind (Jev's writes, {days} days to {date}): {}",
         kinds.join(" · ")
     ))
 }
@@ -125,7 +127,7 @@ fn pack_lines(p: &PackReport, date: &str, out: &mut Vec<String>) {
         share(p.agreement),
         p.cost_usd
     ));
-    if let Some(words) = undo_words(&p.undo, date) {
+    if let Some(words) = undo_words(&p.undo, date, p.undo_days) {
         out.push(format!("  {words}"));
     }
     for l in &p.latency {
@@ -194,6 +196,7 @@ mod tests {
                 PackReport {
                     pack: "onto.v1".into(),
                     undo: vec![rate("person", 1, 1), rate("topic", 2, 1)],
+                    undo_days: 7,
                     ..PackReport::default()
                 },
                 PackReport {
@@ -216,5 +219,16 @@ mod tests {
         let line = lines.iter().position(|l| l.contains("undo rate")).unwrap();
         assert_eq!(line, at("onto.v1") + 1, "the line is the onto pack's");
         assert!(at("loop.v1") > line);
+    }
+
+    #[test]
+    fn the_undo_line_names_the_reports_window() {
+        let undo = [rate("topic", 2, 1)];
+        let words = |days| super::undo_words(&undo, "2026-10-21", days).unwrap();
+        assert!(words(3).contains("writes, 3 days to"), "{}", words(3));
+        assert!(
+            words(0).contains("writes, 7 days to"),
+            "a report from before the window"
+        );
     }
 }
