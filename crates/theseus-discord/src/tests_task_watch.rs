@@ -28,13 +28,20 @@ impl Provider for Probe {
         req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
-        // The place's own session, not any watcher: another connection's watch would pass for it.
+        // The place's own session's root, not any watcher: another connection's watch would pass for it.
         let watched = self.core.get().and_then(Weak::upgrade).is_some_and(|c| {
             c.outbox
                 .place_session(&format!("channel:{LAB}"))
                 .ok()
                 .flatten()
-                .is_some_and(|s| c.bus.work_watched(&s))
+                .and_then(|s| {
+                    c.store
+                        .get_session::<theseus_core::session::SessionRecord>(&s)
+                        .ok()
+                        .flatten()
+                })
+                .and_then(|r| r.execution_id)
+                .is_some_and(|exe| c.bus.work_watched(&exe))
         });
         self.watching.lock().unwrap().push(watched);
         self.inner.stream_message(req, on_delta)
