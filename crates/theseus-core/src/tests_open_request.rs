@@ -26,22 +26,22 @@ use crate::tests_route::{call, decided, mode, rig_parts, Rig};
 use crate::turn::TurnRequest;
 use crate::Core;
 
-const OWNER: u64 = crate::tests_places::OWNER;
+pub(crate) const OWNER: u64 = crate::tests_places::OWNER;
 /// The owner's private notes, a context file not marked public.
-const SECRET: &str = "the vault code is 4417";
+pub(crate) const SECRET: &str = "the vault code is 4417";
 /// A standing fact of the owner's.
 const FACT: &str = "the owner keeps bees at Hollowmere";
 /// A message Jev judges private, with its marker.
-const PRIVATE: &str = "Remind me what the Acme lease said, marker-7c1q.";
+pub(crate) const PRIVATE: &str = "Remind me what the Acme lease said, marker-7c1q.";
 /// Messages Jev judges open.
-const OPEN_A: &str = "What is the boiling point of water at sea level?";
-const OPEN_B: &str = "And how many grams in a kilogram?";
-const OPEN_C: &str = "Spell the word widget backwards.";
+pub(crate) const OPEN_A: &str = "What is the boiling point of water at sea level?";
+pub(crate) const OPEN_B: &str = "And how many grams in a kilogram?";
+pub(crate) const OPEN_C: &str = "Spell the word widget backwards.";
 
 /// The config: `dsflash` (GLM's model on the `zai` fake, of restricted
 /// origin) in `trivial`'s `cn_profiles` alone, `trivial`'s own list
 /// without Haiku, the owner's DM, the private notes.
-fn config(c: &mut crate::Config, notes: &std::path::Path) {
+pub(crate) fn config(c: &mut crate::Config, notes: &std::path::Path) {
     c.copy_profile("dsflash", "glm");
     c.routing.classes.trivial.profiles = vec!["cheapest".into()];
     c.routing.classes.trivial.cn_profiles = vec!["dsflash".into()];
@@ -53,7 +53,7 @@ fn config(c: &mut crate::Config, notes: &std::path::Path) {
 
 /// A rig as `config` says, its `zai` fake answering by `zai` when given;
 /// and the fake that records what reached `dsflash`.
-fn rig_with(
+pub(crate) fn rig_with(
     jev: &FakeJev,
     zai: Option<Vec<Scripted>>,
     tweak: impl FnOnce(&mut crate::Config),
@@ -94,7 +94,7 @@ fn rig_with(
 /// Jev: every message `trivial`, its data `private` at the act band, but
 /// the messages in `open`, judged `open` at the act band (matched as the
 /// state's `message`, never an earlier one the state quotes).
-fn jev(open: &[&str]) -> FakeJev {
+pub(crate) fn jev(open: &[&str]) -> FakeJev {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.95);
     for text in open {
@@ -105,7 +105,7 @@ fn jev(open: &[&str]) -> FakeJev {
     jev
 }
 
-fn choice(option: &str, confidence: f64) -> Jev {
+pub(crate) fn choice(option: &str, confidence: f64) -> Jev {
     Jev::Choice {
         option: option.into(),
         confidence,
@@ -113,7 +113,7 @@ fn choice(option: &str, confidence: f64) -> Jev {
 }
 
 /// A session posting to the owner's DM.
-fn dm(core: &Core) -> String {
+pub(crate) fn dm(core: &Core) -> String {
     let r = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&r.session_id, &r).unwrap();
     core.outbox
@@ -123,11 +123,16 @@ fn dm(core: &Core) -> String {
 }
 
 /// The owner's message in `sid`, on the live profile or `chosen`.
-async fn say(core: &Arc<Core>, sid: &str, text: &str, chosen: Option<&str>) -> TurnSubmitResult {
+pub(crate) async fn say(
+    core: &Arc<Core>,
+    sid: &str,
+    text: &str,
+    chosen: Option<&str>,
+) -> TurnSubmitResult {
     try_say(core, sid, text, chosen).await.unwrap()
 }
 
-async fn try_say(
+pub(crate) async fn try_say(
     core: &Arc<Core>,
     sid: &str,
     text: &str,
@@ -156,19 +161,19 @@ async fn try_say(
         .await
 }
 
-fn record(core: &Core, sid: &str) -> SessionRecord {
+pub(crate) fn record(core: &Core, sid: &str) -> SessionRecord {
     core.store.get_session(sid).unwrap().unwrap()
 }
 
-fn text(req: &ProviderRequest) -> String {
+pub(crate) fn text(req: &ProviderRequest) -> String {
     serde_json::to_string(req).unwrap()
 }
 
-fn blocked(core: &Core) -> usize {
+pub(crate) fn blocked(core: &Core) -> usize {
     kinds(&core.store, "data_gate.blocked").len()
 }
 
-fn tainted(core: &Core, sid: &str) -> Vec<Value> {
+pub(crate) fn tainted(core: &Core, sid: &str) -> Vec<Value> {
     kinds(&core.store, "session.data")
         .into_iter()
         .filter(|r| r.session_id.as_deref() == Some(sid) && r.data["row"] == "tainted")
@@ -255,7 +260,7 @@ async fn a_non_detour_mode_in_a_private_view_session_never_builds_an_open_reques
     assert_eq!(blocked(&r.core), 0);
 }
 
-fn answer(choice: &str, band: Band) -> DataAnswer {
+pub(crate) fn answer(choice: &str, band: Band) -> DataAnswer {
     DataAnswer {
         choice: choice.into(),
         confidence: 0.95,
@@ -425,7 +430,7 @@ fn fail_closed_matrix_of_the_pass() {
 /// A session opened as an open task's is (`data.opened`), on the live
 /// profile, which is `dsflash`; Jev unsure of every message's mode, so the
 /// session's own profile stays.
-async fn open_session(r: &Rig) -> String {
+pub(crate) async fn open_session(r: &Rig) -> String {
     call(&r.core, "profile.use", json!({"name": "dsflash"})).await;
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
@@ -593,7 +598,7 @@ async fn a_later_loop_after_a_tool_result_leaves_the_restricted_model() {
 }
 
 /// The rig with the driver taking tasks' turns, its Home last on Sonnet.
-fn task_rig(
+pub(crate) fn task_rig(
     jev: &FakeJev,
     tweak: impl FnOnce(&mut crate::Config),
 ) -> (Rig, Arc<FakeProvider>, tempfile::TempDir) {
@@ -603,7 +608,10 @@ fn task_rig(
     (r, zai, dir)
 }
 
-fn open_task(brief: &str, profile: &str) -> theseus_protocol::task_start::TaskStartParams {
+pub(crate) fn open_task(
+    brief: &str,
+    profile: &str,
+) -> theseus_protocol::task_start::TaskStartParams {
     theseus_protocol::task_start::TaskStartParams {
         open: true,
         ..crate::tests_task_brief::params(brief, Some(profile))

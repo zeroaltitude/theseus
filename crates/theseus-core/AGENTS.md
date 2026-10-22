@@ -1645,7 +1645,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     to the `[model]` default (`data_gate`, data reason `private_view`). Each request gets its own pass: `data_pass`
     builds its `data::Carried` (its prefix's and tail's transcript nodes with their writers) and `data::clearance`, the
     only cleared `Clearance`, mints it for its digest. A later loop whose request would carry a node past the run its
-    loop did not write (a tool's result, until the tool-screen row) moves to the default first (`data_move`). The turn
+    loop did not write (a tool result that failed the screen) moves to the default first (`data_move`).
+    **The tool screen** (theseus-a1wvq.9; `data::screen`, `turn/screen_step.rs`): right after a restricted, admitted
+    loop's calls run, each result it wrote passes only for a file tool, `web.search` or `http.fetch`, with nothing
+    redacted (`meta.redactions`), every resource of a file tool canonically within an open root, and a fetch of a
+    public URL. A program's result (`proc.run`, `job.*`, `term.*`) never passes yet (a sandboxed program run is the
+    follow-up). A result that fails ends the run, not the session: the node stays but is not in `RouteState.screened`,
+    so the next loop moves and no run is stored past it, and an open session records the taint naming the result. The turn
     stores the run (through its last node) in its own session write only when every request went out cleared and
     only its own loop wrote after the run; anything else ends a run (a private-view reply, a steer, a wake, a report).
     An open session's first input or request not admitted is its taint (`session.data` `tainted`, once), which closes

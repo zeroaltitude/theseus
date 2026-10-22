@@ -565,6 +565,8 @@ mod tests_thinking_writer;
 #[cfg(test)]
 mod tests_tiering;
 #[cfg(test)]
+mod tests_tool_screen;
+#[cfg(test)]
 mod tests_tool_words;
 #[cfg(test)]
 mod tests_trim_tokens;
