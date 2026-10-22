@@ -1719,7 +1719,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`draft_stopped`). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
     check on a `final` profile in the tree, the draft's claim, a correlation id from the draft's), whose end commits,
     applies `git diff <base>..<final>` with `git apply --check` first and never `--index` or `--3way`, removes the
-    tree, and writes the line and the `task.draft` row. Tests: `tests_draft.rs`.
+    tree, and writes the line and the `task.draft` row. `first_pass` (a restricted profile, needs `cn_draft`;
+    theseus-a1wvq.17) opens a second draft-kind task on the draft's diff before the review (`draft/first_pass.rs`): its
+    report is in the review's brief and nowhere else, it is bounded at 10 minutes, and one that cannot open lets the
+    review open without it, its tree removed. The core's git in a draft's tree is pinned to the git dir recorded at open,
+    with fsmonitor, external diff and textconv off; `sweep_drafts` settles drafts a crash or cancel left (at start and
+    after each cancel); one step of a draft runs at a time (`draft/flight.rs`; theseus-b0ozi). Tests: `tests_draft.rs`,
+    `tests_draft_first_pass.rs`, `tests_draft_hardening.rs`.
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design

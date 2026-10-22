@@ -1646,6 +1646,7 @@ max_switches = 2                        # moves per task, up or down
 # open_paths of the routing.data table. The draft runs no programs; its reviewer runs the tests.
 # cn_draft = "dsflash"                  # one China-origin profile, only on routine_coding and deep_coding
 # final = ["sonnet"]                    # a Claude profile; the first usable one reviews
+# first_pass = "dsflashmax"            # optional: a restricted-origin profile reads the draft's diff for bugs first; its findings go to the Claude review only
 # [routing.classes.review]                # verification: "check this", a pre-merge review, "is this right?"
 # profiles = ["opushi", "fable"]
 # Your corrections (theseus-q31l): in a private place, "that should have been on fable",
