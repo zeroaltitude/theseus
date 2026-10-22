@@ -357,6 +357,37 @@ async fn a_synthesis_cut_off_mid_word_is_asked_for_again() {
     assert_eq!(s.audio.duration(), Duration::from_millis(400));
 }
 
+/// A clip still cut off after every ask loses only its last 10 ms to the fade:
+/// those samples ramp down to silence and the ones before them are as
+/// Deepgram sent them (theseus-bp0lp).
+#[tokio::test]
+async fn a_cut_off_clips_last_10_ms_ramp_to_silence_and_the_rest_is_untouched() {
+    let cut = clip(4000, Duration::ZERO);
+    let sent: Vec<i16> = cut
+        .chunks_exact(2)
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect();
+    let fake = Fake::start(raw(cut, 9)).await;
+    let s = fake.speech().synthesize("Go ahead.").await.unwrap();
+    let got = s.audio.samples();
+    let fade = 480; // 10 ms at 48 kHz
+    assert_eq!(got.len(), sent.len());
+    let (head, tail) = got.split_at(got.len() - fade);
+    assert!(
+        head == &sent[..sent.len() - fade],
+        "the samples before the fade are untouched"
+    );
+    assert!(
+        tail.iter()
+            .zip(&sent[sent.len() - fade..])
+            .any(|(g, s)| g != s),
+        "the last 10 ms are faded"
+    );
+    let loud = |r: &[i16]| r.iter().map(|s| i32::from(*s).abs()).max().unwrap();
+    assert!(loud(&tail[..48]) > 3500, "the fade starts at full level");
+    assert!(loud(&tail[fade - 48..]) < 400, "and ends in silence");
+}
+
 #[tokio::test]
 async fn without_deepgrams_counts_the_request_gives_the_usage() {
     let fake = Fake::start(json_ok(

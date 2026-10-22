@@ -80,6 +80,9 @@ follow.
     owner's encrypted audio was dropped.
   - Some transcripts come out clipped.
   - The short greeting clips.
+  - 2026-10-22: the owner's re-test heard sentences chopped at a pause and the first "go ahead" clipped. A quiet listener
+    now closes an utterance after `[voice] pause_ms` (1200 ms, was 700), the silence before Theseus's first sound is
+    `[voice] lead_in_ms` (400 ms, was 100), and a cut-off clip's fade is 10 ms (theseus-bp0lp). Awaiting the owner's live check.
   - A voice turn has no clock.
   - Discord's typing indicator can stick after a deaf turn.
 

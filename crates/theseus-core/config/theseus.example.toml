@@ -945,6 +945,10 @@ max_events = 10                         # at most this many events stand at once
 #                                       # answer, Theseus's own echo, or noise; at Jev's act band it decides, else the rules do.
 #                                       # false: the rules alone, as before
 # judge_ms = 250                        # how long such a transcript waits for Jev (1 to 2000); past it the rules decide
+# pause_ms = 1200                       # how long you are quiet before your sentence is a turn (300 to 3000); longer: fewer chopped
+#                                       # sentences, each reply a little later (1200 adds about 0.5 s over the old 700)
+# lead_in_ms = 400                      # silence sent before Theseus's first sound after quiet (0 to 1000; 0 is off); longer: a whole
+#                                       # first word, a later first sound
 # speak_tasks = true                    # in a call in a private place, a task's new question and its end are said once at the next
 #                                       # pause (a title and a sentence or two), and "approve", "the second one" or "stop it"
 #                                       # answers the question as you (the core judges it as it judges a button)

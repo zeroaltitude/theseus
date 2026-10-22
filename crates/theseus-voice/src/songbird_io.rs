@@ -51,7 +51,7 @@ use songbird::tracks::TrackHandle;
 use songbird::{Call, Songbird};
 use tokio::sync::{mpsc, watch};
 
-use crate::audio::{Audio, FRAME_SAMPLES, SAMPLE_RATE};
+use crate::audio::{Audio, FRAME, FRAME_SAMPLES, SAMPLE_RATE};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
 
 /// songbird's configuration as the engine needs it: what's received is
@@ -86,30 +86,38 @@ pub fn clip_input(clip: &Audio) -> Input {
     Input::from(bytes)
 }
 
-/// Silent 20 ms frames sent before the first clip of a speaking spell, so the
-/// listener's jitter buffer and Discord's speaking-state flip don't eat its
-/// head ("Theseus here" heard as "seus here", theseus-yf9ct). 0 turns it off.
-pub const LEAD_IN_FRAMES: u32 = 5;
-
 /// A clip that begins this long after the last one ended starts a new spell.
 const SPELL_GAP: Duration = Duration::from_millis(500);
 
-/// `clip` after its lead-in of silence.
-fn led_in(clip: &Audio) -> Audio {
-    let mut samples = vec![0; LEAD_IN_FRAMES as usize * FRAME_SAMPLES];
+/// `clip` after `frames` silent frames.
+fn led_in(clip: &Audio, frames: u32) -> Audio {
+    let mut samples = vec![0; frames as usize * FRAME_SAMPLES];
     samples.extend_from_slice(clip.samples());
     Audio::new(samples)
 }
 
 /// Whether the bot is speaking: a clip that starts a spell, after quiet,
 /// gets the lead-in, and the next sentence of the same reply does not.
-#[derive(Default)]
 struct Spell {
+    /// Silent frames sent before the first clip of a spell, so the listener's
+    /// jitter buffer and Discord's speaking-state flip don't eat its head
+    /// ("Theseus here" heard as "seus here", theseus-yf9ct). 0 is off.
+    lead_in: u32,
     clip: Option<ClipId>,
     quiet_since: Option<Instant>,
 }
 
 impl Spell {
+    /// A spell that leads in with `lead_in` of silence, in whole frames
+    /// rounded up.
+    fn new(lead_in: Duration) -> Self {
+        Self {
+            lead_in: lead_in.as_nanos().div_ceil(FRAME.as_nanos()) as u32,
+            clip: None,
+            quiet_since: None,
+        }
+    }
+
     /// Clip `id` begins at `now`: does it need the lead-in?
     fn begin(&mut self, id: ClipId, now: Instant) -> bool {
         let lead = self.clip.is_none()
@@ -117,7 +125,7 @@ impl Spell {
                 .quiet_since
                 .is_none_or(|since| now.saturating_duration_since(since) >= SPELL_GAP);
         self.clip = Some(id);
-        lead && LEAD_IN_FRAMES > 0
+        lead && self.lead_in > 0
     }
 
     /// Clip `id` ended or was stopped (an earlier clip's end, after a later
@@ -421,15 +429,17 @@ impl SongbirdIo {
         songbird: &Songbird,
         guild: NonZeroU64,
         channel: NonZeroU64,
+        lead_in: Duration,
     ) -> songbird::error::JoinResult<Self> {
-        Self::join_call(songbird.get_or_insert(guild), channel).await
+        Self::join_call(songbird.get_or_insert(guild), channel, lead_in).await
     }
 
     async fn join_call(
         call: Arc<tokio::sync::Mutex<Call>>,
         channel: NonZeroU64,
+        lead_in: Duration,
     ) -> songbird::error::JoinResult<Self> {
-        let io = Self::attach(Arc::clone(&call)).await;
+        let io = Self::attach(Arc::clone(&call), lead_in).await;
         // songbird hands the gateway's voice updates to the call under its
         // lock while the join's connection waits for them: drop it first.
         let join = call.lock().await.join(channel).await?;
@@ -441,8 +451,9 @@ impl SongbirdIo {
     /// handlers an earlier call on it left (a `/leave` keeps songbird's
     /// `Call`) with its own, and spawns nothing. Attached after the call has
     /// joined, it misses the speaking events of anyone already talking:
-    /// [`SongbirdIo::join`] attaches before.
-    pub async fn attach(call: Arc<tokio::sync::Mutex<Call>>) -> Self {
+    /// [`SongbirdIo::join`] attaches before. `lead_in` is the silence before
+    /// the first clip of a speaking spell (zero is off).
+    pub async fn attach(call: Arc<tokio::sync::Mutex<Call>>, lead_in: Duration) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let ssrcs = Arc::new(Mutex::new(Ssrcs::default()));
         let rejoining = Arc::new(AtomicBool::new(false));
@@ -478,7 +489,7 @@ impl SongbirdIo {
             rx,
             tx,
             track: None,
-            spell: Spell::default(),
+            spell: Spell::new(lead_in),
             lead_in: 0,
             ssrcs,
             rejoining,
@@ -581,12 +592,12 @@ impl VoiceIo for SongbirdIo {
         Box::pin(async move {
             let led = self.spell.begin(id, Instant::now());
             self.lead_in = if led {
-                LEAD_IN_FRAMES as usize * FRAME_SAMPLES
+                self.spell.lead_in as usize * FRAME_SAMPLES
             } else {
                 0
             };
             let input = match led {
-                true => clip_input(&led_in(&clip)),
+                true => clip_input(&led_in(&clip, self.spell.lead_in)),
                 false => clip_input(&clip),
             };
             let track = self.call.lock().await.play_input(input);
@@ -744,7 +755,7 @@ mod tests {
     fn the_first_clip_after_quiet_leads_in_and_the_next_sentence_does_not() {
         let t0 = Instant::now();
         let ms = Duration::from_millis;
-        let mut spell = Spell::default();
+        let mut spell = Spell::new(Duration::from_millis(100));
         assert!(
             spell.begin(ClipId(0), t0),
             "the greeting after a quiet call"
@@ -759,18 +770,29 @@ mod tests {
         spell.end(ClipId(2), t0 + ms(3310));
         assert_eq!(spell.clip, Some(ClipId(3)));
         let chime = Audio::chime();
-        let led = led_in(&chime);
-        assert_eq!(
-            led.len(),
-            chime.len() + LEAD_IN_FRAMES as usize * FRAME_SAMPLES
-        );
-        assert!(led.samples()[..LEAD_IN_FRAMES as usize * FRAME_SAMPLES]
-            .iter()
-            .all(|&s| s == 0));
-        assert_eq!(
-            &led.samples()[LEAD_IN_FRAMES as usize * FRAME_SAMPLES..],
-            chime.samples()
-        );
+        let led = led_in(&chime, spell.lead_in);
+        assert_eq!(spell.lead_in, 5, "100 ms is 5 frames");
+        assert_eq!(led.len(), chime.len() + 5 * FRAME_SAMPLES);
+        assert!(led.samples()[..5 * FRAME_SAMPLES].iter().all(|&s| s == 0));
+        assert_eq!(&led.samples()[5 * FRAME_SAMPLES..], chime.samples());
+    }
+
+    /// A lead-in of 400 ms is 20 silent frames before the clip (a partial frame
+    /// rounds up), and 0 puts none and reports no lead (theseus-bp0lp).
+    #[test]
+    fn a_spell_leads_in_with_the_configured_silence() {
+        let chime = Audio::chime();
+        let mut spell = Spell::new(Duration::from_millis(400));
+        assert_eq!(spell.lead_in, 20);
+        assert!(spell.begin(ClipId(0), Instant::now()));
+        let led = led_in(&chime, spell.lead_in);
+        assert_eq!(led.len(), chime.len() + 20 * FRAME_SAMPLES);
+        assert!(led.samples()[..20 * FRAME_SAMPLES].iter().all(|&s| s == 0));
+        assert_eq!(&led.samples()[20 * FRAME_SAMPLES..], chime.samples());
+        assert_eq!(Spell::new(Duration::from_millis(410)).lead_in, 21);
+        let mut off = Spell::new(Duration::ZERO);
+        assert!(!off.begin(ClipId(0), Instant::now()), "no lead when off");
+        assert_eq!(led_in(&chime, off.lead_in).len(), chime.len());
     }
 
     #[tokio::test]
@@ -995,7 +1017,7 @@ mod tests {
             shard,
             UserId::from(id(2)),
         )));
-        let r = SongbirdIo::join_call(Arc::clone(&call), id(3)).await;
+        let r = SongbirdIo::join_call(Arc::clone(&call), id(3), Duration::ZERO).await;
         assert!(r.is_err(), "no voice server answers here");
         assert_eq!(*sent.0.lock().unwrap(), [Some(3)]);
     }
@@ -1017,7 +1039,7 @@ mod tests {
             )));
             let channel = songbird::id::ChannelId::from(id(3));
             drop(call.lock().await.join(channel).await.unwrap());
-            let io = SongbirdIo::attach(Arc::clone(&call)).await;
+            let io = SongbirdIo::attach(Arc::clone(&call), Duration::ZERO).await;
             io.ssrcs.lock().unwrap().report(11, None, Instant::now());
             let (link, wanted) = (io.link(), Arc::new(AtomicBool::new(true)));
             let still = Arc::clone(&wanted);

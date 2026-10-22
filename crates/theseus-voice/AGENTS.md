@@ -30,8 +30,10 @@ is under 1.5 s or its transcript is under 3 words; a long, clear one is a turn. 
 words, so the chime over the greeting never stops it. One or two words that are a fuzzy head
 or tail of a sentence in the echo tail (`is_fragment_echo`: "seus here" for "Theseus here") are an echo. Both are
 `Config::join_guard`, off in the engine so its own tests read as before, on from `[voice] join_guard` (default true).
-`songbird_io` sends `LEAD_IN_FRAMES` (5, 100 ms; 0 is off) of silence before the first clip after quiet (`Spell`), so
-the head of the greeting isn't eaten; the next sentence of a reply gets none.
+`songbird_io` sends `[voice] lead_in_ms` (400 ms, in whole frames rounded up, given to `SongbirdIo::join`; 0 is off) of silence before the first clip after quiet (`Spell`), so
+the head of the greeting isn't eaten; the next sentence of a reply gets none. A quiet listener closes an utterance after
+`[voice] pause_ms` (1200 ms; `Config::end_of_utterance`, which the engine's own default leaves at 700, set only by the binding's
+`engine_config`), since a natural pause inside a sentence runs 0.7 to 1.2 s (theseus-bp0lp).
 
 Theseus cancels its own voice from what a listener sends (theseus-yaxcp, `Config::echo_cancel`, `[voice] echo_cancel`, default
 true). `src/echo.rs` is the engine's side: the clips it plays, tick by tick as the seam was told to send them (a clip begun
