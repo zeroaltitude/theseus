@@ -9,7 +9,7 @@ use crate::data::reply::ReplyAsk;
 impl TurnRunner {
     /// Queue the turn's final reply, when it continues an open run: a China-origin
     /// profile is configured, the session is untainted, the reply carries text
-    /// and no call, and the node before it is the end of the run (the stored
+    /// (or thinking) and nothing else, and the node before it is the end of the run (the stored
     /// one, else the one this turn's input was admitted with) which the turn
     /// has not itself already extended through the reply. A reply that names
     /// one of the operator's sensitive names is never asked: it ends the run.
@@ -34,6 +34,17 @@ impl TurnRunner {
         let Body::AssistantMessage { blocks, .. } = &reply.body else {
             return None;
         };
+        // Only text is judged, so a reply carrying anything else (a provider's
+        // own tool call and its result) ends the run.
+        let judged = |b: &serde_json::Value| {
+            matches!(
+                b.get("type").and_then(serde_json::Value::as_str),
+                Some("text" | "thinking" | "redacted_thinking")
+            )
+        };
+        if !blocks.iter().all(judged) {
+            return None;
+        }
         if reply.turn_id.as_deref() != Some(t.tc.turn_id)
             || !crate::provider::tool_uses_in(blocks).is_empty()
         {

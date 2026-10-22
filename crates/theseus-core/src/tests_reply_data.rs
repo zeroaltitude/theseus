@@ -14,6 +14,7 @@ use theseus_judge::fake::FakeJev;
 
 use crate::data::reply::{lands, ReplyAsk};
 use crate::data::{DataState, OpenRun, Taint};
+use crate::provider::Scripted;
 use crate::tests_judge::kinds;
 use crate::tests_open_request::{
     answer, choice, dm, jev, record, rig_with, say, text, OPEN_A, OPEN_B,
@@ -162,6 +163,35 @@ async fn a_session_without_a_run_asks_nothing() {
     let (r, _zai, _dir) = rig(&jev);
     let sid = dm(&r.core);
     say(&r.core, &sid, crate::tests_open_request::PRIVATE, None).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(rows(&r.core).is_empty(), "{:?}", rows(&r.core));
+    let asked = jev
+        .seen()
+        .iter()
+        .any(|s| s.body.to_string().contains(REPLY));
+    assert!(!asked, "Jev was asked about the reply");
+}
+
+/// Only a reply's text is judged, so a reply that also carries a provider's
+/// own tool call and its result (the tool search) is never asked about: the
+/// whole node would join the run, the owner's tool names with it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reply_with_a_server_call_asks_nothing() {
+    let jev = scripted(Some(("open", 0.95)));
+    let (r, _zai, _dir) = rig(&jev);
+    r.claude.script.lock().unwrap().push_front(Scripted::Blocks {
+        blocks: vec![
+            serde_json::json!({"type": "server_tool_use", "id": "srvtoolu_1",
+                               "name": crate::tools_defer::SEARCH_TOOL, "input": {"query": "notes"}}),
+            serde_json::json!({"type": "tool_search_tool_result", "tool_use_id": "srvtoolu_1",
+                               "content": {"type": "tool_search_tool_search_result",
+                                           "tool_references": []}}),
+            serde_json::json!({"type": "text", "text": REPLY}),
+        ],
+        stop_reason: "end_turn".into(),
+    });
+    let sid = dm(&r.core);
+    say(&r.core, &sid, OPEN_A, None).await;
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert!(rows(&r.core).is_empty(), "{:?}", rows(&r.core));
     let asked = jev
