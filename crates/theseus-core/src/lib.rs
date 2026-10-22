@@ -144,6 +144,7 @@ pub mod thread_read;
 pub mod thread_recall;
 pub mod thread_route;
 pub mod thread_split;
+pub mod thread_title;
 pub mod threads;
 pub mod threads_import;
 pub mod tighten;
