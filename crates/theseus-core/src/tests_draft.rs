@@ -747,6 +747,7 @@ async fn a_review_conflict_applies_nothing() {
     say(&d.r.core, &sid, ASK, None).await;
     // The owner's own edit, after the tree was made and before it is applied.
     std::fs::write(d.repo.join("notes.txt"), "alpha\nbeta, the owner's\n").unwrap();
+    git(&d.repo, &["commit", "-q", "-am", "the owner's edit"]);
     d.drive();
     let row = d.settled().await;
     assert_eq!(row["applied"], false, "{row}");
