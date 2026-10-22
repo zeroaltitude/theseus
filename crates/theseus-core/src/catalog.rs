@@ -770,7 +770,7 @@ impl Catalog {
         e.insert(
             "claude-fable-5-1".into(),
             CatalogEntry {
-                // The one model seen to take it live (theseus-posww).
+                // Seen to take it live (theseus-posww).
                 per_message_effort: true,
                 ..claude(m, 128_000, 10.0, 50.0, 0.25, 12.50, Always, true, 512)
             },
@@ -802,7 +802,9 @@ impl Catalog {
                     .into(),
                 refusal_fallback_model: Some("claude-sonnet-5".into()),
                 // The live probe of 2026-10-17: a per-message change keeps the
-                // cache, a top-level one restarts it (theseus-rwpbg.4).
+                // cache, a top-level one restarts it (theseus-rwpbg.4). Its
+                // 400s of 2026-10-11 and 2026-10-21 were requests that carried
+                // a message without the beta (theseus-blzt6).
                 per_message_effort: true,
                 ..claude(m, 128_000, 2.0, 10.0, 0.10, 2.50, Adaptive, false, 512)
             },

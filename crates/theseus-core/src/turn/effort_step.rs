@@ -1,39 +1,56 @@
 //! A model that refuses per-message effort, found out at run time
-//! (theseus-posww). `compiler::effort::default_of` names the models (the catalog's `per_message_effort`) seen
-//! to accept the effort-only system messages, but a provider can change what
-//! it accepts: on 2026-10-11 Sonnet 5.5 answered one with a 400 (`messages.190.
-//! output_config: Extra inputs are not permitted`), and every request of a
-//! conversation that held one failed. A 400 that names `output_config` on a
-//! request that carries such a message is asked again once, in the same turn,
-//! with those messages left out and the turn's level at the top; the model is
-//! marked for the daemon's life, so no later request carries one, and a
-//! `provider.effort_refused` row says so. A restart forgets the mark: the
-//! first request after it learns it again, at the price of one failed call.
+//! (theseus-posww). `compiler::effort::default_of` names the models (the
+//! catalog's `per_message_effort`) that take the effort-only system messages,
+//! and a provider can change what it accepts. The 400s of 2026-10-11 and
+//! 2026-10-21 (`messages.N.output_config: Extra inputs are not permitted`)
+//! were requests sent without the beta (theseus-blzt6), so a refusal is now
+//! rare. A 400 that names `output_config` on a request that carries such a
+//! message is asked again once, in the same turn, with those messages left
+//! out and the turn's level at the top; the model is marked for
+//! [`REFUSAL_HOLDS_MS`], so no request within the hour carries one, and a
+//! `provider.effort_refused` row says so. After the hour the next request
+//! tries the messages again; a restart forgets the mark sooner.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use super::*;
 use crate::routing::effort::{self, EffortDecision, EffortReason};
 
-/// The models this daemon found to refuse per-message effort.
+/// How long a refusal holds: the provider may change its mind.
+const REFUSAL_HOLDS_MS: u64 = 3_600_000;
+
+/// The models this daemon found to refuse per-message effort, each with the
+/// wall-clock time (ms) it was marked.
 #[derive(Default)]
-pub struct EffortRefusals(Mutex<BTreeSet<String>>);
+pub struct EffortRefusals(Mutex<BTreeMap<String, u64>>);
 
 impl EffortRefusals {
-    fn mark(&self, model: &str) -> bool {
-        self.0.lock().unwrap().insert(model.to_string())
+    fn mark(&self, model: &str, now_ms: u64) {
+        self.0.lock().unwrap().insert(model.to_string(), now_ms);
     }
 
-    fn all(&self) -> Vec<String> {
-        self.0.lock().unwrap().iter().cloned().collect()
+    /// The models marked within [`REFUSAL_HOLDS_MS`] of `now_ms`.
+    fn all(&self, now_ms: u64) -> Vec<String> {
+        let held = self.0.lock().unwrap();
+        held.iter()
+            .filter(|(_, at)| now_ms < at.saturating_add(REFUSAL_HOLDS_MS))
+            .map(|(m, _)| m.clone())
+            .collect()
     }
+}
+
+/// The wall clock, in ms since the epoch.
+fn wall_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 impl TurnRunner {
     /// The models a request spec says take no per-message effort.
     pub(super) fn effort_refused(&self) -> Vec<String> {
-        self.effort_refusals.all()
+        self.effort_refusals.all(wall_ms())
     }
 
     /// Whether the loop asks again without per-message effort: `failure` is
@@ -56,7 +73,7 @@ impl TurnRunner {
         }
         *asked = true;
         let model = compiled.request.model.clone();
-        self.effort_refusals.mark(&model);
+        self.effort_refusals.mark(&model, wall_ms());
         if !spec.effort_refused.contains(&model) {
             spec.effort_refused.push(model.clone());
         }
@@ -121,5 +138,27 @@ impl TurnRunner {
         if t.route.keeps.is_none() {
             self.keep_warm.sent(t.tc.session_id, model, spec.effort);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refusal_mark_lapses_after_an_hour() {
+        let r = EffortRefusals::default();
+        let t = 1_000_000;
+        r.mark("claude-sonnet-5-5", t);
+        r.mark("claude-fable-5-1", t + 60_000);
+        assert_eq!(r.all(t), ["claude-fable-5-1", "claude-sonnet-5-5"]);
+        let lapse = t + REFUSAL_HOLDS_MS;
+        assert_eq!(
+            r.all(lapse - 1),
+            ["claude-fable-5-1", "claude-sonnet-5-5"],
+            "held to the last ms"
+        );
+        assert_eq!(r.all(lapse), ["claude-fable-5-1"], "its own mark");
+        assert!(r.all(lapse + 60_000).is_empty());
     }
 }
