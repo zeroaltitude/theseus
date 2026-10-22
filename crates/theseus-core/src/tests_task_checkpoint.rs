@@ -139,8 +139,11 @@ async fn task_run(
     let started = rig.core.task_start(&params(BRIEF, profile), cli()).unwrap();
     let id = started.session_id.replacen("ses_", "exe_", 1);
     // The task's first turn ends: the event the checks read, however long a starved host takes
-    // (`tests_task_brief::run` waits 20 s by the clock, which a loaded host passes).
-    until_event(|| exec(&rig.core, &id).state == ExecState::Complete).await;
+    // (`tests_task_brief::run` waits the same way).
+    until_event("the task's first turn", || {
+        exec(&rig.core, &id).state == ExecState::Complete
+    })
+    .await;
     let rec = session(&rig.core, &started.session_id);
     Task {
         rig,
@@ -628,11 +631,11 @@ async fn a_slow_verdict_never_holds_a_loop_and_applies_when_it_comes() {
         // A held loop would never send the seventh request: nextest's kill ends such a hang.
         gate.reached().await;
         let asked = |s: &theseus_judge::fake::Seen| s.body["state"].to_string().contains(ASKED);
-        until_event(|| seen.seen().iter().any(asked)).await;
+        until_event("the judge's request", || seen.seen().iter().any(asked)).await;
         let answers = || core.runner.judge.route_answers.load(Ordering::SeqCst);
         let before = answers();
         seen.release();
-        until_event(|| answers() > before).await;
+        until_event("the route answer", || answers() > before).await;
         gate.open();
     });
     let models = t.models();

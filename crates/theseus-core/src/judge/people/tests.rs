@@ -267,9 +267,10 @@ pub(super) fn rows(store: &Store, kind: &str) -> Vec<LedgerRow> {
 
 /// Until no session's live decision is running: each exchange end's task has ended.
 async fn until_not_deciding(core: &Core) {
-    while !core.runner.judge.people.deciding.lock().unwrap().is_empty() {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    crate::test_support::until_event("the live decisions to end", || {
+        core.runner.judge.people.deciding.lock().unwrap().is_empty()
+    })
+    .await;
 }
 
 pub(super) async fn until_rows(store: &Store, kind: &str, n: usize) -> Vec<LedgerRow> {
