@@ -1392,3 +1392,130 @@ async fn wait_for(mut cond: impl FnMut() -> bool) {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+
+// ------------------------------------------------------- the directory rule
+
+/// The walkthrough's misplacement (theseus-vw8k7): a dry run typed in a
+/// directory that is no thread's went to the place's last thread, which the
+/// owner had once moved a dry run like it to. A thread whose roots are set
+/// keeps only what the message names of it when the turn's directory lies
+/// under none of them: the learned correction, stickiness and the reply chain
+/// no longer place it, and Jev's pick decides. The same message from under
+/// the thread's root, and one to a thread with no roots, go there as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_from_another_directory_is_not_placed_by_stickiness() {
+    const ROOT: &str = "/w/projects/lighthouse";
+    let dry = |n: u32| format!("[dry-run] Start 2 tasks, $1 each: bash slow.sh census {n}");
+    // The dev thread's roots, the turn's directory, and where it must run.
+    let cases: [(&[&str], &str, bool); 3] = [
+        (&[ROOT], "/w/projects/walkthrough", false),
+        (&[ROOT], "/w/projects/lighthouse/crates", true),
+        (&[], "/w/projects/walkthrough", true),
+    ];
+    for (roots, dir, to_dev) in cases {
+        let jev = FakeJev::start().unwrap();
+        // The working sets stay as made: the priors alone are on trial here
+        // (growth's file names are the next test's).
+        let r = rig_on(texts(8), Some(&jev), |c| {
+            inbound_only(c);
+            c.judge.total_secs = 5;
+            c.places.owner = Some(vec![format!("discord:{OWNER}")]);
+            c.threads.working_set_grows = false;
+        });
+        let c = &r.core;
+        thread(c, "dev", "lighthouse dev", ws(&["#412"], &[], roots));
+        thread(c, "ops", "ops rota", ws(&["#977"], &[], &[]));
+        let dm = home(c, Some(&format!("dm:{OWNER}")));
+        // An earlier dry run went to ops, and the owner moved it to dev: the
+        // correction is learned, and dev is the place's last thread.
+        thread_answer(&jev, "ops", 0.75);
+        let first = submit(c, &dm, &dry(1)).await;
+        assert_eq!(first.session_id, session_of(c, "ops"));
+        let mut w = Wire::open(c);
+        let id = w
+            .send(
+                method::THREAD_MOVE,
+                ThreadMoveParams {
+                    session_id: dm.clone(),
+                    to: "dev".into(),
+                    turn_id: None,
+                    author: None,
+                    discord: None,
+                },
+            )
+            .await;
+        assert_eq!(w.response(id).await["result"]["redirected"], true);
+        // Jev, asked, would keep it at home.
+        thread_answer(&jev, "home", 0.95);
+        let mut p = params(&dm, &dry(2), None);
+        p.dir = Some(dir.into());
+        let id = w.send(method::TURN_SUBMIT, p).await;
+        let res: TurnSubmitResult =
+            serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+        let routed = rows(c, "thread.routed");
+        let last = &routed.last().unwrap().data;
+        match to_dev {
+            true => assert_eq!(
+                res.session_id,
+                session_of(c, "dev"),
+                "{dir} {roots:?}: {last}"
+            ),
+            false => {
+                assert_eq!(res.session_id, dm, "{dir} {roots:?}: {last}");
+                let dev = last["pre"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|x| x["thread"] == "dev")
+                    .unwrap_or_else(|| panic!("dev's score: {last}"));
+                assert_eq!(
+                    dev["score"].as_f64(),
+                    Some(0.0),
+                    "dev kept no prior: {last}"
+                );
+            }
+        }
+    }
+}
+
+/// The walkthrough's other half (theseus-vw8k7): the earlier dry run ran in
+/// dev, whose working set grew the message's `slow.sh`; the next dry run,
+/// typed in another directory, names `slow.sh` too, a hit on a bare file name
+/// that is another directory's file. Apart from dev's roots it counts for
+/// nothing, with stickiness and the chain, and Jev decides; from under dev's
+/// root the same message still goes to dev.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_file_named_from_another_directory_is_not_the_threads() {
+    const ROOT: &str = "/w/projects/lighthouse";
+    let dry = |n: u32| format!("[dry-run] Start 2 tasks, $1 each: bash slow.sh census {n}");
+    for (dir, to_dev) in [
+        ("/w/projects/walkthrough", false),
+        ("/w/projects/lighthouse", true),
+    ] {
+        let jev = FakeJev::start().unwrap();
+        let r = rig(&jev, 8);
+        let c = &r.core;
+        thread(c, "dev", "lighthouse dev", ws(&["#412"], &[], &[ROOT]));
+        thread(c, "ops", "ops rota", ws(&["#977"], &[], &["/w/srv/ops"]));
+        let dm = home(c, Some(&format!("dm:{OWNER}")));
+        thread_answer(&jev, "dev", 0.75);
+        let first = submit(c, &dm, &dry(1)).await;
+        assert_eq!(first.session_id, session_of(c, "dev"));
+        let files = c.threads().get("dev").unwrap().working_set.files.clone();
+        assert!(files.iter().any(|f| f == "slow.sh"), "grown: {files:?}");
+        thread_answer(&jev, "home", 0.95);
+        let mut p = params(&dm, &dry(2), None);
+        p.dir = Some(dir.into());
+        let mut w = Wire::open(c);
+        let id = w.send(method::TURN_SUBMIT, p).await;
+        let res: TurnSubmitResult =
+            serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+        let routed = rows(c, "thread.routed");
+        let last = &routed.last().unwrap().data;
+        let want = match to_dev {
+            true => session_of(c, "dev"),
+            false => dm.clone(),
+        };
+        assert_eq!(res.session_id, want, "{dir}: {last}");
+    }
+}

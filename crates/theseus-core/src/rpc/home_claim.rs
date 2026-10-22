@@ -38,7 +38,7 @@ use crate::fact::thread::{ThreadClaimed, ThreadUnclaimed};
 use crate::moved::{self, MovedTo};
 use crate::node::Node;
 use crate::places::PlaceClass;
-use crate::toolrun::misroute::{fold, normal};
+use crate::thread_route::{entry_path, holds_path};
 
 /// Nodes read a page at a time, back from the session's newest.
 const PAGE: usize = 64;
@@ -76,30 +76,13 @@ pub fn thread_of<'a>(
     live: &[&'a ThreadInfo],
     home: Option<&Path>,
 ) -> Option<(&'a str, Vec<String>)> {
-    let entry = |e: &str| -> Option<PathBuf> {
-        let e = e.trim();
-        if e.is_empty() {
-            return None;
-        }
-        let p = normal(e, home);
-        match p.is_absolute() {
-            true => Some(p),
-            false => dir.map(|d| fold(&Path::new(d).join(&p))),
-        }
-    };
-    let holds = |t: &ThreadInfo, p: &Path| {
-        let w = &t.working_set;
-        w.files.iter().filter_map(|f| entry(f)).any(|f| f == p)
-            || w.roots
-                .iter()
-                .filter_map(|r| entry(r))
-                .any(|r| p.starts_with(r))
-    };
     let mut found: Option<&'a str> = None;
     let mut matched = Vec::new();
     for path in paths {
-        let Some(p) = entry(path) else { continue };
-        let mut of = live.iter().filter(|t| holds(t, &p));
+        let Some(p) = entry_path(path, dir, home) else {
+            continue;
+        };
+        let mut of = live.iter().filter(|t| holds_path(t, &p, dir, home));
         let Some(t) = of.next() else { continue };
         if of.next().is_some() || found.is_some_and(|s| s != t.slug) {
             return None;
@@ -111,6 +94,58 @@ pub fn thread_of<'a>(
 }
 
 impl Core {
+    /// The router's directory rule (`thread_route::apart_by_dir`, theseus-vw8k7), read where the
+    /// message is placed: the turn's directory is the submit's `dir`, else the session's; a
+    /// thread's relative roots are read under its own session's directory (where its working set
+    /// grew them, `thread_grow.rs`). One point read per live thread with relative roots, and none
+    /// when the turn's directory is unknown.
+    pub(super) fn keep_apart_by_dir(
+        &self,
+        p: &theseus_protocol::TurnSubmitParams,
+        session: &crate::session::SessionRecord,
+        live: &[&ThreadInfo],
+        pre: &mut [crate::thread_route::Pre],
+    ) {
+        let Some(dir) = p.dir.as_deref().or(session.dir.as_deref()) else {
+            return;
+        };
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let bases: Vec<(String, Option<String>)> = live
+            .iter()
+            .filter(|t| {
+                t.working_set
+                    .roots
+                    .iter()
+                    .any(|r| !r.trim().is_empty() && !r.starts_with('/') && !r.starts_with('~'))
+            })
+            .map(|t| {
+                let dir = t.session_id.as_deref().and_then(|sid| {
+                    let r: Option<crate::session::SessionRecord> =
+                        self.store.get_session(sid).ok().flatten();
+                    r.and_then(|r| r.dir)
+                });
+                (t.slug.clone(), dir)
+            })
+            .collect();
+        let base = |t: &ThreadInfo| {
+            bases
+                .iter()
+                .find(|(s, _)| *s == t.slug)
+                .and_then(|(_, d)| d.as_deref())
+        };
+        let dropped = crate::thread_route::apart_by_dir(
+            pre,
+            live,
+            &p.input,
+            Some(dir),
+            base,
+            home.as_deref(),
+        );
+        if !dropped.is_empty() {
+            tracing::debug!(dir, threads = ?dropped, "the turn's directory lies under none of these threads' roots");
+        }
+    }
+
     /// After a routed turn: one that ran at home (no thread) has its nodes become the thread its
     /// files say it served, while `[threads] claim_home_turns` is on. A failure is logged and changes
     /// nothing: the turn has answered already.

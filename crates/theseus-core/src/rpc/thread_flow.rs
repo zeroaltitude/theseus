@@ -340,6 +340,7 @@ impl Core {
         let half = self.cfg.threads.sticky_half_life_secs.saturating_mul(1000);
         let mut pre = pre_route(&p.input, live, state.last(home).as_ref(), now, half);
         self.learned_thread(&p.input, &mut pre);
+        self.keep_apart_by_dir(p, session, live, &mut pre);
         row.pre = pre
             .iter()
             .map(|x| (x.slug.clone(), x.score, x.hits.clone()))
