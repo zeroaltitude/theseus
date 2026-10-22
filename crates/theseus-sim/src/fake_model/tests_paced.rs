@@ -79,22 +79,27 @@ fn a_paced_answer_keeps_its_first_byte_and_spacing_on_a_kept_connection() {
     for round in 0..2 {
         let (sent, chunks) = ask(&mut s, &req);
         assert_eq!(chunks.len(), 8, "eight writes, one chunk each");
+        // The schedule is the stand-in's own: the first byte set 120 ms after
+        // the request arrived, each later write 30 ms after the one before,
+        // counted from the first byte (so a late write never pushes the next
+        // one later). A loaded machine only makes a write, and its reading,
+        // later than its time, never earlier, so the wall clock is judged on
+        // that side alone: a reader the gate's load keeps off the CPU for
+        // 40 ms is no fault of the pace (theseus-zwlgz).
+        let e = fake.entries_at_least(round + 1)[round].clone();
+        let due: Vec<u64> = (0..8u64)
+            .map(|k| match k {
+                0 => e.arrival_ns + 120_000_000,
+                k => e.first_byte_ns + k * 30_000_000,
+            })
+            .collect();
+        assert_eq!(e.due_ns, due, "the first byte at 120 ms, then 30 ms apart");
         let ttfb = ms(chunks[0].0 - sent);
-        assert!(
-            (115.0..170.0).contains(&ttfb),
-            "the first byte at {ttfb:.1} ms, not 120"
-        );
-        // Each chunk on the stand-in's schedule: never before its time after
-        // the first byte, and within a few ms of it (a busy reader is late,
-        // never early, so the spacing is judged against the schedule).
-        let first = fake.entries_at_least(round + 1)[round].first_byte_ns;
+        assert!(ttfb >= 120.0, "the first byte at {ttfb:.1} ms, not 120");
+        assert!(e.first_byte_ns >= due[0], "the first byte before its time");
         for (k, (at, _)) in chunks.iter().enumerate() {
-            let due = first + k as u64 * 30_000_000;
-            let late = *at as f64 / 1e6 - due as f64 / 1e6;
-            assert!(
-                (0.0..40.0).contains(&late),
-                "chunk {k} {late:.1} ms after its time, 30 ms apart"
-            );
+            let late = *at as f64 / 1e6 - due[k].max(e.first_byte_ns) as f64 / 1e6;
+            assert!(late >= 0.0, "chunk {k} {late:.1} ms before its time");
         }
         let whole = text(&chunks);
         assert!(whole.starts_with("ok-K9 "), "{whole}");

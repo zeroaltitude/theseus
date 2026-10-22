@@ -83,6 +83,12 @@ pub struct Entry {
     /// The response's writes, each one delta (the first with the
     /// message's start): the chunks.
     pub chunks: usize,
+    /// When the pace set each write (`CLOCK_MONOTONIC` ns): the first byte's
+    /// time, then each later write's. The writes are never before these and
+    /// a busy machine makes them later, so a test judges the schedule by
+    /// these (theseus-zwlgz). Empty when unpaced.
+    #[serde(skip)]
+    pub due_ns: Vec<u64>,
     /// This answer's own pace, over the stand-in's (a rule's).
     #[serde(skip)]
     pub pace: Option<Pace>,
@@ -293,7 +299,9 @@ fn respond(
     }
     let pace = e.pace.or(shared.pace);
     if let Some(p) = pace {
-        sleep_until(e.arrival_ns + p.ttfb_ms * 1_000_000);
+        let due = e.arrival_ns + p.ttfb_ms * 1_000_000;
+        e.due_ns.push(due);
+        sleep_until(due);
     }
     if !e.stream {
         return send_json(w, shared, e, &whole_message(&events).to_string());
@@ -313,7 +321,9 @@ fn respond(
     for (k, events) in writes.iter().enumerate() {
         if k > 0 {
             if let Some(p) = pace {
-                sleep_until(e.first_byte_ns + k as u64 * p.chunk_ms * 1_000_000);
+                let due = e.first_byte_ns + k as u64 * p.chunk_ms * 1_000_000;
+                e.due_ns.push(due);
+                sleep_until(due);
             }
         }
         let sse: String = events
