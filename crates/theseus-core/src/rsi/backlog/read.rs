@@ -177,6 +177,22 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             let p = word(&d["producer"]);
             o.key = format!("action.failed:{p}");
             o.title = format!("Calls from {p} fail");
+            // A job's command that ran and exited non-zero answered with its
+            // own result (a `grep` that finds nothing): the owner's work, not
+            // a fault of ours, and nothing a change could fix. The others
+            // (a signal, the deadline, a start that failed) are ours to look
+            // at, each its own cause.
+            if p == "wrapper" {
+                match d["failure"].as_str() {
+                    Some(f) if f == theseus_kernel::failure::EXIT => return None,
+                    Some(f) => {
+                        let f = word(&Value::from(f));
+                        o.key = format!("action.failed:wrapper:{f}");
+                        o.title = format!("Jobs fail with {f}");
+                    }
+                    None => {}
+                }
+            }
             o.note = format!(
                 "action {} failed after {} ms",
                 d["correlation_id"], d["duration_ms"]
@@ -467,5 +483,57 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn failed(producer: &str, failure: Option<&str>) -> LedgerRow {
+        let mut data = json!({
+            "correlation_id": "act_x", "duration_ms": 5, "producer": producer,
+            "outcome": "failed", "cost_usd": null,
+        });
+        if let Some(f) = failure {
+            data["failure"] = json!(f);
+        }
+        serde_json::from_value(json!({
+            "at_unix_ms": 1, "kind": "action.failed", "data": data,
+        }))
+        .unwrap()
+    }
+
+    /// A job whose command exited non-zero is the command's own answer, not
+    /// a cause (theseus: `action.failed:wrapper`, seen on every failing
+    /// `grep` or test run the owner started).
+    #[test]
+    fn a_job_command_that_exits_non_zero_is_not_a_cause() {
+        let row = failed("wrapper:4242", Some("exit"));
+        assert!(of_row(7, &row).is_none());
+    }
+
+    /// The machinery failing is: each way a job fails that is not its exit
+    /// is its own cause, and the wrapper's pid never splits one.
+    #[test]
+    fn a_job_the_machinery_failed_is_a_cause_by_how() {
+        let a = of_row(1, &failed("wrapper:4242", Some("timeout"))).unwrap();
+        let b = of_row(2, &failed("wrapper:9999", Some("timeout"))).unwrap();
+        let c = of_row(3, &failed("wrapper:4242", Some("spawn"))).unwrap();
+        assert_eq!(a.key, "action.failed:wrapper:timeout");
+        assert_eq!(a.key, b.key);
+        assert_eq!(c.key, "action.failed:wrapper:spawn");
+        assert!(a.task_failed);
+    }
+
+    /// A row from before the class was written, and other producers, keep
+    /// their key.
+    #[test]
+    fn rows_without_a_class_and_other_producers_keep_their_key() {
+        let old = of_row(1, &failed("wrapper:4242", None)).unwrap();
+        assert_eq!(old.key, "action.failed:wrapper");
+        let tool = of_row(2, &failed("inproc:fs.read", None)).unwrap();
+        assert_eq!(tool.key, "action.failed:inproc");
     }
 }
