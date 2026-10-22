@@ -27,9 +27,12 @@
 //! 4. **The decision**, at the pack's bars (`act` 0.90, `confirm` 0.60): the
 //!    top choice at 0.90 or more and 0.15 clear of the next routes with a quiet
 //!    tag; 0.60 to 0.90, clear, routes with a tag and a move handle; anything
-//!    else, or two choices within 0.15, asks in one line. Jev not answering in
-//!    time (or not there) leaves the pre-router's pick standing, tagged a
-//!    guess, and asks only when two threads are close.
+//!    else asks in one line only when two threads contend (each at
+//!    `CONTEND`, 0.25, or more) or a new thread is raised; a message no two
+//!    threads contend for runs at home, movable, with no question
+//!    (theseus-e31an). Jev not answering in time (or not there) leaves the
+//!    pre-router's pick standing, tagged a guess, and asks only when two
+//!    contending threads are close.
 //!
 //! A `new_thread` pick at 0.60 offers a new thread and waits for one tap; a
 //! one-off runs in the place's own conversation ("home") and never makes a
@@ -45,6 +48,9 @@ pub const CONFIRM: f64 = 0.60;
 pub const CLOSE: f64 = 0.15;
 /// The guess floor: below it the router has no pick without Jev.
 const GUESS: f64 = 0.30;
+/// A thread with this much fused evidence contends: an ask needs two of them
+/// (theseus-e31an), so a lone weak lean runs at home instead of asking.
+const CONTEND: f64 = 0.25;
 /// What stickiness is at the moment of the place's last message.
 const STICKY: f64 = 0.60;
 /// The owner moved a message like this one to the thread: the evidence.
@@ -861,15 +867,22 @@ pub fn decide(
         .find(|(c, _)| *c != Choice::New)
         .map_or(0.0, |(_, s)| *s);
     let gap = top.1 - second;
+    let contenders = ranked
+        .iter()
+        .filter(|(c, s)| matches!(c, Choice::Thread(_)) && *s >= CONTEND)
+        .count();
     if voice == Voice::Alone {
         // The pre-router's pick stands, a guess; torn between two, ask.
         return match &top {
             (Choice::Thread(_), s) if *s >= GUESS && gap >= CLOSE => {
                 Decision::Route(tag(threads, &top.0, RouteHow::Guess, *s, true))
             }
-            (Choice::Thread(_), s) if *s >= GUESS => Decision::Ask {
+            (Choice::Thread(_), s) if *s >= GUESS && contenders >= 2 => Decision::Ask {
                 options: ask_options(threads, &ranked, None, rules.ask_every_thread),
             },
+            (Choice::Thread(_), s) if *s >= GUESS => {
+                Decision::Route(tag(threads, &top.0, RouteHow::Guess, *s, true))
+            }
             _ => Decision::Route(tag(threads, &Choice::Home, RouteHow::Guess, top.1, true)),
         };
     }
@@ -889,6 +902,14 @@ pub fn decide(
             // message names two or more entities no live thread holds.
             let raised = ranked.iter().any(|(c, _)| *c == Choice::New)
                 || (rules.sticky_alone_asks && rules.new_entities >= 2);
+            if contenders < 2 && !raised {
+                // No two threads contend: nothing to ask about (theseus-e31an).
+                let home = ranked
+                    .iter()
+                    .find(|(c, _)| *c == Choice::Home)
+                    .map_or(0.0, |(_, s)| *s);
+                return Decision::Route(tag(threads, &Choice::Home, RouteHow::Home, home, true));
+            }
             Decision::Ask {
                 options: ask_options(
                     threads,
@@ -1379,7 +1400,8 @@ mod tests {
             None,
         );
         assert_eq!(tags(&d), (RouteHow::Visible, Some("security-fix"), true));
-        // Jev unsure: ask, with both threads and home.
+        // Jev unsure of one thread, no other in contention: home, movable,
+        // never a question (theseus-e31an).
         let d = today(
             &t,
             &pre_with(&[("pr-round", 0.0), ("security-fix", 0.0)]),
@@ -1387,11 +1409,7 @@ mod tests {
             Voice::Jev,
             None,
         );
-        let Decision::Ask { options } = &d else {
-            panic!("{d:?}")
-        };
-        let keys: Vec<&str> = options.iter().map(|o| o.option.key.as_str()).collect();
-        assert_eq!(keys, ["1", "2", "home"]);
+        assert_eq!(tags(&d), (RouteHow::Home, None, true));
         // Two threads within 0.15 of each other: ask, whatever the top.
         let d = today(
             &t,
@@ -1730,5 +1748,36 @@ mod tests {
         let (_, slug) = propose("tide gauge calibration notes", &["tide-gauge-calibration"]);
         assert_eq!(slug, "tide-gauge-calibration-2");
         assert_eq!(propose("ok", &[]).1, "thread");
+    }
+
+    /// A plainly new request no thread claims runs at home without a
+    /// question (theseus-e31an; the walkthrough's step 1 was asked about at
+    /// 0.38): Jev's weak lean to one thread, or to home, is no contest. Two
+    /// threads with evidence each still ask.
+    #[test]
+    fn a_request_no_thread_claims_runs_at_home_without_asking() {
+        let all = [pr_round(), security_fix()];
+        let t = refs(&all);
+        let quiet = pre_with(&[("pr-round", 0.05), ("security-fix", 0.0)]);
+        let lean = Jev {
+            pick: Pick::Thread("security-fix".into()),
+            p: 0.38,
+        };
+        let d = decide(&t, &quiet, Some(&lean), Voice::Jev, Some("haiku"), ON);
+        assert_eq!(tags(&d), (RouteHow::Home, None, true));
+        let home = Jev {
+            pick: Pick::Home,
+            p: 0.38,
+        };
+        let d = decide(&t, &quiet, Some(&home), Voice::Jev, Some("haiku"), ON);
+        assert_eq!(tags(&d), (RouteHow::Home, None, true));
+        // Two threads, each with evidence, close: still asked.
+        let both = pre_with(&[("pr-round", 0.80), ("security-fix", 0.0)]);
+        let rival = Jev {
+            pick: Pick::Thread("security-fix".into()),
+            p: 0.70,
+        };
+        let d = decide(&t, &both, Some(&rival), Voice::Jev, None, ON);
+        assert!(matches!(d, Decision::Ask { .. }), "{d:?}");
     }
 }
