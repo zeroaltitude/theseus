@@ -312,12 +312,14 @@ fn verdict(c: &Core, slug: &str, home: &str, node: &str) -> Verdict {
 async fn a_home_turn_that_served_a_thread_is_claimed() {
     let p = place(&["tarnlib/tarn/retry.py"], true);
     let (c, home) = (&p.r.core, p.home.as_str());
-    thread_answer(&p.jev, "sec-fix", 0.45);
+    // Two contend, so the router asks (theseus-e31an: a lone lean is no
+    // contest): the message names pr-round's root, and Jev leans to sec-fix.
+    thread_answer(&p.jev, "sec-fix", 0.7);
     let mut w = Wire::open(c);
     let id = w
         .send(
             method::TURN_SUBMIT,
-            params(home, "the second review comment on the retry"),
+            params(home, "the second review comment on the retry in tarnlib"),
         )
         .await;
     let asked = w.notice("thread.asked").await;
