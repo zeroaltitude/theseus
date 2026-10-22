@@ -60,6 +60,7 @@ async fn no_google_section_registers_nothing_and_reads_nothing() {
         &core.cfg,
         &core.runner.catalog,
         &core.store,
+        &Default::default(),
     );
     for (name, p) in &providers {
         assert!(

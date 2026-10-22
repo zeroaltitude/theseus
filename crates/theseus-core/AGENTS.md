@@ -1753,6 +1753,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     carries `origin` and, for a restricted one, `pass` and `run_nodes` per request, and the result's `TurnRoute.data` says `open` only
     once a request left with a pass. `data_gate` is an open word (a `DataWhy` word, `sensitive`, or a later row's own); each one also
     counts on `theseus.route.data_gate` (`Telemetry::record_data_gate(what, why)`).
+    The route's `data_gate` word (and its count and the footer's `data gate:`) shows only where a cleared ask would have taken a
+    restricted profile the rule removed (`cn_would_win`, theseus-4h85l); a turn that asked no route but left with a pass says `open` with no
+    route reason (`open_route`). The provider chokepoint (`what` `chokepoint`) and the four background refusals (`compaction`,
+    `consolidation`, `keep_warm`, `replay`) count on the same metric.
   - **A session's data state** (theseus-a1wvq.5; store format 49; `data.rs`, `fact/data.rs`): `SessionRecord.data`,
     `DataState { opened, run, taint }`, opened by an open task (theseus-a1wvq.6), its run kept by an open request's turn (theseus-a1wvq.8). Absent is the
     private view with no open run (every older record, no migration). `OpenRun`'s doc is the chain of blessed writers.

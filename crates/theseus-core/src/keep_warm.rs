@@ -471,7 +471,7 @@ impl TurnRunner {
     }
 
     /// The checks before a read, and its request: or what it came to.
-    fn keep_warm_prepare(
+    pub(crate) fn keep_warm_prepare(
         &self,
         session_id: &str,
         live: &str,
@@ -521,6 +521,8 @@ impl TurnRunner {
                 .restricted()
         });
         if let Some(t) = restricted {
+            self.judge
+                .record_data_gate("keep_warm", "restricted_origin");
             kw.forget(session_id);
             return Err(Outcome::Forgotten(format!(
                 "its model `{}` is of restricted origin: a keep-warm read carries no pass",

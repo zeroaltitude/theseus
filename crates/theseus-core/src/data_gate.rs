@@ -47,6 +47,10 @@ pub fn for_session<R>(session: &str, f: impl FnOnce() -> R) -> R {
     CALLER.sync_scope(session.to_string(), f)
 }
 
+/// Where a refusal is counted on `theseus.route.data_gate`: the core's
+/// telemetry, set once it exists (`Core::build`, then `install_telemetry`).
+pub type Counter = Arc<std::sync::OnceLock<crate::telemetry::Telemetry>>;
+
 /// A provider and the origin its models are served from.
 struct Gated {
     inner: Arc<dyn Provider>,
@@ -60,6 +64,7 @@ struct Gated {
     origins: RwLock<HashMap<String, ModelOrigin>>,
     /// Where a refusal's row is written (none in a unit test).
     store: Option<Store>,
+    counter: Counter,
 }
 
 impl Gated {
@@ -70,6 +75,7 @@ impl Gated {
         catalog: Arc<Catalog>,
         (api_base, vouched): (String, Option<ModelOrigin>),
         store: Option<Store>,
+        counter: Counter,
     ) -> Self {
         Self {
             inner,
@@ -80,6 +86,7 @@ impl Gated {
             vouched,
             origins: RwLock::default(),
             store,
+            counter,
         }
     }
 
@@ -108,6 +115,7 @@ impl Gated {
                 .is_some_and(|p| p.covers(&req.digest()))
         {
             self.blocked(&req.model, origin);
+            self.counted("restricted_origin");
             format!(
                 "{} is of restricted origin ({}) and this request has no pass for its data; \
                  nothing was sent",
@@ -120,11 +128,19 @@ impl Gated {
         {
             return None;
         } else {
+            self.counted("sensitive");
             "this request names something in `[privacy] sensitive_names`, or its session read \
              private content, and its model is not of US origin; nothing was sent"
                 .into()
         };
         Some(ProviderError::DataGate { message }.into())
+    }
+
+    /// A refusal, counted by its class word (theseus-4h85l).
+    fn counted(&self, why: &str) {
+        if let Some(t) = self.counter.get() {
+            t.record_data_gate("chokepoint", why);
+        }
     }
 
     /// The refusal's `data_gate.blocked` row, with the session the call is
@@ -206,6 +222,7 @@ pub fn guard(
     cfg: &Config,
     catalog: &Arc<Catalog>,
     store: &Store,
+    counter: &Counter,
 ) -> BTreeMap<String, Arc<dyn Provider>> {
     let names = cfg.privacy.names();
     providers
@@ -220,6 +237,7 @@ pub fn guard(
                 catalog.clone(),
                 (base, conf.and_then(|p| p.origin)),
                 Some(store.clone()),
+                counter.clone(),
             ));
             (name, gated)
         })
@@ -242,6 +260,7 @@ mod tests {
             Arc::new(Catalog::builtin()),
             (api_base.into(), None),
             None,
+            Counter::default(),
         );
         (g, fake)
     }

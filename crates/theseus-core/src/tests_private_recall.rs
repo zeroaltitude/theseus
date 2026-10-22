@@ -69,6 +69,7 @@ pub(crate) async fn glm_call_on(core: &crate::Core, sid: &str) -> Result<(), Str
         &core.cfg,
         &core.catalog,
         &core.store,
+        &Default::default(),
     );
     let p = private::for_session(gated["zai"].clone(), &core.store, &core.cfg, sid);
     let mut sink = |_: crate::provider::Delta<'_>| {};

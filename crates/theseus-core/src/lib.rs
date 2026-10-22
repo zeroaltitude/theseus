@@ -280,6 +280,8 @@ mod tests_continue_slow;
 #[cfg(test)]
 mod tests_data_floor;
 #[cfg(test)]
+mod tests_data_footer;
+#[cfg(test)]
 mod tests_data_gate;
 #[cfg(test)]
 mod tests_data_state;

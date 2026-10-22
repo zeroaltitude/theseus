@@ -295,3 +295,33 @@ async fn a_run_that_moved_is_not_overwritten() {
         Some(run("nod_first", "nod_reply"))
     );
 }
+
+/// theseus-uaqox: a reply whose reservation the day's budget refuses is
+/// never asked, but its ask is on the record: a `data.reply` row with no
+/// answer and no cost, the run left as it was, so bench and inspect see it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_reservation_writes_the_reply_row_without_an_answer() {
+    let jev = scripted(Some(("open", 0.95)));
+    let (r, _zai, _dir) = rig_with(&jev, None, |c| {
+        c.judge.total_secs = 30;
+        c.judge.shadow_limit_usd_per_day = 0.0;
+    });
+    let sid = dm(&r.core);
+    let queued = ReplyAsk {
+        session: sid.clone(),
+        ..ask(None)
+    };
+    r.core.runner.judge.ask_reply_data(queued);
+    let rows = until_rows(&r.core, 1).await;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(rows[0]["choice"].is_null(), "{rows:?}");
+    assert_eq!(rows[0]["extended"], false, "{rows:?}");
+    assert!(rows[0].get("cost_micros").is_none_or(Value::is_null));
+    assert!(record(&r.core, &sid).data.is_none_or(|d| d.run.is_none()));
+    assert!(
+        jev.seen()
+            .iter()
+            .all(|s| !s.body.to_string().contains("a reply")),
+        "Jev was asked about the reply"
+    );
+}
