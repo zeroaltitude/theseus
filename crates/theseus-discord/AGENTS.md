@@ -404,7 +404,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   end, its channel is routed to the place that told of the task so that `index_of` can answer a message there with one quiet line and
   start nothing). `TaskPosts::moved` is the seam for a task promoted to a channel of its own. Activity threads are untouched
   (`[threads] discord_channel` alone). A tag edit carries `archived: false`. Tests: `tests_default_forum.rs`, the fake's
-  `fake_discord/forums.rs` (`refuse_forum`, `forums_made`, `rename_forum`, `archive_thread`), and `forum.rs`'s.
+  `fake_discord/forums.rs` (`refuse_forum`, `forums_made`, `rename_forum`, `archive_thread`), and `forum.rs`'s A guild watched from a file (`watch_guild_file`, as the scratch runs use) is read again at every request and keeps the forums the bot made (`keep_forums_set_guild`; theseus-p5g63: the stand-in once dropped them, so a recorded forum 404ed and a second was made). The approval card's plain words are `render/approval.rs` (theseus-ono8g): the owner-approved layout, locked with a golden in `render/approval/tests_approval.rs`; a request with no `plain` keeps `approval::classic`.
 - **The task home** (theseus-xlxp4, `runtime/task_home.rs`, `tests_task_home.rs`; `[discord] task_home`, `theseus-tasks`, a name or an id, `""`
   is off, the rollback: the DM's board, reports and pointers are then byte for byte as they were): one private text channel (type 0, the forum's
   `OWNER_BITS` and `BOT_BITS`, `@everyone` denied View Channel) in the one trusted guild, the dashboard of the owner's tasks. Found as the forum is

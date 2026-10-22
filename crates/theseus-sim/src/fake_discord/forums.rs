@@ -63,6 +63,19 @@ impl FakeDiscord {
         }
     }
 
+    /// The guild as its file says now, with the forums the bot made in it
+    /// kept: the file does not know them.
+    pub(super) fn keep_forums_set_guild(&self, mut g: super::Guild) {
+        let mut st = self.state.lock().unwrap();
+        let old = st.guild.take().map(|o| o.channels).unwrap_or_default();
+        for c in old {
+            if st.forums.contains(&c.id) && !g.channels.iter().any(|x| x.id == c.id) {
+                g.channels.push(c);
+            }
+        }
+        st.guild = Some(g);
+    }
+
     /// `GET /guilds/<g>/channels`: the guild's channels, a forum as type 15.
     pub(super) fn guild_channels(&self, stream: TcpStream, guild: &str) -> std::io::Result<()> {
         let path = format!("/guilds/{guild}/channels");
