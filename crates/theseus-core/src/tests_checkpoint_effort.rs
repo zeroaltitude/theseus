@@ -80,6 +80,8 @@ fn routed(
         4,
         |c| {
             sonnethi(c, live);
+            // The gate's line the tests draw between 0.69 and 0.71.
+            c.routing.high_effort_confidence = 0.70;
             c.routing.classes.routine_coding.profiles = vec!["sonnethi".into()];
         },
         move |p| {

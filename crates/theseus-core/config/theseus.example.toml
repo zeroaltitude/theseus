@@ -1619,10 +1619,12 @@ margin = 0.02                           # at the minimum sample, precision and r
 # In the same request route.v7 asks the effort the reply needs (low, medium, high, xhigh,
 # max), and the turn's model runs at it when its catalog row takes effort, over the
 # profile's own effort unless the profile sets effort_fixed = true, and clamped to
-# effort_bounds. Below the answer's confirm bar, when Jev finds it unclear, on a pinned
-# turn, in shadow, and for a late verdict, the profile's own effort stands. An answer of
-# xhigh or max applies only when its confidence is above high_effort_confidence; at or
-# below, the turn runs at high (the row says held_high), before the bounds clamp it.
+# effort_bounds. An answer below its confirm bar still applies at effort_confidence or
+# more (the row says applied_unsure): an effort level costs less than a model switch.
+# Under it, when Jev finds it unclear, on a pinned turn, in shadow, and for a late
+# verdict, the profile's own effort stands. An answer of xhigh or max applies only when
+# its confidence is above high_effort_confidence; at or below, the turn runs at high
+# (the row says held_high), before the bounds clamp it.
 [routing]
 enabled = true                          # acts only while [judge] is on
 rung = "live"                           # "shadow" records each verdict and routes nothing
@@ -1631,7 +1633,8 @@ trivial_context_turns = 2               # the exchanges a detour (trivial, quick
 cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
 switch_confidence = 0.6                 # a verdict routes only at this confidence or more
 effort_bounds = ["low", "max"]          # the lowest and highest effort Jev's answer may set
-high_effort_confidence = 0.70           # an xhigh or max answer applies only above this confidence; else the turn runs high
+high_effort_confidence = 0.40           # an xhigh or max answer applies only above this confidence; else the turn runs high
+effort_confidence = 0.35                # an effort answer under its confirm bar applies at this confidence or more (at most high_effort_confidence)
 dear_tier_max_tokens = 200000           # over this much context, sophisticated and review skip a profile dearer (per input token) than the next usable one
 # A running task's model ranges (theseus-ypnxt.9). A task you started with no profile asks
 # route.v7 about its recent state at a loop boundary when it fails, stalls, changes phase or

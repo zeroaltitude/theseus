@@ -510,14 +510,11 @@ impl TurnRunner {
         let carried = v.turn != t.tc.turn_id;
         let r = &self.cfg.routing;
         let bounds = r.effort_bounds;
-        let decided = effort::decide(
-            bounds,
-            r.high_effort_confidence,
-            answer,
-            runs,
-            at.acts,
-            carried,
-        );
+        let bars = effort::Bars {
+            effort: r.effort_confidence,
+            high: r.high_effort_confidence,
+        };
+        let decided = effort::decide(bounds, bars, answer, runs, at.acts, carried);
         Some(self.stick(t, spec, decided, model, tokens, at.checkpoint))
     }
 
