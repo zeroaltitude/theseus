@@ -536,7 +536,15 @@ impl TurnRunner {
         t.route.defer_persist = false;
         let compiled = match compiled? {
             Ok(c) => c,
-            Err(f) => return Ok(Err(f)),
+            Err(f) => {
+                // A failed compile still holds a reach for the owner's
+                // personal details: the requester gets the fixed line, not
+                // the failure (theseus-cljlz).
+                let last = session.last_turn_id.as_deref();
+                let (verdict, _) = self.read_verdict(t, got, live, rx, last, unreachable);
+                self.personal_warn(t, verdict.as_ref());
+                return Ok(Err(f));
+            }
         };
         let base = t.target.profile.clone();
         let (verdict, reason) = self.read_verdict(
@@ -623,11 +631,7 @@ impl TurnRunner {
     /// (theseus-pa1xx). The mode is the row's `kind` (theseus-r5ydi).
     fn detouring(t: &mut Turn<'_>, verdict: Option<&Verdict>, steering: Option<&Steering>) {
         t.route.keeps = Some(TargetRef::from(t.target));
-        t.route.detour_kind = match steering.map(|s| &s.steer) {
-            Some(Steer::Mode(m)) => m.clone(),
-            Some(_) => String::new(),
-            None => verdict.map_or_else(String::new, |v| v.mode.clone()),
-        };
+        t.route.detour_kind = detour_word(steering.map(|s| &s.steer), verdict);
         t.route.detour_recall = steering.is_none()
             && verdict.is_some_and(|v| crate::config::routing::detour_recalls(&v.mode));
     }
@@ -983,10 +987,10 @@ impl TurnRunner {
         let mut tail = detour_step::Tail::default();
         let before = compiled.est_tokens;
         Self::standing_here(t, &mut compiled);
-        tail.standing = compiled.est_tokens - before;
+        tail.standing = compiled.est_tokens.saturating_sub(before);
         let before = compiled.est_tokens;
         Self::persona_line(t, &mut compiled);
-        tail.persona = compiled.est_tokens - before;
+        tail.persona = compiled.est_tokens.saturating_sub(before);
         // The project the conversation serves, last of all as `tail_blocks`
         // does (theseus-v4u66): a cheap turn about it is as wrong without it.
         let project =
@@ -1015,6 +1019,17 @@ impl TurnRunner {
             tools_offered: detour.tools.len() as u32,
         });
         Ok(Ok(compiled))
+    }
+}
+
+/// A detour's `kind`: the mode a steer names, `steered` for any other steer,
+/// else the verdict's mode (theseus-nfrlj). A steer that is no mode is never
+/// a detour today (`steer_to` makes none), so the word is for a later one.
+fn detour_word(steer: Option<&Steer>, verdict: Option<&Verdict>) -> String {
+    match steer {
+        Some(Steer::Mode(m)) => m.clone(),
+        Some(_) => "steered".into(),
+        None => verdict.map_or_else(String::new, |v| v.mode.clone()),
     }
 }
 
@@ -1066,6 +1081,18 @@ pub fn detour_start(nodes: &[(u64, crate::stub::Stub)], turns: u32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A detour's word is a mode's name, or `steered` for another steer
+    /// (theseus-nfrlj), never empty when a steer made it.
+    #[test]
+    fn a_detours_word_names_its_mode_or_says_steered() {
+        let quick = v("quick");
+        assert_eq!(detour_word(None, Some(&quick)), "quick");
+        let steer = Steer::Mode("trivial".into());
+        assert_eq!(detour_word(Some(&steer), Some(&quick)), "trivial");
+        let steer = Steer::Profile("haiku".into());
+        assert_eq!(detour_word(Some(&steer), None), "steered");
+    }
 
     fn v(mode: &str) -> Verdict {
         Verdict {

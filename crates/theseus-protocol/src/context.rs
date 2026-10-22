@@ -37,6 +37,7 @@ pub struct ContextPart {
     /// file's path; a category's id (`preamble` for the guidance's first
     /// section); a recalled source's header.
     pub name: String,
+    /// Its UTF-8 length; `0` on a detour's parts, whose row records tokens only.
     #[cfg_attr(test, ts(type = "number"))]
     pub bytes: u64,
     /// Its tokens at the model's figures (`TokenRates`), as the compiler
@@ -120,6 +121,11 @@ pub struct ContextDetoured {
     pub parts: Vec<DetourPart>,
     /// The tool families the request loaded.
     pub families: Vec<String>,
+    /// Whether the request carried the turn's own recall; rows from before
+    /// this field say nothing (a quick detour did, a trivial one did not).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub recall: Option<bool>,
 }
 
 /// How a turn ran when it detoured: on `profile`, in a request of its own.
@@ -129,6 +135,10 @@ pub struct ContextDetour {
     pub kind: String,
     pub profile: String,
     pub model: String,
+    /// As [`ContextDetoured::recall`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub recall: Option<bool>,
 }
 
 /// Where a recalled node came from: its session's place by name, and for an

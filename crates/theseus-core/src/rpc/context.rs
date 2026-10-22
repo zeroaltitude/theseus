@@ -272,6 +272,7 @@ impl Core {
             kind: d.kind,
             profile: d.profile.clone(),
             model: d.model.clone(),
+            recall: d.recall,
         });
         (out.profile, out.model) = (d.profile, d.model);
         Ok(())

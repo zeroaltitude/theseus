@@ -23,7 +23,7 @@ const OWNER: u64 = 100_000_000_000_000_001;
 /// A guild channel nobody bound private: a shared place.
 const LAB: &str = "900000000000000123";
 
-fn owned(c: &mut crate::Config) {
+pub(crate) fn owned(c: &mut crate::Config) {
     c.places.owner = Some(vec![format!("discord:{OWNER}")]);
 }
 
@@ -57,7 +57,7 @@ async fn call_on(core: &Arc<Core>, surface: Surface, method: &str, params: Value
 }
 
 /// A message from the CLI, as `theseus ask` sends it.
-async fn ask(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
+pub(crate) async fn ask(core: &Arc<Core>, session: Option<&str>, input: &str) -> TurnSubmitResult {
     ask_with(core, json!({"session_id": session, "input": input})).await
 }
 

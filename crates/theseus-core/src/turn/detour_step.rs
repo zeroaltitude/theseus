@@ -136,6 +136,7 @@ impl TurnRunner {
             profile: t.target.profile.clone(),
             model: t.target.model.clone(),
             kind: t.route.detour_kind.clone(),
+            recall: Some(t.route.detour_recall),
             class: t.tc.class.as_str().into(),
             est_tokens: compiled.est_tokens,
             parts,

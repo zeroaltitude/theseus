@@ -1852,18 +1852,20 @@ impl TurnRunner {
                 )
                 .await?
             {
-                Ok(c) => c,
-                Err(f) => return Ok(Next::Fail(f)),
+                Ok(c) => Some(c),
+                Err(f) if !t.route.held => return Ok(Next::Fail(f)),
+                Err(_) => None,
             };
             // A reach for the owner's personal details in a shared place: the
-            // reply is held, and the model is never called (theseus-i1z13).
-            if t.route.held {
+            // reply is held, and the model is never called (theseus-i1z13),
+            // even when the compile failed (theseus-cljlz).
+            let Some(compiled) = compiled.filter(|_| !t.route.held) else {
                 if let Some(r) = recall {
                     self.recall_end(t, r).await;
                 }
                 Self::hold_reply(t, i)?;
                 break;
-            }
+            };
             if let Some(o) = overflow.take() {
                 // The ring dropped nothing, so the same request would pass the
                 // window again: the turn fails without the call.
