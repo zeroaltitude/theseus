@@ -7,7 +7,8 @@
 //!   (`fact::ontology::Undoable`: the write's id, the record as written and as
 //!   it was), so [`lines`] is pure over them and needs no row of its own
 //!   (`ontology.swept` is not written): a merge is a category row with
-//!   `merged_into`, a split two new categories with a parent, a kind a kind
+//!   `merged_into`, a rename a category whose name changed, a split two new
+//!   categories with a parent, a kind a kind
 //!   row, a decay memberships that shrank, guidance a guidance row.
 //! - **An undone write** says it was undone, from its `ontology.undo` row.
 //! - **The model never rewords the ids**: `morning_note` appends these lines
@@ -124,6 +125,22 @@ fn describe(w: &Write, name_of: &dyn Fn(&str) -> Option<String>) -> String {
                 quoted(&name(parent)),
                 names.join(" and "),
                 count(sessions, "session", "sessions")
+            )
+        }
+        "rename" => {
+            let renamed = of("ontology.category").next();
+            let held = |key: &str, field: &str| {
+                renamed
+                    .and_then(|r| r.data["undo"][key][field].as_str())
+                    .unwrap_or_default()
+            };
+            let kind = renamed
+                .and_then(|r| r.data["kind"].as_str())
+                .unwrap_or_default();
+            format!(
+                "renamed {kind} {} to {}",
+                quoted(held("before", "name")),
+                quoted(held("wrote", "name"))
             )
         }
         "decay" => {

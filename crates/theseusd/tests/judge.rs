@@ -157,6 +157,8 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             // The sweep's merge and split packs, live from their landing (theseus-nzzz4).
             "same_thing.v1: live",
             "two_things.v1: live",
+            "same_kind.v1: live",
+            "name_it.v1: live",
             "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",

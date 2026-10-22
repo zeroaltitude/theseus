@@ -282,7 +282,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the one survivor rule (`Ontology::plan_pair_merge`); `two_things.v1` asks of a machine category 12 sessions or more
   hold (at most 3 a run) and splits it into two named children, moving the sampled sessions it placed at the act band
   (`plan_split`); the day's spend and what was asked (not again for 30 days) are META `onto.sweep.judged`, and every
-  call also passes the judge's day budget; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
+  call also passes the judge's day budget; (3b) `judge/onto/renamed.rs` (theseus-63tfk.1; three more asks under the same
+  money, mark and not-again rule, each a Choice among mined names so Jev writes none): `name_it.v1` renames a machine
+  category with 5 titled sessions or more whose name is in none of their titles while one mined name is in half of them
+  (`stale_names`; at most 3 a run), writing `Ontology::plan_rename` (the old name in the description as `was: <old>`;
+  `Step::Rename`, `sweep-<ms>-<n>-rename`, undone like a merge); `same_kind.v1` asks, before the plan mints, of pairs of
+  mined `other` names no session shares whose sessions together make a cluster (at most 20 a run) and a yes joins them
+  (`mint::Hints::same`); `name_it.v1` names a kind about to be minted from a cluster of two names or more, and `none`, a
+  pick below the act band or no answer leaves the most shared name (`Hints::named`, `Swept.named_kinds`). The night runs
+  hints, then the plan, then the pair, split and rename asks (`onto_sweep_night`); `onto_sweep` alone is the plan with
+  no model; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
   its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
   under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`), an answer over 400
@@ -291,7 +300,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours, so a
   night post would wake the owner; the morning note is the one place they are told. Tests: `tests_ontology.rs`,
   `tests_ontology_bind.rs`, `tests_onto_sweep.rs`, `tests_onto_other.rs`, `tests_onto_mint.rs`,
-  `tests_onto_judged.rs`, `consolidate/tests_guidance.rs`, `tests_onto_digest.rs`.
+  `tests_onto_judged.rs`, `tests_onto_names.rs`, `consolidate/tests_guidance.rs`, `tests_onto_digest.rs`.
 - **Standing** (theseus-a7vi; `standing.rs`, `rpc/standing.rs`, `turn/standing_step.rs`, `fact/standing.rs`): the owner's
   standing orders, preferences and facts, one `protocol::StandingRecord` each as a META key `standing:<id>` (store
   format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).

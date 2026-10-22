@@ -46,6 +46,7 @@ pub mod judged;
 pub mod mark;
 pub mod mint;
 mod name;
+pub mod renamed;
 pub(crate) mod stage;
 pub mod sweep;
 

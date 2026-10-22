@@ -20,6 +20,13 @@
 //!   sampled, stays in the parent, where Jev's next filing offers the
 //!   children as candidates. One write a split.
 //!
+//! Three more questions are `renamed.rs`'s (theseus-63tfk.1): a stale
+//! category's name (`name_it.v1`), whether two names the `other` answers
+//! mined are one kind (`same_kind.v1`), and the name of a kind about to be
+//! minted (`name_it.v1`). They run from the same `Run`, so the money, the mark
+//! and the not-again rule below hold for all five; the last two run before the
+//! kind is minted (`Core::onto_sweep_night`).
+//!
 //! **Money.** `[ontology] sweep_usd_per_day` (1.0; 0 turns this part off and
 //! the deterministic sweep still runs) caps the local day: a call whose worst
 //! case would pass what is left is not begun, and the day's spend is the META
@@ -61,6 +68,11 @@ use crate::session::SessionRecord;
 pub const SAME_PACK: &str = "same_thing.v1";
 /// The pack that asks whether a category holds two things.
 pub const SPLIT_PACK: &str = "two_things.v1";
+/// The pack that asks whether two groups of `other` answers are one kind
+/// (`renamed.rs`).
+pub const KIND_PACK: &str = "same_kind.v1";
+/// The pack that asks which mined name names a category or a kind.
+pub const NAME_PACK: &str = "name_it.v1";
 /// The META record of the day's spend and what was asked.
 pub const MARK: &str = "onto.sweep.judged";
 /// The pairs one run asks about at most.
@@ -78,7 +90,8 @@ pub struct Mark {
     /// The local day `spent_usd` belongs to.
     pub day: String,
     pub spent_usd: f64,
-    /// `pair <a> <b>` or `split <category>`, and when it was asked.
+    /// `pair <a> <b>`, `split <category>`, `rename <category>`, `kind <a> <b>` or
+    /// `kind-name <cluster>`, and when it was asked.
     #[serde(default)]
     pub asked: BTreeMap<String, u64>,
 }
@@ -176,12 +189,12 @@ impl JudgeService {
 
 /// Whether `j` is an answer the sweep may act on: the model the pack pins
 /// answered, and the pack acts.
-fn acts(j: &Judgment) -> bool {
+pub(super) fn acts(j: &Judgment) -> bool {
     j.actionable() && j.mode != Mode::Shadow
 }
 
 /// `id` as the sweep shows it, with the titles of `held`'s sessions.
-fn sweep_category(o: &Ontology, id: &CategoryId, held: &Held) -> Option<SweepCategory> {
+pub(super) fn sweep_category(o: &Ontology, id: &CategoryId, held: &Held) -> Option<SweepCategory> {
     let c = o.category(id)?;
     Some(SweepCategory {
         name: c.name.clone(),
@@ -202,7 +215,7 @@ fn sweep_category(o: &Ontology, id: &CategoryId, held: &Held) -> Option<SweepCat
 }
 
 /// Whether a Noul question's answer is yes (or no) at the act band.
-fn noul(j: &Judgment, question: &str, yes: bool) -> bool {
+pub(super) fn noul(j: &Judgment, question: &str, yes: bool) -> bool {
     j.answer(question).is_some_and(|a| match yes {
         true => a.band.acts_true(),
         false => a.band.acts_false(),
@@ -210,7 +223,7 @@ fn noul(j: &Judgment, question: &str, yes: bool) -> bool {
 }
 
 /// The mined name a Choice answered at the act band, by its option `n<k>`.
-fn named(j: &Judgment, question: &str, names: &[String]) -> Option<String> {
+pub(super) fn named(j: &Judgment, question: &str, names: &[String]) -> Option<String> {
     let a = j.answer(question)?;
     names.iter().enumerate().find_map(|(i, n)| {
         let option = format!("n{}", i + 1);
@@ -220,31 +233,34 @@ fn named(j: &Judgment, question: &str, names: &[String]) -> Option<String> {
 
 /// One category's sessions for the sweep to show: titled, a person's, in a
 /// private place, newest first.
-struct Held {
-    sessions: Vec<(String, String)>,
+pub(super) struct Held {
+    pub(super) sessions: Vec<(String, String)>,
 }
 
 impl Core {
+    /// A session's last activity, id and title when it is one the sweep may
+    /// show: titled, a person's, in a private place.
+    pub(super) fn titled(&self, session: &str) -> Option<(u64, String, String)> {
+        let s = self.store.get_session::<SessionRecord>(session).ok()??;
+        let title = s.title.clone().unwrap_or_default();
+        let shown = !title.trim().is_empty()
+            && s.task.is_none()
+            && s.imported.is_none()
+            && self.runner.class_of(&s.session_id) == PlaceClass::Private;
+        shown.then_some((s.last_active_ms, s.session_id, title))
+    }
+
     /// A store scan, off the runtime's worker (`theseus_store::blocking`).
-    fn held_by(&self, o: &Ontology, id: &CategoryId) -> Held {
+    pub(super) fn held_by(&self, o: &Ontology, id: &CategoryId) -> Held {
         let mut found: Vec<(u64, String, String)> = Vec::new();
         theseus_store::blocking(|| {
             for l in o.lists().filter(|l| l.kind == id.kind()) {
                 if !l.members.iter().any(|m| &m.category == id) {
                     continue;
                 }
-                let Ok(Some(s)) = self.store.get_session::<SessionRecord>(&l.session) else {
-                    continue;
-                };
-                let title = s.title.clone().unwrap_or_default();
-                if title.trim().is_empty()
-                    || s.task.is_some()
-                    || s.imported.is_some()
-                    || self.runner.class_of(&s.session_id) != PlaceClass::Private
-                {
-                    continue;
+                if let Some(found_one) = self.titled(&l.session) {
+                    found.push(found_one);
                 }
-                found.push((s.last_active_ms, s.session_id, title));
             }
         });
         found.sort_by(|a, b| b.cmp(a));
@@ -256,9 +272,30 @@ impl Core {
     /// The model's part of one run at `now_ms`: pairs, then splits, under
     /// `[ontology] sweep_usd_per_day`. Nothing with the cap at 0.
     pub async fn onto_sweep_judged(&self, now_ms: u64, out: &mut Swept) -> Result<()> {
+        let Some(mut run) = self.judged_run(now_ms)? else {
+            return Ok(());
+        };
+        let o = self.runner.ontology.snapshot(&self.store)?;
+        let merges = run.pairs(&o).await;
+        let splits = run.splits(&o).await;
+        let renames = run.renames(&o).await;
+        // Kept after each paid question too (`Run::paid`), so a stop mid-run
+        // keeps what was spent and asked; this keeps a run that asked nothing.
+        run.keep()?;
+        out.spent += run.spent;
+        // The writes, after every question: each is checked against the
+        // ontology as it stands, so one write never builds on another's.
+        self.onto_judged_writes(now_ms, merges, splits, renames, out);
+        Ok(())
+    }
+
+    /// A run of the sweep's questions at `now_ms`: the day's mark and what the
+    /// cap leaves. None with the cap at 0. Each run reads the mark again, so
+    /// two in a night share one day's money.
+    pub(super) fn judged_run(&self, now_ms: u64) -> Result<Option<Run<'_>>> {
         let cap_usd = self.runner.cfg.ontology.sweep_usd_per_day;
         if cap_usd <= 0.0 {
-            return Ok(());
+            return Ok(None);
         }
         let today = spend::local_day(now_ms);
         let mut mark: Mark =
@@ -271,25 +308,14 @@ impl Core {
             .retain(|_, at| now_ms.saturating_sub(*at) < AGAIN_MS);
         let before = mark.spent_usd;
         let cap = usd_to_micros((cap_usd - before).max(0.0));
-        let o = self.runner.ontology.snapshot(&self.store)?;
-        let mut run = Run {
+        Ok(Some(Run {
             core: self,
             now_ms,
             cap,
             spent: 0,
             before,
             mark,
-        };
-        let merges = run.pairs(&o).await;
-        let splits = run.splits(&o).await;
-        // Kept after each paid question too (`Run::paid`), so a stop mid-run
-        // keeps what was spent and asked; this keeps a run that asked nothing.
-        run.keep()?;
-        out.spent += run.spent;
-        // The writes, after every question: each is checked against the
-        // ontology as it stands, so one write never builds on another's.
-        self.onto_judged_writes(now_ms, merges, splits, out);
-        Ok(())
+        }))
     }
 
     /// The merges and splits the answers came to, each written as the sweep's.
@@ -298,6 +324,7 @@ impl Core {
         now_ms: u64,
         merges: Vec<(CategoryId, CategoryId)>,
         splits: Vec<Splitting>,
+        renames: Vec<(CategoryId, String)>,
         out: &mut Swept,
     ) {
         let Ok(o) = self.runner.ontology.snapshot(&self.store) else {
@@ -324,6 +351,12 @@ impl Core {
                 steps.push((write, step));
             }
         }
+        for (category, name) in renames {
+            let write = id(&steps, "rename");
+            if let Some(step) = working.plan_rename(&category, &name, &write) {
+                steps.push((write, step));
+            }
+        }
         for (write, step) in steps {
             let records = step.records().to_vec();
             let done = theseus_store::blocking(|| {
@@ -332,6 +365,10 @@ impl Core {
             match (done, &step) {
                 (Ok(()), Step::Split { .. }) => {
                     out.splits += 1;
+                    out.writes.push(write);
+                }
+                (Ok(()), Step::Rename { .. }) => {
+                    out.renamed += 1;
                     out.writes.push(write);
                 }
                 (Ok(()), _) => {
@@ -357,19 +394,19 @@ struct Splitting {
 }
 
 /// One run's state: the cap, what it has spent, what was asked.
-struct Run<'a> {
-    core: &'a Core,
+pub(super) struct Run<'a> {
+    pub(super) core: &'a Core,
     now_ms: u64,
     cap: Micros,
-    spent: Micros,
+    pub(super) spent: Micros,
     /// What the day had spent before the run.
     before: f64,
-    mark: Mark,
+    pub(super) mark: Mark,
 }
 
 impl Run<'_> {
     /// The day's mark as the run stands, written where a restart reads it.
-    fn keep(&mut self) -> Result<()> {
+    pub(super) fn keep(&mut self) -> Result<()> {
         self.mark.spent_usd = self.before + micros_to_usd(self.spent);
         theseus_store::blocking(|| self.core.store.put_meta(MARK, &self.mark))
     }
@@ -377,7 +414,7 @@ impl Run<'_> {
     /// A paid question's answer: its cost and its key go into the mark, and
     /// the mark is written at once (theseus-23wd8), so a stop before the run
     /// ends loses neither.
-    fn paid(&mut self, key: String, cost: Micros) {
+    pub(super) fn paid(&mut self, key: String, cost: Micros) {
         self.spent += cost;
         self.mark.asked.insert(key, self.now_ms);
         if let Err(e) = self.keep() {
@@ -385,12 +422,12 @@ impl Run<'_> {
         }
     }
 
-    fn left(&self) -> Micros {
+    pub(super) fn left(&self) -> Micros {
         self.cap.saturating_sub(self.spent)
     }
 
     /// Whether the run goes on to another question.
-    fn going(&self) -> bool {
+    pub(super) fn going(&self) -> bool {
         !self.core.outbox.stopping()
     }
 

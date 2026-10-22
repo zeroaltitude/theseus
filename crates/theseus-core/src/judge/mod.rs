@@ -104,6 +104,8 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (onto::ONTO_PACK, PackMode::Live),
     (onto::judged::SAME_PACK, PackMode::Live),
     (onto::judged::SPLIT_PACK, PackMode::Live),
+    (onto::judged::KIND_PACK, PackMode::Live),
+    (onto::judged::NAME_PACK, PackMode::Live),
     (compile::CONTINUE_PACK, PackMode::Shadow),
     (categorize::PACK, PackMode::Shadow),
     (rerank::RERANK_PACK, PackMode::Live),
