@@ -11,6 +11,11 @@
 //! - **On `place`** the turn's requests carry the digest after the last cache
 //!   mark, every loop of this turn and no other, and a `threads` mark of kind
 //!   `place_digest` on the trace says what was read, waited and shown.
+//! - **A shown thread's Google mark follows** (theseus-yso6p, as recalled
+//!   notes' does, theseus-39dj0): when a thread the digest shows holds the
+//!   mark in its current session, the asking session is private from then on,
+//!   and the mark rides the first call's plan frame whether or not recall
+//!   admitted anything (`Digest.mark`).
 
 use std::time::{Duration, Instant};
 
@@ -29,6 +34,9 @@ pub(crate) struct Digest {
     pub scope: Option<ScopeWait>,
     /// The digest this turn's requests carry.
     pub text: Option<String>,
+    /// The asker's Google mark, when a thread the digest shows holds it: the
+    /// first call's plan frame writes it.
+    pub mark: Option<theseus_store::NewRecord>,
 }
 
 impl Digest {
@@ -96,6 +104,23 @@ impl TurnRunner {
                 "embargoed": digest.as_ref().map_or(0, |d| d.embargoed),
             }),
         );
+        if digest.is_some() {
+            let shown = live
+                .iter()
+                .filter(|th| th.slug != here && !crate::compiler::place_digest::held(th))
+                .filter_map(|th| th.session_id.as_deref())
+                .map(|s| (s, s));
+            let mark = crate::google::private::followed(
+                t.tc.store,
+                &self.cfg.google,
+                t.tc.session_id,
+                shown,
+            );
+            if mark.is_some() {
+                t.digest.mark = mark;
+                t.recall.private = true;
+            }
+        }
         t.digest.text = digest.map(|d| d.text);
     }
 

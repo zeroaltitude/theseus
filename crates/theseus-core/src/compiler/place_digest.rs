@@ -23,7 +23,7 @@ pub struct Digest {
 }
 
 /// Whether a thread's matter stays out of every other thread.
-fn held(t: &ThreadInfo) -> bool {
+pub(crate) fn held(t: &ThreadInfo) -> bool {
     t.sealed.is_some() || t.seal_pending.is_some()
 }
 

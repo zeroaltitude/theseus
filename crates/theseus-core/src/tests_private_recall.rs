@@ -58,14 +58,19 @@ fn glm_request() -> ProviderRequest {
 /// `sid`'s next call to GLM through the floor, as a background step makes it
 /// (`private::for_session`): Ok when sent, else the refusal's class.
 async fn glm_call(r: &Rig, sid: &str) -> Result<(), String> {
+    glm_call_on(&r.core, sid).await
+}
+
+/// [`glm_call`], for any rig's core.
+pub(crate) async fn glm_call_on(core: &crate::Core, sid: &str) -> Result<(), String> {
     let fake: Arc<dyn Provider> = Arc::new(FakeProvider::default());
     let gated = crate::data_gate::guard(
         BTreeMap::from([("zai".to_string(), fake)]),
-        &r.core.cfg,
-        &r.core.catalog,
-        &r.core.store,
+        &core.cfg,
+        &core.catalog,
+        &core.store,
     );
-    let p = private::for_session(gated["zai"].clone(), &r.core.store, &r.core.cfg, sid);
+    let p = private::for_session(gated["zai"].clone(), &core.store, &core.cfg, sid);
     let mut sink = |_: crate::provider::Delta<'_>| {};
     match p.stream_message(&glm_request(), &mut sink).await {
         Ok(_) => Ok(()),

@@ -611,6 +611,10 @@ impl TurnRunner {
     /// session that holds it (`google::private::followed`); the turn's own
     /// calls are private from now on.
     fn follow_private(&self, t: &mut Turn<'_>, items: &[RecalledRef]) -> Option<NewRecord> {
+        if t.digest.mark.is_some() {
+            // The place digest's mark rides the same frame (theseus-yso6p).
+            return None;
+        }
         let recalled = items
             .iter()
             .map(|r| (r.node_id.as_str(), r.session_id.as_str()));

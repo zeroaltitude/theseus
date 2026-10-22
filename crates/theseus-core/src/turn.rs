@@ -2388,7 +2388,8 @@ impl TurnRunner {
         // It never needs a confirm, so its plan, authorization, and dispatch
         // are one frame, with the loop's rows in front (theseus-qa0), and
         // a recall's node and edges (M6 30b).
-        let rides = std::mem::take(&mut t.recall.rides);
+        let mut rides = std::mem::take(&mut t.recall.rides);
+        rides.extend(t.digest.mark.take());
         t.recall.pending = None;
         let action = match t.tc.kernel.plan_and_dispatch(
             t.tc.guard,
