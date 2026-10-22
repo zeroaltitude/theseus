@@ -5,7 +5,7 @@ use theseus_protocol::ConfirmRequest;
 
 use crate::render::{card, Route};
 
-const WALKTHROUGH: &str = "/home/ana/projects/walkthrough/out/harbour.md";
+const WALKTHROUGH: &str = "/srv/walkthrough/out/harbour.md";
 const DIFF: &str =
     "--- /dev/null\n+++ b/out/harbour.md\n@@ -0,0 +1,2 @@\n+# Harbour\n+Calm water.\n";
 
