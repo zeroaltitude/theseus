@@ -119,6 +119,11 @@ pub(super) struct RouteState {
     /// The turn is a task's first, and the verdict on its brief picks the
     /// task's base (theseus-ypnxt.7, `brief_step`).
     pub(super) brief: bool,
+    /// Why a class with `cn_draft` did not draft (theseus-a1wvq.13), for the
+    /// route row; and the line of a turn that opened a draft instead of a
+    /// model call (`draft_step.rs`).
+    pub(super) draft_skip: Option<&'static str>,
+    pub(super) drafted: Option<String>,
 }
 
 impl RouteState {
@@ -529,6 +534,8 @@ impl TurnRunner {
             Ok(d) => d,
             Err(f) => return Ok(Err(f)),
         };
+        let drafting = self.draft_check(t, session, verdict.as_ref().filter(|_| reason.is_none()));
+        let drafting = drafting.await;
         t.route.effort = verdict.as_ref().and_then(|v| {
             let spent = (&*spec, compiled.est_tokens);
             self.route_effort(t, v, decision.as_ref(), spent, reason.is_none())
@@ -548,6 +555,10 @@ impl TurnRunner {
             steering.as_ref(),
         );
         self.note_routed(t, verdict.as_ref(), decision.as_ref());
+        if self.draft_open(t, drafting) {
+            self.drop_first(t, &compiled);
+            return Ok(Ok(compiled));
+        }
         if live {
             // A routed turn: the owner's pin of another profile within 10
             // minutes after it counts on route.v1's ladder (26a).
@@ -559,15 +570,7 @@ impl TurnRunner {
         let Some(d) = decision else {
             return self.keep_first(t, session, compiled, spec, i);
         };
-        let routed = session.routed.get_or_insert_with(Default::default);
-        match &d.hold {
-            HoldNext::Keep => {}
-            HoldNext::Clear => routed.hold = None,
-            HoldNext::Set(h) => routed.hold = Some(h.clone()),
-        }
-        if session.routed.as_deref() == Some(&Default::default()) {
-            session.routed = None;
-        }
+        Self::hold_next(session, &d.hold);
         if d.profile == base {
             return self.keep_first(t, session, compiled, spec, i);
         }
@@ -592,6 +595,20 @@ impl TurnRunner {
             return self.compile_detour(t, session, spec, i);
         }
         Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
+    }
+
+    /// The decision's hold on the session's routed record, which goes once it
+    /// holds nothing.
+    fn hold_next(session: &mut SessionRecord, hold: &HoldNext) {
+        let routed = session.routed.get_or_insert_with(Default::default);
+        match hold {
+            HoldNext::Keep => {}
+            HoldNext::Clear => routed.hold = None,
+            HoldNext::Set(h) => routed.hold = Some(h.clone()),
+        }
+        if session.routed.as_deref() == Some(&Default::default()) {
+            session.routed = None;
+        }
     }
 
     /// The turn detours: its record keeps the session's own target, and the
@@ -801,6 +818,7 @@ impl TurnRunner {
                 verdict: answered.map(|a| (a.choice.as_str(), a.confidence)),
                 clearance,
                 gate,
+                draft_skip: t.route.draft_skip,
             }),
         });
         let prior = t.route.result.take();

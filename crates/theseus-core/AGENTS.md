@@ -1670,6 +1670,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `open_step::writer`); a restricted summary profile otherwise falls back to the `[model]` default, or the ring stands.
     Consolidation never runs on a restricted model (`restricted_origin`), keep-warm skips a restricted target, and
     `turn.replay` refuses one. Tests: `tests_bg_gate.rs`.
+    **Drafts** (theseus-a1wvq.13; `draft.rs`, `turn/draft_step.rs`, `fact/draft.rs`; no store format change: a META record
+    `draft.<session>` and the ledger kind `task.draft`): a China-origin model only drafts code, in its own tree, with no
+    programs, and a Claude check always reviews it; nothing is applied or posted before that review. A coding class's
+    `[routing.classes.<class>] cn_draft` (a restricted profile; `routine_coding` and `deep_coding` only) and `final` (its
+    Claude reviewers, first usable wins; required with it) make an admitted ask of a conversation (no task, no wake, its
+    `dir` a git tree under the open roots) open a draft instead of a model call: an open task (`OpenHow::Draft`) on the
+    `cn_draft` profile in a worktree at `<state>/drafts/<short>` on branch `draft/<short>`, which joins its open roots
+    alone, briefed by the core with the open run's person messages. Each failed condition is the route row's
+    `draft_skip`. `Open::offers` withholds programs from a draft, and where the floor would move it its turn ends
+    (`draft_stopped`). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
+    check on a `final` profile in the tree, the draft's claim, a correlation id from the draft's), whose end commits,
+    applies `git diff <base>..<final>` with `git apply --check` first and never `--index` or `--3way`, removes the
+    tree, and writes the line and the `task.draft` row. Tests: `tests_draft.rs`.
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design

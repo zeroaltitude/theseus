@@ -159,6 +159,15 @@ pub struct ClassProfiles {
     /// go first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cn_after: Option<String>,
+    /// A restricted profile that drafts this class's coding asks in a tree of
+    /// its own, never applied until a `final` profile has reviewed it
+    /// (theseus-a1wvq.13): `routine_coding` and `deep_coding` only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cn_draft: Option<String>,
+    /// The Claude profiles that review and finish every draft: the first
+    /// usable runs. Required with `cn_draft`, refused without it.
+    #[serde(default, rename = "final", skip_serializing_if = "Vec::is_empty")]
+    pub final_review: Vec<String>,
 }
 
 /// `trivial`'s bar when its table sets none (theseus-6n5j, the owner's

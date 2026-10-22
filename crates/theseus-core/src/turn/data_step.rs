@@ -167,6 +167,9 @@ impl TurnRunner {
         let Some(why) = self.floor_refuses(floor, ran) else {
             return Ok(decision);
         };
+        if let Some(f) = Self::draft_stopped(t, &why) {
+            return Err(f);
+        }
         if t.route.floor().cleared && !open {
             t.route.admitted = super::open_step::Admitted(Err(crate::data::DataWhy::PrivateView));
         }

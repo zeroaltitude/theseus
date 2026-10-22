@@ -36,6 +36,7 @@ pub(super) fn validate(cfg: &Config, catalog: &Catalog) -> Result<()> {
                 format!("{origin:?}").to_lowercase()
             );
         }
+        drafts(cfg, catalog, m, t, &restricted)?;
         if t.cn_profiles.is_empty() {
             if t.cn_after.is_some() {
                 bail!("routing.classes.{m}.cn_after: it has no cn_profiles to place");
@@ -63,6 +64,64 @@ pub(super) fn validate(cfg: &Config, catalog: &Catalog) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The classes a China-origin model may draft for (theseus-a1wvq.13).
+pub const DRAFTING: [&str; 2] = ["routine_coding", "deep_coding"];
+
+/// `cn_draft` and `final` (theseus-a1wvq.13): a restricted profile drafts only
+/// a coding class's asks, and only with Claude profiles to review it.
+fn drafts(
+    cfg: &Config,
+    catalog: &Catalog,
+    m: &str,
+    t: &super::routing::ClassProfiles,
+    restricted: &dyn Fn(&str) -> Option<crate::catalog::ModelOrigin>,
+) -> Result<()> {
+    let Some(d) = &t.cn_draft else {
+        if !t.final_review.is_empty() {
+            bail!("routing.classes.{m}.final: it reviews a draft, and the class has no cn_draft");
+        }
+        return Ok(());
+    };
+    if !DRAFTING.contains(&m) {
+        bail!(
+            "routing.classes.{m}.cn_draft: a China-origin model drafts only code, in \
+             routing.classes.routine_coding or deep_coding"
+        );
+    }
+    if restricted(d).is_none() {
+        bail!(
+            "routing.classes.{m}.cn_draft: {d:?} is not a configured profile of restricted \
+             origin (a Claude profile belongs in profiles, or in final)"
+        );
+    }
+    if t.final_review.is_empty() {
+        bail!(
+            "routing.classes.{m}.final: cn_draft needs it: name the Claude profiles that \
+             review every draft, as final = [\"sonnet\"]"
+        );
+    }
+    for p in &t.final_review {
+        if !claude(cfg, catalog, p) {
+            bail!(
+                "routing.classes.{m}.final: {p} is not a Claude profile: a Claude model \
+                 reviews every draft"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A configured profile of US origin whose model is a Claude row of the
+/// catalog (one the catalog's own Anthropic rows hold).
+pub(crate) fn claude(cfg: &Config, catalog: &Catalog, profile: &str) -> bool {
+    cfg.all_profiles().get(profile).is_some_and(|p| {
+        cfg.profile_origin(profile, catalog) == crate::catalog::ModelOrigin::Us
+            && catalog
+                .get(&p.model)
+                .is_some_and(|e| e.provider == "anthropic")
+    })
 }
 
 #[cfg(test)]

@@ -74,6 +74,7 @@ mod cut_step;
 mod data_step;
 mod defer_step;
 mod deferred_step;
+mod draft_step;
 pub mod effort_step;
 pub mod end_note_step;
 mod end_step;
@@ -1313,6 +1314,9 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         drop(session_hold);
+        if session_ended && task_of.is_some() {
+            self.draft_ended(&failure_sink.session_id).await;
+        }
         self.keep_warm.turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {
             self.judge.after_turn(res, task_of.is_some());
@@ -1851,6 +1855,9 @@ impl TurnRunner {
                 Ok(c) => c,
                 Err(f) => return Ok(Next::Fail(f)),
             };
+            if Self::drafted(t) {
+                break;
+            }
             if let Some(o) = overflow.take() {
                 // The ring dropped nothing, so the same request would pass the
                 // window again: the turn fails without the call.
