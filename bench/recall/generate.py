@@ -138,6 +138,11 @@ MARGIN = 0.15  # how far the turns' estimate may be off and a mark still compact
 # the system prompt and tools, at the estimate's upper bound: the ring's
 # last candidate, which past the budget fails the turn as an overage.
 ALONE_MARGIN = 0.10
+# What a recall may add to a request once the index tender is up (about
+# twenty turns into a smoke): `[memory] recall_budget_tokens`, 1,500. The
+# plan's turns fit with it beside them, so a late recall compacts nothing
+# the marks did not.
+RECALL_TOKENS = 1500
 BULK_MIN_TOKENS = 1000  # a bulk read is at least this long
 
 # The catalog's prices per million tokens (theseus-core's catalog.rs, the
@@ -965,8 +970,8 @@ def alone_limit(budget: int) -> int:
 
 def fit_bound(before: int, last: int, overhead: int) -> int:
     """The upper bound of the last turn before a mark: what came before it
-    counted, its own new part estimated."""
-    return tk.upper(overhead + before - last, last)
+    counted, with a recall beside it, its own new part estimated."""
+    return tk.upper(overhead + RECALL_TOKENS + before - last, last)
 
 
 def plan_bulks(turns: list[Turn], marks: list[int], overhead: int):
