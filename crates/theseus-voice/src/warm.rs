@@ -149,6 +149,14 @@ impl<S: Silence> AfterClip<S> {
             self.warmth.began(self.id);
         }
     }
+
+    /// The clip could not be watched for its end, so nothing starts its warm
+    /// track: stop it, or it would stay paused in the mixer for the call.
+    pub(crate) fn abandoned(&self) {
+        if let Some(warm) = &self.warm {
+            warm.stop();
+        }
+    }
 }
 
 /// The warm tracks the seam may still have to stop: the last few clips'.
@@ -170,7 +178,7 @@ impl<S: Silence> Warm<S> {
 
     pub(crate) fn add(&mut self, track: S) {
         if self.tracks.len() == KEPT {
-            self.tracks.remove(0);
+            self.tracks.remove(0).stop();
         }
         self.tracks.push(track);
     }
@@ -211,6 +219,36 @@ mod tests {
         fn playing(&self) -> bool {
             self.0.lock().unwrap().0
         }
+    }
+
+    /// A track that is kept out of the last `KEPT` is stopped, not just forgotten.
+    #[test]
+    fn an_evicted_warm_track_is_stopped() {
+        let mut warm = Warm::new();
+        let tracks: Vec<Fake> = (0..=KEPT).map(|_| Fake::default()).collect();
+        for t in &tracks {
+            t.play();
+            warm.add(t.clone());
+        }
+        assert!(!tracks[0].playing(), "the oldest is stopped");
+        assert!(tracks[1..].iter().all(Fake::playing), "the rest play on");
+    }
+
+    #[test]
+    fn a_clip_whose_end_event_fails_stops_its_warm_track() {
+        let track = Fake::default();
+        let after = AfterClip {
+            id: ClipId(0),
+            warm: Some(track.clone()),
+            warmth: Warmth::default(),
+        };
+        after.abandoned();
+        assert!(!track.playing());
+        after.ended();
+        assert!(
+            !track.playing() && !after.warmth.on(),
+            "nothing starts it later"
+        );
     }
 
     fn lead(spell: u64, gap: u64) -> LeadIn {

@@ -82,13 +82,15 @@ impl Work {
         self.live = false;
     }
 
-    /// Apply a view by the position rule: only if its position is greater than
-    /// the last applied for its id. Whether it was applied.
+    /// Apply a view by the position rule: only if its position, then its
+    /// `at_ms`, is greater than the last applied for its id (the daemon keeps
+    /// a job's position and takes a later `at_ms` for a later sample). Whether
+    /// it was applied.
     pub fn apply(&mut self, v: WorkView) -> bool {
         if self
             .views
             .get(&v.id)
-            .is_some_and(|o| v.position <= o.position)
+            .is_some_and(|o| (v.position, v.at_ms) <= (o.position, o.at_ms))
         {
             return false;
         }
@@ -453,6 +455,45 @@ mod tests {
             "job 0:30 · Round 1 done. Continuing. (2 min ago)"
         );
         assert_eq!(row(190_000), "job 0:30 · Round 1 done. Continuing.");
+    }
+
+    /// The daemon keeps a job's position and takes a later `at_ms` for a later
+    /// sample: the row's last line must follow both samples.
+    #[test]
+    fn a_job_rows_last_line_advances_at_one_position() {
+        let sample = |at_ms: u64, said: &str| -> WorkView {
+            serde_json::from_value(serde_json::json!({
+                "id": "exe_1", "kind": "task", "position": 3, "at_ms": at_ms, "root": "exe_1",
+                "session_id": "ses_task", "title": "t", "state": "running",
+                "attention": {"level": "working", "label": "job", "since_ms": 1},
+                "doing": {"what": "job", "label": "job", "since_ms": 1, "turn": 1, "loop_index": 0},
+                "started_at_ms": 1, "state_since_ms": 1, "flagged": false,
+                "progress": {"steps_done": 0, "steps_total": 0, "said": said, "at_ms": at_ms}
+            }))
+            .unwrap()
+        };
+        let line = |w: &Work| {
+            let f = w
+                .facts(
+                    "ses_task",
+                    theseus_protocol::Level::Working,
+                    &HashMap::new(),
+                )
+                .unwrap();
+            doing(&f, 10_000, &|t| t.to_string())
+        };
+        let mut w = Work::default();
+        assert!(w.apply(sample(5_000, "Round 1 done.")));
+        assert!(w.apply(sample(6_000, "Round 2 done.")));
+        assert!(line(&w).contains("Round 2 done."), "{}", line(&w));
+        assert!(
+            !w.apply(sample(6_000, "Round 2 done.")),
+            "a repeat is not news"
+        );
+        assert!(
+            !w.apply(sample(5_500, "stale")),
+            "an older sample is dropped"
+        );
     }
 
     #[test]

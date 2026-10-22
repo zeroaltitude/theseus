@@ -559,13 +559,14 @@ impl VoiceIo for SongbirdIo {
                     id,
                 },
             );
+            let after = Arc::new(AfterClip {
+                id,
+                warm: Some(warm.clone()),
+                warmth: self.warm.warmth.clone(),
+            });
             let ended = Ended {
                 tx: self.tx.clone(),
-                after: Arc::new(AfterClip {
-                    id,
-                    warm: Some(warm.clone()),
-                    warmth: self.warm.warmth.clone(),
-                }),
+                after: after.clone(),
             };
             self.warm.add(warm);
             // A track that ends or fails is over either way. If the track is
@@ -574,6 +575,7 @@ impl VoiceIo for SongbirdIo {
                 .add_event(Event::Track(TrackEvent::End), ended.clone())
                 .and_then(|()| track.add_event(Event::Track(TrackEvent::Error), ended));
             if added.is_err() {
+                after.abandoned();
                 let _ = self.tx.send(Signal::Heard(Heard::Ended(id)));
             }
             self.track = Some(track);

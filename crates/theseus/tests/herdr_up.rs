@@ -41,6 +41,8 @@ struct Model {
     /// The workspace in front, and whether no client is attached to show a switch.
     front: Option<String>,
     detached: bool,
+    /// `workspace.focus` is refused, as herdr does when it is busy.
+    refuse_focus: bool,
 }
 
 type Reply = Result<Value, (&'static str, String)>;
@@ -140,6 +142,9 @@ impl Model {
                 let number = self.workspaces.len();
                 json!({"type": "workspace_created", "workspace": self.ws_info(number, &ws, &label),
                        "tab": self.tab_info(&pane.tab), "root_pane": Self::pane_info(&pane)})
+            }
+            "workspace.focus" if self.refuse_focus => {
+                return Err(("busy", "herdr cannot switch now".into()));
             }
             "workspace.focus" => {
                 let id = p["workspace_id"].as_str().unwrap_or_default().to_string();
@@ -911,6 +916,27 @@ fn herdr_up_focuses_the_theseus_workspace_and_says_so() {
         up_with(&daemon, &herdr, args);
         assert!(herdr.requests("workspace.focus").is_empty(), "{args:?}");
     }
+}
+
+/// herdr refuses `workspace.focus`: the workspace is built, so `up` says it could not be shown
+/// and still succeeds (theseus-i7kmb).
+#[test]
+fn up_survives_a_refused_focus() {
+    let dir = tempfile::tempdir().unwrap();
+    let herdr = FakeHerdr::start(
+        dir.path(),
+        Model {
+            refuse_focus: true,
+            ..Model::default()
+        },
+    );
+    let daemon = FakeDaemon::start(dir.path(), vec![]);
+    let out = up_with(&daemon, &herdr, &["--follow"]);
+    assert_eq!(herdr.requests("workspace.focus").len(), 1, "{out}");
+    assert!(
+        out.contains("is built, but herdr could not show it"),
+        "{out}"
+    );
 }
 
 /// After a herdr restart the workspace is back as shells without tokens: boot closes them, and

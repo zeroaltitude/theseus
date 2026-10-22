@@ -140,24 +140,24 @@ async fn show_workspace(ctx: &mut Ctx, focus: bool) -> Result<()> {
     if !focus {
         return Ok(());
     }
-    let mut here = workspace_row(ctx).await?;
-    let Some((id, number, false)) = here.clone() else {
+    let Some((id, number, false)) = workspace_row(ctx).await? else {
         return Ok(());
     };
-    ctx.h
-        .call("workspace.focus", wire::focus_params(&id))
-        .await?;
-    here = workspace_row(ctx).await?;
-    say(
-        ctx,
-        &match here {
-            Some((_, _, true)) => format!("herdr: switched to workspace {number} ({WORKSPACE})"),
-            _ => format!(
-                "herdr: workspace {number} ({WORKSPACE}) is ready, but no herdr client shows it: \
-                 run `herdr` to attach"
-            ),
-        },
-    );
+    let shown = match ctx.h.call("workspace.focus", wire::focus_params(&id)).await {
+        Ok(_) => workspace_row(ctx).await,
+        Err(e) => Err(e),
+    };
+    let line = match shown {
+        Ok(Some((_, _, true))) => format!("herdr: switched to workspace {number} ({WORKSPACE})"),
+        Ok(_) => format!(
+            "herdr: workspace {number} ({WORKSPACE}) is ready, but no herdr client shows it: \
+             run `herdr` to attach"
+        ),
+        Err(e) => format!(
+            "herdr: workspace {number} ({WORKSPACE}) is built, but herdr could not show it: {e}"
+        ),
+    };
+    say(ctx, &line);
     Ok(())
 }
 
