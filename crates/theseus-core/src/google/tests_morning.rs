@@ -35,6 +35,17 @@ struct Morning {
 /// the owner's DM bound, and `tweak` on the config; `google` off builds it with
 /// no `[google]` at all.
 async fn rig(google: bool, script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Morning {
+    rig_as(google, script, tweak, true).await
+}
+
+/// [`rig`], the config's load checks run only when `checked`: a test of the
+/// run time's own floor builds a config the load refuses.
+async fn rig_as(
+    google: bool,
+    script: Vec<Scripted>,
+    tweak: impl FnOnce(&mut Config),
+    checked: bool,
+) -> Morning {
     let fake = Fake::start().await;
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(dir.path(), &fake, "file:/tmp/unused-google-refresh-token");
@@ -56,7 +67,9 @@ async fn rig(google: bool, script: Vec<Scripted>, tweak: impl FnOnce(&mut Config
     );
     cfg.context.default_persona = Some("ondine".into());
     tweak(&mut cfg);
-    cfg.validate().unwrap();
+    if checked {
+        cfg.validate().unwrap();
+    }
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(FakeProvider::scripted(script));
     let zai = Arc::new(FakeProvider::scripted(vec![Scripted::text(SAID); 4]));
@@ -239,13 +252,17 @@ async fn a_failed_google_read_is_said_and_never_blocks_the_note() {
 }
 
 /// The note's model call carries the owner's private text, so a model of
-/// restricted origin is never asked: the note goes out as its template.
+/// restricted origin is never asked: the load refuses the profile
+/// (theseus-a1wvq.3's data floor), and a core built past that check still
+/// sends the note as its template.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_morning_note_never_uses_a_restricted_model() {
-    let m = rig(true, said(), |c| {
-        c.initiative.profile = Some("glm53".into())
-    })
-    .await;
+    let glm = |c: &mut Config| c.initiative.profile = Some("glm53".into());
+    let mut cfg = Config::example();
+    cfg.initiative.profile = Some("glm".into());
+    let e = cfg.validate().unwrap_err().to_string();
+    assert!(e.contains("[initiative] profile"), "{e}");
+    let m = rig_as(true, said(), glm, false).await;
     let mb = m.fake.mail();
     mb.thread(
         "t1",
