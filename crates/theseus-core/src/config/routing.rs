@@ -168,6 +168,11 @@ pub struct ClassProfiles {
     /// usable runs. Required with `cn_draft`, refused without it.
     #[serde(default, rename = "final", skip_serializing_if = "Vec::is_empty")]
     pub final_review: Vec<String>,
+    /// A restricted profile that reads the draft's diff for bugs before the
+    /// `final` review opens, on open content only; its findings go to that
+    /// review and nowhere else (theseus-a1wvq.17). Refused without `cn_draft`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_pass: Option<String>,
 }
 
 /// `trivial`'s bar when its table sets none (theseus-6n5j, the owner's

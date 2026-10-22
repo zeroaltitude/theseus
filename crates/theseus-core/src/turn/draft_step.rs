@@ -56,10 +56,7 @@ impl TurnRunner {
     ) -> Option<Drafting> {
         let table = self.cfg.routing.classes.table(&verdict?.mode);
         let name = table.cn_draft.clone()?;
-        match self
-            .draft_ready(t, session, &name, &table.final_review)
-            .await
-        {
+        match self.draft_ready(t, session, &name, table).await {
             Ok(d) => Some(d),
             Err(word) => {
                 t.route.draft_skip = Some(word);
@@ -73,8 +70,9 @@ impl TurnRunner {
         t: &Turn<'_>,
         session: &SessionRecord,
         name: &str,
-        reviewers: &[String],
+        table: &crate::config::routing::ClassProfiles,
     ) -> Result<Drafting, &'static str> {
+        let reviewers = &table.final_review;
         let Ok(run) = &t.route.admitted.0 else {
             return Err("not_admitted");
         };
@@ -126,8 +124,8 @@ impl TurnRunner {
         let branch = draft::branch_of(&task_session);
         let (at, into, b) = (top.clone(), tree.clone(), branch.clone());
         let base = tokio::task::spawn_blocking(move || draft::open_tree(&at, &into, &b)).await;
-        let base = match base {
-            Ok(Ok(base)) => base,
+        let (base, git_dir) = match base {
+            Ok(Ok(opened)) => opened,
             Ok(Err(e)) => {
                 tracing::warn!(error = %format!("{e:#}"), dir = %top.display(), "a draft's tree could not be made");
                 return Err("not_git");
@@ -151,6 +149,14 @@ impl TurnRunner {
                 reviewers: reviewers.to_vec(),
                 asks,
                 target,
+                git_dir,
+                first_pass: table.first_pass.as_ref().and_then(|p| {
+                    Some(draft::first_pass::FirstPass {
+                        profile: p.clone(),
+                        model: self.tools.profiles.get(p)?.model.clone(),
+                        ..Default::default()
+                    })
+                }),
                 ..Draft::default()
             },
             correlation_id,
@@ -183,7 +189,7 @@ impl TurnRunner {
         let Some(d) = d else {
             return false;
         };
-        match Self::open_draft(t, &d) {
+        match self.open_draft(t, &d) {
             Ok(()) => {
                 let line = format!(
                     "Drafting on {} ({}); {} ({}) reviews and finishes it.",
@@ -202,16 +208,20 @@ impl TurnRunner {
             }
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "a draft did not open; the turn runs as before");
-                let (dir, tree) = (d.draft.dir.clone(), d.draft.tree.clone());
+                let (dir, tree, branch) = (
+                    d.draft.dir.clone(),
+                    d.draft.tree.clone(),
+                    d.draft.branch.clone(),
+                );
                 tokio::task::spawn_blocking(move || {
-                    draft::close_tree(Path::new(&dir), Path::new(&tree))
+                    draft::drop_draft(Path::new(&dir), Path::new(&tree), &branch)
                 });
                 false
             }
         }
     }
 
-    fn open_draft(t: &Turn<'_>, d: &Drafting) -> Result<()> {
+    fn open_draft(&self, t: &Turn<'_>, d: &Drafting) -> Result<()> {
         let tc = &t.tc;
         let parent = tc
             .kernel
@@ -277,6 +287,14 @@ impl TurnRunner {
                 };
                 records.push(opened);
                 records.push(brief.record()?);
+                // A draft of a private session is private from its first call,
+                // as every other open task's is (theseus-b0ozi, LOW-5).
+                records.extend(crate::google::private::inherited(
+                    tc.store,
+                    &self.cfg,
+                    tc.session_id,
+                    sid,
+                )?);
                 if let Some(target) = &d.draft.target {
                     records.push(tc.outbox.task_record(sid, target)?);
                 }
