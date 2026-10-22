@@ -264,3 +264,34 @@ async fn a_burst_under_toast_is_one_toast_with_the_folded_words() {
     assert_eq!(runs.len(), 1, "{runs:?}");
     assert_eq!(unword(&runs[0][6]), "3 questions need you");
 }
+
+/// A spawner with no `powershell.exe` to run.
+struct NoPowershell;
+
+impl theseus_client::notify::Spawner for NoPowershell {
+    fn run(&self, _: &[String]) -> std::io::Result<()> {
+        Err(std::io::ErrorKind::NotFound.into())
+    }
+}
+
+/// What the notifier says when it cannot toast goes to the notice line's queue, never to stderr,
+/// which under the alternate screen lands on the drawn frame (theseus-xgfps).
+#[test]
+fn a_notice_never_writes_to_stderr_under_the_tui() {
+    let told = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let n = crate::run::notifier(
+        &told,
+        Box::new(|| theseus_client::notify::Env {
+            wsl: true,
+            osc9: false,
+        }),
+        std::sync::Arc::new(NoPowershell),
+    );
+    let _ = n.deliver(Delivery::Toast, "tide", "a question", true);
+    let start = std::time::Instant::now();
+    while told.lock().unwrap().is_empty() {
+        assert!(start.elapsed().as_secs() < 10, "the notifier said nothing");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(told.lock().unwrap()[0].contains("no powershell.exe on PATH"));
+}

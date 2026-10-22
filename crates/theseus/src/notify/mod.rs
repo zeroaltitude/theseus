@@ -122,14 +122,10 @@ pub struct Notifier {
 
 impl Notifier {
     /// Toasts through `powershell.exe`; a toast that can't start rings
-    /// `fallback` (the terminal's bell bytes) once and says so on stderr.
-    pub fn new(fallback: Sink) -> Self {
-        Self::with(
-            Box::new(Env::detect),
-            Arc::new(Powershell),
-            fallback,
-            Arc::new(|m| eprintln!("{m}")),
-        )
+    /// `fallback` (the terminal's bell bytes) once and says so through `say`: stderr for a
+    /// command, the notice line for a screen that owns the terminal.
+    pub fn new(fallback: Sink, say: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
+        Self::with(Box::new(Env::detect), Arc::new(Powershell), fallback, say)
     }
 
     /// The same over an injected environment, spawner and voice (tests).
