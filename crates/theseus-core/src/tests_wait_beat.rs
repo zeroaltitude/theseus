@@ -334,10 +334,11 @@ async fn an_unbound_session_posts_nothing() {
     assert_eq!(statuses(&r), Vec::<String>::new());
 }
 
-/// A secret the job printed is not in the line that leaves.
-#[tokio::test(start_paused = true)]
-async fn the_status_line_is_scrubbed() {
-    const SECRET: &str = "invented-secret-1a2b3c4d5e6f7a8b";
+const SECRET: &str = "invented-secret-1a2b3c4d5e6f7a8b";
+
+/// The one status line posted after the job printed `printed` and went quiet,
+/// with SECRET in the vault.
+async fn posted_after_printing(printed: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
     let cfg = config(dir.path(), false, beat(600));
     let store = Store::open(&dir.path().join("store")).unwrap();
@@ -365,10 +366,27 @@ async fn the_status_line_is_scrubbed() {
     bind(&r, &s);
     let turn = r.submit(&s, "search it");
     r.until_calls(2).await;
-    print(&r, &the_job(&r), &format!("token {SECRET}\n"));
+    print(&r, &the_job(&r), &format!("{printed}\n"));
     turn.await.unwrap();
     let lines = statuses(&r);
     assert_eq!(lines.len(), 1, "{lines:?}");
-    assert!(!lines[0].contains(SECRET), "{}", lines[0]);
     assert!(lines[0].contains("Last line:"), "{}", lines[0]);
+    lines[0].clone()
+}
+
+/// A secret the job printed is not in the line that leaves.
+#[tokio::test(start_paused = true)]
+async fn the_status_line_is_scrubbed() {
+    let line = posted_after_printing(&format!("token {SECRET}")).await;
+    assert!(!line.contains(SECRET), "{line}");
+}
+
+/// A secret the 160-char cut would split leaks no prefix: the line is
+/// scrubbed before it is cut (the join fix of theseus-5d204).
+#[tokio::test(start_paused = true)]
+async fn a_secret_split_by_the_cut_leaks_no_prefix() {
+    let line = posted_after_printing(&format!("{}{SECRET}", "x".repeat(150))).await;
+    for n in 8..=SECRET.len() {
+        assert!(!line.contains(&SECRET[..n]), "{n} chars leaked: {line}");
+    }
 }

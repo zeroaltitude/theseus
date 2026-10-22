@@ -26,9 +26,12 @@ pub(super) fn post(core: &Core, f: &Found, clock: &Clock, silence: &Silence) {
     if !core.cfg.tools.job_wait_status {
         return;
     }
-    let last = silence.path().and_then(last_line);
+    // Scrub before `line()` cuts: a secret split by the cut is no longer
+    // whole, so the scrub after it would miss its prefix.
+    let scrub = |s: &str| core.tools.scrubber.scrub(s).0;
+    let last = silence.path().and_then(last_line).map(|l| scrub(&l));
     let line = line(
-        &f.called(),
+        &scrub(&f.called()),
         clock.ran_ms(),
         silence.quiet(),
         theseus_kernel::cgroup::job_cpu_usec(&f.corr),
