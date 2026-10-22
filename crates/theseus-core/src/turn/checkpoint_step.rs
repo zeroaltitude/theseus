@@ -26,9 +26,9 @@
 //!   never applied after the next ask.
 //! - **Effort without a move** (theseus-53ujg.3): a verdict that keeps the
 //!   profile and asks more effort than the turn runs at raises it, by the
-//!   rule a move's effort takes (`route_effort`: the bounds, the confirm bar,
-//!   the 0.70 gate for `xhigh` and `max`), on the spec for the loop about to
-//!   run, with no slot. The sticky rule never holds a checkpoint's raise: the
+//!   rule a move's effort takes (`route_effort`: the bounds, the effort bar
+//!   (`effort_confidence`), the `high_effort_confidence` gate for `xhigh` and
+//!   `max`), on the spec for the loop about to run, with no slot. The sticky rule never holds a checkpoint's raise: the
 //!   work's evidence is what it waits for, so the top-level effort changes
 //!   and the messages' cache is written once. A model that takes per-message
 //!   effort cannot be given a level mid-turn: there the row says not applied
