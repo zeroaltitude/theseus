@@ -121,6 +121,14 @@ async fn an_unchanged_draft_sends_once_and_counts() {
         !row.to_string().contains("example.test"),
         "no address in the row: {row}"
     );
+    // One row per REST call: the draft's read, then the send, the result's own last.
+    let earlier = out.meta["google_called_also"]
+        .as_array()
+        .expect("the read's row");
+    assert_eq!(
+        (earlier.len(), earlier[0]["method"].as_str()),
+        (1, Some("gmail.users.drafts.get"))
+    );
     // The card was for that draft: a second send has none to ask with, and Gmail no longer has the draft.
     let e = plan(&r, "gmail.send", send.clone()).unwrap_err();
     assert!(e.contains("has not been shown"), "{e}");
@@ -883,9 +891,14 @@ async fn search_lists_a_row_a_thread_and_marks_strangers() {
         "{}",
         out.text
     );
-    // One row for the list and each thread, merged into the one the result carries.
+    // One row for the list and each thread: the last is the result's own, the rest ride beside it.
     let (out, _) = ok(run(&r, "gmail.search", json!({"q": "", "max": 1})).await);
-    assert_eq!(out.meta["google_called"]["calls"], 2);
+    let also = out.meta["google_called_also"].as_array().unwrap();
+    assert_eq!(also.len(), 1, "{}", out.meta);
+    assert_eq!(
+        out.meta["google_called"]["method"],
+        "gmail.users.threads.get"
+    );
     assert!(out.text.contains("next page: page = 1"), "{}", out.text);
 }
 

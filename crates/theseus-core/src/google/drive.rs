@@ -170,25 +170,26 @@ fn type_word(mime: &str) -> &str {
     }
 }
 
-/// Whether `q`'s parentheses and single quotes (with `\'` escapes) pair up, so
-/// wrapping it in parentheses keeps it one group.
+/// Whether `q`'s parentheses and quotes, single or double (with backslash
+/// escapes), pair up, so wrapping it in parentheses keeps it one group.
 fn balanced(q: &str) -> bool {
-    let (mut depth, mut quoted, mut chars) = (0u32, false, q.chars());
+    let (mut depth, mut quote, mut chars) = (0u32, None, q.chars());
     while let Some(c) = chars.next() {
-        match (quoted, c) {
-            (true, '\\') => {
+        match (quote, c) {
+            (Some(_), '\\') => {
                 chars.next();
             }
-            (_, '\'') => quoted = !quoted,
-            (false, '(') => depth += 1,
-            (false, ')') => match depth.checked_sub(1) {
+            (None, '\'' | '"') => quote = Some(c),
+            (Some(open), _) if open == c => quote = None,
+            (None, '(') => depth += 1,
+            (None, ')') => match depth.checked_sub(1) {
                 Some(d) => depth = d,
                 None => return false,
             },
             _ => {}
         }
     }
-    depth == 0 && !quoted
+    depth == 0 && quote.is_none()
 }
 
 /// `find`'s `q`: the raw `q` and each typed field, all of them and not trashed.
