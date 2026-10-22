@@ -506,43 +506,39 @@ async fn the_home_standing_removes_the_dms_board() {
     .await;
     until(&r, "the board at the home", || !boards(&r, home).is_empty()).await;
     let after: Vec<String> = r.posted(ANA_DM).into_iter().map(|m| m.id).collect();
-    only_the_board_left(&dm_before, &board, &after);
+    assert_eq!(only_the_board_left(&dm_before, &board, &after), Ok(()));
     open_gate(&r);
 }
 
-/// Every message of the DM but the board's `board` is still there.
-fn only_the_board_left(before: &[String], board: &str, after: &[String]) {
-    assert!(
-        before.iter().any(|id| id == board),
-        "{board} was in {before:?}"
-    );
-    assert!(
-        !after.iter().any(|id| id == board),
-        "{board} is gone: {after:?}"
-    );
+/// Whether every message of the DM but the board's `board` is still there,
+/// and the board is not: the first thing that differs, if not.
+fn only_the_board_left(before: &[String], board: &str, after: &[String]) -> Result<(), String> {
+    if !before.iter().any(|id| id == board) {
+        return Err(format!("{board} was not in {before:?}"));
+    }
+    if after.iter().any(|id| id == board) {
+        return Err(format!("{board} is not gone: {after:?}"));
+    }
     let want: Vec<&String> = before.iter().filter(|id| *id != board).collect();
     let kept: Vec<&String> = after.iter().filter(|id| before.contains(id)).collect();
-    assert_eq!(
-        kept, want,
+    if kept == want {
+        return Ok(());
+    }
+    Err(format!(
         "only the board left the DM: {before:?} -> {after:?}"
-    );
+    ))
 }
 
-/// The check names the board: one other message gone fails it (theseus-4v88e).
+/// The check names the board: one other message gone fails it, and so does
+/// the board staying while another message goes (the old check,
+/// `kept + 1 >= before`, passed that) (theseus-4v88e).
 #[test]
-#[should_panic(expected = "only the board left the DM")]
-fn a_dm_message_that_is_not_the_board_going_fails_the_check() {
+fn the_check_names_the_board_and_keeps_every_other_message() {
     let ids = |v: &[&str]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
-    only_the_board_left(&ids(&["a", "b", "c"]), "b", &ids(&["a"]));
-}
-
-/// The old check (`kept + 1 >= before`) passed when the board stayed and some
-/// other message went; this one does not.
-#[test]
-#[should_panic(expected = "is gone")]
-fn the_board_staying_while_another_message_goes_fails_the_check() {
-    let ids = |v: &[&str]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
-    only_the_board_left(&ids(&["a", "b", "c"]), "b", &ids(&["b", "c"]));
+    let before = ids(&["a", "b", "c"]);
+    assert_eq!(only_the_board_left(&before, "b", &ids(&["a", "c"])), Ok(()));
+    assert!(only_the_board_left(&before, "b", &ids(&["a"])).is_err());
+    assert!(only_the_board_left(&before, "b", &ids(&["b", "c"])).is_err());
 }
 
 /// A restart end to end: the first run drew the DM's board before any home
@@ -588,7 +584,7 @@ async fn a_restart_removes_the_earlier_runs_dm_board_once_the_home_stands() {
     })
     .await;
     let after: Vec<String> = again.posted(ANA_DM).into_iter().map(|m| m.id).collect();
-    only_the_board_left(&before, &board, &after);
+    assert_eq!(only_the_board_left(&before, &board, &after), Ok(()));
     assert!(
         boards(&again, ANA_DM).is_empty(),
         "no board drawn in the DM"
