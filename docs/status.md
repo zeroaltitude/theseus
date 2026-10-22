@@ -526,6 +526,20 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-22: v1 patch1 tail, part 6** (theseus-4h85l, theseus-atbgl, theseus-uaqox, theseus-e3pxa, theseus-hat0c,
+  theseus-m1a51, theseus-fkvb0, theseus-4v88e, theseus-8zgji, theseus-93lkm, theseus-kbfl0, theseus-zwlgz). The route
+  footer's `data gate: <why>` now shows (and counts) only when the data rule kept a turn off a China-origin model it
+  would otherwise have taken; the provider chokepoint and the compaction, consolidation, keep-warm and replay refusals
+  count on `theseus.route.data_gate`. A turn's fetch that redirected is screened at its final URL, and a refused reply
+  reservation still lands its row. The ontology sweep reads titles off the worker, asks `same_kind` for singleton
+  chains and for two clusters, keeps a paid kind-name pick until the kind mints, and shows Jev-named kinds and renames
+  in the morning note and the cockpit. A move landing during a thread's growth no longer commits it to the origin; a
+  held compile's `route.decided` row carries the turn's real wait and steering; `confirm.list`, the push and
+  `budget.list` name the asking turn, so a chat that follows a placed thread keeps its other turns' questions out.
+  `route.decided`'s `effort_reason` gained `sticky_unsure`: a one-step hold of an `applied_unsure` answer (`sticky` is
+  unchanged). The recall bench plans a later session at the recall tail's cap (12,000, not one 1,500 note), so the
+  windows grow (smoke 56000, full 101000 at 13,943); a read-only test tree is thawed and removed by
+  `scratch::remove`.
 - **2026-10-22: v1 patch1 tail, part 5** (theseus-7pm8t, theseus-ddfe7, theseus-qiyxq, theseus-bs8dl, theseus-i7kmb,
   theseus-kg4kd, theseus-kbfl0, theseus-7nx13). Jev's effort answer now applies on its own bar, `[routing]
   effort_confidence` (0.35), even when its band is under the question's confirm bar (row `effort_reason`
