@@ -47,6 +47,9 @@ fn trial(model: &FakeModel, jev: &FakeJev) -> tempfile::TempDir {
     // Every message is its own daemon's first: a cache hold above the cold
     // line would wait for a second agreeing turn, so keep the line high.
     set(&mut t, &["routing", "cold_switch_tokens"], 1_000_000.into());
+    // The gate's line this test draws between 0.65 and 0.9 (the bench
+    // profile's own is the owner's live 0.40).
+    set(&mut t, &["routing", "high_effort_confidence"], 0.70.into());
     set(
         &mut t,
         &["tools", "projects_dir"],

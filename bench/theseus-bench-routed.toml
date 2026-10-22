@@ -6,8 +6,9 @@
 #   - `[judge]` is on, and the route pack (acting since
 #     theseus-p8dy, with a `review` class) asks at the message which task class it needs and the effort
 #     its reply needs; the turn runs on that class's first usable profile
-#     (`[routing.classes.*]`, the owner's table), at Jev's effort where Jev
-#     is sure (within `[routing] effort_bounds`, the full range here);
+#     (`[routing.classes.*]`, the owner's table), at Jev's effort where its
+#     confidence reaches `[routing] effort_confidence`, xhigh and max only
+#     above `high_effort_confidence` (within `effort_bounds`, the full range here);
 #   - the session's own profile, `bench`, stays Sonnet 5.5 at medium effort,
 #     as the plain arm's: `chat` and `other` run on it, and a profile the
 #     table names that this file lacks is passed over (the Z.ai entries,
@@ -163,6 +164,9 @@ key_secret = "jev_api_key"
 enabled = true
 rung = "live"
 max_wait_ms = 2000
+# the owner's live bars, 2026-10-22
+high_effort_confidence = 0.40
+effort_confidence = 0.35
 
 [routing.classes.trivial]
 profiles = ["haiku"]

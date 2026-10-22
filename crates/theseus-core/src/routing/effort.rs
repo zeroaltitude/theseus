@@ -14,10 +14,11 @@
 //! - **`xhigh` and `max` need confidence** (theseus-p8dy, the owner's decision
 //!   of 2026-10-11: Jev may go all the way to max, but only on high evidence):
 //!   an answer of either applies only when its confidence is strictly above
-//!   `[routing] high_effort_confidence` (0.70); at or below, the turn runs at
-//!   `high` and the row says `held_high`, the answered level still recorded.
-//!   The gate applies first and the bounds clamp after; where both lower an
-//!   answer, the reason is the gate's.
+//!   `[routing] high_effort_confidence` (0.40, the owner's live bar of
+//!   2026-10-22); at or below, the turn runs at `high` and the row says
+//!   `held_high`, the answered level still recorded. The gate applies first
+//!   and the bounds clamp after; where both lower an answer, the reason is
+//!   the gate's. It holds whether or not the answer's band was sure.
 //! - **A routed profile's own effort is its floor** (theseus-53ujg.3): on a
 //!   profile a routing class chose (not the session's base), the turn runs at
 //!   no less than the profile's own `effort`, the level the profile is
@@ -32,11 +33,19 @@
 //!   long conversation the request keeps the previous request's level unless
 //!   Jev's differs from it by two steps or more. The decision keeps both: `ran`
 //!   is the level Jev's answer came to, `sent` the one the request carries.
-//! - **The confidence rules are route.v2's**: below the question's `confirm`
-//!   bar (its band, the pack's own thresholds), on `unclear`, for a verdict
-//!   in shadow or a pinned turn, and for a late verdict (one asked for the
-//!   session's last message, which carries its mode, never its effort), the
-//!   profile's own effort stands.
+//! - **The effort has its own bar, not the model switch's** (theseus-7pm8t):
+//!   an answer below the question's `confirm` bar (its band, the pack's own
+//!   thresholds, which a model switch needs) still applies when its
+//!   confidence is at or above `[routing] effort_confidence` (0.35): an
+//!   effort level costs far less than a cold cache. Under it the profile's
+//!   own effort stands (`unsure`). Such an answer goes through the gate, the
+//!   floor and the bounds as a sure one does; the row says `applied_unsure`
+//!   only where the answer's own level ran, and the gate's, the floor's and
+//!   the bounds' reasons win where one of them moved it.
+//! - **The rest are route.v2's**: on `unclear`, for a verdict in shadow or a
+//!   pinned turn, and for a late verdict (one asked for the session's last
+//!   message, which carries its mode, never its effort), the profile's own
+//!   effort stands.
 
 use crate::config::Effort;
 
@@ -64,8 +73,11 @@ pub enum EffortReason {
     /// Jev answered `xhigh` or `max` at or under `high_effort_confidence`:
     /// the turn runs at `high` (theseus-p8dy).
     HeldHigh,
-    /// Under the question's confirm bar.
+    /// Under the question's confirm bar and under `effort_confidence`.
     Unsure,
+    /// Jev's level, within the bounds, from an answer under the question's
+    /// confirm bar but at or above `effort_confidence` (theseus-7pm8t).
+    AppliedUnsure,
     /// Jev answered `unclear`.
     Unclear,
     /// The profile fixes its effort (`effort_fixed`).
@@ -93,6 +105,7 @@ impl EffortReason {
             EffortReason::Clamped => "clamped",
             EffortReason::HeldHigh => "held_high",
             EffortReason::Unsure => "unsure",
+            EffortReason::AppliedUnsure => "applied_unsure",
             EffortReason::Unclear => "unclear",
             EffortReason::Fixed => "fixed",
             EffortReason::NoEffort => "no_effort",
@@ -136,6 +149,7 @@ impl EffortDecision {
         matches!(
             self.reason,
             EffortReason::Applied
+                | EffortReason::AppliedUnsure
                 | EffortReason::Clamped
                 | EffortReason::HeldHigh
                 | EffortReason::Sticky
@@ -168,13 +182,21 @@ pub fn parse(level: &str) -> Option<Effort> {
     .find(|e| name(*e) == level)
 }
 
+/// The effort bars of `[routing]`: `effort_confidence`, the least an answer
+/// whose band is unsure applies at, and `high_effort_confidence`, which
+/// `xhigh` and `max` must pass.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Bars {
+    pub effort: f64,
+    pub high: f64,
+}
+
 /// The effort rule. `acts` is whether the verdict acts on this turn: live,
 /// unpinned, and asked for this turn's own message (`carried` when it is a
-/// late verdict of the last one). `high_confidence` is `[routing]
-/// high_effort_confidence`: `xhigh` and `max` apply only above it.
+/// late verdict of the last one).
 pub fn decide(
     bounds: [Effort; 2],
-    high_confidence: f64,
+    bars: Bars,
     answer: &EffortAnswer,
     runs: Runs,
     acts: bool,
@@ -195,7 +217,7 @@ pub fn decide(
     let Some(level) = parse(&answer.level) else {
         return stand(EffortReason::Unclear);
     };
-    if !answer.sure {
+    if !answer.sure && answer.confidence < bars.effort {
         return stand(EffortReason::Unsure);
     }
     if !runs.takes {
@@ -206,7 +228,7 @@ pub fn decide(
     }
     let [lo, hi] = bounds;
     // The gate first: an unsure xhigh or max is a high.
-    let held = level >= Effort::Xhigh && answer.confidence <= high_confidence;
+    let held = level >= Effort::Xhigh && answer.confidence <= bars.high;
     let gated = match held {
         true => Effort::High,
         false => level,
@@ -216,7 +238,8 @@ pub fn decide(
     EffortDecision {
         reason: match (ran == level, held && ran < level) {
             _ if ran > gated.clamp(lo, hi) => EffortReason::Floored,
-            (true, _) => EffortReason::Applied,
+            (true, _) if answer.sure => EffortReason::Applied,
+            (true, _) => EffortReason::AppliedUnsure,
             (false, true) => EffortReason::HeldHigh,
             (false, false) => EffortReason::Clamped,
         },
@@ -241,10 +264,14 @@ mod tests {
     use super::*;
 
     const FULL: [Effort; 2] = [Effort::Low, Effort::Max];
-    const BAR: f64 = 0.70;
+    const BAR: Bars = Bars {
+        effort: 0.35,
+        high: 0.70,
+    };
 
+    /// A sure answer at 0.9, an unsure one under `BAR.effort`.
     fn a(level: &str, sure: bool) -> EffortAnswer {
-        at(level, if sure { 0.9 } else { 0.5 }, sure)
+        at(level, if sure { 0.9 } else { 0.3 }, sure)
     }
 
     fn at(level: &str, confidence: f64, sure: bool) -> EffortAnswer {
@@ -402,11 +429,12 @@ mod tests {
         }
         assert_eq!(EffortReason::HeldHigh.as_str(), "held_high");
         // A raised bar moves the line; a bar of 1.0 holds every max.
-        let d = decide(FULL, 0.9, &at("max", 0.85, true), r, true, false);
+        let raised = Bars { high: 0.9, ..BAR };
+        let d = decide(FULL, raised, &at("max", 0.85, true), r, true, false);
         assert_eq!(d.reason, EffortReason::HeldHigh);
-        // Not sure at all (under the question's confirm bar): the gate is
-        // not reached, the profile's own stands.
-        let d = decide(FULL, BAR, &at("max", 0.5, false), r, true, false);
+        // Under the question's confirm bar and under `effort_confidence`:
+        // the gate is not reached, the profile's own stands.
+        let d = decide(FULL, BAR, &at("max", 0.3, false), r, true, false);
         assert_eq!(d.reason, EffortReason::Unsure);
     }
 
@@ -516,5 +544,86 @@ mod tests {
             assert!(d.applied());
         }
         assert_eq!(EffortReason::Floored.as_str(), "floored");
+    }
+
+    /// The owner's live bars (2026-10-22): 0.35 to apply an unsure answer,
+    /// 0.40 for `xhigh` and `max`.
+    const LIVE: Bars = Bars {
+        effort: 0.35,
+        high: 0.40,
+    };
+
+    /// The Terminal-Bench case (theseus-7pm8t): Jev asked for `max` at 0.42
+    /// with its band under the confirm bar, and the turn ran at the profile's
+    /// own. On the effort's own bar it runs at `max`, and the row says so.
+    #[test]
+    fn a_max_answer_at_0_42_with_an_unsure_band_runs_at_max() {
+        let r = runs(Some(Effort::Medium), false, true);
+        let d = decide(FULL, LIVE, &at("max", 0.42, false), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::AppliedUnsure, Some(Effort::Max))
+        );
+        assert!(d.applied());
+        assert_eq!(d.reason.as_str(), "applied_unsure");
+        // At the bar exactly it applies too; a sure answer is unaffected.
+        let d = decide(FULL, LIVE, &at("medium", 0.35, false), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::AppliedUnsure, Some(Effort::Medium))
+        );
+        let d = decide(FULL, LIVE, &at("max", 0.42, true), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::Applied, Some(Effort::Max))
+        );
+    }
+
+    /// Under `effort_confidence` an unsure answer leaves the profile's own.
+    #[test]
+    fn an_unsure_answer_under_effort_confidence_keeps_the_profiles_effort() {
+        let low = Some(Effort::Low);
+        let d = decide(
+            FULL,
+            LIVE,
+            &at("max", 0.30, false),
+            runs(low, false, true),
+            true,
+            false,
+        );
+        assert_eq!((d.reason, d.ran), (EffortReason::Unsure, low));
+        assert!(!d.applied());
+    }
+
+    /// The gate holds an unsure answer as it holds a sure one: between the
+    /// two bars an `xhigh` runs `high`. The floor and the bounds name their
+    /// own reasons over `applied_unsure`.
+    #[test]
+    fn an_unsure_xhigh_between_the_bars_runs_high() {
+        let bars = Bars {
+            effort: 0.35,
+            high: 0.50,
+        };
+        let r = runs(None, false, true);
+        let d = decide(FULL, bars, &at("xhigh", 0.42, false), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::HeldHigh, Some(Effort::High))
+        );
+        let b = [Effort::Low, Effort::Medium];
+        let d = decide(b, bars, &at("high", 0.42, false), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::Clamped, Some(Effort::Medium))
+        );
+        let floored = Runs {
+            floor: Some(Effort::High),
+            ..runs(Some(Effort::High), false, true)
+        };
+        let d = decide(FULL, bars, &at("low", 0.42, false), floored, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::Floored, Some(Effort::High))
+        );
     }
 }

@@ -54,10 +54,15 @@ pub struct RoutingConfig {
     #[serde(default = "effort_bounds")]
     pub effort_bounds: [Effort; 2],
     /// Jev's answer of `xhigh` or `max` applies only when its confidence is
-    /// strictly above this (theseus-p8dy, the owner's "only on high evidence,
-    /// ci > 0.70"); at or below, the turn runs at `high`.
+    /// strictly above this (theseus-p8dy; 0.40 since the owner's 2026-10-22
+    /// "reduce required confidence"); at or below, the turn runs at `high`.
     #[serde(default = "high_effort_confidence")]
     pub high_effort_confidence: f64,
+    /// An effort answer whose band is under the question's confirm bar still
+    /// applies at this confidence or more (theseus-7pm8t): an effort level is
+    /// not held to the model switch's bar. At most `high_effort_confidence`.
+    #[serde(default = "effort_confidence")]
+    pub effort_confidence: f64,
     /// The dear tier's context guard (theseus-p8dy): at a compile of more
     /// estimated tokens than this, a `sophisticated` or `review` verdict skips
     /// a profile whose input price is above the next usable one's in the
@@ -243,7 +248,10 @@ fn effort_bounds() -> [Effort; 2] {
     [Effort::Low, Effort::Max]
 }
 fn high_effort_confidence() -> f64 {
-    0.70
+    0.40
+}
+fn effort_confidence() -> f64 {
+    0.35
 }
 fn dear_tier_max_tokens() -> u64 {
     200_000
@@ -347,6 +355,7 @@ impl Default for RoutingConfig {
             switch_confidence: switch_confidence(),
             effort_bounds: effort_bounds(),
             high_effort_confidence: high_effort_confidence(),
+            effort_confidence: effort_confidence(),
             dear_tier_max_tokens: dear_tier_max_tokens(),
             classes: RoutingClasses::default(),
             corrections: CorrectionsConfig::default(),
@@ -386,6 +395,12 @@ impl RoutingConfig {
         let h = self.high_effort_confidence;
         if !(h > 0.0 && h <= 1.0) {
             anyhow::bail!("routing.high_effort_confidence must be above 0 and at most 1");
+        }
+        let e = self.effort_confidence;
+        if !(e > 0.0 && e <= h) {
+            anyhow::bail!(
+                "routing.effort_confidence must be above 0 and at most routing.high_effort_confidence"
+            );
         }
         if self.dear_tier_max_tokens == 0 {
             anyhow::bail!("routing.dear_tier_max_tokens must be at least 1");
@@ -466,7 +481,8 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     );
     assert_eq!(r.switch_confidence, 0.6);
     assert_eq!(r.effort_bounds, effort_bounds(), "the full range");
-    assert_eq!(r.high_effort_confidence, 0.70);
+    assert_eq!(r.high_effort_confidence, 0.40);
+    assert_eq!(r.effort_confidence, 0.35);
     assert_eq!(r.dear_tier_max_tokens, 200_000);
     for m in MODES {
         assert_eq!(r.classes.of(m), RoutingClasses::default().of(m), "{m}");
@@ -557,6 +573,8 @@ mod tests {
             "switch_confidence = 1.5",
             "high_effort_confidence = 0.0",
             "high_effort_confidence = 1.1",
+            "effort_confidence = 0.0",
+            "effort_confidence = 0.5",
             "dear_tier_max_tokens = 0",
             "max_wait_ms = 9000",
             "[corrections]\nsimilarity = 0.0",
@@ -614,7 +632,7 @@ mod tests {
         // An unset bar is left out when the section is written back.
         let text = toml::to_string(&d).unwrap();
         assert!(
-            !text.contains("classes.trivial.switch") && !text.contains("0.4"),
+            !text.contains("classes.trivial.switch") && !text.contains("switch_confidence = 0.4"),
             "{text}"
         );
     }
@@ -670,15 +688,37 @@ mod tests {
         );
     }
 
-    /// `high_effort_confidence` (theseus-p8dy): 0.70 by default, above 0 and
-    /// at most 1.
+    /// `high_effort_confidence` (theseus-p8dy): 0.40 by default since
+    /// theseus-7pm8t, above 0 and at most 1.
     #[test]
-    fn xhigh_and_max_need_confidence_above_a_bar_that_defaults_to_seven_tenths() {
-        assert_eq!(cfg("").unwrap().high_effort_confidence, 0.70);
+    fn xhigh_and_max_need_confidence_above_a_bar_that_defaults_to_four_tenths() {
+        assert_eq!(cfg("").unwrap().high_effort_confidence, 0.40);
         let c = cfg("high_effort_confidence = 0.85").unwrap();
         assert_eq!(c.high_effort_confidence, 0.85);
         c.validate(|_| false).unwrap();
         cfg("high_effort_confidence = 1.0")
+            .unwrap()
+            .validate(|_| false)
+            .unwrap();
+    }
+
+    /// `effort_confidence` (theseus-7pm8t): 0.35 by default, above 0 and no
+    /// higher than `high_effort_confidence`, and the error says so.
+    #[test]
+    fn an_unsure_effort_applies_at_its_own_bar_under_the_high_one() {
+        let d = cfg("").unwrap();
+        assert_eq!(
+            (d.effort_confidence, d.high_effort_confidence),
+            (0.35, 0.40)
+        );
+        d.validate(|_| false).unwrap();
+        cfg("effort_confidence = 0.40")
+            .unwrap()
+            .validate(|_| false)
+            .unwrap();
+        let e = cfg("effort_confidence = 0.5").unwrap().validate(|_| false);
+        assert!(format!("{:#}", e.unwrap_err()).contains("at most routing.high_effort_confidence"));
+        cfg("effort_confidence = 0.5\nhigh_effort_confidence = 0.6")
             .unwrap()
             .validate(|_| false)
             .unwrap();
