@@ -946,6 +946,7 @@ async fn the_status_line_counts_the_open_tasks_it_has_seen() {
         Event::TaskChanged(theseus_protocol::tasks::TaskChanged {
             session_id: SID.into(),
             verb: "update".into(),
+            turn_id: None,
             task: theseus_protocol::tasks::TaskRecord {
                 id: id.into(),
                 state,

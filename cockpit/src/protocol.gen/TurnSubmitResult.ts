@@ -88,7 +88,12 @@ nudged?: TurnNudge,
 /**
  * What the turn's file tools changed and its commands left (theseus-53ujg.1); none in a shared place.
  */
-files?: FilesLeft, raised?: ToolsRaised, 
+files?: FilesLeft, 
+/**
+ * The deferred-tool families this turn's first request loaded past its place's budget, each with its tokens and
+ * who admitted it (`named` or `jev`), under `[tools.defer] admit_ceiling` (theseus-xlri5); none when nothing passed.
+ */
+raised?: ToolsRaised, 
 /**
  * The sources of the handles the reply cites, resolved against this
  * turn's recall (theseus-ejdk); none when it cited none, and none a

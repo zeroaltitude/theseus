@@ -10,4 +10,9 @@ export type TaskChanged = {
 /**
  * The session whose call or answer changed it.
  */
-session_id: string, verb: string, task: TaskRecord, };
+session_id: string, verb: string, task: TaskRecord, 
+/**
+ * The turn whose call made the change, when a turn did: a chat follows
+ * a thread's session and shows only the changes of its own turns.
+ */
+turn_id?: string, };
