@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use theseus_judge::builders::ThreadInput;
 use theseus_protocol::thread_route::{RouteHow, ThreadAsk, ThreadTag};
 use theseus_protocol::threads::{ThreadInfo, ThreadNewParams};
-use theseus_protocol::{error_code, TurnSubmitParams, TurnSubmitResult};
+use theseus_protocol::{error_code, Event, ThreadPlaced, TurnSubmitParams, TurnSubmitResult};
 
 use super::server::{Conn, RpcFailure};
 use super::Core;
@@ -238,6 +238,7 @@ impl Core {
             judgment,
             at_ms: now,
         });
+        self.tell_placed(conn, &home, &run_session.session_id, &turn_id, &tag);
         state.hand_off(
             &run_session.session_id,
             Handoff {
@@ -257,6 +258,29 @@ impl Core {
         };
         *session = run_session;
         Ok(Some(routing))
+    }
+
+    /// The sender hears where its message went now, not at the turn's end
+    /// (theseus-7kjb7): a notification to its connection; `thread.routed` is
+    /// the row. Only a turn the router put in a thread has anything to tell.
+    fn tell_placed(
+        &self,
+        conn: Conn<'_>,
+        home: &str,
+        placed: &str,
+        turn_id: &str,
+        tag: &ThreadTag,
+    ) {
+        if tag.slug.is_none() {
+            return;
+        }
+        let direct = Some((conn.client.to_string(), conn.tx.clone()));
+        EventSink::new(self.bus.clone(), home, direct).send(Event::ThreadPlaced(ThreadPlaced {
+            session_id: home.to_string(),
+            placed: placed.to_string(),
+            turn_id: turn_id.to_string(),
+            tag: tag.clone(),
+        }));
     }
 
     /// The session that runs it. A thread that cannot take it (it was paused

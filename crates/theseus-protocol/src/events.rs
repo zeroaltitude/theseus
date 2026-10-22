@@ -575,6 +575,8 @@ events! {
     ThreadChanged(crate::threads::ThreadChanged) = notify::THREAD_CHANGED,
     /// A message waits for the owner to say which thread it is about.
     ThreadAsked(crate::thread_route::ThreadAsk) = notify::THREAD_ASKED,
+    /// The router placed a message in a thread's session (theseus-7kjb7).
+    ThreadPlaced(crate::thread_placed::ThreadPlaced) = notify::THREAD_PLACED,
     /// A followed job's output, to the connection that follows it.
     ActionOutputChunk(crate::job_follow::ActionOutputChunk) = notify::ACTION_OUTPUT_CHUNK,
     ActionOutputEnd(crate::job_follow::ActionOutputEnd) = notify::ACTION_OUTPUT_END,
@@ -607,6 +609,7 @@ impl Event {
             Event::TaskChanged(e) => Some(&e.session_id),
             Event::WakeNoticed(e) => Some(&e.session_id),
             Event::ThreadAsked(e) => Some(&e.session_id),
+            Event::ThreadPlaced(e) => Some(&e.session_id),
             Event::StandingNoticed(e) => Some(&e.session_id),
             Event::SessionMode(e) => Some(&e.session_id),
             Event::WorkChanged(_)
@@ -646,6 +649,7 @@ impl Event {
             Event::NarrativeLine(e) => e.turn_id.as_deref(),
             Event::JudgeScored(e) => Some(&e.turn_id),
             Event::JudgeNoticed(e) => Some(&e.turn_id),
+            Event::ThreadPlaced(e) => Some(&e.turn_id),
             Event::ProfileChanged(_)
             | Event::ConfirmRequested(_)
             | Event::ConfirmResolved(_)

@@ -98,6 +98,7 @@ pub mod term;
 #[cfg(test)]
 mod tests_task_info;
 pub mod thread_cache;
+mod thread_placed;
 pub mod thread_route;
 pub mod threads;
 pub mod threads_import;
@@ -162,6 +163,7 @@ pub use standing_proposals::*;
 pub use submit::{SessionOpenParams, TurnSubmitParams};
 pub use tasks::{TaskDetail, TaskListParams, TaskListResult};
 pub use term::{TerminalInfo, TerminalLeft};
+pub use thread_placed::*;
 pub use time::now_unix_ms;
 pub use toolinfo::{ToolInfo, ToolListResult};
 pub use wakes::*;
@@ -483,6 +485,8 @@ pub mod notify {
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
         /// A thread changed (theseus-sjzm, `threads::ThreadChanged`); the router asks which thread a message is about (theseus-rha2, `thread_route::ThreadAsk`).
         THREAD_CHANGED = "thread.changed", THREAD_ASKED = "thread.asked",
+        /// The router placed a message in a thread's session (theseus-7kjb7, `thread_placed::ThreadPlaced`), to the connection that sent it.
+        THREAD_PLACED = "thread.placed",
         /// A followed job's output (`job_follow.rs`): a chunk from a byte to the connection that asked, then its end.
         ACTION_OUTPUT_CHUNK = "action.output.chunk", ACTION_OUTPUT_END = "action.output.end",
         /// Self-improvement's switch moved (theseus-pw1q.19): `rsi::SelfChanged`, to every connection that watches

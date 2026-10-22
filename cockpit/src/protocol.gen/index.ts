@@ -707,6 +707,7 @@ export type * from './ThreadMoveParams';
 export type * from './ThreadMoveResult';
 export type * from './ThreadNameParams';
 export type * from './ThreadNewParams';
+export type * from './ThreadPlaced';
 export type * from './ThreadRow';
 export type * from './ThreadSealParams';
 export type * from './ThreadSealResult';

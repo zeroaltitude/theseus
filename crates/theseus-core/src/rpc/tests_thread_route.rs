@@ -1392,3 +1392,71 @@ async fn wait_for(mut cond: impl FnMut() -> bool) {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+
+/// The sender hears where its message went when it is placed, not at the turn's
+/// end (theseus-7kjb7): one `thread.placed` with the chat's session, the thread's,
+/// the tag and the id the turn ran as. A message that stays where it was named
+/// (`ask -s`) sends none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_placed_message_tells_the_submitting_connection() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 4);
+    let c = &r.core;
+    two_threads(c);
+    let chat = home(c, None);
+    let mut w = Wire::open(c);
+    let id = w
+        .send(
+            method::TURN_SUBMIT,
+            params(&chat, "#security-fix rotate the key", None),
+        )
+        .await;
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+    let placed: Vec<&Value> = w
+        .heard
+        .iter()
+        .filter(|n| n["method"] == "thread.placed")
+        .collect();
+    assert_eq!(placed.len(), 1, "{:?}", w.heard);
+    let p = &placed[0]["params"];
+    assert_eq!(p["session_id"], json!(chat));
+    assert_eq!(p["placed"], json!(session_of(c, "security-fix")));
+    assert_eq!(p["turn_id"], json!(res.turn_id), "the id the turn ran as");
+    assert_eq!(p["tag"]["slug"], json!("security-fix"));
+    assert_eq!(p["tag"]["how"], json!("addressed"));
+    // A session the client named stays where it is: nothing is placed.
+    let pinned = home(c, None);
+    let mut p = params(&pinned, "what is failing in PR 412?", None);
+    p.via = Some("ask".into());
+    let mut w = Wire::open(c);
+    let id = w.send(method::TURN_SUBMIT, p).await;
+    w.response(id).await;
+    assert!(!w.heard.iter().any(|n| n["method"] == "thread.placed"));
+}
+
+/// A chat on a thread's own session is never routed again (`theseus chat SESSION`
+/// sends no `via`, and keeps no pin: theseus-umb8a's decision): the turn runs
+/// there and no `thread.placed` is sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chat_on_a_threads_own_session_is_never_rerouted() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 4);
+    let c = &r.core;
+    two_threads(c);
+    let chat = home(c, None);
+    let first = submit(c, &chat, "#security-fix rotate the key").await;
+    let own = first.session_id;
+    let mut w = Wire::open(c);
+    let id = w
+        .send(
+            method::TURN_SUBMIT,
+            params(&own, "what is failing in PR 412?", None),
+        )
+        .await;
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+    assert_eq!(res.session_id, own, "it ran where it was sent");
+    assert!(res.thread.is_none(), "{:?}", res.thread);
+    assert!(!w.heard.iter().any(|n| n["method"] == "thread.placed"));
+}
