@@ -512,22 +512,25 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
-- **2026-10-22: v1 patch1 tail, part 3** (theseus-xe77s, theseus-efb8i, theseus-94782). A double quote in a raw Drive
-  `q` now pairs up as a single quote does (`\"` escapes included), so `name = "a(b"` passes and an unpaired `"` is
-  refused as unbalanced instead of slipping past the check that keeps a wrapped query one group. A Sheets create whose
-  answer names an empty spreadsheet id is refused like one with no id, and an error after no REST call at all carries no
-  `google.called` row. Mail now records one `google.called` row for each REST call, as Drive and Sheets do (a send that
-  reads its draft and then sends is two rows, the send's last), where it merged them into one. The learning report's
-  ontology undo line is a courtesy: a store that cannot read the undo rows leaves the line out and logs a warning, and
-  the rest of the report is still written. There is one undo-rate definition (`onto_undo::undo_rates`: Jev's writes per
-  kind in the report's window, and the share an `ontology.undo` names); the report now carries the window's days
-  (`undo_days`), and the CLI and the cockpit say it instead of a fixed "7 days". `theseus judge replay --onto` hides
-  every membership of a session at its first message (the import's, Jev's and the owner's alike) and refuses the flags
-  it would ignore (`--split`, `--errors`, `--judgments`, `--report`) with nothing sent. The 2026-10-11 Sonnet 5.5 400
-  (`output_config: Extra inputs are not permitted`) was a request sent without the per-message effort beta, not a refusal
-  of the message; a request that carries the server-side fallback is compiled for the profile's model alone, so a
-  fallback model without per-message effort that refuses the messages answers the same 400, and the hold lands on the
-  request's model.
+- **2026-10-22: v1 patch1 tail, part 3** (theseus-xe77s, theseus-efb8i, theseus-94782, theseus-wy8pt, theseus-ysp2k,
+  theseus-we57k). A double quote in a raw Drive `q` now pairs up as a single quote does (`\"` escapes included), so
+  `name = "a(b"` passes and an unpaired `"` is refused as unbalanced instead of slipping past the check that keeps a
+  wrapped query one group. A Sheets create whose answer names an empty spreadsheet id is refused like one with no id,
+  and an error after no REST call at all carries no `google.called` row. Mail now records one `google.called` row for
+  each REST call, as Drive and Sheets do (a send that reads its draft and then sends is two rows, the send's last),
+  where it merged them into one. The learning report's ontology undo line is a courtesy: a store that cannot read the
+  undo rows leaves the line out and logs a warning, and the rest of the report is still written. There is one undo-rate
+  definition (`onto_undo::undo_rates`: Jev's writes per kind in the report's window, and the share an `ontology.undo`
+  names); the report now carries the window's days (`undo_days`), and the CLI and the cockpit say it instead of a fixed
+  "7 days". `theseus judge replay --onto` hides every membership of a session at its first message (the import's, Jev's
+  and the owner's alike) and refuses the flags it would ignore (`--split`, `--errors`, `--judgments`, `--report`) with
+  nothing sent. The 2026-10-11 Sonnet 5.5 400 (`output_config: Extra inputs are not permitted`) was a request sent
+  without the per-message effort beta, not a refusal of the message; a request that carries the server-side fallback is
+  compiled for the profile's model alone, so a fallback model without per-message effort that refuses the messages
+  answers the same 400, and the hold lands on the request's model. A read forum post of a finished task now leaves the
+  forum within an hour of its 24 h (an hourly archive tick; a Clear done pressed before the post's end was written still
+  reads it); the owner's DM no longer keeps a task board drawn before the task home stood; the voice merge's open-VAD
+  hold is bounded by the merge window and a joined utterance keeps its barge-in.
 
 - **2026-10-22: the home-size warning fires only for a truly large home, and says something runnable** (theseus-d9je7; the
   owner, 2026-10-21: "long sessions can get quite large, and we're comfortable with those"): a place's home now warns the
