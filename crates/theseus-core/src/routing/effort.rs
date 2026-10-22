@@ -33,6 +33,7 @@
 //!   long conversation the request keeps the previous request's level unless
 //!   Jev's differs from it by two steps or more. The decision keeps both: `ran`
 //!   is the level Jev's answer came to, `sent` the one the request carries.
+//!   `sticky_unsure` stands for the same hold of an `applied_unsure` answer.
 //! - **The effort has its own bar, not the model switch's** (theseus-7pm8t):
 //!   an answer below the question's `confirm` bar (its band, the pack's own
 //!   thresholds, which a model switch needs) still applies when its
@@ -96,6 +97,9 @@ pub enum EffortReason {
     /// a long conversation, and the model has no per-message effort: the
     /// request keeps the previous level (`sent`), so its cache is read.
     Sticky,
+    /// [`Sticky`](EffortReason::Sticky) holding an `applied_unsure` answer:
+    /// the hold keeps the bar that admitted it visible (theseus-8zgji).
+    StickyUnsure,
 }
 
 impl EffortReason {
@@ -112,6 +116,7 @@ impl EffortReason {
             EffortReason::Carried => "carried",
             EffortReason::Recorded => "recorded",
             EffortReason::Sticky => "sticky",
+            EffortReason::StickyUnsure => "sticky_unsure",
             EffortReason::Floored => "floored",
         }
     }
@@ -153,6 +158,7 @@ impl EffortDecision {
                 | EffortReason::Clamped
                 | EffortReason::HeldHigh
                 | EffortReason::Sticky
+                | EffortReason::StickyUnsure
                 | EffortReason::Floored
         )
     }
