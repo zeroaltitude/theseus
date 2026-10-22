@@ -31,7 +31,7 @@ use theseus_tools::paths;
 
 use crate::ceiling::PlaceView;
 use crate::compiler::{Compiled, RequestSpec};
-use crate::places::{files_tool, public_tool, shown};
+use crate::places::{files_tool, shown};
 use crate::session::SessionRecord;
 use crate::turn::{Target, TurnRunner};
 
@@ -61,16 +61,18 @@ pub fn runs_tool(name: &str) -> bool {
 /// read, or act on a task's own record (`task.update`, `task.close`), but
 /// none that starts or schedules work outside this request (`task.create`,
 /// `task.split`, `task.claim`, `wake.at`), which would run later, on another
-/// model, with the owner's trust. A shared place keeps every public tool.
+/// model, with the owner's trust. An allowlist, so a public tool added later
+/// is not offered to an open request until it is judged here. A shared place
+/// keeps every public tool.
 pub fn open_public(name: &str) -> bool {
-    public_tool(name)
-        && !matches!(
-            name,
-            crate::task::CREATE
-                | crate::task_graph::tools::SPLIT
-                | crate::task_graph::lease::CLAIM
-                | crate::wake::AT
-        )
+    matches!(
+        name,
+        "web.search"
+            | "http.fetch"
+            | "tools.find"
+            | crate::task_graph::tools::UPDATE
+            | crate::task_graph::tools::CLOSE
+    )
 }
 
 impl Open {
@@ -137,7 +139,7 @@ impl Open {
             {
                 return Some(format!(
                     "{} is git's own, and a draft edits only its tree's files",
-                    g.display()
+                    crate::places::home_shown(g)
                 ));
             }
         }
@@ -146,7 +148,7 @@ impl Open {
             .find(|p| !self.roots.iter().any(|root| paths::within(p, root)))?;
         Some(format!(
             "{} is outside the open paths, and this request is open: here {name} reaches only {}",
-            crate::places::home_shown(&outside),
+            crate::places::home_shown(outside),
             shown(&self.roots)
         ))
     }

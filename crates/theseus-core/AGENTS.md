@@ -1694,7 +1694,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     Consolidation never runs on a restricted model (`restricted_origin`), keep-warm skips a restricted target, and
     `turn.replay` refuses one. Tests: `tests_bg_gate.rs`.
     A task's turn is private while its parent holds the Google mark, however late the parent took it
-    (`private_session` reads the parent's on a task's turn alone; theseus-y8k3u); the learning writer and a thread
+    (`private_session` reads every task above it on a task's turn alone, `google::private::lineage`; theseus-y8k3u); the learning writer and a thread
     import's card are scoped over every session they hold (`over_sessions`). Tests: `tests_private_background.rs`,
     `tests_cn_follow.rs`.
     **Drafts** (theseus-a1wvq.13; `draft.rs`, `turn/draft_step.rs`, `fact/draft.rs`; no store format change: a META record
@@ -1702,9 +1702,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     programs, and a Claude check always reviews it; nothing is applied or posted before that review. A coding class's
     `[routing.classes.<class>] cn_draft` (a restricted profile; `routine_coding` and `deep_coding` only) and `final` (its
     Claude reviewers, first usable wins; required with it) make an admitted ask of a conversation (no task, no wake, its
-    `dir` a git tree under the open roots) open a draft instead of a model call: an open task (`OpenHow::Draft`) on the
-    `cn_draft` profile in a worktree at `<state>/drafts/<short>` on branch `draft/<short>`, which joins its open roots
-    alone, briefed by the core with the open run's person messages. Each failed condition is the route row's
+    `dir` in a git repository whose top is under the open roots: the tree is the whole repository, and it is applied
+    at that top) open a draft instead of a model call: an open task (`OpenHow::Draft`) on the `cn_draft` profile in a
+    worktree at `<state>/drafts/<short>` on branch `draft/<short>`, which is its open roots alone (never `open_paths`,
+    and never a path through `.git`), briefed by the core with the open run's person messages. Each failed condition is the route row's
     `draft_skip`. `Open::offers` withholds programs from a draft, and where the floor would move it its turn ends
     (`draft_stopped`). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
     check on a `final` profile in the tree, the draft's claim, a correlation id from the draft's), whose end commits,

@@ -101,6 +101,30 @@ pub fn session_on(store: &Store, google: &crate::config::GoogleConfig, session_i
         }
 }
 
+/// Whether `session_id` or any task above it has read a Google result: a mark
+/// a task's ancestor took after the task started reaches it (theseus-y8k3u).
+/// A record the store cannot read, or a chain deeper than 16, counts as private.
+pub fn lineage(store: &Store, cfg: &crate::Config, session_id: &str) -> bool {
+    if cfg.google.is_empty() {
+        return false;
+    }
+    let mut at = session_id.to_string();
+    for _ in 0..16 {
+        if session(store, cfg, &at) {
+            return true;
+        }
+        match store.get_session::<crate::session::SessionRecord>(&at) {
+            Ok(Some(r)) => match r.task {
+                Some(k) => at = k.parent_session,
+                None => return false,
+            },
+            Ok(None) => return false,
+            Err(_) => return true,
+        }
+    }
+    true
+}
+
 /// Whether any of `sessions` has read a Google result: the mark of a request
 /// that holds content from several of them (fail closed: one is enough).
 pub fn any_session<S: AsRef<str>>(

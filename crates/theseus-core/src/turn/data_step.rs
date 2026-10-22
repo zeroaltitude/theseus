@@ -70,12 +70,15 @@ impl TurnRunner {
     /// any origin but the allowlist's from now on. Nothing is read without `[google]`.
     /// A turn whose recall admitted a private session's note is private
     /// from then on (theseus-39dj0), before its frame writes the mark. A
-    /// task's turn is private while its parent is, however late the parent
-    /// took the mark (theseus-y8k3u): one meta read, on a task's turn alone.
+    /// task's turn is private while its parent, or any task above it, is,
+    /// however late it took the mark (theseus-y8k3u): reads only on a task's
+    /// turn, and none without `[google]`.
     pub(super) fn private_session(&self, t: &Turn<'_>) -> bool {
-        let parent = t.tc.task.map(|k| k.parent_session.as_str());
-        let of = std::iter::once(t.tc.session_id).chain(parent);
-        t.recall.private || crate::google::private::any_session(t.tc.store, &self.cfg, of)
+        t.recall.private
+            || crate::google::private::session(t.tc.store, &self.cfg, t.tc.session_id)
+            || t.tc.task.is_some_and(|k| {
+                crate::google::private::lineage(t.tc.store, &self.cfg, &k.parent_session)
+            })
     }
 
     /// Whether `profile` may not be sent the sensitive names: its origin is
