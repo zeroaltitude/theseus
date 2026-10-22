@@ -287,3 +287,35 @@ fn pause_holds_nothing_that_is_not_a_task_at_work() {
         .unwrap_err()
         .contains("is over"));
 }
+
+/// The tokens a task pane holds, as `herdr_slots::slots` writes them, as `pane.get` returns them.
+fn pane_tokens(name: &str, session: &str, kind: theseus_protocol::SessionKind) -> Value {
+    let facts = crate::herdr_slots::Facts {
+        kind: Some(kind),
+        session_id: session.into(),
+        name: name.into(),
+        ..Default::default()
+    };
+    let slots = crate::herdr_slots::slots(None, &facts, 1_000);
+    let map: serde_json::Map<String, Value> = slots
+        .tokens
+        .into_iter()
+        .filter_map(|(k, v)| v.map(|v| (k.to_string(), Value::String(v))))
+        .collect();
+    Value::Object(map)
+}
+
+/// A task pane's `task` token is its title: stop cancels by the session the pane also carries.
+#[test]
+fn stop_cancels_a_task_pane_by_its_session() {
+    let tokens = pane_tokens(
+        "[walkthrough] drift",
+        "ses_01a1772ee8",
+        theseus_protocol::SessionKind::Task,
+    );
+    assert_eq!(tokens["task"], "[walkthrough] drift");
+    assert_eq!(
+        stop_for(&tokens),
+        Some(Stop::Cancel("ses_01a1772ee8".into()))
+    );
+}
