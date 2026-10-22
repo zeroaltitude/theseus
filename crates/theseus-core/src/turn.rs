@@ -1853,7 +1853,7 @@ impl TurnRunner {
                 }
                 _ => None,
             };
-            let mut compiled = match self
+            let compiled = match self
                 .compile_routed(
                     t,
                     session,
@@ -1874,7 +1874,7 @@ impl TurnRunner {
             // A reach for the owner's personal details in a shared place: the
             // reply is held, and the model is never called (theseus-i1z13),
             // even when the compile failed (theseus-cljlz).
-            let Some(compiled) = compiled.filter(|_| !t.route.held) else {
+            let Some(mut compiled) = compiled.filter(|_| !t.route.held) else {
                 if let Some(r) = recall {
                     self.recall_end(t, r).await;
                 }
