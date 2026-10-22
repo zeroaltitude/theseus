@@ -28,13 +28,13 @@ use crate::test_support::ledger_rows_2k as rows;
 use crate::threads_import::card::TOOL;
 use crate::threads_import::fixture::{self, SECRET, SECRET_REPO};
 
-struct Rig {
-    core: Arc<Core>,
-    fake: Arc<FakeProvider>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) fake: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 
-fn rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -61,7 +61,7 @@ fn cli() -> Answerer {
     }
 }
 
-async fn import_export(c: &Arc<Core>) {
+pub(crate) async fn import_export(c: &Arc<Core>) {
     let eps = fixture::export(theseus_protocol::now_unix_ms());
     let p = ImportEpisodesParams {
         file: "export.jsonl".into(),
@@ -76,7 +76,7 @@ async fn import_export(c: &Arc<Core>) {
     assert_eq!((got.imported, got.rejected.len()), (12, 0), "{got:?}");
 }
 
-fn params(apply: Option<&[&str]>) -> ThreadImportParams {
+pub(crate) fn params(apply: Option<&[&str]>) -> ThreadImportParams {
     ThreadImportParams {
         from: "openclaw".into(),
         apply: apply.map(|a| a.iter().map(|s| s.to_string()).collect()),
@@ -84,11 +84,11 @@ fn params(apply: Option<&[&str]>) -> ThreadImportParams {
     }
 }
 
-async fn run(c: &Arc<Core>, p: &ThreadImportParams) -> ThreadImportResult {
+pub(crate) async fn run(c: &Arc<Core>, p: &ThreadImportParams) -> ThreadImportResult {
     c.thread_import(p, cli()).await.unwrap()
 }
 
-fn card_for(lines: Value) -> Scripted {
+pub(crate) fn card_for(lines: Value) -> Scripted {
     Scripted::tools("", &[("tu", TOOL, json!({ "lines": lines }))])
 }
 

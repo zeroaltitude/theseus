@@ -42,6 +42,11 @@ and so is a model the built-in catalog does not itself list as of US origin, wha
 turn whose request contains one of those names runs on a model of US origin, or ends before any model is called; and
 any request to a model of another origin that contains one of those names is refused before it is sent.
 
+The floor beneath these rules is always on, and there is no switch to turn it off. A request to a model of China or
+unknown origin carries only what the open request cleared for that one request: the part of the conversation judged
+open, with none of the owner's private files, facts, preferences or memories, no home directory in a path, and no tool
+that would start work later. Any other request to such a model is refused before it is sent.
+
 Google content is held back by more than names. Every result Google gives Theseus marks its conversation private. From
 then on that conversation's requests, including the summary that shortens it, go only to models of US origin, by the
 same allowlist: the route skips every other model, and a request that would reach one is refused before it is sent. A

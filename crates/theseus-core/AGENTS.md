@@ -1502,6 +1502,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     or `unknown`) enters a class only through `trivial`'s `cn_profiles` (`cn_after` places them; `RoutingClasses::effective`)
     and runs only for a cleared ask (`Ask.cleared`, false until the open-request row), `cheapest` never picks one, and a
     class's `profiles` naming one fails the load, as does `cn_profiles` on any other class.
+    Routing refuses a restricted profile only in these mode lists and `cn_profiles`: a restricted session base, `-P` pin,
+    place profile or `[model]` default is not refused by routing, and the floor moves or fails that turn (theseus-1v7fl).
     **Only Jev elevates, and it steps down** (theseus-p8dy): a session Jev moved above its base (`Routed.from`)
     goes back to it after two verdicts in a row whose mode's first profile is the base or cheaper (`chat`,
     `routine_coding`, `other`): the first sets a `Hold` of mode `step_down` toward the base, the second makes the
@@ -1616,6 +1618,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     restricted profile for the owner-material keys (`[people] extract_profile`, `[card] profile`, `[threads]
     import_profile`, `[judge.learn] writer_profile`, `[self] reviewer_profile`, `[initiative] profile`, `[ontology]
     name_profile`) and a China-origin `[judge] api_base`. Tests: `tests_data_floor.rs`, `config/data_floor.rs`.
+    The floor is always on, with no switch, and its ledger kinds are `data_gate.blocked` and `session.data` (theseus-350xc).
+    `[memory] synth_profile` is the eighth such key (theseus-z1ros): a consolidation mixes many sessions, so no pass can
+    clear it; its word `session` names no profile and stays the run time's (`consolidate/run.rs`, `unrestricted`).
+    `summary_profile` is not one: a compaction in an open request may run restricted with a pass of its own.
     **The data rule is on the record** (theseus-a1wvq.11; `tests_observability.rs`): the route row (`route.decided`) carries the turn's
     admission and gate (`data`, `data_confidence`, `clearance`: `admitted` or `closed`, never a pass; `data_gate`, only when the rule
     kept the turn off a restricted-origin model) and, always, `provider`, `model` and `origin` of the profile it runs on; `provider.call`
@@ -1669,13 +1675,28 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     An open session's first input or request not admitted is its taint (`session.data` `tainted`, once), which closes
     `admits` for it from then on and never blocks a Claude target. An open task's brief is asked about always while the
     pack acts, waited for past `[routing] max_wait_ms` (`brief_step.rs`); an open task's hold from its parent names no
-    URL or query (`external::bare`). Tests: `tests_open_request.rs`.
+    URL or query (`external::bare`), from `task.start` and `task.create` alike, and neither inherits its parent's run.
+    Clearance is per request: each pass is minted for one request's digest and carries to none after it; a taint (a
+    refusal whose `DataWhy::taints` is true) closes `admits` for its session, and an open session's run starts at its
+    first node. A turn that fails before its write-back loses the taint it found, and the next turn takes it again.
+    An open request is offered the public tools that start no later work (`open_view::open_public`: never `task.create`,
+    `task.split`, `task.claim` or `wake.at`, which would run later, on another model, with the owner's trust;
+    `task.update` and `task.close` stay; theseus-qul8y), and every root it is shown reads `~/…` (`places::home_shown`,
+    theseus-mhqlm). `file.read` is not offered there; if it were, an open session's read takes the outside-text hold,
+    as a shared place's does. An open task keeps its parent's directory and last target (theseus-5u16e F5): its
+    workspace reads are private to routing and the open view (`turn/data_step.rs`), so the directory opens nothing; an
+    open session holds no thread card, so `thread_spec` adds none of a thread's text to it.
+    Tests: `tests_open_request.rs`, `tests_cn_follow.rs`.
     **Background calls** (theseus-a1wvq.10; `turn/compaction/gate.rs`): a compaction in an open request summarizes only a
     range its run clears (`data::clearance` over the nodes the summary renders and the run's last, the stored run until the
     turn's admission is read), with a pass of its own, and only such a summary joins the run (`Held.summaries`, read by
     `open_step::writer`); a restricted summary profile otherwise falls back to the `[model]` default, or the ring stands.
     Consolidation never runs on a restricted model (`restricted_origin`), keep-warm skips a restricted target, and
     `turn.replay` refuses one. Tests: `tests_bg_gate.rs`.
+    A task's turn is private while its parent holds the Google mark, however late the parent took it
+    (`private_session` reads the parent's on a task's turn alone; theseus-y8k3u); the learning writer and a thread
+    import's card are scoped over every session they hold (`over_sessions`). Tests: `tests_private_background.rs`,
+    `tests_cn_follow.rs`.
     **Drafts** (theseus-a1wvq.13; `draft.rs`, `turn/draft_step.rs`, `fact/draft.rs`; no store format change: a META record
     `draft.<session>` and the ledger kind `task.draft`): a China-origin model only drafts code, in its own tree, with no
     programs, and a Claude check always reviews it; nothing is applied or posted before that review. A coding class's

@@ -13,10 +13,11 @@
 //!   open sessions' open stretch (`Place::Open`); no task view or project
 //!   slice. A prefix of the open view is keyed `shared`, never `private`.
 //! - **Tools** (`Open::offers`, and `Open::refusal` at the gate, so a tool
-//!   it is not offered is refused if called): the public tools; the file
-//!   tools under the open roots; a program (`runs_tool`) only for a session
-//!   whose directory is under them, and only there; nothing else, so no
-//!   `memory.lookup`, no glide, no MCP tool, no `aws.*`.
+//!   it is not offered is refused if called): the public tools that start
+//!   no later work (`open_public`); the file tools under the open roots; a
+//!   program (`runs_tool`) only for a session whose directory is under them,
+//!   and only there; nothing else, so no `memory.lookup`, no glide, no MCP
+//!   tool, no `aws.*`.
 //! - **Which requests**: every turn of a session whose `data.opened` is set
 //!   (`TurnRunner::open_of`, read from the record the turn holds), and one
 //!   request of any other session through `TurnRunner::open_request`.
@@ -56,6 +57,22 @@ pub fn runs_tool(name: &str) -> bool {
     name == "proc.run" || name.starts_with("job.") || name.starts_with("term.")
 }
 
+/// The public tools an open request is offered (theseus-qul8y): those that
+/// read, or act on a task's own record (`task.update`, `task.close`), but
+/// none that starts or schedules work outside this request (`task.create`,
+/// `task.split`, `task.claim`, `wake.at`), which would run later, on another
+/// model, with the owner's trust. A shared place keeps every public tool.
+pub fn open_public(name: &str) -> bool {
+    public_tool(name)
+        && !matches!(
+            name,
+            crate::task::CREATE
+                | crate::task_graph::tools::SPLIT
+                | crate::task_graph::lease::CLAIM
+                | crate::wake::AT
+        )
+}
+
 impl Open {
     /// The reach of a session working in `cwd` under `roots`, kept.
     pub fn of(roots: Vec<PathBuf>, cwd: &Path) -> &'static Open {
@@ -87,7 +104,7 @@ impl Open {
 
     /// Whether an open request is offered the tool `name`.
     pub fn offers(&self, name: &str) -> bool {
-        public_tool(name)
+        open_public(name)
             || (files_tool(name) && !self.roots.is_empty())
             || (runs_tool(name) && self.within && !self.draft)
     }
@@ -99,8 +116,8 @@ impl Open {
         if !self.offers(name) {
             return Some(format!(
                 "{name} is not offered in an open request: one that may go to a model outside \
-                 the owner's trust gets only the public tools, and files and programs under the \
-                 open paths"
+                 the owner's trust gets only the public tools that start no later work, and files \
+                 and programs under the open paths"
             ));
         }
         if !(files_tool(name) || runs_tool(name)) {
@@ -129,7 +146,7 @@ impl Open {
             .find(|p| !self.roots.iter().any(|root| paths::within(p, root)))?;
         Some(format!(
             "{} is outside the open paths, and this request is open: here {name} reaches only {}",
-            outside.display(),
+            crate::places::home_shown(&outside),
             shown(&self.roots)
         ))
     }

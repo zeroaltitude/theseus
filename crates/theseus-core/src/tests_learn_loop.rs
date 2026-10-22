@@ -103,7 +103,7 @@ fn seed_one(c: &Core, name: &str, top: &str, truth: &str, note: &str, at_ms: u64
 /// `n` train errors (heron0…: complete, labeled progressing) before
 /// `split`, and two holdout judgments after it: wren (complete, labeled
 /// progressing, with [`HOLDOUT_NOTE`]) and gull (complete, labeled so).
-fn seed(c: &Core, n: usize, from: usize, split: u64) {
+pub(crate) fn seed(c: &Core, n: usize, from: usize, split: u64) {
     for i in from..from + n {
         let at = split - 100_000 + i as u64;
         seed_one(
@@ -131,7 +131,7 @@ fn seed(c: &Core, n: usize, from: usize, split: u64) {
 /// The fake answers work_state under the rewritten criterion (`Plainly`):
 /// herons and wren progressing (fixed); gull complete, or progressing when
 /// `gull_breaks` (a holdout class worse).
-fn fake(gull_breaks: bool) -> FakeJev {
+pub(crate) fn fake(gull_breaks: bool) -> FakeJev {
     let jev = FakeJev::start().unwrap();
     let pick = |option: &str| Jev::Choice {
         option: option.into(),
@@ -150,7 +150,7 @@ fn fake(gull_breaks: bool) -> FakeJev {
 }
 
 /// The writer's reply: loop.v1 with its `progressing` option reworded.
-fn writer_reply() -> Scripted {
+pub(crate) fn writer_reply() -> Scripted {
     Scripted::text(&format!(
         "Here is the next version.\n```toml\n{}\n```\n",
         reworded()
@@ -161,7 +161,11 @@ fn writer_reply() -> Scripted {
 /// wired pack but loop.v1 off (the tests write loop.v1's judgments), and
 /// loop.v1 a shadow parent: wired live since the stop nudge (theseus-fh0u),
 /// the owner's rollback leaves it acting nowhere, as it stood before.
-fn rig(script: Vec<Scripted>, jev: &FakeJev, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
+pub(crate) fn rig(
+    script: Vec<Scripted>,
+    jev: &FakeJev,
+    tweak: impl FnOnce(&mut crate::Config),
+) -> Rig {
     let r = rig_on(script, Some(jev), |c| {
         for (p, _) in crate::judge::WIRED {
             if *p != "loop.v1" {
@@ -182,7 +186,7 @@ fn rig(script: Vec<Scripted>, jev: &FakeJev, tweak: impl FnOnce(&mut crate::Conf
     r
 }
 
-async fn learn(c: &Arc<Core>, split: u64) -> JudgeProposal {
+pub(crate) async fn learn(c: &Arc<Core>, split: u64) -> JudgeProposal {
     c.judge_learn(
         JudgeLearnParams {
             pack: "loop.v1".into(),
@@ -202,7 +206,7 @@ fn writer_text(r: &Rig) -> Vec<String> {
         .collect()
 }
 
-fn split_now() -> u64 {
+pub(crate) fn split_now() -> u64 {
     theseus_protocol::now_unix_ms() - 60_000
 }
 

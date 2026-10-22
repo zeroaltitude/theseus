@@ -10,8 +10,14 @@ use crate::catalog::{origin_of, Catalog, ModelOrigin};
 
 impl Config {
     /// The keys whose profile reads the owner's material, with the profile
-    /// each names.
-    fn owner_material_profiles(&self) -> [(&'static str, Option<&str>); 7] {
+    /// each names. `[memory] synth_profile` is one (theseus-z1ros): a
+    /// consolidation mixes many sessions, so no open request's pass can ever
+    /// clear it; its word `session` is no profile and stays the run time's
+    /// (`consolidate/run.rs`, `unrestricted`). `[memory] summary_profile` is
+    /// not: a compaction in an open request may use a restricted model with
+    /// a pass of its own (`turn/compaction/gate.rs`), and falls back
+    /// otherwise.
+    fn owner_material_profiles(&self) -> [(&'static str, Option<&str>); 8] {
         [
             (
                 "[people] extract_profile",
@@ -32,6 +38,7 @@ impl Config {
             ),
             ("[initiative] profile", self.initiative.profile.as_deref()),
             ("[ontology] name_profile", Some(&self.ontology.name_profile)),
+            ("[memory] synth_profile", Some(&self.memory.synth_profile)),
         ]
     }
 
@@ -69,7 +76,7 @@ mod tests {
     type Set = fn(&mut Config, &str);
 
     /// Each key of a call over the owner's material, and how a test sets it.
-    const KEYS: [(&str, Set); 7] = [
+    const KEYS: [(&str, Set); 8] = [
         ("[people] extract_profile", |c, p| {
             c.people.extract_profile = p.into()
         }),
@@ -88,6 +95,9 @@ mod tests {
         }),
         ("[ontology] name_profile", |c, p| {
             c.ontology.name_profile = p.into()
+        }),
+        ("[memory] synth_profile", |c, p| {
+            c.memory.synth_profile = p.into()
         }),
     ];
 
@@ -114,5 +124,19 @@ mod tests {
         let mut c = Config::example();
         c.judge.api_base = "https://jev.example.com/v1".into();
         c.validate().unwrap();
+    }
+
+    /// A restricted `[memory] summary_profile` still loads: a compaction in
+    /// an open request may run there with a pass of its own, and any other
+    /// falls back at run time (theseus-z1ros). The word `session` for
+    /// `synth_profile` names no profile, and loads.
+    #[test]
+    fn a_restricted_summary_profile_still_loads() {
+        let mut c = Config::example();
+        c.memory.summary_profile = "glm".into();
+        c.validate().unwrap_or_else(|e| panic!("{e:#}"));
+        let mut c = Config::example();
+        c.memory.synth_profile = crate::config::memory::SUMMARY_SESSION.into();
+        c.validate().unwrap_or_else(|e| panic!("{e:#}"));
     }
 }
