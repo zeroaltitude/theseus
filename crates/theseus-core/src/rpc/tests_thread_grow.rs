@@ -281,6 +281,30 @@ async fn a_turn_moved_before_its_growth_grows_nothing_in_the_origin() {
     assert_eq!(set_of(c, "pr-round").refs, ["PRR-4142"]);
 }
 
+/// A move that lands after the growth's early check and before its update
+/// (the `between` seam): the update checks again, so the origin's set is
+/// unchanged and no growth is noted for the turn (theseus-hat0c).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_move_during_growth_commits_nothing_to_the_origin() {
+    let r = rig(|_| vec![], |_| {});
+    let c = &r.core;
+    thread(c, "pr-round");
+    let sid = super::tests_thread_recall::thread_session(c, "pr-round");
+    let rec: crate::session::SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
+    let g = c
+        .grow_for(None, &rec, "answer PRR-7777")
+        .expect("a thread's turn");
+    c.thread_grow_between(&g, "turn_racing", || {
+        assert!(c.runner.threads.route.take_grew("turn_racing").is_none());
+    });
+    assert!(set_of(c, "pr-round").refs.is_empty());
+    assert!(c.runner.threads.route.take_grew("turn_racing").is_none());
+    // Without a move the same growth commits and is noted for one.
+    c.thread_grow_between(&g, "turn_calm", || {});
+    assert_eq!(set_of(c, "pr-round").refs, ["PRR-7777"]);
+    assert!(c.runner.threads.route.take_grew("turn_calm").is_some());
+}
+
 /// A growth that added nothing of the message's leaves no entry for a move
 /// to find.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
