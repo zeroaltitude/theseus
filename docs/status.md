@@ -526,6 +526,14 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-22: v1 patch1 tail, part 5** (theseus-7pm8t, theseus-ddfe7, theseus-qiyxq, theseus-bs8dl, theseus-i7kmb,
+  theseus-kg4kd, theseus-kbfl0, theseus-7nx13). Jev's effort answer now applies on its own bar, `[routing]
+  effort_confidence` (0.35), even when its band is under the question's confirm bar (row `effort_reason`
+  `applied_unsure`), at a task checkpoint too (a raise only); `xhigh` and `max` still need `high_effort_confidence`, now
+  0.40 by default. A message moved while its turn still ran no longer grows the thread it was moved from; an entry the
+  turn touched stays on a move; a held compile failure now counts in route stats. The DM's board pinned by an earlier
+  run is removed when the task home stands. `herdr up` no longer fails when herdr refuses to bring the workspace to the
+  front: it says the workspace is built but could not be shown.
 - **2026-10-22: v1 patch1 tail, part 4** (theseus-v54l9, theseus-tlhjt, theseus-hwv3t, theseus-dowi0.1, theseus-4qdh8,
   theseus-rcb2u, theseus-ono8g, theseus-p5g63, theseus-63tfk.1). `theseus herdr up` switches herdr to the `theseus` workspace (`--no-focus` to skip) and says which, or
   how to attach; the TUI board's `c` refuses an ended task and takes the cursor's row; the chat footer follows a running

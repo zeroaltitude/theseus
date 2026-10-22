@@ -74,7 +74,12 @@ fn keep_track(path: PathBuf) {
 /// Removes every directory this process made.
 fn sweep() {
     let made = std::mem::take(&mut *MADE.lock().unwrap_or_else(PoisonError::into_inner));
-    made.into_iter().for_each(remove);
+    remove_all(made);
+}
+
+/// Removes each of `paths`.
+fn remove_all(paths: Vec<PathBuf>) {
+    paths.into_iter().for_each(remove);
 }
 
 /// Removes the test directories under `base` that nothing has touched for
@@ -127,12 +132,14 @@ mod tests {
     }
 
     #[test]
-    fn a_made_dir_is_swept() {
+    fn a_made_dir_test_sweeps_only_its_own() {
+        // The process-wide list is never swept here: other tests' dirs are in it.
         let base = tempfile::tempdir().unwrap();
-        let p = make(base.path(), "s");
+        let (p, other) = (make(base.path(), "s"), make(base.path(), "t"));
         std::fs::create_dir_all(p.join("store")).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
         assert!(p.starts_with(base.path()));
-        sweep();
-        assert!(!p.exists());
+        remove_all(vec![p.clone()]);
+        assert!(!p.exists() && other.exists());
     }
 }

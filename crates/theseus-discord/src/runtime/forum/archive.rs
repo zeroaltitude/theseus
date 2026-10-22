@@ -31,6 +31,26 @@ use crate::runtime::Shared;
 /// How often the archive looks for a read post a day over.
 pub(crate) const ARCHIVE_TICK: Duration = Duration::from_secs(3600);
 
+#[cfg(test)]
+thread_local! {
+    static TICK: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
+}
+
+/// A test shortens the tick for its thread.
+#[cfg(test)]
+pub(crate) fn tick_for_tests(d: Duration) {
+    TICK.with(|t| t.set(Some(d)));
+}
+
+/// The tick now: `ARCHIVE_TICK`, or a test's.
+fn tick() -> Duration {
+    #[cfg(test)]
+    if let Some(d) = TICK.with(std::cell::Cell::get) {
+        return d;
+    }
+    ARCHIVE_TICK
+}
+
 /// A read post of a finished task is archived this long after it ended.
 pub(crate) const ARCHIVE_AFTER_MS: u64 = 24 * 3_600_000;
 
@@ -56,6 +76,14 @@ fn due(p: &Post, now: u64, read: bool) -> bool {
 }
 
 impl TaskPosts {
+    /// A test moves every post's end back to `ended_ms`.
+    #[cfg(test)]
+    pub(crate) fn ended_for_tests(&self, ended_ms: u64) {
+        for p in self.posts.lock().unwrap().iter_mut() {
+            p.ended_ms = Some(ended_ms);
+        }
+    }
+
     /// The owner has seen the end of the tasks `tasks`: their finished posts
     /// are read from now.
     pub(crate) fn seen(&self, tasks: &[String], store: &theseus_core::store::Store) {
@@ -94,10 +122,7 @@ impl Shared {
     pub(crate) fn archive_tick(self: &Arc<Self>) {
         let s = self.clone();
         tokio::spawn(async move {
-            every(ARCHIVE_TICK, s.core.outbox.stopped(), || {
-                s.archive_read_posts()
-            })
-            .await;
+            every(tick(), s.core.outbox.stopped(), || s.archive_read_posts()).await;
         });
     }
 

@@ -587,8 +587,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`thread_route::address`, certain, no judge); then the in-memory pre-router (`thread_route.rs`, pure: entity matches
   against each live thread's working set, stickiness `[threads] sticky_half_life_secs`, the reply chain, fused as a
   noisy-or, a thread whose title the message names in every content word adding 0.35 unshared (`thread_title.rs`,
-  theseus-4qdh8: two titles named contend and are asked); `thread_flow.rs` holds its `State`: the last thread per home session, routed turns, pending asks,
-  correction memory); then `classify.v2`'s `thread` question (`Source::Threads`, at most 50 options plus `new_thread`
+  theseus-4qdh8: two titles named contend and are asked); `thread_flow.rs` holds its `State`: the last thread per
+  home session, routed turns, pending asks, correction memory); then `classify.v2`'s `thread` question
+  (`Source::Threads`, at most 50 options plus `new_thread`
   and `home`), which rides **the same inbound request** as the rest of the batch: `JudgeService::inbound_early` begins
   the point before the turn and the turn takes the handed-off `Early` (keyed by session, with a pre-minted turn id), so
   routing adds no model call (`tests_thread_route::jevs_thread_answer_rides_the_one_inbound_request…` holds
@@ -1589,7 +1590,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
     `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` and
-    `context.detoured` (the names and token counts of its request's parts and the families it loaded, `fact/detour.rs`, `turn/detour_step.rs`,
+    `context.detoured` (`ContextDetour` carry `recall`, whether the detour's request held the turn's own recall, and `kind` is `steered` for a steer that names no mode, theseus-nfrlj; the names and token counts of its request's parts and the families it loaded, `fact/detour.rs`, `turn/detour_step.rs`,
     in the one frame with `loop.started`) and no `context.compiled`, since its compilation is never stored (`tests_route_rows.rs`); `context.explain`
     explains a turn with no compile from that row (`ContextExplainResult.detour`, the turn list's `detoured`; theseus-r5ydi), and the
     conversation's project slice rides a detour's request as any (theseus-v4u66; `tests_detour.rs`). The row is `route.decided`
@@ -1652,14 +1653,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     Tests: `tests_task_checkpoint.rs`, `tests_checkpoint_effort.rs`,
     `routing::checkpoint::tests`. Not covered: a task a model made with `task.create` (it has no brief mark).
     **A routed profile's effort floor** (theseus-53ujg.3; `routing/effort.rs`): on a profile a routing class chose (not the
-    session's base), the turn runs at no less than the profile's own `effort`. It applies after the 0.70 gate and before
+    session's base), the turn runs at no less than the profile's own `effort`. It applies after the xhigh/max gate and before
     `effort_bounds`, is not gated, and `effort_reason` is `floored` only when it raised the level; on the base profile Jev
     may still go below.
-    **The effort** (route.v3, theseus-qe3v; xhigh and max only above `[routing] high_effort_confidence`, 0.70, else
+    **The effort** (route.v3, theseus-qe3v; xhigh and max only above `[routing] high_effort_confidence`, 0.40, else
     `high` with `effort_reason` `held_high`, theseus-p8dy): `reply_effort` rides the route pack's one request beside `mode`;
     `routing/effort.rs` decides, purely: Jev's level over the profile's `effort` unless `effort_fixed`, clamped to
-    `[routing] effort_bounds`, only for a model whose catalog row takes effort; below the question's confirm band,
-    `unclear`, a pin, shadow, or a late (carried) verdict leave the profile's own. `apply_effort` sets it on the spec
+    `[routing] effort_bounds`, only for a model whose catalog row takes effort; an answer below the question's confirm
+    band still applies at `[routing] effort_confidence` (0.35) or more, as `applied_unsure` (theseus-7pm8t: an effort
+    is not held to the model switch's bar); under it, `unclear`, a pin, shadow, or a late (carried) verdict leave the
+    profile's own. `apply_effort` sets it on the spec
     and the first compile's request (`compiler::output_config`), and takes that request's digest again, which the
     turn records and the overflow retry compares. `route.decided`'s `effort_*` fields and `TurnRoute`
     say which. Tests: `tests_route_effort.rs`, `routing::effort::tests`.
@@ -1862,7 +1865,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     and the owner's DM carries the case: who asked (`RouteState::asker`, the inbound author), where (the place's bound name),
     the message and why. The hold is not folded by the one-post window, only the DM is: a second reach in it is held and not
     posted again. A task's turn is warned about, never held. Read beside `engage_verdict` in the route step, so a message
-    that steered a running turn is not read. Tests: `tests_personal_hold.rs`, `tests_personal_warn.rs`, `turn/personal_step.rs`.
+    that steered a running turn is not read. A compile that fails (`context_overage`) in a shared place still reads the verdict and is held, not failed (theseus-cljlz); in a private place or for a task it fails as before, and a private place's warning still posts. Tests: `tests_personal_hold.rs`, `tests_personal_warn.rs`, `turn/personal_step.rs`.
   - **A home past its size** (theseus-jg1eg, the follow-up of theseus-vydhq; `turn/home_size_step.rs`): a place's own session (`Outbox::place_session`,
     never a task's or a thread's) whose first-loop request (`Compiled::est_tokens`) passes `[threads] home_warn_percent` (50) of the
     serving model's context window (`Turn.fill.window`, the catalog's or `[context] working_window_tokens`'s; 1,000,000 when none is

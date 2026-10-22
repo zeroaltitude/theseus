@@ -39,7 +39,7 @@ fn waiting_on_job() -> Option<WaitingOn> {
 
 /// The five-task regatta: a conversation and five tasks, as the executions
 /// say it; and as the work board does.
-fn regatta() -> (Vec<ExecutionView>, Vec<Value>) {
+pub(crate) fn regatta() -> (Vec<ExecutionView>, Vec<Value>) {
     let reg = conv(100, REG, "waiting", input(), 0.40);
     let mk = |p, sid: &str, state: &str, w, pend| {
         view(p, sid, SessionKind::Task, Some(REG), state, w, pend, 2, 0.1)

@@ -140,6 +140,18 @@ async fn a_held_turn_whose_compile_fails_is_still_held() {
     assert_eq!(rows(&r.core, "context.overage").len(), 1);
 }
 
+/// A held compile failure is a routed turn in the books: its `route.decided`
+/// row (no decision) is written, once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_compile_failure_records_its_route() {
+    let (r, _jev, sid) = rigged(true);
+    let res = run(&r.core, &sid, &reach(50_000)).await.expect("held");
+    let routed = rows(&r.core, "route.decided");
+    assert_eq!(routed.len(), 1, "{routed:?}");
+    assert_eq!(routed[0]["mode"], "chat");
+    assert_eq!(res.output, HELD);
+}
+
 /// Where nothing is held, a compile failure fails the turn as before, and
 /// the session takes its next message.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -152,4 +164,8 @@ async fn a_compile_failure_in_a_private_place_still_fails() {
     assert_eq!(te.class, crate::turn::compaction::OVERAGE_CLASS);
     assert!(r.claude.requests().is_empty());
     assert!(said(&r.core, &sid).is_empty());
+    // The verdict warns, so the owner is told, but nothing is held.
+    let warned = rows(&r.core, "privacy.warned");
+    assert_eq!(warned.len(), 1, "{warned:?}");
+    assert_eq!(warned[0]["held"].as_bool(), Some(false));
 }

@@ -424,6 +424,15 @@ async fn a_quick_question_detours_to_haiku_and_the_next_prefix_is_byte_identical
     let sid = first.session_id.clone();
     let before = session(&r.core, &sid);
     mode(&jev, "quick", 0.95);
+    // No effort from Jev (an unscripted answer, 0.5, would apply since
+    // theseus-7pm8t): the detour runs at its profile's own `low`.
+    jev.script(
+        "reply_effort",
+        Jev::Choice {
+            option: "unclear".into(),
+            confidence: 0.95,
+        },
+    );
     let quick = turn(&r.core, Some(&sid), "which port is the cockpit on?", None).await;
     assert_eq!(
         (quick.profile.as_str(), quick.model.as_str()),

@@ -473,3 +473,45 @@ async fn a_voice_places_task_reports_to_the_dm_when_the_home_is_off() {
     );
     assert!(boards(&r, LAB).is_empty() && report(&r, LAB, "Reef charted.").is_none());
 }
+
+/// The DM drew its board before the home answered (here: the home was off at
+/// the start and the binding looks for it afterwards, as a start whose first
+/// look failed would); once the home stands the DM's board is gone and the
+/// board is drawn at the home (theseus-ysp2k; the place's `BoardMoved`).
+#[tokio::test]
+async fn the_home_standing_removes_the_dms_board() {
+    let r = rig(
+        vec![start(&[REEF]), Scripted::text("Started.")],
+        |dir| vec![(REEF, [vec![gate(dir)], answers("Reef charted.")].concat())],
+        &bindings(true, ""),
+        |_| {},
+        |c| c.discord.task_home = String::new(),
+    )
+    .await;
+    let forum = forum_up(&r).await;
+    r.say((ANA, "ana"), None, ASK);
+    until(&r, "the post", || posts(&r, forum).len() == 1).await;
+    until(&r, "the board in the DM", || !boards(&r, ANA_DM).is_empty()).await;
+    let dm_before: Vec<String> = r.posted(ANA_DM).into_iter().map(|m| m.id).collect();
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    let home = shared
+        .look_for_task_home(&DEFAULT_GUILD.to_string(), "theseus-tasks")
+        .await
+        .expect("the home stands");
+    until(&r, "the DM's board is gone", || {
+        boards(&r, ANA_DM).is_empty()
+    })
+    .await;
+    until(&r, "the board at the home", || !boards(&r, home).is_empty()).await;
+    let kept: Vec<String> = r
+        .posted(ANA_DM)
+        .into_iter()
+        .map(|m| m.id)
+        .filter(|id| dm_before.contains(id))
+        .collect();
+    assert!(
+        kept.len() + 1 >= dm_before.len(),
+        "only the board left the DM: {dm_before:?} -> {kept:?}"
+    );
+    open_gate(&r);
+}

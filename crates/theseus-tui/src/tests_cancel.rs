@@ -49,3 +49,24 @@ async fn c_takes_the_cursors_row_while_another_task_is_open() {
         [serde_json::json!({"task": "ses_boats01", "author": "the TUI"})]
     );
 }
+
+/// The work view is trimmed and lacks the finished task: the execution's own state still says it
+/// is over (theseus-i7kmb).
+#[tokio::test]
+async fn c_on_a_finished_task_missing_from_the_work_view_says_finished() {
+    let (_, works) = crate::tests_work::regatta();
+    let trimmed = works
+        .into_iter()
+        .filter(|w| w["session_id"] != "ses_gauge01")
+        .collect();
+    let (mut rig, _) = rig(120, regatta_world(Some(trimmed))).await;
+    open(&mut rig, "tide gauge").await;
+    rig.press(&[KeyCode::Char('c')]).await;
+    let s = rig.screen();
+    assert!(
+        s.iter()
+            .any(|l| l.contains("that task has already finished")),
+        "{s:#?}"
+    );
+    assert!(rig.daemon().asked("task.cancel").is_empty());
+}
