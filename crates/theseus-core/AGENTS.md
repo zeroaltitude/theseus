@@ -285,14 +285,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   call also passes the judge's day budget; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
   its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
-  under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each call, so a stop keeps what was spent), an answer over 400
-  characters refused, never cut, a session whose first or last message cannot be read left out (the category waits only
-  below 5 left), and `[ontology] dream_guidance` off (default on) reading, calling and writing nothing; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream write of
-  the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim after
-  the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours, so a
-  night post would wake the owner; the morning note is the one place they are told. Tests: `tests_ontology.rs`,
-  `tests_ontology_bind.rs`, `tests_onto_sweep.rs`, `tests_onto_other.rs`, `tests_onto_mint.rs`,
-  `tests_onto_judged.rs`, `consolidate/tests_guidance.rs`, `tests_onto_digest.rs`.
+  under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each
+  call, so a stop keeps what was spent), an answer over 400 characters refused, never cut, a session whose first or last
+  message cannot be read left out (the category waits only below 5 left), and `[ontology] dream_guidance` off (default
+  on) reading, calling and writing nothing; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream
+  write of the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim
+  after the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours,
+  so a night post would wake the owner; the morning note is the one place they are told. Tests: `tests_ontology.rs`,
+  `tests_ontology_bind.rs`, `tests_onto_sweep.rs`, `tests_onto_other.rs`, `tests_onto_mint.rs`, `tests_onto_judged.rs`,
+  `consolidate/tests_guidance.rs`, `tests_onto_digest.rs`.
 - **Standing** (theseus-a7vi; `standing.rs`, `rpc/standing.rs`, `turn/standing_step.rs`, `fact/standing.rs`): the owner's
   standing orders, preferences and facts, one `protocol::StandingRecord` each as a META key `standing:<id>` (store
   format 29), append-only (a revoke, with empty text, or an edit is a new record whose `ends` names the one it ends).
