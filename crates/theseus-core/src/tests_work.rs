@@ -567,7 +567,10 @@ impl Tidy {
         // A test core's directory is `crate::scratch`'s (theseus-5hr6i), or
         // a bare `tempfile` one.
         let scratch = format!("/tmp/{}", crate::scratch::PREFIX);
-        let at = [s.find("/tmp/.tmp"), s.find(&scratch)].into_iter().flatten().min();
+        let at = [s.find("/tmp/.tmp"), s.find(&scratch)]
+            .into_iter()
+            .flatten()
+            .min();
         let s = match at {
             Some(at) => {
                 let end = s[at..]
