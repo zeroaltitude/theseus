@@ -1253,6 +1253,7 @@ impl FakeDiscord {
             ("POST", ["channels", c, "typing"]) => self.typing_route(stream, c),
             ("POST", ["channels", c, "messages"]) => self.create(stream, c, &body, mode),
             ("PATCH", ["channels", c, "messages", m]) => self.edit(stream, c, m, &body),
+            ("DELETE", ["channels", c, "messages", m]) => self.message_delete(stream, route, c, m),
             ("PUT", ["channels", c, "messages", "pins", m]) => self.pin(stream, c, m),
             ("PUT", ["channels", c, "messages", m, "reactions", e, "@me"]) => {
                 self.reaction_put(stream, (c, m), e)
@@ -1494,6 +1495,37 @@ impl FakeDiscord {
             .map(|m| json!({"pinned_at": "2026-09-30T00:00:00.000000+00:00", "message": message_json(m)}))
             .collect();
         reply(stream, 200, &json!({"items": items, "has_more": false}))
+    }
+
+    /// `DELETE /channels/<c>/messages/<m>`: the message goes, or 404.
+    fn message_delete(
+        &self,
+        stream: TcpStream,
+        route: &str,
+        channel: &str,
+        id: &str,
+    ) -> std::io::Result<()> {
+        let gone = {
+            let mut st = self.state.lock().unwrap();
+            let n = st.messages.len();
+            st.messages
+                .retain(|m| !(m.channel == channel && m.id == id));
+            st.messages.len() < n
+        };
+        self.record(seen(
+            "DELETE",
+            route,
+            if gone { "deleted" } else { "missing" },
+        ));
+        if gone {
+            reply_empty(stream)
+        } else {
+            reply(
+                stream,
+                404,
+                &json!({"message": "Unknown Message", "code": 10008}),
+            )
+        }
     }
 
     fn edit(

@@ -18,6 +18,11 @@
 //!   where it went, name the home. The DM place's live board is written to the
 //!   home's lane (one board, pinned there), and each task's forum post is
 //!   pointed at by one quiet line (`🧵 <#post> · title`).
+//! - **A board the DM drew first** (before the state held the home) is removed
+//!   when the home first stands (`LaneMsg::BoardMoved`), and the places draw
+//!   again at the home. What is not ordered here is the core's watch scope: a
+//!   view that changes between the state holding the home and the watch's next
+//!   answer (`Tasks::rewatch`) reaches the board with that answer.
 //! - **A voice place is never a task's home.** Whatever the switch says, a
 //!   task started from a voice place reports to the home, else the owner's DM,
 //!   gets no board in the voice channel's chat, and its card goes to its post.
@@ -317,6 +322,10 @@ impl Shared {
                 self.register_task_homes();
                 if was != Some(channel) {
                     self.wake_places();
+                    // A board the DM drew before the home answered is stale.
+                    if let Some(dm) = self.owner_dm_place().and_then(|t| self.lane(&t)) {
+                        let _ = dm.send(crate::courier::LaneMsg::BoardMoved);
+                    }
                 }
             }
             Err(Why::Refused(e)) => {

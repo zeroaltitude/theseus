@@ -92,6 +92,9 @@ pub(crate) enum LaneMsg {
     /// The task board with nothing to show (theseus-2j2ka): written only
     /// where a board is pinned already.
     BoardIdle(String),
+    /// The place's board is drawn elsewhere now (the task home stands,
+    /// theseus-ysp2k): the one this lane made is removed.
+    BoardMoved,
 }
 
 /// Why a call to Discord did not go through.
@@ -332,6 +335,8 @@ pub(crate) struct Lane {
     pub board_sought: bool,
     /// A pin of the board was refused, and said so once.
     pub pin_refused: bool,
+    /// A board this lane made that is to be removed (`LaneMsg::BoardMoved`).
+    pub stale_board: Option<(u64, u64)>,
     /// A persona's signature: its webhook and the messages it wrote
     /// (theseus-sjzm).
     signing: persona::Signing,
@@ -377,6 +382,7 @@ impl Lane {
             stream_first: false,
             board_sought: false,
             pin_refused: false,
+            stale_board: None,
             signing: Default::default(),
             v2: v2::State::default(),
             catchup: catchup::State::default(),
@@ -420,6 +426,7 @@ impl Lane {
             }
             self.retry_at = None;
             self.v2_tick().await;
+            self.drop_stale_board().await;
             // What the place showed before it showed a call goes before the
             // call's card (theseus-50p).
             if std::mem::take(&mut self.stream_first) {
@@ -473,6 +480,7 @@ impl Lane {
                 }));
                 self.v2.only_if_pinned = true;
             }
+            LaneMsg::BoardMoved => self.board_moved(),
             LaneMsg::Channel(c) => self.channel = Some(c),
             LaneMsg::Author(a) => self.last_author = Some(a),
             LaneMsg::Anchor(a) => {

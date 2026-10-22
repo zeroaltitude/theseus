@@ -405,6 +405,10 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   start nothing). `TaskPosts::moved` is the seam for a task promoted to a channel of its own. Activity threads are untouched
   (`[threads] discord_channel` alone). A tag edit carries `archived: false`. Tests: `tests_default_forum.rs`, the fake's
   `fake_discord/forums.rs` (`refuse_forum`, `forums_made`, `rename_forum`, `archive_thread`), and `forum.rs`'s.
+  **A read post leaves within the hour after its day** (theseus-wy8pt, `runtime/forum/archive.rs`): the archive has its own tick
+  (`ARCHIVE_TICK`, one hour, spawned by `sweep_task_channels`; `sweep_once` still archives at the start and daily), and a post
+  also counts as read when a board cleared since its task's own end (`Tasks::cleared_since_end`, kept in `read_ms`), so a Clear
+  done pressed before the forum worker wrote the end is not lost.
 - **The task home** (theseus-xlxp4, `runtime/task_home.rs`, `tests_task_home.rs`; `[discord] task_home`, `theseus-tasks`, a name or an id, `""`
   is off, the rollback: the DM's board, reports and pointers are then byte for byte as they were): one private text channel (type 0, the forum's
   `OWNER_BITS` and `BOT_BITS`, `@everyone` denied View Channel) in the one trusted guild, the dashboard of the owner's tasks. Found as the forum is
@@ -427,6 +431,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   with a mention; `Post.bound` (session, parent place) lets a restart bind it again (`revive_card_places`). A card staged before the card
   exists goes to where the task reports. The stand-in lists the text channels the bot made outside a category (`guild_channels`), so a restart
   finds the home by name.
+  **A board the DM drew before the home answered** (theseus-ysp2k): when the home first stands, `ensure_task_home` sends the DM's lane
+  `LaneMsg::BoardMoved`, which drops that lane's board message (`Lane::board_moved`, `drop_stale_board`) and any state of it waiting. A place that
+  drew to the DM in the instant between the state and this message may leave one more there (not handled).
 - **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
   not in `ask` (`render::board`'s `mode`; no key, no command: Discord only shows it), and a `session.mode` notification
   redraws that board (`runtime/board.rs::routed`). A place with no task has no board, so shows none.
