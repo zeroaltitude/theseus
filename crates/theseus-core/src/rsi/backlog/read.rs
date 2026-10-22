@@ -150,6 +150,23 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// A completion's producer, as a key's parts: its backend and, for the
+/// backends that name a tool (`harness:<tool>`, `inproc:<tool>`), the tool.
+/// A producer's tail otherwise is noise (a pid, a reason), so it is dropped
+/// and the backend alone keys the cause. Without the tool every failing tool
+/// of the harness filed under one cause that names none of them.
+fn producer(v: &Value) -> (String, Option<String>) {
+    let backend = word(v);
+    let tail = v
+        .as_str()
+        .and_then(|s| s.trim().split_once(':'))
+        .map(|(_, t)| word(&Value::from(t)));
+    match (backend.as_str(), tail) {
+        ("harness" | "inproc", Some(t)) if t != "unknown" => (backend, Some(t)),
+        _ => (backend, None),
+    }
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -174,11 +191,15 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     let mut o = obs(kind, pos, row);
     match kind {
         "action.failed" => {
-            let p = word(&d["producer"]);
-            o.key = format!("action.failed:{p}");
-            o.title = format!("Calls from {p} fail");
+            let (p, tool) = producer(&d["producer"]);
+            let who = tool.as_ref().map_or_else(|| p.clone(), |t| format!("{p}:{t}"));
+            o.key = format!("action.failed:{who}");
+            o.title = match &tool {
+                Some(t) => format!("Calls to the {p} tool {t} fail"),
+                None => format!("Calls from {p} fail"),
+            };
             o.note = format!(
-                "action {} failed after {} ms",
+                "action {} ({who}) failed after {} ms",
                 d["correlation_id"], d["duration_ms"]
             );
             o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
@@ -467,5 +488,42 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn failed(producer: &str) -> Obs {
+        let row = LedgerRow {
+            at_unix_ms: 1,
+            kind: "action.failed".into(),
+            session_id: None,
+            turn_id: None,
+            data: json!({"correlation_id": "act_1", "producer": producer, "duration_ms": 0}),
+        };
+        of_row(7, &row).unwrap()
+    }
+
+    #[test]
+    fn failing_tools_of_the_harness_are_causes_of_their_own() {
+        let (a, b) = (failed("harness:task_edit"), failed("harness:fs.read"));
+        assert_eq!(a.key, "action.failed:harness:task_edit");
+        assert_eq!(b.key, "action.failed:harness:fs.read");
+        assert_eq!(a.title, "Calls to the harness tool task_edit fail");
+        assert!(a.note.contains("harness:task_edit"), "{}", a.note);
+        assert_eq!(failed("inproc:fs.read").key, "action.failed:inproc:fs.read");
+    }
+
+    #[test]
+    fn a_producers_noise_stays_out_of_the_key() {
+        assert_eq!(failed("wrapper:4242").key, "action.failed:wrapper");
+        assert_eq!(failed("provider:anthropic").key, "action.failed:provider");
+        assert_eq!(failed("harness").key, "action.failed:harness");
+        assert_eq!(failed("harness: ").key, "action.failed:harness");
+        assert_eq!(failed("wrapper:4242").title, "Calls from wrapper fail");
     }
 }
