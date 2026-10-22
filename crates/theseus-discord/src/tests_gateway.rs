@@ -434,8 +434,9 @@ async fn approve_pressed_in_a_private_channel_runs_the_call_and_settles_the_card
     r.until("the card in #lab", || r.card(LAB).is_some()).await;
     let card = r.card(LAB).unwrap();
     assert!(
-        card.content
-            .starts_with(&format!("<@{ANA}> **Approve?** `fs.write`")),
+        card.content.starts_with(&format!(
+            "<@{ANA}> ✋ **Approve?** *Write the proof file.* wants to **write** "
+        )),
         "{}",
         card.content
     );
@@ -499,7 +500,7 @@ async fn approve_pressed_in_a_private_channel_runs_the_call_and_settles_the_card
     assert_eq!(card.versions.len(), 2, "{:?}", card.versions);
     assert!(
         card.content
-            .starts_with("✅ **Approved** by discord:ana · `fs.write`"),
+            .starts_with("✅ **Approved** by discord:ana · *Write the proof file.* wants to **write** `outside/proof.txt`"),
         "{}",
         card.content
     );

@@ -22,6 +22,7 @@ use serde_json::Value;
 use theseus_core::outbox::Closed;
 use theseus_protocol::{ConfirmRequest, Event, TurnSubmitResult};
 pub(crate) mod answer_v2;
+mod approval;
 mod ask;
 mod board;
 pub(crate) mod board_v2;
@@ -38,6 +39,7 @@ pub(crate) mod snapshot;
 pub(crate) mod task_view;
 pub(crate) mod v2;
 mod wakes;
+pub use approval::strip_ask;
 pub use ask::{details as question_details, needs_you};
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 pub use reply::{reply_parts, thread_tag, wake_header};
@@ -842,39 +844,9 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
     if req.tool == theseus_protocol::work::ask::OWNER_ASK {
         return ask::card(req, &task, route, elsewhere);
     }
-    let line = format!("{task}`{}` {}", req.tool, summarize(&req.tool, &req.input));
-    let mut content = format!("{}{line}", if req.floor { FLOOR_ASK } else { ASK });
-    if !req.reason.is_empty() {
-        content.push_str(&format!("\n{}", clip_middle(&req.reason, 300)));
-    }
-    content.push_str(&preview::hunk(req));
-    let asked_for = match route {
-        Route::Dm { place, .. } => format!("for {place} · "),
-        _ => String::new(),
-    };
-    let also = match elsewhere {
-        "" => String::new(),
-        e => format!(" · you can also answer {e}"),
-    };
-    // A call that waits because its session read external text
-    // (theseus-9bp): the card's third button trusts the session again.
-    let trust = if req.external_text.is_some() {
-        " · **Approve + trust session** also lets its later calls run at their postures"
-    } else {
-        ""
-    };
-    content.push_str(&format!(
-        "\n-# {asked_for}expires <t:{}:R>{trust}{also}",
-        req.expires_at_ms / 1000
-    ));
-    CardText {
-        content,
-        line: if req.floor {
-            format!("{line} (floor)")
-        } else {
-            line
-        },
-        budget: false,
+    match &req.plain {
+        Some(p) => approval::card(req, p, route, elsewhere),
+        None => approval::classic(req, &task, route, elsewhere),
     }
 }
 

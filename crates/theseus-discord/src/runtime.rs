@@ -1312,12 +1312,7 @@ impl Shared {
                     .message
                     .as_ref()
                     .and_then(|m| m.content.lines().next())
-                    .map(|l| {
-                        l.trim_start_matches(crate::render::FLOOR_ASK)
-                            .trim_start_matches(crate::render::BUDGET_ASK)
-                            .trim_start_matches(crate::render::ASK)
-                            .to_string()
-                    })
+                    .map(|l| crate::render::strip_ask(l).to_string())
                     .unwrap_or_default();
                 let content = match &r {
                     Ok(_) if trust => {
