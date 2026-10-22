@@ -128,30 +128,39 @@ impl TurnRunner {
     ) -> Option<&'static str> {
         t.route.gated.take().or_else(|| {
             let why = t.route.admitted.0.as_ref().err()?;
-            let listed = !self.cfg.routing.classes.table(mode?).cn_profiles.is_empty();
-            listed.then(|| why.as_str())
+            self.cn_would_win(t, mode?).then(|| why.as_str())
         })
+    }
+
+    /// Whether the mode's list, walked as for a cleared ask, would have taken
+    /// a restricted profile: only then did the admission cost the turn a
+    /// model (theseus-4h85l). A US model that wins either way is no gate.
+    fn cn_would_win(&self, t: &Turn<'_>, mode: &str) -> bool {
+        let floor = Floor {
+            cleared: true,
+            ..t.route.floor()
+        };
+        let profiles = self.route_profiles(floor);
+        let list = self.cfg.routing.classes.effective(mode, true);
+        let cap = Self::place_cap(t, &profiles);
+        let (crate::routing::Picked::Profile(p) | crate::routing::Picked::Capped(Some(p))) =
+            crate::routing::pick(&list, &profiles, t.route.images, cap, true)
+        else {
+            return false;
+        };
+        profiles[&p].restricted
     }
 
     /// A request left with a pass: the turn's result says `open`, from then
     /// on (theseus-a1wvq.11). A turn that asked no route has no result yet,
-    /// so it takes one for its base.
+    /// so it takes one for its base, with no reason: the surfaces word a
+    /// route only from one (theseus-4h85l).
     pub(super) fn note_open(&self, t: &mut Turn<'_>, compiled: &Compiled) {
         if compiled.request.data_pass.is_none() {
             return;
         }
         let profile = t.target.profile.clone();
-        let r = t.route.result.get_or_insert_with(|| TurnRoute {
-            reason: Reason::NoVerdict.as_str().into(),
-            from: profile.clone(),
-            ..Default::default()
-        });
-        let d = r.data.get_or_insert_with(|| TurnData {
-            clearance: "open".into(),
-            origin: self.ran_of(&profile).origin.into(),
-            ..Default::default()
-        });
-        d.clearance = "open".into();
+        open_route(&mut t.route.result, &profile, self.ran_of(&profile).origin);
     }
 
     /// The route's answer, kept where the floor lets the turn run: the
@@ -243,4 +252,18 @@ pub(super) fn refusal(why: &str) -> Failure {
         reason: format!("{}: {said}", crate::data_gate::DATA_GATE_CLASS),
         source: anyhow::anyhow!("{said}"),
     }
+}
+
+/// The turn's result once a request of it carried a pass: `open`, on the
+/// route it has or on one for `from` that names no reason (theseus-4h85l).
+pub(crate) fn open_route(result: &mut Option<TurnRoute>, from: &str, origin: &str) {
+    let r = result.get_or_insert_with(|| TurnRoute {
+        from: from.into(),
+        ..Default::default()
+    });
+    let d = r.data.get_or_insert_with(|| TurnData {
+        origin: origin.into(),
+        ..Default::default()
+    });
+    d.clearance = "open".into();
 }

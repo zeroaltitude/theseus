@@ -135,6 +135,42 @@ async fn sticky_effort_holds_a_one_level_change_on_a_long_conversation() {
     assert!(rows[0].get("effort_sent").is_none());
 }
 
+/// A held change from an unsure answer (under the question's confirm bar, over
+/// `effort_confidence`) keeps the bar that admitted it: `sticky_unsure`, not
+/// `sticky` (theseus-8zgji).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sticky_hold_of_an_unsure_answer_keeps_its_bar() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 2, |c| {
+        no_per_message(c);
+        long(c);
+    });
+    effort(&jev, "medium");
+    let first = turn(&r.core, None, "Question 0?", None).await;
+    jev.script(
+        "reply_effort",
+        Jev::Choice {
+            option: "high".into(),
+            confidence: 0.42,
+        },
+    );
+    turn(
+        &r.core,
+        Some(first.session_id.as_str()),
+        "Question 1?",
+        None,
+    )
+    .await;
+    let reqs = r.claude.requests();
+    assert_eq!(top(&reqs[1]).as_deref(), Some("medium"), "held");
+    let d = &decided(&r.core.store)[1];
+    assert_eq!(
+        (&d["effort_reason"], &d["effort_ran"], &d["effort_sent"]),
+        (&json!("sticky_unsure"), &json!("high"), &json!("medium"))
+    );
+}
+
 /// A short conversation has little cache to lose: Jev's change applies.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sticky_effort_applies_under_the_prefix_floor() {

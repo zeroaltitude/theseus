@@ -64,6 +64,7 @@ impl TurnRunner {
             .and_then(Clearance::why)
             .unwrap_or(DataWhy::PrivateView)
             .as_str();
+        self.judge.record_data_gate("compaction", word);
         let why = format!("data_gate: {word}");
         if self.restricted_profile(&t.target.profile) {
             return Err(why);

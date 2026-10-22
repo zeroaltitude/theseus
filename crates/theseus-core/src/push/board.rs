@@ -289,7 +289,8 @@ impl Board {
             let ttl = core.kernel.config().confirm_ttl_ms;
             for a in asks {
                 let decision = nodes.iter().find_map(|n| decision_on(n, &a.correlation_id));
-                let p = pending_of(&a, decision.as_ref(), ttl);
+                let turn = nodes.iter().find_map(|n| turn_on(n, &a.correlation_id));
+                let p = pending_of(&a, decision.as_ref(), turn, ttl);
                 let entry = self.entries.entry(a.execution_id.clone()).or_default();
                 // A budget question first, as `Kernel::pending_confirms` orders them.
                 let at = if p.budget { 0 } else { entry.pending.len() };
@@ -424,6 +425,18 @@ pub(super) fn read_nodes(core: &Core, positions: &[u64]) -> Vec<Node> {
         .filter_map(|p| core.store.inner().get(*p).ok().flatten())
         .filter_map(|r| r.decode::<Node>().ok())
         .collect()
+}
+
+/// The turn that made the tool call `correlation_id` names, if `n` is that
+/// call's node.
+fn turn_on(n: &Node, correlation_id: &str) -> Option<String> {
+    match &n.body {
+        Body::ToolCall {
+            correlation_id: Some(c),
+            ..
+        } if c == correlation_id => n.turn_id.clone(),
+        _ => None,
+    }
 }
 
 /// The gate's decision on the tool call `correlation_id` names, if `n` is

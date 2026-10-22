@@ -11,4 +11,8 @@ correlation_id: string,
 /**
  * What the call waiting on it would reserve.
  */
-needs_usd: number, };
+needs_usd: number, 
+/**
+ * The turn whose call asks, when the daemon knows it.
+ */
+turn_id?: string, };

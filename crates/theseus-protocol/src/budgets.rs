@@ -114,6 +114,10 @@ pub struct BudgetQuestionInfo {
     pub correlation_id: String,
     /// What the call waiting on it would reserve.
     pub needs_usd: f64,
+    /// The turn whose call asks, when the daemon knows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub turn_id: Option<String>,
 }
 
 /// The totals. A task's spend is its parent's too, and its carve is its
@@ -234,6 +238,7 @@ mod tests {
                 question: Some(BudgetQuestionInfo {
                     correlation_id: "act_q1".into(),
                     needs_usd: 0.25,
+                    turn_id: None,
                 }),
                 tasks: vec![task],
                 ..Default::default()

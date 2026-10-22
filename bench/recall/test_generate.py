@@ -32,7 +32,7 @@ PLAN = 13640
 # The smoke's digest for seed 7: a change to the generator, its lists, or
 # SplitMix64 moves it. Pin the new one only for a change meant to make a new
 # progression, and say so in its commit.
-SMOKE_7 = "5b54c6e94b52c3ba"  # theseus-tqa3: planned at 13,640, within the cushion of the daemon's 13,599 (a6a203b842f48d21 at 13,700)
+SMOKE_7 = "8d60136d336766a8"  # theseus-93lkm (the recall tail's cap reserved; 5b54c6e94b52c3ba before); theseus-tqa3: planned at 13,640, within the cushion of the daemon's 13,599 (a6a203b842f48d21 at 13,700)
 
 
 class Rng(unittest.TestCase):
@@ -204,17 +204,19 @@ class Window(unittest.TestCase):
     def test_a_thin_plan_is_planned_again_until_its_written_bounds_hold(self):
         """theseus-dp3y: at an overhead of 13,599 the smoke of seed 7 planned
         a 44000 window whose written reads crossed at 28,895, under its
-        budget of 28,904: the plan is in tokens and the logs in bytes. Each
+        budget of 28,904 (with the recall reserve of theseus-93lkm, the
+        smoke of seed 11 at 13,700 plans a 50000 window that misses): the
+        plan is in tokens and the logs in bytes. Each
         plan is now worked again from its written bytes, at its overhead and
         at OVERHEAD_CUSHION more and less, and the first that holds is kept."""
-        p = generate.build(7, "smoke", 13599)
+        p = generate.build(11, "smoke", 13700)
         self.assertEqual(generate.plan_misses(p), [])
         self.holds(p)
         # The first plan, written, is the one that missed.
         turns, marks = p.turns, p.marks()
-        first = next(generate.plan_bulks(turns, marks, 13599))
-        self.assertEqual(first[0], 44000)
-        self.assertNotEqual((p.context_window, [len(b["logs"]) for b in generate.bounds_of(p)]), (44000, [1]))
+        first = next(generate.plan_bulks(turns, marks, 13700))
+        self.assertEqual(first[0], 50000)
+        self.assertNotEqual((p.context_window, [len(b["logs"]) for b in generate.bounds_of(p)]), (50000, [1]))
 
     def test_every_plan_holds_at_the_daemons_measure_of_2026_10_09(self):
         """theseus-cs8k: main's daemon measures 13,943 (a model tool joined
@@ -245,11 +247,12 @@ class Window(unittest.TestCase):
         """theseus-tqa3: each check in `plan_misses` moves a plan. With no
         cushion, the smoke of seed 11 at 13,679 keeps a 50000 window whose
         reads fail to cross at an overhead 50 under (13,629): the plan is
-        now 51000. The smoke of seed 8 at 13,600 keeps 41000, which misses
-        50 over (13,650): it is now 42000. Each rejected plan misses at that
+        now 51000. The smoke of seed 11 at 13,686 keeps 50000, which misses
+        50 over (13,736): it is now 51000 (theseus-93lkm moved the seed 8
+        case that was here). Each rejected plan misses at that
         one overhead and holds at the other two."""
         for seed, overhead, kept, rejected, at in ((11, 13679, 51000, 50000, 13629),
-                                                   (8, 13600, 42000, 41000, 13650)):
+                                                   (11, 13686, 51000, 50000, 13736)):
             p = generate.build(seed, "smoke", overhead)
             self.assertEqual((p.context_window, generate.plan_misses(p)), (kept, []), (seed, overhead))
             with mock.patch.object(generate, "OVERHEAD_CUSHION", 0):
@@ -364,6 +367,30 @@ class TheRustRule(unittest.TestCase):
                          + tk.DEFERRED_BYTES)
         self.assertEqual(tk.tools_bytes([loaded]), len(json.dumps(loaded, separators=(",", ":"))))
         self.assertEqual(tk.census_of_request({"tools": tools}).json, tk.tools_bytes(tools))
+
+    def test_a_later_session_reserves_the_recall_notes_the_tail_may_hold(self):
+        """theseus-93lkm: a recall note is written into the session each turn
+        and stays in its tail until a recompile, up to the session cap, from
+        the turn the index tender comes up (a timing: turn 26 of the smoke on
+        one machine, earlier on another, where a second compaction came at 23
+        against the plan's one). The plan reserves the cap, not one note."""
+        src = self.src("theseus-core/src/config/memory.rs")
+        cap = re.search(r"fn default_session_cap\(\) -> u64 \{\s*([\d_]+)\s*\}", src)
+        self.assertEqual(int(cap.group(1).replace("_", "")), generate.RECALL_TOKENS)
+        self.assertIn("if !m.admitted.is_empty() && in_tail + m.used_tokens > cap {",
+                      self.src("theseus-core/src/turn/recall_step.rs"))
+        # The first session has nothing to recall before it compacts.
+        self.assertEqual((generate.recall_for(0), generate.recall_for(1)), (0, generate.RECALL_TOKENS))
+        self.assertEqual(generate.fit_bound(10000, 500, PLAN, generate.recall_for(1))
+                         - generate.fit_bound(10000, 500, PLAN, generate.recall_for(0)), generate.RECALL_TOKENS)
+        # So the smoke's second session, which has no mark, fits whole with the cap beside it.
+        p = generate.build(7, "smoke", PLAN)
+        own = p.session_turns(1)
+        total = sum(t.est_tokens for t in own)
+        self.assertLessEqual(generate.fit_bound(int(total * (1 + generate.MARGIN)),
+                                                int(own[-1].est_tokens * (1 + generate.MARGIN)), PLAN,
+                                                generate.recall_for(1)),
+                             pg.request_budget(p.context_window))
 
 
 class Names(unittest.TestCase):

@@ -360,3 +360,57 @@ fn the_first_loop_gate_reads_no_record_for_a_closed_session() {
     assert_eq!(stored_run(true, read), Some(run));
     assert_eq!(reads.get(), 1);
 }
+
+/// theseus-4h85l: each background path that refuses a restricted-origin model
+/// counts it on `theseus.route.data_gate`, by caller and why: a compaction
+/// (the private view's word), a consolidation, a keep-warm read and a replay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_background_refusals_are_counted() {
+    let (rx, tel) = crate::tests_data_footer::telemetry().await;
+    let messages: Vec<String> = (0..12).map(|k| words(&format!("dm{k}"), 6_000)).collect();
+    let jev = jev(false);
+    let r = rig_with(
+        &jev,
+        |c| c.memory.summary_profile = "glm".into(),
+        move |p| p.telemetry = Some(tel),
+    );
+    call(&r.core, "profile.use", json!({"name": "sonnet"})).await;
+    let sid = dm(&r.core);
+    until_rang(&r, &sid, &messages).await;
+
+    let mut report = theseus_protocol::memory::SynthesisReport::default();
+    assert_eq!(
+        r.core.unrestricted("glm".into(), &mut report).as_deref(),
+        Some("default")
+    );
+    let target = r
+        .core
+        .runner
+        .resolve_target("sonnet", Some("glm"), None, None);
+    assert!(r.core.refuse_restricted(&target.unwrap()).is_err());
+    call(&r.core, "profile.use", json!({"name": "dsflash"})).await;
+    let kept = dm(&r.core);
+    assert!(r.core.runner.keep_warm_prepare(&kept, "dsflash").is_err());
+
+    let mut got: Vec<(String, String)> = crate::tests_data_footer::gate_counts(&r.core, &rx)
+        .await
+        .into_iter()
+        .map(|(what, why, _)| {
+            (
+                what.as_str().unwrap().to_string(),
+                why.as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    got.sort();
+    let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+    assert_eq!(
+        got,
+        vec![
+            pair("compaction", "private_view"),
+            pair("consolidation", "restricted_origin"),
+            pair("keep_warm", "restricted_origin"),
+            pair("replay", "restricted_origin"),
+        ]
+    );
+}

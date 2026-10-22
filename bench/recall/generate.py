@@ -138,11 +138,15 @@ MARGIN = 0.15  # how far the turns' estimate may be off and a mark still compact
 # the system prompt and tools, at the estimate's upper bound: the ring's
 # last candidate, which past the budget fails the turn as an overage.
 ALONE_MARGIN = 0.10
-# What a recall may add to a request once the index tender is up (about
-# twenty turns into a smoke): `[memory] recall_budget_tokens`, 1,500. The
-# plan's turns fit with it beside them, so a late recall compacts nothing
-# the marks did not.
-RECALL_TOKENS = 1500
+# What recall notes may add to a session's request: each turn's note is
+# written into the session and stays in its tail until the next recompile,
+# and `[memory] session_recall_cap_tokens` (12,000, `memory.rs`) is the most
+# the tail holds. Which turn the index tender comes up at (about twenty turns
+# into a smoke on one machine, fifteen on another) is timing, so the plan
+# reserves the cap. A session's first has nothing to recall until it
+# compacts (all it said is in its context), so its turns before the mark
+# reserve none (`recall_for`).
+RECALL_TOKENS = 12000
 BULK_MIN_TOKENS = 1000  # a bulk read is at least this long
 
 # The catalog's prices per million tokens (theseus-core's catalog.rs, the
@@ -968,10 +972,16 @@ def alone_limit(budget: int) -> int:
     return min(int(budget / (1 + ALONE_MARGIN)), budget - tk.SUMMARY_MAX_TOKENS)
 
 
-def fit_bound(before: int, last: int, overhead: int) -> int:
+def recall_for(session: int) -> int:
+    """The recall notes a session's turns may carry before any compaction:
+    none in the first session, the tail's cap in the later ones."""
+    return RECALL_TOKENS if session else 0
+
+
+def fit_bound(before: int, last: int, overhead: int, recall: int = RECALL_TOKENS) -> int:
     """The upper bound of the last turn before a mark: what came before it
-    counted, with a recall beside it, its own new part estimated."""
-    return tk.upper(overhead + RECALL_TOKENS + before - last, last)
+    counted, with `recall` of notes beside it, its own new part estimated."""
+    return tk.upper(overhead + recall + before - last, last)
 
 
 def plan_bulks(turns: list[Turn], marks: list[int], overhead: int):
@@ -1002,13 +1012,13 @@ def plan_bulks(turns: list[Turn], marks: list[int], overhead: int):
     for i, m in enumerate(marks):
         s = turns[m].session
         prior = [t for t in turns if t.session == s and t.index < m]
-        marks_in.append((i, turns[m].text, sum(t.est_tokens for t in prior), prior[-1].est_tokens if prior else 0))
+        marks_in.append((i, turns[m].text, sum(t.est_tokens for t in prior), prior[-1].est_tokens if prior else 0, s))
     # A session with no mark fits whole: it is not meant to compact.
     unmarked = []
     for s in sorted({t.session for t in turns} - {turns[m].session for m in marks}):
         own = [t for t in turns if t.session == s]
         unmarked.append(fit_bound(int(sum(t.est_tokens for t in own) * (1 + MARGIN)),
-                                  int(own[-1].est_tokens * (1 + MARGIN)), overhead))
+                                  int(own[-1].est_tokens * (1 + MARGIN)), overhead, recall_for(s)))
     window = 0
     while window < 2_000_000:
         window += 1000
@@ -1016,8 +1026,8 @@ def plan_bulks(turns: list[Turn], marks: list[int], overhead: int):
         if any(f > budget for f in unmarked):
             continue
         options = []
-        for i, text, before, last in marks_in:
-            if fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN)), overhead) > budget:
+        for i, text, before, last, s in marks_in:
+            if fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN)), overhead, recall_for(s)) > budget:
                 break
             lo = int(before * (1 - MARGIN))
             fits = []
@@ -1147,7 +1157,7 @@ def bounds_of(prog: Progression, overhead: int | None = None) -> list[dict]:
         cross = tk.upper(counted - results[-1], results[-1])
         out.append({
             "mark": m, "budget": budget, "before": before,
-            "fit": fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN)), overhead),
+            "fit": fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN)), overhead, recall_for(s)),
             "logs": logs, "alone": alone, "alone_limit": alone_limit(budget),
             "cross": cross, "cross_at": read_turns[-1].index,
         })
@@ -1181,7 +1191,7 @@ def plan_misses(prog: Progression) -> list[str]:
             own = prog.session_turns(s)
             if not any(t.mark for t in own):
                 f = fit_bound(int(sum(t.est_tokens for t in own) * (1 + MARGIN)),
-                              int(own[-1].est_tokens * (1 + MARGIN)), overhead)
+                              int(own[-1].est_tokens * (1 + MARGIN)), overhead, recall_for(s))
                 if f > budget:
                     out.append(f"overhead {overhead:,}: session {s + 1}, with no mark, {f:,} passes {budget:,}")
     return out

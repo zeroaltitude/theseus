@@ -287,9 +287,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   category with 5 titled sessions or more whose name is in none of their titles while one mined name is in half of them
   (`stale_names`; at most 3 a run), writing `Ontology::plan_rename` (the old name in the description as `was: <old>`;
   `Step::Rename`, `sweep-<ms>-<n>-rename`, undone like a merge); `same_kind.v1` asks, before the plan mints, of pairs of
-  mined `other` names no session shares whose sessions together make a cluster (at most 20 a run) and a yes joins them
+  mined `other` names whose sessions add to each other's (singleton chains `a~b`, `b~c` included, and two names that are
+  each a cluster) while the open names reach 3 sessions (at most 20 a run, largest union first) and a yes joins them
   (`mint::Hints::same`); `name_it.v1` names a kind about to be minted from a cluster of two names or more, and `none`, a
-  pick below the act band or no answer leaves the most shared name (`Hints::named`, `Swept.named_kinds`). The night runs
+  pick below the act band or no answer leaves the most shared name (`Hints::named`, `Swept.named_kinds`; a pick is kept in the mark's `named` for as long as its ask is not asked again, so a cluster that mints a later night uses it; a Jev-named kind's description ends with `mint::NAMED_NOTE`, which the morning note and the cockpit read). The night runs
   hints, then the plan, then the pair, split and rename asks (`onto_sweep_night`); `onto_sweep` alone is the plan with
   no model; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
   its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
@@ -1590,7 +1591,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
     `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` and
-    `context.detoured` (`ContextDetour` carry `recall`, whether the detour's request held the turn's own recall, and `kind` is `steered` for a steer that names no mode, theseus-nfrlj; the names and token counts of its request's parts and the families it loaded, `fact/detour.rs`, `turn/detour_step.rs`,
+    `context.detoured` (`ContextDetour` carries `recall`, whether the detour's request held the turn's own recall, and `kind` is `steered` for a steer that names no mode, theseus-nfrlj; the names and token counts of its request's parts and the families it loaded, `fact/detour.rs`, `turn/detour_step.rs`,
     in the one frame with `loop.started`) and no `context.compiled`, since its compilation is never stored (`tests_route_rows.rs`); `context.explain`
     explains a turn with no compile from that row (`ContextExplainResult.detour`, the turn list's `detoured`; theseus-r5ydi), and the
     conversation's project slice rides a detour's request as any (theseus-v4u66; `tests_detour.rs`). The row is `route.decided`
@@ -1683,7 +1684,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     them answers the 400 below, and the hold lands on the request's model, not on the fallback's.
     A 400 naming `output_config` on a request that carries one is asked again once without them, the level at the
     top, and the model takes none for an hour, `REFUSAL_HOLDS_MS` (`turn/effort_step.rs`, `provider.effort_refused`).
-    Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`.
+    A one-step change held on a model without per-message effort (`stick`) says `sticky`, or `sticky_unsure` when the
+    held answer was `applied_unsure`, so the row keeps the bar that admitted it (theseus-8zgji).
+    Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`, `tests_effort_sticky.rs`.
   - **Which persona answers a message** (route.v5, theseus-c1uz, T10a; no store format: nothing new is stored; `engage.rs`,
     `turn/persona_engage.rs`, `judge/seal.rs`, `fact/persona.rs`). With two or more `[personas]` (`Config::persona_engaging`) **in a place where a message can engage another persona**
     (`TurnRunner::engages`, `Target.engages`: a DM, a channel, a thread; a cli, task or headless session's persona is fixed, so
@@ -1752,6 +1755,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     carries `origin` and, for a restricted one, `pass` and `run_nodes` per request, and the result's `TurnRoute.data` says `open` only
     once a request left with a pass. `data_gate` is an open word (a `DataWhy` word, `sensitive`, or a later row's own); each one also
     counts on `theseus.route.data_gate` (`Telemetry::record_data_gate(what, why)`).
+    The route's `data_gate` word (and its count and the footer's `data gate:`) shows only where a cleared ask would have taken a
+    restricted profile the rule removed (`cn_would_win`, theseus-4h85l); a turn that asked no route but left with a pass says `open` with no
+    route reason (`open_route`). The provider chokepoint (`what` `chokepoint`) and the four background refusals (`compaction`,
+    `consolidation`, `keep_warm`, `replay`) count on the same metric.
   - **A session's data state** (theseus-a1wvq.5; store format 49; `data.rs`, `fact/data.rs`): `SessionRecord.data`,
     `DataState { opened, run, taint }`, opened by an open task (theseus-a1wvq.6), its run kept by an open request's turn (theseus-a1wvq.8). Absent is the
     private view with no open run (every older record, no migration). `OpenRun`'s doc is the chain of blessed writers.

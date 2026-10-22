@@ -125,13 +125,19 @@ impl Core {
             last_reset,
             last_reset_unread,
             question: b.question.clone().map(|q| BudgetQuestionInfo {
-                correlation_id: q,
                 needs_usd: usd(b.question_needs_micros),
+                turn_id: self.budget_question_turn(&q),
+                correlation_id: q,
             }),
             parent: e.parent.clone(),
             carve_held_usd: carve_held.map(usd),
             tasks: Vec::new(),
         })
+    }
+
+    /// The turn whose call the budget question `id` waits on.
+    fn budget_question_turn(&self, id: &str) -> Option<String> {
+        super::budget_turn(&self.kernel.action(id).ok()??)
     }
 
     /// Where an execution's limit comes from: a task's carve; the config's,

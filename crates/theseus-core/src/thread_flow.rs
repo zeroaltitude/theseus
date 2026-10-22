@@ -134,14 +134,24 @@ impl State {
         }
     }
 
-    /// The turn's message grew `added` into the thread `slug`.
-    pub fn grew(&self, turn: &str, slug: &str, added: WorkingSet) {
+    /// The turn's message grew `added` into the thread `slug`, unless a move
+    /// took the turn's growth back already: then nothing is noted and this
+    /// says false, the check and the note under one lock. An empty growth
+    /// notes nothing and is true.
+    pub fn grew(&self, turn: &str, slug: &str, added: WorkingSet) -> bool {
         let mut r = lock(&self.recent);
+        if r.ungrown.iter().any(|t| t == turn) {
+            return false;
+        }
+        if added == WorkingSet::default() {
+            return true;
+        }
         r.grew
             .push_back((turn.to_string(), slug.to_string(), added));
         while r.grew.len() > TURNS {
             r.grew.pop_front();
         }
+        true
     }
 
     /// What the turn's message grew, once: the thread and the entries. The

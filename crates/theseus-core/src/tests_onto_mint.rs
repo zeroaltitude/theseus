@@ -122,3 +122,76 @@ fn a_name_that_is_no_kind_name_mints_nothing_and_is_counted() {
     assert_eq!((swept.kinds, swept.refused), (0, 2));
     assert!(swept.writes.is_empty());
 }
+
+fn said(sessions: &[&str], name: &str) -> Vec<crate::judge::onto::mint::Said> {
+    sessions
+        .iter()
+        .map(|s| crate::judge::onto::mint::Said {
+            session: s.to_string(),
+            names: vec![name.into()],
+            confidence: 0.9,
+        })
+        .collect()
+}
+
+/// KEY (theseus-e3pxa): three names one session each are asked pair by pair,
+/// and two yeses (`a~b`, `b~c`) chain them into the one kind.
+#[test]
+fn a_chain_of_singletons_clusters() {
+    use crate::judge::onto::mint::{folds, kind_pairs, plan_with, Hints};
+    let (core, _dir) = core();
+    let o = snapshot(&core);
+    let mut all = said(&["s1"], "Alpha Ledger");
+    all.extend(said(&["s2"], "Beta Ledger"));
+    all.extend(said(&["s3"], "Gamma Ledger"));
+    let pairs = kind_pairs(&o, &folds(&all));
+    let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+    assert!(
+        pairs.contains(&pair("alphaledger", "betaledger")),
+        "{pairs:?}"
+    );
+    assert!(
+        pairs.contains(&pair("betaledger", "gammaledger")),
+        "{pairs:?}"
+    );
+    let now = now_unix_ms();
+    let hints = Hints {
+        same: vec![
+            pair("alphaledger", "betaledger"),
+            pair("betaledger", "gammaledger"),
+        ],
+        ..Hints::default()
+    };
+    let plan = plan_with(&o, &all, now, |n| format!("sweep-{now}-{n}-kind"), &hints);
+    assert_eq!((plan.minted.len(), plan.minted[0].sessions), (1, 3));
+    assert!(kind_pairs(&o, &folds(&said(&["s1", "s2"], "Alpha Ledger"))).is_empty());
+}
+
+/// Two names that are each a cluster are asked whether they are one kind
+/// before both mint.
+#[test]
+fn two_clusters_are_asked_before_both_mint() {
+    use crate::judge::onto::mint::{folds, kind_pairs, plan_with, Hints};
+    let (core, _dir) = core();
+    let o = snapshot(&core);
+    let mut all = said(&["s1", "s2", "s3"], "Lantern Ledger");
+    all.extend(said(&["s4", "s5", "s6"], "Ledger App"));
+    let pairs = kind_pairs(&o, &folds(&all));
+    assert_eq!(
+        pairs,
+        vec![("lanternledger".to_string(), "ledgerapp".to_string())]
+    );
+    let now = now_unix_ms();
+    let write = |n: usize| format!("sweep-{now}-{n}-kind");
+    assert_eq!(
+        plan_with(&o, &all, now, write, &Hints::default())
+            .minted
+            .len(),
+        2
+    );
+    let hints = Hints {
+        same: pairs,
+        ..Hints::default()
+    };
+    assert_eq!(plan_with(&o, &all, now, write, &hints).minted.len(), 1);
+}

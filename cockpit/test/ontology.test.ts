@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { LedgerEntry, OntologyCategory, OntologyKind, OntologyMembership } from '@protocol'
 import { readFileSync } from 'node:fs'
-import { ancestorsOf, confidenceWords, GROWTH_DAYS, growthOf, growthWords, groupKeyOf, groupsOf, guidanceInPlay, guidanceWords, judgmentHref, lastDays, mintedOf, nothingPending, parents, pendingOf, recordedOf, seriesOf, shown, treeOrder, undoAsk, undoneWrites, UNKNOWN_GROUP, withinCounts } from '../src/lib/ontology.ts'
+import { ancestorsOf, confidenceWords, GROWTH_DAYS, growthOf, growthWords, groupKeyOf, groupsOf, guidanceInPlay, guidanceWords, judgmentHref, lastDays, mintedOf, NAMED_NOTE, nothingPending, parents, pendingOf, recordedOf, renamedOf, seriesOf, shown, treeOrder, undoAsk, undoneWrites, UNKNOWN_GROUP, withinCounts } from '../src/lib/ontology.ts'
 
 const cat = (id: string, name: string, parent?: string, guidance?: [number, string], members = 0): OntologyCategory => ({
   id, kind: id.split(':')[0], name, parent, depth: 1, description: '', added_by: 'the operator', members,
@@ -296,4 +296,22 @@ test('an undo of a write names it, and the judgment link is its id', () => {
 test('only the first undo of a write counts, and a row with no write is ignored', () => {
   const u = undoneWrites([undoRow(100, 'w'), undoRow(200, 'w'), row('ontology.undo', 300, { label: 'wrong' })])
   assert.deepEqual([...u], [['w', 100]])
+})
+
+test('a kind Jev named is marked, and a rename shows both names and when', () => {
+  const kindWrote = (when: number, write: string, description: string) =>
+    row('ontology.kind', when, { name: 'ledger-app', version: 1, retired: false, assigned_by: ['sweep'], who: 'x', via: 'machine', undo: undoRec(write, 'onto:kind:ledger-app', { name: 'ledger-app', description }) })
+  const sweep = [
+    catRow(at(1), 'ledger-app:ledger-app', 'sweep', undoRec('sweep-1-0-kind', 'onto:cat:ledger-app:ledger-app', { id: 'ledger-app:ledger-app' })),
+    kindWrote(at(1), 'sweep-1-0-kind', `A kind the sweep made. ${NAMED_NOTE}`),
+    catRow(at(1), 'topic:plain', 'sweep', undoRec('sweep-1-1-kind', 'onto:cat:topic:plain', { id: 'topic:plain' })),
+    kindWrote(at(1), 'sweep-1-1-kind', 'A kind the sweep made.'),
+    catRow(at(0), 'topic:scratch-notes', 'sweep', undoRec('sweep-2-0-rename', 'onto:cat:topic:scratch-notes', { id: 'topic:scratch-notes', name: 'Lantern Ledger' }, { id: 'topic:scratch-notes', name: 'scratch notes' })),
+  ]
+  assert.deepEqual(mintedOf(sweep).map((m) => [m.category, m.named]), [['ledger-app:ledger-app', true], ['topic:plain', false]])
+  assert.deepEqual(renamedOf(sweep).map((r) => [r.category, r.from, r.to, r.at, r.undone]), [['topic:scratch-notes', 'scratch notes', 'Lantern Ledger', at(0), false]])
+  assert.deepEqual(renamedOf(ledger), [], 'a re-write that is no rename is not one')
+  const panel = readFileSync(new URL('../src/components/OntologyGrowth.tsx', import.meta.url), 'utf8')
+  assert.match(panel, /\{m\.named && .*named by Jev/)
+  assert.match(panel, /renamed \{x\.category\}: \{x\.from\} → /)
 })

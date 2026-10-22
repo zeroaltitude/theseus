@@ -75,6 +75,13 @@ impl Core {
     /// After the turn `turn_id`: its calls' paths and its message's entities
     /// join the thread's set, in one frame with its row, when they change it.
     pub(super) fn thread_grow(&self, g: &Grow, turn_id: &str) {
+        self.thread_grow_between(g, turn_id, || {});
+    }
+
+    /// `thread_grow`, running `between` after the early check and the read of
+    /// the turn's calls and before the update: the seam where a move can land
+    /// (theseus-hat0c).
+    pub(super) fn thread_grow_between(&self, g: &Grow, turn_id: &str, between: impl FnOnce()) {
         // Moved while it ran: the message belongs to another thread now.
         if self.runner.threads.route.is_ungrown(turn_id) {
             return;
@@ -87,7 +94,7 @@ impl Core {
             }
         };
         let touched = touched_in(&crate::thread_split::touched(&calls), &g.dir);
-        let added = std::sync::Mutex::new(WorkingSet::default());
+        between();
         let written = self.runner.threads.write(
             &self.store,
             |board| {
@@ -103,8 +110,13 @@ impl Core {
                 if set == cur.working_set {
                     return Ok(vec![]);
                 }
-                *added.lock().unwrap_or_else(|e| e.into_inner()) =
-                    added_by(&cur.working_set, &set, &g.named, &touched);
+                // The move is checked, and the growth noted for it to find,
+                // in one lock: one that lands after this takes the growth
+                // back, one before it grows nothing (theseus-hat0c).
+                let added = added_by(&cur.working_set, &set, &g.named, &touched);
+                if !self.runner.threads.route.grew(turn_id, &cur.slug, added) {
+                    return Ok(vec![]);
+                }
                 Ok(vec![ThreadInfo {
                     working_set: set,
                     ..cur.clone()
@@ -117,15 +129,9 @@ impl Core {
             },
         );
         match written {
-            Ok(ts) => {
-                for t in &ts {
-                    self.announce_thread(&t.slug, &grown(t));
-                    let added = added.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                    if added != WorkingSet::default() {
-                        self.runner.threads.route.grew(turn_id, &t.slug, added);
-                    }
-                }
-            }
+            Ok(ts) => ts
+                .iter()
+                .for_each(|t| self.announce_thread(&t.slug, &grown(t))),
             Err(e) => {
                 tracing::warn!(thread = %g.slug, error = %format!("{e:#}"), "a thread's working set was not written");
             }

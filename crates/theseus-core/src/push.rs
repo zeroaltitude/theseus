@@ -74,6 +74,7 @@ pub fn waiting_on(w: &Wake) -> WaitingOn {
 pub fn pending_of(
     a: &Action,
     decision: Option<&GateDecision>,
+    turn_id: Option<String>,
     confirm_ttl_ms: u64,
 ) -> PendingConfirm {
     let budget = a.tool == BUDGET_TOOL;
@@ -94,6 +95,7 @@ pub fn pending_of(
         } else {
             crate::ask::expiry_of(a, confirm_ttl_ms)
         },
+        turn_id: turn_id.or_else(|| budget.then(|| crate::rpc::budget_turn(a)).flatten()),
     }
 }
 
@@ -676,7 +678,7 @@ mod tests {
             floor: true,
             ..Default::default()
         };
-        let p = pending_of(&action("proc.run"), Some(&decision), 300_000);
+        let p = pending_of(&action("proc.run"), Some(&decision), None, 300_000);
         assert_eq!(p.expires_at_ms, 301_000);
         let v = view(&e, vec![p], Some("ses_parent".into()), 48, 9);
         assert_eq!(v.attention.level, theseus_protocol::Level::NeedsYou);
@@ -699,7 +701,7 @@ mod tests {
     /// keeps no `waiting_on`, though its record may still hold a wake.
     #[test]
     fn a_budget_question_has_no_expiry_and_only_waiting_has_a_wake() {
-        let q = pending_of(&action(BUDGET_TOOL), None, 300_000);
+        let q = pending_of(&action(BUDGET_TOOL), None, None, 300_000);
         assert!(q.budget && q.expires_at_ms == 0 && q.reason.is_empty());
         let v = view(
             &execution(ExecState::Running, Some(Wake::Input)),

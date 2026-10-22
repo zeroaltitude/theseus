@@ -206,13 +206,16 @@ impl Core {
 
     /// A replay carries no pass for a session's text (theseus-a1wvq.10): a
     /// profile of restricted origin is refused, in words, before the rebuild.
-    fn refuse_restricted(&self, target: &crate::turn::Target) -> Result<(), Crossing> {
+    pub(crate) fn refuse_restricted(&self, target: &crate::turn::Target) -> Result<(), Crossing> {
         let origin = self
             .cfg
             .profile_origin(&target.profile, &self.runner.catalog);
         if !origin.restricted() {
             return Ok(());
         }
+        self.runner
+            .judge
+            .record_data_gate("replay", "restricted_origin");
         Err(Crossing(format!(
             "not replayed on `{}`: `{}` is a model of {} origin (a restricted origin), and a \
              replay carries no pass for a session's text",

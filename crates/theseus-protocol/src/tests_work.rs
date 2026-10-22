@@ -370,6 +370,7 @@ fn an_executions_question_and_failure_come_across() {
         floor: true,
         budget: false,
         expires_at_ms: AT + 600_000,
+        turn_id: None,
     }];
     let w = WorkView::from_execution(&x);
     let q = w.question.expect("its question");
@@ -459,6 +460,7 @@ fn a_failure_draws_retry_dismiss_and_details_and_nothing_once_dismissed() {
         floor: false,
         budget: false,
         expires_at_ms: 0,
+        turn_id: None,
     }];
     assert!(ids(&WorkView::from_execution(&asking)).is_empty());
 }
@@ -512,4 +514,24 @@ fn a_progress_line_keeps_the_models_words_after_the_count() {
     assert_eq!(plan(3, 3, None).line().as_deref(), Some("step 3 of 3"));
     assert_eq!(plan(0, 0, said).line().as_deref(), said);
     assert_eq!(plan(0, 0, Some("")).line(), None);
+}
+
+/// A question and a budget question from before they named their turn still
+/// parse, and a turn is sent only when there is one (theseus-fkvb0).
+#[test]
+fn an_older_question_without_a_turn_parses() {
+    let old = r#"{"correlation_id":"act_1","tool":"proc.run"}"#;
+    let p: PendingConfirm = serde_json::from_str(old).unwrap();
+    assert_eq!(p.turn_id, None);
+    assert!(!serde_json::to_string(&p).unwrap().contains("turn_id"));
+    let q: crate::BudgetQuestionInfo =
+        serde_json::from_str(r#"{"correlation_id":"act_2","needs_usd":0.5}"#).unwrap();
+    assert_eq!(q.turn_id, None);
+    let named = PendingConfirm {
+        turn_id: Some("turn_1".into()),
+        ..p
+    };
+    let back: PendingConfirm =
+        serde_json::from_str(&serde_json::to_string(&named).unwrap()).unwrap();
+    assert_eq!(back.turn_id.as_deref(), Some("turn_1"));
 }
