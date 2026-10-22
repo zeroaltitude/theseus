@@ -11,13 +11,14 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
+use theseus_kernel::ExecState;
 
 use crate::provider::{FakeProvider, RequestGate, Scripted};
 use crate::session::{SessionRecord, TargetRef};
-use crate::test_support::until_within;
+use crate::test_support::until_event;
 use crate::tests_judge::kinds;
 use crate::tests_route::{decided, mode, rig_parts, session, Rig};
-use crate::tests_task_brief::{params, run, BRIEF};
+use crate::tests_task_brief::{cli, params, BRIEF};
 use crate::tests_tasks::exec;
 
 /// A loop whose one tool call fails: a call with no input is invalid.
@@ -135,8 +136,12 @@ async fn task_run(
     claude: Arc<FakeProvider>,
     profile: Option<&str>,
 ) -> Task {
-    let (started, rec) = run(&rig, &params(BRIEF, profile)).await;
+    let started = rig.core.task_start(&params(BRIEF, profile), cli()).unwrap();
     let id = started.session_id.replacen("ses_", "exe_", 1);
+    // The task's first turn ends: the event the checks read, however long a starved host takes
+    // (`tests_task_brief::run` waits 20 s by the clock, which a loaded host passes).
+    until_event(|| exec(&rig.core, &id).state == ExecState::Complete).await;
+    let rec = session(&rig.core, &started.session_id);
     Task {
         rig,
         claude,
@@ -612,22 +617,22 @@ async fn a_slow_verdict_never_holds_a_loop_and_applies_when_it_comes() {
     jev.hold_when(ASKED);
     let rig = task_rig(&jev, claude.clone(), |c| {
         c.routing.task_checkpoints.min_loops_between = 12;
+        // The held verdict is the test's to release: the judge's own deadline must not end it
+        // first when a starved host runs the loops slowly (theseus-iubei).
+        c.judge.total_secs = 3_600;
     })
     .await;
     let core = rig.core.clone();
     let seen = jev.clone();
     let (t, ()) = tokio::join!(task_run(rig, jev.clone(), claude, None), async move {
-        let hold = std::time::Duration::from_secs(30);
-        // A held loop would never send the seventh request.
-        tokio::time::timeout(hold, gate.reached())
-            .await
-            .expect("the verdict held a loop: no seventh request");
+        // A held loop would never send the seventh request: nextest's kill ends such a hang.
+        gate.reached().await;
         let asked = |s: &theseus_judge::fake::Seen| s.body["state"].to_string().contains(ASKED);
-        until_within("the checkpoint asked", 30, || seen.seen().iter().any(asked)).await;
+        until_event(|| seen.seen().iter().any(asked)).await;
         let answers = || core.runner.judge.route_answers.load(Ordering::SeqCst);
         let before = answers();
         seen.release();
-        until_within("the verdict came to its turn", 30, || answers() > before).await;
+        until_event(|| answers() > before).await;
         gate.open();
     });
     let models = t.models();

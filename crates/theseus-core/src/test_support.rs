@@ -193,6 +193,15 @@ pub(crate) async fn until_within(what: &str, secs: u64, mut f: impl FnMut() -> b
     }
 }
 
+/// Until `f` holds, with no clock: for a wait on the very event the next line reads, where a
+/// slow host and a lost event differ only in how long it takes. A hang ends at nextest's
+/// `slow-timeout` kill (`.config/nextest.toml`), never by a deadline of the test's own.
+pub(crate) async fn until_event(mut f: impl FnMut() -> bool) {
+    while !f() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 pub(crate) async fn until(what: &str, mut f: impl FnMut() -> bool) {
     let t0 = Instant::now();
     while !f() {
