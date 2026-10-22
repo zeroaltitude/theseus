@@ -93,7 +93,7 @@ pub(super) fn started(d: &Draft) -> bool {
     d.first_pass.as_ref().is_some_and(|f| f.task.is_some())
 }
 
-fn correlation(draft_session: &str) -> String {
+pub(crate) fn correlation(draft_session: &str) -> String {
     let tail = draft_session.strip_prefix("ses_").unwrap_or(draft_session);
     format!("act_{tail}f")
 }
@@ -165,32 +165,40 @@ impl TurnRunner {
         let corr = correlation(sid);
         let (_, fp_sid) = theseus_kernel::task_ids(&corr);
         let tree = super::tree_of(&self.cfg, &fp_sid);
-        let diff = Self::first_pass_tree(d, &tree).await?;
-        let parent = self
-            .kernel
-            .execution(&d.parent_execution)?
-            .context("the draft's conversation has no execution")?;
-        let want =
-            parent.budget.available() / crate::task::DEFAULT_SHARE.1 * crate::task::DEFAULT_SHARE.0;
-        let how = Opening {
-            reports_to: None,
-            wake_parent: false,
-            start_at_ms: None,
-        };
-        let now = theseus_protocol::now_unix_ms();
-        let mut staged = d.clone();
-        staged.first_pass = Some(FirstPass {
-            task: Some(fp_sid.clone()),
-            deadline_ms: now + BOUND.as_millis() as u64,
-            ..fp
-        });
-        let mark = Mark {
-            draft: sid.to_string(),
-            tree: tree.to_string_lossy().into_owned(),
-        };
-        let opened =
-            self.kernel
-                .open_task_owned(&d.parent_execution, &corr, want.max(1), how, |task| {
+        // A failure once the tree is made would leave it on disk, and every
+        // later end of the draft fail at `worktree add`, the review never
+        // opening: the review opens without a first pass instead, and the
+        // tree goes (best effort).
+        let tried = async {
+            let diff = Self::first_pass_tree(d, &tree).await?;
+            let parent = self
+                .kernel
+                .execution(&d.parent_execution)?
+                .context("the draft's conversation has no execution")?;
+            let want = parent.budget.available() / crate::task::DEFAULT_SHARE.1
+                * crate::task::DEFAULT_SHARE.0;
+            let how = Opening {
+                reports_to: None,
+                wake_parent: false,
+                start_at_ms: None,
+            };
+            let now = theseus_protocol::now_unix_ms();
+            let mut staged = d.clone();
+            staged.first_pass = Some(FirstPass {
+                task: Some(fp_sid.clone()),
+                deadline_ms: now + BOUND.as_millis() as u64,
+                ..fp
+            });
+            let mark = Mark {
+                draft: sid.to_string(),
+                tree: tree.to_string_lossy().into_owned(),
+            };
+            let opened = self.kernel.open_task_owned(
+                &d.parent_execution,
+                &corr,
+                want.max(1),
+                how,
+                |task| {
                     let id = &task.session_id;
                     let mut rec =
                         SessionRecord::with_id(id.clone(), SessionKind::Task, Some("task".into()));
@@ -234,8 +242,28 @@ impl TurnRunner {
                         &staged,
                     )?);
                     Ok(records)
-                })?;
-        if opened.opened {
+                },
+            )?;
+            anyhow::Ok(opened.opened)
+        }
+        .await;
+        let opened = match tried {
+            Ok(opened) => opened,
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), draft = %sid, "a first pass did not open: the review opens without it");
+                let (dir, at) = (d.dir.clone(), tree.clone());
+                let closed = tokio::task::spawn_blocking(move || {
+                    !at.exists() || super::close_tree(Path::new(&dir), &at).is_ok()
+                })
+                .await;
+                if !matches!(closed, Ok(true)) {
+                    tracing::warn!(tree = %tree.display(), "a first pass that did not open: its tree was not removed");
+                }
+                d.first_pass = None;
+                return Ok(false);
+            }
+        };
+        if opened {
             self.arm_first_pass(sid, BOUND);
         }
         Ok(true)

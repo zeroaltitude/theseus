@@ -115,6 +115,41 @@ async fn a_first_pass_that_fails_does_not_block_the_review() {
     assert_eq!(row["applied"], true, "the review still applied: {row}");
 }
 
+/// A first pass that fails once its tree is made (here: a tree an earlier
+/// attempt left at its path, so `worktree add` refuses) does not wedge the
+/// draft: the review opens without a first pass, and the tree is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_first_pass_that_cannot_open_lets_the_review_open() {
+    let d = with_first_pass();
+    let sid = d.dm(&d.repo);
+    say(&d.r.core, &sid, ASK, None).await;
+    crate::test_support::until_within("the draft opens", 10, || !d.tasks(&sid).is_empty()).await;
+    let drafted = d.tasks(&sid)[0].session_id.clone();
+    let corr = crate::draft::first_pass::correlation(&drafted);
+    let (_, fp_sid) = theseus_kernel::task_ids(&corr);
+    let left = draft::tree_of(&d.r.core.cfg, &fp_sid);
+    std::fs::create_dir_all(left.parent().unwrap()).unwrap();
+    let added = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&d.repo)
+        .args(["worktree", "add", "--detach"])
+        .arg(&left)
+        .output()
+        .unwrap();
+    assert!(added.status.success(), "{added:?}");
+    d.drive();
+    let row = d.settled().await;
+    assert_eq!(row["applied"], true, "the review still applied: {row}");
+    assert!(row["first_pass_task"].is_null(), "{row}");
+    assert_eq!(
+        d.tasks(&sid).len(),
+        2,
+        "the draft and its review, no first pass"
+    );
+    assert!(!left.exists(), "the first pass's tree is left on disk");
+    assert_eq!(d.file(), "alpha\ngamma\n");
+}
+
 /// A first pass that never answers is cancelled once it is past its bound, by
 /// the sweep as by the timer, and the review opens without it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
