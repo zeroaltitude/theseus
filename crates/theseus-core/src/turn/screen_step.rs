@@ -5,7 +5,8 @@
 //! `data_move` takes that loop to the `[model]` default, and the turn stores
 //! no run past it. An open session (`data.opened`) records the failure as its
 //! taint, bookkeeping as every taint is; a private-view session records
-//! nothing.
+//! no taint. Either way the failure's word is a `session.data` `screened`
+//! row (theseus-lm38z).
 
 use super::*;
 use crate::data::{self, DataWhy, Taint};

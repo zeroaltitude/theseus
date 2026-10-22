@@ -1667,7 +1667,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     **The tool screen** (theseus-a1wvq.9; `data::screen`, `turn/screen_step.rs`): right after a restricted, admitted
     loop's calls run, each result it wrote passes only for a file tool, `web.search` or `http.fetch`, with nothing
     redacted (`meta.redactions`), every resource of a file tool canonically within an open root, and a fetch of a
-    public URL. A program's result (`proc.run`, `job.*`, `term.*`) never passes yet (a sandboxed program run is the
+    public URL; a fetch also fails when its `meta.final_url` is not public (a redirect into the owner's network), and a
+    failed screen is a `session.data` `screened` row (node, word; theseus-lm38z). A program's result (`proc.run`, `job.*`, `term.*`) never passes yet (a sandboxed program run is the
     follow-up). A result that fails ends the run, not the session: the node stays but is not in `RouteState.screened`,
     so the next loop moves and no run is stored past it, and an open session records the taint naming the result. The turn
     stores the run (through its last node) in its own session write only when every request went out cleared and
@@ -1681,7 +1682,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     first node. A turn that fails before its write-back loses the taint it found, and the next turn takes it again.
     An open request is offered the public tools that start no later work (`open_view::open_public`: never `task.create`,
     `task.split`, `task.claim` or `wake.at`, which would run later, on another model, with the owner's trust;
-    `task.update` and `task.close` stay; theseus-qul8y), and every root it is shown reads `~/…` (`places::home_shown`,
+    `task.update` and `task.close` stay and reach only the open task's own record, `toolrun::batch::own_record_only`
+    refusing another's by id, theseus-ol8w0; theseus-qul8y), and every root it is shown reads `~/…` (`places::home_shown`,
     theseus-mhqlm). `file.read` is not offered there; if it were, an open session's read takes the outside-text hold,
     as a shared place's does. An open task keeps its parent's directory and last target (theseus-5u16e F5): its
     workspace reads are private to routing and the open view (`turn/data_step.rs`), so the directory opens nothing; an
@@ -1689,7 +1691,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     Tests: `tests_open_request.rs`, `tests_cn_follow.rs`.
     **Background calls** (theseus-a1wvq.10; `turn/compaction/gate.rs`): a compaction in an open request summarizes only a
     range its run clears (`data::clearance` over the nodes the summary renders and the run's last, the stored run until the
-    turn's admission is read), with a pass of its own, and only such a summary joins the run (`Held.summaries`, read by
+    turn's admission is read, and only for an open session: `stored_run`, theseus-pohih), with a pass of its own, and only such a summary joins the run (`Held.summaries`, read by
     `open_step::writer`); a restricted summary profile otherwise falls back to the `[model]` default, or the ring stands.
     Consolidation never runs on a restricted model (`restricted_origin`), keep-warm skips a restricted target, and
     `turn.replay` refuses one. Tests: `tests_bg_gate.rs`.
