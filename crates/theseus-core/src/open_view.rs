@@ -106,10 +106,26 @@ impl Open {
         if !(files_tool(name) || runs_tool(name)) {
             return None;
         }
-        let outside = plan
+        let reached: Vec<PathBuf> = plan
             .resources
             .iter()
             .map(|r| paths::canonical_best_effort(&r.path))
+            .collect();
+        // A draft never reaches git's own files (theseus-a1wvq.13): the core's
+        // git calls in its tree read them.
+        if self.draft {
+            if let Some(g) = reached
+                .iter()
+                .find(|p| p.components().any(|c| c.as_os_str() == ".git"))
+            {
+                return Some(format!(
+                    "{} is git's own, and a draft edits only its tree's files",
+                    g.display()
+                ));
+            }
+        }
+        let outside = reached
+            .iter()
             .find(|p| !self.roots.iter().any(|root| paths::within(p, root)))?;
         Some(format!(
             "{} is outside the open paths, and this request is open: here {name} reaches only {}",
@@ -142,17 +158,19 @@ impl Open {
 
 /// The open roots of `session`: `[routing.data] open_paths`, expanded and
 /// canonical, as `places::public_roots` makes `[places] public_paths`. A
-/// function of the session, never a stored field: a draft session's own tree
-/// joins them, from its id (theseus-a1wvq.13), and no other session's.
+/// function of the session, never a stored field. A draft session's roots
+/// are its own tree alone, from its id (theseus-a1wvq.13): the open paths hold
+/// the owner's directory, which only a reviewed change reaches.
 pub fn open_roots(cfg: &crate::Config, session: &SessionRecord) -> Vec<PathBuf> {
-    let tree = crate::draft::is_draft(session)
-        .then(|| paths::canonical_best_effort(&crate::draft::tree_of(cfg, &session.session_id)));
+    if crate::draft::is_draft(session) {
+        let tree = crate::draft::tree_of(cfg, &session.session_id);
+        return vec![paths::canonical_best_effort(&tree)];
+    }
     cfg.routing
         .data
         .open_paths
         .iter()
         .map(|p| paths::canonical_best_effort(&crate::config::expand(p)))
-        .chain(tree)
         .collect()
 }
 

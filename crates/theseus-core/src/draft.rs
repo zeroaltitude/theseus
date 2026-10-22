@@ -228,9 +228,12 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
-/// Whether `dir` is inside a git work tree.
-pub fn work_tree(dir: &Path) -> bool {
-    git(dir, &["rev-parse", "--is-inside-work-tree"]).is_ok_and(|o| o == "true")
+/// The top of the git work tree holding `dir`, canonical, or none.
+pub fn work_tree(dir: &Path) -> Option<PathBuf> {
+    git(dir, &["rev-parse", "--show-toplevel"])
+        .ok()
+        .filter(|o| !o.is_empty())
+        .map(|o| theseus_tools::paths::canonical_best_effort(Path::new(&o)))
 }
 
 /// A worktree of `dir` at `HEAD` in `tree`, on a new `branch`: `HEAD`'s sha.

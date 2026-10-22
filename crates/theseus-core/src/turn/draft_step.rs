@@ -7,7 +7,8 @@
 //! - `in_task`: the session is no task;
 //! - `wake`: the turn is a person's message, not a wake's, a report's or a
 //!   continuation;
-//! - `dir_not_open`: the session's directory is under the open roots;
+//! - `dir_not_open`: the session's directory, and its repository's top (the draft
+//!   tree is the whole repository), are under the open roots;
 //! - `not_git`: it is a git work tree (and its worktree could be made);
 //! - `draft_unusable`: the `cn_draft` profile is usable for a cleared ask;
 //! - `no_reviewer`: a `final` profile is usable.
@@ -97,9 +98,14 @@ impl TurnRunner {
             return Err("dir_not_open");
         }
         let at = canonical.clone();
-        let git = tokio::task::spawn_blocking(move || draft::work_tree(&at)).await;
-        if !git.unwrap_or(false) {
-            return Err("not_git");
+        let top = tokio::task::spawn_blocking(move || draft::work_tree(&at))
+            .await
+            .ok()
+            .flatten()
+            .ok_or("not_git")?;
+        // The tree is the whole repository: all of it must be open.
+        if !roots.iter().any(|r| theseus_tools::paths::within(&top, r)) {
+            return Err("dir_not_open");
         }
         let profile = self
             .tools
@@ -118,12 +124,12 @@ impl TurnRunner {
         let (_, task_session) = theseus_kernel::task_ids(&correlation_id);
         let tree = draft::tree_of(&self.cfg, &task_session);
         let branch = draft::branch_of(&task_session);
-        let (at, into, b) = (canonical.clone(), tree.clone(), branch.clone());
+        let (at, into, b) = (top.clone(), tree.clone(), branch.clone());
         let base = tokio::task::spawn_blocking(move || draft::open_tree(&at, &into, &b)).await;
         let base = match base {
             Ok(Ok(base)) => base,
             Ok(Err(e)) => {
-                tracing::warn!(error = %format!("{e:#}"), dir = %canonical.display(), "a draft's tree could not be made");
+                tracing::warn!(error = %format!("{e:#}"), dir = %top.display(), "a draft's tree could not be made");
                 return Err("not_git");
             }
             Err(_) => return Err("not_git"),
@@ -136,7 +142,7 @@ impl TurnRunner {
             draft: Draft {
                 parent_session: t.tc.session_id.into(),
                 parent_execution: t.tc.execution_id.into(),
-                dir: canonical.to_string_lossy().into_owned(),
+                dir: top.to_string_lossy().into_owned(),
                 tree: tree.to_string_lossy().into_owned(),
                 branch,
                 base,

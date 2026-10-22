@@ -99,6 +99,8 @@ fn repo(at: &Path) -> PathBuf {
 pub(crate) struct Plan {
     /// The draft's call: none reports at once.
     draft_call: Option<(String, Value)>,
+    /// More calls the draft makes beside it, in the same answer.
+    draft_also: Vec<(String, Value)>,
     /// The review's edit of the tree (old, new), before it reports.
     review_edit: Option<(String, String)>,
     review_report: String,
@@ -144,13 +146,24 @@ pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
             return Scripted::text("Changed beta to gamma in notes.txt.");
         }
         match p.draft_call.take() {
-            Some((name, input)) => {
+            Some(first) => {
                 let tree = tree_in(req).unwrap_or_default();
-                let input = serde_json::from_str(
-                    &input.to_string().replace("TREE", &tree.to_string_lossy()),
-                )
-                .unwrap();
-                Scripted::tools("Editing.", &[("d1", &name, input)])
+                let calls: Vec<(String, String, Value)> = std::iter::once(first)
+                    .chain(p.draft_also.drain(..))
+                    .enumerate()
+                    .map(|(i, (name, input))| {
+                        let input = serde_json::from_str(
+                            &input.to_string().replace("TREE", &tree.to_string_lossy()),
+                        )
+                        .unwrap();
+                        (format!("d{}", i + 1), name, input)
+                    })
+                    .collect();
+                let calls: Vec<(&str, &str, Value)> = calls
+                    .iter()
+                    .map(|(id, name, input)| (id.as_str(), name.as_str(), input.clone()))
+                    .collect();
+                Scripted::tools("Editing.", &calls)
             }
             None => Scripted::text("Changed beta to gamma in notes.txt."),
         }
@@ -491,6 +504,87 @@ async fn a_draft_is_never_offered_a_program() {
     let _ = task;
 }
 
+/// A draft's open roots are its tree alone (theseus-a1wvq.13): its
+/// `fs_write` of the owner's own file, under `open_paths`, is refused at the
+/// gate, and so is a write of git's own files in its tree; the owner's file is
+/// as it was until the review applies.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_draft_writes_only_its_tree() {
+    let d = rig(|_| {});
+    let owner_file = d.repo.join("notes.txt");
+    {
+        let mut p = d.plan.lock().unwrap();
+        p.draft_call = Some(draft_edit());
+        p.draft_also = vec![
+            (
+                "fs_write".into(),
+                json!({"path": owner_file, "content": "alpha\nthe draft's\n"}),
+            ),
+            (
+                "fs_write".into(),
+                json!({"path": "TREE/.git/hooks/post-commit", "content": "#!/bin/sh\n"}),
+            ),
+        ];
+    }
+    let sid = d.dm(&d.repo);
+    say(&d.r.core, &sid, ASK, None).await;
+    d.drive();
+    let row = d.settled().await;
+    let seen = d.plan.lock().unwrap().seen_by_review.clone();
+    assert_eq!(
+        seen.as_deref(),
+        Some("alpha\nbeta\n"),
+        "the owner's file changed before the review"
+    );
+    let draft = &d.tasks(&sid)[0];
+    let bodies: Vec<String> =
+        d.r.core
+            .store
+            .session_nodes(&draft.session_id)
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| format!("{:?}", n.body))
+            .collect();
+    assert!(
+        bodies
+            .iter()
+            .any(|b| b.contains("is outside the open paths")),
+        "the owner's file was not refused: {bodies:?}"
+    );
+    assert!(
+        bodies.iter().any(|b| b.contains("is git's own")),
+        "git's own file was not refused: {bodies:?}"
+    );
+    assert_eq!(row["applied"], true, "{row}");
+    assert_eq!(d.file(), "alpha\ngamma\n");
+}
+
+/// A draft from a subdirectory of the repository works in a tree of the
+/// whole repository, so its apply runs at the repository's top: a reviewed
+/// edit outside the subdirectory lands, never dropped while the line says
+/// applied (theseus-a1wvq.13).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_draft_from_a_subdirectory_applies_at_the_top() {
+    let d = rig(|_| {});
+    let sub = d.repo.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join("readme.txt"), "sub\n").unwrap();
+    git(&d.repo, &["add", "-A"]);
+    git(&d.repo, &["commit", "-q", "-m", "sub"]);
+    d.plan.lock().unwrap().draft_call = Some(draft_edit());
+    let sid = d.dm(&sub);
+    let res = say(&d.r.core, &sid, ASK, None).await;
+    assert_eq!(res.stop_reason, "drafted", "{:?}", res.route);
+    d.drive();
+    let row = d.settled().await;
+    assert_eq!(row["applied"], true, "{row}");
+    assert_eq!(
+        d.file(),
+        "alpha\ngamma\n",
+        "the edit at the top was dropped"
+    );
+}
+
 /// A secret the scrubber knows, built from parts at run time.
 fn secret() -> String {
     format!("{}{}", "whsec_", "Qm7xK2pLr9TzV4nB8cD1fG6hJ3sW5yAe")
@@ -689,6 +783,20 @@ async fn an_ineligible_coding_turn_runs_as_before() {
     .await;
     let _ = task;
     assert!(d.zai.sent().is_empty(), "nothing drafted");
+
+    // Open paths at a subdirectory of the repository: the draft's tree would
+    // be the whole repository, so the turn does not draft.
+    let d = rig(|c| {
+        let at = PathBuf::from(&c.routing.data.open_paths[0]).join("acme/sub");
+        c.routing.data.open_paths = vec![at.to_string_lossy().into_owned()];
+    });
+    let sub = d.repo.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    let sid = d.dm(&sub);
+    let res = say(&d.r.core, &sid, ASK, None).await;
+    assert_eq!(res.profile, "sonnet", "{:?}", res.route);
+    assert_eq!(skip_of(&d), "dir_not_open");
+    assert!(d.tasks(&sid).is_empty(), "no draft");
 
     // A class with no cn_draft.
     let d = rig(|c| {
