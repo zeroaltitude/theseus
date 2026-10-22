@@ -1825,6 +1825,18 @@ impl Config {
         self.resolved.profiles.insert(name.into(), p);
     }
 
+    /// A test's `glm` profile on `model` (US origin, on the `zai` fake), a
+    /// second provider with a model of its own (theseus-a1wvq.10).
+    #[cfg(test)]
+    pub(crate) fn serve_glm_as(&mut self, model: &str) {
+        self.serve_glm_unrestricted();
+        self.resolved
+            .profiles
+            .get_mut("glm")
+            .expect("the profile")
+            .model = model.into();
+    }
+
     /// A test's `zai` provider vouched of `origin`.
     #[cfg(test)]
     pub(crate) fn vouch_zai(&mut self, origin: crate::catalog::ModelOrigin) {

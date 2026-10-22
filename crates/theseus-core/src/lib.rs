@@ -225,6 +225,8 @@ mod tests_audit;
 #[cfg(test)]
 mod tests_backfill;
 #[cfg(test)]
+mod tests_bg_gate;
+#[cfg(test)]
 mod tests_books;
 #[cfg(test)]
 mod tests_budget_loop;

@@ -513,3 +513,55 @@ fn break_even_per_catalog_model() {
         );
     }
 }
+
+/// A keep-warm read carries no pass (theseus-a1wvq.10): a session whose last
+/// target is of restricted origin is forgotten, with the reason, and nothing
+/// is sent or refused at the chokepoint; a session of US origin beside it is
+/// still read.
+#[tokio::test]
+async fn a_restricted_target_is_never_kept_warm() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = one_hour(24);
+    c.copy_profile("dsflash", "glm");
+    c.server.state_dir = dir.path().to_string_lossy().into_owned();
+    c.tools.roots = vec![];
+    let (fake, zai) = (
+        Arc::new(FakeProvider::default()),
+        Arc::new(FakeProvider::default()),
+    );
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(c, fake.clone(), store);
+    parts.providers.insert("zai".into(), zai.clone());
+    let core = Core::build(parts).unwrap();
+    let (restricted, plain) = (
+        session(&core, SessionKind::Conversation, None),
+        session(&core, SessionKind::Conversation, None),
+    );
+    turn(&core, &restricted, "the first conversation").await;
+    turn(&core, &plain, "the second conversation").await;
+    let (live, _) = core.live_profile();
+    let mut rec: SessionRecord = core.store.get_session(&restricted).unwrap().unwrap();
+    let t = core
+        .runner
+        .resolve_target(&live, Some("dsflash"), None, None)
+        .unwrap();
+    rec.last_target = Some(crate::session::TargetRef {
+        profile: t.profile,
+        provider: t.provider,
+        model: t.model,
+    });
+    core.store.put_session(&restricted, &rec).unwrap();
+
+    let out = core.runner.keep_warm_once(&restricted, &live).await;
+    assert!(
+        matches!(&out, Outcome::Forgotten(w) if w.contains("is of restricted origin")),
+        "{out:?}"
+    );
+    assert!(zai.requests().is_empty(), "nothing was sent to it");
+    assert!(reads(&fake).is_empty());
+    assert!(crate::tests_judge::kinds(&core.store, "data_gate.blocked").is_empty());
+
+    let out = core.runner.keep_warm_once(&plain, &live).await;
+    assert!(matches!(out, Outcome::Read { .. }), "{out:?}");
+    assert_eq!(reads(&fake).len(), 1);
+}

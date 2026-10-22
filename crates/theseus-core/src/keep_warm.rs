@@ -546,6 +546,21 @@ impl TurnRunner {
             kw.postpone(session_id);
             return Err(Outcome::Busy);
         }
+        // A keep-warm read carries no pass (theseus-a1wvq.10): a restricted
+        // target is never read, and not stopped with a blocked row. Judged
+        // before the request is built, which a model it would change stops.
+        let restricted = self.target_for_session(&rec, live).ok().filter(|t| {
+            self.cfg
+                .profile_origin(&t.profile, &self.catalog)
+                .restricted()
+        });
+        if let Some(t) = restricted {
+            kw.forget(session_id);
+            return Err(Outcome::Forgotten(format!(
+                "its model `{}` is of restricted origin: a keep-warm read carries no pass",
+                t.model
+            )));
+        }
         let b = match self.keep_warm_request(&rec, live) {
             Ok(b) => b,
             Err((true, why)) => {

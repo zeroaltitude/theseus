@@ -51,6 +51,9 @@ pub(super) struct Held {
     taint: Option<Taint>,
     /// A later loop moved off a restricted model.
     moved: bool,
+    /// The `Summary` nodes this turn's compaction wrote over a range its run
+    /// cleared: the loop's own, as `writer` reads them.
+    pub(super) summaries: Vec<String>,
 }
 
 /// The targets a turn may move to, each set once: routing's, a refusal's
@@ -72,10 +75,12 @@ pub(super) fn slots() -> Slots {
     )
 }
 
-/// Who wrote `n`, for a request of `turn`.
-fn writer(n: &Stub, turn: &str) -> Writer {
+/// Who wrote `n`, for a request of `turn`; `summaries` are its compaction's
+/// summaries of a cleared range.
+pub(super) fn writer(n: &Stub, turn: &str, summaries: &[String]) -> Writer {
     match n.kind {
         Kind::ToolResult => Writer::ToolResult,
+        Kind::Summary if summaries.contains(&n.id) => Writer::Loop,
         Kind::AssistantMessage | Kind::ToolCall | Kind::Recall
             if n.turn_id.as_deref() == Some(turn) =>
         {
@@ -227,7 +232,7 @@ impl TurnRunner {
                 .map(|(p, n)| Carry {
                     id: n.id.clone(),
                     at: *p,
-                    writer: writer(n, t.tc.turn_id),
+                    writer: writer(n, t.tc.turn_id, &t.data.summaries),
                 })
                 .collect(),
         })
@@ -322,7 +327,7 @@ impl TurnRunner {
         let left = since.is_none_or(|at| {
             nodes[at + 1..]
                 .iter()
-                .any(|(_, n)| writer(n, t.tc.turn_id) != Writer::Loop)
+                .any(|(_, n)| writer(n, t.tc.turn_id, &t.data.summaries) != Writer::Loop)
         });
         if !left {
             return Ok(None);
@@ -370,7 +375,7 @@ impl TurnRunner {
                 let own = at.is_some_and(|at| {
                     nodes[at + 1..]
                         .iter()
-                        .all(|(_, n)| writer(n, t.tc.turn_id) == Writer::Loop)
+                        .all(|(_, n)| writer(n, t.tc.turn_id, &t.data.summaries) == Writer::Loop)
                 });
                 if let (true, Some((_, last))) = (own, nodes.last()) {
                     let d = session.data.get_or_insert_with(Default::default);

@@ -23,7 +23,7 @@ use crate::provider::Provider;
 use crate::routing::{Decision, HoldNext, Reason};
 
 /// The profile the `[model]` section builds.
-pub(super) const DEFAULT_PROFILE: &str = "default";
+pub(crate) const DEFAULT_PROFILE: &str = "default";
 
 pub(super) const REFUSED: &str =
     "this message names something in `[privacy] sensitive_names`, and \
