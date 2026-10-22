@@ -153,7 +153,9 @@ async fn five_rerank_timeouts_open_reranks_breaker_alone() {
         h.breakers
     );
     assert!(
-        h.breakers.iter().any(|b| b.starts_with("recall_cross: closed")),
+        h.breakers
+            .iter()
+            .any(|b| b.starts_with("recall_cross: closed")),
         "{:?}",
         h.breakers
     );
