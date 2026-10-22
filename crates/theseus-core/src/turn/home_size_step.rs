@@ -6,9 +6,12 @@
 //!
 //! - **The measure** is the home's request as the compile counts it (`Compiled::est_tokens`, the
 //!   figure a turn already has: no read of its own), taken at a turn's first loop.
-//! - **The bound** is `[threads] working_tokens` (60,000 unless set): the tokens a thread's request
-//!   stays within after a cold resume. A home past what a thread is held to is the one a split would
-//!   shrink; the post-split DM, 32,797, sits under it. No budget of its own, and none is raised.
+//! - **The bound** is `[threads] home_warn_percent` (50) of the serving model's context window
+//!   (the catalog's `context_window`; 1,000,000 when none is known): a home is warned about when
+//!   a request is near the window, where a request can fail and every turn is costly. A long
+//!   session is otherwise fine, so no smaller figure warns: the owner, 2026-10-21, found the
+//!   60,000 of `[threads] working_tokens` (what a thread's request stays within after a cold
+//!   resume, a different thing) too aggressive for a home. No budget of its own, and none is raised.
 //! - **A home** is the session a place runs on (`Outbox::place_session`), not a task's and not a
 //!   thread's.
 //! - **Once** is a META row by the home's session, `home.size.warned.<session>`, written in the
@@ -16,14 +19,27 @@
 //!   successor home (`bind_place`) is another session, so it starts unwarned. A home whose request
 //!   falls back to the bound or under it (a split took its history out) has its row written
 //!   `warned: false`, and is told again if it grows past the bound once more.
+//! - **The text** names the place as the owner sees it, the size and its share of the window, and
+//!   one command that runs as written: a dry-run split of the home's oldest settled stretch (its
+//!   first turn through the turn before the newest `[threads] resume_keep_turns`), named
+//!   `earlier-<date of the stretch's last turn>`. A home with no such stretch gets the size and
+//!   `theseus history`.
 //! - **Where** it goes is the owner's DM alone, as the other warnings go (`stage_to_operator`; the
 //!   Discord binding posts kind `home_size` there). With no DM bound nothing is posted and nothing
 //!   is marked, so the home is told when one is.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use theseus_store::{kinds, NewRecord};
 
+use crate::store::Transcript;
+use crate::stub::Kind;
+
 use super::*;
+
+/// The window a request is weighed against when its model's is not known.
+const FALLBACK_WINDOW: u64 = 1_000_000;
 
 /// The post's kind: the Discord binding sends it to the owner's DM alone.
 pub const KIND: &str = "home_size";
@@ -62,21 +78,73 @@ fn step(tokens: u64, threshold: u64, warned: bool) -> Step {
     }
 }
 
-/// The warning, as the owner reads it: the size, the bound, the command, its undo.
-pub fn warning_text(place: &str, tokens: u64, threshold: u64) -> String {
+/// The oldest settled stretch of a home, as `thread split` takes it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Stretch {
+    /// The thread's name: `earlier-` and the local date of the stretch's last turn.
+    pub slug: String,
+    /// The WAL positions of the stretch's first and last messages.
+    pub first: u64,
+    pub last: u64,
+}
+
+/// The warning, as the owner reads it: the place's name, the size and its share of the window,
+/// and the dry run of a split of `stretch` (as the place is stored) with its undo.
+pub fn warning_text(
+    name: &str,
+    tokens: u64,
+    window: u64,
+    split: Option<(&str, &Stretch)>,
+) -> String {
     let n = crate::narrative::thousands;
-    format!(
-        "📏 The home of {place} has grown: its next request is {} tokens, past the {} a thread's \
-         request stays within (`[threads] working_tokens`). Every turn there pays for it, and after \
-         an idle spell the whole of it is written to the cache again. Nothing was split: a split \
-         moves context, so it is yours to choose. To see what would move and what the next request \
-         would be, run `theseus thread split home@{place} NAME --first @A --last @B --dry-run` \
-         (`theseus history` shows the `@` positions); without `--dry-run` it splits, and \
-         `theseus thread unsplit SPLIT` undoes it. You will not be told again about this home \
-         unless it falls back under the bound and grows past it once more.",
+    let head = format!(
+        "📏 {name}'s home is {} tokens, {}% of the model's window.",
         n(tokens),
-        n(threshold)
-    )
+        tokens * 100 / window.max(1)
+    );
+    match split {
+        Some((place, s)) => format!(
+            "{head} To see what moving its oldest turns into a thread would save: `theseus thread \
+             split home@{place} {} --first @{} --last @{} --dry-run`. Without `--dry-run` it \
+             splits, and `theseus thread unsplit` with the id it prints undoes it.",
+            s.slug, s.first, s.last
+        ),
+        None => format!("{head} `theseus history` shows what it holds."),
+    }
+}
+
+/// The home's oldest settled stretch: its first turn through the turn before the newest `keep`,
+/// by the turns of `nodes` that no split has moved. None when no turn is left before the newest
+/// `keep`. A turn is the messages, calls and results that share a turn id.
+pub fn stretch(nodes: &Transcript, keep: usize, taken: impl Fn(&str) -> bool) -> Option<Stretch> {
+    let hidden = crate::moved::read(nodes).hidden;
+    let mut order: Vec<&str> = Vec::new();
+    let mut span: HashMap<&str, (u64, u64)> = HashMap::new();
+    for (pos, n) in nodes {
+        let Some(turn) = n.turn_id.as_deref() else {
+            continue;
+        };
+        if matches!(n.kind, Kind::Recall | Kind::Summary | Kind::Moved) || hidden.contains(&n.id) {
+            continue;
+        }
+        let e = span.entry(turn).or_insert_with(|| {
+            order.push(turn);
+            (*pos, *pos)
+        });
+        e.1 = *pos;
+    }
+    let settled = order.get(..order.len().checked_sub(keep)?)?;
+    let last_turn = settled.last()?;
+    let first = span[settled[0]].0;
+    let last = settled.iter().map(|t| span[t].1).max()?;
+    let day = crate::judge::spend::local_day(crate::id_ms(last_turn)?);
+    let slug = (1..)
+        .map(|i| match i {
+            1 => format!("earlier-{day}"),
+            i => format!("earlier-{day}-{i}"),
+        })
+        .find(|s| !taken(s))?;
+    Some(Stretch { slug, first, last })
 }
 
 impl TurnRunner {
@@ -86,16 +154,38 @@ impl TurnRunner {
     /// compiles its first loop twice, and the marker waits for the frame, so a second weigh would
     /// read "not told" and post again.
     pub(super) fn home_size_checked(&self, t: &mut Turn<'_>, tokens: u64, loop_index: u32) {
+        let window = t.fill.window.unwrap_or(FALLBACK_WINDOW);
         if loop_index > 0 || t.home_weighed {
             return;
         }
         t.home_weighed = true;
-        if let Err(e) = self.home_size(t, tokens) {
+        if let Err(e) = self.home_size(t, tokens, window) {
             tracing::warn!(error = %format!("{e:#}"), "a home's size was not weighed");
         }
     }
 
-    fn home_size(&self, t: &mut Turn<'_>, tokens: u64) -> Result<()> {
+    /// The place as the owner sees it (`#harbor`, `DM @name`); a place no binding names is
+    /// "this place", never its raw target.
+    fn home_name(&self, sid: &str, target: &str) -> String {
+        let name = self.place_name(sid);
+        if name == target {
+            "This place".into()
+        } else {
+            name
+        }
+    }
+
+    /// The home's oldest settled stretch, read from its session as it is now.
+    fn home_stretch(&self, t: &Turn<'_>) -> Result<Option<Stretch>> {
+        let nodes = t.tc.store.transcript(t.tc.session_id)?;
+        let keep = self.cfg.threads.resume_keep_turns as usize;
+        let board = self.threads.held();
+        Ok(stretch(&nodes, keep, |slug| {
+            board.as_ref().is_some_and(|b| b.get(slug).is_some())
+        }))
+    }
+
+    fn home_size(&self, t: &mut Turn<'_>, tokens: u64, window: u64) -> Result<()> {
         let sid = t.tc.session_id;
         if !self.cfg.threads.enabled || t.tc.task.is_some() {
             return Ok(());
@@ -109,7 +199,7 @@ impl TurnRunner {
         if self.outbox.place_session(stored)?.as_deref() != Some(sid) {
             return Ok(());
         }
-        let threshold = self.cfg.threads.working_tokens;
+        let threshold = window * u64::from(self.cfg.threads.home_warn_percent) / 100;
         let key = format!("{KEY_PREFIX}{sid}");
         let warned =
             t.tc.store
@@ -136,7 +226,14 @@ impl TurnRunner {
                 );
                 return Ok(());
             }
-            let body = json!({"kind": KIND, "text": warning_text(&place, tokens, threshold)});
+            let split = self.home_stretch(t)?;
+            let text = warning_text(
+                &self.home_name(sid, &place),
+                tokens,
+                window,
+                split.as_ref().map(|s| (stored, s)),
+            );
+            let body = json!({"kind": KIND, "text": text});
             let (post, records) = self.outbox.stage_to_operator(None, body)?;
             for r in records {
                 t.tc.store.defer(r)?;
@@ -179,15 +276,21 @@ mod tests {
 
     #[test]
     fn the_warning_names_the_size_the_bound_and_the_commands() {
-        let t = warning_text("discord:dm:5150", 253_640, 60_000);
+        let s = Stretch {
+            slug: "earlier-2026-10-19".into(),
+            first: 12,
+            last: 412,
+        };
+        let t = warning_text("#harbor", 512_300, 1_000_000, Some(("channel:77", &s)));
         for want in [
-            "253,640",
-            "60,000",
-            "theseus thread split home@discord:dm:5150 NAME",
-            "--dry-run",
-            "theseus thread unsplit SPLIT",
+            "#harbor's home is 512,300 tokens, 51% of the model's window",
+            "theseus thread split home@channel:77 earlier-2026-10-19 --first @12 --last @412 --dry-run",
+            "theseus thread unsplit",
         ] {
             assert!(t.contains(want), "{want}: {t}");
         }
+        assert!(t.chars().count() < 450, "{t}");
+        let t = warning_text("#harbor", 512_300, 1_000_000, None);
+        assert!(t.contains("theseus history") && !t.contains("split"), "{t}");
     }
 }
