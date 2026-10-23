@@ -834,6 +834,26 @@ class BudgetArms(Case):
         base = self.base_with(self.CANCEL, self.CANCEL + self.METHOD)
         self.assertClean({self.LC: sub(base, "Some(2.0)", "Some(1.0)")})
 
+    def test_a_constant_block_before_a_method_call_rewritten_is_raised(self):
+        # theseus-b7vuh round 2: the number after the block must not hide a rewrite of the block's constant, as it
+        # was not hidden before F4 (a rewrite of `{ x }` was a finding whatever followed it).
+        for method in ("min", "max"):
+            base = self.base_with(self.CANCEL, self.CANCEL + self.METHOD.replace(".min(", f".{method}("))
+            for tail in ("Some(2.0)", "Some(1.0)"):
+                self.assertCaught("budget-raised", self.LC, {self.LC: sub(
+                    base, f"{{ cap }}.{method}(Some(2.0))", f"{{ other }}.{method}({tail})")})
+                code, out = self.findings()
+                self.assertIn(f'"tui" => {{ cap }}.{method}(Some(2.0)) -> "tui" => {{ other }}.{method}({tail})', out)
+
+    def test_a_constant_block_before_a_method_call_rewritten_to_a_literal_is_raised(self):
+        base = self.base_with(self.CANCEL, self.CANCEL + self.METHOD)
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "{ cap }.min(Some(2.0))", "Some(1.0)")})
+
+    def test_a_constant_block_before_a_method_call_kept_is_clean(self):
+        base = self.base_with(self.CANCEL, self.CANCEL + self.METHOD)
+        self.assertClean({self.LC: sub(base, "{ cap }.min(Some(2.0))", "{ cap }.min(Some(1.0))")})
+        self.assertClean({self.LC: sub(base, "{ cap }.min(Some(2.0))", "{  cap  }.min(Some(2.0))")})
+
     SURFACES = "crates/theseus-sim/src/lifecycle/surfaces.rs"
 
     def test_a_sim_budget_const_raised(self):

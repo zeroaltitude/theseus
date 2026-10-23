@@ -1089,6 +1089,34 @@ def unguarded(pat):
     return re.match(r'"[^"]*"', pat).group()
 
 
+def leading_block(value):
+    """The `{ ... }` a value starts with when a method call or `?` follows it (`{ x }.min(Some(2.0))`), else None."""
+    v = value.lstrip()
+    if v[:1] != "{":
+        return None
+    depth, i = 0, 0
+    while i < len(v):
+        m = RS_STRING.match(v, i)
+        if m:
+            i = m.end()
+            continue
+        depth += (v[i] in "([{") - (v[i] in ")]}")
+        i += 1
+        if depth == 0:
+            return v[:i] if v[i:].lstrip()[:1] in (".", "?") else None
+    return None
+
+
+def block_rewritten(oval, nval):
+    """True when the value's leading block named a constant (no number) and the head's block differs: a number after
+    the block must not hide that rewrite (`{ x }.max(Some(2.0))` -> `{ y }.max(Some(2.0))`)."""
+    ob = leading_block(oval)
+    if ob is None or NUM.search(ob) or not names_constant(ob):
+        return False
+    nb = leading_block(nval)
+    return squash(ob) != squash(nb if nb is not None else nval)
+
+
 def names_constant(expr):
     """True when a value with no number names something (a constant, a local, a call) that holds its number."""
     words = re.findall(r"[A-Za-z_]\w*", RS_STRING.sub('""', expr))
@@ -1141,7 +1169,8 @@ def compare_arms(path, base, head, out):
             judges = [(barms[p], True)] if p in barms else [(shadowed, True), (bfall, False)]
             hit = next((otext for (old, _, otext, oval), named in (j for j in judges if j[0])
                         if (old and any(b > a for a, b in zip(old, new)))
-                        or (named and not old and names_constant(oval) and squash(oval) != squash(nval))), None)
+                        or (named and not old and names_constant(oval) and squash(oval) != squash(nval))
+                        or (named and old and block_rewritten(oval, nval))), None)
             if hit:
                 out.append(Finding("budget-raised", path, line, hit, ntext))
                 break
