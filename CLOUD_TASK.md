@@ -65,7 +65,7 @@ The gate's shape phase fails a file over its line ceiling in scripts/long-files.
 - One commit per green sub-step, on the branch named below, created from `main` as you cloned it. Don't merge or rebase onto a newer main; the maintainer merges.
 - The subject is `area: what changed (<issue id>)`, as in `git log`. The body says what changed and why, in plain words. End each message with the trailer `Co-Authored-By: Claude (cloud session, Sonnet 5.5) <noreply@anthropic.com>`.
 - You can't sign here: commit without `-S`. The maintainer's merge commit is signed.
-- Commit and push each sub-step as soon as it is proved; don't hold commits for the end. Push only your branch, `git push origin HEAD:refs/heads/cloud/20261021-tail7d-misroute`, at every green point, so nothing is lost if the session ends. Never push to main, never force-push, never delete a branch, and open no pull request.
+- Commit and push each sub-step as soon as it is proved; don't hold commits for the end. Push only your branch, `git push origin HEAD:refs/heads/cloud/20261021-tail7d2-misroute-run`, at every green point, so nothing is lost if the session ends. Never push to main, never force-push, never delete a branch, and open no pull request.
 - No new dependencies: Cargo.lock and the package-lock.json files must not gain a package. If the right design needs one, say so in the report instead.
 - Use invented names in fixtures, tests, and commits (AGENTS.md, Item 16). Write nothing about the owner, his machine, his accounts, or anyone else.
 - Don't edit the spec, docs/status.md, the README, or docs/design/. The maintainer writes those at review. Where a doc should change, say what and where in the report.
@@ -86,162 +86,162 @@ Then the gate's result, naming each failing test and why. Your final message is 
 
 ## Read this first: the state of `main` for this wave (it wins over anything below about `main`)
 
-Your branch starts from `main` at `f9c11594` (2026-10-22: release stage 7a, install #74a, the card hotfix, on top of
-stage 6's `ae420a49`); that is your base. Stage 7a changed only the card's files, `docs/status.md` and one core
-`AGENTS.md` paragraph (the owner card), so every line number below, quoted at `ae420a49`, still holds within a few
-lines: search by name.
+Your branch does **not** start from `main`. It starts from `bb6a43e5`, the fix commit of row `tail7d-misroute`
+(theseus-4gb4w, branch `cloud/20261021-tail7d-misroute`), which sits on `main` at `f9c11594` (2026-10-22: release
+stage 7a, install #74a, the card hotfix, on top of stage 6's `ae420a49`). That commit is your base: its misroute guard
+already reads a thread's relative roots under the session's directory, and you build on that code. Its two cloud
+commits (`CLOUD_TASK.md`, `CLOUD_REPORT.md`) are not in your base. Line numbers below are quoted at `bb6a43e5`.
 
-**Store format on your base: 49** (`const MANIFEST_FORMAT` in `crates/theseus-store/src/store.rs`). Neither row in this
-wave needs a bump: the misroute guard reads the stored working sets as they are, and the thread lens stores nothing. If
-you find you need a stored field after all, bump it to 50, add the old layout's literal sample to
-`crates/theseus-core/src/tests_layouts.rs` as AGENTS.md says, and never write the number as a literal anywhere but the
-constant and its tests.
+**Store format on your base: 49** (`const MANIFEST_FORMAT` in `crates/theseus-store/src/store.rs`). This row needs no
+bump: the guard keeps its state in memory and reads the stored working sets as they are. If you find you need a stored
+field after all, stop and say so in the report instead.
 
 **Line ceilings on your base** (`scripts/long-files.txt`; length / ceiling). An unlisted file stays at 2,500 lines or
-fewer. Every file these rows touch is unlisted and under that: `toolrun/misroute.rs` 288, `rpc/thread_flow.rs` 853,
-`rpc/tests_thread_route.rs` 1,686, `thread_recall.rs` 370, theseus-memory `threads.rs` 368, `rpc/tests_own_top.rs` 175,
-`rpc/tests_thread_mix.rs` 224, `config/threads.rs` 549. Never raise a ceiling yourself (the keel guard flags it).
+fewer. Every file this row touches is unlisted and under that: `toolrun/misroute.rs` 388, `rpc/thread_flow.rs` 861,
+`rpc/tests_thread_route.rs` 1,762. Never raise a ceiling yourself (the keel guard flags it).
 
-**Work in flight beside you** (rows on `ae420a49` joining the lane `integ/tail7`): the ontology (`judge/onto/*`), effort
-routing, the TUI, `tests_hold_compile.rs`, the recall bench, `scratch.rs`, `turn/data_step.rs`, `rpc/mod.rs`
-(`build_telemetry`), external text and holds (`external.rs`, `toolrun/order.rs`), budgets (`turn/defer_step.rs`,
-`turn/detour_step.rs`, `config/threads.rs`'s working size, `compiler.rs`, `compiler/cold.rs`, `thread_context.rs`),
-injection tiers (`recall.rs`, `turn/recall_step.rs`, `turn/rerank_step.rs`, `config/memory.rs`, `turn.rs`), drafts,
-message texts, the config template and Discord. Stay inside the files your task names. If you must edit a file outside
-that list, name it and the reason in your report's first section.
+**Work in flight beside you** (rows joining the lane `integ/tail7`): the thread lens and cross-stream recall
+(`thread_recall.rs`, theseus-memory `threads.rs`, `rpc/tests_own_top.rs`, `rpc/tests_thread_mix.rs`,
+`config/threads.rs`), holds and external text (`external.rs`, `toolrun/order.rs`), budgets (`turn/defer_step.rs`,
+`turn/detour_step.rs`, `compiler.rs`, `thread_context.rs`), injection tiers (`recall.rs`, `turn/recall_step.rs`,
+`turn/rerank_step.rs`, `config/memory.rs`, `turn.rs`), the ontology, effort routing, the TUI, drafts, message texts,
+the config template and Discord. Stay inside the files your task names. If you must edit a file outside that list,
+name it and the reason in your report's first section.
 
 **Your report is the deliverable.** Commit `CLOUD_REPORT.md` (written with your editor tools, never a shell heredoc;
 check its size after the commit, it must not be empty), push, and end with a short final message that starts
 `CLOUD REPORT COMPLETE`. No person's name anywhere in the repository, your commits or your report: write "the owner".
 
-## Your task: tail7d-misroute, the misroute guard reads a thread's relative roots under the session's directory, so a guess-placed turn inside its own thread is not held; and its question loses the doubled article (theseus-4gb4w)
+## Your task: tail7d2-misroute-run, a program run from the session's directory (an ancestor of the thread's roots) is undecided, not held: the misroute guard stays armed and the next write decides (theseus-qu41j)
 
-Branch: `cloud/20261021-tail7d-misroute`. Every commit's subject carries `theseus-4gb4w`. Deadline for the report: 2 hours
-after you start.
+Branch: `cloud/20261021-tail7d2-misroute-run`. Every commit's subject carries `theseus-qu41j`. Deadline for the report: 2
+hours after you start.
 
-**Why (P1, on the owner's daemon too).** Threadbench T13 (install #74, 2026-10-22) held 44 turns at Approve across six
-threads-arm runs. 33 of them were in the right thread. The cause:
-- Since theseus-98bz.5, a thread's working set grows from its turns. `thread_grow.rs` `touched_in` makes each path
-  relative to the session's directory and stores its first component as a root. So the stored roots are **relative**:
-  `tarnlib`, `datatidy`, `ledgerweb`, `homesvc`, `notes`, `quillhn`.
-- The misroute guard (theseus-rha2, `crates/theseus-core/src/toolrun/misroute.rs`) normalises each root with no base,
-  in `Guards::arm` (near :94: `normal(r, home)`). `Guards::check` (near :117) then tests
-  `fold(&r.path).starts_with(root)` against the plan's **absolute** path, for example
-  `/out/tb-a1-r1/workspace/homesvc/scripts/restart.sh` against `homesvc`. That never matches.
-- So the first `fs.write`, `fs.edit` or `proc.run` of every turn placed below the act bar is held with a false question.
-  In the bench nobody answers a tool confirm, so the held turn's work is lost: 8-9 turns per run stop at
-  `awaiting_confirm`. At T12 (before 98bz.5) the working sets were empty and the guard never armed, so 0 turns were held.
-  On the owner's daemon it means a spurious approval card on a correct placement.
+**Why (P1).** Threadbench T13 (install #74, 2026-10-22) held 44 turns at Approve across six threads-arm runs. The row
+before you (theseus-4gb4w, your base `bb6a43e5`) made the guard read a thread's relative roots (`ledgerweb`,
+`tarnlib`, ...) under the session's directory. Its review re-checked every `thread.misroute_held` row of those runs
+against the new rule: 20 of the 44 holds are freed and 24 stay. About 15 of the 24 are still false, and all of them
+are the same shape:
+- A `proc.run` plan's resource is the **directory the program runs in** (`theseus-tools` `proc.rs`, the `Plan` it builds:
+  `Resource { path: cwd, access: Access::Exec }`, one per distinct step directory in a batch).
+- A turn that runs a program from the **session's directory**, the parent of every relative root, therefore names a
+  path that is outside every root. Example from the bench, in the ledgerweb thread, a correct placement:
+  `["bash","-c","cd ledgerweb && cat Makefile && python3 -B -m unittest discover -s tests -v ..."]`, run at
+  `/out/tb-a1-r1/workspace`. The guard holds it with a false question.
+- The issue's title already says "first write **or program**". This is the same symptom by another path.
 
-The question also reads "Go on, or move to the a path-traversal fix in a small web service?". A thread's title can
-start with an article, and `Held::why` (near :45) writes "the {alt}" and "the {thread} thread" around it.
+**Risk: low.** About 8 lines in one function plus tests. A real misplacement is still caught: at its first write
+outside the roots, or at a program run inside another thread's tree (the bench's `proc.run` at `WS/tarnlib` from the
+ledgerweb thread stays held), or at a program run in an unrelated directory.
 
-**Risk: low.** One comparison gets the base the grower used. The guard still holds a real misplacement (11 of the 44
-in the bench were real). The question's text changes only for a title that starts with an article.
-
-**Prerequisite: base `origin/main` at `f9c11594`.** Your branch joins the lane `integ/tail7` (stage 7, install #75), and
-the integrator merges it **first among the tail7d rows**. Keep it small and fast. Run the keel guard against
-`origin/main`.
+**Prerequisite: base `bb6a43e5`** (the 4gb4w fix on `main` `f9c11594`). Your branch joins the lane `integ/tail7` (stage
+7, install #75), merged right **after** `tail7d-misroute`. Run the keel guard against `bb6a43e5`, not `origin/main`.
 
 ## Your row
 | Slug | Beads | Scope | Files | Size |
 |---|---|---|---|---|
-| `tail7d-misroute` | theseus-4gb4w | relative roots are read under the session's directory before the guard compares; the question has no doubled article; red-first tests at unit and rpc level | core `toolrun/misroute.rs` (`Guards::arm`, `Held::why`, its tests), core `rpc/thread_flow.rs` (`arm_guard` only, near :437-462, and its one call near :216 if the base must be passed in), core `rpc/tests_thread_route.rs` (one or two new tests beside the guard's, near :850-935); core `AGENTS.md` (the misroute-guard sentence, near :604-606) | S |
+| `tail7d2-misroute-run` | theseus-qu41j | an Exec whose path is an ancestor of a root is undecided: no hold, the guard stays armed, the next definite write or program decides; red-first tests at unit and rpc level | core `toolrun/misroute.rs` (`Guards::check`, the module doc, its tests), core `rpc/tests_thread_route.rs` (one or two new tests beside the guard's, after the two 4gb4w tests near :900-976), core `AGENTS.md` (the misroute-guard sentence, near :604-606) | S |
 
-## What exists (at `f9c11594`; search by name)
-- `toolrun/misroute.rs` (288 lines). `normal(path, home)` (near :63) expands `~` and folds. `fold` is near :72.
-  `Guards::arm(session, title, roots, alt)` (near :94) stores `Armed { roots: normal(r, home) }`. `check` (near :117)
-  takes the first write/exec resource and holds it when no root is a prefix. `Held::why` is near :45. The unit tests
-  are near :180-288: `the_first_write_outside_the_roots_is_held_once` (absolute roots only),
-  `a_thread_with_no_roots_and_a_session_never_armed_hold_nothing`, and `home_is_expanded_in_a_root_and_shown_in_the_question`.
-- `rpc/thread_flow.rs` `arm_guard(&self, tag, run, live, scored)` (near :437). It takes `t.working_set.roots` as stored and
-  picks `alt` as the next-likeliest live thread's title. Its caller is near :216:
-  `self.arm_guard(&tag, &run_session.session_id, &live, &scored)`, after `session_for`, so `run_session` (a
-  `SessionRecord` with `dir: Option<String>`) is the session the turn's tools run on.
-- `toolrun/session_dir.rs` `ToolRuntime::cwd_for(dir)` (near :34) is the one resolver: the session's directory
-  (canonical), else `[tools] cwd`. Every tool's default directory comes from it, and so does the base `thread_grow` used
-  (`rpc/thread_grow.rs` `grow_for` stores `dir: self.tools.cwd_for(session.dir.as_deref())`).
-- `thread_route.rs` `entry_path(e, dir, home)` (near :578) already reads a working-set entry as a path: `~` expanded, a
-  relative entry joined under `dir`, and none without one. `holds_path` (near :593) uses it. It is the router's
-  directory rule (theseus-vw8k7). Reuse it; do not write a third resolver.
-- `rpc/home_claim.rs` `keep_apart_by_dir` (near :108) reads a thread's relative roots under its own session record's
-  `dir`, with no `[tools] cwd` fallback. Read it; see "What to build" item 4.
-- `rpc/tests_thread_route.rs` `a_write_outside_the_threads_roots_is_held_only_below_the_act_bar` (near :853) is the rig to
-  copy. It uses `write_to(path)`, `thread(c, slug, title, ws(..))`, `thread_answer(&jev, slug, 0.75)`, `home(c, None)`,
-  `submit`, `confirm_list`, and `rows(c, "thread.misroute_held")`. Its roots are absolute temp paths, which is why it
-  never caught this bug.
+## What exists (at `bb6a43e5`; search by name)
+- `toolrun/misroute.rs` (388 lines).
+  - `Guards::arm(session, title, roots, base, alt)` (near :115) reads each root with `thread_route::entry_path(r, base,
+    home)`; a relative root with no base is left out, and no root left disarms.
+  - `Guards::check(session, plan)` (near :149) keeps only the plan's `Write`/`Exec` resources, returns `None` when there
+    are none, then **removes** the session's `Armed` from the map (`g.remove(session)?`) and holds the first resource
+    whose folded path no root is a prefix of (`let inside = armed.roots.iter().any(|root| p.starts_with(root))`, near
+    :162). So the guard always lets go at the first write or program, held or not.
+  - `Held { path, verb, thread, alt }` and `Held::why` (near :45). The verb for an Exec is "runs a program in".
+  - Unit tests near :208-388: `the_first_write_outside_the_roots_is_held_once`,
+    `a_thread_with_no_roots_and_a_session_never_armed_hold_nothing`, `home_is_expanded_in_a_root_and_shown_in_the_question`,
+    `a_relative_root_is_read_under_the_session_directory` (near :321), `a_path_outside_every_root_is_still_held` (near
+    :348), `the_question_has_no_doubled_article` (near :374). Helper `plan(access, path)` near :213.
+- `rpc/thread_flow.rs` `arm_guard` (near :437) arms a placement below the act bar; `thread_routed_turn` (near :822)
+  calls `self.tools.misroute.disarm(&r.session)` after the routed turn ran. So an armed guard never outlives its turn:
+  "stays armed" means until the turn's next write or program, or the turn's end. Do not change `thread_flow.rs`.
+- `ToolRuntime::misroute_hold` (misroute.rs, after `impl Guards`) records `thread.misroute_held` and raises the
+  decision to Approve when `check` returns a `Held`. No change needed there.
+- `rpc/tests_thread_route.rs`: `write_to(path)` (near :839) scripts one `fs_write`. The rig to copy is
+  `a_guess_placed_turn_inside_its_threads_relative_root_writes_without_a_hold` (near :905) and
+  `a_guess_placed_write_outside_its_relative_roots_is_still_held` (near :942): the temp dir is both `[tools] roots` and
+  `[tools] cwd`, pr-round has the relative root `tidewatch`, security-fix has `vault`, and the turn is placed at 0.75
+  (below the act bar) with `thread_answer(&jev, "pr-round", 0.75)`. Other tests script a `proc_run` call with
+  `Scripted::tools("...", &[("t1", "proc_run", args)])` (see `rpc/tests_peek.rs` near :132).
 
 ## What to build
-1. **Read relative roots under the turn's directory.** Pick one of these, justify it in the report, and test it:
-   - **(a, recommended) Resolve at arm time.** `arm_guard` passes the run session's directory,
-     `self.tools.cwd_for(run_session.dir.as_deref())`, and `Guards::arm` reads each root with
-     `thread_route::entry_path(r, Some(base), home)`. An absolute or `~` root is unchanged. That base is the one the
-     grower made the roots relative to, and the one the turn's tools resolve the plan's paths against.
-   - (b) Store roots absolute in `touched_in`. Do not pick this unless (a) cannot work. The owner's store already holds
-     relative roots, so they would need a migration (a format bump). The router's entity hits, the recall lens's naming
-     waiver (`waived`), Jev's thread inputs, `added_by` and `without` all compare entries by name (`tarnlib`). The
-     directory rule already reads relative roots under a base, as (a) does.
-2. **A relative root with no base** cannot happen through `cwd_for`, which always gives a directory. If your signature
-   allows a missing base, a relative root without one must not arm the guard on a false premise. Either skip that root
-   (and arm nothing when no root is left, as an empty set does now) or keep it as it is. Say which, with a test.
-3. **The question reads right.** In `Held::why`, a thread title or `alt` that starts with an article (`a `, `an `,
-   `the `, any case) is not given a second one. "Go on, or move to the a path-traversal fix ..." becomes "Go on, or move
-   to a path-traversal fix ...". Treat "isn't in the {thread} thread" the same way. Choose the smallest wording that
-   reads right and say which. A title with no article must keep its exact current text: the existing test's string
-   (`This edits /work/vault/src/a.rs, which isn't in the pr round thread. Go on, or move to the security fix?`) stays
-   byte-identical. That text reaches the owner's approval cards, and the DM task flow is locked, so change nothing else
-   in it.
-4. **Check its twin, and report.** `keep_apart_by_dir` (near :108) reads a thread's relative roots under the thread's
-   own session `dir`, with no fallback. A thread whose session has no `dir` has its relative roots unread there, so the
-   directory rule skips that thread. That direction is safe, but it is not the base the grower used. Report what you
-   find, and change it **only** if it is the same bug and a line or two with the same `cwd_for` base. Otherwise file it
-   as a follow-up in the report. Do not change the router's scores in this row.
-5. **Docs.** `misroute.rs`'s module doc and the core `AGENTS.md` misroute-guard sentence (near :604-606) say, in one clause,
-   that relative roots are read under the session's directory, the one the working set grew them in.
+1. **An Exec at an ancestor of a root is undecided.** In `Guards::check`, sort each Write/Exec resource `p` (folded) into
+   one of three:
+   - **inside**: some root is a prefix of `p` (as now);
+   - **undecided**: `p` is an `Exec` and `p` is an ancestor of some root (`root.starts_with(&p)`, whole components, so
+     `/work/ws` is an ancestor of `/work/ws/tidewatch` and `/work/ws/tide` is not);
+   - **outside**: anything else, a write at an ancestor included (a write names its own file, so it decides).
+
+   Then: any **outside** resource is held as now (first one, same `Held`, guard let go). Else, if every resource is
+   **undecided**, nothing is held and `armed` goes **back into the map** for this session, so the next write or program
+   decides. Else (at least one inside, none outside) the guard lets go as now. Keep it the smallest change that reads
+   clearly; do not restructure `check` beyond this. A write is never undecided: name that in the doc and a test.
+2. **No new state.** The guard is disarmed at the turn's end already; the undecided path only skips the `remove`. No
+   counter, no config key, no ledger row for an undecided call. If you think one is needed, say why in the report and
+   do not add it.
+3. **What stays held, and why it is still safe.** A turn placed in the wrong thread whose only acts are programs run
+   from the session's directory is no longer held. Its first write, or a program run inside another tree, is. State
+   this trade in one sentence in the module doc. It is the review's recommendation; the owner's approval card was a
+   false question in about 15 of 24 bench cases.
+4. **The question is unchanged.** `Held::why` and its strings do not change: the text reaches the owner's approval
+   card, and the DM task flow is locked.
+5. **Docs.** The module doc of `misroute.rs` (its "first write or program is looked at once" sentence) and the core
+   `AGENTS.md` misroute-guard sentence (near :604-606) say, in one clause, that a program run from a directory above the
+   thread's roots (the session's directory) decides nothing, and the next write or program does. **AGENTS.md line 606 is
+   about 200 columns** after the 4gb4w row; its integrator rewraps lines 605-607 to the paragraph's ~120-column width
+   at that join. Make your edit there **and** rewrap the same lines to ~120 columns in the same hunk, so the integrator
+   can take your side of the conflict whole. Say so in the report's first section.
 
 ## Tests (red first: write each, see it fail on the base code, then fix; each fix also gets a planted revert)
-- **`a_relative_root_is_read_under_the_session_directory`** (misroute.rs unit; the key test). Arm with roots
-  `["tarnlib"]` and base `/work/ws` (through whatever signature you chose). A write to `/work/ws/tarnlib/retry.py` is
-  **not** held, and the guard lets go. Arm again; a write to `/work/ws/homesvc/scripts/restart.sh` **is** held, and the
-  question names that path. A sibling `/work/ws/tarnlib-old/x` is held (component-wise prefix, as now).
-  Plant: drop the base, so roots are read as before. The first assertion fails.
-- **`a_path_outside_every_root_is_still_held`**. Mixed roots: one absolute (`/work/other`), one `~` (`~/projects/x`), one
-  relative (`notes`). A write under each is not held; a write under none is held. This pins that (a) did not loosen
-  the guard.
-- **rpc level, `a_guess_placed_turn_inside_its_threads_relative_root_writes_without_a_hold`** in
-  `rpc/tests_thread_route.rs`. Copy the rig of `a_write_outside_the_threads_roots_is_held_only_below_the_act_bar`, but
-  give `pr-round` the **relative** root `tidewatch` and run the turn with the temp dir as the session's directory (or as
-  `[tools] cwd`, whichever the rig sets). Place it at 0.75 (below the act bar), with the scripted write inside
-  `tidewatch/`. Then `awaiting_confirm` is none, the file exists, and there is no `thread.misroute_held` row. In the same
-  test or a second one, a write into `vault/` is still held with one row. The base code holds the first write: that is
-  the red.
-  Plant: as the unit test.
-- **`the_question_has_no_doubled_article`**. `alt` = "a path-traversal fix in a small web service" and a thread titled
-  "the pipeline" each give text with no "the a" and no "the the". The existing exact-string assertion still passes.
-  Plant: restore the old `format!`. The new test fails.
-- Run `cargo nextest run -p theseus-core misroute`, `-p theseus-core thread_route`, then `-p theseus-core` whole.
+- **`a_program_run_from_the_session_directory_neither_holds_nor_lets_go`** (misroute.rs unit; the key test). Arm with
+  roots `["tidewatch"]` and base `/work/ws`. `check` with `plan(Access::Exec, "/work/ws")` returns `None` **and**
+  `g.armed("ses_a")` is still true. Then a write to `/work/ws/vault/x` **is** held (the question names it) and the guard
+  lets go. Arm again: an Exec at `/work/ws`, then a write to `/work/ws/tidewatch/notes.txt`: neither is held and the
+  guard lets go. On the base the first `check` lets go (red).
+  Plant: in `check`, treat an undecided Exec as inside (lets go). The `armed` assertion fails.
+- **`a_write_at_the_session_directory_still_decides`**. An `Access::Write` at `/work/ws` itself (or a file directly in it,
+  `/work/ws/x.txt`) is held. Pins that only programs are undecided.
+- **`a_program_run_in_an_unrelated_or_other_threads_directory_is_still_held`**. Roots `["tidewatch"]`, base `/work/ws`:
+  an Exec at `/work/ws/vault` (another tree) is held, an Exec at `/elsewhere` is held, an Exec at
+  `/work/ws/tidewatch/sub` lets go. A batched plan with two Exec resources, `/work/ws` and `/work/ws/vault`, is held at
+  `/work/ws/vault`.
+  Plant: drop the `Exec` check from "undecided" (any ancestor is undecided). The write test fails.
+- **rpc level, `a_guess_placed_program_from_the_session_directory_is_not_held`** in `rpc/tests_thread_route.rs`. Copy the
+  4gb4w rig (relative root `tidewatch`, temp dir as `[tools] cwd`, placed at 0.75). Script a `proc_run` at the temp dir
+  (no `cwd` argument, so it runs in `[tools] cwd`) with a harmless argv, then an `fs_write` into `tidewatch/`. Expect no
+  `thread.misroute_held` row and the file written. In the same test or a second one, script the `proc_run` at the temp
+  dir followed by an `fs_write` into `vault/`: exactly one `thread.misroute_held` row, naming the vault path, and the
+  file not written. **Check first** whether the rig's policy confirms `proc.run` on its own: if it does, pick an argv
+  the policy allows, or assert on the `thread.misroute_held` rows and the confirm's reason (not the guard's question)
+  instead of `awaiting_confirm`. Say which in the report. On the base the program call is held (red).
+  Plant: as the key unit test.
+- Every existing guard test passes unchanged (the six unit tests and the three rpc tests near :854-976).
+- Run `cargo nextest run -p theseus-core misroute`, `-p theseus-core thread_route`, then `-p theseus-core` whole. If a
+  test outside these files goes red, rerun it alone and on the base before you call it unrelated.
 
 ## Not in this row
-- The recall lens and cross-stream contamination: that is row `tail7d-contam` (theseus-stwkb), beside you. Do not touch
-  `thread_recall.rs`, theseus-memory `threads.rs`, `turn/cross_step.rs` or `config/threads.rs`.
-- `thread_grow.rs` and stored working sets: unchanged under (a). The bench harness's simulated owner (theseus-uxum0)
-  is out of scope too.
-- Router scoring, `apart_by_dir`, and `home_claim.rs` beyond item 4's report.
+- `thread_flow.rs` (`arm_guard`, `thread_routed_turn`), `thread_grow.rs`, stored working sets, router scoring,
+  `home_claim.rs` `keep_apart_by_dir` (its own follow-up).
+- The recall lens and cross-stream contamination: row `tail7d-contam` (theseus-stwkb), beside you. Do not touch
+  `thread_recall.rs`, theseus-memory `threads.rs` or `config/threads.rs`.
+- `proc.rs` and every theseus-tools file: the plan's resources stay as they are.
+- The bench harness (its simulated owner never answers a confirm: theseus-uxum0).
 - Discord: the approval card renders the reason as given. Change no Discord file.
-- Every file of the rows in flight that the wave note names.
 
 ## Rules for this row
-- Model roles: you write the code; keep it minimal and elegant. Every line you add should earn its place. The owner
-  needs this row first on #75: the smallest diff that removes the false hold at its cause, plus the tests that pin it.
+- Model roles: you write the code; keep it minimal and elegant. Every line you add should earn its place.
 - Every behaviour change gets a test and a planted revert. Break it, see the named test fail, restore and `touch`, then
   `git status`. List each plant in the report with the test that failed and its failing line.
 - **Keel.** Do not delete, ignore or weaken a test, and do not raise a budget, cap or ceiling. A cloud row cannot carry
-  a `Keel:` trailer. Before your last commit run `python3 scripts/keel-guard.py --base origin/main --head HEAD --quiet`
+  a `Keel:` trailer. Before your last commit run `python3 scripts/keel-guard.py --base bb6a43e5 --head HEAD --quiet`
   and paste its output in the report. It must be empty.
-- **Dependencies.** None new. **Store format** 49: no bump under (a).
+- **Dependencies.** None new. **Store format** 49: no bump.
 - **Commits.** Sign every commit (`git commit -S`; if the VM has no key, say so). Put the Beads id in each subject. End
-  each message with the same `Co-Authored-By:` trailer line the base's recent commits carry (copy it from
-  `git log -3 --format=%B origin/main`; do not retype it).
+  each message with the same `Co-Authored-By:` trailer line `main`'s recent commits carry (copy it from
+  `git log -3 --format=%B f9c11594`; do not retype it, and do not use the one on `bb6a43e5`, which differs).
 - **Secrets and names.** No person's name anywhere: write "the owner". Fixture names are invented.
 - Read `crates/theseus-core/AGENTS.md` (the thread router, the misroute guard, a thread's working set) first. Run
   `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --check` before the last commit.
@@ -249,15 +249,15 @@ the integrator merges it **first among the tail7d rows**. Keep it small and fast
 ## Your report
 Commit `CLOUD_REPORT.md`, written with your editor tools and never with a shell heredoc. Check its size after the
 commit. It holds:
-- the cause in two lines, the option you picked (a or b) and why, and the base you read roots under;
-- what a relative root with no base does;
-- the question's old and new text for a title with an article, and proof that a title without one is unchanged;
-- what you found in `keep_apart_by_dir` (item 4), and whether you changed it;
+- the cause in two lines and the rule you built (inside / undecided / outside), with the line it lives on;
+- the trade in one sentence (what a misplaced turn that only runs programs from the session directory now does);
+- the AGENTS.md hunk and the rewrap, for the integrator (it conflicts with 4gb4w's join fix 2: take this side);
 - each test, and its plant with the failing line, the red-first run on the base included;
+- the rpc test's policy choice for `proc.run`;
 - the keel guard's output and the store format;
 - a `docs/status.md` sentence for the integrator;
-- how the owner's daemon behaves after the install: a guess-placed turn inside its thread's roots writes with no card,
-  and one outside them still asks once;
+- how the owner's daemon behaves after the install: a guess-placed turn that runs a program from the session's
+  directory gets no card, and its next write outside the thread's roots still asks once;
 - follow-ups.
 
 Push, and end with a final message that starts `CLOUD REPORT COMPLETE`.
