@@ -884,7 +884,88 @@ class BudgetArms(Case):
         base = self.base_with(self.FALL, '        "tui" => { cap }.min(2.0),\n' + self.FALL)
         self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "}.min(2.0)", "}.max(2.0)")})
 
-    SURFACES = "crates/theseus-sim/src/lifecycle/surfaces.rs"
+    # theseus-y8kux (the b7vuh round 3 review, info 2): a value is read by its shape, numbers aside, as well as by its
+    # numbers, so a call gained or swapped around a number cannot hide behind the number staying put.
+    NUMERIC_BLOCK = '        "tui" => { 2.0 },\n'
+    PLAIN_CALL = '        "tui" => cap.min(2.0),\n'
+
+    def test_a_numeric_block_gaining_a_tail_is_raised(self):
+        # `{ 2.0 }` -> `{ 2.0 }.max(9.0)`: the first number is unchanged, the new call raises the floor to 9.
+        base = self.base_with(self.FALL, self.NUMERIC_BLOCK + self.FALL)
+        for head in ('"tui" => { 2.0 }.max(9.0),', '"tui" => { 2.0 }\n        .max(9.0),',
+                     '"tui" => { 2.0 }.min(1.0).max(9.0),'):
+            self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, '"tui" => { 2.0 },', head)})
+        code, out = self.findings()
+        self.assertIn('"tui" => { 2.0 } -> "tui" => { 2.0 }.min(1.0).max(9.0)', out)
+
+    def test_a_numeric_block_kept_reformatted_or_lowered_is_clean(self):
+        base = self.base_with(self.FALL, self.NUMERIC_BLOCK + self.FALL)
+        for head in ('"tui" => { 1.0 },', '"tui" => {2.0},', '"tui" => {\n            2.0\n        },'):
+            self.assertClean({self.LC: sub(base, '"tui" => { 2.0 },', head)})
+
+    def test_a_plain_call_swapped_from_min_to_max_is_raised(self):
+        base = self.base_with(self.FALL, self.PLAIN_CALL + self.FALL)
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "cap.min(2.0)", "cap.max(2.0)")})
+        code, out = self.findings()
+        self.assertIn('"tui" => cap.min(2.0) -> "tui" => cap.max(2.0)', out)
+
+    def test_a_plain_call_gaining_a_second_call_is_raised(self):
+        base = self.base_with(self.FALL, self.PLAIN_CALL + self.FALL)
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "cap.min(2.0)", "cap.min(1.0).max(9.0)")})
+
+    def test_a_plain_call_kept_reformatted_or_lowered_is_clean(self):
+        base = self.base_with(self.FALL, self.PLAIN_CALL + self.FALL)
+        for head in ("cap.min(1.0)", "cap.min( 2.0 )", "cap\n            .min(2.0)", "cap.min(\n            2.0,\n        )"):
+            self.assertClean({self.LC: sub(base, "cap.min(2.0)", head)})
+
+    # theseus-y8kux (info 5, open since the y4ajh review): a guard that holds braces is part of the arm's head.
+    BRACED = {
+        "a struct pattern": 'matches!(kind, Kind { id: 1, .. })',
+        "a block": '{ sessions > 10 }',
+        "a match": 'match sessions { 0 => false, _ => true }',
+        "a string holding braces": 'label == "{=>}"',
+    }
+
+    def braced_base(self, guard):
+        return self.base_with(self.FALL, f'        "tui" if {guard} => 4.0,\n' + self.FALL)
+
+    def test_an_arm_with_a_braced_guard_raised_is_caught(self):
+        for what, guard in self.BRACED.items():
+            base = self.braced_base(guard)
+            self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "=> 4.0,\n        _", "=> 9.0,\n        _")})
+            code, out = self.findings()
+            self.assertIn(f'"tui" if {guard} => 4.0 -> "tui" if {guard} => 9.0', out, what)
+
+    def test_an_arm_with_a_braced_guard_lowered_or_kept_is_clean(self):
+        for what, guard in self.BRACED.items():
+            base = self.braced_base(guard)
+            self.assertClean({self.LC: sub(base, "=> 4.0,\n        _", "=> 3.0,\n        _")})
+            self.assertClean({self.LC: sub(base, f'if {guard} =>', f'if\n            {guard}\n            =>')})
+
+    def test_a_braced_guard_over_an_arm_it_shadows_is_judged_against_it(self):
+        # rustc takes the first arm that matches: a guarded arm above "shutdown" => 4.0 shadows it when its guard holds.
+        for what, guard in self.BRACED.items():
+            self.assertCaught("budget-raised", self.LC, {self.LC: sub(
+                LIFECYCLE, '        "shutdown" => 4.0,', f'        "shutdown" if {guard} => 9.0,\n        "shutdown" => 4.0,')})
+            code, out = self.findings()
+            self.assertIn(f'"shutdown" if {guard} => 9.0', out, what)
+            self.repo.git("checkout", "-q", "-B", "lane", "main")
+
+    def test_a_braced_guard_added_over_the_fall_through_is_judged_against_it(self):
+        for what, guard in self.BRACED.items():
+            self.assertCaught("budget-raised", self.LC, {self.LC: self.arms(f'"seed" if {guard} => 2.0')})
+            code, out = self.findings()
+            self.assertIn(f'_ => 0.0 (the fall-through) -> "seed" if {guard} => 2.0', out, what)
+            self.repo.git("checkout", "-q", "-B", "lane", "main")
+
+    def test_the_arms_inside_a_braced_guard_are_not_read_as_the_fall_through(self):
+        # The guard's own `_ => true` is no `_ =>` arm of the keel fn: raising the fall-through still flags once.
+        base = self.braced_base(self.BRACED["a match"])
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "_ => 0.0", "_ => 1.0")})
+        code, out = self.findings()
+        self.assertEqual(out.count("budget-raised: "), 1, out)
+
+    SURFACES ="crates/theseus-sim/src/lifecycle/surfaces.rs"
 
     def test_a_sim_budget_const_raised(self):
         self.assertCaught("budget-raised", self.SURFACES, {self.SURFACES: "pub const BUDGET_MS: f64 = 60.0;\n"})
