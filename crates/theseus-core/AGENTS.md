@@ -415,8 +415,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   default when it has none) and the standing block as its system, one sentence of task, the facts as the message, no tools, on
   `[initiative] profile`, reserved on the day ceiling like any background call and held to `[initiative] day_usd` (0.50, read back
   from today's `initiative.spoke` rows, which `day_ceiling::SPEND_KINDS` counts); past it, or with the model off or unreachable,
-  it is its template (`initiative/lines.rs`, one table that reads the persona's `name` and `emoji` and nothing else of it), and
-  `initiative_post` sends it to the owner's DM (courier kind `initiative`, key `ini:<id>`) with its row in one frame. Producers:
+  it is its template. **A cut-off answer is never posted** (theseus-050g2: at 200 tokens Sonnet 5.5's default thinking spent the
+  cap and a morning note went out as half a sentence): the call asks with thinking off where the model lets it
+  (`catalog::thinking_off`: Sonnet 5.5's `between_tools`, the other adaptive models' `disabled`, none for one that always
+  thinks) at `speak::MAX_TOKENS` (1,024); a `max_tokens` stop is asked once more at `RETRY_MAX_TOKENS` (2,048) within the line,
+  then it is its template, which is also what any stop but `end_turn` or `stop_sequence` gets; the row carries the last call's
+  `stop_reason` and `output_tokens`. The template is `initiative/lines.rs`, one table that reads the persona's `name` and
+  `emoji` and nothing else of it; `initiative_post` sends it to the owner's DM (courier kind `initiative`, key
+  `ini:<id>`) with its row in one frame. Producers:
   the morning note (`initiative/morning.rs`: the driver's tick asks `post_morning_if_due`, one lock and a comparison until the
   day's first ask after `[initiative] morning_hour`; the work is a spawned task, only on a day a task ended, a wake fired, a
   promise went unkept or notes were proposed, once a day by META `initiative.morning`) and the nightly consolidation's finding

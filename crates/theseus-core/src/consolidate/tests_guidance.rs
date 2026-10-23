@@ -184,6 +184,31 @@ async fn guidance_over_400_characters_is_refused_not_cut() {
     assert!(done.spent > 0);
 }
 
+/// Guidance cut off at its cap (theseus-050g2) is refused, never written;
+/// the request asks with thinking off.
+#[tokio::test]
+async fn guidance_cut_off_at_its_cap_is_refused() {
+    let r = rig(ANSWER, |_| {});
+    *r.model.script.lock().unwrap() = [crate::provider::Scripted::Blocks {
+        blocks: vec![serde_json::json!({"type": "text", "text": "The harbour survey logs"})],
+        stop_reason: "max_tokens".into(),
+    }]
+    .into();
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
+    assert_eq!((done.written.len(), done.refused), (0, 1));
+    assert!(snapshot(&r.core).guidance(&id("topic:harbour")).is_none());
+    let request = r
+        .model
+        .requests()
+        .into_iter()
+        .find(|q| q.system.iter().any(|b| b["text"] == INSTRUCTIONS))
+        .expect("the call");
+    let want = r.core.runner.catalog.thinking_off(&request.model);
+    assert!(want.is_some(), "{} turns thinking off", request.model);
+    assert_eq!(request.thinking, want);
+}
+
 #[tokio::test]
 async fn the_dream_stops_at_synth_limit() {
     let r = rig(ANSWER, |c| c.memory.synth_limit_usd_per_day = 0.0);
