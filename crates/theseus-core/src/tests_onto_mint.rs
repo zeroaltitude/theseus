@@ -141,10 +141,11 @@ fn a_chain_of_singletons_clusters() {
     use crate::judge::onto::mint::{folds, kind_pairs, plan_with, Hints};
     let (core, _dir) = core();
     let o = snapshot(&core);
+    let none = Default::default();
     let mut all = said(&["s1"], "Alpha Ledger");
     all.extend(said(&["s2"], "Beta Ledger"));
     all.extend(said(&["s3"], "Gamma Ledger"));
-    let pairs = kind_pairs(&o, &folds(&all));
+    let pairs = kind_pairs(&o, &folds(&all), &none);
     let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
     assert!(
         pairs.contains(&pair("alphaledger", "betaledger")),
@@ -164,7 +165,7 @@ fn a_chain_of_singletons_clusters() {
     };
     let plan = plan_with(&o, &all, now, |n| format!("sweep-{now}-{n}-kind"), &hints);
     assert_eq!((plan.minted.len(), plan.minted[0].sessions), (1, 3));
-    assert!(kind_pairs(&o, &folds(&said(&["s1", "s2"], "Alpha Ledger"))).is_empty());
+    assert!(kind_pairs(&o, &folds(&said(&["s1", "s2"], "Alpha Ledger")), &none).is_empty());
 }
 
 /// Two names that are each a cluster are asked whether they are one kind
@@ -174,9 +175,10 @@ fn two_clusters_are_asked_before_both_mint() {
     use crate::judge::onto::mint::{folds, kind_pairs, plan_with, Hints};
     let (core, _dir) = core();
     let o = snapshot(&core);
+    let none = Default::default();
     let mut all = said(&["s1", "s2", "s3"], "Lantern Ledger");
     all.extend(said(&["s4", "s5", "s6"], "Ledger App"));
-    let pairs = kind_pairs(&o, &folds(&all));
+    let pairs = kind_pairs(&o, &folds(&all), &none);
     assert_eq!(
         pairs,
         vec![("lanternledger".to_string(), "ledgerapp".to_string())]
@@ -194,4 +196,57 @@ fn two_clusters_are_asked_before_both_mint() {
         ..Hints::default()
     };
     assert_eq!(plan_with(&o, &all, now, write, &hints).minted.len(), 1);
+}
+
+/// One session each under the names `a`, `b`, ...: `Alpha Ledger` is `alphaledger`.
+fn singletons(names: &[&str]) -> Vec<crate::judge::onto::mint::Said> {
+    let mut all = Vec::new();
+    for (n, name) in names.iter().enumerate() {
+        all.extend(said(&[&format!("s{n}")], name));
+    }
+    all
+}
+
+fn kept(pairs: &[(&str, &str)]) -> std::collections::BTreeSet<(String, String)> {
+    pairs
+        .iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect()
+}
+
+/// O3 (theseus-3327o): two names one session each can never make a cluster,
+/// so no pair is asked.
+#[test]
+fn two_isolated_singletons_ask_nothing() {
+    use crate::judge::onto::mint::{folds, kind_pairs};
+    let (core, _dir) = core();
+    let all = singletons(&["Alpha Ledger", "Beta Ledger"]);
+    assert!(kind_pairs(&snapshot(&core), &folds(&all), &kept(&[])).is_empty());
+}
+
+/// Four singletons, one kept yes `a~b`: `a~c` (and `b~c`) reach a cluster,
+/// `c~d` is two sessions with no kept yes of its own, so it is not asked.
+#[test]
+fn a_pair_that_cannot_reach_a_cluster_is_not_asked() {
+    use crate::judge::onto::mint::{folds, kind_pairs};
+    let (core, _dir) = core();
+    let all = singletons(&[
+        "Alpha Ledger",
+        "Beta Ledger",
+        "Gamma Ledger",
+        "Delta Ledger",
+    ]);
+    let pairs = kind_pairs(
+        &snapshot(&core),
+        &folds(&all),
+        &kept(&[("alphaledger", "betaledger")]),
+    );
+    let has = |a: &str, b: &str| pairs.contains(&(a.to_string(), b.to_string()));
+    assert!(has("alphaledger", "gammaledger"), "{pairs:?}");
+    assert!(has("betaledger", "deltaledger"), "{pairs:?}");
+    assert!(!has("deltaledger", "gammaledger"), "{pairs:?}");
+    assert!(
+        !has("alphaledger", "betaledger"),
+        "joined already: {pairs:?}"
+    );
 }

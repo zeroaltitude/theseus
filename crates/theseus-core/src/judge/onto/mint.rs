@@ -164,31 +164,49 @@ fn listed_in(o: &Ontology) -> BTreeSet<String> {
         .collect()
 }
 
-/// The pairs of unlisted names whose sessions together add to either's, largest
-/// union first, in a fixed order: what `same_kind.v1` may be asked. A pair is
-/// asked when a yes could make a cluster, now or by a chain (`a~b`, `b~c`):
-/// the open names reach [`CLUSTER`] sessions between them. Two names that are
-/// each a cluster are asked too, so one thing does not mint twice. A run asks
-/// at most `KIND_PAIRS_MAX` of them (`renamed.rs`).
-pub fn kind_pairs(o: &Ontology, names: &Folds<'_>) -> Vec<(String, String)> {
+/// The pairs of unlisted names whose sessions together add to either group's,
+/// largest union first, in a fixed order: what `same_kind.v1` may be asked.
+/// `kept` are the yeses of earlier nights, which already join names into
+/// groups. A pair is asked when a yes could lead to a cluster, now or by a
+/// chain (`a~b`, `b~c`): its two groups, with the sessions of every name no
+/// kept yes has linked, reach [`CLUSTER`] sessions. A group of kept names
+/// reaches on by its own pairs, so another's sessions do not count for this
+/// one. Two groups that are each a cluster are asked too, so one thing does not
+/// mint twice. A run asks at most `KIND_PAIRS_MAX` of them (`renamed.rs`).
+pub fn kind_pairs(
+    o: &Ontology,
+    names: &Folds<'_>,
+    kept: &BTreeSet<(String, String)>,
+) -> Vec<(String, String)> {
     let listed = listed_in(o);
-    let open: Vec<(&String, &BTreeMap<&str, f64>)> = names
+    let open: Folds = names
         .iter()
         .filter(|(f, _)| !listed.contains(*f))
-        .map(|(f, (_, s))| (f, s))
+        .map(|(f, v)| (f.clone(), v.clone()))
         .collect();
-    let reach = open
+    let same: Vec<(String, String)> = kept.iter().cloned().collect();
+    let groups = clusters(&open, &same);
+    let at: BTreeMap<&String, usize> = groups
         .iter()
-        .flat_map(|(_, s)| s.keys())
-        .collect::<BTreeSet<_>>();
-    if reach.len() < CLUSTER {
-        return Vec::new();
-    }
+        .enumerate()
+        .flat_map(|(i, g)| g.folds.iter().map(move |f| (f, i)))
+        .collect();
+    let free: BTreeSet<&str> = groups
+        .iter()
+        .filter(|g| g.folds.len() == 1)
+        .flat_map(|g| g.sessions.keys().copied())
+        .collect();
     let mut pairs: Vec<(Reverse<usize>, &String, &String)> = Vec::new();
-    for (i, (a, sa)) in open.iter().enumerate() {
-        for (b, sb) in &open[i + 1..] {
-            let union = sa.keys().chain(sb.keys()).collect::<BTreeSet<_>>().len();
-            if union > sa.len().max(sb.len()) {
+    for (i, a) in open.keys().enumerate() {
+        for b in open.keys().skip(i + 1) {
+            if at[a] == at[b] {
+                continue;
+            }
+            let (ga, gb) = (&groups[at[a]], &groups[at[b]]);
+            let joined = ga.sessions.keys().chain(gb.sessions.keys());
+            let union = joined.clone().collect::<BTreeSet<_>>().len();
+            let reach = joined.chain(&free).collect::<BTreeSet<_>>().len();
+            if union > ga.sessions.len().max(gb.sessions.len()) && reach >= CLUSTER {
                 pairs.push((Reverse(union), a, b));
             }
         }
@@ -366,28 +384,31 @@ fn mint(
 ) -> Option<Minted> {
     let name = examples[0].as_str();
     let by = format!("sweep:{write}");
-    let kind =
-        Kind {
-            name: kind_name(name),
-            basis: Basis::Interpreted,
-            assigned_by: vec![Origin::Operator, Origin::Jev, Origin::Sweep],
-            per_session: PerSession::AtMost(3),
-            parent: None,
-            precedence: (precedence / 10 + 1) * 10,
-            rule: Rule::Chain,
-            description: format!(
+    let note = if named {
+        format!(" {NAMED_NOTE}")
+    } else {
+        String::new()
+    };
+    let kind = Kind {
+        name: kind_name(name),
+        basis: Basis::Interpreted,
+        assigned_by: vec![Origin::Operator, Origin::Jev, Origin::Sweep],
+        per_session: PerSession::AtMost(3),
+        parent: None,
+        precedence: (precedence / 10 + 1) * 10,
+        rule: Rule::Chain,
+        description: format!(
             "A kind the sweep made from {} sessions whose messages were about none of the listed \
-             kinds: {}.{}",
+             kinds: {}.{note}",
             sessions.len(),
             examples.join(", "),
-            if named { format!(" {NAMED_NOTE}") } else { String::new() }
         ),
-            version: 1,
-            added_by: by.clone(),
-            retired_ms: None,
-            examples: examples.to_vec(),
-            mined_from: Vec::new(),
-        };
+        version: 1,
+        added_by: by.clone(),
+        retired_ms: None,
+        examples: examples.to_vec(),
+        mined_from: Vec::new(),
+    };
     if kind.check_row().is_err() || working.kind(&kind.name).is_some() {
         return None;
     }
