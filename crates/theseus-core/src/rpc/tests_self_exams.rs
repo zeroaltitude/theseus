@@ -565,4 +565,9 @@ async fn a_review_cut_at_its_cap_says_so() {
         why.contains("max_tokens") && !why.contains("held no"),
         "{why}"
     );
+    // One subject: cap_phrase already starts with "the answer".
+    assert!(
+        why.contains(&crate::provider::cap_phrase(4_096)) && !why.contains("reviewer's the"),
+        "{why}"
+    );
 }

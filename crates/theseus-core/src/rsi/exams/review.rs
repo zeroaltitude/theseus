@@ -169,7 +169,7 @@ impl Reviewer for CoreReviewer<'_> {
             let r = answered?;
             if crate::provider::hit_cap(r.stop_reason.as_deref()) {
                 return Err(anyhow!(
-                    "the reviewer's {}",
+                    "the review was cut: {}",
                     crate::provider::cap_phrase(MAX_TOKENS)
                 ));
             }
