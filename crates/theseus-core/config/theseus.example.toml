@@ -1178,8 +1178,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # whole anyway: the rewrite is made small. The thread's fresh card, the
 # compaction summary and the newest resume_keep_turns turns; a big old result
 # is a stub that says how to read it again.
-# resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
-# working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
+# resume_keep_turns = 20                  # the newest turns a cold resume keeps whole
+# working_percent = 40                   # what a thread's request stays within after a cold resume (its newest turn aside), as a share (1-100) of the serving model's context window
+# working_tokens = 60000                 # the same in tokens, when you set it; it wins over working_percent (unset by default)
 # home_warn_percent = 50                 # a place's home past this share (1-100) of the serving model's context window tells the owner's DM, once per home; large sessions are otherwise fine
 # Keep-warm for threads is [cache] threads_keep_warm_hours: an active thread whose owner last
 # wrote within it has its session read at the [cache] interval, as a long conversation's is,
