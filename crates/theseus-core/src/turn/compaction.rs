@@ -487,7 +487,7 @@ impl TurnRunner {
         let (first, last) = span_of(range);
         let no_summary = match cut {
             true => format!(
-                "the summary call {}",
+                "the summary call was cut: {}",
                 crate::provider::cap_phrase(p.request.max_tokens)
             ),
             false => "the summary call answered with no text".to_string(),

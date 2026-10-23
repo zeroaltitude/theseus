@@ -559,6 +559,14 @@ async fn a_summary_cut_at_its_cap_leaves_the_range_uncompacted() {
         row["why"].as_str().unwrap().contains("max_tokens"),
         "the row names the cap: {row}"
     );
+    // One subject: cap_phrase already starts with "the answer".
+    assert!(
+        row["why"]
+            .as_str()
+            .unwrap()
+            .contains("the summary call was cut: the answer stopped at its cap of"),
+        "{row}"
+    );
     assert!(r
         .core
         .store
