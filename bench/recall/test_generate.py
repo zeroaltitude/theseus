@@ -416,18 +416,47 @@ class Names(unittest.TestCase):
 
 class Budget(unittest.TestCase):
     def test_the_prices_are_the_catalogs(self):
-        """Each priced model's row in theseus-core's built-in catalog:
-        input, output, cache read, cache write."""
+        """The generator's table is theseus-core's built-in catalog, read:
+        Sonnet 5.5's cache reads are $0.10 (since Haiku 5.5's launch) and
+        Sonnet 5's $0.20, both in the catalog; a literal copy had them equal."""
         src = (REPO / "crates/theseus-core/src/catalog.rs").read_text()
-        for model, prices in generate.PRICES.items():
-            m = re.search(
-                r'"' + re.escape(model) + r'"\.into\(\),\s*(?:CatalogEntry \{.*?\.\.)?claude\(\s*(?:m|\d[\d_]*),\s*'
-                r"[\d_]+,\s*([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)",
-                src,
-                re.S,
-            )
-            self.assertIsNotNone(m, model)
-            self.assertEqual(tuple(float(x) for x in m.groups()), prices, model)
+        self.assertEqual(generate.PRICES, generate.catalog_prices(src))
+        self.assertEqual(generate.PRICES["claude-sonnet-5-5"], (2.0, 10.0, 0.10, 2.50))
+        self.assertEqual(generate.PRICES["claude-sonnet-5"], (2.0, 10.0, 0.20, 2.50))
+        self.assertEqual(generate.PRICES["claude-haiku-4-5"], (1.0, 5.0, 0.10, 1.25))
+
+    def test_the_catalog_reader_takes_each_entrys_own_call_in_both_shapes(self):
+        src = """
+        e.insert(
+            "claude-aaa".into(),
+            claude(m, 128_000, 1.0, 2.0, 0.30, 4.0, Adaptive, false, 1024),
+        );
+        e.insert(
+            "claude-bbb".into(),
+            CatalogEntry {
+                source: "cache reads $0.10".into(),
+                ..claude(m, 128_000, 1.0, 2.0, 0.10, 4.0, Adaptive, false, 512)
+            },
+        );
+        e.insert("glm-x".into(), glm(1_000_000, 128_000, 1.4, 4.4, 0.26, 1.4));
+        e.insert(
+            "claude-ccc".into(),
+            CatalogEntry { ..claude(200_000, 64_000, 3.0, 5.0, 0.50, 1.25, Budget, false, 4096) },
+        );
+        """
+        self.assertEqual(generate.catalog_prices(src), {
+            "claude-aaa": (1.0, 2.0, 0.30, 4.0),
+            "claude-bbb": (1.0, 2.0, 0.10, 4.0),
+            "claude-ccc": (3.0, 5.0, 0.50, 1.25),
+        })
+
+    def test_the_budget_prices_sonnet_5_5s_cache_reads_at_ten_cents(self):
+        prog = generate.build(7, "smoke", PLAN)
+        full = generate.estimate(prog, "claude-sonnet-5-5")
+        with mock.patch.dict(generate.PRICES, {"claude-sonnet-5-5": (2.0, 10.0, 0.0, 2.50)}):
+            unread = generate.estimate(prog, "claude-sonnet-5-5")
+        self.assertEqual(round(full["usd_per_arm"] - unread["usd_per_arm"], 2),
+                         round(full["read_tokens"] * 0.10 / 1e6, 2))
 
     def test_the_cli_writes_the_progression_and_prints_the_budget(self):
         with tempfile.TemporaryDirectory() as d:
