@@ -1034,13 +1034,38 @@ BUDGETS = {
 
 # One arm's head: `"a" | "b"`, an optional `if guard` (on the pattern's line or the next, as rustfmt breaks a long
 # one), then `=>`; or the fall-through `_ =>`. A head starts a line or follows the comma that ends an arm, so two arms on
-# one line are both read. The text is read whole, so a head, a guard or a value may span lines.
+# one line are both read. The text is read whole, so a head, a guard or a value may span lines. The regex ends at the
+# `if` of a guarded head: `guard_end` finds that guard's own `=>`, so a guard may hold braces and arms of its own.
 ARM_HEAD = re.compile(
-    r'(?m)(?:^|(?<=,))[ \t]*(?:(?P<pats>"[^"]*"(?:\s*\|\s*"[^"]*")*)(?:\s+if\s+(?P<guard>(?:(?!=>)[^;{}])+?))?|(?P<fall>_))\s*=>')
+    r'(?m)(?:^|(?<=,))[ \t]*(?:(?P<pats>"[^"]*"(?:\s*\|\s*"[^"]*")*)(?:(?P<arrow>\s*=>)|\s+if\s+)|(?P<fall>_)\s*=>)')
 RS_STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\[^\']*|[^\'\\])\'')
 # Words a value may use without naming a constant: the wrapper, the types, the keywords.
 VALUE_WORDS = {"Some", "None", "Ok", "Err", "as", "if", "else", "true", "false", "f64", "f32", "u64", "u32", "u16",
                "u8", "usize", "i64", "i32", "isize", "cfg", "debug_assertions", "min", "max"}
+
+
+def guard_end(text, pos):
+    """(where the guard that starts at `pos` ends, where its `=>` ends), at the first `=>` outside any bracket or
+    string; None when a `;` or a closing bracket comes first (no arm head: a guard cannot hold either at its depth)."""
+    depth, i, n = 0, pos, len(text)
+    while i < n:
+        m = RS_STRING.match(text, i)
+        if m:
+            i = m.end()
+            continue
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif c == ";" and depth == 0:
+            return None
+        elif depth == 0 and text.startswith("=>", i):
+            return i, i + 2
+        i += 1
+    return None
 
 
 def arm_value_end(text, pos):
@@ -1127,6 +1152,12 @@ def tail_rewritten(oval, nval):
     return NUM.sub("#", squash(ot)) != NUM.sub("#", squash(nt))
 
 
+def shape_changed(oval, nval):
+    """True when a numbered value changed in more than its numbers: `cap.min(2.0)` -> `cap.max(2.0)`, `{ 2.0 }` ->
+    `{ 2.0 }.max(9.0)`. The numbers are compared one by one, so a call or an operator around a number is read here."""
+    return NUM.sub("#", squash(oval)) != NUM.sub("#", squash(nval))
+
+
 def names_constant(expr):
     """True when a value with no number names something (a constant, a local, a call) that holds its number."""
     words = re.findall(r"[A-Za-z_]\w*", RS_STRING.sub('""', expr))
@@ -1145,9 +1176,16 @@ def match_arms(lines):
         m = ARM_HEAD.search(text, pos)
         if not m:
             break
-        end = arm_value_end(text, m.end())
-        pos = max(end, m.end())
-        value = " ".join(text[m.end():end].split())
+        guard, arrow = None, m.end()
+        if m.group("pats") and not m.group("arrow"):
+            found = guard_end(text, m.end())
+            if not found:
+                pos = m.end()
+                continue
+            guard, arrow = text[m.end():found[0]], found[1]
+        end = arm_value_end(text, arrow)
+        pos = max(end, arrow)
+        value = " ".join(text[arrow:end].split())
         nums = [num(x) for x in NUM.findall(value)]
         head = m.start("pats") if m.group("pats") else m.start("fall")
         first = text.count("\n", 0, head)
@@ -1157,7 +1195,7 @@ def match_arms(lines):
             fall = (nums, nos[first], shown + " (the fall-through)", value)
             continue
         rows.update(nos[first:last + 1])
-        guard = " if " + " ".join(m.group("guard").split()) if m.group("guard") else ""
+        guard = " if " + " ".join(guard.split()) if guard is not None else ""
         for pat in re.findall(r'"[^"]*"', m.group("pats")):
             arms[pat + guard] = (nums, nos[first], shown, value)
     return (arms, fall, rows) if fall else None
@@ -1180,7 +1218,8 @@ def compare_arms(path, base, head, out):
             hit = next((otext for (old, _, otext, oval), named in (j for j in judges if j[0])
                         if (old and any(b > a for a, b in zip(old, new)))
                         or (named and not old and names_constant(oval) and squash(oval) != squash(nval))
-                        or (named and old and (block_rewritten(oval, nval) or tail_rewritten(oval, nval)))), None)
+                        or (named and old and (block_rewritten(oval, nval) or tail_rewritten(oval, nval)
+                                               or shape_changed(oval, nval)))), None)
             if hit:
                 out.append(Finding("budget-raised", path, line, hit, ntext))
                 break
