@@ -611,13 +611,17 @@ fn merge(all: Vec<Found>) -> Vec<Found> {
 }
 
 /// The card to the owner: the tasks that used the node, to re-run.
-fn card_text(gist: &str, why: &str, tasks: &[&Found]) -> String {
-    let mut t = format!(
-        "\u{26a0}\u{fe0f} Retracted: \u{201c}{gist}\u{201d} was marked wrong ({why}). {} task{} used it \
-         and may need a re-run:",
+pub(crate) fn card_text(gist: &str, why: &str, tasks: &[&Found]) -> String {
+    let mut t = crate::owner_note::head(
+        crate::owner_note::Kind::Decision,
+        "Re-run the tasks that used a retracted note?",
+        &format!("Retracted: \u{201c}{gist}\u{201d} was marked wrong ({why})."),
+    );
+    t.push_str(&format!(
+        "\n{} task{} used it and may need a re-run:",
         tasks.len(),
         if tasks.len() == 1 { "" } else { "s" }
-    );
+    ));
     for f in tasks {
         t.push_str(&format!("\n\u{2022} {}", f.e.place));
     }

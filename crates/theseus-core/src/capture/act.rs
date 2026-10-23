@@ -217,7 +217,7 @@ impl Core {
         let mut captured_row = fact::row(&captured, Some(&m.session), None)?;
         captured_row.key = Some(super::captured_key(&v.judgment));
         let rows = vec![fact::row(&added, Some(&m.session), None)?, captured_row];
-        let body = json!({"kind": "standing_card", "text": notice,
+        let body = json!({"kind": "standing_card", "text": super::kept_card(&notice),
             "card": {"mode": "kept", "id": rec.id}});
         let post = self.card_for(&m.session, c.place.as_deref(), body)?;
         let done = Done::Kept(rec.id.clone());
@@ -265,7 +265,7 @@ impl Core {
             line: &question,
         };
         let row = fact::row(&f, Some(&m.session), None)?;
-        let body = json!({"kind": "standing_card", "text": question,
+        let body = json!({"kind": "standing_card", "text": super::ask_card(&question),
             "card": {"mode": "ask", "id": ask.id, "everywhere": c.at != StandingScope::Everywhere}});
         let post = self.card_for(&m.session, c.place.as_deref(), body)?;
         // Matching candidates are spent by the proposal they made.

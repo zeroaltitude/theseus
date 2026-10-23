@@ -161,9 +161,66 @@ fn spend_families() -> Vec<(&'static str, String)> {
     ]
 }
 
+/// Initiative, the ontology, Jev, routines and watches, and the DM's cards.
+fn card_families() -> Vec<(&'static str, String)> {
+    let morning = crate::initiative::speak::headed("morning", "Good morning: 2 tasks ended.");
+    let finding = crate::initiative::speak::headed("consolidation", "Two notes say the same.");
+    let digest = crate::initiative::digest::posted_text("◆ 2 reported\n📋 task a: done");
+    use crate::judge::onto::stage;
+    let minted = stage::minted_text("topic", "harbour › tides", 0.9, "jdg_1");
+    let onto_ask = stage::ask_text(
+        "Is this harbour?",
+        0.6,
+        "\n`theseus ontology member ses_1 +c` files it.",
+    );
+    let paused = crate::judge::notice::paused_text("more than 30 notices today");
+    let routine = crate::rpc::routines_watch::routine_note("✗ Tide check failed: a timeout");
+    let routine_month = crate::routine::month_spent_text("Tide check", 1.0, "ab12cd");
+    let watch = crate::watch::run::notice_text(
+        &theseus_kernel::ProbeVerdict::Met { turn: false },
+        "the deploy landed",
+        "👁 the deploy landed → MERGED",
+    );
+    let earned = crate::rpc::earned::card_post(&theseus_protocol::earned::EarnedCard {
+        candidates: vec![theseus_protocol::earned::EarnedGroup {
+            id: "grp_1".into(),
+            label: "proc.run cargo test".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    let seal = crate::rpc::thread_seal::seal_text("harbour", "harbour", "it looks embargoed");
+    let link = crate::thread_link_seen::Pair {
+        here: ("pipeline".into(), "datatidy pipeline".into()),
+        other: ("stats".into(), "datatidy stats".into()),
+    }
+    .text();
+    let retraction = crate::retract::card_text("the tide is at 5", "wrong date", &[]);
+    let kept = crate::capture::kept_card("📌 Kept as a standing order everywhere: x");
+    let asked = crate::capture::ask_card("📌 Keep as a standing order everywhere?");
+    vec![
+        ("morning note", morning),
+        ("consolidation finding", finding),
+        ("posted digest", digest),
+        ("ontology mint card", minted),
+        ("ontology ask card", onto_ask),
+        ("Jev notices paused", paused),
+        ("routine failed", routine),
+        ("routine month spent", routine_month),
+        ("watch notice", watch),
+        ("earned autonomy card", earned),
+        ("seal card", seal),
+        ("link card", link),
+        ("retraction card", retraction),
+        ("standing kept card", kept),
+        ("standing ask card", asked),
+    ]
+}
+
 fn families() -> Vec<(&'static str, String)> {
     let mut all = self_families();
     all.extend(spend_families());
+    all.extend(card_families());
     all
 }
 

@@ -59,6 +59,17 @@ pub fn due(now: &Local, slots: &[(u32, u32)], last: Option<&str>) -> Option<Stri
         .filter(|k| last.is_none_or(|l| k.as_str() > l))
 }
 
+/// The posted digest under its head (theseus-x8b9k); the digest's own lines
+/// are the protocol's, the words every surface prints.
+pub(crate) fn posted_text(digest: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        "What happened since your last digest",
+        "the scheduled digest ([discord] digest_at)",
+        digest,
+    )
+}
+
 impl Core {
     /// The tick: begin the post of a due slot's digest. Whether it began.
     pub fn post_digest_if_due(self: &Arc<Self>) -> bool {
@@ -139,7 +150,7 @@ impl Core {
         let post = if res.lines.is_empty() {
             None
         } else {
-            let text = digest_text(&res, since, &crate::push::hm, LIMIT);
+            let text = posted_text(&digest_text(&res, since, &crate::push::hm, LIMIT));
             let body = json!({"kind": "digest", "slot": slot, "text": text});
             let (a, records) = self.outbox.stage_to_operator(None, body)?;
             frame = records;

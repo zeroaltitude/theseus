@@ -295,6 +295,26 @@ pub fn kept_line(kind: StandingKind, scope: &StandingScope, surface: &str, line:
     )
 }
 
+/// The DM's card for a kept record (theseus-x8b9k): its line under the head.
+pub fn kept_card(line: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        "Kept your words as a standing record",
+        "Jev read your message as an order, a preference or a fact to keep",
+        line,
+    )
+}
+
+/// The DM's card for an ask.
+pub fn ask_card(question: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Decision,
+        "Keep your words as a standing record?",
+        "Jev read your message as one to keep, and asks first",
+        question,
+    )
+}
+
 /// The question for an ask.
 pub fn ask_line(kind: StandingKind, scope: &StandingScope, why: &str, line: &str) -> String {
     let lead = match why {

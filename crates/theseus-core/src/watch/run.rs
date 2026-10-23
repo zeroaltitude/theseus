@@ -285,7 +285,7 @@ impl Core {
         } else {
             None
         };
-        let mut body = json!({"kind": "notice", "text": news.text});
+        let mut body = json!({"kind": "notice", "text": notice_text(&news.verdict, &e.spec.title, &news.text)});
         // A met watch pings as a reminder does (theseus-j90w2): the post names
         // its purpose. It offers no answer: a met watch's wake is gone, so
         // `work.answer` has nothing to find for Done, and "keep watching" has
@@ -437,6 +437,24 @@ pub fn shown_value(kernel: &theseus_kernel::Kernel, w: &PendingWake) -> Option<S
 /// A test's look at the instant a watch's row is written (theseus-1b2zm): what
 /// the board holds then is what a reader of the row finds. A hook is told the
 /// wake's id and stays for the test binary's life, so it names its own wake.
+/// A watch's post under its head (theseus-x8b9k): the verdict says the kind
+/// and the title, the probe's own line follows.
+pub(crate) fn notice_text(v: &ProbeVerdict, title: &str, text: &str) -> String {
+    use crate::owner_note::{note, Kind};
+    let (kind, what) = match v {
+        ProbeVerdict::Met { .. } => (Kind::Fyi, "Watch met"),
+        ProbeVerdict::Changed => (Kind::Fyi, "Watch saw a change"),
+        ProbeVerdict::Expired => (Kind::Fyi, "Watch ended unmet"),
+        ProbeVerdict::Failing => (Kind::Alert, "Watch cannot check"),
+    };
+    note(
+        kind,
+        &format!("{what}: {title}"),
+        "a watch set for you, checked on its own",
+        text,
+    )
+}
+
 #[cfg(test)]
 pub(super) mod tests_hook {
     use std::sync::Mutex;

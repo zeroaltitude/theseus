@@ -153,7 +153,8 @@ fn ledger_len(core: &Core) -> usize {
         .len()
 }
 
-/// The notices the outbox holds: (target, text).
+/// The notices the outbox holds: (target, text), each text past its head,
+/// which every one carries (theseus-x8b9k).
 pub(super) fn posts(core: &Core) -> Vec<(String, String)> {
     core.kernel
         .outbox_actions()
@@ -161,13 +162,10 @@ pub(super) fn posts(core: &Core) -> Vec<(String, String)> {
         .into_iter()
         .filter(|a| crate::outbox::kind_of(a) == "notice")
         .map(|a| {
-            (
-                crate::outbox::target_of(&a).to_string(),
-                crate::outbox::body_of(&a)["text"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string(),
-            )
+            let text = crate::outbox::body_of(&a)["text"].as_str().unwrap_or("");
+            assert!(crate::owner_note::is_headed(text), "{text}");
+            let body = text.splitn(3, '\n').nth(2).unwrap_or("");
+            (crate::outbox::target_of(&a).to_string(), body.to_string())
         })
         .collect()
 }
