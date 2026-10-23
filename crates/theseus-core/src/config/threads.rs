@@ -36,11 +36,14 @@
 //!   thread exists) is another stream's to a threaded asker: it pays the same
 //!   distance and a name never waives it. Off, it recalls as before. A node a
 //!   split moved belongs to the thread it moved to, whichever session it is in.
-//! - `own_top_admissible` (true; theseus-98bz.8): the asking thread's own
-//!   best hit that another stream's must outrank (`cross_recall_beats_own`)
-//!   is its best not already in the turn's context. A note in context is
-//!   dropped `in_context` and adds nothing, so it no longer keeps out the one
-//!   fact the thread lacks. Off, every own hit counts, in context or not.
+//! - `own_top_admissible` (true; theseus-98bz.8, theseus-stwkb): the asking
+//!   thread's own best hit that a note no thread claims (the place's own
+//!   conversation) must outrank (`cross_recall_beats_own`) is its best not
+//!   already in the turn's context, so a home note holding the one fact the
+//!   thread lacks is not kept out by a note it has. Another live thread's note
+//!   must still outrank its best hit in context or not: a thread's own hits
+//!   are mostly in its context, and the bar held other streams out by them.
+//!   Off, every own hit counts for every note, in context or not.
 //! - `cross_recall_judge` (true; theseus-98bz.10): the notes the distance
 //!   dropped whose score is above the bar go to Jev (`recall_cross.v1`), at
 //!   most `cross_recall_judge_k` (3, 1 to 10) of them, best first, in one

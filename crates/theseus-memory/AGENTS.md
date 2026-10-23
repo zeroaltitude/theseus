@@ -31,9 +31,10 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
   `Reason::ALL`; a `thread` drop names its rule (`Reason::Thread(Cause)`, theseus-98bz.2: `thread_bar`, `thread_own`,
   `thread_entity`, and `thread_base`, which wins over the others for a node no thread claims), and `Dropped.distance`
   carries what it weighed (`own_top`, `share`, `paid`); a recall's tally counts the four as `thread` (`Reason::family`).
-  `own_top` is the asking thread's best hit not already in context (theseus-98bz.8, the core's `[threads]
-  own_top_admissible`). `admitted` names the nodes Jev's `recall_cross.v1` read as about the message's subject
-  (theseus-98bz.10): `judge` gives them `Costs` before any rule, so the core never puts a held thread's node there.
+  `own_top` is the asking thread's best hit, in context or not, which another thread's note must beat;
+  `own_top_admissible` its best not already in context, which a note no thread claims must beat instead
+  (theseus-98bz.8, theseus-stwkb; the core's `[threads] own_top_admissible`, none when off). `admitted` names the
+  nodes Jev's `recall_cross.v1` read as about the message's subject (theseus-98bz.10): `judge` gives them `Costs` before any rule, so the core never puts a held thread's node there.
   Tests: `tests_threads.rs` (a property over generated recalls: a sealed note is never admitted).
 - `recall.rs`'s `PersonaBoost` (theseus-a8n7), in `Params.persona`: while a persona is engaged, a candidate whose session
   the core read as an imported episode of the persona's own agent ranks `boost` (1.0 to 2.0) times its score; the

@@ -14,9 +14,12 @@
 //!   split moved) outranks its session's; `[threads] base_distance` makes a node of
 //!   the place's own conversation another stream's to a threaded asker;
 //!   `cross_recall_beats_own` and `cross_recall_needs_entity` make another stream's
-//!   hit outrank what the thread holds and share an entity with the message;
-//!   what it holds is its own best hit not already in context
-//!   (`own_top_admissible`, theseus-98bz.8).
+//!   hit outrank what the thread holds and share an entity with the message.
+//!   What another live thread's hit must outrank is the thread's own best hit,
+//!   in context or not (`own_top`, theseus-stwkb); a hit no thread claims (the
+//!   place's own conversation) must outrank only its best not already in
+//!   context (`own_top_admissible`, theseus-98bz.8), so a home note holding the
+//!   one fact the thread lacks still gets in.
 //! - **Naming** (`waived`): the message names a thread by its slug, its
 //!   title, or one of its working set's entities (a repo, branch, ref, file,
 //!   root or host), as whole words, in any case. The threads the owner linked
@@ -273,20 +276,29 @@ impl ThreadScene {
             })
             .map(|(_, node, _)| (*node).to_string())
             .collect();
-        // What the asking thread already holds: its own best hit that can
-        // still be admitted (`own_top_admissible`, theseus-98bz.8): a note
-        // already in context drops `in_context`, so it holds nothing back.
-        let own_top = seen
+        // What the asking thread already holds: its own best hit, in context
+        // or not, which another live thread's must outrank (theseus-stwkb);
+        // and, with `own_top_admissible` (theseus-98bz.8), its best that can
+        // still be admitted, which a note no thread claims must outrank: a
+        // note in context drops `in_context`, so it holds no home note back.
+        let own: Vec<(bool, f64)> = seen
             .iter()
             .filter(|(session, node, fused)| {
                 fused.is_finite()
-                    && !(self.own_top_admissible && in_context.contains(*node))
                     && of_node
                         .get(*node)
                         .or_else(|| of_session.get(*session))
                         .is_some_and(|t| self.here.as_deref() == Some(t.slug.as_str()))
             })
-            .fold(0.0_f64, |a, (_, _, fused)| a.max(*fused));
+            .map(|(_, node, fused)| (in_context.contains(*node), *fused))
+            .collect();
+        let best = |open_only: bool| {
+            own.iter()
+                .filter(|(held, _)| !(open_only && *held))
+                .fold(0.0_f64, |a, (_, f)| a.max(*f))
+        };
+        let own_top = best(false);
+        let own_top_admissible = self.own_top_admissible.then(|| best(true));
         ThreadLens {
             here: self.here.clone(),
             distance: self.distance,
@@ -296,6 +308,7 @@ impl ThreadScene {
             waived: self.waived.clone(),
             top_fused: top,
             own_top,
+            own_top_admissible,
             beats_own: self.beats_own,
             needs_entity: self.needs_entity,
             penalty: self.penalty,
