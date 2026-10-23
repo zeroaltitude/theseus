@@ -605,7 +605,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   more live threads wait. `[threads] route_wait_ms` (400) bounds the wait: a timeout keeps the pre-router's pick as a
   `guess` and the `thread.routed` row counts it (`timed_out`). **The misroute guard** (`toolrun/misroute.rs`, armed by
   `arm_guard` for a placement below the act bar only): the session's first write or `proc.run` outside the thread's
-  working-set roots (a relative one read under the session's directory, `cwd_for`, the one the working set grew it in) is held through the Approve posture, once. **Recovery** (`rpc/thread_move.rs`): `/move`, `theseus
+  working-set roots (a relative one read under the session's directory, `cwd_for`, the one the working set grew it in)
+  is held through the Approve posture, once. **Recovery** (`rpc/thread_move.rs`): `/move`, `theseus
   thread move`, or "that was for …" writes a redirect note in the wrong thread, re-submits the message once to the right
   one, and writes a correction (a `wrong thread` label on the `thread` question, and `Steer::Thread` in the correction
   layer, so the next close message follows). A thread session's replies go to the place the message came from through
