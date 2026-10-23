@@ -64,7 +64,10 @@ impl Job<'_> {
     ) -> (Vec<ask::Shown>, crate::provider::ProviderRequest) {
         let shown = ask::shown(picked, self.clusters);
         let scrubber = core.tools.scrubber.clone();
-        let request = ask::request(&self.target.model, &shown, &|t| scrubber.scrub(t).0);
+        let thinking = core.runner.catalog.thinking_off(&self.target.model);
+        let request = ask::request(&self.target.model, thinking, &shown, &|t| {
+            scrubber.scrub(t).0
+        });
         (shown, request)
     }
 }
@@ -107,6 +110,13 @@ fn read_answer(
     Option<String>,
 ) {
     match answered {
+        // A cut answer's tool input is empty or partial: never a whole one.
+        Ok(r) if crate::provider::hit_cap(r.stop_reason.as_deref()) => (
+            r.model.clone(),
+            Some(r.usage.clone()),
+            ask::Parsed::default(),
+            Some(crate::provider::cap_phrase(ask::MAX_TOKENS)),
+        ),
         Ok(r) => match ask::parse(&r.content, shown) {
             Some(p) => (r.model.clone(), Some(r.usage.clone()), p, None),
             None => (

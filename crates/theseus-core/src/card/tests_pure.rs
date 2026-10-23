@@ -252,7 +252,9 @@ fn the_request_names_no_one_and_carries_the_tool() {
         &["wants your opinion when you have one, not a menu of options"],
     )];
     let cs = cluster(&eps);
-    let req = ask::request("m", &shown(&[0], &cs), &|t| t.replace("opinion", "view"));
+    let req = ask::request("m", None, &shown(&[0], &cs), &|t| {
+        t.replace("opinion", "view")
+    });
     assert_eq!(req.tools.len(), 1);
     let body = req.messages[0]["content"][0]["text"].as_str().unwrap();
     assert!(

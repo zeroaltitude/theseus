@@ -566,3 +566,36 @@ async fn a_shared_place_gets_nothing_and_a_private_one_proposes() {
         .unwrap();
     assert!(mark.is_some(), "the mark moves in the extraction's frame");
 }
+
+/// An extraction cut at its cap (theseus-opypg) says so in its row instead
+/// of "no propose_people call", and its request turned thinking off.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_extraction_cut_at_its_cap_says_so_and_thinks_off() {
+    let jev = FakeJev::start().unwrap();
+    script(&jev);
+    jev.script("unlisted", Jev::Noul(0.9));
+    let r = rig(Some(&jev), EVERY, people_on);
+    r.fake.script.lock().unwrap().push_back(Scripted::Blocks {
+        blocks: vec![json!({"type": "tool_use", "id": "t", "name": "propose_people", "input": {}})],
+        stop_reason: "max_tokens".into(),
+    });
+    let private = session(&r.core, None);
+    moorings(&r.core, &private, EVERY).await;
+    let x = until_rows(&r.core.store, "people.extracted", 1).await;
+    let why = x[0].data["failed"].as_str().unwrap();
+    assert!(why.contains("max_tokens") && why.contains("1,500"), "{why}");
+    assert!(!why.contains("held no"), "{why}");
+    let sent = r
+        .fake
+        .requests()
+        .into_iter()
+        .find(|q| q.tools.iter().any(|t| t["name"] == "propose_people"))
+        .expect("the extraction's request");
+    let want = r.core.runner.catalog.thinking_off(&sent.model);
+    assert!(
+        want.is_some(),
+        "{}: a model that turns thinking off",
+        sent.model
+    );
+    assert_eq!(sent.thinking, want);
+}

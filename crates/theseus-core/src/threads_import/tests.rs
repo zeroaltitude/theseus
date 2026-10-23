@@ -500,7 +500,7 @@ fn a_handle_names_one_imported_node_across_the_store() {
 #[test]
 fn the_request_holds_the_episodes_scrubbed_and_nothing_else() {
     let eps = episodes();
-    let req = card::request("claude-haiku-5-5", "Tide gauges", &eps, &|t| {
+    let req = card::request("claude-haiku-5-5", None, "Tide gauges", &eps, &|t| {
         t.replace("Gauge", "G")
     });
     let body = req.messages[0]["content"][0]["text"].as_str().unwrap();

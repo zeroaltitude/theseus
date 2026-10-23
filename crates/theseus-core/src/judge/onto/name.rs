@@ -92,8 +92,16 @@ fn tool() -> Value {
     })
 }
 
-/// The request: the kind and what it is for, and what was said.
-fn request(model: &str, kind: &str, said: &str, scrub: &dyn Fn(&str) -> String) -> ProviderRequest {
+/// The request: the kind and what it is for, and what was said, with
+/// `thinking` as `catalog::thinking_off` gives it: the 300-token cap would be
+/// spent thinking first (theseus-opypg).
+fn request(
+    model: &str,
+    thinking: Option<Value>,
+    kind: &str,
+    said: &str,
+    scrub: &dyn Fn(&str) -> String,
+) -> ProviderRequest {
     let said: String = scrub(said).chars().take(SAID_CHARS).collect();
     let mut extra = std::collections::BTreeMap::new();
     extra.insert(
@@ -107,7 +115,7 @@ fn request(model: &str, kind: &str, said: &str, scrub: &dyn Fn(&str) -> String) 
         messages: vec![json!({"role": "user", "content": [{"type": "text",
             "text": format!("Kind of category: {kind}\n\nWhat was said:\n{said}")}]})],
         tools: vec![tool()],
-        thinking: None,
+        thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),
@@ -186,7 +194,10 @@ impl Core {
         let provider =
             crate::google::private::for_session(provider, &self.store, &self.cfg, session);
         let scrubber = self.runner.judge.scrubber.clone();
-        let request = request(&target.model, kind, said, &|t| scrubber.scrub(t).0);
+        let thinking = self.runner.catalog.thinking_off(&target.model);
+        let request = request(&target.model, thinking, kind, said, &|t| {
+            scrubber.scrub(t).0
+        });
         let need = self
             .audit_reserve(&request)
             .ok_or_else(|| format!("no price for {}", target.model))?;
@@ -197,7 +208,17 @@ impl Core {
             .as_ref()
             .map_or(need, |r| self.runner.priced(r, &target.model, need));
         hold.settle(cost);
+        let cut = answered
+            .as_ref()
+            .is_ok_and(|r| crate::provider::hit_cap(r.stop_reason.as_deref()));
         let (model, usage, found, failed) = match &answered {
+            // A cut answer's tool input is empty or partial: never a whole one.
+            Ok(r) if cut => (
+                r.model.clone(),
+                Some(r.usage.clone()),
+                None,
+                Some(crate::provider::cap_phrase(MAX_TOKENS)),
+            ),
             Ok(r) => match parse(&r.content) {
                 Some(f) => (r.model.clone(), Some(r.usage.clone()), Some(f), None),
                 None => (
@@ -223,14 +244,21 @@ impl Core {
             failed: failed.as_deref(),
         };
         let row = fact::row(&f, Some(session), None).map_err(|e| e.to_string())?;
-        let mark = Named {
-            day: today,
-            names: names.clone(),
-            description: description.clone(),
-        };
-        let mark = NewRecord::json(theseus_store::kinds::META, Some(&marker), &mark)
-            .map_err(|e| e.to_string())?;
-        self.people_write(&[row.scoped("judge:onto"), mark])
+        // A call cut at its cap names nothing, and does not spend the day's
+        // slot: the session's next such message asks again.
+        let mut records = vec![row.scoped("judge:onto")];
+        if !cut {
+            let mark = Named {
+                day: today,
+                names: names.clone(),
+                description: description.clone(),
+            };
+            records.push(
+                NewRecord::json(theseus_store::kinds::META, Some(&marker), &mark)
+                    .map_err(|e| e.to_string())?,
+            );
+        }
+        self.people_write(&records)
             .await
             .map_err(|e| format!("the naming's row was not written: {e:#}"))?;
         self.rec(Some(session)).announce(&f);
