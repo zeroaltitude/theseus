@@ -305,7 +305,7 @@ impl TurnRunner {
     }
 
     /// Stop waiting for the first pass of the draft `sid` after `delay`.
-    fn arm_first_pass(&self, sid: &str, delay: Duration) {
+    pub(crate) fn arm_first_pass(&self, sid: &str, delay: Duration) {
         let (board, sid) = (self.tools.self_pr.clone(), sid.to_string());
         tokio::spawn(async move {
             tokio::time::sleep(delay).await;
@@ -318,7 +318,7 @@ impl TurnRunner {
     /// The first pass of the draft `sid` is past its bound, or a timer says it
     /// may be: cancel it, whose end opens the review without it; not yet, arm
     /// the rest. No first pass running: nothing.
-    pub(super) async fn expire_first_pass(&self, sid: &str) {
+    pub(crate) async fn expire_first_pass(&self, sid: &str) {
         let Some(core) = self.tools.self_pr.core() else {
             return;
         };

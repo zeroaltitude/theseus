@@ -45,7 +45,7 @@ pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
 mod routing_checkpoints;
-mod routing_cn;
+pub(crate) mod routing_cn;
 mod routing_data;
 pub mod self_improve;
 pub mod self_mint;
@@ -1199,6 +1199,11 @@ impl Retries {
 pub struct ServerConfig {
     #[serde(default = "default_state_dir")]
     pub state_dir: String,
+    /// Where a draft review's git worktrees live (theseus-iilre): outside the
+    /// state dir and every approve-list entry, so the review's runs there ask
+    /// nothing. Persistent: a draft waits for its review.
+    #[serde(default = "default_drafts_dir")]
+    pub drafts_dir: String,
     #[serde(default = "default_socket")]
     pub socket: String,
     /// Index engine behind the WAL: "redb", the only one (theseus-0g4). Still
@@ -1268,6 +1273,9 @@ pub const DEFAULT_STATE_DIR: &str = "~/.theseus";
 fn default_state_dir() -> String {
     DEFAULT_STATE_DIR.into()
 }
+fn default_drafts_dir() -> String {
+    "~/.cache/theseus/drafts".into()
+}
 fn default_socket() -> String {
     "~/.theseus/theseus.sock".into()
 }
@@ -1298,6 +1306,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             state_dir: default_state_dir(),
+            drafts_dir: default_drafts_dir(),
             socket: default_socket(),
             store_engine: theseus_store::Engine::Redb,
             stop_grace_ms: default_stop_grace_ms(),
@@ -2011,6 +2020,9 @@ impl Config {
 
     pub fn state_dir(&self) -> PathBuf {
         expand(&self.server.state_dir)
+    }
+    pub fn drafts_dir(&self) -> PathBuf {
+        expand(&self.server.drafts_dir)
     }
     pub fn socket_path(&self) -> PathBuf {
         expand(&self.server.socket)

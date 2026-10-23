@@ -176,9 +176,26 @@ pub(crate) fn own_tree(rt: &crate::toolrun::ToolRuntime, session: &str) -> Optio
     (mine && !d.settled).then(|| theseus_tools::paths::canonical_best_effort(Path::new(&d.tree)))
 }
 
-/// A draft's tree, from its session's id.
+/// A draft's tree, from its session's id: under `Config::drafts_dir`, outside
+/// the state dir, so the approve list's hold on the state dir does not reach
+/// the review's runs there (theseus-iilre). A draft made before that has its
+/// tree under the state dir still, and keeps it.
 pub fn tree_of(cfg: &crate::Config, draft_session: &str) -> PathBuf {
-    cfg.state_dir().join("drafts").join(short(draft_session))
+    let old = cfg.state_dir().join("drafts").join(short(draft_session));
+    match old.exists() {
+        true => old,
+        false => cfg.drafts_dir().join(short(draft_session)),
+    }
+}
+
+/// The directory above a tree, made if it is missing, readable by the owner
+/// alone.
+fn make_root(up: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(up)
 }
 
 pub fn branch_of(draft_session: &str) -> String {
@@ -308,7 +325,7 @@ pub fn work_tree(dir: &Path) -> Option<PathBuf> {
 pub fn open_tree(dir: &Path, tree: &Path, branch: &str) -> Result<(String, String)> {
     let base = git(dir, &["rev-parse", "HEAD"])?;
     if let Some(up) = tree.parent() {
-        std::fs::create_dir_all(up)?;
+        make_root(up)?;
     }
     let at = tree.to_string_lossy();
     git(dir, &["worktree", "add", "-b", branch, &at, &base])?;
@@ -319,7 +336,7 @@ pub fn open_tree(dir: &Path, tree: &Path, branch: &str) -> Result<(String, Strin
 /// A worktree of `dir` at `commit` with no branch, for a first pass to read.
 pub(crate) fn detach_tree(dir: &Path, tree: &Path, commit: &str) -> Result<()> {
     if let Some(up) = tree.parent() {
-        std::fs::create_dir_all(up)?;
+        make_root(up)?;
     }
     let at = tree.to_string_lossy();
     git(dir, &["worktree", "add", "--detach", &at, commit]).map(drop)
@@ -356,7 +373,7 @@ fn numstat(tree: &Pinned<'_>, from: &str, to: &str) -> Result<u64> {
 }
 
 /// What the apply did.
-enum Apply {
+pub(crate) enum Apply {
     Done,
     NoChange,
     Refused(String),
@@ -415,13 +432,13 @@ pub(crate) fn drop_draft(dir: &Path, tree: &Path, branch: &str) {
 }
 
 /// The commits and the apply after a review, on the blocking pool.
-struct Settled {
+pub(crate) struct Settled {
     fin: String,
     lines: u64,
-    applied: Result<Apply>,
+    pub(crate) applied: Result<Apply>,
 }
 
-fn settle_tree(d: &Draft, review: &str, completed: bool) -> Result<Settled> {
+pub(crate) fn settle_tree(d: &Draft, review: &str, completed: bool) -> Result<Settled> {
     let (dir, tree) = (Path::new(&d.dir), d.pinned());
     let fin = commit(&tree, &format!("review by {review}"))?;
     let from = d.draft_commit.as_deref().unwrap_or(&d.base);
