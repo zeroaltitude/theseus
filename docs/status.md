@@ -526,6 +526,31 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-22: v1 patch1 tail, part 7** (theseus-y4ajh, theseus-7zs0f, theseus-bibny, theseus-t7b96, theseus-5ni7j,
+  theseus-b80si, theseus-3327o, theseus-hd8l2, theseus-x8b9k, theseus-d9je7, theseus-iilre, theseus-ms3hd). The Discord
+  DM task flow is locked by one golden test, `tests_dm_flow_golden::the_dm_task_flow_is_as_the_owner_approved_it`
+  (golden `crates/theseus-discord/src/golden/dm_flow.txt`): any change to its text, buttons or order needs the owner's
+  OK (theseus-hd8l2). Every message Theseus sends the owner unasked now opens with a kind tag and an operational title
+  (ℹ️ FYI, ✋ Action, ❓ Decision, ⚠️ Alert) and a line saying what triggered it (`owner_note`, theseus-x8b9k); the
+  catalog is `docs/messages.md`, the night note's backlog titles are only partly done, and the Discord DM task flow is
+  unchanged. A trivial detour carries `tools_find` plus any family its message names or Jev judged relevant (225
+  tokens of tools, was about 6,500 at the cli); a thread's cold resume works to 40% of the serving model's window
+  (`[threads] working_percent`; `working_tokens`, when set, wins) and keeps 20 turns (theseus-d9je7). Draft review
+  trees now live under `[server] drafts_dir` (default `~/.cache/theseus/drafts`), outside the state dir, so the
+  review's test runs no longer ask; a `first_pass` equal to the `cn_draft` is refused at load; the first pass's bound
+  is tested through its timer (theseus-iilre, theseus-ms3hd). An xhigh or max answer held at high now says
+  `held_high_unsure` when it was under its confirm bar, and `sticky_unsure` when `stick` then holds it; `held_high`
+  means the sure case; the wire's `effort_reason` doc lists all 14 words, the cockpit shows multi-underscore words in
+  full, and the Discord restart test stops run 1 for real (theseus-t7b96). The footer's data-gate word and its counter
+  now read the turn's own routing decision, made again as for a cleared ask, falling back to the mode's list only for
+  a turn with no decision; keep-warm's telemetry is wired on the deferred path; the recall README quotes the
+  56000/101000 plan (theseus-5ni7j, theseus-b80si). The ontology sweep keeps its `same_kind` yeses for 30 days, so a
+  chain asked over two nights still mints; it asks a pair only when its groups could reach 3 sessions, and a kept
+  kind-name pick follows its cluster when the cluster's key changes (theseus-3327o). A steered held-compile route row
+  is tested (source `correction`, `follows`); the TUI sidebar's question list is pinned as the whole daemon's, not
+  filtered by placed thread; the ended-task states are one helper (`board::ended_state`) (theseus-7zs0f,
+  theseus-bibny). The keel guard reads an arm that names a constant, a guarded arm and an arm that spans lines
+  (theseus-y4ajh).
 - **2026-10-22: v1 patch1 hotfix, install #74a** (theseus-15kn3). A full owner card now records its attempt and scans
   nothing, and the card tender keeps a ran mark like its twins, so a full queue no longer loops the nightly run (it had
   rerun every ~0.65 s on a full queue: most of a core and ~130k journal lines a day).
