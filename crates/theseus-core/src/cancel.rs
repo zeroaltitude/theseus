@@ -642,7 +642,14 @@ async fn wait_exits(pidfds: &[&std::os::fd::OwnedFd], limit: Duration) {
     }
     let watched: Option<Vec<AsyncFd<Pidfd>>> = pidfds
         .iter()
-        .map(|fd| AsyncFd::with_interest(Pidfd(fd.as_raw_fd()), Interest::READABLE).ok())
+        .map(|fd| {
+            // SAFETY: the pidfd is borrowed for this whole function and the
+            // stop never closes it here, so it stays valid, open and
+            // unchanged for the `AsyncFd`'s life, which ends at the return
+            // (tokio deprecated its safe constructors for RUSTSEC-2026-0386).
+            unsafe { AsyncFd::register_with_interest(Pidfd(fd.as_raw_fd()), Interest::READABLE) }
+                .ok()
+        })
         .collect();
     let Some(watched) = watched.filter(|w| !w.is_empty()) else {
         tokio::time::sleep(limit).await;
