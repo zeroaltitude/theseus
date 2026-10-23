@@ -32,13 +32,7 @@ async fn a_reminder_reaches_the_dm_with_four_buttons_and_a_snooze_sets_it_again(
     })
     .await;
     let post = r.posted(ANA_DM).into_iter().find(is_it).unwrap();
-    assert!(
-        post.content
-            .starts_with("✋ Action · Reminder\n⏰ a reminder you set")
-            && post.content.ends_with("\nstretch"),
-        "{}",
-        post.content
-    );
+    assert_eq!(post.content, "⏰ Reminder · stretch\na reminder you set");
     let labels: Vec<&str> = post.buttons.iter().map(|b| b.label.as_str()).collect();
     assert_eq!(
         labels,

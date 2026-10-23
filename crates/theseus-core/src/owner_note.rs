@@ -16,6 +16,8 @@ pub enum Kind {
     Decision,
     /// Something is wrong.
     Alert,
+    /// A reminder the owner set: his own words are the title.
+    Reminder,
 }
 
 impl Kind {
@@ -25,6 +27,7 @@ impl Kind {
             Kind::Action => "✋ Action",
             Kind::Decision => "❓ Decision",
             Kind::Alert => "⚠️ Alert",
+            Kind::Reminder => "⏰ Reminder",
         }
     }
 }
@@ -59,15 +62,20 @@ pub fn is_headed(text: &str) -> bool {
     let (Some(first), Some(second)) = (lines.next(), lines.next()) else {
         return false;
     };
-    let titled = [Kind::Fyi, Kind::Action, Kind::Decision, Kind::Alert]
-        .iter()
-        .any(|k| {
-            first
-                .strip_prefix(k.tag())
-                .and_then(|r| r.strip_prefix(" · "))
-                .and_then(|t| t.chars().next())
-                .is_some_and(|c| !c.is_whitespace())
-        });
+    let kinds = [
+        Kind::Fyi,
+        Kind::Action,
+        Kind::Decision,
+        Kind::Alert,
+        Kind::Reminder,
+    ];
+    let titled = kinds.iter().any(|k| {
+        first
+            .strip_prefix(k.tag())
+            .and_then(|r| r.strip_prefix(" · "))
+            .and_then(|t| t.chars().next())
+            .is_some_and(|c| !c.is_whitespace())
+    });
     titled && !second.trim().is_empty()
 }
 
@@ -90,5 +98,8 @@ mod tests {
         assert!(!is_headed("ℹ️ FYI ·  Title\nwhy"));
         assert!(!is_headed("ℹ️ FYI · Title\n "));
         assert_eq!(note(Kind::Fyi, "A", "b", ""), "ℹ️ FYI · A\nb");
+        let r = note(Kind::Reminder, "stretch", "a reminder you set", "");
+        assert_eq!(r, "⏰ Reminder · stretch\na reminder you set");
+        assert!(is_headed(&r));
     }
 }

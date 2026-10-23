@@ -10,7 +10,7 @@ first time knows what it is for without a paragraph of explanation:
 <the action, if any, last: a command or a button>
 ```
 
-The four kinds:
+The kinds:
 
 | Tag | Meaning |
 |---|---|
@@ -18,6 +18,7 @@ The four kinds:
 | `✋ Action` | You need to do something. |
 | `❓ Decision` | Choose (the buttons or the commands say how). |
 | `⚠️ Alert` | Something is wrong. |
+| `⏰ Reminder` | A reminder you set: your own words are the title (`⏰ Reminder · stretch`), then how it came. |
 
 The head is built by one helper, `theseus_core::owner_note` (`head`, `note`; `is_headed` is what the tests ask). Every
 new unasked message uses it. A digest's items are one line each in plain words (what, how often, since when), never a
@@ -73,7 +74,7 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 | Routine failed / blocked | `rpc/routines_watch.rs` `routine_note` | a routine's run failed or was blocked | place, `reminder` | Alert |
 | Routine month spent | `routine.rs` `month_spent_text` | a routine's month budget is spent | place, `notice` | Action |
 | Watch notice | `watch/run.rs` `notice_text` | a watch met, changed, ended or cannot check | place, `notice` | FYI, Alert when failing |
-| Reminder | Discord `runtime/remind.rs` `text` | a wake's reminder fired | place, `reminder` | Action (the owner's note whole below) |
+| Reminder | Discord `runtime/remind.rs` `text` | a wake's reminder fired | place, `reminder` | Reminder (the owner's note is the title; a second line on is the body) |
 | Restart notice | Discord `render.rs` `restarted` | a restart onto the vault's changed config | operator channel, `restarted` | FYI |
 | Disk | Discord `diskwords.rs` `disk_note` | free space crossed a line or came back | operator channel, `disk` | Alert / FYI |
 | MCP changed | Discord `courier.rs` `mcp_note` | a server's tools or a prompt changed | operator channel, `mcp_changed` | FYI |

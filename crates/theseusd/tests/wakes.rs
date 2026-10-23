@@ -358,9 +358,7 @@ fn reminders(r: &Rig) -> Vec<Msg> {
     r.fake
         .messages(DM)
         .into_iter()
-        .filter(|m| {
-            m.content.starts_with("✋ Action · Reminder\n") && m.content.ends_with("\nstretch")
-        })
+        .filter(|m| m.content.starts_with("⏰ Reminder · stretch\n"))
         .collect()
 }
 

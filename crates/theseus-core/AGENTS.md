@@ -3062,7 +3062,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 - **Messages to the owner** (theseus-x8b9k; `owner_note.rs`, the catalog `docs/messages.md`): every message sent to the
   owner unasked opens with `owner_note::head` (or `note`): `<tag> · <title>` (`ℹ️ FYI`, `✋ Action`, `❓ Decision`,
-  `⚠️ Alert`), then one line of what triggered it, then the body with the action last. A new unasked message uses it
+  `⚠️ Alert`, `⏰ Reminder` with the owner's own words as the title), then one line of what triggered it, then the body
+  with the action last. A new unasked message uses it
   and joins `tests_owner_note::every_unasked_message_starts_with_a_kind_and_a_title`. The Discord DM task flow (the task
   reply, its started and thread lines, the board, the forum, `needs_you`'s cards, the budget question and notice, the
   reports) is locked by the owner and does not.
