@@ -27,7 +27,7 @@ export function BoardLens({ cols, older, onMore, focus, onFocus, confirms, now }
 }) {
   const lanes = laneRows(cols, older)
   return (
-    <div className="grid h-full min-h-0 auto-cols-[minmax(232px,1fr)] grid-flow-col gap-2.5 overflow-x-auto pb-1" data-testid="ops-board">
+    <div className="grid h-full min-h-0 auto-cols-[minmax(196px,1fr)] grid-flow-col gap-2.5 overflow-x-auto pb-1" data-testid="ops-board">
       {(['needs', 'working', 'paused', 'scheduled', 'done'] as const).map((col, i) => {
         const rows = lanes[i]
         const count = col === 'done' ? cols.done.length : rows.length
@@ -100,21 +100,21 @@ export const Card = memo(function Card({ r, now, focused, onFocus, asks }: { r: 
           {f.report === 'no report line' ? <span className="text-ink-faint">{f.report}</span> : f.report}
         </div>
       )}
-      {f.question && <div className="mt-1.5 rounded-md bg-black/25 px-2 py-1 text-[11.5px] text-ink ring-1 ring-wait/30">? {f.question} <span className="text-ink-faint">· answer it in the queue</span></div>}
+      {f.question && <div className="mt-1.5 line-clamp-3 rounded-md bg-black/25 px-2 py-1 text-[11.5px] text-ink ring-1 ring-wait/30" title={f.question}>? {f.question} <span className="text-ink-faint">· answer it in the queue</span></div>}
       {f.approvals && asks > 0 && <div className="mt-1.5 text-[11px] text-wait">◆ {asks} approval{asks === 1 ? '' : 's'} waiting · in the queue</div>}
       <div className="num mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-ink-faint">
         {f.cost && <span className="text-money">{f.cost}</span>}
         <span title="when it last changed">{f.activity}</span>
         {f.waitsOn && <span>{f.waitsOn}</span>}
-        <span className="ml-auto flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          {f.open && f.href && <Link to={f.href} className="text-live hover:underline" title="its page: the transcript, and a composer that messages it">{f.open}</Link>}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center justify-end gap-1.5 text-[10.5px]" onClick={(e) => e.stopPropagation()}>
+          {f.open && f.href && <Link to={f.href} className="mr-auto whitespace-nowrap text-live hover:underline" title="its page: the transcript, and a composer that messages it">{f.open}</Link>}
           {f.pause && (
             <ActBtn verb="pause" on={on} tone="wait" busy={busy === r.id} onClick={() => act('pause', r.id, r.paused ? 'task.resume' : 'task.pause', { task: r.id })} title={r.paused ? 'Let it go on' : 'Hold it: it takes no new step until resumed'}>
               {r.paused ? <><Play size={11} /> Resume</> : <><Pause size={11} /> Pause</>}
             </ActBtn>
           )}
           {f.stop && <ActBtn verb="cancel" on={on} tone="fault" busy={busy === `${r.id}:stop`} onClick={() => act('cancel', `${r.id}:stop`, 'task.cancel', { task: r.id }, `Stop task ${f.short} (${f.title})? Its jobs stop, and it reports that it was cancelled.`)}><OctagonX size={11} /> Stop</ActBtn>}
-        </span>
       </div>
     </div>
   )

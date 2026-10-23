@@ -90,7 +90,7 @@ export function Answers({ i, whole, note, onNote, past }: { i: QueueItem; whole:
       {i.hold && <div className="num text-[10.5px] text-ink-faint">since {clock(i.hold.external_text.since_ms)} · {i.hold.external_text.via ?? 'read here'}</div>}
       {i.ask && <div className="text-[11px] text-ink-dim">“{i.ask.message}”</div>}
       <div className="flex flex-wrap gap-1.5">
-        {(i.confirm || i.proposal) && <>
+        {(i.confirm || i.proposal) && i.kind !== 'question' && <>
           {b('approve', { verb: 'approve' }, 'ok', <>y · {i.confirm?.budget ? 'Reset' : i.confirm?.change || i.proposal ? 'Accept' : 'Approve'}</>)}
           {b('approve_trust', { verb: 'approve_trust' }, 'wait', 't · Approve and trust')}
           {i.confirm && grantKey(i.confirm) && b('grant', { verb: 'grant' }, 'ok', <>{grantKey(i.confirm)} · {i.confirm.grant_offer!.words}</>)}

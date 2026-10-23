@@ -63,13 +63,16 @@ export function queueOf(q: QueueInput): QueueItem[] {
   const title = q.titleOf ?? ((s: string) => s.slice(-6))
   const out: QueueItem[] = []
   const asked = new Set<string>()
+  // An `owner_ask` is in the list too: its board view carries the choices, and it is a question, not an approval.
+  const choosing = new Map(q.views.flatMap((v) => (v.kind === 'question' && v.question?.kind === 'ask' ? [[v.question.id, v] as const] : [])))
   for (const c of q.confirms) {
     asked.add(c.correlation_id)
-    const kind = confirmKind(c)
+    const ask = choosing.get(c.correlation_id)
+    const kind = ask ? 'question' : confirmKind(c)
     out.push({
       key: `q:${c.correlation_id}`, kind, since: c.requested_at_ms, owner: c.task ? `task ${c.task.title ?? c.task.short}` : title(c.session_id),
-      title: c.plain?.what ?? (kind === 'budget' ? 'Reset its spend to $0 and go on' : kind === 'change' ? 'Accept the task change' : `Approve ${c.tool}`),
-      sessionId: c.session_id, expiresAt: c.expires_at_ms || undefined, confirm: c,
+      title: ask?.question?.prompt ?? c.plain?.what ?? (kind === 'budget' ? 'Reset its spend to $0 and go on' : kind === 'change' ? 'Accept the task change' : `Approve ${c.tool}`),
+      sessionId: c.session_id, expiresAt: c.expires_at_ms || undefined, confirm: c, view: ask,
     })
   }
   for (const t of q.records ?? []) {

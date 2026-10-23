@@ -49,3 +49,10 @@ test('the page is routed, on the rail second after the Ship, and in the time mac
   // The Ship stays the landing view (the owner's decision 2).
   assert.match(src('main.tsx'), /\{ index: true, element: <Navigate to="\/ship" replace \/> \}/)
 })
+
+test('a deep link survives the queue’s first read, and the Threads lens matches its threads by slug', () => {
+  // The queue is empty until its reads land: only an item that was there and left moves the cursor.
+  assert.match(page, /if \(isItemKey\(a\.sel\) && was\.includes\(a\.sel!\) && !keys\.includes\(a\.sel!\)\)/)
+  // The lens groups the board itself: a thread is the same thread by its slug, not by its object.
+  assert.match(page, /matches=\{\(t\) => shownSlugs\.has\(t\.group\.slug\)\}/)
+})

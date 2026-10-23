@@ -50,6 +50,17 @@ test('an approval’s question view is its confirm, listed once; a question with
   assert.equal(queueOf({ confirms: [], views: [view('act_c8', 'question', 'needs_you', { question: { id: 'act_c8', kind: 'approval', prompt: 'write?', options: [], asked_at_ms: 1 } as never })] }).length, 0)
 })
 
+test('an owner_ask in the confirm list is a question with its choices, once', () => {
+  const b = board()
+  const q = queueOf({ confirms: [confirm('act_q1', { tool: 'owner_ask', session_id: 'ses_t1' })], views: b.views })
+  const asks = q.filter((i) => i.key === 'q:act_q1')
+  assert.equal(asks.length, 1)
+  assert.equal(asks[0].kind, 'question')
+  assert.equal(asks[0].title, 'Which pier first?')
+  assert.deepEqual(answerOf(asks[0], { verb: 'choice', n: 1 })?.params, { question_id: 'act_q1', option: 'choice:0', note: undefined })
+  assert.equal(answerOf(asks[0], { verb: 'approve' }), null, 'it is answered by a choice, never a plain yes')
+})
+
 test('a dismissed failure asks for no one; a failure that no longer needs you is not listed', () => {
   const failed = (over: object) => view('exe_f', 'task', 'failed', over, 'needs_you')
   assert.equal(queueOf({ confirms: [], views: [failed({ dismissed: true })] }).length, 0)

@@ -100,7 +100,8 @@ export default function Ops() {
     const was = before.current
     before.current = keys
     if (was !== keys) setFresh(new Set(arrived(was, queue)))
-    if (isItemKey(a.sel) && !keys.includes(a.sel!)) set({ sel: keepCursor(was, queue, a.sel) })
+    // Only an item that was here and left moves the cursor: a deep link read before the queue is never cleared.
+    if (isItemKey(a.sel) && was.includes(a.sel!) && !keys.includes(a.sel!)) set({ sel: keepCursor(was, queue, a.sel) })
   }, [keys]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // What is selected, and where.
@@ -129,6 +130,7 @@ export default function Ops() {
 
   const lanes = laneRows(cols, older)
   const threadList = grouped.threads.filter((t) => (!a.f.thread || t.group.slug === a.f.thread) && (!a.q || a.q.toLowerCase().split(/\s+/).every((w) => `${t.group.title}\n${t.group.slug}`.toLowerCase().includes(w))))
+  const shownSlugs = new Set(threadList.map((t) => t.group.slug))
   const pick = (sel: string | null) => set({ sel, do: null })
   const answer = (verb: Verb, x: Answer) => {
     const c = focusItem && answerOf(focusItem, x)
@@ -261,7 +263,7 @@ export default function Ops() {
     <div className="h-full min-h-0">
       {a.lens === 'board' && <BoardLens cols={cols} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} confirms={confirms} now={now} />}
       {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
-        matches={(t) => threadList.includes(t)} />}
+        matches={(t) => shownSlugs.has(t.group.slug)} />}
       {a.lens === 'timeline' && (
         <div className="h-full overflow-y-auto pr-1">
           {world && <p className="mb-2 text-[11.5px] text-wait">The agenda shows the present: its marks are the daemon’s now, not the log’s moment.</p>}
@@ -304,6 +306,7 @@ export default function Ops() {
           </aside>
         )}
         {reg.inspector === 'folded' && <Tab side="right" label="Inspector" onClick={() => setIFold('open')} />}
+        {reg.inspector === 'idle' && <Tab side="right" label="Inspector · select a card" onClick={() => pick(queue[0]?.key ?? null)} />}
       </div>
       {flash && <div role="status" className="pointer-events-none fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-lg bg-hull/95 px-3 py-1.5 text-[12px] text-ink ring-1 ring-line-strong shadow-xl">{flash}</div>}
       {keysOpen && <KeysOverlay onClose={() => setKeysOpen(false)} />}
