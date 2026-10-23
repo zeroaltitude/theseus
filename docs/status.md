@@ -526,6 +526,9 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-22: v1 patch1 hotfix, install #74a** (theseus-15kn3). A full owner card now records its attempt and scans
+  nothing, and the card tender keeps a ran mark like its twins, so a full queue no longer loops the nightly run (it had
+  rerun every ~0.65 s on a full queue: most of a core and ~130k journal lines a day).
 - **2026-10-22: v1 patch1 tail, part 6** (theseus-4h85l, theseus-atbgl, theseus-uaqox, theseus-e3pxa, theseus-hat0c,
   theseus-m1a51, theseus-fkvb0, theseus-4v88e, theseus-8zgji, theseus-93lkm, theseus-kbfl0, theseus-zwlgz). The route
   footer's `data gate: <why>` now shows (and counts) only when the data rule kept a turn off a China-origin model it
