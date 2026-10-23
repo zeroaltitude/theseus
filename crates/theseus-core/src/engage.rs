@@ -83,6 +83,33 @@ pub fn choices(book: &Book, shared: bool, own: Option<&str>) -> Vec<Choice> {
     out
 }
 
+/// route.v7's persona items: every option with a card, the default persona
+/// not among them, and `none` (the default persona's name and card, else the
+/// general assistant's) in its place. A persona without a card is never
+/// offered but as the default.
+pub fn inputs(options: &[Choice]) -> Vec<theseus_judge::builders::PersonaInput> {
+    let default = options.iter().find(|o| o.is_default);
+    let mut out: Vec<theseus_judge::builders::PersonaInput> = options
+        .iter()
+        .filter(|o| !o.is_default)
+        .filter_map(|o| {
+            Some(theseus_judge::builders::PersonaInput {
+                id: o.key.clone()?,
+                name: o.name.clone(),
+                card: o.card.clone()?,
+            })
+        })
+        .collect();
+    out.push(theseus_judge::builders::PersonaInput {
+        id: NONE.into(),
+        name: default.map_or_else(|| crate::config::DEFAULT_NAME.into(), |d| d.name.clone()),
+        card: default
+            .and_then(|d| d.card.clone())
+            .unwrap_or_else(|| NONE_CARD.into()),
+    });
+    out
+}
+
 /// How the persona came to answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum How {
@@ -537,6 +564,55 @@ mod tests {
         // An option that is not offered cannot be picked.
         let ghost = answer("cedar", 0.99, Band::Act, true);
         assert_eq!(who(None, Some(&ghost), true, msg).how, How::Prior);
+    }
+
+    fn with_default(default: Option<&str>) -> Vec<Choice> {
+        let mut o = options();
+        o.pop();
+        for c in &mut o {
+            c.is_default = c.key.as_deref() == default;
+        }
+        if default.is_none() {
+            o.push(Choice::built_in());
+        }
+        o
+    }
+
+    /// `none` is the default persona: Jev picking it engages it.
+    #[test]
+    fn none_engages_the_default() {
+        let o = with_default(Some("alder"));
+        let sure = answer(NONE, 0.95, Band::Act, true);
+        let e = decide(&o[0], &o, None, None, Some(&sure), true, "hello");
+        assert_eq!((e.key.as_deref(), e.how), (Some("alder"), How::Jev));
+        assert_eq!(e.jev.as_deref(), Some("none"));
+    }
+
+    /// With no persona marked default `none` is the built-in.
+    #[test]
+    fn none_with_no_default_is_the_built_in() {
+        let o = with_default(None);
+        let sure = answer(NONE, 0.95, Band::Act, true);
+        let e = decide(&o[1], &o, None, None, Some(&sure), true, "hello");
+        assert_eq!((e.key, e.name.as_str(), e.how), (None, "Theseus", How::Jev));
+    }
+
+    /// The default persona is Jev's `none` item, with its own name and card
+    /// (else the general assistant's), and not an item of its own too.
+    #[test]
+    fn the_default_is_not_offered_twice() {
+        let ids = |o: &[Choice]| -> Vec<String> { inputs(o).into_iter().map(|p| p.id).collect() };
+        let mut o = with_default(Some("alder"));
+        assert_eq!(ids(&o), ["birch", "none"]);
+        let card = o[1].card.take();
+        let none = inputs(&o).pop().unwrap();
+        assert_eq!(none.name, "Alder");
+        assert_eq!(none.card, NONE_CARD, "a default with no card");
+        o[1].card = card.clone();
+        assert_eq!(inputs(&o).pop().unwrap().card, card.unwrap());
+        let o = with_default(None);
+        assert_eq!(ids(&o), ["birch", "alder", "none"]);
+        assert_eq!(inputs(&o).pop().unwrap().name, "Theseus");
     }
 
     /// An explicit address wins at confidence 1, over Jev's pick, which is

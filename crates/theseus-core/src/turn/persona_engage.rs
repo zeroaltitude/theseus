@@ -22,7 +22,6 @@ use crate::judge::inbound::{PersonaCtx, ThreadHead};
 use crate::places::PlaceClass;
 use crate::routing::Verdict;
 use crate::session::SessionRecord;
-use theseus_judge::builders::PersonaInput;
 use theseus_protocol::route::RoutePersona;
 
 /// What the inbound point worked out for the turn's persona.
@@ -82,7 +81,7 @@ impl TurnRunner {
                 answered: self.persona.engaged.recent(session_id),
             });
         PersonaCtx {
-            personas: persona_inputs(&options),
+            personas: engage::inputs(&options),
             speaker: prior.key,
             thread,
             categories: self.category_names(session_id, class),
@@ -234,31 +233,4 @@ impl TurnRunner {
         compiled.estimate.estimated += n;
         compiled.estimate.upper += n + n * crate::compiler::MARGIN_PERCENT / 100;
     }
-}
-
-/// route.v7's persona items: every option with a card, the default persona
-/// not among them, and `none` (the default persona's name and card, else the
-/// general assistant's) in its place. A persona without a card is never
-/// offered but as the default.
-fn persona_inputs(options: &[Choice]) -> Vec<PersonaInput> {
-    let default = options.iter().find(|o| o.is_default);
-    let mut out: Vec<PersonaInput> = options
-        .iter()
-        .filter(|o| !o.is_default)
-        .filter_map(|o| {
-            Some(PersonaInput {
-                id: o.key.clone()?,
-                name: o.name.clone(),
-                card: o.card.clone()?,
-            })
-        })
-        .collect();
-    out.push(PersonaInput {
-        id: engage::NONE.into(),
-        name: default.map_or_else(|| crate::config::DEFAULT_NAME.into(), |d| d.name.clone()),
-        card: default
-            .and_then(|d| d.card.clone())
-            .unwrap_or_else(|| engage::NONE_CARD.into()),
-    });
-    out
 }
