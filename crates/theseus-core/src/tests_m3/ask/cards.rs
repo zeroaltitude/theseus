@@ -90,9 +90,12 @@ async fn a_self_tasks_question_names_its_backlog_title() {
         }),
         ..Default::default()
     };
+    // The locked needs-you card's item text, in plain words: the owner approved
+    // this line, 2026-10-22 23:2x, theseus-jsdj5. The item was filed under the
+    // old words ("Calls from harness fail") and reads plain all the same.
     assert_eq!(
         r.core.asker_name(&asks("ses_self")),
-        "Theseus's self-repair: Calls from harness fail"
+        "Theseus's self-repair: Harness tool calls failing"
     );
     assert_eq!(r.core.asker_name(&asks("ses_mine")), "Chart the harbour");
     assert_eq!(r.core.asker_name(&asks("ses_none")), "task 7f3a2c");

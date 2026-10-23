@@ -50,6 +50,7 @@ mod graduate;
 mod keel;
 mod rank;
 mod read;
+pub(crate) use read::plain_title;
 pub(crate) mod start;
 mod state;
 mod tender;
@@ -445,7 +446,10 @@ impl Core {
         Ok(task_graph::all(&self.store)?
             .into_iter()
             .filter(|t| t.parent.as_deref() == Some(parent.as_str()))
-            .map(|t| (t.id.clone(), t))
+            .map(|mut t| {
+                t.title = read::plain_title(&t.title);
+                (t.id.clone(), t)
+            })
             .collect())
     }
 

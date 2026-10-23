@@ -3067,6 +3067,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   A new unasked message uses it and joins `tests_owner_note::every_unasked_message_starts_with_a_kind_and_a_title`. The
   Discord DM task flow (the task reply, its started and thread lines, the board, the forum, `needs_you`'s cards, the
   budget question and notice, the reports) is locked by the owner and does not.
+  Self-repair backlog titles are plain words (`rsi/backlog/read.rs`; `plain_title` maps an item filed under the old
+  labels, in every backlog read and the needs-you card's asker line, theseus-jsdj5).
 - **The frame budget.** A plain one-loop turn writes 4 frames, and each loop with one in-process tool adds 4.
   An input's turn holds its execution (`Kernel::hold_turn`, nothing written) and is admitted in its input's frame
   (`turn/admit_step.rs`, theseus-2uby), so it pays 2 syncs before its model's first byte (`syncs_before_call` on its

@@ -229,7 +229,10 @@ impl Core {
             });
             if let Some(t) = own.filter(|t| !t.title.trim().is_empty()) {
                 return match t.origin.principal == crate::rsi::SELF_PRINCIPAL {
-                    true => format!("Theseus's self-repair: {}", t.title),
+                    true => format!(
+                        "Theseus's self-repair: {}",
+                        crate::rsi::backlog::plain_title(&t.title)
+                    ),
                     false => t.title,
                 };
             }

@@ -27,7 +27,9 @@ timeout`, never `⚠️ Alert · ✗ Tide check failed`). `head` drops one a tit
 
 The head is built by one helper, `theseus_core::owner_note` (`head`, `note`; `is_headed` is what the tests ask). Every
 new unasked message uses it. A digest's items are one line each in plain words (what, how often, since when), never a
-bare internal label or id. The key test is theseus-core's
+bare internal label or id: a self-repair backlog item's title is plain words ("Harness tool calls failing", not "Calls
+from harness fail"; `rsi/backlog/read.rs`, and `plain_title` reads an item filed under the old words the same way,
+in the backlog and on the needs-you card's asker line, theseus-jsdj5). The key test is theseus-core's
 `tests_owner_note::every_unasked_message_starts_with_a_kind_and_a_title`, with the Discord binding's
 `tests_owner_note::every_unasked_discord_message_starts_with_a_kind_and_a_title` and `runtime/voice/deaf.rs`'s.
 
