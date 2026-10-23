@@ -23,6 +23,7 @@ use serde_json::Value;
 use theseus_google::Request;
 
 use crate::google::calendar::{self, Brief};
+use crate::google::private::Level;
 use crate::google::{mail, mime, Google, Meta};
 use crate::rpc::Core;
 use crate::wake::local;
@@ -40,9 +41,20 @@ pub(crate) struct Day {
     pub events: u64,
     pub unread: u64,
     pub drafts: u64,
+    /// A sensitive calendar's events are in the lines.
+    pub sensitive: bool,
 }
 
 impl Day {
+    /// How the note's lines are held: what the model call is made as.
+    pub fn level(&self) -> Level {
+        match (self.sensitive, self.happened() + self.drafts) {
+            (true, _) => Level::Sensitive,
+            (false, 0) => Level::Open,
+            _ => Level::Private,
+        }
+    }
+
     /// What the day holds that counts as something happening: its meetings
     /// and the mail that matters.
     pub fn happened(&self) -> u64 {
@@ -57,7 +69,11 @@ fn event_line(b: &Brief, conflict: bool) -> String {
         (Some(s), Some(e)) => format!("{}–{}", local(s).hm(), local(e).hm()),
         _ => b.when.clone(),
     };
-    let mut line = format!("- {when} · {}", b.title);
+    let tag = match b.label.as_str() {
+        "" => String::new(),
+        l => format!("[{l}] "),
+    };
+    let mut line = format!("- {tag}{when} · {}", b.title);
     if b.attendees > 0 {
         line.push_str(&format!(" · {} attendees", b.attendees));
     }
@@ -121,18 +137,17 @@ impl Core {
         let mut rows = Vec::new();
         let mut day = Day::default();
         let scrub = |t: &str| self.tools.scrubber.scrub(t).0;
-        match self.morning_events(&g, now, &mut rows).await {
-            Some(events) => {
-                day.events = events.len() as u64;
-                day.lines.extend(
-                    event_lines(&events)
-                        .iter()
-                        .map(|l| scrub(l))
-                        .collect::<Vec<_>>(),
-                );
-            }
-            None => day.lines.push("calendar unreachable".into()),
-        }
+        let (events, down, sensitive) = self.morning_events(&g, now, &mut rows).await;
+        day.events = events.len() as u64;
+        day.sensitive = sensitive;
+        day.lines.extend(
+            event_lines(&events)
+                .iter()
+                .map(|l| scrub(l))
+                .collect::<Vec<_>>(),
+        );
+        day.lines
+            .extend(down.into_iter().map(|l| format!("{l} unreachable")));
         match self.morning_mail(&g, &mut rows).await {
             Some((unread, shown, drafts)) => {
                 day.unread = unread;
@@ -164,20 +179,50 @@ impl Core {
         Some(day)
     }
 
+    /// Today's events of every configured calendar, in time order, each
+    /// labelled when there is more than one; the labels of those that could not
+    /// be read (`calendar` when it is the only one); and whether a sensitive
+    /// calendar was read.
     async fn morning_events(
         &self,
         g: &Google,
         now: u64,
         rows: &mut Vec<Value>,
-    ) -> Option<Vec<Brief>> {
-        let req = calendar::today(now).ok()?;
-        let meta = (
-            calendar::EVENTS,
-            "calendar.events.list",
-            Some("primary".into()),
-        );
-        let reply = call(g, rows, meta, req).await?;
-        Some(calendar::briefs(&reply))
+    ) -> (Vec<Brief>, Vec<String>, bool) {
+        let (targets, summary_rows) = g.calendar_all().await;
+        rows.extend(summary_rows);
+        let many = targets.len() > 1;
+        let (mut events, mut down, mut sensitive) = (Vec::new(), Vec::new(), false);
+        for t in &targets {
+            let read = match calendar::today(now, Some(&t.id)) {
+                Ok(req) => {
+                    let meta = (
+                        calendar::EVENTS,
+                        "calendar.events.list",
+                        Some(t.label.clone()),
+                    );
+                    call(g, rows, meta, req).await
+                }
+                Err(_) => None,
+            };
+            let Some(reply) = read else {
+                down.push(if many {
+                    t.label.clone()
+                } else {
+                    "calendar".into()
+                });
+                continue;
+            };
+            sensitive |= t.sensitive;
+            events.extend(calendar::briefs(&reply).into_iter().map(|mut b| {
+                if many {
+                    b.label = t.label.clone();
+                }
+                b
+            }));
+        }
+        events.sort_by_key(|b| b.start_ms.unwrap_or(0));
+        (events, down, sensitive)
     }
 
     /// The unread count, the top senders and subjects, and the drafts waiting;

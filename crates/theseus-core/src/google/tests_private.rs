@@ -64,7 +64,7 @@ fn rig_on(
 }
 
 /// [`rig_on`], with `tweak` applied to its config last.
-fn rig_tweaked(
+pub(super) fn rig_tweaked(
     jev: Option<&FakeJev>,
     fake: &Fake,
     script: Vec<Scripted>,
@@ -106,7 +106,7 @@ fn rig_tweaked(
     (r, claude)
 }
 
-async fn run_on(
+pub(super) async fn run_on(
     core: &Arc<crate::Core>,
     sid: &str,
     input: &str,
@@ -137,7 +137,7 @@ async fn run_on(
         .await
 }
 
-fn new_session(core: &crate::Core) -> String {
+pub(super) fn new_session(core: &crate::Core) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     rec.session_id

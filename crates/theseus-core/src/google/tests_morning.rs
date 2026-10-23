@@ -343,3 +343,216 @@ async fn without_google_the_morning_note_is_what_it_was() {
     assert!(ledgered(&m.core, "google.called").is_empty());
     assert!(m.fake.log().is_empty(), "no request left for Google");
 }
+
+// --------------------------------------- every configured calendar (jid7t.1)
+
+mod calendars {
+    use super::*;
+    use crate::google::tests_calendar_cache::{cli, ev, install, rpc_as, two, Mode};
+
+    /// The two calendars, a note with the events of each.
+    async fn rigged(
+        script: Vec<Scripted>,
+        tweak: impl FnOnce(&mut Config),
+    ) -> (Morning, crate::google::tests_calendar_cache::Cals) {
+        rigged_as(script, tweak, true).await
+    }
+
+    async fn rigged_as(
+        script: Vec<Scripted>,
+        tweak: impl FnOnce(&mut Config),
+        checked: bool,
+    ) -> (Morning, crate::google::tests_calendar_cache::Cals) {
+        let m = rig_as(
+            true,
+            script,
+            |c| {
+                two(c);
+                tweak(c);
+            },
+            checked,
+        )
+        .await;
+        let cals = install(&m.fake);
+        cals.personal.lock().unwrap().items = vec![ev(
+            "p1",
+            "Dentist",
+            "2026-10-22T16:00:00Z",
+            "2026-10-22T16:30:00Z",
+        )];
+        cals.work.lock().unwrap().items = vec![ev(
+            "w1",
+            "Board prep",
+            "2026-10-22T16:15:00Z",
+            "2026-10-22T16:45:00Z",
+        )];
+        (m, cals)
+    }
+
+    async fn spoken(m: &Morning) {
+        assert!(m.core.post_morning_if_due(), "the day is claimed");
+        until("the morning note", 20, || {
+            !rows(&m.core, "initiative.spoke").is_empty()
+        })
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_brief_labels_each_line_by_calendar() {
+        let (m, _cals) = rigged(said(), |_| {}).await;
+        let brief = note(&m, &m.model).await;
+        assert!(
+            brief.contains("- [Personal] 09:00–09:30 · Dentist"),
+            "{brief}"
+        );
+        assert!(
+            brief.contains("- [Work] 09:15–09:45 · Board prep"),
+            "{brief}"
+        );
+        // A meeting on one calendar that overlaps one on the other is a conflict.
+        assert_eq!(brief.matches("· conflict").count(), 2, "{brief}");
+        assert!(!brief.contains("unreachable"), "{brief}");
+    }
+
+    /// With the one default calendar the note is what it was: no label.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn one_calendar_is_told_as_it_always_was() {
+        let m = rig(true, said(), |_| {}).await;
+        m.fake.json(
+            "GET",
+            EVENTS_PATH,
+            json!({"items": [event("e1", "2026-10-22T16:00:00Z", "2026-10-22T16:30:00Z", "Standup", 0, false)]}),
+        );
+        let brief = note(&m, &m.model).await;
+        assert!(brief.contains("- 09:00–09:30 · Standup"), "{brief}");
+        assert!(
+            !brief.contains("[primary]") && !brief.contains("unreachable"),
+            "{brief}"
+        );
+    }
+
+    /// A sensitive calendar in the brief makes the note's call US-only: a model
+    /// of China origin and one of EU origin are never asked, a US one is, and
+    /// the note's ledger row holds no text.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_sensitive_calendar_makes_the_brief_us_only() {
+        // The US model is asked, and its words reach the DM and no ledger row.
+        let titled = vec![Scripted::text("Board prep at nine, then the Dentist."); 4];
+        let (m, _) = rigged(titled, |_| {}).await;
+        spoken(&m).await;
+        assert!(
+            !m.model.requests().is_empty(),
+            "the US model wrote the note"
+        );
+        let spoke = rows(&m.core, "initiative.spoke");
+        assert_eq!(spoke.len(), 1);
+        assert!(spoke[0].get("text").is_none(), "{spoke:?}");
+        assert!(!serde_json::to_string(&all_rows(&m.core))
+            .unwrap()
+            .contains("Board prep"));
+        // China origin: refused, the template speaks, and nothing else is tried.
+        let (m, _) = rigged_as(
+            said(),
+            |c| c.initiative.profile = Some("glm53".into()),
+            false,
+        )
+        .await;
+        spoken(&m).await;
+        assert!(m.zai.requests().is_empty() && m.model.requests().is_empty());
+        // EU origin: the same.
+        let (m, _) = rigged(said(), |c| {
+            c.serve_glm_unrestricted();
+            c.vouch_zai(crate::catalog::ModelOrigin::Eu);
+            c.initiative.profile = Some("glm53".into());
+        })
+        .await;
+        spoken(&m).await;
+        assert!(m.zai.requests().is_empty() && m.model.requests().is_empty());
+        // The template spoke: its row holds no text either.
+        assert!(rows(&m.core, "initiative.spoke")[0].get("text").is_none());
+    }
+
+    /// A calendar that cannot be read says so by label and leaves its lines
+    /// out; the others and the note go on, and with no sensitive calendar read
+    /// the note's row keeps its text.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_unreachable_calendar_is_said_and_blocks_nothing() {
+        let (m, cals) = rigged(said(), |_| {}).await;
+        cals.work.lock().unwrap().mode = Mode::NotFound;
+        let brief = note(&m, &m.model).await;
+        assert!(brief.contains("Work unreachable"), "{brief}");
+        assert!(
+            brief.contains("[Personal] 09:00–09:30 · Dentist") && !brief.contains("Board prep"),
+            "{brief}"
+        );
+        assert_eq!(rows(&m.core, "initiative.spoke")[0]["text"], SAID);
+    }
+
+    /// Both calendars read through the page's method, the tool and the brief:
+    /// not one event's title, place, attendee address or call link is in any
+    /// ledger row.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn no_event_content_is_in_any_ledger_row() {
+        let (m, cals) = rigged(
+            vec![Scripted::text("Board prep and the Dentist in Room 4."); 4],
+            |_| {},
+        )
+        .await;
+        cals.work.lock().unwrap().busy =
+            vec![("2026-10-22T16:00:00Z".into(), "2026-10-22T17:00:00Z".into())];
+        let (from, to) = crate::google::tests_calendar_cache::day();
+        rpc_as(
+            &m.core,
+            cli(),
+            "calendar.window",
+            json!({"from_ms": from, "to_ms": to}),
+        )
+        .await
+        .unwrap();
+        cals.work.lock().unwrap().mode = Mode::BusyOnly;
+        m.core
+            .tools
+            .google
+            .as_ref()
+            .unwrap()
+            .calendars
+            .age(std::time::Duration::from_secs(400));
+        rpc_as(
+            &m.core,
+            cli(),
+            "calendar.window",
+            json!({"from_ms": from, "to_ms": to}),
+        )
+        .await
+        .unwrap();
+        cals.work.lock().unwrap().mode = Mode::Ok;
+        spoken(&m).await;
+        let rows = all_rows(&m.core);
+        assert!(
+            rows.iter().any(|r| r.contains("google.called")),
+            "the reads are rows"
+        );
+        let wrote = rows.join("\n");
+        for secret in [
+            "Dentist",
+            "Board prep",
+            "Room 4",
+            "guest.one@example.test",
+            "guest.two@example.test",
+            "meet.example.test",
+            "calendar.example.test/e/",
+        ] {
+            assert!(!wrote.contains(secret), "{secret} is in a ledger row");
+        }
+    }
+
+    /// Every ledger row, as its JSON text.
+    fn all_rows(core: &Core) -> Vec<String> {
+        core.store
+            .ledger_tail::<crate::ledger::LedgerRow>(100_000)
+            .unwrap()
+            .into_iter()
+            .map(|(_, r)| serde_json::to_string(&r).unwrap())
+            .collect()
+    }
+}

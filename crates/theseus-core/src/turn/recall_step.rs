@@ -621,10 +621,10 @@ impl TurnRunner {
     /// The asker's Google `private` mark when `items` hold a note of a
     /// session that holds it (`google::private::followed`); the turn's own
     /// calls are private from now on.
-    fn follow_private(&self, t: &mut Turn<'_>, items: &[RecalledRef]) -> Option<NewRecord> {
-        if t.digest.mark.is_some() {
+    fn follow_private(&self, t: &mut Turn<'_>, items: &[RecalledRef]) -> Vec<NewRecord> {
+        if !t.digest.mark.is_empty() {
             // The place digest's mark rides the same frame (theseus-yso6p).
-            return None;
+            return Vec::new();
         }
         let recalled = items
             .iter()
@@ -634,9 +634,9 @@ impl TurnRunner {
             &self.cfg.google,
             t.tc.session_id,
             recalled,
-        )?;
-        t.recall.private = true;
-        Some(mark)
+        );
+        t.recall.private |= !mark.is_empty();
+        mark
     }
 
     /// The transcript a loop compiles, with the turn's pending `Recall` node

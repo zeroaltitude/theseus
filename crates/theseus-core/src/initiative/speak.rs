@@ -56,8 +56,9 @@ pub struct Facts<'a> {
     pub line: Line,
     pub n: u64,
     /// The brief holds the owner's Google content: the call is made as a
-    /// private session's, so a model of restricted origin is never asked.
-    pub private: bool,
+    /// private session's (a sensitive calendar's, if it holds one), so a model
+    /// not of US origin is never asked.
+    pub private: crate::google::private::Level,
 }
 
 /// What was said, and what saying it cost.
@@ -252,6 +253,18 @@ impl Core {
     /// Send a message to the owner's DM and write its `initiative.spoke` row
     /// in the same frame. The owner's alone: nothing reaches a shared place.
     pub fn initiative_post(&self, kind: &'static str, s: &Spoken) -> Result<()> {
+        self.initiative_post_as(kind, s, false)
+    }
+
+    /// [`Core::initiative_post`], its row holding no text when `text_held`: a
+    /// note drawn from a sensitive calendar reaches the owner's DM and no
+    /// ledger row (theseus-jid7t.1).
+    pub fn initiative_post_as(
+        &self,
+        kind: &'static str,
+        s: &Spoken,
+        text_held: bool,
+    ) -> Result<()> {
         let persona = self.cfg.persona_for(None, None);
         let body =
             json!({"kind": "initiative", "what": kind, "id": s.id, "text": headed(kind, &s.text)});
@@ -263,7 +276,7 @@ impl Core {
                 persona: &persona.name,
                 cost_usd: Some(s.cost_usd),
                 model: s.model.as_deref(),
-                text: Some(&s.text),
+                text: (!text_held).then_some(s.text.as_str()),
                 stop_reason: s.stop_reason.as_deref(),
                 output_tokens: s.output_tokens,
             },

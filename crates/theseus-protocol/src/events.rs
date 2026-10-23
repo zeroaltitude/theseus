@@ -588,6 +588,8 @@ events! {
     SelfChanged(crate::rsi::SelfChanged) = notify::SELF_CHANGED,
     /// A record kept from the owner's words, or a question about them (theseus-slvl.5).
     StandingNoticed(crate::standing::StandingNoticed) = notify::STANDING_NOTICED,
+    /// A calendar refresh found a change; no content (theseus-jid7t.1).
+    CalendarChanged(crate::calendar::CalendarChanged) = notify::CALENDAR_CHANGED,
 }
 
 impl Event {
@@ -630,6 +632,7 @@ impl Event {
             | Event::PolicyUntightened(_)
             | Event::ThreadChanged(_)
             | Event::SelfChanged(_)
+            | Event::CalendarChanged(_)
             | Event::EventsLost(_) => None,
         }
     }
@@ -673,6 +676,7 @@ impl Event {
             | Event::ActionOutputEnd(_)
             | Event::SelfChanged(_)
             | Event::StandingNoticed(_)
+            | Event::CalendarChanged(_)
             | Event::EventsLost(_) => None,
         }
     }

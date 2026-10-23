@@ -36,7 +36,7 @@ pub(crate) struct Digest {
     pub text: Option<String>,
     /// The asker's Google mark, when a thread the digest shows holds it: the
     /// first call's plan frame writes it.
-    pub mark: Option<theseus_store::NewRecord>,
+    pub mark: Vec<theseus_store::NewRecord>,
 }
 
 impl Digest {
@@ -116,7 +116,7 @@ impl TurnRunner {
                 t.tc.session_id,
                 shown,
             );
-            if mark.is_some() {
+            if !mark.is_empty() {
                 t.digest.mark = mark;
                 t.recall.private = true;
             }

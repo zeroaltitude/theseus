@@ -81,6 +81,16 @@ impl TurnRunner {
             })
     }
 
+    /// The data level of the call the turn is about to make: its session's own
+    /// marks, a recall that admitted a marked session's note, and the task
+    /// lineage. The floors read it as private or above; the chokepoint
+    /// carries the level itself.
+    pub(super) fn session_level(&self, t: &Turn<'_>) -> crate::google::private::Level {
+        use crate::google::private::{self, Level};
+        let own = private::level(t.tc.store, &self.cfg, t.tc.session_id);
+        own.max(Level::from(self.private_session(t)))
+    }
+
     /// Whether `profile` may not be sent the sensitive names: its origin is
     /// not on the allowlist.
     pub(super) fn uncleared_profile(&self, profile: &str) -> bool {
