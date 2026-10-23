@@ -705,7 +705,7 @@
     ],
     "usd": 4.496563,
     "usd_per_trial": 0.2997708666666667,
-    "usd_per_solve": NaN,
+    "usd_per_solve": null,
     "jev_usd": 0.028352,
     "turns": 30,
     "late": 0,
