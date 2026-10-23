@@ -70,3 +70,33 @@ async fn c_on_a_finished_task_missing_from_the_work_view_says_finished() {
     );
     assert!(rig.daemon().asked("task.cancel").is_empty());
 }
+
+/// A task that ran out of budget has ended too: the execution's own state says so, through the
+/// same list the picker uses (theseus-bibny).
+#[tokio::test]
+async fn c_on_a_budget_exhausted_task_missing_from_the_work_view_says_finished() {
+    let (_, works) = crate::tests_work::regatta();
+    let trimmed = works
+        .into_iter()
+        .filter(|w| w["session_id"] != "ses_gauge01")
+        .collect();
+    let world = regatta_world(Some(trimmed));
+    for v in world.lock().unwrap().board["executions"]
+        .as_array_mut()
+        .unwrap()
+    {
+        if v["session_id"] == "ses_gauge01" {
+            v["state"] = "budget_exhausted".into();
+        }
+    }
+    let (mut rig, _) = rig(120, world).await;
+    open(&mut rig, "tide gauge").await;
+    rig.press(&[KeyCode::Char('c')]).await;
+    let s = rig.screen();
+    assert!(
+        s.iter()
+            .any(|l| l.contains("that task has already finished")),
+        "{s:#?}"
+    );
+    assert!(rig.daemon().asked("task.cancel").is_empty());
+}
