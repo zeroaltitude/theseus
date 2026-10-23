@@ -33,11 +33,17 @@ const PLACE: &str = "dm:271828182845904523";
 
 /// A stand-in model that keeps every request. `WAKE <after>: <note>` sets a
 /// wake and then promises; `PROMISE` promises with nothing scheduled; a
-/// wake's input is answered without a promise; the rest is "Noted."
+/// wake's input is answered without a promise; the rest is "Noted." Its
+/// first `cut` notes stop on `max_tokens` with half a sentence, as Sonnet 5.5
+/// did when its thinking spent the cap (theseus-050g2).
 #[derive(Default)]
 struct Model {
     requests: Mutex<Vec<ProviderRequest>>,
+    cut: Mutex<u32>,
 }
+
+/// What the 2026-10-23 morning note said before its cap ran out.
+const CUT: &str = "Nine tasks finished in the last day and I've";
 
 fn last_user(req: &ProviderRequest) -> String {
     req.messages
@@ -97,7 +103,20 @@ impl Provider for Model {
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
             self.requests.lock().unwrap().push(req.clone());
-            FakeProvider::scripted(vec![script(req)])
+            let cut = {
+                let mut left = self.cut.lock().unwrap();
+                let cut = *left > 0 && last_user(req).starts_with("Facts:");
+                *left -= u32::from(cut);
+                cut
+            };
+            let answer = match cut {
+                true => Scripted::Blocks {
+                    blocks: vec![json!({"type": "text", "text": CUT})],
+                    stop_reason: "max_tokens".into(),
+                },
+                false => script(req),
+            };
+            FakeProvider::scripted(vec![answer])
                 .stream_message(req, on_delta)
                 .await
         })
@@ -424,6 +443,8 @@ async fn the_day_cap_counts_what_the_voiced_notes_spent() {
         voiced: true,
         cost_usd: 0.049,
         model: None,
+        stop_reason: None,
+        output_tokens: None,
     };
     r.core.initiative_post("consolidation", &earlier).unwrap();
     let spent = r.core.initiative_spent_today();
@@ -627,4 +648,78 @@ async fn a_finding_drawn_from_plain_sessions_is_still_voiced() {
         rows(&r.core, "initiative.spoke")[0]["text"],
         "Two builds finished overnight and nothing needs you."
     );
+}
+
+fn note_facts() -> crate::initiative::speak::Facts<'static> {
+    crate::initiative::speak::Facts {
+        kind: "morning",
+        brief: "In the last day:\n- 9 tasks ended",
+        line: crate::initiative::lines::Line::Morning,
+        n: 9,
+        private: false,
+    }
+}
+
+/// An answer cut off at its cap is never posted (theseus-050g2): the note is
+/// asked once more with more room, and when that is cut off too, the
+/// template goes out. The row says how the last call stopped and what it
+/// wrote, and books both calls.
+#[tokio::test]
+async fn a_cut_off_answer_is_never_posted_and_two_are_the_template() {
+    use crate::initiative::speak::{MAX_TOKENS, RETRY_MAX_TOKENS};
+    let r = rig(Initiative::Chatty, |_| {});
+    *r.model.cut.lock().unwrap() = 2;
+    let spoken = r.core.initiative_speak(&note_facts()).await;
+    assert!(!spoken.voiced, "{spoken:?}");
+    assert!(!spoken.text.contains(CUT), "{}", spoken.text);
+    assert!(spoken.text.starts_with("🌊 Ondine: "), "{}", spoken.text);
+    let caps: Vec<u32> = r
+        .model
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|q| q.max_tokens)
+        .collect();
+    assert_eq!(caps, [MAX_TOKENS, RETRY_MAX_TOKENS]);
+    assert!(spoken.cost_usd > 0.0, "both calls are booked: {spoken:?}");
+    r.core.initiative_post("morning", &spoken).unwrap();
+    let spoke = rows(&r.core, "initiative.spoke");
+    assert_eq!(spoke[0]["text"], spoken.text);
+    assert_eq!(spoke[0]["stop_reason"], "max_tokens");
+    assert_eq!(spoke[0]["output_tokens"], 9);
+}
+
+/// One cut-off answer is retried with more room, and the retry's whole
+/// answer is the note; its row records `end_turn`.
+#[tokio::test]
+async fn a_cut_off_answer_is_retried_with_more_room() {
+    let r = rig(Initiative::Chatty, |_| {});
+    *r.model.cut.lock().unwrap() = 1;
+    let spoken = r.core.initiative_speak(&note_facts()).await;
+    assert!(spoken.voiced, "{spoken:?}");
+    assert_eq!(
+        spoken.text,
+        "Two builds finished overnight and nothing needs you."
+    );
+    assert_eq!(r.model.requests.lock().unwrap().len(), 2);
+    r.core.initiative_post("morning", &spoken).unwrap();
+    let spoke = rows(&r.core, "initiative.spoke");
+    assert_eq!(spoke[0]["stop_reason"], "end_turn");
+    assert_eq!(spoke[0]["output_tokens"], 8);
+}
+
+/// The note's request turns thinking off (Sonnet 5.5's `between_tools`, its
+/// `disabled` being a 400) and leaves room past two sentences.
+#[tokio::test]
+async fn the_notes_request_turns_thinking_off_at_a_roomy_cap() {
+    let r = rig(Initiative::Chatty, |_| {});
+    let spoken = r.core.initiative_speak(&note_facts()).await;
+    assert!(spoken.voiced, "{spoken:?}");
+    let reqs = r.model.requests.lock().unwrap();
+    assert_eq!(reqs.len(), 1);
+    assert_eq!(reqs[0].model, "claude-sonnet-5-5");
+    assert_eq!(reqs[0].thinking, Some(json!({"type": "between_tools"})));
+    assert_eq!(reqs[0].body()["thinking"], json!({"type": "between_tools"}));
+    assert!(reqs[0].max_tokens >= 1024, "{}", reqs[0].max_tokens);
 }

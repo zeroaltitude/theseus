@@ -38,7 +38,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use theseus_judge::price::{micros_to_usd, usd_to_micros, Micros};
 use theseus_ontology::{
     Basis, Category, CategoryId, Guidance, Ontology, Origin, Record, DREAM_GUIDANCE_MAX,
@@ -62,7 +62,9 @@ pub const PER_NIGHT: usize = 3;
 pub const SAMPLE: usize = 12;
 /// A title or a message, in characters at most.
 pub const TEXT_CHARS: usize = 300;
-/// The answer's most tokens: 400 characters and some to spare.
+/// The answer's most tokens: 400 characters and some to spare, asked with
+/// thinking off (theseus-050g2: Haiku 5.5's default thinking spent the cap,
+/// and every night's answer came back empty).
 pub const MAX_TOKENS: u32 = 250;
 /// The META record of the night's spend, by local day.
 pub const MARK: &str = "onto.dream.last";
@@ -107,7 +109,7 @@ fn cut(text: &str) -> String {
 /// The request for one category: the instructions, then the category and its
 /// sessions, numbered, scrubbed.
 fn request_for(
-    model: &str,
+    (model, thinking): (&str, Option<Value>),
     category: &Category,
     path: &str,
     seen: &[Seen],
@@ -138,7 +140,7 @@ fn request_for(
         system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": content}]})],
         tools: Vec::new(),
-        thinking: None,
+        thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),
@@ -272,7 +274,9 @@ impl Core {
             .collect::<Vec<_>>()
             .join(" › ");
         let scrubber = self.tools.scrubber.clone();
-        let request = request_for(&target.model, o.category(id)?, &path, &seen, &|t| {
+        let thinking = self.runner.catalog.thinking_off(&target.model);
+        let model = (target.model.as_str(), thinking);
+        let request = request_for(model, o.category(id)?, &path, &seen, &|t| {
             scrubber.scrub(t).0
         });
         let need = self.audit_reserve(&request)?;
@@ -336,6 +340,13 @@ impl Core {
             mark.spent_usd += micros_to_usd(cost);
             theseus_store::blocking(|| self.store.put_meta(MARK, &mark))?;
             let text = match answered {
+                // A cut-off answer is refused, never written (theseus-050g2).
+                Ok(resp) if resp.stop_reason.as_deref() == Some("max_tokens") => {
+                    tracing::warn!(category = %id, output_tokens = resp.usage.output_tokens,
+                        "dream: the guidance stopped on max_tokens; refused");
+                    out.refused += 1;
+                    continue;
+                }
                 Ok(resp) => resp.text.trim().to_string(),
                 Err(e) => {
                     tracing::warn!(category = %id, error = %format!("{e:#}"), "dream: the guidance call failed");

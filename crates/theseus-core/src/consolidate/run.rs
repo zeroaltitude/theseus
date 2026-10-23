@@ -64,7 +64,9 @@ pub const LAST_RUN: &str = "memory.consolidated";
 pub const ROWS: usize = 5000;
 /// A source's text in the request, at most, in characters.
 pub const SOURCE_CHARS: usize = 1500;
-/// A synthesis's answer, at most: 120 words and their citations.
+/// A synthesis's answer, at most: 120 words and their citations, asked with
+/// thinking off (theseus-050g2: Haiku 5.5's default thinking spent the cap,
+/// and the answers came back empty or cut off).
 pub const MAX_TOKENS: u32 = 600;
 /// A cluster whose every answer was rejected for its form is proposed until
 /// it has this many: one more run, at one more call.
@@ -517,7 +519,8 @@ impl Core {
         // session is, as it names its sessions' content together.
         let of = sources.iter().map(|s| s.node.session_id.as_str());
         let provider = crate::google::private::over_sessions(provider, &self.store, &self.cfg, of);
-        let request = request_for(&target.model, sources);
+        let thinking = self.runner.catalog.thinking_off(&target.model);
+        let request = request_for(&target.model, thinking, sources);
         let Some(need) = self.audit_reserve(&request) else {
             return Ok(Step::Skip("no_price"));
         };
@@ -541,8 +544,11 @@ impl Core {
             .as_ref()
             .map_or(need, |r| self.runner.priced(r, &target.model, need));
         hold.settle(cost);
-        let (text, model, cost) = match answered {
-            Ok(resp) => (resp.text.trim().to_string(), resp.model, cost),
+        let (text, model, cost, cut) = match answered {
+            Ok(resp) => {
+                let cut = resp.stop_reason.as_deref() == Some("max_tokens");
+                (resp.text.trim().to_string(), resp.model, cost, cut)
+            }
             Err(e) => {
                 // A failed request may have been billed: booked at its
                 // reservation, as the audit's are.
@@ -560,7 +566,15 @@ impl Core {
         report.synthesis_id = Some(id.clone());
         report.cost_usd = micros_to_usd(cost);
         let entry = pure::entry(&text);
-        let verdict = self.verdict(&id, entry.text, sources).await;
+        // A cut-off answer is rejected for its form, never kept (theseus-050g2).
+        let verdict = match cut {
+            true => Verdict::Rejected(
+                format!("the answer stopped at its cap of {MAX_TOKENS} tokens (max_tokens)"),
+                Vec::new(),
+                None,
+            ),
+            false => self.verdict(&id, entry.text, sources).await,
+        };
         let session = match &verdict {
             Verdict::Checked(_) => Some(self.open_memory_session_between().await?),
             Verdict::Rejected(..) => None,
@@ -947,7 +961,7 @@ fn external(n: &Node) -> bool {
 
 /// The request for one cluster: the instructions, then its sources,
 /// numbered, each under its header and clipped.
-fn request_for(model: &str, sources: &[Source]) -> ProviderRequest {
+fn request_for(model: &str, thinking: Option<Value>, sources: &[Source]) -> ProviderRequest {
     let notes: Vec<String> = sources
         .iter()
         .enumerate()
@@ -966,7 +980,7 @@ fn request_for(model: &str, sources: &[Source]) -> ProviderRequest {
         system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": content}]})],
         tools: Vec::new(),
-        thinking: None,
+        thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),
