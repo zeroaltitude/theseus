@@ -190,7 +190,10 @@ def theseus_config(
     # The daemon's default only warns at the ceiling (theseus-9e02): a run stops at its own.
     t["kernel"]["daily_spend_ceiling_mode"] = "stop"
     t.setdefault("tools", {})["projects_dir"] = str(workspace)
-    t["memory"] = {**t.get("memory", {}), "mode": "live", "arm": memory_arm}
+    # The tail's recall cap is the one the plan reserves (`generate.RECALL_TOKENS`),
+    # not the daemon's far larger default (theseus-d9je7).
+    t["memory"] = {**t.get("memory", {}), "mode": "live", "arm": memory_arm,
+                   "session_recall_cap_tokens": generate.RECALL_TOKENS}
     t.setdefault("discord", {})["enabled"] = False
     t.setdefault("web", {})["enabled"] = False
     if "mcp_server" in t:

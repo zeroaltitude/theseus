@@ -140,8 +140,9 @@ MARGIN = 0.15  # how far the turns' estimate may be off and a mark still compact
 ALONE_MARGIN = 0.10
 # What recall notes may add to a session's request: each turn's note is
 # written into the session and stays in its tail until the next recompile,
-# and `[memory] session_recall_cap_tokens` (12,000, `memory.rs`) is the most
-# the tail holds. Which turn the index tender comes up at (about twenty turns
+# and `[memory] session_recall_cap_tokens` is the most the tail holds: the
+# driver sets it to this (the daemon's default, 64,000 since theseus-d9je7,
+# would leave no window for the plan). Which turn the index tender comes up at (about twenty turns
 # into a smoke on one machine, fifteen on another) is timing, so the plan
 # reserves the cap. A session's first has nothing to recall until it
 # compacts (all it said is in its context), so its turns before the mark

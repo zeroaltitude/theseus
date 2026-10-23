@@ -374,9 +374,10 @@ class TheRustRule(unittest.TestCase):
         the turn the index tender comes up (a timing: turn 26 of the smoke on
         one machine, earlier on another, where a second compaction came at 23
         against the plan's one). The plan reserves the cap, not one note."""
-        src = self.src("theseus-core/src/config/memory.rs")
-        cap = re.search(r"fn default_session_cap\(\) -> u64 \{\s*([\d_]+)\s*\}", src)
-        self.assertEqual(int(cap.group(1).replace("_", "")), generate.RECALL_TOKENS)
+        # The driver sets `[memory] session_recall_cap_tokens` to this reserve (test_drive's
+        # TheseusConfig): the daemon's default is far larger (64,000, theseus-d9je7), and a plan
+        # that reserved it would find no window. The key must still exist under that name.
+        self.assertIn("pub session_recall_cap_tokens: u64,", self.src("theseus-core/src/config/memory.rs"))
         self.assertIn("if !m.admitted.is_empty() && in_tail + m.used_tokens > cap {",
                       self.src("theseus-core/src/turn/recall_step.rs"))
         # The first session has nothing to recall before it compacts.
