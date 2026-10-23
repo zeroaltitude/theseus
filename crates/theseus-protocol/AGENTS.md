@@ -174,6 +174,8 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `RewindPoint`, `FileChange`, `fork_at`) and `files.restore` (`FilesRestoreParams`, `RestoredFile`,
   `FilesRestoreResult`; `since_node` is a node or `@<WAL position>`), and `NOT_RESTORED`, the words every surface says
   of what a rewind never restores.
+- `ops.rs` (theseus-jid7t.2): the Operations page's verbs: `session.profile`, `task.rehome` and `task.reschedule`'s params and
+  results, and `DataMark` (`open`, `private`, `sensitive`, weakest first), which `SessionInfo.data` and `WorkView.data` carry.
 - `task_start.rs` (theseus-7oq0w): `task.start`'s `TaskStartParams` (`brief`, `title`, `home`, `budget_usd`, `profile`, the start time as
   `start_at_ms`, `start_after_ms` or `start_when`, `quotes`, `report_to`), `TaskStartResult` and `ReportTo`. The method is the
   owner's, judged by `Act::Task`.

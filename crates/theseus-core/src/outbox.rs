@@ -447,7 +447,7 @@ impl Outbox {
         for r in self.store.inner().latest_of_kind(kinds::META)? {
             let key = r.key.as_deref().unwrap_or("");
             if let Some(task) = key.strip_prefix(TASK_META_PREFIX) {
-                if let Ok(target) = r.decode::<String>() {
+                if let Some(target) = r.decode::<String>().ok().filter(|t| !t.is_empty()) {
                     ix.tasks.insert(task.to_string(), target);
                 }
                 continue;
@@ -624,6 +624,19 @@ impl Outbox {
             Some(&format!("{TASK_META_PREFIX}{task_session}")),
             &target,
         )
+    }
+
+    /// `task_record`, for a task moved to where it reports nowhere (`None`:
+    /// the record is empty, which a rebuild reads as no place).
+    pub fn task_place_record(&self, task_session: &str, target: Option<&str>) -> Result<NewRecord> {
+        self.task_record(task_session, target.unwrap_or(""))
+    }
+
+    /// A task no longer reports to a place (in memory; its record is written).
+    pub fn task_unbound(&self, task_session: &str) {
+        let _ = self.with(|ix| {
+            ix.tasks.remove(task_session);
+        });
     }
 
     /// The record of where the reply to what a turn took (a due wake, or a

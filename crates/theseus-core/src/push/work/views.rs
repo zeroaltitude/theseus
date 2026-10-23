@@ -76,6 +76,7 @@ pub(super) fn blank(id: &str, kind: WorkKind, at_ms: u64) -> WorkView {
         routine: None,
         watch: None,
         project: None,
+        data: None,
     }
 }
 

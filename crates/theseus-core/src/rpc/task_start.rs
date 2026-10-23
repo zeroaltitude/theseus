@@ -198,9 +198,21 @@ impl Core {
     /// When the task starts: none for now, else the one time the params give,
     /// inside `task.create { start_at }`'s bounds.
     fn start_of(&self, p: &TaskStartParams, now: u64) -> Result<Option<u64>, RpcFailure> {
+        self.start_time(p.start_at_ms, p.start_after_ms, &p.start_when, now)
+    }
+
+    /// [`start_of`](Self::start_of)'s parse over the three times themselves,
+    /// which `task.reschedule` shares.
+    pub(super) fn start_time(
+        &self,
+        start_at_ms: Option<u64>,
+        start_after_ms: Option<u64>,
+        start_when: &Option<String>,
+        now: u64,
+    ) -> Result<Option<u64>, RpcFailure> {
         let kc = self.kernel.config();
         let max = kc.wakes.max_ahead_ms;
-        let due = match (p.start_at_ms, p.start_after_ms, &p.start_when) {
+        let due = match (start_at_ms, start_after_ms, start_when) {
             (None, None, None) => return Ok(None),
             (Some(at), None, None) => {
                 if at <= now {

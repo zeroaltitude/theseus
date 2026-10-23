@@ -70,6 +70,7 @@ pub mod memory;
 pub mod modes;
 pub mod onto;
 pub mod ontology;
+pub mod ops;
 pub mod own_bench;
 pub mod people;
 pub mod persona;
@@ -530,6 +531,9 @@ facts![
     flow::FlowRan<'static>,
     retry::FailureDismissed<'static>,
     retry::TaskRetried<'static>,
+    ops::SessionProfileSet<'static>,
+    ops::TaskRehomed<'static>,
+    ops::TaskRescheduled<'static>,
     task_pause::TaskPaused<'static>,
     task_pause::TaskResumed<'static>,
     rsi::SelfHalted<'static>,

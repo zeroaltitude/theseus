@@ -449,6 +449,7 @@ impl SessionRecord {
             title_was: Some(self.title_was.clone()).filter(|t| !t.is_empty()),
             dir: self.dir.clone(),
             started_on: None,
+            data: None,
             first_text: None,
             last_text: None,
             prompts: None,

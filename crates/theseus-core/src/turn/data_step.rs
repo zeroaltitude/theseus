@@ -94,9 +94,7 @@ impl TurnRunner {
     /// Whether `profile` may not be sent the sensitive names: its origin is
     /// not on the allowlist.
     pub(super) fn uncleared_profile(&self, profile: &str) -> bool {
-        !self
-            .cfg
-            .profile_cleared_for_sensitive(profile, &self.catalog)
+        crate::data_mark::uncleared(&self.cfg, &self.catalog, profile)
     }
 
     /// Whether `profile`'s model is of restricted origin (a profile that does
@@ -284,3 +282,7 @@ pub(crate) fn open_route(result: &mut Option<TurnRoute>, from: &str, origin: &st
     });
     d.clearance = "open".into();
 }
+
+#[cfg(test)]
+#[path = "tests_sticky.rs"]
+mod tests_sticky;

@@ -74,9 +74,8 @@ impl Core {
                 self.push.work_threads()
             }
         };
-        let (position, views, total) = self
-            .push
-            .work_snapshot(p.limit.unwrap_or(DEFAULT_LIMIT) as usize, &scope);
+        let (position, views, total) =
+            self.work_snapshot_marked(p.limit.unwrap_or(DEFAULT_LIMIT) as usize, &scope);
         Ok(WorkWatchResult {
             position,
             views: scope.cut(&views, &self.tools.scrubber),

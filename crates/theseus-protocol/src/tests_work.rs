@@ -55,6 +55,7 @@ pub(crate) fn view(kind: WorkKind, state: WorkState, question: Option<Question>)
         routine: None,
         watch: None,
         project: None,
+        data: None,
     }
 }
 

@@ -60,6 +60,7 @@ fn view(id: &str, kind: WorkKind, state: WorkState, thread: Option<&str>) -> Wor
         routine: None,
         watch: None,
         project: None,
+        data: None,
     }
 }
 

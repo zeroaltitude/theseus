@@ -75,6 +75,7 @@ fn task(n: usize) -> theseus_protocol::work::WorkView {
         routine: None,
         watch: None,
         project: None,
+        data: None,
     }
 }
 

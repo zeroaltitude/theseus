@@ -70,6 +70,7 @@ fn root(state: WorkState, at: u64, since: u64) -> WorkView {
         routine: None,
         watch: None,
         project: None,
+        data: None,
     }
 }
 

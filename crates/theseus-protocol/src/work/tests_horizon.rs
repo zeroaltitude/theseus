@@ -67,6 +67,7 @@ fn view(kind: WorkKind, state: WorkState) -> WorkView {
         retry_of: None,
         forecast: None,
         thread: None,
+        data: None,
     }
 }
 
