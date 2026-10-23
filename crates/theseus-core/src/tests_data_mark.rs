@@ -146,6 +146,81 @@ async fn work_views_carry_the_mark_and_a_task_follows_its_parent() {
         .all(|v| v.data.is_none()));
 }
 
+/// A sensitive read reaches the mark (the join fix J3 of theseus-jid7t.1 and
+/// .2): the session lists `sensitive`, a task under it stamps `sensitive` on
+/// its view, and its report is not moved into a home marked only private.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_sensitive_read_marks_the_session_and_a_task_under_it_sensitive() {
+    let mut r = task_rig(
+        |req| {
+            if first_user(req).contains("CHILD:") {
+                return Scripted::text("Counted.");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started it.");
+            }
+            Scripted::tools(
+                "Starting it.",
+                &[(
+                    "t_task",
+                    "task_create",
+                    json!({"brief": "CHILD: count to three", "budget_usd": 1.5,
+                           "arrangement": arranged()}),
+                )],
+            )
+        },
+        google_on,
+    );
+    *r.model.hold.lock().unwrap() = Some("CHILD".into());
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    r.entered.recv().await.unwrap();
+    let task = only_task(&r.core, &parent);
+    mark(&r.core, &parent);
+    r.core
+        .store
+        .put_meta(&crate::google::private::sensitive_key(&parent), &"nd_test")
+        .unwrap();
+    let all: SessionListResult =
+        serde_json::from_value(call(&r.core, "session.list", json!({})).await).unwrap();
+    let listed = all
+        .sessions
+        .into_iter()
+        .find(|s| s.session_id == parent)
+        .expect("listed")
+        .data;
+    assert_eq!(listed, Some(DataMark::Sensitive));
+    let views = r.core.work_snapshot_marked(200, &WorkScope::default()).1;
+    let view = views
+        .into_iter()
+        .find(|v| v.session_id.as_deref() == Some(task.session_id.as_str()))
+        .expect("the task's view");
+    assert_eq!(view.data, Some(DataMark::Sensitive));
+    let home = session(&r.core);
+    mark(&r.core, &home);
+    let rehome = theseus_protocol::ops::TaskRehomeParams {
+        task: task.id.clone(),
+        home: home.clone(),
+        author: None,
+        discord: None,
+    };
+    let said = format!(
+        "{:#}",
+        r.core
+            .task_rehome(&rehome, &crate::test_support::owner_cli())
+            .unwrap_err()
+    );
+    assert!(
+        said.contains("a report never goes to a weaker home"),
+        "{said}"
+    );
+    r.model.gate.add_permits(1);
+    crate::tests_tasks::until("the task completes", || {
+        exec(&r.core, &task.id).state == theseus_kernel::ExecState::Complete
+    })
+    .await;
+}
+
 #[tokio::test]
 async fn profile_list_names_each_profiles_origin() {
     for (vouched, want) in [

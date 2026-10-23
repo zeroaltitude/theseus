@@ -1,11 +1,12 @@
 //! A session's data mark, and the one question the model menu and the floor
 //! share: may this profile run this session's next turn? (theseus-jid7t.2.)
 //!
-//! - **The mark** is what the floor reads of a session: `private` when it, or
-//!   any task above it, has read Google content (`google::private::lineage`),
-//!   else `open`. The data judgment keeps no verdict per session (it admits
-//!   each turn, `turn/open_step.rs`), so there is none to read here.
-//!   `sensitive` is the level ops-cal puts on the private mark.
+//! - **The mark** is what the floor reads of a session, its level from
+//!   `google::private::level`: `sensitive` when it, or any task above it, has
+//!   read a calendar the config marks sensitive, `private` when it has read
+//!   other Google content, else `open`. The data judgment keeps no verdict per
+//!   session (it admits each turn, `turn/open_step.rs`), so there is none to
+//!   read here.
 //! - **The refusal** is the route step's own: a private or sensitive session
 //!   runs only on a profile of US origin (`Config::profile_cleared_for_sensitive`,
 //!   which `TurnRunner::uncleared_profile` reads too), and a profile that does
@@ -21,10 +22,11 @@ use crate::Config;
 
 /// What the floor reads of `session_id`'s data.
 pub(crate) fn session_mark(store: &Store, cfg: &Config, session_id: &str) -> DataMark {
-    // ops-cal: the sensitive level reads here, `google::private::level(store, cfg, session_id)`.
-    match crate::google::private::lineage(store, cfg, session_id) {
-        true => DataMark::Private,
-        false => DataMark::Open,
+    use crate::google::private::{self, Level};
+    match private::level(store, cfg, session_id) {
+        Level::Open => DataMark::Open,
+        Level::Private => DataMark::Private,
+        Level::Sensitive => DataMark::Sensitive,
     }
 }
 

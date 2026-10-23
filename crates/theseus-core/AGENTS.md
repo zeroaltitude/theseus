@@ -2645,9 +2645,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and the route's floor cannot disagree (`turn/tests_sticky.rs` pins every mark x origin): a private or sensitive session runs
   only on a profile of US origin, an unknown profile runs nowhere, and a restricted profile on an open session is set with a note
   (the floor decides per turn). Nothing is written when refused. **The data mark** (`DataMark`: `open`, `private`,
-  `sensitive`) is `session_mark`: private on the Google mark of the session or any task above it, else open (ops-cal puts
-  `sensitive` on the private mark: the `// ops-cal:` line). It rides `SessionInfo.data` and `WorkView.data` (stamped as a view
-  leaves the board, `Core::stamp_data`; the board reads no store) and `ProfileInfo.origin` names each profile's origin word.
+  `sensitive`) is `session_mark`, read from `google::private::level`: the Google level of the session or any task above it
+  (sensitive after a sensitive calendar's read, private after other Google content), else open. It rides `SessionInfo.data`
+  and `WorkView.data` (stamped as a view leaves the board, `Core::stamp_data`; the board reads no store) and
+  `ProfileInfo.origin` names each profile's origin word.
   **`task.rehome { task, home }`** moves where the report is posted (the task record's `target`, the execution's
   `reports_to`, META `task.place.<session>`; the frame that ends the task reads the target again,
   `TaskOf::target_for_now`): `home` is a conversation's session id or `thread:<slug>`; the budget stays carved from the
