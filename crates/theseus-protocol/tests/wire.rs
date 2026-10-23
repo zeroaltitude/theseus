@@ -615,6 +615,78 @@ fn session_mode() {
     );
 }
 
+/// The ops verbs' params and answers (theseus-jid7t.2), one fixture a verb.
+#[test]
+fn ops_verbs() {
+    use theseus_protocol::ops::*;
+    let both = |p: serde_json::Value, r: serde_json::Value| {
+        serde_json::to_string(&serde_json::json!({"params": p, "result": r})).unwrap()
+    };
+    let p = SessionProfileParams {
+        session_id: S.into(),
+        profile: Some("sonnet".into()),
+        author: None,
+        discord: None,
+    };
+    let r = SessionProfileResult {
+        session_id: S.into(),
+        profile: Some("sonnet".into()),
+        previous: None,
+        refused: None,
+        note: Some("the floor decides each turn".into()),
+    };
+    wire("ops/session_profile", &both(json!(p), json!(r)));
+    let p = TaskRehomeParams {
+        task: "ses_t1".into(),
+        home: "thread:harbor".into(),
+        author: None,
+        discord: None,
+    };
+    let r = TaskRehomeResult {
+        task: "ses_t1".into(),
+        from: Some("discord:dm:a1".into()),
+        to: None,
+        note: "the budget stays carved from its original parent".into(),
+    };
+    wire("ops/task_rehome", &both(json!(p), json!(r)));
+    let p = TaskRescheduleParams {
+        task: "ses_t1".into(),
+        start_at_ms: Some(1_790_000_000_000),
+        start_after_ms: None,
+        start_when: None,
+        author: None,
+        discord: None,
+    };
+    let r = TaskRescheduleResult {
+        task: "ses_t1".into(),
+        starts_at_ms: 1_790_000_000_000,
+        previous: 1_789_990_000_000,
+    };
+    wire("ops/task_reschedule", &both(json!(p), json!(r)));
+}
+
+/// An older daemon's `session.list` and `profile.list` rows, which carry neither
+/// the data mark nor the origin, still decode, and a mark rides the wire as a word.
+#[test]
+fn the_ops_fields_are_optional_on_the_wire() {
+    use theseus_protocol::ops::DataMark;
+    let s: SessionInfo = serde_json::from_value(json!({"session_id": S, "kind": "conversation",
+        "label": null, "created_at_unix_ms": 1, "turns": 0}))
+    .unwrap();
+    assert_eq!(s.data, None);
+    assert!(!serde_json::to_string(&s).unwrap().contains("\"data\""));
+    let p: ProfileInfo = serde_json::from_value(json!({"name": "a", "provider": "b", "model": "c",
+        "max_output_tokens": 1, "has_system": false, "live": false}))
+    .unwrap();
+    assert_eq!(p.origin, None);
+    let marked = SessionInfo {
+        data: Some(DataMark::Sensitive),
+        ..s
+    };
+    assert_eq!(serde_json::to_value(&marked).unwrap()["data"], "sensitive");
+    assert!(DataMark::Open < DataMark::Private && DataMark::Private < DataMark::Sensitive);
+}
+
 #[test]
 fn narrative_line() {
     wire(

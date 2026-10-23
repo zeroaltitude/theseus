@@ -288,6 +288,7 @@ mod tests {
             routine: None,
             watch: None,
             project: None,
+            data: None,
         }
     }
 

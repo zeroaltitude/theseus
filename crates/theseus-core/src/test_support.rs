@@ -251,3 +251,27 @@ pub(crate) async fn board_caught_up(core: &Arc<Core>, session_id: &str) {
         .expect("the board caught up within 20 s")
         .expect("the board's feed is open");
 }
+
+/// The owner at their own terminal: who the owner's acts are judged for.
+pub(crate) fn owner_cli() -> crate::approval::Answerer {
+    crate::approval::Answerer {
+        label: "the CLI".into(),
+        surface: crate::approval::Surface::Cli,
+        discord: None,
+        agent: None,
+    }
+}
+
+/// A person in a shared channel nobody bound as private.
+pub(crate) fn stranger() -> crate::approval::Answerer {
+    crate::approval::Answerer {
+        label: "discord:777".into(),
+        surface: crate::approval::Surface::Discord,
+        discord: Some(theseus_protocol::DiscordOrigin {
+            user_id: "777".into(),
+            channel_id: "9001".into(),
+            guild_id: Some("7".into()),
+        }),
+        agent: None,
+    }
+}

@@ -361,6 +361,9 @@ impl Core {
             method::TASK_LIST => route(or_empty(params), |p| self.task_list(p)),
             method::TASK_CANCEL => reply(self.task_cancel(parse(params)?, conn).await?),
             m @ (method::TASK_PAUSE | method::TASK_RESUME) => self.rpc_task_pause(m, params, conn),
+            method::TASK_REHOME => self.rpc_task_rehome(params, conn),
+            method::TASK_RESCHEDULE => self.rpc_task_reschedule(params, conn),
+            method::SESSION_PROFILE => self.rpc_session_profile(params, conn),
             // Its filters are optional: no params lists every wake.
             method::WAKE_LIST => route(or_empty(params), |p| self.wake_list(p)),
             method::WAKE_CANCEL => route(params, |p| self.wake_cancel(p, conn)),

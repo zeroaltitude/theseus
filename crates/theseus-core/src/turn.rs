@@ -1287,12 +1287,12 @@ impl TurnRunner {
             let mut records = closing.records(e, report.node.as_deref())?;
             let joined = self.tools.job_waits.steers.joined(&e.session_id);
             records.extend(crate::task::joined_record(&e.session_id, joined)?);
-            let Some(target) = task.target_for(&frames.store, &report) else {
+            let Some(target) = task.target_for_now(&frames.store, &e.session_id, &report) else {
                 return Ok(records);
             };
             let (post, more) =
                 self.outbox
-                    .stage(&e.session_id, &e.id, target, report.post_body())?;
+                    .stage(&e.session_id, &e.id, &target, report.post_body())?;
             records.extend(more);
             *reported.lock().unwrap() = Some(post);
             Ok(records)

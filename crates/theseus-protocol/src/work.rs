@@ -277,6 +277,10 @@ pub struct WorkView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub project: Option<ProjectView>,
+    /// What its data may reach, as the floor reads it (a conversation's or a task's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub data: Option<crate::ops::DataMark>,
 }
 
 /// What a conversation or a task is doing now.
@@ -869,6 +873,7 @@ impl WorkView {
             routine: None,
             watch: None,
             project: None,
+            data: None,
         }
     }
 }
