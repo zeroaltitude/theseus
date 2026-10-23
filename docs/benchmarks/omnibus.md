@@ -1,4 +1,4 @@
-# Theseus's benchmarks as of 2026-10-21 (v1, and the rerun after it): the omnibus review
+# Theseus's benchmarks as of 2026-10-23 (v1, and the reruns after it): the omnibus review
 
 **The answer first.** At v1 (Oct 18), on the build frozen for v1 (`351159fc`), Theseus as shipped (Jev choosing
 each message's model and effort) ran against the top three harnesses of the broad pass, each on its best model at high
@@ -12,6 +12,12 @@ rivals' v1 trials standing), Theseus solved **77.2%** of all 89 tasks at high ef
 (+4.1 points paired, 95% −1.9 to +10.1) and Claude Code's 75.3%. It paid $0.155 a solve. On the
 hard 30 at top effort it solved 72.2% at $0.327 a solve, against Claude Code's 75.6% at $1.92. Jev still never ran a
 turn at `max` ([the rerun](#after-v1-the-terminal-bench-rerun-2026-10-21)).
+
+**Two days later, a retest of what that rerun left open** (2026-10-23, `fe56a164`). Effort now applies below the
+model-switch line, so on the hard tasks Jev's `xhigh` ran in 35 turns instead of 10. It cost 1.83× a trial and did not
+move the solve rate: 71.6% on 27 of the hard 30, against 74.1% for `6918e3c1` on the same tasks. Jev asked for `max`
+once, so still no turn ran at `max`. The 10-21 HIGH timeouts were mostly the tasks' own: 8 of 11 came back with the
+host under 30% busy ([the retest](#after-v1-the-terminal-bench-retest-2026-10-23)).
 
 **It still remembers across sessions where the others do not.** It answered 73.1% of 600 turns' recall probes, against
 56.9% for Pi and 50.7% for Claude Code. Across sessions it answered 27 of 46, against 0 and 1 of 48.
@@ -67,6 +73,30 @@ calls of every run cost $367.
 
 This page is the overview. It is updated as runs land, and each run keeps its own full report, linked from every
 section below and listed at the end.
+
+## After v1: the Terminal-Bench retest (2026-10-23)
+
+Only Theseus was run, on `fe56a164`, to answer two questions the 10-21 rerun left. First, does MAX reach `xhigh` and
+`max` now that effort has its own bar (`effort_confidence` 0.35; xhigh and max above 0.40)? Second, were HIGH's
+timeouts load or real? The heavy tasks were capped at 4 jobs a host. To hold a $35 spend line, MAX ran 27 of the 30
+hard tasks; all comparisons are on the same tasks.
+
+| Benchmark | Theseus `fe56a164` | Theseus `6918e3c1` | Theseus at v1 | Claude Code (v1 run) | Pi (v1 run) | Report |
+|---|---|---|---|---|---|---|
+| Terminal-Bench 2.0, MAX (27 of the hard 30 × 3), solved | 71.6% [61.0, 80.3] | 74.1% [63.6, 82.4] | 69.1% [58.4, 78.1] | **76.5%** [66.2, 84.4] | 71.6% | [MAX](2026-10-23-terminal-bench-retest-max.md) |
+| ... dollars a solved task | $0.470 | **$0.248** | $0.276 | $1.897 | $0.635 | |
+| Terminal-Bench 2.0, HIGH, the 6 tasks that timed out on 10-21 (× 3), solved | 22.2% [9.0, 45.2] | 0.0% [0.0, 17.6] | 27.8% [12.5, 50.9] | **33.3%** [16.3, 56.3] | 5.6% | [HIGH timeouts](2026-10-23-terminal-bench-retest-high-timeouts.md) |
+
+- **Effort applies, but not `max`.** `xhigh` ran in 35 turns (6918e3c1: 10). Every `xhigh` answer above 0.40 applied.
+  Jev asked for `max` once in 118 decisions, at 0.39, so no turn ran at `max`.
+- **The extra effort bought no solves.** The 10 tasks with an `xhigh` turn cost 2.16× their 10-21 price for one more
+  solved trial (22 against 21 of 30). MAX overall: −2.5 points paired [−13.6, +7.4] at 1.83× a trial.
+- **The HIGH timeouts were mostly real.** Timeouts fell from 11 to 8. `compile-compcert`, `make-doom-for-mips` and
+  `caffe-cifar-10` timed out again with the host under 30% busy. `crack-7z-hash` and `train-fasttext` did not time
+  out again.
+- **A correction to 10-21's load reading.** On these hosts CPU pressure measures the task containers' own quota
+  throttling, not the host's load; the retest measured busy share and quota use instead.
+- 0 China-origin calls in 1,418.
 
 ## After v1: the Terminal-Bench rerun (2026-10-21)
 
@@ -381,6 +411,8 @@ binary within 200.
 
 *Figure 9. What does benchmarking Theseus cost, and what does Theseus cost a solved task? About $367 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10.*
 
+- **The retest (Oct 23).** Theseus only: about $33.3 of model calls (MAX $27.27, HIGH timeouts $5.57, and $0.41
+  for two trials stopped for spend), and about $12 for two EC2 hosts and 76.7 GB of NAT data.
 - **The rerun after v1 (Oct 21).** Theseus only: $53.18 of model calls (HIGH $31.94, MAX $21.24), and about $20 for
   two EC2 hosts and 222.5 GB of NAT data.
 - **v1 (Oct 18).**
@@ -494,6 +526,8 @@ measurement that judged it.
 | Real tasks | [Terminal-Bench 2.0 at the v1 freeze, MAX tier: the hard tasks, every harness at its top effort](2026-10-18-terminal-bench-v1-max.md) | Oct 18 |
 | Real tasks | [Terminal-Bench 2.0 rerun, HIGH tier: Theseus at 6918e3c1 against v1's Theseus and the v1 rivals](2026-10-21-terminal-bench-rerun-high.md) | Oct 21 |
 | Real tasks | [Terminal-Bench 2.0 rerun, MAX tier: the 30 hard tasks, Theseus at 6918e3c1 free to choose `max`](2026-10-21-terminal-bench-rerun-max.md) | Oct 21 |
+| Real tasks | [Terminal-Bench 2.0 retest, MAX tier: the hard tasks at fe56a164, with effort free to apply below the model-switch line](2026-10-23-terminal-bench-retest-max.md) | Oct 23 |
+| Real tasks | [Terminal-Bench 2.0 retest, HIGH tier: the six tasks that timed out on 10-21, at fe56a164 under a heavy-task cap](2026-10-23-terminal-bench-retest-high-timeouts.md) | Oct 23 |
 | Memory | [Memory exam: how much does a cheap model gain from being shown its past?](2026-09-30-memory-exam-headroom.md) | Sep 30 |
 | Memory | [Memory exam v2: items built so that retrieval is hard](2026-09-30-memory-exam-v2.md) | Sep 30 |
 | Memory | [Retrieval: which engine embeds for the index, candle or tract?](2026-10-01-retrieval-embedding-engines.md) | Oct 1 |

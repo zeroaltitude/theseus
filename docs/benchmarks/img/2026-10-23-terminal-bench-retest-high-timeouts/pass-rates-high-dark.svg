@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="362" viewBox="0 0 720 362" role="img" aria-labelledby="t-pass-rates-high t-pass-rates-high-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-pass-rates-high">Pass rate by arm, HIGH tier, the HIGH-timeout tasks, with 95% Wilson intervals</title>
+<desc id="t-pass-rates-high-d">Did fe56a164 move Theseus's pass rate against 6918e3c1 and v1, and where does it sit among the v1 rivals?</desc>
+<rect width="720" height="362" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Pass rate by arm, HIGH tier, the HIGH-timeout tasks, with 95% Wilson intervals</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#3987e5"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">Theseus as shipped, fe56a164 (this run)</text>
+<circle cx="303.7" cy="50.0" r="5" fill="#c3c2b7"/>
+<text x="318.7" y="54.0" font-size="12" fill="#c3c2b7">Theseus as shipped, 6918e3c1 (10-21 run)</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#898781"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">Theseus as shipped, v1 351159fc</text>
+<circle cx="265.9" cy="70.0" r="5" fill="#d95926"/>
+<text x="280.9" y="74.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="383.7" cy="70.0" r="5" fill="#898781"/>
+<text x="398.7" y="74.0" font-size="12" fill="#c3c2b7">OpenCode 1.18.35 (v1 run)</text>
+<circle cx="585.3" cy="70.0" r="5" fill="#d55181"/>
+<text x="600.3" y="74.0" font-size="12" fill="#c3c2b7">Pi</text>
+<line x1="286.1" y1="92.0" x2="286.1" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="341.7" y1="92.0" x2="341.7" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="397.4" y1="92.0" x2="397.4" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="453.0" y1="92.0" x2="453.0" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="508.7" y1="92.0" x2="508.7" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="564.3" y1="92.0" x2="564.3" y2="268.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="272.1" y="114.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus as shipped, fe56a164 (this run)</text>
+<g><title>Theseus as shipped, fe56a164 (this run): 22.2%  [9.0%, 45.2%] (4 of 18)</title>
+<line x1="311.1" y1="110.0" x2="411.9" y2="110.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="311.1" y1="105.0" x2="311.1" y2="115.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="411.9" y1="105.0" x2="411.9" y2="115.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="347.9" cy="110.0" r="12" fill="transparent"/>
+<circle cx="347.9" cy="110.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="114.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">22.2%  [9.0%, 45.2%]</text>
+<text x="272.1" y="142.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus as shipped, 6918e3c1 (10-21 run)</text>
+<g><title>Theseus as shipped, 6918e3c1 (10-21 run): 0.0%  [0.0%, 17.6%] (0 of 18)</title>
+<line x1="286.1" y1="138.0" x2="335.0" y2="138.0" stroke="#c3c2b7" stroke-width="2" stroke-linecap="round"/>
+<line x1="286.1" y1="133.0" x2="286.1" y2="143.0" stroke="#c3c2b7" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="335.0" y1="133.0" x2="335.0" y2="143.0" stroke="#c3c2b7" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="286.1" cy="138.0" r="12" fill="transparent"/>
+<circle cx="286.1" cy="138.0" r="5" fill="#c3c2b7" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="142.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 17.6%]</text>
+<text x="272.1" y="170.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus as shipped, v1 351159fc</text>
+<g><title>Theseus as shipped, v1 351159fc: 27.8%  [12.5%, 50.9%] (5 of 18)</title>
+<line x1="320.9" y1="166.0" x2="427.6" y2="166.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="320.9" y1="161.0" x2="320.9" y2="171.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="427.6" y1="161.0" x2="427.6" y2="171.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="363.4" cy="166.0" r="12" fill="transparent"/>
+<circle cx="363.4" cy="166.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="170.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">27.8%  [12.5%, 50.9%]</text>
+<text x="272.1" y="198.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code 2.1.290 (v1 run)</text>
+<g><title>Claude Code 2.1.290 (v1 run): 33.3%  [16.3%, 56.2%] (6 of 18)</title>
+<line x1="331.4" y1="194.0" x2="442.6" y2="194.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="331.4" y1="189.0" x2="331.4" y2="199.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="442.6" y1="189.0" x2="442.6" y2="199.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="378.8" cy="194.0" r="12" fill="transparent"/>
+<circle cx="378.8" cy="194.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="198.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">33.3%  [16.3%, 56.2%]</text>
+<text x="272.1" y="226.0" font-size="12" fill="#ffffff" text-anchor="end">OpenCode 1.18.35 (v1 run)</text>
+<g><title>OpenCode 1.18.35 (v1 run): 0.0%  [0.0%, 17.6%] (0 of 18)</title>
+<line x1="286.1" y1="222.0" x2="335.0" y2="222.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="286.1" y1="217.0" x2="286.1" y2="227.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="335.0" y1="217.0" x2="335.0" y2="227.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="286.1" cy="222.0" r="12" fill="transparent"/>
+<circle cx="286.1" cy="222.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="226.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 17.6%]</text>
+<text x="272.1" y="254.0" font-size="12" fill="#ffffff" text-anchor="end">Pi 1.0.4 (v1 run)</text>
+<g><title>Pi 1.0.4 (v1 run): 5.6%  [1.0%, 25.8%] (1 of 18)</title>
+<line x1="288.8" y1="250.0" x2="357.8" y2="250.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="288.8" y1="245.0" x2="288.8" y2="255.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="357.8" y1="245.0" x2="357.8" y2="255.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="301.5" cy="250.0" r="12" fill="transparent"/>
+<circle cx="301.5" cy="250.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="254.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">5.6%  [1.0%, 25.8%]</text>
+<line x1="286.1" y1="268.0" x2="564.3" y2="268.0" stroke="#383835" stroke-width="1"/>
+<text x="286.1" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="341.7" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="397.4" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="453.0" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="508.7" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="564.3" y="284.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="425.2" y="302.0" font-size="12" fill="#c3c2b7" text-anchor="middle">trials passed</text>
+<text x="18.0" y="324.0" font-size="11" fill="#c3c2b7">Each arm's trials: 3 attempts a task; a trial passes when its tests give reward 1. 6918e3c1's trials are the 10-21 run's; the</text>
+<text x="18.0" y="339.0" font-size="11" fill="#c3c2b7">rivals' and v1 Theseus's are the v1 run's (2026-10-18), not rerun.</text>
+</svg>
