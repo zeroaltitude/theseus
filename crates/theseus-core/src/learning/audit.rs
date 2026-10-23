@@ -393,7 +393,7 @@ impl Core {
                 Ok(resp) if crate::provider::hit_cap(resp.stop_reason.as_deref()) => {
                     r.failed += 1;
                     r.stopped = Some(format!(
-                        "an answer {}; the rest of the sample is not asked",
+                        "{}; the rest of the sample is not asked",
                         crate::provider::cap_phrase(cap)
                     ));
                     break;

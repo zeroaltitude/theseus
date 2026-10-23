@@ -130,6 +130,14 @@ async fn a_cut_audit_answer_is_reported_as_hitting_the_cap() {
     let why = out.stopped.as_deref().unwrap();
     assert!(why.contains("max_tokens") && why.contains("1,024"), "{why}");
     assert_eq!(
+        why,
+        format!(
+            "{}; the rest of the sample is not asked",
+            crate::provider::cap_phrase(1024)
+        ),
+        "one subject: cap_phrase already starts with \"the answer\""
+    );
+    assert_eq!(
         r.fake.requests().len(),
         1,
         "the rest of the sample is not asked"
