@@ -129,12 +129,7 @@ impl TurnRunner {
     /// row and the log line are the caller's.
     pub(super) fn persona_file_missing(&self, u: &crate::context_files::Unreadable) {
         let Some(persona) = &u.persona else { return };
-        let text = format!(
-            "The file {} of persona {persona} cannot be read ({}). A request whose persona has \
-             no readable file compiles on the built-in default; its section says the file is \
-             missing.",
-            u.path, u.error
-        );
+        let text = missing_text(persona, &u.path, &u.error);
         if let Err(e) = self
             .outbox
             .to_operator(None, serde_json::json!({"kind": "notice", "text": text}))
@@ -186,4 +181,15 @@ impl TurnRunner {
             }
         }
     }
+}
+
+/// A persona's unreadable file, said to the owner (theseus-x8b9k).
+pub(crate) fn missing_text(persona: &str, path: &str, error: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        &format!("Persona {persona}'s file cannot be read"),
+        &format!("the compile met {path} unreadable: {error}"),
+        "A request whose persona has no readable file compiles on the built-in default; its \
+         section says the file is missing.",
+    )
 }

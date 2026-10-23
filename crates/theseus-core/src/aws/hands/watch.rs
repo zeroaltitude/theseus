@@ -66,13 +66,19 @@ impl Fact for HourAlert<'_> {
 }
 
 /// The alert in words, as the notice and the narrative say it.
-fn words(a: &HourAlert<'_>) -> String {
-    format!(
-        "💸 AWS this hour: {} reserved and spent by hands on account {}, past its {} line \
-         (hourly_alert_usd). Only an alert: nothing was refused.",
-        crate::narrative::dollars(a.micros),
-        a.account,
-        crate::narrative::dollars(a.line_micros),
+pub(crate) fn words(a: &HourAlert<'_>) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        &format!(
+            "AWS hands spent past this hour's line on account {}",
+            a.account
+        ),
+        &format!(
+            "{} reserved and spent by hands this hour, past its {} line (hourly_alert_usd)",
+            crate::narrative::dollars(a.micros),
+            crate::narrative::dollars(a.line_micros),
+        ),
+        "Only an alert: nothing was refused.",
     )
 }
 

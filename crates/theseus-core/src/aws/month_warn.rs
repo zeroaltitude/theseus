@@ -57,13 +57,18 @@ fn month_of(now_ms: u64) -> String {
 /// The warning's words: the spend, the line it passed, the month's stop.
 pub fn warning_text(account: &str, actual_cents: u64, warn_cents: u64, limit_cents: u64) -> String {
     let d = |c: u64| format!("${}.{:02}", c / 100, c % 100);
-    format!(
-        "⚠️ AWS spend this month in account {account} is {}, past its {} warning line \
-         (`[aws.accounts.{account}] monthly_warn_usd`). The month's budget is {}: AWS spend \
-         still stops at its lines, so this only warns.",
-        d(actual_cents),
-        d(warn_cents),
-        d(limit_cents),
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        &format!("AWS spend in account {account} is past its warning line"),
+        &format!(
+            "this month's spend is {}, past {} (`[aws.accounts.{account}] monthly_warn_usd`)",
+            d(actual_cents),
+            d(warn_cents),
+        ),
+        &format!(
+            "The month's budget is {}: AWS spend still stops at its lines, so this only warns.",
+            d(limit_cents)
+        ),
     )
 }
 

@@ -85,8 +85,86 @@ fn self_families() -> Vec<(&'static str, String)> {
     ]
 }
 
+/// Turn warnings, spend and AWS, Google, and personas.
+fn spend_families() -> Vec<(&'static str, String)> {
+    let home = crate::turn::home_size_step::warning_text("DM @owner", 40_000, 1_000_000, None);
+    use crate::turn::personal_step;
+    let privacy = personal_step::warning_text(
+        "draw_out",
+        0.91,
+        crate::places::PlaceClass::Shared,
+        "where does your owner live",
+    );
+    let privacy_held = personal_step::held_text(
+        "draw_out",
+        0.91,
+        ("guest", "#lobby"),
+        "where does your owner live",
+    );
+    let reached = theseus_kernel::Reached {
+        day: "2026-10-22".into(),
+        limit: 5_000_000,
+        spent: 5_000_000,
+        held: 0,
+        needed: 1,
+        turns_at_ms: 0,
+        turns_at: "2026-10-23 00:00".into(),
+        since: None,
+        runaway: false,
+    };
+    let ceiling = crate::day_ceiling::notice_text(&reached, "turn");
+    let runaway_day = crate::day_ceiling::runaway_text(&reached, "turn");
+    let warning = crate::day_ceiling::warning_text(
+        &theseus_kernel::Warning {
+            day: "2026-10-22".into(),
+            level: 1,
+            limit: 5_000_000,
+            step: 1,
+            spent: 6_000_000,
+            runaway: 0,
+            turns_at: "2026-10-23 00:00".into(),
+        },
+        "`theseus stop`",
+    );
+    let aws_month = crate::aws::month_warn::warning_text("111122223333", 9_000, 8_000, 10_000);
+    let hands_hour = crate::aws::hands::watch::words(&crate::aws::hands::watch::HourAlert {
+        account: "111122223333",
+        hour_start_ms: 0,
+        micros: 3_000_000,
+        line_micros: 2_000_000,
+        groups: 1,
+    });
+    let hands_runaway = crate::aws::hands::runaway::entered(&crate::aws::hands::runaway::Runaway {
+        account: "111122223333".into(),
+        line: crate::aws::hands::runaway::Line::Hour,
+        micros: 30_000_000,
+        line_micros: 2_000_000,
+        factor: 10.0,
+        since_ms: 0,
+        until_ms: 3_600_000,
+        at_ms: 0,
+    });
+    let google = crate::google::tend::lapse_text("wren@example.com");
+    let persona = crate::turn::persona_step::missing_text("wren", "/p/SOUL.md", "denied");
+    vec![
+        ("home size", home),
+        ("privacy warning", privacy),
+        ("privacy held", privacy_held),
+        ("day ceiling", ceiling),
+        ("day runaway line", runaway_day),
+        ("day warning", warning),
+        ("AWS month warning", aws_month),
+        ("AWS hands hour alert", hands_hour),
+        ("AWS hands runaway", hands_runaway),
+        ("Google lapse", google),
+        ("persona file missing", persona),
+    ]
+}
+
 fn families() -> Vec<(&'static str, String)> {
-    self_families()
+    let mut all = self_families();
+    all.extend(spend_families());
+    all
 }
 
 /// The key test: each in-scope family's first line is a kind tag and a

@@ -463,29 +463,32 @@ impl TurnRunner {
 /// turns, that a refused turn or task ends (it does not wait), and that a
 /// higher ceiling applies at the next start (theseus-l9on).
 pub fn notice_text(r: &Reached, what: &str) -> String {
-    format!(
-        "⛔ Today's model spend reached the {} daily ceiling ({} spent): a {what}'s call was \
-         not made, and no model call will be, however small, until the day turns at {} local \
-         time. A refused turn or task ends; it does not wait for the day to turn. A higher \
-         `[kernel] daily_spend_ceiling_usd` applies at the daemon's next start.",
-        crate::narrative::dollars(r.limit),
-        crate::narrative::dollars(r.spent.saturating_add(r.held)),
-        r.turns_at,
-    )
+    stopped_text(r, what, "daily ceiling", "daily_spend_ceiling_usd")
 }
 
 /// The owner's post when the runaway line stopped a call (theseus-9e02): the
 /// day's total, the line, when the day turns, and that a higher line applies
 /// at the next start.
 pub fn runaway_text(r: &Reached, what: &str) -> String {
-    format!(
-        "⛔ Today's model spend reached the {} daily runaway line ({} spent): a {what}'s call \
-         was not made, and no model call will be, however small, until the day turns at {} \
-         local time. A refused turn or task ends; it does not wait for the day to turn. A \
-         higher `[kernel] daily_runaway_usd` applies at the daemon's next start.",
-        crate::narrative::dollars(r.limit),
-        crate::narrative::dollars(r.spent.saturating_add(r.held)),
-        r.turns_at,
+    stopped_text(r, what, "daily runaway line", "daily_runaway_usd")
+}
+
+/// The two stops' words (theseus-x8b9k): one head, the line's name and key.
+fn stopped_text(r: &Reached, what: &str, line: &str, key: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        "Model calls are stopped for today",
+        &format!(
+            "Today's model spend reached the {} {line} ({} spent).",
+            crate::narrative::dollars(r.limit),
+            crate::narrative::dollars(r.spent.saturating_add(r.held)),
+        ),
+        &format!(
+            "A {what}'s call was not made, and no model call will be, however small, until the day \
+             turns at {} local time. A refused turn or task ends; it does not wait for the day to \
+             turn. A higher `[kernel] {key}` applies at the daemon's next start.",
+            r.turns_at,
+        ),
     )
 }
 
@@ -513,12 +516,18 @@ pub fn warning_text(w: &theseus_kernel::Warning, stop_now: &str) -> String {
             w.turns_at
         ),
     };
-    format!(
-        "⚠️ Today's model spend is {}, {times:.1}× the {} daily ceiling, and the work goes on: \
-         the ceiling warns (`[kernel] daily_spend_ceiling_mode = \"notify\"`).{stop}{next} To \
-         stop now: {stop_now}.",
-        dollars(w.spent),
-        dollars(w.limit),
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        "Today's spend passed the daily ceiling, and the work goes on",
+        &format!(
+            "Today's model spend is {}, {times:.1}× the {} daily ceiling.",
+            dollars(w.spent),
+            dollars(w.limit),
+        ),
+        &format!(
+            "The ceiling warns (`[kernel] daily_spend_ceiling_mode = \"notify\"`).{stop}{next} To \
+             stop now: {stop_now}."
+        ),
     )
 }
 
