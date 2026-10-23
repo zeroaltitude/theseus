@@ -741,7 +741,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   sweep (`Core::sweep_outputs`, with the spool's hourly sweep) deletes a retired session's copies, any past
   `[tools] outputs_keep_days`, and the oldest past `outputs_max_bytes`. `fs.read` has its own cap
   (`Tool::result_max_chars`, 100,000), cut as a contiguous head, never head and tail. Tests: `tests_kept.rs`. The gate's parts are
-  `policy.rs` (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted
+  `policy.rs` (postures and the floor), `external.rs` (the hold after external text: `[policy] external_text` is optional and, unset, follows `enforcement` (`PolicyConfig::external_mode`; `open` notifies too); under notify a hold tells once, its first call that acts, marked by the META key `external.told.<session>` holding the hold's `since_ms`, written in that call's frame, so a restart does not tell twice and a new hold tells again; ask waits on every call; no expiry, an old hold still holds), `broker.rs` (granted
   secrets), `approval.rs` (who answers, and from where), `peer.rs` (the web UI's other-uid check at accept), and `peer_proc.rs` (who is behind a CLI answer).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
   unless `[policy] private_addresses = "open"` (theseus-7gir.20, the bench profile's), which lifts both

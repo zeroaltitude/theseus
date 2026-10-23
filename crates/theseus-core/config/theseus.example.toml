@@ -626,12 +626,15 @@ enforcement = "notify"                  # open | notify | approve: what every to
 allow_argv = [["ls"], ["pwd"]]          # proc.run runs these (open) when every path argument is inside the roots (no git: its config can run programs; use git.diff / git.log)
 approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"]]  # proc.run waits for your approval on these (op and theseusd are on the floor)
 # After a session reads web text (http.fetch, web.search), every call that acts
-# (writes, proc.run, task.create) waits for your approval, the allow list's too,
-# until you trust the session again (`theseus policy trust <session>`, /trust on
-# Discord, or "Approve + trust session" on the card). Reads keep their postures,
-# and so does wake.at: the reminder's turn runs in the same session, so what it
-# does still waits.
-external_text = "ask"                   # ask | notify: notify runs those calls with a notice instead
+# (writes, proc.run, task.create) is held, the allow list's too, until you trust
+# the session again (`theseus policy trust <session>`, /trust on Discord, or
+# "Approve + trust session" on the card). Reads keep their postures, and so does
+# wake.at: the reminder's turn runs in the same session, so what it does is still
+# held. `external_text` is optional: unset, it follows `enforcement` (approve
+# asks; notify and open notify, since a hold never goes silent). With ask, each
+# call waits for your approval; with notify, each runs and you are told once per
+# hold, at its first call that acts. This template shows ask.
+external_text = "ask"                   # ask | notify (unset: follows enforcement)
 # A program whose output is a stranger's text holds its session the same way:
 # `gh issue view` prints an issue's body, which anyone could have written. A
 # proc.run counts when its program is listed, or when it runs a shell or a
@@ -1724,16 +1727,748 @@ max_switches = 2                        # moves per task, up or down
 # model the catalog cannot place) are all refused. A message that names one is read by Jev as
 # private, runs on a profile of US origin (or on none: the turn then ends before any model
 # call), and every request to a model of another origin is checked for the names again, so
+# ---------------------------------------------------------------- mcp_server
+# Theseus's own MCP server: an MCP client on this machine (Claude Code,
+# another agent) opens a Theseus conversation, sends it text, and reads the
+# reply, over streamable HTTP at http://127.0.0.1:<port>/mcp, with the key as
+# `Authorization: Bearer <key>`. Loopback only; it serves only processes of
+# the user that runs the daemon, refuses a page's Origin that is not on this
+# machine, and never takes an approval: an acting call in a session it opened
+# waits for you, from the CLI, the web UI, or your DM. Each session it opens
+# is labelled `mcp <client>`, has its own spend limit, and is a private place
+# (its words go to the client, a process of yours). Off unless enabled; the
+# key's line in the secrets section is commented out too.
+# [mcp_server]
+# enabled = true
+# port = 7434                           # on 127.0.0.1 only
+# key_secret = "mcp_server_key"         # the [secrets] entry holding the key (16 bytes or more); only Theseus reads it
+# posture_floor = "approve"             # an MCP-opened session's acting calls take at least this posture
+# spend_limit_usd = 5.0                 # each MCP-opened session's spend limit
+# requests_per_minute = 60              # over every client; past it, 429
+# memory = false                        # true: the memory_search and memory_get tools read your private memory (never a shared place's), no model call; each call is a memory.read row
+
+# ---------------------------------------------------------------- index
+# The index tender (M6): `theseus-index`, installed beside theseusd. It starts
+# once the socket answers, never before; follows the store's log, read-only,
+# into a search index in <state_dir>/index (BM25 and exact entities, and
+# vectors once the model's files are in weights_dir); and answers `theseus
+# index search`. Whenever it exits it starts again, after 1 s, the wait
+# doubling to 60 s while it keeps failing. A stop never waits for it. Without
+# its binary, or with this off, nothing else changes, and health says why.
+[index]
+enabled = true
+weights_dir = "~/.cache/theseus/models"   # the embedding model's files; nothing is fetched, and without them BM25 and entities answer alone
+threads = 1                               # the embedding model's threads
+query_threads = 0                         # a recall query's embedding's own pool, ahead of the backfill; 0: four (never more than the cores), and one thread, one query at a time, while the machine is busy
+idle_unload_mins = 10.0                   # the model unloads after this long unused (about 500 MB), and loads again on the next use
+
+# ---------------------------------------------------------------- memory
+# Recall (M6 step 30a): on a turn's first loop, ask the index what past nodes
+# bear on what the turn brings, filter them (the place rule first: a shared
+# place draws only on its own sessions, a private place only on private ones),
+# and pack what would be admitted. On by default (theseus-is8t): mode "live"
+# on the baseline arm, which needs no Jev. With no index built, a recall
+# answers nothing and costs nothing, and it never holds a turn past
+# recall_deadline_ms. mode = "off" turns it off, and a config that sets mode
+# keeps its value. In shadow, each recall is a
+# recall.shadow row, a span, and a narrative line, and nothing reaches the
+# model: its request is the same byte for byte. See it with
+# `theseus memory recalled <session>` and `theseus memory search "<query>"`.
+# An older binary refuses a [memory] table: install first, then paste.
+# Canary and live (step 30b) put recall in front of the model: a note after
+# the turn's new message, testimony with each source's date, a Recall node
+# that references its sources (`theseus reach` counts each copy), a
+# recall.ran row, and a "🧠 N recalled" footer on Discord. Label a node
+# with `theseus memory label <node> wrong` to keep it out.
+# [memory]
+# mode = "live"                           # live (the default) | canary | shadow | off
+# arm = "baseline"                        # the arm canary and live sessions get: none | bm25 | baseline | +retention (FSRS-6 in the rank) | +activation (spreading activation as one more ranked source; its adjacency projection is built after serving) | +synthesis (consolidation's checked syntheses as candidates)
+# canary_fraction = 0.5                   # canary: the share of sessions on the arm, sticky by a hash of session and experiment; the rest run none, with baseline in shadow
+# experiment = "m6-1"                     # names the plan; seeds each session's arm
+# session_recall_cap_tokens = 12000       # the recall notes a session's tail may hold; past it, recall pauses until the next recompile
+# recall_budget_tokens = 1500             # the pack's tokens
+# recall_max_items = 6                    # the pack's items, at most 40
+# recall_deadline_ms = 250                # how long recall waits for the index; the turn never waits past its model call and this
+# recall_vector_tokens = 32               # the most word pieces of a turn's new text the vector search embeds (the words' search reads the whole query), at most 500; 0: uncut
+# rerank_wait_ms = 200                    # how long a recall in front of the model waits for Jev's rerank (rerank.v1 live), 1 to 600; past it, recall's own order stands
+# recall_floor = 0.0                      # the relevance floor: a candidate whose fused score is under this share (0 to 1) of the best its answering sources allow is not admitted, and a pack of none brings no Recall node; 0 admits all
+# recall_subject_bar = 0.0                # the share (0 to 1) of that best a candidate about another subject of the question's kind must reach (a host, path or crate the question did not name); 0: no bar
+# include_external = false                # whether fetched text may be recalled
+# Compaction (step 30c): where the ring would drop a session's leading turns to fit
+# the model's window, this profile summarizes them instead, and the request carries
+# the summary, then the turns kept. "session" (the default) is the turn's own
+# profile, provider and model, so the range goes nowhere the session's turns
+# don't. A key of [profiles] sends it to that profile's provider, which may not be
+# the session's. "off" keeps the ring. A call that fails, or a summary that would
+# not fit, rings as before, and the row says why.
+# summary_profile = "session"             # "session", a key of [profiles], or "off"; "haikuhi" (Haiku 5.5
+#                                         # at high effort, 1M window) is the recommended choice, which
+#                                         # sends the range to Anthropic whatever the session's provider
+# assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (canary and live)
+# Consolidation (step 31b): off every turn, nodes recall admits together in
+# three or more turns become one short synthesis per cluster, every sentence
+# citing its sources, checked by Jev (citation.v1) and kept as a Synthesis node.
+# Never shown in shadow: only arm "+synthesis" puts a checked one before a model.
+# "session" (the default) writes it with the profile every source's session
+# last used, so no second provider reads a session's text; sources whose
+# sessions disagree wait. A key of [profiles] is the operator's choice.
+# synth_profile = "session"               # "session", or a key of [profiles]; "haikuhi" (Haiku 5.5 at
+#                                         # high effort) is the recommended choice: about 18x the clusters
+#                                         # of Sonnet 5.5 for the day's limit, each still checked by citation.v1
+# synth_limit_usd_per_day = 0.50          # what consolidation may spend in a local day, read from its rows
+# consolidate_hour = 4                    # the local hour of the nightly run (0 to 23); never within 10 minutes of a start
+# Tiering (step 33): decoded nodes stay in a cache shared across turns, so a
+# turn decodes only what no reader decoded before it; past the bound, the
+# coldest go first (the science's decay hints, then the least recently read).
+# It is the store's read path: it serves with mode = "off" too.
+# node_cache_mb = 64                      # MB of the nodes' records it keeps; 0 turns it off
+
+# ---------------------------------------------------------------- lsp
+# Language servers (L2): the lsp tools ask a project's language server where a
+# symbol is defined, who uses it, what it is, a file's outline, its errors, and
+# a rename's edit. Off by default. A server starts at the first call for a file
+# of its language in a project, never before: one per server and project root
+# (the nearest Cargo.toml with [workspace], else the topmost; tsconfig.json,
+# jsconfig.json, or package.json; pyproject.toml, setup.py, or requirements.txt),
+# with the job environment, its stderr in <state_dir>/lsp/. That first start is
+# a program run, judged at proc.run's posture for its command. A server stops
+# when idle, at the daemon's stop, or when a request goes unanswered, and the
+# next call starts it again. Health's lsp line shows each server, its time to
+# ready, and its memory (rust-analyzer can take gigabytes on a large workspace).
+# A file's server is the first installed of: rust-analyzer; ty, pyright,
+# basedpyright; tsgo (TypeScript 7's tsc --lsp), typescript-language-server.
+# An edit (fs.write, fs.edit, fs.patch, lsp.rename) whose file has a server up
+# for its root waits up to edit_wait_ms for that server's errors, and its result
+# shows them under "Errors after this edit:"; a file the wait beats is pending,
+# and what arrives rides on the session's next edit or lsp result. Never in a
+# shared place. A server with start_on_edit is started by an edit too, as a
+# call would start it (ty and tsgo take tens of milliseconds and 40 to 50 MB).
+# An older binary refuses an [lsp] table: install first, then paste.
+# [lsp]
+# enabled = true                          # off by default
+# idle_stop_mins = 10.0                   # a server unused this long stops
+# request_timeout_secs = 30               # a request unanswered this long is cancelled, and its server stopped
+# edit_diagnostics = true                 # an edit's result carries its files' errors
+# edit_wait_ms = 1500                     # how long an edit waits for them, 1 to 30000
+# [lsp.servers.rust-analyzer]             # start_on_edit: an edit starts this server too; on for ty, tsgo, and
+# start_on_edit = false                   #   rust-analyzer, off for the other presets and your own servers unless set
+# [lsp.servers.pyright]                   # change a preset: command, extensions, roots (its markers), settings, enabled
+# settings = { python = { analysis = { diagnosticMode = "openFilesOnly" } } }
+# start_on_edit = true
+# [lsp.servers.some-server]               # or add one: a command and its extensions
+# command = ["some-server", "--stdio"]
+# extensions = ["some"]
+
+# ---------------------------------------------------------------- sessions
+# A session's state, which the cockpit's Ship filters by (Live by default):
+# live has a turn within live_window_hours, or runs, or waits on you; quiet has
+# none; retired was superseded (its place moved to a newer session), retired
+# by hand (theseus sessions retire), or never took a turn and is past
+# empty_grace_minutes. Nothing is deleted: a retired session stays readable
+# and searchable, and theseus sessions reopen brings it back. The first prompt
+# with substance among a session's first retitle_within_turns becomes its
+# title, once, and the old one is kept beside it (0 turns that off).
+# [sessions]
+# live_window_hours = 24.0                # a turn within this long reads live
+# empty_grace_minutes = 60.0              # a session never used reads retired this long after it opened
+# retitle_within_turns = 3                # 0: titles stay the first prompt's
+
+# ---------------------------------------------------------------- threads
+# A thread is a durable record of one line of work, bound to a virtual place
+# `thread:<slug>` and so to a chain of sessions of its own (`theseus thread
+# new`, then `theseus ask --thread <slug>`). Two threads are two executions and
+# run at once; a thread is private always, and a shared place never lists or
+# addresses one. max_live bounds the active and paused threads together.
+# A message in a private place that names no thread finds its own (theseus-rha2)
+# when the place has two or more live threads: by the place, a "#slug" or
+# "/t slug", a reply to a thread's reply, then what it is about (the threads'
+# working sets, the place's last thread, and Jev's classify.v2); it asks one
+# line only when it cannot tell. One-offs run in the place's own conversation.
+# [threads]
+# enabled = true                          # false: no thread is made or addressed (the records stay)
+# max_live = 50                           # active and paused threads at once
+# discord_channel = "123456789012345678"  # a channel (text or forum) in your guild: each active thread gets a Discord thread there, made at its first message; unset: none
+# import_day_usd = 2.0                    # what the cards of `theseus thread import --apply` may spend a local day (one Haiku call a thread, cited to its episodes); past it a thread is made without a card
+# import_profile = "haiku"                # the profile whose model writes those cards
+# cross_recall_penalty = 0.35             # in a threaded session, the share of its score a recalled note from another thread pays
+# cross_recall_bar = 0.75                 # ...and it is admitted only above this share of the query's best score, unless the message names that thread (slug, title, or a working-set entity)
+# cross_recall_beats_own = true           # ...and, once it has paid its penalty, only when it still outranks the asking thread's own best hit of the query (false: the bar alone decides)
+# cross_recall_needs_entity = true        # ...and a recalled note from another thread whose chunk holds entities (a path, a ticket, a host) the message names none of is dropped: a question's shape alone pulls no other stream's note
+# base_distance = true                    # a note from no thread (the place's own conversation) is another stream's to a threaded session: it pays the same distance, and a name never waives it (false: it recalls as before)
+# own_top_admissible = true              # ...and the asking thread's own best hit it must outrank is one not already in context (false: in context or not)
+# cross_recall_judge = true              # the notes of another thread the distance dropped near the bar go to Jev, who reads whether each is about the message's subject, not only the same kind of fact; a yes is admitted with the penalty and labelled (false: the drops stand)
+# cross_recall_judge_k = 3                # at most this many notes a request (1 to 10)
+# place_digest = true                     # a message in a thread that Jev reads as asking across everything going on gets, for that turn, one labelled line for each other live thread of the place (a sealed one only counted; false: none, and no turn waits for the answer)
+# place_digest_line_chars = 200           # the longest a digest's line is, in characters
+# sticky_half_life_secs = 600             # a place's last thread stays the likely one for its next message, halving every this many seconds
+# route_wait_ms = 400                     # at most this long an unaddressed message waits for Jev's choice of thread; on timeout the router's own pick stands, tagged a guess
+# ask_wait_secs = 900                     # how long a message waits for your answer to "which thread?" before it runs in the place's own conversation
+# sticky_alone_asks = true               # a thread that stands only on being the place's last one (no entity of its named) cannot overrule Jev's other pick: the message is asked about, offering a new thread when it names two or more entities no thread holds (false: as before)
+# ask_every_thread = true                # "which thread?" lists every live, unsealed thread (past four, the best three and "another thread"), and any thread's slug answers it (false: the best two)
+# working_set_grows = true               # after a turn in a thread, the files its calls touched (and their first directory) and the entities its message named join the thread's working set, but for what another live thread holds (false: only your edits, splits and merges change it)
+# bench_clock = false                    # a test hook for the threadbench: a turn.submit carrying route_at_ms is routed at that clock, even from `ask -s` (false: such a submit is refused); never on in a real config
+# single_offers_new = true               # with one live thread, a message it does not clearly hold that names two or more entities no thread holds is asked about: that thread, a new one, or home (false: it runs at home unasked)
+# A thread's next message after its cache window (the profile's cache_ttl since
+# its last call) finds the provider's cache gone, so the request is rewritten
+# whole anyway: the rewrite is made small. The thread's fresh card, the
+# compaction summary and the newest resume_keep_turns turns; a big old result
+# is a stub that says how to read it again.
+# resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
+# working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
+# home_warn_percent = 50                 # a place's home past this share (1-100) of the serving model's context window tells the owner's DM, once per home; large sessions are otherwise fine
+# Keep-warm for threads is [cache] threads_keep_warm_hours: an active thread whose owner last
+# wrote within it has its session read at the [cache] interval, as a long conversation's is,
+# so its next message reads the cache instead of rewriting it. A paused or done thread is never
+# read, and pausing stops it at once. `theseus health` has a threads line, and `theseus thread
+# show` the thread's own numbers.
+# With two or more [personas], each message is answered by the one it calls for: named at its start
+# ("Birch, ..."), `@birch`, or `/as birch` always; else Jev's pick (route.v5's persona question),
+# which `shadow` only records and `act` engages (silently from 0.90, with a visible why from 0.60).
+# persona_engage = "shadow"               # shadow | act
+# seal_recommend = false                  # true: Jev's route.v5 `seal` question, answered yes at 0.60 or above in a thread, proposes sealing it (a card to your DM; Jev recommends, you seal)
+# link_proposals = true                   # Jev admits another live, unsealed thread's notes into a thread's recall twice: one sentence to your DM offers `theseus thread link` (once a pair; it links nothing itself; false: nothing is counted or posted)
+# claim_home_turns = true                 # a turn run at home whose written files all fall in one live, unsealed thread's working set becomes that thread's memory (`theseus thread unclaim ID` undoes one; false: nothing is claimed)
+
+# ---------------------------------------------------------------- initiative
+# What Theseus says first, in its persona's voice (theseus-slvl.9). How readily
+# it speaks is the persona's `initiative` (`quiet`: only what needs you and what
+# you asked for; `normal`: also promised follow-ups, finished work and one
+# morning note on days something happened; `chatty`: also observations it is
+# confident are useful). A wake's result and a task's report are turns and
+# speak as the session's persona already; a message the daemon starts on its
+# own (the morning note, a consolidation finding) is one short model call that
+# carries the persona's file and your standing orders, off every turn's path.
+# A 👍 or 👎 on such a message (`theseus persona rate`) is recorded, and
+# `theseus persona` shows the week's promises kept and verdicts.
+# [initiative]
+# profile = "haiku"                       # the profile whose model writes them (a cheap one); unset: the live profile
+# day_usd = 0.50                          # what those calls may spend a local day; past it a message goes out as its template (which reads the persona's name and emoji)
+# morning_hour = 8                        # the local hour from which the day's one morning note may go
+
+# The owner's other agents come over as personas (theseus-a8n7): `theseus persona
+# import --from <workspace> --name <persona>` copies the files below byte for
+# byte into <state>/personas/<persona>/ and points [personas.<persona>] at them.
+# [persona_import]
+# import_files = ["SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "MEMORY.md", "memory"]   # a name ending .md is a file in the workspace's top folder; any other name is a folder of curated notes (carried, not compiled)
+# own_boost = 1.2                         # while a persona is engaged, its own agent's imported episodes rank this much higher at equal relevance in recall (1.0 off, at most 2.0)
+
+# ---------------------------------------------------------------- cockpit
+# Each reply's footer links to its turn in the cockpit (`<public_url>/session/
+# <session>/turn/<turn>`): the flame graph, each loop's request and thinking,
+# each tool call. The address follows [web] port on localhost. Set public_url
+# where a relay forwards another port to the daemon's web port. The link
+# carries no key or token.
+# [cockpit]
+# public_url = "http://localhost:7433"    # the address a browser reaches the cockpit at; left out, http://localhost:<[web] port>
+
+# ---------------------------------------------------------------- routines
+# A routine is recurring work that is its own execution: a schedule (`weekdays
+# 08:00`, `every 30m`, `monthly 09:00`, or cron such as `0 8 * * 1-5`, in the
+# daemon's zone) and a brief, and every run is a fresh task whose context starts
+# empty. Each run carves its budget from the routine's month, which resets on
+# the 1st of the local month; a spent month skips its runs and says so once.
+# `theseus routine add "weekdays 08:00" "Summarize ..." --budget 0.50 --to dm`.
+# A routine's runs use the tools in its grant (`--grant gmail.search,web.fetch`)
+# without asking, even after reading outside text; any other call asks, and a
+# question nobody answers by the run's deadline ends the run blocked, naming the
+# tool, in one notice. `theseus routine try <id>` runs it once while you watch.
+# [routines]
+# default_run_usd = 0.50                  # the most one run may spend, when a routine names none
+# default_month_usd = 10                  # a routine's month, reset on the 1st (local), when it names none
+# max_routines = 50                       # live routines at once
+# run_deadline_secs = 900                 # how long a run's question outside its grant waits before the run ends blocked
+
+# ---------------------------------------------------------------- watches
+# Waiting on the world with no model (theseus-f2r2b): `theseus watch-for add "PR 123
+# merged" --run 'gh pr view 123 --json state -q .state' --until 'equals MERGED'`, or
+# the model's `watch` tool. A check (a command in L1, a fetch, a file) runs on a
+# timer until its condition holds, then the owner is told (or the conversation gets
+# a turn, or a task starts). An unchanged value writes nothing: three days at 5
+# minutes is hundreds of checks and a handful of frames, at no model cost. The most
+# watches the daemon holds is [kernel] max_watches.
+# [watch_for]
+# default_every = "5m"                    # how often a watch checks when it does not say
+# min_every = "1m"                        # the most often one may check (a minute at the least)
+# max_days = 30                           # the longest one waits before it gives up, and the default
+
+# ---------------------------------------------------------------- route
+# Your own benchmark (own-benchmark, theseus-pw1q.12). Nightly, paced by
+# pressure, a few of your recent turns per (model, effort) cell are rebuilt
+# byte for byte, sent one rung down the routing table (`[routing.classes.*]`),
+# and judged by compare.v1 against the reply they got; `theseus model bench`
+# says per cell what matched and what moving it would have saved. Never a
+# shared place's turn, and never one that would send a sealed thread's, a
+# veiled recall's or an attachment's bytes to another provider. It moves no
+# routing: a pack that would climbs the ladder on its frozen holdout.
+# [route_bench]
+# replay_day_usd = 1.0                    # the most the replays and their judgments may cost in a local day; 0 turns the sampler off
+# whole_loops = 24                        # a whole-turn replay (`theseus model replay --whole`) makes at most this many model calls
+# whole_seconds = 300                     # ... runs at most this long
+# whole_usd = 0.5                         # ... spends at most this much on the model
+# whole_tree_mb = 256                     # ... copies at most this much of the turn's directory to scratch
+# whole_label_bar = 0.9                   # a judged whole-turn match this sure becomes a machine label for routing's learning (train split only); 0 writes none
+
+# ---------------------------------------------------------------- prefix
+# The prefix library (theseus-rr15): the third layer of a request (the project:
+# the system-level context files, then the session's topics' guidance) is kept
+# by digest and reused byte for byte across sessions and threads, so the
+# provider's prompt cache serves it. Picked only where a request is rewritten
+# anyway (a new session, a cold resume, a forced or system-changed recompile),
+# never under a warm session. A header that covers at least confirm of the fresh
+# layer is reused and what it lacks goes after the cached prefix; below confirm
+# a new header is minted only when its expected reuse pays for rewriting the
+# warm coarser one. `theseus model prefix` shows the picks and false fits.
+# [prefix]
+# enabled = true                          # false: every session renders its own layers, as before the library
+# max_bytes = 10485760                    # the library's resident size; past it the header read least recently retires
+# act = 0.9                               # a reuse at or above this fit is quiet
+# confirm = 0.6                           # a reuse below act is watched for a false fit; below confirm, mint or the coarser header
+# candidates = 16                         # the nearest headers by sketch a pick scores
+
+# ---------------------------------------------------------------- notify
+# A question for the owner (an approval, a budget's, an `owner_ask`) shows at
+# once, silently, on every Theseus screen and on the owner's DM board. If it is
+# still open after escalate_after_secs and no Theseus screen is open, or after
+# escalate_with_screen_secs and one is, the core posts one "needs you" to the
+# owner's DM, which pings; answering the question anywhere settles it.
+# [notify]
+# escalate_after_secs = 60                # no screen open: the DM pings after this long
+# escalate_with_screen_secs = 300         # a screen open: after this long
+# unprompted_pace_secs = 1800            # at most one unprompted DM post (a needs-you now; the digest and nudges later) in this long, what is due meanwhile going out together; 0: no rule
+# dm_cards = true                       # a question that reaches your DM is its own card with Approve, Decline and Details (a batch, one card each), in plain words, and a reply to it answers it; false: the one-line post of before
+
+# ---------------------------------------------------------------- projects
+# A project is long-term work on the task graph: a goal, dated milestones that
+# remind you (a notice in your Home on the day, and one overdue notice, no
+# sound, a day after), a weekly review (a routine made with the project, whose
+# run log is its history), and a slice of it in every conversation attached to
+# it (`theseus project attach`), which survives every compaction.
+# `theseus projects`, `theseus project show <id>`.
+# [projects]
+# review_schedule = "mon 08:00"           # the weekly review, in a routine's words, when none is named
+# review_run_usd = 0.75                   # the most one review run may spend
+# review_month_usd = 6                    # a review routine's month
+# overdue_after_minutes = 1440            # how long after its date an open milestone is overdue
+# max_milestones = 32                     # the most milestones one task_create makes
+
+# ---------------------------------------------------------------- standing
+# What the owner's words become (theseus-slvl.5). `directive.v1` reads the
+# owner's own messages in a private place (the CLI, the web UI, a DM), in the
+# request the other inbound packs ride: what it is sure of (a preference, a
+# fact, a correction) is kept as a standing record with a notice and an undo;
+# what it is unsure of, and every order, is asked; and a message that says a
+# live record again is counted (`theseus standing` shows the week's count).
+# `theseus packs rollback directive.v1` puts the pack back in shadow.
+# [standing]
+# capture = true                          # false: nothing is captured, asked or counted
+
+# ---------------------------------------------------------------- people
+# People proposed from text (theseus-wy7y): a cheap profile reads a session's
+# human-facing text and returns candidate people through a tool schema; Jev
+# (people.v1) judges each; code decides. Proposals only: the owner accepts them
+# (`theseus ontology proposals`, `theseus ontology accept --kind person`).
+# Never proposed: the owner (his handles, his DM person and each word of its
+# name), the personas, the agents (a session's, every imported episode's agent,
+# and each agent's name in its imported IDENTITY.md), the house's names
+# (theseus, jev, openclaw, claude, the profiles and their models), a bot's or a
+# UI's name, and not_people (theseus-0p1r); a role line that judges the person
+# or carries their pay, money, health, leave or HR matters is dropped. A name
+# the store cannot know (the owner's full name, an agent never imported) goes
+# in not_people. `theseus import people TAG --propose` runs it over an import.
+# Live, Jev gates the extractor (people_seen.v1, theseus-u5n8): at each due
+# exchange end one Jev call asks which held people the exchange involves (each
+# at `confirm` or above is proposed for the session) and whether a person not
+# held is; only at `gate` or above does the extractor read the exchange.
+# [people]
+# extract_profile = "haiku"               # the profile that extracts the candidates
+# not_people = []                         # names never proposed, e.g. ["Gullbot"], or
+#                                         # the owner's other names: ["Sable Thorn", "S. Thorn"]
+# act = 0.9                               # the least probability that proposes in the act band
+# confirm = 0.6                           # ... in the confirm band; under it, dropped
+# live = true                             # people.v1 at a private conversation's exchange end
+# gate = 0.6                              # live: Jev's "a person not held is involved" at or above
+#                                         # this runs the extractor; under it, no model call
+# sweep_usd_per_day = 2.0                 # the nightly sweep at [judge] learning_hour: an extraction
+#                                         # and people.v1 per private session with human text that
+#                                         # day that no extraction read (the gate shut), under this
+#                                         # many dollars a local day; 0 turns it off; off with live
+
+# ---------------------------------------------------------------- card
+# The owner card, proposed from the imported history (theseus-slvl.6). A job
+# (`theseus card propose`, and nightly at [judge] learning_hour at most every
+# every_days until `theseus card done`) reads the archive's feedback and SOP
+# notes, USER-style files and decision_or_preference episodes, clusters the
+# near-duplicates, and asks a cheap model to state each cluster as one short
+# fact or preference about the owner, citing the episodes it rests on. Each is
+# a question the owner keeps, edits or drops (`theseus card`); nothing is added
+# by itself. A partner-confidential episode is never read; a statement that
+# repeats a live standing record, or one already answered, is not asked again.
+# [card]
+# profile = "haiku"                       # the profile that states the clusters
+# day_usd = 2.0                           # the job's spend a local day; 0 turns it off
+# max_open = 30                           # the most proposals waiting at once
+# ask_days = 14                           # an unanswered proposal becomes "Not this" after this long
+# every_days = 7                          # the nightly run at most this often; 0: only `theseus card propose`
+
+# ---------------------------------------------------------------- ontology
+# Jev files each message's session into the ontology (`onto.v1`, in the inbound batch
+# beside `classify.v4` and `role.v1`): which topic, project, event, resource, capability
+# and expertise it is about, and whether a new one is called for. From `act` Theseus
+# writes the membership (origin `jev`) and mints a new category, and tells you in the
+# reply's footer (`filed: topic > theseus > ontology (new)`); a mint sends one card to
+# your DM with an undo button. From `confirm` it asks you in a card and writes nothing.
+# Below that the answer is only a record. `theseus ontology undo` takes a write back.
+# [ontology]
+# judge = true                            # the rollback: off, onto.v1 is not asked and nothing is written
+# act = 0.80                              # at and above this, Jev's answer is written
+# confirm = 0.55                          # from this, you are asked
+# name_profile = "haiku"                  # names a new category when no mined name fits; once a session, kind and day
+# request = "batch"                       # "own": onto.v1 in a request of its own, never waited on (if the batch slows)
+# recall_boost = 0.25                    # a note from a session sharing a category with this one gains up to this in recall's rank (0 off)
+# private_mark = false                    # on: a picture or message Jev judges to disclose a private matter, or to show
+#                                         # people or identifiers, at `act` marks its node private (undoable). Off until
+#                                         # you say on: the mark changes what later requests may send to models outside
+#                                         # the US allowlist (theseus-und4g).
+# sweep = true                            # nightly: a machine's membership unconfirmed for 30 days decays, and a duplicate category a machine wrote merges into its twin (each undoable; no model, no spend); false is the rollback
+# sweep_usd_per_day = 1.0                 # the sweep's model calls a local day (theseus-nzzz4): Jev judges two categories that look alike (same_thing.v1: merged at 0.85), a category of 12 sessions or more (two_things.v1: split in two at 0.85), a category whose name has gone stale (name_it.v1: renamed to a name mined from its sessions at 0.85), and names the `other` answers mined (same_kind.v1: joined into one kind; name_it.v1: the minted kind's name); a call that would pass what is left of the day's cap is not begun; 0 turns the model's part off and the deterministic sweep still runs
+# dream_guidance = true                   # nightly, after consolidation: a machine's category that 5 private sessions hold and that has no guidance gets its first, under [memory] synth_limit_usd_per_day; false is the rollback
+
+# ---------------------------------------------------------------- import
+# The nightly OpenClaw sync (`theseus import sync`, run by a systemd user timer that
+# `scripts/user-service.sh sync-timer install` installs): OpenClaw's own session stores
+# read (read only) for what changed since the last run, a session that grew appended to
+# its imported session, and the people in its new messages proposed. Off while state_dir
+# is unset. A deployment's own values go in its own config, never here.
+# [import.openclaw]
+# state_dir = "/home/me/.openclaw"        # OpenClaw's state directory (holds agents/)
+# owner_ids = []                          # your sender ids in OpenClaw's channels: a message from
+#                                         # one is yours (operator); any other sender's is outside text
+# agents = []                             # the agents to read; none is every agent under agents/
+
+# ---------------------------------------------------------------- self
+# Self-improvement: Theseus building its own code, yardsticks and backlog, joining
+# what passes every gate and telling you after. Off by default: with mode = "off"
+# nothing self-directed runs. With mode = "act", self steps run only while the kill
+# switch is released, and a store that has never seen your resume is halted, so
+# "act" alone starts nothing: `theseus self resume` from your own shell, the web UI,
+# or "resume self" from your own account on Discord, does; nobody else's resume
+# counts. Anyone who may speak to the daemon can halt it at once:
+# `theseus self halt [why]`, or "halt self" on Discord. `theseus self log` shows
+# every change Theseus made to itself, with its numbers and its undo; while mode =
+# "act" and digest = "weekly", the week's digest goes to your DM once a week. Read
+# at the start: a change takes a restart.
+# [self]
+# mode = "off"                            # "off" or "act"
+# digest = "weekly"                       # "weekly" or "off"
+# backlog_starts = 1                      # top backlog items started a night (0: file and rank only)
+# backlog_max_open = 20                   # open backlog items kept; the lowest-ranked past it are dropped
+# repo = "/home/me/projects/theseus"     # Theseus's own checkout, self branches cut from its
+#                                         # origin/main; unset: no self branches
+# remote = "origin"                       # where self/* branches are pushed, with the credential
+#                                         # that remote already has; unset: they stay local
+# exams_day_max = 10                      # the most exam items written a night from your corrections, wrong labels, failed tasks and over-budget turns
+# graduate_min_calls = 20                 # calls with no failure that graduate a loaded extension into a self item to port it into core
+# graduate_window_days = 14               # the days those calls are counted over
+# reviewer_profile = "fable"              # the self-join's independent reviewer: a profile whose model is
+#                                         # not the branch builder's (the same model is refused)
+# join_lock = "~/.theseus/self/join.lock" # unset: <state>/self/join.lock. A mkdir lock every self-join
+#                                         # holds; point it at the outer loop's so their joins never overlap
+# install = false                         # true: a joined merge is built and installed on this machine, and
+#                                         # the daemon restarts onto it (the owner's standing OK)
+# narrow_every_days = 7                   # a hand role's policy is looked at for narrowing at most this often
+# narrow_days = 14                        # the days of CloudTrail a narrowing reads (1 to 90)
+# narrow_read_pages = 400                 # the most CloudTrail pages (50 events each) one narrowing reads
+# revert_window_hours = 24                # hours after a self-join in which a red it caused reverts it on its
+#                                         # own, with a notice; 0 watches nothing (the owner's veto always works)
+# pipeline_builds = 1                     # self builds at once: the pipeline starts another only while fewer
+#                                         # build and fewer self trees are open
+# min_free_gb = 40                        # free GB the build trees' filesystem keeps, or no build starts
+# [self.budget]                           # one spend account for all self-improvement (the owner's to raise)
+# branch_usd = 10.0                       # one self branch, all its loops together
+# day_usd = 30.0                          # all self-improvement, per local day
+# [self.mint]                             # the pattern miner (nightly, no model): recurring tool-call work found in the ledger and the bench
+# mine = false                            # true: with [self] mode = "act", mine the window each night and file the motifs on the backlog
+# bench_dirs = []                         # directories of bench trials (Harbor jobs) mined too; absolute or ~/…
+# window_days = 14                        # the mining window
+# min_occurrences = 5                     # a motif needs this many runs ...
+# min_sessions = 3                        # ... in this many sessions ...
+# min_days = 2                            # ... on this many days, in one repository
+# per_night = 1                           # read by the mint step: motifs started a night
+# max_live = 10                           # read by the deploy step: minted tools live at once
+# usd = 2.0                               # read by the mint step: dollars one motif may spend, on the self budget
+# replay_turns = 5                        # read by the mint step: check-half turns replayed with a model
+# retire_after_days = 30                  # read by the retire step: days unused before a minted tool retires
+# hint = false                            # read by the deploy step: a one-line hint in a result that matches a minted tool's motif
+# kinds = ["flow"]                        # read by the mint step: the kinds it may mint (flow, mcp, rust)
+# [self.sealed]                           # sealed holdout sets: exams kept out of Theseus's reach (the owner's)
+# dir = "/srv/theseus-sealed"             # unset: no sealed set. Where the sets live, out of Theseus's reach:
+#                                         # an absolute path outside every workspace root, the state dir, the
+#                                         # repository and [sandbox] ro_paths (refused at load otherwise). No
+#                                         # tool, job, extension or hand can open it; the daemon writes items
+#                                         # in and gets scores back, never an item. Seeded by you; changing a
+#                                         # set or the scorer is the owner's call. (It was [self] sealed_dir.)
+# every_branch = false                    # true: the self-join scores each behaviour-path branch against the sets
+# item_usd = 0.25                         # what one item's run may spend, metered by the model relay
+# drift_every_days = 7                    # main is scored again this often, to tell drift from a candidate
+
+# ---------------------------------------------------------------- sandbox
+# L1, the sandbox (M4): a proc.run job in namespaces of its own, as your own
+# uid with no capabilities, over a view built from an empty root: the system's
+# directories and ro_paths read-only; the workspace read-only, with what the
+# job writes there kept apart in scratch and discarded afterwards (its result
+# lists it); an empty HOME and /tmp; no network but the egress below; and
+# never Theseus's own state, socket, or token, the approve_paths, or cargo's
+# credentials files.
+# A job runs in L1 when the model asks for it (sandbox: true), when l1_argv
+# names its program, or when default is "l1", and nothing turns L1 back to
+# L0. An L1 job runs with a notice instead of waiting for approval, since
+# what the floor and the approve lists guard is not in its view. It still
+# waits where you said so about proc.run itself (its line under policy.tools
+# above, or a "should have asked"), and in a session that has read web text,
+# as any call that acts does. A program in L1 gets its broker grant at its
+# start, as at L0, and no other secret. When L1 cannot run here, the call
+# fails and says why: it never runs at L0 instead. A daemon that runs as root
+# runs no L1 job: Linux exempts root from the process limit below.
+# Health's sandbox line says how the last L1 job's launch went, and
+# `theseusd check` runs L1's self-test. An L1 job's memory has no limit, as an
+# L0 job's has none (memory_mb is retired: a config that still sets it loads,
+# with a warning, and it is ignored).
+[sandbox]
+default = "l0"                          # l0 | l1: the class of every proc.run (built-in l0; "l1" runs every job in the sandbox)
+# l1_argv = [["npm", "install"], ["cargo", "build"], ["cargo", "test"]]   # programs that always run in L1, matched as allow_argv matches (default none)
+ro_paths = ["~/.cargo", "~/.rustup"]    # more read-only paths, each at its own path: here Rust's toolchain and its offline registry (default none: the system's alone); one that does not exist is skipped
+pids = 512                              # an L1 job's processes
+scratch_mb = 1024                       # what an L1 job may write to scratch, and to each of its /tmp and HOME
+output_mb = 64                          # the largest file an L1 job may write; what it prints is capped by [tools] job_output_max_bytes
+# Egress: the hosts every L1 job may reach, each "host:port", where a * in the
+# host matches any run of characters (*.crates.io is every name under
+# crates.io, not crates.io itself) and the port is exact. None by default: an
+# L1 job has no network. A job reaches them through a proxy of its own, which
+# refuses any other host, and any name that resolves to this machine, your
+# network, or a cloud's metadata service; health's sandbox line counts its
+# connections and refusals. A call may name more hosts (proc.run's sandbox:
+# { egress: [...] }): it then waits for your approval, which lets that job
+# reach those hosts and no other. Two things to know before you list any:
+#   - what a job brings back from a host listed here is not outside text: you
+#     chose the host, so its session does not hold it. A job that reached a
+#     host its call named beyond this list does: its session then holds it,
+#     as after a fetched page, and each later call that acts waits for your
+#     approval until you trust the session again;
+#   - every host listed is a way out for anything the job can read: the
+#     workspace, ro_paths, and what the call gives it.
+# Rust's registry and GitHub, for builds that fetch their dependencies:
+# egress = ["crates.io:443", "index.crates.io:443", "static.crates.io:443", "github.com:443", "api.github.com:443", "codeload.github.com:443", "objects.githubusercontent.com:443"]
+
+# ---------------------------------------------------------------- judge
+# Jev's judgments (M5): typed questions about the session's work, asked of
+# TypeSafe's Jev. On when the Jev key resolves, off without it (below). On, every pack this build wires in judges in
+# shadow but three: each judgment is made, priced, and recorded in the ledger, and
+# nothing acts on one but the route pack's model and effort for a message ([routing], below), rerank.v1's
+# order of a recall in front of the model, and security.v3's notices (below). A judgment sends its state (your messages, the assistant's final
+# text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
+# runs beside the turn and the turn never waits for it: a slow or failing Jev
+# changes no turn. Today eight packs judge: loop.v1, at each turn that ends
+# with no tool calls (where does the work on the ask stand?); security.v3, at
+# each call that acts once the gate has decided (how risky is it?); classify.v4 and role.v1, in one request, at each message a person sends
+# (what kind of message is it, and which working role does its reply need?),
+# but not at a slash command, a wake's turn, a report's turn, or a task's first
+# turn; continue.v1, at a compile that appends although one of CONTINUE's
+# candidate signals fired (append, or recompile, and how?); categorize.v1, at
+# the end of an exchange in a private conversation, once ten of your messages
+# came since its last judgment or after 30 minutes' quiet (which of your
+# topics is it about? Jev only proposes: `theseus ontology proposals` lists
+# them, and you accept or reject each); and rerank.v1, after a turn's recall:
+# which of recall's top 20 notes would help answer the message? Its state is
+# the message and those notes, only ones the place rule and your labels let
+# the turn draw on. The arms rule: memory's mode decides what reaches the
+# model, rerank's whether Jev orders it. rerank.v1 is live by default, so a
+# recall in front of the model (a canary's treatment; every session when
+# memory's mode is "live") waits for Jev's order at most the memory table's
+# rerank_wait_ms (200), and keeps its own order past it, or when rerank's own
+# breaker is open or the day's limit is spent; the answer, when it comes, is
+# still recorded. A recall that reaches no model (memory in shadow, a
+# canary's control) is reranked in shadow. Its spend is the judge's day
+# budget's. `theseus memory recalled <session>` says whose order each recall
+# used.
+# `theseus judge log` lists the judgments, and health's judge: line counts
+# them and their spend.
+#
+# On when the Jev key resolves (theseus-is8t): with no `enabled` line, the
+# judge is on exactly when the key_secret entry under [secrets] resolves at
+# the start (an env: variable that is set, a file: that reads, or an op://
+# reference, which the vault answers after serving), and off without it:
+# no entry, an unset variable, or a placeholder. `theseusd check` and health
+# say which and why. `enabled = false` turns it off whatever the key; `true`
+# with no entry refuses to start. Each pack keeps its own mode: routing and
+# rerank act (and security.v3's notices, as above), and every other pack
+# judges in shadow unless a pack line below says otherwise.
+[judge]
+# enabled = false                       # unset: on when the key resolves, off without it; false: off; true: on, and the key_secret entry must exist
+key_secret = "jev_api_key"              # the [secrets] entry holding the Jev key, read after serving
+max_mode = "live"                       # a ceiling on every pack: "shadow" acts on nothing, "off" calls nothing
+shadow_limit_usd_per_day = 1.0          # what shadow judgments may spend in a local day; at it, shadow pauses until midnight
+max_in_flight = 8                       # Jev calls at once; a shadow judgment with none free is skipped and counted
+connect_secs = 2
+total_secs = 5                          # a whole call, connect included
+learning_hour = 3                       # the local hour of the nightly learning report (labels, calibration, holdouts); a missed night runs 10 minutes after the next start
+replay_limit_usd = 0.5                  # what one `theseus judge replay` (or backfill) may spend; a run whose estimate passes it is refused
+audit_limit_usd = 5.0                   # what one `theseus judge audit` may spend on its model; the run stops before it would pass it
+backfill_consent = false                # true is the owner's consent that `theseus judge backfill` sends recorded history to Jev; agents can't write it
+holdout_days = 14                       # the holdout's days before the report's midnight; the learning loop's split from 200 labeled in it
+stop_nudge = true                       # a private turn whose last message says more work follows (loop.v1, live) goes on once more; false keeps loop.v1 in shadow; `theseus nudge off` for one session
+# api_base = "https://api.typesafe.ai"  # Jev's endpoint (tests point it at a fake)
+# A pack's own lines, by its name. The config can lower a pack's mode, never raise it.
+# [judge.packs."loop.v1"]
+# rung = "off"                          # off | shadow: "off" stops this pack alone
+# sample = 0.5                          # the share of its events judged in shadow (default the pack's own, 1.0)
+# [judge.packs."rerank.v1"]            # recall's +rerank arm, live (M6 32d): its own 600 ms deadline and breaker
+# rung = "off"                          # "shadow" keeps Jev's order out of every request; "off" reranks nothing
+# security.v3 is live as notices: when it is at least 90% sure an open call
+# (one that ran without asking) was risky, your DM gets a notice after the call,
+# which never waits, with right / wrong / noise buttons. More than 30 in a day,
+# or 3 labeled noise, pauses them until tomorrow; v3 still judges in shadow.
+# [judge.packs."security.v3"]
+# notices = true                        # false keeps security.v3 in shadow (only this pack takes the key)
+# The learning loop (M5 25f): nightly, after the report, a pack version with
+# min_errors new wrong-labels of yours (on its train split, never the holdout) has
+# its wording rewritten by writer_profile, as a new version (classify.v101, …) that
+# keeps every id, option and threshold; a replay checks it, thresholds are re-fit
+# in code, and the numbers place it: live, canary, in shadow, or (security) your
+# card; else held, with why. `theseus judge learn <pack>` runs it now.
+[judge.learn]
+enabled = true                          # on with the judge; false proposes nothing
+writer_profile = "opus"                 # the [profiles] key that writes the next version's text
+writer_limit_usd_per_day = 2.0          # what the writer may spend in a local day; a proposal past it is skipped and reported
+min_errors = 10                         # new train errors a version needs before it is rewritten
+min_holdout = 5                         # labeled holdout judgments it needs too: nothing moves on no held-out evidence
+max_errors = 40                         # the most the writer reads, newest first
+margin = 0.02                           # at the minimum sample, precision and recall each up by this on every deciding question
+# CONTINUE's candidate signals, which every compile computes, judge on or off, and
+# context.compiled carries. One that fires at a compile that appends asks continue.v1.
+# [judge.signals]
+# dormancy_minutes = 360                # a new input more than this long after the node before it
+# tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
+
+# ---------------------------------------------------------------- routing
+# Jev's model per task class (M5 25e). While [judge] is on, route.v7 asks at each
+# message you send which task class it needs (beside classify.v4 and role.v1), and
+# the turn runs on that class's first usable profile: configured, its key settled, its
+# model priced, and able to read the turn's images; else the next; else the session's
+# own. "cheapest" is the usable profile cheapest for a short turn at catalog prices. A
+# trivial or quick message is a detour: that turn alone runs on its profile, with the last
+# trivial_context_turns exchanges, and the session stays where it was. Any other class
+# moves the session: at once under cold_switch_tokens of context, above it only when two
+# messages in a row agree (a switch leaves the cache cold). A turn whose profile, provider
+# or model you chose (`theseus ask -P/-p/-m`, the cockpit's picker) is never routed, and
+# a place's profile (its ceiling) is its cap: nothing routes to a dearer model there.
+# In the same request route.v7 asks the effort the reply needs (low, medium, high, xhigh,
+# max), and the turn's model runs at it when its catalog row takes effort, over the
+# profile's own effort unless the profile sets effort_fixed = true, and clamped to
+# effort_bounds. An answer below its confirm bar still applies at effort_confidence or
+# more (the row says applied_unsure): an effort level costs less than a model switch.
+# Under it, when Jev finds it unclear, on a pinned turn, in shadow, and for a late
+# verdict, the profile's own effort stands. An answer of xhigh or max applies only when
+# its confidence is above high_effort_confidence; at or below, the turn runs at high
+# (the row says held_high), before the bounds clamp it.
+[routing]
+enabled = true                          # acts only while [judge] is on
+rung = "live"                           # "shadow" records each verdict and routes nothing
+max_wait_ms = 200                       # the most the first call waits for the verdict after its compile
+trivial_context_turns = 2               # the exchanges a detour (trivial, quick) carries
+cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
+switch_confidence = 0.6                 # a verdict routes only at this confidence or more
+effort_bounds = ["low", "max"]          # the lowest and highest effort Jev's answer may set
+high_effort_confidence = 0.40           # an xhigh or max answer applies only above this confidence; else the turn runs high
+effort_confidence = 0.35                # an effort answer under its confirm bar applies at this confidence or more (at most high_effort_confidence)
+dear_tier_max_tokens = 200000           # over this much context, sophisticated and review skip a profile dearer (per input token) than the next usable one
+# A running task's model ranges (theseus-ypnxt.9). A task you started with no profile asks
+# route.v7 about its recent state at a loop boundary when it fails, stalls, changes phase or
+# is about to report, and moves up to the class's profile (only Jev elevates) or back down
+# to its own base after two agreeing verdicts, never below it. A task started with a profile
+# is pinned. One verdict per min_loops_between loops; at most max_switches moves, and a step
+# back down to the base is allowed past it. enabled = false turns it off; 0 is not "off".
+[routing.task_checkpoints]
+enabled = true
+failing_streak = 3                      # loops in a row that each had a failed tool result
+quiet_loops = 8                         # loops in a row with no progress signal
+min_loops_between = 4                   # at most one verdict per this many loops
+max_switches = 2                        # moves per task, up or down
+# No China-origin model is named for chat, quick, sophisticated or review: Haiku 5.5 is two to
+# three times cheaper per short turn and has no forced thinking, and review and judgment stay on
+# Claude. A first-pass bug review by DeepSeek Flash is a later key (theseus-a1wvq.17), not yet here.
+# Each task class's profiles, in order: the first usable wins. Empty: the session's own. A
+# class's switch_confidence is its own bar; unset, it is the one above, except trivial's,
+# 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.
+# A verdict that comes after the wait applies to the next message alone, and a trivial
+# or quick one to none. A profile a class names that this config lacks is passed over. A
+# session Jev moved up from its own profile goes back to it after two verdicts in a row
+# whose class is its own profile or cheaper (chat, routine_coding); you moving it is yours.
+# [routing.classes.trivial]
+# profiles = ["haiku", "cheapest"]
+# China-origin profiles, only for a request that carries open content; trivial only
+# GLM-5.3 Flash serves here only as Haiku's fallback, for a request that carries open content
+# cn_profiles = ["glm"]
+# cn_after = "haiku"
+# switch_confidence = 0.4
+# [routing.classes.quick]                 # a quick question a short, direct answer settles
+# profiles = ["haiku"]
+# [routing.classes.chat]                  # conversation building on the work: the session's own
+# profiles = []
+# [routing.classes.sophisticated]
+# profiles = ["opus", "fable"]
+# [routing.classes.deep_coding]
+# profiles = ["opus", "sonnet"]
+# Debugging with an unknown cause, and design, stay on Claude: vendor Terminal-Bench 4.0 has
+# deepseek-flash at 42.3 against Sonnet 5.5's 70.6. The pair below is off by default and goes on
+# together: `final` without `cn_draft` fails the load. It needs the DeepSeek key and a session
+# directory that is a git tree under [routing.data] open_paths; the draft runs no programs.
+# cn_draft = "dsflashmax"               # a China-origin draft at max effort, in its own tree
+# final = ["sonnethi", "opus"]          # a Claude profile reviews and fixes it before anything is applied
+# [routing.classes.routine_coding]
+# profiles = ["haikuhi", "sonnet"]
+# DeepSeek Flash drafts routine coding, tests, mechanical refactors and planned features at about
+# a sixth of Sonnet's cost per trial; Sonnet always reviews and fixes the draft before anything is
+# applied. It needs the DeepSeek key and a session directory that is a git tree under the
+# open_paths of the routing.data table. The draft runs no programs; its reviewer runs the tests.
+# cn_draft = "dsflash"                  # one China-origin profile, only on routine_coding and deep_coding
+# final = ["sonnet"]                    # a Claude profile; the first usable one reviews
+# first_pass = "dsflashmax"            # optional: a restricted-origin profile reads the draft's diff for bugs first; its findings go to the Claude review only
+# [routing.classes.review]                # verification: "check this", a pre-merge review, "is this right?"
+# profiles = ["opushi", "fable"]
+# Your corrections (theseus-q31l): in a private place, "that should have been on fable",
+# "use opus for that", "that needed more effort" or "rerun that on opus" labels the last
+# turn's route judgment as yours and moves the session there at once; so does a reaction
+# on a reply (Discord's ⬆️ and ⬇️) or the cockpit's control, and `theseus judge correct`.
+# A later message close to a corrected one (its content words in common) runs where you
+# said, ahead of the verdict, until another version of the route pack acts.
+# [routing.corrections]
+# enabled = true                        # off: words are messages, and the layer steers nothing
+# similarity = 0.5                      # the share of content words a close message has in common
+# max_entries = 64                      # the layer's bound, the oldest out
+# Names Jev reads with each message (route.v7's `data` question, theseus-a1wvq): work you
+# name as open may go to a model provider outside your trust. Names live here and nowhere
+# else; a message is judged by what it carries. The private ones are `[privacy]` below.
+# [routing.data]
+# open_topics = []                      # e.g. an open-source project of yours
+# open_paths = []                       # trees of open data (~/ or absolute): an open request's
+#                                       # file tools reach these alone, and its programs run only
+#                                       # in a session whose directory is under one
+
+# Sensitive names (theseus-oejh3, theseus-xs5ah): organisations, clients, projects and people
+# whose matter goes only to a model of US origin, an allowlist: `eu`, `cn` and `unknown` (any
+# model the catalog cannot place) are all refused. A message that names one is read by Jev as
+# private, runs on a profile of US origin (or on none: the turn then ends before any model
+# call), and every request to a model of another origin is checked for the names again, so
 # it fails closed. Matching is case-insensitive and on
-# whole words, a name of several words as a run of them: `bighat` matches "BigHat's
-# plan" and "bighat-internal" and not "bighatter" or "bighatbio" (so `bighatbio` is listed
-# for bighatbio.com), and `neuron-utils` matches as a unit, never the word "neuron". List
-# each spelling you mean, `BigCo` and `Big Co` separately. This is the owner's own list of
-# company and repository names (the owner, 2026-10-17): no pack's text may name one
-# (theseus-judge's `the_pack_text_names_no_organisation` reads this line). A person's name
-# goes in your own config only, never in the repository.
+# whole words, a name of several words as a run of them: `examplecorp` matches "ExampleCorp's
+# plan" and "examplecorp-internal" and not "examplecorpse" or "examplecorpinc" (so `examplecorpinc`
+# is listed for examplecorpinc.com), and `example-repo` matches as a unit, never the word
+# "example". List each spelling you mean, `ExampleCo` and `Example Co` separately. This is the
+# owner's own list of company and repository names (the owner, 2026-10-17): no pack's text may
+# name one (theseus-judge's `the_pack_text_names_no_organisation` reads this line). A person's
+# name goes in your own config only, never in the repository.
 # [privacy]
-# sensitive_names = ["bighat", "bighatbio", "bh-ai", "neuron-utils"]
+# sensitive_names = ["examplecorp", "examplecorpinc", "example-repo"]
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and

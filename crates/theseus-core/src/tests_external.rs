@@ -28,6 +28,8 @@ use crate::test_support::{turn, until};
 use crate::web::tests::{serve, web};
 use crate::{Config, Core};
 
+mod once;
+
 /// A stand-in model that answers each request from the request itself.
 struct Model {
     script: Box<dyn Fn(&ProviderRequest) -> Scripted + Send + Sync>,
@@ -89,14 +91,15 @@ struct Rig {
     dir: tempfile::TempDir,
 }
 
-fn config(root: &Path, state: &Path) -> Config {
+fn config(root: &Path, state: &Path, rule: (crate::external::Mode, Posture)) -> Config {
     let mut cfg = Config::example();
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.tools.proc_sync_secs = 10;
     // The owner's posture: the writers and proc.run inherit notify.
-    cfg.policy.enforcement = Posture::Notify;
+    cfg.policy.enforcement = rule.1;
+    cfg.policy.external_text = Some(rule.0);
     cfg
 }
 
@@ -109,9 +112,26 @@ fn core_in(
     script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
     driver: bool,
 ) -> Arc<Core> {
+    core_mode(
+        dir,
+        port,
+        script,
+        driver,
+        (crate::external::Mode::Ask, Posture::Notify),
+    )
+}
+
+/// [`core_in`] under `[policy] external_text` and `enforcement` set to `rule`.
+fn core_mode(
+    dir: &Path,
+    port: u16,
+    script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
+    driver: bool,
+    rule: (crate::external::Mode, Posture),
+) -> Arc<Core> {
     let root = dir.join("work");
     std::fs::create_dir_all(&root).unwrap();
-    let cfg = config(&root.canonicalize().unwrap(), dir);
+    let cfg = config(&root.canonicalize().unwrap(), dir, rule);
     let store = Store::open(&dir.join("store")).unwrap();
     let model = Arc::new(Model {
         script: Box::new(script),

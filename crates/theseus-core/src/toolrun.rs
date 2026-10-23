@@ -365,6 +365,7 @@ pub struct ToolRuntime {
     /// What a call that acts gets once its session has read external text
     /// (theseus-9bp, `[policy] external_text`).
     pub external_text: crate::external::Mode,
+    pub external_key: &'static str,
     /// Programs whose output is outside text (theseus-b5cl, `[policy]
     /// external_programs`): a job that runs one marks its result external.
     pub external_programs: Vec<String>,
@@ -567,6 +568,7 @@ impl ToolRuntime {
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
             external_text: Default::default(),
+            external_key: "external_text",
             external_programs: Vec::new(),
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
             disk: Arc::new(crate::disk::Disk::new(tmp.clone(), 0, 0)),
@@ -1120,7 +1122,7 @@ impl ToolRuntime {
         let glide = (planned.is_ok() && crate::glide::is_glide(tool.name()))
             .then(|| crate::glide::resolve(tc, tool.name(), &call.input));
         // The order is `order.rs`, which `policy.explain` runs too (42a).
-        let held = || crate::external::held(tc.store, tc.session_id);
+        let held = || crate::external::held_untold(tc.store, tc.session_id, self.external_text);
         let mcp = || mcp_floor(tc);
         // A routine's run: its grant, from the book in memory; any other
         // session pays one `Option` test (theseus-52tut).
@@ -1326,6 +1328,7 @@ impl ToolRuntime {
                 let mut records = vec![node(a)?];
                 if let Some(p) = Self::notified(tc, call, tool.name(), &a.correlation_id, g) {
                     records.push(tc.rec().row(&fact::tool::ToolNotified { notice: &p })?);
+                    records.extend(crate::external::told_row(tc.session_id, &g.decision)?);
                 }
                 Ok(records)
             })
@@ -2358,7 +2361,8 @@ pub fn build_runtime(
         earned: Default::default(),
         cpu,
         broker: Arc::new(broker),
-        external_text: cfg.policy.external_text,
+        external_text: cfg.policy.external_mode(),
+        external_key: cfg.policy.external_key(),
         external_programs: cfg.policy.external_programs.clone(),
         output_max_bytes: t.job_output_max_bytes,
         outputs: crate::outputs::Outputs::new(
