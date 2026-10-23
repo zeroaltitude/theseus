@@ -213,7 +213,7 @@ impl Core {
             tag.how = RouteHow::Home;
         }
         // A placement below the act bar may be wrong (the misroute guard).
-        self.arm_guard(&tag, &run_session.session_id, &live, &scored);
+        self.arm_guard(&tag, &run_session, &live, &scored);
         if tag.slug.is_some() {
             // The thread's replies and cards go back to the place the
             // message came from, or nowhere for the CLI.
@@ -434,7 +434,14 @@ impl Core {
 
     /// The misroute guard for a placement below the act bar: the turn's first
     /// write or program outside the thread's roots is held.
-    fn arm_guard(&self, tag: &ThreadTag, run: &str, live: &[&ThreadInfo], scored: &[Pre]) {
+    fn arm_guard(
+        &self,
+        tag: &ThreadTag,
+        run: &SessionRecord,
+        live: &[&ThreadInfo],
+        scored: &[Pre],
+    ) {
+        let (dir, run) = (run.dir.as_deref(), run.session_id.as_str());
         match (&tag.slug, tag.movable) {
             (Some(slug), true) => {
                 let roots = live
@@ -453,9 +460,10 @@ impl Core {
                     .filter(|t| &t.slug != slug)
                     .max_by(|a, b| score(a).total_cmp(&score(b)))
                     .map(|t| t.title.clone());
+                let base = self.tools.cwd_for(dir);
                 self.tools
                     .misroute
-                    .arm(run, &tag.title, &roots, alt.as_deref());
+                    .arm(run, &tag.title, &roots, base.to_str(), alt.as_deref());
             }
             (Some(_), false) => self.tools.misroute.disarm(run),
             (None, _) => {}
