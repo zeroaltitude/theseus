@@ -15,6 +15,9 @@ use serde::{Deserialize, Serialize};
 pub const OTHER: &str = "other";
 /// The family of `tools_find`: loaded wherever it is offered.
 pub const TOOLS: &str = "tools";
+/// The family of the task tools: deferred in a DM, loaded for a message that asks for a task
+/// (`want::asks_for_task`, theseus-gg78p).
+pub const TASKS: &str = "tasks";
 
 /// The families, with the line that says what each holds. An MCP server's
 /// tools are the family `mcp:<server>`, outside this table.
@@ -32,7 +35,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "memory",
         "look things up in your memory of past conversations",
     ),
-    ("tasks", "tasks and sub-sessions, and the task graph"),
+    (
+        TASKS,
+        "tasks and sub-sessions, and the task graph; background work with a budget is task_create",
+    ),
     (
         "reminders",
         "wakes and reminders: set one, move it, cancel it",

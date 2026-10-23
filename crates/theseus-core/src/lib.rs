@@ -299,6 +299,8 @@ mod tests_detour;
 #[cfg(test)]
 mod tests_disk_watch;
 #[cfg(test)]
+mod tests_dispatch;
+#[cfg(test)]
 mod tests_draft;
 #[cfg(test)]
 mod tests_draft_first_pass;
