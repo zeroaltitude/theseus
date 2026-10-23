@@ -51,6 +51,9 @@ pub(crate) struct Rig {
     pub(crate) dir: tempfile::TempDir,
     pub(crate) fake: Arc<FakeDiscord>,
     pub(crate) core: Arc<Core>,
+    /// The tasks this run started (its driver and its binding), which
+    /// [`Rig::stop`] aborts.
+    run: Vec<tokio::task::AbortHandle>,
 }
 
 thread_local! {
@@ -140,8 +143,8 @@ impl Rig {
         std::fs::write(&path, bindings).unwrap();
         // The continuation driver, as the daemon starts it: an answered
         // card's call runs in the turn it resumes.
-        tokio::spawn(theseus_core::harness::drive(core.clone()));
-        tokio::spawn(crate::run(core.clone(), core.cfg.discord.clone(), path));
+        let driver = tokio::spawn(theseus_core::harness::drive(core.clone()));
+        let binding = tokio::spawn(crate::run(core.clone(), core.cfg.discord.clone(), path));
         let gw = fake.gateway().unwrap().clone();
         let connected =
             tokio::task::spawn_blocking(move || gw.wait_connected(Duration::from_secs(30)))
@@ -152,7 +155,12 @@ impl Rig {
             "the gateway never identified: {:?}",
             fake.gateway_state()
         );
-        let r = Self { dir, fake, core };
+        let r = Self {
+            dir,
+            fake,
+            core,
+            run: vec![driver.abort_handle(), binding.abort_handle()],
+        };
         // Each place starts fresh: its first message opens its session
         // (theseus-emqx), so a place is bound once the binding reports it.
         let want = 2 + more.len();
@@ -165,6 +173,15 @@ impl Rig {
         })
         .await;
         r
+    }
+
+    /// Ends this run, as a process ending would: its driver and binding are
+    /// aborted and its outbox sends nothing more, so it takes no gateway event
+    /// and posts no message while a later run uses the same stand-in. (A task
+    /// the binding spawned itself ends with the runtime, not here.)
+    pub(crate) fn stop(&self) {
+        self.core.outbox.stop_sending();
+        self.run.iter().for_each(tokio::task::AbortHandle::abort);
     }
 
     pub(crate) async fn until(&self, what: &str, f: impl Fn() -> bool) {

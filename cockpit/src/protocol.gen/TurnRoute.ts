@@ -37,11 +37,16 @@ source?: string,
 effort?: string, 
 /**
  * Why the turn ran at its effort, beside `effort`: `applied`, `clamped`
- * (to `[routing] effort_bounds`), `unsure`, `unclear`, `fixed` (the
- * profile's `effort_fixed`), `no_effort` (its model takes none),
- * `carried` (a late verdict's), `recorded` (shadow, or a pin), or
+ * (to `[routing] effort_bounds`), `held_high` (an `xhigh` or `max` at or
+ * under `high_effort_confidence`, run at `high`), `held_high_unsure` (the
+ * same, for an answer under its confirm bar), `unsure`, `applied_unsure`
+ * (under the confirm bar, at or above `effort_confidence`), `unclear`,
+ * `fixed` (the profile's `effort_fixed`), `no_effort` (its model takes
+ * none), `carried` (a late verdict's), `recorded` (shadow, or a pin),
  * `sticky` (a one-step change held at the previous request's level to
- * keep the cache: `effort_applied` is the level sent).
+ * keep the cache: `effort_applied` is the level sent), `sticky_unsure`
+ * (that hold of an `applied_unsure` answer), or `floored` (raised to the
+ * routed profile's own effort).
  */
 effort_reason?: string, 
 /**

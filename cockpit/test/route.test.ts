@@ -22,7 +22,8 @@ test('a clamped effort names the bound and the answer', () => {
 
 test("an effort that did not apply says Jev's answer and why, and a row before route.v3 says none", () => {
   for (const [reason, words] of [['unsure', 'Jev: low, unsure'], ['no_effort', 'Jev: high, no effort'], ['fixed', 'Jev: low, fixed'],
-    ['carried', 'Jev: max, carried'], ['recorded', 'Jev: max, recorded']] as const) {
+    ['carried', 'Jev: max, carried'], ['recorded', 'Jev: max, recorded'],
+    ['held_high_unsure', 'Jev: max, held high unsure']] as const) {
     const level = words.split(' ')[1].replace(',', '')
     const t = routedOf(row({ mode: 'chat', reason: 'verdict', effort: level, effort_reason: reason, effort_applied: false, effort_ran: 'high' }))
     assert.equal(t.effortApplied, undefined, reason)
