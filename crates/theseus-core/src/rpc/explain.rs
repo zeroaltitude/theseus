@@ -343,7 +343,7 @@ impl Core {
             Layer::Hold => vec![row(
                 "hold",
                 hold_says(s, tool, rt.external_text),
-                Some(format!("[policy] external_text = {}", rt.external_text.as_str())),
+                Some(format!("[policy] {} = {}", rt.external_key, rt.external_text.as_str())),
             )],
             Layer::McpClient => vec![row(
                 "mcp_client",

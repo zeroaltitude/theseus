@@ -63,6 +63,22 @@ pub enum Mode {
     Notify,
 }
 
+impl From<Posture> for Mode {
+    fn from(p: Posture) -> Self {
+        match p {
+            Posture::Approve => Mode::Ask,
+            Posture::Open | Posture::Notify => Mode::Notify,
+        }
+    }
+}
+
+/// The mode in force, and the `[policy]` key that decided it.
+#[derive(Debug, Clone, Copy)]
+pub struct Rule {
+    pub mode: Mode,
+    pub key: &'static str,
+}
+
 impl Mode {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -356,8 +372,8 @@ fn why_said(source: &str, mode: Mode) -> String {
              after that (§3.9)"
         ),
         Mode::Notify => format!(
-            "this session read external text ({source}), and a call that acts is notified after \
-             that ([policy] external_text = notify)"
+            "this session read external text ({source}), and a call that acts is notified once after \
+             that (notify)"
         ),
     }
 }
@@ -369,6 +385,18 @@ pub fn held(store: &crate::store::Store, session_id: &str) -> Result<Option<Exte
         .get_session::<SessionRecord>(session_id)
         .map(|r| r.and_then(|r| r.external))
         .map_err(|e| format!("{e:#}"))
+}
+
+/// [`held`] for a call's gate: under notify, a hold that has told the owner
+/// already reads as none, so its later calls run quietly. The mode is fixed
+/// for a daemon's life (a config change restarts it), so ask never reads here.
+pub fn held_untold(
+    store: &crate::store::Store,
+    session_id: &str,
+    mode: Mode,
+) -> Result<Option<ExternalText>, String> {
+    let h = held(store, session_id)?;
+    Ok(h.filter(|h| mode != Mode::Notify || !told(store, session_id, h)))
 }
 
 /// A call the hold leaves at its own posture, whose gate reads no record: a
@@ -393,7 +421,7 @@ pub fn gate(
     d: Decision,
     class: ToolClass,
     held: &Result<Option<ExternalText>, String>,
-    mode: Mode,
+    rule: Rule,
     tool: &str,
     input: &Value,
     summary: &str,
@@ -401,7 +429,8 @@ pub fn gate(
     if exempt(class, tool, input) {
         return d;
     }
-    let setting = format!("[policy] external_text = {}", mode.as_str());
+    let mode = rule.mode;
+    let setting = format!("[policy] {} = {}", rule.key, mode.as_str());
     match held {
         Ok(None) => d,
         Ok(Some(h)) if mode.posture() > d.posture => Decision {
@@ -423,6 +452,31 @@ pub fn gate(
             summary,
         ),
     }
+}
+
+/// The META key that remembers which hold has told the owner.
+fn told_key(session_id: &str) -> String {
+    format!("external.told.{session_id}")
+}
+
+/// Whether `h`, the session's hold, has told the owner already (a notify
+/// hold does once, at its first call that acts). Unreadable reads as not told.
+pub fn told(store: &crate::store::Store, session_id: &str, h: &ExternalText) -> bool {
+    store.get_meta::<u64>(&told_key(session_id)).ok().flatten() == Some(h.since_ms)
+}
+
+/// The record that marks the hold behind a notified call told, for the frame
+/// of the call that told: later calls under it run quietly. A new hold has a
+/// new `since_ms`, so it tells once more. None when no hold raised the call.
+pub fn told_row(session_id: &str, d: &Decision) -> Result<Option<NewRecord>> {
+    let Some(h) = &d.external else {
+        return Ok(None);
+    };
+    Ok(Some(NewRecord::json(
+        kinds::META,
+        Some(&told_key(session_id)),
+        &h.since_ms,
+    )?))
 }
 
 /// A session comes to hold `h`: its record changed, and the
@@ -631,6 +685,13 @@ pub fn narrated(h: &ExternalText, mode: Mode) -> String {
 
 #[cfg(test)]
 mod tests {
+    fn rule(mode: Mode) -> Rule {
+        Rule {
+            mode,
+            key: "external_text",
+        }
+    }
+
     use super::*;
     use theseus_protocol::SessionKind;
 
@@ -670,7 +731,7 @@ mod tests {
             notify.clone(),
             ToolClass::Run,
             &h,
-            Mode::Ask,
+            rule(Mode::Ask),
             "proc.run",
             &Value::Null,
             "run echo hi",
@@ -692,7 +753,7 @@ mod tests {
             notify.clone(),
             ToolClass::Read,
             &h,
-            Mode::Ask,
+            rule(Mode::Ask),
             "http.fetch",
             &Value::Null,
             "fetch",
@@ -706,7 +767,7 @@ mod tests {
                 notify.clone(),
                 ToolClass::Write,
                 held,
-                Mode::Ask,
+                rule(Mode::Ask),
                 "wake.at",
                 &Value::Null,
                 "wake in 2m",
@@ -721,7 +782,7 @@ mod tests {
             notify.clone(),
             ToolClass::Run,
             &h,
-            Mode::Ask,
+            rule(Mode::Ask),
             "task.create",
             &Value::Null,
             "start a task",
@@ -748,7 +809,7 @@ mod tests {
             notify.clone(),
             ToolClass::Write,
             &Ok(None),
-            Mode::Ask,
+            rule(Mode::Ask),
             "fs.write",
             &Value::Null,
             "write",
@@ -767,7 +828,7 @@ mod tests {
             waits.clone(),
             ToolClass::Run,
             &h,
-            Mode::Ask,
+            rule(Mode::Ask),
             "proc.run",
             &Value::Null,
             "run sudo ls",
@@ -786,7 +847,7 @@ mod tests {
             open,
             ToolClass::Run,
             &h,
-            Mode::Notify,
+            rule(Mode::Notify),
             "proc.run",
             &Value::Null,
             "run ls",
@@ -800,7 +861,7 @@ mod tests {
             notify,
             ToolClass::Run,
             &Err("disk".into()),
-            Mode::Notify,
+            rule(Mode::Notify),
             "proc.run",
             &Value::Null,
             "run echo hi",
@@ -883,7 +944,7 @@ mod tests {
             },
             ToolClass::Run,
             &Ok(Some(h)),
-            Mode::Ask,
+            rule(Mode::Ask),
             "proc.run",
             &Value::Null,
             "run date",

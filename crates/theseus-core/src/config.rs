@@ -657,11 +657,12 @@ pub struct PolicyConfig {
     /// `"server/tool"` (one tool), for tools named `mcp:<server>/<tool>`.
     #[serde(default)]
     pub mcp: BTreeMap<String, crate::policy::Posture>,
-    /// After a session reads external text (theseus-9bp): `ask`, the default,
-    /// makes a call that acts wait for approval; `notify` runs it with a
-    /// notice at least. Either holds until the operator trusts the session.
+    /// After a session reads external text (theseus-9bp): `ask` makes a call
+    /// that acts wait for approval; `notify` runs it, telling the owner once
+    /// per hold. Either holds until the operator trusts the session. Unset,
+    /// it follows `enforcement` (`external_mode`).
     #[serde(default)]
-    pub external_text: crate::external::Mode,
+    pub external_text: Option<crate::external::Mode>,
     /// Programs whose output is outside text (theseus-b5cl): a `proc.run` of
     /// one holds its session as a fetch does (`external::Listed`). `["gh"]`
     /// by default: `gh issue view` prints a stranger's text.
@@ -722,6 +723,25 @@ fn default_agent_processes() -> Vec<String> {
         .to_vec()
 }
 
+impl PolicyConfig {
+    /// The mode in force for a hold: `external_text` when set, else
+    /// `enforcement` (`approve` asks; `notify` and `open` notify, since a
+    /// hold never goes silent: its floor is the one notice).
+    pub fn external_mode(&self) -> crate::external::Mode {
+        self.external_text
+            .unwrap_or_else(|| self.enforcement.into())
+    }
+
+    /// The key that decided [`Self::external_mode`], for a notice's setting.
+    pub fn external_key(&self) -> &'static str {
+        if self.external_text.is_some() {
+            "external_text"
+        } else {
+            "enforcement"
+        }
+    }
+}
+
 impl Default for PolicyConfig {
     fn default() -> Self {
         Self {
@@ -730,7 +750,7 @@ impl Default for PolicyConfig {
             approve_argv: default_approve_argv(),
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
-            external_text: Default::default(),
+            external_text: None,
             external_programs: default_external_programs(),
             agent_processes: default_agent_processes(),
             private_addresses: Default::default(),

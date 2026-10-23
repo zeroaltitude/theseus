@@ -149,6 +149,8 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.policy.enforcement = Posture::Notify;
+    // These tests are about a hold that asks.
+    cfg.policy.external_text = Some(crate::external::Mode::Ask);
     cfg
 }
 

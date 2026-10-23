@@ -627,12 +627,15 @@ enforcement = "notify"                  # open | notify | approve: what every to
 allow_argv = [["ls"], ["pwd"]]          # proc.run runs these (open) when every path argument is inside the roots (no git: its config can run programs; use git.diff / git.log)
 approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"]]  # proc.run waits for your approval on these (op and theseusd are on the floor)
 # After a session reads web text (http.fetch, web.search), every call that acts
-# (writes, proc.run, task.create) waits for your approval, the allow list's too,
-# until you trust the session again (`theseus policy trust <session>`, /trust on
-# Discord, or "Approve + trust session" on the card). Reads keep their postures,
-# and so does wake.at: the reminder's turn runs in the same session, so what it
-# does still waits.
-external_text = "ask"                   # ask | notify: notify runs those calls with a notice instead
+# (writes, proc.run, task.create) is held, the allow list's too, until you trust
+# the session again (`theseus policy trust <session>`, /trust on Discord, or
+# "Approve + trust session" on the card). Reads keep their postures, and so does
+# wake.at: the reminder's turn runs in the same session, so what it does is still
+# held. `external_text` is optional: unset, it follows `enforcement` (approve
+# asks; notify and open notify, since a hold never goes silent). With ask, each
+# call waits for your approval; with notify, each runs and you are told once per
+# hold, at its first call that acts. This template shows ask.
+external_text = "ask"                   # ask | notify (unset: follows enforcement)
 # A program whose output is a stranger's text holds its session the same way:
 # `gh issue view` prints an issue's body, which anyone could have written. A
 # proc.run counts when its program is listed, or when it runs a shell or a
@@ -1728,15 +1731,15 @@ max_switches = 2                        # moves per task, up or down
 # private, runs on a profile of US origin (or on none: the turn then ends before any model
 # call), and every request to a model of another origin is checked for the names again, so
 # it fails closed. Matching is case-insensitive and on
-# whole words, a name of several words as a run of them: `bighat` matches "BigHat's
-# plan" and "bighat-internal" and not "bighatter" or "bighatbio" (so `bighatbio` is listed
-# for bighatbio.com), and `neuron-utils` matches as a unit, never the word "neuron". List
-# each spelling you mean, `BigCo` and `Big Co` separately. This is the owner's own list of
-# company and repository names (the owner, 2026-10-17): no pack's text may name one
-# (theseus-judge's `the_pack_text_names_no_organisation` reads this line). A person's name
-# goes in your own config only, never in the repository.
+# whole words, a name of several words as a run of them: `examplecorp` matches "ExampleCorp's
+# plan" and "examplecorp-internal" and not "examplecorpse" or "examplecorpinc" (so `examplecorpinc`
+# is listed for examplecorpinc.com), and `example-repo` matches as a unit, never the word
+# "example". List each spelling you mean, `ExampleCo` and `Example Co` separately. This is the
+# owner's own list of company and repository names (the owner, 2026-10-17): no pack's text may
+# name one (theseus-judge's `the_pack_text_names_no_organisation` reads this line). A person's
+# name goes in your own config only, never in the repository.
 # [privacy]
-# sensitive_names = ["bighat", "bighatbio", "bh-ai", "neuron-utils"]
+# sensitive_names = ["examplecorp", "examplecorpinc", "example-repo"]
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and
