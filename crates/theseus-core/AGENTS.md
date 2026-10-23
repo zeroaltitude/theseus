@@ -1689,7 +1689,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     A 400 naming `output_config` on a request that carries one is asked again once without them, the level at the
     top, and the model takes none for an hour, `REFUSAL_HOLDS_MS` (`turn/effort_step.rs`, `provider.effort_refused`).
     A one-step change held on a model without per-message effort (`stick`) says `sticky`, or `sticky_unsure` when the
-    held answer was `applied_unsure`, so the row keeps the bar that admitted it (theseus-8zgji).
+    held answer was `applied_unsure`, so the row keeps the bar that admitted it (theseus-8zgji). An `xhigh` or `max` held at `high` says `held_high` for
+    a sure answer and `held_high_unsure` for one under the confirm bar; a held one then held again by `stick` says `sticky` (theseus-t7b96).
     Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`, `tests_effort_sticky.rs`.
   - **Which persona answers a message** (route.v5, theseus-c1uz, T10a; no store format: nothing new is stored; `engage.rs`,
     `turn/persona_engage.rs`, `judge/seal.rs`, `fact/persona.rs`). With two or more `[personas]` (`Config::persona_engaging`) **in a place where a message can engage another persona**

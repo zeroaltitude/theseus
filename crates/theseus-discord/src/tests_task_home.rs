@@ -562,8 +562,8 @@ async fn a_restart_removes_the_earlier_runs_dm_board_once_the_home_stands() {
     until(&r, "the board in the DM", || !boards(&r, ANA_DM).is_empty()).await;
     let board = boards(&r, ANA_DM)[0].id.clone();
     let before: Vec<String> = r.posted(ANA_DM).into_iter().map(|m| m.id).collect();
-    // The first process ends: it posts nothing more.
-    r.core.outbox.stop_sending();
+    // The first process ends: it takes no event and posts nothing more.
+    r.stop();
     let again = Rig::start_over(
         r.fake.clone(),
         |_, _| Arc::new(FakeProvider::scripted(vec![])),
@@ -589,7 +589,18 @@ async fn a_restart_removes_the_earlier_runs_dm_board_once_the_home_stands() {
         boards(&again, ANA_DM).is_empty(),
         "no board drawn in the DM"
     );
-    assert!(home != ANA_DM);
-    r.core.outbox.stop_sending();
-    again.core.outbox.stop_sending();
+    // The home is the channel the config named, made once, and not the DM.
+    let named: Vec<u64> = again
+        .fake
+        .made_channels()
+        .into_iter()
+        .filter(|c| c.kind == 0 && c.name == "theseus-tasks")
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(
+        named,
+        [home],
+        "the home is the one channel the config named"
+    );
+    again.stop();
 }

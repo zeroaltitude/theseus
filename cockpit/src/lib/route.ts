@@ -36,7 +36,7 @@ export function effortWords(t: TurnRouted): string {
     return t.effortReason === 'clamped' ? `effort ${t.effortApplied} (Jev; clamped from ${t.effort})` : `effort ${t.effortApplied} (Jev)`
   }
   if (!t.effort) return ''
-  return `Jev: ${t.effort}, ${(t.effortReason ?? '').replace('_', ' ')}`.replace(/, $/, '')
+  return `Jev: ${t.effort}, ${(t.effortReason ?? '').replaceAll('_', ' ')}`.replace(/, $/, '')
 }
 
 /** The ledger's line for a `route.decided` row: `chat → sonnet (verdict) · effort high (Jev) · waited 12 ms`. */

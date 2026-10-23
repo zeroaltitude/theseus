@@ -1634,7 +1634,8 @@ margin = 0.02                           # at the minimum sample, precision and r
 # Under it, when Jev finds it unclear, on a pinned turn, in shadow, and for a late
 # verdict, the profile's own effort stands. An answer of xhigh or max applies only when
 # its confidence is above high_effort_confidence; at or below, the turn runs at high
-# (the row says held_high), before the bounds clamp it.
+# (the row says held_high, or held_high_unsure when the answer was under its confirm
+# bar), before the bounds clamp it.
 [routing]
 enabled = true                          # acts only while [judge] is on
 rung = "live"                           # "shadow" records each verdict and routes nothing
