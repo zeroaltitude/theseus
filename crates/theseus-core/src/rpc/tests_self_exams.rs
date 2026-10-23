@@ -540,6 +540,8 @@ async fn the_reviewer_does_not_force_the_tool_and_leaves_room_to_think() {
         "a forced tool_choice is a 400 on Fable 5.1: {forced:?}"
     );
     assert_eq!(req.tools[0]["strict"], true);
+    // A strict tool's schema closes its object.
+    assert_eq!(req.tools[0]["input_schema"]["additionalProperties"], false);
     assert!(
         req.system[0]["text"]
             .as_str()

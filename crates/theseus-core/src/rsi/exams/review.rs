@@ -52,7 +52,8 @@ fn tool() -> Value {
                 "not_gamed": b("True when no reply can pass the check without the behaviour."),
                 "reason": {"type": "string", "description": "One or two sentences: why, and for an unfair item what is wrong."}
             },
-            "required": ["tests_behaviour", "answer_right", "not_gamed", "reason"]
+            "required": ["tests_behaviour", "answer_right", "not_gamed", "reason"],
+            "additionalProperties": false
         }
     })
 }
