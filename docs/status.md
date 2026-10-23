@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-22 05:01 MST. Version 1.0.0 (v1); the design document is at v0.91._
+_Updated 2026-10-23 09:14 MST. Version 1.0.0 (v1); the design document is at v0.91._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -526,6 +526,13 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-23: v1 patch1 hotfix, install #75a** (theseus-050g2). A note Theseus writes itself is never posted cut
+  off: the morning note's call had a 200-token cap and no `thinking` field, so Sonnet 5.5 thought through most of it and
+  the note went out as half a sentence. The call now turns thinking off where the model lets it (Sonnet 5.5's
+  `between_tools`, the other adaptive models' `disabled`) at 1,024 tokens, asks once more at 2,048 after a `max_tokens`
+  stop, else posts the template, and its `initiative.spoke` row records the stop and the output tokens. The nightly
+  synthesis and the dream's guidance, which Haiku 5.5's thinking had left empty most nights, ask with thinking off too
+  and never store a cut answer. tokio 1.53.3 for RUSTSEC-2026-0386.
 - **2026-10-22: v1 patch1 tail, part 7** (theseus-y4ajh, theseus-7zs0f, theseus-bibny, theseus-t7b96, theseus-5ni7j,
   theseus-b80si, theseus-3327o, theseus-hd8l2, theseus-x8b9k, theseus-d9je7, theseus-iilre, theseus-ms3hd,
   theseus-nsqqo, theseus-a9zg9, theseus-4gb4w, theseus-stwkb, theseus-qu41j, theseus-b7vuh). The Discord DM task flow is
