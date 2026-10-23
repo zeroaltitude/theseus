@@ -94,7 +94,8 @@ fn drafts_dir(cfg: &Config) -> Result<()> {
     for (key, dir) in held {
         if theseus_tools::paths::within(&at, &dir) {
             bail!(
-                "server.drafts_dir: {:?} is inside {key} ({}), where the review's runs would ask                  every time: keep draft trees outside it",
+                "server.drafts_dir: {:?} is inside {key} ({}), where the review's runs would ask \
+                 every time: keep draft trees outside it",
                 cfg.server.drafts_dir,
                 dir.display()
             );

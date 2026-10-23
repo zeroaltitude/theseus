@@ -167,6 +167,7 @@ fn a_drafts_dir_inside_the_state_dir_is_refused() {
             e.contains("server.drafts_dir") && e.contains(key),
             "{dir}: {e}"
         );
+        assert!(e.contains("would ask every time: keep"), "{dir}: {e}");
     }
 }
 
