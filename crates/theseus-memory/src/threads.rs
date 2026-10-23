@@ -11,9 +11,11 @@
 //!   thread pays `penalty` of its score and is admitted only when its score,
 //!   against the index's best hit of the query (`top_fused`), is above `bar`
 //!   and, once it has paid, it still outranks the asking thread's own best
-//!   hit of the query (`own_top`; `beats_own`: a note of another stream
-//!   that is no better than what the thread already holds is not worth
-//!   its room, whatever the question's shape shares with it). Else it is
+//!   hit of the query (`own_top`, in context or not; `beats_own`: a note of
+//!   another stream that is no better than what the thread already holds is
+//!   not worth its room, whatever the question's shape shares with it; a
+//!   note no thread claims weighs only the own hits not yet in context,
+//!   `own_top_admissible`). Else it is
 //!   dropped as `thread`. Naming the thread (`waived`: its slug, its
 //!   title, or one of its working set's entities) waives all of it.
 //!   A candidate that holds concrete entities (a path, a ticket, a host)
@@ -83,12 +85,17 @@ pub struct ThreadLens {
     /// The index's best fused score of the query: what a candidate's is
     /// weighed against.
     pub top_fused: f64,
-    /// The best fused score among the candidates the asking thread owns
-    /// that are not already in the turn's context (with `[threads]
-    /// own_top_admissible`, theseus-98bz.8; off, among all it owns): what
-    /// another stream's hit must outrank once it has paid. A note already in
-    /// context is dropped `in_context`, so it holds no other note back.
+    /// The best fused score among the candidates the asking thread owns,
+    /// those already in the turn's context included: what another live
+    /// thread's hit must outrank once it has paid (theseus-stwkb). A
+    /// thread's own hits are mostly in its context, and still what it holds.
     pub own_top: f64,
+    /// The same among its own candidates not already in context (`[threads]
+    /// own_top_admissible`, theseus-98bz.8): what a hit no thread claims (the
+    /// place's own conversation, `base`) must outrank instead, so a home note
+    /// holding the one fact the thread lacks is not kept out by a note it
+    /// already has. None: `own_top` for every provenance.
+    pub own_top_admissible: Option<f64>,
     /// `[threads] cross_recall_beats_own`: whether another stream's hit
     /// must outrank `own_top` after its penalty.
     pub beats_own: bool,
@@ -126,7 +133,8 @@ pub enum Cause {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Distant {
     pub cause: Cause,
-    /// The asking thread's own best hit (`ThreadLens::own_top`).
+    /// The asking thread's own best hit it was weighed against
+    /// (`ThreadLens::own_top`, or `own_top_admissible` for a `base` note).
     pub own_top: f64,
     /// Its fused score's share of the index's best.
     pub share: f64,
@@ -196,11 +204,15 @@ impl ThreadLens {
         };
         let keep = (1.0 - self.penalty).clamp(0.0, 1.0);
         let paid = fused * keep;
+        let own_top = match slug {
+            None => self.own_top_admissible.unwrap_or(self.own_top),
+            Some(_) => self.own_top,
+        };
         let cause = if self.needs_entity && tie == Tie::Apart {
             Some(Cause::Entity)
         } else if share <= self.bar {
             Some(Cause::Bar)
-        } else if self.beats_own && paid <= self.own_top {
+        } else if self.beats_own && paid <= own_top {
             Some(Cause::Own)
         } else {
             None
@@ -209,7 +221,7 @@ impl ThreadLens {
             None => Verdict::Costs(keep),
             Some(c) => Verdict::Distant(Distant {
                 cause: if slug.is_none() { Cause::Base } else { c },
-                own_top: self.own_top,
+                own_top,
                 share,
                 paid,
             }),

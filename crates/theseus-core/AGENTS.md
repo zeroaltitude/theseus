@@ -552,8 +552,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   own thread (`of_node`: `moved.of.<node>`, what a split moved) over its session's, and `[threads] base_distance`
   (true) makes a node no thread claims another stream's to a threaded asker (the same penalty and bar, never
   waived by a name); `cross_recall_beats_own` (true) makes another stream's hit, once it has paid, still outrank the
-  asking thread's own best hit (`own_top`, from the candidates it owns); (3) when another thread's notes are
-  pulled: `cross_recall_needs_entity` (true) drops a hit whose chunk holds entities (`Tie::Apart`: index entities,
+  asking thread's own best hit (`own_top`, from the candidates it owns, in context or not; a note no thread claims
+  weighs only its own not yet in context, `own_top_admissible`, so msg 113's home note gets in: theseus-98bz.8,
+  theseus-stwkb); (3) when another thread's notes are pulled: `cross_recall_needs_entity` (true) drops a hit whose
+  chunk holds entities (`Tie::Apart`: index entities,
   none of the message's) of another stream, so a question's shape alone pulls none. Each key off restores the
   earlier rule. (2) A prefix carries only the asking stream's own sections: `prefix::fit` refuses a header with a
   section the fresh layer lacks, so no reuse can hold another stream's guidance (`prefix/tests.rs`,

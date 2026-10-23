@@ -12,11 +12,11 @@ use std::time::Duration;
 
 use theseus_protocol::memory::RecallManifest;
 
-use super::tests_thread_recall::{new_thread, say, scored, thread_session};
+use super::tests_thread_recall::{new_thread, say, scored, scored_with, thread_session};
 use super::Core;
 use crate::config::memory::MemoryArm;
 use crate::config::MemoryMode;
-use crate::recall::Scene;
+use crate::recall::{Ask, Scene};
 use crate::tests_recall::{rig_with, session, Rig};
 
 const ASK: &str = "Regenerate the report with the new cutoff.";
@@ -71,10 +71,25 @@ async fn recall(
     in_context: &str,
     picks: Vec<(String, usize, f64)>,
 ) -> RecallManifest {
+    let held = BTreeSet::from([in_context.to_string()]);
+    recall_in(c, asker, ASK, held, scored(c, picks), &[]).await
+}
+
+/// The turn's recall of `message` for `asker`, the index answering `ask`,
+/// with `in_context` already in its request and Jev's `recall_cross.v1`
+/// having said yes to `jev`.
+pub(super) async fn recall_in(
+    c: &Arc<Core>,
+    asker: &str,
+    message: &str,
+    in_context: BTreeSet<String>,
+    ask: Ask,
+    jev: &[String],
+) -> RecallManifest {
     let memory = &c.runner.memory;
-    memory.set_ask(scored(c, picks));
+    memory.set_ask(ask);
     let mut begun = memory.begin(
-        ASK.to_string(),
+        message.to_string(),
         None,
         40,
         MemoryArm::Baseline,
@@ -86,13 +101,19 @@ async fn recall(
         session_id: Some(asker),
         turn_id: None,
         place: c.runner.place_of(asker),
-        in_context: BTreeSet::from([in_context.to_string()]),
+        in_context,
         labeled: Default::default(),
         budget_tokens: None,
         max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
         activation: None,
-        threads: c.runner.thread_scene(Some(asker), ASK, true),
+        threads: c
+            .runner
+            .thread_scene(Some(asker), message, true)
+            .map(|mut t| {
+                t.admit(jev.iter().cloned().collect());
+                t
+            }),
         persona: None,
         category: None,
     };
@@ -173,4 +194,72 @@ async fn with_the_key_off_the_old_verdict_is_back() {
     .await;
     assert_eq!(reason_of(&m, &w.cutoff), Some("thread_base"));
     assert!(!admitted(&m, &w.cutoff));
+}
+
+/// Another live thread's same-shape note: the ledgerweb thread's report
+/// cutoff, its chunk sharing the message's entity (`file:report.md`).
+fn other_thread(c: &Core) -> String {
+    new_thread(c, "ledgerweb", "ledgerweb checkout");
+    let s = thread_session(c, "ledgerweb");
+    say(
+        c,
+        &s,
+        "the ledgerweb report.md flags rows above the 0.40 cutoff",
+    );
+    s
+}
+
+const SHARED: &str = "file:report.md";
+
+fn shares() -> (Vec<String>, Vec<String>) {
+    (vec![SHARED.to_string()], vec![SHARED.to_string()])
+}
+
+/// The bench's leak (theseus-stwkb): the asking thread's best own hit is in
+/// context (0.104); another live thread's note shares the message's entity
+/// and clears the bar (0.100, 0.96 of the best), but pays 0.065, under what
+/// the thread already holds. It drops `thread_own`: an in-context own note
+/// still holds another stream's note back, as before 98bz.8.
+#[tokio::test]
+async fn another_threads_note_is_held_back_when_the_thread_holds_its_own_in_context() {
+    let r = rig(true);
+    let c = &r.core;
+    let w = world(c);
+    let ledger = other_thread(c);
+    let picks = vec![(w.pipe.clone(), 0, 0.104), (ledger.clone(), 0, 0.100)];
+    let ask = scored_with(c, picks, vec![shares(), shares()]);
+    let held = BTreeSet::from([w.in_context.clone()]);
+    let m = recall_in(c, &w.pipe, ASK, held, ask, &[]).await;
+    let note = c.store.session_nodes(&ledger).unwrap().remove(0).1.id;
+    assert_eq!(reason_of(&m, &note), Some("thread_own"), "{:?}", m.admitted);
+    let d = m.dropped.iter().find(|d| d.node_id == note).unwrap();
+    assert_eq!(
+        d.own_top,
+        Some(0.104),
+        "the in-context own hit is what it weighed"
+    );
+    assert_eq!(reason_of(&m, &w.in_context), Some("in_context"));
+}
+
+/// msg 113 with both provenances in one recall: the home note (no thread
+/// claims it) with the new cutoff is admitted, since only an own note that
+/// can still be admitted holds it back, while the other thread's note of the
+/// same shape and a higher score drops `thread_own`.
+#[tokio::test]
+async fn the_home_note_with_the_answer_still_gets_in() {
+    let r = rig(true);
+    let c = &r.core;
+    let w = world(c);
+    let ledger = other_thread(c);
+    let picks = vec![
+        (w.pipe.clone(), 0, 0.104),
+        (ledger.clone(), 0, 0.100),
+        (w.home.clone(), 0, 0.097),
+    ];
+    let ask = scored_with(c, picks, vec![shares(), shares()]);
+    let held = BTreeSet::from([w.in_context.clone()]);
+    let m = recall_in(c, &w.pipe, ASK, held, ask, &[]).await;
+    assert!(admitted(&m, &w.cutoff), "{:?}", m.dropped);
+    let note = c.store.session_nodes(&ledger).unwrap().remove(0).1.id;
+    assert_eq!(reason_of(&m, &note), Some("thread_own"), "{:?}", m.admitted);
 }
