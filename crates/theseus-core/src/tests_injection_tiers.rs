@@ -262,11 +262,12 @@ async fn the_tier_never_changes_a_cached_prefix_byte() {
     );
 }
 
-/// The cli's place, a model with no tool search, and every hidden family
+/// The cli's place, models with no tool search, and every hidden family
 /// judged relevant: the tier's multiple is the ceiling the admitted families
-/// raise the first request to. Jev's families answer is held until the route's
-/// has landed, so the tier is known before the tools are settled.
-async fn admitted_at(verdict: &str) -> Value {
+/// raise the first request to. A deep verdict moves the turn to Opus, so its
+/// tools are settled again on the routed spec after the verdict, whatever the
+/// load (the first compile's may come before it).
+async fn admitted_at(verdict: &str, ran_on: &str) -> Value {
     let jev = FakeJev::start().unwrap();
     mode(&jev, verdict, 0.95);
     for q in (1..=10).map(|n| format!("relevant.{n}")) {
@@ -281,30 +282,22 @@ async fn admitted_at(verdict: &str) -> Value {
         // A request within the budget before any family (`want::extra`): no
         // context file.
         c.context.files = vec![];
-        c.routing.classes.deep_coding.profiles = vec![];
+        c.routing.classes.deep_coding.profiles = vec!["opus".into()];
+        c.routing.cold_switch_tokens = 1_000_000;
         c.tools.defer.judge_wait_ms = 2_000;
-        c.judge.total_secs = 30;
-        c.catalog.insert(
-            "claude-sonnet-5-5".into(),
-            crate::catalog::CatalogRow {
-                tool_search: Some(false),
-                ..Default::default()
-            },
-        );
-    });
-    jev.hold_when("\"holds\":");
-    let held = jev.clone();
-    tokio::spawn(async move {
-        let t0 = Instant::now();
-        while route_calls(&held) == 0 && t0.elapsed() < Duration::from_secs(20) {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+        for model in ["claude-sonnet-5-5", "claude-opus-5-5"] {
+            c.catalog.insert(
+                model.into(),
+                crate::catalog::CatalogRow {
+                    tool_search: Some(false),
+                    ..Default::default()
+                },
+            );
         }
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        held.release();
     });
     let ask = "Look over the harbour's whole setup and plan the next week's work.";
     let res = turn(&r.core, None, ask, None).await;
-    assert_eq!(res.profile, "sonnet", "{:?}", res.route);
+    assert_eq!(res.profile, ran_on, "{:?}", res.route);
     let used = crate::tests_places::rows(&r.core, "tools.used").remove(0);
     used["raised"].clone()
 }
@@ -314,8 +307,8 @@ async fn admitted_at(verdict: &str) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn admission_follows_the_tier() {
     let budget = crate::first_request::CLI_TASK_TOKENS;
-    let ordinary = admitted_at("chat").await;
-    let deep = admitted_at("deep_coding").await;
+    let ordinary = admitted_at("chat", "sonnet").await;
+    let deep = admitted_at("deep_coding", "opus").await;
     let families = |v: &Value| -> Vec<String> {
         v["families"]
             .as_array()
