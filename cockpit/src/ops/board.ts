@@ -3,7 +3,7 @@
 // (`lib/taskboard.ts`'s `rowsOf`, unchanged); conversations, jobs, and the wakes and routine runs due today join them,
 // as the TUI's board shows every session. Pure: `npm test` runs it (test/ops-board.test.ts), and it imports only the
 // protocol's types and other pure modules.
-import type { SessionInfo, TaskInfo, TaskRecord, WorkView } from '@protocol'
+import type { DataMark, SessionInfo, TaskInfo, TaskRecord, WorkView } from '@protocol'
 import { rowsOf, type TaskRow } from '../lib/taskboard.ts'
 import { progressLine } from '../lib/progressLine.ts'
 import { midnight } from '../lib/agenda.ts'
@@ -40,6 +40,8 @@ export interface OpsRow {
   dueMs?: number
   /** When it ended, for a row in Done. */
   endedMs?: number
+  /** What the floor reads of its data (`open` when the daemon says nothing). */
+  data?: DataMark
   activityMs: number
 }
 
@@ -133,6 +135,7 @@ export function boardRows({ views, tasks, sessions, lines = {}, now }: BoardInpu
       })
     }
   }
+  for (const r of out) r.data = r.view?.data ?? r.session?.data
   return out
 }
 
@@ -215,6 +218,7 @@ export function matchesFilters(r: OpsRow, f: Filters, cx: FilterContext): boolea
   if (f.place && r.place !== f.place) return false
   if (f.kind && r.kind !== f.kind) return false
   if (f.state && r.state !== f.state) return false
+  if (f.data && (r.data ?? 'open') !== f.data) return false
   if (f.project && projectOf(r.sessionId, cx.records) !== f.project) return false
   if (f.ended) {
     const span = spanMs(f.ended)
@@ -273,6 +277,12 @@ export function spendToday(rows: ReadonlyArray<{ kind: string; at_unix_ms: numbe
   }
   return { usd, sessions }
 }
+
+/** The data marks a chip offers: always all three, since a lock is the point. */
+export const DATA_MARKS: readonly DataMark[] = ['open', 'private', 'sensitive']
+
+/** Is it a lock: private or sensitive data? */
+export const locked = (r: { data?: DataMark }): boolean => r.data === 'private' || r.data === 'sensitive'
 
 /** The chips' choices, from the rows on the board: each distinct value, in order. */
 export function chipChoices(rows: readonly OpsRow[]): { thread: string[]; model: string[]; place: string[]; kind: string[]; state: string[] } {

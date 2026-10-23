@@ -19,7 +19,7 @@ export type Bucket = 'needs' | 'working' | 'paused' | 'still' | 'done' | 'spent'
 export const BUCKETS: readonly Bucket[] = ['needs', 'working', 'paused', 'still', 'done', 'spent']
 
 /** The filter chips. `ended` is a span (`1h`, `1d`, `7d`): what ended within it. */
-export const FILTER_KEYS = ['bucket', 'thread', 'model', 'place', 'kind', 'state', 'project', 'ended'] as const
+export const FILTER_KEYS = ['bucket', 'thread', 'model', 'place', 'kind', 'state', 'project', 'ended', 'data'] as const
 export type FilterKey = (typeof FILTER_KEYS)[number]
 export type Filters = Partial<Record<FilterKey, string>>
 

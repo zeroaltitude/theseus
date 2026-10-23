@@ -1,0 +1,149 @@
+{
+ "note": "The floor's refusal table (data_mark::refusal_of): one row per mark x origin x known. theseus-core and the cockpit both read it.",
+ "rows": [
+  {
+   "mark": "open",
+   "origin": "us",
+   "known": true,
+   "refused": false
+  },
+  {
+   "mark": "open",
+   "origin": "us",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "open",
+   "origin": "eu",
+   "known": true,
+   "refused": false
+  },
+  {
+   "mark": "open",
+   "origin": "eu",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "open",
+   "origin": "cn",
+   "known": true,
+   "refused": false
+  },
+  {
+   "mark": "open",
+   "origin": "cn",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "open",
+   "origin": "unknown",
+   "known": true,
+   "refused": false
+  },
+  {
+   "mark": "open",
+   "origin": "unknown",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "private",
+   "origin": "us",
+   "known": true,
+   "refused": false
+  },
+  {
+   "mark": "private",
+   "origin": "us",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "private",
+   "origin": "eu",
+   "known": true,
+   "refused": true
+  },
+  {
+   "mark": "private",
+   "origin": "eu",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "private",
+   "origin": "cn",
+   "known": true,
+   "refused": true
+  },
+  {
+   "mark": "private",
+   "origin": "cn",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "private",
+   "origin": "unknown",
+   "known": true,
+   "refused": true
+  },
+  {
+   "mark": "private",
+   "origin": "unknown",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "sensitive",
+   "origin": "us",
+   "known": true,
+   "refused": false
+  },
+  {
+   "mark": "sensitive",
+   "origin": "us",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "sensitive",
+   "origin": "eu",
+   "known": true,
+   "refused": true
+  },
+  {
+   "mark": "sensitive",
+   "origin": "eu",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "sensitive",
+   "origin": "cn",
+   "known": true,
+   "refused": true
+  },
+  {
+   "mark": "sensitive",
+   "origin": "cn",
+   "known": false,
+   "refused": true
+  },
+  {
+   "mark": "sensitive",
+   "origin": "unknown",
+   "known": true,
+   "refused": true
+  },
+  {
+   "mark": "sensitive",
+   "origin": "unknown",
+   "known": false,
+   "refused": true
+  }
+ ]
+}

@@ -25,7 +25,7 @@ import { cn, stamp } from '@/lib/format'
 import { TaskGraphView } from '@/components/TaskGraph'
 import Agenda from './Agenda'
 import { parseAddress, writeAddress, type Address, type FilterKey, type Lens } from '@/ops/address'
-import { boardRows, chipChoices, columnsOf, countersOf, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
+import { boardRows, chipChoices, columnsOf, countersOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
 import { answerOf, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
 import { flip, INSPECTOR_KEY, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
@@ -258,7 +258,7 @@ export default function Ops() {
   }, [])
 
   const filter = (k: FilterKey, v: string | null) => set({ f: { ...a.f, [k]: v ?? undefined } })
-  const choices = useMemo(() => ({ ...chipChoices(rows), project: records.filter((t) => t.kind === 'project').map((t) => t.id) }), [rows, records])
+  const choices = useMemo(() => ({ ...chipChoices(rows), project: records.filter((t) => t.kind === 'project').map((t) => t.id), data: [...DATA_MARKS] }), [rows, records])
   const n = a.lens === 'threads' ? threadList.length : vis.rows.length
   const of = a.lens === 'threads' ? grouped.threads.length : vis.of
 

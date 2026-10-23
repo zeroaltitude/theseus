@@ -3,11 +3,11 @@
 // A card's questions are answered in place in the queue and the inspector; the card says how many wait.
 import { memo, useEffect, useRef } from 'react'
 import { Link } from 'react-router'
-import { OctagonX, Pause, Play } from 'lucide-react'
+import { Lock, OctagonX, Pause, Play } from 'lucide-react'
 import type { ConfirmRequest } from '@protocol'
 import { cn, short } from '@/lib/format'
 import { Pill, StatePill } from '@/components/ui'
-import { COLUMN_TITLES, laneRows, type BoardColumns, type Column, type OpsRow } from './board'
+import { COLUMN_TITLES, laneRows, locked, type BoardColumns, type Column, type OpsRow } from './board'
 import { cardFacts } from './facts'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
@@ -74,6 +74,7 @@ export const Card = memo(function Card({ r, now, focused, onFocus, asks }: { r: 
         focused && 'ring-gold shadow-[0_0_16px_-2px_rgb(214_165_72_/_0.55)]')}>
       <div className="flex items-center gap-1.5">
         {f.paused ? <Pill tone="wait" title="held by the owner: resume lets it go on">{f.pill}</Pill> : <StatePill state={f.pill} />}
+        {locked(r) && <Lock size={11} className="text-ink-faint" aria-label={`${r.data} data`} />}
         <span className="num ml-auto text-[10px] text-ink-faint" title={r.id}>{r.kind === 'task' ? f.short : `${r.kind} · ${short(r.id)}`}</span>
       </div>
       <div className="mt-1 flex items-start gap-1.5">

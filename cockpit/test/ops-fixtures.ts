@@ -78,7 +78,7 @@ export function board() {
     info(7, 'complete', { title: 'Old survey', updated_at_ms: NOW - 30 * HOUR }),
   ]
   const sessions: SessionInfo[] = [
-    session('ses_home'), session('ses_tides', { profile: 'deep' }), session('ses_t1', { kind: 'task', profile: 'quick' }),
+    session('ses_home'), session('ses_tides', { profile: 'deep', data: 'private' }), session('ses_t1', { kind: 'task', profile: 'quick', data: 'sensitive' }),
     session('ses_t2', { kind: 'task', profile: 'quick' }),
   ]
   const groups: ThreadGroup[] = [group('harbour-survey'), group('tide-tables', { seal_pending: 'it read a private chart', last_active_ms: NOW - 50 * MIN })]

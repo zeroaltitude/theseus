@@ -66,7 +66,7 @@ export function CommandBar({ counts, f, onFilter, lens, onLens, choices, q, onQ,
           ))}
         </div>
         {lens === 'board' && <HelpButton id="ops.board" title="Board" />}
-        {(['thread', 'model', 'place', 'kind', 'state', 'project', 'ended'] as const).map((k) => (
+        {(['thread', 'model', 'place', 'kind', 'state', 'project', 'ended', 'data'] as const).map((k) => (
           <Chip key={k} k={k} value={f[k]} choices={choices[k] ?? []} onPick={(v) => onFilter(k, v)} />
         ))}
         <label className="ml-auto flex min-w-56 items-center gap-2 rounded-lg px-2.5 py-1 text-[12px] ring-1 ring-line focus-within:ring-live/60">
@@ -123,7 +123,7 @@ function CounterTable({ hist }: { hist: Record<Bucket, number[]> }) {
   )
 }
 
-const CHIP_WORDS: Record<string, string> = { thread: 'thread', model: 'model', place: 'place', kind: 'kind', state: 'state', project: 'project', ended: 'ended within' }
+const CHIP_WORDS: Record<string, string> = { thread: 'thread', model: 'model', place: 'place', kind: 'kind', state: 'state', project: 'project', ended: 'ended within', data: 'data' }
 const ENDED = ['1h', '3h', '1d', '7d']
 
 function Chip({ k, value, choices, onPick }: { k: FilterKey; value?: string; choices: string[]; onPick: (v: string | null) => void }) {
