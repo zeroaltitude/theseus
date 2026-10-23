@@ -31,7 +31,7 @@ fn a_moved_start_wakes_at_the_new_time_not_the_old() {
     assert_eq!(exec(&w, &task.id).state, ExecState::Waiting);
     w.clock.advance(60_000);
     let rep = w.kernel.reconcile(&NoEvidence).unwrap();
-    assert_eq!(rep.woke_due, vec![task.id.clone()]);
+    assert_eq!(rep.woke_due, vec![task.id]);
 }
 
 /// A moved start can be moved back: the old time is the one that wakes it.
@@ -43,7 +43,7 @@ fn a_start_moved_back_wakes_at_the_first_time() {
     move_start(&w, &task.id, at);
     w.clock.advance(120_000);
     let rep = w.kernel.reconcile(&NoEvidence).unwrap();
-    assert_eq!(rep.woke_due, vec![task.id.clone()]);
+    assert_eq!(rep.woke_due, vec![task.id]);
 }
 
 /// The report's target changes and the carve does not; an error from the edit
