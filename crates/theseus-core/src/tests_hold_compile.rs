@@ -5,6 +5,7 @@
 use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
+use crate::correction::{By, Steer, Steering};
 use crate::node::Body;
 use crate::outbox::{body_of, kind_of, OPERATOR_TARGET};
 use crate::rpc::Core;
@@ -182,7 +183,7 @@ async fn a_compile_failure_in_a_private_place_still_fails() {
 /// past `max_wait_ms` is `late`, waited the bound, never answered
 /// (theseus-m1a51).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_held_compile_failure_records_its_wait_and_steer() {
+async fn a_held_compile_failure_records_its_wait() {
     let (r, jev, sid) = rigged_with(false, |c| {
         c.routing.max_wait_ms = 300;
         c.judge.total_secs = 30;
@@ -203,4 +204,31 @@ async fn a_held_compile_failure_records_its_wait_and_steer() {
         (&Value::Bool(true), &Value::Null)
     );
     jev.release();
+}
+
+/// A compile failure's route row carries the turn's steering: an owner's
+/// correction pending for the session reaches the row as its `source` and
+/// `follows`, though the compile failed and the turn was held
+/// (theseus-m1a51, theseus-7zs0f).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_compile_failure_records_its_steer() {
+    let (r, _jev, sid) = rigged(true);
+    r.core.runner.judge.corrections.set_pending(
+        &sid,
+        Steering {
+            steer: Steer::Mode("chat".into()),
+            follows: "quick".into(),
+            by: By::Owner,
+        },
+    );
+    let res = run(&r.core, &sid, &reach(50_000)).await.expect("held");
+    assert_eq!(res.output, HELD);
+    let routed = rows(&r.core, "route.decided");
+    assert_eq!(routed.len(), 1, "{routed:?}");
+    let d = &routed[0];
+    assert_eq!(
+        (d["source"].as_str(), d["follows"].as_str()),
+        (Some("correction"), Some("quick")),
+        "{d}"
+    );
 }
