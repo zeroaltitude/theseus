@@ -54,6 +54,7 @@ fn personas(c: &mut crate::Config, act: bool) {
             key.into(),
             PersonaConfig {
                 card: Some(card.into()),
+                files: vec![crate::personas::test_soul(key)],
                 ..Default::default()
             },
         );

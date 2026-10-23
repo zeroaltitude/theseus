@@ -127,7 +127,10 @@ pub(crate) fn check_card(c: &Category) -> Result<(), Refusal> {
             return Err(Refusal::invalid(what(field), "it must be one line"));
         }
     }
-    if p.card.as_deref().is_some_and(|v| v.chars().count() > CARD_MAX) {
+    if p.card
+        .as_deref()
+        .is_some_and(|v| v.chars().count() > CARD_MAX)
+    {
         return Err(Refusal::invalid(
             what("card"),
             format!("it is at most {CARD_MAX} characters (about 60 tokens)"),
@@ -194,7 +197,10 @@ pub(crate) fn check_default(onto: &Ontology, c: &Category) -> Result<(), Refusal
 pub(crate) fn check_merge(c: &Category) -> Result<(), Refusal> {
     match c.kind() == KIND {
         true => Err(Refusal::WrongKind {
-            why: format!("`{}` is a persona, and a persona is retired, never merged", c.id),
+            why: format!(
+                "`{}` is a persona, and a persona is retired, never merged",
+                c.id
+            ),
         }),
         false => Ok(()),
     }

@@ -178,7 +178,6 @@ impl NotPeople {
                 n.handles.insert(h);
             }
         }
-        n.names.extend(cfg.personas.keys().map(|k| fold(k)));
         n.names
             .extend(cfg.people.not_people.iter().map(|k| fold(k)));
         n.names.extend(HOUSE.iter().map(|h| h.to_string()));

@@ -71,7 +71,10 @@ fn no_machine_origin_writes_a_persona() {
         assert!(o.check(&Record::Category(merge), by).is_err(), "{by} merge");
         // A retire.
         let retire = persona("ada", Some("/p/soul.md")).retired(9);
-        assert!(o.check(&Record::Category(retire), by).is_err(), "{by} retire");
+        assert!(
+            o.check(&Record::Category(retire), by).is_err(),
+            "{by} retire"
+        );
         // Guidance, new text or empty.
         for text in ["Be brisk.", ""] {
             let g = Guidance::new(id("ada"), text, 1, &tag);

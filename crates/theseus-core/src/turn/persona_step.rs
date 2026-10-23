@@ -54,13 +54,13 @@ impl TurnRunner {
     /// none is the built-in default. Memory only: no read of the store but the
     /// first, and nothing at all while no persona is configured.
     pub fn persona_of(&self, session: &SessionRecord) -> Option<String> {
-        if self.cfg.personas.is_empty() {
+        let book = self.personas();
+        if book.is_empty() {
             return None;
         }
         let own = self.session_persona(session);
         let place = self.place_persona(&session.session_id);
-        self.cfg
-            .persona_key_for(own.as_deref(), place.as_deref())
+        book.persona_key_for(own.as_deref(), place.as_deref())
             .map(str::to_string)
     }
 
@@ -79,7 +79,7 @@ impl TurnRunner {
     /// replay, the census.
     pub fn engages(&self, session: &SessionRecord) -> bool {
         use crate::tools_defer::PlaceKind;
-        if !self.cfg.persona_engaging() {
+        if !self.personas().engaging() {
             return false;
         }
         match self.place_kind(&session.session_id, session.task.is_some()) {
@@ -146,10 +146,9 @@ impl TurnRunner {
         let Some(key) = target.persona.as_deref() else {
             return;
         };
-        let Some(p) = self.cfg.personas.get(key) else {
+        let Some(view) = self.personas().get(key).cloned() else {
             return;
         };
-        let view = crate::config::PersonaView::of(key, p);
         let Some(now) =
             crate::persona::sighting(&view, &spec.context_files, theseus_protocol::now_unix_ms())
         else {

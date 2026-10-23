@@ -28,8 +28,12 @@ impl Core {
                     .ok_or_else(|| RpcFailure::invalid(anyhow::anyhow!("no session {id}")))?;
                 self.runner.persona_of(&rec)
             }
-            None => self.cfg.persona_key_for(None, None).map(str::to_string),
+            None => self
+                .personas()
+                .persona_key_for(None, None)
+                .map(str::to_string),
         };
+        let book = self.personas();
         let placed = self.runner.place_rule.personas();
         let places: Vec<PersonaPlace> = placed
             .iter()
@@ -37,16 +41,13 @@ impl Core {
                 place: place.clone(),
                 target: target.clone(),
                 persona: persona.clone(),
-                unknown: !self.cfg.personas.contains_key(persona),
+                unknown: !book.exists(persona),
             })
             .collect();
-        let mut personas: Vec<PersonaInfo> = self
-            .cfg
-            .personas
-            .iter()
-            .map(|(key, c)| {
-                let view = PersonaView::of(key, c);
-                let mut info = self.persona_info(&view, in_play.as_deref() == Some(key));
+        let mut personas: Vec<PersonaInfo> = book
+            .live()
+            .map(|(key, view)| {
+                let mut info = self.persona_info(view, in_play.as_deref() == Some(key.as_str()));
                 info.places = places
                     .iter()
                     .filter(|x| x.persona == *key)
@@ -206,19 +207,20 @@ impl Core {
     /// config lacks.
     pub(super) fn persona_warnings(&self) -> Vec<String> {
         let mut out = Vec::new();
-        let mut used: Vec<String> = self.cfg.persona().map(str::to_string).into_iter().collect();
+        let book = self.personas();
+        let mut used: Vec<String> = book.default_key().map(str::to_string).into_iter().collect();
         for (place, _, name) in self.runner.place_rule.personas() {
-            if !self.cfg.personas.contains_key(&name) {
+            if !book.exists(&name) {
                 out.push(format!(
-                    "{place} names persona {name:?}, which the config does not define: it speaks \
-                     as the default"
+                    "{place} names persona {name:?}, which is not a persona that can answer: it \
+                     speaks as the default"
                 ));
             } else if !used.contains(&name) {
                 used.push(name);
             }
         }
         for key in used {
-            let Some(p) = self.cfg.personas.get(&key) else {
+            let Some(p) = book.get(&key) else {
                 continue;
             };
             let gone: Vec<String> = p

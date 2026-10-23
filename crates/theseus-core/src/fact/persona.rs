@@ -83,3 +83,66 @@ impl Fact for PersonaEngaged<'_> {
         );
     }
 }
+
+/// `persona.migrated` (theseus-utfnl): `[personas]` was read once and each
+/// persona written as a category, in one frame. Paths and digests, never
+/// text.
+pub struct PersonaMigrated<'a> {
+    /// (key, soul path, digest of its text when it could be read).
+    pub personas: &'a [(String, String, Option<String>)],
+    /// Files beyond a persona's first, which are not carried.
+    pub dropped: &'a [String],
+}
+
+impl Fact for PersonaMigrated<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::PersonaMigrated);
+
+    fn row(&self) -> Value {
+        let ps: Vec<Value> = self
+            .personas
+            .iter()
+            .map(|(k, p, d)| json!({"key": k, "soul": p, "digest": d}))
+            .collect();
+        json!({"personas": ps, "dropped": self.dropped})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Context,
+            format!(
+                "Context: {} persona(s) moved from the config into the ontology.",
+                self.personas.len()
+            ),
+        );
+    }
+}
+
+/// `persona.soul` (theseus-utfnl): a persona's soul file was written by the
+/// owner. Where it is, and the digests before and after.
+pub struct PersonaSoul<'a> {
+    pub persona: &'a str,
+    pub path: &'a str,
+    pub old: Option<&'a str>,
+    pub new: &'a str,
+    pub who: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for PersonaSoul<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::PersonaSoul);
+
+    fn row(&self) -> Value {
+        json!({"persona": self.persona, "path": self.path, "old": self.old, "new": self.new,
+               "who": self.who, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Context,
+            format!(
+                "Context: {} wrote the soul of the persona {} ({}).",
+                self.who, self.persona, self.path
+            ),
+        );
+    }
+}

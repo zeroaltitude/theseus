@@ -113,12 +113,9 @@ impl Core {
         &self,
         p: &PersonaCardConfirmParams,
     ) -> anyhow::Result<PersonaCardConfirmResult> {
-        let Some(cfg) = self.cfg.personas.get(&p.name) else {
-            anyhow::bail!(
-                "{:?} is not a persona: {}",
-                p.name,
-                self.cfg.persona_names()
-            );
+        let book = self.personas();
+        let Some(cfg) = book.get(&p.name) else {
+            anyhow::bail!("{:?} is not a persona: {}", p.name, book.names());
         };
         let Some(card) = cfg.card.clone() else {
             anyhow::bail!(

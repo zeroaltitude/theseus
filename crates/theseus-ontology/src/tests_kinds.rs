@@ -59,7 +59,10 @@ fn the_new_seeds_pass_the_table_and_the_given_five_are_named() {
         .collect();
     assert_eq!(given, GIVEN);
     let precedence: Vec<u32> = o.kinds().iter().map(|k| k.precedence).collect();
-    assert_eq!(precedence, [10, 20, 25, 28, 30, 40, 50, 60, 70, 80, 90, 100]);
+    assert_eq!(
+        precedence,
+        [10, 20, 25, 28, 30, 40, 50, 60, 70, 80, 90, 100]
+    );
     // A given kind the transport assigns, and thread and project store nothing.
     assert!(!row("thread").stores() && !row("project").stores());
     assert!(row("person").assigned_by.contains(&Origin::Jev));

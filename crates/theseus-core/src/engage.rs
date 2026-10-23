@@ -21,7 +21,8 @@ use std::sync::Mutex;
 
 use theseus_judge::band::Band;
 
-use crate::config::{PersonaConfig, PersonaView};
+use crate::config::PersonaView;
+use crate::personas::Book;
 
 /// One persona a message may be answered as.
 #[derive(Debug, Clone, PartialEq)]
@@ -30,6 +31,8 @@ pub struct Choice {
     pub key: Option<String>,
     pub name: String,
     pub card: Option<String>,
+    /// What Jev's `none` engages: the default persona, else the built-in.
+    pub is_default: bool,
 }
 
 impl Choice {
@@ -38,25 +41,46 @@ impl Choice {
             key: view.key.clone(),
             name: view.name.clone(),
             card: view.card.clone(),
+            is_default: false,
+        }
+    }
+
+    /// The built-in default, which answers where no persona is the default.
+    pub fn built_in() -> Self {
+        Self {
+            is_default: true,
+            ..Self::of(&PersonaView::built_in())
         }
     }
 }
 
-/// The personas a place may be answered as: every configured one in a
-/// private place; in a shared place its own and those marked `shareable`.
-/// None unless two or more could answer (the built-in default counts only
-/// when it is the place's own or addressed by name).
-pub fn choices(
-    personas: &std::collections::BTreeMap<String, PersonaConfig>,
-    shared: bool,
-    own: Option<&str>,
-) -> Vec<Choice> {
-    let allowed = |k: &str, p: &PersonaConfig| !shared || p.shareable || own == Some(k);
-    personas
-        .iter()
-        .filter(|(k, p)| allowed(k, p))
-        .map(|(k, p)| Choice::of(&PersonaView::of(k, p)))
-        .collect()
+/// The route option that engages the default persona (route.v7's persona
+/// question has `prior` as its one static option; this one is added with the
+/// personas, theseus-utfnl).
+pub const NONE: &str = "none";
+
+/// The card `none` shows when the default persona has none.
+pub const NONE_CARD: &str =
+    "No specialist: the general assistant, for anything the other cards do not cover.";
+
+/// The personas a place may be answered as: every live one in a private
+/// place; in a shared place its own and those marked `shareable`. The
+/// default persona is marked, and the built-in default is among them only
+/// where no persona is the default, so `none` always has one to engage.
+pub fn choices(book: &Book, shared: bool, own: Option<&str>) -> Vec<Choice> {
+    let default = book.default_live();
+    let mut out: Vec<Choice> = book
+        .live()
+        .filter(|(k, v)| !shared || v.shareable || own == Some(k.as_str()))
+        .map(|(k, v)| Choice {
+            is_default: default == Some(k.as_str()),
+            ..Choice::of(v)
+        })
+        .collect();
+    if default.is_none() {
+        out.push(Choice::built_in());
+    }
+    out
 }
 
 /// How the persona came to answer.
@@ -217,9 +241,10 @@ pub fn decide(
     let Some(a) = answer else {
         return prior(prior_of);
     };
-    let picked = options
-        .iter()
-        .find(|o| o.key.as_deref() == Some(a.choice.as_str()));
+    let picked = options.iter().find(|o| match a.choice.as_str() {
+        NONE => o.is_default,
+        id => o.key.as_deref() == Some(id),
+    });
     let (Some(c), true) = (picked, allowed && a.acts) else {
         return Engaged {
             jev,
@@ -418,6 +443,7 @@ mod tests {
             key: key.map(str::to_string),
             name: name.into(),
             card: (!card.is_empty()).then(|| card.into()),
+            is_default: false,
         }
     }
 
@@ -552,7 +578,8 @@ mod tests {
     #[test]
     fn a_shared_place_offers_its_own_and_the_shareable() {
         use crate::config::PersonaConfig;
-        let mut ps = std::collections::BTreeMap::new();
+        let mut cfg = crate::config::Config::example();
+        let ps = &mut cfg.personas;
         ps.insert("birch".to_string(), PersonaConfig::default());
         ps.insert(
             "alder".to_string(),
@@ -562,8 +589,9 @@ mod tests {
             },
         );
         ps.insert("cedar".to_string(), PersonaConfig::default());
+        let book = Book::of_config(&cfg);
         let keys = |shared, own: Option<&str>| -> Vec<String> {
-            choices(&ps, shared, own)
+            choices(&book, shared, own)
                 .into_iter()
                 .filter_map(|c| c.key)
                 .collect()

@@ -471,7 +471,7 @@ async fn the_operator_adds_and_retires_a_kind() {
         .unwrap()
         .kind;
     assert_eq!(k.assigned_by, ["operator", "jev"]);
-    assert_eq!(k.precedence, 100, "ten after the last seeded kind");
+    assert_eq!(k.precedence, 110, "ten after the last seeded kind");
     let again = r
         .core
         .ontology_kind_add(&add("dataset"), "the CLI")

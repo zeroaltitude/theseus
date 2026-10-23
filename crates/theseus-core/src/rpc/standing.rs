@@ -345,13 +345,12 @@ impl Core {
                     theseus_protocol::standing::SURFACES.join(", ")
                 )));
             }
-            theseus_protocol::StandingScope::Persona(name)
-                if !self.cfg.personas.contains_key(name) =>
-            {
+            theseus_protocol::StandingScope::Persona(name) if !self.personas().exists(name) => {
                 return Err(RpcFailure::invalid(anyhow!(
                     "`{name}` is no persona: {}",
-                    match self.cfg.persona_names() {
-                        known if known.is_empty() => "no [personas.<name>] table is defined".into(),
+                    match self.personas().names() {
+                        known if known.is_empty() =>
+                            "none is defined (`theseus persona add`)".into(),
                         known => format!("the personas are {known}"),
                     }
                 )));

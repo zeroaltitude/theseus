@@ -99,7 +99,29 @@ fn persona(files: &[&str]) -> PersonaConfig {
     }
 }
 
-fn session(core: &Core, place: Option<&str>) -> String {
+/// Write a persona's short fields to its category, as `persona.set` does.
+fn set_fields(core: &Core, v: &crate::config::PersonaView) {
+    let key = v.key.as_deref().unwrap();
+    let o = core.runner.ontology.snapshot(&core.store).unwrap();
+    let mut c = o
+        .category(&theseus_ontology::CategoryId::new("persona", key).unwrap())
+        .unwrap()
+        .clone();
+    let card = c.persona.as_mut().unwrap();
+    card.card = v.card.clone();
+    card.emoji = v.emoji.clone();
+    core.runner
+        .ontology
+        .write(
+            &core.store,
+            vec![theseus_ontology::Record::Category(c)],
+            theseus_ontology::Origin::Operator,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
+}
+
+pub(crate) fn session(core: &Core, place: Option<&str>) -> String {
     let r = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&r.session_id, &r).unwrap();
     if let Some(p) = place {
@@ -108,7 +130,7 @@ fn session(core: &Core, place: Option<&str>) -> String {
     r.session_id
 }
 
-async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
+pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -281,15 +303,23 @@ async fn the_persona_is_the_sessions_then_the_places_then_the_default_then_the_b
     // The pure rule.
     let cfg = &r.core.cfg;
     assert_eq!(
-        cfg.persona_key_for(Some("cedar"), Some("birch")),
+        crate::personas::Book::of_config(cfg).persona_key_for(Some("cedar"), Some("birch")),
         Some("cedar")
     );
     assert_eq!(
-        cfg.persona_key_for(Some("nope"), Some("birch")),
+        crate::personas::Book::of_config(cfg).persona_key_for(Some("nope"), Some("birch")),
         Some("birch")
     );
-    assert_eq!(cfg.persona_key_for(None, None), Some("alder"));
-    assert_eq!(cfg.persona_for(None, Some("nope")).name, "Alder");
+    assert_eq!(
+        crate::personas::Book::of_config(cfg).persona_key_for(None, None),
+        Some("alder")
+    );
+    assert_eq!(
+        crate::personas::Book::of_config(cfg)
+            .persona_for(None, Some("nope"))
+            .name,
+        "Alder"
+    );
 }
 
 /// With no default and no choice the built-in is in play, and a view of it
@@ -297,7 +327,7 @@ async fn the_persona_is_the_sessions_then_the_places_then_the_default_then_the_b
 #[test]
 fn the_built_in_is_in_play_when_nothing_chooses() {
     let (cfg, _) = Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
-    let v = cfg.persona_for(None, None);
+    let v = crate::personas::Book::of_config(&cfg).persona_for(None, None);
     assert_eq!(
         (v.key, v.name.as_str(), v.initiative.as_str()),
         (None, "Theseus", "normal")
@@ -426,11 +456,13 @@ async fn a_field_edit_is_one_persona_changed_row() {
     let sid = session(&r.core, None);
     turn(&r.core, &sid, "one").await;
     assert!(rows(&r.core, "persona.changed").is_empty());
-    // The daemon starts again onto an edited config, over the same store.
-    let mut cfg = r.core.cfg.as_ref().clone();
-    cfg.personas.get_mut("pier").unwrap().card = Some("Keeps the light, and the log.".into());
-    cfg.personas.get_mut("pier").unwrap().emoji = Some("🌊".into());
-    let (core, _) = core_on(cfg, r.store.clone());
+    // The owner edits the persona's fields (its category), and the daemon
+    // starts again over the same store.
+    let mut edited = r.core.personas().get("pier").unwrap().clone();
+    edited.card = Some("Keeps the light, and the log.".into());
+    edited.emoji = Some("🌊".into());
+    set_fields(&r.core, &edited);
+    let (core, _) = core_on(r.core.cfg.as_ref().clone(), r.store.clone());
     let sid = session(&core, None);
     turn(&core, &sid, "two").await;
     turn(&core, &sid, "three").await;
@@ -466,6 +498,11 @@ async fn a_missing_persona_file_compiles_on_the_default_with_one_notice() {
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
         .filter(|a| crate::outbox::kind_of(a) == "notice")
+        .filter(|a| {
+            crate::outbox::body_of(a)["text"]
+                .as_str()
+                .is_some_and(|t| t.contains("cannot be read"))
+        })
         .count();
     assert_eq!(notices, 1);
     let warnings = r.core.context_status().warnings;

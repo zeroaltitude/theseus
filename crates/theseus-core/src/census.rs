@@ -104,9 +104,9 @@ pub struct NextRequest {
 impl TurnRunner {
     /// The context files `target` carries, read without a warning.
     fn peek_files(&self, target: &Target) -> Vec<crate::context_files::ContextFile> {
-        let paths = self
-            .cfg
-            .context_paths(target.persona.as_deref(), target.engages);
+        let paths =
+            self.cfg
+                .context_paths(&self.personas(), target.persona.as_deref(), target.engages);
         self.context_files.peek(&paths)
     }
 
@@ -120,7 +120,7 @@ impl TurnRunner {
         let Some(r) = rec else {
             let mut t = self.resolve_target(live, None, None, None)?;
             // A fresh session's place is the kind asked for.
-            t.engages = self.cfg.persona_engaging()
+            t.engages = self.personas().engaging()
                 && matches!(
                     PlaceKind::parse(place_kind),
                     Some(PlaceKind::Dm | PlaceKind::Channel)

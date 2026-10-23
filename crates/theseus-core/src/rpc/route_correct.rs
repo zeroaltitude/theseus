@@ -50,7 +50,7 @@ impl Core {
             )
         })?;
         let pack = self.runner.judge.pack(ROUTE_PACK);
-        let names = correction::names(&self.cfg, pack.as_deref());
+        let names = correction::names(&self.cfg, &self.personas(), pack.as_deref());
         let to = correction::to_of(&p.to, &names).with_context(|| {
             format!(
                 "{:?} names no profile, model or mode: name a configured profile, a mode of {ROUTE_PACK} ({}), \
@@ -175,7 +175,7 @@ impl Core {
             return;
         }
         let pack = self.runner.judge.pack(ROUTE_PACK);
-        let names = correction::names(&self.cfg, pack.as_deref());
+        let names = correction::names(&self.cfg, &self.personas(), pack.as_deref());
         if let Some(said) = correction::words::read(&p.input, &names) {
             self.runner
                 .judge

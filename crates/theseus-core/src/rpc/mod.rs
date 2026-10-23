@@ -1000,6 +1000,11 @@ impl Core {
         if let Err(e) = core.seed_extensions() {
             tracing::warn!(error = %format!("{e:#}"), "the loaded extensions did not read");
         }
+        // `[personas]`, read once (theseus-utfnl): one frame at the first
+        // start that has them, nothing after.
+        if let Err(e) = core.migrate_personas() {
+            tracing::warn!(error = %format!("{e:#}"), "the personas were not migrated");
+        }
         // The loaded flows (theseus-pw1q.21.4): one META key, and each one's
         // frozen copy read back and checked against its digest.
         if let Err(e) = core.seed_flows() {

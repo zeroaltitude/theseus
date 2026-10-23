@@ -564,6 +564,8 @@ facts![
     rsi_narrow::NarrowRed,
     rsi_narrow::NarrowReverted,
     persona::PersonaChanged<'static>,
+    persona::PersonaMigrated<'static>,
+    persona::PersonaSoul<'static>,
     rsi_revert::SelfReverted,
     rsi_revert::SelfVetoed,
     rsi_pipeline::Started,

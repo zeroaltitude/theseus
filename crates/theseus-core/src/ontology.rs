@@ -46,6 +46,9 @@ pub struct Board {
     /// Held from a write's check to its swap, so two writes never check
     /// against the same snapshot; and by the one load.
     writes: Mutex<()>,
+    /// The personas of the snapshot last asked, kept while it stands
+    /// (`personas`).
+    personas: Mutex<Option<(Arc<Ontology>, Arc<crate::personas::Book>)>>,
 }
 
 impl Board {
@@ -64,6 +67,21 @@ impl Board {
             *self.snapshot.write().unwrap() = Some(s.clone());
             Ok(s)
         })
+    }
+
+    /// The personas the snapshot holds: rebuilt when a write has swapped the
+    /// snapshot, the same book while it stands.
+    pub fn personas(&self, store: &Store) -> Result<Arc<crate::personas::Book>> {
+        let now = self.snapshot(store)?;
+        let mut kept = self.personas.lock().unwrap();
+        match &*kept {
+            Some((s, b)) if Arc::ptr_eq(s, &now) => Ok(b.clone()),
+            _ => {
+                let book = Arc::new(crate::personas::Book::from_ontology(&now));
+                *kept = Some((now, book.clone()));
+                Ok(book)
+            }
+        }
     }
 
     /// The snapshot if it is built: memory only.
