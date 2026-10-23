@@ -1032,10 +1032,11 @@ BUDGETS = {
 }
 
 
-# One arm's head: `"a" | "b"`, an optional `if guard`, then `=>`; or the fall-through `_ =>`. The text is read whole, so
-# a head, a guard or a value may span lines.
+# One arm's head: `"a" | "b"`, an optional `if guard` (on the pattern's line or the next, as rustfmt breaks a long
+# one), then `=>`; or the fall-through `_ =>`. A head starts a line or follows the comma that ends an arm, so two arms on
+# one line are both read. The text is read whole, so a head, a guard or a value may span lines.
 ARM_HEAD = re.compile(
-    r'(?m)^[ \t]*(?:(?P<pats>"[^"]*"(?:\s*\|\s*"[^"]*")*)(?:[ \t]+if\s+(?P<guard>(?:(?!=>)[^;{}])+?))?|(?P<fall>_))\s*=>')
+    r'(?m)(?:^|(?<=,))[ \t]*(?:(?P<pats>"[^"]*"(?:\s*\|\s*"[^"]*")*)(?:\s+if\s+(?P<guard>(?:(?!=>)[^;{}])+?))?|(?P<fall>_))\s*=>')
 RS_STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\[^\']*|[^\'\\])\'')
 # Words a value may use without naming a constant: the wrapper, the types, the keywords.
 VALUE_WORDS = {"Some", "None", "Ok", "Err", "as", "if", "else", "true", "false", "f64", "f32", "u64", "u32", "u16",
@@ -1062,11 +1063,30 @@ def arm_value_end(text, pos):
                 return i
             depth -= 1
             if depth == 0 and block and c == "}":
-                return i + 1
+                # The block is the whole value unless a method call or `?` follows it: `{ x }.min(Some(2.0))`.
+                rest = text[i + 1:].lstrip()
+                if rest[:1] not in (".", "?"):
+                    return i + 1
+                block = False
         elif c == "," and depth == 0:
             return i
         i += 1
     return n
+
+
+def squash(value):
+    """A value without the whitespace and trailing commas a reformat moves, outside its string literals."""
+    out, last = [], 0
+    for m in RS_STRING.finditer(value):
+        out += [re.sub(r"\s+", "", value[last:m.start()]), m.group()]
+        last = m.end()
+    out.append(re.sub(r"\s+", "", value[last:]))
+    return "".join(re.sub(r",(?=[)\]}])", "", part) if k % 2 == 0 else part for k, part in enumerate(out))
+
+
+def unguarded(pat):
+    """`"a" if cond` -> `"a"`: the arm's key without its guard."""
+    return re.match(r'"[^"]*"', pat).group()
 
 
 def names_constant(expr):
@@ -1091,9 +1111,10 @@ def match_arms(lines):
         pos = max(end, m.end())
         value = " ".join(text[m.end():end].split())
         nums = [num(x) for x in NUM.findall(value)]
-        first = text.count("\n", 0, m.start(0))
-        last = text.count("\n", 0, max(len(text[:end].rstrip()) - 1, m.start(0)))
-        shown = " ".join(text[m.start("pats") if m.group("pats") else m.start("fall"):end].split())
+        head = m.start("pats") if m.group("pats") else m.start("fall")
+        first = text.count("\n", 0, head)
+        last = text.count("\n", 0, max(len(text[:end].rstrip()) - 1, head))
+        shown = " ".join(text[head:end].split())
         if m.group("fall"):
             fall = (nums, nos[first], shown + " (the fall-through)", value)
             continue
@@ -1113,10 +1134,16 @@ def compare_arms(path, base, head, out):
     (barms, bfall, _), (harms, _, _) = base, head
     for line in sorted({v[1] for v in harms.values()}):
         for p in [p for p, v in harms.items() if v[1] == line]:
-            (old, _, otext, oval), (new, _, ntext, nval) = barms.get(p, bfall), harms[p]
-            if (old and any(b > a for a, b in zip(old, new))) or (
-                    p in barms and not old and names_constant(oval) and oval != nval):
-                out.append(Finding("budget-raised", path, line, otext, ntext))
+            new, _, ntext, nval = harms[p]
+            # A pattern the base names is judged by its own arm. One it does not name is judged by the fall-through
+            # it replaced and, when it is guarded, first by the unguarded arm it now shadows (rustc takes the first).
+            shadowed = barms.get(unguarded(p))
+            judges = [(barms[p], True)] if p in barms else [(shadowed, True), (bfall, False)]
+            hit = next((otext for (old, _, otext, oval), named in (j for j in judges if j[0])
+                        if (old and any(b > a for a, b in zip(old, new)))
+                        or (named and not old and names_constant(oval) and squash(oval) != squash(nval))), None)
+            if hit:
+                out.append(Finding("budget-raised", path, line, hit, ntext))
                 break
     for line in sorted({v[1] for v in barms.values()}):
         if any((barms[p][0] and not harms.get(p, ([],))[0]) or (not barms[p][0] and names_constant(barms[p][3])
