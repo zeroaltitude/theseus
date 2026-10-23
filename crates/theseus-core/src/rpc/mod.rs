@@ -16,6 +16,7 @@ mod aws;
 mod bindings;
 mod books;
 mod budgets;
+mod calendar;
 mod cites;
 mod confirms;
 mod context;

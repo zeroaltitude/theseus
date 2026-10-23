@@ -1790,6 +1790,29 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     profile (`standing_step.rs`, `authored`), milestone reminders with it (`commitments.rs`), while the task view and
     project slice are already outside the open view. The mark never spreads to the readers. Tests:
     `tests_private_authored.rs`.
+  - **Google calendars, the cache and the sensitive level** (theseus-jid7t.1; no store format change: a new META key
+    and no new record kind; `config/google_calendars.rs`, `google/calendar_cache.rs`, `rpc/calendar.rs`, wire
+    `theseus_protocol::calendar`). `[google] calendars` (default `["primary"]`, so nothing changes without it) lists
+    ids or `{ id, label, color, sensitive }`, validated at load (ids unique, `#rrggbb`, labels unique); a label
+    defaults to the calendar's own summary, read once from `calendarList` and kept for the daemon's life. The cache
+    (`Google::calendar_window`) keeps each calendar's events over the window asked for, widened a week each side, for
+    5 minutes (at most 4 windows a calendar, 1,500 events a window; memory only, nothing about an event reaches the
+    store, the ledger, a log or telemetry), then refreshes with `syncToken` (a 410 re-reads the window; a 403 asks
+    `freebusy.query` for blocks with no title). Every call is `Google::call`, and its `google.called` row (method,
+    status, the calendar's label) is handed back to the caller to write. `calendar.window {from_ms, to_ms}` answers
+    the owner on a private connection alone (`owner_in_private`; a span over 62 days is refused) and is no model tool;
+    `calendar.changed {labels}` (no content) goes to the connections that watch every session when a refresh finds a
+    change, and the refresh tender (`Google::calendar_tend`, one timer wait of 5 minutes, not before the first window
+    read) ends when no window is kept. `theseusd check` prints one line a calendar (`calendar_check`). **The sensitive
+    level** (`private::Level`, `private::level`): a read of a calendar with `sensitive = true` puts `"sensitive": true`
+    beside `"private": true` in the result's meta, and `private::record` adds the META record
+    `google.sensitive.<session>` to the same frame; the level follows what the private mark follows (`followed`,
+    `inherited`, a task's lineage) and never lowers. The task-local the chokepoint reads carries the level
+    (`scoped`/`within`/`bound` take a bool as private); both floors (the route step and `data_gate`) allow a US-origin
+    model alone for any private level, and `place.publish` refuses a node of a sensitive session to a shared place
+    (`sensitive_stays_private`); a shared place is offered no calendar tool. A morning note over a sensitive calendar
+    is asked of a US model alone and its `initiative.spoke` row holds no text (`initiative_post_as`). Tests:
+    `google/tests_calendar_cache.rs`, `tests_sensitive.rs`, `tests_morning.rs`, `tests_calendar.rs`.
   - **The open view** (theseus-a1wvq.7; `open_view.rs`): a request for open data carries none of the owner's material.
     `PlaceView.open` (the reach: `[routing.data] open_paths` via `open_view::open_roots(cfg, session)`, and whether the
     session's directory is within them) makes `content_class()` the shared class: every content reader on the compile

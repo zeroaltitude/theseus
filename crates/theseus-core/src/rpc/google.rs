@@ -33,7 +33,7 @@ fn cli_only(conn: &Conn<'_>, method: &str, verb: &str) -> Result<(), RpcFailure>
 impl crate::Core {
     /// The four methods, from `rpc_prefixed`'s one arm.
     pub(super) async fn rpc_google(
-        &self,
+        self: &Arc<Self>,
         name: &str,
         params: serde_json::Value,
         conn: Conn<'_>,
@@ -47,6 +47,7 @@ impl crate::Core {
             }
             method::GOOGLE_REVOKE => reply(self.google_revoke(parse(params)?, conn).await?),
             method::GOOGLE_STATUS => reply(self.google_status(parse(params)?, conn)?),
+            method::CALENDAR_WINDOW => reply(self.calendar_window(parse(params)?, conn).await?),
             other => Err(RpcFailure::new(
                 error_code::METHOD_NOT_FOUND,
                 format!("unknown method {other:?}"),

@@ -661,3 +661,170 @@ async fn a_gmail_added_event_is_outside_text() {
     cased["organizer"] = json!({"email": "Owner@Example.test"});
     assert!(!external(vec![cased]).await);
 }
+
+// ------------------------------------------- the configured calendars (jid7t.1)
+
+mod configured {
+    use serde_json::{json, Value};
+    use theseus_tools::ToolCtx;
+
+    use super::super::tests::Rig;
+    use super::super::tests_calendar_cache::{cal_rig, ev, lists, NOON, PERSONAL, WORK};
+
+    async fn run(
+        r: &Rig,
+        input: Value,
+    ) -> Result<
+        (theseus_tools::ToolOutput, Option<theseus_tools::External>),
+        theseus_tools::ToolFailure,
+    > {
+        let tool = r
+            .core
+            .tools
+            .registry
+            .get("calendar.events")
+            .unwrap()
+            .clone();
+        tool.run_async(&input, &ToolCtx::for_tests(r.dir.path()))
+            .await
+    }
+
+    async fn seeded() -> (Rig, super::super::tests_calendar_cache::Cals) {
+        let (r, cals) = cal_rig().await;
+        cals.personal.lock().unwrap().items = vec![ev("p1", "Dentist", NOON.0, NOON.1)];
+        cals.work.lock().unwrap().items = vec![ev("w1", "Board prep", NOON.0, NOON.1)];
+        (r, cals)
+    }
+
+    const WINDOW: (&str, &str) = ("2026-10-22", "2026-10-23");
+
+    #[tokio::test]
+    async fn a_calendar_is_read_by_label_or_by_id_and_a_sensitive_one_marks_the_result() {
+        let (r, _cals) = seeded().await;
+        let (from, to) = WINDOW;
+        // By label, in any case: the sensitive calendar, so the result says so.
+        let (out, _) = run(&r, json!({"calendar": "work", "from": from, "to": to}))
+            .await
+            .unwrap();
+        assert!(
+            out.text.contains("Board prep") && !out.text.contains("Dentist"),
+            "{}",
+            out.text
+        );
+        assert_eq!(out.meta["sensitive"], true);
+        assert_eq!(out.meta["private"], true);
+        assert_eq!(lists(&r.fake, WORK).len(), 1);
+        assert!(lists(&r.fake, PERSONAL).is_empty());
+        // By id, and by a summary the daemon read: the personal calendar is private only.
+        for name in [PERSONAL, "Personal"] {
+            let (out, _) = run(&r, json!({"calendar": name, "from": from, "to": to}))
+                .await
+                .unwrap();
+            assert!(
+                out.text.contains("Dentist") && !out.text.contains("Board prep"),
+                "{}",
+                out.text
+            );
+            assert_eq!(out.meta["private"], true, "{name}");
+            assert!(out.meta.get("sensitive").is_none(), "{name}: {}", out.meta);
+        }
+        // The row names the label, never an event.
+        assert_eq!(out_row(&r, "Work").await["resource"], "Work");
+    }
+
+    async fn out_row(r: &Rig, label: &str) -> Value {
+        let (out, _) = run(
+            r,
+            json!({"calendar": label, "from": "2026-10-22", "to": "2026-10-23"}),
+        )
+        .await
+        .unwrap();
+        out.meta["google_called"].clone()
+    }
+
+    #[tokio::test]
+    async fn calendars_all_reads_every_one_with_each_line_labelled() {
+        let (r, _cals) = seeded().await;
+        let (out, _) = run(
+            &r,
+            json!({"calendars": "all", "from": "2026-10-22", "to": "2026-10-23"}),
+        )
+        .await
+        .unwrap();
+        let lines: Vec<&str> = out.text.lines().filter(|l| l.starts_with("- ")).collect();
+        assert_eq!(lines.len(), 2, "{}", out.text);
+        assert!(
+            lines[0].starts_with("- [Personal] ") && lines[0].contains("Dentist"),
+            "{lines:?}"
+        );
+        assert!(
+            lines[1].starts_with("- [Work] ") && lines[1].contains("Board prep"),
+            "{lines:?}"
+        );
+        assert_eq!(
+            out.meta["sensitive"], true,
+            "one sensitive calendar marks the whole read"
+        );
+        // Every call has its row: the names, then the two lists.
+        let also = out.meta["google_called_also"].as_array().unwrap().len();
+        assert!(also >= 2, "{}", out.meta);
+        // One calendar failing is said in a line and blocks no other.
+        let (r2, cals2) = seeded().await;
+        cals2.personal.lock().unwrap().mode = super::super::tests_calendar_cache::Mode::NotFound;
+        let (out, _) = run(
+            &r2,
+            json!({"calendars": "all", "from": "2026-10-22", "to": "2026-10-23"}),
+        )
+        .await
+        .unwrap();
+        assert!(
+            out.text.contains("Personal unreachable") && out.text.contains("[Work] "),
+            "{}",
+            out.text
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_label_is_refused_with_the_configured_labels() {
+        let (r, _cals) = seeded().await;
+        let e = run(&r, json!({"calendar": "Weekend"})).await.unwrap_err();
+        assert!(e.message.contains("Personal, Work"), "{}", e.message);
+        let both = run(&r, json!({"calendar": "Work", "calendars": "all"}))
+            .await
+            .unwrap_err();
+        assert!(both.message.contains("not both"), "{}", both.message);
+        assert!(
+            r.fake.log().iter().all(|l| !l.path.ends_with("/events")),
+            "nothing was read"
+        );
+        // An address the config does not list is read as it always was.
+        let _ = run(&r, json!({"calendar": "other.cal@example.test"})).await;
+        assert!(r
+            .fake
+            .log()
+            .iter()
+            .any(|l| l.path.contains("other.cal@example.test")
+                || l.path.contains("other.cal%40example.test")));
+    }
+
+    #[tokio::test]
+    async fn the_default_config_reads_primary_as_it_always_did() {
+        let r = super::super::tests::rig(vec![]).await;
+        r.fake.json(
+            "GET",
+            "/calendar/v3/calendars/primary/events",
+            json!({"items": [ev("e1", "Standup", NOON.0, NOON.1)]}),
+        );
+        let (out, _) = run(&r, json!({"from": "2026-10-22", "to": "2026-10-23"}))
+            .await
+            .unwrap();
+        assert!(out.text.contains("Standup") && out.meta.get("sensitive").is_none());
+        assert!(
+            r.fake
+                .log()
+                .iter()
+                .all(|l| l.path != "/calendar/v3/users/me/calendarList"),
+            "no names are read for the primary calendar alone"
+        );
+    }
+}

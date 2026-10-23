@@ -64,6 +64,7 @@ fn wide(msg: &Message) -> bool {
                 | notify::WAKE_NOTICED
                 | notify::THREAD_CHANGED
                 | notify::SELF_CHANGED
+                | notify::CALENDAR_CHANGED
         ),
         _ => false,
     }

@@ -51,6 +51,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name.starts_with("import.")
         || name.starts_with("books.")
         || name.starts_with("google.")
+        || name == method::CALENDAR_WINDOW
         || super::context::prefixed(name)
         || super::route_correct::ROUTE.contains(&name)
         || super::people::ROUTE.contains(&name)
@@ -99,7 +100,7 @@ impl Core {
         if name.starts_with("books.") {
             return self.rpc_books(name, params, conn).await;
         }
-        if name.starts_with("google.") {
+        if name.starts_with("google.") || name == method::CALENDAR_WINDOW {
             return self.rpc_google(name, params, conn).await;
         }
         if super::route_correct::ROUTE.contains(&name) {

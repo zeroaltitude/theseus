@@ -143,7 +143,7 @@ fn the_templates_google_section_uncommented_parses() {
         .take_while(|l| !l.is_empty())
         .map(|l| l.strip_prefix("# ").unwrap_or(l))
         .collect();
-    assert_eq!(section.len(), 6, "{section:?}");
+    assert_eq!(section.len(), 7, "{section:?}");
     let cfg = load(&section.join("\n")).unwrap();
     assert_eq!(cfg.google.account, "owner@example.test");
     assert_eq!(cfg.google.trusted_senders, ["dana@example.test"]);
@@ -185,4 +185,94 @@ fn the_templates_drive_share_line_asks() {
         cfg.policy.tools["drive.share"],
         crate::policy::Posture::Approve
     );
+}
+
+const ACCOUNT: &str = "account = \"owner@example.test\"\n";
+
+fn cals(list: &str) -> Result<Vec<crate::config::CalendarSpec>, String> {
+    load(&format!("{ACCOUNT}calendars = {list}\n")).map(|c| c.google.calendar_specs())
+}
+
+/// `calendars` defaults to the primary calendar; an entry is an id or a table.
+#[test]
+fn calendars_default_to_primary_and_take_ids_or_tables() {
+    let d = load(ACCOUNT).unwrap();
+    let specs = d.google.calendar_specs();
+    assert_eq!(specs.len(), 1);
+    assert_eq!(
+        (specs[0].id.as_str(), specs[0].sensitive, &specs[0].label),
+        ("primary", false, &None)
+    );
+    assert_eq!(specs[0].color, "#c9a24a", "brass first");
+
+    let specs = cals(
+        "[\"primary\", { id = \"work.cal.example.test\", label = \"Work\", sensitive = true }, \
+         { id = \"club.cal.example.test\", color = \"#112233\" }]",
+    )
+    .unwrap();
+    assert_eq!(specs[0].id, "primary");
+    assert_eq!(specs[1].label.as_deref(), Some("Work"));
+    assert!(specs[1].sensitive && !specs[0].sensitive);
+    assert_eq!(specs[1].color, "#5fa08d", "verdigris by position");
+    assert_eq!(specs[2].color, "#112233");
+}
+
+#[test]
+fn calendars_refuse_a_repeat_a_second_primary_a_bad_colour_and_a_bare_table() {
+    let e = cals("[\"a.cal.example.test\", \"A.cal.example.test\"]").unwrap_err();
+    assert!(e.contains("twice"), "{e}");
+    let e = cals("[\"primary\", { id = \"primary\", label = \"Me\" }]").unwrap_err();
+    assert!(e.contains("\"primary\" twice"), "{e}");
+    for bad in ["red", "#12345", "#12345g", "123456", "#1234567"] {
+        let e = cals(&format!(
+            "[{{ id = \"a.cal.example.test\", color = \"{bad}\" }}]"
+        ))
+        .unwrap_err();
+        assert!(e.contains("is not #rrggbb"), "{bad}: {e}");
+    }
+    let e = cals("[]").unwrap_err();
+    assert!(e.contains("empty"), "{e}");
+    let e = cals("[{ id = \"a.cal.example.test\", labl = \"x\" }]").unwrap_err();
+    assert!(
+        e.contains("did not match any variant") || e.contains("unknown"),
+        "{e}"
+    );
+    let e =
+        cals("[{ id = \"a\", label = \"Same\" }, { id = \"b\", label = \"same\" }]").unwrap_err();
+    assert!(e.contains("names two calendars"), "{e}");
+}
+
+/// The default does not serialize, so the owner's sparse config stays as it is.
+#[test]
+fn the_default_calendars_are_not_written_back() {
+    let c = load(ACCOUNT).unwrap();
+    let text = toml::to_string(&c.google).unwrap();
+    assert!(!text.contains("calendars"), "{text}");
+    let c = load(&format!(
+        "{ACCOUNT}calendars = [{{ id = \"w.cal.example.test\", sensitive = true }}]\n"
+    ))
+    .unwrap();
+    let text = toml::to_string(&c.google).unwrap();
+    assert!(
+        text.contains("w.cal.example.test") && text.contains("sensitive"),
+        "{text}"
+    );
+}
+
+/// The template's `calendars` line, un-commented, loads and marks one sensitive.
+#[test]
+fn the_templates_calendars_line_loads() {
+    let line = Config::EXAMPLE_TOML
+        .lines()
+        .find(|l| l.starts_with("# calendars = "))
+        .unwrap();
+    let specs = cals(
+        line.trim_start_matches("# calendars = ")
+            .split("   #")
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(specs.len(), 2);
+    assert!(specs[1].sensitive && specs[1].label.as_deref() == Some("Team"));
 }

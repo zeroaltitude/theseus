@@ -98,7 +98,7 @@ fn one_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn text<'a>(v: &'a Value, path: &[&str]) -> Option<&'a str> {
+pub(super) fn text<'a>(v: &'a Value, path: &[&str]) -> Option<&'a str> {
     path.iter()
         .try_fold(v, |v, k| v.get(k))
         .and_then(Value::as_str)
@@ -144,7 +144,7 @@ pub(super) fn when(e: &Value, zone: ZoneAt<'_>) -> String {
 }
 
 /// Whether the account organizes `e` (Google's `organizer.self`).
-fn organized_by(e: &Value, account: &str) -> bool {
+pub(super) fn organized_by(e: &Value, account: &str) -> bool {
     e["organizer"]["self"] == true
         || text(e, &["organizer", "email"]).is_some_and(|m| m.eq_ignore_ascii_case(account))
 }
@@ -160,7 +160,7 @@ fn own_text(e: &Value, account: &str) -> bool {
 }
 
 /// The event's video call: Meet's link, else a conference's video entry point.
-fn call_link(e: &Value) -> Option<String> {
+pub(super) fn call_link(e: &Value) -> Option<String> {
     text(e, &["hangoutLink"]).map(str::to_string).or_else(|| {
         e["conferenceData"]["entryPoints"]
             .as_array()?
@@ -181,15 +181,18 @@ pub(crate) struct Brief {
     pub title: String,
     pub attendees: usize,
     pub call: Option<String>,
+    /// The calendar's label, when the note reads more than one.
+    pub label: String,
 }
 
-/// The request for today's events: from the local midnight to the next.
-pub(crate) fn today(now: u64) -> Result<Request, String> {
+/// The request for today's events on the calendar `on` names (`primary` with
+/// none): from the local midnight to the next.
+pub(crate) fn today(now: u64, on: Option<&str>) -> Result<Request, String> {
     let from = day_start(now, &stamp::system);
     // Noon of the next day is on that day, whatever daylight saving did.
     let to = day_start(from + DAY_MS + DAY_MS / 2, &stamp::system);
     let input = json!({"from": rfc3339(from), "to": rfc3339(to), "max": MAX_MOST});
-    listing(&input, now, &stamp::system).map(|l| l.request)
+    listing_on(&input, now, &stamp::system, on).map(|l| l.request)
 }
 
 /// The events a listing's answer holds (a cancelled one left out), as briefs.
@@ -208,6 +211,7 @@ pub(crate) fn briefs(reply: &Value) -> Vec<Brief> {
             title: text(e, &["summary"]).map_or("(no title)".into(), one_line),
             attendees: e["attendees"].as_array().map_or(0, Vec::len),
             call: call_link(e),
+            label: String::new(),
         })
         .collect()
 }
@@ -282,6 +286,8 @@ struct EventsArgs {
     to: Option<String>,
     q: Option<String>,
     calendar: Option<String>,
+    /// `"all"`: every configured calendar.
+    calendars: Option<String>,
     max: Option<u32>,
 }
 
@@ -293,6 +299,16 @@ struct Listing {
 }
 
 fn listing(input: &Value, now: u64, zone: ZoneAt<'_>) -> Result<Listing, String> {
+    listing_on(input, now, zone, None)
+}
+
+/// [`listing`] of the calendar `on` names, when it names one.
+fn listing_on(
+    input: &Value,
+    now: u64,
+    zone: ZoneAt<'_>,
+    on: Option<&str>,
+) -> Result<Listing, String> {
     let a: EventsArgs = parse(input)?;
     let from = match &a.from {
         Some(f) => instant(f, zone)?,
@@ -305,9 +321,9 @@ fn listing(input: &Value, now: u64, zone: ZoneAt<'_>) -> Result<Listing, String>
     if to <= from {
         return Err("`to` must be after `from`".into());
     }
-    let calendar = a
-        .calendar
-        .filter(|c| !c.is_empty())
+    let calendar = on
+        .map(str::to_string)
+        .or(a.calendar.filter(|c| !c.is_empty()))
         .unwrap_or_else(|| "primary".into());
     let mut params = Map::new();
     params.insert("calendarId".into(), calendar.clone().into());
@@ -380,13 +396,15 @@ impl Tool for Events {
     }
     fn description(&self) -> &str {
         "Calendar events in a window (default today) with attendees and their responses, call \
-         link and organizer, in local time. from/to: RFC 3339 or a date. Outside text unless \
-         the owner organizes them."
+         link and organizer, in local time. from/to: RFC 3339 or a date. calendar: label or id; \
+         calendars \"all\": every configured one, lines labelled. Outside text unless the owner \
+         organizes them."
     }
     fn input_schema(&self) -> Value {
         json!({"type": "object", "properties": {
         "from": {"type": "string"}, "to": {"type": "string"}, "q": {"type": "string"},
-        "calendar": {"type": "string"}, "max": {"type": "integer"}},
+        "calendar": {"type": "string"}, "calendars": {"type": "string"},
+        "max": {"type": "integer"}},
         })
     }
     fn class(&self) -> ToolClass {
@@ -400,44 +418,112 @@ impl Tool for Events {
     }
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let l = listing(input, theseus_protocol::now_unix_ms(), &stamp::system)?;
+        let a: EventsArgs = parse(input)?;
+        let which = match a.calendars {
+            Some(_) => "every configured calendar".to_string(),
+            None => l.calendar,
+        };
         Ok(Plan {
-            summary: format!("read events on {}", l.calendar),
+            summary: format!("read events on {which}"),
             class: Some(ToolClass::Read),
             ..Default::default()
         })
     }
     fn run_async(&self, input: &Value, _ctx: &ToolCtx) -> AsyncRun {
-        let planned = listing(input, theseus_protocol::now_unix_ms(), &stamp::system);
+        let (now, input) = (theseus_protocol::now_unix_ms(), input.clone());
         let g = self.0.clone();
         Box::pin(async move {
-            let l = planned.map_err(ToolFailure::new)?;
-            let meta = Meta {
-                tool: EVENTS,
-                method: "calendar.events.list".into(),
-                resource: Some(l.calendar.clone()),
-                class: "read",
-                recipients: None,
-            };
-            let done = g.call(meta, l.request).await.map_err(failed)?;
-            let (text, meta, own, id) = listed(
-                g.account(),
-                &l.calendar,
-                l.window,
-                &done.response.json(),
-                &stamp::system,
-            );
-            Ok(finish(
+            let a: EventsArgs = parse(&input).map_err(ToolFailure::new)?;
+            let mut rows = Vec::new();
+            if g.calendar_needs_names(a.calendar.as_deref(), a.calendars.as_deref()) {
+                rows = g.calendar_summaries().await.1;
+            }
+            let targets = g
+                .calendar_targets(a.calendar.as_deref(), a.calendars.as_deref())
+                .map_err(ToolFailure::new)?;
+            let labelled = a.calendars.is_some();
+            let (mut text, mut metas, mut failure) = (String::new(), Vec::new(), None);
+            let (mut own, mut first, mut sensitive) = (true, String::new(), false);
+            for t in &targets {
+                let l = listing_on(&input, now, &stamp::system, Some(&t.id))
+                    .map_err(ToolFailure::new)?;
+                let meta = Meta {
+                    tool: EVENTS,
+                    method: "calendar.events.list".into(),
+                    resource: Some(t.label.clone()),
+                    class: "read",
+                    recipients: None,
+                };
+                sensitive |= t.sensitive;
+                match g.call(meta, l.request).await {
+                    Ok(done) => {
+                        rows.push(done.row);
+                        let shown = if labelled { &t.label } else { &l.calendar };
+                        let (said, meta, mine, id) = listed(
+                            g.account(),
+                            shown,
+                            l.window,
+                            &done.response.json(),
+                            &stamp::system,
+                        );
+                        text.push_str(&if labelled {
+                            labelled_lines(&said, &t.label)
+                        } else {
+                            said
+                        });
+                        metas.push(meta);
+                        if (own && !mine) || first.is_empty() {
+                            first = id;
+                        }
+                        own &= mine;
+                    }
+                    Err(f) if targets.len() > 1 => {
+                        rows.push(f.row.clone());
+                        text.push_str(&format!("{} unreachable: {}\n", t.label, f.message));
+                        failure = failure.or(Some(f));
+                    }
+                    Err(f) => return Err(failed(f)),
+                }
+            }
+            if metas.is_empty() {
+                return Err(failed(failure.expect("a failed call left its failure")));
+            }
+            let mut meta = metas.remove(0);
+            if !metas.is_empty() {
+                let all: Vec<Value> = [meta].into_iter().chain(metas).collect();
+                meta = json!({ "calendars": all });
+            }
+            // The first call's row is the result's own; the rest ride beside it.
+            let row = rows.remove(0);
+            let mut out = finish(
                 g.account(),
                 text,
                 meta,
-                done.row,
+                row,
                 Source::Event {
-                    id: &id,
+                    id: &first,
                     organizer_is_account: own,
                 },
-            ))
+            );
+            if !rows.is_empty() {
+                out.0.meta["google_called_also"] = rows.into();
+            }
+            if sensitive {
+                out.0.meta[super::private::SENSITIVE] = true.into();
+            }
+            Ok(out)
         })
     }
+}
+
+/// An event listing's lines, each event line led by its calendar's label.
+fn labelled_lines(said: &str, label: &str) -> String {
+    said.lines()
+        .map(|l| match l.strip_prefix("- ") {
+            Some(rest) => format!("- [{label}] {rest}\n"),
+            None => format!("{l}\n"),
+        })
+        .collect()
 }
 
 // --------------------------------------------------------------- calendar.put

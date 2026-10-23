@@ -1133,6 +1133,78 @@ fn typed_action_output() {
     );
 }
 
+/// `calendar.changed` carries labels and nothing else; `calendar.window`'s
+/// answer (in `wire/calendar/`, which is no notification) round-trips with
+/// the optional fields of a busy block left off the wire.
+#[test]
+fn calendar_window_and_changed() {
+    use calendar::{
+        CalendarChanged, CalendarEvent, CalendarStatus, CalendarWindow, CalendarWindowResult,
+    };
+    typed(
+        "calendar_changed",
+        Event::CalendarChanged(CalendarChanged {
+            labels: vec!["Work".into(), "Personal".into()],
+        }),
+    );
+    let result = CalendarWindowResult {
+        calendars: vec![
+            CalendarWindow {
+                id: "personal.cal.example.test".into(),
+                label: "Personal".into(),
+                color: "#c9a24a".into(),
+                sensitive: false,
+                status: CalendarStatus::Ok,
+                detail: String::new(),
+                events: vec![CalendarEvent {
+                    key: "3f9a1c0b7d2e4a58".into(),
+                    start_ms: 1_761_148_800_000,
+                    end_ms: 1_761_150_600_000,
+                    title: Some("Dentist".into()),
+                    location: Some("Room 4".into()),
+                    call: Some("https://meet.example.test/x-y-z".into()),
+                    attendees: 2,
+                    self_response: Some("accepted".into()),
+                    organizer_self: true,
+                    html_link: "https://calendar.example.test/e/p1".into(),
+                    ..Default::default()
+                }],
+            },
+            CalendarWindow {
+                id: "work.cal.example.test".into(),
+                label: "Work".into(),
+                color: "#5fa08d".into(),
+                sensitive: true,
+                status: CalendarStatus::BusyOnly,
+                detail: "only free/busy of `Work` is shared".into(),
+                events: vec![CalendarEvent {
+                    key: "a1b2c3d4e5f60718".into(),
+                    start_ms: 1_761_149_700_000,
+                    end_ms: 1_761_152_400_000,
+                    busy: true,
+                    ..Default::default()
+                }],
+            },
+            CalendarWindow {
+                id: "club.cal.example.test".into(),
+                label: "Club".into(),
+                color: "#5f7fb8".into(),
+                status: CalendarStatus::AuthLapsed,
+                detail: "run `theseus google auth`".into(),
+                ..Default::default()
+            },
+        ],
+    };
+    let got = serde_json::to_string(&result).unwrap();
+    wire("calendar/window", &got);
+    let again: CalendarWindowResult = serde_json::from_str(&got).unwrap();
+    assert_eq!(again, result);
+    assert!(
+        !got.contains("\"title\":null") && got.contains("\"status\":\"busy_only\""),
+        "{got}"
+    );
+}
+
 /// Every fixture decodes as its `Event` and writes the same bytes again: what a
 /// client reads is what the daemon sent.
 #[test]
@@ -1158,7 +1230,7 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
         assert_eq!(again, line, "{}", path.display());
         n += 1;
     }
-    assert_eq!(n, 45);
+    assert_eq!(n, 46);
 }
 
 /// Every line of a real daemon's capture (`theseus --json watch`, its path in

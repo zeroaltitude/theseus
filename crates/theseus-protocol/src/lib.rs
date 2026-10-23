@@ -15,6 +15,7 @@ mod aws;
 pub mod bench;
 pub mod books;
 mod budgets;
+pub mod calendar;
 pub mod cancel;
 pub mod card;
 pub mod census;
@@ -417,6 +418,8 @@ pub mod method {
         SELF_NARROW = "self.narrow",
         /// Google Workspace (`google`): the one-time consent, the revoke, and the status. The CLI's alone.
         GOOGLE_AUTH_BEGIN = "google.auth.begin", GOOGLE_AUTH_FINISH = "google.auth.finish", GOOGLE_REVOKE = "google.revoke", GOOGLE_STATUS = "google.status",
+        /// The calendars over a window, for the owner's page (`calendar::CalendarWindowResult`); its `calendar.changed` carries no content. The owner, in a private place.
+        CALENDAR_WINDOW = "calendar.window",
     }
 }
 
@@ -494,6 +497,7 @@ pub mod notify {
         SELF_CHANGED = "self.changed",
         /// What capture did with the owner's words (theseus-slvl.5): a record kept, or a question.
         STANDING_NOTICED = "standing.noticed",
+        CALENDAR_CHANGED = "calendar.changed",
     }
 }
 
