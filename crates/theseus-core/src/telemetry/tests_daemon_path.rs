@@ -181,3 +181,24 @@ async fn a_core_built_with_a_pipeline_records_the_retention_gauge() {
     .await;
     assert_eq!(nodes(&m).as_deref(), Some("3"));
 }
+
+/// Keep-warm's counts (its data-gate count included) are exported on the
+/// daemon's path too: `build_telemetry` hands the pipeline to its cell, which
+/// a core built without one leaves empty.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn keep_warm_exports_on_the_daemons_path() {
+    let rx = Receiver::start(vec![]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(dir.path(), None);
+    cfg.telemetry.otlp_endpoint = Some(rx.endpoint());
+    cfg.validate().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(crate::provider::FakeProvider::default());
+    let mut p = Parts::for_tests(cfg, fake, store);
+    p.telemetry = None;
+    let core = Core::build(p).unwrap();
+    assert!(core.runner.keep_warm.telemetry.get().is_none());
+    core.clone().install_telemetry().await;
+    assert!(core.telemetry().enabled(), "the exporter is built");
+    assert!(core.runner.keep_warm.telemetry.get().is_some());
+}

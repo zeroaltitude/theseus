@@ -550,6 +550,7 @@ impl Core {
         self.runner.memory.export_to(t.clone());
         self.runner.tools.stops.export_to(t.clone());
         self.runner.tools.defer.export_to(t.clone());
+        let _ = self.runner.keep_warm.telemetry.set(t.clone());
         let _ = self.gate_counter.set(t.clone());
         let _ = self.telemetry.set(t);
         out
