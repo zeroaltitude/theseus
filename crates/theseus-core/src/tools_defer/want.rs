@@ -74,9 +74,35 @@ pub fn named(ask: &str, hidden: &[HiddenTool]) -> Vec<String> {
     out.into_iter().map(|(f, _)| f.to_string()).collect()
 }
 
+/// Words that start or make a task: "start two background tasks", not "my tasks today".
+const MAKES: &[&str] = &[
+    "start", "create", "make", "launch", "spawn", "begin", "kick", "new",
+];
+
+/// How many words may stand between the verb and "task".
+const GAP: usize = 4;
+
+/// Whether the message asks for a task to be made (theseus-gg78p): "task" or "tasks" within a few
+/// words after a verb that starts one, or "background task(s)". The `tasks` family is the DM's
+/// deferred one (the owner's rule), so a model that never searches takes `proc.run`'s background
+/// job for it. Both kinds of model pass through this (`extra`; the deferral's search path).
+pub fn asks_for_task(ask: &str) -> bool {
+    let words = tokens(&ask.chars().take(ASK_CHARS).collect::<String>());
+    let is_task = |w: &String| w == "task" || w == "tasks";
+    words.iter().enumerate().any(|(i, w)| {
+        is_task(w)
+            && (i > 0 && words[i - 1] == "background"
+                || words[i.saturating_sub(GAP + 1)..i]
+                    .iter()
+                    .any(|v| MAKES.contains(&v.as_str())))
+    })
+}
+
 /// Who admitted a family past the fresh choice (theseus-xlri5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum By {
+    /// The message asks for a task (`asks_for_task`).
+    Asked,
     /// The message names it (`named`).
     Named,
     /// Jev judged it relevant to the message (`families.v1`).
@@ -86,6 +112,7 @@ pub enum By {
 impl By {
     pub fn as_str(self) -> &'static str {
         match self {
+            By::Asked => "asked",
             By::Named => "named",
             By::Jev => "jev",
         }
@@ -131,9 +158,13 @@ pub fn extra(
         true => Vec::new(),
         false => named(ask, &hidden),
     };
-    let order = named
+    let asked = asks_for_task(ask)
+        .then(|| family::TASKS.to_string())
+        .filter(|f| hidden.iter().any(|h| &h.family == f));
+    let order = asked
         .into_iter()
-        .map(|f| (f, By::Named))
+        .map(|f| (f, By::Asked))
+        .chain(named.into_iter().map(|f| (f, By::Named)))
         .chain(judged.into_iter().map(|(f, _)| (f.clone(), By::Jev)));
     let mut now = loaded.clone();
     for (fam, by) in order {
@@ -226,6 +257,29 @@ mod tests {
         assert_eq!(named("list my AWS s3 bucket", &aws), ["aws-s3", "aws"]);
         assert_eq!(named("show the stacks on aws", &aws), ["aws", "aws-stacks"]);
         assert!(named("open the s3 file", &aws).is_empty());
+    }
+
+    #[test]
+    fn a_message_asks_for_a_task_only_with_a_verb_that_makes_one() {
+        for yes in [
+            "Start two background tasks, $1 each: A) bash x.sh; B) y.sh",
+            "please create a task to tidy the notes",
+            "make me a new task for the release",
+            "can you launch a background task?",
+            "spawn 3 tasks",
+        ] {
+            assert!(asks_for_task(yes), "{yes}");
+        }
+        for no in [
+            "what tasks are open?",
+            "my tasks today are mostly email",
+            "list the tasks you did yesterday",
+            "start the server, then check the task board later on in the afternoon",
+            "run a background job",
+            "",
+        ] {
+            assert!(!asks_for_task(no), "{no}");
+        }
     }
 
     #[test]

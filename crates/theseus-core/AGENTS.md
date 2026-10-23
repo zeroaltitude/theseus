@@ -2698,6 +2698,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   tools are all deferred). Tests: `tests_trivial_tools.rs`; the budget-raise tests run on a quick detour, since a bare
   request leaves a named family room under the budget.
   Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
+  **A message that asks for a task loads `tasks`** (theseus-gg78p; `want::asks_for_task`): the DM defers the family (the
+  owner's rule of 2026-10-14), and a model that never searched took `proc_run`'s `background` for "start two background
+  tasks". A verb that makes one (`start`, `create`, `make`, `launch`, `spawn`, `begin`, `kick`, `new`) within four words
+  before "task" or "tasks", or "background task(s)", admits the family for that turn, whichever way the model reaches
+  the rest: with tool search `defer_step` adds it to the fresh choice, without it `want::extra` admits it first
+  (`By::Asked`, held to `Fit`). "My tasks today" and "what tasks are open" admit nothing, and `PlaceKind::defaults` is
+  unchanged. The family's catalog line and `proc_run`'s `background` text point background work with a budget at
+  `task_create`. Tests: `tests_dispatch.rs`, `want`'s `a_message_asks_for_a_task_only_with_a_verb_that_makes_one`.
   **Admitted families raise the cap, under a ceiling** (theseus-xlri5; `[tools.defer] admit_ceiling` 2.0, `judge_families`,
   `judge_wait_ms` 200): for a model without tool search, a family the message names, then one Jev judges relevant
   (`families.v1`, `judge/families.rs`, started at the inbound point when the session's model lacks tool search or routing
