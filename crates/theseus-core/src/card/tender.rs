@@ -3,8 +3,12 @@
 //! learning tender's `due` and `tend` pace it (a missed night once, never
 //! within 10 minutes of a start); the run is `Core::card_run`, which reserves
 //! every call on `[card] day_usd` and the day ceiling. Off with `day_usd` or
-//! `every_days` at 0, and off once the card is done or `max_open` wait.
+//! `every_days` at 0, and off once the card is done; `max_open` waiting is an
+//! attempt like any run (it records itself, scans nothing, and the next comes
+//! on the normal schedule). A run that wrote no mark (a failed one) is not due
+//! again at once: the tender keeps its own mark of a start.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -44,7 +48,8 @@ impl Core {
         let core = Arc::downgrade(self);
         let started = Instant::now();
         tokio::spawn(async move {
-            let read = core.clone();
+            let ran = Arc::new(AtomicU64::new(0));
+            let (read, ran_at) = (core.clone(), ran.clone());
             let next = move || -> Option<(Duration, &'static str)> {
                 let c = read.upgrade()?;
                 let st = theseus_store::blocking(|| State::read(&c.store)).ok()?;
@@ -52,17 +57,16 @@ impl Core {
                     // Done: look again in a day, in case the owner takes it back.
                     return Some((Duration::from_millis(DAY_MS), "done"));
                 }
+                let here = ran_at.load(Ordering::Relaxed);
+                let last = st.last_run_ms.max((here > 0).then_some(here));
                 let now = theseus_protocol::now_unix_ms();
-                let (at, trigger) = next_at(
-                    now,
-                    c.cfg.judge.learning_hour,
-                    c.cfg.card.every_days,
-                    st.last_run_ms,
-                );
+                let (at, trigger) =
+                    next_at(now, c.cfg.judge.learning_hour, c.cfg.card.every_days, last);
                 Some((Duration::from_millis(at.saturating_sub(now)), trigger))
             };
             let run = move |trigger: &'static str| {
                 let core = core.clone();
+                ran.store(theseus_protocol::now_unix_ms(), Ordering::Relaxed);
                 async move {
                     let Some(c) = core.upgrade() else { return };
                     if trigger == "done" {
