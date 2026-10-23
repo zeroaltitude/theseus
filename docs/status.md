@@ -528,8 +528,8 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 - **2026-10-22: v1 patch1 tail, part 7** (theseus-y4ajh, theseus-7zs0f, theseus-bibny, theseus-t7b96, theseus-5ni7j,
   theseus-b80si, theseus-3327o, theseus-hd8l2, theseus-x8b9k, theseus-d9je7, theseus-iilre, theseus-ms3hd,
-  theseus-nsqqo, theseus-a9zg9, theseus-4gb4w, theseus-stwkb). The Discord DM task flow is locked by one golden test,
-  `tests_dm_flow_golden::the_dm_task_flow_is_as_the_owner_approved_it` (golden
+  theseus-nsqqo, theseus-a9zg9, theseus-4gb4w, theseus-stwkb, theseus-qu41j, theseus-b7vuh). The Discord DM task flow is
+  locked by one golden test, `tests_dm_flow_golden::the_dm_task_flow_is_as_the_owner_approved_it` (golden
   `crates/theseus-discord/src/golden/dm_flow.txt`): any change to its text, buttons or order needs the owner's OK
   (theseus-hd8l2). Every message Theseus sends the owner unasked now opens with a kind tag and an operational title (ℹ️
   FYI, ✋ Action, ❓ Decision, ⚠️ Alert) and a line saying what triggered it (`owner_note`, theseus-x8b9k); the catalog is
@@ -550,19 +550,22 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   the cluster's key changes (theseus-3327o). A steered held-compile route row is tested (source `correction`,
   `follows`); the TUI sidebar's question list is pinned as the whole daemon's, not filtered by placed thread; the
   ended-task states are one helper (`board::ended_state`) (theseus-7zs0f, theseus-bibny). The keel guard reads an arm
-  that names a constant, a guarded arm and an arm that spans lines (theseus-y4ajh). Recall and tool admission are sized
-  to the prompt (theseus-d9je7): the route pack's mode folds into small, ordinary and deep; recall packs 3,000 tokens
-  and 8 items for an ordinary prompt and 8,000 and 16 for a deep one, and never waits for the verdict (a late one packs
-  ordinary and says so on `route.decided` and in `theseus why`); a session's tail may hold 64,000 tokens of recall;
-  admitted families may raise a deep prompt's first request to 3x the place's budget; and `context.compiled` carries the
-  ontology walk's tokens, measured only. A notify hold now tells the owner once per hold (the META mark
-  `external.told.<session>`, theseus-nsqqo); an unset `[policy] external_text` follows `enforcement`; the public
-  template's `sensitive_names` example uses placeholders (theseus-a9zg9). The misroute guard reads a thread's relative
-  roots under the session's directory (the grower's base), so a guess-placed turn inside its own thread is no longer
-  held; its question no longer doubles an article; a program run from the session's directory is still held (follow-up)
-  (theseus-4gb4w). Another live thread's recall note must again outrank the asking thread's best own hit, in context or
-  not. Only a home note weighs the thread's best not yet in context (98bz.8's case), so msg 113's cutoff still gets in.
-  On a five-thread fixture, cross admissions went from 9 of 12 back to 1 (theseus-stwkb).
+  that names a constant, a guarded arm and an arm that spans lines (theseus-y4ajh); it also judges a guarded arm against
+  the arm it shadows, reads two arms on one line, and reads a block with the call after it whole, stricter only
+  (theseus-b7vuh). Recall and tool admission are sized to the prompt (theseus-d9je7): the route pack's mode folds into
+  small, ordinary and deep; recall packs 3,000 tokens and 8 items for an ordinary prompt and 8,000 and 16 for a deep
+  one, and never waits for the verdict (a late one packs ordinary and says so on `route.decided` and in `theseus why`);
+  a session's tail may hold 64,000 tokens of recall; admitted families may raise a deep prompt's first request to 3x the
+  place's budget; and `context.compiled` carries the ontology walk's tokens, measured only. A notify hold now tells the
+  owner once per hold (the META mark `external.told.<session>`, theseus-nsqqo); an unset `[policy] external_text`
+  follows `enforcement`; the public template's `sensitive_names` example uses placeholders (theseus-a9zg9). The misroute
+  guard reads a thread's relative roots under the session's directory (the grower's base), so a guess-placed turn inside
+  its own thread is no longer held; its question no longer doubles an article (theseus-4gb4w). The misroute guard treats
+  a program run from a directory above the thread's roots (the session's directory) as undecided: it holds nothing and
+  stays armed, and the turn's next write or program decides (theseus-qu41j). Another live thread's recall note must
+  again outrank the asking thread's best own hit, in context or not. Only a home note weighs the thread's best not yet
+  in context (98bz.8's case), so msg 113's cutoff still gets in. On a five-thread fixture, cross admissions went from 9
+  of 12 back to 1 (theseus-stwkb).
 - **2026-10-22: v1 patch1 hotfix, install #74a** (theseus-15kn3). A full owner card now records its attempt and scans
   nothing, and the card tender keeps a ran mark like its twins, so a full queue no longer loops the nightly run (it had
   rerun every ~0.65 s on a full queue: most of a core and ~130k journal lines a day).
