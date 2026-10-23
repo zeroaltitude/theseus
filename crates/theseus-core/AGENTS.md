@@ -421,7 +421,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   thinks) at `speak::MAX_TOKENS` (1,024); a `max_tokens` stop is asked once more at `RETRY_MAX_TOKENS` (2,048) within the line,
   then it is its template, which is also what any stop but `end_turn` or `stop_sequence` gets; the row carries the last call's
   `stop_reason` and `output_tokens`. The template is `initiative/lines.rs`, one table that reads the persona's `name` and
-  `emoji` and nothing else of it; `initiative_post` sends it to the owner's DM (courier kind `initiative`, key `ini:<id>`) with its row in one frame. Producers:
+  `emoji` and nothing else of it; `initiative_post` sends it to the owner's DM (courier kind `initiative`, key
+  `ini:<id>`) with its row in one frame. Producers:
   the morning note (`initiative/morning.rs`: the driver's tick asks `post_morning_if_due`, one lock and a comparison until the
   day's first ask after `[initiative] morning_hour`; the work is a spawned task, only on a day a task ended, a wake fired, a
   promise went unkept or notes were proposed, once a day by META `initiative.morning`) and the nightly consolidation's finding

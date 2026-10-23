@@ -682,7 +682,28 @@ async fn a_cut_off_answer_is_never_posted_and_two_are_the_template() {
         .map(|q| q.max_tokens)
         .collect();
     assert_eq!(caps, [MAX_TOKENS, RETRY_MAX_TOKENS]);
-    assert!(spoken.cost_usd > 0.0, "both calls are booked: {spoken:?}");
+    // Both calls are booked: the stand-in bills each the same (the
+    // request's estimate in, CUT's nine words out).
+    let one = {
+        let reqs = r.model.requests.lock().unwrap();
+        let usage = theseus_protocol::Usage {
+            input_tokens: reqs[0].estimate_tokens(),
+            output_tokens: 9,
+            ..Default::default()
+        };
+        r.core
+            .runner
+            .catalog
+            .get(&reqs[0].model)
+            .unwrap()
+            .cost_micros(&usage)
+    };
+    assert!(one > 0);
+    assert_eq!(
+        theseus_judge::price::usd_to_micros(spoken.cost_usd),
+        2 * one,
+        "both calls are booked: {spoken:?}"
+    );
     r.core.initiative_post("morning", &spoken).unwrap();
     let spoke = rows(&r.core, "initiative.spoke");
     assert_eq!(spoke[0]["text"], spoken.text);
