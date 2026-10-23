@@ -168,3 +168,57 @@ export function itemFor(items: readonly QueueItem[], sel: string | null): QueueI
   return items.find((i) => i.key === sel || i.key.slice(2) === sel || i.view?.id === sel || i.thread?.slug === sel)
     ?? items.find((i) => i.sessionId === sel)
 }
+
+/** The grant's key, as the TUI reads it (`GrantOffer::key`): `e` for edits and a mode, `a` for a command. */
+export const grantKey = (c: Pick<ConfirmRequest, 'grant_offer'>): 'a' | 'e' | null =>
+  !c.grant_offer ? null : c.grant_offer.kind === 'edits' || c.grant_offer.kind === 'mode' ? 'e' : 'a'
+
+export type Answer =
+  | { verb: 'approve' | 'approve_trust' | 'grant' }
+  | { verb: 'decline'; note?: string }
+  | { verb: 'choice'; n: number; note?: string }
+  | { verb: 'retry' | 'dismiss' | 'trust' | 'seal' | 'seal_dismiss' }
+  | { verb: 'thread_answer'; key: string }
+
+/** One answer to an item as the one protocol call that makes it, with the question to confirm first where the page
+ *  asks one; null when the item has no such answer (a trust on a session that holds nothing, a retry of a
+ *  conversation). Every question is `work.answer`, as every surface answers it. */
+export function answerOf(i: QueueItem, a: Answer): { method: string; params: Record<string, unknown>; ask?: string } | null {
+  const qid = i.confirm?.correlation_id ?? i.proposal?.record.proposal?.card ?? i.view?.question?.id
+  switch (a.verb) {
+    case 'approve': {
+      if (!qid || i.kind === 'question') return null
+      const yes = i.confirm ? (i.confirm.options?.[0]?.id ?? (i.confirm.budget ? 'reset' : i.confirm.change ? 'accept' : i.confirm.tool === 'extend.ack' ? 'ack' : 'approve')) : 'accept'
+      return { method: 'work.answer', params: { question_id: qid, option: yes } }
+    }
+    case 'approve_trust':
+      return i.confirm?.external_text ? { method: 'work.answer', params: { question_id: qid, option: 'approve_trust' } } : null
+    case 'grant':
+      return i.confirm?.grant_offer ? { method: 'work.answer', params: { question_id: qid, option: 'approve_grant' } } : null
+    case 'decline':
+      if (!qid || i.kind === 'question') return null
+      return { method: 'work.answer', params: { question_id: qid, option: 'decline', note: a.note?.trim() || undefined } }
+    case 'choice': {
+      const option = a.n === 0 ? 'choice:other' : choiceOption(i, a.n)
+      if (!option || !qid) return null
+      return { method: 'work.answer', params: { question_id: qid, option, note: a.n === 0 ? a.note?.trim() || undefined : undefined } }
+    }
+    case 'retry': {
+      const exe = i.view?.id ?? i.execution?.execution_id
+      return i.kind === 'failure' && exe && (i.view?.kind ?? i.execution?.kind) === 'task'
+        ? { method: 'task.retry', params: { execution_id: exe }, ask: `Try ${i.owner} again? A new task starts from its brief.` } : null
+    }
+    case 'dismiss': {
+      const exe = i.view?.id ?? i.execution?.execution_id
+      return i.kind === 'failure' && exe ? { method: 'execution.dismiss', params: { execution_id: exe } } : null
+    }
+    case 'trust':
+      return i.hold ? { method: 'policy.trust', params: { session_id: i.hold.session_id }, ask: `Trust ${i.hold.title} again? Its calls that act stop waiting.` } : null
+    case 'seal':
+      return i.thread ? { method: 'thread.seal', params: { slug: i.thread.slug, reason: i.thread.seal_pending }, ask: `Seal ${i.thread.title}? Its notes stop reaching any other thread’s recall.` } : null
+    case 'seal_dismiss':
+      return i.thread ? { method: 'thread.seal_dismiss', params: { slug: i.thread.slug } } : null
+    case 'thread_answer':
+      return i.ask ? { method: 'thread.answer', params: { ask_id: i.ask.ask_id, choice: a.key } } : null
+  }
+}

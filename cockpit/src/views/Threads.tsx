@@ -6,34 +6,14 @@
 // the list is the threads as the ledger's `thread.*` rows left them: the present's work is not folded, and it says so.
 import { useMemo } from 'react'
 import { Link, useParams } from 'react-router'
-import { GitBranch, Lock, MessagesSquare, Snowflake, Sun } from 'lucide-react'
-import type { NodeInfo, SessionHistoryResult, ThreadRow, WorkView } from '@protocol'
-import { useRpc } from '@/lib/rpc'
+import { GitBranch, Lock, Snowflake, Sun } from 'lucide-react'
 import { useTick } from '@/lib/hooks'
 import { useAsOf } from '@/lib/timemachine'
 import { useHistoryRows } from '@/lib/history'
 import { useThreadBoard } from '@/lib/threadwatch'
-import {
-  boardNeeds, details, foldThreads, groupThreads, historyLinks, isWarm, totalNeeds, workingSetLines, type GroupedThread,
-} from '@/lib/threadboard'
-import { ago } from '@/lib/format'
-import { AttentionPill, Empty, Panel, Pill } from '@/components/ui'
-
-/** One open task, question or wake: its attention, its title, and the session it lives in. */
-function Item({ v }: { v: WorkView }) {
-  const body = (
-    <span className="flex min-w-0 items-center gap-2 text-[12px]">
-      <AttentionPill a={v.attention} state={v.state} />
-      <span className="truncate text-ink">{v.title || v.attention.label}</span>
-      <span className="shrink-0 text-ink-faint">{v.kind}</span>
-    </span>
-  )
-  return v.session_id ? (
-    <Link to={`/session/${v.session_id}`} className="block rounded px-1 py-0.5 hover:bg-white/5">{body}</Link>
-  ) : (
-    <div className="px-1 py-0.5">{body}</div>
-  )
-}
+import { boardNeeds, details, foldThreads, groupThreads, isWarm, totalNeeds, type GroupedThread } from '@/lib/threadboard'
+import { Empty, Panel, Pill } from '@/components/ui'
+import { Item, ThreadBody } from '@/ops/ThreadPanel'
 
 function Warmth({ t, now }: { t: GroupedThread; now: number }) {
   if (t.lastActiveMs === 0) return null
@@ -119,74 +99,9 @@ export default function Threads() {
   )
 }
 
-/** The last turns of a thread's session: what was said, newest last. */
-function Turns({ session }: { session: string }) {
-  const { data } = useRpc<SessionHistoryResult>('session.history', { session_id: session, n: 12 }, 5000)
-  const said = (data?.nodes ?? []).filter((n: NodeInfo) => (n.kind === 'user_message' || n.kind === 'assistant_message') && n.text.trim() !== '')
-  if (said.length === 0) return <Empty>No messages yet.</Empty>
-  return (
-    <ol className="space-y-2 p-3 text-[12px]">
-      {said.slice(-8).map((n) => (
-        <li key={n.node_id}>
-          <div className="text-ink-faint">{n.kind === 'user_message' ? 'You' : 'Theseus'} · {ago(n.at_unix_ms)}</div>
-          <div className="line-clamp-4 whitespace-pre-wrap text-ink">{n.text}</div>
-        </li>
-      ))}
-    </ol>
-  )
-}
-
-/** One thread: its record, its work, and its recent turns. */
+/** One thread: its record, its work, and its recent turns (`ops/ThreadPanel.tsx`, which the Operations page's Threads
+ *  lens shows too). */
 export function ThreadView() {
   const { slug = '' } = useParams()
-  const now = useTick(15_000)
-  const { board } = useThreadBoard()
-  const { data: row, error } = useRpc<ThreadRow>('thread.show', { slug }, 5000)
-  const grouped = useMemo(() => groupThreads(Object.values(board.views), Object.values(board.groups)), [board])
-  const mine = grouped.threads.find((t) => t.group.slug === slug)
-  const t = row?.thread
-  if (error) return <div className="p-4"><Panel title="Thread" help={false}><Empty>{String((error as { message?: string }).message ?? error)}</Empty></Panel></div>
-  if (!t) return <div className="p-4"><Empty>Reading the thread…</Empty></div>
-  const links = historyLinks(t)
-  const ws = workingSetLines(t.working_set ?? {})
-  return (
-    <div className="grid gap-3 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-      <div className="space-y-3">
-        <Panel title={t.sealed ? `🔒 ${t.title}` : t.title} icon={<GitBranch size={14} />} help="threads.thread"
-          actions={<Pill tone={t.state === 'active' ? 'live' : 'idle'}>{t.state}</Pill>}>
-          <div className="space-y-2 p-3 text-[12px]">
-            {t.goal && <p className="text-ink">{t.goal}</p>}
-            {mine && <p className="num text-ink-faint">{details(mine, now).join(' · ')}</p>}
-            {row && <p className="num text-ink-faint">{row.context_tokens != null ? `${row.context_tokens.toLocaleString()} tokens in context · ` : ''}${row.today_usd.toFixed(2)} today</p>}
-            {t.seal_pending && <p className="text-fault">● Seal recommended: {t.seal_pending}</p>}
-            {t.sealed && <p className="text-ink-faint">Sealed by {t.sealed.by}: {t.sealed.reason}</p>}
-            {(t.topics?.length ?? 0) > 0 && <p className="text-ink-faint">Topics: {t.topics!.join(', ')}</p>}
-            {links.length > 0 && (
-              <p className="text-ink-faint">{links.map((l, i) => (
-                <span key={`${l.label}:${l.slug}`}>{i > 0 && ' · '}{l.label} <Link to={`/threads/${l.slug}`} className="text-live">{l.slug}</Link></span>
-              ))}</p>
-            )}
-          </div>
-        </Panel>
-        <Panel title="Card" help="threads.card">
-          {(t.card?.length ?? 0) === 0 ? <Empty>No card yet.</Empty> : (
-            <ul className="list-disc space-y-0.5 p-3 pl-6 text-[12px] text-ink">{t.card!.map((l, i) => <li key={i}>{l}</li>)}</ul>
-          )}
-        </Panel>
-        <Panel title="Working set" help="threads.workingset">
-          {ws.length === 0 ? <Empty>Nothing yet.</Empty> : <ul className="space-y-0.5 p-3 text-[12px] text-ink">{ws.map((l) => <li key={l}>{l}</li>)}</ul>}
-        </Panel>
-      </div>
-      <div className="space-y-3">
-        <Panel title="Open work" icon={<GitBranch size={14} />} help="threads.work">
-          <div className="space-y-0.5 p-3">
-            {!mine || mine.items.length === 0 ? <div className="text-[12px] text-ink-faint">Nothing open.</div> : mine.items.map((v) => <Item key={v.id} v={v} />)}
-          </div>
-        </Panel>
-        <Panel title="Recent turns" icon={<MessagesSquare size={14} />} help="threads.turns">
-          {t.session_id ? <Turns session={t.session_id} /> : <Empty>The first message opens its session.</Empty>}
-        </Panel>
-      </div>
-    </div>
-  )
+  return <div className="p-4"><ThreadBody slug={slug} /></div>
 }

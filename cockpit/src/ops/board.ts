@@ -139,6 +139,9 @@ export function boardRows({ views, tasks, sessions, lines = {}, now }: BoardInpu
 /** A row's time of need: within Needs you the longest waiting comes first, as in the queue. */
 const needSince = (r: OpsRow): number => r.view?.attention.since_ms ?? r.task?.info?.attention?.since_ms ?? r.activityMs
 
+/** Done shows its older rows fifty at a time: "more (N older)". */
+export const DONE_PAGE = 50
+
 export interface BoardColumns {
   needs: OpsRow[]
   working: OpsRow[]
@@ -279,3 +282,8 @@ export function chipChoices(rows: readonly OpsRow[]): { thread: string[]; model:
 
 /** Is a row's task alive (not ended)? Its acts (pause, stop) are only for the living. */
 export const alive = (r: OpsRow): boolean => r.column !== 'done' && !(r.task?.info && ENDED_INFO.includes(r.task.info.state) && !r.view)
+
+/** The columns as the page moves through them (`h`/`l`), Done holding today and the older page shown. */
+export function laneRows(c: BoardColumns, older: number): OpsRow[][] {
+  return [c.needs, c.working, c.paused, c.scheduled, [...c.done, ...c.older.slice(0, older)]]
+}

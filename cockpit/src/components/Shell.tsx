@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { Command, defaultFilter } from 'cmdk'
 import {
   Activity, CalendarClock, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Library, ListChecks, Navigation, OctagonX, Pause, Radio,
-  GitBranch, Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Telescope, Zap,
+  GitBranch, Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, ShipWheel, Telescope, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
 import { call, client, useConn, useRpc, usePush } from '@/lib/rpc'
@@ -34,6 +34,7 @@ import { paletteOrder, searchText, stateOf } from '@/lib/sessionState'
 
 const NAV = [
   { to: '/ship', label: 'Ship', icon: Sailboat },
+  { to: '/ops', label: 'Ops', icon: ShipWheel },
   { to: '/bridge', label: 'Bridge', icon: Gauge },
   { to: '/fleet', label: 'Fleet', icon: Layers },
   { to: '/tasks', label: 'Tasks', icon: ListChecks },
