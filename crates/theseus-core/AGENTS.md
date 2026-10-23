@@ -156,7 +156,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     with the thread's next record. A thread whose next message finds its cache window passed (`stubs::cold`, the same
     check) is recompiled small at the turn's first loop (`cold.rs`, trigger `cold_resume`): the fresh card, the
     summary, the newest `[threads] resume_keep_turns` turns, results over `clearing::MIN_CHARS` stubbed, a turn dropped
-    only when that is not enough (a ring, summarized as any ring is), to `[threads] working_tokens`. Unthreaded
+    only when that is not enough (a ring, summarized as any ring is), to the working size: `[threads] working_percent` (40) of the serving model's window, or `working_tokens` when set (`ThreadsConfig::working_size`; resume_keep_turns is 20; theseus-d9je7). Unthreaded
     sessions and warm threads are never touched by it. Tests: `compiler/tests_layers.rs`, `tests_cold.rs`,
     `rpc/tests_thread_context.rs`.
   - **The prefix library** (theseus-rr15, T13; store format 41; `prefix.rs`, `prefix/`, `config/prefix.rs`,
@@ -2670,6 +2670,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_route_defer.rs::a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget`, run in the owner's DM since the whole-request
   rule: at the cli a detour's request is about 7,300 tokens before a named family, so no AWS family (900 to 1,300) fits beside it there and the
   model reaches one with `tools_find` (`tests_detour::a_detour_naming_a_family_stays_within_its_place_budget`).
+  **A trivial detour carries `tools_find` only** (theseus-d9je7, the owner, 2026-10-22; `Deferral.bare`, `defer_step::Said`):
+  its `loaded` is empty save a family the message names or Jev judged relevant (`want::extra`), and `resolve` keeps the
+  find tool instead of falling back to every tool; its `context.detoured` tools part reads `trivial: tools_find only`.
+  A quick detour keeps its place's set. On a model with tool search the set is unchanged (the API refuses a request whose
+  tools are all deferred). Tests: `tests_trivial_tools.rs`; the budget-raise tests run on a quick detour, since a bare
+  request leaves a named family room under the budget.
   Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
   **Admitted families raise the cap, under a ceiling** (theseus-xlri5; `[tools.defer] admit_ceiling` 2.0, `judge_families`,
   `judge_wait_ms` 200): for a model without tool search, a family the message names, then one Jev judges relevant

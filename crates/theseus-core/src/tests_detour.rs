@@ -329,7 +329,8 @@ pub(crate) fn owner_shape(c: &mut crate::Config, dir: &std::path::Path) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_detour_naming_a_family_stays_within_its_place_budget() {
     let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
+    // A quick detour: a trivial one carries `tools_find` alone (theseus-d9je7).
+    mode(&jev, "quick", 0.95);
     let dir = tempfile::tempdir().unwrap();
     let (r, haiku) = rig_haiku(&jev, 1, |c| {
         owner_shape(c, dir.path());

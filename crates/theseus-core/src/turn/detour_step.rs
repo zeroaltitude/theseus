@@ -30,6 +30,17 @@ pub(super) fn detour_spec(spec: &RequestSpec) -> RequestSpec {
     detour
 }
 
+/// What a detour's tools part is called: a trivial one's request holds `tools_find` alone
+/// (theseus-d9je7), and the row says so.
+fn tools_name(tools: &[serde_json::Value], kind: &str) -> String {
+    match tools {
+        [one] if kind == "trivial" && one["name"] == crate::tools_defer::FIND => {
+            "trivial: tools_find only".into()
+        }
+        _ => format!("{} tools", tools.len()),
+    }
+}
+
 /// The tokens each tail block added to a detour's request, measured as the
 /// estimate each one moved.
 #[derive(Default)]
@@ -105,7 +116,7 @@ impl TurnRunner {
         part("session", "the session's directory".into(), session);
         part(
             "tools",
-            format!("{} tools", compiled.request.tools.len()),
+            tools_name(&compiled.request.tools, &t.route.detour_kind),
             tools,
         );
         part("persona", "the persona's tail line".into(), tail.persona);

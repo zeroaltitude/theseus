@@ -89,7 +89,8 @@ async fn a_detour_without_tool_search_reaches_a_tool_the_message_names() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget() {
     let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
+    // A quick detour: a trivial one carries `tools_find` alone (theseus-d9je7).
+    mode(&jev, "quick", 0.95);
     let (r, haiku) = rig_detouring_to(&jev, "aws_whoami", true);
     let res = turn(
         &r.core,

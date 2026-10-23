@@ -111,6 +111,17 @@ impl TurnRunner {
         spec.card = Some(Card::new(now, recorded.flatten()));
     }
 
+    /// The window a cold resume's working size is a share of: the compile's own (the catalog's,
+    /// lowered by `[context] working_window_tokens`), a million when the model is not known.
+    fn cold_window(&self, spec: &RequestSpec) -> u64 {
+        let catalog = self.catalog.get(&spec.model).map(|e| e.context_window);
+        self.cfg
+            .context
+            .working_window(catalog)
+            .or(catalog)
+            .unwrap_or(1_000_000)
+    }
+
     /// The spec of a turn's first loop when its thread resumes cold: its next
     /// message came after the cache window (`cold`: the turn's first compile
     /// decided it), so the compile rewrites it small. None: the spec stands.
@@ -122,7 +133,7 @@ impl TurnRunner {
         let mut s = spec.clone();
         s.cold = Some(Cold {
             keep_turns: t.resume_keep_turns,
-            working_tokens: t.working_tokens,
+            working_tokens: t.working_size(self.cold_window(spec)),
         });
         Some(s)
     }

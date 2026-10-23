@@ -87,9 +87,10 @@
 //!   one, or home), as a place with two would; a spoken turn still runs at
 //!   home. Off, it runs at home unasked, as before.
 //! - `resume_keep_turns`: the newest turns a thread keeps whole when its next
-//!   message finds its cache gone (6; `thread-context`).
-//! - `working_tokens`: what a thread's request stays within after such a cold
-//!   resume (60,000), its newest turn aside.
+//!   message finds its cache gone (20; `thread-context`).
+//! - `working_percent`: what a thread's request stays within after such a cold
+//!   resume, as a share of the serving model's context window (40; 1 to 100), its newest
+//!   turn aside. `working_tokens`, when set, is that size in tokens and wins.
 //! - `home_warn_percent`: the share of the serving model's context window a place's home may
 //!   reach before the owner's DM is told once (50; 1 to 100). A long session is otherwise fine;
 //!   the warning is for a home near the window. Not `working_tokens`.
@@ -176,8 +177,10 @@ pub struct ThreadsConfig {
     pub single_offers_new: bool,
     #[serde(default = "default_resume_keep_turns")]
     pub resume_keep_turns: u32,
-    #[serde(default = "default_working_tokens")]
-    pub working_tokens: u64,
+    #[serde(default)]
+    pub working_tokens: Option<u64>,
+    #[serde(default = "default_working_percent")]
+    pub working_percent: u8,
     #[serde(default = "default_home_warn_percent")]
     pub home_warn_percent: u8,
     #[serde(default)]
@@ -227,13 +230,22 @@ fn default_ask_wait() -> u64 {
     900
 }
 fn default_resume_keep_turns() -> u32 {
-    6
+    20
 }
-fn default_working_tokens() -> u64 {
-    60_000
+fn default_working_percent() -> u8 {
+    40
 }
 fn default_home_warn_percent() -> u8 {
     50
+}
+
+impl ThreadsConfig {
+    /// The tokens a cold resume stays within on a model with `window`: `working_tokens` when
+    /// set, else `working_percent` of the window.
+    pub fn working_size(&self, window: u64) -> u64 {
+        self.working_tokens
+            .unwrap_or_else(|| window / 100 * u64::from(self.working_percent))
+    }
 }
 
 impl Default for ThreadsConfig {
@@ -263,7 +275,8 @@ impl Default for ThreadsConfig {
             bench_clock: false,
             single_offers_new: true,
             resume_keep_turns: default_resume_keep_turns(),
-            working_tokens: default_working_tokens(),
+            working_tokens: None,
+            working_percent: default_working_percent(),
             home_warn_percent: default_home_warn_percent(),
             persona_engage: PersonaEngage::default(),
             seal_recommend: false,
@@ -321,8 +334,14 @@ impl ThreadsConfig {
         if self.resume_keep_turns == 0 {
             bail!("threads.resume_keep_turns is 0: a resume keeps at least the newest turn");
         }
-        if self.working_tokens < 2_000 {
+        if self.working_tokens.is_some_and(|w| w < 2_000) {
             bail!("threads.working_tokens is under 2,000: a resume could not keep a turn");
+        }
+        if !(1..=100).contains(&self.working_percent) {
+            bail!(
+                "threads.working_percent is {}: a share of the model's window, 1 to 100 (default 40)",
+                self.working_percent
+            );
         }
         if !(1..=100).contains(&self.home_warn_percent) {
             bail!(
@@ -366,9 +385,15 @@ mod tests {
             let toml = format!("{secrets}\n[threads]\n{bad}\n");
             assert!(crate::Config::parse(&toml).is_err(), "{bad}");
         }
-        assert_eq!(cfg.threads.resume_keep_turns, 6);
-        assert_eq!(cfg.threads.working_tokens, 60_000);
-        for bad in ["resume_keep_turns = 0", "working_tokens = 10"] {
+        assert_eq!(cfg.threads.resume_keep_turns, 20);
+        assert_eq!(cfg.threads.working_tokens, None);
+        assert_eq!(cfg.threads.working_percent, 40);
+        for bad in [
+            "resume_keep_turns = 0",
+            "working_tokens = 10",
+            "working_percent = 0",
+            "working_percent = 101",
+        ] {
             assert!(crate::Config::parse(&format!("{secrets}\n[threads]\n{bad}\n")).is_err());
         }
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());
@@ -512,6 +537,20 @@ mod tests {
             let e = crate::Config::parse(&note).unwrap_err().to_string();
             assert!(e.contains("home_warn_percent"), "{bad}: {e}");
         }
+    }
+
+    /// A cold resume's working size is a share of the serving model's window; a set
+    /// `working_tokens` wins (theseus-d9je7).
+    #[test]
+    fn the_working_size_is_a_share_of_the_window() {
+        let cfg = ThreadsConfig::default();
+        assert_eq!(cfg.working_size(1_000_000), 400_000);
+        assert_eq!(cfg.working_size(200_000), 80_000);
+        let set = crate::Config::from_toml("[threads]\nworking_tokens = 60000\n").unwrap();
+        assert_eq!(set.threads.working_size(1_000_000), 60_000);
+        let pct = crate::Config::from_toml("[threads]\nworking_percent = 25\n").unwrap();
+        assert_eq!(pct.threads.working_size(200_000), 50_000);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# working_percent = 40"));
     }
 
     /// A thread's set grows from its turns (theseus-98bz.5) by default, named
