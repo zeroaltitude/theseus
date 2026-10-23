@@ -61,6 +61,12 @@ impl Held {
     }
 }
 
+/// Whether a rule's clause is the guard's question (`Held::why`), which a
+/// card words as the guard's doubt rather than as a posture.
+pub fn is_question(clause: &str) -> bool {
+    clause.starts_with("This ") && clause.contains(", which isn't in ") && clause.ends_with('?')
+}
+
 /// `name` with its article: "the pr round", but a title that starts with one
 /// ("a path-traversal fix", "The pipeline") is left as it is.
 fn the(name: &str) -> String {
@@ -291,6 +297,22 @@ mod tests {
             held.why()
         );
         assert!(held.why().ends_with("Go on, or move it?"));
+    }
+
+    /// The card knows the guard's question by its shape, so its words and the
+    /// test move together.
+    #[test]
+    fn the_guards_question_is_known_by_the_card() {
+        for alt in [Some("security fix".to_string()), None] {
+            let h = Held {
+                path: "/work/a.rs".into(),
+                verb: "edits",
+                thread: "pr round".into(),
+                alt,
+            };
+            assert!(is_question(&h.why()), "{}", h.why());
+        }
+        assert!(!is_question("gh is on the approve list"));
     }
 
     #[test]

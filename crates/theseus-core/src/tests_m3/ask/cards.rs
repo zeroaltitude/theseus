@@ -121,3 +121,41 @@ async fn dm_cards_off_is_todays_post() {
         "{posted}"
     );
 }
+
+/// A thread's session is asked by the thread's title, not by the first
+/// message it was given; a task's title still wins where a task asks
+/// (theseus-zcn80).
+#[tokio::test]
+async fn a_thread_sessions_question_is_asked_by_the_thread() {
+    use crate::approval::{Answerer, Surface};
+    let r = owned_rig(vec![], false);
+    let cli = || Answerer {
+        label: "the CLI".into(),
+        surface: Surface::Cli,
+        discord: None,
+        agent: None,
+    };
+    r.core
+        .thread_new(
+            &theseus_protocol::threads::ThreadNewParams {
+                slug: "harbour-log".into(),
+                title: Some("Harbour log notes".into()),
+                ..Default::default()
+            },
+            cli(),
+        )
+        .unwrap();
+    let sid = r
+        .core
+        .thread_session("harbour-log", cli())
+        .unwrap()
+        .session_id;
+    let mut rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    rec.title = Some("Say ok, nothing else.".into());
+    r.core.store.put_session(&sid, &rec).unwrap();
+    let req = theseus_protocol::ConfirmRequest {
+        session_id: sid,
+        ..Default::default()
+    };
+    assert_eq!(r.core.asker_name(&req), "Harbour log notes");
+}

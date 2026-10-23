@@ -413,6 +413,7 @@ impl Chat {
         };
         let mut effects = Vec::new();
         self.note_away(&event);
+        self.placed_continues(&event);
         match event {
             Event::TurnStarted(t) if self.ours_in(&t.session_id, Some(&t.turn_id)) => {
                 if self.mine.len() > KEPT {
@@ -454,6 +455,7 @@ impl Chat {
                 self.tool_ended(&t);
             }
             Event::ConfirmRequested(c) if self.ours_in(&c.session_id, c.turn_id.as_deref()) => {
+                self.placed_asked(&c);
                 self.ask(c)
             }
             e @ (Event::ThreadAsked(_) | Event::ThreadPlaced(_)) => {

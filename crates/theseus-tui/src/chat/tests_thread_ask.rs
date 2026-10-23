@@ -368,3 +368,120 @@ async fn a_held_turn_names_no_model_in_the_chat() {
     r.press(KeyCode::Enter).await;
     r.shows("900 ms · Sonnet 5.5").await;
 }
+
+fn continuation(session: &str, turn: &str) -> Event {
+    Event::TurnStarted(TurnStarted {
+        session_id: session.into(),
+        turn_id: turn.into(),
+        continuation: true,
+        ..Default::default()
+    })
+}
+
+fn ended(session: &str, turn: &str, output: &str) -> Event {
+    Event::TurnEnded(TurnSubmitResult {
+        session_id: session.into(),
+        turn_id: turn.into(),
+        output: output.into(),
+        model: "claude-sonnet-5-5".into(),
+        stop_reason: "done".into(),
+        ..Default::default()
+    })
+}
+
+fn resolved(corr: &str) -> Event {
+    Event::ConfirmResolved(theseus_protocol::ConfirmResolved {
+        correlation_id: corr.into(),
+        session_id: PLACED.into(),
+        approved: true,
+        option: Some("approve".into()),
+        ..Default::default()
+    })
+}
+
+/// The walkthrough: a message placed in a thread on a guess, the guard's
+/// question, the answer, then the thread session's continuation. The chat
+/// watches that session (the answer and the continuation are published to
+/// its watchers alone), so the card resolves and the reply prints under it
+/// (theseus-nde5n).
+#[tokio::test(start_paused = true)]
+async fn a_placed_threads_answered_question_resolves_and_its_reply_prints() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.tell(asking(Some("turn_t1")));
+    r.shows("y yes").await;
+    r.settle().await;
+    let watched: Vec<_> = r
+        .daemon
+        .asked("session.watch")
+        .iter()
+        .map(|p| p["session_id"].clone())
+        .collect();
+    assert!(watched.contains(&json!(PLACED)), "{watched:?}");
+    r.press(KeyCode::Char('y')).await;
+    r.asked("action.confirm", 1).await;
+    assert!(r.text().contains("answering…"), "{}", r.text());
+    r.tell(resolved("act_turn_t1"));
+    r.tell(continuation(PLACED, "turn_c1"));
+    r.tell(ended(PLACED, "turn_c1", "Wrote the harbour summary."));
+    r.shows("Wrote the harbour summary.").await;
+    let text = r.text();
+    assert!(text.contains("approved"), "{text}");
+    assert!(!text.contains("answering…"), "{text}");
+}
+
+/// Only the continuation of this chat's own question is the chat's: a turn
+/// another surface sent to the thread, and a continuation nobody here asked
+/// for, stay out.
+#[tokio::test(start_paused = true)]
+async fn another_turn_of_the_placed_session_still_does_not_print() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.tell(asking(Some("turn_t1")));
+    r.shows("y yes").await;
+    r.tell(resolved("act_turn_t1"));
+    r.tell(started(PLACED, "turn_other"));
+    r.tell(ended(PLACED, "turn_other", "From the other surface."));
+    r.advance(300).await;
+    assert!(
+        !r.text().contains("From the other surface."),
+        "{}",
+        r.text()
+    );
+    // The continuation after the answer is the chat's, and only once.
+    r.tell(continuation(PLACED, "turn_c1"));
+    r.tell(ended(PLACED, "turn_c1", "Done here."));
+    r.shows("Done here.").await;
+    r.tell(continuation(PLACED, "turn_c2"));
+    r.tell(ended(PLACED, "turn_c2", "Not asked here."));
+    r.advance(300).await;
+    assert!(!r.text().contains("Not asked here."), "{}", r.text());
+}
+
+/// After a reconnect the placed session is watched again.
+#[tokio::test(start_paused = true)]
+async fn a_reconnect_watches_the_placed_session_again() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.settle().await;
+    r.daemon.close();
+    r.until("the status line to say offline", |r| {
+        r.text().contains("offline")
+    })
+    .await;
+    r.advance(1_000).await;
+    r.until("the dock to leave offline", |r| {
+        !r.text().contains("offline")
+    })
+    .await;
+    let later = r.later.lock().unwrap();
+    let ids: Vec<_> = later[0]
+        .asked("session.watch")
+        .iter()
+        .map(|p| p["session_id"].clone())
+        .collect();
+    assert!(ids.contains(&json!(PLACED)), "{ids:?}");
+}

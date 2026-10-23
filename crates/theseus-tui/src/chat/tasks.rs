@@ -84,6 +84,15 @@ impl Chat {
         Self::watch_with(sid, &[])
     }
 
+    /// `session.watch` of one session: its events reach this connection.
+    pub(super) fn watch_session(sid: &str) -> Effect {
+        call(
+            method::SESSION_WATCH,
+            json!({ "session_id": sid }),
+            Purpose::Watch,
+        )
+    }
+
     /// The same watch with the sessions of turns the router placed in
     /// threads (theseus-umb8a). A connection holds one `work.watch`, and a
     /// new one replaces the roots of the last, so this names them all.
