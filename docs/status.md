@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-23 09:14 MST. Version 1.0.0 (v1); the design document is at v0.91._
+_Updated 2026-10-23 10:18 MST. Version 1.0.1 (v1 patch1); the design document is at v0.91._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -18,6 +18,41 @@ This page changes with every step that lands. The [README](../README.md) stays t
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and
 for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
+
+## v1 patch1
+
+**v1 patch1 (version 1.0.1)** is tagged `release-1.0.1`: the first fix release after v1, every row of its bundle joined
+and installed. The tagged build is the `release` profile (fat LTO). What it changed (each row's own entry is under
+"Recently landed"):
+
+- **Google Workspace tools:** mail, calendar, drive, sheets and slides, each REST call recorded as a `google.called`
+  row; a send, an invite or a share asks first.
+- **Threads and their routing:** a clear message lands in the right thread 91-93% of the time on threadbench (78% before)
+  and asks for 5% of them (11% before); every work stream gets its own thread.
+- **One message convention** for everything Theseus says unasked: a kind tag (ℹ️ FYI, ✋ Action, ❓ Decision, ⚠️ Alert), an
+  operational title and what triggered it (`docs/messages.md`). The Discord DM task flow is locked by one golden test.
+- **The China-origin model rows** under the owner's data rule: Jev's data question keeps private work off them, and
+  text naming a `[privacy] sensitive_names` entry goes only to models of US origin, an allowlist that fails closed.
+- **Effort on evidence:** effort applies at its own bar below the model-switch line, so MAX now reaches `xhigh`.
+- **Fixes from v1's benchmarks and the owner's walkthroughs**, among them the card hot loop (an idle daemon at ~80% of a
+  core) and a note Theseus writes itself never posted cut off.
+
+Its numbers ([the omnibus](benchmarks/omnibus.md)):
+
+- **Coding, HIGH** ([the 10-21 rerun](benchmarks/2026-10-21-terminal-bench-rerun-high.md)): 77.2% [71.8, 81.8] on the
+  89 tasks × 3, against v1's 73.0% and Claude Code's 75.3%.
+- **Coding, MAX** ([the 10-23 retest](benchmarks/2026-10-23-terminal-bench-retest-max.md)): 71.6% [61.0, 80.3] on 27 of
+  the hard 30 × 3, level with the 10-21 rerun on the same tasks (−2.5 points, −13.6 to +7.4), at $0.470 a solve, still
+  the least of the harnesses. The six HIGH tasks that timed out on 10-21 solved 4 of 18
+  ([the retest](benchmarks/2026-10-23-terminal-bench-retest-high-timeouts.md)); their timeouts are the tasks' own.
+- **Speed** (quiet machine, 10-22): steady idle memory 40.4 MB for the daemon; the send path 49.5 ms, level with v1 on
+  the same window but over its 30 ms target (below).
+
+Known limits carried to v1 patch2: the send path's ~21 ms over target (theseus-nsp9l.4), the daemon's first idle minute
+at ~52 MB before it settles at 38 (theseus-nsp9l.5), the release binary at 91.8 MB against a 60 MB budget, a thread
+that can still pull in another thread's notes (theseus-n6mkd), and Jev rarely asking for `max` (theseus-ujzuh).
+
+Next is **v1 patch2** (tag `release-1.0.2`).
 
 ## v1
 
