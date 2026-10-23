@@ -66,7 +66,7 @@ impl App {
             .find(|t| t.thread.session_id.as_deref() == Some(sid))
     }
 
-    /// The status line: `bh-ai pr · active · 41K ctx · warm`, or `home`.
+    /// The status line: `ex-ai pr · active · 41K ctx · warm`, or `home`.
     /// Nothing for a TUI that has never met a thread, so the header of one
     /// who uses none is as it was.
     pub fn thread_status(&self, width: usize) -> Option<String> {

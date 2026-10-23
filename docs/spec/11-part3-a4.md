@@ -801,6 +801,7 @@ deterministic floor, and it landed before the owner's end-to-end test.
   "Approve + trust session", and its settle; the web UI card's third button and marker, and the
   Observatory's External text section.
 - **Config**: `[policy] external_text = "ask" | "notify"`, `ask` by default, in the template.
+  - *Note (2026-10-23, theseus-cuv2o):* since theseus-nsqqo an unset `external_text` follows `[policy] enforcement`; the template shows `ask`.
 
 **How it is proven.**
 - The gate at 41e8fa5 ran 509 tests, 13 of them new: 9 through the whole core, 2 unit tests of the rule,
