@@ -50,7 +50,12 @@ export default function Ops() {
   const nav = useNavigate()
   const [params, setParams] = useSearchParams()
   const a = useMemo(() => parseAddress(params), [params])
-  const set = useCallback((patch: Partial<Address>) => setParams((p) => writeAddress({ ...parseAddress(p), ...patch }, p), { replace: true }), [setParams])
+  // Each change is made on the address as it stands now: two keys pressed faster than a render (`g h`, then tab)
+  // must not rebuild the second from the query the first replaced.
+  const set = useCallback((patch: Partial<Address>) => setParams(() => {
+    const now = new URLSearchParams(window.location.search)
+    return writeAddress({ ...parseAddress(now), ...patch }, now)
+  }, { replace: true }), [setParams])
   const tick = useTick(15_000)
   const world = useDeferredValue(useWorld())
   const past = world?.t ?? null
@@ -99,7 +104,9 @@ export default function Ops() {
   useEffect(() => {
     const was = before.current
     before.current = keys
-    if (was !== keys) setFresh(new Set(arrived(was, queue)))
+    // A new set only when something arrived: a state set on every render would starve the router's navigations.
+    const came = arrived(was, queue)
+    if (came.length) setFresh(new Set(came))
     // Only an item that was here and left moves the cursor: a deep link read before the queue is never cleared.
     if (isItemKey(a.sel) && was.includes(a.sel!) && !keys.includes(a.sel!)) set({ sel: keepCursor(was, queue, a.sel) })
   }, [keys]) // eslint-disable-line react-hooks/exhaustive-deps

@@ -56,3 +56,11 @@ test('a deep link survives the queue’s first read, and the Threads lens matche
   // The lens groups the board itself: a thread is the same thread by its slug, not by its object.
   assert.match(page, /matches=\{\(t\) => shownSlugs\.has\(t\.group\.slug\)\}/)
 })
+
+test('a page left alone renders nothing new: its lists hold still between renders', () => {
+  // The router's asks were a fresh array every render, so the queue's keys changed every render and the arrival
+  // effect set state every render: an endless loop that starved every navigation (the lens switch did nothing).
+  assert.match(src('ops/asks.ts'), /return useMemo\(\(\) => asks\.filter\(\(x\) => x\.ask\.expires_ms > now\), \[asks, now\]\)/)
+  assert.match(page, /const came = arrived\(was, queue\)\n\s+if \(came\.length\) setFresh\(new Set\(came\)\)/)
+  assert.match(page, /const NONE: never\[\] = \[\]/)
+})
