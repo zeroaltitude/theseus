@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
@@ -126,6 +126,55 @@ async fn a_block_is_written_once_per_distinct_text_and_resolves_by_digest() {
             String::from_utf8(text).unwrap(),
             sent[0].system[i]["text"].as_str().unwrap(),
             "block {i} is the text the request carried"
+        );
+    }
+}
+
+/// A new compilation's request never waits on its blocks' syncs
+/// (theseus-nsp9l.4): two files and the directory, ~7 ms each on the owner's
+/// disk, were ~21 ms of the send path, between the input's frame and the
+/// request. Held here, the request still reaches the model, and the turn does
+/// not end; once the writes land it ends, and every block reads back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_compilations_request_never_waits_on_its_blocks_syncs() {
+    let rig = rig(None);
+    script(&rig, &[ORIGINAL]);
+    let sid = session(&rig.core, None, &[]);
+    let syncs = rig.core.store.blobs().syncs();
+    let release = rig.core.store.blobs().hold_puts();
+    let asked = {
+        let (core, sid) = (rig.core.clone(), sid.clone());
+        tokio::spawn(async move { turn(&core, &sid, ASK).await })
+    };
+    let t0 = Instant::now();
+    while rig.model.requests().is_empty() {
+        assert!(
+            t0.elapsed() < Duration::from_secs(10),
+            "the request waited on the blocks' syncs"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        rig.core.store.blobs().syncs(),
+        syncs,
+        "the request left before any block was synced"
+    );
+    // The model has answered; the turn waits on its blocks, not past them.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !asked.is_finished(),
+        "the turn ended before its blocks were kept"
+    );
+    drop(release);
+    asked.await.unwrap();
+    let c = compilation_of(&rig.core, &sid);
+    let blocks = &c.manifest.cache.as_ref().unwrap().blocks;
+    assert!(!blocks.is_empty());
+    for b in blocks {
+        let d = b.digest.as_deref().expect("a block is stamped");
+        assert!(
+            rig.core.store.blobs().read(d).is_some(),
+            "block {d} is kept once the turn has ended"
         );
     }
 }

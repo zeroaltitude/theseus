@@ -447,6 +447,8 @@ struct Turn<'a> {
     end_note: end_note_step::Held,
     /// The last compile's size and window (theseus-wy6v.2).
     fill: fill_step::Fill,
+    /// The new compilations' system blocks on their way to the blobs (theseus-nsp9l.4).
+    keeping: compile_step::Keeping,
     /// The standing blocks the turn's spec and tail carry, and its surface.
     standing: standing_step::Held,
     /// Its open requests' clearances (theseus-a1wvq.8).
@@ -582,6 +584,7 @@ impl<'a> Turn<'a> {
             nudge: nudge_step::Nudge::default(),
             end_note: end_note_step::Held::of(execution_id),
             fill: fill_step::Fill::default(),
+            keeping: compile_step::Keeping::default(),
             standing: standing_step::Held::default(),
             data: open_step::Held::default(),
         }
@@ -1651,7 +1654,7 @@ impl TurnRunner {
         // land here, so no step after a paid loop can skip its spend.
         match boxed(|| {
             let fork = (&slots.0, &slots.1, &slots.2, &slots.3);
-            self.turn_body(&mut t, &mut session, provider.as_ref(), asked, fork)
+            self.body_kept(&mut t, &mut session, provider.as_ref(), asked, fork)
         })
         .await
         {
@@ -1659,6 +1662,27 @@ impl TurnRunner {
             Ok(Next::Fail(f)) => Err(Self::fail(t, &mut session, f)),
             Err(e) => Err(Self::fault(t, &mut session, e)),
         }
+    }
+
+    /// The turn's body, then the wait for the new system blocks it wrote
+    /// beside its calls (theseus-nsp9l.4): a turn that has ended has its
+    /// blocks kept.
+    async fn body_kept<'a>(
+        &self,
+        t: &mut Turn<'a>,
+        session: &mut SessionRecord,
+        provider: &dyn Provider,
+        asked: Asked,
+        fork: (
+            &'a OnceLock<Target>,
+            &'a OnceLock<Target>,
+            &'a checkpoint_step::Slots,
+            &'a OnceLock<Target>,
+        ),
+    ) -> Result<Next> {
+        let body = self.turn_body(t, session, provider, asked, fork).await;
+        Self::blocks_kept(t).await;
+        body
     }
 
     /// The turn's body (§3.3): catch up on what happened while no turn ran,
@@ -2445,6 +2469,9 @@ impl TurnRunner {
                 }));
             }
         };
+        // The plan frame is durable: the new system blocks' syncs start now,
+        // beside the request, not before it (theseus-nsp9l.4).
+        Self::start_keeping(t);
         let started_ms = theseus_protocol::now_unix_ms();
         // The syncs before the model's first byte (theseus-2uby): every frame
         // the turn wrote up to its first call's dispatch, that one included.

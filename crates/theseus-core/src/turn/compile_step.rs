@@ -5,6 +5,15 @@
 
 use super::*;
 
+/// A turn's new system blocks on their way to the blobs (theseus-nsp9l.4):
+/// the texts no blob holds yet, kept back until the call's plan frame is
+/// durable, then their writes, waited for once the turn's body is done.
+#[derive(Default)]
+pub(super) struct Keeping {
+    texts: Vec<Vec<u8>>,
+    writing: Vec<tokio::task::JoinHandle<()>>,
+}
+
 impl TurnRunner {
     /// Render the session into this loop's request: an append to the current
     /// compilation, or a recompile (persisted with the session's pointer).
@@ -185,7 +194,7 @@ impl TurnRunner {
         // Routing may move the turn (25e): only the compilation the call
         // uses is persisted (`route_step`).
         if compiled.new_compilation && !t.route.defer_persist {
-            Self::keep_blocks(t.tc.store, &mut compiled);
+            Self::keep_blocks(t, &mut compiled);
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         ph.mark("persist");
@@ -212,10 +221,30 @@ impl TurnRunner {
     }
 
     /// The new compilation's system blocks, each stored once under its digest
-    /// (own-benchmark), before the frame that names them.
-    pub(super) fn keep_blocks(store: &Store, compiled: &mut Compiled) {
+    /// (own-benchmark): stamped here, written once the call's plan frame is
+    /// durable (`start_keeping`, `cache::keep`, theseus-nsp9l.4).
+    pub(super) fn keep_blocks(t: &mut Turn<'_>, compiled: &mut Compiled) {
         let texts = crate::compiler::cache::stamp(&mut compiled.compilation, &compiled.request);
-        crate::compiler::cache::keep(store.blobs(), &texts);
+        let fresh = crate::compiler::cache::fresh(t.tc.store.blobs(), &texts);
+        t.keeping.texts.extend(fresh);
+    }
+
+    /// Start writing the blocks `keep_blocks` kept back, on the blocking pool.
+    pub(super) fn start_keeping(t: &mut Turn<'_>) {
+        let fresh = std::mem::take(&mut t.keeping.texts);
+        let blobs = t.tc.store.blobs_handle();
+        t.keeping
+            .writing
+            .extend(crate::compiler::cache::keep(&blobs, fresh));
+    }
+
+    /// Wait for the blocks' writes, starting any no call reached: called once
+    /// the turn's body is done, so a turn that has ended has its blocks kept.
+    pub(super) async fn blocks_kept(t: &mut Turn<'_>) {
+        Self::start_keeping(t);
+        for writing in std::mem::take(&mut t.keeping.writing) {
+            let _ = writing.await;
+        }
     }
 
     /// The window a request on `spec`'s model compiles against, when
