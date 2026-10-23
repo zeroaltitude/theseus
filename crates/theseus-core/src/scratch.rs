@@ -51,10 +51,15 @@ fn named(base: &Path, tag: &str) -> PathBuf {
 /// a test froze read-only (an extension's copy, a sealed runner's binaries) is
 /// made writable first and removed again.
 fn remove(path: impl AsRef<Path>) {
-    let path = path.as_ref();
-    if std::fs::remove_dir_all(path).is_err() {
+    remove_with(path.as_ref(), |p| std::fs::remove_dir_all(p));
+}
+
+/// `remove`, its directory removal given: a test fails the first one, which a
+/// non-root runner's read-only tree does, and sees the tree thawed for the second.
+fn remove_with(path: &Path, remove_dir: impl Fn(&Path) -> std::io::Result<()>) {
+    if remove_dir(path).is_err() {
         thaw(path);
-        let _ = std::fs::remove_dir_all(path).or_else(|_| std::fs::remove_file(path));
+        let _ = remove_dir(path).or_else(|_| std::fs::remove_file(path));
     }
 }
 
@@ -178,6 +183,35 @@ mod tests {
             std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o555)).unwrap();
         }
         remove(&p);
+        assert!(!p.exists());
+    }
+
+    /// Root removes a `0o555` tree without a thaw, so the removal above guards
+    /// nothing there: this one fails the first attempt as a non-root runner's
+    /// would, and holds that every directory is writable before the second.
+    #[test]
+    fn a_read_only_tree_is_thawed_before_its_second_removal() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tempfile::tempdir().unwrap();
+        let p = make(base.path(), "ro-thaw");
+        let inner = p.join("store/sealed");
+        std::fs::create_dir_all(&inner).unwrap();
+        for d in [&inner, &p.join("store"), &p] {
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o555)).unwrap();
+        }
+        let tries = std::cell::Cell::new(0);
+        remove_with(&p, |path| {
+            tries.set(tries.get() + 1);
+            if tries.get() == 1 {
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
+            for d in [&inner, &p.join("store"), &p] {
+                let mode = std::fs::metadata(d).unwrap().permissions().mode();
+                assert_eq!(mode & 0o700, 0o700, "{d:?} is {mode:o} at the second try");
+            }
+            std::fs::remove_dir_all(path)
+        });
+        assert_eq!(tries.get(), 2);
         assert!(!p.exists());
     }
 }
