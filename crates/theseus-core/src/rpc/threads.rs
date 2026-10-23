@@ -304,6 +304,7 @@ impl Core {
                         surfaces: vec![],
                         parent: None,
                         merged_into: None,
+                        persona: None,
                         split_from,
                         links: vec![],
                         session_id: None,

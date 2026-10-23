@@ -210,6 +210,7 @@ impl Ontology {
                 }
             }
             Record::Guidance(g) => {
+                crate::persona::check_guidance(g)?;
                 if by != Origin::Operator {
                     self.check_guidance_writer(g, by)?;
                 }
@@ -229,6 +230,7 @@ impl Ontology {
             }
             Record::Members(l) => {
                 let kind = self.kind_of(&l.kind)?;
+                crate::persona::check_list(l)?;
                 if !kind.stores() {
                     return Err(given_memberships(kind));
                 }
@@ -459,6 +461,7 @@ impl Ontology {
     /// interpreted one's name is its own among its siblings.
     fn check_category(&self, c: &Category) -> Result<(), Refusal> {
         c.check_fields()?;
+        crate::persona::check_default(self, c)?;
         let kind = self.kind_of(c.kind())?;
         if let Some(p) = &c.parent {
             let Some(parent_kind) = kind.parent.as_deref() else {
@@ -582,6 +585,7 @@ impl Ontology {
     /// nothing hangs below it, and no session's list still holds it (the
     /// merge moves them first). Its guidance goes with the merge.
     fn check_merged(&self, c: &Category, into: &CategoryId) -> Result<(), Refusal> {
+        crate::persona::check_merge(c)?;
         if c.kind() != into.kind() {
             return Err(Refusal::WrongKind {
                 why: format!(

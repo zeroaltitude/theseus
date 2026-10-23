@@ -353,6 +353,7 @@ impl Kind {
     /// never takes a membership from the transport. Precedence, rule, and
     /// description are the operator's to change.
     fn check_basis(&self) -> Result<(), Refusal> {
+        crate::persona::pinned(self)?;
         match given_seed(&self.name) {
             Some(seed) => {
                 let facts = [
@@ -598,6 +599,18 @@ fn interpreted_seeds() -> Vec<Kind> {
                 90,
                 Rule::Chain,
                 "How things are done here, learned from corrections over time.",
+            ),
+        ),
+        interpreted(
+            crate::persona::KIND,
+            &[Operator, Import],
+            PerSession::AtMost(1),
+            (
+                None,
+                100,
+                Rule::IntentLine,
+                "A persona: who answers a message. Its soul is a file; Jev picks one per message. \
+                 Only the owner writes one.",
             ),
         ),
     ]

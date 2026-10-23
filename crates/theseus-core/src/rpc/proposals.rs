@@ -669,6 +669,7 @@ fn topic_of(
                     retired_ms: None,
                     handles: Vec::new(),
                     merged_into: None,
+                    persona: None,
                 };
                 (c.id.clone(), Some(c))
             }
@@ -811,6 +812,7 @@ fn new_person(o: &Ontology, d: &Decided, name: &str, who: &Answerer) -> Result<C
         retired_ms: None,
         handles,
         merged_into: None,
+        persona: None,
     })
 }
 

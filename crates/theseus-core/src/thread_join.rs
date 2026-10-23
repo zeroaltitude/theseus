@@ -172,6 +172,7 @@ mod tests {
             surfaces: vec![],
             parent: None,
             merged_into: None,
+            persona: None,
             split_from: None,
             links: vec![],
             session_id: None,

@@ -133,6 +133,7 @@ impl Core {
             retired_ms: None,
             handles,
             merged_into: None,
+            persona: None,
         };
         // A person whose exact handle another holds is that person: the new
         // handles and name join the held one (the automatic merge), and no

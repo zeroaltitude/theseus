@@ -293,6 +293,7 @@ pub fn bound_category(target: &str, name: &str, guild: Option<&str>) -> Option<C
         retired_ms: None,
         handles: Vec::new(),
         merged_into: None,
+        persona: None,
     })
 }
 
