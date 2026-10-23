@@ -740,6 +740,14 @@ impl PolicyConfig {
             "enforcement"
         }
     }
+
+    /// [`Self::external_mode`] and the key that decided it, for the runtime.
+    pub fn external_rule(&self) -> crate::external::Rule {
+        crate::external::Rule {
+            mode: self.external_mode(),
+            key: self.external_key(),
+        }
+    }
 }
 
 impl Default for PolicyConfig {

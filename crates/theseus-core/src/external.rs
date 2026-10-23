@@ -79,6 +79,15 @@ pub struct Rule {
     pub key: &'static str,
 }
 
+impl Default for Rule {
+    fn default() -> Self {
+        Self {
+            mode: Mode::default(),
+            key: "external_text",
+        }
+    }
+}
+
 impl Mode {
     pub fn as_str(self) -> &'static str {
         match self {

@@ -204,15 +204,11 @@ impl ToolRuntime {
         } else {
             (at.held)()
         };
-        let rule = crate::external::Rule {
-            mode: self.external_text,
-            key: self.external_key,
-        };
         let decision = crate::external::gate(
             decision,
             class,
             &held,
-            rule,
+            self.external,
             tool.name(),
             input,
             &plan.summary,
