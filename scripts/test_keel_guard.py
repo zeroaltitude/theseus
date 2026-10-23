@@ -738,6 +738,152 @@ class BudgetArms(Case):
         self.assertClean({self.LC: sub(sub(base, "let m = 2.0;", "let m = 1.0;"),
                                        "Some(\n            3.0,\n        ).unwrap()", "Some(3.0).unwrap()")})
 
+    # theseus-b7vuh: the y4ajh review's F1-F4.
+
+    CANCEL = '        "cancel" => Some(100.0),\n'
+    CONST_ARM = '        "surfaces" => Some(surfaces::BUDGET_MS),\n'
+
+    def shadow(self, guard, value, base=None):
+        """`base` (default LIFECYCLE) with a guarded `"cancel"` arm above the unguarded one."""
+        return sub(base or LIFECYCLE, self.CANCEL, f'        "cancel" if {guard} => Some({value}),\n' + self.CANCEL)
+
+    def test_a_guarded_arm_shadowing_an_arm_is_judged_against_it(self):
+        # F1: rustc takes the first arm, so under its guard "cancel" now has 9,000 ms where it had 100.
+        self.assertCaught("budget-raised", self.LC, {self.LC: self.shadow("sessions > 10", "9_000.0")})
+        code, out = self.findings()
+        self.assertEqual(out.count("budget-raised: "), 1, out)
+        self.assertIn('"cancel" => Some(100.0) -> "cancel" if sessions > 10 => Some(9_000.0)', out)
+
+    def test_a_guarded_arm_shadowing_a_constant_arm_is_raised(self):
+        base = self.const_base()
+        head = sub(base, self.CONST_ARM, '        "surfaces" if sessions > 10 => Some(9_000.0),\n' + self.CONST_ARM)
+        self.assertCaught("budget-raised", self.LC, {self.LC: head})
+        code, out = self.findings()
+        self.assertIn('"surfaces" => Some(surfaces::BUDGET_MS) -> "surfaces" if sessions > 10 => Some(9_000.0)', out)
+
+    def test_a_guarded_arm_shadowing_an_arm_with_a_lower_or_equal_value_is_clean(self):
+        self.assertClean({self.LC: self.shadow("sessions > 10", "90.0")})
+        self.assertClean({self.LC: self.shadow("sessions > 10", "100.0")})
+        base = self.const_base()
+        self.assertClean({self.LC: sub(base, self.CONST_ARM, '        "surfaces" if sessions > 10 => '
+                                       'Some(surfaces::BUDGET_MS),\n' + self.CONST_ARM)})
+
+    OWN_LINE = '        "cancel"\n            if sessions > 10 => Some(100.0),\n'
+
+    def own_line_base(self):
+        return self.base_with(self.CANCEL, self.OWN_LINE + self.CANCEL)
+
+    def test_a_guard_on_its_own_line_is_read_as_a_guard(self):
+        # F1's note: rustfmt breaks a long guard onto the next line. A changed guard is a rewrite of that arm.
+        base = self.own_line_base()
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "sessions > 10", "sessions > 20")})
+        code, out = self.findings()
+        self.assertIn('"cancel" if sessions > 10 => Some(100.0) -> (gone or rewritten)', out)
+
+    def test_a_guard_on_its_own_line_is_judged_like_any_guarded_arm(self):
+        base = self.own_line_base()
+        self.assertCaught("budget-raised", self.LC,
+                          {self.LC: sub(base, self.OWN_LINE, self.OWN_LINE.replace("100.0", "150.0"))})
+        self.assertClean({self.LC: sub(base, self.OWN_LINE, self.OWN_LINE.replace("100.0", "90.0"))})
+        # And a new arm of that shape shadowing "cancel" is judged against it.
+        self.assertCaught("budget-raised", self.LC,
+                          {self.LC: sub(LIFECYCLE, self.CANCEL, self.OWN_LINE.replace("100.0", "900.0") + self.CANCEL)})
+
+    def test_an_own_line_guarded_arm_added_over_the_fall_through_is_raised(self):
+        self.assertCaught("budget-raised", self.LC, {self.LC: self.arms('"seed"\n            if phase.len() > 3 => 2.0')})
+        code, out = self.findings()
+        self.assertIn('_ => 0.0 (the fall-through) -> "seed" if phase.len() > 3 => 2.0', out)
+
+    def test_a_constant_arm_reformatted_over_lines_is_clean(self):
+        # F2: the value is the same constant, broken as rustfmt breaks a long call.
+        base = self.const_base()
+        broken = '        "surfaces" => Some(\n            surfaces::BUDGET_MS,\n        ),\n'
+        self.assertClean({self.LC: sub(base, self.CONST_ARM, broken)})
+
+    def test_a_constant_arm_reformatted_to_another_value_is_raised(self):
+        base = self.const_base()
+        for value in ("surfaces::SLOW_MS", "surfaces::BUDGET_MS * 2.0"):
+            broken = f'        "surfaces" => Some(\n            {value},\n        ),\n'
+            self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, self.CONST_ARM, broken)})
+
+    TWO = '        "cancel" => Some(100.0), "tui" => Some(2.0),\n'
+
+    def test_two_arms_on_one_line_are_both_read(self):
+        # F3: the second arm of a line was dropped from the arms and from line pairing alike.
+        base = self.base_with(self.CANCEL, self.TWO)
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "Some(2.0)", "Some(3.0)")})
+        code, out = self.findings()
+        self.assertEqual(out.count("budget-raised: "), 1, out)
+        self.assertIn('"tui" => Some(2.0) -> "tui" => Some(3.0)', out)
+
+    def test_two_arms_on_one_line_lowered_or_split_are_clean(self):
+        base = self.base_with(self.CANCEL, self.TWO)
+        self.assertClean({self.LC: sub(base, "Some(2.0)", "Some(1.0)")})
+        self.assertClean({self.LC: sub(base, self.TWO, self.CANCEL + '        "tui" => Some(2.0),\n')})
+
+    METHOD = '        "tui" => { cap }.min(Some(2.0)),\n'
+
+    def test_a_block_followed_by_a_method_call_is_read_whole(self):
+        # F4: the value ended at the block's `}`, so a raise inside `.min(...)` was lost.
+        base = self.base_with(self.CANCEL, self.CANCEL + self.METHOD)
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "Some(2.0)", "Some(3.0)")})
+        code, out = self.findings()
+        self.assertIn('"tui" => { cap }.min(Some(2.0)) -> "tui" => { cap }.min(Some(3.0))', out)
+
+    def test_a_block_followed_by_a_method_call_lowered_is_clean(self):
+        base = self.base_with(self.CANCEL, self.CANCEL + self.METHOD)
+        self.assertClean({self.LC: sub(base, "Some(2.0)", "Some(1.0)")})
+
+    def test_a_constant_block_before_a_method_call_rewritten_is_raised(self):
+        # theseus-b7vuh round 2: the number after the block must not hide a rewrite of the block's constant, as it
+        # was not hidden before F4 (a rewrite of `{ x }` was a finding whatever followed it).
+        for method in ("min", "max"):
+            base = self.base_with(self.CANCEL, self.CANCEL + self.METHOD.replace(".min(", f".{method}("))
+            for tail in ("Some(2.0)", "Some(1.0)"):
+                self.assertCaught("budget-raised", self.LC, {self.LC: sub(
+                    base, f"{{ cap }}.{method}(Some(2.0))", f"{{ other }}.{method}({tail})")})
+                code, out = self.findings()
+                self.assertIn(f'"tui" => {{ cap }}.{method}(Some(2.0)) -> "tui" => {{ other }}.{method}({tail})', out)
+
+    def test_a_constant_block_before_a_method_call_rewritten_to_a_literal_is_raised(self):
+        base = self.base_with(self.CANCEL, self.CANCEL + self.METHOD)
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "{ cap }.min(Some(2.0))", "Some(1.0)")})
+
+    def test_a_constant_block_before_a_method_call_kept_is_clean(self):
+        base = self.base_with(self.CANCEL, self.CANCEL + self.METHOD)
+        self.assertClean({self.LC: sub(base, "{ cap }.min(Some(2.0))", "{ cap }.min(Some(1.0))")})
+        self.assertClean({self.LC: sub(base, "{ cap }.min(Some(2.0))", "{  cap  }.min(Some(2.0))")})
+
+    # theseus-b7vuh round 3: the call after a block on its own line (rustfmt's chain form) is part of the value too.
+    BLOCK_TAIL = '        "tui" => {\n            cap\n        }\n        .min(2.0),\n'
+
+    def block_tail_base(self):
+        return self.base_with(self.FALL, self.BLOCK_TAIL + self.FALL)
+
+    def test_a_block_with_its_call_on_its_own_line_swapped_is_raised(self):
+        # `.min(2.0)` -> `.max(2.0)` turns a cap into a floor; the tail is on a line of its own, outside the block.
+        base = self.block_tail_base()
+        for tail in (".max(2.0)", ".min(1.0).max(9.0)"):
+            self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "        .min(2.0),", f"        {tail},")})
+
+    def test_a_block_with_its_call_on_its_own_line_swapped_is_raised_for_an_option(self):
+        base = self.base_with(self.CANCEL, self.CANCEL + '        "tui" => {\n            cap\n        }\n'
+                              '        .min(Some(2.0)),\n')
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(
+            base, ".min(Some(2.0))", ".min(Some(1.0)).max(Some(9.0))")})
+
+    def test_a_block_with_its_call_on_its_own_line_kept_or_lowered_is_clean(self):
+        base = self.block_tail_base()
+        self.assertClean({self.LC: sub(base, "        .min(2.0),", "        .min(1.0),")})
+        self.assertClean({self.LC: sub(base, "        .min(2.0),", "        .min(  2.0 ),")})
+        # A pure reformat of the same block and call: onto one line.
+        self.assertClean({self.LC: sub(base, self.BLOCK_TAIL, '        "tui" => { cap }.min(2.0),\n')})
+
+    def test_a_one_line_block_with_its_call_swapped_is_raised(self):
+        # y4ajh's guard missed this one as well; stricter, inside the owner's ack.
+        base = self.base_with(self.FALL, '        "tui" => { cap }.min(2.0),\n' + self.FALL)
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "}.min(2.0)", "}.max(2.0)")})
+
     SURFACES = "crates/theseus-sim/src/lifecycle/surfaces.rs"
 
     def test_a_sim_budget_const_raised(self):
