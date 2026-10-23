@@ -297,7 +297,10 @@ impl Core {
         let of = episodes.iter().map(|e| e.session_id.as_str());
         let provider = crate::google::private::over_sessions(provider, &self.store, &self.cfg, of);
         let scrubber = self.tools.scrubber.clone();
-        let request = card::request(&target.model, title, episodes, &|t| scrubber.scrub(t).0);
+        let thinking = self.runner.catalog.thinking_off(&target.model);
+        let request = card::request(&target.model, thinking, title, episodes, &|t| {
+            scrubber.scrub(t).0
+        });
         let Some(need) = self.audit_reserve(&request) else {
             return fail(format!("no price for {}", target.model));
         };
@@ -334,6 +337,10 @@ impl Core {
         out.model = resp.model.clone();
         out.input_tokens = resp.usage.input_tokens;
         out.output_tokens = resp.usage.output_tokens;
+        if crate::provider::hit_cap(resp.stop_reason.as_deref()) {
+            out.failed = Some(crate::provider::cap_phrase(card::MAX_TOKENS));
+            return out;
+        }
         match card::parse(&resp.content, episodes) {
             Some(parsed) if !parsed.lines.is_empty() => {
                 let (lines, cited) = card::render(&parsed.lines, episodes);

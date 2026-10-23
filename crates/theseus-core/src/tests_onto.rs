@@ -452,6 +452,63 @@ async fn the_naming_call_is_made_once_a_session_kind_and_day() {
     assert!(batch["state"].to_string().contains("Ledger move"));
 }
 
+/// A naming call cut at its cap (theseus-opypg) says so in its row, turns
+/// thinking off, and does not spend that day's naming slot: the session's
+/// next such message names it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_naming_call_cut_at_its_cap_keeps_the_days_slot() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "new", 0.9);
+    jev.script_onto("topic_name", "none", 0.9);
+    let cut = Scripted::Blocks {
+        blocks: vec![
+            json!({"type": "tool_use", "id": "tu_1", "name": "name_category", "input": {}}),
+        ],
+        stop_reason: "max_tokens".into(),
+    };
+    let named = Scripted::tools(
+        "",
+        &[(
+            "tu_2",
+            "name_category",
+            json!({"names": ["Ledger move"], "description": "Moving the ledger."}),
+        )],
+    );
+    let r = rig_with(jev, vec![cut, named], |_| {});
+    let sid = bound(&r.core);
+    said(&r, &sid, SAID).await;
+    for _ in 0..100 {
+        if !kinds(&r.core.store, "onto.named").is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let row = &kinds(&r.core.store, "onto.named")[0].data;
+    let why = row["failed"].as_str().unwrap();
+    assert!(why.contains("max_tokens") && why.contains("300"), "{why}");
+    let sent = r.namer.requests();
+    let want = r.core.runner.catalog.thinking_off(&sent[0].model);
+    assert!(
+        want.is_some(),
+        "{}: a model that turns thinking off",
+        sent[0].model
+    );
+    assert_eq!(sent[0].thinking, want);
+    // The slot is not spent: the same day's next message is named.
+    said(&r, &sid, SAID).await;
+    for _ in 0..100 {
+        if r.namer.requests().len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        r.namer.requests().len(),
+        2,
+        "a cut call does not use the day's slot"
+    );
+}
+
 /// `ontology.kind.add` adds an interpreted kind Jev may assign, after the
 /// last one; it is not added twice, and `retire` takes away only a kind
 /// nothing holds and that is not seeded.

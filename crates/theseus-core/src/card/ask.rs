@@ -114,8 +114,15 @@ pub fn tool() -> Value {
     })
 }
 
-/// The request for `shown`, scrubbed by `scrub`.
-pub fn request(model: &str, shown: &[Shown], scrub: &dyn Fn(&str) -> String) -> ProviderRequest {
+/// The request for `shown`, scrubbed by `scrub`, with `thinking` as
+/// `catalog::thinking_off` gives it: the cap would be spent thinking first
+/// (theseus-opypg).
+pub fn request(
+    model: &str,
+    thinking: Option<Value>,
+    shown: &[Shown],
+    scrub: &dyn Fn(&str) -> String,
+) -> ProviderRequest {
     let mut body = String::new();
     for s in shown {
         body.push_str(&format!("{}:\n", s.label));
@@ -135,7 +142,7 @@ pub fn request(model: &str, shown: &[Shown], scrub: &dyn Fn(&str) -> String) -> 
         system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": body}]})],
         tools: vec![tool()],
-        thinking: None,
+        thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),

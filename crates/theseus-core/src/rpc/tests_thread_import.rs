@@ -480,6 +480,30 @@ async fn an_answer_with_no_card_is_a_thread_without_one() {
     assert_eq!(rows(&r.core, "thread.imported").len(), 1);
 }
 
+/// A card call cut at its cap names the cap and turned thinking off
+/// (theseus-opypg), where "no write_card call" hid the cause.
+#[tokio::test]
+async fn a_card_cut_at_its_cap_says_so_and_thinks_off() {
+    let cut = Scripted::Blocks {
+        blocks: vec![json!({"type": "tool_use", "id": "tu", "name": TOOL, "input": {}})],
+        stop_reason: "max_tokens".into(),
+    };
+    let r = rig(vec![cut], |_| {});
+    import_export(&r.core).await;
+    let got = run(&r.core, &params(Some(&["boat-ops"]))).await;
+    let why = got.applied[0].card_failed.as_deref().unwrap();
+    assert!(why.contains("max_tokens") && why.contains("1,200"), "{why}");
+    assert!(!why.contains("no write_card call"), "{why}");
+    let sent = r.fake.requests();
+    let want = r.core.runner.catalog.thinking_off(&sent[0].model);
+    assert!(
+        want.is_some(),
+        "{}: a model that turns thinking off",
+        sent[0].model
+    );
+    assert_eq!(sent[0].thinking, want);
+}
+
 /// The import is the owner's, from a private place: a person in a shared
 /// channel is refused, and with threads off so is everyone.
 #[tokio::test]

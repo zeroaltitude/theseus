@@ -75,7 +75,8 @@ impl Core {
         lines: &[Line],
     ) -> crate::provider::ProviderRequest {
         let scrubber = self.runner.judge.scrubber.clone();
-        extract::request(model, title, lines, &|t| scrubber.scrub(t).0)
+        let thinking = self.runner.catalog.thinking_off(model);
+        extract::request(model, thinking, title, lines, &|t| scrubber.scrub(t).0)
     }
 
     /// The names each session was asked about before (`people.v1`'s
@@ -144,6 +145,13 @@ impl Core {
         };
         let id = crate::new_id("ppl");
         let (model, usage, found, failed) = match &answered {
+            // A cut answer's tool input is empty or partial: never a whole one.
+            Ok(r) if crate::provider::hit_cap(r.stop_reason.as_deref()) => (
+                r.model.clone(),
+                Some(r.usage.clone()),
+                Vec::new(),
+                Some(crate::provider::cap_phrase(extract::MAX_TOKENS)),
+            ),
             Ok(r) => match extract::parse(&r.content, &s.lines) {
                 Some(found) => (r.model.clone(), Some(r.usage.clone()), found, None),
                 None => (

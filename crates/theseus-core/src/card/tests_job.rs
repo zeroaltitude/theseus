@@ -580,6 +580,39 @@ async fn a_failed_call_is_tried_again_next_run() {
     assert_eq!(second.proposed.len(), 2, "{second:?}");
 }
 
+/// A card call cut at its cap names the cap (theseus-opypg): the cut tool
+/// input is empty, and "the answer held no state_cards call" hid the cause.
+#[tokio::test]
+async fn a_card_call_cut_at_its_cap_says_so() {
+    let cut = Scripted::Blocks {
+        blocks: vec![json!({"type": "tool_use", "id": "tu", "name": TOOL, "input": {}})],
+        stop_reason: "max_tokens".into(),
+    };
+    let r = rig(vec![cut], |_| {});
+    archive(&r).await;
+    let got = propose(&r).await;
+    let why = got.stopped.as_deref().unwrap();
+    assert!(why.contains("max_tokens") && why.contains("1,500"), "{why}");
+    assert!(!why.contains("held no"), "{why}");
+}
+
+/// The card call turns thinking off where the model can (theseus-opypg):
+/// its 1,500 cap would be spent thinking first.
+#[tokio::test]
+async fn the_card_call_turns_thinking_off() {
+    let r = rig(vec![two()], |_| {});
+    archive(&r).await;
+    propose(&r).await;
+    let sent = r.fake.requests();
+    let want = r.core.runner.catalog.thinking_off(&sent[0].model);
+    assert!(
+        want.is_some(),
+        "{}: a model that turns thinking off",
+        sent[0].model
+    );
+    assert_eq!(sent[0].thinking, want);
+}
+
 /// Only the owner, from a private place, may ask, answer or list.
 #[tokio::test]
 async fn only_the_owner_may() {
