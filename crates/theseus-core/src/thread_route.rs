@@ -504,17 +504,38 @@ fn entity_of(h: &[(Kind, String)], hitting: usize) -> f64 {
 /// Every thread's (entity, stickiness, chain) from its hits and its raw
 /// (stickiness, chain): one thread's entity counts less when another is
 /// hit too, and a thread the message names nothing of loses half its
-/// stickiness and its chain when another thread's entity is named.
-fn settle(hits: &[Vec<(Kind, String)>], raw: &[(f64, f64)]) -> Vec<(f64, f64, f64)> {
+/// stickiness and its chain when another thread is named. A thread is named
+/// by an entity hit or by its title (`titled`, theseus-7nx13): right after
+/// one thread's reply, a message naming another by title no longer leaves
+/// the replier its whole chain. A title naming the thread itself leaves its
+/// own chain alone; an entity hit anywhere still takes every chain.
+fn settle(
+    hits: &[Vec<(Kind, String)>],
+    titled: &[bool],
+    raw: &[(f64, f64)],
+) -> Vec<(f64, f64, f64)> {
     let hitting = hits.iter().filter(|h| !h.is_empty()).count();
+    let named: Vec<bool> = hits
+        .iter()
+        .zip(titled)
+        .map(|(h, &t)| t || !h.is_empty())
+        .collect();
+    let naming = named.iter().filter(|n| **n).count();
+    let titles = titled.iter().filter(|t| **t).count();
     hits.iter()
         .zip(raw)
-        .map(|(h, &(sticky, chain))| {
-            let other_named = hitting > 0 && h.is_empty();
+        .zip(named.iter().zip(titled))
+        .map(|((h, &(sticky, chain)), (&named, &titled))| {
+            let other_named = naming > 0 && !named;
+            let other_titled = titles > usize::from(titled);
             (
                 entity_of(h, hitting),
                 if other_named { sticky * 0.5 } else { sticky },
-                if hitting == 0 { chain } else { 0.0 },
+                if hitting == 0 && !other_titled {
+                    chain
+                } else {
+                    0.0
+                },
             )
         })
         .collect()
@@ -546,15 +567,17 @@ pub fn pre_route(
             )
         })
         .collect();
-    let settled = settle(&hits, &standing);
+    // A title the message names is evidence beside the entity, never shared
+    // out (theseus-4qdh8); it names the thread to `settle` too (theseus-7nx13).
+    let titles: Vec<Option<f64>> = threads.iter().map(|t| title_hit(text, &t.title)).collect();
+    let titled: Vec<bool> = titles.iter().map(Option::is_some).collect();
+    let settled = settle(&hits, &titled, &standing);
     threads
         .iter()
         .zip(hits)
         .zip(standing.into_iter().zip(settled))
-        .map(|((t, h), (standing, (entity, sticky, chain)))| {
-            // A title the message names is evidence beside the entity, never
-            // shared out (theseus-4qdh8).
-            let title = title_hit(text, &t.title);
+        .zip(titles)
+        .map(|(((t, h), (standing, (entity, sticky, chain))), title)| {
             Pre {
                 slug: t.slug.clone(),
                 title: t.title.clone(),
@@ -670,16 +693,19 @@ pub fn apart_by_dir<'b>(
         .zip(&apart)
         .map(|(p, &a)| if a { (0.0, 0.0) } else { p.standing })
         .collect();
-    let settled = settle(&hits, &raw);
-    for (((p, h), (entity, sticky, chain)), apart) in
-        pre.iter_mut().zip(hits).zip(settled).zip(apart)
+    // A title the message names counts for every thread, an apart one too:
+    // the rule drops what only looks like naming (a bare file name from
+    // another directory), and a title said whole names the thread wherever
+    // the turn runs (theseus-4qdh8, theseus-7nx13).
+    let titles: Vec<Option<f64>> = pre.iter().map(|p| title_hit(text, &p.title)).collect();
+    let titled: Vec<bool> = titles.iter().map(Option::is_some).collect();
+    let settled = settle(&hits, &titled, &raw);
+    for ((((p, h), (entity, sticky, chain)), apart), title) in
+        pre.iter_mut().zip(hits).zip(settled).zip(apart).zip(titles)
     {
         p.entity = entity;
         p.sticky = sticky;
         p.chain = chain;
-        // A named title still counts for a thread the directory rule left
-        // alone (theseus-4qdh8); an apart thread loses it with the rest.
-        let title = (!apart).then(|| title_hit(text, &p.title)).flatten();
         p.hits = (h.into_iter().map(|(_, e)| e))
             .chain(title.map(|_| p.title.clone()))
             .collect();
@@ -1515,6 +1541,69 @@ mod tests {
         };
         let p = pre_route("and the tests too", &t, Some(&late), 3_800_000, 600_000);
         assert!(p.iter().all(|x| x.score < GUESS), "{p:?}");
+    }
+
+    /// A title the message names takes the replier's chain away as an entity
+    /// does (theseus-7nx13, tail4-route F4): right after thread A's reply, a
+    /// message naming thread B by its title no longer scores A's chain 0.7
+    /// against B's 0.35. A title naming the replier itself leaves its chain.
+    #[test]
+    fn a_title_named_right_after_a_reply_takes_the_repliers_chain() {
+        let all = [pr_round(), security_fix()];
+        let t = refs(&all);
+        let last = Last {
+            slug: Some("security-fix".into()),
+            at_ms: 100_000,
+            replied_ms: Some(110_000),
+        };
+        let now = 130_000;
+        let p = pre_route("and the pr round too", &t, Some(&last), now, 600_000);
+        assert_eq!(p[0].hits, ["pr round"], "{p:?}");
+        assert_eq!(p[1].chain, 0.0, "{p:?}");
+        assert!(p[0].score > p[1].score, "{p:?}");
+        // Half its stickiness goes too, as when another thread's entity is named.
+        let plain = pre_route("and the tests too", &t, Some(&last), now, 600_000);
+        assert_eq!(p[1].sticky, plain[1].sticky * 0.5, "{p:?}");
+        // The replier named by its own title keeps its chain and stickiness.
+        let own = pre_route("and the security fix too", &t, Some(&last), now, 600_000);
+        assert_eq!(own[1].hits, ["security fix"], "{own:?}");
+        assert_eq!(own[1].chain, plain[1].chain, "{own:?}");
+        assert_eq!(own[1].sticky, plain[1].sticky, "{own:?}");
+    }
+
+    /// The directory rule leaves a thread its title (theseus-7nx13): a title
+    /// said whole names the thread wherever the turn runs, so an apart thread
+    /// the message names keeps that evidence and takes the others' chain.
+    #[test]
+    fn an_apart_thread_keeps_its_named_title() {
+        let home = Path::new("/h");
+        let dev = th(
+            "dev",
+            "lighthouse dev",
+            ws(&["#412"], &[], &[], &[], &[], &["~/projects/lighthouse"]),
+        );
+        let ops = th("ops", "ops rota", ws(&["#977"], &[], &[], &[], &[], &[]));
+        let t = [&dev, &ops];
+        let last = Last {
+            slug: Some("ops".into()),
+            at_ms: 1_000,
+            replied_ms: Some(1_000),
+        };
+        let text = "what is left in the lighthouse dev thread";
+        let mut pre = pre_route(text, &t, Some(&last), 1_000, 600_000);
+        let base = |t: &ThreadInfo| (t.slug == "dev").then_some("/h/projects/lighthouse");
+        apart_by_dir(
+            &mut pre,
+            &t,
+            text,
+            Some("~/projects/walkthrough"),
+            base,
+            Some(home),
+        );
+        assert_eq!(pre[0].hits, ["lighthouse dev"], "{pre:?}");
+        assert!(pre[0].score > 0.0, "{pre:?}");
+        assert_eq!(pre[1].chain, 0.0, "{pre:?}");
+        assert!(pre[0].score > pre[1].score, "{pre:?}");
     }
 
     // ---- fusion and the decision table
