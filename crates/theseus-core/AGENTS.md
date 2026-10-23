@@ -349,7 +349,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`Core::card_run`, behind `card.propose` and the nightly tender): at most `MAX_CALLS` calls of `BATCH` clusters, each
   reserved on `[card] day_usd` and the day ceiling first, one frame a call (proposals, the sent episodes, the job's
   state, the `card.proposed` spend row); a statement repeating a live standing record or any proposal's words
-  (`cluster::similar`) is dropped; `[card] max_open` waiting at most (a real run that finds it full is an attempt: it records `last_run_ms`, scans nothing, and the next comes on the normal schedule; the tender also keeps a `ran` mark like its twins, theseus-15kn3). A proposal is the META record `card.proposal.<id>`
+  (`cluster::similar`) is dropped; `[card] max_open` waiting at most (a real run that finds it full is an attempt: it
+  records `last_run_ms`, scans nothing, and the next comes on the normal schedule; the tender also keeps a `ran` mark like
+  its twins, set by each real attempt but not by the daily done look, theseus-15kn3). A proposal is the META record
+  `card.proposal.<id>`
   (`CardProposal`: the question, `Keep/Edit/Not this`, its sources, expiry); `card.answer` keeps or edits it through
   `standing_add` (`source` `card:<id>`) then settles the proposal and writes `card.answered` with the episodes; Not this
   and expiry (`card_expire`, applied when the card is read or the job runs, no timer) make its sources seen for good.

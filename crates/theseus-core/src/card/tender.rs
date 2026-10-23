@@ -66,7 +66,9 @@ impl Core {
             };
             let run = move |trigger: &'static str| {
                 let core = core.clone();
-                ran.store(theseus_protocol::now_unix_ms(), Ordering::Relaxed);
+                if trigger != "done" {
+                    ran.store(theseus_protocol::now_unix_ms(), Ordering::Relaxed);
+                }
                 async move {
                     let Some(c) = core.upgrade() else { return };
                     if trigger == "done" {
