@@ -258,7 +258,9 @@ async fn thread_session(c: &Arc<Core>, jev: &FakeJev, slug: &str) -> String {
 /// `recall`, the same turn also admits a plain recalled note (another
 /// thread's), whose frame
 /// rewrites the recall rides: the mark still rides the first call's frame.
-async fn the_digest_marks(recall: bool) {
+/// With `sensitive_note`, that note's session is sensitive, and the asker ends
+/// sensitive though the digest marked it private first (J2 of theseus-jid7t.1).
+async fn the_digest_marks(recall: bool, sensitive_note: bool) {
     let jev = FakeJev::start().unwrap();
     let r = rig_on(texts(6), Some(&jev), |c| {
         inbound_only(c);
@@ -290,6 +292,12 @@ async fn the_digest_marks(recall: bool) {
     if recall {
         // A note of the quillhn thread, whose session holds no mark.
         let quill = thread_session(c, &jev, "quillhn").await;
+        if sensitive_note {
+            crate::tests_private_background::mark(c, &quill);
+            c.store
+                .put_meta(&crate::google::private::sensitive_key(&quill), &"nd_test")
+                .unwrap();
+        }
         c.runner
             .memory
             .set_ask(crate::tests_recall::index_of(c, vec![quill]));
@@ -311,16 +319,26 @@ async fn the_digest_marks(recall: bool) {
         crate::tests_private_recall::glm_call_on(c, &pr).await,
         Err("data_gate".to_string())
     );
+    let want = match sensitive_note {
+        true => crate::google::private::Level::Sensitive,
+        false => crate::google::private::Level::Private,
+    };
+    assert_eq!(crate::google::private::level(&c.store, &c.cfg, &pr), want);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_shown_threads_google_mark_follows_the_digest() {
-    the_digest_marks(false).await;
+    the_digest_marks(false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_digests_mark_rides_beside_a_plain_recalled_note() {
-    the_digest_marks(true).await;
+    the_digest_marks(true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recalled_sensitive_note_raises_a_private_digests_mark() {
+    the_digest_marks(true, true).await;
 }
 
 /// A turn whose scope is `thread`, and one whose answer is later than
