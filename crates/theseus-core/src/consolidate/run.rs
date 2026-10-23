@@ -546,7 +546,7 @@ impl Core {
         hold.settle(cost);
         let (text, model, cost, cut) = match answered {
             Ok(resp) => {
-                let cut = resp.stop_reason.as_deref() == Some("max_tokens");
+                let cut = crate::provider::hit_cap(resp.stop_reason.as_deref());
                 (resp.text.trim().to_string(), resp.model, cost, cut)
             }
             Err(e) => {
@@ -568,11 +568,7 @@ impl Core {
         let entry = pure::entry(&text);
         // A cut-off answer is rejected for its form, never kept (theseus-050g2).
         let verdict = match cut {
-            true => Verdict::Rejected(
-                format!("the answer stopped at its cap of {MAX_TOKENS} tokens (max_tokens)"),
-                Vec::new(),
-                None,
-            ),
+            true => Verdict::Rejected(crate::provider::cap_phrase(MAX_TOKENS), Vec::new(), None),
             false => self.verdict(&id, entry.text, sources).await,
         };
         let session = match &verdict {

@@ -341,7 +341,7 @@ impl Core {
             theseus_store::blocking(|| self.store.put_meta(MARK, &mark))?;
             let text = match answered {
                 // A cut-off answer is refused, never written (theseus-050g2).
-                Ok(resp) if resp.stop_reason.as_deref() == Some("max_tokens") => {
+                Ok(resp) if crate::provider::hit_cap(resp.stop_reason.as_deref()) => {
                     tracing::warn!(category = %id, output_tokens = resp.usage.output_tokens,
                         "dream: the guidance stopped on max_tokens; refused");
                     out.refused += 1;

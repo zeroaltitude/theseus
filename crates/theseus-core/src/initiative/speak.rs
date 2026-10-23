@@ -216,7 +216,7 @@ impl Core {
             let Ok(r) = answered else {
                 return template(spent, Some(target.model), cut.as_ref());
             };
-            if r.stop_reason.as_deref() == Some("max_tokens") {
+            if crate::provider::hit_cap(r.stop_reason.as_deref()) {
                 tracing::warn!(
                     kind = facts.kind,
                     cap,

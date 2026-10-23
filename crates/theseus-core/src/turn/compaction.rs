@@ -296,7 +296,8 @@ impl TurnRunner {
                 n(limit)
             )));
         }
-        let ask = |cut| request_for((&target.model, max_tokens), price.thinking, &range, cut);
+        let thinking = thinking_for(&self.catalog, &target.model, price.thinking);
+        let ask = |cut| request_for((&target.model, max_tokens), thinking.clone(), &range, cut);
         let mut request = ask(NODE_CHARS);
         let mut est = compiler::estimate(&request, price.bytes_per_token, None);
         let room = price
@@ -479,9 +480,19 @@ impl TurnRunner {
         );
         // What it cost joins the turn's books, written or not (R1).
         t.cost = t.cost.map(|c| c + micros_to_usd(cost));
+        // A summary cut at its cap is a fragment of the range, never its
+        // replacement (theseus-2c6iz): it settles like an answer with no text.
+        let cut = crate::provider::hit_cap(resp.stop_reason.as_deref());
         let text = resp.text.trim();
         let (first, last) = span_of(range);
-        let summary = (!text.is_empty()).then(|| {
+        let no_summary = match cut {
+            true => format!(
+                "the summary call {}",
+                crate::provider::cap_phrase(p.request.max_tokens)
+            ),
+            false => "the summary call answered with no text".to_string(),
+        };
+        let summary = (!text.is_empty() && !cut).then(|| {
             let header = header_of(nodes, messages, (first, last), profile, &resp.model);
             Node::summary(
                 t.tc.session_id,
@@ -505,7 +516,7 @@ impl TurnRunner {
                 "ring"
             },
             why: match summary.is_none() {
-                true => Some("the summary call answered with no text"),
+                true => Some(no_summary.as_str()),
                 false => note.as_deref(),
             },
             profile,
@@ -532,27 +543,17 @@ impl TurnRunner {
             extra.push(n.record()?);
         }
         extra.push(t.tc.rec().row(&fact)?);
+        let completion = settlement(&action, &resp, started_ms, (&target.provider, cost));
         let completion = Completion {
-            correlation_id: action.correlation_id.clone(),
-            outcome: ActionOutcome::Succeeded,
             result_ref: summary.as_ref().map(|n| n.id.clone()),
-            external_op_id: resp.request_id.clone(),
-            started_at_ms: started_ms,
-            finished_at_ms: theseus_protocol::now_unix_ms(),
-            producer: format!("provider:{}", target.provider),
-            signature: None,
-            cost_micros: Some(cost),
-            detail: Some(
-                json!({"served_model": resp.model, "message_id": resp.message_id,
-                "purpose": "compaction"}),
-            ),
+            ..completion
         };
         t.tc.kernel.accept_completion_with(&completion, extra)?;
         t.announce_fact(&fact);
         let Some(summary) = summary else {
             return Ok(Err(Fallback {
                 recorded: true,
-                ..Fallback::new("the summary call answered with no text")
+                ..Fallback::new(no_summary)
             }));
         };
         t.tc.node_written(&summary);
@@ -589,6 +590,30 @@ impl TurnRunner {
             reason: format!("{OVERAGE_CLASS}: {message}"),
             source: anyhow::anyhow!("{message} Send something smaller, or start a new session."),
         })
+    }
+}
+
+/// The settlement of a summary call that answered, with no result yet.
+fn settlement(
+    action: &theseus_kernel::Action,
+    resp: &crate::provider::ModelResponse,
+    started_ms: u64,
+    (provider, cost): (&str, u64),
+) -> Completion {
+    Completion {
+        correlation_id: action.correlation_id.clone(),
+        outcome: ActionOutcome::Succeeded,
+        result_ref: None,
+        external_op_id: resp.request_id.clone(),
+        started_at_ms: started_ms,
+        finished_at_ms: theseus_protocol::now_unix_ms(),
+        producer: format!("provider:{provider}"),
+        signature: None,
+        cost_micros: Some(cost),
+        detail: Some(
+            json!({"served_model": resp.model, "message_id": resp.message_id,
+            "purpose": "compaction"}),
+        ),
     }
 }
 
@@ -790,12 +815,26 @@ fn summary_drops(ring: &Compiled, done: &Done) -> Vec<BudgetDrop> {
     out
 }
 
+/// The `thinking` of a summary call (theseus-2c6iz): off where the model lets
+/// it (`catalog::thinking_off`: an adaptive model thinks by default, and its
+/// thinking would spend the summary's cap), and omitted-display adaptive for
+/// a model that always thinks.
+fn thinking_for(
+    catalog: &crate::catalog::Catalog,
+    model: &str,
+    mode: ThinkingMode,
+) -> Option<serde_json::Value> {
+    match mode {
+        ThinkingMode::Always => Some(json!({"type": "adaptive", "display": "omitted"})),
+        _ => catalog.thinking_off(model),
+    }
+}
+
 /// The summary call's request: the instructions, then the range as text,
-/// a folded summary first. No tools, and no thinking unless the model
-/// cannot turn it off.
+/// a folded summary first. No tools, and `thinking` as [`thinking_for`] says.
 fn request_for(
     (model, max_tokens): (&str, u32),
-    thinking: ThinkingMode,
+    thinking: Option<serde_json::Value>,
     range: &Range<'_>,
     node_chars: usize,
 ) -> ProviderRequest {
@@ -832,8 +871,7 @@ fn request_for(
         system: vec![json!({"type": "text", "text": system})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": content}]})],
         tools: Vec::new(),
-        thinking: (thinking == ThinkingMode::Always)
-            .then(|| json!({"type": "adaptive", "display": "omitted"})),
+        thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),
@@ -934,7 +972,7 @@ mod tests {
         let at = |cut| {
             let q = request_for(
                 ("claude-sonnet-5-5", 4096),
-                ThinkingMode::Adaptive,
+                Some(json!({"type": "between_tools"})),
                 &range,
                 cut,
             );
