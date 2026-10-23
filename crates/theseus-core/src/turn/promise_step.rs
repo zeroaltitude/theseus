@@ -34,6 +34,8 @@ impl TurnRunner {
             cost_usd: None,
             model: None,
             text: None,
+            stop_reason: None,
+            output_tokens: None,
         });
     }
 }

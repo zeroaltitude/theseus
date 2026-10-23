@@ -12,6 +12,14 @@
 //!
 //! What it costs, in the header of nothing: the call is made only for a
 //! message the persona's level lets through (`Initiative::lets`), a few a day.
+//!
+//! A cut-off answer is never posted (theseus-050g2): at a 200-token cap,
+//! Sonnet 5.5's default thinking spent up to all of it and the morning note
+//! went out as half a sentence. The call asks with thinking off where the
+//! model lets it (`catalog::thinking_off`) at [`MAX_TOKENS`]; an answer that
+//! stops on `max_tokens` is asked once more at [`RETRY_MAX_TOKENS`], within
+//! the day's line, and past that the message is its template. The row
+//! records the last call's `stop_reason` and output tokens.
 
 use std::sync::Arc;
 
@@ -25,7 +33,7 @@ use crate::config::PersonaView;
 use crate::context_files::{ContextPath, ContextReaders};
 use crate::fact::initiative::InitiativeSpoke;
 use crate::places::PlaceClass;
-use crate::provider::ProviderRequest;
+use crate::provider::{ModelResponse, ProviderRequest};
 use crate::rpc::Core;
 use crate::standing::{Block, Scope};
 
@@ -33,8 +41,12 @@ use crate::standing::{Block, Scope};
 pub const TASK: &str = "Write the one short message below to the owner, in your own voice, in \
 two sentences at most. State only what the facts say, and promise nothing the facts do not.";
 
-/// The answer's cap: a note of two sentences.
-pub const MAX_TOKENS: u32 = 200;
+/// The answer's cap: a note of two sentences, with room for a model that
+/// thinks anyway (theseus-050g2).
+pub const MAX_TOKENS: u32 = 1024;
+
+/// The one retry's cap, after an answer that stopped on `max_tokens`.
+pub const RETRY_MAX_TOKENS: u32 = 2048;
 
 /// One message to write: what kind it is, the facts it rests on, and the
 /// template that stands in for it.
@@ -57,6 +69,9 @@ pub struct Spoken {
     pub voiced: bool,
     pub cost_usd: f64,
     pub model: Option<String>,
+    /// The last call's stop and output tokens; none when no call was made.
+    pub stop_reason: Option<String>,
+    pub output_tokens: Option<u64>,
 }
 
 impl Core {
@@ -88,12 +103,14 @@ impl Core {
     }
 
     /// The request that writes `facts` as `persona`: persona and standing in
-    /// the system, the task's sentence after them.
+    /// the system, the task's sentence after them, thinking off where the
+    /// model lets it, at `max_tokens`.
     pub(crate) fn initiative_request(
         &self,
         persona: &PersonaView,
         facts: &Facts<'_>,
         model: &str,
+        max_tokens: u32,
     ) -> ProviderRequest {
         let mut system = self.persona_system(persona);
         if let Ok(all) = self.runner.standing.all(&self.store) {
@@ -111,12 +128,12 @@ impl Core {
         system = format!("{system}\n\n{TASK}");
         ProviderRequest {
             model: model.to_string(),
-            max_tokens: MAX_TOKENS,
+            max_tokens,
             system: vec![json!({"type": "text", "text": system})],
             messages: vec![json!({"role": "user", "content": [
                 {"type": "text", "text": format!("Facts:\n{}", facts.brief)}]})],
             tools: Vec::new(),
-            thinking: None,
+            thinking: self.runner.catalog.thinking_off(model),
             output_config: None,
             cache_control: None,
             betas: Vec::new(),
@@ -141,20 +158,24 @@ impl Core {
     }
 
     /// Write `facts` as the persona in play: by a model within the day's
-    /// line, else by the template. Never a turn's path.
+    /// line, else by the template. Never a turn's path, and never a cut-off
+    /// answer: one stopped on `max_tokens` is asked once more with more room,
+    /// then the template stands in.
     pub async fn initiative_speak(self: &Arc<Self>, facts: &Facts<'_>) -> Spoken {
         let persona = self.cfg.persona_for(None, None);
         let id = crate::new_id("ini");
-        let template = |cost: f64, model: Option<String>| Spoken {
+        let template = |cost: Micros, model: Option<String>, last: Option<&ModelResponse>| Spoken {
             id: id.clone(),
             text: say(facts.line, facts.n, &persona),
             voiced: false,
-            cost_usd: cost,
+            cost_usd: micros_to_usd(cost),
             model,
+            stop_reason: last.and_then(|r| r.stop_reason.clone()),
+            output_tokens: last.map(|r| r.usage.output_tokens),
         };
         let line = usd_to_micros(self.cfg.initiative.day_usd);
         if line == 0 {
-            return template(0.0, None);
+            return template(0, None, None);
         }
         let (live, _) = self.live_profile();
         let profile = self.cfg.initiative.profile.clone();
@@ -162,41 +183,69 @@ impl Core {
             .runner
             .resolve_target(&live, profile.as_deref(), None, None)
         else {
-            return template(0.0, None);
+            return template(0, None, None);
         };
         let Some(provider) = self.runner.providers.get(&target.provider).cloned() else {
-            return template(0.0, None);
+            return template(0, None, None);
         };
-        let request = self.initiative_request(&persona, facts, &target.model);
-        let Some(need) = self.audit_reserve(&request) else {
-            return template(0.0, None);
-        };
-        if self.initiative_spent_today().saturating_add(need) > line {
-            return template(0.0, None);
-        }
-        let hold = match self.runner.day_hold(need, "initiative") {
-            Ok(h) => h,
-            Err(_) => return template(0.0, None),
-        };
-        let mut quiet = |_: crate::provider::Delta<'_>| {};
-        let answered = crate::google::private::scoped(facts.private, || {
-            provider.stream_message(&request, &mut quiet)
-        })
-        .await;
-        let cost = answered
-            .as_ref()
-            .map_or(need, |r| self.runner.priced(r, &target.model, need));
-        hold.settle(cost);
-        match answered {
-            Ok(r) if !r.text.trim().is_empty() => Spoken {
-                id,
+        let mut spent: Micros = 0;
+        let mut cut: Option<ModelResponse> = None;
+        for cap in [MAX_TOKENS, RETRY_MAX_TOKENS] {
+            let request = self.initiative_request(&persona, facts, &target.model, cap);
+            let Some(need) = self.audit_reserve(&request) else {
+                break;
+            };
+            let today = self.initiative_spent_today().saturating_add(spent);
+            if today.saturating_add(need) > line {
+                break;
+            }
+            let Ok(hold) = self.runner.day_hold(need, "initiative") else {
+                break;
+            };
+            let mut quiet = |_: crate::provider::Delta<'_>| {};
+            let answered = crate::google::private::scoped(facts.private, || {
+                provider.stream_message(&request, &mut quiet)
+            })
+            .await;
+            let cost = answered
+                .as_ref()
+                .map_or(need, |r| self.runner.priced(r, &target.model, need));
+            hold.settle(cost);
+            spent = spent.saturating_add(cost);
+            // A failed call may have been billed: booked at its reservation.
+            let Ok(r) = answered else {
+                return template(spent, Some(target.model), cut.as_ref());
+            };
+            if r.stop_reason.as_deref() == Some("max_tokens") {
+                tracing::warn!(
+                    kind = facts.kind,
+                    cap,
+                    output_tokens = r.usage.output_tokens,
+                    "an initiative answer stopped on max_tokens; not posted"
+                );
+                cut = Some(r);
+                continue;
+            }
+            let finished = matches!(
+                r.stop_reason.as_deref(),
+                None | Some("end_turn" | "stop_sequence")
+            );
+            if !finished || r.text.trim().is_empty() {
+                return template(spent, Some(r.model.clone()), Some(&r));
+            }
+            return Spoken {
+                id: id.clone(),
                 text: r.text.trim().to_string(),
                 voiced: true,
-                cost_usd: micros_to_usd(cost),
+                cost_usd: micros_to_usd(spent),
                 model: Some(r.model),
-            },
-            // A failed call may have been billed: booked at its reservation.
-            _ => template(micros_to_usd(cost), Some(target.model)),
+                stop_reason: r.stop_reason,
+                output_tokens: Some(r.usage.output_tokens),
+            };
+        }
+        match cut {
+            Some(r) => template(spent, Some(r.model.clone()), Some(&r)),
+            None => template(spent, None, None),
         }
     }
 
@@ -215,6 +264,8 @@ impl Core {
                 cost_usd: Some(s.cost_usd),
                 model: s.model.as_deref(),
                 text: Some(&s.text),
+                stop_reason: s.stop_reason.as_deref(),
+                output_tokens: s.output_tokens,
             },
             None,
             None,

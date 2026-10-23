@@ -378,6 +378,39 @@ async fn an_uncited_sentence_is_rejected_before_jev() {
     );
 }
 
+/// A synthesis cut off at its cap (theseus-050g2: Haiku 5.5's default
+/// thinking spent it) is rejected for its form and never kept, even when
+/// the fragment would pass the checks; the request asks with thinking off.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cut_off_synthesis_is_rejected_never_kept() {
+    let jev = FakeJev::start().unwrap();
+    supports(&jev, 0.95);
+    let r = rig(MemoryMode::Shadow, Some(&jev), |_| {});
+    let c = &r.core;
+    kestrel(c).await;
+    r.model.script.lock().unwrap().push_back(Scripted::Blocks {
+        blocks: vec![serde_json::json!({"type": "text", "text": "The relay listens on 7714 [1]."})],
+        stop_reason: "max_tokens".into(),
+    });
+    let out = consolidate(c, false).await;
+    assert_eq!(out.clusters[0].outcome, "rejected");
+    let why = out.clusters[0].why.as_deref().unwrap();
+    assert!(why.contains("max_tokens"), "{why}");
+    let request = r
+        .model
+        .requests()
+        .into_iter()
+        .find(|q| {
+            q.system
+                .iter()
+                .any(|b| b["text"] == crate::consolidate::run::INSTRUCTIONS)
+        })
+        .expect("the synthesis call");
+    let want = c.runner.catalog.thinking_off(&request.model);
+    assert!(want.is_some(), "{} turns thinking off", request.model);
+    assert_eq!(request.thinking, want);
+}
+
 /// With the judge off a synthesis is kept unchecked, in shadow: no arm
 /// admits it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -63,6 +63,32 @@ pub enum ThinkingMode {
     Implicit,
 }
 
+/// The `thinking` that turns `model`'s thinking off for a short answer
+/// (theseus-050g2): a model that thinks by default spends a small cap on
+/// thinking and stops on `max_tokens` with a fragment of text. Sonnet 5.5
+/// refuses `disabled` (a 400 that names `between_tools`, seen live
+/// 2026-10-23) and takes `between_tools`; the other adaptive models take
+/// `disabled` at their default effort. A model that always thinks (Fable
+/// 5.x, Opus 5.5) cannot turn it off, so its thinking counts in the cap; and
+/// one Theseus sends no `thinking` (GLM, Haiku 4.5, an unknown model) gets
+/// none.
+pub fn thinking_off(model: &str, entry: Option<&CatalogEntry>) -> Option<serde_json::Value> {
+    match entry?.thinking {
+        ThinkingMode::Adaptive => {
+            let family = model.rsplit('/').next().unwrap_or(model);
+            let off = match family.starts_with("claude-sonnet-5-5") {
+                true => "between_tools",
+                false => "disabled",
+            };
+            Some(serde_json::json!({ "type": off }))
+        }
+        ThinkingMode::None
+        | ThinkingMode::Always
+        | ThinkingMode::Budget
+        | ThinkingMode::Implicit => None,
+    }
+}
+
 /// Where a model was made (theseus-a1wvq): the owner's data rule reads it.
 /// A model of `cn` or `unknown` origin is restricted: it sees only a request
 /// cleared as open. Named `ModelOrigin` because `crate::node::Origin` exists.
@@ -763,6 +789,11 @@ fn deepseek_rows(e: &mut BTreeMap<String, CatalogEntry>) {
 }
 
 impl Catalog {
+    /// [`thinking_off`] for `model` at this catalog's row.
+    pub fn thinking_off(&self, model: &str) -> Option<serde_json::Value> {
+        thinking_off(model, self.get(model))
+    }
+
     pub fn builtin() -> Self {
         use ThinkingMode::*;
         let mut e = BTreeMap::new();
@@ -1503,6 +1534,36 @@ mod tests {
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
             0.10
         );
+    }
+
+    /// Thinking off for a short answer (theseus-050g2): Sonnet 5.5's is
+    /// `between_tools` (its `disabled` is a 400), the other adaptive models'
+    /// `disabled`; a model that always thinks, or one sent no `thinking`,
+    /// gets no field.
+    #[test]
+    fn thinking_off_is_the_field_each_model_takes() {
+        let c = Catalog::builtin();
+        let off = |m: &str| thinking_off(m, c.get(m));
+        assert_eq!(
+            off("claude-sonnet-5-5"),
+            Some(serde_json::json!({"type": "between_tools"}))
+        );
+        for m in [
+            "claude-sonnet-5",
+            "claude-opus-5",
+            "claude-opus-4-8",
+            "claude-haiku-5-5",
+        ] {
+            assert_eq!(off(m), Some(serde_json::json!({"type": "disabled"})), "{m}");
+        }
+        for m in [
+            "claude-opus-5-5",
+            "claude-fable-5-1",
+            "glm-5.3-flash",
+            "no-such-model",
+        ] {
+            assert_eq!(off(m), None, "{m}");
+        }
     }
 
     /// Every built-in row says where its model was made (theseus-a1wvq.1):

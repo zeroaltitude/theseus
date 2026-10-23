@@ -62,6 +62,10 @@ pub struct InitiativeSpoke<'a> {
     pub model: Option<&'a str>,
     /// What the voiced message said (a turn's reply is its node).
     pub text: Option<&'a str>,
+    /// How the model's last call stopped, and what it wrote, thinking
+    /// included (theseus-050g2): a `max_tokens` stop is never posted.
+    pub stop_reason: Option<&'a str>,
+    pub output_tokens: Option<u64>,
 }
 
 impl Fact for InitiativeSpoke<'_> {
@@ -77,6 +81,12 @@ impl Fact for InitiativeSpoke<'_> {
         }
         if let Some(t) = self.text {
             v["text"] = json!(t);
+        }
+        if let Some(s) = self.stop_reason {
+            v["stop_reason"] = json!(s);
+        }
+        if let Some(n) = self.output_tokens {
+            v["output_tokens"] = json!(n);
         }
         v
     }
