@@ -110,6 +110,51 @@ async fn an_audit_labels_a_seeded_sample_once() {
     assert_eq!(r.fake.requests().len(), 5);
 }
 
+/// A cut JSON answer is a request that hit its cap (theseus-1iqg0), not
+/// every question of the pack dropped as unparsed: no label, no `dropped`
+/// count, the cap named, and the run stops, since the next state's answer
+/// would be cut at the same cap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cut_audit_answer_is_reported_as_hitting_the_cap() {
+    let jev = FakeJev::start().unwrap();
+    let cut = Scripted::Blocks {
+        blocks: vec![json!({"type": "text", "text": "{\"work_state\": \"progre"})],
+        stop_reason: "max_tokens".into(),
+    };
+    let r = rig(vec![cut; 4], &jev, |_| {});
+    let c = &r.core;
+    five(c);
+    let out = c.judge_audit(audit(c, 3), "cli").await.unwrap();
+    assert_eq!((out.asked, out.failed, out.labels), (1, 1, 0), "{out:?}");
+    assert_eq!(out.dropped, 0, "a cut answer is not N unparsed questions");
+    let why = out.stopped.as_deref().unwrap();
+    assert!(why.contains("max_tokens") && why.contains("1,024"), "{why}");
+    assert_eq!(
+        r.fake.requests().len(),
+        1,
+        "the rest of the sample is not asked"
+    );
+}
+
+/// The audit's request turns thinking off where the model can (theseus-1iqg0):
+/// its 1,024 cap would be spent thinking first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_audit_request_turns_thinking_off() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(vec![audit_answer(); 2], &jev, |_| {});
+    let c = &r.core;
+    five(c);
+    c.judge_audit(audit(c, 1), "cli").await.unwrap();
+    let sent = r.fake.requests();
+    let want = c.runner.catalog.thinking_off(&sent[0].model);
+    assert!(
+        want.is_some(),
+        "{}: a model that turns thinking off",
+        sent[0].model
+    );
+    assert_eq!(sent[0].thinking, want);
+}
+
 /// The same seed draws the same sample; another seed, another order.
 #[test]
 fn a_seed_draws_one_sample() {
@@ -170,7 +215,10 @@ async fn an_audit_stops_at_its_per_run_cap() {
         .audit_reserve(&request_for(
             &pack,
             &json_state,
-            &target.model,
+            (
+                &target.model,
+                probe.core.runner.catalog.thinking_off(&target.model),
+            ),
             target.max_tokens,
         ))
         .unwrap();

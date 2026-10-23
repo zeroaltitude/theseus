@@ -726,6 +726,25 @@ impl ProviderError {
 /// answer stops where the window ends.
 pub const WINDOW_EXCEEDED: &str = "model_context_window_exceeded";
 
+/// The stop reason of an answer cut at its own `max_tokens`.
+pub const HIT_CAP: &str = "max_tokens";
+
+/// Whether an answer stopped at its cap (theseus-2c6iz): the one test every
+/// caller of a capped call makes, so a cut answer is never read as a whole
+/// one. A cap spent on thinking stops here too, with an empty or partial text.
+pub fn hit_cap(stop_reason: Option<&str>) -> bool {
+    stop_reason == Some(HIT_CAP)
+}
+
+/// What a cut answer says about itself, for a row, a refusal, or a log:
+/// "the answer stopped at its cap of 8,192 tokens (max_tokens)".
+pub fn cap_phrase(cap: u32) -> String {
+    format!(
+        "the answer stopped at its cap of {} tokens ({HIT_CAP})",
+        crate::narrative::thousands(u64::from(cap))
+    )
+}
+
 /// What a provider's refusal of a prompt past the window says
 /// (theseus-9p88). Anthropic's message is "prompt is too long: 213402
 /// tokens > 200000 maximum"; either number may be missing from another
@@ -1639,6 +1658,23 @@ impl Provider for FakeProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cut_answer_is_named_by_one_test_and_one_phrase() {
+        assert!(hit_cap(Some("max_tokens")));
+        for other in [
+            None,
+            Some("end_turn"),
+            Some("refusal"),
+            Some(WINDOW_EXCEEDED),
+        ] {
+            assert!(!hit_cap(other), "{other:?}");
+        }
+        assert_eq!(
+            cap_phrase(8192),
+            "the answer stopped at its cap of 8,192 tokens (max_tokens)"
+        );
+    }
 
     fn run(lines: &[&str]) -> (ModelResponse, Vec<String>, Option<ProviderError>) {
         let mut out = ModelResponse::default();

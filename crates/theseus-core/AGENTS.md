@@ -419,8 +419,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   cap and a morning note went out as half a sentence): the call asks with thinking off where the model lets it
   (`catalog::thinking_off`: Sonnet 5.5's `between_tools`, the other adaptive models' `disabled`, none for one that always
   thinks) at `speak::MAX_TOKENS` (1,024); a `max_tokens` stop is asked once more at `RETRY_MAX_TOKENS` (2,048) within the line,
-  then it is its template, which is also what any stop but `end_turn` or `stop_sequence` gets; the row carries the last call's
-  `stop_reason` and `output_tokens`. The template is `initiative/lines.rs`, one table that reads the persona's `name` and
+  then it is its template, which is also what any stop but `end_turn` or `stop_sequence` gets; the row carries the newest answering
+  call's `stop_reason` and `output_tokens` (the cut first call's when the retry was refused by the line or failed). Every capped call tests its stop with `provider::hit_cap` and names the cut with `provider::cap_phrase(cap)`: one place for "this answer hit its cap" (theseus-2c6iz), never an inline `== "max_tokens"`. The template is `initiative/lines.rs`, one table that reads the persona's `name` and
   `emoji` and nothing else of it; `initiative_post` sends it to the owner's DM (courier kind `initiative`, key
   `ini:<id>`) with its row in one frame. Producers:
   the morning note (`initiative/morning.rs`: the driver's tick asks `post_morning_if_due`, one lock and a comparison until the
