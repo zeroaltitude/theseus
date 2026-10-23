@@ -292,8 +292,7 @@ impl Shared {
 /// came (late, a series' occurrence).
 pub(crate) fn text(body: &Value) -> String {
     let note = body["text"].as_str().unwrap_or("");
-    let mut out = format!("⏰ {note}");
-    let mut how = Vec::new();
+    let mut how = vec!["⏰ a reminder you set".to_string()];
     if let Some(s) = body["series"].as_str() {
         match body["occurrence"].as_u64() {
             Some(n) => how.push(format!("{s}, #{n}")),
@@ -309,10 +308,13 @@ pub(crate) fn text(body: &Value) -> String {
         };
         how.push(format!("{} late{down}", span(late)));
     }
-    if !how.is_empty() {
-        out.push_str(&format!("\n-# {}", how.join(" · ")));
-    }
-    out
+    // The note is the owner's own words, whole, under the head (theseus-x8b9k).
+    theseus_core::owner_note::note(
+        theseus_core::owner_note::Kind::Action,
+        "Reminder",
+        &how.join(" · "),
+        note,
+    )
 }
 
 fn span(ms: u64) -> String {
@@ -381,13 +383,17 @@ mod tests {
     /// The post's text: the note as it is, and how it came when that matters.
     #[test]
     fn the_post_says_the_note_and_how_it_came() {
-        assert_eq!(text(&json!({"text": "stretch"})), "⏰ stretch");
+        assert_eq!(
+            text(&json!({"text": "stretch"})),
+            "✋ Action · Reminder\n⏰ a reminder you set\nstretch"
+        );
         assert_eq!(
             text(
                 &json!({"text": "stretch", "series": "every 1d", "occurrence": 4,
                          "late_ms": 125_000, "while_down": true})
             ),
-            "⏰ stretch\n-# every 1d, #4 · 2 min late, the daemon was down"
+            "✋ Action · Reminder\n⏰ a reminder you set · every 1d, #4 · 2 min late, the daemon \
+             was down\nstretch"
         );
     }
 }

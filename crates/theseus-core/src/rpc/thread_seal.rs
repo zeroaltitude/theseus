@@ -376,7 +376,7 @@ impl Core {
                     )?);
                     let body = json!({"kind": "seal_card", "slug": t.slug, "title": t.title,
                         "reason": reason,
-                        "text": format!("🔒 This looks embargoed: {reason}\nThread «{}» ({}).", t.title, t.slug)});
+                        "text": seal_text(&t.title, &t.slug, &reason)});
                     let (post, more) = self.outbox.stage_to_operator(None, body)?;
                     rows.extend(more);
                     *posted.borrow_mut() = Some(post);
@@ -602,4 +602,14 @@ pub(super) fn route_seal(
             core.thread_seal_dismiss(&p.slug, conn.answerer(p.author, p.discord))
         }),
     }
+}
+
+/// The proposed seal's card (theseus-x8b9k).
+pub(crate) fn seal_text(title: &str, slug: &str, reason: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Decision,
+        &format!("Seal thread «{title}»?"),
+        &format!("This looks embargoed: {reason}"),
+        &format!("Thread «{title}» ({slug})."),
+    )
 }

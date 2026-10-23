@@ -7,7 +7,7 @@
 //! and never while the mode is off. The morning's notice of what the night
 //! landed is [`notice`] (theseus-pw1q.21.8), posted the same way.
 
-mod notice;
+pub(crate) mod notice;
 pub use notice::NOTICE_KEY;
 #[cfg(test)]
 mod tests_notice;
@@ -119,7 +119,7 @@ impl Core {
             let d = self.self_digest(&SelfDigestParams {
                 until_ms: Some(now),
             })?;
-            let body = json!({"kind": "self_digest", "text": capped(&d.text)});
+            let body = json!({"kind": "self_digest", "text": week_post(&d)});
             let (a, mut frame) = self.outbox.stage_to_operator(None, body)?;
             frame.push(posted(now)?);
             self.store.append(&frame)?;
@@ -150,6 +150,23 @@ pub fn capped(text: &str) -> String {
     let cut: String = text.chars().take(POST_CHARS).collect();
     let cut = cut.rsplit_once('\n').map_or(cut.as_str(), |(head, _)| head);
     format!("{cut}\n… the rest: `theseus self digest`.")
+}
+
+/// The week's post (theseus-x8b9k): the digest under its head, its own first
+/// line (the title and the dates) folded into it, cut to one post.
+pub fn week_post(d: &SelfDigestResult) -> String {
+    let rest = d.text.split_once('\n').map_or("", |(_, r)| r);
+    let trigger = format!(
+        "the weekly self digest, {} to {}",
+        date(d.since_ms),
+        date(d.until_ms)
+    );
+    capped(&crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        "What Theseus changed about itself this week",
+        &trigger,
+        rest,
+    ))
 }
 
 /// A day's date, on this machine's clock: `2026-10-09`.

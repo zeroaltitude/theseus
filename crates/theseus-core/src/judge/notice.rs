@@ -492,7 +492,7 @@ impl JudgeService {
             why: &p.why,
             short: &p.short,
         };
-        let text = format!("🔕 Jev's notices are paused until tomorrow: {}.", p.short);
+        let text = paused_text(&p.short);
         let written = (|| -> anyhow::Result<()> {
             let body = json!({"kind": "jev_paused", "text": text, "rule": p.rule, "day": p.day,
                 "until": p.until});
@@ -634,6 +634,16 @@ fn learned_v3(pack: Option<&str>) -> bool {
     pack.and_then(|p| p.strip_prefix("security.v"))
         .and_then(|v| v.parse::<u32>().ok())
         .is_some_and(theseus_judge::propose::is_learned)
+}
+
+/// The brake's post (theseus-x8b9k).
+pub(crate) fn paused_text(why: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        &format!("Jev's notices are paused until tomorrow: {why}"),
+        "the day's brake on Jev's notices",
+        "",
+    )
 }
 
 #[cfg(test)]

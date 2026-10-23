@@ -466,6 +466,19 @@ fn halted(a: &mut Attempt<'_>, before: &'static str, why: &str) -> Result<(Strin
     ))
 }
 
+/// The keel card's words (theseus-x8b9k).
+pub(crate) fn keel_text(branch: &str, item: &str, report: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Decision,
+        &format!("Ack or drop self branch {branch}"),
+        &format!("it stopped at the keel ({item}): main's keel guard found what needs your yes"),
+        &format!(
+            "It waits for you and is never retried around. Its report: {report}. Read it, then ack \
+             the finding with a signed Keel: trailer, or drop the branch."
+        ),
+    )
+}
+
 /// The keel stopped it: its mark, so nothing retries around it, and the
 /// owner's card.
 fn keel(
@@ -476,13 +489,10 @@ fn keel(
 ) -> Result<(String, Value), String> {
     a.stopped_at = Some(PUSH);
     let _ = std::fs::write(keel_mark(place, &a.tree), &a.tree.branch);
-    let text = format!(
-        "Self branch {} ({}) stopped at the keel: main's keel guard found what needs your yes. \
-         It waits for you and is never retried around. Its report: {}. Read it, then ack the \
-         finding with a signed Keel: trailer, or drop the branch.",
-        a.tree.branch,
-        a.i.item,
-        a.report.as_deref().unwrap_or("none")
+    let text = keel_text(
+        &a.tree.branch,
+        &a.i.item,
+        a.report.as_deref().unwrap_or("none"),
     );
     let card = (|| -> anyhow::Result<()> {
         let body = json!({"kind": "self_keel", "text": text});

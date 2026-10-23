@@ -208,7 +208,7 @@ impl Core {
 }
 
 /// The notice: what changed, why, the numbers, the cost, and the revert.
-fn notice(j: &Value, review: Option<&Value>, merge: &str) -> String {
+pub(crate) fn notice(j: &Value, review: Option<&Value>, merge: &str) -> String {
     let s = |v: &Value, k: &str| v[k].as_str().unwrap_or("?").to_string();
     let reviewed = review.map_or_else(
         || "no review row found".to_string(),
@@ -230,14 +230,21 @@ fn notice(j: &Value, review: Option<&Value>, merge: &str) -> String {
         .and_then(|r| r["numbers"]["cost_usd"].as_f64())
         .unwrap_or(0.0);
     let build_usd = j["cost_usd"].as_f64().unwrap_or(0.0);
+    let trigger = format!(
+        "self branch {} ({}) joined main as {} and is installed and running",
+        s(j, "branch"),
+        s(j, "item"),
+        &merge[..merge.len().min(12)]
+    );
+    let head = crate::owner_note::head(
+        crate::owner_note::Kind::Fyi,
+        "Theseus changed itself",
+        &trigger,
+    );
     format!(
-        "Theseus changed itself: self branch {branch} ({item}) joined main as {short} and is \
-         installed and running.\nWhat: {what}\nWhy: {why}\nReview: {reviewed}\nNumbers: main's gate \
+        "{head}\nWhat: {what}\nWhy: {why}\nReview: {reviewed}\nNumbers: main's gate \
          on the merge {gate}, {secs} s; {tries} try(s)\nCost: ${cost:.4} (build ${build_usd:.4}, \
          review ${review_usd:.4})\nRevert: `theseus self revert {merge}`",
-        branch = s(j, "branch"),
-        item = s(j, "item"),
-        short = &merge[..merge.len().min(12)],
         what = s(j, "what"),
         why = s(j, "why"),
         gate = s(j, "gate"),

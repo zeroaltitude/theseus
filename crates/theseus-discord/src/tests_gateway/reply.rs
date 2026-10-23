@@ -57,7 +57,8 @@ async fn a_reply_from_the_named_person_in_a_shared_channel_reaches_the_owners_dm
     .await;
     let post = r.posted(ANA_DM).into_iter().find(is_it).unwrap();
     assert!(
-        post.content.starts_with("👁 ben replied in #lab: \""),
+        post.content
+            .starts_with("ℹ️ FYI · Watch met: ben replies\na watch set for you, checked on its own\n👁 ben replied in #lab: \""),
         "{}",
         post.content
     );

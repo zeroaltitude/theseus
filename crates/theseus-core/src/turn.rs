@@ -92,7 +92,7 @@ mod noop_step;
 pub mod nudge_step;
 mod open_step;
 mod persona_engage;
-mod persona_step;
+pub(crate) mod persona_step;
 pub(crate) mod personal_step;
 mod promise_step;
 mod prompt_input;

@@ -184,6 +184,22 @@ impl Proposal {
         w
     }
 
+    /// The owner's card (theseus-x8b9k): `words` under its head, its first
+    /// line folded into the head.
+    pub fn card(&self) -> String {
+        let w = self.words();
+        let body = w.split_once("\n\n").map_or(w.as_str(), |(_, b)| b);
+        crate::owner_note::note(
+            crate::owner_note::Kind::Decision,
+            &format!("Apply or decline a narrower AWS policy for {}", self.role),
+            &format!(
+                "the weekly read of its CloudTrail found it allows more than it calls (proposal {})",
+                self.id
+            ),
+            body,
+        )
+    }
+
     /// The change as JSON: the proposal's numbers, and the two documents.
     pub fn diff_json(&self) -> Value {
         json!({

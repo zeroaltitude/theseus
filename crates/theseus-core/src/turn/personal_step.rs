@@ -79,7 +79,12 @@ fn quoted(text: &str) -> String {
 }
 
 /// The warning's words.
-fn warning_text(choice: &str, confidence: f64, class: PlaceClass, quote: &str) -> String {
+pub(crate) fn warning_text(
+    choice: &str,
+    confidence: f64,
+    class: PlaceClass,
+    quote: &str,
+) -> String {
     let what = match choice {
         "expose" => {
             "asking to open a conversation with others where your personal details could come out"
@@ -96,9 +101,11 @@ fn warning_text(choice: &str, confidence: f64, class: PlaceClass, quote: &str) -
             "Nothing was held. Here this should almost never happen: if it is your own question, Jev misread it.",
         ),
     };
-    let quote = quoted(quote);
-    format!(
-        "⚠️ Privacy: Jev read a message in {place} as {what} ({confidence:.2}):\n{quote}\n{after}"
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        "Someone may be after your personal details",
+        &format!("Jev read a message in {place} as {what} ({confidence:.2}):"),
+        &format!("{}\n{after}", quoted(quote)),
     )
 }
 
@@ -118,7 +125,12 @@ fn plain(text: &str) -> String {
 
 /// The warning of a held reply: who asked, where, what they asked, why, and
 /// what the requester was told.
-fn held_text(choice: &str, confidence: f64, (asker, place): (&str, &str), quote: &str) -> String {
+pub(crate) fn held_text(
+    choice: &str,
+    confidence: f64,
+    (asker, place): (&str, &str),
+    quote: &str,
+) -> String {
     let what = match choice {
         "expose" => {
             "asking to open a conversation with others where your personal details could come out"
@@ -126,9 +138,14 @@ fn held_text(choice: &str, confidence: f64, (asker, place): (&str, &str), quote:
         _ => "trying to draw out your personal details",
     };
     let (asker, place) = (plain(asker), plain(place));
-    let quote = quoted(quote);
-    format!(
-        "⚠️ Privacy: Jev read a message from `{asker}` in a shared place, `{place}`, as {what} ({confidence:.2}):\n{quote}\nThe reply was held: no model was called, and the requester was told \"{HELD_REPLY}\""
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        "A reply was held to keep your personal details private",
+        &format!("Jev read a message from `{asker}` in a shared place, `{place}`, as {what} ({confidence:.2}):"),
+        &format!(
+            "{}\nThe reply was held: no model was called, and the requester was told \"{HELD_REPLY}\"",
+            quoted(quote)
+        ),
     )
 }
 

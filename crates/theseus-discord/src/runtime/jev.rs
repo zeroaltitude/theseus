@@ -65,12 +65,15 @@ pub(crate) fn notice_text(body: &Value) -> String {
         Some(t) => format!(" (task {t})"),
         None => String::new(),
     };
-    format!(
-        "🔔 notified after it ran{task}: `{}` · {}\n> {}\nThe call did not wait. Judgment `{}`.",
-        s("tool"),
-        s("line"),
-        s("summary"),
-        s("judgment")
+    theseus_core::owner_note::note(
+        theseus_core::owner_note::Kind::Alert,
+        &format!("Jev flagged a call that already ran{task}: `{}`", s("tool")),
+        &format!("notified after it ran: {}", s("line")),
+        &format!(
+            "> {}\nThe call did not wait. Judgment `{}`.",
+            s("summary"),
+            s("judgment")
+        ),
     )
 }
 

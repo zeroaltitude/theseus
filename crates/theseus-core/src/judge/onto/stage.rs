@@ -94,13 +94,7 @@ fn card(plan: &Plan, step: &Step) -> Option<serde_json::Value> {
             ..
         } => Some(json!({
             "kind": "onto_card", "write": plan.judgment, "undo": true,
-            "text": format!(
-                "🗂 Jev started a new {kind} and filed this session under it: {} ({:.0}% sure). \
-                 `theseus ontology undo {}` takes it back.",
-                path.join(" › "),
-                confidence * 100.0,
-                plan.judgment
-            ),
+            "text": minted_text(kind, &path.join(" › "), *confidence, &plan.judgment),
         })),
         Step::Ask {
             text,
@@ -116,11 +110,37 @@ fn card(plan: &Plan, step: &Step) -> Option<serde_json::Value> {
             });
             Some(json!({
                 "kind": "onto_card", "write": plan.judgment, "undo": false,
-                "text": format!("🗂 {text} ({:.0}% sure){how}", confidence * 100.0),
+                "text": ask_text(text, *confidence, &how),
             }))
         }
         _ => None,
     }
+}
+
+/// A mint's card (theseus-x8b9k).
+pub(crate) fn minted_text(kind: &str, path: &str, confidence: f64, write: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        &format!("Jev started a new {kind}: {path}"),
+        &format!(
+            "Jev filed this session under it ({:.0}% sure)",
+            confidence * 100.0
+        ),
+        &format!("`theseus ontology undo {write}` takes it back."),
+    )
+}
+
+/// A question's card: Jev's own question, and the command that files it.
+pub(crate) fn ask_text(question: &str, confidence: f64, how: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Decision,
+        "Where does this session belong?",
+        &format!(
+            "Jev was not sure enough to file it ({:.0}% sure)",
+            confidence * 100.0
+        ),
+        &format!("{question}{how}"),
+    )
 }
 
 /// Whether a judgment of the batch is one the ontology may act on: `onto.v1`'s,

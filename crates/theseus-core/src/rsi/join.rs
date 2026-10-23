@@ -49,7 +49,7 @@
 
 pub mod git;
 pub mod install;
-mod joining;
+pub(crate) mod joining;
 pub mod keel;
 pub mod lock;
 pub mod planted;
