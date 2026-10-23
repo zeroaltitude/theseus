@@ -419,7 +419,7 @@ async fn an_ungranted_tool_asks_once_and_the_run_ends_blocked_naming_it() {
     assert_eq!(n.len(), 1, "{n:?}");
     assert_eq!(
         n[0].1,
-        "⚠️ Alert · ✗ Tide check blocked: fs.edit needs approval (not in its grant)\n\
+        "⚠️ Alert · Tide check blocked: fs.edit needs approval (not in its grant)\n\
          its latest scheduled run did not finish"
     );
     assert_eq!(n[0].2, ["add_to_grant", "run_now", "pause", "details"]);
@@ -601,7 +601,7 @@ async fn a_failing_routine_pings_once_a_day_with_its_streak() {
     let first = &notices(&r.core)[0];
     assert_eq!(first.0, "routine_failed");
     assert!(
-        first.1.starts_with("⚠️ Alert · ✗ Tide check failed: "),
+        first.1.starts_with("⚠️ Alert · Tide check failed: "),
         "{}",
         first.1
     );

@@ -3063,10 +3063,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **Messages to the owner** (theseus-x8b9k; `owner_note.rs`, the catalog `docs/messages.md`): every message sent to the
   owner unasked opens with `owner_note::head` (or `note`): `<tag> · <title>` (`ℹ️ FYI`, `✋ Action`, `❓ Decision`,
   `⚠️ Alert`, `⏰ Reminder` with the owner's own words as the title), then one line of what triggered it, then the body
-  with the action last. A new unasked message uses it
-  and joins `tests_owner_note::every_unasked_message_starts_with_a_kind_and_a_title`. The Discord DM task flow (the task
-  reply, its started and thread lines, the board, the forum, `needs_you`'s cards, the budget question and notice, the
-  reports) is locked by the owner and does not.
+  with the action last. The tag is the one icon: `head` drops a glyph a title starts with, and `is_headed` refuses one.
+  A new unasked message uses it and joins `tests_owner_note::every_unasked_message_starts_with_a_kind_and_a_title`. The
+  Discord DM task flow (the task reply, its started and thread lines, the board, the forum, `needs_you`'s cards, the
+  budget question and notice, the reports) is locked by the owner and does not.
 - **The frame budget.** A plain one-loop turn writes 4 frames, and each loop with one in-process tool adds 4.
   An input's turn holds its execution (`Kernel::hold_turn`, nothing written) and is admitted in its input's frame
   (`turn/admit_step.rs`, theseus-2uby), so it pays 2 syncs before its model's first byte (`syncs_before_call` on its

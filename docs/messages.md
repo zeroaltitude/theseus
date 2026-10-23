@@ -20,6 +20,11 @@ The kinds:
 | `⚠️ Alert` | Something is wrong. |
 | `⏰ Reminder` | A reminder you set: your own words are the title (`⏰ Reminder · stretch`), then how it came. |
 
+The tag is the message's one icon: a title never starts with a glyph of its own (`⚠️ Alert · Tide check failed: a
+timeout`, never `⚠️ Alert · ✗ Tide check failed`). `head` drops one a title brings (a routine's `✗` line), and
+`is_headed` refuses a text that keeps one; a reminder's title is the owner's words as he wrote them (the owner,
+2026-10-22).
+
 The head is built by one helper, `theseus_core::owner_note` (`head`, `note`; `is_headed` is what the tests ask). Every
 new unasked message uses it. A digest's items are one line each in plain words (what, how often, since when), never a
 bare internal label or id. The key test is theseus-core's

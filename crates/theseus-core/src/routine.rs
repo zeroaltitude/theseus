@@ -819,7 +819,7 @@ fn held_back(
 pub(crate) fn month_spent_text(title: &str, month_usd: f64, id: &str) -> String {
     crate::owner_note::note(
         crate::owner_note::Kind::Action,
-        &format!("🔁 {title}: runs are skipped until the 1st"),
+        &format!("{title}: runs are skipped until the 1st"),
         &format!("this month's ${month_usd:.2} is spent"),
         &format!("Raise it with `theseus routine update {id} --month <usd>`."),
     )

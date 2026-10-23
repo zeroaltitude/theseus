@@ -379,7 +379,7 @@ async fn a_routines_failure_posts_with_buttons_once_a_day_and_the_buttons_act() 
         }
     };
     run(&r).await;
-    let is_it = |m: &Msg| m.content.contains("✗ Morning digest failed");
+    let is_it = |m: &Msg| m.content.contains("⚠️ Alert · Morning digest failed");
     r.until("the failure post", || r.posted(ANA_DM).iter().any(is_it))
         .await;
     let post = r.posted(ANA_DM).into_iter().find(is_it).unwrap();
@@ -415,9 +415,9 @@ async fn a_routines_failure_posts_with_buttons_once_a_day_and_the_buttons_act() 
     r.until("the post settled", || {
         r.fake.replies().iter().any(|x| {
             x.response_type == Some(7)
-                && x.content
-                    .as_deref()
-                    .is_some_and(|c| c.contains("✗ Morning digest") && c.ends_with("⏸ Paused"))
+                && x.content.as_deref().is_some_and(|c| {
+                    c.contains("⚠️ Alert · Morning digest") && c.ends_with("⏸ Paused")
+                })
         })
     })
     .await;
