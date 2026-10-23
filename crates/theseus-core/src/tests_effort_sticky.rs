@@ -171,6 +171,61 @@ async fn a_sticky_hold_of_an_unsure_answer_keeps_its_bar() {
     );
 }
 
+/// A `max` at `confidence` held at `high` by the gate, after a `medium`
+/// request: the second turn's route row.
+async fn held_high_then_stuck(confidence: f64) -> Value {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 2, |c| {
+        no_per_message(c);
+        long(c);
+        c.routing.high_effort_confidence = 0.70;
+    });
+    effort(&jev, "medium");
+    let first = turn(&r.core, None, "Question 0?", None).await;
+    jev.script(
+        "reply_effort",
+        Jev::Choice {
+            option: "max".into(),
+            confidence,
+        },
+    );
+    turn(
+        &r.core,
+        Some(first.session_id.as_str()),
+        "Question 1?",
+        None,
+    )
+    .await;
+    assert_eq!(top(&r.claude.requests()[1]).as_deref(), Some("medium"));
+    decided(&r.core.store)[1].clone()
+}
+
+/// A held-high answer then held by `stick` keeps the bar that admitted it,
+/// as an applied one does: `held_high_unsure` becomes `sticky_unsure`,
+/// `held_high` plain `sticky` (theseus-t7b96).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sticky_hold_of_a_held_high_answer_keeps_its_bar() {
+    let unsure = held_high_then_stuck(0.45).await;
+    assert_eq!(
+        (
+            &unsure["effort_reason"],
+            &unsure["effort_ran"],
+            &unsure["effort_sent"]
+        ),
+        (&json!("sticky_unsure"), &json!("high"), &json!("medium"))
+    );
+    let sure = held_high_then_stuck(0.65).await;
+    assert_eq!(
+        (
+            &sure["effort_reason"],
+            &sure["effort_ran"],
+            &sure["effort_sent"]
+        ),
+        (&json!("sticky"), &json!("high"), &json!("medium"))
+    );
+}
+
 /// A short conversation has little cache to lose: Jev's change applies.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sticky_effort_applies_under_the_prefix_floor() {

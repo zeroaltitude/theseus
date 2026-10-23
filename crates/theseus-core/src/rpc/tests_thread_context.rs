@@ -395,7 +395,7 @@ async fn a_cold_thread_resumes_small_and_a_warm_one_is_untouched() {
     let script: Vec<Scripted> = (0..20).map(long).collect();
     let (core, fake) = build(dir.path(), script, |c| {
         files(dir.path(), c);
-        c.threads.working_tokens = 22_000;
+        c.threads.working_tokens = Some(22_000);
         c.threads.resume_keep_turns = 1;
         c.memory.summary_profile = "off".into();
     });
@@ -432,6 +432,64 @@ async fn a_cold_thread_resumes_small_and_a_warm_one_is_untouched() {
     );
 }
 
+/// A cold resume keeps the newest twenty turns whole by default (theseus-d9je7): a thread of
+/// thirty turns resume with the newest twenty, not six.
+#[tokio::test]
+async fn a_cold_resume_keeps_twenty_turns() {
+    let dir = tempfile::tempdir().unwrap();
+    let script: Vec<Scripted> = (0..32).map(long).collect();
+    let (core, fake) = build(dir.path(), script, |c| {
+        files(dir.path(), c);
+        c.threads.working_tokens = Some(90_000);
+        c.memory.summary_profile = "off".into();
+    });
+    let cold = thread(&core, "cold");
+    long_thread(&core, &fake, &cold, 30, HOUR_PLUS).await;
+    let before = fake.requests().len();
+    say(&core, &cold, "back after lunch", None).await;
+    let r = fake.requests();
+    assert_eq!(r.len(), before + 1);
+    let c = compiled_rows(&core, &cold).last().cloned().unwrap();
+    assert_eq!(c["trigger"], "cold_resume", "{c}");
+    let kept = r[before]
+        .messages
+        .iter()
+        .filter(|m| m["role"] == "user")
+        .count();
+    assert_eq!(
+        kept, 20,
+        "the newest twenty turns, the new message among them"
+    );
+}
+
+/// With no `working_tokens`, a cold resume works to `working_percent` of the model's window
+/// (theseus-d9je7): at 1 per cent only a turn or two fit.
+#[tokio::test]
+async fn a_cold_resume_works_to_a_share_of_the_window() {
+    let dir = tempfile::tempdir().unwrap();
+    let script: Vec<Scripted> = (0..32).map(long).collect();
+    let (core, fake) = build(dir.path(), script, |c| {
+        files(dir.path(), c);
+        c.threads.working_percent = 1;
+        c.memory.summary_profile = "off".into();
+    });
+    let cold = thread(&core, "cold");
+    long_thread(&core, &fake, &cold, 30, HOUR_PLUS).await;
+    let before = fake.requests().len();
+    say(&core, &cold, "back after lunch", None).await;
+    let c = compiled_rows(&core, &cold).last().cloned().unwrap();
+    assert_eq!(c["trigger"], "cold_resume", "{c}");
+    let kept = fake.requests()[before]
+        .messages
+        .iter()
+        .filter(|m| m["role"] == "user")
+        .count();
+    assert!(
+        kept <= 3,
+        "1 per cent of the window is a turn or two: {kept}"
+    );
+}
+
 /// An unthreaded session that has been away is not rewritten by this: a
 /// cold-compact is a separate decision.
 #[tokio::test]
@@ -440,7 +498,7 @@ async fn an_unthreaded_session_is_not_resumed_small() {
     let script: Vec<Scripted> = (0..10).map(long).collect();
     let (core, fake) = build(dir.path(), script, |c| {
         files(dir.path(), c);
-        c.threads.working_tokens = 22_000;
+        c.threads.working_tokens = Some(22_000);
         c.memory.summary_profile = "off".into();
     });
     let (sid, first) = turn(&core, "question 0").await;

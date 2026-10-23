@@ -102,7 +102,8 @@ fn the_notice_of_a_night_golden() {
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     let golden = format!(
-        "Self, night of {} {} ({}–{} · $4.12 of $30 · 0 halts)\n\
+        "✋ Action · Self-improvement last night: 1 fixed, 1 made, 1 retired, 1 waits for you\n\
+         the night of {} {} ({}–{} · $4.12 of $30 · 0 halts)\n\
          \n\
          Fixed\n\
          • self/2026-10-18-lsp-timeout: an LSP call past its 20 s budget now fails fast with a reason.\n  \

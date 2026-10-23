@@ -156,7 +156,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     with the thread's next record. A thread whose next message finds its cache window passed (`stubs::cold`, the same
     check) is recompiled small at the turn's first loop (`cold.rs`, trigger `cold_resume`): the fresh card, the
     summary, the newest `[threads] resume_keep_turns` turns, results over `clearing::MIN_CHARS` stubbed, a turn dropped
-    only when that is not enough (a ring, summarized as any ring is), to `[threads] working_tokens`. Unthreaded
+    only when that is not enough (a ring, summarized as any ring is), to the working size: `[threads] working_percent` (40) of the serving model's window, or `working_tokens` when set (`ThreadsConfig::working_size`; resume_keep_turns is 20; theseus-d9je7). Unthreaded
     sessions and warm threads are never touched by it. Tests: `compiler/tests_layers.rs`, `tests_cold.rs`,
     `rpc/tests_thread_context.rs`.
   - **The prefix library** (theseus-rr15, T13; store format 41; `prefix.rs`, `prefix/`, `config/prefix.rs`,
@@ -288,8 +288,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`stale_names`; at most 3 a run), writing `Ontology::plan_rename` (the old name in the description as `was: <old>`;
   `Step::Rename`, `sweep-<ms>-<n>-rename`, undone like a merge); `same_kind.v1` asks, before the plan mints, of pairs of
   mined `other` names whose sessions add to each other's (singleton chains `a~b`, `b~c` included, and two names that are
-  each a cluster) while the open names reach 3 sessions (at most 20 a run, largest union first) and a yes joins them
-  (`mint::Hints::same`); `name_it.v1` names a kind about to be minted from a cluster of two names or more, and `none`, a
+  each a cluster) while the pair's two groups plus the names no kept yes has linked reach 3 sessions (at most 20 a run,
+  largest union first) and a yes joins them (`mint::Hints::same`; a yes is kept in the mark's `same` for as long as its
+  `kind <a> <b>` ask, so a chain asked over two nights still clusters, and a kept pick follows its cluster to a new key); `name_it.v1` names a kind about to be minted from a cluster of two names or more, and `none`, a
   pick below the act band or no answer leaves the most shared name (`Hints::named`, `Swept.named_kinds`; a pick is kept in the mark's `named` for as long as its ask is not asked again, so a cluster that mints a later night uses it; a Jev-named kind's description ends with `mint::NAMED_NOTE`, which the morning note and the cockpit read). The night runs
   hints, then the plan, then the pair, split and rename asks (`onto_sweep_night`); `onto_sweep` alone is the plan with
   no model; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
@@ -551,8 +552,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   own thread (`of_node`: `moved.of.<node>`, what a split moved) over its session's, and `[threads] base_distance`
   (true) makes a node no thread claims another stream's to a threaded asker (the same penalty and bar, never
   waived by a name); `cross_recall_beats_own` (true) makes another stream's hit, once it has paid, still outrank the
-  asking thread's own best hit (`own_top`, from the candidates it owns); (3) when another thread's notes are
-  pulled: `cross_recall_needs_entity` (true) drops a hit whose chunk holds entities (`Tie::Apart`: index entities,
+  asking thread's own best hit (`own_top`, from the candidates it owns, in context or not; a note no thread claims
+  weighs only its own not yet in context, `own_top_admissible`, so msg 113's home note gets in: theseus-98bz.8,
+  theseus-stwkb); (3) when another thread's notes are pulled: `cross_recall_needs_entity` (true) drops a hit whose
+  chunk holds entities (`Tie::Apart`: index entities,
   none of the message's) of another stream, so a question's shape alone pulls none. Each key off restores the
   earlier rule. (2) A prefix carries only the asking stream's own sections: `prefix::fit` refuses a header with a
   section the fresh layer lacks, so no reuse can hold another stream's guidance (`prefix/tests.rs`,
@@ -586,8 +589,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   when the thread is sealed or proposed). Tests: `rpc/tests_thread_recall.rs`, theseus-memory's `tests_threads.rs`.
 
 - **The thread router** (theseus-rha2; no store change): an unaddressed message in a place with live threads finds its
-  thread (never one `theseus ask -s` named: `via` is `ask`, `may_route`, theseus-0rfjx). `rpc/thread_flow.rs` (`route_to_thread`, called from `turn_submit` with `route` true) runs in this order:
-  addressing by place, an explicit word (`#slug`, `/t slug`, "in the … thread:") and a reply to a routed turn
+  thread (never one `theseus ask -s` named: `via` is `ask`, `may_route`, theseus-0rfjx). `rpc/thread_flow.rs`
+  (`route_to_thread`, called from `turn_submit` with `route` true) runs in this order: addressing by place, an
+  explicit word (`#slug`, `/t slug`, "in the … thread:") and a reply to a routed turn
   (`thread_route::address`, certain, no judge); then the in-memory pre-router (`thread_route.rs`, pure: entity matches
   against each live thread's working set, stickiness `[threads] sticky_half_life_secs`, the reply chain, fused as a
   noisy-or, a thread whose title the message names in every content word adding 0.35 unshared (`thread_title.rs`,
@@ -603,8 +607,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   more live threads wait. `[threads] route_wait_ms` (400) bounds the wait: a timeout keeps the pre-router's pick as a
   `guess` and the `thread.routed` row counts it (`timed_out`). **The misroute guard** (`toolrun/misroute.rs`, armed by
   `arm_guard` for a placement below the act bar only): the session's first write or `proc.run` outside the thread's
-  working-set roots is held through the Approve posture, once. **Recovery** (`rpc/thread_move.rs`): `/move`, `theseus
-  thread move`, or "that was for …" writes a redirect note in the wrong thread, re-submits the message once to the right
+  working-set roots (a relative one read under the session's directory, `cwd_for`, the one the working set grew it in)
+  is held through the Approve posture, once; a `proc.run` from a directory above the roots (the session's directory)
+  decides nothing, and the next write or program does. **Recovery** (`rpc/thread_move.rs`): `/move`, `theseus thread
+  move`, or "that was for …" writes a redirect note in the wrong thread, re-submits the message once to the right
   one, and writes a correction (a `wrong thread` label on the `thread` question, and `Steer::Thread` in the correction
   layer, so the next close message follows). A thread session's replies go to the place the message came from through
   the outbox overlay (`Outbox::show_at`). Known limits: pending asks, router memory and thread corrections are in memory
@@ -744,7 +750,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   sweep (`Core::sweep_outputs`, with the spool's hourly sweep) deletes a retired session's copies, any past
   `[tools] outputs_keep_days`, and the oldest past `outputs_max_bytes`. `fs.read` has its own cap
   (`Tool::result_max_chars`, 100,000), cut as a contiguous head, never head and tail. Tests: `tests_kept.rs`. The gate's parts are
-  `policy.rs` (postures and the floor), `external.rs` (the hold after external text), `broker.rs` (granted
+  `policy.rs` (postures and the floor), `external.rs` (the hold after external text: `[policy] external_text` is optional and, unset, follows `enforcement` (`PolicyConfig::external_mode`; `open` notifies too); under notify a hold tells once, its first call that acts, marked by the META key `external.told.<session>` holding the hold's `since_ms`, written in that call's frame, so a restart does not tell twice and a new hold tells again; ask waits on every call; no expiry, an old hold still holds), `broker.rs` (granted
   secrets), `approval.rs` (who answers, and from where), `peer.rs` (the web UI's other-uid check at accept), and `peer_proc.rs` (who is behind a CLI answer).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
   unless `[policy] private_addresses = "open"` (theseus-7gir.20, the bench profile's), which lifts both
@@ -1688,7 +1694,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     A 400 naming `output_config` on a request that carries one is asked again once without them, the level at the
     top, and the model takes none for an hour, `REFUSAL_HOLDS_MS` (`turn/effort_step.rs`, `provider.effort_refused`).
     A one-step change held on a model without per-message effort (`stick`) says `sticky`, or `sticky_unsure` when the
-    held answer was `applied_unsure`, so the row keeps the bar that admitted it (theseus-8zgji).
+    held answer was `applied_unsure`, so the row keeps the bar that admitted it (theseus-8zgji). An `xhigh` or `max` held at `high` says `held_high` for
+    a sure answer and `held_high_unsure` for one under the confirm bar; a held one then held again by `stick` says
+    `sticky`, or `sticky_unsure` for a `held_high_unsure` one (theseus-t7b96).
     Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`, `tests_effort_sticky.rs`.
   - **Which persona answers a message** (route.v5, theseus-c1uz, T10a; no store format: nothing new is stored; `engage.rs`,
     `turn/persona_engage.rs`, `judge/seal.rs`, `fact/persona.rs`). With two or more `[personas]` (`Config::persona_engaging`) **in a place where a message can engage another persona**
@@ -1847,7 +1855,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     Claude reviewers, first usable wins; required with it) make an admitted ask of a conversation (no task, no wake, its
     `dir` in a git repository whose top is under the open roots: the tree is the whole repository, and it is applied
     at that top) open a draft instead of a model call: an open task (`OpenHow::Draft`) on the `cn_draft` profile in a
-    worktree at `<state>/drafts/<short>` on branch `draft/<short>`, which is its open roots alone (never `open_paths`,
+    worktree at `<drafts_dir>/<short>` on branch `draft/<short>` (`[server] drafts_dir`, default `~/.cache/theseus/drafts`: outside the state dir and every approve-list entry, refused at load otherwise, and a root of the workspace while a class drafts, so the review's runs there take the tool's posture; a draft made before keeps its tree under `<state>/drafts` where `tree_of` finds it; theseus-iilre), which is its open roots alone (never `open_paths`,
     and never a path through `.git`), briefed by the core with the open run's person messages. Each failed condition is the route row's
     `draft_skip`. `Open::offers` withholds programs from a draft, and where the floor would move it its turn ends
     (`draft_stopped`). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
@@ -1859,7 +1867,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     review open without it, its tree removed. The core's git in a draft's tree is pinned to the git dir recorded at open,
     with fsmonitor, external diff and textconv off; `sweep_drafts` settles drafts a crash or cancel left (at start and
     after each cancel); one step of a draft runs at a time (`draft/flight.rs`; theseus-b0ozi). Tests: `tests_draft.rs`,
-    `tests_draft_first_pass.rs`, `tests_draft_hardening.rs`.
+    `tests_draft_first_pass.rs` (a `first_pass` equal to the `cn_draft` is refused: the drafting model would review its own draft; the bound's timer path, theseus-ms3hd), `tests_draft_hardening.rs`, `tests_draft_home.rs`.
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design
@@ -2042,7 +2050,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     under a preamble that names the harness as its source and no part of the person's message (it renders in their
     user turn, after their words: theseus-fpm2), each item's frozen header and its source's text over the frozen byte
     range, read by position (cached: sources never change), so the next request begins with the previous one's bytes.
-    Past `session_recall_cap_tokens` of notes in the tail, recall pauses (`paused`) until the next recompile.
+    Past `session_recall_cap_tokens` (64,000) of notes in the tail, recall pauses (`paused`) until the next recompile.
+    **The pack is sized to the prompt** (theseus-d9je7; `turn/tier.rs`): the route pack's mode folds into a tier,
+    `trivial` small, `sophisticated`/`deep_coding`/`review` deep, the rest ordinary, and so is a verdict late, missing,
+    under its bar or not acting, and a turn routing does not decide. Ordinary packs `recall_budget_tokens`/
+    `recall_max_items` (3,000 / 8), deep `deep_recall_tokens`/`deep_recall_items` (8,000 / 16); small packs as
+    ordinary and its detour drops it. The pack never waits: `recall_live` reads the verdict once the index has
+    answered (`TurnRunner::injection`, a peek that puts a landed answer back for the compile's own wait), else
+    packs ordinary, and the budget it took is fixed on `RouteState.injection` and the `route.decided` row's
+    `injection` (`tier`, `fallback`: `verdict late` and the like, the sizes, the admit multiple), which `theseus why`
+    says in one line. The sizes ride `Scene.budget_tokens`/`max_items`, so a live rerank's refill packs the same.
+    The tier touches only the tail: no cached prefix byte moves (`tests_injection_tiers.rs`). Deep's keys at
+    ordinary's numbers are the rollback.
     A trivial detour's request carries no recall (theseus-n7nc): while routing has the route to decide
     (`RouteState::deciding`) the row waits for it, and once it is known `recall_routed` drops a detour's node, its
     rides and its footer count, and the row says `detoured`. A quick detour's request carries it (theseus-pa1xx,
@@ -2666,6 +2685,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_route_defer.rs::a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget`, run in the owner's DM since the whole-request
   rule: at the cli a detour's request is about 7,300 tokens before a named family, so no AWS family (900 to 1,300) fits beside it there and the
   model reaches one with `tools_find` (`tests_detour::a_detour_naming_a_family_stays_within_its_place_budget`).
+  **A trivial detour carries `tools_find` only** (theseus-d9je7, the owner, 2026-10-22; `Deferral.bare`, `defer_step::Said`):
+  its `loaded` is empty save a family the message names or Jev judged relevant (`want::extra`), and `resolve` keeps the
+  find tool instead of falling back to every tool; its `context.detoured` tools part reads `trivial: tools_find only`.
+  A quick detour keeps its place's set. On a model with tool search the set is unchanged (the API refuses a request whose
+  tools are all deferred). Tests: `tests_trivial_tools.rs`; the budget-raise tests run on a quick detour, since a bare
+  request leaves a named family room under the budget.
   Tests: `tests_defer.rs` (whole turns), `tools_defer/*`'s own.
   **Admitted families raise the cap, under a ceiling** (theseus-xlri5; `[tools.defer] admit_ceiling` 2.0, `judge_families`,
   `judge_wait_ms` 200): for a model without tool search, a family the message names, then one Jev judges relevant
@@ -2675,7 +2700,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Fit` cost while the whole stays under `floor(budget × admit_ceiling)` (`want::extra` returns `Admitted { family,
   tokens, by }`); learned families stay held to `budget + Fit.raised`. What passed the budget rides `Deferral.raised`
   (not stored), `tools.used`'s `raised` and `TurnSubmitResult.raised`, whose `line` closes `harness_lines`.
-  `admit_ceiling = 1.0` and `judge_families = false` are the rollbacks. The `families.v1` call is made on every routed
+  `admit_ceiling = 1.0` and `judge_families = false` are the rollbacks. **By tier** (theseus-d9je7): `admit_ceiling` is an
+  ordinary prompt's, `admit_ceiling_small` (1.0) a trivial one's and `admit_ceiling_deep` (3.0) a deep one's, from the
+  turn's `RouteState.injection` when it is fixed before `defer_tools` (a verdict landed by then; else ordinary; a routed
+  recompile takes the fixed one); the three alike are one ceiling for all. The census's fresh request is ordinary.
+  The `families.v1` call is made on every routed
   prompt, a model with tool search included unless the route pack is below canary (the owner's decision of 2026-10-21:
   always try to categorize each toolset), so `families_start` is not narrowed. Tests: `tests_families.rs` (the two that
   read Jev's answer set `judge_wait_ms` to 2,000 in their rig, so the answer is waited for, not raced).
@@ -3050,6 +3079,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 ## Invariants
 
+- **Messages to the owner** (theseus-x8b9k; `owner_note.rs`, the catalog `docs/messages.md`): every message sent to the
+  owner unasked opens with `owner_note::head` (or `note`): `<tag> · <title>` (`ℹ️ FYI`, `✋ Action`, `❓ Decision`,
+  `⚠️ Alert`, `⏰ Reminder` with the owner's own words as the title), then one line of what triggered it, then the body
+  with the action last. The tag is the one icon: `head` drops a glyph a title starts with, and `is_headed` refuses one.
+  A new unasked message uses it and joins `tests_owner_note::every_unasked_message_starts_with_a_kind_and_a_title`. The
+  Discord DM task flow (the task reply, its started and thread lines, the board, the forum, `needs_you`'s cards, the
+  budget question and notice, the reports) is locked by the owner and does not.
+  Self-repair backlog titles are plain words (`rsi/backlog/read.rs`; `plain_title` maps an item filed under the old
+  labels, in every backlog read and the needs-you card's asker line, theseus-jsdj5).
 - **The frame budget.** A plain one-loop turn writes 4 frames, and each loop with one in-process tool adds 4.
   An input's turn holds its execution (`Kernel::hold_turn`, nothing written) and is admitted in its input's frame
   (`turn/admit_step.rs`, theseus-2uby), so it pays 2 syncs before its model's first byte (`syncs_before_call` on its

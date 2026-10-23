@@ -43,7 +43,7 @@ async fn a_turn_past_the_ceiling_is_made_and_the_owner_is_warned_once() {
     assert_eq!(p.len(), 1, "{p:?}");
     let text = p[0]["text"].as_str().unwrap();
     for want in [
-        "⚠️ Today's model spend is",
+        "⚠️ Alert · Today's spend passed the daily ceiling, and the work goes on\nToday's model spend is",
         "the $0.01 daily ceiling",
         "the work goes on",
         "$2000 runaway line",
@@ -128,7 +128,7 @@ async fn the_runaway_line_stops_a_turn_with_its_own_words_and_class() {
     assert!(p[1]["text"]
         .as_str()
         .unwrap()
-        .starts_with("⛔ Today's model spend reached the $5 daily runaway line"));
+        .starts_with("⚠️ Alert · Model calls are stopped for today\nToday's model spend reached the $5 daily runaway line"));
     // Sticky: however small, and the Money view says the day is stopped.
     assert!(k.fits(k.now(), 1).is_err());
     assert!(r.core.budget_list().unwrap().day_ceiling.unwrap().reached);

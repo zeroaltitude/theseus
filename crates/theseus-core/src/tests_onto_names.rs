@@ -236,8 +236,8 @@ async fn the_sweeps_new_asks_stop_at_the_days_money() {
 
 /// A name Jev picked for a cluster is kept under its key when its kind does
 /// not mint that night (`2026-…` is no kind's name), as long as the ask is
-/// not asked again; a later night's cluster uses the kept pick, and asks
-/// nothing (theseus-e3pxa).
+/// not asked again; a later night's cluster uses the kept pick, and asks no
+/// kind name (only its pair; theseus-e3pxa).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_kind_name_answer_waits_for_its_mint() {
     let jev = kind_jev(0.9);
@@ -267,4 +267,90 @@ async fn a_kind_name_answer_waits_for_its_mint() {
     assert_eq!((swept.kinds, swept.named_kinds), (1, 1), "{swept:?}");
     assert!(snapshot(&r.core).kind("ledger-app").is_some());
     assert_eq!(r.jev.seen().len(), 1, "only the pair was asked");
+}
+
+/// The state of the fake's request for the pair `Echo Ledger`, `Foxtrot Ledger`.
+const PAIR_EF: &str = r#"["Echo Ledger"],"sessions":[]},"second":{"names":["Foxtrot Ledger"]"#;
+
+/// Seven names one session each make 21 pairs and a run asks 20: the pair
+/// `Foxtrot Ledger ~ Golf Ledger` waits for the next night. Night 1 says yes
+/// to `Echo ~ Foxtrot` only and night 2 to `Foxtrot ~ Golf`: the kept yes
+/// joins them, and the three sessions mint one kind (theseus-3327o).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chain_asked_over_two_nights_clusters() {
+    let jev = kind_jev(0.1);
+    pick(&jev, "none", 0.9);
+    jev.script_when(PAIR_EF, None, "same_kind", Scripted::Noul(0.9));
+    let r = rig(jev, |_| {});
+    for (n, name) in [
+        "Alpha", "Beta", "Charlie", "Delta", "Echo", "Foxtrot", "Golf",
+    ]
+    .iter()
+    .enumerate()
+    {
+        said_other(&r, &format!("o{n}"), &[&format!("{name} Ledger")]);
+    }
+    let one = r.core.onto_sweep_night(fresh()).await.unwrap();
+    assert_eq!((one.kinds, r.jev.seen().len()), (0, 20), "{one:?}");
+    let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
+    let pair = ("echoledger".to_string(), "foxtrotledger".to_string());
+    assert_eq!(mark.same, [pair].into(), "{mark:?}");
+
+    r.jev.script("same_kind", Scripted::Noul(0.9));
+    let two = r
+        .core
+        .onto_sweep_night(fresh() + 36 * 3_600_000)
+        .await
+        .unwrap();
+    assert_eq!(two.kinds, 1, "{two:?}");
+    let o = snapshot(&r.core);
+    let made = o
+        .kinds()
+        .into_iter()
+        .filter(|k| k.name.ends_with("-ledger"));
+    assert_eq!(made.count(), 1);
+    assert_eq!(r.jev.seen().len(), 22, "the pair, and the kind's name");
+}
+
+/// A kept yes goes with its `kind <a> <b>` ask at 30 days, and not before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kept_yes_is_pruned_with_its_ask() {
+    let r = rig(FakeJev::start().unwrap(), |_| {});
+    let old = fresh() - 31 * 24 * 3_600_000;
+    let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+    let kept = Mark {
+        day: crate::judge::spend::local_day(fresh()),
+        asked: [
+            ("kind aaa bbb".to_string(), old),
+            ("kind ccc ddd".to_string(), fresh()),
+        ]
+        .into(),
+        same: [pair("aaa", "bbb"), pair("ccc", "ddd"), pair("eee", "fff")].into(),
+        ..Mark::default()
+    };
+    r.core.store.put_meta(MARK, &kept).unwrap();
+    r.core.onto_sweep_night(fresh()).await.unwrap();
+    let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
+    assert_eq!(mark.same, [pair("ccc", "ddd")].into(), "{mark:?}");
+}
+
+/// A pick kept under `lanternledger` goes with the cluster when a name that
+/// sorts first joins it: the key changes, the kind-name ask is not paid again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kept_pick_follows_its_cluster_to_a_new_key() {
+    let r = rig(kind_jev(0.9), |_| {});
+    plant_other(&r);
+    said_other(&r, "o4", &["Ant Ledger"]);
+    let kept = Mark {
+        day: crate::judge::spend::local_day(fresh()),
+        asked: [("kind-name lanternledger".to_string(), fresh())].into(),
+        named: [("lanternledger".to_string(), "Ledger App".to_string())].into(),
+        ..Mark::default()
+    };
+    r.core.store.put_meta(MARK, &kept).unwrap();
+    let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
+    assert_eq!((swept.kinds, swept.named_kinds), (1, 1), "{swept:?}");
+    assert!(snapshot(&r.core).kind("ledger-app").is_some());
+    let questions = r.jev.seen().len();
+    assert_eq!(questions, 3, "three pairs, no kind name");
 }

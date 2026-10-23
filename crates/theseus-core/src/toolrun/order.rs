@@ -208,7 +208,7 @@ impl ToolRuntime {
             decision,
             class,
             &held,
-            self.external_text,
+            self.external,
             tool.name(),
             input,
             &plan.summary,

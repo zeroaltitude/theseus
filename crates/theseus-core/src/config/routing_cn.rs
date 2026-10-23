@@ -17,6 +17,7 @@ pub(super) fn validate(cfg: &Config, catalog: &Catalog) -> Result<()> {
         let origin = cfg.profile_origin(p, catalog);
         (cfg.all_profiles().contains_key(p) && origin.restricted()).then_some(origin)
     };
+    drafts_dir(cfg)?;
     for m in MODES {
         let t = cfg.routing.classes.table(m);
         for p in t.profiles.iter().filter(|p| *p != CHEAPEST) {
@@ -69,6 +70,40 @@ pub(super) fn validate(cfg: &Config, catalog: &Catalog) -> Result<()> {
 /// The classes a China-origin model may draft for (theseus-a1wvq.13).
 pub const DRAFTING: [&str; 2] = ["routine_coding", "deep_coding"];
 
+/// Where the draft trees live, when a class drafts: a root of the workspace,
+/// so a review's runs there take the tool's posture and the state dir's
+/// approve-list hold does not reach them (theseus-iilre).
+pub(crate) fn drafts_root(cfg: &Config) -> Option<std::path::PathBuf> {
+    DRAFTING
+        .iter()
+        .any(|m| cfg.routing.classes.table(m).cn_draft.is_some())
+        .then(|| theseus_tools::paths::canonical_best_effort(&cfg.drafts_dir()))
+}
+
+/// `server.drafts_dir` outside the state dir and every approve-list entry: a
+/// draft tree inside either would bring the asking back (theseus-iilre).
+fn drafts_dir(cfg: &Config) -> Result<()> {
+    let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&super::expand(p));
+    let at = canon(&cfg.server.drafts_dir);
+    let held = std::iter::once(("server.state_dir", canon(&cfg.server.state_dir))).chain(
+        cfg.tools
+            .approve_paths
+            .iter()
+            .map(|a| ("tools.approve_paths", canon(a))),
+    );
+    for (key, dir) in held {
+        if theseus_tools::paths::within(&at, &dir) {
+            bail!(
+                "server.drafts_dir: {:?} is inside {key} ({}), where the review's runs would ask \
+                 every time: keep draft trees outside it",
+                cfg.server.drafts_dir,
+                dir.display()
+            );
+        }
+    }
+    Ok(())
+}
+
 /// `cn_draft` and `final` (theseus-a1wvq.13): a restricted profile drafts only
 /// a coding class's asks, and only with Claude profiles to review it.
 fn drafts(
@@ -115,6 +150,12 @@ fn drafts(
                  model's first read"
             );
         }
+    }
+    if t.first_pass.as_deref() == Some(d.as_str()) {
+        bail!(
+            "routing.classes.{m}.first_pass: {d:?} is also the class's cn_draft, and the drafting \
+             model would review its own draft: name another restricted profile, or none"
+        );
     }
     for p in &t.final_review {
         if !claude(cfg, catalog, p) {

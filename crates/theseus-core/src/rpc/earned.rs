@@ -177,7 +177,7 @@ impl Core {
             candidates: found,
             answered: Vec::new(),
         };
-        let body = json!({"kind": "earned_card", "text": card_text(&card), "card": card});
+        let body = json!({"kind": "earned_card", "text": card_post(&card), "card": card});
         let (post, more) = self.outbox.stage_to_operator(None, body)?;
         let row = LedgerRow::new(
             LedgerKind::PolicyEarnedProposed,
@@ -702,6 +702,19 @@ fn refused(what: &'static str) -> impl Fn(anyhow::Error) -> RpcFailure {
         },
         Err(e) => RpcFailure::invalid(e),
     }
+}
+
+/// The DM's card (theseus-x8b9k): `card_text` under its head, its first line
+/// the title.
+pub fn card_post(card: &EarnedCard) -> String {
+    let t = card_text(card);
+    let (title, rest) = t.split_once('\n').unwrap_or((&t, ""));
+    crate::owner_note::note(
+        crate::owner_note::Kind::Decision,
+        title.trim_end_matches('.'),
+        "the weekly read of your approvals ([policy.earned])",
+        rest,
+    )
 }
 
 /// The card's words, for the DM and the CLI: each candidate with its record,

@@ -422,12 +422,22 @@ impl Core {
 /// with the routine's answers.
 fn notice_body(spec: &RoutineSpec, line: &str, blocked: bool, now: u64) -> serde_json::Value {
     json!({
-        "kind": "reminder", "text": line, "wake_id": spec.wake_id,
+        "kind": "reminder", "text": routine_note(line), "wake_id": spec.wake_id,
         "short": crate::task::short(&spec.wake_id),
         "purpose": if blocked { "routine_blocked" } else { "routine_failed" },
         "due_at_ms": now, "late_ms": 0,
         "answers": routine_answers(blocked),
     })
+}
+
+/// A routine's notice under its head (theseus-x8b9k): the protocol's line
+/// is the title.
+pub(crate) fn routine_note(line: &str) -> String {
+    crate::owner_note::head(
+        crate::owner_note::Kind::Alert,
+        line,
+        "its latest scheduled run did not finish",
+    )
 }
 
 /// What a skipped occurrence's reason says.

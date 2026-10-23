@@ -92,7 +92,7 @@ mod noop_step;
 pub mod nudge_step;
 mod open_step;
 mod persona_engage;
-mod persona_step;
+pub(crate) mod persona_step;
 pub(crate) mod personal_step;
 mod promise_step;
 mod prompt_input;
@@ -113,6 +113,7 @@ pub mod stdio_step;
 mod steer_step;
 mod stopping_step;
 mod surface_step;
+mod tier;
 mod title_step;
 
 pub use request::TurnRequest;
@@ -1761,6 +1762,7 @@ impl TurnRunner {
         self.stand(t, &mut spec);
         self.thread_spec(&mut spec, sid, session.compilation_id.as_deref());
         self.families_ready(t, &spec.model).await;
+        self.injection(t, false);
         self.defer_tools(t, &mut spec);
         self.observe_persona(t, target, &spec);
         for u in &unreadable {
@@ -2285,7 +2287,7 @@ impl TurnRunner {
         if let Some(h) = &held {
             tc.record(&fact::tool::HoldTaken {
                 hold: h,
-                mode: self.tools.external_text,
+                mode: self.tools.external.mode,
             });
         }
         for r in reports

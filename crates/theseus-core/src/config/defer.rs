@@ -41,9 +41,16 @@ pub struct DeferConfig {
     /// terminals (7,300 + 6,000 + 1,271 + 1,264 = 15,835, under 16,000); at
     /// 1.5 (12,000) the tasks could never load at the cli. A multiple keeps
     /// one set of numbers, the keel's budgets. It is a ceiling, not a target.
-    /// 1.0 is the cap as it was: the rollback.
+    /// 1.0 is the cap as it was: the rollback. It is an ordinary prompt's
+    /// (theseus-d9je7, `turn::tier`); a small one (`trivial`) takes
+    /// `admit_ceiling_small`, a deep one (`sophisticated`, `deep_coding`,
+    /// `review`) `admit_ceiling_deep`. The three alike are the rollback.
     #[serde(default = "admit_ceiling")]
     pub admit_ceiling: f64,
+    #[serde(default = "admit_ceiling_small")]
+    pub admit_ceiling_small: f64,
+    #[serde(default = "admit_ceiling_deep")]
+    pub admit_ceiling_deep: f64,
     /// Jev judges each hidden family's relevance to the prompt in focus, once
     /// a prompt (`families.v1`); off, only the families a message names are
     /// admitted: the rollback.
@@ -79,6 +86,15 @@ fn admit_ceiling() -> f64 {
     2.0
 }
 
+fn admit_ceiling_small() -> f64 {
+    1.0
+}
+
+/// The owner asked for more generous than the audit's 2.0 (theseus-d9je7).
+fn admit_ceiling_deep() -> f64 {
+    3.0
+}
+
 fn judge_families() -> bool {
     true
 }
@@ -96,6 +112,8 @@ impl Default for DeferConfig {
             window_days: window_days(),
             hide_after_days: hide_after_days(),
             admit_ceiling: admit_ceiling(),
+            admit_ceiling_small: admit_ceiling_small(),
+            admit_ceiling_deep: admit_ceiling_deep(),
             judge_families: judge_families(),
             judge_wait_ms: judge_wait_ms(),
         }
@@ -114,11 +132,16 @@ impl DeferConfig {
         if self.window_days == 0 || self.hide_after_days == 0 {
             return Err("[tools.defer] window_days and hide_after_days must be at least 1".into());
         }
-        if !(1.0..=3.0).contains(&self.admit_ceiling) {
-            return Err(format!(
-                "[tools.defer] admit_ceiling = {} must be between 1.0 (the cap as it was) and 3.0",
-                self.admit_ceiling
-            ));
+        for (key, v) in [
+            ("admit_ceiling", self.admit_ceiling),
+            ("admit_ceiling_small", self.admit_ceiling_small),
+            ("admit_ceiling_deep", self.admit_ceiling_deep),
+        ] {
+            if !(1.0..=3.0).contains(&v) {
+                return Err(format!(
+                    "[tools.defer] {key} = {v} must be between 1.0 (the cap as it was) and 3.0"
+                ));
+            }
         }
         if self.judge_wait_ms > 2_000 {
             return Err(format!(
@@ -143,6 +166,8 @@ mod tests {
         assert!(cfg.tools.defer.enabled);
         assert_eq!(cfg.tools.defer.always_loaded, ["files", "commands"]);
         assert_eq!(cfg.tools.defer.admit_ceiling, 2.0);
+        assert_eq!(cfg.tools.defer.admit_ceiling_small, 1.0);
+        assert_eq!(cfg.tools.defer.admit_ceiling_deep, 3.0);
         assert!(cfg.tools.defer.judge_families);
         assert_eq!(cfg.tools.defer.judge_wait_ms, 200);
     }
@@ -157,6 +182,11 @@ mod tests {
                 ..Default::default()
             };
             assert!(bad.check().unwrap_err().contains("admit_ceiling"));
+            let bad = DeferConfig {
+                admit_ceiling_deep: admit_ceiling,
+                ..Default::default()
+            };
+            assert!(bad.check().unwrap_err().contains("admit_ceiling_deep"));
         }
         let bad = DeferConfig {
             judge_wait_ms: 5_000,

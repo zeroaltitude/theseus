@@ -45,7 +45,7 @@ pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
 mod routing_checkpoints;
-mod routing_cn;
+pub(crate) mod routing_cn;
 mod routing_data;
 pub mod self_improve;
 pub mod self_mint;
@@ -657,11 +657,12 @@ pub struct PolicyConfig {
     /// `"server/tool"` (one tool), for tools named `mcp:<server>/<tool>`.
     #[serde(default)]
     pub mcp: BTreeMap<String, crate::policy::Posture>,
-    /// After a session reads external text (theseus-9bp): `ask`, the default,
-    /// makes a call that acts wait for approval; `notify` runs it with a
-    /// notice at least. Either holds until the operator trusts the session.
+    /// After a session reads external text (theseus-9bp): `ask` makes a call
+    /// that acts wait for approval; `notify` runs it, telling the owner once
+    /// per hold. Either holds until the operator trusts the session. Unset,
+    /// it follows `enforcement` (`external_mode`).
     #[serde(default)]
-    pub external_text: crate::external::Mode,
+    pub external_text: Option<crate::external::Mode>,
     /// Programs whose output is outside text (theseus-b5cl): a `proc.run` of
     /// one holds its session as a fetch does (`external::Listed`). `["gh"]`
     /// by default: `gh issue view` prints a stranger's text.
@@ -722,6 +723,33 @@ fn default_agent_processes() -> Vec<String> {
         .to_vec()
 }
 
+impl PolicyConfig {
+    /// The mode in force for a hold: `external_text` when set, else
+    /// `enforcement` (`approve` asks; `notify` and `open` notify, since a
+    /// hold never goes silent: its floor is the one notice).
+    pub fn external_mode(&self) -> crate::external::Mode {
+        self.external_text
+            .unwrap_or_else(|| self.enforcement.into())
+    }
+
+    /// The key that decided [`Self::external_mode`], for a notice's setting.
+    pub fn external_key(&self) -> &'static str {
+        if self.external_text.is_some() {
+            "external_text"
+        } else {
+            "enforcement"
+        }
+    }
+
+    /// [`Self::external_mode`] and the key that decided it, for the runtime.
+    pub fn external_rule(&self) -> crate::external::Rule {
+        crate::external::Rule {
+            mode: self.external_mode(),
+            key: self.external_key(),
+        }
+    }
+}
+
 impl Default for PolicyConfig {
     fn default() -> Self {
         Self {
@@ -730,7 +758,7 @@ impl Default for PolicyConfig {
             approve_argv: default_approve_argv(),
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
-            external_text: Default::default(),
+            external_text: None,
             external_programs: default_external_programs(),
             agent_processes: default_agent_processes(),
             private_addresses: Default::default(),
@@ -1199,6 +1227,11 @@ impl Retries {
 pub struct ServerConfig {
     #[serde(default = "default_state_dir")]
     pub state_dir: String,
+    /// Where a draft review's git worktrees live (theseus-iilre): outside the
+    /// state dir and every approve-list entry, so the review's runs there ask
+    /// nothing. Persistent: a draft waits for its review.
+    #[serde(default = "default_drafts_dir")]
+    pub drafts_dir: String,
     #[serde(default = "default_socket")]
     pub socket: String,
     /// Index engine behind the WAL: "redb", the only one (theseus-0g4). Still
@@ -1268,6 +1301,9 @@ pub const DEFAULT_STATE_DIR: &str = "~/.theseus";
 fn default_state_dir() -> String {
     DEFAULT_STATE_DIR.into()
 }
+fn default_drafts_dir() -> String {
+    "~/.cache/theseus/drafts".into()
+}
 fn default_socket() -> String {
     "~/.theseus/theseus.sock".into()
 }
@@ -1298,6 +1334,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             state_dir: default_state_dir(),
+            drafts_dir: default_drafts_dir(),
             socket: default_socket(),
             store_engine: theseus_store::Engine::Redb,
             stop_grace_ms: default_stop_grace_ms(),
@@ -2011,6 +2048,9 @@ impl Config {
 
     pub fn state_dir(&self) -> PathBuf {
         expand(&self.server.state_dir)
+    }
+    pub fn drafts_dir(&self) -> PathBuf {
+        expand(&self.server.drafts_dir)
     }
     pub fn socket_path(&self) -> PathBuf {
         expand(&self.server.socket)

@@ -637,10 +637,14 @@ impl Drop for Begun {
 impl Begun {
     /// The pack's parameters: the config's, under `budget_tokens`, and this
     /// recall's own page size when it has one.
-    fn params(&self, p: theseus_memory::Params, budget_tokens: u64) -> theseus_memory::Params {
+    fn params(
+        &self,
+        p: theseus_memory::Params,
+        (budget_tokens, scene_items): (u64, Option<usize>),
+    ) -> theseus_memory::Params {
         theseus_memory::Params {
             budget_tokens,
-            max_items: self.max_items.unwrap_or(p.max_items),
+            max_items: self.max_items.or(scene_items).unwrap_or(p.max_items),
             ..p
         }
     }
@@ -678,6 +682,9 @@ pub struct Scene<'a> {
     /// The pack's tokens when not `[memory] recall_budget_tokens`: an
     /// assembled prefix's recall section (30c), `assembled_budget_tokens`.
     pub budget_tokens: Option<u64>,
+    /// The pack's items when not `[memory] recall_max_items`: a deep prompt's
+    /// (theseus-d9je7). A `Begun`'s own page size wins.
+    pub max_items: Option<usize>,
     /// The turn's arm's science (`Memory::science_for`): `baseline` in
     /// shadow, for a canary's control, and for a search with no arm.
     pub science: Arc<dyn MemoryScience>,
@@ -839,7 +846,7 @@ impl Memory {
             retention: &retention,
             threads: lens.as_ref(),
         };
-        let mut params = begun.params(self.cfg.params(), m.budget_tokens);
+        let mut params = begun.params(self.cfg.params(), (m.budget_tokens, scene.max_items));
         params.persona = scene.persona.as_ref().and_then(|p| p.boost(&candidates));
         params.category = scene.category.as_ref().and_then(|c| c.boost(&candidates));
         (params.floor, m.relevance) = relevance::of(&self.cfg, &r_weights, &m.sources, &candidates);
@@ -879,7 +886,7 @@ impl Memory {
             retention: &retention,
             threads: lens.as_ref(),
         };
-        let params = self.params_of(m);
+        let params = self.params_of(m, scene.max_items);
         let pack =
             theseus_memory::rerank::repack(&*scene.science, &asker, candidates, &params, order);
         m.drops.clear();
@@ -927,16 +934,23 @@ impl Memory {
         }
     }
 
-    /// The pack's limits for a manifest's budget.
-    pub fn params_of(&self, m: &RecallManifest) -> theseus_memory::Params {
+    /// The pack's limits for a manifest's budget, at `max_items` when its
+    /// scene sized them.
+    pub fn params_of(
+        &self,
+        m: &RecallManifest,
+        max_items: Option<usize>,
+    ) -> theseus_memory::Params {
+        let p = self.cfg.params();
         theseus_memory::Params {
             budget_tokens: m.budget_tokens,
+            max_items: max_items.unwrap_or(p.max_items),
             floor: m
                 .relevance
                 .as_ref()
                 .map(relevance::floor_of)
                 .unwrap_or_default(),
-            ..self.cfg.params()
+            ..p
         }
     }
 }

@@ -876,6 +876,7 @@ fn summary(recompile: bool) -> ContextCompiled {
             trigger: "window".into(),
         }),
         standing_here: vec![],
+        walk_tokens: 0,
     }
 }
 

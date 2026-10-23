@@ -176,7 +176,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
         "action.failed" => {
             let p = word(&d["producer"]);
             o.key = format!("action.failed:{p}");
-            o.title = format!("Calls from {p} fail");
+            o.title = calls_failing(&p);
             o.note = format!(
                 "action {} failed after {} ms",
                 d["correlation_id"], d["duration_ms"]
@@ -187,7 +187,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
         "turn.failed" => {
             let r = word(&d["reason"]);
             o.key = format!("turn.failed:{r}");
-            o.title = format!("Turns fail with {r}");
+            o.title = format!("Turns failing with {r}");
             o.note = format!("turn failed ({r}) after {} loops", d["loops"]);
             o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
             (o.person, o.task_failed, o.work) = (true, true, 3);
@@ -202,7 +202,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
         "provider.error" => {
             let (c, p) = (word(&d["class"]), word(&d["provider"]));
             o.key = format!("provider.error:{c}:{p}");
-            o.title = format!("{p} answers {c}");
+            o.title = errors_from(&p, &c);
             o.note = format!(
                 "{p} {c} after {} ms: {}",
                 d["elapsed_ms"],
@@ -249,13 +249,13 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
         "approval.refused" => {
             let a = word(&d["act"]);
             o.key = format!("approval.refused:{a}");
-            o.title = format!("Refused acts: {a}");
+            o.title = format!("Approvals refused for {a}");
             o.note = format!("{a} refused for {}", word(&d["who"]));
         }
         "self.sealed.drift" => of_drift(&mut o, d),
         "secrets.failed" | "mcp.failed" => {
             o.key = kind.into();
-            o.title = format!("{kind} rows keep coming");
+            o.title = failing_rows(kind).into();
             o.note = format!("{kind}: {}", word(&d["error"]));
             o.work = 3;
         }
@@ -266,6 +266,63 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
 
 /// The installed main fell below the sealed baseline in a family
 /// (theseus-pw1q.21.7); the row holds counts and a family's name, never text.
+/// The titles are the owner's plain words, not the ledger's labels (the
+/// owner, 2026-10-22: "Harness tool calls failing", not "Calls from harness
+/// fail"; theseus-jsdj5). `plain_title` reads an item filed under the old
+/// words the same way.
+fn calls_failing(producer: &str) -> String {
+    let mut c = producer.chars();
+    let up: String = c
+        .next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default();
+    format!("{up} tool calls failing")
+}
+
+fn errors_from(provider: &str, class: &str) -> String {
+    format!("Errors from {provider}: {class}")
+}
+
+fn failing_rows(kind: &str) -> &'static str {
+    match kind {
+        "secrets.failed" => "Secret lookups failing",
+        _ => "MCP server calls failing",
+    }
+}
+
+/// A stored item's title in today's words: an item filed before
+/// theseus-jsdj5 keeps its old title in its record, and every read of the
+/// backlog (and the needs-you card's asker) shows it plain.
+pub(crate) fn plain_title(title: &str) -> String {
+    let one = |w: &str| !w.is_empty() && !w.contains(' ');
+    if let Some(p) = title
+        .strip_prefix("Calls from ")
+        .and_then(|t| t.strip_suffix(" fail"))
+    {
+        if one(p) {
+            return calls_failing(p);
+        }
+    }
+    if let Some(r) = title.strip_prefix("Turns fail with ").filter(|r| one(r)) {
+        return format!("Turns failing with {r}");
+    }
+    if let Some(a) = title.strip_prefix("Refused acts: ").filter(|a| one(a)) {
+        return format!("Approvals refused for {a}");
+    }
+    if let Some(k) = title.strip_suffix(" rows keep coming") {
+        if matches!(k, "secrets.failed" | "mcp.failed") {
+            return failing_rows(k).into();
+        }
+    }
+    if let Some((p, c)) = title
+        .split_once(" answers ")
+        .filter(|(p, c)| one(p) && one(c))
+    {
+        return errors_from(p, c);
+    }
+    title.to_string()
+}
+
 fn of_drift(o: &mut Obs, d: &Value) {
     let fam = d["family"]
         .as_str()
@@ -467,5 +524,54 @@ pub fn of_motif(m: &crate::rsi::mine::Motif, now_ms: u64, date: &str) -> Obs {
                 m.digest
             ),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn title_of(kind: &str, data: Value) -> String {
+        let row = LedgerRow {
+            at_unix_ms: 1,
+            kind: kind.into(),
+            session_id: None,
+            turn_id: None,
+            data,
+        };
+        of_row(7, &row).unwrap().title
+    }
+
+    /// A backlog item's title is in plain words, and an item filed under the
+    /// old words reads the same (the owner, 2026-10-22; theseus-jsdj5).
+    #[test]
+    fn a_backlog_title_is_plain_words_old_or_new() {
+        let calls = title_of("action.failed", json!({"producer": "harness"}));
+        assert_eq!(calls, "Harness tool calls failing");
+        assert_eq!(plain_title("Calls from harness fail"), calls);
+        let errors = title_of(
+            "provider.error",
+            json!({"class": "overloaded", "provider": "anthropic"}),
+        );
+        assert_eq!(errors, "Errors from anthropic: overloaded");
+        assert_eq!(plain_title("anthropic answers overloaded"), errors);
+        let turns = title_of("turn.failed", json!({"reason": "timeout"}));
+        assert_eq!(plain_title("Turns fail with timeout"), turns);
+        let refused = title_of("approval.refused", json!({"act": "fs.edit"}));
+        assert_eq!(refused, "Approvals refused for fs.edit");
+        assert_eq!(plain_title("Refused acts: fs.edit"), refused);
+        for kind in ["secrets.failed", "mcp.failed"] {
+            let t = title_of(kind, json!({"error": "x"}));
+            assert_eq!(plain_title(&format!("{kind} rows keep coming")), t);
+            assert!(!t.contains(kind), "{t}");
+        }
+        for kept in [
+            "The import sync is failing",
+            "Calls from two words fail",
+            "Fix the tides",
+        ] {
+            assert_eq!(plain_title(kept), kept);
+        }
     }
 }

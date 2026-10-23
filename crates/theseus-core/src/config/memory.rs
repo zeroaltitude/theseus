@@ -127,15 +127,22 @@ pub struct MemoryConfig {
     #[serde(default = "default_experiment")]
     pub experiment: String,
     /// The tokens of recall notes a session's tail may hold; past it, recall
-    /// pauses until the next recompile.
+    /// pauses until the next recompile. Long sessions are fine (the owner,
+    /// theseus-d9je7): it limits the tail, not a turn's pack.
     #[serde(default = "default_session_cap")]
     pub session_recall_cap_tokens: u64,
-    /// The pack's tokens.
+    /// The pack's tokens: an ordinary prompt's (theseus-d9je7, `turn::tier`).
     #[serde(default = "default_budget")]
     pub recall_budget_tokens: u64,
-    /// The pack's items.
+    /// The pack's items: an ordinary prompt's.
     #[serde(default = "default_max_items")]
     pub recall_max_items: usize,
+    /// A deep prompt's pack (`sophisticated`, `deep_coding`, `review`), in
+    /// tokens and items (theseus-d9je7).
+    #[serde(default = "default_deep_tokens")]
+    pub deep_recall_tokens: u64,
+    #[serde(default = "default_deep_items")]
+    pub deep_recall_items: usize,
     /// How long a turn's recall waits for the index. The turn never waits for
     /// it past its model call's answer and this.
     #[serde(default = "default_deadline_ms")]
@@ -198,13 +205,19 @@ pub struct MemoryConfig {
 }
 
 fn default_budget() -> u64 {
-    1500
+    3_000
 }
 fn default_recall_floor() -> f64 {
     0.0
 }
 fn default_max_items() -> usize {
-    6
+    8
+}
+fn default_deep_tokens() -> u64 {
+    8_000
+}
+fn default_deep_items() -> usize {
+    16
 }
 fn default_deadline_ms() -> u64 {
     250
@@ -226,7 +239,7 @@ fn default_experiment() -> String {
     "m6-1".into()
 }
 fn default_session_cap() -> u64 {
-    12_000
+    64_000
 }
 fn default_summary_profile() -> String {
     SUMMARY_SESSION.into()
@@ -279,6 +292,8 @@ impl Default for MemoryConfig {
             session_recall_cap_tokens: default_session_cap(),
             recall_budget_tokens: default_budget(),
             recall_max_items: default_max_items(),
+            deep_recall_tokens: default_deep_tokens(),
+            deep_recall_items: default_deep_items(),
             recall_deadline_ms: default_deadline_ms(),
             recall_vector_tokens: default_vector_tokens(),
             rerank_wait_ms: default_rerank_wait_ms(),
@@ -319,22 +334,28 @@ impl MemoryConfig {
         if self.experiment.trim().is_empty() {
             bail!("memory.experiment is empty: it names the plan, and seeds each session's arm");
         }
-        if self.session_recall_cap_tokens < self.recall_budget_tokens {
-            bail!(
-                "memory.session_recall_cap_tokens = {} is under recall_budget_tokens = {}: no \
-                 recall would fit",
-                self.session_recall_cap_tokens,
-                self.recall_budget_tokens
-            );
+        for (key, tokens) in [
+            ("recall_budget_tokens", self.recall_budget_tokens),
+            ("deep_recall_tokens", self.deep_recall_tokens),
+        ] {
+            if self.session_recall_cap_tokens < tokens {
+                bail!(
+                    "memory.session_recall_cap_tokens = {} is under {key} = {tokens}: no \
+                     recall would fit",
+                    self.session_recall_cap_tokens,
+                );
+            }
+            if tokens == 0 {
+                bail!("memory.{key} = 0: a pack with no tokens admits nothing");
+            }
         }
-        if self.recall_budget_tokens == 0 {
-            bail!("memory.recall_budget_tokens = 0: a pack with no tokens admits nothing");
-        }
-        if !(1..=MAX_RECALL_ITEMS).contains(&self.recall_max_items) {
-            bail!(
-                "memory.recall_max_items = {} is outside 1 to {MAX_RECALL_ITEMS}",
-                self.recall_max_items
-            );
+        for (key, items) in [
+            ("recall_max_items", self.recall_max_items),
+            ("deep_recall_items", self.deep_recall_items),
+        ] {
+            if !(1..=MAX_RECALL_ITEMS).contains(&items) {
+                bail!("memory.{key} = {items} is outside 1 to {MAX_RECALL_ITEMS}");
+            }
         }
         if self.summary_profile.trim().is_empty() {
             bail!("memory.summary_profile is empty: name a profile, or \"off\" to keep the ring");
@@ -519,6 +540,10 @@ mod tests {
             "recall_budget_tokens = 0",
             "recall_max_items = 0",
             "recall_max_items = 41",
+            "deep_recall_tokens = 0",
+            "deep_recall_tokens = 70000",
+            "deep_recall_items = 0",
+            "deep_recall_items = 41",
             "recall_deadline_ms = 0",
             "recall_deadline_ms = 5001",
             "recall_vector_tokens = 501",

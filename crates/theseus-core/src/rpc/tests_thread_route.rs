@@ -898,6 +898,134 @@ async fn a_write_outside_the_threads_roots_is_held_only_below_the_act_bar() {
     );
 }
 
+/// A thread's working set grows relative roots (`tidewatch`), read under the
+/// directory its tools run in: a guess-placed write inside one is not held,
+/// and one in another thread's directory still is.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_guess_placed_turn_inside_its_threads_relative_root_writes_without_a_hold() {
+    let jev = FakeJev::start().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (mine, theirs) = (dir.path().join("tidewatch"), dir.path().join("vault"));
+    std::fs::create_dir_all(&mine).unwrap();
+    std::fs::create_dir_all(&theirs).unwrap();
+    let inside = mine.join("notes.txt").display().to_string();
+    let root = dir.path().to_path_buf();
+    let r = rig_on(write_to(&inside), Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.tools.roots = vec![root.display().to_string()];
+        c.tools.cwd = Some(root.display().to_string());
+    });
+    let c = &r.core;
+    thread(
+        c,
+        "pr-round",
+        "pr round",
+        ws(&["#412"], &["tidewatch"], &["tidewatch"]),
+    );
+    thread(
+        c,
+        "security-fix",
+        "security fix",
+        ws(&["#977"], &["vault"], &["vault"]),
+    );
+    let dm = home(c, None);
+    thread_answer(&jev, "pr-round", 0.75);
+    let done = submit(c, &dm, "does the migration need a flag").await;
+    assert!(done.awaiting_confirm.is_none(), "{done:?}");
+    assert!(mine.join("notes.txt").exists());
+    assert!(rows(c, "thread.misroute_held").is_empty());
+}
+
+/// The same relative roots still hold a write into the other thread's tree.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_guess_placed_write_outside_its_relative_roots_is_still_held() {
+    let jev = FakeJev::start().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (mine, theirs) = (dir.path().join("tidewatch"), dir.path().join("vault"));
+    std::fs::create_dir_all(&mine).unwrap();
+    std::fs::create_dir_all(&theirs).unwrap();
+    let outside = theirs.join("notes.txt").display().to_string();
+    let root = dir.path().to_path_buf();
+    let r = rig_on(write_to(&outside), Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.tools.roots = vec![root.display().to_string()];
+        c.tools.cwd = Some(root.display().to_string());
+    });
+    let c = &r.core;
+    thread(
+        c,
+        "pr-round",
+        "pr round",
+        ws(&["#412"], &["tidewatch"], &["tidewatch"]),
+    );
+    thread(
+        c,
+        "security-fix",
+        "security fix",
+        ws(&["#977"], &["vault"], &["vault"]),
+    );
+    let dm = home(c, None);
+    thread_answer(&jev, "pr-round", 0.75);
+    let held = submit(c, &dm, "does the migration need a flag").await;
+    assert!(held.awaiting_confirm.is_some(), "{held:?}");
+    assert!(!theirs.join("notes.txt").exists());
+    assert_eq!(rows(c, "thread.misroute_held").len(), 1);
+}
+
+/// A program run from the session's directory (above every relative root)
+/// names no tree: the guard stays armed, and the turn's next write decides.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_guess_placed_program_from_the_session_directory_is_not_held() {
+    for (target, held_rows) in [("tidewatch", 0), ("vault", 1)] {
+        let jev = FakeJev::start().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let (mine, theirs) = (dir.path().join("tidewatch"), dir.path().join("vault"));
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::create_dir_all(&theirs).unwrap();
+        let file = dir.path().join(target).join("notes.txt");
+        let mut script = vec![Scripted::tools(
+            "",
+            &[("p1", "proc_run", json!({"argv": ["true"]}))],
+        )];
+        script.extend(write_to(&file.display().to_string()));
+        let root = dir.path().to_path_buf();
+        let r = rig_on(script, Some(&jev), |c| {
+            inbound_only(c);
+            c.judge.total_secs = 5;
+            c.tools.roots = vec![root.display().to_string()];
+            c.tools.cwd = Some(root.display().to_string());
+        });
+        let c = &r.core;
+        thread(
+            c,
+            "pr-round",
+            "pr round",
+            ws(&["#412"], &["tidewatch"], &["tidewatch"]),
+        );
+        thread(
+            c,
+            "security-fix",
+            "security fix",
+            ws(&["#977"], &["vault"], &["vault"]),
+        );
+        let dm = home(c, None);
+        thread_answer(&jev, "pr-round", 0.75);
+        let res = submit(c, &dm, "does the migration need a flag").await;
+        let held = rows(c, "thread.misroute_held");
+        assert_eq!(held.len(), held_rows, "{target}: {res:?}");
+        assert_eq!(res.awaiting_confirm.is_some(), held_rows == 1, "{target}");
+        assert_eq!(file.exists(), held_rows == 0, "{target}");
+        if let Some(h) = held.first() {
+            assert!(h.data["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("vault/notes.txt"));
+        }
+    }
+}
+
 /// At the act bar the same write is not held.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_turn_placed_at_the_act_bar_writes_without_the_guard() {

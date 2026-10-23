@@ -40,7 +40,7 @@ impl crate::Core {
     /// The lapse: `google.auth_lapsed` and, with a DM bound, one post to the
     /// owner, in one frame.
     pub(crate) fn google_lapse_told(&self, account: &str) {
-        let text = format!("⚠️ {}", theseus_google::error::LAPSED);
+        let text = lapse_text(account);
         let told = (|| -> anyhow::Result<()> {
             let mut frame = Vec::new();
             let post = if self.runner.place_rule.owner_dm_bound() {
@@ -91,4 +91,14 @@ impl crate::Core {
             cleared,
         });
     }
+}
+
+/// The lapse's post (theseus-x8b9k).
+pub(crate) fn lapse_text(account: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Action,
+        "Sign in to Google again",
+        &format!("Google's refresh for {account} was refused: access lapsed"),
+        "Run `theseus google auth`.",
+    )
 }

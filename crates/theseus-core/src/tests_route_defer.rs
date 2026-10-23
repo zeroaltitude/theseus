@@ -34,6 +34,9 @@ fn rig_detouring_to(jev: &FakeJev, tool: &str, aws: bool) -> (Rig, Arc<FakeProvi
         2,
         move |cfg| {
             cfg.places.owner = Some(vec![format!("discord:{}", crate::tests_places::OWNER)]);
+            // A trivial detour is the small tier, at 1.0 (theseus-d9je7): the raise this rig
+            // proves is held at today's 2.0.
+            cfg.tools.defer.admit_ceiling_small = 2.0;
             if aws {
                 cfg.aws = toml::from_str(
                     "[accounts.123456789012]\nregion = \"us-west-2\"\nendpoint = \"http://127.0.0.1:9\"\n",
@@ -89,7 +92,8 @@ async fn a_detour_without_tool_search_reaches_a_tool_the_message_names() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget() {
     let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
+    // A quick detour: a trivial one carries `tools_find` alone (theseus-d9je7).
+    mode(&jev, "quick", 0.95);
     let (r, haiku) = rig_detouring_to(&jev, "aws_whoami", true);
     let res = turn(
         &r.core,

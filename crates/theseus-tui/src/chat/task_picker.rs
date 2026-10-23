@@ -72,10 +72,7 @@ fn cursor_query_len(chat: &Chat) -> usize {
 
 /// Whether a `task.list` row has ended.
 fn ended(i: &TaskInfo) -> bool {
-    matches!(
-        i.state.as_str(),
-        "complete" | "cancelled" | "failed" | "budget_exhausted"
-    )
+    crate::board::ended_state(&i.state)
 }
 
 impl Chat {

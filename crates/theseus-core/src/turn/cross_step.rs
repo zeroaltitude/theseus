@@ -44,6 +44,7 @@ pub(super) struct Parts {
     pub in_context: BTreeSet<String>,
     pub labeled: BTreeSet<String>,
     pub budget_tokens: Option<u64>,
+    pub max_items: Option<usize>,
     pub science: std::sync::Arc<dyn MemoryScience>,
     pub threads: Option<ThreadScene>,
 }
@@ -56,6 +57,7 @@ impl Parts {
             in_context: s.in_context,
             labeled: s.labeled,
             budget_tokens: s.budget_tokens,
+            max_items: s.max_items,
             science: s.science,
             threads: s.threads,
         }
@@ -83,6 +85,7 @@ impl Parts {
             in_context: self.in_context.clone(),
             labeled: self.labeled.clone(),
             budget_tokens: self.budget_tokens,
+            max_items: self.max_items,
             science: self.science.clone(),
             activation: None,
             threads: self.threads.clone(),

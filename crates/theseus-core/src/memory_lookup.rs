@@ -616,6 +616,7 @@ async fn by_words(
         in_context,
         labeled: memory.labeled(&core.store).map_err(|e| format!("{e:#}"))?,
         budget_tokens: Some(BUDGET_MAX * 4),
+        max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
         activation: None,
         // Asked for, so no distance; a sealed thread's notes stay out.

@@ -146,7 +146,7 @@ async fn a_canary_turn_puts_its_recall_in_front_of_the_model() {
         let budget = m.budget.unwrap();
         assert_eq!(
             (budget.limit_tokens, budget.used_tokens),
-            (1500, m.used_tokens)
+            (3000, m.used_tokens)
         );
         // The edge, scoped into the source.
         let edges: Vec<Edge> = c

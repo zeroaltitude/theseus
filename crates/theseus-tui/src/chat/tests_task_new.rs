@@ -430,3 +430,21 @@ async fn nothing_on_the_board_and_nothing_ended_draws_the_tree_as_before() {
     r.settle().await;
     assert!(!r.text().contains("type to search"), "{}", r.text());
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_picker_counts_a_task_that_ran_out_of_budget_as_ended() {
+    let mut r = ready(
+        &[conversation()],
+        vec![(
+            "task.list",
+            listed(vec![ended_info(
+                3,
+                "Dredge the east slip",
+                "budget_exhausted",
+            )]),
+        )],
+    )
+    .await;
+    r.ctrl('t').await;
+    r.shows("Dredge the east slip").await;
+}

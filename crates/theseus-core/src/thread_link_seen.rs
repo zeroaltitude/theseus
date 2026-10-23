@@ -49,10 +49,15 @@ impl Pair {
         format!("thread.link_seen.{x}.{y}")
     }
 
-    fn text(&self) -> String {
-        format!(
-            "🔗 Notes of «{}» answered questions in «{}» twice.\ntheseus thread link {} {}",
-            self.other.1, self.here.1, self.here.0, self.other.0
+    pub(crate) fn text(&self) -> String {
+        crate::owner_note::note(
+            crate::owner_note::Kind::Decision,
+            &format!("Link threads «{}» and «{}»?", self.here.1, self.other.1),
+            &format!(
+                "Notes of «{}» answered questions in «{}» twice.",
+                self.other.1, self.here.1
+            ),
+            &format!("theseus thread link {} {}", self.here.0, self.other.0),
         )
     }
 }

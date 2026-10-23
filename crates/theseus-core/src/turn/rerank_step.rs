@@ -84,7 +84,7 @@ impl TurnRunner {
             labeled: parts.labeled.clone(),
             candidates,
             links: links.clone(),
-            params: self.memory.params_of(&m),
+            params: self.memory.params_of(&m, parts.max_items),
             science: parts.science.clone(),
             retention: retention.clone(),
             threads: lens.clone(),

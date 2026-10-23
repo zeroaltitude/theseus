@@ -251,19 +251,32 @@ pub fn notice_text(rows: &[LedgerRow], n: &Night) -> Option<String> {
         0 => String::new(),
         _ => format!("{}–{} · ", clock(first), clock(last)),
     };
-    let mut out = format!(
-        "Self, night of {} {} ({window}${:.2} of ${:.0} · {halts} halts)\n",
+    let trigger = format!(
+        "the night of {} {} ({window}${:.2} of ${:.0} · {halts} halts)",
         months[(l.month.clamp(1, 12) - 1) as usize],
         l.day,
         n.spent_usd,
         n.day_usd
     );
-    for (title, lines) in [
+    let sections = [
         ("Fixed", fixed_lines),
         ("Made", made_lines),
         ("Retired", retired_lines),
         ("Waits for you", n.waits.clone()),
-    ] {
+    ];
+    let counts: Vec<String> = sections
+        .iter()
+        .filter(|(_, l)| !l.is_empty())
+        .map(|(t, l)| format!("{} {}", l.len(), t.to_lowercase()))
+        .collect();
+    let kind = if n.waits.is_empty() {
+        crate::owner_note::Kind::Fyi
+    } else {
+        crate::owner_note::Kind::Action
+    };
+    let title = format!("Self-improvement last night: {}", counts.join(", "));
+    let mut out = crate::owner_note::head(kind, &title, &trigger) + "\n";
+    for (title, lines) in sections {
         if !lines.is_empty() {
             out.push_str(&format!("\n{title}\n{}\n", lines.join("\n")));
         }

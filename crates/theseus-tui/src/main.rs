@@ -70,6 +70,8 @@ mod tests_paste;
 #[cfg(test)]
 mod tests_progress;
 #[cfg(test)]
+mod tests_questions;
+#[cfg(test)]
 mod tests_self;
 #[cfg(test)]
 mod tests_standing;

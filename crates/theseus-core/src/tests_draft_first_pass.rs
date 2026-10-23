@@ -195,12 +195,12 @@ fn first_pass_without_cn_draft_is_refused() {
     );
     let ok = load(
         "[routing.classes.routine_coding]\ncn_draft = \"dsflash\"\nfinal = [\"sonnet\"]\n\
-         first_pass = \"dsflash\"",
+         first_pass = \"glm\"",
     )
     .unwrap();
     assert_eq!(
         ok.routing.classes.routine_coding.first_pass.as_deref(),
-        Some("dsflash")
+        Some("glm")
     );
     let plain = toml::to_string(&load("").unwrap().routing).unwrap();
     assert!(!plain.contains("first_pass"), "unset by default: {plain}");
@@ -221,4 +221,78 @@ fn a_claude_first_pass_is_refused() {
             "{bad}: {e}"
         );
     }
+}
+
+/// A first pass on the profile that drafted would be the drafting model
+/// reviewing its own draft (the owner, 2026-10-17: a Claude model always does
+/// the final review; theseus-ms3hd).
+#[test]
+fn a_first_pass_on_its_drafts_own_profile_is_refused() {
+    let e = load(
+        "[routing.classes.routine_coding]\ncn_draft = \"dsflash\"\nfinal = [\"sonnet\"]\n\
+         first_pass = \"dsflash\"",
+    )
+    .unwrap_err();
+    assert!(
+        e.contains(
+            "routing.classes.routine_coding.first_pass: \"dsflash\" is also the class's cn_draft"
+        ) && e.contains("review its own draft"),
+        "{e}"
+    );
+}
+
+/// The timer path of the bound, on real short durations: a timer that wakes
+/// before the deadline re-arms for the time left and cancels nothing, and the
+/// one that finds the deadline passed cancels the first pass, whose end opens
+/// the review (the sweep path is the test above).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_early_timer_rearms_and_does_not_cancel() {
+    let d = with_first_pass();
+    d.zai.hang_on(FIRST_PASS_HEADER);
+    let sid = d.dm(&d.repo);
+    say(&d.r.core, &sid, ASK, None).await;
+    d.drive();
+    crate::test_support::until_within("the first pass opens", 60, || d.tasks(&sid).len() == 2)
+        .await;
+    let drafted = d.tasks(&sid)[0].session_id.clone();
+    let core = &d.r.core;
+    let mut rec: draft::Draft = core.store.get_meta(&meta_key(&drafted)).unwrap().unwrap();
+    rec.first_pass.as_mut().unwrap().deadline_ms = theseus_protocol::now_unix_ms() + 1_500;
+    core.store.put_meta(&meta_key(&drafted), &rec).unwrap();
+    core.runner
+        .arm_first_pass(&drafted, std::time::Duration::from_millis(20));
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(d.drafts().is_empty(), "the early timer cancelled it");
+    assert_eq!(d.tasks(&sid).len(), 2, "no review while it runs");
+    let row = d.settled().await;
+    assert_eq!(row["first_pass_outcome"], "cancelled", "{row}");
+    assert_eq!(row["applied"], true, "{row}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_first_pass_past_its_bound_is_cancelled_by_its_timer() {
+    let d = with_first_pass();
+    d.zai.hang_on(FIRST_PASS_HEADER);
+    let sid = d.dm(&d.repo);
+    say(&d.r.core, &sid, ASK, None).await;
+    d.drive();
+    crate::test_support::until_within("the first pass opens", 60, || d.tasks(&sid).len() == 2)
+        .await;
+    let drafted = d.tasks(&sid)[0].session_id.clone();
+    let core = &d.r.core;
+    let mut rec: draft::Draft = core.store.get_meta(&meta_key(&drafted)).unwrap().unwrap();
+    rec.first_pass.as_mut().unwrap().deadline_ms = 1;
+    core.store.put_meta(&meta_key(&drafted), &rec).unwrap();
+    // No sweep: the timer alone.
+    core.runner
+        .arm_first_pass(&drafted, std::time::Duration::from_millis(20));
+    let row = d.settled().await;
+    assert_eq!(row["first_pass_outcome"], "cancelled", "{row}");
+    let exec = d.tasks(&sid)[1].execution_id.clone().unwrap();
+    let ended = core.kernel.execution(&exec).unwrap().unwrap().ended_reason;
+    assert_eq!(
+        ended.as_deref(),
+        Some("cancelled by first pass: past its bound")
+    );
+    assert_eq!(row["applied"], true, "{row}");
 }

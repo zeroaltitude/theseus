@@ -90,7 +90,7 @@ async fn a_seal_card_goes_to_the_owners_dm_and_the_owner_alone_answers_it() {
     let post = r.posted(ANA_DM).into_iter().find(is_card).unwrap();
     assert!(
         post.content
-            .starts_with("🔒 This looks embargoed: it names an embargoed CVE"),
+            .starts_with("❓ Decision · Seal thread «security fix»?\nThis looks embargoed: it names an embargoed CVE"),
         "{}",
         post.content
     );

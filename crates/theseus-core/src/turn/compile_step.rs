@@ -199,6 +199,7 @@ impl TurnRunner {
             (tasks, project),
         );
         summary.cache.stubbed = stubbed;
+        summary.walk_tokens = self.walk_tokens(spec, &compiled);
         // While routing decides, the rows wait for the compile the call uses
         // (`route_step`, theseus-d13v): one `context.compiled` and one
         // `loop.started` a loop, each naming a stored compilation.
@@ -262,6 +263,25 @@ impl TurnRunner {
             model: &t.target.model,
             tools_offered: spec.tools.len() as u32,
         });
+    }
+
+    /// The ontology walk's guidance the request carried, in tokens, counted
+    /// as the census and `context.explain` count it (`context_parts`): the
+    /// sections of the memberships the compile used, at the model's figures.
+    /// Measured only (theseus-d9je7): no budget holds it yet.
+    fn walk_tokens(&self, spec: &RequestSpec, compiled: &Compiled) -> u64 {
+        let Some(walk) = spec.walk.as_deref() else {
+            return 0;
+        };
+        let used = &compiled.compilation.manifest.memberships;
+        let composition = walk.compose(&crate::ontology::recorded(used));
+        let rates = self.catalog.get(&spec.model).map_or_else(
+            || crate::catalog::TokenRates::of(&spec.model),
+            |e| e.bytes_per_token,
+        );
+        (composition.sections.iter())
+            .map(|s| crate::context_parts::text_tokens(s.len(), rates))
+            .sum()
     }
 
     /// The loop's `context.compiled`: its span, its row, and the
@@ -328,6 +348,8 @@ impl TurnRunner {
             standing_here: (t.standing.here.iter())
                 .flat_map(|b| b.used.iter().map(|u| u.id.clone()))
                 .collect(),
+            // Counted by the step, which reads the catalog.
+            walk_tokens: 0,
         }
     }
 }

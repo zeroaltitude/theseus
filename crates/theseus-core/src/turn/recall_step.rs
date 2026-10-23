@@ -232,6 +232,17 @@ impl TurnRunner {
             place == theseus_memory::Place::Private,
             threads.as_ref(),
         );
+        // The prompt's tier sizes the pack (theseus-d9je7); an assembled
+        // section keeps its own budget.
+        let (budget_tokens, max_items) = match t.recall.assembled {
+            true => (Some(self.memory.cfg().assembled_budget_tokens), None),
+            false => t
+                .route
+                .injection
+                .as_ref()
+                .map(|b| b.pack(&self.cfg))
+                .unzip(),
+        };
         Scene {
             mode,
             session_id: Some(t.tc.session_id),
@@ -239,10 +250,8 @@ impl TurnRunner {
             place,
             in_context,
             labeled,
-            budget_tokens: t
-                .recall
-                .assembled
-                .then(|| self.memory.cfg().assembled_budget_tokens),
+            budget_tokens,
+            max_items,
             science: self.memory.science_for(arm),
             activation: None,
             threads,
@@ -357,6 +366,8 @@ impl TurnRunner {
     ) {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
+        // The tier, if the verdict has landed; ordinary if not: never a wait.
+        self.injection(t, true);
         let mode = self.memory.cfg().mode.as_str();
         // The arm's own source before the pipeline (32b): activation.
         let (answer, activation) = Box::pin(self.memory.activated(

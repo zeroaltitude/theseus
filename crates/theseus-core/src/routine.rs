@@ -806,15 +806,23 @@ fn held_back(
         session_id: spec.session_id.clone(),
         execution_id: spec.execution_id.clone(),
         target,
-        body: json!({"kind": "notice", "text": format!(
-            "🔁 {}: this month's ${:.2} is spent, so its runs are skipped until the 1st. \
-             Raise it with `theseus routine update {} --month <usd>`.",
-            spec.title, micros_to_usd(spec.month_micros), short(&spec.session_id))}),
+        body: json!({"kind": "notice", "text": month_spent_text(
+            &spec.title, micros_to_usd(spec.month_micros), &short(&spec.session_id))}),
         retry_class: RetryClass::IdempotentWithKey {
             key: NONCE_KEY.into(),
         },
     });
     skipped("budget", post, next).map(Some)
+}
+
+/// A routine's month spent (theseus-x8b9k).
+pub(crate) fn month_spent_text(title: &str, month_usd: f64, id: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Action,
+        &format!("{title}: runs are skipped until the 1st"),
+        &format!("this month's ${month_usd:.2} is spent"),
+        &format!("Raise it with `theseus routine update {id} --month <usd>`."),
+    )
 }
 
 /// The run: its task's session, brief, binding and mark, and the routine's record.

@@ -36,6 +36,8 @@ mod tests_cite;
 #[cfg(test)]
 mod tests_default_forum;
 #[cfg(test)]
+mod tests_dm_flow_golden;
+#[cfg(test)]
 mod tests_forum_archive;
 #[cfg(test)]
 mod tests_gateway;
@@ -43,6 +45,8 @@ mod tests_gateway;
 mod tests_live;
 #[cfg(test)]
 mod tests_outbox;
+#[cfg(test)]
+mod tests_owner_note;
 #[cfg(test)]
 mod tests_process;
 #[cfg(test)]

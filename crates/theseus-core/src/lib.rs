@@ -87,6 +87,7 @@ pub mod outbound;
 pub mod outbox;
 pub mod outputs;
 pub mod own_bench;
+pub mod owner_note;
 pub mod pacer;
 pub mod pack_names;
 pub mod parked;
@@ -304,6 +305,8 @@ mod tests_draft_first_pass;
 #[cfg(test)]
 mod tests_draft_hardening;
 #[cfg(test)]
+mod tests_draft_home;
+#[cfg(test)]
 mod tests_effort_beta;
 #[cfg(test)]
 mod tests_effort_lapse;
@@ -351,6 +354,8 @@ mod tests_horizon;
 mod tests_inbound;
 #[cfg(test)]
 mod tests_initiative;
+#[cfg(test)]
+mod tests_injection_tiers;
 #[cfg(test)]
 mod tests_job_handles;
 #[cfg(test)]
@@ -437,6 +442,8 @@ mod tests_output;
 mod tests_outside_text;
 #[cfg(test)]
 mod tests_overflow;
+#[cfg(test)]
+mod tests_owner_note;
 #[cfg(test)]
 mod tests_people_proposals;
 #[cfg(test)]
@@ -629,6 +636,8 @@ mod tests_tool_screen;
 mod tests_tool_words;
 #[cfg(test)]
 mod tests_trim_tokens;
+#[cfg(test)]
+mod tests_trivial_tools;
 #[cfg(test)]
 mod tests_turn_checkpoint;
 #[cfg(test)]

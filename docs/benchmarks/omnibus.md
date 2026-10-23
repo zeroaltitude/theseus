@@ -1,4 +1,4 @@
-# Theseus's benchmarks as of 2026-10-18 (v1): the omnibus review
+# Theseus's benchmarks as of 2026-10-21 (v1, and the rerun after it): the omnibus review
 
 **The answer first.** At v1 (Oct 18), on the build frozen for v1 (`351159fc`), Theseus as shipped (Jev choosing
 each message's model and effort) ran against the top three harnesses of the broad pass, each on its best model at high
@@ -6,6 +6,12 @@ effort. **On all 89 Terminal-Bench 2.0 tasks it is level with Claude Code and th
 - Theseus solved 73.0% at $0.136 a solved task;
 - Claude Code solved 75.3% at $0.173 (paired by task −2.2 points, 95% −7.9 to +3.0);
 - OpenCode solved 70.8% and Pi 70.4%.
+
+**Three days later it moved up.** Rerun on 2026-10-21 at `6918e3c1` (the patch work after v1; Theseus only, the
+rivals' v1 trials standing), Theseus solved **77.2%** of all 89 tasks at high effort, against its own 73.0% at v1
+(+4.1 points paired, 95% −1.9 to +10.1) and Claude Code's 75.3%. It paid $0.155 a solve. On the
+hard 30 at top effort it solved 72.2% at $0.327 a solve, against Claude Code's 75.6% at $1.92. Jev still never ran a
+turn at `max` ([the rerun](#after-v1-the-terminal-bench-rerun-2026-10-21)).
 
 **It still remembers across sessions where the others do not.** It answered 73.1% of 600 turns' recall probes, against
 56.9% for Pi and 50.7% for Claude Code. Across sessions it answered 27 of 46, against 0 and 1 of 48.
@@ -61,6 +67,28 @@ calls of every run cost $367.
 
 This page is the overview. It is updated as runs land, and each run keeps its own full report, linked from every
 section below and listed at the end.
+
+## After v1: the Terminal-Bench rerun (2026-10-21)
+
+Only Theseus was rerun, on `6918e3c1`: its tiers and tasks as at v1, the rivals' v1 trials reused (they have not
+changed). The table gives solve rate, dollars per solved task and the median agent seconds a trial.
+
+| Benchmark | Theseus `6918e3c1` | Theseus at v1 | Claude Code (v1 run) | OpenCode (v1 run) | Pi (v1 run) | Report |
+|---|---|---|---|---|---|---|
+| Terminal-Bench 2.0, HIGH (89 × 3), solved | **77.2%** [71.8, 81.8] | 73.0% [67.4, 78.0] | 75.3% [69.8, 80.1] | 70.8% | 70.4% | [HIGH](2026-10-21-terminal-bench-rerun-high.md) |
+| ... dollars a solved task | $0.155 | **$0.136** | $0.173 | $0.168 | $0.150 | |
+| ... agent seconds a trial (median) | 68 | **50** | 56 | 60 | 55 | |
+| Terminal-Bench 2.0, MAX (hard 30 × 3, top effort), solved | 72.2% [62.2, 80.4] | 67.8% [57.6, 76.5] | **75.6%** [65.8, 83.3] | 32.2% | 71.1% | [MAX](2026-10-21-terminal-bench-rerun-max.md) |
+| ... dollars a solved task | **$0.327** | $0.362 | $1.923 | $4.508 | $0.749 | |
+
+- Paired by task against its own v1 run, Theseus gained +4.1 points on HIGH [−1.9, +10.1] and +4.4 on MAX
+  [−5.6, +15.6]. Both intervals cross zero, so read them as likely gains.
+- Most of the HIGH gain is on the hard 30 tasks: 73.3% against 66.7%.
+- Checkpoint routing now re-routes mid-turn, and Jev asks for more effort. On MAX it asked for `max` 8 times, each
+  below its confidence line, so no turn ran at `max`.
+- route.v7 moved Jev's data verdicts on these open-source tasks. `private` fell from 60% of turns to 17%, and
+  `open (act)` appears for the first time (15%).
+- 0 China-origin calls in 3,597.
 
 ## v1 at the freeze (2026-10-18)
 
@@ -353,6 +381,8 @@ binary within 200.
 
 *Figure 9. What does benchmarking Theseus cost, and what does Theseus cost a solved task? About $367 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10.*
 
+- **The rerun after v1 (Oct 21).** Theseus only: $53.18 of model calls (HIGH $31.94, MAX $21.24), and about $20 for
+  two EC2 hosts and 222.5 GB of NAT data.
 - **v1 (Oct 18).**
   - The v1 run's model calls came to $480.35: Terminal-Bench HIGH $121.47 and MAX $331.48, recall $26.78 and the kill
     family $0.62.
@@ -462,6 +492,8 @@ measurement that judged it.
 | Real tasks | [Terminal-Bench 2.0: four harnesses on all 89 tasks, and Theseus as shipped on the night set](2026-10-13-terminal-bench-harness-arms.md) | Oct 13 |
 | Real tasks | [Terminal-Bench 2.0 at the v1 freeze, HIGH tier: Theseus as shipped against Claude Code, OpenCode and Pi](2026-10-18-terminal-bench-v1-high.md) | Oct 18 |
 | Real tasks | [Terminal-Bench 2.0 at the v1 freeze, MAX tier: the hard tasks, every harness at its top effort](2026-10-18-terminal-bench-v1-max.md) | Oct 18 |
+| Real tasks | [Terminal-Bench 2.0 rerun, HIGH tier: Theseus at 6918e3c1 against v1's Theseus and the v1 rivals](2026-10-21-terminal-bench-rerun-high.md) | Oct 21 |
+| Real tasks | [Terminal-Bench 2.0 rerun, MAX tier: the 30 hard tasks, Theseus at 6918e3c1 free to choose `max`](2026-10-21-terminal-bench-rerun-max.md) | Oct 21 |
 | Memory | [Memory exam: how much does a cheap model gain from being shown its past?](2026-09-30-memory-exam-headroom.md) | Sep 30 |
 | Memory | [Memory exam v2: items built so that retrieval is hard](2026-09-30-memory-exam-v2.md) | Sep 30 |
 | Memory | [Retrieval: which engine embeds for the index, candle or tract?](2026-10-01-retrieval-embedding-engines.md) | Oct 1 |

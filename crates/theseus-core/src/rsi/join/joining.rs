@@ -104,14 +104,12 @@ impl Run<'_> {
             .take(20)
             .map(|h| format!("- {}: {}\n", h.class, h.at))
             .collect();
-        self.card(format!(
-            "Self branch {} ({}) is reviewed and waits for you: it touches the hard keel ({}).\n{lines}\
-             The change:\n```\n{}\n```\nJoin it by hand when you agree, or drop it; Theseus never \
-             joins it on its own.",
-            self.b.branch,
-            self.b.item,
-            classes.join(", "),
-            stat.chars().take(1_500).collect::<String>()
+        self.card(keel_card(
+            &self.b.branch,
+            &self.b.item,
+            &classes.join(", "),
+            &lines,
+            &stat.chars().take(1_500).collect::<String>(),
         ));
         let why = format!(
             "it touches the keel ({}), so it waits on the owner's card",
@@ -283,12 +281,10 @@ impl Run<'_> {
         };
         let keel = r.verdict == Verdict::Keel;
         if keel {
-            self.card(format!(
-                "Self branch {} ({}) stopped at the keel on its merge: main's keel guard found \
-                 what needs your yes. Its gate log: {}.",
-                self.b.branch,
-                self.b.item,
-                r.log.display()
+            self.card(merge_keel_card(
+                &self.b.branch,
+                &self.b.item,
+                &r.log.display().to_string(),
             ));
         }
         let why = format!(
@@ -308,12 +304,7 @@ impl Run<'_> {
             return None;
         }
         let Some(key) = git::signing_key(&self.place) else {
-            self.card(format!(
-                "Self branch {} ({}) passed its review and main's gate, but [self] repo names no \
-                 user.signingkey, and an unsigned merge never reaches main. Set one for the repo, or \
-                 join it by hand.",
-                self.b.branch, self.b.item
-            ));
+            self.card(unsigned_card(&self.b.branch, &self.b.item));
             let why = "no user.signingkey in [self] repo: an unsigned merge never reaches main";
             self.hold("sign", why, Value::Null);
             return None;
@@ -328,4 +319,44 @@ impl Run<'_> {
             }
         }
     }
+}
+
+/// The owner's card for a reviewed branch that touches the hard keel.
+pub(crate) fn keel_card(
+    branch: &str,
+    item: &str,
+    classes: &str,
+    lines: &str,
+    stat: &str,
+) -> String {
+    let body = format!(
+        "{lines}The change:\n```\n{stat}\n```\nJoin it by hand when you agree, or drop it; Theseus never \
+         joins it on its own."
+    );
+    crate::owner_note::note(
+        crate::owner_note::Kind::Decision,
+        &format!("Join or drop self branch {branch}"),
+        &format!("its review passed ({item}), but it touches the hard keel ({classes})"),
+        &body,
+    )
+}
+
+/// The owner's card for a merge the keel guard stopped.
+pub(crate) fn merge_keel_card(branch: &str, item: &str, log: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Decision,
+        &format!("Self branch {branch} needs your yes to join"),
+        &format!("main's keel guard stopped its merge ({item})"),
+        &format!("Its gate log: {log}."),
+    )
+}
+
+/// The owner's card for a join with no signing key.
+pub(crate) fn unsigned_card(branch: &str, item: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Action,
+        &format!("Set a signing key to join self branch {branch}"),
+        &format!("it passed its review and main's gate ({item}), but [self] repo names no user.signingkey"),
+        "Without one, an unsigned merge never reaches main. Set one for the repo, or join it by hand.",
+    )
 }

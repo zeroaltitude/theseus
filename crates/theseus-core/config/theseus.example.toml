@@ -393,6 +393,7 @@ brave_api_key = "op://<your vault>/<Brave Search API key item>/notesPlain"   # w
 # ---------------------------------------------------------------- server
 [server]
 state_dir = "~/.theseus"                # store (redb) and spool; flag: --state-dir / THESEUS_STATE_DIR
+drafts_dir = "~/.cache/theseus/drafts"  # a draft review's git worktrees; outside state_dir and the approve list, so the review's test runs ask nothing
 socket = "~/.theseus/theseus.sock"      # protocol socket, mode 0600; flag: --socket / THESEUS_SOCKET
 store_engine = "redb"                   # index engine behind the WAL; redb is the only one
 stop_grace_ms = 50                      # a clean stop waits up to this long, from its start, for posts already sent to settle
@@ -536,7 +537,9 @@ always_loaded = ["files", "commands"]   # families that load in every place
 load_share = 0.10                       # a family used in this share of a place kind's turns loads
 window_days = 14                        # ... over this many days
 hide_after_days = 14                    # a family loaded by default and unused this long hides
-admit_ceiling = 2.0                     # a family named or judged relevant loads past the place's budget, to this multiple of it (1.0: the cap)
+admit_ceiling = 2.0                     # a family named or judged relevant loads past the place's budget, to this multiple of it (1.0: the cap); an ordinary prompt's
+admit_ceiling_small = 1.0               # ... a small prompt's (the route pack's trivial)
+admit_ceiling_deep = 3.0                # ... a deep prompt's (sophisticated, deep_coding, review); the three alike: one ceiling for all
 judge_families = true                   # Jev judges each hidden family against the prompt, once a prompt (false: named families only)
 judge_wait_ms = 200                     # the most a turn waits for that judgment, from the message's arrival
 
@@ -626,12 +629,15 @@ enforcement = "notify"                  # open | notify | approve: what every to
 allow_argv = [["ls"], ["pwd"]]          # proc.run runs these (open) when every path argument is inside the roots (no git: its config can run programs; use git.diff / git.log)
 approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"]]  # proc.run waits for your approval on these (op and theseusd are on the floor)
 # After a session reads web text (http.fetch, web.search), every call that acts
-# (writes, proc.run, task.create) waits for your approval, the allow list's too,
-# until you trust the session again (`theseus policy trust <session>`, /trust on
-# Discord, or "Approve + trust session" on the card). Reads keep their postures,
-# and so does wake.at: the reminder's turn runs in the same session, so what it
-# does still waits.
-external_text = "ask"                   # ask | notify: notify runs those calls with a notice instead
+# (writes, proc.run, task.create) is held, the allow list's too, until you trust
+# the session again (`theseus policy trust <session>`, /trust on Discord, or
+# "Approve + trust session" on the card). Reads keep their postures, and so does
+# wake.at: the reminder's turn runs in the same session, so what it does is still
+# held. `external_text` is optional: unset, it follows `enforcement` (approve
+# asks; notify and open notify, since a hold never goes silent). With ask, each
+# call waits for your approval; with notify, each runs and you are told once per
+# hold, at its first call that acts. This template shows ask.
+external_text = "ask"                   # ask | notify (unset: follows enforcement)
 # A program whose output is a stranger's text holds its session the same way:
 # `gh issue view` prints an issue's body, which anyone could have written. A
 # proc.run counts when its program is listed, or when it runs a shell or a
@@ -1050,9 +1056,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # arm = "baseline"                        # the arm canary and live sessions get: none | bm25 | baseline | +retention (FSRS-6 in the rank) | +activation (spreading activation as one more ranked source; its adjacency projection is built after serving) | +synthesis (consolidation's checked syntheses as candidates)
 # canary_fraction = 0.5                   # canary: the share of sessions on the arm, sticky by a hash of session and experiment; the rest run none, with baseline in shadow
 # experiment = "m6-1"                     # names the plan; seeds each session's arm
-# session_recall_cap_tokens = 12000       # the recall notes a session's tail may hold; past it, recall pauses until the next recompile
-# recall_budget_tokens = 1500             # the pack's tokens
-# recall_max_items = 6                    # the pack's items, at most 40
+# session_recall_cap_tokens = 64000       # the recall notes a session's tail may hold; past it, recall pauses until the next recompile
+# recall_budget_tokens = 3000             # the pack's tokens
+# recall_max_items = 8                    # the pack's items, at most 40; both are an ordinary prompt's (a trivial detour's request carries none)
+# deep_recall_tokens = 8000               # a deep prompt's pack (the route pack's sophisticated, deep_coding, review), in tokens
+# deep_recall_items = 16                  # ... and items, at most 40; at the ordinary pack's numbers, every prompt packs alike
 # recall_deadline_ms = 250                # how long recall waits for the index; the turn never waits past its model call and this
 # recall_vector_tokens = 32               # the most word pieces of a turn's new text the vector search embeds (the words' search reads the whole query), at most 500; 0: uncut
 # rerank_wait_ms = 200                    # how long a recall in front of the model waits for Jev's rerank (rerank.v1 live), 1 to 600; past it, recall's own order stands
@@ -1178,8 +1186,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # whole anyway: the rewrite is made small. The thread's fresh card, the
 # compaction summary and the newest resume_keep_turns turns; a big old result
 # is a stub that says how to read it again.
-# resume_keep_turns = 6                   # the newest turns a cold resume keeps whole
-# working_tokens = 60000                  # what a thread's request stays within after a cold resume (its newest turn aside)
+# resume_keep_turns = 20                  # the newest turns a cold resume keeps whole
+# working_percent = 40                   # what a thread's request stays within after a cold resume (its newest turn aside), as a share (1-100) of the serving model's context window
+# working_tokens = 60000                 # the same in tokens, when you set it; it wins over working_percent (unset by default)
 # home_warn_percent = 50                 # a place's home past this share (1-100) of the serving model's context window tells the owner's DM, once per home; large sessions are otherwise fine
 # Keep-warm for threads is [cache] threads_keep_warm_hours: an active thread whose owner last
 # wrote within it has its session read at the [cache] interval, as a long conversation's is,
@@ -1634,7 +1643,8 @@ margin = 0.02                           # at the minimum sample, precision and r
 # Under it, when Jev finds it unclear, on a pinned turn, in shadow, and for a late
 # verdict, the profile's own effort stands. An answer of xhigh or max applies only when
 # its confidence is above high_effort_confidence; at or below, the turn runs at high
-# (the row says held_high), before the bounds clamp it.
+# (the row says held_high, or held_high_unsure when the answer was under its confirm
+# bar), before the bounds clamp it.
 [routing]
 enabled = true                          # acts only while [judge] is on
 rung = "live"                           # "shadow" records each verdict and routes nothing
@@ -1725,15 +1735,15 @@ max_switches = 2                        # moves per task, up or down
 # private, runs on a profile of US origin (or on none: the turn then ends before any model
 # call), and every request to a model of another origin is checked for the names again, so
 # it fails closed. Matching is case-insensitive and on
-# whole words, a name of several words as a run of them: `bighat` matches "BigHat's
-# plan" and "bighat-internal" and not "bighatter" or "bighatbio" (so `bighatbio` is listed
-# for bighatbio.com), and `neuron-utils` matches as a unit, never the word "neuron". List
-# each spelling you mean, `BigCo` and `Big Co` separately. This is the owner's own list of
-# company and repository names (the owner, 2026-10-17): no pack's text may name one
-# (theseus-judge's `the_pack_text_names_no_organisation` reads this line). A person's name
-# goes in your own config only, never in the repository.
+# whole words, a name of several words as a run of them: `examplecorp` matches "ExampleCorp's
+# plan" and "examplecorp-internal" and not "examplecorpse" or "examplecorpinc" (so `examplecorpinc`
+# is listed for examplecorpinc.com), and `example-repo` matches as a unit, never the word
+# "example". List each spelling you mean, `ExampleCo` and `Example Co` separately. This is the
+# owner's own list of company and repository names (the owner, 2026-10-17): no pack's text may
+# name one (theseus-judge's `the_pack_text_names_no_organisation` reads this line). A person's
+# name goes in your own config only, never in the repository.
 # [privacy]
-# sensitive_names = ["bighat", "bighatbio", "bh-ai", "neuron-utils"]
+# sensitive_names = ["examplecorp", "examplecorpinc", "example-repo"]
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and

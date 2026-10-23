@@ -40,6 +40,7 @@ use crate::store::Store;
 
 mod guarded;
 use guarded::guarded_paths;
+pub(crate) mod draft_roots;
 pub use guarded::sandbox_for;
 pub(crate) mod batch;
 mod calls;
@@ -362,9 +363,8 @@ pub struct ToolRuntime {
     /// The secret broker (theseus-dcy): what a job's program and a toollet
     /// are given from the board.
     pub broker: Arc<Broker>,
-    /// What a call that acts gets once its session has read external text
-    /// (theseus-9bp, `[policy] external_text`).
-    pub external_text: crate::external::Mode,
+    /// The hold's rule after external text (theseus-9bp, theseus-nsqqo).
+    pub external: crate::external::Rule,
     /// Programs whose output is outside text (theseus-b5cl, `[policy]
     /// external_programs`): a job that runs one marks its result external.
     pub external_programs: Vec<String>,
@@ -407,6 +407,8 @@ pub struct ToolRuntime {
     /// `[places] public_paths`, expanded and canonical: all a shared place's
     /// file tools reach (the place rule, theseus-nbsh).
     pub public_roots: Vec<PathBuf>,
+    /// The draft trees' root: a root, but not in the tools note (theseus-iilre).
+    pub drafts_root: Option<PathBuf>,
     /// The sealed holdout sets' path, which the gate refuses every call that
     /// reaches (theseus-pw1q.5).
     pub sealed: crate::rsi::sealed::Guard,
@@ -566,7 +568,7 @@ impl ToolRuntime {
             earned: Default::default(),
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
-            external_text: Default::default(),
+            external: Default::default(),
             external_programs: Vec::new(),
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
             disk: Arc::new(crate::disk::Disk::new(tmp.clone(), 0, 0)),
@@ -583,6 +585,7 @@ impl ToolRuntime {
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_roots: Vec::new(),
+            drafts_root: None,
             sealed: Default::default(),
             job_waits: Arc::default(),
             outputs: crate::outputs::Outputs::off(),
@@ -755,6 +758,7 @@ impl ToolRuntime {
             .ctx
             .roots
             .iter()
+            .filter(|r| Some(*r) != self.drafts_root.as_ref())
             .map(|r| r.display().to_string())
             .collect();
         let allowed: Vec<String> = self.policy.allow_argv.iter().map(|a| a.join(" ")).collect();
@@ -1120,7 +1124,7 @@ impl ToolRuntime {
         let glide = (planned.is_ok() && crate::glide::is_glide(tool.name()))
             .then(|| crate::glide::resolve(tc, tool.name(), &call.input));
         // The order is `order.rs`, which `policy.explain` runs too (42a).
-        let held = || crate::external::held(tc.store, tc.session_id);
+        let held = || crate::external::held_untold(tc.store, tc.session_id, self.external.mode);
         let mcp = || mcp_floor(tc);
         // A routine's run: its grant, from the book in memory; any other
         // session pays one `Option` test (theseus-52tut).
@@ -1326,6 +1330,7 @@ impl ToolRuntime {
                 let mut records = vec![node(a)?];
                 if let Some(p) = Self::notified(tc, call, tool.name(), &a.correlation_id, g) {
                     records.push(tc.rec().row(&fact::tool::ToolNotified { notice: &p })?);
+                    records.extend(crate::external::told_row(tc.session_id, &g.decision)?);
                 }
                 Ok(records)
             })
@@ -2162,7 +2167,7 @@ pub fn build_runtime(
         .as_ref()
         .and_then(|s| s.dir().parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| cfg.state_dir());
-    let (roots, floor_paths, approve) = guarded_paths(cfg, &state);
+    let (roots, floor_paths, approve) = draft_roots::guarded_with_drafts(cfg, &state);
     // Proposed extensions are frozen beside the store (M7 43a).
     let extend = Arc::new(crate::extend::Extensions::new(
         state.join("extensions"),
@@ -2358,7 +2363,7 @@ pub fn build_runtime(
         earned: Default::default(),
         cpu,
         broker: Arc::new(broker),
-        external_text: cfg.policy.external_text,
+        external: cfg.policy.external_rule(),
         external_programs: cfg.policy.external_programs.clone(),
         output_max_bytes: t.job_output_max_bytes,
         outputs: crate::outputs::Outputs::new(
@@ -2385,6 +2390,7 @@ pub fn build_runtime(
         sandbox,
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
+        drafts_root: crate::config::routing_cn::drafts_root(cfg),
         sealed: crate::rsi::sealed::guard_of(cfg).unwrap_or_default(),
         job_waits: Arc::new(waits::JobWaits::steered(terms.steers.clone())),
         admission: crate::turn::admission::Admission::new(

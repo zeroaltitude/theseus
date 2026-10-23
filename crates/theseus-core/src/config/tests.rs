@@ -435,22 +435,44 @@ fn a_policy_with_only_enforcement_loads_and_every_tool_inherits_it() {
     assert_eq!(policy_only("").unwrap().policy.enforcement, Posture::Open);
 }
 
-/// `[policy] external_text` (theseus-9bp): `ask` by default, so a note
-/// without it loads unchanged; `notify` loads; anything else fails, and
-/// the error names the two.
+/// `[policy] external_text` (theseus-9bp, theseus-nsqqo): unset, it follows
+/// `enforcement` (`approve` asks; `notify` and `open` notify); set, it wins;
+/// anything but `ask` or `notify` fails, and the error names the two.
 #[test]
-fn external_text_is_ask_by_default_and_names_its_two_values() {
+fn an_unset_external_text_follows_enforcement() {
     use crate::external::Mode;
-    assert_eq!(policy_only("").unwrap().policy.external_text, Mode::Ask);
-    let notify = policy_only("external_text = \"notify\"").unwrap();
-    assert_eq!(notify.policy.external_text, Mode::Notify);
+    for (enforcement, mode) in [
+        ("approve", Mode::Ask),
+        ("notify", Mode::Notify),
+        ("open", Mode::Notify),
+    ] {
+        let p = policy_only(&format!("enforcement = \"{enforcement}\""))
+            .unwrap()
+            .policy;
+        assert_eq!((p.external_mode(), p.external_key()), (mode, "enforcement"));
+        let set = policy_only(&format!(
+            "enforcement = \"{enforcement}\"\nexternal_text = \"ask\""
+        ))
+        .unwrap()
+        .policy;
+        assert_eq!(
+            (set.external_mode(), set.external_key()),
+            (Mode::Ask, "external_text")
+        );
+    }
+    let loose = policy_only("enforcement = \"open\"\nexternal_text = \"notify\"").unwrap();
+    assert_eq!(loose.policy.external_mode(), Mode::Notify);
     let e = format!(
         "{:#}",
         policy_only("external_text = \"approve\"").unwrap_err()
     );
     assert!(e.contains("ask") && e.contains("notify"), "{e}");
     let (t, _) = Config::parse(Config::EXAMPLE_TOML).unwrap();
-    assert_eq!(t.policy.external_text, Mode::Ask, "the template says ask");
+    assert_eq!(
+        t.policy.external_mode(),
+        Mode::Ask,
+        "the template shows ask"
+    );
 }
 
 /// The spellings the loader once accepted with a warning, which no

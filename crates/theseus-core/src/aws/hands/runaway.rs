@@ -121,24 +121,32 @@ fn turns(r: &Runaway) -> String {
 }
 
 /// Entering, as the notice and the narrative say it.
-fn entered(r: &Runaway) -> String {
-    format!(
-        "🚂 AWS runaway mode on account {}: {} reserved and spent {}, {} × its {} line ({}). \
-         New AWS actions that reserve are refused until {}; running hands finish, and cancels, \
-         lists and status reads still run. To change it, raise {} under [aws.accounts.{}] and \
-         restart.",
-        r.account,
-        crate::narrative::dollars(r.micros),
-        period(r),
-        r.factor,
-        crate::narrative::dollars(r.line_micros),
-        match r.line {
-            Line::Hour => "hourly_alert_usd",
-            Line::Day => "daily_budget_usd",
-        },
-        turns(r),
-        keys(r),
-        r.account,
+pub(crate) fn entered(r: &Runaway) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        &format!(
+            "AWS runaway mode on account {}: new AWS actions are refused",
+            r.account
+        ),
+        &format!(
+            "{} reserved and spent {}, {} × its {} line ({})",
+            crate::narrative::dollars(r.micros),
+            period(r),
+            r.factor,
+            crate::narrative::dollars(r.line_micros),
+            match r.line {
+                Line::Hour => "hourly_alert_usd",
+                Line::Day => "daily_budget_usd",
+            },
+        ),
+        &format!(
+            "New AWS actions that reserve are refused until {}; running hands finish, and cancels, \
+             lists and status reads still run. To change it, raise {} under [aws.accounts.{}] and \
+             restart.",
+            turns(r),
+            keys(r),
+            r.account,
+        ),
     )
 }
 

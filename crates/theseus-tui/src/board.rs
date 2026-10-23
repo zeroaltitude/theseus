@@ -720,3 +720,26 @@ impl Board {
         self.work.of_session(sid)?.progress.as_ref()?.line()
     }
 }
+
+/// Whether an execution or `task.list` state word is an ended one.
+pub fn ended_state(state: &str) -> bool {
+    matches!(
+        state,
+        "complete" | "cancelled" | "failed" | "budget_exhausted"
+    )
+}
+
+#[cfg(test)]
+mod tests_ended {
+    use super::ended_state;
+
+    #[test]
+    fn the_ended_states_are_the_four_and_no_other() {
+        for s in ["complete", "cancelled", "failed", "budget_exhausted"] {
+            assert!(ended_state(s), "{s}");
+        }
+        for s in ["running", "waiting", "queued", "done"] {
+            assert!(!ended_state(s), "{s}");
+        }
+    }
+}

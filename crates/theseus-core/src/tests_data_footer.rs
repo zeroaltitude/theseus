@@ -107,6 +107,49 @@ async fn a_private_turn_a_us_model_wins_anyway_shows_no_data_gate() {
     assert!(count_is_one(&counts[0].2), "{counts:?}");
 }
 
+/// A detour (`trivial`'s) the data rule kept off its restricted profile shows
+/// the gate: the decision made again as a cleared ask names `dsflash`, the
+/// unadmitted one went to a US profile.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_detour_to_a_restricted_profile_kept_off_shows_the_data_gate() {
+    let (rx, tel) = telemetry().await;
+    let jev = jev(&[]);
+    let dir = tempfile::tempdir().unwrap();
+    let (r, _zai, _d) = rig_with_telemetry(&jev, &dir, tel, |_| {});
+    let res = say(&r.core, &dm(&r.core), PRIVATE, None).await;
+    let d = &decided(&r.core.store)[0];
+    assert_eq!(d["detour"], true, "{d}");
+    assert_ne!(res.profile, "dsflash", "{d}");
+    assert_eq!(d["data_gate"], "verdict_private", "{d}");
+    let data = res.route.unwrap().data.expect("data");
+    assert_eq!(data.footer().as_deref(), Some("data gate: verdict_private"));
+    assert_eq!(gate_counts(&r.core, &rx).await.len(), 1);
+}
+
+/// Its mirror: the mode's list is restricted first, but the verdict is below
+/// the mode's bar, so the cleared decision stays on the base too. The
+/// admission cost the turn nothing: no word, no count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unsure_verdict_that_stays_on_its_base_shows_no_data_gate() {
+    let (rx, tel) = telemetry().await;
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "trivial", 0.3);
+    jev.script("data", crate::tests_open_request::choice("private", 0.95));
+    let dir = tempfile::tempdir().unwrap();
+    let (r, _zai, _d) = rig_with_telemetry(&jev, &dir, tel, |c| {
+        c.routing.classes.trivial.profiles = vec![];
+        c.routing.classes.trivial.cn_after = None;
+    });
+    let res = say(&r.core, &dm(&r.core), PRIVATE, None).await;
+    let d = &decided(&r.core.store)[0];
+    assert_eq!(d["reason"], "unsure", "{d}");
+    assert_eq!(d["clearance"], "closed", "{d}");
+    assert!(d.get("data_gate").is_none(), "{d}");
+    let data = res.route.unwrap().data.expect("data");
+    assert_eq!((data.gate.clone(), data.footer()), (None, None));
+    assert_eq!(gate_counts(&r.core, &rx).await, vec![]);
+}
+
 /// `tests_open_request::rig_telemetry`, with a tweak.
 fn rig_with_telemetry(
     jev: &FakeJev,

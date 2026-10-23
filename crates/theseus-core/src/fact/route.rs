@@ -49,6 +49,9 @@ pub struct RouteDecided<'a> {
     /// `task checkpoint`, and this says why it was asked, where, and what a
     /// switch cost.
     pub checkpoint: Option<Checkpointed<'a>>,
+    /// What the turn injects (theseus-d9je7): its tier and the sizes it gave;
+    /// absent on a checkpoint's row.
+    pub injection: Option<Value>,
     /// Where the profile runs, and its origin (theseus-a1wvq.11).
     pub ran: Ran<'a>,
     /// The data rule's part: absent on a checkpoint's row.
@@ -119,6 +122,9 @@ impl Fact for RouteDecided<'_> {
         }
         if let Some(s) = self.effort_sent {
             row["effort_sent"] = json!(s);
+        }
+        if let Some(i) = &self.injection {
+            row["injection"] = i.clone();
         }
         if let Some(s) = self.source {
             row["source"] = json!(s);
@@ -310,6 +316,7 @@ mod tests {
                 cold: None,
                 cost_usd: 0.0,
             }),
+            injection: None,
             ran: Ran {
                 provider: None,
                 model: None,

@@ -1,0 +1,69 @@
+# The Discord DM task flow, locked by the owner on 2026-10-22. Change this file only with the
+# owner's OK (`THESEUS_GOLDEN=write cargo nextest run -p theseus-discord dm_flow`).
+# Each place lists its messages in the order it shows them: its text when the test ended, its buttons as `[label (style) id]`, and its flags. Ids (a task's, a question's,
+# a session's), times, durations and the temp path are normalized (see `Names`); everything else is as the fake Discord saw it.
+# The DM's lines after the owner's message arrive in a different order from run to run, so they are sorted.
+=== the owner's DM (after the owner's message, sorted by text)
+--- 1 bot []
+🔗 Theseus is bound here; a fresh session starts with your next message. Talk to me in this place. `/stop` halts what I am doing and keeps the conversation, `/new` starts a fresh one, `/trust` trusts the conversation again after it reads web text, and `/status`, `/tasks` and `/wakes` show this place's; everything shows in the web UI.
+--- 2 owner []
+START: run this as a background task, please
+--- 3 bot []
+Started.
+-# sonnet · claude-sonnet-5-5 · 2 loops · 1 tool call · $0.0577 total ($0.0577 this reply) · <dur> · [inspect](<http://localhost:7433/session/<ses>/turn/<turn>>)
+--- 4 bot []
+(a reply)
+Starting.
+--- 5 bot []
+✅ `task.create` {"arrangement":{"pieces":[{"quote":"run this as a background task, please","role":"object… · 🔔 notified (enforcement = notify) · <dur>
+[Should I have asked? (0) tighten]
+--- 6 bot [silent]
+🔔 started task `task-1` · Reef-chart: chart the reef · <#<post>>
+=== the task's forum post
+--- 1 bot [v2 silent]
+**Reef-chart: chart the reef** `…task-1`
+✅ done · started <time> · $0.07 of $25
+**🔧 Last calls**
+`sh -c echo $$ > <tmp>/gate.pid; n=0; while [ ! -f <tmp>/go ] && [ -d …`
+**Report** · done: reported
+--- 2 bot [silent]
+-# ↩ from the DM
+--- 3 bot []
+✅ `proc.run` sh -c echo $$ > <tmp>/gate.pid; n=0; while [ ! -f <tmp>/go ] && [ -d … · <dur>
+--- 4 bot []
+✅ `fs.write` <tmp>/outside/reef.txt · <dur>
+--- 5 bot [v2]
+✅ **Approved** by discord:ana · task `task-1` · *Reef-chart: chart the reef* wants to **write** `outside/reef.txt` in Theseus's state folder (new file, 4 bytes)
+--- 6 bot []
+Written.
+post names: ⚙️ task-1 · Reef-chart: chart the reef -> ✅ task-1 · Reef-chart: chart the reef
+post tags: running -> done
+=== the approval card, as it asked
+--- card bot [v2]
+<@<owner>> ✋ **Approve?** task `task-1` · *Reef-chart: chart the reef* wants to **write** `outside/reef.txt` in Theseus's state folder (new file, 4 bytes)
+risk: writes a file · why it asks: <tmp>/outside/reef.txt is protected: <tmp>/outside is on the approve list
+```diff
+<tmp>/outside/reef.txt:1
+@@ -0,0 +1,1 @@
++reef
+\ No newline at end of file
+```
+**Approve** runs this one call · **Decline** refuses it; the task is told and carries on
+-# expires <time> · or `theseus answer task-1 approve`
+[Approve (3) wa:<question>:approve]
+[Decline (2) wa:<question>:decline]
+=== the task home
+--- 1 bot [v2 silent pinned]
+📋 **Tasks** · ✅ 1 done since you looked
+**✅ Done, not yet seen**
+✅ **Reef-chart: chart the reef** `…task-1` · done <time> · [↗ thread](<https://discord.com/channels/<id-1>/<post>>)
+[✓ Clear done (2) tb:clear]
+[🔕 Quiet 1 h (2) tb:quiet]
+[➕ New task (2) tb:new]
+[Open a task… (0) tb:pick]
+--- 2 bot [silent]
+🧵 <#<post>> · Reef-chart: chart the reef
+--- 3 bot []
+📋 **Task `task-1` finished** · Reef-chart: chart the reef · <#<post>>
+Written.
+-# 2 turns · $0.0705 of $25 · <dur>

@@ -44,7 +44,7 @@ impl super::route_step::RouteState {
     pub(super) fn floor(&self) -> Floor {
         Floor {
             sensitive: self.sensitive,
-            cleared: self.admitted.0.is_ok(),
+            cleared: self.admitted.0.is_ok() || self.assume_cleared,
         }
     }
 }
@@ -119,8 +119,10 @@ impl TurnRunner {
 
     /// Why the data rule kept the turn off a restricted-origin profile, for
     /// its route row, when it did: the floor's own word where it moved the
-    /// decision, else the admission's, when the verdict's mode lists
-    /// restricted profiles that an unadmitted turn was left without.
+    /// decision, else the admission's, when the decision, made again as for a
+    /// cleared ask, names a restricted profile an unadmitted turn was left
+    /// without. A turn that made no decision here (a brief's, one with no
+    /// verdict, a checkpoint's) walks the mode's list instead.
     pub(super) fn data_gate_why(
         &self,
         t: &mut Turn<'_>,
@@ -128,13 +130,18 @@ impl TurnRunner {
     ) -> Option<&'static str> {
         t.route.gated.take().or_else(|| {
             let why = t.route.admitted.0.as_ref().err()?;
-            self.cn_would_win(t, mode?).then(|| why.as_str())
+            let won = match t.route.cleared_pick {
+                Some(won) => won,
+                None => self.cn_would_win(t, mode?),
+            };
+            won.then(|| why.as_str())
         })
     }
 
     /// Whether the mode's list, walked as for a cleared ask, would have taken
     /// a restricted profile: only then did the admission cost the turn a
-    /// model (theseus-4h85l). A US model that wins either way is no gate.
+    /// model (theseus-4h85l). A US model that wins either way is no gate. The
+    /// fallback for a turn with no decision of its own to ask again.
     fn cn_would_win(&self, t: &Turn<'_>, mode: &str) -> bool {
         let floor = Floor {
             cleared: true,

@@ -39,7 +39,7 @@ impl ToolRuntime {
     /// The narrative's line for a hold a result began.
     pub(super) fn held(&self, tc: &TurnCtx<'_>, newly: Option<theseus_protocol::ExternalText>) {
         if let Some(h) = newly {
-            let mode = self.external_text;
+            let mode = self.external.mode;
             tc.record(&fact::tool::HoldTaken { hold: &h, mode });
         }
     }

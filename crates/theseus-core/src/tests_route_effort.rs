@@ -405,6 +405,37 @@ async fn max_runs_only_on_high_confidence_and_is_held_at_high_otherwise() {
     assert_eq!(two.route.unwrap().effort_applied.as_deref(), Some("max"));
 }
 
+/// A `max` under the effort question's confirm bar (0.60) that the gate holds
+/// at `high` says `held_high_unsure` on the row and the route (theseus-t7b96).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unsure_max_held_at_high_says_held_high_unsure() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "sophisticated", 0.95);
+    effort(&jev, "max", 0.45);
+    let r = rig(Some(&jev), 1, |c| c.routing.high_effort_confidence = 0.50);
+    let res = turn(
+        &r.core,
+        None,
+        "Weigh two designs for a crash-safe log.",
+        None,
+    )
+    .await;
+    assert_eq!(sent(&r.claude.requests()[0]).as_deref(), Some("high"));
+    assert_eq!(
+        row(&decided(&r.core.store)[0]),
+        (
+            json!("max"),
+            json!("held_high_unsure"),
+            json!(true),
+            json!("high")
+        )
+    );
+    assert_eq!(
+        res.route.unwrap().effort_reason.as_deref(),
+        Some("held_high_unsure")
+    );
+}
+
 /// The bounds clamp after the gate; where both lower an answer, the gate's
 /// reason is the row's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

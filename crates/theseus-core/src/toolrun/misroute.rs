@@ -5,10 +5,15 @@
 //! program** is looked at once: when a path it names is outside every root of
 //! the thread's working set, that one call waits for the owner, at the
 //! approve posture, with the question "This edits ~/projects/x, which isn't
-//! in the pr round thread. Go on, or move to the security fix?". The guard
-//! then lets go: a call inside the roots shows the placement was right, and
+//! in the pr round thread. Go on, or move to the security fix?". A program
+//! run from a directory above the roots (the session's directory) decides
+//! nothing, and the next write or program does: a misplaced turn that only
+//! runs programs there goes unasked, its first write is held. The guard then
+//! lets go: a call inside the roots shows the placement was right, and
 //! an answered one was the owner's to give. A turn placed at or above the act
-//! bar, an addressed one, and a thread with no roots are never armed.
+//! bar, an addressed one, and a thread with no roots are never armed. A
+//! relative root is read under the session's directory, the one the working
+//! set grew it in (`thread_grow`); with no directory it is left out.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -44,13 +49,28 @@ impl Held {
     /// The question the card asks.
     pub fn why(&self) -> String {
         let go = match &self.alt {
-            Some(alt) => format!("Go on, or move to the {alt}?"),
+            Some(alt) => format!("Go on, or move to {}?", the(alt)),
             None => "Go on, or move it?".to_string(),
         };
         format!(
-            "This {} {}, which isn't in the {} thread. {go}",
-            self.verb, self.path, self.thread
+            "This {} {}, which isn't in {} thread. {go}",
+            self.verb,
+            self.path,
+            the(&self.thread)
         )
+    }
+}
+
+/// `name` with its article: "the pr round", but a title that starts with one
+/// ("a path-traversal fix", "The pipeline") is left as it is.
+fn the(name: &str) -> String {
+    let first = name.split_whitespace().next().unwrap_or("");
+    match ["a", "an", "the"]
+        .iter()
+        .any(|a| first.eq_ignore_ascii_case(a))
+    {
+        true => name.to_string(),
+        false => format!("the {name}"),
     }
 }
 
@@ -88,18 +108,31 @@ pub(crate) fn fold(p: &Path) -> PathBuf {
 
 impl Guards {
     /// A turn was placed in `session`'s thread below the act bar: its first
-    /// write or program is looked at. A thread with no roots arms nothing.
-    pub fn arm(&self, session: &str, title: &str, roots: &[String], alt: Option<&str>) {
+    /// write or program is looked at. A relative root is read under `base`,
+    /// the session's directory; with none it is left out, and a thread with
+    /// no root left arms nothing.
+    pub fn arm(
+        &self,
+        session: &str,
+        title: &str,
+        roots: &[String],
+        base: Option<&str>,
+        alt: Option<&str>,
+    ) {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let roots: Vec<PathBuf> = roots
+            .iter()
+            .filter_map(|r| crate::thread_route::entry_path(r, base, home.as_deref()))
+            .collect();
         if roots.is_empty() {
             self.disarm(session);
             return;
         }
-        let home = std::env::var_os("HOME").map(PathBuf::from);
         lock(&self.0).insert(
             session.to_string(),
             Armed {
                 title: title.to_string(),
-                roots: roots.iter().map(|r| normal(r, home.as_deref())).collect(),
+                roots,
                 alt: alt.map(str::to_string),
             },
         );
@@ -115,7 +148,9 @@ impl Guards {
 
     /// The call `plan` makes, in `session`: the guard lets go at the first
     /// write or program, and says what it holds when a path is outside every
-    /// root. A read never counts, nor a call that names no path.
+    /// root. A read never counts, nor a call that names no path. A program
+    /// whose directory is above a root (the session's directory) is undecided,
+    /// and a plan of only those keeps the guard armed; a write never is.
     pub fn check(&self, session: &str, plan: &Plan) -> Option<Held> {
         let mut g = lock(&self.0);
         let acts: Vec<&theseus_protocol::Resource> = plan
@@ -127,10 +162,18 @@ impl Guards {
             return None;
         }
         let armed = g.remove(session)?;
-        acts.into_iter().find_map(|r| {
+        let (mut undecided, mut held) = (0, None);
+        for r in &acts {
             let p = fold(&r.path);
-            let inside = armed.roots.iter().any(|root| p.starts_with(root));
-            (!inside).then(|| Held {
+            if armed.roots.iter().any(|root| p.starts_with(root)) {
+                continue;
+            }
+            // A program run from a directory above a root names no tree.
+            if r.access == Access::Exec && armed.roots.iter().any(|root| root.starts_with(&p)) {
+                undecided += 1;
+                continue;
+            }
+            held = Some(Held {
                 path: crate::places::home_shown(&p),
                 verb: match r.access {
                     Access::Exec => "runs a program in",
@@ -138,8 +181,13 @@ impl Guards {
                 },
                 thread: armed.title.clone(),
                 alt: armed.alt.clone(),
-            })
-        })
+            });
+            break;
+        }
+        if held.is_none() && undecided == acts.len() {
+            g.insert(session.to_string(), armed);
+        }
+        held
     }
 }
 
@@ -200,6 +248,7 @@ mod tests {
             "ses_a",
             "pr round",
             &["/work/tidewatch".into()],
+            None,
             Some("security fix"),
         );
         assert_eq!(
@@ -221,7 +270,7 @@ mod tests {
             "once"
         );
         // A call inside the roots lets go too.
-        g.arm("ses_b", "pr round", &["/work/tidewatch".into()], None);
+        g.arm("ses_b", "pr round", &["/work/tidewatch".into()], None, None);
         assert_eq!(
             g.check(
                 "ses_b",
@@ -231,7 +280,7 @@ mod tests {
         );
         assert!(!g.armed("ses_b"));
         // A program is a call that acts; a sibling directory is outside.
-        g.arm("ses_c", "pr round", &["/work/tidewatch".into()], None);
+        g.arm("ses_c", "pr round", &["/work/tidewatch".into()], None, None);
         let held = g
             .check("ses_c", &plan(Access::Exec, "/work/tidewatch-old"))
             .unwrap();
@@ -247,7 +296,7 @@ mod tests {
     #[test]
     fn a_thread_with_no_roots_and_a_session_never_armed_hold_nothing() {
         let g = Guards::default();
-        g.arm("ses_a", "pr round", &[], None);
+        g.arm("ses_a", "pr round", &[], None, None);
         assert!(!g.armed("ses_a"));
         assert_eq!(g.check("ses_a", &plan(Access::Write, "/anywhere")), None);
         assert_eq!(
@@ -262,7 +311,7 @@ mod tests {
             return;
         };
         let g = Guards::default();
-        g.arm("ses_a", "t", &["~/projects/x".into()], None);
+        g.arm("ses_a", "t", &["~/projects/x".into()], None, None);
         assert_eq!(
             g.check(
                 "ses_a",
@@ -273,7 +322,7 @@ mod tests {
             ),
             None
         );
-        g.arm("ses_a", "t", &["~/projects/x".into()], None);
+        g.arm("ses_a", "t", &["~/projects/x".into()], None, None);
         let held = g
             .check(
                 "ses_a",
@@ -284,5 +333,134 @@ mod tests {
             )
             .unwrap();
         assert_eq!(held.path, "~/projects/y/a.rs");
+    }
+
+    #[test]
+    fn a_relative_root_is_read_under_the_session_directory() {
+        let g = Guards::default();
+        let arm = |g: &Guards| g.arm("ses_a", "t", &["tarnlib".into()], Some("/work/ws"), None);
+        arm(&g);
+        assert_eq!(
+            g.check("ses_a", &plan(Access::Write, "/work/ws/tarnlib/retry.py")),
+            None
+        );
+        assert!(!g.armed("ses_a"), "the guard lets go");
+        arm(&g);
+        let held = g
+            .check(
+                "ses_a",
+                &plan(Access::Write, "/work/ws/homesvc/scripts/restart.sh"),
+            )
+            .unwrap();
+        assert_eq!(held.path, "/work/ws/homesvc/scripts/restart.sh");
+        arm(&g);
+        assert!(g
+            .check("ses_a", &plan(Access::Write, "/work/ws/tarnlib-old/x"))
+            .is_some());
+        // With no directory a relative root is left out, and nothing arms.
+        g.arm("ses_b", "t", &["tarnlib".into()], None, None);
+        assert!(!g.armed("ses_b"));
+    }
+
+    #[test]
+    fn a_path_outside_every_root_is_still_held() {
+        let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+            return;
+        };
+        let roots = [
+            "/work/other".to_string(),
+            "~/projects/x".into(),
+            "notes".into(),
+        ];
+        let under = [
+            "/work/other/a".to_string(),
+            format!("{}/projects/x/a", home.display()),
+            "/work/ws/notes/a".to_string(),
+        ];
+        let g = Guards::default();
+        for p in &under {
+            g.arm("ses_a", "t", &roots, Some("/work/ws"), None);
+            assert_eq!(g.check("ses_a", &plan(Access::Write, p)), None, "{p}");
+        }
+        g.arm("ses_a", "t", &roots, Some("/work/ws"), None);
+        assert!(g
+            .check("ses_a", &plan(Access::Write, "/work/ws/elsewhere/a"))
+            .is_some());
+    }
+
+    /// A program run from the session's directory, above every relative root,
+    /// names no tree: it decides nothing, and the next write or program does.
+    #[test]
+    fn a_program_run_from_the_session_directory_neither_holds_nor_lets_go() {
+        let g = Guards::default();
+        let arm = |g: &Guards| g.arm("ses_a", "t", &["tidewatch".into()], Some("/work/ws"), None);
+        arm(&g);
+        assert_eq!(g.check("ses_a", &plan(Access::Exec, "/work/ws")), None);
+        assert!(g.armed("ses_a"), "undecided: the guard stays armed");
+        let held = g
+            .check("ses_a", &plan(Access::Write, "/work/ws/vault/x"))
+            .unwrap();
+        assert_eq!(held.path, "/work/ws/vault/x");
+        assert!(!g.armed("ses_a"), "the write decided");
+        arm(&g);
+        assert_eq!(g.check("ses_a", &plan(Access::Exec, "/work/ws")), None);
+        assert_eq!(
+            g.check(
+                "ses_a",
+                &plan(Access::Write, "/work/ws/tidewatch/notes.txt")
+            ),
+            None
+        );
+        assert!(!g.armed("ses_a"), "an inside write lets go");
+    }
+
+    /// Only a program is undecided: a write names its own file.
+    #[test]
+    fn a_write_at_the_session_directory_still_decides() {
+        let g = Guards::default();
+        for p in ["/work/ws", "/work/ws/x.txt"] {
+            g.arm("ses_a", "t", &["tidewatch".into()], Some("/work/ws"), None);
+            assert!(g.check("ses_a", &plan(Access::Write, p)).is_some(), "{p}");
+            assert!(!g.armed("ses_a"));
+        }
+    }
+
+    #[test]
+    fn a_program_run_in_an_unrelated_or_other_threads_directory_is_still_held() {
+        let g = Guards::default();
+        let arm = |g: &Guards| g.arm("ses_a", "t", &["tidewatch".into()], Some("/work/ws"), None);
+        for p in ["/work/ws/vault", "/elsewhere", "/work/ws/tide"] {
+            arm(&g);
+            assert!(g.check("ses_a", &plan(Access::Exec, p)).is_some(), "{p}");
+        }
+        arm(&g);
+        assert_eq!(
+            g.check("ses_a", &plan(Access::Exec, "/work/ws/tidewatch/sub")),
+            None
+        );
+        assert!(!g.armed("ses_a"));
+        arm(&g);
+        let mut batch = plan(Access::Exec, "/work/ws");
+        batch
+            .resources
+            .extend(plan(Access::Exec, "/work/ws/vault").resources);
+        let held = g.check("ses_a", &batch).unwrap();
+        assert_eq!(held.path, "/work/ws/vault");
+    }
+
+    #[test]
+    fn the_question_has_no_doubled_article() {
+        let held = Held {
+            path: "/p".into(),
+            verb: "edits",
+            thread: "the pipeline".into(),
+            alt: Some("a path-traversal fix in a small web service".into()),
+        };
+        let why = held.why();
+        assert_eq!(
+            why,
+            "This edits /p, which isn't in the pipeline thread. Go on, or move to a path-traversal fix in a small web service?"
+        );
+        assert!(!why.contains("the a ") && !why.contains("the the"));
     }
 }

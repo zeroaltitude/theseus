@@ -65,9 +65,9 @@ use crate::routing::{self, Decision, HoldNext, Reason, Verdict};
 #[derive(Default)]
 pub(super) struct RouteState {
     /// The verdict's channel, until the first compile takes it.
-    wait: Option<RouteWait>,
+    pub(super) wait: Option<RouteWait>,
     /// `route.v1`'s mode for the turn (live, or shadow for a pin).
-    mode: Option<PackMode>,
+    pub(super) mode: Option<PackMode>,
     /// The mode `route_base` read at the turn's start, which the inbound
     /// point takes rather than reading it again.
     pub(super) read: Option<PackMode>,
@@ -89,6 +89,8 @@ pub(super) struct RouteState {
     pub(super) detour_kind: String,
     /// What the turn's result says.
     pub(super) result: Option<TurnRoute>,
+    /// What the turn injects, fixed at the pack or with `result` (theseus-d9je7).
+    pub(super) injection: Option<super::tier::InjectionBudget>,
     /// Where the owner's correction, or the layer, steers the turn ahead of
     /// the verdict (theseus-q31l).
     pub(super) steer: Option<Steering>,
@@ -107,6 +109,13 @@ pub(super) struct RouteState {
     /// Why the floor moved the turn off a restricted-origin profile, for its
     /// route row (`data_step`, theseus-a1wvq.11).
     pub(super) gated: Option<&'static str>,
+    /// While the counterfactual decision runs (`decide_floored`), the turn's
+    /// floor reads it as admitted open.
+    pub(super) assume_cleared: bool,
+    /// Whether the decision the turn would have made as a cleared ask names a
+    /// restricted-origin profile: set when the turn was not admitted and
+    /// decided, else `data_gate_why` walks the mode's list.
+    pub(super) cleared_pick: Option<bool>,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
@@ -788,13 +797,23 @@ impl TurnRunner {
         self.data_admit(t, session, judged, live, late);
         t.route.sensitive |= self.sensitive_request(&compiled.request) || self.private_session(t);
         let est_tokens = compiled.est_tokens;
-        let decision = match (steering, verdict, reason) {
+        let decide = |t: &Turn<'_>| match (steering, verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),
             // An open task's brief asked for its data alone picks nothing.
             (None, Some(_), None) if t.data.brief && !t.route.brief => None,
             (None, Some(v), None) => Some(self.decide_route(t, session, v, est_tokens)),
             _ => None,
         };
+        let decision = decide(t);
+        // What the same decision, cleared, would have named: the word on the
+        // route row says the data rule cost the turn that model, not the
+        // mode's list (theseus-b80si).
+        if decision.is_some() && !t.route.floor().cleared {
+            t.route.assume_cleared = true;
+            let cleared = decide(t);
+            t.route.assume_cleared = false;
+            t.route.cleared_pick = cleared.map(|d| self.restricted_profile(&d.profile));
+        }
         self.data_floor(t, decision)
     }
 
@@ -862,6 +881,7 @@ impl TurnRunner {
         timed: Timed,
         steering: Option<&Steering>,
     ) {
+        self.injection_read(t, verdict, reason);
         let base = t.target.profile.clone();
         let reason = decision.map_or(reason.unwrap_or(Reason::NoVerdict), |d| d.reason);
         let source = steering
@@ -907,6 +927,11 @@ impl TurnRunner {
             effort_ran: e.and_then(|e| e.ran).map(effort::name),
             effort_sent: e.and_then(|e| e.sent).map(effort::name),
             checkpoint: None,
+            injection: t
+                .route
+                .injection
+                .as_ref()
+                .map(super::tier::InjectionBudget::row),
             ran,
             data: Some(fact::route::RouteData {
                 verdict: answered.map(|a| (a.choice.as_str(), a.confidence)),

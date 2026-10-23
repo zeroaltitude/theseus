@@ -421,7 +421,11 @@ async fn a_slot_with_lines_posts_once_and_never_twice_across_a_restart() {
     let posts = digest_posts(&c);
     assert_eq!(posts.len(), 1, "{posts:?}");
     let text = posts[0]["text"].as_str().unwrap();
-    assert!(text.starts_with("◆ "), "{text}");
+    assert!(
+        text.starts_with("ℹ️ FYI · What happened since your last digest\n"),
+        "{text}"
+    );
+    assert!(text.lines().nth(2).unwrap().starts_with("◆ "), "{text}");
     assert!(text.contains("reported"), "{text}");
     assert!(
         c.store

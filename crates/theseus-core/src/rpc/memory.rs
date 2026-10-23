@@ -99,6 +99,7 @@ impl Core {
             in_context,
             labeled: memory.labeled(&self.store)?,
             budget_tokens: None,
+            max_items: None,
             science: memory.science_for(arm),
             activation,
             threads: p

@@ -438,6 +438,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   **A board the DM drew before the home answered** (theseus-ysp2k): when the home first stands, `ensure_task_home` sends the DM's lane
   `LaneMsg::BoardMoved`, which drops that lane's board message (`Lane::board_moved`, `drop_stale_board`) and any state of it waiting. A place that
   drew to the DM in the instant between the state and this message may leave one more there (not handled). A lane that has no board of its own (a restart: its id went with the process) looks once among the DM's pins for the bot's board, V2 or text, and removes it (theseus-bs8dl; `Lane::earlier_board`); the rig reaches the binding's own state through `task_home::daemon_for_tests`.
+- **The DM task flow is locked** (the owner, 2026-10-22; theseus-hd8l2): `tests_dm_flow_golden.rs` drives one DM task end to end and compares
+  every message with `src/golden/dm_flow.txt`. Change the golden only with the owner's OK (`THESEUS_GOLDEN=write cargo nextest run -p theseus-discord dm_flow`).
 - **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
   not in `ask` (`render::board`'s `mode`; no key, no command: Discord only shows it), and a `session.mode` notification
   redraws that board (`runtime/board.rs::routed`). A place with no task has no board, so shows none.

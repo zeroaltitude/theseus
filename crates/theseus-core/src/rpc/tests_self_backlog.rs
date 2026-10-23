@@ -634,3 +634,25 @@ fn the_evidence_tool_reads_a_causes_rows_in_a_range() {
         "a range that ended before the rows: {past}"
     );
 }
+
+/// An item filed under the old words lists in plain ones, in every read of
+/// the backlog: a stored "Turns fail with timeout" reads as a new item's
+/// "Turns failing with timeout" (the owner, 2026-10-22; theseus-jsdj5).
+#[test]
+fn an_item_filed_under_the_old_words_lists_in_plain_ones() {
+    let c = acting(0, 20);
+    seed_day(&c, theseus_protocol::now_unix_ms());
+    c.backlog_night(tick()).unwrap();
+    let item = listed(&c)
+        .into_iter()
+        .find(|i| i.cause == "turn.failed:timeout")
+        .unwrap();
+    assert_eq!(item.title, "Turns failing with timeout");
+    let mut t = crate::task_graph::get(&c.store, &item.id).unwrap().unwrap();
+    t.title = "Turns fail with timeout".into();
+    c.store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
+    let old = listed(&c).into_iter().find(|i| i.id == item.id).unwrap();
+    assert_eq!(old.title, "Turns failing with timeout");
+}

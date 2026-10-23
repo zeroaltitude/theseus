@@ -10,8 +10,9 @@
 //!   (the catalog's `context_window`; 1,000,000 when none is known): a home is warned about when
 //!   a request is near the window, where a request can fail and every turn is costly. A long
 //!   session is otherwise fine, so no smaller figure warns: the owner, 2026-10-21, found the
-//!   60,000 of `[threads] working_tokens` (what a thread's request stays within after a cold
-//!   resume, a different thing) too aggressive for a home. No budget of its own, and none is raised.
+//!   60,000 `[threads] working_tokens` then was (now `working_percent` of the window: what a
+//!   thread's request stays within after a cold resume, a different thing) too aggressive for a
+//!   home. No budget of its own, and none is raised.
 //! - **A home** is the session a place runs on (`Outbox::place_session`), not a task's and not a
 //!   thread's.
 //! - **Once** is a META row by the home's session, `home.size.warned.<session>`, written in the
@@ -97,20 +98,26 @@ pub fn warning_text(
     split: Option<(&str, &Stretch)>,
 ) -> String {
     let n = crate::narrative::thousands;
-    let head = format!(
-        "📏 {name}'s home is {} tokens, {}% of the model's window.",
+    let trigger = format!(
+        "it holds {} tokens, {}% of the model's window, past the warning line",
         n(tokens),
         tokens * 100 / window.max(1)
     );
-    match split {
+    let body = match split {
         Some((place, s)) => format!(
-            "{head} To see what moving its oldest turns into a thread would save: `theseus thread \
+            "To see what moving its oldest turns into a thread would save: `theseus thread \
              split home@{place} {} --first @{} --last @{} --dry-run`. Without `--dry-run` it \
              splits, and `theseus thread unsplit` with the id it prints undoes it.",
             s.slug, s.first, s.last
         ),
-        None => format!("{head} `theseus history` shows what it holds."),
-    }
+        None => "`theseus history` shows what it holds.".into(),
+    };
+    crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        &format!("{name}'s home is getting long"),
+        &trigger,
+        &body,
+    )
 }
 
 /// The home's oldest settled stretch: its first turn through the turn before the newest `keep`,
@@ -283,7 +290,7 @@ mod tests {
         };
         let t = warning_text("#harbor", 512_300, 1_000_000, Some(("channel:77", &s)));
         for want in [
-            "#harbor's home is 512,300 tokens, 51% of the model's window",
+            "#harbor's home is getting long\nit holds 512,300 tokens, 51% of the model's window",
             "theseus thread split home@channel:77 earlier-2026-10-19 --first @12 --last @412 --dry-run",
             "theseus thread unsplit",
         ] {

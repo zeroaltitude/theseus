@@ -218,15 +218,7 @@ impl Core {
             },
         });
         if card {
-            self.revert_card(format!(
-                "Theseus could not revert its own change {} (self branch {}, {}): it stopped at \
-                 the {phase}. {why}.\nThe change is still on main. Revert it by hand when you \
-                 agree: `git revert -m 1 {}`.",
-                short(&j.merge),
-                j.branch,
-                j.item,
-                j.merge
-            ));
+            self.revert_card(held_text(j, phase, why));
         }
         Done::Held {
             phase: phase.into(),
@@ -266,26 +258,14 @@ impl Core {
                     item: j.item.clone(),
                     numbers: json!({"detail": detail, "bisected": tested, "gate_secs": gate_secs}),
                 };
-                let text = format!(
-                    "Theseus reverted its own change: self branch {branch} ({item}), joined as \
-                     {m}, is undone as {r}.\nWhy: the {signal} signal turned red within {window} h \
-                     of the join.\nEvidence: {detail}. {bisect}\nThe revert passed main's gate and \
-                     is signed and pushed{installed}.\nTo put the change back, revert the revert: \
-                     `git revert {r}`.",
-                    branch = j.branch,
-                    item = j.item,
-                    m = short(&j.merge),
-                    r = short(revert),
-                    bisect = if *tested > 0 {
-                        format!("Found by testing {tested} commits of main.")
-                    } else {
-                        "Attributed by time: no outer-loop commit came between.".into()
-                    },
-                    installed = if self.cfg.self_improve.install {
-                        ", and the install is under way"
-                    } else {
-                        ""
-                    },
+                let text = reverted_text(
+                    j,
+                    revert,
+                    signal,
+                    window,
+                    detail,
+                    *tested,
+                    self.cfg.self_improve.install,
                 );
                 self.write_with_notice(&f, text);
             }
@@ -299,15 +279,7 @@ impl Core {
                     item: j.item.clone(),
                     dropped: *dropped,
                 };
-                let text = format!(
-                    "Your veto of self branch {branch} ({item}) is done: joined as {m}, reverted \
-                     as {r}, signed and pushed to main. Its backlog item is dropped and will not \
-                     be filed again.",
-                    branch = j.branch,
-                    item = j.item,
-                    m = short(&j.merge),
-                    r = short(revert),
-                );
+                let text = vetoed_text(j, revert);
                 self.write_with_notice(&f, text);
             }
         }
@@ -380,4 +352,78 @@ fn make(p: &Place, remote: &str, j: &Joined) -> Result<std::result::Result<Made,
 
 fn short(c: &str) -> &str {
     &c[..c.len().min(12)]
+}
+
+/// The card for a revert that stopped (theseus-x8b9k).
+pub(crate) fn held_text(j: &Joined, phase: &str, why: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Action,
+        &format!(
+            "Theseus could not revert its change {}: revert it by hand",
+            short(&j.merge)
+        ),
+        &format!(
+            "its revert of self branch {} ({}) stopped at the {phase}: {why}",
+            j.branch, j.item
+        ),
+        &format!(
+            "The change is still on main. Revert it by hand when you agree: `git revert -m 1 {}`.",
+            j.merge
+        ),
+    )
+}
+
+/// The notice of an automatic revert.
+pub(crate) fn reverted_text(
+    j: &Joined,
+    revert: &str,
+    signal: &str,
+    window: impl std::fmt::Display,
+    detail: &str,
+    tested: u32,
+    install: bool,
+) -> String {
+    let body = format!(
+        "Self branch {branch} ({item}), joined as {m}, is undone as {r}.\nEvidence: {detail}. \
+         {bisect}\nThe revert passed main's gate and is signed and pushed{installed}.\nTo put the \
+         change back, revert the revert: `git revert {r}`.",
+        branch = j.branch,
+        item = j.item,
+        m = short(&j.merge),
+        r = short(revert),
+        bisect = if tested > 0 {
+            format!("Found by testing {tested} commits of main.")
+        } else {
+            "Attributed by time: no outer-loop commit came between.".into()
+        },
+        installed = if install {
+            ", and the install is under way"
+        } else {
+            ""
+        },
+    );
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        "Theseus reverted its own change",
+        &format!("the {signal} signal turned red within {window} h of the join"),
+        &body,
+    )
+}
+
+/// The notice of the owner's veto, done.
+pub(crate) fn vetoed_text(j: &Joined, revert: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        &format!("Your veto of self branch {} is done", j.branch),
+        &format!(
+            "you vetoed it ({}); it was joined as {}",
+            j.item,
+            short(&j.merge)
+        ),
+        &format!(
+            "Reverted as {}, signed and pushed to main. Its backlog item is dropped and will not \
+             be filed again.",
+            short(revert)
+        ),
+    )
 }

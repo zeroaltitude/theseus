@@ -252,7 +252,30 @@ fn ran(i: &WhyInput) -> Vec<String> {
         };
         out.push(format!("effort: Jev said {e} ({how}){applied}"));
     }
+    if let Some(i) = r.get("injection") {
+        out.push(injection_words(i));
+    }
     out
+}
+
+/// What the turn's tier gave it (theseus-d9je7): `injection: deep: recall 8,000
+/// tokens, 16 items; tools to 3x the place's budget`.
+fn injection_words(i: &Value) -> String {
+    let n = |k: &str| i.get(k).and_then(Value::as_u64).unwrap_or(0);
+    let tier = i.get("tier").and_then(Value::as_str).unwrap_or("ordinary");
+    let tier = match i.get("fallback").and_then(Value::as_str) {
+        Some(f) => format!("{tier} ({f})"),
+        None => tier.to_string(),
+    };
+    let recall = match n("recall_items") {
+        0 => "no recall (a trivial detour carries none)".to_string(),
+        items => format!("recall {} tokens, {items} items", num(n("recall_tokens"))),
+    };
+    let ceiling = i
+        .get("admit_ceiling")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    format!("injection: {tier}: {recall}; tools to {ceiling}x the place's budget")
 }
 
 /// How a detoured turn ran (theseus-r5ydi): its request is built outside the

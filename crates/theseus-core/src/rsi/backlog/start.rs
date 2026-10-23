@@ -440,34 +440,14 @@ impl Core {
         if quiet || !self.runner.place_rule.owner_dm_bound() {
             return;
         }
-        let title = |id: &String| -> String {
-            w.tasks
+        let text = night_text(night, |id| Item {
+            title: w
+                .tasks
                 .get(id)
-                .map_or_else(|| id.clone(), |t| t.title.clone())
-        };
-        let mut text = String::from("Self backlog, last night:\n");
-        for s in &night.started {
-            text.push_str(&format!("- started: {} ({})\n", s.title, s.item));
-        }
-        for id in night.filed.iter().take(10) {
-            let held = night.waiting.contains(id);
-            text.push_str(&format!(
-                "- filed{}: {} ({id})\n",
-                if held {
-                    ", waits for your word (keel)"
-                } else {
-                    ""
-                },
-                title(id)
-            ));
-        }
-        if night.filed.len() > 10 {
-            text.push_str(&format!("- and {} more filed\n", night.filed.len() - 10));
-        }
-        for id in &night.trimmed {
-            text.push_str(&format!("- dropped for size: {} ({id})\n", title(id)));
-        }
-        text.push_str("Reorder or drop with `theseus self move <item> <rank>` / `theseus self drop <item>`; `theseus self backlog` lists it.");
+                .map_or_else(|| id.to_string(), |t| t.title.clone()),
+            count: w.st.items.get(id).map_or(0, |m| m.count),
+            since_ms: w.tasks.get(id).map_or(0, |t| t.created_at_ms),
+        });
         let written = (|| -> Result<()> {
             let (a, frame) = self
                 .outbox
@@ -480,4 +460,88 @@ impl Core {
             tracing::warn!(error = %format!("{e:#}"), "self backlog: the night's notice was not written");
         }
     }
+}
+
+/// One item of a night's note: its title, how often its cause showed, and
+/// since when.
+pub(crate) struct Item {
+    pub title: String,
+    pub count: u64,
+    pub since_ms: u64,
+}
+
+/// The night's note to the owner (theseus-x8b9k): what was filed, started or
+/// dropped, each in a line of plain words, then the commands.
+pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
+    use crate::owner_note::{note, Kind};
+    let line = |id: &str| {
+        let i = item(id);
+        let seen = match i.count {
+            0 => String::new(),
+            1 => format!(": seen once on {}", crate::owner_note::day(i.since_ms)),
+            n => format!(
+                ": seen {n} times since {}",
+                crate::owner_note::day(i.since_ms)
+            ),
+        };
+        format!("{}{seen} (item {id})", i.title)
+    };
+    let mut body = String::new();
+    for s in &night.started {
+        body.push_str(&format!("- started work on: {}\n", line(&s.item)));
+    }
+    for id in night.filed.iter().take(10) {
+        let held = night.waiting.contains(id);
+        body.push_str(&format!(
+            "- new{}: {}\n",
+            if held {
+                ", waits for your word (keel)"
+            } else {
+                ""
+            },
+            line(id)
+        ));
+    }
+    if night.filed.len() > 10 {
+        body.push_str(&format!("- and {} more new\n", night.filed.len() - 10));
+    }
+    for id in &night.trimmed {
+        body.push_str(&format!("- dropped for size: {}\n", line(id)));
+    }
+    body.push_str("Reorder or drop with `theseus self move <item> <rank>` / `theseus self drop <item>`; `theseus self backlog` lists it.");
+    let mut counts = vec![];
+    for (n, what) in [
+        (night.filed.len(), "new"),
+        (night.started.len(), "started"),
+        (night.trimmed.len(), "dropped"),
+    ] {
+        if n > 0 {
+            counts.push(format!("{n} {what}"));
+        }
+    }
+    let waiting = night
+        .filed
+        .iter()
+        .filter(|id| night.waiting.contains(*id))
+        .count();
+    let (kind, title) = if waiting > 0 {
+        (
+            Kind::Action,
+            format!(
+                "Self-improvement backlog: {waiting} waiting for your word, {}",
+                counts.join(", ")
+            ),
+        )
+    } else {
+        (
+            Kind::Fyi,
+            format!("Self-improvement backlog: {}", counts.join(", ")),
+        )
+    };
+    note(
+        kind,
+        &title,
+        "from last night's read of the day's failures and slow turns",
+        &body,
+    )
 }

@@ -33,7 +33,8 @@
 //!   long conversation the request keeps the previous request's level unless
 //!   Jev's differs from it by two steps or more. The decision keeps both: `ran`
 //!   is the level Jev's answer came to, `sent` the one the request carries.
-//!   `sticky_unsure` stands for the same hold of an `applied_unsure` answer.
+//!   `sticky_unsure` stands for the same hold of an `applied_unsure` or a
+//!   `held_high_unsure` answer.
 //! - **The effort has its own bar, not the model switch's** (theseus-7pm8t):
 //!   an answer below the question's `confirm` bar (its band, the pack's own
 //!   thresholds, which a model switch needs) still applies when its
@@ -74,6 +75,9 @@ pub enum EffortReason {
     /// Jev answered `xhigh` or `max` at or under `high_effort_confidence`:
     /// the turn runs at `high` (theseus-p8dy).
     HeldHigh,
+    /// [`HeldHigh`](EffortReason::HeldHigh) for an answer under the question's
+    /// confirm bar: `held_high` keeps meaning the sure one (theseus-t7b96).
+    HeldHighUnsure,
     /// Under the question's confirm bar and under `effort_confidence`.
     Unsure,
     /// Jev's level, within the bounds, from an answer under the question's
@@ -108,6 +112,7 @@ impl EffortReason {
             EffortReason::Applied => "applied",
             EffortReason::Clamped => "clamped",
             EffortReason::HeldHigh => "held_high",
+            EffortReason::HeldHighUnsure => "held_high_unsure",
             EffortReason::Unsure => "unsure",
             EffortReason::AppliedUnsure => "applied_unsure",
             EffortReason::Unclear => "unclear",
@@ -157,6 +162,7 @@ impl EffortDecision {
                 | EffortReason::AppliedUnsure
                 | EffortReason::Clamped
                 | EffortReason::HeldHigh
+                | EffortReason::HeldHighUnsure
                 | EffortReason::Sticky
                 | EffortReason::StickyUnsure
                 | EffortReason::Floored
@@ -246,7 +252,8 @@ pub fn decide(
             _ if ran > gated.clamp(lo, hi) => EffortReason::Floored,
             (true, _) if answer.sure => EffortReason::Applied,
             (true, _) => EffortReason::AppliedUnsure,
-            (false, true) => EffortReason::HeldHigh,
+            (false, true) if answer.sure => EffortReason::HeldHigh,
+            (false, true) => EffortReason::HeldHighUnsure,
             (false, false) => EffortReason::Clamped,
         },
         ran: Some(ran),
@@ -444,6 +451,62 @@ mod tests {
         assert_eq!(d.reason, EffortReason::Unsure);
     }
 
+    /// The wire's `effort_reason` doc names every word `as_str` gives, in its
+    /// order (theseus-t7b96).
+    #[test]
+    fn the_wires_doc_lists_every_effort_reason_word() {
+        let doc = include_str!("../../../theseus-protocol/src/route.rs");
+        let doc = &doc[doc.find("Why the turn ran at its effort").unwrap()..];
+        let doc = &doc[..doc.find("pub effort_reason").unwrap()];
+        let mut at = 0;
+        for r in [
+            EffortReason::Applied,
+            EffortReason::Clamped,
+            EffortReason::HeldHigh,
+            EffortReason::HeldHighUnsure,
+            EffortReason::Unsure,
+            EffortReason::AppliedUnsure,
+            EffortReason::Unclear,
+            EffortReason::Fixed,
+            EffortReason::NoEffort,
+            EffortReason::Carried,
+            EffortReason::Recorded,
+            EffortReason::Sticky,
+            EffortReason::StickyUnsure,
+            EffortReason::Floored,
+        ] {
+            let word = format!("`{}`", r.as_str());
+            let i = doc[at..].find(&word);
+            assert!(
+                i.is_some(),
+                "{word} is missing from the doc, or out of order"
+            );
+            at += i.unwrap();
+        }
+    }
+
+    /// A held answer says whether it was sure: `held_high` for one that
+    /// reached the question's confirm bar, `held_high_unsure` for one that
+    /// only cleared `effort_confidence` (theseus-t7b96).
+    #[test]
+    fn an_unsure_max_held_high_says_so() {
+        let r = runs(None, false, true);
+        for (level, c, sure, reason) in [
+            ("max", 0.5, false, EffortReason::HeldHighUnsure),
+            ("xhigh", 0.4, false, EffortReason::HeldHighUnsure),
+            ("max", 0.65, true, EffortReason::HeldHigh),
+        ] {
+            let d = decide(FULL, BAR, &at(level, c, sure), r, true, false);
+            assert_eq!(
+                (d.reason, d.ran),
+                (reason, Some(Effort::High)),
+                "{level} at {c}"
+            );
+            assert!(d.applied());
+        }
+        assert_eq!(EffortReason::HeldHighUnsure.as_str(), "held_high_unsure");
+    }
+
     /// The gate applies first and the bounds clamp after: where both lower an
     /// answer the reason is the gate's, where only the bounds do it is
     /// `clamped`, and a bound above `high` raises a held answer back.
@@ -614,7 +677,7 @@ mod tests {
         let d = decide(FULL, bars, &at("xhigh", 0.42, false), r, true, false);
         assert_eq!(
             (d.reason, d.ran),
-            (EffortReason::HeldHigh, Some(Effort::High))
+            (EffortReason::HeldHighUnsure, Some(Effort::High))
         );
         let b = [Effort::Low, Effort::Medium];
         let d = decide(b, bars, &at("high", 0.42, false), r, true, false);

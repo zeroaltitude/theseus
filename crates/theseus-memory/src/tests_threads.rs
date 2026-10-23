@@ -9,7 +9,7 @@ use proptest::prelude::*;
 
 use crate::recall::{recall, Asker, Candidate, Pack, Params, Place, Reason};
 use crate::science::Baseline;
-use crate::threads::{Cause, SessionThread, ThreadLens};
+use crate::threads::{Cause, SessionThread, ThreadLens, Tie, Verdict};
 
 fn cand(node: &str, session: &str, fused: f64) -> Candidate {
     Candidate {
@@ -418,4 +418,30 @@ fn a_drop_says_which_rule_and_the_numbers_it_weighed() {
         ("thread_base", d.share, d.paid)
     );
     assert_eq!(Reason::Thread(Cause::Own).family(), "thread");
+}
+
+/// Which `own_top` weighs which note (theseus-stwkb): the thread holds its own
+/// 0.104 in context, and nothing it can still be given (`own_top_admissible`
+/// 0). Another live thread's note at share 0.93 pays 0.063 under 0.104 and
+/// drops `thread_own`; the same note no thread claims is weighed against 0,
+/// and comes in. Without `own_top_admissible` both weigh 0.104.
+#[test]
+fn another_threads_note_weighs_the_whole_own_top_and_a_home_note_the_admissible_one() {
+    let mut l = lens(Some("pr-round"), &[], &[]);
+    (l.top_fused, l.own_top, l.beats_own, l.base) = (0.104, 0.104, true, true);
+    l.own_top_admissible = Some(0.0);
+    let fused = 0.93 * 0.104;
+    match l.judge("ses_fix", "n", fused, Tie::Unknown) {
+        Verdict::Distant(d) => assert_eq!((d.cause, d.own_top), (Cause::Own, 0.104)),
+        v => panic!("{v:?}"),
+    }
+    assert_eq!(
+        l.judge("ses_home", "n", fused, Tie::Unknown),
+        Verdict::Costs(0.65)
+    );
+    l.own_top_admissible = None;
+    match l.judge("ses_home", "n", fused, Tie::Unknown) {
+        Verdict::Distant(d) => assert_eq!((d.cause, d.own_top), (Cause::Base, 0.104)),
+        v => panic!("{v:?}"),
+    }
 }

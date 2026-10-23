@@ -23,18 +23,22 @@ use theseus_voice::{Link, SsrcCount};
 use super::{session, update, VoicePlace};
 use crate::runtime::Shared;
 
-/// Said in the place's text when the call is found deaf.
-pub(crate) const DEAF: &str =
-    "I can't hear the call (Discord's voice encryption didn't finish setting up). Rejoining…";
+/// Said in the place's text when the call is found deaf. Each is headed as
+/// `theseus_core::owner_note::head` writes it (theseus-x8b9k).
+pub(crate) const DEAF: &str = "⚠️ Alert · Voice can't hear the call\n\
+    Discord's voice encryption didn't finish setting up\nRejoining…";
 /// Said when a call that heard stops hearing a listed speaker who talks.
-pub(crate) const LOST: &str = "I've stopped hearing you (your audio isn't reaching me). Rejoining…";
+pub(crate) const LOST: &str =
+    "⚠️ Alert · Voice stopped hearing you\nyour audio isn't reaching me\nRejoining…";
 /// Said when audio arrives that no speaking event says whose it is.
-pub(crate) const UNMAPPED: &str =
-    "I can't hear the call (Discord didn't say whose audio is whose). Rejoining…";
+pub(crate) const UNMAPPED: &str = "⚠️ Alert · Voice can't hear the call\n\
+    Discord didn't say whose audio is whose\nRejoining…";
 /// Said when the rejoined call hears a listed speaker.
-pub(crate) const REJOINED: &str = "Rejoined: I can hear you now";
+pub(crate) const REJOINED: &str =
+    "ℹ️ FYI · Voice rejoined: I can hear you now\nthe rejoin after the call went deaf";
 /// Said when the rejoined call is deaf too, or the rejoin failed.
-pub(crate) const STILL_DEAF: &str = "Still can't hear: try /leave and /join";
+pub(crate) const STILL_DEAF: &str =
+    "✋ Action · Voice still can't hear: try /leave and /join\nthe rejoin did not fix it";
 
 /// Between the leave and the join of a rejoin.
 const REJOIN_GAP: Duration = Duration::from_secs(2);
@@ -438,6 +442,9 @@ mod tests {
         let gone = at(300, 1000 + LOST_SENT);
         assert_eq!(lost(&before, &now(gone, &[OWNER])), Some(Why::Lost));
         assert_eq!(Why::Lost.notice(), LOST);
+        for n in [DEAF, LOST, UNMAPPED, REJOINED, STILL_DEAF] {
+            assert!(theseus_core::owner_note::is_headed(n), "{n}");
+        }
         assert_eq!(Why::Lost.as_str(), "lost");
         assert_eq!(lost(&before, &now(at(300, 1000), &[OWNER])), None, "silent");
         assert_eq!(

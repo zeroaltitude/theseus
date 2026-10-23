@@ -204,7 +204,8 @@ impl Core {
     /// in the same frame. The owner's alone: nothing reaches a shared place.
     pub fn initiative_post(&self, kind: &'static str, s: &Spoken) -> Result<()> {
         let persona = self.cfg.persona_for(None, None);
-        let body = json!({"kind": "initiative", "what": kind, "id": s.id, "text": s.text});
+        let body =
+            json!({"kind": "initiative", "what": kind, "id": s.id, "text": headed(kind, &s.text)});
         let (a, mut frame) = self.outbox.stage_to_operator(None, body)?;
         frame.push(crate::fact::row(
             &InitiativeSpoke {
@@ -222,4 +223,21 @@ impl Core {
         self.outbox.posted(&a);
         Ok(())
     }
+}
+
+/// A spoken message under its head (theseus-x8b9k): the words stay the
+/// persona's; the head says what kind of note it is and what brought it.
+pub fn headed(kind: &str, text: &str) -> String {
+    let (title, trigger) = match kind {
+        "morning" => (
+            "Morning note",
+            "what happened in the last day, told once each morning",
+        ),
+        "consolidation" => (
+            "Something the night's consolidation noticed",
+            "from the nightly pass over your memory",
+        ),
+        _ => ("A note from Theseus", "said on its own initiative"),
+    };
+    crate::owner_note::note(crate::owner_note::Kind::Fyi, title, trigger, text)
 }

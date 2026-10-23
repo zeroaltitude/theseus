@@ -143,6 +143,7 @@ pub(super) async fn ambient(c: &Arc<Core>, asker: &str, message: &str, ask: Ask)
         in_context: Default::default(),
         labeled: Default::default(),
         budget_tokens: None,
+        max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
         activation: None,
         threads: c.runner.thread_scene(Some(asker), message, true),

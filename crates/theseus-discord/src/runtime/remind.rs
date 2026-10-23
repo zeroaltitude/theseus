@@ -288,12 +288,18 @@ impl Shared {
     }
 }
 
-/// The reminder's text in a place: its note as it is, and a line of how it
-/// came (late, a series' occurrence).
+/// The reminder's text in a place: its note as it is, the title of its head
+/// (`⏰ Reminder · <note>`), then a line of how it came (late, a series'
+/// occurrence); a note of more lines keeps the rest below.
 pub(crate) fn text(body: &Value) -> String {
-    let note = body["text"].as_str().unwrap_or("");
-    let mut out = format!("⏰ {note}");
-    let mut how = Vec::new();
+    let note = body["text"].as_str().unwrap_or("").trim_end();
+    let (title, rest) = note.split_once('\n').unwrap_or((note, ""));
+    let title = if title.trim().is_empty() {
+        "a reminder"
+    } else {
+        title
+    };
+    let mut how = vec!["a reminder you set".to_string()];
     if let Some(s) = body["series"].as_str() {
         match body["occurrence"].as_u64() {
             Some(n) => how.push(format!("{s}, #{n}")),
@@ -309,10 +315,14 @@ pub(crate) fn text(body: &Value) -> String {
         };
         how.push(format!("{} late{down}", span(late)));
     }
-    if !how.is_empty() {
-        out.push_str(&format!("\n-# {}", how.join(" · ")));
-    }
-    out
+    // The note is the owner's own words, whole: they are the title, the head's
+    // only words (the owner, 2026-10-22; theseus-x8b9k).
+    theseus_core::owner_note::note(
+        theseus_core::owner_note::Kind::Reminder,
+        title,
+        &how.join(", "),
+        rest,
+    )
 }
 
 fn span(ms: u64) -> String {
@@ -381,13 +391,21 @@ mod tests {
     /// The post's text: the note as it is, and how it came when that matters.
     #[test]
     fn the_post_says_the_note_and_how_it_came() {
-        assert_eq!(text(&json!({"text": "stretch"})), "⏰ stretch");
+        assert_eq!(
+            text(&json!({"text": "stretch"})),
+            "⏰ Reminder · stretch\na reminder you set"
+        );
         assert_eq!(
             text(
                 &json!({"text": "stretch", "series": "every 1d", "occurrence": 4,
                          "late_ms": 125_000, "while_down": true})
             ),
-            "⏰ stretch\n-# every 1d, #4 · 2 min late, the daemon was down"
+            "⏰ Reminder · stretch\na reminder you set, every 1d, #4, 2 min late, the daemon was \
+             down"
+        );
+        assert_eq!(
+            text(&json!({"text": "call the vet\nbefore noon\n"})),
+            "⏰ Reminder · call the vet\na reminder you set\nbefore noon"
         );
     }
 }

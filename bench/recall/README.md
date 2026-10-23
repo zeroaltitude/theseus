@@ -103,7 +103,7 @@ least one of each kind. `full` is three sessions of 200 turns: two on one day an
 topic blocks each, a mark in each session, and 6 probes in each of the 34 bucket × salience × kind cells (204 in
 all; an abstention has no supersession). The generator prints the counts and an estimate of the tokens and dollars
 per arm at the catalog's price (`--model`), each mark's reads with their bounds, and the window and its budget.
-For seed 7, planned at 13,943, it says about $0.54 an arm for the smoke and about $12.02 for the full. Treat these as
+For seed 7, planned at 13,943, it says about $0.57 an arm for the smoke and about $11.98 for the full. Treat these as
 a budget, not a measurement: the replies' length and the turns' recall notes are guesses.
 
 **Run live only in a throwaway container or VM.** Neither arm's tools are confined to the workspace on a bare host.
@@ -135,8 +135,8 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     numbers each line, so each log fits under that. A plan is in tokens and its logs are written in bytes, so each
     plan, once written, is worked again from its bytes (`plan_misses`), at its overhead and at `OVERHEAD_CUSHION`
     more and less, and one that misses by rounding gives way to the next: more reads in the same window, then the next
-    window. For seed 7, planned at 13,943, that is 46000 for the smoke (a budget of 30,404;
-    two logs of about 4,650 tokens, the second at turn 11) and 94000 for the full (73,904).
+    window. For seed 7, planned at 13,943, that is 56000 for the smoke (a budget of 37,904;
+    two logs of about 8,890 tokens, the second at turn 11) and 101000 for the full (80,904).
   - **The overhead is measured, never assumed** (theseus-cs8k). Every new tool definition moves the daemon's system
     prompt and tools, so no constant can stand for them. Before the progression is fixed, the driver starts a
     throwaway daemon of the run's own config (the same binaries, profile, memory arm and effort), has it take one

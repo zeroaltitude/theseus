@@ -96,7 +96,7 @@ pub(crate) fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 /// A scratch repository with one commit of `notes.txt`.
-fn repo(at: &Path) -> PathBuf {
+pub(crate) fn repo(at: &Path) -> PathBuf {
     std::fs::create_dir_all(at).unwrap();
     git(at, &["init", "-q", "-b", "main"]);
     git(at, &["config", "user.name", "Acme Builder"]);
@@ -234,7 +234,7 @@ pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
     });
     let claude = By::new(move |req| review_answer(&q, &owner_file, req));
     let (z, c) = (zai.clone(), claude.clone());
-    let w = work.clone();
+    let (w, dd) = (work.clone(), tmp.path().to_path_buf());
     let r = rig_parts(
         Some(&jev),
         8,
@@ -247,16 +247,13 @@ pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
             cfg.routing.data.open_paths = vec![w.to_string_lossy().into_owned()];
             cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
             cfg.policy.enforcement = crate::policy::Posture::Notify;
-            let drafts = cfg.state_dir().join("drafts");
             // The state dir is on the approve list, as `~/.theseus` is by
-            // default: a draft's and a review's file tools in the tree are not
-            // held by it.
+            // default; the draft trees live outside it (theseus-iilre), and
+            // the code makes their root a root of the workspace.
             let state = cfg.state_dir().to_string_lossy().into_owned();
             cfg.tools.approve_paths.push(state);
-            cfg.tools.roots = vec![
-                w.to_string_lossy().into_owned(),
-                drafts.to_string_lossy().into_owned(),
-            ];
+            cfg.server.drafts_dir = dd.join("drafts").to_string_lossy().into_owned();
+            cfg.tools.roots = vec![w.to_string_lossy().into_owned()];
             tweak(cfg);
         },
         move |p| {
