@@ -118,8 +118,8 @@ export default function Ops() {
   const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : a.lens === 'timeline' && a.sel ? { kind: 'mark', key: a.sel } : { kind: 'none' }
   const region: 'queue' | 'canvas' = item ? 'queue' : 'canvas'
   // The item a key answers: the queue's cursor, or the needs-you item of the row on the canvas.
-  const focusItem = item ?? (row ? queue.find((i) => i.view?.id === row.view?.id || (i.sessionId === row.sessionId && i.kind !== 'hold')) : undefined)
-  const focusRow = row ?? (item ? rows.find((r) => r.sessionId === item.sessionId && r.kind !== 'job') : undefined)
+  const focusItem = item ?? (row ? queue.find((i) => (row.view != null && i.view?.id === row.view.id) || (row.sessionId != null && i.sessionId === row.sessionId && i.kind !== 'hold')) : undefined)
+  const focusRow = row ?? (item?.sessionId ? rows.find((r) => r.sessionId === item.sessionId && r.kind !== 'job') : undefined)
   const [open, setOpen] = useState<string | null>(a.do === 'answer' && item ? item.key : null)
   const [note, setNote] = useState<{ key: string; text: string } | null>(null)
 

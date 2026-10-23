@@ -57,6 +57,14 @@ test('a deep link survives the queue’s first read, and the Threads lens matche
   assert.match(page, /matches=\{\(t\) => shownSlugs\.has\(t\.group\.slug\)\}/)
 })
 
+test('the keys answer only the selected card’s own item: no view or no session matches nothing', () => {
+  // A row with no live view and an item with no view compared undefined === undefined, so y/n/t/a/e answered an
+  // unrelated approval; an item with no session matched a wake row with none (the ops-shell review's F1, F2).
+  assert.match(page, /row\.view != null && i\.view\?\.id === row\.view\.id/)
+  assert.match(page, /row\.sessionId != null && i\.sessionId === row\.sessionId/)
+  assert.match(page, /const focusRow = row \?\? \(item\?\.sessionId \? rows\.find/)
+})
+
 test('a page left alone renders nothing new: its lists hold still between renders', () => {
   // The router's asks were a fresh array every render, so the queue's keys changed every render and the arrival
   // effect set state every render: an endless loop that starved every navigation (the lens switch did nothing).
