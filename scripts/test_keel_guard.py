@@ -630,6 +630,114 @@ class BudgetArms(Case):
         self.assertIn('_ => 0.0 (the fall-through) -> "seed" => 2.0', out)
         self.assertIn('_ => 0.0 (the fall-through) -> "health" => 3.0', out)
 
+    # theseus-y4ajh: an arm that names a constant, a guarded arm, and an arm that spans lines.
+
+    def base_with(self, old, new):
+        """Main holds LIFECYCLE with `old` made `new`; the lane starts from it. Returns that text."""
+        lc = sub(LIFECYCLE, old, new)
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({self.LC: lc}, "an arm of its own")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        return lc
+
+    CONST = '        "cancel" => Some(100.0),\n        "surfaces" => Some(surfaces::BUDGET_MS),\n'
+
+    def const_base(self):
+        return self.base_with('        "cancel" => Some(100.0),\n', self.CONST)
+
+    def test_a_constant_arm_rewritten_to_a_literal_is_raised(self):
+        base = self.const_base()
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "Some(surfaces::BUDGET_MS)", "Some(9_000.0)")})
+        code, out = self.findings()
+        self.assertEqual(out.count("budget-raised: "), 1, out)
+        self.assertIn('"surfaces" => Some(surfaces::BUDGET_MS) -> "surfaces" => Some(9_000.0)', out)
+
+    def test_a_constant_arm_rewritten_to_another_constant_is_raised(self):
+        base = self.const_base()
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "surfaces::BUDGET_MS", "surfaces::SLOW_MS")})
+
+    def test_a_constant_arm_removed_is_raised(self):
+        base = self.const_base()
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, self.CONST, '        "cancel" => Some(100.0),\n')})
+        code, out = self.findings()
+        self.assertIn('"surfaces" => Some(surfaces::BUDGET_MS) -> (gone or rewritten)', out)
+
+    def test_a_constant_arm_kept_or_a_numbered_arm_lowered_is_clean(self):
+        base = self.const_base()
+        self.assertClean({self.LC: sub(base, '"shutdown" => Some(100.0)', '"shutdown" => Some(90.0)')})
+
+    def test_a_constant_arm_split_keeps_its_value(self):
+        base = self.const_base()
+        self.assertClean({self.LC: sub(base, '"surfaces" => Some(surfaces::BUDGET_MS),',
+                                       '"surfaces" | "tui" => Some(surfaces::BUDGET_MS),')})
+
+    def test_an_unbudgeted_arm_gaining_a_literal_is_clean(self):
+        # A base arm with no number and no constant (`None`) is unbudgeted: a budget for it is a tightening.
+        base = self.base_with('        "cancel" => Some(100.0),\n',
+                              '        "cancel" => Some(100.0),\n        "surfaces" => None,\n')
+        self.assertClean({self.LC: sub(base, '"surfaces" => None', '"surfaces" => Some(9_000.0)')})
+
+    def test_a_new_pattern_over_a_numberless_fall_through_is_clean(self):
+        base = self.const_base()
+        self.assertClean({self.LC: sub(base, "        _ => None,", '        "tui" => Some(9_000.0),\n        _ => None,')})
+
+    GUARDED = '        "cancel" if sessions > 10 => Some(100.0),\n'
+
+    def guarded_base(self):
+        return self.base_with('        "cancel" => Some(100.0),\n', self.GUARDED + '        "cancel" => Some(100.0),\n')
+
+    def test_a_guarded_arm_is_judged_by_its_patterns(self):
+        base = self.guarded_base()
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, self.GUARDED, self.GUARDED.replace("100.0", "150.0"))})
+        code, out = self.findings()
+        self.assertEqual(out.count("budget-raised: "), 1, out)
+        self.assertIn('"cancel" if sessions > 10 => Some(100.0) -> "cancel" if sessions > 10 => Some(150.0)', out)
+
+    def test_a_guarded_arm_lowered_under_its_guard_is_clean(self):
+        base = self.guarded_base()
+        self.assertClean({self.LC: sub(base, self.GUARDED, self.GUARDED.replace("100.0", "90.0"))})
+
+    def test_a_guarded_arm_added_over_the_fall_through_is_raised(self):
+        self.assertCaught("budget-raised", self.LC, {self.LC: self.arms('"seed" if phase.len() > 3 => 2.0')})
+        code, out = self.findings()
+        self.assertIn('_ => 0.0 (the fall-through) -> "seed" if phase.len() > 3 => 2.0', out)
+
+    def test_a_guarded_arm_split_keeps_its_value(self):
+        base = self.base_with('        "cold" | "vault" => 7.0,\n',
+                              '        "cold" | "vault" if phase.len() > 3 => 7.0,\n        "cold" | "vault" => 7.0,\n')
+        self.assertClean({self.LC: sub(base, '"cold" | "vault" if phase.len() > 3 => 7.0,',
+                                       '"cold" if phase.len() > 3 => 7.0,\n        "vault" if phase.len() > 3 => 7.0,')})
+
+    def test_a_guard_changed_is_a_rewrite(self):
+        base = self.guarded_base()
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "sessions > 10", "sessions > 20")})
+        code, out = self.findings()
+        self.assertIn('"cancel" if sessions > 10 => Some(100.0) -> (gone or rewritten)', out)
+
+    BLOCK = ('        "seed" => {\n            let m = 2.0;\n            m\n        }\n'
+             '        "health" => Some(\n            3.0,\n        ).unwrap(),\n')
+
+    def test_a_multi_line_arm_is_judged_whole(self):
+        base = self.base_with(self.FALL, self.BLOCK + self.FALL)
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "let m = 2.0;", "let m = 3.0;")})
+        code, out = self.findings()
+        self.assertEqual(out.count("budget-raised: "), 1, out)
+        self.assertIn('"seed" => { let m = 2.0; m } -> "seed" => { let m = 3.0; m }', out)
+
+    def test_a_raise_in_a_call_broken_over_lines_is_raised(self):
+        base = self.base_with(self.FALL, self.BLOCK + self.FALL)
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "            3.0,", "            4.0,")})
+
+    def test_a_multi_line_arm_added_over_the_fall_through_is_raised(self):
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(LIFECYCLE, self.FALL, self.BLOCK + self.FALL)})
+        code, out = self.findings()
+        self.assertEqual(out.count("budget-raised: "), 2, out)
+
+    def test_a_multi_line_arm_lowered_or_reformatted_is_clean(self):
+        base = self.base_with(self.FALL, self.BLOCK + self.FALL)
+        self.assertClean({self.LC: sub(sub(base, "let m = 2.0;", "let m = 1.0;"),
+                                       "Some(\n            3.0,\n        ).unwrap()", "Some(3.0).unwrap()")})
+
     SURFACES = "crates/theseus-sim/src/lifecycle/surfaces.rs"
 
     def test_a_sim_budget_const_raised(self):
