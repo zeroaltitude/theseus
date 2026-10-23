@@ -23,6 +23,9 @@ async fn detour(
     let (r, haiku) = rig_haiku(&jev, 1, |c| {
         owner_shape(c, dir.path());
         tweak(c);
+        // A trivial detour is the small tier, whose multiple is 1.0 (theseus-d9je7): the raise
+        // under test is held at `admit_ceiling`.
+        c.tools.defer.admit_ceiling_small = c.tools.defer.admit_ceiling;
     });
     let res = turn(&r.core, None, message, None).await;
     assert_eq!(res.route.as_ref().unwrap().reason, "detour");
@@ -164,6 +167,9 @@ fn rig_on(
     rig_haiku(jev, n, |c| {
         owner_shape(c, dir);
         tweak(c);
+        // A trivial detour is the small tier, whose multiple is 1.0 (theseus-d9je7): the raise
+        // under test is held at `admit_ceiling`.
+        c.tools.defer.admit_ceiling_small = c.tools.defer.admit_ceiling;
     })
 }
 

@@ -352,6 +352,8 @@ mod tests_inbound;
 #[cfg(test)]
 mod tests_initiative;
 #[cfg(test)]
+mod tests_injection_tiers;
+#[cfg(test)]
 mod tests_job_handles;
 #[cfg(test)]
 mod tests_jobs;

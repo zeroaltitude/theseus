@@ -2039,7 +2039,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     under a preamble that names the harness as its source and no part of the person's message (it renders in their
     user turn, after their words: theseus-fpm2), each item's frozen header and its source's text over the frozen byte
     range, read by position (cached: sources never change), so the next request begins with the previous one's bytes.
-    Past `session_recall_cap_tokens` of notes in the tail, recall pauses (`paused`) until the next recompile.
+    Past `session_recall_cap_tokens` (64,000) of notes in the tail, recall pauses (`paused`) until the next recompile.
+    **The pack is sized to the prompt** (theseus-d9je7; `turn/tier.rs`): the route pack's mode folds into a tier,
+    `trivial` small, `sophisticated`/`deep_coding`/`review` deep, the rest ordinary, and so is a verdict late, missing,
+    under its bar or not acting, and a turn routing does not decide. Ordinary packs `recall_budget_tokens`/
+    `recall_max_items` (3,000 / 8), deep `deep_recall_tokens`/`deep_recall_items` (8,000 / 16); small packs as
+    ordinary and its detour drops it. The pack never waits: `recall_live` reads the verdict once the index has
+    answered (`TurnRunner::injection`, a peek that puts a landed answer back for the compile's own wait), else
+    packs ordinary, and the budget it took is fixed on `RouteState.injection` and the `route.decided` row's
+    `injection` (`tier`, `fallback`: `verdict late` and the like, the sizes, the admit multiple), which `theseus why`
+    says in one line. The sizes ride `Scene.budget_tokens`/`max_items`, so a live rerank's refill packs the same.
+    The tier touches only the tail: no cached prefix byte moves (`tests_injection_tiers.rs`). Deep's keys at
+    ordinary's numbers are the rollback.
     A trivial detour's request carries no recall (theseus-n7nc): while routing has the route to decide
     (`RouteState::deciding`) the row waits for it, and once it is known `recall_routed` drops a detour's node, its
     rides and its footer count, and the row says `detoured`. A quick detour's request carries it (theseus-pa1xx,
@@ -2672,7 +2683,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Fit` cost while the whole stays under `floor(budget × admit_ceiling)` (`want::extra` returns `Admitted { family,
   tokens, by }`); learned families stay held to `budget + Fit.raised`. What passed the budget rides `Deferral.raised`
   (not stored), `tools.used`'s `raised` and `TurnSubmitResult.raised`, whose `line` closes `harness_lines`.
-  `admit_ceiling = 1.0` and `judge_families = false` are the rollbacks. The `families.v1` call is made on every routed
+  `admit_ceiling = 1.0` and `judge_families = false` are the rollbacks. **By tier** (theseus-d9je7): `admit_ceiling` is an
+  ordinary prompt's, `admit_ceiling_small` (1.0) a trivial one's and `admit_ceiling_deep` (3.0) a deep one's, from the
+  turn's `RouteState.injection` when it is fixed before `defer_tools` (a verdict landed by then; else ordinary; a routed
+  recompile takes the fixed one); the three alike are one ceiling for all. The census's fresh request is ordinary.
+  The `families.v1` call is made on every routed
   prompt, a model with tool search included unless the route pack is below canary (the owner's decision of 2026-10-21:
   always try to categorize each toolset), so `families_start` is not narrowed. Tests: `tests_families.rs` (the two that
   read Jev's answer set `judge_wait_ms` to 2,000 in their rig, so the answer is waited for, not raced).

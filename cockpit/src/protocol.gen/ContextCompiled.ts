@@ -92,4 +92,9 @@ situation?: Situation,
  * surface holds them (theseus-slvl.4); absent when none. The system's
  * own are the compilation's `manifest.standing`.
  */
-standing_here?: Array<string>, };
+standing_here?: Array<string>, 
+/**
+ * The ontology walk's guidance in the request, in tokens, as the census
+ * counts it (theseus-d9je7, measured only); absent when it carried none.
+ */
+walk_tokens?: number, };

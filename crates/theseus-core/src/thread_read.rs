@@ -317,6 +317,7 @@ async fn hits(core: &Arc<Core>, query: &str, sessions: Vec<String>) -> Result<Ve
         in_context: Default::default(),
         labeled: memory.labeled(&core.store).map_err(|e| format!("{e:#}"))?,
         budget_tokens: None,
+        max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
         activation: None,
         threads: None,
