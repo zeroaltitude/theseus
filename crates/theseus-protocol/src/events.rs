@@ -235,6 +235,10 @@ pub struct ContextCompiled {
     /// own are the compilation's `manifest.standing`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub standing_here: Vec<String>,
+    /// The ontology walk's guidance in the request, in tokens, as the census
+    /// counts it (theseus-d9je7, measured only); absent when it carried none.
+    #[serde(default, skip_serializing_if = "crate::is_zero")]
+    pub walk_tokens: u64,
 }
 
 /// What a compile is for (M6 35a, §2.11): the compiler's input that decides

@@ -65,9 +65,9 @@ use crate::routing::{self, Decision, HoldNext, Reason, Verdict};
 #[derive(Default)]
 pub(super) struct RouteState {
     /// The verdict's channel, until the first compile takes it.
-    wait: Option<RouteWait>,
+    pub(super) wait: Option<RouteWait>,
     /// `route.v1`'s mode for the turn (live, or shadow for a pin).
-    mode: Option<PackMode>,
+    pub(super) mode: Option<PackMode>,
     /// The mode `route_base` read at the turn's start, which the inbound
     /// point takes rather than reading it again.
     pub(super) read: Option<PackMode>,
@@ -89,6 +89,8 @@ pub(super) struct RouteState {
     pub(super) detour_kind: String,
     /// What the turn's result says.
     pub(super) result: Option<TurnRoute>,
+    /// What the turn injects, fixed at the pack or with `result` (theseus-d9je7).
+    pub(super) injection: Option<super::tier::InjectionBudget>,
     /// Where the owner's correction, or the layer, steers the turn ahead of
     /// the verdict (theseus-q31l).
     pub(super) steer: Option<Steering>,
@@ -879,6 +881,7 @@ impl TurnRunner {
         timed: Timed,
         steering: Option<&Steering>,
     ) {
+        self.injection_read(t, verdict, reason);
         let base = t.target.profile.clone();
         let reason = decision.map_or(reason.unwrap_or(Reason::NoVerdict), |d| d.reason);
         let source = steering
@@ -924,6 +927,11 @@ impl TurnRunner {
             effort_ran: e.and_then(|e| e.ran).map(effort::name),
             effort_sent: e.and_then(|e| e.sent).map(effort::name),
             checkpoint: None,
+            injection: t
+                .route
+                .injection
+                .as_ref()
+                .map(super::tier::InjectionBudget::row),
             ran,
             data: Some(fact::route::RouteData {
                 verdict: answered.map(|a| (a.choice.as_str(), a.confidence)),

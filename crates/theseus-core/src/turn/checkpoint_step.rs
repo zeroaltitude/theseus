@@ -672,6 +672,7 @@ impl TurnRunner {
                 cold,
                 cost_usd: cost as f64 / 1e6,
             }),
+            injection: None,
             ran: self.ran_of(profile),
             data: None,
         });

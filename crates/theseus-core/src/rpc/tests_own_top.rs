@@ -89,6 +89,7 @@ async fn recall(
         in_context: BTreeSet::from([in_context.to_string()]),
         labeled: Default::default(),
         budget_tokens: None,
+        max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
         activation: None,
         threads: c.runner.thread_scene(Some(asker), ASK, true),

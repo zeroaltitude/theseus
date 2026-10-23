@@ -21,12 +21,14 @@ use crate::tools_defer::fit::Fit;
 use crate::tools_defer::{self, scan, Deferral, Mechanism, PlaceKind};
 
 /// What a turn's message says about its tools: its text, the families Jev judged relevant to it,
-/// and whether the request is a trivial detour's (a bare one).
+/// whether the request is a trivial detour's (a bare one), and the prompt tier's admission
+/// ceiling (`admit_ceiling` without one).
 #[derive(Default, Clone, Copy)]
 struct Said<'a> {
     ask: &'a str,
     jev: &'a [(String, f64)],
     bare: bool,
+    ceiling: Option<f64>,
 }
 
 impl TurnRunner {
@@ -55,12 +57,14 @@ impl TurnRunner {
             .then(|| super::detour_step::detour_spec(spec));
         let counted = sent.as_ref().unwrap_or(&*spec);
         let jev = t.route.families.relevant.as_deref().unwrap_or_default();
-        // A trivial detour carries `tools_find` and what its message names (theseus-d9je7).
+        // A trivial detour carries `tools_find` and what its message names, and the prompt's
+        // tier sets how far admitted families may raise it (theseus-d9je7).
         let bare = sent.is_some() && t.route.detour_kind == "trivial";
         let said = Said {
             ask: &t.route.ask,
             jev,
             bare,
+            ceiling: t.route.injection.as_ref().map(|b| b.admit_ceiling),
         };
         spec.defer = self.deferral_in(t.tc.session_id, kind, (&*spec, counted), said);
     }
@@ -126,15 +130,21 @@ impl TurnRunner {
     /// The fresh choice in a kind of place for a turn whose message said
     /// `ask`: where the model has no tool search, the families the message
     /// names load too (`tools_defer::want`, theseus-jpjcd), and those Jev
-    /// judged relevant to it (`jev`, theseus-xlri5). `(spec, counted)` is the
-    /// spec the families are chosen from and the request whose size they are
-    /// held to (a detour's is smaller).
+    /// judged relevant to it (`jev`, theseus-xlri5), up to the prompt tier's
+    /// `ceiling` (`admit_ceiling` without one). `(spec, counted)` is the spec the
+    /// families are chosen from and the request whose size they are held to (a
+    /// detour's is smaller).
     fn deferral_in(
         &self,
         sid: &str,
         kind: PlaceKind,
         (spec, counted): (&RequestSpec, &RequestSpec),
-        Said { ask, jev, bare }: Said<'_>,
+        Said {
+            ask,
+            jev,
+            bare,
+            ceiling,
+        }: Said<'_>,
     ) -> Option<Deferral> {
         let cfg = &self.cfg.tools.defer;
         if !cfg.enabled {
@@ -159,7 +169,8 @@ impl TurnRunner {
             .catalog
             .get(&spec.model)
             .map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
-        let mut fit = Fit::of(kind, counted, rates, mechanism, cfg.admit_ceiling);
+        let multiple = ceiling.unwrap_or(cfg.admit_ceiling);
+        let mut fit = Fit::of(kind, counted, rates, mechanism, multiple);
         let offer = |extra: &BTreeSet<String>, fit: &Fit| {
             board
                 .select(
