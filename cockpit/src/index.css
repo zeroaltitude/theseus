@@ -496,6 +496,12 @@ section[data-linked="1"] { box-shadow: inset 3px 0 0 var(--color-neon); }
 html.calm .egress-refused { animation: none; }
 @media (prefers-reduced-motion: reduce) { .egress-refused { animation: none; } }
 
+/* Operations (theseus-jid7t.3): the needs-you counter pulses once when it rises; Calm stills it. */
+@keyframes ops-pulse { 0% { box-shadow: 0 0 0 0 rgb(251 191 36 / 0.7); } 100% { box-shadow: 0 0 0 12px rgb(251 191 36 / 0); } }
+.ops-pulse-once { animation: ops-pulse 0.9s ease-out 1; }
+html.calm .ops-pulse-once { animation: none; }
+@media (prefers-reduced-motion: reduce) { .ops-pulse-once { animation: none; } }
+
 /* Still while nothing changes (theseus-jgme): the endless decorations run only while the daemon says something, and
    for a few seconds after (`src/lib/stir.ts` puts `stirred` on the page); between, they stand lit. */
 html:not(.stirred) .live-sweep, html:not(.stirred) .animate-ping, html:not(.stirred) .animate-pulse-soft { animation: none !important; }

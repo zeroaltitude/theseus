@@ -80,8 +80,9 @@ function TNode({ data, selected }: NodeProps<Node<TData>>) {
 
 const nodeTypes = { t: TNode }
 
-/** The graph, when the address opens it: parents to children, and (dashed) each task to what it waits on. */
-export function TaskGraphView({ records, past }: { records: TaskRecord[]; past?: number }) {
+/** The graph, when the address opens it (or the Operations page's Graph lens shows it): parents to children, and
+ *  (dashed) each task to what it waits on. */
+export function TaskGraphView({ records, past, shown }: { records: TaskRecord[]; past?: number; shown?: boolean }) {
   const now = useTick(15000)
   const [params, setParams] = useSearchParams()
   const pick = params.get('task')
@@ -92,7 +93,7 @@ export function TaskGraphView({ records, past }: { records: TaskRecord[]; past?:
     const edges: Edge[] = l.links.map((k) => ({ id: k.id, source: k.source, target: k.target, style: k.dep ? { stroke: '#6e6450', strokeDasharray: '4 4' } : { stroke: '#9c907a' } }))
     return { nodes, edges }
   }, [records, now, pick])
-  if (params.get('taskgraph') !== '1') return null
+  if (!shown && params.get('taskgraph') !== '1') return null
   const picked = records.find((t) => t.id === pick)
   return (
     <Panel help="actions.taskgraph" title={<>Task graph · {records.length} tasks</>} icon={<Network size={13} />} actions={fg.button} className={fg.panel.className} dialog={fg.panel.dialog}

@@ -65,7 +65,7 @@ test('a place has a name; the raw target is the tooltip', () => {
 })
 
 test('a notice opens its task on the page, other work in its session', () => {
-  assert.equal(noticeTarget({ id: 'exe_1', kind: 'task', session_id: 'ses_t1' }), '/tasks?sel=ses_t1')
+  assert.equal(noticeTarget({ id: 'exe_1', kind: 'task', session_id: 'ses_t1' }), '/ops?lens=board&sel=ses_t1')
   assert.equal(noticeTarget({ id: 'wak_1', kind: 'wake', session_id: 'ses_a' }), '/session/ses_a')
   assert.equal(noticeTarget({ id: 'act_1', kind: 'job' }), undefined)
 })
@@ -74,14 +74,15 @@ test('a notice opens its task on the page, other work in its session', () => {
 const src = (f: string) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')
 
 test('the page is routed and in the rail, the header counts tasks, Actions links to the page, and nothing polls', () => {
-  assert.match(src('main.tsx'), /path: 'tasks'.*views\/Tasks/)
-  assert.match(src('components/Shell.tsx'), /to: '\/tasks', label: 'Tasks'/)
-  assert.match(src('components/Shell.tsx'), /t: '\/tasks'/)
+  // The page is the Operations page's Board lens now (theseus-jid7t.3): /tasks redirects there, `g t` goes there.
+  assert.match(src('main.tsx'), /path: 'tasks', element: <ToOps \/>/)
+  assert.match(src('components/Shell.tsx'), /to: '\/ops', label: 'Ops'/)
+  assert.match(src('components/Shell.tsx'), /t: '\/ops\?lens=board'/)
   assert.match(src('components/Heartbeat.tsx'), /workingCount\(/)
-  assert.match(src('components/Heartbeat.tsx'), /to="\/tasks"/)
+  assert.match(src('components/Heartbeat.tsx'), /to="\/ops\?lens=board"/)
   assert.match(src('views/Actions.tsx'), /to="\/tasks"/)
   assert.match(src('components/DesktopNotices.tsx'), /noticeTarget\(/)
-  assert.doesNotMatch(src('views/Tasks.tsx'), /setInterval|refetchInterval/, 'the board and the push keep it fresh')
+  assert.doesNotMatch(src('views/Ops.tsx'), /setInterval|refetchInterval/, 'the board and the push keep it fresh')
   assert.match(src('components/TaskHeader.tsx'), /progressLine\(/)
 })
 

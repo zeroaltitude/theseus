@@ -119,12 +119,12 @@ function Heartbeat({ world }: { world: World | null }) {
 }
 
 /** The tasks working now, from the work board: a task that waits on its own long command is not an execution running,
- *  and is still working. Hidden at none; a press opens the Tasks page. */
+ *  and is still working. Hidden at none; a press opens the Operations page's Board. */
 function TasksWorking() {
   const n = workingCount(Object.values(useThreadBoard().board.views))
   if (n === 0) return null
   return (
-    <Link to="/tasks" data-testid="tasks-working" title="tasks running, waiting on their own commands, or paused; this opens the Tasks page" className="flex shrink-0 flex-col justify-center leading-none hover:brightness-125">
+    <Link to="/ops?lens=board" data-testid="tasks-working" title="tasks running, waiting on their own commands, or paused; this opens the Board" className="flex shrink-0 flex-col justify-center leading-none hover:brightness-125">
       <span className="hdr-label">tasks</span>
       <span className="mt-1 flex items-center gap-1.5"><LiveDot tone="live" size={5} /><span className="num text-[12.5px] text-ink">{n} task{n === 1 ? '' : 's'} working</span></span>
     </Link>

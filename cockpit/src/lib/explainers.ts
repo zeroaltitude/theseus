@@ -150,10 +150,18 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Show the tasks Theseus is tracking.',
     'One row per task: its state, owner, claim and version, with a waiting change and its card where there is one.',
     'A task that is claimed but stale is work nobody is doing. A waiting change needs your answer.'),
-  'tasks.board': e(
-    'Show every task by what it needs: your answer, its work, or its report.',
-    'Needs you holds a task with a question open, with its answer buttons. Working holds the running, the waiting on its own command, and the paused, each with one progress line: the step, the spend of its limit, and the time left. Done holds the ended, with the first line of the report, newest first, fifty at a time.',
-    'It is the one place that says whether a task is still going. A task waiting on a long command is working, and a paused one is held until you resume it.'),
+  'ops.board': e(
+    'Show every live piece of work by what it needs: your answer, its work, a pause or a queue, a time today, or its report.',
+    'Five columns: Needs you (the longest waiting first), Working, Paused·queued, Scheduled (deferred starts, wakes and routine runs due today) and Done (today, then older, fifty at a time). A card is a task, a conversation, a job or a wake, with its progress line, its place and the model it runs on. j and k move along a column, h and l across.',
+    'It is the one place that says whether a piece of work is still going. A task waiting on a long command is working, and a paused one is held until you resume it.'),
+  'ops.queue': e(
+    'List everything that waits on you, in one place, the longest waiting first.',
+    'Each card is one thing to answer: an approval, a budget, a task change, a question, a failure, a seal, a hold on external text, or a message waiting for its thread. Its glyph and word say which; the bar under its top says how much of its time is left. Tab moves to the next; Enter lays out the whole card; y, t, n, 1 to 6, r and d answer the one under the cursor.',
+    'A question that waits holds its work. A new one slides in where its age puts it, so the cursor never jumps away from what you are reading.'),
+  'ops.inspector': e(
+    'Show the selection whole: its facts, its questions and its verbs.',
+    'A card shows every field the board has for it, its questions answered in place, and its verbs (pause, stop, cancel). A thread shows its goal, card, working set, open work and recent turns with its verbs. A queue item shows its full question.',
+    'It is where you act on one thing without leaving the page: every verb is one call to the daemon, as the same act from any other surface.'),
   'tasks.new': e(
     'Start a task from the page.',
     'A brief, an optional title and budget, and the conversation it goes under (your Home when none is chosen). It opens the task at once, with no model turn, and scrolls to its row.',

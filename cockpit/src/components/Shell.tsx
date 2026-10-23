@@ -4,8 +4,8 @@ import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-route
 import { motion } from 'motion/react'
 import { Command, defaultFilter } from 'cmdk'
 import {
-  Activity, CalendarClock, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Library, ListChecks, Navigation, OctagonX, Pause, Radio,
-  GitBranch, Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Telescope, Zap,
+  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Library, Navigation, OctagonX, Pause, Radio,
+  Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, ShipWheel, Telescope, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
 import { call, client, useConn, useRpc, usePush } from '@/lib/rpc'
@@ -34,11 +34,9 @@ import { paletteOrder, searchText, stateOf } from '@/lib/sessionState'
 
 const NAV = [
   { to: '/ship', label: 'Ship', icon: Sailboat },
+  { to: '/ops', label: 'Ops', icon: ShipWheel },
   { to: '/bridge', label: 'Bridge', icon: Gauge },
   { to: '/fleet', label: 'Fleet', icon: Layers },
-  { to: '/tasks', label: 'Tasks', icon: ListChecks },
-  { to: '/threads', label: 'Threads', icon: GitBranch },
-  { to: '/agenda', label: 'Agenda', icon: CalendarClock },
   { to: '/actions', label: 'Actions', icon: ShieldCheck },
   { to: '/boundaries', label: 'Bounds', icon: ShieldHalf },
   { to: '/policy', label: 'Policy', icon: Gavel },
@@ -58,7 +56,7 @@ type NavItemDef = (typeof NAV)[number]
 const NAV_KEY = 'cockpit.nav.groups'
 
 const GO: Record<string, string> = {
-  h: '/ship', d: '/agenda', b: '/bridge', f: '/fleet', t: '/tasks', a: '/actions', o: '/boundaries', p: '/policy', l: '/ledger', m: '/money', e: '/economics', w: '/speed', k: '/benchmarks', j: '/judgment', s: '/systems',
+  h: '/ship', d: '/ops?lens=timeline', b: '/bridge', f: '/fleet', t: '/ops?lens=board', a: '/actions', o: '/boundaries', p: '/policy', l: '/ledger', m: '/money', e: '/economics', w: '/speed', k: '/benchmarks', j: '/judgment', s: '/systems',
 }
 
 export function Shell() {
