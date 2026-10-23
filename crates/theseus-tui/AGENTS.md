@@ -153,6 +153,12 @@ new lines, the dock again, in synchronized-output mode 2026).
   other-session question is no question; anything else typed is a message). A turn the router placed in a thread prints
   `→ thread <title>` and `theseus chat <session>` to go there (from `TurnSubmitResult.thread`, at the turn's end). Tests:
   `chat/tests_thread_ask.rs`.
+  A connection hears only the sessions it watches, and the answer to a placed turn's question (`confirm.resolved`) and the
+  continuation turn that goes on after it are published to the placed session's watchers: so adopting a placed session also
+  sends `session.watch` for it (and again at each reconnect), and a question of that session which this chat's turn raised
+  marks it `owed` (`Placed::owed`): its next `turn.started` with `continuation` is this chat's turn (`placed_continues`), so
+  the card resolves (`approved`) and the continuation's reply prints. Another turn of that session (Discord's, say) stays out
+  (theseus-nde5n).
 - **Coming back** (theseus-6yka). `theseus -c` (`theseus-tui chat -c`) asks `session.list {dir, n: 50}` and continues
   the directory's most recently active conversation (`chat/reopen.rs`: `last_here`: a conversation, with a turn, not
   retired, `started_on` not `discord`, so never a task's, a DM's or a shared place's); with none it says so and opens
