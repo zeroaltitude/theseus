@@ -2019,6 +2019,7 @@ async fn submit(core: &Arc<crate::Core>, input: &str) -> theseus_protocol::Respo
         speaking: None,
         in_reply_to: None,
         route_at_ms: None,
+        deadline_secs: None,
         via: None,
     };
     let mut line =

@@ -65,6 +65,7 @@ mod calls;
 mod ceiling_step;
 mod checkpoint_step;
 mod cite_step;
+pub mod clock_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
@@ -94,6 +95,7 @@ mod open_step;
 mod persona_engage;
 pub(crate) mod persona_step;
 pub(crate) mod personal_step;
+pub mod progress_step;
 mod promise_step;
 mod prompt_input;
 mod recall_step;
@@ -1840,6 +1842,7 @@ impl TurnRunner {
                 }
                 self.defer_found(t, &mut spec);
             }
+            Self::clock_line(t)?;
             let i = t.loops;
             t.loops += 1;
             t.record(&fact::turn::LoopOpened {
@@ -2046,6 +2049,7 @@ impl TurnRunner {
             let fell = self.fall_back(t, &mut spec, fallback, (&resp, &node), said_before);
             run_model = self.advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             self.loops_noticed(t, i, run_model)?;
+            run_model = Self::progress(t, &uses, i, run_model)?;
             let ended = checkpoint_step::Ended {
                 compiled: &compiled,
                 resp: &resp,

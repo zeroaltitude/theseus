@@ -348,6 +348,9 @@ pub fn end_phrase(reason: &str) -> String {
     match reason {
         "no_tool_calls" | "end_turn" => "the model ended its turn".into(),
         "max_loops" => "the loop cap is reached".into(),
+        "progress_stop" => {
+            "most of the turn's time went with no passing check, and it reported".into()
+        }
         "awaiting_confirm" => "a call waits for approval".into(),
         "nothing_new" => "there was nothing new for the model".into(),
         "refusal" => "the model refused".into(),

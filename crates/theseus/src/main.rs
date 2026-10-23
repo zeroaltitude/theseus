@@ -825,6 +825,10 @@ struct AskArgs {
     /// bench_clock` routes the message as typed at that time.
     #[arg(long, value_name = "MS", hide = true)]
     route_at_ms: Option<u64>,
+    /// The turn's time, in seconds: the model is told the time it has left, and a turn with no
+    /// passing check near its end is asked to stop and report (default: none).
+    #[arg(long, value_name = "SECS")]
+    deadline: Option<u64>,
 }
 
 #[derive(Subcommand, Debug)]

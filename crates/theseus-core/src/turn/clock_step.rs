@@ -1,0 +1,181 @@
+//! The turn's clock (theseus-yct32): a turn given a deadline (`turn.submit`'s
+//! `deadline_secs`, `theseus ask --deadline`) is told the time it has left,
+//! at the start of each loop whose whole minutes left changed since the last
+//! line, and at its first: "[The harness: 9 minutes left of this turn's
+//! 15.]". At most one line a minute, never one a loop. The line is a harness
+//! node appended to the session, after every cache breakpoint, so the cached
+//! prefix never changes for it; a turn with no deadline adds nothing.
+//!
+//! The deadline is in memory, by session, from the request's arrival: a
+//! restart forgets it, and the turn then has none (it fails quiet). The
+//! progress check (`progress_step.rs`) reads the same deadline for its time
+//! share.
+
+use std::collections::HashMap;
+use std::sync::{Mutex, PoisonError};
+
+use super::*;
+
+/// The time line's author on its node.
+pub const CLOCK_AUTHOR: &str = "harness:clock";
+
+/// A turn's deadline: when its request arrived, and when its time is up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Deadline {
+    pub from: Instant,
+    pub at: Instant,
+}
+
+impl Deadline {
+    /// The share of its time used at `now`, 0 to 1 and past.
+    pub fn used(&self, now: Instant) -> f64 {
+        let whole = self.at.saturating_duration_since(self.from).as_secs_f64();
+        match whole > 0.0 {
+            true => now.saturating_duration_since(self.from).as_secs_f64() / whole,
+            false => 1.0,
+        }
+    }
+
+    /// Its whole length in minutes, rounded to the nearest, at least 1.
+    pub fn minutes(&self) -> u64 {
+        let secs = self.at.saturating_duration_since(self.from).as_secs();
+        ((secs + 30) / 60).max(1)
+    }
+
+    /// Whole minutes left at `now`; none once its time is up.
+    fn left(&self, now: Instant) -> Option<u64> {
+        let left = self.at.checked_duration_since(now)?;
+        (!left.is_zero()).then_some(left.as_secs() / 60)
+    }
+
+    /// The line the model reads at `now`.
+    pub fn line(&self, now: Instant) -> String {
+        let whole = self.minutes();
+        let said = match self.left(now) {
+            None => format!("this turn's {whole} minutes are up"),
+            Some(0) => format!("less than a minute left of this turn's {whole}"),
+            Some(1) => format!("1 minute left of this turn's {whole}"),
+            Some(m) => format!("{m} minutes left of this turn's {whole}"),
+        };
+        format!("[The harness: {said}.]")
+    }
+
+    /// What changes the line: the whole minutes left, `u64::MAX` once up.
+    fn bucket(&self, now: Instant) -> u64 {
+        self.left(now).unwrap_or(u64::MAX)
+    }
+}
+
+/// Each session's deadline, as its last `turn.submit` gave it.
+static DEADLINES: Mutex<Option<HashMap<String, Deadline>>> = Mutex::new(None);
+
+/// `session`'s turn has `secs` from `arrived` (none: no deadline). Deadlines
+/// already passed are dropped as a new one is set.
+pub fn set_deadline(session: &str, arrived: Instant, secs: Option<u64>) {
+    let mut map = DEADLINES.lock().unwrap_or_else(PoisonError::into_inner);
+    let map = map.get_or_insert_with(HashMap::new);
+    let now = Instant::now();
+    map.retain(|_, d| d.at > now);
+    match secs {
+        Some(s) => map.insert(
+            session.to_string(),
+            Deadline {
+                from: arrived,
+                at: arrived + Duration::from_secs(s),
+            },
+        ),
+        None => map.remove(session),
+    };
+}
+
+/// `session`'s deadline, when it has one that has not passed.
+pub(super) fn deadline_of(session: &str) -> Option<Deadline> {
+    let map = DEADLINES.lock().unwrap_or_else(PoisonError::into_inner);
+    map.as_ref()?
+        .get(session)
+        .copied()
+        .filter(|d| d.at > Instant::now())
+}
+
+impl TurnRunner {
+    /// Before a loop's compile: the time line, when the turn has a deadline
+    /// and its whole minutes left changed since the last line it was shown.
+    pub(super) fn clock_line(t: &mut Turn<'_>) -> Result<()> {
+        let now = Instant::now();
+        let Some((deadline, shown)) = super::progress_step::clock(t) else {
+            return Ok(());
+        };
+        if shown == Some(deadline.bucket(now)) {
+            return Ok(());
+        }
+        let node = Node::relayed(
+            t.tc.session_id,
+            Some(t.tc.turn_id),
+            crate::node::Origin::Harness,
+            CLOCK_AUTHOR,
+            &deadline.line(now),
+        );
+        t.tc.store.append(&[node.record()?])?;
+        t.tc.node_written(&node);
+        super::progress_step::shown(t, deadline.bucket(now));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn deadline(secs: u64) -> (Deadline, Instant) {
+        let from = Instant::now();
+        let d = Deadline {
+            from,
+            at: from + Duration::from_secs(secs),
+        };
+        (d, from)
+    }
+
+    /// The line rounds down to the whole minute, so it changes once a minute.
+    #[test]
+    fn the_line_says_whole_minutes_left() {
+        let (d, from) = deadline(900);
+        let at = |s: u64| from + Duration::from_secs(s);
+        assert_eq!(
+            d.line(at(0)),
+            "[The harness: 15 minutes left of this turn's 15.]"
+        );
+        assert_eq!(
+            d.line(at(61)),
+            "[The harness: 13 minutes left of this turn's 15.]"
+        );
+        assert_eq!(d.bucket(at(61)), d.bucket(at(119)), "one line a minute");
+        assert_ne!(d.bucket(at(119)), d.bucket(at(121)));
+        assert_eq!(
+            d.line(at(800)),
+            "[The harness: 1 minute left of this turn's 15.]"
+        );
+        assert_eq!(
+            d.line(at(870)),
+            "[The harness: less than a minute left of this turn's 15.]"
+        );
+        assert_eq!(
+            d.line(at(900)),
+            "[The harness: this turn's 15 minutes are up.]"
+        );
+        assert!((d.used(at(450)) - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_deadline_is_kept_by_session_until_it_passes() {
+        let now = Instant::now();
+        set_deadline("ses_clock_a", now, Some(600));
+        assert_eq!(deadline_of("ses_clock_a").map(|d| d.minutes()), Some(10));
+        assert_eq!(deadline_of("ses_clock_b"), None);
+        // A passed one is none.
+        set_deadline("ses_clock_b", now - Duration::from_secs(5), Some(1));
+        assert_eq!(deadline_of("ses_clock_b"), None);
+        // A turn with none clears the session's.
+        set_deadline("ses_clock_a", now, None);
+        assert_eq!(deadline_of("ses_clock_a"), None);
+    }
+}

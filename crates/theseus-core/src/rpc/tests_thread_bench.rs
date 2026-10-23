@@ -21,6 +21,7 @@ fn asked(session: &str, input: &str, at: u64) -> TurnSubmitParams {
         input: input.into(),
         via: Some("ask".into()),
         route_at_ms: Some(at),
+        deadline_secs: None,
         ..TurnSubmitParams::default()
     }
 }

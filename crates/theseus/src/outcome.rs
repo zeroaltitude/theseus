@@ -71,7 +71,7 @@ impl TurnEnd {
             "budget" => Self::SpendLimit,
             "awaiting_confirm" => Self::Waiting,
             "refusal" => Self::Refused,
-            "max_loops" | "max_tokens" | WINDOW_EXCEEDED => Self::Cut,
+            "max_loops" | "max_tokens" | "progress_stop" | WINDOW_EXCEEDED => Self::Cut,
             "stopped" => Self::Stopped,
             _ if r.awaiting_confirm.is_some() => Self::Waiting,
             _ => Self::Done,

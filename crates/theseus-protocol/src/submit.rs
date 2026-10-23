@@ -126,6 +126,13 @@ pub struct TurnSubmitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub route_at_ms: Option<u64>,
+    /// The turn's time, in seconds from the request's arrival (theseus-yct32):
+    /// the model is told the time it has left once a minute, and the progress
+    /// check reads the share used (theseus-2uy56). Kept in memory for the
+    /// session until it passes. Absent: no deadline, as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub deadline_secs: Option<u64>,
 }
 
 #[cfg(test)]

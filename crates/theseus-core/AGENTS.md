@@ -2821,6 +2821,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   is bounded instead, and no answer carries the key. Tests: `rpc/tests_voice_pick.rs` (a stand-in Deepgram).
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
+- **A turn's time, its progress, and its commands' CPUs** (theseus-2uy56, theseus-yct32). **The deadline**: a
+  `turn.submit` may carry `deadline_secs` (`theseus ask --deadline SECS`), kept in memory by session from the request's
+  arrival until it passes (`turn/clock_step.rs`, `set_deadline` in `turn_submit`; a restart forgets it, and the turn
+  has none). **The time line**: at a loop's start, when the whole minutes left changed (and at the first loop), a harness
+  node `[The harness: 9 minutes left of this turn's 15.]` (author `harness:clock`): appended history, never the prefix,
+  at most one a minute. **The progress check** (`turn/progress_step.rs`, `decide`, pure): at each loop's end, before the
+  checkpoint takes the loop's failure, a loop that ran a `proc.run` answered in the loop with no error result passed, one
+  with an error failed, any other is no check. Nothing fires while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
+  (3) loops; at `STEER_SHARE` (0.5) of the deadline or of the execution's spend limit spent by this turn, one steer note
+  (replan or narrow); at `STOP_SHARE` (0.85) of the deadline only (spend never stops a turn: the owner's notify rule), a
+  stop note asking for a report with no tool calls, and the next loop is the last (stop reason `progress_stop`, which the
+  nudge and the end note leave alone). Each is a harness node (`harness:progress`) and a `turn.progress` row (the shares,
+  `since_pass`, `failing`, the times and spend; `fact/progress.rs`). The turn's state lives in a map by execution (turn.rs
+  is at its ceiling), begun at its first loop and dropped at its end. **The CPUs**: the session block names them after
+  `Directory:` (`cpu/commands.rs`, `Cpus::of_commands`, read once per process): the tightest of the daemon's cgroup v2
+  `cpu.max` (every ancestor's, rounded up), its `cpuset.cpus.effective`, and `available_parallelism`, with the host's
+  online count when a limit applies (`CPUs available to commands: 2 (cgroup quota; the host shows 32).`); an unreadable
+  file is no limit. Commands run as the daemon's children, so its cgroup is theirs. Tests: `tests_turn_progress.rs`,
+  `turn::progress_step::tests`, `turn::clock_step::tests`, `cpu::commands::tests`.
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):
   `turn/budget_step.rs`. With `[kernel] spend_limit_mode = "notify"` (the default) a provider call past the
   session's limit goes out (`Kernel::overdraws`, theseus-kernel's `overdraw.rs`), and the loop whose call took the

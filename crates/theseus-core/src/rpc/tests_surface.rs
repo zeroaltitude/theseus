@@ -149,6 +149,7 @@ impl Rig {
             speaking: None,
             in_reply_to: None,
             route_at_ms: None,
+            deadline_secs: None,
         };
         let (_, line) = call(
             1,
