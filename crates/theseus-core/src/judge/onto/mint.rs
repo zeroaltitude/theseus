@@ -236,6 +236,16 @@ impl Cluster<'_> {
     }
 }
 
+/// The kept yeses that still join names: a yes whose partner a kind of the
+/// table now lists (the owner added it, or a mint did) is void, so the name it
+/// held out of `leads` for up to 30 days mints on its own sessions.
+fn live_same(listed: &BTreeSet<String>, same: &[(String, String)]) -> Vec<(String, String)> {
+    same.iter()
+        .filter(|(a, b)| !listed.contains(a) && !listed.contains(b))
+        .cloned()
+        .collect()
+}
+
 /// The clusters of `names`, `same` joining the names it pairs.
 fn clusters<'a>(names: &Folds<'a>, same: &[(String, String)]) -> Vec<Cluster<'a>> {
     let mut groups: Vec<BTreeSet<&String>> = names.keys().map(|f| BTreeSet::from([f])).collect();
@@ -274,7 +284,7 @@ fn clusters<'a>(names: &Folds<'a>, same: &[(String, String)]) -> Vec<Cluster<'a>
 /// what `name_it.v1` may be asked about.
 pub fn leads<'a>(o: &Ontology, names: &Folds<'a>, same: &[(String, String)]) -> Vec<Cluster<'a>> {
     let listed = listed_in(o);
-    let mut found: Vec<Cluster> = clusters(names, same)
+    let mut found: Vec<Cluster> = clusters(names, &live_same(&listed, same))
         .into_iter()
         .filter(|c| c.sessions.len() >= CLUSTER && !c.folds.iter().any(|f| listed.contains(f)))
         .collect();
@@ -298,8 +308,8 @@ pub fn plan_with(
     hints: &Hints,
 ) -> Plan {
     let names = folds(said);
-    let all = clusters(&names, &hints.same);
     let mut listed = listed_in(o);
+    let all = clusters(&names, &live_same(&listed, &hints.same));
     let mut precedence = o.kinds().iter().map(|k| k.precedence).max().unwrap_or(0);
     let mut working = o.clone();
     let mut plan = Plan::default();
