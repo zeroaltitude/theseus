@@ -1,0 +1,2508 @@
+{
+ "report": "2026-10-23-terminal-bench-retest-high-timeouts",
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-23",
+ "tier": "high",
+ "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+ "compared_with": "the 10-21 rerun (6918e3c1) and the v1 run 2026-10-18 (351159fc)",
+ "arms": [
+  "theseus",
+  "oracle",
+  "context",
+  "claude-code",
+  "other",
+  "pi"
+ ],
+ "summary": {
+  "theseus-rt": {
+   "label": "Theseus as shipped, fe56a164 (this run)",
+   "trials": 18,
+   "solved": 4,
+   "rate": 0.2222222222222222,
+   "wilson": [
+    0.09000781913382,
+    0.4521502645230549
+   ],
+   "tasks": 6,
+   "usd_total": 5.571457,
+   "usd_trial": 0.3095253888888889,
+   "usd_trial_ci": [
+    0.08888494444444445,
+    0.577786
+   ],
+   "usd_solve": 1.39286425,
+   "agent_s_median": 941.16,
+   "model_calls_mean": 17.166666666666668,
+   "endings": {
+    "agent": 7,
+    "timeout": 8,
+    "grader timeout (infra)": 3,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 0
+   },
+   "effort": [
+    "medium"
+   ]
+  },
+  "theseus-68": {
+   "label": "Theseus as shipped, 6918e3c1 (10-21 run)",
+   "trials": 18,
+   "solved": 0,
+   "rate": 0.0,
+   "wilson": [
+    0.0,
+    0.1758845505823749
+   ],
+   "tasks": 6,
+   "usd_total": 5.533061000000001,
+   "usd_trial": 0.3073922777777778,
+   "usd_trial_ci": [
+    0.0945785,
+    0.5679517222222222
+   ],
+   "usd_solve": null,
+   "agent_s_median": 1059.115,
+   "model_calls_mean": 17.22222222222222,
+   "endings": {
+    "agent": 4,
+    "timeout": 11,
+    "grader timeout (infra)": 3,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 0
+   },
+   "effort": [
+    "medium"
+   ]
+  },
+  "theseus-v1": {
+   "label": "Theseus as shipped, v1 351159fc",
+   "trials": 18,
+   "solved": 5,
+   "rate": 0.2777777777777778,
+   "wilson": [
+    0.12499569146355474,
+    0.5087307754619452
+   ],
+   "tasks": 6,
+   "usd_total": 3.204207,
+   "usd_trial": 0.1780115,
+   "usd_trial_ci": [
+    0.05447955555555555,
+    0.34929105555555556
+   ],
+   "usd_solve": 0.6408414,
+   "agent_s_median": 1020.98,
+   "model_calls_mean": 14.352941176470589,
+   "endings": {
+    "agent": 9,
+    "timeout": 5,
+    "grader timeout (infra)": 3,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 1
+   },
+   "effort": [
+    "medium"
+   ]
+  },
+  "claude-code": {
+   "label": "Claude Code 2.1.290 (v1 run)",
+   "trials": 18,
+   "solved": 6,
+   "rate": 0.3333333333333333,
+   "wilson": [
+    0.1627855436366286,
+    0.5625093065574964
+   ],
+   "tasks": 6,
+   "usd_total": 4.946608,
+   "usd_trial": 0.2748115555555556,
+   "usd_trial_ci": [
+    0.11399050000000001,
+    0.4702613333333333
+   ],
+   "usd_solve": 0.8244346666666668,
+   "agent_s_median": 792.125,
+   "model_calls_mean": 17.72222222222222,
+   "endings": {
+    "agent": 10,
+    "timeout": 3,
+    "grader timeout (infra)": 3,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 2
+   },
+   "effort": [
+    "high"
+   ]
+  },
+  "opencode": {
+   "label": "OpenCode 1.18.35 (v1 run)",
+   "trials": 18,
+   "solved": 0,
+   "rate": 0.0,
+   "wilson": [
+    0.0,
+    0.1758845505823749
+   ],
+   "tasks": 6,
+   "usd_total": 5.454085,
+   "usd_trial": 0.3030047222222222,
+   "usd_trial_ci": [
+    0.10926777777777777,
+    0.5483755555555555
+   ],
+   "usd_solve": null,
+   "agent_s_median": 699.78,
+   "model_calls_mean": 13.11111111111111,
+   "endings": {
+    "agent": 1,
+    "timeout": 3,
+    "grader timeout (infra)": 3,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 3,
+    "error": 8
+   },
+   "effort": [
+    "high"
+   ]
+  },
+  "pi": {
+   "label": "Pi 1.0.4 (v1 run)",
+   "trials": 18,
+   "solved": 1,
+   "rate": 0.05555555555555555,
+   "wilson": [
+    0.009874935830924525,
+    0.2575779980200754
+   ],
+   "tasks": 6,
+   "usd_total": 4.596232,
+   "usd_trial": 0.25534622222222225,
+   "usd_trial_ci": [
+    0.0584485,
+    0.48373577777777776
+   ],
+   "usd_solve": 4.596232,
+   "agent_s_median": 1086.26,
+   "model_calls_mean": 13.166666666666666,
+   "endings": {
+    "agent": 8,
+    "timeout": 6,
+    "grader timeout (infra)": 3,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 1
+   },
+   "effort": [
+    "high"
+   ]
+  }
+ },
+ "paired": {
+  "theseus-68": {
+   "tasks": 6,
+   "gap": 0.2222222222222222,
+   "ci": [
+    0.05555555555555555,
+    0.4444444444444444
+   ],
+   "better": 3,
+   "worse": 0,
+   "sign_p": 0.25,
+   "better_tasks": [
+    "compile-compcert",
+    "crack-7z-hash",
+    "train-fasttext"
+   ],
+   "worse_tasks": []
+  },
+  "theseus-v1": {
+   "tasks": 6,
+   "gap": -0.05555555555555555,
+   "ci": [
+    -0.16666666666666666,
+    0.0
+   ],
+   "better": 0,
+   "worse": 1,
+   "sign_p": 1.0,
+   "better_tasks": [],
+   "worse_tasks": [
+    "compile-compcert"
+   ]
+  },
+  "claude-code": {
+   "tasks": 6,
+   "gap": -0.11111111111111112,
+   "ci": [
+    -0.22222222222222224,
+    0.0
+   ],
+   "better": 0,
+   "worse": 2,
+   "sign_p": 0.5,
+   "better_tasks": [],
+   "worse_tasks": [
+    "crack-7z-hash",
+    "train-fasttext"
+   ]
+  },
+  "opencode": {
+   "tasks": 6,
+   "gap": 0.2222222222222222,
+   "ci": [
+    0.05555555555555555,
+    0.4444444444444444
+   ],
+   "better": 3,
+   "worse": 0,
+   "sign_p": 0.25,
+   "better_tasks": [
+    "compile-compcert",
+    "crack-7z-hash",
+    "train-fasttext"
+   ],
+   "worse_tasks": []
+  },
+  "pi": {
+   "tasks": 6,
+   "gap": 0.16666666666666666,
+   "ci": [
+    0.0,
+    0.38888888888888884
+   ],
+   "better": 2,
+   "worse": 0,
+   "sign_p": 0.5,
+   "better_tasks": [
+    "crack-7z-hash",
+    "train-fasttext"
+   ],
+   "worse_tasks": []
+  }
+ },
+ "per_task": {
+  "caffe-cifar-10": {
+   "theseus-rt": [
+    0,
+    3
+   ],
+   "theseus-68": [
+    0,
+    3
+   ],
+   "theseus-v1": [
+    0,
+    3
+   ],
+   "claude-code": [
+    0,
+    3
+   ],
+   "opencode": [
+    0,
+    3
+   ],
+   "pi": [
+    0,
+    3
+   ]
+  },
+  "compile-compcert": {
+   "theseus-rt": [
+    1,
+    3
+   ],
+   "theseus-68": [
+    0,
+    3
+   ],
+   "theseus-v1": [
+    2,
+    3
+   ],
+   "claude-code": [
+    1,
+    3
+   ],
+   "opencode": [
+    0,
+    3
+   ],
+   "pi": [
+    1,
+    3
+   ]
+  },
+  "crack-7z-hash": {
+   "theseus-rt": [
+    2,
+    3
+   ],
+   "theseus-68": [
+    0,
+    3
+   ],
+   "theseus-v1": [
+    2,
+    3
+   ],
+   "claude-code": [
+    3,
+    3
+   ],
+   "opencode": [
+    0,
+    3
+   ],
+   "pi": [
+    0,
+    3
+   ]
+  },
+  "make-doom-for-mips": {
+   "theseus-rt": [
+    0,
+    3
+   ],
+   "theseus-68": [
+    0,
+    3
+   ],
+   "theseus-v1": [
+    0,
+    3
+   ],
+   "claude-code": [
+    0,
+    3
+   ],
+   "opencode": [
+    0,
+    3
+   ],
+   "pi": [
+    0,
+    3
+   ]
+  },
+  "torch-pipeline-parallelism": {
+   "theseus-rt": [
+    0,
+    3
+   ],
+   "theseus-68": [
+    0,
+    3
+   ],
+   "theseus-v1": [
+    0,
+    3
+   ],
+   "claude-code": [
+    0,
+    3
+   ],
+   "opencode": [
+    0,
+    3
+   ],
+   "pi": [
+    0,
+    3
+   ]
+  },
+  "train-fasttext": {
+   "theseus-rt": [
+    1,
+    3
+   ],
+   "theseus-68": [
+    0,
+    3
+   ],
+   "theseus-v1": [
+    1,
+    3
+   ],
+   "claude-code": [
+    2,
+    3
+   ],
+   "opencode": [
+    0,
+    3
+   ],
+   "pi": [
+    0,
+    3
+   ]
+  }
+ },
+ "figures": [
+  {
+   "name": "pass-rates-high",
+   "form": "intervals",
+   "title": "Pass rate by arm, HIGH tier, the HIGH-timeout tasks, with 95% Wilson intervals",
+   "question": "Did fe56a164 move Theseus's pass rate against 6918e3c1 and v1, and where does it sit among the v1 rivals?",
+   "note": "Each arm's trials: 3 attempts a task; a trial passes when its tests give reward 1. 6918e3c1's trials are the 10-21 run's; the rivals' and v1 Theseus's are the v1 run's (2026-10-18), not rerun.",
+   "x": {
+    "label": "trials passed",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "label": "Theseus as shipped, fe56a164 (this run)",
+     "arm": "theseus",
+     "value": 0.2222,
+     "lo": 0.09,
+     "hi": 0.4522,
+     "tip": "4 of 18"
+    },
+    {
+     "label": "Theseus as shipped, 6918e3c1 (10-21 run)",
+     "arm": "oracle",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.1759,
+     "tip": "0 of 18"
+    },
+    {
+     "label": "Theseus as shipped, v1 351159fc",
+     "arm": "context",
+     "value": 0.2778,
+     "lo": 0.125,
+     "hi": 0.5087,
+     "tip": "5 of 18"
+    },
+    {
+     "label": "Claude Code 2.1.290 (v1 run)",
+     "arm": "claude-code",
+     "value": 0.3333,
+     "lo": 0.1628,
+     "hi": 0.5625,
+     "tip": "6 of 18"
+    },
+    {
+     "label": "OpenCode 1.18.35 (v1 run)",
+     "arm": "other",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.1759,
+     "tip": "0 of 18"
+    },
+    {
+     "label": "Pi 1.0.4 (v1 run)",
+     "arm": "pi",
+     "value": 0.0556,
+     "lo": 0.0099,
+     "hi": 0.2576,
+     "tip": "1 of 18"
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus as shipped, fe56a164 (this run)",
+    "oracle": "Theseus as shipped, 6918e3c1 (10-21 run)",
+    "context": "Theseus as shipped, v1 351159fc",
+    "other": "OpenCode 1.18.35 (v1 run)"
+   }
+  },
+  {
+   "name": "pareto-dollars-high",
+   "form": "scatter",
+   "front": "min-x-max-y",
+   "title": "Pass rate against dollars per trial, HIGH tier, the HIGH-timeout tasks",
+   "question": "Which arm buys the most passes for the least money, and which way did Theseus move?",
+   "x": {
+    "label": "mean dollars per trial (95% CI)",
+    "format": "usd",
+    "min": 0.0
+   },
+   "y": {
+    "label": "trials passed (95% Wilson)",
+    "format": "pct",
+    "min": 0,
+    "max": 0.61
+   },
+   "points": [
+    {
+     "arm": "theseus",
+     "label": "Theseus as shipped, fe56a164 (this run)",
+     "x": 0.3095,
+     "xlo": 0.0889,
+     "xhi": 0.5778,
+     "y": 0.2222,
+     "ylo": 0.09,
+     "yhi": 0.4522
+    },
+    {
+     "arm": "oracle",
+     "label": "Theseus as shipped, 6918e3c1 (10-21 run)",
+     "x": 0.3074,
+     "xlo": 0.0946,
+     "xhi": 0.568,
+     "y": 0.0,
+     "ylo": 0.0,
+     "yhi": 0.1759
+    },
+    {
+     "arm": "context",
+     "label": "Theseus as shipped, v1 351159fc",
+     "x": 0.178,
+     "xlo": 0.0545,
+     "xhi": 0.3493,
+     "y": 0.2778,
+     "ylo": 0.125,
+     "yhi": 0.5087
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290 (v1 run)",
+     "x": 0.2748,
+     "xlo": 0.114,
+     "xhi": 0.4703,
+     "y": 0.3333,
+     "ylo": 0.1628,
+     "yhi": 0.5625
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35 (v1 run)",
+     "x": 0.303,
+     "xlo": 0.1093,
+     "xhi": 0.5484,
+     "y": 0.0,
+     "ylo": 0.0,
+     "yhi": 0.1759
+    },
+    {
+     "arm": "pi",
+     "label": "Pi 1.0.4 (v1 run)",
+     "x": 0.2553,
+     "xlo": 0.0584,
+     "xhi": 0.4837,
+     "y": 0.0556,
+     "ylo": 0.0099,
+     "yhi": 0.2576
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus as shipped, fe56a164 (this run)",
+    "oracle": "Theseus as shipped, 6918e3c1 (10-21 run)",
+    "context": "Theseus as shipped, v1 351159fc",
+    "other": "OpenCode 1.18.35 (v1 run)"
+   }
+  }
+ ],
+ "title": "Terminal-Bench 2.0 retest, HIGH tier: the six tasks that timed out on 10-21, at fe56a164 under a heavy-task cap",
+ "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+ "kind": "harness",
+ "routing": {
+  "effort_confidence": 0.35,
+  "high_effort_confidence": 0.4,
+  "effort_bounds": [
+   "low",
+   "high"
+  ],
+  "source": "high_effort_confidence: the owner's live value (2026-10-22); effort_confidence: the code default at fe56a164 (not set live); both in bench/theseus-bench-routed.toml"
+ },
+ "scope": {
+  "planned": 6,
+  "finished": 6,
+  "tasks": [
+   "caffe-cifar-10",
+   "compile-compcert",
+   "crack-7z-hash",
+   "make-doom-for-mips",
+   "torch-pipeline-parallelism",
+   "train-fasttext"
+  ],
+  "left_out": {}
+ },
+ "model_selection": {
+  "current": {
+   "theseus-routed-high": {
+    "trials": 15,
+    "solved": 4,
+    "solve_pct": 26.666666666666668,
+    "ci95": [
+     10.89727610318281,
+     51.95088965768675
+    ],
+    "usd": 4.640139,
+    "usd_per_trial": 0.30934259999999997,
+    "usd_per_solve": 1.16003475,
+    "jev_usd": 0.032901,
+    "turns": 37,
+    "late": 0,
+    "profiles": {
+     "bench": 17,
+     "haikuhi": 3,
+     "sonnethi": 17
+    },
+    "modes": {
+     "deep_coding": 31,
+     "routine_coding": 6
+    },
+    "efforts": {
+     "medium": 7,
+     "high": 30
+    },
+    "calls_by_model": {
+     "claude-sonnet-5-5": 251,
+     "claude-haiku-5-5": 39,
+     "claude-sonnet-5": 18
+    },
+    "usd_by_model": {
+     "claude-sonnet-5-5": 4.473903,
+     "claude-haiku-5-5": 0.021077000000000002,
+     "claude-sonnet-5": 0.120467
+    },
+    "by_origin": {
+     "anthropic/us": {
+      "calls": 308,
+      "cost_usd": 4.615447
+     }
+    },
+    "data_verdicts": {
+     "open (act)": 4,
+     "open (confirm)": 11,
+     "private (confirm)": 5,
+     "private (escalate)": 7,
+     "open (escalate)": 12,
+     "unclear (escalate)": 1
+    },
+    "solve_by_mode": {
+     "deep_coding": {
+      "solved": 1,
+      "trials": 9
+     },
+     "routine_coding": {
+      "solved": 3,
+      "trials": 6
+     }
+    },
+    "packs": [
+     "classify.v4",
+     "families.v1",
+     "route.v7"
+    ]
+   }
+  },
+  "previous": {
+   "theseus-routed-high": {
+    "trials": 15,
+    "solved": 0,
+    "solve_pct": 0.0,
+    "ci95": [
+     -1.3877787807814457e-15,
+     20.388926630434785
+    ],
+    "usd": 4.496563,
+    "usd_per_trial": 0.2997708666666667,
+    "usd_per_solve": NaN,
+    "jev_usd": 0.028352,
+    "turns": 30,
+    "late": 0,
+    "profiles": {
+     "bench": 11,
+     "haikuhi": 4,
+     "sonnethi": 15
+    },
+    "modes": {
+     "deep_coding": 24,
+     "routine_coding": 5,
+     "(no verdict)": 1
+    },
+    "efforts": {
+     "medium": 7,
+     "high": 22,
+     "(model default)": 1
+    },
+    "calls_by_model": {
+     "claude-sonnet-5-5": 231,
+     "claude-haiku-5-5": 76
+    },
+    "usd_by_model": {
+     "claude-sonnet-5-5": 4.420607,
+     "claude-haiku-5-5": 0.047603999999999994
+    },
+    "by_origin": {
+     "anthropic/us": {
+      "calls": 307,
+      "cost_usd": 4.468211
+     }
+    },
+    "data_verdicts": {
+     "open (act)": 5,
+     "open (confirm)": 5,
+     "private (confirm)": 6,
+     "open (escalate)": 9,
+     "unclear (escalate)": 2,
+     "private (escalate)": 4
+    },
+    "solve_by_mode": {
+     "deep_coding": {
+      "solved": 0,
+      "trials": 9
+     },
+     "routine_coding": {
+      "solved": 0,
+      "trials": 5
+     },
+     "(no verdict)": {
+      "solved": 0,
+      "trials": 1
+     }
+    },
+    "packs": [
+     "classify.v4",
+     "route.v7"
+    ]
+   }
+  },
+  "trials": [
+   {
+    "task": "caffe-cifar-10",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "caffe-cifar-10__5q5riav",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.02491,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.02424
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.49
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.97,
+      "band": "act"
+     }
+    ],
+    "jev_usd": 0.00067,
+    "pack": "route.v7"
+   },
+   {
+    "task": "caffe-cifar-10",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "caffe-cifar-10__SoddhBr",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.035769,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 8,
+      "cost_usd": 0.034831
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.52
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.97,
+      "band": "act"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.89,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.000938,
+    "pack": "families.v1"
+   },
+   {
+    "task": "caffe-cifar-10",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "caffe-cifar-10__n7TpBLk",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.036368,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 8,
+      "cost_usd": 0.035519
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.52
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.94,
+      "band": "act"
+     }
+    ],
+    "jev_usd": 0.0008489999999999999,
+    "pack": "route.v7"
+   },
+   {
+    "task": "compile-compcert",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "compile-compcert__38u9HuL",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.088294,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 15,
+      "cost_usd": 0.087031
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.58
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.89,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001263,
+    "pack": "route.v7"
+   },
+   {
+    "task": "compile-compcert",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "compile-compcert__EkpuwDP",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.10721,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 25,
+      "cost_usd": 0.105091
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.57
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.38
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.5
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.75
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.91,
+      "band": "act"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.89,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.88,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.88,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0021190000000000002,
+    "pack": "families.v1"
+   },
+   {
+    "task": "compile-compcert",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "compile-compcert__eFZaeWs",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.135306,
+    "by_model": {
+     "claude-haiku-5-5": {
+      "calls": 4,
+      "cost_usd": 0.001108
+     },
+     "claude-sonnet-5-5": {
+      "calls": 18,
+      "cost_usd": 0.13219
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "haikuhi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.6
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "haikuhi",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.78
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.45
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.89,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.85,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.85,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.002009,
+    "pack": "families.v1"
+   },
+   {
+    "task": "crack-7z-hash",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "crack-7z-hash__5Euxpvg",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.123785,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 1,
+      "cost_usd": 0.001765
+     },
+     "claude-sonnet-5": {
+      "calls": 18,
+      "cost_usd": 0.120467
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "medium",
+      "effort_ran": "medium",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.59
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.65
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.79,
+      "band": "confirm"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.11,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.001552,
+    "pack": "families.v1"
+   },
+   {
+    "task": "crack-7z-hash",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "crack-7z-hash__M8TYQS5",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.017715,
+    "by_model": {
+     "claude-haiku-5-5": {
+      "calls": 20,
+      "cost_usd": 0.015959
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "haikuhi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "medium",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.6
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.79,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0017560000000000004,
+    "pack": "families.v1"
+   },
+   {
+    "task": "crack-7z-hash",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "crack-7z-hash__dcuxpjv",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.005608,
+    "by_model": {
+     "claude-haiku-5-5": {
+      "calls": 15,
+      "cost_usd": 0.00401
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "haikuhi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "medium",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.66
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.79,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0015970000000000001,
+    "pack": "route.v7"
+   },
+   {
+    "task": "make-doom-for-mips",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "make-doom-for-mips__ac2h3zf",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.984973,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 40,
+      "cost_usd": 0.984973
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.9
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.92
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.93
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.94
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.33,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.14,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.13,
+      "band": "escalate"
+     },
+     {
+      "choice": "unclear",
+      "confidence": 0.13,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0045179999999999994,
+    "pack": "families.v1"
+   },
+   {
+    "task": "make-doom-for-mips",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "make-doom-for-mips__eXhmDKB",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 1.41132,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 40,
+      "cost_usd": 1.40616
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.87
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.93
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.97
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.27,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.11,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.19,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.005162000000000001,
+    "pack": "families.v1"
+   },
+   {
+    "task": "make-doom-for-mips",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "make-doom-for-mips__udN96VN",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 1.055676,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 30,
+      "cost_usd": 1.055674
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.91
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.92
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.95
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.93
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.92
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.35,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.16,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.18,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.14,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.22,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.2,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.003695,
+    "pack": "route.v7"
+   },
+   {
+    "task": "torch-pipeline-parallelism",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "torch-pipeline-parallelism__AnaheSG",
+    "solved": false,
+    "scored": false,
+    "cost_usd": 0.071337,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 7,
+      "cost_usd": 0.070301
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.99
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.77,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0010350000000000001,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "torch-pipeline-parallelism",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "torch-pipeline-parallelism__gQALzt6",
+    "solved": false,
+    "scored": false,
+    "cost_usd": 0.060945,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.060015
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.8,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.00093,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "torch-pipeline-parallelism",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "torch-pipeline-parallelism__r9fvaqg",
+    "solved": false,
+    "scored": false,
+    "cost_usd": 0.063122,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 8,
+      "cost_usd": 0.061987
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.8,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0011350000000000002,
+    "pack": "families.v1"
+   },
+   {
+    "task": "train-fasttext",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "train-fasttext__Jc3y3yZ",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.187995,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 21,
+      "cost_usd": 0.18616
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.45
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.75
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.74
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.78
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.7,
+      "band": "confirm"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.55,
+      "band": "escalate"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.59,
+      "band": "escalate"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.51,
+      "band": "escalate"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.51,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0018350000000000003,
+    "pack": "families.v1"
+   },
+   {
+    "task": "train-fasttext",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "train-fasttext__gQwrY9d",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.156926,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 11,
+      "cost_usd": 0.155869
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.46
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.75
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.58,
+      "band": "escalate"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.49,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.001055,
+    "pack": "families.v1"
+   },
+   {
+    "task": "train-fasttext",
+    "arm": "theseus-routed-high",
+    "phase": "high",
+    "trial": "train-fasttext__oFk5WX7",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.07288,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 7,
+      "cost_usd": 0.072097
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.47
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.69,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0007830000000000001,
+    "pack": "families.v1"
+   }
+  ]
+ },
+ "effort_ledger": {
+  "rt": {
+   "route_decisions": 37,
+   "trials": 18,
+   "asked": {
+    "xhigh": 18,
+    "high": 16,
+    "medium": 3
+   },
+   "ran": {
+    "medium": 7,
+    "high": 30
+   },
+   "ask_to_ran": {
+    "xhigh->medium": 2,
+    "xhigh->high": 16,
+    "high->medium": 4,
+    "high->high": 12,
+    "medium->medium": 1,
+    "medium->high": 2
+   },
+   "ask_reason": {
+    "xhigh:unsure": 2,
+    "xhigh:held_high_unsure": 1,
+    "high:unsure": 6,
+    "high:applied_unsure": 7,
+    "medium:applied": 1,
+    "medium:floored": 2,
+    "xhigh:clamped": 15,
+    "high:applied": 3
+   },
+   "high_asks_confidence": {
+    "xhigh": {
+     "<0.35": 2,
+     "0.35-0.40": 1,
+     ">0.40": 15
+    }
+   },
+   "high_asks_ran": {
+    "xhigh": {
+     "medium": 2,
+     "high": 16
+    }
+   },
+   "high_asks": [
+    [
+     "xhigh",
+     0.28,
+     "medium",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.33,
+     "medium",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.35,
+     "high",
+     "held_high_unsure"
+    ],
+    [
+     "xhigh",
+     0.58,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.59,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.6,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.62,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.64,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.65,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.65,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.65,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.68,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.69,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.69,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.7,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.71,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.72,
+     "high",
+     "clamped"
+    ],
+    [
+     "xhigh",
+     0.75,
+     "high",
+     "clamped"
+    ]
+   ],
+   "trials_reaching": {
+    "max": {
+     "trials": 0,
+     "solved": 0,
+     "rest_trials": 18,
+     "rest_solved": 4,
+     "tasks": []
+    },
+    "xhigh": {
+     "trials": 0,
+     "solved": 0,
+     "rest_trials": 18,
+     "rest_solved": 4,
+     "tasks": []
+    }
+   }
+  },
+  "r68": {
+   "route_decisions": 30,
+   "trials": 18,
+   "asked": {
+    "xhigh": 18,
+    "high": 8,
+    "None": 1,
+    "medium": 3
+   },
+   "ran": {
+    "medium": 7,
+    "high": 22,
+    "None": 1
+   },
+   "ask_to_ran": {
+    "xhigh->medium": 3,
+    "high->medium": 4,
+    "high->high": 4,
+    "None->None": 1,
+    "medium->high": 3,
+    "xhigh->high": 15
+   },
+   "ask_reason": {
+    "xhigh:unsure": 9,
+    "high:unsure": 5,
+    "None:None": 1,
+    "medium:floored": 3,
+    "xhigh:held_high": 9,
+    "high:applied": 3
+   },
+   "high_asks_confidence": {
+    "xhigh": {
+     "<0.35": 5,
+     ">0.40": 11,
+     "0.35-0.40": 2
+    }
+   },
+   "high_asks_ran": {
+    "xhigh": {
+     "medium": 3,
+     "high": 15
+    }
+   },
+   "high_asks": [
+    [
+     "xhigh",
+     0.29,
+     "medium",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.3,
+     "medium",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.3,
+     "high",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.32,
+     "medium",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.33,
+     "high",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.35,
+     "high",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.36,
+     "high",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.59,
+     "high",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.59,
+     "high",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.62,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.63,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.64,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.65,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.65,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.68,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.68,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.68,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.7,
+     "high",
+     "held_high"
+    ]
+   ],
+   "trials_reaching": {
+    "max": {
+     "trials": 0,
+     "solved": 0,
+     "rest_trials": 18,
+     "rest_solved": 0,
+     "tasks": []
+    },
+    "xhigh": {
+     "trials": 0,
+     "solved": 0,
+     "rest_trials": 18,
+     "rest_solved": 0,
+     "tasks": []
+    }
+   }
+  },
+  "v1": {
+   "route_decisions": 18,
+   "trials": 18,
+   "asked": {
+    "xhigh": 9,
+    "high": 6,
+    "medium": 3
+   },
+   "ran": {
+    "medium": 9,
+    "high": 9
+   },
+   "ask_to_ran": {
+    "xhigh->medium": 3,
+    "high->medium": 3,
+    "medium->medium": 3,
+    "xhigh->high": 6,
+    "high->high": 3
+   },
+   "ask_reason": {
+    "xhigh:unsure": 4,
+    "high:unsure": 3,
+    "medium:applied": 3,
+    "xhigh:held_high": 5,
+    "high:applied": 3
+   },
+   "high_asks_confidence": {
+    "xhigh": {
+     "<0.35": 3,
+     ">0.40": 6
+    }
+   },
+   "high_asks_ran": {
+    "xhigh": {
+     "medium": 3,
+     "high": 6
+    }
+   },
+   "high_asks": [
+    [
+     "xhigh",
+     0.28,
+     "medium",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.32,
+     "medium",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.32,
+     "medium",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.58,
+     "high",
+     "unsure"
+    ],
+    [
+     "xhigh",
+     0.62,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.63,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.65,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.66,
+     "high",
+     "held_high"
+    ],
+    [
+     "xhigh",
+     0.66,
+     "high",
+     "held_high"
+    ]
+   ],
+   "trials_reaching": {
+    "max": {
+     "trials": 0,
+     "solved": 0,
+     "rest_trials": 18,
+     "rest_solved": 5,
+     "tasks": []
+    },
+    "xhigh": {
+     "trials": 0,
+     "solved": 0,
+     "rest_trials": 18,
+     "rest_solved": 5,
+     "tasks": []
+    }
+   }
+  }
+ },
+ "host_state_per_trial": [
+  {
+   "task": "caffe-cifar-10",
+   "trial": "caffe-cifar-10__5q5riav",
+   "host": "2",
+   "reward": 0.0,
+   "ending": "AgentTimeoutError",
+   "agent_min": 20.7,
+   "load1_mean": 67.8,
+   "load1_max": 112.45,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  },
+  {
+   "task": "caffe-cifar-10",
+   "trial": "caffe-cifar-10__SoddhBr",
+   "host": "2",
+   "reward": 0.0,
+   "ending": "AgentTimeoutError",
+   "agent_min": 20.1,
+   "load1_mean": 16.6,
+   "load1_max": 37.22,
+   "busy_mean": 15.0,
+   "busy_max": 21,
+   "cpu_samples": 41,
+   "own_use_mean": 0.9,
+   "quota": "1.0",
+   "own_at_quota_share": 0.8
+  },
+  {
+   "task": "caffe-cifar-10",
+   "trial": "caffe-cifar-10__n7TpBLk",
+   "host": "2",
+   "reward": 0.0,
+   "ending": "AgentTimeoutError",
+   "agent_min": 20.7,
+   "load1_mean": 67.8,
+   "load1_max": 112.45,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  },
+  {
+   "task": "compile-compcert",
+   "trial": "compile-compcert__38u9HuL",
+   "host": "2",
+   "reward": 0.0,
+   "ending": "AgentTimeoutError",
+   "agent_min": 40.0,
+   "load1_mean": 44.9,
+   "load1_max": 112.45,
+   "busy_mean": 16.1,
+   "busy_max": 23,
+   "cpu_samples": 32,
+   "own_use_mean": 1.35,
+   "quota": "2.0",
+   "own_at_quota_share": 0.32
+  },
+  {
+   "task": "compile-compcert",
+   "trial": "compile-compcert__EkpuwDP",
+   "host": "2",
+   "reward": 0.0,
+   "ending": "AgentTimeoutError",
+   "agent_min": 40.1,
+   "load1_mean": 9.3,
+   "load1_max": 31.17,
+   "busy_mean": 11.6,
+   "busy_max": 21,
+   "cpu_samples": 80,
+   "own_use_mean": 1.77,
+   "quota": "2.0",
+   "own_at_quota_share": 0.61
+  },
+  {
+   "task": "compile-compcert",
+   "trial": "compile-compcert__eFZaeWs",
+   "host": "2",
+   "reward": 1.0,
+   "ending": "agent",
+   "agent_min": 33.6,
+   "load1_mean": 51.3,
+   "load1_max": 112.45,
+   "busy_mean": 16.1,
+   "busy_max": 23,
+   "cpu_samples": 20,
+   "own_use_mean": 1.35,
+   "quota": "2.0",
+   "own_at_quota_share": 0.42
+  },
+  {
+   "task": "crack-7z-hash",
+   "trial": "crack-7z-hash__5Euxpvg",
+   "host": "1",
+   "reward": 1.0,
+   "ending": "agent",
+   "agent_min": 2.2,
+   "load1_mean": 19.9,
+   "load1_max": 27.34,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  },
+  {
+   "task": "crack-7z-hash",
+   "trial": "crack-7z-hash__M8TYQS5",
+   "host": "1",
+   "reward": 0.0,
+   "ending": "agent",
+   "agent_min": 12.3,
+   "load1_mean": 24.9,
+   "load1_max": 38.83,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  },
+  {
+   "task": "crack-7z-hash",
+   "trial": "crack-7z-hash__dcuxpjv",
+   "host": "1",
+   "reward": 1.0,
+   "ending": "agent",
+   "agent_min": 2.2,
+   "load1_mean": 27.6,
+   "load1_max": 36.95,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  },
+  {
+   "task": "make-doom-for-mips",
+   "trial": "make-doom-for-mips__ac2h3zf",
+   "host": "2",
+   "reward": 0.0,
+   "ending": "AgentTimeoutError",
+   "agent_min": 15.7,
+   "load1_mean": 53.5,
+   "load1_max": 104.32,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  },
+  {
+   "task": "make-doom-for-mips",
+   "trial": "make-doom-for-mips__eXhmDKB",
+   "host": "2",
+   "reward": 0.0,
+   "ending": "AgentTimeoutError",
+   "agent_min": 15.0,
+   "load1_mean": 17.6,
+   "load1_max": 37.22,
+   "busy_mean": 16.0,
+   "busy_max": 23,
+   "cpu_samples": 30,
+   "own_use_mean": 0.38,
+   "quota": "1.0",
+   "own_at_quota_share": 0.3
+  },
+  {
+   "task": "make-doom-for-mips",
+   "trial": "make-doom-for-mips__udN96VN",
+   "host": "2",
+   "reward": 0.0,
+   "ending": "AgentTimeoutError",
+   "agent_min": 15.7,
+   "load1_mean": 53.5,
+   "load1_max": 104.32,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  },
+  {
+   "task": "torch-pipeline-parallelism",
+   "trial": "torch-pipeline-parallelism__AnaheSG",
+   "host": "1",
+   "reward": null,
+   "ending": "VerifierTimeoutError",
+   "agent_min": 0.8,
+   "load1_mean": 5.5,
+   "load1_max": 6.26,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  },
+  {
+   "task": "torch-pipeline-parallelism",
+   "trial": "torch-pipeline-parallelism__gQALzt6",
+   "host": "1",
+   "reward": null,
+   "ending": "VerifierTimeoutError",
+   "agent_min": 0.6,
+   "load1_mean": 19.0,
+   "load1_max": 20.48,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  },
+  {
+   "task": "torch-pipeline-parallelism",
+   "trial": "torch-pipeline-parallelism__r9fvaqg",
+   "host": "1",
+   "reward": null,
+   "ending": "VerifierTimeoutError",
+   "agent_min": 0.6,
+   "load1_mean": 17.9,
+   "load1_max": 20.48,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  },
+  {
+   "task": "train-fasttext",
+   "trial": "train-fasttext__Jc3y3yZ",
+   "host": "1",
+   "reward": 1.0,
+   "ending": "agent",
+   "agent_min": 48.1,
+   "load1_mean": 7.5,
+   "load1_max": 30.96,
+   "busy_mean": 13.5,
+   "busy_max": 27,
+   "cpu_samples": 73,
+   "own_use_mean": 0.98,
+   "quota": "1.0",
+   "own_at_quota_share": 0.93
+  },
+  {
+   "task": "train-fasttext",
+   "trial": "train-fasttext__gQwrY9d",
+   "host": "1",
+   "reward": 0.0,
+   "ending": "agent",
+   "agent_min": 27.7,
+   "load1_mean": 17.9,
+   "load1_max": 38.83,
+   "busy_mean": 23.6,
+   "busy_max": 24,
+   "cpu_samples": 7,
+   "own_use_mean": 1.0,
+   "quota": "1.0",
+   "own_at_quota_share": 1.0
+  },
+  {
+   "task": "train-fasttext",
+   "trial": "train-fasttext__oFk5WX7",
+   "host": "1",
+   "reward": 0.0,
+   "ending": "agent",
+   "agent_min": 8.4,
+   "load1_mean": 27.8,
+   "load1_max": 38.83,
+   "busy_mean": null,
+   "busy_max": null,
+   "cpu_samples": 0,
+   "own_use_mean": null,
+   "quota": null,
+   "own_at_quota_share": null
+  }
+ ]
+}
