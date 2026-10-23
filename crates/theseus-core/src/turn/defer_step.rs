@@ -20,6 +20,15 @@ use crate::tools_defer::board::{Miss, Offer};
 use crate::tools_defer::fit::Fit;
 use crate::tools_defer::{self, scan, Deferral, Mechanism, PlaceKind};
 
+/// What a turn's message says about its tools: its text, the families Jev judged relevant to it,
+/// and whether the request is a trivial detour's (a bare one).
+#[derive(Default, Clone, Copy)]
+struct Said<'a> {
+    ask: &'a str,
+    jev: &'a [(String, f64)],
+    bare: bool,
+}
+
 impl TurnRunner {
     /// The kind of place a session's turn speaks in, for the loaded set.
     pub(crate) fn place_kind(&self, session_id: &str, task: bool) -> PlaceKind {
@@ -46,7 +55,14 @@ impl TurnRunner {
             .then(|| super::detour_step::detour_spec(spec));
         let counted = sent.as_ref().unwrap_or(&*spec);
         let jev = t.route.families.relevant.as_deref().unwrap_or_default();
-        spec.defer = self.deferral_in(t.tc.session_id, kind, (&*spec, counted), &t.route.ask, jev);
+        // A trivial detour carries `tools_find` and what its message names (theseus-d9je7).
+        let bare = sent.is_some() && t.route.detour_kind == "trivial";
+        let said = Said {
+            ask: &t.route.ask,
+            jev,
+            bare,
+        };
+        spec.defer = self.deferral_in(t.tc.session_id, kind, (&*spec, counted), said);
     }
 
     /// A loaded flow's tool stays in the request only where the flow is
@@ -84,7 +100,12 @@ impl TurnRunner {
 
     /// The fresh choice for a session's request on `spec`.
     pub(crate) fn deferral(&self, sid: &str, task: bool, spec: &RequestSpec) -> Option<Deferral> {
-        self.deferral_in(sid, self.place_kind(sid, task), (spec, spec), "", &[])
+        self.deferral_in(
+            sid,
+            self.place_kind(sid, task),
+            (spec, spec),
+            Said::default(),
+        )
     }
 
     /// The same for a census: a fresh session's first request on a kind of place the daemon has no
@@ -97,7 +118,7 @@ impl TurnRunner {
         spec: &RequestSpec,
     ) -> Option<Deferral> {
         match fresh.and_then(PlaceKind::parse) {
-            Some(kind) => self.deferral_in(sid, kind, (spec, spec), "", &[]),
+            Some(kind) => self.deferral_in(sid, kind, (spec, spec), Said::default()),
             None => self.deferral(sid, task, spec),
         }
     }
@@ -113,8 +134,7 @@ impl TurnRunner {
         sid: &str,
         kind: PlaceKind,
         (spec, counted): (&RequestSpec, &RequestSpec),
-        ask: &str,
-        jev: &[(String, f64)],
+        Said { ask, jev, bare }: Said<'_>,
     ) -> Option<Deferral> {
         let cfg = &self.cfg.tools.defer;
         if !cfg.enabled {
@@ -129,8 +149,8 @@ impl TurnRunner {
         let board = &self.tools.defer;
         // A conversation in plan mode loads the family that holds the plan's
         // tools (theseus-lyxy), since the refusal in plan mode names one of them.
-        let mut extra: BTreeSet<String> = (self.tools.earned.modes.mode_of(sid)
-            == SessionMode::Plan)
+        let mut extra: BTreeSet<String> = (!bare
+            && self.tools.earned.modes.mode_of(sid) == SessionMode::Plan)
             .then(|| tools_defer::PLAN_FAMILY.to_string())
             .into_iter()
             .collect();
@@ -155,7 +175,15 @@ impl TurnRunner {
                 )
                 .loaded()
         };
-        let mut loaded = offer(&extra, &fit);
+        // A bare request (a trivial detour's, on a model without tool search) loads nothing
+        // the place, the board or the conversation chose: only a family the message names, or
+        // Jev judged relevant, below. The provider's own search keeps the whole set (the API
+        // refuses a request whose tools are all deferred).
+        let bare = bare && mechanism == Mechanism::Find;
+        let mut loaded = match bare {
+            true => BTreeSet::new(),
+            false => offer(&extra, &fit),
+        };
         let mut raised = None;
         if mechanism == Mechanism::Find {
             // A family the message names, or Jev judged relevant, is held to the whole request, as
@@ -168,7 +196,10 @@ impl TurnRunner {
                 fit.raised = whole.saturating_sub(fit.budget);
                 raised = (fit.raised > 0).then(|| tools_defer::raised(&fit, base, whole, &wanted));
                 extra.extend(wanted.into_iter().map(|a| a.family));
-                loaded = offer(&extra, &fit);
+                loaded = match bare {
+                    true => extra,
+                    false => offer(&extra, &fit),
+                };
             }
         }
         Some(Deferral {
@@ -177,6 +208,7 @@ impl TurnRunner {
             resolved: false,
             added: BTreeSet::new(),
             raised,
+            bare,
         })
     }
 

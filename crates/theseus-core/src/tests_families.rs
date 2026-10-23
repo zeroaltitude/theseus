@@ -18,7 +18,8 @@ async fn detour(
     tweak: impl FnOnce(&mut crate::Config),
 ) -> (TurnSubmitResult, Vec<String>, Value, Value) {
     let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
+    // A quick detour: a trivial one carries `tools_find` alone, nothing for the budget to raise (theseus-d9je7).
+    mode(&jev, "quick", 0.95);
     let dir = tempfile::tempdir().unwrap();
     let (r, haiku) = rig_haiku(&jev, 1, |c| {
         owner_shape(c, dir.path());
@@ -160,7 +161,8 @@ fn rig_on(
     crate::tests_route::Rig,
     std::sync::Arc<crate::provider::FakeProvider>,
 ) {
-    mode(jev, "trivial", 0.95);
+    // A quick detour, as `detour` above (theseus-d9je7).
+    mode(jev, "quick", 0.95);
     rig_haiku(jev, n, |c| {
         owner_shape(c, dir);
         tweak(c);

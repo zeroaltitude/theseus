@@ -24,6 +24,7 @@ fn deferral(mechanism: Mechanism, loaded: &[&str]) -> Deferral {
         resolved: false,
         added: Default::default(),
         raised: None,
+        bare: false,
     }
 }
 
