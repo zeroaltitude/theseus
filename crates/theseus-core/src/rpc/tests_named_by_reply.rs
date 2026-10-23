@@ -64,14 +64,22 @@ async fn a_thread_the_previous_reply_named_is_not_waived() {
     new_thread(c, "harbour", "Harbour log notes");
     new_thread(c, "docs-census", "Docs word census");
     let harbour = thread_session(c, "harbour");
-    say(c, &harbour, "the ferry left at 06:40 by the harbour summary");
+    say(
+        c,
+        &harbour,
+        "the ferry left at 06:40 by the harbour summary",
+    );
     reply(
         c,
         &harbour,
         "Done. The Docs word census thread counted 32,307 words.",
     );
     let docs = thread_session(c, "docs-census");
-    say(c, &docs, "one doc mentions a ferry, but ferries are not counted");
+    say(
+        c,
+        &docs,
+        "one doc mentions a ferry, but ferries are not counted",
+    );
     c.runner.memory.set_ask(scored(
         c,
         vec![(harbour.clone(), 0, 0.116), (docs.clone(), 0, 0.100)],
@@ -93,10 +101,18 @@ async fn a_thread_the_message_names_is_still_waived() {
     new_thread(c, "harbour", "Harbour log notes");
     new_thread(c, "docs-census", "Docs word census");
     let harbour = thread_session(c, "harbour");
-    say(c, &harbour, "the ferry left at 06:40 by the harbour summary");
+    say(
+        c,
+        &harbour,
+        "the ferry left at 06:40 by the harbour summary",
+    );
     reply(c, &harbour, "Done.");
     let docs = thread_session(c, "docs-census");
-    say(c, &docs, "one doc mentions a ferry, but ferries are not counted");
+    say(
+        c,
+        &docs,
+        "one doc mentions a ferry, but ferries are not counted",
+    );
     c.runner.memory.set_ask(scored(
         c,
         vec![(harbour.clone(), 0, 0.116), (docs.clone(), 0, 0.100)],

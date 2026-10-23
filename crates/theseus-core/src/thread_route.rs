@@ -577,8 +577,8 @@ pub fn pre_route(
         .zip(hits)
         .zip(standing.into_iter().zip(settled))
         .zip(titles)
-        .map(|(((t, h), (standing, (entity, sticky, chain))), title)| {
-            Pre {
+        .map(
+            |(((t, h), (standing, (entity, sticky, chain))), title)| Pre {
                 slug: t.slug.clone(),
                 title: t.title.clone(),
                 entity,
@@ -590,8 +590,8 @@ pub fn pre_route(
                     .collect(),
                 learned: false,
                 standing,
-            }
-        })
+            },
+        )
         .collect()
 }
 
