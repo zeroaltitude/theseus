@@ -9,6 +9,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use theseus_google::Service;
 
+use super::google_calendars::{self as cals, CalendarEntry, CalendarSpec};
+
 /// The one configured account (a second is a rename to
 /// `[google.accounts.<email>]` later).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +41,13 @@ pub struct GoogleConfig {
     /// scratch daemons only, so that no request leaves the machine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
+    /// The calendars read: an id, or `{ id, label, color, sensitive }`. Just
+    /// `primary` by default.
+    #[serde(
+        default = "cals::default_calendars",
+        skip_serializing_if = "cals::is_default"
+    )]
+    pub calendars: Vec<CalendarEntry>,
 }
 
 fn default_services() -> Vec<String> {
@@ -58,6 +67,7 @@ impl Default for GoogleConfig {
             trusted_senders: Vec::new(),
             credentials: GoogleCredentialNames::default(),
             endpoint: None,
+            calendars: cals::default_calendars(),
         }
     }
 }
@@ -66,6 +76,11 @@ impl GoogleConfig {
     /// No account: Google is off.
     pub fn is_empty(&self) -> bool {
         self.account.is_empty()
+    }
+
+    /// The configured calendars, in order, with their colours.
+    pub fn calendar_specs(&self) -> Vec<CalendarSpec> {
+        cals::specs(&self.calendars)
     }
 
     /// The services the config turns on, in the order it lists them.
@@ -133,6 +148,7 @@ impl super::Config {
         if let Some(a) = g.trusted_senders.iter().find(|a| !email_ok(a)) {
             anyhow::bail!("google.trusted_senders names {a:?}, which is not an email address");
         }
+        cals::validate(&g.calendars)?;
         let mut seen = BTreeSet::new();
         for s in &g.services {
             if Service::parse(s).is_none() {
