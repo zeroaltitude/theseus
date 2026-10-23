@@ -1032,22 +1032,75 @@ BUDGETS = {
 }
 
 
-ARM = re.compile(r'^\s*("[^"]*"(?:\s*\|\s*"[^"]*")*)\s*=>\s*(.*?),?\s*$')
-FALL = re.compile(r"^\s*_\s*=>\s*(.*?),?\s*$")
+# One arm's head: `"a" | "b"`, an optional `if guard`, then `=>`; or the fall-through `_ =>`. The text is read whole, so
+# a head, a guard or a value may span lines.
+ARM_HEAD = re.compile(
+    r'(?m)^[ \t]*(?:(?P<pats>"[^"]*"(?:\s*\|\s*"[^"]*")*)(?:[ \t]+if\s+(?P<guard>(?:(?!=>)[^;{}])+?))?|(?P<fall>_))\s*=>')
+RS_STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\[^\']*|[^\'\\])\'')
+# Words a value may use without naming a constant: the wrapper, the types, the keywords.
+VALUE_WORDS = {"Some", "None", "Ok", "Err", "as", "if", "else", "true", "false", "f64", "f32", "u64", "u32", "u16",
+               "u8", "usize", "i64", "i32", "isize", "cfg", "debug_assertions", "min", "max"}
+
+
+def arm_value_end(text, pos):
+    """Where the value that starts at `pos` ends: at its comma at the arm's own depth, at the close of a leading
+    `{ ... }` block, or at the bracket that closes the match (not consumed)."""
+    depth, i, n = 0, pos, len(text)
+    while i < n and text[i].isspace():
+        i += 1
+    block = i < n and text[i] == "{"
+    while i < n:
+        m = RS_STRING.match(text, i)
+        if m:
+            i = m.end()
+            continue
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                return i
+            depth -= 1
+            if depth == 0 and block and c == "}":
+                return i + 1
+        elif c == "," and depth == 0:
+            return i
+        i += 1
+    return n
+
+
+def names_constant(expr):
+    """True when a value with no number names something (a constant, a local, a call) that holds its number."""
+    words = re.findall(r"[A-Za-z_]\w*", RS_STRING.sub('""', expr))
+    return any(w not in VALUE_WORDS for w in words)
 
 
 def match_arms(lines):
-    """A fn's `match` over string literals, read as {pattern: (numbers, line, text)} and the fall-through's
-    (numbers, line, text), with the arms' line numbers; None when it has no `_ =>` arm."""
-    arms, rows, fall = {}, set(), None
-    for n, t in lines:
-        m = ARM.match(t)
-        if m:
-            rows.add(n)
-            for p in re.findall(r'"[^"]*"', m.group(1)):
-                arms[p] = ([num(x) for x in NUM.findall(m.group(2))], n, t.strip().rstrip(","))
-        elif FALL.match(t):
-            fall = ([num(x) for x in NUM.findall(t)], n, t.strip().rstrip(",") + " (the fall-through)")
+    """A fn's `match` over string literals, read as {pattern: (numbers, line, text, value)} and the fall-through's
+    (numbers, line, text, value), with the lines the arms cover; None when it has no `_ =>` arm. A pattern keeps its
+    guard in its name (`"a" if cond`), so a changed guard is a different arm; an arm whose head or value spans lines
+    is read whole, to its comma or closing bracket at its own depth, and an arm inside a value is part of it."""
+    text = "\n".join(t for _, t in lines)
+    nos = [n for n, _ in lines]
+    arms, rows, fall, pos = {}, set(), None, 0
+    while True:
+        m = ARM_HEAD.search(text, pos)
+        if not m:
+            break
+        end = arm_value_end(text, m.end())
+        pos = max(end, m.end())
+        value = " ".join(text[m.end():end].split())
+        nums = [num(x) for x in NUM.findall(value)]
+        first = text.count("\n", 0, m.start(0))
+        last = text.count("\n", 0, max(len(text[:end].rstrip()) - 1, m.start(0)))
+        shown = " ".join(text[m.start("pats") if m.group("pats") else m.start("fall"):end].split())
+        if m.group("fall"):
+            fall = (nums, nos[first], shown + " (the fall-through)", value)
+            continue
+        rows.update(nos[first:last + 1])
+        guard = " if " + " ".join(m.group("guard").split()) if m.group("guard") else ""
+        for pat in re.findall(r'"[^"]*"', m.group("pats")):
+            arms[pat + guard] = (nums, nos[first], shown, value)
     return (arms, fall, rows) if fall else None
 
 
@@ -1055,16 +1108,20 @@ def compare_arms(path, base, head, out):
     """Each pattern's value at the head against its value at the base: the arm that names it, else the fall-through.
     A head arm is judged on the patterns it names, so a new arm is judged against the fall-through it replaced and a
     split or merged arm keeps its value; a base arm with a pattern no numbered head arm names is gone, as before. A
-    pattern the base gave no number is unbudgeted there: a new budget for it is no finding."""
+    pattern the base gave no number is unbudgeted there: a new budget for it is no finding, unless its value named a
+    constant (`Some(surfaces::BUDGET_MS)`): that arm, rewritten to another value, is a finding, and so is one gone."""
     (barms, bfall, _), (harms, _, _) = base, head
     for line in sorted({v[1] for v in harms.values()}):
         for p in [p for p, v in harms.items() if v[1] == line]:
-            (old, _, otext), (new, _, ntext) = barms.get(p, bfall), harms[p]
-            if old and any(b > a for a, b in zip(old, new)):
+            (old, _, otext, oval), (new, _, ntext, nval) = barms.get(p, bfall), harms[p]
+            if (old and any(b > a for a, b in zip(old, new))) or (
+                    p in barms and not old and names_constant(oval) and oval != nval):
                 out.append(Finding("budget-raised", path, line, otext, ntext))
                 break
     for line in sorted({v[1] for v in barms.values()}):
-        if any(barms[p][0] and not harms.get(p, ([],))[0] for p, v in barms.items() if v[1] == line):
+        if any((barms[p][0] and not harms.get(p, ([],))[0]) or (not barms[p][0] and names_constant(barms[p][3])
+                                                                 and p not in harms)
+               for p, v in barms.items() if v[1] == line):
             out.append(Finding("budget-raised", path, line, next(v[2] for v in barms.values() if v[1] == line),
                                "(gone or rewritten)"))
 
