@@ -122,6 +122,35 @@ async fn a_personal_read_marks_private_and_not_sensitive() {
     assert_eq!(level_of(&r.core, &other), Level::Open);
 }
 
+/// A Calendar read through `google.call` marks the session sensitive when a
+/// configured calendar is: the long tail cannot say which calendar it read, so
+/// it fails closed (the join fix J1 of theseus-jid7t.1).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_calendar_read_through_google_call_is_sensitive() {
+    let fake = Fake::start().await;
+    let cals = install(&fake);
+    cals.work.lock().unwrap().items = vec![ev("w1", "Board prep", NOON.0, NOON.1)];
+    let input = json!({
+        "method": "calendar.events.list",
+        "params": {"calendarId": super::tests_calendar_cache::WORK},
+    });
+    let (r, _) = rig_tweaked(
+        None,
+        &fake,
+        vec![
+            Scripted::tools("", &[("c1", "google_call", input)]),
+            Scripted::text("Done."),
+        ],
+        false,
+        two,
+    );
+    let sid = new_session(&r.core);
+    run_on(&r.core, &sid, "what is on my work calendar?", None)
+        .await
+        .unwrap();
+    assert_eq!(level_of(&r.core, &sid), Level::Sensitive);
+}
+
 /// A background call for a sensitive session, made through `private::bound`,
 /// is refused at the chokepoint for a model that is not of US origin: here the
 /// default provider is served from a host vouched EU. The session holds the
