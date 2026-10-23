@@ -2287,7 +2287,7 @@ impl TurnRunner {
         if let Some(h) = &held {
             tc.record(&fact::tool::HoldTaken {
                 hold: h,
-                mode: self.tools.external_text,
+                mode: self.tools.external.mode,
             });
         }
         for r in reports

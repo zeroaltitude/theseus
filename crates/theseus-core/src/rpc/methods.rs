@@ -374,7 +374,7 @@ impl Core {
         self.session_rec(&rec.session_id)
             .record(&crate::fact::tool::HoldTaken {
                 hold: &h,
-                mode: self.tools.external_text,
+                mode: self.tools.external.mode,
             });
         Ok(rec)
     }
@@ -403,7 +403,7 @@ impl Core {
             self.session_rec(session_id)
                 .record(&crate::fact::tool::HoldTaken {
                     hold: &h,
-                    mode: self.tools.external_text,
+                    mode: self.tools.external.mode,
                 });
         }
         Ok(())
