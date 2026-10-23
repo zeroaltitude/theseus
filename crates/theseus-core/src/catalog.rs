@@ -794,6 +794,15 @@ impl Catalog {
         thinking_off(model, self.get(model))
     }
 
+    /// `model` thinks whether asked or not: its row is [`ThinkingMode::Always`]
+    /// (Fable 5.x, Opus 5.5) or [`ThinkingMode::Implicit`] (GLM, DeepSeek),
+    /// so [`thinking_off`] has nothing to send and a small cap is spent
+    /// thinking first (theseus-ohiu8).
+    pub fn thinks_unasked(&self, model: &str) -> bool {
+        self.get(model)
+            .is_some_and(|e| matches!(e.thinking, ThinkingMode::Always | ThinkingMode::Implicit))
+    }
+
     pub fn builtin() -> Self {
         use ThinkingMode::*;
         let mut e = BTreeMap::new();
@@ -1563,6 +1572,31 @@ mod tests {
             "no-such-model",
         ] {
             assert_eq!(off(m), None, "{m}");
+        }
+    }
+
+    /// A model thinks unasked when its row is Always or Implicit (theseus-ohiu8);
+    /// one that can be turned off, one left off (Haiku 4.5), and an unknown
+    /// model do not.
+    #[test]
+    fn a_model_thinks_unasked_when_its_row_is_always_or_implicit() {
+        let c = Catalog::builtin();
+        for m in [
+            "claude-opus-5-5",
+            "claude-fable-5-1",
+            "glm-5.3-flash",
+            "deepseek-v4-pro",
+        ] {
+            assert!(c.thinks_unasked(m), "{m}");
+        }
+        for m in [
+            "claude-sonnet-5-5",
+            "claude-opus-5",
+            "claude-haiku-5-5",
+            "claude-haiku-4-5",
+            "no-such-model",
+        ] {
+            assert!(!c.thinks_unasked(m), "{m}");
         }
     }
 

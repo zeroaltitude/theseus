@@ -14,7 +14,9 @@
 //!   data rule's gate and the China-origin rule apply unchanged. Its profile
 //!   is `[memory] synth_profile`'s: `"session"` takes the profile all the
 //!   sampled sessions last used, and a category whose sessions disagree
-//!   waits, counted. The request holds the category's name and path, and for
+//!   waits, counted; so does a category whose model thinks whether asked or
+//!   not (Opus 5.5, Fable 5.x, GLM), whose 250 cap would go to thinking
+//!   (theseus-ohiu8). The request holds the category's name and path, and for
 //!   its newest [`SAMPLE`] sessions the title and the first and last message
 //!   the person wrote, each cut to [`TEXT_CHARS`] characters and scrubbed. A
 //!   session whose first or last message cannot be read is left out, and the
@@ -64,7 +66,8 @@ pub const SAMPLE: usize = 12;
 pub const TEXT_CHARS: usize = 300;
 /// The answer's most tokens: 400 characters and some to spare, asked with
 /// thinking off (theseus-050g2: Haiku 5.5's default thinking spent the cap,
-/// and every night's answer came back empty).
+/// and every night's answer came back empty). A profile whose model cannot
+/// turn thinking off waits instead (theseus-ohiu8).
 pub const MAX_TOKENS: u32 = 250;
 /// The META record of the night's spend, by local day.
 pub const MARK: &str = "onto.dream.last";
@@ -249,6 +252,15 @@ impl Core {
             .resolve_target(&live, Some(&profile), None, None)
             .ok()?;
         let provider = self.runner.providers.get(&target.provider).cloned()?;
+        // A model that cannot turn thinking off spends the 250 cap thinking
+        // and is cut or empty every time: the category waits, counted, rather
+        // than reserve, send and pay for the same refusal each night
+        // (theseus-ohiu8). Stateless on purpose: a try count would pay for
+        // its first tries and need a record kept; this one costs nothing and
+        // lifts the night the profile changes.
+        if self.runner.catalog.thinks_unasked(&target.model) {
+            return None;
+        }
         // A session whose first or last human text cannot be read is left out
         // of the call (theseus-23wd8); the category waits only when fewer than
         // [`MIN_SESSIONS`] readable ones remain.
