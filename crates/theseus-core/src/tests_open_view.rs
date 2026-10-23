@@ -196,7 +196,8 @@ pub(crate) fn session_in(c: &Core, place: Option<&str>, dir: &Path) -> String {
 
 /// The request's body, as the golden holds it: its directories `<dir>`, the
 /// ids it names aliased (whole, then the six characters a handle keeps), the
-/// time zone a stamp names `<zone>`, and every run of digits `#`;
+/// time zone a stamp names `<zone>`, every run of digits `#`, the machine's
+/// CPU count `<cpus>`;
 /// the tools by name and the digest of their definitions, so a request's
 /// every byte is held without 100 KB of schemas in the file.
 pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String {
@@ -236,7 +237,15 @@ pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String 
             out.push_str("#:# <zone>");
             out.push_str(rest);
         }
-        out
+        // `CPUs available to commands: # (cgroup quota; …).`: the machine's.
+        let cpus = "CPUs available to commands: ";
+        match out.split_once(cpus) {
+            Some((head, tail)) => {
+                let rest = tail.find('.').map_or("", |i| &tail[i..]);
+                format!("{head}{cpus}<cpus>{rest}")
+            }
+            None => out,
+        }
     };
     text = scrub(&text);
     let digest = crate::config_copy::sha256(&scrub(&defs));
