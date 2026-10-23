@@ -10,8 +10,9 @@
 //!   (the catalog's `context_window`; 1,000,000 when none is known): a home is warned about when
 //!   a request is near the window, where a request can fail and every turn is costly. A long
 //!   session is otherwise fine, so no smaller figure warns: the owner, 2026-10-21, found the
-//!   60,000 of `[threads] working_tokens` (what a thread's request stays within after a cold
-//!   resume, a different thing) too aggressive for a home. No budget of its own, and none is raised.
+//!   60,000 `[threads] working_tokens` then was (now `working_percent` of the window: what a
+//!   thread's request stays within after a cold resume, a different thing) too aggressive for a
+//!   home. No budget of its own, and none is raised.
 //! - **A home** is the session a place runs on (`Outbox::place_session`), not a task's and not a
 //!   thread's.
 //! - **Once** is a META row by the home's session, `home.size.warned.<session>`, written in the
