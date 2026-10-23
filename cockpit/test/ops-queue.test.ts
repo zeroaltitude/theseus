@@ -2,7 +2,7 @@
 // cursor a new item never moves.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { arrived, choiceOption, comingUp, itemFor, keepCursor, queueOf, step } from '../src/ops/queue.ts'
+import { answerOf, arrived, choiceOption, comingUp, grantKey, itemFor, keepCursor, queueOf, step } from '../src/ops/queue.ts'
 import { itemFacts } from '../src/ops/facts.ts'
 import { board, confirm, execution, HOUR, MIN, NOW, record, view } from './ops-fixtures.ts'
 
@@ -128,4 +128,38 @@ test('coming up: the next three hours, soonest first, paused ones left out', () 
   const b = board()
   const views = [...b.views, view('wak_p', 'wake', 'waiting', { next_at_ms: NOW + HOUR, paused: true }), view('wak_s', 'wake', 'waiting', { next_at_ms: NOW + 10 * MIN })]
   assert.deepEqual(comingUp(views, NOW).map((v) => v.id), ['wak_s', 'wak_r1'])
+})
+
+test('each answer is one protocol call, the one every surface makes; an item that cannot take it takes none', () => {
+  const q = full()
+  const by = new Map(q.map((i) => [i.kind === 'change' && i.proposal ? 'proposal' : i.kind, i]))
+  const approval = q.find((i) => i.key === 'q:act_c1')!
+  assert.deepEqual(answerOf(approval, { verb: 'approve' }), { method: 'work.answer', params: { question_id: 'act_c1', option: 'approve' } })
+  assert.deepEqual(answerOf(approval, { verb: 'decline', note: ' not the north wall ' }), { method: 'work.answer', params: { question_id: 'act_c1', option: 'decline', note: 'not the north wall' } })
+  assert.equal(answerOf(approval, { verb: 'approve_trust' }), null, 'it holds no external text')
+  assert.equal(answerOf(approval, { verb: 'grant' }), null, 'it offers no grant')
+  const offered = queueOf({ confirms: [confirm('act_g', { grant_offer: { scope: 'session', kind: 'edits', pattern: '/srv/harbour', words: 'edits in the project' }, external_text: { since_ms: 1, tool: 'http.fetch', url: 'https://example.test/', node_id: 'n' } })], views: [] })[0]
+  assert.deepEqual(answerOf(offered, { verb: 'grant' })?.params, { question_id: 'act_g', option: 'approve_grant' })
+  assert.deepEqual(answerOf(offered, { verb: 'approve_trust' })?.params, { question_id: 'act_g', option: 'approve_trust' })
+  assert.equal(grantKey(offered.confirm!), 'e', 'edits take e, as the TUI reads it')
+  assert.equal(grantKey({ grant_offer: { scope: 'session', kind: 'prefix', pattern: 'cargo test', words: '' } }), 'a')
+  assert.equal(answerOf(by.get('budget')!, { verb: 'approve' })?.params.option, 'reset')
+  assert.equal(answerOf(q.find((i) => i.key === 'q:act_ch')!, { verb: 'approve' })?.params.option, 'accept')
+  assert.deepEqual(answerOf(by.get('proposal')!, { verb: 'approve' })?.params, { question_id: 'act_px', option: 'accept' }, 'a proposal by its card')
+  const question = by.get('question')!
+  assert.deepEqual(answerOf(question, { verb: 'choice', n: 2 }), { method: 'work.answer', params: { question_id: 'act_q1', option: 'choice:1', note: undefined } })
+  assert.deepEqual(answerOf(question, { verb: 'choice', n: 0, note: 'the east one' })?.params, { question_id: 'act_q1', option: 'choice:other', note: 'the east one' })
+  assert.equal(answerOf(question, { verb: 'approve' }), null, 'a question with choices is answered by a choice')
+  const failure = by.get('failure')!
+  assert.deepEqual(answerOf(failure, { verb: 'retry' })?.method, 'task.retry')
+  assert.deepEqual(answerOf(failure, { verb: 'retry' })?.params, { execution_id: 'exe_t5' })
+  assert.deepEqual(answerOf(failure, { verb: 'dismiss' }), { method: 'execution.dismiss', params: { execution_id: 'exe_t5' } })
+  const convFailed = queueOf({ confirms: [], views: [view('exe_c', 'conversation', 'failed', {}, 'needs_you')] })[0]
+  assert.equal(answerOf(convFailed, { verb: 'retry' }), null, 'only a task is retried')
+  assert.deepEqual(answerOf(by.get('seal')!, { verb: 'seal' })?.params, { slug: 'tide-tables', reason: 'it read a private chart' })
+  assert.deepEqual(answerOf(by.get('seal')!, { verb: 'seal_dismiss' }), { method: 'thread.seal_dismiss', params: { slug: 'tide-tables' } })
+  assert.deepEqual(answerOf(by.get('hold')!, { verb: 'trust' })?.params, { session_id: 'ses_tides' })
+  assert.ok(answerOf(by.get('hold')!, { verb: 'trust' })?.ask, 'a trust asks first, as Actions does')
+  assert.deepEqual(answerOf(by.get('ask')!, { verb: 'thread_answer', key: '2' }), { method: 'thread.answer', params: { ask_id: 'ask_1', choice: '2' } })
+  assert.equal(answerOf(by.get('hold')!, { verb: 'approve' }), null)
 })

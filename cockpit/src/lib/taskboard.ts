@@ -93,8 +93,8 @@ export function workingCount(views: WorkView[]): number {
   return views.filter((v) => v.kind === 'task' && !ENDED_VIEW.includes(v.state) && (v.paused === true || WORKING_VIEW.includes(v.state))).length
 }
 
-/** Where a desktop notice opens: a task's row on the Tasks page, anything else's session. */
+/** Where a desktop notice opens: a task's card on the Operations page's Board, anything else's session. */
 export function noticeTarget(work: { id: string; kind: string; session_id?: string }): string | undefined {
-  if (work.kind === 'task') return `/tasks?sel=${work.session_id ?? work.id}`
+  if (work.kind === 'task') return `/ops?lens=board&sel=${work.session_id ?? work.id}`
   return work.session_id ? `/session/${work.session_id}` : undefined
 }

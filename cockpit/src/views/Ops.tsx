@@ -38,6 +38,7 @@ import { KeysOverlay } from '@/ops/KeysOverlay'
 import { NewTask } from '@/ops/NewTask'
 import { useOpsAct } from '@/ops/act'
 import { useRouterAsks } from '@/ops/asks'
+import { HelpButton } from '@/components/Help'
 
 /** A queue item's key in the address: its kind's letter and its id (`q:act_…`), so a link reopens the queue's card. */
 /** One empty list for every absent read, so a memo over it holds. */
@@ -310,13 +311,14 @@ export default function Ops() {
   )
 }
 
-function RegionHead({ title, count, glow, onFold, fold }: { title: string; count?: number; glow?: boolean; onFold?: () => void; fold?: string }) {
+function RegionHead({ title, count, glow, onFold, fold }: { title: 'Needs you' | 'Inspector'; count?: number; glow?: boolean; onFold?: () => void; fold?: string }) {
   return (
     <header className="flex items-center gap-2 border-b border-line px-3 py-2">
       {title === 'Needs you' && <Inbox size={13} className={glow ? 'text-wait' : 'text-ink-faint'} />}
       <h2 className="font-display text-[11.5px] font-bold uppercase tracking-[0.08em] text-gold">{title}</h2>
       {count !== undefined && <span className={cn('num rounded-full px-1.5 text-[11px]', glow ? 'bg-wait/15 text-wait' : 'text-ink-faint')}>{count}</span>}
-      {onFold && <button onClick={onFold} title={`fold (${fold})`} aria-label={`fold the ${title.toLowerCase()}`} className="ml-auto flex items-center gap-1 text-[10.5px] text-ink-faint hover:text-ink"><span className="kbd">{fold}</span><X size={11} /></button>}
+      <span className="ml-auto">{title === 'Needs you' ? <HelpButton id="ops.queue" title="Needs you" /> : <HelpButton id="ops.inspector" title="Inspector" />}</span>
+      {onFold && <button onClick={onFold} title={`fold (${fold})`} aria-label={`fold the ${title.toLowerCase()}`} className="flex items-center gap-1 text-[10.5px] text-ink-faint hover:text-ink"><span className="kbd">{fold}</span><X size={11} /></button>}
     </header>
   )
 }

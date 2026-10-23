@@ -10,6 +10,7 @@ import { sparkPoints } from '@/lib/agenda'
 import { cn, usd } from '@/lib/format'
 import { toneHex, type Tone } from '@/lib/taxonomy'
 import { Segmented } from '@/components/ui'
+import { HelpButton } from '@/components/Help'
 import { LENSES, type Bucket, type Filters, type FilterKey, type Lens } from './address'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
@@ -64,6 +65,7 @@ export function CommandBar({ counts, f, onFilter, lens, onLens, choices, q, onQ,
             </button>
           ))}
         </div>
+        {lens === 'board' && <HelpButton id="ops.board" title="Board" />}
         {(['thread', 'model', 'place', 'kind', 'state', 'project', 'ended'] as const).map((k) => (
           <Chip key={k} k={k} value={f[k]} choices={choices[k] ?? []} onPick={(v) => onFilter(k, v)} />
         ))}

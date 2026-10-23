@@ -202,9 +202,10 @@ test('the Wakes panel moved here loses no field it showed on Actions', () => {
 })
 
 test('the page is on the rail, in a group, behind a route, and says what it shows', () => {
-  assert.match(read('src/components/Shell.tsx'), /to: '\/agenda', label: 'Agenda'/)
-  assert.match(read('src/lib/navgroups.ts'), /'\/agenda'/)
-  assert.match(read('src/main.tsx'), /path: 'agenda'/)
+  // The page is the Operations page's Timeline lens now (theseus-jid7t.3): /agenda redirects there, `g d` goes there.
+  assert.match(read('src/components/Shell.tsx'), /d: '\/ops\?lens=timeline'/)
+  assert.match(read('src/lib/navgroups.ts'), /'\/ops'/)
+  assert.match(read('src/main.tsx'), /path: 'agenda', element: <ToOps \/>/)
   const page = [read('src/views/Agenda.tsx'), read('src/components/Wakes.tsx')].join('\n')
   for (const id of ['agenda.week', 'agenda.routines', 'agenda.watches', 'agenda.projects', 'agenda.wakes']) assert.ok(page.includes(`help="${id}"`), id)
 })
