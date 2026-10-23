@@ -927,6 +927,36 @@ async fn a_cluster_rejected_for_its_form_comes_back_once() {
     assert!(syntheses(c).is_empty());
 }
 
+/// An EMPTY answer cut at the cap (a model that cannot turn thinking off
+/// spent it all, theseus-kf4pf) is a form try like any cut answer: its row
+/// has no text, yet the cluster is proposed once more and then done, not
+/// asked again every run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_empty_answer_cut_at_the_cap_counts_as_a_form_try() {
+    let r = rig(MemoryMode::Shadow, None, |_| {});
+    let c = &r.core;
+    kestrel(c).await;
+    let calls = r.model.requests().len();
+    let empty_cut = || Scripted::Blocks {
+        blocks: vec![],
+        stop_reason: "max_tokens".into(),
+    };
+    r.model.script.lock().unwrap().push_back(empty_cut());
+    let first = consolidate(c, false).await;
+    assert_eq!(first.clusters[0].outcome, "rejected", "{first:?}");
+    let dry = consolidate(c, true).await;
+    assert_eq!(dry.clusters.len(), 1, "proposed once more: {dry:?}");
+    r.model.script.lock().unwrap().push_back(empty_cut());
+    let second = consolidate(c, false).await;
+    assert_eq!(second.clusters[0].outcome, "rejected", "{second:?}");
+    let third = consolidate(c, true).await;
+    assert!(third.clusters.is_empty(), "{third:?}");
+    assert_eq!(third.skipped.get("synthesized"), Some(&1));
+    let fourth = consolidate(c, false).await;
+    assert!(fourth.clusters.is_empty(), "{fourth:?}");
+    assert_eq!(r.model.requests().len(), calls + 2, "two calls in all");
+}
+
 /// A form rejection's retry that passes is kept, and the cluster is done.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_form_rejections_retry_that_passes_is_kept() {

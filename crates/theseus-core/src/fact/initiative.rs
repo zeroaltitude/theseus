@@ -62,8 +62,11 @@ pub struct InitiativeSpoke<'a> {
     pub model: Option<&'a str>,
     /// What the voiced message said (a turn's reply is its node).
     pub text: Option<&'a str>,
-    /// How the model's last call stopped, and what it wrote, thinking
-    /// included (theseus-050g2): a `max_tokens` stop is never posted.
+    /// How the model's newest call stopped, and what it wrote, thinking
+    /// included (theseus-050g2): a `max_tokens` stop is never posted. When
+    /// the retry was refused (the day's line) or failed, the newest call
+    /// that answered is the first, cut one; a stop of none is read as
+    /// finished (a stand-in model's).
     pub stop_reason: Option<&'a str>,
     pub output_tokens: Option<u64>,
 }

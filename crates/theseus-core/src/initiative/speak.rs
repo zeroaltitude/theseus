@@ -19,7 +19,8 @@
 //! model lets it (`catalog::thinking_off`) at [`MAX_TOKENS`]; an answer that
 //! stops on `max_tokens` is asked once more at [`RETRY_MAX_TOKENS`], within
 //! the day's line, and past that the message is its template. The row
-//! records the last call's `stop_reason` and output tokens.
+//! records the `stop_reason` and output tokens of the newest call that
+//! answered (the cut first call, when the retry was refused or failed).
 
 use std::sync::Arc;
 
@@ -69,7 +70,8 @@ pub struct Spoken {
     pub voiced: bool,
     pub cost_usd: f64,
     pub model: Option<String>,
-    /// The last call's stop and output tokens; none when no call was made.
+    /// The newest answering call's stop and output tokens (the first, cut
+    /// call when the retry was refused or failed); none when no call was made.
     pub stop_reason: Option<String>,
     pub output_tokens: Option<u64>,
 }
