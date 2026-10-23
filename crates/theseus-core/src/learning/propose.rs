@@ -772,7 +772,7 @@ impl Core {
         // A file cut at the cap is a fragment: refused for that, not for the
         // parse error its end makes (theseus-1iqg0).
         let candidate = match crate::provider::hit_cap(reply.stop_reason.as_deref()) {
-            true => Err(format!("the file {}", crate::provider::cap_phrase(cap))),
+            true => Err(crate::provider::cap_phrase(cap)),
             false => propose::candidate_from_reply(parent, &reply.text, version),
         };
         let (cand_text, cand) = match candidate {

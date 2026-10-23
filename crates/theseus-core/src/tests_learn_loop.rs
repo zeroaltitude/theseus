@@ -456,6 +456,7 @@ async fn a_writers_file_cut_at_its_cap_says_so() {
         "{}",
         p.why
     );
+    assert_eq!(p.why, crate::provider::cap_phrase(8192), "one subject");
     assert!(jev.seen().is_empty(), "nothing replayed");
     assert!(rows(c, "judge.learn:loop", LedgerKind::PackVersion).is_empty());
 }
