@@ -1356,12 +1356,10 @@ impl App {
         // The work view may be trimmed (the job is not in it): the execution's state says then.
         let ended = match self.board.work.of_session(&sid) {
             Some(w) => w.state.ended(),
-            None => self.board.view(&sid).is_some_and(|v| {
-                matches!(
-                    v.state.as_str(),
-                    "complete" | "cancelled" | "failed" | "budget_exhausted"
-                )
-            }),
+            None => self
+                .board
+                .view(&sid)
+                .is_some_and(|v| crate::board::ended_state(&v.state)),
         };
         if arm == Arm::Cancel && ended {
             self.flash = Some((Tag::Dim, "that task has already finished".to_string()));
