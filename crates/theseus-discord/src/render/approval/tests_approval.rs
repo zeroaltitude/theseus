@@ -141,6 +141,20 @@ fn a_private_address_card_says_its_own_rule() {
     }
 }
 
+/// The card's `why it asks` is the clause the core reads from the reason, the
+/// one the TUI and `theseus answer` show as the plain `why` (theseus-zcn80).
+#[test]
+fn the_cards_clause_is_the_cores_one() {
+    let reason = "run gh: proc.run — approve (gh is on the approve list (§3.9))";
+    let said = theseus_core::needs_you::rule_clause(reason).unwrap();
+    let c = card(&request(json!({ "reason": reason })), &Route::Here, "");
+    assert!(
+        c.content.contains(&format!("why it asks: {said}\n")),
+        "{}",
+        c.content
+    );
+}
+
 /// The floor keeps its lock and its words.
 #[test]
 fn a_floor_ask_keeps_its_lock_and_its_rule() {

@@ -11,6 +11,7 @@ use theseus_protocol::term::words::summarize;
 use theseus_protocol::{ConfirmRequest, PlainWords};
 
 use super::words::short;
+use crate::toolrun::misroute;
 
 /// What the core knows around a request that the request does not carry.
 pub struct Gloss {
@@ -187,12 +188,38 @@ pub fn risk_of(req: &ConfirmRequest) -> &'static str {
     }
 }
 
-/// Why the gate holds the call, in words.
-fn held_of(req: &ConfirmRequest) -> String {
+/// The clause a rule gives for asking: the text of the reason's last
+/// `— approve (…)`, any `§` reference cut. None when the owner's own posture
+/// asks (`enforcement = approve`, a `[policy.…]` setting, a tightening) or the
+/// reason says nothing: those need no clause. The one reading of a reason that
+/// every surface shares (the Discord card's `why it asks`, the plain words).
+pub fn rule_clause(reason: &str) -> Option<String> {
+    let (_, rest) = reason.rsplit_once("— approve (")?;
+    let rest = rest.trim_end();
+    let clause = rest.strip_suffix(')').unwrap_or(rest);
+    let words: Vec<&str> = clause
+        .split_whitespace()
+        .filter(|w| !w.trim_start_matches('(').starts_with('§'))
+        .collect();
+    let clause = words.join(" ");
+    let clause =
+        clause.trim_matches(|c: char| c == ',' || c == ';' || c == ':' || c.is_whitespace());
+    let posture = ["enforcement = approve", "[policy.", "tightened by"];
+    (!clause.is_empty() && !posture.iter().any(|p| clause.starts_with(p)))
+        .then(|| clause.to_string())
+}
+
+/// Why the gate holds the call, in words: the floor, outside text, the thread
+/// guard's doubt, the rule's own clause, else the tool's posture.
+fn held_of(req: &ConfirmRequest, clause: Option<&str>) -> String {
     if req.floor {
         "it touches Theseus's own state or a secret, which always asks".into()
     } else if req.external_text.is_some() {
         "the session read web text, so a call that acts waits for you".into()
+    } else if clause.is_some_and(misroute::is_question) {
+        "it may belong in another thread, so it waits for you".into()
+    } else if let Some(c) = clause {
+        c.to_string()
     } else {
         format!("`{}` is set to ask before it runs", req.tool)
     }
@@ -201,11 +228,18 @@ fn held_of(req: &ConfirmRequest) -> String {
 /// The words of an approval question.
 pub fn plain(req: &ConfirmRequest, g: &Gloss) -> PlainWords {
     let trust = req.external_text.is_some();
+    let clause = rule_clause(&req.reason);
+    // The guard's question names both threads and the move; any other rule's
+    // clause stands in when the model said nothing before the call.
+    let why = match &clause {
+        Some(c) if misroute::is_question(c) => Some(c.clone()),
+        _ => g.model_why.clone().or(clause.clone()),
+    };
     PlainWords {
         who: g.who.clone(),
         what: what_of(req, g),
-        why: g.model_why.clone().unwrap_or_default(),
-        held: held_of(req),
+        why: why.unwrap_or_default(),
+        held: held_of(req, clause.as_deref()),
         risk: risk_of(req).into(),
         yes: match trust {
             true => "runs this one call; Trust also lets the session act again.".into(),
@@ -213,6 +247,11 @@ pub fn plain(req: &ConfirmRequest, g: &Gloss) -> PlainWords {
         },
         no: "refuses it; the session is told and carries on without it.".into(),
     }
+}
+
+/// Why a call waits (`held_of`), for the card words (`words.rs`).
+pub(super) fn held(req: &ConfirmRequest) -> String {
+    held_of(req, rule_clause(&req.reason).as_deref())
 }
 
 #[cfg(test)]
