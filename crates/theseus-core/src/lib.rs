@@ -305,6 +305,8 @@ mod tests_draft_first_pass;
 #[cfg(test)]
 mod tests_draft_hardening;
 #[cfg(test)]
+mod tests_draft_home;
+#[cfg(test)]
 mod tests_effort_beta;
 #[cfg(test)]
 mod tests_effort_lapse;

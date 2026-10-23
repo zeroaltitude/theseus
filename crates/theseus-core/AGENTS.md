@@ -1851,7 +1851,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     Claude reviewers, first usable wins; required with it) make an admitted ask of a conversation (no task, no wake, its
     `dir` in a git repository whose top is under the open roots: the tree is the whole repository, and it is applied
     at that top) open a draft instead of a model call: an open task (`OpenHow::Draft`) on the `cn_draft` profile in a
-    worktree at `<state>/drafts/<short>` on branch `draft/<short>`, which is its open roots alone (never `open_paths`,
+    worktree at `<drafts_dir>/<short>` on branch `draft/<short>` (`[server] drafts_dir`, default `~/.cache/theseus/drafts`: outside the state dir and every approve-list entry, refused at load otherwise, and a root of the workspace while a class drafts, so the review's runs there take the tool's posture; a draft made before keeps its tree under `<state>/drafts` where `tree_of` finds it; theseus-iilre), which is its open roots alone (never `open_paths`,
     and never a path through `.git`), briefed by the core with the open run's person messages. Each failed condition is the route row's
     `draft_skip`. `Open::offers` withholds programs from a draft, and where the floor would move it its turn ends
     (`draft_stopped`). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
@@ -1863,7 +1863,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     review open without it, its tree removed. The core's git in a draft's tree is pinned to the git dir recorded at open,
     with fsmonitor, external diff and textconv off; `sweep_drafts` settles drafts a crash or cancel left (at start and
     after each cancel); one step of a draft runs at a time (`draft/flight.rs`; theseus-b0ozi). Tests: `tests_draft.rs`,
-    `tests_draft_first_pass.rs`, `tests_draft_hardening.rs`.
+    `tests_draft_first_pass.rs` (a `first_pass` equal to the `cn_draft` is refused: the drafting model would review its own draft; the bound's timer path, theseus-ms3hd), `tests_draft_hardening.rs`, `tests_draft_home.rs`.
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design
