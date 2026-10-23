@@ -854,6 +854,36 @@ class BudgetArms(Case):
         self.assertClean({self.LC: sub(base, "{ cap }.min(Some(2.0))", "{ cap }.min(Some(1.0))")})
         self.assertClean({self.LC: sub(base, "{ cap }.min(Some(2.0))", "{  cap  }.min(Some(2.0))")})
 
+    # theseus-b7vuh round 3: the call after a block on its own line (rustfmt's chain form) is part of the value too.
+    BLOCK_TAIL = '        "tui" => {\n            cap\n        }\n        .min(2.0),\n'
+
+    def block_tail_base(self):
+        return self.base_with(self.FALL, self.BLOCK_TAIL + self.FALL)
+
+    def test_a_block_with_its_call_on_its_own_line_swapped_is_raised(self):
+        # `.min(2.0)` -> `.max(2.0)` turns a cap into a floor; the tail is on a line of its own, outside the block.
+        base = self.block_tail_base()
+        for tail in (".max(2.0)", ".min(1.0).max(9.0)"):
+            self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "        .min(2.0),", f"        {tail},")})
+
+    def test_a_block_with_its_call_on_its_own_line_swapped_is_raised_for_an_option(self):
+        base = self.base_with(self.CANCEL, self.CANCEL + '        "tui" => {\n            cap\n        }\n'
+                              '        .min(Some(2.0)),\n')
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(
+            base, ".min(Some(2.0))", ".min(Some(1.0)).max(Some(9.0))")})
+
+    def test_a_block_with_its_call_on_its_own_line_kept_or_lowered_is_clean(self):
+        base = self.block_tail_base()
+        self.assertClean({self.LC: sub(base, "        .min(2.0),", "        .min(1.0),")})
+        self.assertClean({self.LC: sub(base, "        .min(2.0),", "        .min(  2.0 ),")})
+        # A pure reformat of the same block and call: onto one line.
+        self.assertClean({self.LC: sub(base, self.BLOCK_TAIL, '        "tui" => { cap }.min(2.0),\n')})
+
+    def test_a_one_line_block_with_its_call_swapped_is_raised(self):
+        # y4ajh's guard missed this one as well; stricter, inside the owner's ack.
+        base = self.base_with(self.FALL, '        "tui" => { cap }.min(2.0),\n' + self.FALL)
+        self.assertCaught("budget-raised", self.LC, {self.LC: sub(base, "}.min(2.0)", "}.max(2.0)")})
+
     SURFACES = "crates/theseus-sim/src/lifecycle/surfaces.rs"
 
     def test_a_sim_budget_const_raised(self):

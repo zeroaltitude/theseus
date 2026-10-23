@@ -1117,6 +1117,16 @@ def block_rewritten(oval, nval):
     return squash(ob) != squash(nb if nb is not None else nval)
 
 
+def tail_rewritten(oval, nval):
+    """The calls after a leading block, numbers aside: `{ x }` then `.min(2.0)` -> `.max(2.0)` swaps the cap."""
+    ob = leading_block(oval)
+    if ob is None:
+        return False
+    nb = leading_block(nval)
+    ot, nt = oval.lstrip()[len(ob):], (nval.lstrip()[len(nb):] if nb is not None else nval)
+    return NUM.sub("#", squash(ot)) != NUM.sub("#", squash(nt))
+
+
 def names_constant(expr):
     """True when a value with no number names something (a constant, a local, a call) that holds its number."""
     words = re.findall(r"[A-Za-z_]\w*", RS_STRING.sub('""', expr))
@@ -1170,7 +1180,7 @@ def compare_arms(path, base, head, out):
             hit = next((otext for (old, _, otext, oval), named in (j for j in judges if j[0])
                         if (old and any(b > a for a, b in zip(old, new)))
                         or (named and not old and names_constant(oval) and squash(oval) != squash(nval))
-                        or (named and old and block_rewritten(oval, nval))), None)
+                        or (named and old and (block_rewritten(oval, nval) or tail_rewritten(oval, nval)))), None)
             if hit:
                 out.append(Finding("budget-raised", path, line, hit, ntext))
                 break
