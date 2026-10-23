@@ -458,3 +458,33 @@ async fn a_running_task_takes_the_hold_at_its_next_turn_not_mid_turn() {
 fn model_of_core(c: &Core, profile: &str) -> String {
     c.cfg.profile(profile).unwrap().model.clone()
 }
+
+/// A turn that ran under the hold leaves its target on the session; letting
+/// go puts back the one it ran on before the hold, so a continuation does not
+/// stay on a model the owner let go of.
+#[tokio::test]
+async fn a_revert_puts_back_the_target_it_ran_on_before_the_hold() {
+    use crate::session::TargetRef;
+    let r = rig(None, 1, google_on(false));
+    let sid = session(&r.core);
+    let (live, _) = r.core.live_profile();
+    let on = |profile: &str| {
+        let t = r
+            .core
+            .runner
+            .resolve_target(&live, Some(profile), None, None)
+            .unwrap();
+        TargetRef::from(&t)
+    };
+    let write = |t: TargetRef| {
+        let mut rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+        rec.last_target = Some(t);
+        r.core.store.put_session(&sid, &rec).unwrap();
+    };
+    write(on("sonnet"));
+    hold(&r.core, &sid, Some("opus"));
+    write(on("opus")); // a turn ran under the hold
+    hold(&r.core, &sid, None);
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    assert_eq!(rec.last_target.unwrap().profile, "sonnet");
+}
