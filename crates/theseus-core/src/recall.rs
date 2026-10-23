@@ -490,6 +490,7 @@ impl Memory {
         Begun {
             task,
             started,
+            said: query.clone(),
             query,
             as_of,
             deadline,
@@ -608,6 +609,10 @@ pub struct Begun {
     task: tokio::task::JoinHandle<(Answer, Duration, Option<String>)>,
     pub started: Instant,
     pub query: String,
+    /// What the turn's message itself says (its text and attachment names),
+    /// without the previous reply `query` carries: the words a thread is named
+    /// by (theseus-n6mkd). The query's own words when nothing else is set.
+    pub said: String,
     pub as_of: Option<u64>,
     pub deadline: Duration,
     /// The turn's new node, which seeds a spread at 1.0 (32b).
@@ -1155,6 +1160,24 @@ pub fn query_of(nodes: &Transcript, turn_id: &str) -> Option<(RecallQuery, u64)>
         cut: true,
     };
     (!q.words.trim().is_empty()).then(|| (q, nodes[first].0))
+}
+
+/// What the turn's message says: its text and its attachments' names, with
+/// none of the previous reply that `query_of`'s words carry. A thread is
+/// named by these words alone (theseus-n6mkd): the assistant saying another
+/// thread's title is no reason to pay that thread no distance.
+pub fn said_of(nodes: &Transcript, turn_id: &str) -> String {
+    let mut said = Vec::new();
+    for (_, n) in nodes {
+        if n.turn_id.as_deref() != Some(turn_id) {
+            continue;
+        }
+        if let Body::UserMessage { text, attachments } = &n.body {
+            said.push(text.clone());
+            said.extend(attachments.iter().map(|a| a.name.clone()));
+        }
+    }
+    said.join("\n")
 }
 
 /// The end of `reply` a short turn embeds with: its last lines, whole, up to

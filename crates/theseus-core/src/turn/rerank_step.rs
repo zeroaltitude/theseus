@@ -40,7 +40,7 @@ impl TurnRunner {
     ) -> RecallManifest {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
         let open = t.tc.open.is_some();
-        let mut scene = self.scene(t, mode, arm, &begun.query);
+        let mut scene = self.scene(t, mode, arm, &begun.said);
         scene.activation = activation;
         let crossed = self.cfg.threads.cross_recall_judge && scene.threads.is_some();
         if rerank == PackMode::Off && !crossed {
