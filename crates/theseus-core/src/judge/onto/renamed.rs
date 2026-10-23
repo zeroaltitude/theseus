@@ -170,8 +170,10 @@ impl Run<'_> {
     /// one kind, and what to call each kind that will mint.
     pub(super) async fn kind_hints(&mut self, o: &Ontology, said: &[mint::Said]) -> Hints {
         let folds = mint::folds(said);
+        let yeses = self.same_kinds(o, &folds).await;
+        self.mark.same.extend(yeses);
         let mut hints = Hints {
-            same: self.same_kinds(o, &folds).await,
+            same: self.mark.same.iter().cloned().collect(),
             ..Hints::default()
         };
         self.kind_names(o, &folds, &mut hints).await;
@@ -179,7 +181,7 @@ impl Run<'_> {
         hints
     }
 
-    /// The pairs of names Jev called one kind at the act band.
+    /// The pairs of names Jev called one kind at the act band tonight.
     async fn same_kinds(&mut self, o: &Ontology, folds: &mint::Folds<'_>) -> Vec<(String, String)> {
         let side = |run: &Self, f: &str| {
             let (spelled, sessions) = &folds[f];
@@ -191,7 +193,7 @@ impl Run<'_> {
         };
         let mut same = Vec::new();
         let mut asked = 0;
-        for (a, b) in mint::kind_pairs(o, folds) {
+        for (a, b) in mint::kind_pairs(o, folds, &self.mark.same) {
             if asked >= KIND_PAIRS_MAX || !self.going() {
                 break;
             }
@@ -238,6 +240,22 @@ impl Run<'_> {
             let key = format!("kind-name {}", cluster.key);
             if names.len() < 2 {
                 continue;
+            }
+            if !self.mark.asked.contains_key(&key) {
+                // The cluster grew a name that sorts first since the pick: its
+                // key changed, the pick and its ask carry over.
+                let old = self
+                    .mark
+                    .named
+                    .iter()
+                    .find(|(k, n)| cluster.folds.contains(k) && names.contains(n));
+                let old = old.map(|(k, n)| (format!("kind-name {k}"), n.clone()));
+                if let Some((at, name)) =
+                    old.and_then(|(k, n)| Some((*self.mark.asked.get(&k)?, n)))
+                {
+                    self.mark.asked.insert(key.clone(), at);
+                    self.mark.named.insert(cluster.key.clone(), name);
+                }
             }
             if self.mark.asked.contains_key(&key) {
                 // Paid for on an earlier night, when the kind did not mint.

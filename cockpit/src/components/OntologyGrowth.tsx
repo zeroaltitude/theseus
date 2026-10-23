@@ -97,32 +97,34 @@ export function MintedPanel({ disabled }: { disabled: boolean }) {
       {minted.length === 0 && renamed.length === 0 ? <Empty>nothing minted yet: Jev, the sweep and the dream write here when they make a category</Empty> : (
         <div className="flex flex-col gap-2 p-2">
           <Refused words={refused} />
-          <table className="w-full text-[11.5px]">
-            <thead className="text-[10px] uppercase tracking-wider text-ink-faint">
-              <tr><th className="py-1 text-left">category</th><th className="px-1 text-left">by</th><th className="px-1 text-right" title="the origin's confidence in the membership it set">conf.</th><th className="px-1 text-left">session</th><th className="px-1 text-left">when</th><th className="px-1 text-left">why</th><th className="pl-1 text-right" /></tr>
-            </thead>
-            <tbody>
-              {minted.map((m) => (
-                <tr key={`${m.write}:${m.category}`} className="border-t border-line/50">
-                  <td className={cn('py-1', m.undone && 'text-ink-faint line-through')}>
-                    <span className="text-ink">{m.name}</span>
-                    {m.named && <span className="ml-1"><Pill tone="think">named by Jev</Pill></span>}
-                    <div className="num text-[10px] text-ink-faint">{m.category}</div>
-                  </td>
-                  <td className="px-1"><Pill tone={m.origin === 'jev' ? 'think' : 'idle'}>{m.origin}</Pill></td>
-                  <td className="num px-1 text-right text-ink-dim">{confidenceWords(m.confidence)}</td>
-                  <td className="num px-1 text-ink-faint">{m.session ? <Link className="hover:text-live" to={`/session/${encodeURIComponent(m.session)}`}>{m.session}</Link> : '—'}</td>
-                  <td className="num whitespace-nowrap px-1 text-ink-faint" title={new Date(m.at).toLocaleString()}>{ago(m.at)}</td>
-                  <td className="px-1"><Link className="num text-ink-faint hover:text-live" to={judgmentHref(m.write)} title="the judgment that made it">{m.write}</Link></td>
-                  <td className="whitespace-nowrap pl-1 text-right">
-                    {m.undone
-                      ? <span className="text-[11px] text-wait" title={m.undoneAt ? new Date(m.undoneAt).toLocaleString() : undefined}>taken back{m.undoneAt ? ` ${ago(m.undoneAt)}` : ''}</span>
-                      : <Act onClick={() => void undo(m)} busy={busy} off={disabled} title="ontology.undo: confirmed first, with the words it sends"><Undo2 size={12} /> Undo</Act>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {minted.length > 0 && (
+            <table className="w-full text-[11.5px]">
+              <thead className="text-[10px] uppercase tracking-wider text-ink-faint">
+                <tr><th className="py-1 text-left">category</th><th className="px-1 text-left">by</th><th className="px-1 text-right" title="the origin's confidence in the membership it set">conf.</th><th className="px-1 text-left">session</th><th className="px-1 text-left">when</th><th className="px-1 text-left">why</th><th className="pl-1 text-right" /></tr>
+              </thead>
+              <tbody>
+                {minted.map((m) => (
+                  <tr key={`${m.write}:${m.category}`} className="border-t border-line/50">
+                    <td className={cn('py-1', m.undone && 'text-ink-faint line-through')}>
+                      <span className="text-ink">{m.name}</span>
+                      {m.named && <span className="ml-1"><Pill tone="think">named by Jev</Pill></span>}
+                      <div className="num text-[10px] text-ink-faint">{m.category}</div>
+                    </td>
+                    <td className="px-1"><Pill tone={m.origin === 'jev' ? 'think' : 'idle'}>{m.origin}</Pill></td>
+                    <td className="num px-1 text-right text-ink-dim">{confidenceWords(m.confidence)}</td>
+                    <td className="num px-1 text-ink-faint">{m.session ? <Link className="hover:text-live" to={`/session/${encodeURIComponent(m.session)}`}>{m.session}</Link> : '—'}</td>
+                    <td className="num whitespace-nowrap px-1 text-ink-faint" title={new Date(m.at).toLocaleString()}>{ago(m.at)}</td>
+                    <td className="px-1"><Link className="num text-ink-faint hover:text-live" to={judgmentHref(m.write)} title="the judgment that made it">{m.write}</Link></td>
+                    <td className="whitespace-nowrap pl-1 text-right">
+                      {m.undone
+                        ? <span className="text-[11px] text-wait" title={m.undoneAt ? new Date(m.undoneAt).toLocaleString() : undefined}>taken back{m.undoneAt ? ` ${ago(m.undoneAt)}` : ''}</span>
+                        : <Act onClick={() => void undo(m)} busy={busy} off={disabled} title="ontology.undo: confirmed first, with the words it sends"><Undo2 size={12} /> Undo</Act>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           {renamed.length > 0 && (
             <ul className="num flex flex-col gap-0.5 text-[11px] text-ink-dim" aria-label="renamed by the sweep">
               {renamed.map((x) => (

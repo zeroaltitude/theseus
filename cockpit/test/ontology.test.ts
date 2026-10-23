@@ -314,4 +314,12 @@ test('a kind Jev named is marked, and a rename shows both names and when', () =>
   const panel = readFileSync(new URL('../src/components/OntologyGrowth.tsx', import.meta.url), 'utf8')
   assert.match(panel, /\{m\.named && .*named by Jev/)
   assert.match(panel, /renamed \{x\.category\}: \{x\.from\} → /)
+  assert.match(panel, /\{minted\.length > 0 && \(\s*<table/, 'renames alone show no empty minted table')
+})
+
+test('a category write that is no rename is not listed as one, whatever its names', () => {
+  const other = [
+    catRow(at(0), 'topic:tides', 'sweep', undoRec('sweep-3-0-merge', 'onto:cat:topic:tides', { id: 'topic:tides', name: 'Tides' }, { id: 'topic:tides', name: 'tides' })),
+  ]
+  assert.deepEqual(renamedOf(other), [])
 })

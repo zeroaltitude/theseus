@@ -288,8 +288,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`stale_names`; at most 3 a run), writing `Ontology::plan_rename` (the old name in the description as `was: <old>`;
   `Step::Rename`, `sweep-<ms>-<n>-rename`, undone like a merge); `same_kind.v1` asks, before the plan mints, of pairs of
   mined `other` names whose sessions add to each other's (singleton chains `a~b`, `b~c` included, and two names that are
-  each a cluster) while the open names reach 3 sessions (at most 20 a run, largest union first) and a yes joins them
-  (`mint::Hints::same`); `name_it.v1` names a kind about to be minted from a cluster of two names or more, and `none`, a
+  each a cluster) while the pair's two groups plus the names no kept yes has linked reach 3 sessions (at most 20 a run,
+  largest union first) and a yes joins them (`mint::Hints::same`; a yes is kept in the mark's `same` for as long as its
+  `kind <a> <b>` ask, so a chain asked over two nights still clusters, and a kept pick follows its cluster to a new key); `name_it.v1` names a kind about to be minted from a cluster of two names or more, and `none`, a
   pick below the act band or no answer leaves the most shared name (`Hints::named`, `Swept.named_kinds`; a pick is kept in the mark's `named` for as long as its ask is not asked again, so a cluster that mints a later night uses it; a Jev-named kind's description ends with `mint::NAMED_NOTE`, which the morning note and the cockpit read). The night runs
   hints, then the plan, then the pair, split and rename asks (`onto_sweep_night`); `onto_sweep` alone is the plan with
   no model; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after

@@ -42,7 +42,7 @@
 //! A sampled session is one in a private place that a person wrote, never an
 //! import's; its title is scrubbed as every state's strings are.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -99,6 +99,11 @@ pub struct Mark {
     /// cluster mints (`renamed.rs`).
     #[serde(default)]
     pub named: BTreeMap<String, String>,
+    /// The `same_kind` yeses (a pair of folded names) of earlier nights, kept as
+    /// long as their `kind <a> <b>` ask, so a chain asked over two nights still
+    /// joins (`renamed.rs`).
+    #[serde(default)]
+    pub same: BTreeSet<(String, String)>,
 }
 
 /// What one call came to.
@@ -311,8 +316,11 @@ impl Core {
         }
         mark.asked
             .retain(|_, at| now_ms.saturating_sub(*at) < AGAIN_MS);
-        let Mark { asked, named, .. } = &mut mark;
+        let Mark {
+            asked, named, same, ..
+        } = &mut mark;
         named.retain(|cluster, _| asked.contains_key(&format!("kind-name {cluster}")));
+        same.retain(|(a, b)| asked.contains_key(&format!("kind {a} {b}")));
         let before = mark.spent_usd;
         let cap = usd_to_micros((cap_usd - before).max(0.0));
         Ok(Some(Run {
