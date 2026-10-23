@@ -976,21 +976,27 @@ class TheseusDriver(unittest.TestCase):
     def test_the_smoke_compacts_once_however_early_the_index_comes_up(self):
         """theseus-93lkm: the index tender starts 2 s after serving, and from
         then on each turn of the second session writes a recall note into its
-        tail. Held back 8 s before the first turn, the run's second session
-        has them from its start: the plan's reserve for them holds, and only
-        the mark compacts (the plan once reserved one note, and a machine
+        tail. Held back until the tender answers on its socket before the
+        first turn, the run's second session has them from its start: the
+        plan's reserve for them holds, and only the mark compacts (the plan once reserved one note, and a machine
         whose tender came up early compacted again at turn 23)."""
         real = self.measured()
         prog = generate.build(7, "smoke", real)
         first_turn = pg.apply_before
 
-        def held(t, root):
-            if t.index == 0:
-                time.sleep(8)
-            return first_turn(t, root)
+        with tempfile.TemporaryDirectory() as d:
+            sock = Path(d) / "run" / "daemon"
 
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(pg, "apply_before", held):
-            rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
+            def held(t, root):
+                if t.index == 0:
+                    deadline = time.monotonic() + 30
+                    while not list(sock.glob("**/index/sock")):
+                        self.assertLess(time.monotonic(), deadline, "the index tender never came up")
+                        time.sleep(0.05)
+                return first_turn(t, root)
+
+            with mock.patch.object(pg, "apply_before", held):
+                rc, said, out = self.drive(Path(d), prog, rules_for(prog), counting=True)
             self.assertEqual(rc, 0, said)
             run = json.loads((out / "run.json").read_text())
             mark = prog.marks()[0]
