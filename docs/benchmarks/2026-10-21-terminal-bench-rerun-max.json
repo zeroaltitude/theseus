@@ -1,0 +1,4848 @@
+{
+ "report": "2026-10-21-terminal-bench-rerun-max",
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-21",
+ "tier": "max",
+ "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+ "compared_with": "v1 run 2026-10-18, 351159fc",
+ "arms": [
+  "theseus",
+  "oracle",
+  "claude-code",
+  "other",
+  "pi"
+ ],
+ "summary": {
+  "theseus-68": {
+   "label": "Theseus as shipped, 6918e3c1 (this run)",
+   "trials": 90,
+   "solved": 65,
+   "rate": 0.7222222222222222,
+   "wilson": [
+    0.6220457832888489,
+    0.8042044085237374
+   ],
+   "tasks": 30,
+   "usd_total": 21.241105,
+   "usd_trial": 0.23601227777777778,
+   "usd_trial_ci": [
+    0.1798635888888889,
+    0.3022006666666667
+   ],
+   "usd_solve": 0.3267862307692308,
+   "agent_s_median": 156.0,
+   "model_calls_mean": 11.78888888888889,
+   "endings": {
+    "agent": 85,
+    "timeout": 1,
+    "grader timeout (infra)": 4,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 0
+   },
+   "effort": [
+    "medium"
+   ]
+  },
+  "theseus-v1": {
+   "label": "Theseus as shipped, v1 351159fc",
+   "trials": 90,
+   "solved": 61,
+   "rate": 0.6777777777777778,
+   "wilson": [
+    0.5756664407220551,
+    0.765333712728014
+   ],
+   "tasks": 30,
+   "usd_total": 22.067428,
+   "usd_trial": 0.24519364444444444,
+   "usd_trial_ci": [
+    0.18738052222222223,
+    0.31059403333333335
+   ],
+   "usd_solve": 0.36176111475409833,
+   "agent_s_median": 96.25,
+   "model_calls_mean": 11.811111111111112,
+   "endings": {
+    "agent": 81,
+    "timeout": 5,
+    "grader timeout (infra)": 4,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 0
+   },
+   "effort": [
+    "medium"
+   ]
+  },
+  "claude-code": {
+   "label": "Claude Code 2.1.290 (v1 run)",
+   "trials": 90,
+   "solved": 68,
+   "rate": 0.7555555555555555,
+   "wilson": [
+    0.6575143545381369,
+    0.8326733660463373
+   ],
+   "tasks": 30,
+   "usd_total": 130.732938,
+   "usd_trial": 1.4525882,
+   "usd_trial_ci": [
+    1.2567320777777777,
+    1.671108488888889
+   ],
+   "usd_solve": 1.9225432058823528,
+   "agent_s_median": 792.325,
+   "model_calls_mean": 20.8,
+   "endings": {
+    "agent": 76,
+    "timeout": 14,
+    "grader timeout (infra)": 0,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 0
+   },
+   "effort": [
+    "max"
+   ]
+  },
+  "opencode": {
+   "label": "OpenCode 1.18.35 (v1 run)",
+   "trials": 90,
+   "solved": 29,
+   "rate": 0.32222222222222224,
+   "wilson": [
+    0.23466628727198596,
+    0.42433355927794497
+   ],
+   "tasks": 30,
+   "usd_total": 130.728256,
+   "usd_trial": 1.4525361777777779,
+   "usd_trial_ci": [
+    1.1502350888888888,
+    1.7755539
+   ],
+   "usd_solve": 4.507870896551724,
+   "agent_s_median": 389.065,
+   "model_calls_mean": 25.322222222222223,
+   "endings": {
+    "agent": 67,
+    "timeout": 20,
+    "grader timeout (infra)": 0,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 2,
+    "error": 1
+   },
+   "effort": [
+    "max"
+   ]
+  },
+  "pi": {
+   "label": "Pi 1.0.4 (v1 run)",
+   "trials": 90,
+   "solved": 64,
+   "rate": 0.7111111111111111,
+   "wilson": [
+    0.6103576218490169,
+    0.7945800603729402
+   ],
+   "tasks": 30,
+   "usd_total": 47.954984,
+   "usd_trial": 0.5328331555555555,
+   "usd_trial_ci": [
+    0.3880186888888889,
+    0.6972281333333333
+   ],
+   "usd_solve": 0.749296625,
+   "agent_s_median": 214.905,
+   "model_calls_mean": 16.677777777777777,
+   "endings": {
+    "agent": 79,
+    "timeout": 9,
+    "grader timeout (infra)": 2,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 0
+   },
+   "effort": [
+    "xhigh"
+   ]
+  }
+ },
+ "paired": {
+  "theseus-v1": {
+   "tasks": 30,
+   "gap": 0.04444444444444444,
+   "ci": [
+    -0.05555555555555556,
+    0.15555555555555556
+   ],
+   "better": 3,
+   "worse": 2,
+   "sign_p": 1.0,
+   "better_tasks": [
+    "bn-fit-modify",
+    "configure-git-webserver",
+    "polyglot-rust-c"
+   ],
+   "worse_tasks": [
+    "dna-assembly",
+    "make-mips-interpreter"
+   ]
+  },
+  "claude-code": {
+   "tasks": 30,
+   "gap": -0.03333333333333334,
+   "ci": [
+    -0.14444444444444446,
+    0.07777777777777778
+   ],
+   "better": 2,
+   "worse": 4,
+   "sign_p": 0.6875,
+   "better_tasks": [
+    "configure-git-webserver",
+    "torch-tensor-parallelism"
+   ],
+   "worse_tasks": [
+    "dna-assembly",
+    "feal-linear-cryptanalysis",
+    "install-windows-3.11",
+    "make-mips-interpreter"
+   ]
+  },
+  "opencode": {
+   "tasks": 30,
+   "gap": 0.4,
+   "ci": [
+    0.24444444444444444,
+    0.5666666666666667
+   ],
+   "better": 16,
+   "worse": 1,
+   "sign_p": 0.000274658203125,
+   "better_tasks": [
+    "cancel-async-tasks",
+    "circuit-fibsqrt",
+    "configure-git-webserver",
+    "dna-assembly",
+    "feal-differential-cryptanalysis",
+    "gpt2-codegolf",
+    "llm-inference-batching-scheduler",
+    "make-mips-interpreter",
+    "mcmc-sampling-stan",
+    "model-extraction-relu-logits",
+    "path-tracing-reverse",
+    "polyglot-rust-c",
+    "protein-assembly",
+    "regex-chess",
+    "sparql-university",
+    "torch-tensor-parallelism"
+   ],
+   "worse_tasks": [
+    "video-processing"
+   ]
+  },
+  "pi": {
+   "tasks": 30,
+   "gap": 0.01111111111111111,
+   "ci": [
+    -0.10000000000000002,
+    0.12222222222222223
+   ],
+   "better": 6,
+   "worse": 4,
+   "sign_p": 0.75390625,
+   "better_tasks": [
+    "configure-git-webserver",
+    "model-extraction-relu-logits",
+    "password-recovery",
+    "polyglot-rust-c",
+    "protein-assembly",
+    "torch-tensor-parallelism"
+   ],
+   "worse_tasks": [
+    "dna-assembly",
+    "feal-linear-cryptanalysis",
+    "install-windows-3.11",
+    "make-mips-interpreter"
+   ]
+  }
+ },
+ "figures": [
+  {
+   "name": "pass-rates-max",
+   "form": "intervals",
+   "title": "Pass rate by arm, MAX tier, with 95% Wilson intervals",
+   "question": "Did the patch work move Theseus's pass rate, and where does it sit among the v1 rivals?",
+   "note": "Each arm's trials: 3 attempts a task; a trial passes when its tests give reward 1. The rivals' and v1 Theseus's trials are the v1 run's (2026-10-18).",
+   "x": {
+    "label": "trials passed",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "label": "Theseus as shipped, 6918e3c1 (this run)",
+     "arm": "theseus",
+     "value": 0.7222,
+     "lo": 0.622,
+     "hi": 0.8042,
+     "tip": "65 of 90"
+    },
+    {
+     "label": "Theseus as shipped, v1 351159fc",
+     "arm": "oracle",
+     "value": 0.6778,
+     "lo": 0.5757,
+     "hi": 0.7653,
+     "tip": "61 of 90"
+    },
+    {
+     "label": "Claude Code 2.1.290 (v1 run)",
+     "arm": "claude-code",
+     "value": 0.7556,
+     "lo": 0.6575,
+     "hi": 0.8327,
+     "tip": "68 of 90"
+    },
+    {
+     "label": "OpenCode 1.18.35 (v1 run)",
+     "arm": "other",
+     "value": 0.3222,
+     "lo": 0.2347,
+     "hi": 0.4243,
+     "tip": "29 of 90"
+    },
+    {
+     "label": "Pi 1.0.4 (v1 run)",
+     "arm": "pi",
+     "value": 0.7111,
+     "lo": 0.6104,
+     "hi": 0.7946,
+     "tip": "64 of 90"
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus as shipped, 6918e3c1 (this run)",
+    "oracle": "Theseus as shipped, v1 351159fc",
+    "other": "OpenCode 1.18.35 (v1 run)"
+   }
+  },
+  {
+   "name": "pareto-dollars-max",
+   "form": "scatter",
+   "front": "min-x-max-y",
+   "title": "Pass rate against dollars per trial, MAX tier",
+   "question": "Which arm buys the most passes for the least money, and which way did Theseus move since v1?",
+   "x": {
+    "label": "mean dollars per trial (95% CI)",
+    "format": "usd",
+    "min": 0.0
+   },
+   "y": {
+    "label": "trials passed (95% Wilson)",
+    "format": "pct",
+    "min": 0.18,
+    "max": 0.88
+   },
+   "points": [
+    {
+     "arm": "theseus",
+     "label": "Theseus as shipped, 6918e3c1 (this run)",
+     "x": 0.236,
+     "xlo": 0.1799,
+     "xhi": 0.3022,
+     "y": 0.7222,
+     "ylo": 0.622,
+     "yhi": 0.8042
+    },
+    {
+     "arm": "oracle",
+     "label": "Theseus as shipped, v1 351159fc",
+     "x": 0.2452,
+     "xlo": 0.1874,
+     "xhi": 0.3106,
+     "y": 0.6778,
+     "ylo": 0.5757,
+     "yhi": 0.7653
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290 (v1 run)",
+     "x": 1.4526,
+     "xlo": 1.2567,
+     "xhi": 1.6711,
+     "y": 0.7556,
+     "ylo": 0.6575,
+     "yhi": 0.8327
+    },
+    {
+     "arm": "other",
+     "label": "OpenCode 1.18.35 (v1 run)",
+     "x": 1.4525,
+     "xlo": 1.1502,
+     "xhi": 1.7756,
+     "y": 0.3222,
+     "ylo": 0.2347,
+     "yhi": 0.4243
+    },
+    {
+     "arm": "pi",
+     "label": "Pi 1.0.4 (v1 run)",
+     "x": 0.5328,
+     "xlo": 0.388,
+     "xhi": 0.6972,
+     "y": 0.7111,
+     "ylo": 0.6104,
+     "yhi": 0.7946
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus as shipped, 6918e3c1 (this run)",
+    "oracle": "Theseus as shipped, v1 351159fc",
+    "other": "OpenCode 1.18.35 (v1 run)"
+   }
+  }
+ ],
+ "title": "Terminal-Bench 2.0 rerun, MAX tier: Theseus at 6918e3c1 against v1's Theseus and the v1 rivals on the 30 hard tasks",
+ "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+ "kind": "harness",
+ "model_selection": {
+  "current": {
+   "theseus-routed-max": {
+    "trials": 86,
+    "solved": 65,
+    "solve_pct": 75.5813953488372,
+    "ci95": [
+     65.53692879036903,
+     83.43815624818771
+    ],
+    "usd": 18.425348,
+    "usd_per_trial": 0.21424823255813952,
+    "usd_per_solve": 0.2834668923076923,
+    "jev_usd": 0.130661,
+    "turns": 138,
+    "late": 0,
+    "profiles": {
+     "sonnethi": 117,
+     "bench": 21
+    },
+    "modes": {
+     "deep_coding": 131,
+     "routine_coding": 6,
+     "(no verdict)": 1
+    },
+    "efforts": {
+     "high": 111,
+     "medium": 15,
+     "xhigh": 11,
+     "(model default)": 1
+    },
+    "calls_by_model": {
+     "claude-sonnet-5-5": 1048
+    },
+    "usd_by_model": {
+     "claude-sonnet-5-5": 18.294685
+    },
+    "by_origin": {
+     "anthropic/us": {
+      "calls": 1048,
+      "cost_usd": 18.294685
+     }
+    },
+    "data_verdicts": {
+     "open (confirm)": 45,
+     "open (escalate)": 72,
+     "open (act)": 7,
+     "private (escalate)": 15,
+     "unclear (escalate)": 2,
+     "private (act)": 1,
+     "private (confirm)": 5
+    },
+    "solve_by_mode": {
+     "deep_coding": {
+      "solved": 61,
+      "trials": 79
+     },
+     "routine_coding": {
+      "solved": 3,
+      "trials": 6
+     },
+     "(no verdict)": {
+      "solved": 1,
+      "trials": 1
+     }
+    },
+    "packs": [
+     "classify.v4",
+     "route.v7"
+    ]
+   }
+  },
+  "previous": {
+   "theseus-routed-max": {
+    "trials": 86,
+    "solved": 61,
+    "solve_pct": 70.93023255813954,
+    "ci95": [
+     60.60296195175814,
+     79.46756217069736
+    ],
+    "usd": 19.153763,
+    "usd_per_trial": 0.22271817441860467,
+    "usd_per_solve": 0.3139961147540984,
+    "jev_usd": 0.116629,
+    "turns": 90,
+    "late": 0,
+    "profiles": {
+     "sonnethi": 72,
+     "bench": 18
+    },
+    "modes": {
+     "deep_coding": 84,
+     "routine_coding": 6
+    },
+    "efforts": {
+     "high": 69,
+     "medium": 12,
+     "xhigh": 9
+    },
+    "calls_by_model": {
+     "claude-sonnet-5-5": 1050
+    },
+    "usd_by_model": {
+     "claude-sonnet-5-5": 19.037125000000003
+    },
+    "by_origin": {
+     "anthropic/us": {
+      "calls": 1050,
+      "cost_usd": 19.037125000000003
+     }
+    },
+    "data_verdicts": {
+     "private (escalate)": 32,
+     "open (escalate)": 32,
+     "open (confirm)": 9,
+     "private (confirm)": 13,
+     "private (act)": 4
+    },
+    "solve_by_mode": {
+     "deep_coding": {
+      "solved": 61,
+      "trials": 80
+     },
+     "routine_coding": {
+      "solved": 0,
+      "trials": 6
+     }
+    },
+    "packs": [
+     "classify.v3",
+     "route.v6"
+    ]
+   }
+  },
+  "trials": [
+   {
+    "task": "bn-fit-modify",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "bn-fit-modify__Ssc5RHZ",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.038901,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 7,
+      "cost_usd": 0.037897
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.71
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.62,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0010040000000000001,
+    "pack": "route.v7"
+   },
+   {
+    "task": "bn-fit-modify",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "bn-fit-modify__aTmuWtf",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.032858,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.031959
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.73
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.64,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0008989999999999998,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "bn-fit-modify",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "bn-fit-modify__xjKK4EZ",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.030164,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.029269
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.7
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.93
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.64,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.58,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0008960000000000001,
+    "pack": "route.v7"
+   },
+   {
+    "task": "cancel-async-tasks",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "cancel-async-tasks__C3ZnGfG",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.06024,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 7,
+      "cost_usd": 0.059164
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.76
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.88,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001076,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "cancel-async-tasks",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "cancel-async-tasks__MFuqJmP",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.033431,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.03275
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.7
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.89,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.000682,
+    "pack": "route.v7"
+   },
+   {
+    "task": "cancel-async-tasks",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "cancel-async-tasks__fXbpdMK",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.038977,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.038198
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.7
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.86,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.00078,
+    "pack": "route.v7"
+   },
+   {
+    "task": "circuit-fibsqrt",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "circuit-fibsqrt__6aSKHMQ",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.15268,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.152027
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.89,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0006540000000000001,
+    "pack": "route.v7"
+   },
+   {
+    "task": "circuit-fibsqrt",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "circuit-fibsqrt__E7kXLzL",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.127685,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.126814
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.91,
+      "band": "act"
+     }
+    ],
+    "jev_usd": 0.0008719999999999999,
+    "pack": "route.v7"
+   },
+   {
+    "task": "circuit-fibsqrt",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "circuit-fibsqrt__szJhp6G",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.11585,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.115098
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.89,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.000752,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "configure-git-webserver",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "configure-git-webserver__6jREsWQ",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.028385,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.027745
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.47
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.88,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.00064,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "configure-git-webserver",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "configure-git-webserver__c79g34k",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.019395,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 4,
+      "cost_usd": 0.018845
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.5
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.86,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.000551,
+    "pack": "route.v7"
+   },
+   {
+    "task": "configure-git-webserver",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "configure-git-webserver__vyoJSZH",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.024093,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.023443
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.5
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.86,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.000649,
+    "pack": "route.v7"
+   },
+   {
+    "task": "dna-assembly",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "dna-assembly__hmq3EQu",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.648176,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 20,
+      "cost_usd": 0.645439
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.62
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.31
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.3
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.37
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.52,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.55,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.52,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.52,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.002737,
+    "pack": "route.v7"
+   },
+   {
+    "task": "dna-assembly",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "dna-assembly__qL72keM",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.61827,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 20,
+      "cost_usd": 0.615641
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.55
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.55,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.55,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0026290000000000003,
+    "pack": "route.v7"
+   },
+   {
+    "task": "dna-assembly",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "dna-assembly__qjbMYpF",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.56112,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 19,
+      "cost_usd": 0.558522
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.54
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.3
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.34
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.58,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.52,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.49,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.002599,
+    "pack": "route.v7"
+   },
+   {
+    "task": "extract-moves-from-video",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "extract-moves-from-video__DiDoYMD",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.032963,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 9,
+      "cost_usd": 0.032095
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "medium",
+      "effort_ran": "medium",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.47
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.82,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.00087,
+    "pack": "route.v7"
+   },
+   {
+    "task": "extract-moves-from-video",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "extract-moves-from-video__oTu3khk",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.033428,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 8,
+      "cost_usd": 0.032562
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "medium",
+      "effort_ran": "medium",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.53
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.85,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.000866,
+    "pack": "route.v7"
+   },
+   {
+    "task": "extract-moves-from-video",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "extract-moves-from-video__oaNTUSh",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.037405,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 9,
+      "cost_usd": 0.036453
+     }
+    },
+    "routes": [
+     {
+      "mode": "routine_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "medium",
+      "effort_ran": "medium",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.5
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.83,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0009509999999999999,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "feal-differential-cryptanalysis",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "feal-differential-cryptanalysis__3LRt2bc",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.08652,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 10,
+      "cost_usd": 0.085327
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.58,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0011939999999999997,
+    "pack": "route.v7"
+   },
+   {
+    "task": "feal-differential-cryptanalysis",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "feal-differential-cryptanalysis__DJCogEY",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.082771,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.082128
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.61,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0006429999999999999,
+    "pack": "route.v7"
+   },
+   {
+    "task": "feal-differential-cryptanalysis",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "feal-differential-cryptanalysis__xQ7aRYL",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.057302,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.056655
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.62,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.000646,
+    "pack": "route.v7"
+   },
+   {
+    "task": "feal-linear-cryptanalysis",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "feal-linear-cryptanalysis__QXS9e3H",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.188231,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 7,
+      "cost_usd": 0.187198
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.49,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.001032,
+    "pack": "route.v7"
+   },
+   {
+    "task": "feal-linear-cryptanalysis",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "feal-linear-cryptanalysis__WXVPBcZ",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.204863,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 8,
+      "cost_usd": 0.204146
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.43,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0007160000000000001,
+    "pack": "route.v7"
+   },
+   {
+    "task": "feal-linear-cryptanalysis",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "feal-linear-cryptanalysis__fLrH7fE",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.161667,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.160933
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.49,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.000733,
+    "pack": "route.v7"
+   },
+   {
+    "task": "fix-code-vulnerability",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "fix-code-vulnerability__42JB4NP",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.038199,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.037129
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.92
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.25,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0010700000000000002,
+    "pack": "route.v7"
+   },
+   {
+    "task": "fix-code-vulnerability",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "fix-code-vulnerability__xhkhPdR",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.029053,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.028192
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.91
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.23,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.000861,
+    "pack": "route.v7"
+   },
+   {
+    "task": "fix-code-vulnerability",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "fix-code-vulnerability__ypnFgYK",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.03953,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.038705
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.91
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.28,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0008259999999999999,
+    "pack": "route.v7"
+   },
+   {
+    "task": "fix-ocaml-gc",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "fix-ocaml-gc__bsC7ytv",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.409576,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 22,
+      "cost_usd": 0.407324
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.59,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.002253,
+    "pack": "route.v7"
+   },
+   {
+    "task": "fix-ocaml-gc",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "fix-ocaml-gc__ixrZcER",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.16305,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 13,
+      "cost_usd": 0.161725
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.49,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.7,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001326,
+    "pack": "route.v7"
+   },
+   {
+    "task": "fix-ocaml-gc",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "fix-ocaml-gc__vXoDYbo",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.127203,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 11,
+      "cost_usd": 0.125906
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.46,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.001297,
+    "pack": "route.v7"
+   },
+   {
+    "task": "gpt2-codegolf",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "gpt2-codegolf__WeW3ZWj",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.287319,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 15,
+      "cost_usd": 0.285558
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.86,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001761,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "gpt2-codegolf",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "gpt2-codegolf__kVGJLMv",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.219713,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 12,
+      "cost_usd": 0.218156
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.89,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.89,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001557,
+    "pack": "route.v7"
+   },
+   {
+    "task": "gpt2-codegolf",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "gpt2-codegolf__p46VeDo",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.230259,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 11,
+      "cost_usd": 0.228925
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.86,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.89,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001332,
+    "pack": "route.v7"
+   },
+   {
+    "task": "install-windows-3.11",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "install-windows-3.11__5UmCWDH",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.082857,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 12,
+      "cost_usd": 0.081381
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.54
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.66,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001474,
+    "pack": "route.v7"
+   },
+   {
+    "task": "install-windows-3.11",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "install-windows-3.11__BPEPh2N",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.089493,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 17,
+      "cost_usd": 0.087723
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.55
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.64,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0017699999999999999,
+    "pack": "route.v7"
+   },
+   {
+    "task": "install-windows-3.11",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "install-windows-3.11__ioKifwx",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.089125,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 15,
+      "cost_usd": 0.087256
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.58
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.64,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.64,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0018700000000000004,
+    "pack": "route.v7"
+   },
+   {
+    "task": "llm-inference-batching-scheduler",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "llm-inference-batching-scheduler__7H2XSea",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.361766,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 18,
+      "cost_usd": 0.359396
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.97
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "low",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.66
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.38,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.43,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.002368,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "llm-inference-batching-scheduler",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "llm-inference-batching-scheduler__7tYnr4t",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.322336,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 13,
+      "cost_usd": 0.320194
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.97
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "low",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.7
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.45,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.4,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.002141,
+    "pack": "route.v7"
+   },
+   {
+    "task": "llm-inference-batching-scheduler",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "llm-inference-batching-scheduler__sXNxFGx",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.397045,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 15,
+      "cost_usd": 0.394873
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.97
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.38,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.002173,
+    "pack": "route.v7"
+   },
+   {
+    "task": "make-doom-for-mips",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "make-doom-for-mips__GmBmPJw",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 1.210551,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 45,
+      "cost_usd": 1.205674
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.89
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.95
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.94
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.93
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.27,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.16,
+      "band": "escalate"
+     },
+     {
+      "choice": "unclear",
+      "confidence": 0.13,
+      "band": "escalate"
+     },
+     {
+      "choice": "unclear",
+      "confidence": 0.13,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.004877,
+    "pack": "route.v7"
+   },
+   {
+    "task": "make-doom-for-mips",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "make-doom-for-mips__r9pWepJ",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 1.052779,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 35,
+      "cost_usd": 1.048493
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.89
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.85
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.23,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.28,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.004285999999999999,
+    "pack": "route.v7"
+   },
+   {
+    "task": "make-doom-for-mips",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "make-doom-for-mips__vL35USP",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 1.045208,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 44,
+      "cost_usd": 1.040205
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.9
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.92
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.92
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.95
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.93
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.92
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.27,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.22,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.1,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.13,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.14,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.1,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.14,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.005002,
+    "pack": "route.v7"
+   },
+   {
+    "task": "make-mips-interpreter",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "make-mips-interpreter__Lrd8jM9",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.368426,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 17,
+      "cost_usd": 0.366406
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "max",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.97
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "max",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.19,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.14,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.16,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.11,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.002022,
+    "pack": "route.v7"
+   },
+   {
+    "task": "make-mips-interpreter",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "make-mips-interpreter__xxeDQLF",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.398112,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 17,
+      "cost_usd": 0.395738
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "max",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "max",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.97
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.2,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.23,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.16,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.18,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.002374,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "make-mips-interpreter",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "make-mips-interpreter__ydsYpUF",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.414568,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 17,
+      "cost_usd": 0.412543
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "max",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.22,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.2,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.18,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.13,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.002026,
+    "pack": "route.v7"
+   },
+   {
+    "task": "mcmc-sampling-stan",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "mcmc-sampling-stan__HNVJgih",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.077156,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 14,
+      "cost_usd": 0.07563
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.73
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.82,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0015250000000000003,
+    "pack": "route.v7"
+   },
+   {
+    "task": "mcmc-sampling-stan",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "mcmc-sampling-stan__hxyKaMF",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.04563,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 10,
+      "cost_usd": 0.044503
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.76
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.82,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0011270000000000002,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "mcmc-sampling-stan",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "mcmc-sampling-stan__jnXuZgC",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.055073,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 10,
+      "cost_usd": 0.053953
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.74
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.82,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0011200000000000001,
+    "pack": "route.v7"
+   },
+   {
+    "task": "model-extraction-relu-logits",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "model-extraction-relu-logits__Y77W8ib",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.053646,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.052997
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.25,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.000649,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "model-extraction-relu-logits",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "model-extraction-relu-logits__fWpNyfa",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.068353,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 7,
+      "cost_usd": 0.067449
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.23,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.000905,
+    "pack": "route.v7"
+   },
+   {
+    "task": "model-extraction-relu-logits",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "model-extraction-relu-logits__j8wWCdG",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.072693,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 7,
+      "cost_usd": 0.071832
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.25,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.00086,
+    "pack": "route.v7"
+   },
+   {
+    "task": "password-recovery",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "password-recovery__azLSphh",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.040851,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 9,
+      "cost_usd": 0.039845
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.38
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.91,
+      "band": "act"
+     }
+    ],
+    "jev_usd": 0.001006,
+    "pack": "route.v7"
+   },
+   {
+    "task": "password-recovery",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "password-recovery__bfT3U9V",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.034494,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 8,
+      "cost_usd": 0.033498
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.41
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.89,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0009960000000000001,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "password-recovery",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "password-recovery__s9yXgok",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.026228,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.025437
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.37
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.89,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0007910000000000001,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "path-tracing-reverse",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "path-tracing-reverse__9HmbgvN",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.376475,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 12,
+      "cost_usd": 0.374923
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.2,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0015509999999999999,
+    "pack": "route.v7"
+   },
+   {
+    "task": "path-tracing-reverse",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "path-tracing-reverse__Dqff7ce",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.370815,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 10,
+      "cost_usd": 0.369595
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.21,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.001219,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "path-tracing-reverse",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "path-tracing-reverse__EJ2Z5RY",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.358441,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 9,
+      "cost_usd": 0.357323
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.19,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0011190000000000002,
+    "pack": "route.v7"
+   },
+   {
+    "task": "path-tracing",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "path-tracing__E5tBatW",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.486416,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 37,
+      "cost_usd": 0.481867
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.92
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.95
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.92
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.95
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.94
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.11,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.31,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.38,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.31,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.28,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.3,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.004546,
+    "pack": "route.v7"
+   },
+   {
+    "task": "path-tracing",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "path-tracing__p74Uw4J",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.174781,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 9,
+      "cost_usd": 0.173645
+     }
+    },
+    "routes": [
+     {
+      "mode": null,
+      "profile": "bench",
+      "from": "bench",
+      "reason": "shadow",
+      "effort": null,
+      "effort_ran": null,
+      "effort_applied": false,
+      "late": false,
+      "confidence": null
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.11,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0011350000000000002,
+    "pack": "route.v7"
+   },
+   {
+    "task": "path-tracing",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "path-tracing__yGhaf6E",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.499239,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 31,
+      "cost_usd": 0.495274
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.95
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.93
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.94
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.92
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.18,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.33,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.27,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.31,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.33,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.003962999999999999,
+    "pack": "route.v7"
+   },
+   {
+    "task": "polyglot-rust-c",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "polyglot-rust-c__7BSewEj",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.043455,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 4,
+      "cost_usd": 0.042827
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.97,
+      "band": "act"
+     }
+    ],
+    "jev_usd": 0.000628,
+    "pack": "route.v7"
+   },
+   {
+    "task": "polyglot-rust-c",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "polyglot-rust-c__MqkmQMj",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.041338,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 2,
+      "cost_usd": 0.040798
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.97,
+      "band": "act"
+     }
+    ],
+    "jev_usd": 0.00054,
+    "pack": "route.v7"
+   },
+   {
+    "task": "polyglot-rust-c",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "polyglot-rust-c__WmRk7BA",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.0444,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 4,
+      "cost_usd": 0.043773
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.97,
+      "band": "act"
+     }
+    ],
+    "jev_usd": 0.000626,
+    "pack": "route.v7"
+   },
+   {
+    "task": "protein-assembly",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "protein-assembly__EtRCyqC",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.484436,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 23,
+      "cost_usd": 0.481604
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.7
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.29
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.43,
+      "band": "escalate"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.37,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.002832,
+    "pack": "route.v7"
+   },
+   {
+    "task": "protein-assembly",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "protein-assembly__JzVog7W",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.400471,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 22,
+      "cost_usd": 0.397841
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.68
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.33,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0026300000000000004,
+    "pack": "route.v7"
+   },
+   {
+    "task": "protein-assembly",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "protein-assembly__XxqusBt",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.445511,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 27,
+      "cost_usd": 0.442171
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "xhigh",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.69
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.35
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.38
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "unsure",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.41
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.35,
+      "band": "escalate"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.31,
+      "band": "escalate"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.3,
+      "band": "escalate"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.3,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0033419999999999995,
+    "pack": "route.v7"
+   },
+   {
+    "task": "regex-chess",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "regex-chess__APNU2Un",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.511761,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 15,
+      "cost_usd": 0.509967
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "max",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.8,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0017960000000000003,
+    "pack": "route.v7"
+   },
+   {
+    "task": "regex-chess",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "regex-chess__ZAckF3X",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.342311,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 10,
+      "cost_usd": 0.34102
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "max",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.9
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.83,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.83,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001289,
+    "pack": "route.v7"
+   },
+   {
+    "task": "regex-chess",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "regex-chess__rxeB2ut",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.549765,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 11,
+      "cost_usd": 0.548453
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "max",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 1.0
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.89
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.85,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.8,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0013130000000000001,
+    "pack": "route.v7"
+   },
+   {
+    "task": "sam-cell-seg",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "sam-cell-seg__F6ktCgg",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.16728,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 14,
+      "cost_usd": 0.165382
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.98
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.97
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.64,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.52,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.001898,
+    "pack": "route.v7"
+   },
+   {
+    "task": "sam-cell-seg",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "sam-cell-seg__JtNzQcJ",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.245436,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 24,
+      "cost_usd": 0.242791
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.97
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.97
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.97
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.62,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.58,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.56,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.55,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0026449999999999998,
+    "pack": "route.v7"
+   },
+   {
+    "task": "sam-cell-seg",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "sam-cell-seg__RtYPWiH",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.180195,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 15,
+      "cost_usd": 0.178284
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.95
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.97
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.61,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.52,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.55,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0019100000000000005,
+    "pack": "route.v7"
+   },
+   {
+    "task": "sparql-university",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "sparql-university__6pkcWrj",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.049418,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 5,
+      "cost_usd": 0.048649
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.89
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.58,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.000769,
+    "pack": "route.v7"
+   },
+   {
+    "task": "sparql-university",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "sparql-university__Kk9e6n4",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.065418,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.064539
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.92
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.61,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0008800000000000001,
+    "pack": "route.v7"
+   },
+   {
+    "task": "sparql-university",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "sparql-university__wJ4X3xd",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.066519,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.065452
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.91
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.55,
+      "band": "escalate"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.46,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.001067,
+    "pack": "route.v7"
+   },
+   {
+    "task": "torch-pipeline-parallelism",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "torch-pipeline-parallelism__ApPHTpS",
+    "solved": false,
+    "scored": false,
+    "cost_usd": 0.069027,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 7,
+      "cost_usd": 0.068225
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.77,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0008010000000000001,
+    "pack": "route.v7"
+   },
+   {
+    "task": "torch-pipeline-parallelism",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "torch-pipeline-parallelism__PoMfzHV",
+    "solved": false,
+    "scored": false,
+    "cost_usd": 0.068803,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 8,
+      "cost_usd": 0.067706
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.99
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "sonnethi",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.97
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.79,
+      "band": "confirm"
+     },
+     {
+      "choice": "open",
+      "confidence": 0.7,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001097,
+    "pack": "route.v7"
+   },
+   {
+    "task": "torch-pipeline-parallelism",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "torch-pipeline-parallelism__eQQpVPh",
+    "solved": false,
+    "scored": false,
+    "cost_usd": 0.05933,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 7,
+      "cost_usd": 0.058435
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "xhigh",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.98
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.76,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0008950000000000001,
+    "pack": "route.v7"
+   },
+   {
+    "task": "torch-tensor-parallelism",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "torch-tensor-parallelism__G9Zt3pV",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.052799,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.052068
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.82
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.91,
+      "band": "act"
+     }
+    ],
+    "jev_usd": 0.000731,
+    "pack": "route.v7"
+   },
+   {
+    "task": "torch-tensor-parallelism",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "torch-tensor-parallelism__g22bVAx",
+    "solved": false,
+    "scored": false,
+    "cost_usd": 0.051838,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.051108
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.81
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.91,
+      "band": "act"
+     }
+    ],
+    "jev_usd": 0.00073,
+    "pack": "route.v7"
+   },
+   {
+    "task": "torch-tensor-parallelism",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "torch-tensor-parallelism__v4spqHR",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.057105,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 7,
+      "cost_usd": 0.05628
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.77
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.91,
+      "band": "act"
+     }
+    ],
+    "jev_usd": 0.000824,
+    "pack": "route.v7"
+   },
+   {
+    "task": "train-fasttext",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "train-fasttext__6HD35hk",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.094949,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 10,
+      "cost_usd": 0.094084
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.46
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.7,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.000863,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "train-fasttext",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "train-fasttext__ctBqVF2",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.081552,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 8,
+      "cost_usd": 0.080789
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.45
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.67,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.0007630000000000001,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "train-fasttext",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "train-fasttext__oNZeyxs",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.112288,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 13,
+      "cost_usd": 0.111186
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "unsure",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.49
+     },
+     {
+      "mode": "deep_coding",
+      "profile": "bench",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "medium",
+      "effort_applied": false,
+      "late": false,
+      "confidence": 0.75
+     }
+    ],
+    "data": [
+     {
+      "choice": "private",
+      "confidence": 0.62,
+      "band": "confirm"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.45,
+      "band": "escalate"
+     },
+     {
+      "choice": "private",
+      "confidence": 0.56,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0011030000000000002,
+    "pack": "route.v7"
+   },
+   {
+    "task": "video-processing",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "video-processing__Jsni8Kc",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.123438,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 11,
+      "cost_usd": 0.121979
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.95
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.83,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001459,
+    "pack": "route.v7"
+   },
+   {
+    "task": "video-processing",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "video-processing__QNkLbh9",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.065913,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.065002
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.95
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.85,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.000913,
+    "pack": "route.v7"
+   },
+   {
+    "task": "video-processing",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "video-processing__YpMYXTU",
+    "solved": false,
+    "scored": true,
+    "cost_usd": 0.085475,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 8,
+      "cost_usd": 0.084331
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.95
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.86,
+      "band": "confirm"
+     }
+    ],
+    "jev_usd": 0.001144,
+    "pack": "route.v7"
+   },
+   {
+    "task": "write-compressor",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "write-compressor__ihniXbv",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.094558,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.093731
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.71
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.34,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.0008269999999999999,
+    "pack": "route.v7"
+   },
+   {
+    "task": "write-compressor",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "write-compressor__jhgtr6E",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.090047,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 6,
+      "cost_usd": 0.089329
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.77
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.33,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.000718,
+    "pack": "classify.v4"
+   },
+   {
+    "task": "write-compressor",
+    "arm": "theseus-routed-max",
+    "phase": "max",
+    "trial": "write-compressor__mVfhNoq",
+    "solved": true,
+    "scored": true,
+    "cost_usd": 0.148678,
+    "by_model": {
+     "claude-sonnet-5-5": {
+      "calls": 11,
+      "cost_usd": 0.1473
+     }
+    },
+    "routes": [
+     {
+      "mode": "deep_coding",
+      "profile": "sonnethi",
+      "from": "bench",
+      "reason": "verdict",
+      "effort": "high",
+      "effort_ran": "high",
+      "effort_applied": true,
+      "late": false,
+      "confidence": 0.74
+     }
+    ],
+    "data": [
+     {
+      "choice": "open",
+      "confidence": 0.33,
+      "band": "escalate"
+     }
+    ],
+    "jev_usd": 0.001379,
+    "pack": "route.v7"
+   }
+  ]
+ },
+ "effort_ledger": {
+  "this_run": {
+   "chose": {
+    "xhigh": 78,
+    "max": 8,
+    "high": 46,
+    "low": 2,
+    "None": 1,
+    "medium": 3
+   },
+   "ran": {
+    "xhigh": 11,
+    "high": 111,
+    "medium": 15,
+    "None": 1
+   },
+   "chose_to_ran": {
+    "xhigh->xhigh": 11,
+    "xhigh->high": 65,
+    "max->high": 8,
+    "high->high": 36,
+    "high->medium": 10,
+    "low->high": 2,
+    "None->None": 1,
+    "xhigh->medium": 2,
+    "medium->medium": 3
+   },
+   "chose_reason": {
+    "xhigh:applied": 11,
+    "xhigh:held_high": 15,
+    "max:unsure": 8,
+    "xhigh:unsure": 51,
+    "high:applied": 20,
+    "high:unsure": 26,
+    "low:unsure": 2,
+    "None:None": 1,
+    "medium:applied": 3,
+    "xhigh:sticky": 1
+   }
+  },
+  "v1": {
+   "chose": {
+    "xhigh": 39,
+    "max": 3,
+    "high": 45,
+    "medium": 3
+   },
+   "ran": {
+    "xhigh": 9,
+    "high": 69,
+    "medium": 12
+   },
+   "chose_to_ran": {
+    "xhigh->xhigh": 9,
+    "xhigh->high": 30,
+    "max->high": 3,
+    "high->high": 36,
+    "high->medium": 9,
+    "medium->medium": 3
+   },
+   "chose_reason": {
+    "xhigh:applied": 9,
+    "xhigh:held_high": 8,
+    "max:unsure": 3,
+    "high:applied": 21,
+    "xhigh:unsure": 22,
+    "high:unsure": 24,
+    "medium:applied": 3
+   }
+  }
+ },
+ "tier_tradeoff_same_tasks": {
+  "theseus-68": {
+   "high": {
+    "solved": 66,
+    "trials": 90,
+    "rate": 0.7333333333333333,
+    "usd_trial": 0.2092987222222222,
+    "usd_solve": 0.28540734848484844
+   },
+   "max": {
+    "solved": 65,
+    "trials": 90,
+    "rate": 0.7222222222222222,
+    "usd_trial": 0.23601227777777778,
+    "usd_solve": 0.3267862307692308
+   }
+  },
+  "v1": {
+   "theseus-routed": {
+    "high": {
+     "solved": 60,
+     "trials": 90,
+     "rate": 0.6666666666666666,
+     "usd_trial": 0.16943362222222222,
+     "usd_solve": 0.25415043333333337
+    },
+    "max": {
+     "solved": 61,
+     "trials": 90,
+     "rate": 0.6777777777777778,
+     "usd_trial": 0.24519364444444444,
+     "usd_solve": 0.36176111475409833
+    }
+   },
+   "claude-code": {
+    "high": {
+     "solved": 61,
+     "trials": 90,
+     "rate": 0.6777777777777778,
+     "usd_trial": 0.20866428888888888,
+     "usd_solve": 0.3078653442622951
+    },
+    "max": {
+     "solved": 68,
+     "trials": 90,
+     "rate": 0.7555555555555555,
+     "usd_trial": 1.4525882,
+     "usd_solve": 1.9225432058823528
+    }
+   },
+   "opencode": {
+    "high": {
+     "solved": 61,
+     "trials": 90,
+     "rate": 0.6777777777777778,
+     "usd_trial": 0.20114146666666666,
+     "usd_solve": 0.2967660983606557
+    },
+    "max": {
+     "solved": 29,
+     "trials": 90,
+     "rate": 0.32222222222222224,
+     "usd_trial": 1.4525361777777779,
+     "usd_solve": 4.507870896551724
+    }
+   },
+   "pi": {
+    "high": {
+     "solved": 64,
+     "trials": 90,
+     "rate": 0.7111111111111111,
+     "usd_trial": 0.17618807777777779,
+     "usd_solve": 0.247764484375
+    },
+    "max": {
+     "solved": 64,
+     "trials": 90,
+     "rate": 0.7111111111111111,
+     "usd_trial": 0.5328331555555555,
+     "usd_solve": 0.749296625
+    }
+   }
+  }
+ }
+}
