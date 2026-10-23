@@ -266,7 +266,7 @@ impl Core {
                         "{}: proposed {} ({} to {})",
                         p.role, p.id, p.reach_before, p.reach_after
                     ));
-                    let text = p.words();
+                    let text = p.card();
                     rec.proposals.insert(0, *p);
                     rec.proposals.truncate(KEPT);
                     self.narrow_save(&rec, vec![row])?;
@@ -341,11 +341,14 @@ impl Core {
             };
             rows.push(crate::fact::row(&fact, None, None)?);
             cards.push((
-                format!(
-                    "{} was denied {} ({} AccessDenied since the owner applied its narrower policy {}). \
-                     If a legitimate call was refused, revert with `theseus self narrow revert {}`; \
-                     the policy before it comes back through a change set.",
-                    p.role, new.iter().map(|(a, _)| a.as_str()).collect::<Vec<_>>().join(", "), count, p.id, p.id
+                red_card(
+                    &p.role,
+                    &p.id,
+                    &new.iter()
+                        .map(|(a, _)| a.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    count,
                 ),
                 fact,
             ));
@@ -636,4 +639,17 @@ fn write_private(path: &std::path::Path, body: &str) -> Result<()> {
         .open(path)?;
     f.write_all(body.as_bytes())?;
     Ok(())
+}
+
+/// The card for AccessDenied after an applied narrower policy (theseus-x8b9k).
+pub(crate) fn red_card(role: &str, id: &str, denied: &str, count: u64) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        &format!("AWS denied {role} after its narrower policy"),
+        &format!("{count} AccessDenied since the owner applied its narrower policy {id}"),
+        &format!(
+            "Denied: {denied}. If a legitimate call was refused, revert with `theseus self narrow \
+             revert {id}`; the policy before it comes back through a change set."
+        ),
+    )
 }

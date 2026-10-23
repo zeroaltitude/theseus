@@ -50,7 +50,7 @@ mod graduate;
 mod keel;
 mod rank;
 mod read;
-mod start;
+pub(crate) mod start;
 mod state;
 mod tender;
 mod word;

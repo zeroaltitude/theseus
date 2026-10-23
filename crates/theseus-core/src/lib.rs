@@ -87,6 +87,7 @@ pub mod outbound;
 pub mod outbox;
 pub mod outputs;
 pub mod own_bench;
+pub mod owner_note;
 pub mod pacer;
 pub mod pack_names;
 pub mod parked;
@@ -437,6 +438,8 @@ mod tests_output;
 mod tests_outside_text;
 #[cfg(test)]
 mod tests_overflow;
+#[cfg(test)]
+mod tests_owner_note;
 #[cfg(test)]
 mod tests_people_proposals;
 #[cfg(test)]

@@ -28,7 +28,7 @@
 //! with the mode off and the switch halted: it is the owner's own act.
 
 pub mod attribute;
-mod doing;
+pub(crate) mod doing;
 pub mod signals;
 mod tender;
 #[cfg(test)]
