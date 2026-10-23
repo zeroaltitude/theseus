@@ -737,3 +737,142 @@ async fn a_run_over_plain_sessions_still_proposes_on_a_non_us_model() {
     archive(&r).await;
     assert_eq!(propose(&r).await.proposed.len(), 2);
 }
+
+/// A tracing writer that keeps the journal's lines.
+#[derive(Clone, Default)]
+struct Log(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Log {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(b);
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Log {
+    type Writer = Log;
+    fn make_writer(&'a self) -> Log {
+        self.clone()
+    }
+}
+
+impl Log {
+    fn count(&self, needle: &str) -> usize {
+        let text = String::from_utf8(self.0.lock().unwrap().clone()).unwrap();
+        text.matches(needle).count()
+    }
+}
+
+/// One proposal open under `max_open = 1`, and the last run set back past
+/// the interval.
+async fn full_rig() -> Rig {
+    let r = rig(vec![two(), two()], |c| c.card.max_open = 1);
+    archive(&r).await;
+    assert_eq!(propose(&r).await.proposed.len(), 1);
+    let old = State {
+        last_run_ms: Some(theseus_protocol::now_unix_ms() - 30 * 86_400_000),
+        ..State::read(&r.core.store).unwrap()
+    };
+    r.core.people_write(&[old.record().unwrap()]).await.unwrap();
+    r
+}
+
+/// A run that finds the queue full is an attempt: it records itself, scans
+/// nothing, and the next one is `every_days` away (theseus-15kn3).
+#[tokio::test]
+async fn a_full_card_records_its_attempt_and_scans_nothing() {
+    let r = full_rig().await;
+    let start = theseus_protocol::now_unix_ms();
+    let got = r.core.card_run(false).await.unwrap();
+    assert!(
+        got.stopped.as_deref().unwrap().starts_with("full"),
+        "{got:?}"
+    );
+    assert_eq!(
+        (got.evidence, got.clusters, got.fresh, got.calls),
+        (0, 0, 0, 0)
+    );
+    let last = State::read(&r.core.store).unwrap().last_run_ms.unwrap();
+    assert!(last >= start, "{last} < {start}");
+    let cfg = &r.core.cfg;
+    let (at, _) = super::tender::next_at(
+        theseus_protocol::now_unix_ms(),
+        cfg.judge.learning_hour,
+        cfg.card.every_days,
+        Some(last),
+    );
+    assert!(
+        at >= last + u64::from(cfg.card.every_days) * 86_400_000,
+        "{at}"
+    );
+    // A dry run still counts, and writes nothing.
+    let before = r.core.store.stats().unwrap().last_position;
+    let dry = r.core.card_run(true).await.unwrap();
+    assert!(dry.evidence > 0 && dry.stopped.as_deref().unwrap().starts_with("full"));
+    assert_eq!(r.core.store.stats().unwrap().last_position, before);
+}
+
+/// The tender runs a full card once in its window, not again and again, and
+/// the journal says so once (tokio's paused clock).
+#[tokio::test(start_paused = true)]
+async fn a_full_card_does_not_rerun_within_its_interval() {
+    let r = full_rig().await;
+    let log = Log::default();
+    let _g = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_writer(log.clone())
+            .with_ansi(false)
+            .finish(),
+    );
+    r.core.card_after_serving();
+    tokio::time::sleep(
+        crate::learning::tender::AFTER_START + std::time::Duration::from_secs(3 * 3600),
+    )
+    .await;
+    assert_eq!(log.count("card: the run finished"), 1);
+}
+
+/// A run that fails writes no state; it is not due again at once either.
+#[tokio::test(start_paused = true)]
+async fn a_failed_card_run_is_not_due_again_at_once() {
+    let r = rig(vec![], |c| c.card.profile = "no-such-profile".into());
+    let log = Log::default();
+    let _g = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_writer(log.clone())
+            .with_ansi(false)
+            .finish(),
+    );
+    r.core.card_after_serving();
+    tokio::time::sleep(
+        crate::learning::tender::AFTER_START + std::time::Duration::from_secs(3 * 3600),
+    )
+    .await;
+    assert_eq!(log.count("card: the run did not happen"), 1);
+}
+
+/// A full queue pauses the job, it does not turn it off: once the owner
+/// answers one, a run no longer stops "full" and reads the archive again.
+#[tokio::test]
+async fn a_card_below_max_open_runs_again_on_its_normal_schedule() {
+    let r = full_rig().await;
+    r.core.card_run(false).await.unwrap();
+    let last = State::read(&r.core.store).unwrap().last_run_ms.unwrap();
+    let open = state::proposals(&r.core.store).unwrap();
+    answer(&r, &open[0].id, "decline", None).await;
+    let cfg = &r.core.cfg;
+    let day = 86_400_000;
+    let (at, why) = super::tender::next_at(
+        last,
+        cfg.judge.learning_hour,
+        cfg.card.every_days,
+        Some(last),
+    );
+    assert_eq!(why, "weekly");
+    assert!(at >= last + 7 * day && at < last + 9 * day, "{at}");
+    let got = r.core.card_run(false).await.unwrap();
+    assert!(got.stopped.is_none() && got.evidence > 0, "{got:?}");
+}

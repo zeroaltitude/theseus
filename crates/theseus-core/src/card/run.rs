@@ -2,7 +2,9 @@
 //! to state each fresh cluster, and write the proposals. Off every turn's
 //! path; the owner's `card.propose`, and the nightly tender's.
 //!
-//! The order of a run: expire what nobody answered; scan (a read of the
+//! The order of a run: expire what nobody answered; a full queue ends a real
+//! run here, as an attempt that records itself and scans nothing (a dry run
+//! still counts); scan (a read of the
 //! imported records on the blocking pool); cluster and rank; drop the
 //! clusters whose episodes were mostly seen already; then, in batches of
 //! [`ask::BATCH`], reserve the call's worst case on `[card] day_usd` and the
@@ -139,7 +141,7 @@ impl Core {
         if !dry_run {
             out.expired = self.card_expire(now).await? as u64;
         }
-        let st = theseus_store::blocking(|| State::read(&self.store))?;
+        let mut st = theseus_store::blocking(|| State::read(&self.store))?;
         out.spent_today_usd = st.spent_on(&today);
         if cfg.day_usd <= 0.0 {
             out.stopped = Some("off: [card] day_usd is 0".into());
@@ -147,6 +149,14 @@ impl Core {
         }
         let all = theseus_store::blocking(|| state::proposals(&self.store))?;
         let open = state::in_state(&all, ProposalState::Open).count();
+        let full = open >= cfg.max_open as usize;
+        if full && !dry_run {
+            // A full run is an attempt: it records itself and scans nothing.
+            out.stopped = Some(format!("full: {open} proposals are waiting"));
+            st.last_run_ms = Some(now);
+            self.people_write(&[st.record()?]).await?;
+            return Ok(out);
+        }
         let seen = theseus_store::blocking(|| state::seen(&self.store, &all))?;
         let scan = theseus_store::blocking(|| evidence::scan(&self.store))?;
         let clusters = cluster::cluster(&scan.episodes);
@@ -157,7 +167,7 @@ impl Core {
         out.withheld = scan.withheld;
         out.clusters = clusters.len() as u64;
         out.fresh = fresh.len() as u64;
-        if open >= cfg.max_open as usize {
+        if full {
             out.stopped = Some(format!("full: {open} proposals are waiting"));
             return Ok(out);
         }
