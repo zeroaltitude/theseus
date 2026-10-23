@@ -432,6 +432,34 @@ async fn a_writers_file_that_moves_the_builder_is_refused() {
     assert!(rows(c, "judge.learn:loop", LedgerKind::PackVersion).is_empty());
 }
 
+/// A writer's file cut at its cap is refused for that (theseus-1iqg0), not
+/// for the parse error its fragment makes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_writers_file_cut_at_its_cap_says_so() {
+    let jev = fake(false);
+    let whole = writer_reply();
+    let Scripted::Blocks { blocks, .. } = whole else {
+        unreachable!()
+    };
+    let cut = Scripted::Blocks {
+        blocks,
+        stop_reason: "max_tokens".into(),
+    };
+    let r = rig(vec![cut], &jev, |_| {});
+    let c = &r.core;
+    let split = split_now();
+    seed(c, 10, 0, split);
+    let p = learn(c, split).await;
+    assert_eq!(p.decision, "refused", "{}", p.why);
+    assert!(
+        p.why.contains("max_tokens") && p.why.contains("8,192"),
+        "{}",
+        p.why
+    );
+    assert!(jev.seen().is_empty(), "nothing replayed");
+    assert!(rows(c, "judge.learn:loop", LedgerKind::PackVersion).is_empty());
+}
+
 /// The writer's day budget stops a run before anything is sent; its
 /// errors stay new.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
