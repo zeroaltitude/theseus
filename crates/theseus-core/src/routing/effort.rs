@@ -33,7 +33,8 @@
 //!   long conversation the request keeps the previous request's level unless
 //!   Jev's differs from it by two steps or more. The decision keeps both: `ran`
 //!   is the level Jev's answer came to, `sent` the one the request carries.
-//!   `sticky_unsure` stands for the same hold of an `applied_unsure` answer.
+//!   `sticky_unsure` stands for the same hold of an `applied_unsure` or a
+//!   `held_high_unsure` answer.
 //! - **The effort has its own bar, not the model switch's** (theseus-7pm8t):
 //!   an answer below the question's `confirm` bar (its band, the pack's own
 //!   thresholds, which a model switch needs) still applies when its

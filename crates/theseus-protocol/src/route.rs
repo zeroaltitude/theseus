@@ -44,8 +44,8 @@ pub struct TurnRoute {
     /// none), `carried` (a late verdict's), `recorded` (shadow, or a pin),
     /// `sticky` (a one-step change held at the previous request's level to
     /// keep the cache: `effort_applied` is the level sent), `sticky_unsure`
-    /// (that hold of an `applied_unsure` answer), or `floored` (raised to the
-    /// routed profile's own effort).
+    /// (that hold of an `applied_unsure` or `held_high_unsure` answer), or
+    /// `floored` (raised to the routed profile's own effort).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub effort_reason: Option<String>,

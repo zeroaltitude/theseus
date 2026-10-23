@@ -91,10 +91,10 @@ impl TurnRunner {
     /// level restarts the messages' cache. `tokens` is the compile's own
     /// estimate of the whole request, the measure keep-warm applies to the same
     /// floor, so no token count is added. The decision says `sticky` and keeps
-    /// both levels; an `applied_unsure` answer held says `sticky_unsure`, so
-    /// the row still shows which bar admitted it. A checkpoint's raise is
-    /// never held: the work's own
-    /// evidence is what the rule waits for (theseus-53ujg.3).
+    /// both levels; an `applied_unsure` or `held_high_unsure` answer held
+    /// says `sticky_unsure`, so the row still shows which bar admitted it. A
+    /// checkpoint's raise is never held: the work's own evidence is what the
+    /// rule waits for (theseus-53ujg.3).
     pub(super) fn stick(
         &self,
         t: &Turn<'_>,
@@ -119,7 +119,9 @@ impl TurnRunner {
         match held {
             Some(sent) => EffortDecision {
                 reason: match d.reason {
-                    EffortReason::AppliedUnsure => EffortReason::StickyUnsure,
+                    EffortReason::AppliedUnsure | EffortReason::HeldHighUnsure => {
+                        EffortReason::StickyUnsure
+                    }
                     _ => EffortReason::Sticky,
                 },
                 sent: Some(sent),

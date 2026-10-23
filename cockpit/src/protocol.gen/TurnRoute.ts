@@ -45,8 +45,8 @@ effort?: string,
  * none), `carried` (a late verdict's), `recorded` (shadow, or a pin),
  * `sticky` (a one-step change held at the previous request's level to
  * keep the cache: `effort_applied` is the level sent), `sticky_unsure`
- * (that hold of an `applied_unsure` answer), or `floored` (raised to the
- * routed profile's own effort).
+ * (that hold of an `applied_unsure` or `held_high_unsure` answer), or
+ * `floored` (raised to the routed profile's own effort).
  */
 effort_reason?: string, 
 /**
