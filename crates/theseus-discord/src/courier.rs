@@ -2076,17 +2076,22 @@ fn glide(body: &Value, corr: &str, channel: u64, ping: bool) -> Plan {
 
 /// What the owner is told when an MCP server's tools (`mcp_changed`) or a
 /// prompt's definition (`mcp_prompt_changed`) changed.
-fn mcp_note(body: &Value) -> String {
+pub(crate) fn mcp_note(body: &Value) -> String {
+    use theseus_core::owner_note::{note, Kind};
     let server = body["server"].as_str().unwrap_or("?");
     let summary = body["summary"].as_str().unwrap_or("");
     match body["prompt"].as_str() {
-        Some(prompt) => format!(
-            "MCP server {server}'s prompt {prompt} changed since you last used it ({summary}). \
-             This use went ahead."
+        Some(prompt) => note(
+            Kind::Fyi,
+            &format!("MCP server {server}'s prompt {prompt} changed"),
+            &format!("it changed since you last used it ({summary})"),
+            "This use went ahead.",
         ),
-        None => format!(
-            "MCP server {server} changed its tools ({summary}). The new list is offered from \
-             the next turn."
+        None => note(
+            Kind::Fyi,
+            &format!("MCP server {server} changed its tools"),
+            &format!("the server sent a new list ({summary})"),
+            "The new list is offered from the next turn.",
         ),
     }
 }

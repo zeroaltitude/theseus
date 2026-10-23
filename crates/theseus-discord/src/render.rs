@@ -1059,12 +1059,15 @@ pub fn report(body: &Value, said: Option<&str>, guests: usize, place: Option<u64
 
 /// The line after a restart onto the vault's changed config note (theseus-2fo).
 pub fn restarted(at_unix_ms: u64, tables: &[String]) -> String {
-    format!(
-        "Restarted <t:{}:T> onto the vault's config note, which had changed since my local \
-         copy: {}.",
-        at_unix_ms / 1000,
+    let title = format!(
+        "Restarted <t:{}:T> onto the vault's config note",
+        at_unix_ms / 1000
+    );
+    let why = format!(
+        "the note had changed since my local copy: {}",
         tables.join(", ")
-    )
+    );
+    theseus_core::owner_note::note(theseus_core::owner_note::Kind::Fyi, &title, &why, "")
 }
 
 /// A glide's post (38b): another session's words, in parts under Discord's

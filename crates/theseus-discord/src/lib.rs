@@ -44,6 +44,8 @@ mod tests_live;
 #[cfg(test)]
 mod tests_outbox;
 #[cfg(test)]
+mod tests_owner_note;
+#[cfg(test)]
 mod tests_process;
 #[cfg(test)]
 mod tests_show;
