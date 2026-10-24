@@ -79,6 +79,9 @@ anywhere at all.
 
 ## The commands
 
+The bench runs from a checkout of the repository, not alone: `generate.py` reads the prices from
+`crates/theseus-core/src/catalog.rs` when it is imported, and `drive.py` and `precision.py` import it.
+
 ```bash
 # 1. Each arm (an Anthropic key in ANTHROPIC_API_KEY; release binaries for Theseus). The Theseus arm measures its
 #    daemon's system prompt and tools first, then plans the progression at that and runs it; its run directory holds
@@ -322,8 +325,11 @@ Every run of it gets its report in [`docs/benchmarks/`](../../docs/benchmarks/RE
 ## Tests
 
 ```bash
-python3 -m unittest discover -s bench/recall
+scripts/recall-tests.sh   # or: python3 -m unittest discover -s bench/recall -p 'test_*.py'
 ```
+
+They need Python 3.11 or newer (`tomllib`); the commit gate runs them as its "recall tests" phase
+(`scripts/recall-tests.sh`, which says it skipped when no such Python is on PATH).
 
 They cover:
 - **The generator**: determinism (the smoke's digest pinned, the full the same twice, another seed different),

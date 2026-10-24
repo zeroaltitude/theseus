@@ -751,6 +751,9 @@ phase fmt cargo fmt --all -- --check
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
+# bench/recall's Python tests (a cache-read price drift went unseen without them); Python >= 3.11, or it says it
+# skipped.
+phase "recall tests" scripts/recall-tests.sh
 # The five shipped binaries get every feature the tests' build gives them (theseus-dr2x).
 phase features features
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
