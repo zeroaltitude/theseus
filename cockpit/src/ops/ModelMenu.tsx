@@ -43,7 +43,7 @@ function Pop({ title, onClose, children }: { title: string; onClose: () => void;
     return () => window.removeEventListener('keydown', k, true)
   }, [onClose])
   return (
-    <div role="dialog" aria-label={title} className="fixed right-6 top-28 z-30 flex max-h-[70vh] w-[480px] max-w-[94vw] flex-col overflow-hidden rounded-xl border border-line-strong bg-hull/95 shadow-2xl backdrop-blur">
+    <div role="dialog" aria-label={title} className="fixed right-6 top-28 z-40 flex max-h-[70vh] w-[480px] max-w-[94vw] flex-col overflow-hidden rounded-xl border border-line-strong bg-hull/95 shadow-2xl backdrop-blur">
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <h2 className="font-display text-[11.5px] font-bold uppercase tracking-[0.08em] text-gold">{title}</h2>
         <button onClick={onClose} aria-label="close (esc)" className="ml-auto flex items-center gap-1 text-[10.5px] text-ink-faint hover:text-ink"><span className="kbd">esc</span><X size={11} /></button>

@@ -22,6 +22,8 @@ export type Verb =
   | 'mark_snooze' | 'mark_pause' | 'mark_run' | 'mark_cancel' | 'mark_open'
   // ops-graph (theseus-jid7t.4): the selection.
   | 'select' | 'select_all'
+  // theseus-g00vv: the Graph and the Timeline fill the window (`lib/fullgraph.ts`; Esc leaves)
+  | 'full_window'
 
 export interface KeyDef {
   verb: Verb
@@ -105,6 +107,7 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'mark_open', keys: ['Enter'], ctx: 'mark', words: 'open its session' },
   // ops-graph (theseus-jid7t.4): the selection, on the Graph and the Board. The bulk verbs are buttons (BUTTON_ACTS).
   { verb: 'select', keys: [' '], ctx: 'card', words: 'pick the focused card or node for a bulk act, or put it back' },
+  { verb: 'full_window', keys: ['f'], ctx: 'page', words: 'on the Graph and the Timeline: fill the window, or go back to the page (esc leaves, and does nothing else)' },
   { verb: 'select_all', keys: ['mod+a'], ctx: 'page', words: 'pick everything shown, after the filters and the search (ctrl+a too)' },
 ]
 

@@ -1,7 +1,7 @@
 // The full-window graph's address and keys (theseus-uu3b2).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { REFIT_RETRY_MS, fullKey, parseFull, scheduleRefit, writeFull } from '../src/lib/fullgraph.ts'
+import { FULL_PARAM, REFIT_RETRY_MS, fullKey, parseFull, scheduleRefit, writeFull } from '../src/lib/fullgraph.ts'
 
 test('Esc leaves full screen and an unrelated key does not', () => {
   assert.equal(fullKey({ key: 'Escape' }, true), 'leave')
@@ -72,4 +72,13 @@ test('a refit cancelled at any point runs nothing more', () => {
     c.step(); c.step(); c.tick()
     assert.equal(fits, before, `cancelled after ${stopAfter} frames`)
   }
+})
+
+test('on the Ops page f is a key of the table and the address keeps the graph parameter (theseus-g00vv)', async () => {
+  const { KEYS } = await import('../src/ops/keys.ts')
+  const { writeAddress, parseAddress, OWN_KEYS } = await import('../src/ops/address.ts')
+  assert.ok(KEYS.some((k) => k.verb === 'full_window' && k.keys.includes('f')))
+  assert.ok(!(OWN_KEYS as readonly string[]).includes(FULL_PARAM))
+  const kept = writeAddress({ ...parseAddress(''), lens: 'timeline' }, new URLSearchParams('graph=full&lens=graph'))
+  assert.equal(kept.get('graph'), 'full')
 })

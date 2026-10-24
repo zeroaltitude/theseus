@@ -30,6 +30,7 @@ import type { CalendarRead } from './calendarwatch'
 import { calEvents, clashes, meetingCount, tableRows, timelineOrder, zoomed } from './timeline'
 import type { Call, Drop } from './drag'
 import { WeekStripV2 } from './WeekStripV2'
+import { useFullGraph } from '@/components/FullGraph'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
 import { FIELD, Sheet } from './Sheet'
@@ -45,6 +46,7 @@ export function TimelineLens({ weeks, day, sel, redact, q, cal, past, onSel, onW
 }) {
   // The minute hand and "in 4m" move once a minute: a timer, not a request.
   const now = useTick(60_000)
+  const fullWindow = useFullGraph('Timeline')
   const win = useMemo(() => weekWindow(now, weeks), [Math.floor(now / 3_600_000), weeks]) // eslint-disable-line
   const shown = useMemo(() => zoomed(win, day), [win, day])
   const board = useThreadBoard()
@@ -102,8 +104,9 @@ export function TimelineLens({ weeks, day, sel, redact, q, cal, past, onSel, onW
     <div className="flex flex-col gap-3" data-testid="timeline-lens">
       {error && <div className="rounded-lg bg-fault/[0.06] px-3 py-2 text-[12px] text-fault ring-1 ring-fault/30">the agenda could not be read: {error}</div>}
       {cal.error && <div className="rounded-lg bg-fault/[0.06] px-3 py-2 text-[12px] text-fault ring-1 ring-fault/30">the calendar could not be read: {cal.error} Theseus’s own marks still draw.</div>}
-      <Panel help="agenda.week" title={title} icon={<CalendarClock size={13} />} bodyClassName="p-3"
+      <Panel help="agenda.week" title={title} icon={<CalendarClock size={13} />} bodyClassName={cn('p-3', fullWindow.full && 'overflow-auto')} {...fullWindow.panel}
         actions={<span className="flex min-w-0 items-center gap-2">
+          {fullWindow.button}
           <span className="num truncate text-[11px] text-ink-faint">{hover ?? (picked ? markLine(picked).split('\n')[0] : `${stamp(shown.from_ms)} → ${stamp(shown.to_ms - 1)}`)}</span>
           {redact && <span className="rounded px-1.5 text-[10px] font-semibold uppercase tracking-wider text-wait ring-1 ring-wait/40" title="⇧R shows them">redacted</span>}
           <Segmented value={table ? 'table' : 'chart'} options={['chart', 'table'] as const} onChange={(v) => setTable(v === 'table')} />
@@ -112,7 +115,7 @@ export function TimelineLens({ weeks, day, sel, redact, q, cal, past, onSel, onW
         {table
           ? <TimelineTable rows={tableRows(marks, events, shown, redact, clash, markLine)} sel={sel} onSel={onSel} matches={matches} />
           : <WeekStripV2 window={shown} marks={marks} events={events} cals={cal.calendars} views={views} runs={runs} now={now} past={past} selected={sel} clash={clash}
-              redact={redact} matches={matches} zoom={day != null} weeks={weeks} onPick={(k) => onSel(sel === k ? null : k)} onHover={setHover}
+              redact={redact} matches={matches} zoom={day != null} weeks={weeks} full={fullWindow.full} onPick={(k) => onSel(sel === k ? null : k)} onHover={setHover}
               onWeek={onWeek} onToday={onToday} onZoom={onZoom} onDrop={(x) => void drop(x)} />}
         {picked && <MarkDetail mark={picked} onClose={() => onSel(null)} onOpen={onOpen} />}
         {sel?.startsWith('ev:') && <p className="mt-2 text-[11px] text-ink-faint">The selected event’s facts and verbs are in the inspector (<span className="kbd">]</span> unfolds it).</p>}

@@ -202,3 +202,20 @@ test('the Graph’s follow-ups are wired: keys, the palette scope, the verb menu
   assert.match(lens, /setOpened\(\(s\) => new Set\(\[\.\.\.s, n\.parent/)
   assert.match(lens, /setOpened\(new Set\(\)\); setTidy/)
 })
+
+test('the Graph and the Timeline fill the window through the one helper, and Esc then only leaves it (theseus-g00vv)', () => {
+  const code = (s: string) => s.replace(/\/\/.*$/gm, '')
+  assert.match(code(src('ops/GraphLens.tsx')), /useFullGraph\('Graph'\)/)
+  assert.match(code(src('ops/GraphLens.tsx')), /onInit=\{fullGraph\.onInit\}/)
+  assert.match(code(src('ops/TimelineLens.tsx')), /useFullGraph\('Timeline'\)/)
+  for (const [f, s] of parts) assert.ok(!/fixed inset-0 z-30/.test(code(s)), `${f} has a full-window rule of its own (the sheets are z-40 overlays)`)
+  const p = code(page)
+  // The page's handler (window, capture) runs before the helper's (document, capture): it asks fullKey first.
+  const k = p.slice(p.indexOf('const k = (e: KeyboardEvent)'))
+  assert.ok(k.indexOf("fullKey(e, true) === 'leave'") > 0, 'the handler asks fullKey')
+  assert.ok(k.indexOf("fullKey(e, true) === 'leave'") < k.indexOf('resolve(name, c, false)'), 'before it resolves Escape to back')
+  assert.match(p, /live\.current\.full && fullKey/)
+  // A lens without a full-window view leaves it; `g f` stays the shell's.
+  assert.match(p, /FULLABLE\.includes\(patch\.lens\)/)
+  assert.match(p, /name === 'f'\) \{ g = 0; return \}/)
+})

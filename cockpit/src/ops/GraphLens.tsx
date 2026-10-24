@@ -11,7 +11,7 @@ import { useCalm } from '@/lib/calm'
 import type { TaskRecord, WorkView } from '@protocol'
 import { toneHex } from '@/lib/taxonomy'
 import { cn } from '@/lib/format'
-import { FIT } from '@/components/FullGraph'
+import { FIT, useFullGraph } from '@/components/FullGraph'
 
 /** The lanes fill the canvas edge to edge: less margin than the other graphs' fit. */
 const FIT_LANES = { ...FIT, padding: 0.05 }
@@ -60,6 +60,7 @@ export function GraphLens(p: GraphLensProps) {
 
 function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onFocus, onPick, onLasso, onOpen, onContext, redact, layoutRef, drag, titleOf }: GraphLensProps) {
   const rf = useReactFlow()
+  const fullGraph = useFullGraph('Graph')
   const calm = useCalm((s) => s.calm)
   const [future, setFuture] = useState(false)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
@@ -160,8 +161,9 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   }
 
   return (
-    <div ref={box} className="relative h-full min-h-[420px] overflow-hidden rounded-xl border border-line bg-deck" data-testid="ops-graph">
-      <ReactFlow nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} onNodesChange={onNodesChange} minZoom={0.08} maxZoom={1.6} colorMode="dark"
+    <div ref={box} role={fullGraph.panel.dialog ? 'dialog' : undefined} aria-label={fullGraph.panel.dialog} data-testid="ops-graph"
+      className={cn('relative h-full min-h-[420px] overflow-hidden rounded-xl border border-line bg-deck', fullGraph.panel.className)}>
+      <ReactFlow onInit={fullGraph.onInit} nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} onNodesChange={onNodesChange} minZoom={0.08} maxZoom={1.6} colorMode="dark"
         proOptions={{ hideAttribution: true }} multiSelectionKeyCode={null} selectionKeyCode="Shift" deleteKeyCode={null}
         onNodeClick={(e, n) => {
           if (n.type === 'lane') return
@@ -192,6 +194,7 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
           nodeColor={(n) => (n.type === 'lane' ? 'rgba(214,165,72,0.08)' : (n.data as NodeData).n?.needs ? toneHex.wait : (n.data as NodeData).picked ? '#d6a548' : '#6b7d94')} />
       </ReactFlow>
       <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2 rounded-lg bg-hull/90 px-2.5 py-1.5 text-[11px] text-ink-dim ring-1 ring-line backdrop-blur">
+        {fullGraph.button}
         <span className="num">{g.nodes.length} nodes{g.folded ? ` · ${g.folded} folded` : ''}</span>
         {g.cantOpen && <span role="status" className="text-wait">could not open: the graph is at its cap; narrow it with the filters or the search</span>}
         <button type="button" aria-pressed={future} onClick={() => setFuture((f) => !f)} className={cn('rounded px-1.5 ring-1', future ? 'bg-think/15 text-think ring-think/40' : 'ring-line hover:text-ink')}
