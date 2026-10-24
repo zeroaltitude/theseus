@@ -377,6 +377,10 @@ fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
     let r = &d["report"];
     let pack = word(&r["pack"]);
     let (calls, failed) = (r["calls"].as_u64()?, r["failed"].as_u64().unwrap_or(0));
+    // `failed` is every failure the pack ever had, so a failure that stopped
+    // would keep the cause alive for good; the recent count is what is still
+    // happening. A report from before it has only `failed`.
+    let failed = r["failed_recent"].as_u64().unwrap_or(failed);
     let (labeled, disagree) = (
         r["labeled"].as_u64().unwrap_or(0),
         r["disagreements"].as_u64().unwrap_or(0),
@@ -541,6 +545,36 @@ mod tests {
             data,
         };
         of_row(7, &row).unwrap().title
+    }
+
+    /// A learning report counts every failure the pack ever had; only the
+    /// ones still happening open the cause. People's twelve failed calls of
+    /// one October backfill sat in every nightly report for weeks and filed
+    /// the same item each night.
+    #[test]
+    fn a_failure_that_stopped_does_not_keep_the_cause_open() {
+        let report = |pack: Value| {
+            let row = LedgerRow {
+                at_unix_ms: 1,
+                kind: "judge.report".into(),
+                session_id: None,
+                turn_id: None,
+                data: json!({"report": pack}),
+            };
+            of_row(7, &row)
+        };
+        let stopped = json!({"pack": "people.v1", "calls": 9147, "failed": 12, "failed_recent": 0});
+        assert_eq!(report(stopped), None, "twelve old failures, none since");
+        let going = json!({"pack": "people.v1", "calls": 9147, "failed": 12, "failed_recent": 2});
+        let o = report(going).unwrap();
+        assert_eq!(o.key, "judge.failed:people.v1");
+        assert_eq!(
+            o.note,
+            "2 of 9147 people.v1 calls failed in the learning report"
+        );
+        // A report stored before the recent count has only the total.
+        let legacy = json!({"pack": "people.v1", "calls": 9147, "failed": 12});
+        assert_eq!(report(legacy).unwrap().key, "judge.failed:people.v1");
     }
 
     /// A backlog item's title is in plain words, and an item filed under the

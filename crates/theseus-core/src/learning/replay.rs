@@ -859,6 +859,7 @@ fn replay_result(
             Seen {
                 position: s.position,
                 at_ms: s.at_ms,
+                row_ms: s.row_ms,
                 judgment: j,
             }
         })

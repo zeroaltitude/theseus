@@ -12,7 +12,14 @@ export type PackReport = {
 /**
  * `loop.v1`.
  */
-pack: string, calls: number, answered: number, failed: number, skipped: number, 
+pack: string, calls: number, answered: number, failed: number, 
+/**
+ * Of `failed`, the calls made since the day before the report's holdout
+ * ends: what is still happening, where `failed` keeps every failure the
+ * pack ever had. None in a report from before it. The backlog reads
+ * this one, so a failure that stopped is not filed again every night.
+ */
+failed_recent?: number, skipped: number, 
 /**
  * Judgments with at least one label that counts toward a question.
  */

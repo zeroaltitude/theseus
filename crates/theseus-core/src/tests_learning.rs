@@ -1270,6 +1270,7 @@ fn a_machine_label_never_grades_the_reports_holdout() {
     let seen = |id: &str, at: u64| Seen {
         position: at,
         at_ms: at,
+        row_ms: at,
         judgment: judgment(
             id,
             "route.v4",
@@ -1334,4 +1335,43 @@ fn a_machine_label_never_grades_the_reports_holdout() {
         .unwrap();
     assert_eq!(whole.labeled, 3, "the whole report counts them all");
     assert_eq!(h.train, 1);
+}
+
+/// The report keeps every failed call in `failed` and, apart, the ones made
+/// since the day before the window ends (`failed_recent`), by when the row was
+/// written: a backfill's failure on an old event is a failure of today.
+#[test]
+fn the_report_counts_the_failures_still_happening_apart() {
+    use crate::learning::{report::pack_report, Seen};
+    use theseus_judge::learn::Window;
+    let end = 40 * DAY_MS;
+    let window = Window::latest(end, 14);
+    let seen = |id: &str, row_ms: u64, at_ms: u64, failed: bool| {
+        let mut j = judgment(id, "people.v1", vec![], json!({}), 10);
+        if failed {
+            j.outcome = serde_json::from_value(json!({
+                "outcome": "failed",
+                "error": {"class": "timeout", "phase": "total", "elapsed_ms": 9},
+                "class": "timeout", "transient": true, "usage_unknown": true,
+            }))
+            .unwrap();
+        }
+        Seen {
+            position: row_ms,
+            at_ms,
+            row_ms,
+            judgment: j,
+        }
+    };
+    let judgments = vec![
+        seen("jdg_old_fail", end - 30 * DAY_MS, end - 30 * DAY_MS, true),
+        seen("jdg_old_ok", end - 30 * DAY_MS, end - 30 * DAY_MS, false),
+        seen("jdg_new_fail", end - DAY_MS / 2, end - DAY_MS / 2, true),
+        // A backfill pass: the event is old, the call was made today.
+        seen("jdg_backfill_fail", end - 60_000, end - 20 * DAY_MS, true),
+        seen("jdg_new_ok", end - 60_000, end - 60_000, false),
+    ];
+    let report = pack_report("people.v1", &judgments, &Default::default(), window);
+    assert_eq!(report.failed, 3);
+    assert_eq!(report.failed_recent, Some(2));
 }

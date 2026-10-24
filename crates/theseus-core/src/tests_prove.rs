@@ -742,6 +742,7 @@ fn seen(id: &str, session: &str, arm: &str, work: &str, position: u64) -> Seen {
     Seen {
         position,
         at_ms: position,
+        row_ms: position,
         judgment: judgment(id, "loop.v1", session, arm, work, 1_000),
     }
 }
@@ -927,6 +928,7 @@ fn promote(id: &str, p: f64, at_ms: u64) -> Seen {
     Seen {
         position: at_ms,
         at_ms,
+        row_ms: at_ms,
         judgment: j,
     }
 }

@@ -117,6 +117,7 @@ fn a_seed_draws_one_sample() {
         .map(|i| crate::learning::Seen {
             position: i,
             at_ms: i,
+            row_ms: i,
             judgment: serde_json::from_value(json!({
                 "id": format!("jdg_{i}"), "pack": "loop.v1", "version": 1, "pack_sha256": "",
                 "point": "loop_end", "mode": "shadow", "model": "jev-1.13.0",

@@ -347,6 +347,12 @@ pub fn pack_report_of(
         calls: seen.len() as u32,
         answered: answered.len() as u32,
         failed: count(&|o| matches!(o, Outcome::Failed { .. })),
+        failed_recent: Some(
+            seen.iter()
+                .filter(|s| matches!(s.judgment.outcome, Outcome::Failed { .. }))
+                .filter(|s| s.row_ms >= window.end_ms.saturating_sub(learn::DAY_MS))
+                .count() as u32,
+        ),
         skipped: count(&|o| matches!(o, Outcome::Skipped { .. })),
         labeled,
         baseline: pack
