@@ -43,7 +43,6 @@ import asyncio
 import json
 import os
 import time
-import tomllib
 from pathlib import Path
 from typing import Any, override
 
@@ -142,7 +141,7 @@ class TheseusAsync(ta.Theseus):
         meta = driver.task_of(_task_dir(environment))
         inj = driver.injection_of(_task_dir(environment))
         kill = driver.kill_of(_task_dir(environment))
-        timeout = float(self._task_timeout(environment))
+        timeout = tb.task_timeout(_task_dir(environment))
         report: dict[str, Any] = {"arm": self.name(), "family": meta.get("family"),
                                   "proc_sync_secs": values[("tools", "proc_sync_secs")]}
         sample_ms = int(os.environ.get("BENCH_SAMPLE_MS", str(smp.INTERVAL_MS)))
@@ -202,14 +201,6 @@ class TheseusAsync(ta.Theseus):
             await asyncio.shield(environment.exec(command=end, timeout_sec=60))
             report["wall_s"] = round(time.monotonic() - started, 3)
             _write(self.logs_dir, report)
-
-    def _task_timeout(self, environment: BaseEnvironment) -> float:
-        """The task's agent timeout, by which the trial must have ended."""
-        try:
-            cfg = tomllib.loads((_task_dir(environment) / "task.toml").read_text())
-            return float(cfg.get("agent", {}).get("timeout_sec") or 900)
-        except (OSError, ValueError):
-            return 900.0
 
     @override
     def populate_context_post_run(self, context: AgentContext) -> None:

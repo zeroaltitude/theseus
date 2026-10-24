@@ -45,7 +45,7 @@ dollars (`cost_usd`; the model's alone is `model_cost_usd`), and names the model
 
 Settings, from the environment of `harbor run`: THESEUS_BENCH_MAX_LOOPS
 (200), THESEUS_BENCH_SPEND_LIMIT ($2.00 plus one maximum reservation at the model: 3.75 for Sonnet 5.5; 20.0 on the routed arm), THESEUS_BENCH_PROC_SYNC
-(900 s a command may keep the turn waiting), and THESEUS_BENCH_SYSTEM_FILE
+(900 s a command may keep the turn waiting), THESEUS_BENCH_DEADLINE (0: no turn deadline; else the task's timeout less 60 s, passed as `ask --deadline`, so the time steer and the stop-and-report can fire; Harbor's timeout multiplier is not read, so the deadline falls early, never late), and THESEUS_BENCH_SYSTEM_FILE
 (extra system text, for an A/B arm).
 """
 
@@ -234,7 +234,8 @@ class Theseus(BaseInstalledAgent):
             sample_ms = int(os.environ.get("BENCH_SAMPLE_MS", str(smp.INTERVAL_MS)))
             await self.exec_as_agent(
                 environment, command=tb.run_script(BIN, STATE, logs, SAMPLER, sample_ms, self.routed,
-                                     os.environ.get(tb.FOLLOW_FOR_ENV, tb.FOLLOW_FOR)),
+                                     os.environ.get(tb.FOLLOW_FOR_ENV, tb.FOLLOW_FOR),
+                                     tb.deadline_secs(tb.task_timeout(Path(environment.environment_dir).parent))),
                 env=env
             )
         except asyncio.CancelledError:
