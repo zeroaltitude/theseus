@@ -99,6 +99,8 @@ impl Shared {
             self.earned_press(i, press, who, discord).await;
         } else if let Some(press) = super::capture_card::parse(custom_id) {
             self.standing_press(i, press, who, discord).await;
+        } else if let Some(press) = super::card_question::parse(custom_id) {
+            self.card_question_press(i, press, who, discord).await;
         } else if let Some(press) = super::remind::parse(custom_id) {
             self.remind_press(i, press, who).await;
         } else if let Some(press) = super::seal::parse(custom_id) {
@@ -107,7 +109,21 @@ impl Shared {
             self.link_press(i, press, who, discord).await;
         } else if let Some(write) = super::onto_card::parse(custom_id) {
             self.onto_press(i, write, who, discord).await;
-        } else if let Some(press) = super::persona_soul::parse(custom_id) {
+        } else {
+            return self.notice_press_more(i, custom_id, who, discord).await;
+        }
+        true
+    }
+
+    /// The rest of `notice_press`'s chain, apart from it for clippy's complexity limit.
+    async fn notice_press_more(
+        &self,
+        i: &Interaction,
+        custom_id: &str,
+        who: &str,
+        discord: Option<DiscordOrigin>,
+    ) -> bool {
+        if let Some(press) = super::persona_soul::parse(custom_id) {
             self.persona_soul_press(i, press, who).await;
         } else if let Some(press) = super::thread_ask::parse(custom_id) {
             self.thread_ask_press(i, press, who, discord).await;

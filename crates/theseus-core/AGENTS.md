@@ -374,6 +374,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   same kind, words and source). No coding scope: the route mode is decided after the standing block is fixed.
   Tests: `card/tests_pure.rs`, `card/tests_job.rs` (the invented archive in `card/fixture.rs`, and its `setup_export`),
   `config/tests_card.rs`.
+  **The DM poster** (theseus-6f8t0; `card/dm.rs`, started with the card tender by `card_tenders_after_serving`): every 10 minutes, `due` picks
+  the open proposals with `observations` and no `posted_ms`, oldest first, at most `[card] dm_per_day` a local day, from `[initiative]
+  morning_hour` on, with `[card] observe` on, a DM bound and the pacer's window open (a closed window waits; never silent); each is one
+  `card_question` outbox post, and the posts and the proposals' `posted_ms` are one frame, read again under the writer handshake. Tests:
+  `card/tests_dm.rs`.
 - **Personas are the ontology's** (theseus-utfnl; store format 50; `personas.rs`, `personas/{migrate,soul,write,note}.rs`,
   `rpc/persona_write.rs`, theseus-ontology's `persona.rs`). A persona is a `persona:<key>` category of the seeded `persona`
   kind (interpreted, assigned by the operator and the import only, one per session, precedence 100; the row is pinned for

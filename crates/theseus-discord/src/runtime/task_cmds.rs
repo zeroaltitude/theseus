@@ -269,6 +269,12 @@ impl Shared {
                 true
             }
             Some(InteractionData::ModalSubmit(m))
+                if m.custom_id.starts_with(super::card_question::MODAL) =>
+            {
+                self.card_question_modal(i, m, &who).await;
+                true
+            }
+            Some(InteractionData::ModalSubmit(m))
                 if m.custom_id.starts_with(crate::render::answer_v2::MODAL) =>
             {
                 self.answer_modal(i, m, &who).await;

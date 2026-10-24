@@ -45,6 +45,7 @@
 pub mod answer;
 pub mod ask;
 pub mod cluster;
+pub mod dm;
 pub mod evidence;
 pub mod run;
 pub mod state;
@@ -52,6 +53,8 @@ pub mod tender;
 
 #[cfg(test)]
 mod fixture;
+#[cfg(test)]
+mod tests_dm;
 #[cfg(test)]
 mod tests_job;
 #[cfg(test)]
