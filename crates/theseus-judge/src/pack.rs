@@ -37,9 +37,9 @@ use crate::learn::RollbackRule;
 
 /// Every pack version this build knows, by file name: the test pack, §2.4's six, `security.v3` beside
 /// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
-/// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v7`
+/// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v8`
 /// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
-/// theseus-a1wvq). Older versions
+/// theseus-a1wvq and theseus-f9qa8). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
@@ -62,6 +62,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v5", include_str!("../packs/route.v5.toml")),
     ("route.v6", include_str!("../packs/route.v6.toml")),
     ("route.v7", include_str!("../packs/route.v7.toml")),
+    ("route.v8", include_str!("../packs/route.v8.toml")),
     ("reply_data.v1", include_str!("../packs/reply_data.v1.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
@@ -1366,6 +1367,19 @@ mod tests {
                     "rollback [labels_per_day on_path_p95]",
                 ],
             ),
+            (
+                "route.v8",
+                &[
+                    "Inbound Inbound SessionProfile Route",
+                    "data Choice [open private unclear]",
+                    "mode Choice decides [trivial quick chat sophisticated deep_coding routine_coding review other]",
+                    "persona Choice from Personas + [prior] only_when Personas",
+                    "personal Choice [none elicit expose]",
+                    "reply_effort Choice decides [low medium high xhigh max unclear]",
+                    "seal Choice [yes no] only_when ThreadNow",
+                    "rollback [labels_per_day on_path_p95]",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1437,6 +1451,11 @@ mod tests {
             "route.v7 keeps v6's rules"
         );
         assert_eq!(
+            rules("route.v8"),
+            rules("route.v7"),
+            "route.v8 keeps v7's rules"
+        );
+        assert_eq!(
             rules("classify.v2"),
             vec![RollbackRule::LabelsPerDay {
                 label: "wrong thread".into(),
@@ -1478,8 +1497,8 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            29,
-            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v7, \
+            30,
+            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
              onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1 and reply_data.v1"
         );
@@ -1706,6 +1725,84 @@ mod tests {
         );
         let opening = v6.description.trim_end_matches('.');
         assert!(v7.description.starts_with(opening), "{}", v7.description);
+    }
+
+    /// route.v8 (theseus-f9qa8) is route.v7 word for word, but for the `data`
+    /// question's `open` and `unclear` options: `open` names the public signs
+    /// and says an unshown owner is no sign of private matter; `unclear` stops
+    /// counting an unshown owner; `private`, the instructions, the thresholds
+    /// and the no-match are v7's, so what reads the answer reads it unchanged.
+    #[test]
+    fn route_v8_is_v7_word_for_word_but_the_data_options() {
+        let (v7, v8) = (by_name("route.v7").unwrap(), by_name("route.v8").unwrap());
+        for q in ["mode", "reply_effort", "persona", "seal", "personal"] {
+            assert_eq!(v8.question(q), v7.question(q), "{q} word for word");
+        }
+        let ids = |p: &Pack| p.questions.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&v8), ids(&v7), "the same questions");
+        let (d7, d8) = (v7.question("data").unwrap(), v8.question("data").unwrap());
+        assert_eq!(
+            (
+                &d8.instructions,
+                &d8.decides,
+                &d8.kind,
+                &d8.thresholds,
+                &d8.no_match
+            ),
+            (
+                &d7.instructions,
+                &d7.decides,
+                &d7.kind,
+                &d7.thresholds,
+                &d7.no_match
+            )
+        );
+        let opts = |q: &QuestionDef| q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>();
+        assert_eq!(opts(d8), ["open", "private", "unclear"]);
+        assert_eq!(opts(d8), opts(d7));
+        let means = |q: &QuestionDef, id: &str| {
+            q.options
+                .iter()
+                .find(|o| o.id == id)
+                .unwrap()
+                .means
+                .clone()
+                .unwrap_or_default()
+        };
+        assert_eq!(
+            means(d8, "private"),
+            means(d7, "private"),
+            "private verbatim"
+        );
+        let (open7, open8) = (means(d7, "open"), means(d8, "open"));
+        assert!(
+            open8.starts_with(&open7),
+            "open keeps v7's words, then adds"
+        );
+        assert!(open8.contains("public licence") && open8.contains("toolchain"));
+        assert!(open8.contains("not a sign of private matter"));
+        let unclear = means(d8, "unclear");
+        assert!(unclear.contains("mixes open and private matter"));
+        assert!(!unclear.contains("owner it does not show"), "{unclear}");
+        assert_eq!(v8.rollback, v7.rollback, "both rules, word for word");
+        assert_eq!(v8.version, 8);
+        assert_eq!(
+            (
+                v8.point,
+                v8.builder,
+                v8.baseline,
+                v8.action,
+                v8.state_cap_tokens
+            ),
+            (
+                v7.point,
+                v7.builder,
+                v7.baseline,
+                v7.action,
+                v7.state_cap_tokens
+            )
+        );
+        assert_eq!(v8.description, v7.description);
     }
 
     /// reply_data.v1 (theseus-a1wvq.15) asks route.v7's `data` question of one
