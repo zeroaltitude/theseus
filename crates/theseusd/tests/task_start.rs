@@ -172,7 +172,31 @@ fn a_quote_file_holds_the_tasks_session_as_external_text() {
     });
     let reqs = model.requests();
     assert!(reqs[0].to_string().contains("ferry 7 was ten minutes late"));
+    // The quote file holds the task's session, and session.list keeps the hold once the task is complete; health
+    // lists only holds that can still matter, so it leaves the ended task's out (theseus-g00vv).
+    let sid = task_state(&s, &short)["task_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let list = s.call("session.list", json!({})).unwrap();
+    let rec = list["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["session_id"] == sid.as_str())
+        .cloned()
+        .unwrap_or_else(|| panic!("no session {sid} in {list}"));
+    assert_eq!(
+        rec["external_text"]["tool"], "task.start",
+        "session.list names the hold: {rec}"
+    );
     let health = s.call("health", Value::Null).unwrap();
-    let held = health.to_string();
-    assert!(held.contains("task.start"), "health names the hold: {held}");
+    let listed = health["external_text"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !listed.iter().any(|h| h["session_id"] == sid.as_str()),
+        "health leaves the ended task's hold out: {health}"
+    );
 }
