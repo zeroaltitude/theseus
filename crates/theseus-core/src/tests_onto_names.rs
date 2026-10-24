@@ -410,3 +410,145 @@ async fn a_stale_kept_pick_is_dropped_and_its_cluster_asked_again() {
         "{mark:?}"
     );
 }
+
+/// The sessions and kept yeses of `a_stale_kept_pick_is_dropped_and_its_cluster_asked_again`:
+/// the pairs `lanternledger ~ ledgerapp` and `lanternledger ~ lanternmaps` were
+/// asked and said yes, and `kind-name lanternledger` was asked (the pick was
+/// none, or below the band), offering `offered`; `None` for a mark that
+/// recorded no offer. The day's mark is today's.
+fn kept_none_ask(r: &Rig, offered: Option<&[&str]>) {
+    let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+    let kept = Mark {
+        day: crate::judge::spend::local_day(fresh()),
+        asked: [
+            ("kind lanternledger ledgerapp".to_string(), fresh()),
+            ("kind lanternledger lanternmaps".to_string(), fresh()),
+            ("kind-name lanternledger".to_string(), fresh()),
+        ]
+        .into(),
+        same: [
+            pair("lanternledger", "ledgerapp"),
+            pair("lanternledger", "lanternmaps"),
+        ]
+        .into(),
+        offered: offered
+            .map(|o| {
+                let set = o.iter().map(|f| f.to_string()).collect();
+                [("lanternledger".to_string(), set)].into()
+            })
+            .unwrap_or_default(),
+        ..Mark::default()
+    };
+    r.core.store.put_meta(MARK, &kept).unwrap();
+}
+
+/// The owner lists `Ledger App` in a kind of their own.
+fn list_ledger_app(r: &Rig) {
+    use theseus_protocol::OntologyKindAddParams;
+    r.core
+        .ontology_kind_add(
+            &OntologyKindAddParams {
+                name: "ledger-apps".into(),
+                description: "The apps that keep a ledger".into(),
+                examples: vec!["Ledger App".into()],
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap();
+}
+
+/// A kept ask that got no pick offered `Lantern Ledger` and `Ledger App`. The
+/// owner then lists `Ledger App` and a kept yes joins `Lantern Maps`: the
+/// cluster's names are not those the ask offered, so the question changed and
+/// the cluster is asked its name again (theseus-3ys6k).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kept_none_ask_on_a_changed_cluster_is_asked_again() {
+    let jev = kind_jev(0.1);
+    pick(&jev, "n2", 0.9);
+    let r = rig(jev, |_| {});
+    plant_other(&r);
+    said_other(&r, "o4", &["Lantern Maps"]);
+    kept_none_ask(&r, Some(&["lanternledger", "ledgerapp"]));
+    list_ledger_app(&r);
+    let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
+    assert_eq!((swept.kinds, swept.named_kinds), (1, 1), "{swept:?}");
+    assert!(snapshot(&r.core).kind("lantern-maps").is_some());
+    assert_eq!(r.jev.seen().len(), 1, "only the kind's name was asked");
+    let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
+    let now: std::collections::BTreeSet<String> =
+        ["lanternledger", "lanternmaps"].map(String::from).into();
+    assert_eq!(mark.offered["lanternledger"], now, "{mark:?}");
+}
+
+/// The same cluster as the ask offered is not asked again: no question every night.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kept_none_ask_on_the_same_cluster_is_not_asked_again() {
+    let jev = kind_jev(0.1);
+    pick(&jev, "n2", 0.9);
+    let r = rig(jev, |_| {});
+    plant_other(&r);
+    said_other(&r, "o4", &["Lantern Maps"]);
+    kept_none_ask(&r, Some(&["lanternledger", "ledgerapp", "lanternmaps"]));
+    r.core.onto_sweep_night(fresh()).await.unwrap();
+    assert_eq!(r.jev.seen().len(), 0, "no kind name was asked");
+}
+
+/// A mark written before `offered` recorded none: its ask is kept as it was
+/// and ages out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_old_mark_with_no_offered_keeps_its_none_ask() {
+    let jev = kind_jev(0.1);
+    pick(&jev, "n2", 0.9);
+    let r = rig(jev, |_| {});
+    plant_other(&r);
+    said_other(&r, "o4", &["Lantern Maps"]);
+    kept_none_ask(&r, None);
+    list_ledger_app(&r);
+    r.core.onto_sweep_night(fresh()).await.unwrap();
+    assert_eq!(r.jev.seen().len(), 0, "no kind name was asked");
+    let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
+    assert!(
+        mark.asked.contains_key("kind-name lanternledger"),
+        "{mark:?}"
+    );
+}
+
+/// A paid kind-name ask records the names it offered, and the record goes with
+/// its ask at 30 days.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kind_name_ask_records_its_offer_and_loses_it_with_the_ask() {
+    let jev = kind_jev(0.9);
+    pick(&jev, "n2", 0.9);
+    let r = rig(jev, |_| {});
+    said_other(&r, "o1", &["2026 Plan"]);
+    said_other(&r, "o2", &["2026 Plan"]);
+    said_other(&r, "o3", &["2026 Roadmap"]);
+    r.core.onto_sweep_night(fresh()).await.unwrap();
+    let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
+    let offer: std::collections::BTreeSet<String> =
+        ["2026plan", "2026roadmap"].map(String::from).into();
+    assert_eq!(mark.offered["2026plan"], offer, "{mark:?}");
+
+    let old = fresh() - 31 * 24 * 3_600_000;
+    let kept = Mark {
+        day: crate::judge::spend::local_day(fresh()),
+        asked: [
+            ("kind-name aaa".to_string(), old),
+            ("kind-name ccc".to_string(), fresh()),
+        ]
+        .into(),
+        offered: [
+            ("aaa".to_string(), offer.clone()),
+            ("ccc".to_string(), offer),
+            ("eee".to_string(), Default::default()),
+        ]
+        .into(),
+        ..Mark::default()
+    };
+    let r = rig(FakeJev::start().unwrap(), |_| {});
+    r.core.store.put_meta(MARK, &kept).unwrap();
+    r.core.onto_sweep_night(fresh()).await.unwrap();
+    let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
+    assert_eq!(mark.offered.keys().collect::<Vec<_>>(), ["ccc"], "{mark:?}");
+}
