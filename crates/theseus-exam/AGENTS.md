@@ -21,7 +21,8 @@ and `report.rs`, `replay.rs`, `tender.rs` (the retrieval probe). Read by: the ma
   fresh daemons from the snapshots, runs that run's cells, and stops them. `oracle`'s cells go to the `none` daemon,
   with the gold after the task.
 - Each record names its `profile` and that profile's model (`profile_model`, from the pre-flight). A run starts no
-  more cells once one's `models` holds another model, and `report` refuses such records (`report::model_mismatch`).
+  more cells once one's `models` holds another model, and `report` refuses such records (`report::model_mismatch`). A dated snapshot or a vendor
+  prefix of the profile's model is the same model (`theseus_core::catalog::same_model`); another vendor's is not.
 - `theseus-exam report --out F` writes the frozen report: each arm's rate with its interval and n, the paired
   differences (`+activation − baseline` among them, when the records hold both), cost per pass, the halves, the
   decision per feature, and what could not be measured. It names the

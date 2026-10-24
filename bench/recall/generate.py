@@ -159,13 +159,20 @@ _CLAUDE_CALL = re.compile(
 )
 
 
+def _catalog_body(src: str) -> str:
+    """The catalog's source before its test module (the first line starting
+    `#[cfg(test)]`), so a fixture written there never prices or tiers a model."""
+    return re.split(r"^[ \t]*#\[cfg\(test\)\]", src, maxsplit=1, flags=re.M)[0]
+
+
 def catalog_prices(src: str) -> dict[str, tuple[float, float, float, float]]:
     """Per million tokens: input, output, cache read, cache write (5
     minutes), of each model the built-in catalog builds with `claude(..)`,
     either as the plain call or as `CatalogEntry { .. ..claude(..) }`. Each
-    `e.insert(` block is read alone, so one entry never takes another's call."""
+    `e.insert(` block is read alone, so one entry never takes another's call. The
+    test module is not read."""
     out = {}
-    for block in src.split("e.insert(")[1:]:
+    for block in _catalog_body(src).split("e.insert(")[1:]:
         key, call = re.match(r'\s*"([^"]+)"', block), _CLAUDE_CALL.search(block)
         if key and call:
             out[key.group(1)] = tuple(float(x) for x in call.groups())
@@ -181,9 +188,9 @@ def catalog_long_prompts(src: str) -> dict[str, tuple[int, float, float, float, 
     { .. })`): the prompt length it applies above, then per million tokens its input,
     output, cache read and cache write (5 minutes). A call whose whole prompt (input, cache
     reads and writes) is longer pays these for every token class. Each `e.insert(` block is
-    read alone, so one entry never takes another's tier."""
+    read alone, so one entry never takes another's tier. The test module is not read."""
     out = {}
-    for block in src.split("e.insert(")[1:]:
+    for block in _catalog_body(src).split("e.insert(")[1:]:
         key, tier = re.match(r'\s*"([^"]+)"', block), _LONG_PROMPT.search(block)
         if not (key and tier):
             continue

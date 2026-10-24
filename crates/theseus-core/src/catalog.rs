@@ -1053,6 +1053,44 @@ pub fn speech_price(provider: &str, model: &str) -> Option<&'static SpeechPrice>
         .max_by_key(|p| p.model.len())
 }
 
+/// Whether `served`, the model id a provider echoed, is the `configured` one:
+/// equal; or one side carries a vendor prefix (its text up to the last `/`)
+/// the other lacks (two prefixes must be equal: another vendor's model of the
+/// same name is another model); or, past the prefix, one is the other plus a
+/// dated-snapshot suffix, `-` or `@` then `YYYYMMDD` or `YYYY-MM-DD`. Nothing
+/// else counts (`model-a-5` and `model-ab` are not `model-a`). Case-sensitive.
+pub fn same_model(configured: &str, served: &str) -> bool {
+    fn split(id: &str) -> (Option<&str>, &str) {
+        match id.rsplit_once('/') {
+            Some((vendor, name)) => (Some(vendor), name),
+            None => (None, id),
+        }
+    }
+    fn snapshot_of(base: &str, full: &str) -> bool {
+        let Some(rest) = full.strip_prefix(base) else {
+            return false;
+        };
+        let Some(date) = rest.strip_prefix(['-', '@']) else {
+            return false;
+        };
+        let b = date.as_bytes();
+        let digits = |s: &[u8]| s.iter().all(u8::is_ascii_digit);
+        !base.is_empty()
+            && ((b.len() == 8 && digits(b))
+                || (b.len() == 10
+                    && digits(&b[..4])
+                    && b[4] == b'-'
+                    && digits(&b[5..7])
+                    && b[7] == b'-'
+                    && digits(&b[8..])))
+    }
+    let ((cv, cn), (sv, sn)) = (split(configured), split(served));
+    if cv.is_some() && sv.is_some() && cv != sv {
+        return false;
+    }
+    cn == sn || snapshot_of(cn, sn) || snapshot_of(sn, cn)
+}
+
 impl SpeechPrice {
     /// What a call costs in micro-dollars, rounded up once: its audio by the
     /// millisecond at the minute's price, or its characters at the
@@ -1988,6 +2026,35 @@ mod tests {
         assert!(speech_price("stand-in", "nova-3").is_none());
         for p in SPEECH_PRICES {
             assert!(p.usd > 0.0 && p.source.contains("to confirm"), "{p:?}");
+        }
+    }
+
+    /// The exam's model match (theseus-nbgi4): a dated snapshot or a vendor
+    /// prefix of the configured id is the same model; another vendor's, or
+    /// anything else appended, is not.
+    #[test]
+    fn same_model_takes_a_dated_snapshot_or_a_vendor_prefix() {
+        for (a, b) in [
+            ("model-a", "model-a"),
+            ("model-a", "model-a-20261001"),
+            ("model-a", "model-a@20261001"),
+            ("model-a", "model-a-2026-10-01"),
+            ("model-a", "vendor-x/model-a"),
+            ("vendor-x/model-a", "model-a"),
+            ("model-a", "vendor-x/model-a-20261001"),
+        ] {
+            assert!(same_model(a, b), "{a} vs {b}");
+        }
+        for (a, b) in [
+            ("model-a", "model-b"),
+            ("model-a-5", "model-a"),
+            ("model-a", "model-a-5"),
+            ("model-a", "model-a-2026"),
+            ("model-a", "model-ab"),
+            ("vendor-x/model-a", "vendor-y/model-a"),
+            ("model-a", ""),
+        ] {
+            assert!(!same_model(a, b), "{a} vs {b}");
         }
     }
 }

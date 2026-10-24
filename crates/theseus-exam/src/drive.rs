@@ -42,6 +42,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use theseus_core::catalog::same_model;
 use theseus_protocol::TurnSubmitResult;
 
 use crate::check::{Answer, Call, LineResult};
@@ -370,12 +371,13 @@ pub fn preflight(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<(String, Stri
 
 /// The first model in `rec.models` other than `expected`, if any: the run
 /// stops when a cell's answer came from another model than its profile's
-/// (routing or a fallback moved it).
+/// (routing or a fallback moved it). A dated snapshot or a vendor prefix of
+/// `expected` is the same model (`theseus_core::catalog::same_model`).
 pub fn foreign_model<'a>(rec: &'a Record, expected: &str) -> Option<&'a str> {
     rec.models
         .iter()
         .map(String::as_str)
-        .find(|m| *m != expected)
+        .find(|m| !same_model(expected, m))
 }
 
 /// The session's recall rows, each of which must name the daemon's arm:
@@ -846,6 +848,17 @@ mod tests {
             foreign_model(&r(&["model-a", "model-b"]), "model-a"),
             Some("model-b")
         );
+    }
+
+    #[test]
+    fn a_dated_or_vendor_prefixed_echo_does_not_stop_the_run() {
+        let r = |m: &str| Record {
+            models: vec![m.to_string()],
+            ..Default::default()
+        };
+        assert_eq!(foreign_model(&r("model-a-20261001"), "model-a"), None);
+        assert_eq!(foreign_model(&r("vendor-x/model-a"), "model-a"), None);
+        assert_eq!(foreign_model(&r("model-a-5"), "model-a"), Some("model-a-5"));
     }
 
     #[test]
