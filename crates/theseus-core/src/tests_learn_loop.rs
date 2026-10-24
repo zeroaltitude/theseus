@@ -461,6 +461,34 @@ async fn a_writers_file_cut_at_its_cap_says_so() {
     assert!(rows(c, "judge.learn:loop", LedgerKind::PackVersion).is_empty());
 }
 
+/// The writer's request asks for low effort where the catalog says its model
+/// takes effort (theseus-o6ifc): its 8,192 cap would be spent thinking on a
+/// model that always thinks, and a pack file is a rewrite, not a deliberation.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_writers_request_asks_for_low_effort() {
+    let jev = fake(false);
+    let r = rig(vec![writer_reply()], &jev, |_| {});
+    let c = &r.core;
+    let split = split_now();
+    seed(c, 10, 0, split);
+    learn(c, split).await;
+    let sent = r.fake.requests();
+    assert_eq!(sent.len(), 1, "one writer request");
+    let takes = c.runner.catalog.get(&sent[0].model).map(|e| e.effort);
+    assert_eq!(
+        takes,
+        Some(true),
+        "{}: a model that takes effort",
+        sent[0].model
+    );
+    assert_eq!(
+        sent[0].output_config,
+        Some(json!({"effort": "low"})),
+        "{}",
+        sent[0].model
+    );
+}
+
 /// The writer's day budget stops a run before anything is sent; its
 /// errors stay new.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

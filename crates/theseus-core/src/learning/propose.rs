@@ -704,7 +704,13 @@ impl Core {
             // Off where the model lets it; the writer's Opus 5.5 always
             // thinks, so there its thinking counts in the cap (theseus-1iqg0).
             thinking: self.runner.catalog.thinking_off(&target.model),
-            output_config: None,
+            // Low effort where the catalog says the model takes effort: a
+            // pack file is a rewrite, and the thinking it cannot turn off
+            // counts in the cap (theseus-o6ifc).
+            output_config: crate::compiler::output_config(
+                self.runner.catalog.get(&target.model),
+                Some(crate::config::Effort::Low),
+            ),
             cache_control: None,
             betas: Vec::new(),
             extra: Default::default(),

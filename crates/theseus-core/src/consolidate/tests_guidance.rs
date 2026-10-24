@@ -209,6 +209,33 @@ async fn guidance_cut_off_at_its_cap_is_refused() {
     assert_eq!(request.thinking, want);
 }
 
+/// A profile whose model cannot turn thinking off (Opus 5.5 always thinks)
+/// spends the 250 cap thinking, so its category waits, counted, and nothing is
+/// sent or reserved: the same categories are no longer re-asked every night
+/// (theseus-ohiu8).
+#[tokio::test]
+async fn a_category_whose_model_always_thinks_waits_unasked() {
+    let r = rig(ANSWER, |c| c.model.live = "opus".into());
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    let (live, _) = r.core.live_profile();
+    let t = r
+        .core
+        .runner
+        .resolve_target(&live, None, None, None)
+        .unwrap();
+    assert_eq!(t.model, "claude-opus-5-5");
+    for night in 0..3 {
+        let done = r.core.dream_guidance(now_unix_ms() + night).await.unwrap();
+        assert_eq!(
+            (done.written.len(), done.refused, done.waiting, done.spent),
+            (0, 0, 1, 0),
+            "night {night}"
+        );
+    }
+    assert_eq!(asked(&r.model), 0, "no call over three nights");
+    assert!(snapshot(&r.core).guidance(&id("topic:harbour")).is_none());
+}
+
 #[tokio::test]
 async fn the_dream_stops_at_synth_limit() {
     let r = rig(ANSWER, |c| c.memory.synth_limit_usd_per_day = 0.0);
