@@ -24,7 +24,7 @@ import { useOpsUi } from './ui'
 import { StickyChip } from './ModelMenu'
 import { useWatchedSession } from './watch'
 
-export function JoinPane({ sessionId, thread, compact = false, session, focus = false, onPicker }: { sessionId?: string; thread?: string; compact?: boolean; session?: SessionInfo; focus?: boolean; onPicker?: () => void }) {
+export function JoinPane({ sessionId, thread, compact = false, session, focus = false, onPicker, onMenu }: { sessionId?: string; thread?: string; compact?: boolean; session?: SessionInfo; focus?: boolean; onPicker?: () => void; onMenu?: (m: 'model' | 'mode') => void }) {
   const qc = useQueryClient()
   const { act, post, on } = useOpsAct()
   const { data: trow } = useRpc<ThreadRow>('thread.show', { slug: thread }, 0, { enabled: !!thread && !sessionId })
@@ -91,11 +91,13 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
   return (
     <div className={cn('flex min-h-0 flex-col', compact ? 'rounded-md ring-1 ring-line' : 'h-full')} data-testid="join-pane">
       {!compact && (
-        <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-[12px]">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-3 py-1.5 text-[12px]">
           <span className="panel-title">join</span>
           <span className="truncate text-ink">{session?.title || trow?.thread.title || thread || sid}</span>
           {sid && <StickyChip sessionId={sid} />}
           {mode && <span className="num rounded bg-white/5 px-1.5 text-[11px] text-ink-dim" title="⇧⇥ in the box cycles it">{mode.mode}</span>}
+          {sid && onMenu && <button onClick={() => onMenu('model')} disabled={!on('model_menu')} title="m: the model menu (outside the box)" className="rounded px-1.5 text-[11px] text-model ring-1 ring-line hover:text-ink">◇ model</button>}
+          {sid && onMenu && <button onClick={() => onMenu('mode')} disabled={!on('mode_menu')} title="M: the mode menu (outside the box)" className="rounded px-1.5 text-[11px] text-ink-dim ring-1 ring-line hover:text-ink">mode</button>}
           {sid && <Link to={`/session/${sid}`} className="ml-auto text-[11px] text-live hover:underline">open the deck</Link>}
         </div>
       )}

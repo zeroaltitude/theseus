@@ -3,7 +3,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { ProfileInfo } from '../src/protocol.gen/index.ts'
-import { costHint, MODES, modeAsk, profileRows, profileToast, stickyOf } from '../src/ops/menus.ts'
+import { costHint, MODES, modeAsk, profileRows, profileToast, stickyOf, stickyWith } from '../src/ops/menus.ts'
 import { session } from './ops-fixtures.ts'
 
 const prof = (name: string, model: string, origin: string, live = false): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live, origin })
@@ -33,8 +33,8 @@ test('a cost hint only when both are priced and the gap is real', () => {
 })
 
 test('the sticky profile is the newest session.profile_set row’s to; a let-go reads null', () => {
-  const row = (session_id: string, to: string | null) => ({ kind: 'session.profile_set', session_id, data: { to } })
-  const rows = [row('ses_a', 'deep'), row('ses_b', 'quick'), row('ses_a', 'quick'), { kind: 'turn.ended', session_id: 'ses_a', data: null }]
+  const row = (session_id: string, to: string | null) => ({ kind: 'session.profile_set', session_id, data: { to }, at_unix_ms: 0 })
+  const rows = [row('ses_a', 'deep'), row('ses_b', 'quick'), row('ses_a', 'quick'), { kind: 'turn.ended', session_id: 'ses_a', data: null, at_unix_ms: 0 }]
   assert.equal(stickyOf(rows, 'ses_a'), 'quick')
   assert.equal(stickyOf([...rows, row('ses_a', null)], 'ses_a'), null)
   assert.equal(stickyOf(rows, 'ses_zzz'), null)
@@ -51,4 +51,13 @@ test('the toast: the floor’s refusal changes nothing; a set offers Undo with t
 test('four modes, and only Auto asks first', () => {
   assert.deepEqual(MODES.map((m) => m.id), ['ask', 'edits', 'plan', 'auto'])
   assert.ok(modeAsk('auto') && !modeAsk('plan') && !modeAsk('ask'))
+})
+
+test('a choice just made shows before the ledger has it, and a newer ledger row wins over it', () => {
+  const row = (to: string | null, at: number) => ({ kind: 'session.profile_set', session_id: 'ses_a', data: { to }, at_unix_ms: at })
+  assert.equal(stickyWith([], 'ses_a', { to: 'deep', at: 100 }), 'deep', 'nothing in the ledger yet')
+  assert.equal(stickyWith([row('quick', 50)], 'ses_a', { to: 'deep', at: 100 }), 'deep', 'the ledger is behind')
+  assert.equal(stickyWith([row('quick', 50), row(null, 150)], 'ses_a', { to: 'deep', at: 100 }), null, 'another surface let go after: the ledger wins')
+  assert.equal(stickyWith([row('quick', 50)], 'ses_a', undefined), 'quick')
+  assert.equal(stickyWith([], 'ses_a', { to: null, at: 1 }), null)
 })

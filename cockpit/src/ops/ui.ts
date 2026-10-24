@@ -5,9 +5,11 @@ import { create } from 'zustand'
 export interface Toast { text: string; undo?: () => void; id: number }
 
 let n = 0
-export const useOpsUi = create<{ toast: Toast | null; turnProfile: Record<string, string>; say: (text: string, undo?: () => void) => void; clear: () => void; setTurnProfile: (sid: string, name: string | null) => void }>((set) => ({
+export const useOpsUi = create<{ toast: Toast | null; turnProfile: Record<string, string>; held: Record<string, { to: string | null; at: number }>; hold: (sid: string, to: string | null) => void; say: (text: string, undo?: () => void) => void; clear: () => void; setTurnProfile: (sid: string, name: string | null) => void }>((set) => ({
   toast: null,
   turnProfile: {},
+  held: {},
+  hold: (sid, to) => set((s) => ({ held: { ...s.held, [sid]: { to, at: Date.now() } } })),
   say: (text, undo) => set({ toast: { text, undo, id: ++n } }),
   clear: () => set({ toast: null }),
   setTurnProfile: (sid, name) => set((s) => {

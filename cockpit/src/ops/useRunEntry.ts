@@ -12,6 +12,7 @@ export function useRunEntry(): (e: Entry) => Promise<void> {
   const { post } = useOpsAct()
   const qc = useQueryClient()
   const say = useOpsUi((s) => s.say)
+  const hold = useOpsUi((s) => s.hold)
   return async (e) => {
     const first = e.plans[0]
     if (first?.ask && !window.confirm(first.ask)) return
@@ -24,9 +25,10 @@ export function useRunEntry(): (e: Entry) => Promise<void> {
         if (r?.refused) refused.push(r.refused)
         else {
           done++
+          if (p.method === 'session.profile') hold((p.params as { session_id: string }).session_id, r.profile)
           if (p.method === 'session.profile' && e.plans.length === 1) {
             const t = profileToast(r, (p.params as { profile: string | null }).profile)
-            if (t.undo !== undefined) undo = () => void post(p.verb as never, p.method, { ...(p.params as object), profile: t.undo }).then(() => qc.invalidateQueries())
+            if (t.undo !== undefined) undo = () => void post(p.verb as never, p.method, { ...(p.params as object), profile: t.undo }).then((u) => { hold((p.params as { session_id: string }).session_id, (u as SessionProfileResult).profile); return qc.invalidateQueries() })
           }
         }
       } catch (err: any) { refused.push(err?.message ?? String(err)) }

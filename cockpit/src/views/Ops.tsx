@@ -347,7 +347,7 @@ export default function Ops() {
     <div className="flex h-full min-h-0 gap-2.5">
       {lensView}
       <aside aria-label="Join" className="flex w-[460px] max-w-[48%] shrink-0 flex-col overflow-hidden rounded-xl border border-line-strong bg-hull/60">
-        <JoinPane key={joined} sessionId={joined.startsWith('ses_') ? joined : undefined} thread={joined.startsWith('ses_') ? undefined : joined} session={sessions.find((x) => x.session_id === joined)} focus onPicker={() => setPicker(true)} />
+        <JoinPane key={joined} sessionId={joined.startsWith('ses_') ? joined : undefined} thread={joined.startsWith('ses_') ? undefined : joined} session={sessions.find((x) => x.session_id === joined)} focus onPicker={() => setPicker(true)} onMenu={(m) => setMenu(m)} />
       </aside>
     </div>
   ) : lensView

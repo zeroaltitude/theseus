@@ -42,13 +42,32 @@ export function profileRows(profiles: readonly ProfileInfo[], sessions: readonly
   }))
 }
 
-/** The sticky profile a session holds, from the ledger's `session.profile_set` rows: the newest one's `to` (null: let go). */
-export function stickyOf(rows: readonly Pick<LedgerEntry, 'kind' | 'session_id' | 'data'>[], sessionId: string): string | null {
+/** The newest `session.profile_set` row of a session: what it was set to (null: let go) and when. */
+function newestSet(rows: readonly Pick<LedgerEntry, 'kind' | 'session_id' | 'data' | 'at_unix_ms'>[], sessionId: string): { to: string | null; at: number } | null {
   for (let i = rows.length - 1; i >= 0; i--) {
     const r = rows[i]
-    if (r.kind === 'session.profile_set' && r.session_id === sessionId) return ((r.data as { to?: string | null } | null)?.to ?? null) || null
+    if (r.kind === 'session.profile_set' && r.session_id === sessionId) return { to: ((r.data as { to?: string | null } | null)?.to ?? null) || null, at: r.at_unix_ms ?? 0 }
   }
   return null
+}
+
+/** The sticky profile a session holds, from the ledger's `session.profile_set` rows: the newest one's `to` (null: let go). */
+export function stickyOf(rows: readonly Pick<LedgerEntry, 'kind' | 'session_id' | 'data' | 'at_unix_ms'>[], sessionId: string): string | null {
+  return newestSet(rows, sessionId)?.to ?? null
+}
+
+/** What this page just set (`at`, its clock), which shows until the ledger's own newer row arrives: the ledger is read
+ *  a little behind the daemon, and a choice should show when it is made. A row written after the choice wins. */
+export function stickyWith(rows: readonly Pick<LedgerEntry, 'kind' | 'session_id' | 'data' | 'at_unix_ms'>[], sessionId: string, held?: { to: string | null; at: number }): string | null {
+  const row = newestSet(rows, sessionId)
+  return held && (!row || held.at >= row.at) ? held.to : row?.to ?? null
+}
+
+/** What a refused `session.profile` or a `note` says in the toast, in the daemon's words. */
+export function profileToast(r: { refused?: string; note?: string; profile: string | null; previous: string | null }, asked: string | null): { text: string; undo: string | null | undefined } {
+  if (r.refused) return { text: r.refused, undo: undefined }
+  const what = asked ? `from now on: ${asked}` : 'back to the default'
+  return { text: `${what}${r.note ? ` · ${r.note}` : ''}`, undo: r.profile === r.previous ? undefined : r.previous }
 }
 
 export const MODES: ReadonlyArray<{ id: SessionMode; label: string; words: string }> = [
@@ -61,9 +80,3 @@ export const MODES: ReadonlyArray<{ id: SessionMode; label: string; words: strin
 /** Auto asks first: it widens what the session may do without a question. */
 export const modeAsk = (m: SessionMode): string | undefined => (m === 'auto' ? 'Set this session to Auto? It then acts without asking (the floor still asks).' : undefined)
 
-/** What a refused `session.profile` or a `note` says in the toast, in the daemon's words. */
-export function profileToast(r: { refused?: string; note?: string; profile: string | null; previous: string | null }, asked: string | null): { text: string; undo: string | null | undefined } {
-  if (r.refused) return { text: r.refused, undo: undefined }
-  const what = asked ? `from now on: ${asked}` : 'back to the default'
-  return { text: `${what}${r.note ? ` · ${r.note}` : ''}`, undo: r.profile === r.previous ? undefined : r.previous }
-}

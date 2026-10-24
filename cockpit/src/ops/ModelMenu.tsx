@@ -12,9 +12,16 @@ import { useHistoryRows } from '@/lib/history'
 import { pricing } from '@/lib/money'
 import { cn } from '@/lib/format'
 import { Pill } from '@/components/ui'
-import { MODES, modeAsk, profileRows, profileToast, stickyOf } from './menus'
+import { MODES, modeAsk, profileRows, profileToast, stickyWith } from './menus'
 import { useOpsAct } from './act'
 import { useOpsUi } from './ui'
+
+/** The session's held model: the ledger's, or what this page just set until the ledger catches up. */
+export function useSticky(sessionId: string): string | null {
+  const rows = useHistoryRows().rows
+  const held = useOpsUi((s) => s.held[sessionId])
+  return stickyWith(rows, sessionId, held)
+}
 
 const ORIGIN_TONE = { us: 'ok', eu: 'idle', cn: 'wait', unknown: 'idle' } as const
 
@@ -41,10 +48,11 @@ function Pop({ title, onClose, children }: { title: string; onClose: () => void;
 export function StickyChip({ sessionId }: { sessionId: string }) {
   const { post, on } = useOpsAct()
   const say = useOpsUi((s) => s.say)
-  const sticky = stickyOf(useHistoryRows().rows, sessionId)
+  const hold = useOpsUi((s) => s.hold)
+  const sticky = useSticky(sessionId)
   if (!sticky) return null
-  const revert = () => void post('model_sticky', 'session.profile', { session_id: sessionId, profile: null })
-    .then(() => say('back to the default', () => void post('model_sticky', 'session.profile', { session_id: sessionId, profile: sticky })))
+  const revert = () => void post<SessionProfileResult>('model_sticky', 'session.profile', { session_id: sessionId, profile: null })
+    .then(() => { hold(sessionId, null); say('back to the default', () => void post('model_sticky', 'session.profile', { session_id: sessionId, profile: sticky }).then(() => hold(sessionId, sticky))) })
     .catch((e) => say(e?.message ?? String(e)))
   return (
     <span className="inline-flex items-center gap-1 rounded bg-gold/10 px-1.5 text-[11px] text-gold ring-1 ring-gold/30" title="the model chosen with “from now on”: every later turn runs on it">
@@ -62,16 +70,17 @@ export function ModelMenu({ session, onClose }: { session: SessionInfo; onClose:
   const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 30_000)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
   const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 60_000)
-  const rows = useHistoryRows().rows
+  const hold = useOpsUi((s) => s.hold)
   const sid = session.session_id
-  const sticky = stickyOf(rows, sid)
+  const sticky = useSticky(sid)
   const current = sticky ?? session.profile
   const list = profileRows(pl?.profiles ?? [], sl?.sessions ?? [session], session.data, current, pricing(cat))
   const set = async (name: string | null) => {
     try {
       const r = await post<SessionProfileResult>('model_sticky', 'session.profile', { session_id: sid, profile: name })
       const t = profileToast(r, name)
-      say(t.text, t.undo === undefined ? undefined : () => { void post<SessionProfileResult>('model_sticky', 'session.profile', { session_id: sid, profile: t.undo }).then((u) => { say(profileToast(u, t.undo ?? null).text); void qc.invalidateQueries() }).catch((e) => say(e?.message ?? String(e))) })
+      if (!r.refused) hold(sid, r.profile)
+      say(t.text, t.undo === undefined ? undefined : () => { void post<SessionProfileResult>('model_sticky', 'session.profile', { session_id: sid, profile: t.undo }).then((u) => { hold(sid, u.profile); say(profileToast(u, t.undo ?? null).text); void qc.invalidateQueries() }).catch((e) => say(e?.message ?? String(e))) })
       if (!r.refused) { void qc.invalidateQueries(); onClose() }
     } catch (e: any) { say(e?.message ?? String(e)) }
   }
