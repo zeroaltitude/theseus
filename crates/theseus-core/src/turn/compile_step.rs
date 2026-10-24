@@ -243,7 +243,9 @@ impl TurnRunner {
     pub(super) async fn blocks_kept(t: &mut Turn<'_>) {
         Self::start_keeping(t);
         for writing in std::mem::take(&mut t.keeping.writing) {
-            let _ = writing.await;
+            if let Err(e) = writing.await {
+                tracing::warn!(error = %e, "a system blocks' write did not finish; its turns cannot be replayed");
+            }
         }
     }
 
