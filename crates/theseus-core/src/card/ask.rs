@@ -323,8 +323,14 @@ fn turned(text: &str, s: &Shown, cites: &[&str]) -> bool {
 
 /// Whether `text` copies a line shown for its cluster, or a stretch of one.
 fn pasted(text: &str, s: &Shown) -> bool {
+    pasted_in(text, s.lines.iter().map(|(_, l)| l.as_str()))
+}
+
+/// Whether `text` copies one of `lines`, or a stretch of one: the rule
+/// `pasted` and the exchange-end observer (`observe`) share.
+pub(crate) fn pasted_in<'a>(text: &str, lines: impl IntoIterator<Item = &'a str>) -> bool {
     let t = norm(text);
-    s.lines.iter().any(|(_, l)| {
+    lines.into_iter().any(|l| {
         let l = norm(l);
         (l.chars().count() >= PASTE_CHARS && t.contains(&l))
             || (t.chars().count() >= PASTE_CHARS && l.contains(&t))

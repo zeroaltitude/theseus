@@ -7,8 +7,9 @@
 use anyhow::anyhow;
 use serde_json::{json, Value};
 use theseus_protocol::{
-    error_code, method, CardAnswerParams, CardAnswerResult, CardDoneParams, CardDoneResult,
-    CardListParams, CardProposeParams, StandingAddParams, StandingChanged, StandingScope,
+    error_code, method, CardAnswerParams, CardAnswerResult, CardAsk, CardDoneParams,
+    CardDoneResult, CardListParams, CardObservedParams, CardProposeParams, ObservationState,
+    StandingAddParams, StandingChanged, StandingScope,
 };
 
 use super::confirms::Act;
@@ -60,6 +61,11 @@ impl Core {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 reply(self.card_done(&p, who).await?)
             }
+            method::CARD_OBSERVED => {
+                let p: CardObservedParams = parse(params)?;
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                reply(self.card_observed(&p, who)?)
+            }
             other => Err(RpcFailure::new(
                 error_code::METHOD_NOT_FOUND,
                 format!("unknown method {other:?}"),
@@ -84,7 +90,15 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> Result<theseus_protocol::CardProposeResult, RpcFailure> {
         self.judge_card(&who.into(), method::CARD_PROPOSE, "the card's proposals")?;
-        self.card_run(p.dry_run).await.map_err(RpcFailure::invalid)
+        let mut out = self
+            .card_run(p.dry_run)
+            .await
+            .map_err(RpcFailure::invalid)?;
+        // The live pass runs second: the archive's result stands if it fails.
+        if let Err(e) = self.card_live_run(p.dry_run, &mut out).await {
+            out.stopped.get_or_insert(format!("the live pass: {e:#}"));
+        }
+        Ok(out)
     }
 
     /// `card.list`: what waits, what was kept and declined, the spend.
@@ -95,6 +109,35 @@ impl Core {
     ) -> Result<theseus_protocol::CardListResult, RpcFailure> {
         self.judge_card(&who.into(), method::CARD_LIST, "the card's proposals")?;
         self.card_view().await.map_err(RpcFailure::invalid)
+    }
+
+    /// `card.observed`: what the observer kept about the owner, by state,
+    /// newest first, with the counts of each (a read, as `card.list` is).
+    pub fn card_observed(
+        &self,
+        p: &CardObservedParams,
+        who: impl Into<Answerer>,
+    ) -> Result<theseus_protocol::CardObservedResult, RpcFailure> {
+        self.judge_card(
+            &who.into(),
+            method::CARD_OBSERVED,
+            "the card's observations",
+        )?;
+        let all = theseus_store::blocking(|| crate::card::state::observations(&self.store, None))
+            .map_err(RpcFailure::invalid)?;
+        let count = |s: ObservationState| all.iter().filter(|o| o.state == s).count() as u32;
+        let want = p.state.unwrap_or_default();
+        let mut observations: Vec<_> = all.iter().filter(|o| o.state == want).cloned().collect();
+        if let Some(n) = p.limit {
+            observations.truncate(n as usize);
+        }
+        Ok(theseus_protocol::CardObservedResult {
+            observations,
+            open: count(ObservationState::Open),
+            used: count(ObservationState::Used),
+            dropped: count(ObservationState::Dropped),
+            observe: self.cfg.card.observe,
+        })
     }
 
     /// `card.done`: the card is done (or not): the nightly run stops (or resumes).
@@ -121,7 +164,7 @@ impl Core {
         let option = option_of(&p.option).ok_or_else(|| {
             RpcFailure::invalid(anyhow!(
                 "{:?} is not one of the question's options: keep, edit, or decline (\"Not this\"); \
-                 or scope, for a kept one",
+                 end, for a question about a record you keep; or scope, for a kept one",
                 p.option
             ))
         })?;
@@ -142,6 +185,13 @@ impl Core {
             return Err(RpcFailure::invalid(anyhow!("a decline takes no scope")));
         }
         let prop = self.card_open(&p.id).await.map_err(RpcFailure::invalid)?;
+        if option == "end" && prop.ask != CardAsk::Stale {
+            return Err(RpcFailure::invalid(anyhow!(
+                "{} asks to add something to your card, not about a record you keep: \
+                 end it answers a Stale question; use keep, edit, or decline here",
+                prop.id
+            )));
+        }
         let (by, via) = (who.who(), who.via());
         if option == "decline" {
             let proposal = self
@@ -164,6 +214,10 @@ impl Core {
             }
             _ => prop.text.clone(),
         };
+        if prop.ask == CardAsk::Stale {
+            let edited = (option == "edit").then(|| text.clone());
+            return self.card_stale(p, &prop, option, edited, scope, who).await;
+        }
         let add = StandingAddParams {
             kind: prop.kind,
             text: text.clone(),

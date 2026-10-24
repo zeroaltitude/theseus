@@ -31,6 +31,11 @@ impl TurnRunner {
         let Body::UserMessage { text, attachments } = &node.body else {
             return;
         };
+        // The owner's own message, for the card's observer (theseus-6f8t0):
+        // marked with the judge off too.
+        if self.standing.expected.take_owner(t.tc.session_id, text) {
+            self.standing.expected.mark_owner(&node.id);
+        }
         // What the turn's tools are chosen by, with the judge off too.
         if !steered {
             t.route.ask = text

@@ -78,7 +78,7 @@ pub(crate) fn parse(custom_id: &str) -> Option<(String, String)> {
 }
 
 /// What the presser hears of a refusal or a failure.
-fn failed(e: &crate::rpc_client::CallError) -> String {
+pub(super) fn failed(e: &crate::rpc_client::CallError) -> String {
     match e.code == theseus_protocol::error_code::REFUSED {
         true => format!(
             "🔐 Your answer did not count: {}.",

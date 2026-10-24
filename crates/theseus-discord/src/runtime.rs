@@ -53,6 +53,7 @@ mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
 mod capture_card;
+pub(crate) mod card_question;
 mod earned;
 pub(crate) mod grant;
 mod onto_card;

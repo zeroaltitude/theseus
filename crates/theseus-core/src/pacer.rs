@@ -24,7 +24,8 @@ use std::sync::Mutex;
 /// for; a reply, a card, a settle and a reminder the owner set are not.
 /// `initiative`: the morning note and the consolidation finding (theseus-slvl.9).
 /// `digest`: the posted digest of what happened (theseus-ss36w).
-pub const UNPROMPTED: &[&str] = &["needs_you", "initiative", "digest"];
+/// `card_question`: a live owner-card question in the DM (theseus-6f8t0).
+pub const UNPROMPTED: &[&str] = &["needs_you", "initiative", "digest", "card_question"];
 
 /// When the last covered post was written.
 #[derive(Debug, Default)]

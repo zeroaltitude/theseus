@@ -24,7 +24,12 @@ use crate::tests_route::{mode, rig, Rig};
 /// A guild channel nobody bound private: a shared place.
 const LAB: &str = "900000000000000123";
 
-async fn call_on(core: &Arc<Core>, surface: Surface, method: &str, params: Value) -> Response {
+pub(crate) async fn call_on(
+    core: &Arc<Core>,
+    surface: Surface,
+    method: &str,
+    params: Value,
+) -> Response {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let (client, server) = tokio::io::duplex(64 * 1024);
     let (sr, sw) = tokio::io::split(server);

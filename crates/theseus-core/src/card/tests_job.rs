@@ -26,13 +26,13 @@ use crate::rpc::Core;
 use crate::store::Store;
 use crate::test_support::ledger_rows_2k as rows;
 
-struct Rig {
-    core: Arc<Core>,
-    fake: Arc<FakeProvider>,
+pub(super) struct Rig {
+    pub(super) core: Arc<Core>,
+    pub(super) fake: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 
-fn rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(super) fn rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     rig_with(FakeProvider::scripted(script), tweak)
 }
 
@@ -53,7 +53,7 @@ fn rig_with(fake: FakeProvider, tweak: impl FnOnce(&mut Config)) -> Rig {
     }
 }
 
-fn cli() -> Answerer {
+pub(super) fn cli() -> Answerer {
     Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
@@ -76,12 +76,12 @@ async fn import(c: &Arc<Core>, eps: &[Value]) {
     assert_eq!(got.rejected.len(), 0, "{got:?}");
 }
 
-async fn archive(r: &Rig) {
+pub(super) async fn archive(r: &Rig) {
     import(&r.core, &fixture::export(theseus_protocol::now_unix_ms())).await;
 }
 
 /// The model's answer: `(cluster, text, kind, episode label)` each.
-fn states(cards: &[(&str, &str, &str, &str)]) -> Scripted {
+pub(super) fn states(cards: &[(&str, &str, &str, &str)]) -> Scripted {
     let cards: Vec<Value> = cards
         .iter()
         .map(|(k, t, kind, e)| {
@@ -92,7 +92,7 @@ fn states(cards: &[(&str, &str, &str, &str)]) -> Scripted {
 }
 
 /// K1 is the opinion cluster (3 sources), K2 the gate one (2).
-fn two() -> Scripted {
+pub(super) fn two() -> Scripted {
     states(&[
         (
             "K1",
@@ -109,14 +109,14 @@ fn two() -> Scripted {
     ])
 }
 
-async fn propose(r: &Rig) -> CardProposeResult {
+pub(super) async fn propose(r: &Rig) -> CardProposeResult {
     r.core
         .card_propose(&Default::default(), cli())
         .await
         .unwrap()
 }
 
-async fn answer(
+pub(super) async fn answer(
     r: &Rig,
     id: &str,
     option: &str,
@@ -755,6 +755,10 @@ fn a_proposal_round_trips() {
         answered_by: None,
         kept_text: None,
         standing_id: None,
+        ask: Default::default(),
+        record: None,
+        observations: Vec::new(),
+        posted_ms: None,
     };
     let v = serde_json::to_value(&p).unwrap();
     assert_eq!(serde_json::from_value::<CardProposal>(v).unwrap(), p);
@@ -1254,4 +1258,86 @@ async fn the_earlier_statements_sessions_route_the_later_call() {
     assert_eq!(r.fake.requests().len(), 1, "the second call is not sent");
     assert_eq!(got.proposed.len(), 1, "{got:?}");
     assert!(got.stopped.is_some(), "{got:?}");
+}
+
+fn observation(
+    id: &str,
+    at_ms: u64,
+    state: theseus_protocol::ObservationState,
+) -> theseus_protocol::CardObservation {
+    theseus_protocol::CardObservation {
+        id: id.into(),
+        session: "ses_lighthouse".into(),
+        nodes: vec![format!("nod_{id}")],
+        kind: theseus_protocol::ObservationKind::Preference,
+        text: format!("keeps the {id} log in metres"),
+        at_ms,
+        contradicts: None,
+        state,
+        proposal: None,
+    }
+}
+
+/// `card.observed` lists the open observations by default, newest first, each
+/// state on request, and counts all three (theseus-6f8t0).
+#[tokio::test]
+async fn card_observed_lists_by_state_with_the_counts() {
+    use theseus_protocol::{CardObservedParams, ObservationState as S};
+    let r = rig(vec![], |_| {});
+    for (id, at, st) in [
+        ("cob_a", 10, S::Open),
+        ("cob_b", 20, S::Used),
+        ("cob_c", 30, S::Dropped),
+        ("cob_d", 40, S::Open),
+    ] {
+        r.core
+            .store
+            .put_meta(&state::obs_key(id), &observation(id, at, st))
+            .unwrap();
+    }
+    let ask = |state, limit| CardObservedParams {
+        state,
+        limit,
+        ..Default::default()
+    };
+    let got = r.core.card_observed(&ask(None, None), cli()).unwrap();
+    let ids = |g: &theseus_protocol::CardObservedResult| {
+        g.observations
+            .iter()
+            .map(|o| o.id.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&got), ["cob_d", "cob_a"]);
+    assert_eq!((got.open, got.used, got.dropped), (2, 1, 1));
+    assert!(got.observe);
+    let used = r
+        .core
+        .card_observed(&ask(Some(S::Used), None), cli())
+        .unwrap();
+    assert_eq!(ids(&used), ["cob_b"]);
+    let dropped = r
+        .core
+        .card_observed(&ask(Some(S::Dropped), None), cli())
+        .unwrap();
+    assert_eq!(ids(&dropped), ["cob_c"]);
+    let one = r.core.card_observed(&ask(None, Some(1)), cli()).unwrap();
+    assert_eq!(ids(&one), ["cob_d"]);
+    // Writing nothing: a read leaves the observations as they were.
+    assert_eq!(state::observations(&r.core.store, None).unwrap().len(), 4);
+}
+
+/// An observation round-trips; a kind that is a trait is no kind at all.
+#[test]
+fn an_observation_round_trips_and_has_no_trait_kind() {
+    let o = observation("cob_x", 5, theseus_protocol::ObservationState::Open);
+    let v = serde_json::to_value(&o).unwrap();
+    assert_eq!(v["kind"], "preference");
+    assert_eq!(v["state"], "open");
+    assert_eq!(
+        serde_json::from_value::<theseus_protocol::CardObservation>(v.clone()).unwrap(),
+        o
+    );
+    let mut bad = v;
+    bad["kind"] = json!("trait");
+    assert!(serde_json::from_value::<theseus_protocol::CardObservation>(bad).is_err());
 }

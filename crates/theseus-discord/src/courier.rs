@@ -900,7 +900,7 @@ impl Lane {
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
             | "self_narrow_red" | "initiative" | "standing_card" | "digest" | "privacy_warning"
-            | "onto_card" | "home_size" | "link_card" | "persona_soul" => {
+            | "onto_card" | "home_size" | "link_card" | "persona_soul" | "card_question" => {
                 self.jev_post(a, &body).await
             }
             "jev_labeled" => Ok(self.jev_labeled(&body)),
@@ -1489,6 +1489,15 @@ impl Lane {
                 format!("psoul:{}", a.correlation_id),
                 Buttons::PersonaSoul(crate::runtime::persona_soul::key_of(body)),
             ),
+            // A live owner-card question (theseus-6f8t0).
+            "card_question" => {
+                let (ask, id) = crate::runtime::card_question::card_of(body);
+                (
+                    body["text"].as_str().unwrap_or("").to_string(),
+                    format!("cardq:{}", a.correlation_id),
+                    Buttons::CardQuestion(ask, id),
+                )
+            }
             // What `directive.v1` kept, or asks about (theseus-slvl.5).
             "standing_card" => {
                 let (mode, id, everywhere) = crate::runtime::capture_card(body);
@@ -1762,6 +1771,7 @@ impl Lane {
             Buttons::PersonaSoul(key) => crate::runtime::persona_soul::buttons(key),
             Buttons::Again(q) => crate::runtime::again_buttons(q),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
+            Buttons::CardQuestion(ask, id) => crate::runtime::card_question::buttons(ask, id),
             Buttons::Sources(session, srcs, offer) => {
                 crate::runtime::source_buttons(session, srcs, offer.as_deref())
             }
@@ -1840,6 +1850,7 @@ impl Lane {
             Buttons::Standing(mode, id, wide) => {
                 Some(crate::runtime::capture_buttons(mode, id, *wide))
             }
+            Buttons::CardQuestion(ask, id) => Some(crate::runtime::card_question::buttons(ask, id)),
             Buttons::Sources(session, srcs, offer) => Some(crate::runtime::source_buttons(
                 session,
                 srcs,

@@ -49,6 +49,7 @@ pub(crate) use methods::ledger_tags;
 mod agenda;
 mod capture;
 mod card;
+mod card_stale;
 mod digest;
 mod digest_google;
 pub(crate) mod earned;

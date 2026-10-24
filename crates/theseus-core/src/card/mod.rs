@@ -16,6 +16,13 @@
 //!   the episodes it rests on. A statement citing none of its cluster's
 //!   episodes, copying a line, or repeating a live standing record or an
 //!   answered proposal is dropped.
+//! - **The live pass** (`live.rs`, theseus-6f8t0): nightly, for as long as
+//!   `[card] observe` is on and whether or not the card is done, the open
+//!   observations (`card.obs.<id>`, kept by the exchange-end observer) become
+//!   at most `live_per_night` questions: Stale (a record they contradict: keep,
+//!   edit or end it, `rpc/card_stale.rs`), Add, and Pattern (the same
+//!   preference or decision in `pattern_sessions` conversations). Only the
+//!   owner's answer keeps, edits or ends a record.
 //! - **Labels are respected, before any call.** An episode labelled
 //!   `partner-confidential` (or naming a partner codename) is counted and
 //!   never read: its text is in no cluster and no request. Outside text is
@@ -38,6 +45,14 @@
 //!   was made are remembered (`card.sent.<call>`), so a second run over the
 //!   same history sends nothing.
 //!
+//! - **Observations** (theseus-6f8t0; `observe.rs`): in a private conversation
+//!   the owner is alone in, one cheap call at an exchange's due point (and the
+//!   nightly sweep) reads the owner's own lines since its mark and keeps what
+//!   they say about the owner that should hold from now on, as unconfirmed
+//!   `card.obs.<id>` records. They are private notes: never a node, never
+//!   indexed or recalled, in no prompt and no shared place. A later pass turns
+//!   them into questions the owner answers.
+//!
 //! Nothing here is added to the card without the owner's answer, and nothing
 //! enters a turn's path: the job is off every turn, and the standing block's
 //! cached prefix changes only when the owner keeps one.
@@ -45,7 +60,10 @@
 pub mod answer;
 pub mod ask;
 pub mod cluster;
+pub mod dm;
 pub mod evidence;
+pub mod live;
+pub mod observe;
 pub mod run;
 pub mod state;
 pub mod tender;
@@ -53,6 +71,10 @@ pub mod tender;
 #[cfg(test)]
 mod fixture;
 #[cfg(test)]
+mod tests_dm;
+#[cfg(test)]
 mod tests_job;
+#[cfg(test)]
+mod tests_live;
 #[cfg(test)]
 mod tests_pure;

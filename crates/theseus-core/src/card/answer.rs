@@ -28,15 +28,19 @@ use super::state::{self, State};
 use crate::fact::card::CardAnswered;
 use crate::judge::spend;
 use crate::rpc::Core;
+use theseus_protocol::{CardAsk, CardObservation, ObservationState};
+use theseus_store::NewRecord;
 
 /// An option's word, any case: `keep`, `edit`, `decline`; or `scope`, the
-/// owner's move of a kept proposal's record (theseus-ly75u).
+/// owner's move of a kept proposal's record (theseus-ly75u); or `end`, End it,
+/// the owner's answer that a record a Stale question names no longer holds.
 pub fn option_of(s: &str) -> Option<&'static str> {
     match s.trim().to_lowercase().replace(['_', '-'], " ").as_str() {
         "keep" | "k" | "yes" | "1" => Some("keep"),
         "edit" | "e" | "2" => Some("edit"),
         "decline" | "not this" | "no" | "drop" | "3" => Some("decline"),
         "scope" => Some("scope"),
+        "end" | "end it" => Some("end"),
         _ => None,
     }
 }
@@ -138,10 +142,40 @@ impl Core {
             episodes: &episodes,
             standing_id: next.standing_id.as_deref(),
         };
-        let frame = [state::record(&next)?, crate::fact::row(&f, None, None)?];
+        let mut frame = vec![state::record(&next)?, crate::fact::row(&f, None, None)?];
+        frame.extend(self.obs_moves(prop, option)?);
         self.people_write(&frame).await?;
         self.rec(None).announce(&f);
         Ok(next)
+    }
+
+    /// The records that move the observations `prop` rests on once it is
+    /// answered with `option` (theseus-6f8t0): they were `used` when it was
+    /// made, and stay so for an add that was kept or edited and a record that
+    /// was edited or ended; a Not this, an expiry and a Keep of a Stale
+    /// question set them aside (`dropped`), so none is asked again.
+    fn obs_moves(&self, prop: &CardProposal, option: &str) -> Result<Vec<NewRecord>> {
+        let keeps = match (prop.ask, option) {
+            (CardAsk::Stale, "keep") => false,
+            (_, "keep" | "edit" | "end" | "scope") => true,
+            _ => false,
+        };
+        let mut out = Vec::new();
+        if keeps {
+            return Ok(out);
+        }
+        for id in &prop.observations {
+            let held = theseus_store::blocking(|| {
+                self.store.get_meta::<CardObservation>(&state::obs_key(id))
+            })?;
+            if let Some(o) = held.filter(|o| {
+                o.state == ObservationState::Used && o.proposal.as_deref() == Some(&prop.id)
+            }) {
+                let to = super::live::moved(&o, ObservationState::Dropped, Some(&prop.id));
+                out.push(state::obs_record(&to)?);
+            }
+        }
+        Ok(out)
     }
 
     /// The card is done (or not): the nightly run stops (or resumes).
@@ -184,6 +218,9 @@ impl Core {
             next.answered_ms = Some(now);
             next.answered_by = Some("expiry".into());
             frame.push(state::record(&next)?);
+        }
+        for p in &due {
+            frame.extend(self.obs_moves(p, "expire")?);
         }
         for f in &facts {
             frame.push(crate::fact::row(f, None, None)?);

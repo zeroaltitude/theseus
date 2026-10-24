@@ -563,6 +563,17 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-24: v1 patch2's live learning** (theseus-6f8t0; Item 257). The owner card now learns from live
+  conversations, not only the imported history. When a private conversation the owner is alone in pauses (the CLI, the
+  web UI, the owner's DM; never a task or a shared place), one cheap call on `[card] profile` reads the owner's own
+  lines and keeps what they say about the owner that should hold from now on, as unconfirmed private notes
+  (`card.obs.<id>`: never a node, indexed, recalled or in any prompt; the census is unchanged), shown by
+  `theseus card observed`. Each night at the learning hour, also after `theseus card done`, the card's live pass sweeps
+  what never came due and turns the notes into questions: Add, Pattern (the same preference or decision in 3
+  conversations) and Stale ("your card says X; on 10-20 you said Y; still true?", answered Keep, Edit or End it,
+  `theseus card end`), at most 5 a night with at most 2 stale, `ask_days` 14. Up to 3 a day post to the owner's DM as
+  paced cards with their buttons (`[card] dm_per_day`). Nothing becomes a record without the owner's answer. Store
+  format 51 (`[card] observe`, `live_per_night`, `stale_per_night`, `pattern_sessions`, `dm_per_day`).
 - **2026-10-24: v1 patch2's voice lane, Deepgram Flux** (theseus-v774k). A call now listens through Deepgram Flux by
   default (`[voice] stt_model = "flux-general-en"`): each listed speaker's audio streams over a socket, and Flux's own
   model decides where a turn ends (`eot_threshold`, `eager_eot_threshold`, `eot_timeout_ms`), so `pause_ms` and

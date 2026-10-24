@@ -1408,6 +1408,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # max_open = 30                           # the most proposals waiting at once
 # ask_days = 14                           # an unanswered proposal becomes "Not this" after this long
 # every_days = 7                          # the nightly run at most this often; 0: only `theseus card propose`
+# observe = true                          # live learning: what you say about your own setup, kept privately and asked about nightly; off also when day_usd = 0
+# live_per_night = 5                      # the most live questions one nightly pass proposes (0 to 50)
+# stale_per_night = 2                     # of those, the most "is this still true?" questions (0 to live_per_night)
+# pattern_sessions = 3                    # the conversations a preference must recur in before it is asked (2 to 20)
+# dm_per_day = 3                          # the most live questions posted to your DM a day (0 to 10; 0: the CLI only)
 
 # ---------------------------------------------------------------- ontology
 # Jev files each message's session into the ontology (`onto.v1`, in the inbound batch

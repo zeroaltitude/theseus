@@ -200,6 +200,8 @@ pub struct JudgeService {
     categorize: categorize::Point,
     /// `people.v1`'s live point (theseus-wy7y): its decisions.
     pub(crate) people: people::live::Point,
+    /// The card's exchange-end observer: its decisions (theseus-6f8t0).
+    pub(crate) observing: crate::card::observe::Point,
     rerank_deadline: rerank::RerankDeadline,
     /// Route verdicts sent on to their turns, for a test that waits for one to
     /// have come before it lets the turn go on (theseus-1b2zm).
@@ -299,6 +301,7 @@ impl JudgeService {
             blocks: Mutex::default(),
             categorize: Default::default(),
             people: Default::default(),
+            observing: Default::default(),
             rerank_deadline: rerank::RerankDeadline::default(),
             #[cfg(test)]
             route_answers: Default::default(),
