@@ -210,6 +210,7 @@ impl ActRefused<'_> {
             | Act::Earned { .. }
             | Act::Retract { .. }
             | Act::Task { .. }
+            | Act::Stop { .. }
             | Act::Standing { .. }
             | Act::Routine { .. }
             | Act::Watch { .. }
@@ -256,6 +257,10 @@ impl Fact for ActRefused<'_> {
             | Act::Watch { what, .. }
             | Act::Thread { what, .. } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
+                       "why": r.why, "by": self.by})
+            }
+            Act::Stop { job } => {
+                json!({"act": act.method(), "job": job, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
             Act::Revoke { name } => {
@@ -325,6 +330,10 @@ impl Fact for ActRefused<'_> {
             Act::Task { what } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. No task was started \
                  and nothing was carved."
+            ),
+            Act::Stop { job } => format!(
+                "Stopping job {job}, from {who} through {via}, did not count: {why}. The job \
+                 runs on."
             ),
             Act::Retract { what } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. Nothing was labeled \

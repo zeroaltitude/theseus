@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use theseus_kernel::Action;
 use theseus_memory::recall::Place;
 use theseus_protocol::job_follow::{cut_line, FOLLOW_BEHIND, PEEK_LINES, PEEK_LINE_CHARS};
@@ -38,8 +38,10 @@ use theseus_protocol::{
     WorkPeekParams, WorkPeekResult,
 };
 
+use super::confirms::Act;
 use super::server::{parse, reply, Conn, RpcFailure};
 use super::Core;
+use crate::approval::Refusal;
 use crate::outbound::{Note, Outbound};
 
 /// The methods this file serves besides `work.peek`, which `rpc_work` routes.
@@ -101,15 +103,30 @@ impl Core {
     }
 
     /// `job.stop`: the job stopped as the model's `job_stop` stops it
-    /// (`toolrun::jobs_tools::stop_job`), under `job_for`'s place rule. A job
+    /// (`toolrun::jobs_tools::stop_job`), but only from a trusted channel
+    /// (`places::owner_anywhere`, judged first, so a refusal says nothing of
+    /// which jobs exist), then under `job_for`'s place rule. A job
     /// that had ended already says so. Only the verdict's words go back.
     pub(super) async fn job_stop(
         self: &Arc<Self>,
         p: JobStopParams,
         conn: Conn<'_>,
     ) -> Result<JobStopResult, RpcFailure> {
+        let who = conn.answerer(p.author.clone(), p.discord.clone());
+        self.judge_act(&who, Act::Stop { job: &p.id })
+            .map_err(|e| match e.downcast::<Refusal>() {
+                Ok(r) => RpcFailure {
+                    code: error_code::REFUSED,
+                    message: format!(
+                        "stopping job {} from {} does not count: {}. The job runs on.",
+                        p.id, r.who, r.why
+                    ),
+                    data: json!({"who": r.who, "via": r.via, "why": r.why}),
+                },
+                Err(e) => RpcFailure::invalid(e),
+            })?;
         let job = self.job_for(&p.id, &conn)?;
-        let by = conn.actor(None);
+        let by = who.label.clone();
         let s = crate::toolrun::jobs_tools::stop_job(self, &p.id, &job.action, &by)
             .await
             .map_err(|e| RpcFailure::new(error_code::INTERNAL, format!("{e:#}")))?;

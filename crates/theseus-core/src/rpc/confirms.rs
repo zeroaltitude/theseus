@@ -753,6 +753,10 @@ impl Core {
             Act::SelfRevert { from_job: None, .. } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
             }
+            // A job's stop: the owner from any channel, a shared place's too.
+            Act::Stop { .. } => {
+                crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
+            }
             // Money and AWS are the owner's own (theseus-5rvss): an agent's
             // answer on the CLI to a question that spends or changes either
             // is refused, and the question keeps waiting.
@@ -1049,6 +1053,9 @@ pub(crate) enum Act<'a> {
     /// or a shared place that started one would spend the owner's budget.
     /// `what` names it: `starting a task (Survey the north quay)`.
     Task { what: &'a str },
+    /// A job's stop (`job.stop`, theseus-bglzl): from any channel Theseus
+    /// trusts as the owner's, whatever place it speaks in (`owner_anywhere`).
+    Stop { job: &'a str },
     /// A node marked wrong (theseus-2ced, `fact.retract`): it labels the node out of
     /// every recall, writes notes into sessions, and posts a card, so a job's process
     /// that made it would grade its own memory. `what` names it: `the retraction of msg_…`.
@@ -1084,6 +1091,7 @@ impl Act<'_> {
             Act::Earned { method, .. } => method,
             Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,
             Act::Task { .. } => theseus_protocol::method::TASK_START,
+            Act::Stop { .. } => theseus_protocol::method::JOB_STOP,
         }
     }
 }
