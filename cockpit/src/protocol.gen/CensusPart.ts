@@ -8,4 +8,9 @@ export type CensusPart = {
  * `persona`, `assembly`, `precedence`, `tools note`, `profile`; `standing orders`; a context file's path;
  * a category's id; `joins` (the blank lines between sections); `directory`.
  */
-name: string, bytes: number, tokens: number, };
+name: string, bytes: number, tokens: number, 
+/**
+ * A persona's soul over `[context] persona_max_tokens` (theseus-utfnl):
+ * carried whole, and flagged here.
+ */
+over_cap?: boolean, };

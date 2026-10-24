@@ -44,8 +44,10 @@ impl Core {
                 unknown: !book.exists(persona),
             })
             .collect();
-        let mut personas: Vec<PersonaInfo> = book
-            .live()
+        let mut every: Vec<_> = book.live().chain(book.awaiting()).collect();
+        every.sort_by(|a, b| a.0.cmp(b.0));
+        let mut personas: Vec<PersonaInfo> = every
+            .into_iter()
             .map(|(key, view)| {
                 let mut info = self.persona_info(view, in_play.as_deref() == Some(key.as_str()));
                 info.places = places
@@ -64,6 +66,7 @@ impl Core {
             in_play,
             built_in_bytes: crate::config::persona::DEFAULT_TEXT.len() as u64,
             built_in_digest: persona::digest(crate::config::persona::DEFAULT_TEXT),
+            cap: self.cfg.context.persona_cap(),
             places,
         })
     }
@@ -135,7 +138,19 @@ impl Core {
         let card_draft = manifest
             .as_ref()
             .is_some_and(|m| m.card_is_draft(view.card.as_deref()));
+        let cap = self.cfg.context.persona_cap();
+        let soul_tokens = files
+            .first()
+            .filter(|f| f.missing.is_none())
+            .map(|f| f.bytes.div_ceil(crate::task_graph::view::BYTES_PER_TOKEN));
         PersonaInfo {
+            awaiting: view.key.is_some() && view.files.is_empty(),
+            is_default: view
+                .key
+                .as_deref()
+                .is_some_and(|k| self.personas().default_key() == Some(k)),
+            over_cap: soul_tokens.is_some_and(|t| t > cap),
+            soul_tokens,
             card_draft,
             offered: view.card.is_some() && !card_draft,
             agent: manifest.as_ref().map(|m| m.agent.clone()),
@@ -205,7 +220,7 @@ impl Core {
     /// What is wrong with the personas in use, for health: the default and
     /// the places' own. A stat of each file (never a read), and a name the
     /// config lacks.
-    pub(super) fn persona_warnings(&self) -> Vec<String> {
+    pub(crate) fn persona_warnings(&self) -> Vec<String> {
         let mut out = Vec::new();
         let book = self.personas();
         let mut used: Vec<String> = book.default_key().map(str::to_string).into_iter().collect();
@@ -217,6 +232,22 @@ impl Core {
                 ));
             } else if !used.contains(&name) {
                 used.push(name);
+            }
+        }
+        // A soul over its cap is carried whole and said here (a stat, never a
+        // read); `theseusd check` and health show it.
+        let cap = self.cfg.context.persona_cap();
+        for (key, v) in book.live() {
+            for f in &v.files {
+                let len = std::fs::metadata(crate::config::expand(f.path())).map_or(0, |m| m.len());
+                let tokens = len.div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
+                if tokens > cap {
+                    out.push(format!(
+                        "persona {key}: its soul {} is {tokens} tokens, over the cap of {cap}: \
+                         it is carried whole; trim it",
+                        f.path()
+                    ));
+                }
             }
         }
         for key in used {

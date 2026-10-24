@@ -29,6 +29,9 @@ impl Core {
         params: Value,
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
+        if let Some(m) = super::persona_write::OWN.iter().find(|m| **m == name) {
+            return self.rpc_persona_write(m, params, conn).await;
+        }
         let who = conn.answerer(None, None);
         if name == method::PERSONA_IMPORT {
             let p: PersonaImportParams = parse(params)?;
@@ -90,7 +93,7 @@ impl Core {
             })
             .collect();
         result.proposals_known = known;
-        if p.dry_run || (result.unchanged && fresh.is_empty()) {
+        if p.dry_run || (result.unchanged && fresh.is_empty() && self.personas().exists(&p.name)) {
             return Ok(result);
         }
         let fact = crate::fact::persona_import::PersonaImported {
@@ -105,6 +108,7 @@ impl Core {
         frame.push(crate::fact::row(&fact, None, None)?);
         theseus_store::blocking(|| self.store.append(&frame))?;
         self.rec(None).announce(&fact);
+        self.persona_from_import(&p.name, &result)?;
         Ok(result)
     }
 

@@ -696,7 +696,8 @@ enum Cmd {
     /// The persona as data: `persona` shows every persona (name, emoji, voice,
     /// initiative, files with digest and edit time, the compiles that carried it, its places);
     /// `persona edit [NAME] [--name|--emoji|--card|--tts-voice|--avatar|--initiative VALUE]` sets
-    /// short fields in the config file, or opens its file in $EDITOR; `persona history` lists
+    /// short fields, or, with none, writes its soul (as do `persona soul KEY`, `persona set KEY`,
+    /// `persona add KEY`, `persona retire KEY` and `persona default KEY`); `persona history` lists
     /// the `persona.changed` rows; `persona voice [audition]` is the speaking voice, and `persona rate
     /// up|down [ID]` your 👍 or 👎 on the latest message Theseus sent first.
     #[command(hide = true)]

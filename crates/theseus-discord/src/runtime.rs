@@ -56,6 +56,7 @@ mod capture_card;
 mod earned;
 pub(crate) mod grant;
 mod onto_card;
+pub(crate) mod persona_soul;
 mod remind;
 pub(crate) mod seal;
 pub(crate) use capture_card::{buttons as capture_buttons, card_of as capture_card};

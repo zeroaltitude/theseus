@@ -1534,6 +1534,7 @@ impl Config {
         self.sessions.validate()?;
         self.threads.validate()?;
         self.persona_import.validate()?;
+        self.context.validate()?;
         self.cockpit.validate()?;
         self.routines.validate()?;
         self.watch_for.validate()?;

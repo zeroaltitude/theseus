@@ -18,7 +18,9 @@ use crate::config::PersonaView;
 use crate::context_files::{ContextEntry, ContextFileEntry, ContextReaders};
 
 pub mod migrate;
+pub mod note;
 pub mod soul;
+pub mod write;
 
 /// The kind's name, and a category's id for a key.
 pub use theseus_ontology::persona::KIND;
@@ -221,4 +223,25 @@ pub(crate) fn test_soul(key: &str) -> crate::context_files::ContextEntry {
     let path = dir.join(format!("{key}.md"));
     std::fs::write(&path, format!("You are {key}.\n")).unwrap();
     path.to_string_lossy().into_owned().into()
+}
+
+/// Who wrote a persona, as its category's `added_by`.
+pub(crate) fn soul_added_by(who: &crate::approval::Answerer) -> String {
+    crate::rpc::ontology::added_by(who)
+}
+
+/// The ledger fact of a soul written.
+pub(crate) fn soul_fact<'a>(
+    key: &'a str,
+    w: &'a soul::Written,
+    who: &'a crate::approval::Answerer,
+) -> crate::fact::persona::PersonaSoul<'a> {
+    crate::fact::persona::PersonaSoul {
+        persona: key,
+        path: &w.path,
+        old: w.old.as_deref(),
+        new: &w.digest,
+        who: who.who(),
+        via: who.via(),
+    }
 }

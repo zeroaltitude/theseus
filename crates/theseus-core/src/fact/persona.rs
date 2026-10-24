@@ -124,8 +124,8 @@ pub struct PersonaSoul<'a> {
     pub path: &'a str,
     pub old: Option<&'a str>,
     pub new: &'a str,
-    pub who: &'a str,
-    pub via: &'a str,
+    pub who: String,
+    pub via: String,
 }
 
 impl Fact for PersonaSoul<'_> {

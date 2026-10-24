@@ -198,7 +198,12 @@ fn card_families() -> Vec<(&'static str, String)> {
     let retraction = crate::retract::card_text("the tide is at 5", "wrong date", &[]);
     let kept = crate::capture::kept_card("📌 Kept as a standing order everywhere: x");
     let asked = crate::capture::ask_card("📌 Keep as a standing order everywhere?");
+    let new_persona = crate::personas::note::text("pilot", "Pilot", "the CLI", 2000);
+    let moved =
+        crate::personas::migrate::note_text(&["alder", "brook"], &["cinder: /p/runbook.md".into()]);
     vec![
+        ("new persona card", new_persona),
+        ("personas moved note", moved),
         ("morning note", morning),
         ("consolidation finding", finding),
         ("posted digest", digest),

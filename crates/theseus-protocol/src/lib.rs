@@ -73,6 +73,7 @@ pub mod packs;
 pub mod patterns;
 pub mod persona;
 pub mod persona_import;
+pub mod persona_write;
 mod places;
 pub mod prefix;
 pub mod projects;
@@ -150,6 +151,7 @@ pub use persona::{
     PersonaFile, PersonaInfo, PersonaListParams, PersonaListResult, PersonaPlace, PersonaTally,
 };
 pub use persona_import::*;
+pub use persona_write::*;
 pub use places::*;
 pub use push::*;
 pub use retry::*;
@@ -274,7 +276,7 @@ pub mod method {
         /// The owner's standing orders, preferences and facts (theseus-a7vi, `standing::StandingListParams`): a read, and the owner's two writes.
         THREAD_NEW = "thread.new", THREAD_LIST = "thread.list", THREAD_SHOW = "thread.show", THREAD_EDIT = "thread.edit", THREAD_PAUSE = "thread.pause", THREAD_RESUME = "thread.resume", THREAD_DONE = "thread.done", THREAD_REOPEN = "thread.reopen", THREAD_IMPORT = "thread.import", CARD_PROPOSE = "card.propose", CARD_LIST = "card.list", CARD_ANSWER = "card.answer", CARD_DONE = "card.done", THREAD_SEAL = "thread.seal", THREAD_UNSEAL = "thread.unseal", THREAD_SEAL_DISMISS = "thread.seal_dismiss", THREAD_ANSWER = "thread.answer", THREAD_MOVE = "thread.move", THREAD_MERGE = "thread.merge", THREAD_UNMERGE = "thread.unmerge", THREAD_SPLIT = "thread.split", THREAD_SPLIT_PLAN = "thread.split_plan", THREAD_UNSPLIT = "thread.unsplit", THREAD_LINK = "thread.link", THREAD_UNLINK = "thread.unlink", THREAD_UNCLAIM = "thread.unclaim", PREFIX_REPORT = "prefix.report",
         /// The personas and the built-in default (theseus-slvl.2): a read.
-        PERSONA_LIST = "persona.list", PERSONA_IMPORT = "persona.import", PERSONA_CARD_CONFIRM = "persona.card_confirm", // an agent's workspace carried over as a persona, and its card kept (theseus-a8n7)
+        PERSONA_LIST = "persona.list", PERSONA_IMPORT = "persona.import", PERSONA_CARD_CONFIRM = "persona.card_confirm", PERSONA_ADD = "persona.add", PERSONA_SOUL = "persona.soul", PERSONA_SET = "persona.set", PERSONA_RETIRE = "persona.retire", PERSONA_DEFAULT = "persona.default", // an agent's workspace carried over as a persona, and its card kept (theseus-a8n7)
         INITIATIVE_RATE = "initiative.rate", INITIATIVE_WEEK = "initiative.week", // a thumbs up or down on what Theseus said first; the week (theseus-slvl.9)
         VOICE_SHOW = "voice.show", VOICE_AUDITION = "voice.audition", STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke", STANDING_PROPOSALS = "standing.proposals", STANDING_KEEP = "standing.keep", STANDING_DISMISS = "standing.dismiss", STANDING_ANSWER = "standing.answer",
         ONTOLOGY_UNDO = "ontology.undo", ONTOLOGY_KIND_ADD = "ontology.kind.add", ONTOLOGY_KIND_RETIRE = "ontology.kind.retire", JUDGE_LATENCY = "judge.latency", // Jev's writes taken back, the kinds table's two writes (theseus-xzxqv), and a point's latency by day

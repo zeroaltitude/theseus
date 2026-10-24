@@ -491,7 +491,7 @@ fn failure(e: anyhow::Error) -> RpcFailure {
 
 /// Who wrote a record, as its `added_by` holds it: one line of at most 100
 /// characters.
-pub(super) fn added_by(who: &Answerer) -> String {
+pub(crate) fn added_by(who: &Answerer) -> String {
     let w: String = who
         .who()
         .chars()

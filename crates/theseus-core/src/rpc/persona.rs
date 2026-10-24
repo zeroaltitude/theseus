@@ -40,6 +40,13 @@ impl Core {
         tokio::task::spawn_blocking(move || {
             if let Some(core) = core.upgrade() {
                 core.runner.persona.warm(&core.store);
+                for w in core
+                    .persona_warnings()
+                    .iter()
+                    .filter(|w| w.contains("over the cap"))
+                {
+                    tracing::warn!("{w}");
+                }
             }
         });
     }

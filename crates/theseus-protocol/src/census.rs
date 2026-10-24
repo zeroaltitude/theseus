@@ -39,6 +39,10 @@ pub struct CensusPart {
     pub bytes: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub tokens: u64,
+    /// A persona's soul over `[context] persona_max_tokens` (theseus-utfnl):
+    /// carried whole, and flagged here.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub over_cap: bool,
 }
 
 /// One system block (`header`, `context`, `session`): its sections, and the framing the provider counts for

@@ -569,3 +569,7 @@ async fn the_snapshot_rebuilt_after_a_restart_equals_the_one_kept_in_memory() {
     assert_eq!(rows_of(&r.core, "ontology.guidance", None).len(), 3);
     assert_eq!(rows_of(&r.core, "ontology.membership", Some(&sid)).len(), 2);
 }
+
+#[cfg(test)]
+#[path = "tests_persona_write.rs"]
+mod persona_write;

@@ -194,3 +194,97 @@ async fn no_persona_changed_row_after_migration() {
     }
     let _ = &dir;
 }
+
+/// The census flags a persona part over the cap, and only that one.
+#[test]
+fn census_flags_an_oversized_persona() {
+    let (core, dir) = rig_of(OWNER_SHAPE);
+    let cap = core.cfg.context.persona_cap();
+    let ember = dir.path().join(".theseus/personas/ember.md");
+    // A hand edit, past the cap: carried whole, and flagged.
+    std::fs::write(&ember, "e".repeat(cap as usize * 3 + 300)).unwrap();
+    let (c, _, _) = core
+        .context_census(&theseus_protocol::census::ContextCensusParams {
+            session_id: None,
+            place: Some("dm".into()),
+            exact: false,
+        })
+        .unwrap();
+    let parts: Vec<_> = c
+        .system
+        .iter()
+        .flat_map(|b| &b.parts)
+        .filter(|p| p.name.ends_with(".md"))
+        .collect();
+    assert_eq!(parts.len(), 5, "{parts:?}");
+    let over: Vec<&str> = parts
+        .iter()
+        .filter(|p| p.over_cap)
+        .map(|p| p.name.as_str())
+        .collect();
+    assert_eq!(over, ["ember.md"]);
+    let warns = core.persona_warnings();
+    assert!(
+        warns
+            .iter()
+            .any(|w| w.contains("ember") && w.contains("over the cap")),
+        "{warns:?}"
+    );
+}
+
+/// The owner's five fixtures sit in the DM's persona layer as the config's
+/// made them: the layer is the sections of the config's paths, joined as the
+/// compiler joins them, byte for byte, and each is within the cap.
+#[test]
+fn census_dm_persona_layer_unchanged() {
+    let (core, _dir) = rig_of(OWNER_SHAPE);
+    let (live, _) = core.live_profile();
+    let next = core.runner.census_request(None, "dm", &live).unwrap();
+    let from_config = core
+        .cfg
+        .context_paths(&Book::of_config(&core.cfg), None, true);
+    let sections: Vec<String> = core
+        .runner
+        .context_files
+        .peek(&from_config)
+        .into_iter()
+        .filter(|f| f.file.persona.is_some())
+        .map(|f| f.section)
+        .collect();
+    assert_eq!(sections.len(), 5);
+    assert_eq!(next.spec.persona_text, sections.join("\n\n"));
+    let cap = core.cfg.context.persona_cap();
+    assert!(sections.iter().all(|s| (s.len() as u64) < cap * 3));
+}
+
+/// A soul the compile carries over the cap (here the default persona's, which
+/// a cli session speaks as) is said to the owner once for each digest: the second turn says nothing, an edit says it again.
+#[tokio::test]
+async fn an_over_cap_soul_alerts_once() {
+    let (core, dir) = rig_of(OWNER_SHAPE);
+    let cap = core.cfg.context.persona_cap() as usize;
+    let ember = dir.path().join(".theseus/personas/alder.md");
+    let alerts = |c: &Core| {
+        c.outbox
+            .open_for(crate::outbox::OPERATOR_TARGET)
+            .iter()
+            .filter_map(|a| {
+                crate::outbox::body_of(a)["text"]
+                    .as_str()
+                    .map(str::to_string)
+            })
+            .filter(|t| t.contains("soul is over its cap"))
+            .count()
+    };
+    std::fs::write(&ember, "e".repeat(cap * 3 + 300)).unwrap();
+    let sid = crate::tests_persona::session(&core, None);
+    crate::tests_persona::turn(&core, &sid, "one").await;
+    assert_eq!(alerts(&core), 1);
+    crate::tests_persona::turn(&core, &sid, "two").await;
+    assert_eq!(alerts(&core), 1, "once for a digest");
+    std::fs::write(&ember, "f".repeat(cap * 3 + 600)).unwrap();
+    crate::tests_persona::turn(&core, &sid, "three").await;
+    assert_eq!(alerts(&core), 2, "an edited soul is a new digest");
+    let text = crate::turn::persona_step::over_cap_text("Ember", "p", 2100, 2000);
+    assert!(crate::owner_note::is_headed(&text), "{text}");
+}

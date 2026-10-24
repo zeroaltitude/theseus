@@ -92,6 +92,30 @@ pub fn plan(cfg: &Config, read: impl Fn(&str) -> Option<String>) -> Result<Plan>
     Ok(out)
 }
 
+/// The one note the migration sends: what moved, and how to delete the tables.
+pub fn note_text(keys: &[&str], dropped: &[String]) -> String {
+    let not_carried = match dropped.is_empty() {
+        true => String::new(),
+        false => format!(
+            " Not carried (a persona is one small file): {}.",
+            dropped.join(", ")
+        ),
+    };
+    note(
+        Kind::Fyi,
+        "Personas moved into the ontology",
+        "your config's [personas] was read once, at this start",
+        &format!(
+            "{} persona(s) ({}) are the ontology's now. `theseus persona list` shows them, \
+             `theseus persona add KEY` makes another, and `theseus persona soul KEY` writes a \
+             soul. The [personas] tables and [context] default_persona in your config do \
+             nothing from here: delete them.{not_carried}",
+            keys.len(),
+            keys.join(", "),
+        ),
+    )
+}
+
 impl Core {
     /// Read `[personas]` once, before serving. Nothing is read when the
     /// config has none, and a start after the first writes nothing: one META
@@ -129,27 +153,7 @@ impl Core {
                 ])
             })?;
         self.rec(None).announce(&fact);
-        let body = format!(
-            "{} persona(s) ({}) are the ontology's now. `theseus persona list` shows them, \
-             `theseus persona add KEY` makes another, and `theseus persona soul KEY` writes a \
-             soul. The [personas] tables and [context] default_persona in your config do \
-             nothing from here: delete them.{}",
-            keys.len(),
-            keys.join(", "),
-            match plan.dropped.is_empty() {
-                true => String::new(),
-                false => format!(
-                    " Not carried (a persona is one small file): {}.",
-                    plan.dropped.join(", ")
-                ),
-            }
-        );
-        let text = note(
-            Kind::Fyi,
-            "Personas moved into the ontology",
-            "your config's [personas] was read once, at this start",
-            &body,
-        );
+        let text = note_text(&keys, &plan.dropped);
         if let Err(e) = self
             .outbox
             .to_operator(None, json!({"kind": "notice", "text": text}))

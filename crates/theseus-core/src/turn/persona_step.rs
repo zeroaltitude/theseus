@@ -143,6 +143,7 @@ impl TurnRunner {
     /// and the new state, both in the turn's next frame. A first sighting
     /// stores the state and says nothing.
     pub(super) fn observe_persona(&self, t: &mut Turn<'_>, target: &Target, spec: &RequestSpec) {
+        self.alert_over_cap(spec);
         let Some(key) = target.persona.as_deref() else {
             return;
         };
@@ -180,6 +181,45 @@ impl TurnRunner {
             }
         }
     }
+}
+
+impl TurnRunner {
+    /// A soul the compile carried over `[context] persona_max_tokens` (a hand
+    /// edit, or a migrated file): carried whole, never cut, and said to the
+    /// owner once for each digest. A shared place's withheld file says
+    /// nothing of its size.
+    fn alert_over_cap(&self, spec: &RequestSpec) {
+        let cap = self.cfg.context.persona_cap();
+        let book = self.personas();
+        for f in &spec.context_files {
+            let (Some(key), Some(digest)) = (f.persona.as_deref(), f.digest.as_deref()) else {
+                continue;
+            };
+            let tokens = f.bytes.div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
+            if f.withheld.is_some() || tokens <= cap || !self.persona.first_over_cap(key, digest) {
+                continue;
+            }
+            let name = book.get(key).map_or(key, |v| v.name.as_str());
+            let text = over_cap_text(name, &f.path, tokens, cap);
+            if let Err(e) = self
+                .outbox
+                .to_operator(None, serde_json::json!({"kind": "notice", "text": text}))
+            {
+                tracing::warn!(persona = key, error = %format!("{e:#}"), "the over-cap note was not posted");
+            }
+        }
+    }
+}
+
+/// The note: a soul over its cap is still carried whole.
+pub(crate) fn over_cap_text(name: &str, path: &str, tokens: u64, cap: u64) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        &format!("Persona {name}'s soul is over its cap"),
+        &format!("the compile carried {path}: {tokens} tokens, the cap is {cap}"),
+        "It is carried whole and sits in every DM's cached persona layer. Trim it to the cap: \
+         a persona is one small file.",
+    )
 }
 
 /// A persona's unreadable file, said to the owner (theseus-x8b9k).
