@@ -75,6 +75,8 @@ export interface Graph {
   order: readonly string[]
   /** How many nodes the cap folded away. */
   folded: number
+  /** An opening was asked for and the cap could not hold it: the layout folded it back. */
+  cantOpen?: boolean
 }
 
 export interface LayoutOpts {
@@ -83,6 +85,8 @@ export interface LayoutOpts {
   future?: boolean
   /** The lanes whose "✓ N done" node is open. */
   expanded?: ReadonlySet<string>
+  /** Fold roots the owner opened (`+N folded`): their subtrees are never chosen to fold, unless the cap cannot hold. */
+  opened?: ReadonlySet<string>
   cap?: number
 }
 
@@ -112,9 +116,16 @@ export const nodeIdOf = (v: Pick<WorkView, 'id' | 'kind' | 'session_id'>): strin
   (v.kind === 'conversation' || v.kind === 'task') && v.session_id ? v.session_id : v.id
 
 export function opsLayout(views: readonly WorkView[], records: readonly TaskRecord[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph {
+  const g = layout(views, records, lanes, prev, opts)
+  // The cap is never raised for an opening: when the graph is still over it with one open, lay it out without.
+  if (opts.opened?.size && g.nodes.length > (opts.cap ?? NODE_CAP)) return { ...layout(views, records, lanes, prev, { ...opts, opened: undefined }), cantOpen: true }
+  return g
+}
+
+function layout(views: readonly WorkView[], records: readonly TaskRecord[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph {
   // A layout that placed nothing (the page before its first read) holds no order to keep.
   if (prev && prev.nodes.length === 0) prev = null
-  const { now, future = false, expanded = new Set<string>(), cap = NODE_CAP } = opts
+  const { now, future = false, expanded = new Set<string>(), opened = new Set<string>(), cap = NODE_CAP } = opts
   const items = new Map<string, Item>()
   const alias = new Map<string, string>()
   const asks = new Map<string, number>()
@@ -202,9 +213,12 @@ export function opsLayout(views: readonly WorkView[], records: readonly TaskReco
     const below = (id: string): string[] => { const out: string[] = []; const walk = (x: string) => { for (const k of kids.get(x) ?? []) if (shown.has(k)) { out.push(k); walk(k) } }; walk(id); return out }
     const roots = [...kids.keys()].filter((id) => shown.get(id)?.it)
       .sort((a, b) => depthOf.get(b)! - depthOf.get(a)! || items.get(a)!.startedMs - items.get(b)!.startedMs || (a < b ? -1 : 1))
+    // An opened root, and everything below it, stays as it is.
+    const keep = new Set<string>()
+    for (const o of opened) if (shown.has(o)) { keep.add(o); for (const m of below(o)) keep.add(m) }
     for (const r of roots) {
       if (shown.size <= cap) break
-      if (!shown.has(r)) continue
+      if (!shown.has(r) || keep.has(r)) continue
       const sub = below(r)
       if (sub.length < 2 || sub.some((m) => items.get(m)?.needs)) continue
       const id = `fold:${r}`
@@ -332,4 +346,36 @@ export function keeper(): { lay: (views: readonly WorkView[], records: readonly 
       return prev
     },
   }
+}
+
+const locked = (d: DataMark | undefined) => d === 'private' || d === 'sensitive'
+
+/** The title a node or a lane is drawn with. Under redact (`?redact=1`) one whose data mark is private or sensitive
+ *  shows its kind and short id (a lane: "a <mark> thread") instead. Every place a title is drawn takes this. */
+export function shownTitle(n: { title: string; data?: DataMark; kind?: string; id?: string }, redact: boolean): string {
+  if (!redact || !locked(n.data)) return n.title
+  return n.kind ? `${n.kind} ${(n.id ?? '').slice(-6)}` : `a ${n.data} thread`
+}
+
+/** Whether redact hides this node's or lane's words. */
+export const masked = (n: { data?: DataMark }, redact: boolean): boolean => redact && locked(n.data)
+
+const WALKABLE = new Set<GKind>(['conversation', 'task', 'step', 'job'])
+
+/** The node a key moves to: `j`/`k` the nearest node below/above in the same column (across lanes), `h`/`l` the nearest
+ *  in the next column left/right (by distance down the page). A fold, a "✓ N done" and a future node are skipped. From
+ *  nothing it takes the first node that needs the owner, else the top-left one. Null when there is nowhere to go. */
+export function stepNode(g: Pick<Graph, 'nodes'>, fromId: string | null, dx: number, dy: number): string | null {
+  const nodes = g.nodes.filter((n) => WALKABLE.has(n.kind))
+  const byPos = (a: GNode, b: GNode) => a.y - b.y || a.x - b.x || (a.id < b.id ? -1 : 1)
+  const from = fromId ? nodes.find((n) => n.id === fromId) : undefined
+  if (!from) return [...nodes].sort(byPos).find((n) => n.needs)?.id ?? [...nodes].sort(byPos)[0]?.id ?? null
+  if (dy) {
+    const col = nodes.filter((n) => n.x === from.x && (dy > 0 ? n.y > from.y : n.y < from.y)).sort(byPos)
+    return (dy > 0 ? col[0] : col.at(-1))?.id ?? null
+  }
+  const side = nodes.filter((n) => (dx > 0 ? n.x > from.x : n.x < from.x))
+  if (!side.length) return null
+  const x = dx > 0 ? Math.min(...side.map((n) => n.x)) : Math.max(...side.map((n) => n.x))
+  return side.filter((n) => n.x === x).sort((a, b) => Math.abs(a.y - from.y) - Math.abs(b.y - from.y) || byPos(a, b))[0].id
 }

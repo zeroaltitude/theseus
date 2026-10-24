@@ -127,3 +127,33 @@ test('the Graph lens and the bulk acts (ops-graph): mounted in its branch, fanne
   assert.match(css, /html:not\(\.stirred\) \.ops-flow \.react-flow__edge-path \{ animation: none !important; \}/)
   assert.match(css, /html\.calm \.ops-flow \.react-flow__edge-path, html\.calm \.ops-fade-in \{ animation: none !important; \}/)
 })
+
+test('the Graph’s follow-ups are wired: keys, the palette scope, the verb menu, row-backed picks, homes, space, redact', () => {
+  const lens = src('ops/GraphLens.tsx').replace(/\/\/.*$/gm, '')
+  const board = src('ops/BoardLens.tsx')
+  // n17am 1: the keys walk the graph's nodes from the lens's last layout.
+  assert.match(page, /stepNode\(graphRef\.current/)
+  assert.match(lens, /layoutRef\.current = g/)
+  assert.match(lens, /memory\.lay\(/)
+  // n17am 2: the palette opens over the picked cards, and over the focused one when none are picked.
+  assert.match(page, /useOpsPalette\.setState\(\{ scope: picked\.size > 0 \? 'selection' : 'one' \}\)/)
+  // n17am 5: one verb menu, the page's.
+  assert.ok(!/function Menu\(/.test(lens) && !/offersFor|onVerb/.test(lens))
+  assert.match(lens, /onContext\(n\.id, e\.clientX, e\.clientY\)/)
+  assert.match(page, /onContext=\{\(id, x, y\) => setCtxMenu\(\{ id, x, y \}\)\} redact=\{a\.redact\}/)
+  // n17am 6: no ended or retired conversation is a home.
+  assert.match(page, /r\.sessionId && alive\(r\) && !r\.session\?\.retired/)
+  // n17am 7: only a node with a row is picked, by click and by lasso.
+  assert.equal((lens.match(/byId\.has\(/g) ?? []).length >= 3, true)
+  assert.match(lens, /if \(byId\.has\(n\.id\)\) onPick\(n\.id\)/)
+  assert.match(lens, /filter\(\(id\) => byId\.has\(id\)\)/)
+  // n17am 8: space picks the pick box that holds the DOM focus.
+  assert.match(page, /document\.activeElement\?\.closest<HTMLElement>\('\[data-pick\]'\)/)
+  assert.match(board, /<input type="checkbox" checked=\{picked\} onChange=\{\(\) => onPick\(r\.id\)\} data-pick=\{r\.id\}/)
+  // n17am 4: the node and lane titles are drawn through shownTitle.
+  const node = src('ops/GraphNode.tsx')
+  assert.ok(!/title=\{n\.title\}|⚙ \{n\.title\}|>\{n\.title\}<\/div>|\{lane\.title\}/.test(node.replace(/\/\/.*$/gm, "")), "a title is drawn bare")
+  // n17am 3: "+N folded" opens its subtree; tidy forgets the openings.
+  assert.match(lens, /setOpened\(\(s\) => new Set\(\[\.\.\.s, n\.parent/)
+  assert.match(lens, /setOpened\(new Set\(\)\); setTidy/)
+})

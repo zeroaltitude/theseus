@@ -1,7 +1,7 @@
 // The Graph lens (theseus-jid7t.4): every session, task, step and job as one living graph, in lanes across a deck-navy
 // canvas, laid out by `opsLayout` (`ops/graph.ts`: sticky by id, ended work folded, the 400-node cap). React Flow draws
 // it: minimap, zoom and fit; `?sel=` pans to its node. A click focuses (`?sel=`), ⇧/⌘-click picks, ⇧-drag lassos, a
-// double-click opens the deck, a right-click opens the verbs the bulk bar offers for that node, and a task or a
+// double-click opens the deck, a right-click opens the page's verb menu for that node's row, and a task or a
 // conversation drags onto a home or a project (`ops/drag.ts`). A running edge flows while the daemon says something;
 // Calm and reduced motion still it. Filters and the search fade what they leave out, so nothing moves.
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -18,9 +18,9 @@ const FIT_LANES = { ...FIT, padding: 0.05 }
 /** The least zoom a first view takes: a node's title still reads. */
 const READABLE = 0.62
 import type { OpsRow } from './board'
-import { keeper, NODE_W, type GEdge, type LaneMeta } from './graph'
+import { keeper, NODE_W, type Graph, type GEdge, type LaneMeta } from './graph'
 import { NODE_TYPES, typeOf, type LaneData, type NodeData } from './GraphNode'
-import type { BulkOffer, BulkVerb, Selection } from './selection'
+import type { Selection } from './selection'
 import type { DragDrop } from './DropLayer'
 import { dragOf, type DragItem } from './rehome'
 
@@ -44,9 +44,12 @@ export interface GraphLensProps {
   onPick: (id: string) => void
   onLasso: (ids: string[]) => void
   onOpen: (sessionId: string) => void
-  /** The verbs the bulk bar offers for one node, for its right-click menu. */
-  offersFor: (id: string) => BulkOffer[]
-  onVerb: (verb: BulkVerb, ids: string[]) => void
+  /** A right-click on a node that has a row: the page opens its one verb menu there. */
+  onContext: (id: string, x: number, y: number) => void
+  /** `?redact=1`: a private or sensitive node and lane show a mark for their title. */
+  redact: boolean
+  /** The lens hands its last layout up, for the page's keys (a ref: no render). */
+  layoutRef: { current: Graph | null }
   drag: DragDrop
   titleOf: (sessionId: string) => string
 }
@@ -55,22 +58,23 @@ export function GraphLens(p: GraphLensProps) {
   return <ReactFlowProvider><Canvas {...p} /></ReactFlowProvider>
 }
 
-function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onFocus, onPick, onLasso, onOpen, offersFor, onVerb, drag, titleOf }: GraphLensProps) {
+function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onFocus, onPick, onLasso, onOpen, onContext, redact, layoutRef, drag, titleOf }: GraphLensProps) {
   const rf = useReactFlow()
   const calm = useCalm((s) => s.calm)
   const [future, setFuture] = useState(false)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set())
   const [tidy, setTidy] = useState(0)
   // The last layout, which the next keeps every placed node of (sticky by id); "tidy" forgets it.
   const [memory] = useState(keeper)
-  const g = useMemo(() => memory.lay(views, records, lanes, { now, future, expanded }, tidy), [memory, views, records, lanes, now, future, expanded, tidy])
+  const g = useMemo(() => memory.lay(views, records, lanes, { now, future, expanded, opened }, tidy), [memory, views, records, lanes, now, future, expanded, opened, tidy])
+  useEffect(() => { layoutRef.current = g }, [g, layoutRef])
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
   // `?sel=` names a node by its id, or a task by its record's (`tsk_…`, the task graph's link).
   const at = focus ? g.nodes.find((n) => n.id === focus) ?? g.nodes.find((n) => n.record?.id === focus) : undefined
   const fid = at?.id ?? null
   const [moving, setMoving] = useState<{ id: string; x: number; y: number } | null>(null)
   const [hover, setHover] = useState<{ key: string; ok: boolean } | null>(null)
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   // Each node's size as React Flow measured it: the nodes are the layout's, so the measure is kept here (the minimap
   // draws only measured nodes).
   const [sizes, setSizes] = useState<Readonly<Record<string, { width: number; height: number }>>>({})
@@ -79,7 +83,7 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   const nodes = useMemo(() => {
     const out: Node[] = g.lanes.map((l): Node<LaneData> => ({
       id: `lane:${l.key}`, type: 'lane', position: { x: 0, y: l.y }, measured: { width: g.width + 24, height: l.height }, draggable: false, selectable: false, zIndex: -1,
-      data: { lane: l, width: g.width + 24, hover: hover?.key === `lane:${l.key}` ? (hover.ok ? 'ok' : 'no') : undefined },
+      data: { lane: l, width: g.width + 24, redact, hover: hover?.key === `lane:${l.key}` ? (hover.ok ? 'ok' : 'no') : undefined },
     }))
     for (const n of g.nodes) {
       const row = byId.get(n.id)
@@ -88,14 +92,14 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
       out.push({
         id: n.id, type: typeOf(n.kind), position: at, measured: sizes[n.id], selected: picked.has(n.id), draggable: n.kind === 'task' || n.kind === 'conversation', zIndex: moving?.id === n.id ? 10 : 1,
         data: {
-          n, row, now, focused: fid === n.id, picked: picked.has(n.id), dim: shownIds != null && !shownIds.has(n.id) && n.kind !== 'done' && n.kind !== 'folded',
+          n, row, now, redact, focused: fid === n.id, picked: picked.has(n.id), dim: shownIds != null && !shownIds.has(n.id) && n.kind !== 'done' && n.kind !== 'folded',
           hover: key && hover?.key === key ? (hover.ok ? 'ok' : 'no') : undefined,
-          onFold: n.kind === 'done' ? () => setExpanded((s) => new Set([...s, n.lane])) : undefined,
+          onFold: n.kind === 'done' ? () => setExpanded((s) => new Set([...s, n.lane])) : n.kind === 'folded' ? () => setOpened((s) => new Set([...s, n.parent ?? n.id.slice(5)])) : undefined,
         } satisfies NodeData,
       })
     }
     return out
-  }, [g, byId, now, fid, picked, shownIds, moving, hover, sizes])
+  }, [g, byId, now, fid, picked, shownIds, moving, hover, sizes, redact])
 
   const edges = useMemo(() => g.edges.map((e): Edge => ({
     id: e.id, source: e.source, target: e.target, ...EDGE[e.kind],
@@ -149,17 +153,17 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   }
 
   return (
-    <div ref={box} className="relative h-full min-h-[420px] overflow-hidden rounded-xl border border-line bg-deck" data-testid="ops-graph" onClick={() => setMenu(null)}>
+    <div ref={box} className="relative h-full min-h-[420px] overflow-hidden rounded-xl border border-line bg-deck" data-testid="ops-graph">
       <ReactFlow nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} onNodesChange={onNodesChange} minZoom={0.08} maxZoom={1.6} colorMode="dark"
         proOptions={{ hideAttribution: true }} multiSelectionKeyCode={null} selectionKeyCode="Shift" deleteKeyCode={null}
         onNodeClick={(e, n) => {
           if (n.type === 'lane') return
-          if (e.shiftKey || e.metaKey || e.ctrlKey) onPick(n.id); else onFocus(n.id)
+          if (e.shiftKey || e.metaKey || e.ctrlKey) { if (byId.has(n.id)) onPick(n.id) } else onFocus(n.id) // only a node with a row is picked
         }}
         onNodeDoubleClick={(_, n) => { const sid = byId.get(n.id)?.sessionId; if (sid) onOpen(sid) }}
-        onNodeContextMenu={(e, n) => { if (n.type === 'lane') return; e.preventDefault(); setMenu({ id: n.id, x: e.clientX, y: e.clientY }) }}
+        onNodeContextMenu={(e, n) => { if (n.type === 'lane' || !byId.has(n.id)) return; e.preventDefault(); onContext(n.id, e.clientX, e.clientY) }}
         onSelectionStart={() => { boxing.current = new Set() }}
-        onSelectionEnd={() => { const got = boxing.current; boxing.current = null; if (got?.size) onLasso([...got]) }}
+        onSelectionEnd={() => { const got = boxing.current; boxing.current = null; const ids = [...(got ?? [])].filter((id) => byId.has(id)); if (ids.length) onLasso(ids) }}
         onNodeDragStart={(_, n) => { const src = sourceOf(n.id); if (src) drag.begin(src) }}
         onNodeDrag={(e, n) => {
           const { x, y } = pointOf(e)
@@ -182,13 +186,13 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
       </ReactFlow>
       <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2 rounded-lg bg-hull/90 px-2.5 py-1.5 text-[11px] text-ink-dim ring-1 ring-line backdrop-blur">
         <span className="num">{g.nodes.length} nodes{g.folded ? ` · ${g.folded} folded` : ''}</span>
+        {g.cantOpen && <span role="status" className="text-wait">could not open: the graph is at its cap; narrow it with the filters or the search</span>}
         <button type="button" aria-pressed={future} onClick={() => setFuture((f) => !f)} className={cn('rounded px-1.5 ring-1', future ? 'bg-think/15 text-think ring-think/40' : 'ring-line hover:text-ink')}
           title="wakes, routines, watches and projects (a project takes a dropped task or conversation)">+ future</button>
-        <button type="button" onClick={() => { setExpanded(new Set()); setTidy((t) => t + 1) }} className="rounded px-1.5 ring-1 ring-line hover:text-ink"
+        <button type="button" onClick={() => { setExpanded(new Set()); setOpened(new Set()); setTidy((t) => t + 1) }} className="rounded px-1.5 ring-1 ring-line hover:text-ink"
           title="lay it out afresh: needs-you lanes first, holes closed (live changes never move a node)">tidy</button>
       </div>
       <Legend />
-      {menu && <Menu {...menu} offers={offersFor(menu.id)} onVerb={(v) => { setMenu(null); onVerb(v, [menu.id]) }} />}
     </div>
   )
 }
@@ -209,18 +213,6 @@ function Legend() {
       <span className="flex items-center gap-1">{line(undefined, toneHex.live)} running</span>
       <span className="text-wait">● needs you</span>
       <span>⇧-drag lasso · ⇧/⌘-click pick · right-click verbs</span>
-    </div>
-  )
-}
-
-/** A node's right-click menu: the verbs the bulk bar offers for it alone, greyed with the reason when it admits none. */
-function Menu({ x, y, offers, onVerb }: { x: number; y: number; offers: BulkOffer[]; onVerb: (v: BulkVerb) => void }) {
-  return (
-    <div role="menu" className="fixed z-40 min-w-[200px] rounded-lg bg-hull/95 py-1 text-[12px] shadow-2xl ring-1 ring-line-strong backdrop-blur" style={{ left: x, top: y }} onClick={(e) => e.stopPropagation()}>
-      {offers.map((o) => (
-        <button key={o.verb} role="menuitem" type="button" disabled={!o.items.length} onClick={() => onVerb(o.verb)} title={o.reason}
-          className="block w-full px-3 py-1 text-left text-ink hover:bg-white/5 disabled:cursor-not-allowed disabled:text-ink-faint">{o.label}</button>
-      ))}
     </div>
   )
 }
