@@ -562,12 +562,12 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
-- **2026-10-23: v1 patch2 rows** (theseus-zeyr3, theseus-nde5n, theseus-zcn80, theseus-gg78p, theseus-ujzuh,
-  theseus-u5a37, theseus-f9qa8, theseus-goq94, theseus-2uy56, theseus-yct32, theseus-ly75u). The recall bench's
-  generator reads its prices from `catalog.rs` (`catalog_prices`); Sonnet 5.5's cache reads are $0.10, so the seed-7
-  budget is $0.48 an arm for the smoke and $7.89 for the full run. The chat now follows a thread-placed turn's answered
-  question and its continuation (it watches the placed session), and the plain approval card says why it waits: the
-  thread guard's question names both threads, other rules say their clause, and a thread session is asked by its
+- **2026-10-23: v1 patch2 rows** (theseus-zeyr3, theseus-cuv2o, theseus-nde5n, theseus-zcn80, theseus-gg78p,
+  theseus-ujzuh, theseus-u5a37, theseus-f9qa8, theseus-goq94, theseus-2uy56, theseus-yct32, theseus-ly75u). The recall
+  bench's generator reads its prices from `catalog.rs` (`catalog_prices`); Sonnet 5.5's cache reads are $0.10, so the
+  seed-7 budget is $0.48 an arm for the smoke and $7.89 for the full run. The chat now follows a thread-placed turn's
+  answered question and its continuation (it watches the placed session), and the plain approval card says why it waits:
+  the thread guard's question names both threads, other rules say their clause, and a thread session is asked by its
   thread's title. A message that asks for a task ('start two background tasks') now loads the tasks family for that
   turn, with or without tool search, so a DM's step 1 starts tasks, not plain background jobs (theseus-gg78p). The
   checkpoint's text tells Jev the effort the work ran at and how many checkpoints in a row found it failing; a sticky
@@ -582,7 +582,9 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   commands really have, from the cgroup quota (theseus-2uy56, theseus-yct32). The owner card no longer reads an
   assistant's own setup notes as facts about the owner, never offers one task's instructions as a lasting preference,
   keeps who acts and on whose behalf, offers no two conflicting proposals together, and lets the owner say where a kept
-  record holds (`theseus card keep --scope`, `card scope`) (theseus-ly75u).
+  record holds (`theseus card keep --scope`, `card scope`) (theseus-ly75u). The four old organisation names are gone
+  from fixtures, tests and comments; one digest list (`names::OLD`) serves the template test and a tree-wide scan;
+  `policy.explain` reads a hold that has told the owner as no hold, as the gate does (theseus-cuv2o).
 - **2026-10-23: v1 patch1 hotfix, install #75a** (theseus-050g2). A note Theseus writes itself is never posted cut
   off: the morning note's call had a 200-token cap and no `thinking` field, so Sonnet 5.5 thought through most of it and
   the note went out as half a sentence. The call now turns thinking off where the model lets it (Sonnet 5.5's
