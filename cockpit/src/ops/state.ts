@@ -39,12 +39,15 @@ export function bucketOf(v: WorkView, now: number): StateBucket {
   if (v.state === 'failed') return v.attention.level === 'needs_you' && !v.dismissed ? 'needs' : 'ended'
   if (v.state === 'done' || v.state === 'cancelled' || v.state === 'expired') return 'ended'
   if (v.state === 'needs_you' || (v.attention.level === 'needs_you' && !v.dismissed)) return 'needs'
-  if (v.state === 'ready') return 'rest'
+  // A conversation the daemon calls ready is at rest, whatever its kernel state (the time machine's view says waiting).
+  if (v.state === 'ready' || (v.kind === 'conversation' && v.attention.level === 'ready')) return 'rest'
   if (v.paused === true) return 'paused'
+  // Running is work in flight, a routine's or a watch's fire included: before the time checks.
+  if (v.state === 'running') return 'working'
   if (v.state === 'queued') return byTime(v.next_at_ms, now)
   if (TIMED.includes(v.kind)) return byTime(v.next_at_ms, now)
   if (v.state === 'waiting' && v.doing?.what === 'sleeping') return byTime(v.next_at_ms, now)
-  if (v.state === 'running' || v.state === 'waiting') return 'working'
+  if (v.state === 'waiting') return 'working'
   return 'rest'
 }
 

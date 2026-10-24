@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import type { WorkView } from '../src/protocol.gen/index.ts'
 import { bucketOf, bucketOfNode, bucketOfRecord, bucketOfSession, isEnded, isOpen, look, FADED, FILTERED_OUT, bucketGlyph } from '../src/ops/state.ts'
 import { boardRows, countersOf, shown } from '../src/ops/board.ts'
-import { nodeIdOf, opsLayout } from '../src/ops/graph.ts'
+import { nodeIdOf, opsLayout, viewsOf } from '../src/ops/graph.ts'
 import { groupThreads } from '../src/lib/threadboard.ts'
 import { group, HOUR, MIN, NOW, record, session, view } from './ops-fixtures.ts'
 
@@ -90,4 +90,10 @@ test('the nodes read the model: opacity is the ended’s alone, the filtered-out
   assert.match(FILTERED_OUT, /outline-dashed/)
   assert.match(FADED, /opacity/)
   assert.ok(!FILTERED_OUT.includes('opacity'))
+})
+
+test('a ready conversation rests on the Graph as on the Board, and a running routine is working (join fix 1)', () => {
+  const rows = boardRows({ views: [], tasks: [], sessions: [session('ses_q', { execution_state: 'waiting', attention: { level: 'ready', label: 'ready', since_ms: NOW } })], now: NOW, past: true })
+  assert.deepEqual(viewsOf(rows).map((v) => bucketOf(v, NOW)), ['rest'], 'the time machine’s resting conversation is not working')
+  assert.equal(bucketOf(view('rtn_1', 'routine', 'running', { next_at_ms: NOW + HOUR }), NOW), 'working', 'a routine firing is work in flight')
 })
