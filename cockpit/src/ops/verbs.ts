@@ -83,4 +83,6 @@ export const KEY_VERB: Readonly<Record<string, string>> = {
   approve: 'answer', approve_trust: 'answer', decline: 'answer', choice: 'answer', grant: 'answer',
   retry: 'retry', dismiss: 'dismiss', pause: 'task_pause', stop: 'stop', stop_all: 'stop_all', cancel: 'cancel', cancel_wake: 'wake_cancel',
   new_task: 'new_task', model_menu: 'model_sticky', mode_menu: 'mode',
+  // ops-timeline (theseus-jid7t.5): the Horizon's keys on a focused mark.
+  mark_snooze: 'wake_snooze', mark_pause: 'wake_pause', mark_run: 'routine_run', mark_cancel: 'wake_cancel',
 }
