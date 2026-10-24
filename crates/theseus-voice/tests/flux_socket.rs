@@ -30,6 +30,8 @@ struct Conn {
     audio_bytes: usize,
     /// Audio messages that were all zeros (the keep-alive).
     silent_msgs: usize,
+    /// The first sample of the first audio message.
+    first_sample: Option<i16>,
     texts: Vec<String>,
 }
 
@@ -142,6 +144,9 @@ async fn serve(sock: tokio::net::TcpStream, plan: Plan, log: Arc<Mutex<Vec<Conn>
                     c.audio_bytes += bytes.len();
                     if bytes.iter().all(|b| *b == 0) {
                         c.silent_msgs += 1;
+                    }
+                    if c.first_sample.is_none() {
+                        c.first_sample = Some(i16::from_le_bytes([bytes[0], bytes[1]]));
                     }
                     c.audio_msgs == 1
                 };
@@ -382,4 +387,86 @@ async fn a_stalled_server_makes_the_queue_drop_the_oldest_audio() {
         "kept 320 ms of 3 s, dropped {dropped:?}"
     );
     listen.close().await;
+}
+
+/// Audio queued before a drop belongs to a turn already handed to the
+/// pre-recorded recogniser: the next session's first audio is not it.
+#[tokio::test]
+async fn audio_queued_before_a_drop_is_not_the_next_sessions_first() {
+    let drops = Plan {
+        on_audio: vec![turn_info("StartOfTurn", "", &[])],
+        drop_after_audio: true,
+        ..Plan::default()
+    };
+    let server = Server::start(vec![drops, Plan::default()]).await;
+    let mut listen = FluxListen::new(KEY, server.settings(), None).unwrap();
+    listen.push(OWNER, &frames(4));
+    assert_eq!(event(&mut listen).await, Listened::Start { speaker: OWNER });
+    assert!(matches!(event(&mut listen).await, Listened::Down { .. }));
+    // Pushed while the stream is down (the backoff is 50 ms): stale by the
+    // time it is back.
+    listen.push(OWNER, &vec![7i16; 960 * 4]);
+    assert_eq!(event(&mut listen).await, Listened::Up { speaker: OWNER });
+    listen.push(OWNER, &frames(4));
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while server.conns().get(1).is_none_or(|c| c.audio_msgs == 0) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "audio reached the new socket"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let second = &server.conns()[1];
+    assert_eq!(
+        second.first_sample,
+        Some(1_000),
+        "the fresh audio first: {second:?}"
+    );
+    assert!(
+        listen.dropped(OWNER) >= Duration::from_millis(80),
+        "the stale audio is counted"
+    );
+    listen.close().await;
+}
+
+/// The audio a socket streamed that no end of turn carried is the engine's to
+/// book: what a dropped session streamed, and the quiet after the last end,
+/// taken once. With the ends' own counts it is all that was sent.
+#[tokio::test]
+async fn the_streamed_audio_no_end_carried_is_taken_at_a_drop_and_at_the_close() {
+    let drops = Plan {
+        on_audio: vec![turn_info("StartOfTurn", "", &[])],
+        drop_after_audio: true,
+        ..Plan::default()
+    };
+    let server = Server::start(vec![drops, Plan::default()]).await;
+    let mut listen = FluxListen::new(KEY, server.settings(), None).unwrap();
+    listen.push(OWNER, &frames(4));
+    assert_eq!(event(&mut listen).await, Listened::Start { speaker: OWNER });
+    assert!(matches!(event(&mut listen).await, Listened::Down { .. }));
+    let at_drop = listen.unbooked(OWNER);
+    assert_eq!(
+        at_drop,
+        Duration::from_millis(80),
+        "the dropped session's chunk"
+    );
+    assert_eq!(listen.unbooked(OWNER), Duration::ZERO, "taken once");
+    assert_eq!(event(&mut listen).await, Listened::Up { speaker: OWNER });
+    listen.push(OWNER, &frames(8));
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while server.conns().get(1).is_none_or(|c| c.audio_msgs < 2) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "audio reached the new socket"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    listen.close().await;
+    let at_close = listen.unbooked(OWNER);
+    let sent: usize = server.conns().iter().map(|c| c.audio_bytes).sum();
+    assert_eq!(
+        at_drop + at_close,
+        Duration::from_micros(sent as u64 * 1_000_000 / (2 * 48_000)),
+        "everything streamed is accounted for"
+    );
 }

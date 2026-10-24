@@ -1085,6 +1085,19 @@ async fn pump(
                 }
             }
             Event::Utterance(u) => utterance_heard(&shared, serial, &place, u),
+            // Audio a streaming listener was sent past its last end of turn:
+            // billed all the same (theseus-v774k).
+            Event::Streamed { speaker, usage } => {
+                let detail = json!({"speaker": speaker.0.to_string(), "trailing": true});
+                book(
+                    &shared,
+                    &place,
+                    SpeechKind::Transcribed,
+                    usage,
+                    Duration::ZERO,
+                    detail,
+                );
+            }
             Event::Synthesized {
                 what,
                 usage,

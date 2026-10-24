@@ -92,6 +92,16 @@ impl Call {
         self.played.iter().find(|p| p.stopped).and_then(|p| p.ended)
     }
 
+    /// The audio booked outside any utterance (`Event::Streamed`).
+    fn streamed(&self) -> Duration {
+        self.all()
+            .filter_map(|e| match e {
+                Event::Streamed { usage, .. } => Some(usage.audio),
+                _ => None,
+            })
+            .sum()
+    }
+
     fn cut_or_barge(&self) -> bool {
         self.all()
             .any(|e| matches!(e, Event::Cut { .. } | Event::BargeIn { .. }))
@@ -665,4 +675,212 @@ async fn a_turn_the_listener_never_ends_is_given_up_on() {
     assert_eq!(texts, vec!["Said, and never ended.".to_string()]);
     let at = call.turns()[0].0;
     assert!(at >= ms(90_000) && at <= ms(91_500), "{at:?}");
+}
+
+/// The ticks (the listener's own count) of the frames of zeros and of the real
+/// ones pushed for the owner.
+fn pushed(log: &ListenLog) -> (Vec<u64>, Vec<u64>) {
+    let all = log.pushes(OWNER);
+    let ticks = |zero: bool| all.iter().filter(|p| p.1 == zero).map(|p| p.0).collect();
+    (ticks(true), ticks(false))
+}
+
+/// Discord sends no frame for a speaker who is quiet, and the listener judges
+/// a turn's end from the audio it hears: a speaker who talked for a second is
+/// fed silence, a frame a tick, until the forced end of turn's window is over,
+/// and not after.
+#[tokio::test(start_paused = true)]
+async fn a_quiet_speaker_is_fed_silence_for_the_trailing_window() {
+    let mut io = WavIo::new(ms(12_000));
+    io.say(OWNER, ms(200), Audio::tone(220.0, ms(1_000), 0.3));
+    let listen = StandInListen::new();
+    let call = run(
+        io,
+        (listen.0, listen.1),
+        Arc::new(StandInSpeech::new()),
+        false,
+        |_| {},
+        nothing(),
+    )
+    .await;
+    let (zeros, real) = pushed(&call.log);
+    let last = *real.last().expect("the owner's frames were pushed");
+    assert!(real.len() >= 49, "a second of real frames: {}", real.len());
+    assert!(
+        (248..=250).contains(&zeros.len()),
+        "5 s of zeros, a frame a tick: {}",
+        zeros.len()
+    );
+    let (first_zero, last_zero) = (zeros[0], *zeros.last().unwrap());
+    assert!(first_zero <= last + 2, "the fill begins at once");
+    assert_eq!(
+        zeros.windows(2).filter(|w| w[1] != w[0] + 1).count(),
+        0,
+        "no gap in the fill"
+    );
+    assert!(
+        last_zero <= last + 251,
+        "none after the window: {last_zero} vs {last}"
+    );
+}
+
+/// An `End` inside the window, and no new turn, does not stop the fill: a
+/// short "yes" whose `Start` has not come yet is still ended by the audio.
+#[tokio::test(start_paused = true)]
+async fn an_end_inside_the_window_does_not_stop_the_fill() {
+    let mut io = WavIo::new(ms(12_000));
+    io.say(OWNER, ms(200), Audio::tone(220.0, ms(1_000), 0.3));
+    let listen = StandInListen::new();
+    let script = listen
+        .0
+        .at(tick_at(220), start())
+        .at(tick_at(2_000), end("Yes."));
+    let call = run(
+        io,
+        (script, listen.1),
+        Arc::new(StandInSpeech::new()),
+        false,
+        |_| {},
+        nothing(),
+    )
+    .await;
+    let (zeros, real) = pushed(&call.log);
+    let (last, ended) = (*real.last().unwrap(), tick_at(2_000));
+    assert!(
+        zeros.iter().any(|t| *t > ended + 10),
+        "still fed after the end of turn"
+    );
+    assert!(
+        zeros.len() >= 248,
+        "the window rule, not the turn: {}",
+        zeros.len()
+    );
+    assert!(*zeros.last().unwrap() <= last + 251);
+}
+
+/// An open turn whose speaker goes quiet is fed silence until its `End`, far
+/// past the window, and the fill stops with the turn.
+#[tokio::test(start_paused = true)]
+async fn an_open_turn_is_fed_silence_until_its_end() {
+    let mut io = WavIo::new(ms(20_000));
+    io.say(OWNER, ms(200), Audio::tone(220.0, ms(1_000), 0.3));
+    let listen = StandInListen::new();
+    let ended = tick_at(12_000);
+    let script = listen
+        .0
+        .silence_for(ms(1_000))
+        .at(tick_at(220), start())
+        .at(ended, end("A long pause, then this."));
+    let call = run(
+        io,
+        (script, listen.1),
+        Arc::new(StandInSpeech::new()),
+        false,
+        |_| {},
+        nothing(),
+    )
+    .await;
+    let (zeros, real) = pushed(&call.log);
+    let last = *real.last().unwrap();
+    let held: Vec<_> = zeros.iter().filter(|t| **t <= ended).collect();
+    assert!(
+        held.len() as u64 >= ended - last - 3,
+        "a frame a tick until the end: {} of {}",
+        held.len(),
+        ended - last
+    );
+    assert!(
+        zeros.iter().all(|t| *t <= ended + 1),
+        "none after the turn closed and the 1 s window passed: {:?}",
+        zeros.last()
+    );
+}
+
+/// Residual speech that leaks here and there over a long turn opened on
+/// Theseus's own echo is not 3 frames in a window: the clip is not held.
+#[tokio::test(start_paused = true)]
+async fn a_sparse_leak_over_a_long_echo_turn_never_holds_the_clip() {
+    let mut io = over_a_reply(None);
+    for i in 0..8 {
+        io.say(OWNER, ms(6_100 + 400 * i), Audio::tone(310.0, ms(20), 0.3));
+    }
+    let listen = StandInListen::new();
+    let script = listen
+        .0
+        .at(tick_at(220), start())
+        .at(tick_at(800), end("Go ahead."))
+        .at(tick_at(6_100), start())
+        .at(
+            tick_at(9_300),
+            end("The second sentence is long enough to be cut late, if it comes to that."),
+        );
+    let call = run(
+        io,
+        (script, listen.1),
+        Arc::new(StandInSpeech::new()),
+        false,
+        |c| c.echo_cancel = true,
+        reply(),
+    )
+    .await;
+    assert!(call.stopped().is_none(), "{:#?}", call.played);
+    assert!(!call.cut_or_barge(), "{:#?}", call.events);
+}
+
+/// What was streamed and no `End` carried (the quiet after the last end) is
+/// booked as the call closes.
+#[tokio::test(start_paused = true)]
+async fn trailing_streamed_audio_is_booked_at_the_calls_end() {
+    let mut io = WavIo::new(ms(6_000));
+    io.say(OWNER, ms(200), Audio::tone(220.0, ms(1_000), 0.3));
+    let listen = StandInListen::new();
+    let script = listen
+        .0
+        .owing(OWNER, ms(1_700))
+        .at(tick_at(220), start())
+        .at(tick_at(1_400), end("Hello."));
+    let call = run(
+        io,
+        (script, listen.1),
+        Arc::new(StandInSpeech::new()),
+        false,
+        |_| {},
+        nothing(),
+    )
+    .await;
+    let carried: Duration = call.utterances().iter().map(|u| u.usage.audio).sum();
+    assert_eq!(carried, ms(1_000));
+    assert_eq!(call.streamed(), ms(1_700), "{:#?}", call.events);
+    assert!(call
+        .all()
+        .any(|e| matches!(e, Event::Streamed { usage, .. } if usage.model == "flux-general-en")));
+}
+
+/// A session that drops books what it streamed at once, then, as ever, hands
+/// its turn to the pre-recorded recogniser.
+#[tokio::test(start_paused = true)]
+async fn a_dropped_sessions_streamed_audio_is_booked() {
+    let mut io = WavIo::new(ms(6_000));
+    io.say(OWNER, ms(200), Audio::tone(220.0, ms(1_000), 0.3));
+    let listen = StandInListen::new();
+    let script = listen
+        .0
+        .owing(OWNER, ms(1_800))
+        .at(tick_at(220), start())
+        .at(
+            tick_at(2_000),
+            Listened::Down {
+                speaker: OWNER,
+                error: "reset by peer".into(),
+            },
+        );
+    let speech = Arc::new(StandInSpeech::new().transcript(OWNER, "Cut off by the drop."));
+    let call = run(io, (script, listen.1), speech, false, |_| {}, nothing()).await;
+    assert_eq!(call.streamed(), ms(1_800), "{:#?}", call.events);
+    let at = |f: fn(&Event) -> bool| call.events.iter().find(|(_, e)| f(e)).map(|(t, _)| *t);
+    let booked = at(|e| matches!(e, Event::Streamed { .. })).expect("booked");
+    assert!(
+        booked < ms(2_500),
+        "at the drop, not the call's end: {booked:?}"
+    );
 }

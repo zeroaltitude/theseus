@@ -8,10 +8,21 @@
 //! - **Barge-in** (`gate`). A `Start` over Theseus's speech holds the clip at
 //!   once, in place of waiting for 300 ms of speech frames, but only when
 //!   echo removal agrees: the speaker's residual (the raw frame with
-//!   `echo_cancel` off) must show speech since the turn began (a 200 ms
-//!   look-back covers the listener's latency), and the speaker is not
-//!   echo-prone, not a wordless sound, not at the join. Then the words decide,
-//!   as they always did: the `End`'s transcript goes through `heard()`.
+//!   `echo_cancel` off) must show speech in at least [`GATE_FRAMES`] of the
+//!   last [`GATE_WINDOW`] ticks (a window, so a long turn opened on the echo
+//!   is not held by residual that leaks here and there; it reaches back
+//!   200 ms before the `Start`, which covers the listener's latency), and the
+//!   speaker is not echo-prone, not a wordless sound, not at the join. Then
+//!   the words decide, as they always did: the `End`'s transcript goes
+//!   through `heard()`.
+//! - **Silence is audio.** Discord sends no frame for a speaker who is not
+//!   talking, and the listener judges a turn's end from the audio it hears, on
+//!   its own clock (`eot_timeout_ms`). So a speaker the listener hears gets a
+//!   frame of zeros on every tick without one, while their turn is open and
+//!   for [`Listen::silence`] after their last real frame (the forced end of
+//!   turn; it also covers a short "yes" whose `Start` has not come yet). A
+//!   longer quiet is the client's keep-alive. The fill is streamed, so it is
+//!   billed: at most that window per spoken spell, plus an open turn's quiet.
 //! - **Eager end of turn.** An `Eager` starts the turn early; a `Resumed`
 //!   before its reply plays takes the floor back and the reply is superseded
 //!   by the `End`'s whole sentence; an `End` after an unresumed `Eager`
@@ -23,6 +34,13 @@
 //!   call.
 //! - **The VAD** is not used here: its only remaining use is the frame-level
 //!   test of speech (`Config::speech_rms`) for the barge-in gate.
+//! - **No wordless leg.** The rule that a sound heard as no words is
+//!   `Sound::Wordless` and then never stops a clip is learned from the VAD's
+//!   probe and its "steady" check, which run only over VADs; on this path
+//!   `opening.sound` stays `Unheard`. So a cough over a reply holds the clip
+//!   and the empty `End` resumes it (as tested), and a turn on steady noise
+//!   holds the floor until the listener ends it or [`TURN_MAX`] gives up on
+//!   it. The echo-prone and join legs of the gate do apply.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Duration;
@@ -50,15 +68,20 @@ const PRE_ROLL: Duration = Duration::from_secs(1);
 /// The ticks before a `Start` whose speech counts toward the gate: 200 ms.
 const LOOKBACK: usize = 10;
 
-/// Residual speech frames, since the turn began, that let a `Start` hold a
+/// Residual speech frames, within [`GATE_WINDOW`], that let a `Start` hold a
 /// clip: 60 ms.
-const GATE_FRAMES: u32 = 3;
+const GATE_FRAMES: usize = 3;
+
+/// The last ticks the gate counts speech over: 200 ms.
+const GATE_WINDOW: usize = LOOKBACK;
 
 /// A listener attached to an engine, and what the engine keeps for it.
 pub(super) struct Flux {
     listen: Box<dyn Listen>,
     pub(super) eager: bool,
     model: String,
+    /// Ticks of silence fed to a speaker after their last real frame.
+    silence_ticks: u64,
     lanes: BTreeMap<Speaker, Lane>,
     /// Speakers whose stream is down: heard with the VAD.
     down: BTreeSet<Speaker>,
@@ -78,14 +101,26 @@ struct Lane {
     eager: Option<Eager>,
     /// Audio streamed that no utterance has been booked for yet.
     owed: Duration,
+    /// The tick of the last real frame.
+    last_frame: Option<u64>,
+}
+
+impl Lane {
+    /// Whether a frame of zeros goes to the listener on a tick with no frame:
+    /// the turn is open, or less than `window` ticks have passed since the
+    /// last real frame.
+    fn fills(&self, tick: u64, window: u64) -> bool {
+        self.turn.is_some()
+            || self
+                .last_frame
+                .is_some_and(|t| tick.saturating_sub(t) < window)
+    }
 }
 
 struct OpenTurn {
     start_tick: u64,
     /// When the `Start` was received.
     event_at: Instant,
-    /// Residual speech frames since the turn began (and the look-back).
-    speech: u32,
     /// The clip was held for it.
     gated: bool,
     /// An `Eager` made a turn of it already: it no longer holds the floor.
@@ -99,6 +134,7 @@ struct Eager {
 impl Flux {
     pub(super) fn new(listen: Box<dyn Listen>, model: String, eager: bool) -> Self {
         Self {
+            silence_ticks: listen.silence().as_millis() as u64 / 20,
             listen,
             eager,
             model,
@@ -120,11 +156,12 @@ impl Flux {
             .any(|l| l.turn.as_ref().is_some_and(|t| !t.eager_sent))
     }
 
-    /// The speakers with a turn open, to be ticked though they sent no frame.
-    pub(super) fn open_speakers(&self) -> Vec<Speaker> {
+    /// The speakers with a turn open, or within the silence window of their
+    /// last frame, to be ticked though they sent no frame.
+    pub(super) fn open_speakers(&self, tick: u64) -> Vec<Speaker> {
         self.lanes
             .iter()
-            .filter(|(_, l)| l.turn.is_some())
+            .filter(|(s, l)| l.fills(tick, self.silence_ticks) && self.hears(**s))
             .map(|(s, _)| *s)
             .collect()
     }
@@ -184,7 +221,7 @@ impl Engine {
     pub(super) fn flux_open_speakers(&self) -> Vec<Speaker> {
         self.flux
             .as_ref()
-            .map(Flux::open_speakers)
+            .map(|f| f.open_speakers(self.ticks))
             .unwrap_or_default()
     }
 
@@ -227,13 +264,21 @@ impl Engine {
     ) {
         let speech = residual_speech
             .unwrap_or_else(|| frame.is_some_and(|f| rms(f) >= self.config.speech_rms));
+        let tick = self.ticks;
         let Some(flux) = &mut self.flux else {
             return;
         };
-        if let Some(f) = frame {
-            flux.listen.push(speaker, f);
-        }
         let lane = flux.lanes.entry(speaker).or_default();
+        match frame {
+            Some(f) => {
+                flux.listen.push(speaker, f);
+                lane.last_frame = Some(tick);
+            }
+            None if lane.fills(tick, flux.silence_ticks) => {
+                flux.listen.push(speaker, &[0; FRAME_SAMPLES]);
+            }
+            None => {}
+        }
         lane.recent.push_back(speech);
         while lane.recent.len() > LOOKBACK {
             lane.recent.pop_front();
@@ -247,9 +292,6 @@ impl Engine {
         let keep = crate::audio::samples_in(if open { RING } else { PRE_ROLL });
         while lane.ring.len() > keep {
             lane.ring.pop_front();
-        }
-        if let Some(turn) = &mut lane.turn {
-            turn.speech += u32::from(speech);
         }
         self.flux_gate(speaker, now);
     }
@@ -266,15 +308,20 @@ impl Engine {
                 .opening
                 .get(&speaker)
                 .is_some_and(|o| o.sound == Sound::Wordless || o.at_join);
-        let Some(turn) = self
-            .flux
-            .as_mut()
-            .and_then(|f| f.lanes.get_mut(&speaker))
-            .and_then(|l| l.turn.as_mut())
-        else {
+        let Some(lane) = self.flux.as_mut().and_then(|f| f.lanes.get_mut(&speaker)) else {
             return;
         };
-        if !talking || prone || turn.gated || turn.eager_sent || turn.speech < GATE_FRAMES {
+        let leaked = lane
+            .recent
+            .iter()
+            .rev()
+            .take(GATE_WINDOW)
+            .filter(|s| **s)
+            .count();
+        let Some(turn) = lane.turn.as_mut() else {
+            return;
+        };
+        if !talking || prone || turn.gated || turn.eager_sent || leaked < GATE_FRAMES {
             return;
         }
         let event_at = turn.event_at;
@@ -328,6 +375,48 @@ impl Engine {
         }
     }
 
+    /// The call ended: every speaker's unbooked audio is booked.
+    pub(super) async fn flux_close(&mut self) {
+        let Some(flux) = &mut self.flux else {
+            return;
+        };
+        flux.close().await;
+        let speakers: Vec<Speaker> = self
+            .flux
+            .iter()
+            .flat_map(|f| f.lanes.keys().copied())
+            .collect();
+        for speaker in speakers {
+            self.flux_book(speaker);
+        }
+    }
+
+    /// Book the audio streamed for `speaker` that no utterance carried
+    /// (trailing silence, a dropped session's remainder): it is billed.
+    fn flux_book(&mut self, speaker: Speaker) {
+        let Some(flux) = &mut self.flux else {
+            return;
+        };
+        let model = flux.model.clone();
+        let more = flux.listen.unbooked(speaker);
+        let Some(lane) = flux.lanes.get_mut(&speaker) else {
+            return;
+        };
+        let audio = std::mem::take(&mut lane.owed) + more;
+        if audio.is_zero() {
+            return;
+        }
+        self.emit(Event::Streamed {
+            speaker,
+            usage: Usage {
+                provider: PROVIDER.into(),
+                model,
+                audio,
+                chars: 0,
+            },
+        });
+    }
+
     /// The listener is gone: the call goes on without it.
     pub(super) fn flux_gone(&mut self) {
         self.flux_unavailable("the listener ended");
@@ -371,12 +460,10 @@ impl Engine {
         let Some(lane) = self.flux.as_mut().and_then(|f| f.lanes.get_mut(&speaker)) else {
             return;
         };
-        let seen = lane.recent.iter().filter(|s| **s).count() as u32;
         lane.eager = None;
         lane.turn = Some(OpenTurn {
             start_tick: tick.saturating_sub(LOOKBACK as u64),
             event_at: now,
-            speech: seen,
             gated: false,
             eager_sent: false,
         });
@@ -531,6 +618,7 @@ impl Engine {
     /// and the VAD hears them until the stream is back.
     fn flux_down(&mut self, speaker: Speaker, error: &str) {
         let mid_turn = self.flux_lose_turn(speaker);
+        self.flux_book(speaker);
         if let Some(flux) = &mut self.flux {
             flux.down.insert(speaker);
         }

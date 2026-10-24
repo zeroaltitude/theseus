@@ -65,6 +65,8 @@ use crate::unclear::{self, Case, Judge, Judged, Said, Timing, Verdict};
 use crate::vad::{Closed, Vad, VadSettings};
 
 mod flux_path;
+#[cfg(test)]
+mod tests_leaks;
 
 /// The engine's settings. [`Config::new`] gives the design's.
 #[derive(Clone, Debug)]
@@ -275,6 +277,12 @@ pub enum Failure {
 pub enum Event {
     /// An utterance closed and was transcribed (`voice.utterance`, `speech.stt`).
     Utterance(Utterance),
+    /// Audio a streaming listener was sent that no utterance carried
+    /// (trailing silence, a dropped session's remainder), for the meter.
+    Streamed {
+        speaker: Speaker,
+        usage: Usage,
+    },
     /// A turn for the session, answered with [`Command::Reply`]: its
     /// utterances in the order they closed.
     Turn {
@@ -699,6 +707,10 @@ impl Engine {
     /// Run the call until [`Command::Leave`], the handle's drop, or the
     /// call's end.
     pub async fn run(mut self) {
+        self.serve().await;
+    }
+
+    async fn serve(&mut self) {
         loop {
             let ack_at = self
                 .turn
@@ -759,9 +771,7 @@ impl Engine {
         if self.playing.is_some() {
             self.io.stop().await;
         }
-        if let Some(flux) = &mut self.flux {
-            flux.close().await;
-        }
+        self.flux_close().await;
         tracing::info!(
             ticks = self.ticks,
             listened = self.listened.len(),
@@ -1668,6 +1678,8 @@ impl Engine {
         let ended = self.turn.take_if(|t| t.id == turn);
         let sentences = speakable(text);
         if sentences.is_empty() {
+            // No audio will play for it: no first word to time.
+            self.first_words.remove(&turn);
             return;
         }
         if let Some(ended) = ended {
@@ -1832,12 +1844,15 @@ impl Engine {
             let end = last_speech.entry(u.speaker).or_default();
             *end = (*end).max(u.started + u.length);
         }
-        self.turn = Some(Turn {
+        // A turn still waiting for its reply is superseded by this one.
+        if let Some(old) = self.turn.replace(Turn {
             id,
             started: now,
             ack: Ack::Waiting,
             last_speech,
-        });
+        }) {
+            self.first_words.remove(&old.id);
+        }
         self.emit(Event::Turn { id, utterances });
     }
 

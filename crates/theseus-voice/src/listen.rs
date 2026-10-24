@@ -16,6 +16,9 @@ use futures_util::future::BoxFuture;
 
 use crate::io::Speaker;
 
+/// Flux's forced end of a turn when none is set: 5 s (500 to 10000 ms).
+pub const FLUX_EOT_TIMEOUT: Duration = Duration::from_millis(5_000);
+
 /// What a listener tells the engine.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Listened {
@@ -60,6 +63,19 @@ pub trait Listen: Send {
     /// Tick `tick` of the call began: the stand-in's clock, and a real
     /// listener's cue to keep a quiet stream alive.
     fn tick(&mut self, tick: u64);
+    /// How long after a speaker's last frame the engine goes on feeding them
+    /// silence: the listener judges a turn's end from the audio it hears, so
+    /// it must hear the quiet that ends one. Flux's own forced end of turn.
+    fn silence(&self) -> Duration {
+        FLUX_EOT_TIMEOUT
+    }
+    /// The audio streamed for `speaker` that no [`Listened::End`] carried
+    /// (trailing silence, keep-alives, a dropped session's remainder), taken:
+    /// the engine books it when a stream drops and when the call ends, so
+    /// what is billed is what was sent.
+    fn unbooked(&mut self, _speaker: Speaker) -> Duration {
+        Duration::ZERO
+    }
     /// The next event; pending while there is none, `None` once the listener
     /// is gone for good.
     fn next(&mut self) -> BoxFuture<'_, Option<Listened>>;
@@ -73,15 +89,37 @@ pub struct ListenLog(Arc<Mutex<Seen>>);
 
 #[derive(Debug, Default)]
 struct Seen {
-    frames: BTreeMap<Speaker, usize>,
+    /// Each frame pushed: the listener's tick, the speaker, and whether it was
+    /// all zeros.
+    pushed: Vec<(u64, Speaker, bool)>,
     closed: bool,
+    tick: u64,
 }
 
 impl ListenLog {
     /// The frames pushed for `speaker`.
     pub fn frames(&self, speaker: Speaker) -> usize {
+        self.pushes(speaker).len()
+    }
+
+    /// The frames pushed for `speaker` that were all zeros: the engine's fill
+    /// for a quiet speaker.
+    pub fn zero_frames(&self, speaker: Speaker) -> usize {
+        self.pushes(speaker)
+            .iter()
+            .filter(|(_, zero)| *zero)
+            .count()
+    }
+
+    /// Each frame pushed for `speaker`: the tick it came on, and whether it
+    /// was all zeros.
+    pub fn pushes(&self, speaker: Speaker) -> Vec<(u64, bool)> {
         let seen = self.0.lock().expect("the listen log's lock");
-        seen.frames.get(&speaker).copied().unwrap_or(0)
+        seen.pushed
+            .iter()
+            .filter(|(_, s, _)| *s == speaker)
+            .map(|(t, _, zero)| (*t, *zero))
+            .collect()
     }
 
     /// Whether the engine closed the listener.
@@ -96,6 +134,8 @@ pub struct StandInListen {
     script: VecDeque<(u64, Listened)>,
     ready: VecDeque<Listened>,
     log: ListenLog,
+    silence: Duration,
+    owing: BTreeMap<Speaker, Duration>,
 }
 
 impl StandInListen {
@@ -105,6 +145,8 @@ impl StandInListen {
             script: VecDeque::new(),
             ready: VecDeque::new(),
             log: log.clone(),
+            silence: FLUX_EOT_TIMEOUT,
+            owing: BTreeMap::new(),
         };
         (listen, log)
     }
@@ -117,15 +159,38 @@ impl StandInListen {
         self.script.insert(at, (tick, event));
         self
     }
+
+    /// `audio` was streamed for `speaker` that no end of turn carries: the
+    /// engine takes it when their stream drops or the call ends.
+    #[must_use]
+    pub fn owing(mut self, speaker: Speaker, audio: Duration) -> Self {
+        *self.owing.entry(speaker).or_default() += audio;
+        self
+    }
+
+    /// How long the engine feeds a quiet speaker silence (the default is
+    /// Flux's own forced end of turn).
+    #[must_use]
+    pub fn silence_for(mut self, silence: Duration) -> Self {
+        self.silence = silence;
+        self
+    }
 }
 
 impl Listen for StandInListen {
-    fn push(&mut self, speaker: Speaker, _samples: &[i16]) {
+    fn push(&mut self, speaker: Speaker, samples: &[i16]) {
         let mut seen = self.log.0.lock().expect("the listen log's lock");
-        *seen.frames.entry(speaker).or_default() += 1;
+        let tick = seen.tick;
+        seen.pushed
+            .push((tick, speaker, samples.iter().all(|s| *s == 0)));
+    }
+
+    fn silence(&self) -> Duration {
+        self.silence
     }
 
     fn tick(&mut self, tick: u64) {
+        self.log.0.lock().expect("the listen log's lock").tick = tick;
         while self.script.front().is_some_and(|(t, _)| *t <= tick) {
             if let Some((_, event)) = self.script.pop_front() {
                 self.ready.push_back(event);
@@ -140,6 +205,10 @@ impl Listen for StandInListen {
                 None => std::future::pending().await,
             }
         })
+    }
+
+    fn unbooked(&mut self, speaker: Speaker) -> Duration {
+        self.owing.remove(&speaker).unwrap_or_default()
     }
 
     fn close(&mut self) -> BoxFuture<'_, ()> {

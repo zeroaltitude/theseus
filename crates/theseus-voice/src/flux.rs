@@ -45,7 +45,7 @@ use tokio_tungstenite::{connect_async_tls_with_config, Connector};
 use crate::audio::{duration_of, SAMPLE_RATE};
 use crate::deepgram::{chain, scrub_key};
 use crate::io::Speaker;
-use crate::listen::{Listen, Listened};
+use crate::listen::{Listen, Listened, FLUX_EOT_TIMEOUT};
 use crate::speech::SpeechError;
 
 /// The model id (Deepgram's docs, "Flux quickstart").
@@ -278,6 +278,20 @@ impl AudioQueue {
         Some(chunk)
     }
 
+    /// Everything waiting, discarded and counted as dropped: audio from before
+    /// a dropped session is stale (its turn went to the pre-recorded
+    /// recogniser). The samples discarded.
+    pub fn clear(&self) -> usize {
+        let mut q = self.inner.lock().expect("the audio queue's lock");
+        let cleared = q.queued + q.staging.len();
+        q.chunks.clear();
+        q.staging.clear();
+        q.queued = 0;
+        q.dropped += cleared;
+        q.said = false;
+        cleared
+    }
+
     /// Waits for audio to be pushed. Cancel-safe.
     pub async fn ready(&self) {
         self.notify.notified().await;
@@ -315,9 +329,27 @@ impl Shared {
     }
 }
 
+/// The audio streamed to a speaker's socket since their last end of turn,
+/// shared by the socket's task and the listener: the engine takes what no end
+/// carried (see [`Listen::unbooked`]).
+#[derive(Clone, Default)]
+struct Streamed(Arc<Mutex<Duration>>);
+
+impl Streamed {
+    fn add(&self, audio: Duration) {
+        *self.0.lock().expect("the streamed lock") += audio;
+    }
+
+    fn take(&self) -> Duration {
+        std::mem::take(&mut *self.0.lock().expect("the streamed lock"))
+    }
+}
+
 struct Lane {
     queue: Arc<AudioQueue>,
-    task: JoinHandle<()>,
+    streamed: Streamed,
+    /// Taken when the call closes; the lane stays for its streamed count.
+    task: Option<JoinHandle<()>>,
 }
 
 /// Deepgram Flux as the engine's [`Listen`].
@@ -394,14 +426,20 @@ impl FluxListen {
     fn lane(&mut self, speaker: Speaker) -> &Lane {
         self.lanes.entry(speaker).or_insert_with(|| {
             let queue = Arc::new(AudioQueue::new(self.shared.settings.queue));
+            let streamed = Streamed::default();
             let task = tokio::spawn(socket(
                 speaker,
                 Arc::clone(&self.shared),
                 Arc::clone(&queue),
                 self.tx.clone(),
                 self.closing.subscribe(),
+                streamed.clone(),
             ));
-            Lane { queue, task }
+            Lane {
+                queue,
+                streamed,
+                task: Some(task),
+            }
         })
     }
 }
@@ -419,6 +457,19 @@ impl Listen for FluxListen {
 
     fn tick(&mut self, _tick: u64) {}
 
+    fn unbooked(&mut self, speaker: Speaker) -> Duration {
+        self.lanes
+            .get(&speaker)
+            .map_or(Duration::ZERO, |l| l.streamed.take())
+    }
+
+    fn silence(&self) -> Duration {
+        self.shared
+            .settings
+            .eot_timeout_ms
+            .map_or(FLUX_EOT_TIMEOUT, |ms| Duration::from_millis(u64::from(ms)))
+    }
+
     fn next(&mut self) -> BoxFuture<'_, Option<Listened>> {
         Box::pin(async move { self.rx.recv().await })
     }
@@ -426,7 +477,7 @@ impl Listen for FluxListen {
     fn close(&mut self) -> BoxFuture<'_, ()> {
         Box::pin(async move {
             let _ = self.closing.send(true);
-            for (speaker, lane) in std::mem::take(&mut self.lanes) {
+            for (speaker, lane) in &mut self.lanes {
                 let dropped = duration_of(lane.queue.dropped());
                 if !dropped.is_zero() {
                     tracing::info!(
@@ -435,7 +486,9 @@ impl Listen for FluxListen {
                         "voice: Flux's outbound audio dropped over the call"
                     );
                 }
-                let _ = timeout(CLOSE_WAIT * 2, lane.task).await;
+                if let Some(task) = lane.task.take() {
+                    let _ = timeout(CLOSE_WAIT * 2, task).await;
+                }
             }
         })
     }
@@ -460,6 +513,7 @@ async fn socket(
     queue: Arc<AudioQueue>,
     events: mpsc::Sender<Listened>,
     mut closing: watch::Receiver<bool>,
+    streamed: Streamed,
 ) {
     let (mut backoff, cap) = (shared.settings.backoff, BACKOFF_CAP);
     let mut down = false;
@@ -493,10 +547,23 @@ async fn socket(
             Ok(ws) => {
                 shared.ever.store(true, Ordering::SeqCst);
                 backoff = shared.settings.backoff;
-                if down && events.send(Listened::Up { speaker }).await.is_err() {
-                    return;
+                if down {
+                    discard_stale(speaker, &queue);
+                    if events.send(Listened::Up { speaker }).await.is_err() {
+                        return;
+                    }
                 }
-                match session(speaker, &shared, ws, &queue, &events, &mut closing).await {
+                let ended = session(
+                    speaker,
+                    &shared,
+                    ws,
+                    &queue,
+                    &events,
+                    &mut closing,
+                    &streamed,
+                )
+                .await;
+                match ended {
                     Ended::Closed | Ended::Gone => return,
                     Ended::Dropped(error) => {
                         down = true;
@@ -516,6 +583,19 @@ async fn socket(
                 }
             }
         }
+    }
+}
+
+/// Audio queued before a drop belongs to a turn that went to the
+/// pre-recorded recogniser: it is not the new stream's first.
+fn discard_stale(speaker: Speaker, queue: &AudioQueue) {
+    let stale = queue.clear();
+    if stale > 0 {
+        tracing::info!(
+            speaker = speaker.0,
+            discarded_ms = duration_of(stale).as_millis() as u64,
+            "voice: Flux's audio from before the drop is discarded"
+        );
     }
 }
 
@@ -560,15 +640,15 @@ async fn session(
     queue: &AudioQueue,
     events: &mpsc::Sender<Listened>,
     closing: &mut watch::Receiver<bool>,
+    streamed: &Streamed,
 ) -> Ended {
     let (mut sink, mut stream) = ws.split();
     let keep_alive = shared.settings.keep_alive;
     let mut last_sent = Instant::now();
-    let mut streamed = Duration::ZERO;
     loop {
         // Anything queued before a wait is sent first.
         while let Some(chunk) = queue.pop() {
-            streamed += duration_of(chunk.len());
+            streamed.add(duration_of(chunk.len()));
             last_sent = Instant::now();
             if let Err(e) = sink.send(Message::binary(le_bytes(&chunk))).await {
                 return Ended::Dropped(shared.scrub(&format!("Deepgram Flux: {}", chain(&e))));
@@ -587,7 +667,7 @@ async fn session(
                 // A quiet speaker sends Discord's engine no frames: silence
                 // keeps the socket from an idle timeout.
                 let silence = vec![0i16; crate::audio::samples_in(CHUNK)];
-                streamed += CHUNK;
+                streamed.add(CHUNK);
                 last_sent = Instant::now();
                 if let Err(e) = sink.send(Message::binary(le_bytes(&silence))).await {
                     return Ended::Dropped(shared.scrub(&format!("Deepgram Flux: {}", chain(&e))));
@@ -624,7 +704,7 @@ async fn session(
                                 speaker,
                                 text: transcript,
                                 confidence,
-                                streamed: std::mem::take(&mut streamed),
+                                streamed: streamed.take(),
                             },
                         }
                     }
