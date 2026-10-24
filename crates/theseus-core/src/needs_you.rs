@@ -42,7 +42,7 @@ use crate::rpc::Core;
 mod plain;
 mod words;
 
-pub use plain::{plain, Gloss};
+pub use plain::{plain, rule_clause, Gloss};
 
 /// The outbox post's kind.
 pub const KIND: &str = "needs_you";
@@ -220,7 +220,8 @@ impl Core {
 
     /// Who asks: a self task as "Theseus's self-repair: <the backlog item's
     /// title>", any other task by its own record's title, else its short id,
-    /// else the conversation's title (theseus-suvpe).
+    /// else the thread's title for a thread's session, else the conversation's
+    /// title (theseus-suvpe).
     pub(crate) fn asker_name(&self, req: &ConfirmRequest) -> String {
         if req.task.is_some() {
             let own = crate::task_graph::all(&self.store).ok().and_then(|all| {
@@ -242,6 +243,16 @@ impl Core {
                 .title
                 .clone()
                 .unwrap_or_else(|| format!("task {}", t.short));
+        }
+        // A thread's session is asked by the thread's title, not by the
+        // first message it happened to get.
+        let thread = self.runner.threads.held().and_then(|b| {
+            b.of_session(&req.session_id)
+                .map(|t| t.title.clone())
+                .filter(|t| !t.trim().is_empty())
+        });
+        if let Some(t) = thread {
+            return t;
         }
         self.store
             .get_session::<crate::session::SessionRecord>(&req.session_id)

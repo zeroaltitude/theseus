@@ -85,17 +85,6 @@ fn what_of(tool: &str, input: &Value) -> String {
     }
 }
 
-/// What holds a call: the structured reasons, else the tool's own posture.
-fn rule_of(req: &ConfirmRequest) -> String {
-    if req.floor {
-        "it touches Theseus's own binary or state, which always asks".into()
-    } else if req.external_text.is_some() {
-        "the session read web text, so a call that acts waits for you".into()
-    } else {
-        format!("`{}` is set to ask before it runs", req.tool)
-    }
-}
-
 /// The card's words for a question, and the kind it is. `asked` is an
 /// `owner_ask`'s own question.
 pub fn words(asked: Option<String>, req: &ConfirmRequest, who: &str) -> (QuestionKind, Words) {
@@ -144,7 +133,7 @@ pub fn words(asked: Option<String>, req: &ConfirmRequest, who: &str) -> (Questio
             let trust = req.external_text.is_some();
             Words::of(
                 what_of(&req.tool, &req.input),
-                format!("{who} asks: {}.", rule_of(req)),
+                format!("{who} asks: {}.", super::plain::held(req)),
                 match (kind, trust) {
                     (QuestionKind::Extension, _) => "Yes loads it.".into(),
                     (_, true) => {

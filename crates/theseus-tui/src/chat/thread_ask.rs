@@ -198,8 +198,29 @@ impl Chat {
         self.adopt(&r.session_id, &r.turn_id)
     }
 
+    /// A question of a placed session's, which this chat's turn raised: the
+    /// answer will start a continuation turn there (theseus-nde5n).
+    pub(super) fn placed_asked(&mut self, c: &theseus_protocol::ConfirmRequest) {
+        if self.placed.also.contains(&c.session_id) {
+            self.placed.owed.insert(c.session_id.clone());
+        }
+    }
+
+    /// The continuation that goes on after an answered question of a placed
+    /// session is this chat's turn too, and only that one: a turn another
+    /// surface sent there is not a continuation (theseus-nde5n).
+    pub(super) fn placed_continues(&mut self, e: &Event) {
+        if let Event::TurnStarted(t) = e {
+            if t.continuation && self.placed.owed.remove(&t.session_id) {
+                self.mine.insert(t.turn_id.clone());
+            }
+        }
+    }
+
     /// The placed turn is the chat's, and so are the tasks of its session:
-    /// the board is watched again with that session among its roots.
+    /// the board is watched again with that session among its roots, and the
+    /// session itself, for the answer to its question and the turn that goes
+    /// on after it (a connection hears only the sessions it watches).
     fn adopt(&mut self, session_id: &str, turn_id: &str) -> Vec<Effect> {
         self.mine.insert(turn_id.to_string());
         let also = &mut self.placed.also;
@@ -211,7 +232,10 @@ impl Chat {
             also.remove(0);
         }
         match self.session.clone() {
-            Some(sid) => vec![Self::watch_with(&sid, &self.placed.also)],
+            Some(sid) => vec![
+                Self::watch_with(&sid, &self.placed.also),
+                Self::watch_session(session_id),
+            ],
             None => Vec::new(),
         }
     }
@@ -227,4 +251,7 @@ pub(super) struct Placed {
     pub(super) also: Vec<String>,
     /// Turns whose placement was told, so it is told once.
     pub(super) told: std::collections::HashSet<String>,
+    /// Placed sessions with a question of this chat's turn open: the next
+    /// continuation turn there is this chat's.
+    pub(super) owed: std::collections::HashSet<String>,
 }

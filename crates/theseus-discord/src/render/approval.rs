@@ -63,28 +63,13 @@ fn why_it_asks(req: &ConfirmRequest, p: &PlainWords) -> String {
 }
 
 /// A hold that is not the floor and not after outside text: the owner's own posture asks in the
-/// owner-approved words; any other rule (a private address, a path outside the roots, layer 1, an
-/// approve-list match) says its own clause, the text in the reason's last `— approve (…)`, with
-/// any `§` reference cut, so the card never gives a false reason.
+/// owner-approved words; any other rule says its own clause, which the core reads from the reason
+/// (`needs_you::rule_clause`, so every surface says the same), so the card never gives a
+/// false reason.
 fn rule_clause(reason: &str) -> String {
     const POSTURE: &str = "you set this kind of call to ask first";
-    let Some((_, rest)) = reason.rsplit_once("— approve (") else {
-        return POSTURE.into();
-    };
-    let rest = rest.trim_end();
-    let clause = rest.strip_suffix(')').unwrap_or(rest);
-    let words: Vec<&str> = clause
-        .split_whitespace()
-        .filter(|w| !w.trim_start_matches('(').starts_with('§'))
-        .collect();
-    let clause = words.join(" ");
-    let clause =
-        clause.trim_matches(|c: char| c == ',' || c == ';' || c == ':' || c.is_whitespace());
-    let posture = ["enforcement = approve", "[policy.", "tightened by"];
-    if clause.is_empty() || posture.iter().any(|p| clause.starts_with(p)) {
-        return POSTURE.into();
-    }
-    clip_middle(clause, 200)
+    theseus_core::needs_you::rule_clause(reason)
+        .map_or_else(|| POSTURE.into(), |c| clip_middle(&c, 200))
 }
 
 /// The card for a request that carries its plain words.

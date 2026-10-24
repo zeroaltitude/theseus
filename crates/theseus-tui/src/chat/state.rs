@@ -380,12 +380,9 @@ impl Chat {
                 Self::watch_with(&main, &self.placed.also),
             ];
             if main != sid {
-                out.push(call(
-                    method::SESSION_WATCH,
-                    json!({ "session_id": main }),
-                    Purpose::Watch,
-                ));
+                out.push(Self::watch_session(&main));
             }
+            out.extend(self.placed.also.iter().map(|s| Self::watch_session(s)));
             out.extend(self.reconnect_call(away));
             return out;
         }

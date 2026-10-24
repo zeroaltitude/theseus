@@ -164,6 +164,15 @@ impl TurnRunner {
             .then(|| tools_defer::PLAN_FAMILY.to_string())
             .into_iter()
             .collect();
+        // A message that asks for a task loads the tasks family whichever way the model reaches
+        // the rest (theseus-gg78p); without tool search `want::extra` admits it, held to the fit.
+        if mechanism == Mechanism::Search
+            && !bare
+            && known.contains(tools_defer::family::TASKS)
+            && tools_defer::want::asks_for_task(ask)
+        {
+            extra.insert(tools_defer::family::TASKS.to_string());
+        }
         // Learned families stay inside the place's budget (theseus-buz3h).
         let rates = self
             .catalog

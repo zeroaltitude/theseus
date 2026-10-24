@@ -161,6 +161,7 @@ impl TurnRunner {
             Vec::new(),
         );
         begun.temporal = temporal.map(|a| a.kind);
+        begun.said = crate::recall::said_of(&nodes, t.tc.turn_id);
         // The turn's new node seeds a spread (32b).
         begun.new_node = nodes
             .iter()
@@ -293,7 +294,7 @@ impl TurnRunner {
     pub(super) async fn recall_end(&self, t: &mut Turn<'_>, mut begun: Begun) {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
-        let scene = self.scene(t, "shadow", MemoryArm::Baseline, &begun.query);
+        let scene = self.scene(t, "shadow", MemoryArm::Baseline, &begun.said);
         let open = t.tc.open.is_some();
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
