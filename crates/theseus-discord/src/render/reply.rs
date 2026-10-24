@@ -45,7 +45,7 @@ pub fn reply_parts(
 }
 
 /// A thread's reply in the owner's DM opens with the thread's title as small
-/// text (`-# → bh-ai pr`), so the owner sees which line of work spoke and can
+/// text (`-# → ex-ai pr`), so the owner sees which line of work spoke and can
 /// answer it by replying (theseus-sjzm). It rides on the first part when it
 /// fits.
 pub fn thread_tag(parts: &mut [(String, String)], title: &str) {

@@ -464,7 +464,7 @@ pub fn gate(
 }
 
 /// The META key that remembers which hold has told the owner.
-fn told_key(session_id: &str) -> String {
+pub(crate) fn told_key(session_id: &str) -> String {
     format!("external.told.{session_id}")
 }
 

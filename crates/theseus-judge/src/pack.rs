@@ -1771,22 +1771,11 @@ mod tests {
             .collect();
         assert_eq!(names, ["examplecorp", "examplecorpinc", "example-repo"]);
         // The repository is public: the template names none of the old
-        // line's four names, which are held here only as digests.
-        const OLD: [&str; 4] = [
-            "51571bf8b06e07629bde6177d7d08ebd8393cf247593f412f9200850afbe9456",
-            "7380ccbf122a29113b7c0563493540d14337ed6d9d9c69048b49e619896a60a0",
-            "3a60e130bb5cfaae5fa51696b3310767b62e32543a3bb00aa488c34a56ab3a09",
-            "dd9f9bdb898bd41a9a3aca4626ff6503e14fee152fd7d08de9734b302287154f",
-        ];
-        for word in template.split(|c: char| !(c.is_alphanumeric() || c == '-')) {
-            for part in std::iter::once(word).chain(word.split('-')) {
-                let digest = format!("{:x}", Sha256::digest(part.to_lowercase()));
-                assert!(
-                    !OLD.contains(&digest.as_str()),
-                    "the template names an old name"
-                );
-            }
-        }
+        // line's four names, which are held only as digests.
+        assert!(
+            !crate::names::names_an_old_name(template, &mut Default::default()),
+            "the template names an old name"
+        );
         for (name, text) in EMBEDDED {
             assert_eq!(hits(text, &names), Vec::<String>::new(), "{name}");
         }

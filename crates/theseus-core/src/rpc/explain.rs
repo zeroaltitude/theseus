@@ -134,7 +134,7 @@ impl Core {
             name,
             view,
             session_id: Some(session_id.to_string()),
-            hold: crate::external::held(&self.store, session_id),
+            hold: crate::external::held_untold(&self.store, session_id, self.tools.external.mode),
             mcp,
         })
     }
@@ -160,7 +160,7 @@ impl Core {
                 .strip_prefix("discord:")
                 .and_then(|k| self.outbox.place_session(k).ok().flatten());
             let hold = match &session {
-                Some(s) => crate::external::held(&self.store, s),
+                Some(s) => crate::external::held_untold(&self.store, s, self.tools.external.mode),
                 None => Ok(None),
             };
             scenes.push(Scene {

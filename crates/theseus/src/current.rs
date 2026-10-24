@@ -152,7 +152,7 @@ mod tests {
 
     fn rows() -> Vec<ThreadRow> {
         vec![
-            row("pr", "bh-ai pr round"),
+            row("pr", "ex-ai pr round"),
             row("tides-gauge", "Tide gauge four"),
             row("tides-log", "Tide log rewrite"),
         ]
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(slug(pick("home", &rs)), "home");
         assert_eq!(slug(pick("2", &rs)), "tides-gauge");
         assert_eq!(slug(pick("pr", &rs)), "pr", "a slug whole needs no length");
-        assert_eq!(slug(pick("bh-a", &rs)), "pr", "a title's start");
+        assert_eq!(slug(pick("ex-a", &rs)), "pr", "a title's start");
         assert_eq!(
             slug(pick("tide ga", &rs)),
             "tides-gauge",
@@ -177,7 +177,7 @@ mod tests {
         assert_eq!(slug(pick("tides-l", &rs)), "tides-log");
         let e = |g: &str| pick(g, &rs).unwrap_err().to_string();
         assert!(e("tide").contains("names 2 threads"), "{}", e("tide"));
-        assert!(e("bh").contains("too short"), "{}", e("bh"));
+        assert!(e("ex").contains("too short"), "{}", e("ex"));
         assert!(e("9").contains("no thread 9"), "{}", e("9"));
         assert!(e("0").contains("no thread 0"), "{}", e("0"));
         assert!(e("zzzz").contains("no thread is named"), "{}", e("zzzz"));

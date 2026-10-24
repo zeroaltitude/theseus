@@ -68,11 +68,11 @@ impl Daemon {
                 let p = &req["params"];
                 let result = match req["method"].as_str().unwrap() {
                     "thread.show" => match p["slug"].as_str().unwrap() {
-                        "pr" => thread("pr", "bh-ai pr", Some("ses_a")),
+                        "pr" => thread("pr", "ex-ai pr", Some("ses_a")),
                         _ => thread("moons", "Moon table", None),
                     },
                     "thread.list" => json!({"threads": [
-                        thread("pr", "bh-ai pr", Some("ses_a")),
+                        thread("pr", "ex-ai pr", Some("ses_a")),
                         thread("tides-log", "Tide log rewrite", Some("ses_b")),
                         thread("moons", "Moon table", None)], "total": 3}),
                     "session.wait" => json!({"reached": "settled", "already": true,
@@ -189,13 +189,13 @@ fn the_current_thread_is_watched_named_listed_switched_and_tagged() {
     let d = Daemon::start(dir.path());
     let mut w = Watch::start(&d, &dir.path().join("state"), Some("pr"));
     // The thread's own session is watched, and the status line names it.
-    w.wait_err("[bh-ai pr · active · 41K ctx");
+    w.wait_err("[ex-ai pr · active · 41K ctx");
     let first = d.wait_for("session.watch", 1);
     assert_eq!(first[0]["params"]["session_id"], "ses_a");
     // `/t` lists the live threads, numbered, the current one marked.
     w.line("/t");
     w.wait_err("2   Tide log rewrite · active");
-    w.wait_err(" 1 ▸ bh-ai pr · active");
+    w.wait_err(" 1 ▸ ex-ai pr · active");
     // `/t 2` moves the watch: the old session unwatched, the new one watched and read.
     w.line("/t 2");
     d.wait_for("session.unwatch", 1);

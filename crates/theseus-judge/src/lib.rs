@@ -63,6 +63,8 @@ mod tests_pic;
 #[cfg(test)]
 mod tests_prove;
 #[cfg(test)]
+mod tests_public_names;
+#[cfg(test)]
 mod tests_replay_onto;
 #[cfg(test)]
 mod tests_route_v5;

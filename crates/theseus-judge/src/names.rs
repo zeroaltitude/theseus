@@ -67,6 +67,38 @@ pub fn packs_naming(names: &Names) -> Vec<(&'static str, usize)> {
         .collect()
 }
 
+/// SHA-256 of four old organisation names, lower-cased. The repository is
+/// public, so they are held only as digests (theseus-a9zg9, theseus-cuv2o).
+#[cfg(test)]
+pub(crate) const OLD: [&str; 4] = [
+    "51571bf8b06e07629bde6177d7d08ebd8393cf247593f412f9200850afbe9456",
+    "7380ccbf122a29113b7c0563493540d14337ed6d9d9c69048b49e619896a60a0",
+    "3a60e130bb5cfaae5fa51696b3310767b62e32543a3bb00aa488c34a56ab3a09",
+    "dd9f9bdb898bd41a9a3aca4626ff6503e14fee152fd7d08de9734b302287154f",
+];
+
+/// Whether `text` has a word (or a hyphen part of one) whose digest is in
+/// `OLD`. `clean` remembers the parts already digested, so a scan over many
+/// files hashes each distinct part once.
+#[cfg(test)]
+pub(crate) fn names_an_old_name(text: &str, clean: &mut std::collections::HashSet<String>) -> bool {
+    use sha2::{Digest, Sha256};
+    text.split(|c: char| !(c.is_alphanumeric() || c == '-'))
+        .any(|word| {
+            std::iter::once(word).chain(word.split('-')).any(|part| {
+                if part.is_empty() || clean.contains(part) {
+                    return false;
+                }
+                let digest = format!("{:x}", Sha256::digest(part.to_lowercase()));
+                let old = OLD.contains(&digest.as_str());
+                if !old {
+                    clean.insert(part.to_string());
+                }
+                old
+            })
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,7 +109,12 @@ mod tests {
     }
 
     /// The owner's list, as the template has it.
-    const OWNER: [&str; 4] = ["bighat", "bighatbio", "bh-ai", "neuron-utils"];
+    const OWNER: [&str; 4] = [
+        "examplecorp",
+        "examplecorpinc",
+        "example-repo",
+        "example-utils",
+    ];
 
     #[test]
     fn sensitive_name_matching() {
@@ -107,13 +144,17 @@ mod tests {
             ("anything", &[], &[]),
             ("a - b -- c", &["--", "-"], &[]),
             // The owner's list (theseus-oejh3's join): a hyphenated name matches
-            // as a unit, so the bare word "neuron" does not.
-            ("BigHat Biosciences", &OWNER, &["bighat"]),
-            ("ask the bh-ai team", &OWNER, &["bh-ai"]),
-            ("neuron-utils 0.4", &OWNER, &["neuron-utils"]),
-            ("someone@bighatbio.com", &OWNER, &["bighatbio"]),
-            ("bighatter", &OWNER, &[]),
-            ("a neuron fires", &OWNER, &[]),
+            // as a unit, so the bare word "example" does not.
+            ("ExampleCorp Biosciences", &OWNER, &["examplecorp"]),
+            ("ask the example-repo team", &OWNER, &["example-repo"]),
+            ("example-utils 0.4", &OWNER, &["example-utils"]),
+            (
+                "someone@examplecorpinc.example.test",
+                &OWNER,
+                &["examplecorpinc"],
+            ),
+            ("examplecorps", &OWNER, &[]),
+            ("an example fires", &OWNER, &[]),
             (
                 "Widgetco and Acme",
                 &["Acme", "Widgetco", "Nobody"],

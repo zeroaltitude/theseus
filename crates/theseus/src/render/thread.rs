@@ -56,7 +56,7 @@ fn fit(text: &str, room: usize) -> String {
     format!("{cut}…")
 }
 
-/// The status line: `bh-ai pr · active · 41K ctx · warm`, or `home` for no
+/// The status line: `ex-ai pr · active · 41K ctx · warm`, or `home` for no
 /// thread. Within `width` columns it gives up, in order, the state, the
 /// context, the warmth, and then cuts the title.
 pub fn status_line(current: Option<&ThreadRow>, now_ms: u64, width: usize) -> String {
@@ -168,7 +168,7 @@ pub(crate) mod tests {
 
     #[test]
     fn warm_inside_the_ttl_cold_after_and_silent_without_one() {
-        let r = row("pr", "bh-ai pr");
+        let r = row("pr", "ex-ai pr");
         assert_eq!(warmth(&r, 1_000_000 + 3_599_000), Some(Warmth::Warm));
         assert_eq!(warmth(&r, 1_000_000 + 3_600_000), Some(Warmth::Cold));
         let mut none = r.clone();
@@ -181,21 +181,21 @@ pub(crate) mod tests {
 
     #[test]
     fn the_status_line_names_the_thread_and_shrinks_with_the_width() {
-        let r = row("pr", "bh-ai pr");
+        let r = row("pr", "ex-ai pr");
         let now = 1_000_000 + 60_000;
         assert_eq!(status_line(None, now, 80), "home");
         assert_eq!(
             status_line(Some(&r), now, 80),
-            "bh-ai pr · active · 41K ctx · warm"
+            "ex-ai pr · active · 41K ctx · warm"
         );
-        assert_eq!(status_line(Some(&r), now, 30), "bh-ai pr · 41K ctx · warm");
-        assert_eq!(status_line(Some(&r), now, 18), "bh-ai pr · warm");
-        assert_eq!(status_line(Some(&r), now, 6), "bh-ai…");
+        assert_eq!(status_line(Some(&r), now, 30), "ex-ai pr · 41K ctx · warm");
+        assert_eq!(status_line(Some(&r), now, 18), "ex-ai pr · warm");
+        assert_eq!(status_line(Some(&r), now, 6), "ex-ai…");
     }
 
     #[test]
     fn a_cold_thread_says_cold_and_a_sealed_one_wears_the_lock() {
-        let mut r = row("pr", "bh-ai pr");
+        let mut r = row("pr", "ex-ai pr");
         r.thread.sealed = Some(theseus_protocol::threads::Seal {
             by: "owner".into(),
             at_ms: 0,
@@ -205,8 +205,8 @@ pub(crate) mod tests {
         let line = picker_line(2, &r, "09:12", 10_000_000, true);
         assert_eq!(
             line,
-            " 2 ▸ bh-ai pr · surveyor · active · 09:12 · 41K ctx · cold 🔒"
+            " 2 ▸ ex-ai pr · surveyor · active · 09:12 · 41K ctx · cold 🔒"
         );
-        assert_eq!(reply_tag("bh-ai pr"), "→ bh-ai pr");
+        assert_eq!(reply_tag("ex-ai pr"), "→ ex-ai pr");
     }
 }
