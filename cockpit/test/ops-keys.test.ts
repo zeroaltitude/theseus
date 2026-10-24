@@ -122,4 +122,7 @@ test('the selection’s keys (ops-graph): ␣ picks the focused card, ⌘A and c
     assert.equal(enabled(b, true), false, b)
   }
   assert.ok(!SEQUENCES.includes(' '), 'the space bar is a key, not a sequence')
+  // A Board card's pick box keeps the page's keys once clicked: esc still clears, ␣ still picks.
+  assert.ok(!typingIn({ tagName: 'INPUT', type: 'checkbox' }))
+  assert.ok(typingIn({ tagName: 'INPUT', type: 'text' }) && typingIn({ tagName: 'INPUT' }) && typingIn({ tagName: 'INPUT', type: 'search' }))
 })

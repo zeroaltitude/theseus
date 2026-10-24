@@ -12,6 +12,11 @@ import type { TaskRecord, WorkView } from '@protocol'
 import { toneHex } from '@/lib/taxonomy'
 import { cn } from '@/lib/format'
 import { FIT } from '@/components/FullGraph'
+
+/** The lanes fill the canvas edge to edge: less margin than the other graphs' fit. */
+const FIT_LANES = { ...FIT, padding: 0.05 }
+/** The least zoom a first view takes: a node's title still reads. */
+const READABLE = 0.62
 import type { OpsRow } from './board'
 import { keeper, NODE_W, type GEdge, type LaneMeta } from './graph'
 import { NODE_TYPES, typeOf, type LaneData, type NodeData } from './GraphNode'
@@ -66,11 +71,14 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   const [moving, setMoving] = useState<{ id: string; x: number; y: number } | null>(null)
   const [hover, setHover] = useState<{ key: string; ok: boolean } | null>(null)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  // Each node's size as React Flow measured it: the nodes are the layout's, so the measure is kept here (the minimap
+  // draws only measured nodes).
+  const [sizes, setSizes] = useState<Readonly<Record<string, { width: number; height: number }>>>({})
   const boxing = useRef<Set<string> | null>(null)
 
   const nodes = useMemo(() => {
     const out: Node[] = g.lanes.map((l): Node<LaneData> => ({
-      id: `lane:${l.key}`, type: 'lane', position: { x: 0, y: l.y }, draggable: false, selectable: false, zIndex: -1,
+      id: `lane:${l.key}`, type: 'lane', position: { x: 0, y: l.y }, measured: { width: g.width + 24, height: l.height }, draggable: false, selectable: false, zIndex: -1,
       data: { lane: l, width: g.width + 24, hover: hover?.key === `lane:${l.key}` ? (hover.ok ? 'ok' : 'no') : undefined },
     }))
     for (const n of g.nodes) {
@@ -78,7 +86,7 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
       const key = n.kind === 'conversation' && row?.sessionId ? `conversation:${row.sessionId}` : n.kind === 'project' ? `project:${n.id}` : null
       const at = moving?.id === n.id ? { x: moving.x, y: moving.y } : { x: n.x, y: n.y }
       out.push({
-        id: n.id, type: typeOf(n.kind), position: at, selected: picked.has(n.id), draggable: n.kind === 'task' || n.kind === 'conversation', zIndex: moving?.id === n.id ? 10 : 1,
+        id: n.id, type: typeOf(n.kind), position: at, measured: sizes[n.id], selected: picked.has(n.id), draggable: n.kind === 'task' || n.kind === 'conversation', zIndex: moving?.id === n.id ? 10 : 1,
         data: {
           n, row, now, focused: fid === n.id, picked: picked.has(n.id), dim: shownIds != null && !shownIds.has(n.id) && n.kind !== 'done' && n.kind !== 'folded',
           hover: key && hover?.key === key ? (hover.ok ? 'ok' : 'no') : undefined,
@@ -87,12 +95,28 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
       })
     }
     return out
-  }, [g, byId, now, fid, picked, shownIds, moving, hover])
+  }, [g, byId, now, fid, picked, shownIds, moving, hover, sizes])
 
   const edges = useMemo(() => g.edges.map((e): Edge => ({
     id: e.id, source: e.source, target: e.target, ...EDGE[e.kind],
     ...(e.running && e.kind === 'parent' ? { className: 'ops-flow', style: { stroke: toneHex.live, strokeWidth: 1.5 } } : {}),
   })), [g.edges])
+
+  // The first view, once the first read brings nodes (the graph mounts before its data): the whole graph when it fits
+  // at a readable zoom, else its top-left at that zoom (the needs-you lanes lead; the minimap has the rest). A focus
+  // pans instead.
+  const box = useRef<HTMLDivElement>(null)
+  const fitted = useRef(false)
+  useEffect(() => {
+    if (fitted.current || !g.nodes.length || !box.current) return
+    fitted.current = true
+    if (focus) return
+    const last = g.lanes.at(-1)
+    const [w, h] = [g.width + 24, last ? last.y + last.height : 1]
+    const fit = Math.min(box.current.clientWidth / w, box.current.clientHeight / h) * 0.95
+    if (fit >= READABLE) requestAnimationFrame(() => { void rf.fitView(FIT_LANES) })
+    else void rf.setViewport({ x: 16, y: 56, zoom: READABLE })
+  }, [g, focus, rf])
 
   // `?sel=` pans to its node, once each time it changes.
   const panned = useRef<string | null>(null)
@@ -116,6 +140,8 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   }
 
   const onNodesChange = (changes: NodeChange[]) => {
+    const measured = changes.flatMap((c) => (c.type === 'dimensions' && c.dimensions ? [[c.id, c.dimensions] as const] : []))
+    if (measured.length) setSizes((m) => ({ ...m, ...Object.fromEntries(measured) }))
     for (const c of changes) {
       if (c.type === 'position' && c.position && c.dragging) setMoving({ id: c.id, x: c.position.x, y: c.position.y })
       if (c.type === 'select' && c.selected && boxing.current && !c.id.startsWith('lane:')) boxing.current.add(c.id)
@@ -123,9 +149,9 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   }
 
   return (
-    <div className="relative h-full min-h-[420px] overflow-hidden rounded-xl border border-line bg-deck" data-testid="ops-graph" onClick={() => setMenu(null)}>
-      <ReactFlow nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} onNodesChange={onNodesChange} fitView fitViewOptions={FIT} minZoom={0.08} maxZoom={1.6} colorMode="dark"
-        proOptions={{ hideAttribution: true }} multiSelectionKeyCode={null} selectionKeyCode="Shift" deleteKeyCode={null} onlyRenderVisibleElements
+    <div ref={box} className="relative h-full min-h-[420px] overflow-hidden rounded-xl border border-line bg-deck" data-testid="ops-graph" onClick={() => setMenu(null)}>
+      <ReactFlow nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} onNodesChange={onNodesChange} minZoom={0.08} maxZoom={1.6} colorMode="dark"
+        proOptions={{ hideAttribution: true }} multiSelectionKeyCode={null} selectionKeyCode="Shift" deleteKeyCode={null}
         onNodeClick={(e, n) => {
           if (n.type === 'lane') return
           if (e.shiftKey || e.metaKey || e.ctrlKey) onPick(n.id); else onFocus(n.id)
@@ -152,7 +178,7 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
         <Background color="rgba(176,141,87,0.09)" gap={22} size={1} />
         <Controls showInteractive={false} className="!bg-hull !shadow-none [&>button]:!border-line [&>button]:!bg-hull [&>button]:!fill-ink-dim" />
         <MiniMap pannable zoomable className="!bg-hull/90" maskColor="rgba(6,16,29,0.7)" nodeStrokeWidth={2}
-          nodeColor={(n) => (n.type === 'lane' ? 'rgba(214,165,72,0.08)' : (n.data as NodeData).n?.needs ? toneHex.wait : (n.data as NodeData).picked ? '#d6a548' : '#3b4a5e')} />
+          nodeColor={(n) => (n.type === 'lane' ? 'rgba(214,165,72,0.08)' : (n.data as NodeData).n?.needs ? toneHex.wait : (n.data as NodeData).picked ? '#d6a548' : '#6b7d94')} />
       </ReactFlow>
       <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2 rounded-lg bg-hull/90 px-2.5 py-1.5 text-[11px] text-ink-dim ring-1 ring-line backdrop-blur">
         <span className="num">{g.nodes.length} nodes{g.folded ? ` · ${g.folded} folded` : ''}</span>

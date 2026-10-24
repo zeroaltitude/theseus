@@ -124,9 +124,12 @@ export function resolve(key: string, ctxs: ReadonlySet<Ctx>, typing: boolean): K
   return null
 }
 
+/** An input that takes no typing: a pick box keeps the page's keys (ops-graph). */
+const UNTYPED: ReadonlySet<string> = new Set(['checkbox', 'radio', 'button', 'submit', 'reset'])
+
 /** Is the event's target a place where a person types? */
-export function typingIn(t: { tagName?: string; isContentEditable?: boolean } | null | undefined): boolean {
-  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable === true)
+export function typingIn(t: { tagName?: string; type?: string; isContentEditable?: boolean } | null | undefined): boolean {
+  return !!t && ((t.tagName === 'INPUT' && !UNTYPED.has(t.type ?? '')) || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable === true)
 }
 
 /** A key that fires on its second press: the first arms it, a second within `TWICE_MS` fires it, anything else

@@ -146,3 +146,11 @@ test('the time machine’s graph: views made from the tasks and sessions as they
   const g = opsLayout(vs, [], LANES, null, { now: NOW })
   assert.ok(g.edges.some((e) => e.source === 'ses_home' && e.target === 'ses_t2'))
 })
+
+test('a first layout that placed nothing (before the first read) keeps no lane order', () => {
+  const empty = opsLayout([], [], [], null, { now: NOW })
+  assert.deepEqual(empty.order, [HOME])
+  const g = opsLayout(board().views, [], LANES, empty, { now: NOW })
+  assert.deepEqual(g.lanes.map((l) => l.key), ['harbour-survey', 'tide-tables', HOME], 'needs-you first, home last, as a fresh layout')
+  assert.ok(g.nodes.every((n) => !n.fresh), 'nothing fades in on the first read')
+})

@@ -112,6 +112,8 @@ export const nodeIdOf = (v: Pick<WorkView, 'id' | 'kind' | 'session_id'>): strin
   (v.kind === 'conversation' || v.kind === 'task') && v.session_id ? v.session_id : v.id
 
 export function opsLayout(views: readonly WorkView[], records: readonly TaskRecord[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph {
+  // A layout that placed nothing (the page before its first read) holds no order to keep.
+  if (prev && prev.nodes.length === 0) prev = null
   const { now, future = false, expanded = new Set<string>(), cap = NODE_CAP } = opts
   const items = new Map<string, Item>()
   const alias = new Map<string, string>()
@@ -248,7 +250,7 @@ export function opsLayout(views: readonly WorkView[], records: readonly TaskReco
   for (const k of order) {
     const n = need.get(k) ?? 0
     const was = prev?.bands[k]
-    const rows = was !== undefined && n <= was ? was : n === 0 ? 1 : Math.ceil((n + 1) / 2) * 2
+    const rows = was !== undefined && n <= was ? was : n + 1
     bands[k] = rows
     const height = LANE_HEAD + rows * ROW_H
     out.push({ ...metas.get(k)!, y, height, rows })
