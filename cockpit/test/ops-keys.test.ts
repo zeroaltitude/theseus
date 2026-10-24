@@ -102,3 +102,31 @@ test('the regions: folds kept, the inspector over the canvas below 1280 px, the 
   assert.deepEqual(regionsFor(800, 'folded', 'open', false), { queue: 'page', inspector: 'none', canvas: false }, 'a narrow screen: the queue is the page, whatever the fold')
   assert.deepEqual(regionsFor(800, 'open', 'open', true), { queue: 'page', inspector: 'over', canvas: false })
 })
+
+test('the Timeline’s keys (ops-timeline): the lens and a focused mark are more specific than the counters and the page', () => {
+  // In the lens, d and w zoom, and beat the counter filters; elsewhere they still filter.
+  assert.equal(resolve('d', on('timeline'), false)?.verb, 'zoom_day')
+  assert.equal(resolve('w', on('timeline'), false)?.verb, 'zoom_week')
+  assert.equal(resolve('d', on(), false)?.verb, 'filter_done')
+  assert.equal(resolve('w', on(), false)?.verb, 'filter_working')
+  // A failure is more specific still: d dismisses it even in the lens.
+  assert.equal(resolve('d', on('failure', 'timeline'), false)?.verb, 'dismiss')
+  assert.equal(resolve('R', on('timeline'), false)?.verb, 'redact')
+  assert.equal(resolve(',', on('timeline'), false)?.verb, 'week_prev')
+  assert.equal(resolve('.', on('timeline'), false)?.verb, 'week_next')
+  // j and k step the marks in the lens, the queue elsewhere.
+  assert.equal(resolve('j', on('timeline'), false)?.verb, 'mark_next')
+  assert.equal(resolve('k', on('timeline'), false)?.verb, 'mark_prev')
+  assert.equal(resolve('j', on(), false)?.verb, 'down')
+  // On a focused mark, the Horizon's keys: r runs, not the paused filter; x cancels the mark; Enter opens it.
+  for (const [key, verb] of [['z', 'mark_snooze'], ['p', 'mark_pause'], ['r', 'mark_run'], ['x', 'mark_cancel'], ['Enter', 'mark_open']] as const) {
+    assert.equal(resolve(key, on('mark', 'timeline'), false)?.verb, verb, key)
+  }
+  assert.equal(resolve('r', on('timeline'), false)?.verb, 'filter_paused', 'no mark: r filters')
+  assert.equal(resolve('z', on('timeline'), false), null)
+  const lines = overlay().flatMap((g) => g.lines)
+  assert.match(lines.find((l) => l.verb === 'zoom_day')!.words, /beats the done filter/)
+  assert.match(lines.find((l) => l.verb === 'mark_run')!.words, /beats the paused filter/)
+  for (const v of ['mark_snooze', 'mark_pause', 'mark_run', 'mark_cancel', 'event_remind', 'event_prep', 'event_ask', 'drag', 'undo']) assert.ok(ACTS.has(v), `${v} is off under the time machine`)
+  for (const v of ['zoom_day', 'redact', 'week_next', 'mark_next', 'mark_open']) assert.ok(!ACTS.has(v), `${v} only looks`)
+})

@@ -1,20 +1,30 @@
 // The New task box, moved from the Tasks page with every field (theseus-ypnxt.6; theseus-jid7t.3): a brief, a title, a
 // budget, and where it goes. It calls `task.start`, which opens the task with no model turn; the row it makes is
 // selected on the board (the page writes it into the address), and a refusal shows the daemon's own words. `N` opens it with the conversation under the
-// cursor as its home.
+// cursor as its home. The profile it runs on can be picked; a task about a sensitive calendar's event (`usOnly`,
+// theseus-jid7t.5) offers only a profile of US origin, the others greyed with the reason, and starts on none if none is
+// known (it fails closed).
 import { useState } from 'react'
 import { Plus, Send, X } from 'lucide-react'
-import type { SessionInfo, TaskStartParams, TaskStartResult } from '@protocol'
+import type { ProfileListResult, SessionInfo, TaskStartParams, TaskStartResult } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { cn, short, usd } from '@/lib/format'
 import { Panel } from '@/components/ui'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
+import { profileChoices, US_ONLY_WORDS } from './calendar'
 
-export function NewTask({ home: initialHome = '', onStarted, onClose }: { home?: string; onStarted: (taskId: string) => void; onClose: () => void }) {
+export function NewTask({ home: initialHome = '', brief: initialBrief = '', title: initialTitle = '', usOnly = false, onStarted, onClose }: {
+  home?: string; brief?: string; title?: string; usOnly?: boolean; onStarted: (taskId: string) => void; onClose: () => void
+}) {
   const { on } = useOpsAct()
-  const [brief, setBrief] = useState('')
-  const [title, setTitle] = useState('')
+  const [brief, setBrief] = useState(initialBrief)
+  const [title, setTitle] = useState(initialTitle)
+  const { data: pl } = useRpc<ProfileListResult>('profile.list', undefined, 0)
+  const profiles = profileChoices(pl?.profiles ?? [], usOnly, pl?.live)
+  const [picked, setProfile] = useState<string | null>(null)
+  const profile = picked ?? profiles.pick
+  const closed = usOnly && !profiles.choices.some((c) => c.name === profile && !c.off)
   const [budget, setBudget] = useState('')
   const [home, setHome] = useState(initialHome)
   const [busy, setBusy] = useState(false)
@@ -25,7 +35,8 @@ export function NewTask({ home: initialHome = '', onStarted, onClose }: { home?:
   const bad = dollars !== undefined && !(dollars > 0)
   const start = async () => {
     if (!on('new_task')) return
-    const p: TaskStartParams = { brief: brief.trim(), ...(title.trim() && { title: title.trim() }), ...(home && { home }), ...(dollars !== undefined && { budget_usd: dollars }) }
+    if (closed) { setSaid({ ok: false, text: `${US_ONLY_WORDS}: pick a profile of US origin` }); return }
+    const p: TaskStartParams = { brief: brief.trim(), ...(title.trim() && { title: title.trim() }), ...(home && { home }), ...(dollars !== undefined && { budget_usd: dollars }), ...(profile && { profile }) }
     setBusy(true)
     try {
       const r = await call<TaskStartResult>('task.start', p)
@@ -48,6 +59,11 @@ export function NewTask({ home: initialHome = '', onStarted, onClose }: { home?:
         <select value={home} onChange={(e) => setHome(e.target.value)} aria-label="Where it goes" className={cn(field, 'max-w-64')}>
           <option value="">Home conversation</option>
           {open.map((s) => <option key={s.session_id} value={s.session_id}>{s.title || s.label || short(s.session_id)}</option>)}
+        </select>
+        <select value={profile} onChange={(e) => setProfile(e.target.value)} aria-label="The profile it runs on" title={usOnly ? US_ONLY_WORDS : 'the profile its turns run on'} className={cn(field, 'max-w-56', closed && 'ring-fault/60')}>
+          {!usOnly && <option value="">Parent’s model</option>}
+          {usOnly && !profiles.pick && <option value="">no profile of US origin is known</option>}
+          {profiles.choices.map((c) => <option key={c.name} value={c.name} disabled={!!c.off} title={c.off}>{c.name} · {c.model}{c.off ? ' (US models only)' : ''}</option>)}
         </select>
         <ActBtn verb="new_task" on={on} busy={busy} onClick={() => { if (brief.trim() && !bad) void start() }} title="Start it now, with no model turn (Ctrl+Enter)"><Send size={12} /> Start task</ActBtn>
       </div>

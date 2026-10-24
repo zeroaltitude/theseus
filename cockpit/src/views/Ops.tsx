@@ -23,7 +23,6 @@ import { reportLineOf } from '@/lib/taskboard'
 import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
 import { TaskGraphView } from '@/components/TaskGraph'
-import Agenda from './Agenda'
 import { parseAddress, writeAddress, type Address, type FilterKey, type Lens } from '@/ops/address'
 import { boardRows, chipChoices, columnsOf, countersOf, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
 import { answerOf, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
@@ -39,6 +38,10 @@ import { NewTask } from '@/ops/NewTask'
 import { useOpsAct } from '@/ops/act'
 import { useRouterAsks } from '@/ops/asks'
 import { HelpButton } from '@/components/Help'
+import { TimelineLens, type TimelineReport } from '@/ops/TimelineLens'
+import { useOpsCalendar } from '@/ops/calendarwatch'
+import { comingEvents, findEvent } from '@/ops/calendar'
+import { parseDay, useTimelineKeys } from '@/ops/timelinekeys'
 
 /** A queue item's key in the address: its kind's letter and its id (`q:act_…`), so a link reopens the queue's card. */
 /** One empty list for every absent read, so a memo over it holds. */
@@ -67,6 +70,10 @@ export default function Ops() {
   const history = useHistoryRows()
   const asks = useRouterAsks(tick)
   const { act, on } = useOpsAct()
+  // The Timeline's calendar (ops-timeline): the window shown in its lens, and today and tomorrow for Coming up.
+  const day = a.lens === 'timeline' ? parseDay(params.get('day')) : null
+  const cal = useOpsCalendar(a.lens === 'timeline', a.w, day, tick)
+  const [tlr, setTl] = useState<TimelineReport | null>(null)
 
   // What the page holds: the present's, or the time machine's world (the board's views are the present's only).
   const views = useMemo(() => (world ? [] : Object.values(board.views)), [world, board.views])
@@ -115,7 +122,9 @@ export default function Ops() {
   const item: QueueItem | undefined = isItemKey(a.sel) ? queue.find((i) => i.key === a.sel) : a.do === 'answer' ? itemFor(queue, a.sel) : undefined
   const row: OpsRow | undefined = item ? undefined : rows.find((r) => selects(r, a.sel))
   const slug = a.lens === 'threads' && a.sel && !item ? a.sel : null
-  const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : a.lens === 'timeline' && a.sel ? { kind: 'mark', key: a.sel } : { kind: 'none' }
+  const event = a.lens === 'timeline' && a.sel?.startsWith('ev:') ? findEvent(cal.calendars, a.sel.slice(3)) : null
+  const mark = a.lens === 'timeline' && !item ? tlr?.marks.find((m) => m.key === a.sel) : undefined
+  const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel ? { kind: 'mark', key: a.sel } : { kind: 'none' }
   const region: 'queue' | 'canvas' = item ? 'queue' : 'canvas'
   // The item a key answers: the queue's cursor, or the needs-you item of the row on the canvas.
   const focusItem = item ?? (row ? queue.find((i) => (row.view != null && i.view?.id === row.view.id) || (row.sessionId != null && i.sessionId === row.sessionId && i.kind !== 'hold')) : undefined)
@@ -173,6 +182,7 @@ export default function Ops() {
   const bucket = (b: 'needs' | 'working' | 'paused' | 'done') => set({ f: { ...a.f, bucket: a.f.bucket === b ? undefined : b } })
   const living = focusRow?.view?.state === 'running' || focusRow?.view?.state === 'waiting'
   const exe = focusRow?.kind === 'conversation' ? focusRow.view?.id ?? focusRow.session?.execution_id : undefined
+  const tk = useTimelineKeys({ a, day, report: tlr, mark, set, pick, flash: setFlash, open: (sid) => nav(`/session/${sid}`) })
 
   const handlers: Record<Verb, (key: string) => void> = {
     down: () => move(0, 1),
@@ -213,6 +223,18 @@ export default function Ops() {
     filter_paused: () => bucket('paused'),
     filter_done: () => bucket('done'),
     filter_all: () => set({ f: {}, q: '' }),
+    zoom_day: () => tk.run('zoom_day'),
+    zoom_week: () => tk.run('zoom_week'),
+    redact: () => tk.run('redact'),
+    week_prev: () => tk.run('week_prev'),
+    week_next: () => tk.run('week_next'),
+    mark_next: () => tk.run('mark_next'),
+    mark_prev: () => tk.run('mark_prev'),
+    mark_snooze: () => tk.run('mark_snooze'),
+    mark_pause: () => tk.run('mark_pause'),
+    mark_run: () => tk.run('mark_run'),
+    mark_cancel: () => tk.run('mark_cancel'),
+    mark_open: () => tk.run('mark_open'),
   } // end of handlers
 
   // The contexts the focus offers, most specific first (`keys.ts`).
@@ -227,8 +249,10 @@ export default function Ops() {
     if (focusRow?.kind === 'conversation' && living) c.add('running')
     if (focusRow?.kind === 'job') c.add('job')
     if (focusRow?.kind === 'wake') c.add('wake')
+    if (a.lens === 'timeline' && region === 'canvas') c.add('timeline')
+    if (mark) c.add('mark')
     return c
-  }, [focusItem, focusRow, slug, living])
+  }, [focusItem, focusRow, slug, living, a.lens, region, mark])
 
   // One handler for the page, ahead of the shell's: a `g` sequence the page claims is the page's; one it does not
   // (`g f`) goes on to the shell. Keys never fire while typing.
@@ -259,12 +283,12 @@ export default function Ops() {
 
   const filter = (k: FilterKey, v: string | null) => set({ f: { ...a.f, [k]: v ?? undefined } })
   const choices = useMemo(() => ({ ...chipChoices(rows), project: records.filter((t) => t.kind === 'project').map((t) => t.id) }), [rows, records])
-  const n = a.lens === 'threads' ? threadList.length : vis.rows.length
-  const of = a.lens === 'threads' ? grouped.threads.length : vis.of
+  const n = a.lens === 'threads' ? threadList.length : a.lens === 'timeline' && tlr ? tlr.n : vis.rows.length
+  const of = a.lens === 'threads' ? grouped.threads.length : a.lens === 'timeline' && tlr ? tlr.of : vis.of
 
   const queuePanel = (
     <Queue items={queue} cursor={item?.key ?? null} onCursor={(k) => pick(k)} open={open} note={note} onNote={setNote} past={past} now={now}
-      coming={world ? [] : comingUp(Object.values(board.views), tick)} arrivedKeys={fresh} />
+      coming={world ? [] : comingUp(Object.values(board.views), tick)} events={world ? [] : comingEvents(cal.calendars, tick, a.redact)} arrivedKeys={fresh} />
   )
   const canvas = (
     <div className="h-full min-h-0">
@@ -274,7 +298,8 @@ export default function Ops() {
       {a.lens === 'timeline' && (
         <div className="h-full overflow-y-auto pr-1">
           {world && <p className="mb-2 text-[11.5px] text-wait">The agenda shows the present: its marks are the daemon’s now, not the log’s moment.</p>}
-          <Agenda />
+          <TimelineLens weeks={a.w} day={day} sel={a.sel} redact={a.redact} q={a.q} cal={cal} past={!!world} onSel={pick} onWeek={tk.shift} onToday={tk.today} onZoom={tk.zoom}
+            onReport={setTl} onOpen={(sid) => nav(`/session/${sid}`)} />
         </div>
       )}
       {a.lens === 'graph' && <TaskGraphView records={records} past={past ?? undefined} shown />}
@@ -288,7 +313,7 @@ export default function Ops() {
         </div>
       )}
       <CommandBar counts={counts} f={a.f} onFilter={filter} lens={a.lens} onLens={lens} choices={choices} q={a.q} onQ={(q) => set({ q })} n={n} of={of}
-        onNew={() => handlers.new_task('N')} searchRef={searchRef} />
+        onNew={() => handlers.new_task('N')} searchRef={searchRef} timeline={tlr ? { meetings: tlr.meetings, clashes: tlr.clashes } : undefined} />
       {newTask && <NewTask home={newTask.home} onClose={() => setNewTask(null)} onStarted={(id) => { setNewTask(null); set({ lens: 'board', sel: id }) }} />}
       <div className="relative flex min-h-0 flex-1 gap-2.5">
         {reg.queue === 'side' && (

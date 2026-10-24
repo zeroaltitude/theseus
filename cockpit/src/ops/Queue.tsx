@@ -12,6 +12,7 @@ import { useCalm } from '@/lib/calm'
 import { ConfirmCard } from '@/components/ConfirmCard'
 import { changeWords } from '@/lib/taskgraph'
 import { answerOf, grantKey, type Answer, type QueueItem } from './queue'
+import type { ComingEvent } from './calendar'
 import { ITEM_LOOK, itemFacts } from './facts'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
@@ -19,11 +20,13 @@ import type { ButtonAct, Verb } from './keys'
 
 const TONE: Record<string, string> = { wait: 'text-wait', fault: 'text-fault', think: 'text-think', money: 'text-money', live: 'text-live' }
 
-export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, coming, arrivedKeys }: {
+export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, coming, arrivedKeys, events = [] }: {
   items: readonly QueueItem[]; cursor: string | null; onCursor: (key: string) => void; open: string | null
   /** The item whose decline (or "something else") note is open, and its words. */
   note: { key: string; text: string } | null; onNote: (n: { key: string; text: string } | null) => void
   past: number | null; now: number; coming: readonly WorkView[]; arrivedKeys: ReadonlySet<string>
+  /** The calendar's events in the next three hours, redacted as the page is (ops-timeline, theseus-jid7t.5). */
+  events?: readonly ComingEvent[]
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="ops-queue">
@@ -38,7 +41,7 @@ export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, 
             past={past} now={now} fresh={arrivedKeys.has(i.key)} />
         ))}
       </div>
-      <ComingUp views={coming} now={now} />
+      <ComingUp views={coming} events={events} now={now} />
     </div>
   )
 }
@@ -122,19 +125,31 @@ export function Answers({ i, whole, note, onNote, past }: { i: QueueItem; whole:
 /** The next three hours: each mark's glyph, its time and its words. */
 const MARK: Record<string, string> = { remind: '●', check: '○', routine: '│', watch: '▬' }
 
-function ComingUp({ views, now }: { views: readonly WorkView[]; now: number }) {
+function ComingUp({ views, events, now }: { views: readonly WorkView[]; events: readonly ComingEvent[]; now: number }) {
+  // Theseus's marks and the calendar's events, by time: an event's line is already redacted as the page is.
+  const rows = [
+    ...views.map((v) => ({ at: v.next_at_ms ?? now, key: v.id, v })),
+    ...events.map((e) => ({ at: e.at_ms, key: `ev:${e.key}`, e })),
+  ].sort((a, b) => a.at - b.at || (a.key < b.key ? -1 : 1)).slice(0, 8)
   return (
     <section className="border-t border-line px-2.5 py-2" aria-label="Coming up">
       <h3 className="mb-1 flex items-center gap-1.5 font-display text-[10.5px] font-bold uppercase tracking-[0.08em] text-gold"><Hourglass size={11} /> Coming up · 3 h</h3>
-      {!views.length && <div className="text-[11px] text-ink-faint">nothing in the next three hours</div>}
-      {views.slice(0, 8).map((v) => (
-        <Link key={v.id} to={v.session_id ? `/session/${v.session_id}` : '#'} className="flex items-baseline gap-2 rounded px-1 py-0.5 text-[11.5px] hover:bg-white/5">
-          <span className="w-3 text-think" aria-hidden>{v.kind === 'task' ? '▷' : MARK[v.purpose ?? v.kind] ?? '●'}</span>
-          <span className="num shrink-0 text-ink-dim">{clock(v.next_at_ms)}</span>
-          <span className="min-w-0 truncate text-ink">{v.title || v.kind}</span>
-          <span className="num ml-auto shrink-0 text-[10px] text-ink-faint">in {Math.max(1, Math.round(((v.next_at_ms ?? now) - now) / 60_000))}m</span>
+      {!rows.length && <div className="text-[11px] text-ink-faint">nothing in the next three hours</div>}
+      {rows.map((r) => 'v' in r && r.v ? (
+        <Link key={r.key} to={r.v.session_id ? `/session/${r.v.session_id}` : '#'} className="flex items-baseline gap-2 rounded px-1 py-0.5 text-[11.5px] hover:bg-white/5">
+          <span className="w-3 text-think" aria-hidden>{r.v.kind === 'task' ? '▷' : MARK[r.v.purpose ?? r.v.kind] ?? '●'}</span>
+          <span className="num shrink-0 text-ink-dim">{clock(r.v.next_at_ms)}</span>
+          <span className="min-w-0 truncate text-ink">{r.v.title || r.v.kind}</span>
+          <span className="num ml-auto shrink-0 text-[10px] text-ink-faint">in {Math.max(1, Math.round(((r.v.next_at_ms ?? now) - now) / 60_000))}m</span>
         </Link>
-      ))}
+      ) : 'e' in r && r.e ? (
+        <div key={r.key} className="flex items-baseline gap-2 px-1 py-0.5 text-[11.5px]" data-event={r.e.sensitive ? 'sensitive' : 'open'}>
+          <span className="inline-block h-2 w-3 shrink-0 rounded-[2px]" style={{ background: r.e.color }} aria-hidden />
+          <span className="num shrink-0 text-ink-dim">{clock(r.e.at_ms)}</span>
+          <span className="min-w-0 truncate text-ink-dim">{r.e.line}</span>
+          <span className="num ml-auto shrink-0 text-[10px] text-ink-faint">in {Math.max(1, Math.round((r.e.at_ms - now) / 60_000))}m</span>
+        </div>
+      ) : null)}
     </section>
   )
 }

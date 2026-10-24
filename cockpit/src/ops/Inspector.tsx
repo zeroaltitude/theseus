@@ -4,7 +4,7 @@
 // later row's (ops-act).
 import { Link } from 'react-router'
 import { CircleStop, ExternalLink, MousePointerClick, OctagonX, Pause, Play } from 'lucide-react'
-import type { ConfirmRequest } from '@protocol'
+import type { CalendarEvent, CalendarWindow, ConfirmRequest } from '@protocol'
 import { ConfirmCard } from '@/components/ConfirmCard'
 import { Pill, StatePill } from '@/components/ui'
 import { usd } from '@/lib/format'
@@ -15,18 +15,22 @@ import { Answers } from './Queue'
 import { ThreadBody } from './ThreadPanel'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
+import { EventDetail } from './EventDetail'
 
 export type Selection =
   | { kind: 'row'; row: OpsRow }
   | { kind: 'item'; item: QueueItem }
   | { kind: 'thread'; slug: string }
   | { kind: 'mark'; key: string }
+  // ops-timeline (theseus-jid7t.5): a calendar event, drawn redacted when the page is.
+  | { kind: 'event'; ev: CalendarEvent; cal: CalendarWindow; redact: boolean }
   | { kind: 'none' }
 
 export function Inspector({ sel, confirms, past, now }: { sel: Selection; confirms: readonly ConfirmRequest[]; past: number | null; now: number }) {
   if (sel.kind === 'thread') return <ThreadBody slug={sel.slug} live wide={false} />
   if (sel.kind === 'item') return <ItemWhole i={sel.item} past={past} />
   if (sel.kind === 'row') return <RowWhole r={sel.row} confirms={confirms.filter((c) => c.session_id === sel.row.sessionId)} past={past} now={now} />
+  if (sel.kind === 'event') return <EventDetail ev={sel.ev} cal={sel.cal} redact={sel.redact} />
   if (sel.kind === 'mark') return <Hint>The selected mark’s panel, with its verbs, is under the week strip.</Hint>
   return <Hint><MousePointerClick size={16} className="text-gold" /> Select a card, a thread or a queue item: its facts and verbs show here. <span className="kbd">?</span> lists the keys.</Hint>
 }

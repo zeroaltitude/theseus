@@ -32,10 +32,12 @@ const LENS_KEYS: Record<Lens, string> = { graph: 'g g', board: 'g b', timeline: 
 const SAMPLES = 60
 const EVERY_MS = 60_000
 
-export function CommandBar({ counts, f, onFilter, lens, onLens, choices, q, onQ, n, of, onNew, searchRef }: {
+export function CommandBar({ counts, f, onFilter, lens, onLens, choices, q, onQ, n, of, onNew, searchRef, timeline }: {
   counts: CounterValues; f: Filters; onFilter: (k: FilterKey, v: string | null) => void; lens: Lens; onLens: (l: Lens) => void
   choices: Partial<Record<FilterKey, string[]>>; q: string; onQ: (q: string) => void; n: number; of: number; onNew: () => void
   searchRef: RefObject<HTMLInputElement | null>
+  /** The Timeline lens's two counters (ops-timeline, theseus-jid7t.5): its window's meetings and its clashes. */
+  timeline?: { meetings: number; clashes: number }
 }) {
   const { on } = useOpsAct()
   const [table, setTable] = useTableView('ops.counters')
@@ -49,6 +51,7 @@ export function CommandBar({ counts, f, onFilter, lens, onLens, choices, q, onQ,
         {COUNTERS.map((c) => (
           <Counter key={c.b} c={c} value={counts[c.b]} series={hist[c.b]} active={f.bucket === c.b} onClick={() => onFilter('bucket', f.bucket === c.b ? null : c.b)} />
         ))}
+        {lens === 'timeline' && timeline && <TimelineCounters {...timeline} />}
         <span className="ml-auto flex items-center gap-2">
           <Segmented value={table ? 'table' : 'chart'} options={['chart', 'table'] as const} onChange={(v) => setTable(v === 'table')} />
           <ActBtn verb="new_task" on={on} onClick={onNew} title="N: a new task, its home the conversation under the cursor"><Plus size={12} /> New task</ActBtn>
@@ -101,6 +104,20 @@ function Counter({ c, value, series, active, onClick }: { c: (typeof COUNTERS)[n
         <svg width={64} height={16} className="ml-auto" aria-hidden><polyline points={pts} fill="none" stroke={toneHex[c.tone]} strokeWidth={1.25} strokeLinejoin="round" /></svg>
       </span>
     </button>
+  )
+}
+
+/** The Timeline's own counters: shown only in its lens, and not filters (the strip marks what they count). */
+function TimelineCounters({ meetings, clashes }: { meetings: number; clashes: number }) {
+  return (
+    <>
+      {([['meetings this week', meetings, '▤', 'idle', 'the timed meetings of the window shown'], ['clashes', clashes, '◆', 'wait', 'a mark inside a meeting, or two meetings that overlap: each marked ◆ on the strip']] as const).map(([label, value, glyph, tone, tip]) => (
+        <div key={label} title={tip} data-counter={label} className="flex min-w-[118px] flex-col gap-0.5 rounded-lg bg-hull/70 px-2.5 py-1.5 ring-1 ring-line">
+          <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-ink-faint"><span style={{ color: toneHex[tone] }} aria-hidden>{glyph}</span>{label}</span>
+          <span className="num text-[18px] font-semibold leading-none" style={{ color: label === 'clashes' && value > 0 ? toneHex.wait : undefined }}>{value}</span>
+        </div>
+      ))}
+    </>
   )
 }
 
