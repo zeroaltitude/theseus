@@ -139,11 +139,7 @@ impl Active {
         let Some(level) = level.and_then(effort::parse) else {
             return;
         };
-        let ev = &mut self.evidence;
-        if let Some(was) = ev.effort.filter(|was| level > *was) {
-            ev.raised = Some((was, index));
-        }
-        ev.effort = Some(level);
+        self.evidence.note(level, index);
     }
 
     /// Its rows' `source`.

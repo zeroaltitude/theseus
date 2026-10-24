@@ -199,6 +199,19 @@ pub struct Evidence {
 }
 
 impl Evidence {
+    /// A loop's request ran at `level`: a rise is a raise from the level
+    /// before, and a fall to or below where the raise started ends it, so the
+    /// text never says "raised" of work that came back down.
+    pub fn note(&mut self, level: Effort, index: u32) {
+        if let Some(was) = self.effort.filter(|was| level > *was) {
+            self.raised = Some((was, index));
+        }
+        if self.raised.is_some_and(|(from, _)| level <= from) {
+            self.raised = None;
+        }
+        self.effort = Some(level);
+    }
+
     /// The lines the text carries: the effort (when known) and the checkpoints.
     fn lines(&self) -> String {
         let mut out = String::new();
@@ -785,5 +798,21 @@ mod tests {
         );
         assert!(s.contains("Checkpoints this turn: 3, failing 2 in a row"));
         assert!(s.ends_with("Now: before the report"));
+    }
+
+    /// A raise ends when the work comes back down to where it started: high,
+    /// xhigh, high says no raise (and the text says none).
+    #[test]
+    fn a_raise_ends_when_the_effort_falls_back_to_its_start() {
+        let mut ev = Evidence::default();
+        ev.note(Effort::High, 1);
+        ev.note(Effort::Xhigh, 4);
+        assert_eq!(ev.raised, Some((Effort::High, 4)));
+        ev.note(Effort::High, 6);
+        assert_eq!((ev.effort, ev.raised), (Some(Effort::High), None));
+        assert!(!ev.lines().contains("raised"), "{}", ev.lines());
+        ev.note(Effort::Xhigh, 7);
+        ev.note(Effort::Medium, 9);
+        assert_eq!((ev.effort, ev.raised), (Some(Effort::Medium), None));
     }
 }
