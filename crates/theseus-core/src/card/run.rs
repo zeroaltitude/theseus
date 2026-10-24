@@ -58,6 +58,9 @@ struct Job<'a> {
     texts: Vec<String>,
     /// Proposals the queue still has room for.
     room: usize,
+    /// What this run's earlier calls made: each proposal's words and its
+    /// cluster, listed in the later calls so a conflict with one is named.
+    earlier: Vec<(String, usize)>,
 }
 
 impl Job<'_> {
@@ -65,11 +68,12 @@ impl Job<'_> {
         &self,
         core: &Core,
         picked: &[usize],
+        earlier: &[String],
     ) -> (Vec<ask::Shown>, crate::provider::ProviderRequest) {
         let shown = ask::shown(picked, self.clusters);
         let scrubber = core.tools.scrubber.clone();
-        let thinking = core.runner.catalog.thinking_off(&self.target.model);
-        let request = ask::request(&self.target.model, thinking, &shown, &|t| {
+        let how = core.runner.catalog.forcing(&self.target.model);
+        let request = ask::request(&self.target.model, how, &shown, earlier, &|t| {
             scrubber.scrub(t).0
         });
         (shown, request)
@@ -77,6 +81,27 @@ impl Job<'_> {
 }
 
 impl Job<'_> {
+    /// The words of the proposals this run's earlier calls made.
+    fn earlier_texts(&self) -> Vec<String> {
+        self.earlier.iter().map(|(t, _)| t.clone()).collect()
+    }
+
+    /// The sessions a call's request holds content from: the shown
+    /// clusters' episodes, and those of the earlier proposals it lists (the
+    /// model's words drawn from private sessions are private too).
+    fn sessions<'a>(&'a self, shown: &'a [ask::Shown]) -> impl Iterator<Item = &'a str> {
+        let shown_eps = shown
+            .iter()
+            .flat_map(|s| s.episodes.iter().map(|(_, i)| *i));
+        let earlier_eps = self
+            .earlier
+            .iter()
+            .flat_map(|(_, c)| self.clusters[*c].episodes.iter().copied());
+        shown_eps
+            .chain(earlier_eps)
+            .map(|i| self.scan.episodes[i].session_id.as_str())
+    }
+
     /// The proposals `parsed`'s statements make: one each, until the queue
     /// is full, and none that repeats a live record or any proposal's words
     /// (`dropped` counts those left out).
@@ -86,7 +111,19 @@ impl Job<'_> {
         dropped: &mut u64,
         conflicts: &mut Vec<String>,
     ) -> Vec<CardProposal> {
-        let (kept, notes) = settle_conflicts(&parsed.statements, self.clusters);
+        // One that conflicts with an entry of an earlier call is not offered:
+        // that entry is already written.
+        let mut fresh = Vec::new();
+        for (i, s) in parsed.statements.iter().enumerate() {
+            match parsed.earlier_clash.iter().find(|(k, _)| *k == i) {
+                Some(&(_, p)) => conflicts.push(format!(
+                    "kept '{}' over '{}': they conflict",
+                    self.earlier[p].0, s.text
+                )),
+                None => fresh.push(s.clone()),
+            }
+        }
+        let (kept, notes) = settle_conflicts(&fresh, self.clusters);
         conflicts.extend(notes);
         let mut made = Vec::new();
         for s in &kept {
@@ -95,6 +132,7 @@ impl Job<'_> {
                 continue;
             }
             self.texts.push(s.text.clone());
+            self.earlier.push((s.text.clone(), s.cluster));
             made.push(proposal(
                 &self.run,
                 s,
@@ -113,6 +151,7 @@ impl Job<'_> {
 fn read_answer(
     answered: &anyhow::Result<crate::provider::ModelResponse>,
     shown: &[ask::Shown],
+    earlier: usize,
     asked: &str,
 ) -> (
     String,
@@ -128,7 +167,7 @@ fn read_answer(
             ask::Parsed::default(),
             Some(crate::provider::cap_phrase(ask::MAX_TOKENS)),
         ),
-        Ok(r) => match ask::parse(&r.content, shown) {
+        Ok(r) => match ask::parse(&r.content, shown, earlier) {
             Some(p) => (r.model.clone(), Some(r.usage.clone()), p, None),
             None => (
                 r.model.clone(),
@@ -220,6 +259,7 @@ impl Core {
             st,
             texts,
             room: cfg.max_open as usize - open,
+            earlier: Vec::new(),
         };
         out.run = job.run.clone();
         let batches: Vec<Vec<usize>> = fresh
@@ -228,11 +268,7 @@ impl Core {
             .map(<[usize]>::to_vec)
             .collect();
         if dry_run {
-            for b in &batches {
-                if let Some(m) = self.audit_reserve(&job.scrubbed(self, b).1) {
-                    out.at_most_usd += micros_to_usd(m);
-                }
-            }
+            out.at_most_usd = self.dry_worst_case(&job, &batches);
             return Ok(out);
         }
         for (n, picked) in batches.iter().enumerate() {
@@ -249,6 +285,19 @@ impl Core {
         Ok(out)
     }
 
+    /// The most the batches could cost: each call also lists, at most, a
+    /// batch of entries per earlier call, each as long as an entry can be.
+    fn dry_worst_case(&self, job: &Job<'_>, batches: &[Vec<usize>]) -> f64 {
+        let mut usd = 0.0;
+        for (n, b) in batches.iter().enumerate() {
+            let list = vec!["x".repeat(ask::TEXT_CHARS); (n * ask::BATCH).min(job.room)];
+            if let Some(m) = self.audit_reserve(&job.scrubbed(self, b, &list).1) {
+                usd += micros_to_usd(m);
+            }
+        }
+        usd
+    }
+
     /// One batch of clusters: reserve, call, parse, filter, and write the
     /// call's frame. False when the run should stop (`out.stopped` says why).
     async fn card_call(
@@ -258,7 +307,8 @@ impl Core {
         picked: &[usize],
         out: &mut CardProposeResult,
     ) -> anyhow::Result<bool> {
-        let (shown, request) = job.scrubbed(self, picked);
+        let earlier = job.earlier_texts();
+        let (shown, request) = job.scrubbed(self, picked, &earlier);
         let Some(need) = self.audit_reserve(&request) else {
             out.stopped = Some(format!("no price for {}", job.target.model));
             return Ok(false);
@@ -283,16 +333,11 @@ impl Core {
         let mut quiet = |_: crate::provider::Delta<'_>| {};
         // The request holds every shown cluster's episodes: it is private
         // when any episode's session is.
-        let sessions = shown.iter().flat_map(|s| {
-            s.episodes
-                .iter()
-                .map(|(_, i)| job.scan.episodes[*i].session_id.as_str())
-        });
         let provider = crate::google::private::over_sessions(
             job.provider.clone(),
             &self.store,
             &self.cfg,
-            sessions,
+            job.sessions(&shown),
         );
         let answered = provider.stream_message(&request, &mut quiet).await;
         let cost = answered
@@ -305,7 +350,8 @@ impl Core {
         out.calls += 1;
         out.spent_usd += cost_usd;
         out.spent_today_usd = job.st.spent_on(&job.today);
-        let (model, usage, parsed, failed) = read_answer(&answered, &shown, &job.target.model);
+        let (model, usage, parsed, failed) =
+            read_answer(&answered, &shown, earlier.len(), &job.target.model);
         let mut dropped = u64::from(parsed.dropped);
         let made = job.statements(&parsed, &mut dropped, &mut out.conflicts);
         out.dropped += dropped;

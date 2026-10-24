@@ -202,7 +202,7 @@ fn a_statement_is_kept_only_when_it_cites_its_clusters_episodes() {
         {"cluster": "K2", "text": "", "kind": "fact", "scope": "everywhere", "episodes": [e_other]},
         {"cluster": "K2", "text": "gate green before a commit", "kind": "fact", "scope": "terminal", "episodes": [e_other]},
     ]));
-    let got = parse(&content, &s).unwrap();
+    let got = parse(&content, &s, 0).unwrap();
     assert_eq!(got.dropped, 3, "{got:?}");
     assert_eq!(got.statements.len(), 2);
     assert_eq!(got.statements[0].kind, StandingKind::Preference);
@@ -212,7 +212,7 @@ fn a_statement_is_kept_only_when_it_cites_its_clusters_episodes() {
         got.statements[1].scope,
         StandingScope::Surface("terminal".into())
     );
-    assert!(parse(&[json!({"type": "text", "text": "hm"})], &s).is_none());
+    assert!(parse(&[json!({"type": "text", "text": "hm"})], &s, 0).is_none());
 }
 
 #[test]
@@ -226,6 +226,7 @@ fn a_pasted_line_is_not_a_statement() {
     let got = parse(
         &answer(json!([{"cluster": "K1", "text": line, "kind": "fact", "scope": "everywhere", "episodes": [e]}])),
         &s,
+        0,
     )
     .unwrap();
     assert_eq!((got.statements.len(), got.dropped), (0, 1));
@@ -252,9 +253,13 @@ fn the_request_names_no_one_and_carries_the_tool() {
         &["wants your opinion when you have one, not a menu of options"],
     )];
     let cs = cluster(&eps);
-    let req = ask::request("m", None, &shown(&[0], &cs), &|t| {
-        t.replace("opinion", "view")
-    });
+    let req = ask::request(
+        "m",
+        crate::catalog::Catalog::builtin().forcing("m"),
+        &shown(&[0], &cs),
+        &[],
+        &|t| t.replace("opinion", "view"),
+    );
     assert_eq!(req.tools.len(), 1);
     let body = req.messages[0]["content"][0]["text"].as_str().unwrap();
     assert!(
@@ -443,7 +448,7 @@ fn a_turned_thin_or_one_task_statement_is_not_kept() {
         {"cluster": kb, "text": "Have a personality", "kind": "preference", "scope": "everywhere", "episodes": [eb]},
         {"cluster": kc, "text": "merges lanes with a plain merge", "kind": "preference", "scope": "one_task", "episodes": [ec]},
     ]));
-    let got = parse(&turned, &s).unwrap();
+    let got = parse(&turned, &s, 0).unwrap();
     assert_eq!(
         (got.statements.len(), got.dropped, got.one_task),
         (0, 2, 1),
@@ -452,7 +457,7 @@ fn a_turned_thin_or_one_task_statement_is_not_kept() {
     let kept = answer(json!([
         {"cluster": ka, "text": "never speaks on the owner's behalf in group chats", "kind": "preference", "scope": "everywhere", "episodes": [ea]},
     ]));
-    let got = parse(&kept, &s).unwrap();
+    let got = parse(&kept, &s, 0).unwrap();
     assert_eq!(got.statements.len(), 1, "{got:?}");
 }
 
@@ -492,5 +497,98 @@ fn of_two_conflicting_statements_the_better_supported_stays() {
     assert_eq!(
         notes,
         ["kept 'asks before acting' over 'acts without asking': they conflict"]
+    );
+}
+
+/// A setup line that starts with the owner's name is the owner's; an order
+/// with a plural noun is not (theseus-0ly2a).
+#[test]
+fn a_setup_line_that_starts_with_the_owners_name_is_kept() {
+    use super::evidence::about_owner;
+    for l in [
+        "Mara prefers tide tables in metric units",
+        "Mara is vegetarian",
+    ] {
+        assert!(about_owner(l), "{l}");
+    }
+    for l in [
+        "Keep notes short",
+        "Check logs every morning",
+        "Always answer in a calm voice",
+        "Be warm but brief",
+        "You keep the ledger",
+    ] {
+        assert!(!about_owner(l), "{l}");
+    }
+}
+
+/// A note's line naming a wake update or a heartbeat is the owner's, unless
+/// it is addressed to its reader (theseus-0ly2a).
+#[test]
+fn a_notes_wake_update_and_heartbeat_line_is_the_owners() {
+    use super::evidence::addressed;
+    for l in [
+        "Post the wake update before nine",
+        "Heartbeat agents must claim before working",
+    ] {
+        assert!(!addressed(l), "{l}");
+    }
+    for l in [
+        "Read this file first at every session start",
+        "Keep the daily log under the notes folder",
+        "On each heartbeat you check the tide board",
+    ] {
+        assert!(addressed(l), "{l}");
+    }
+}
+
+/// A statement is turned only by the lines of the episodes it cites
+/// (theseus-0ly2a).
+#[test]
+fn a_statement_on_a_clusters_other_lines_is_not_turned() {
+    let line = |e: &str, t: &str| (e.to_string(), t.to_string());
+    let s = vec![ask::Shown {
+        label: "K1".into(),
+        cluster: 0,
+        episodes: vec![("E1".into(), 0), ("E2".into(), 1), ("E3".into(), 2)],
+        lines: vec![
+            line(
+                "E1",
+                "Do not speak on the owner's behalf in the harbour group chat",
+            ),
+            line(
+                "E2",
+                "Do not post in the harbour group chat before the tide bell",
+            ),
+            line(
+                "E3",
+                "Never post in the harbour group chat during the lantern round",
+            ),
+        ],
+    }];
+    let (behalf, bell, round) = ("E1", "E2", "E3");
+    let k = &s[0].label;
+    let others = answer(json!([
+        {"cluster": k, "text": "never posts in the harbour group chat around the tide bell", "kind": "preference", "scope": "everywhere", "episodes": [bell, round]},
+    ]));
+    let got = parse(&others, &s, 0).unwrap();
+    assert_eq!((got.statements.len(), got.dropped), (1, 0), "{got:?}");
+    let turned = answer(json!([
+        {"cluster": k, "text": "never posts in the harbour group chat", "kind": "preference", "scope": "everywhere", "episodes": [behalf]},
+    ]));
+    let got = parse(&turned, &s, 0).unwrap();
+    assert_eq!((got.statements.len(), got.dropped), (0, 1), "{got:?}");
+}
+
+/// The card call forces its tool where thinking is off, and asks `auto` with
+/// a strict, closed tool where it cannot be (theseus-yym79). (Planted
+/// revert: the helper always forces.)
+#[test]
+fn the_card_request_forces_its_tool_only_where_thinking_is_off() {
+    let eps = vec![ep("a", 1, &["wants your opinion when you have one"])];
+    let cs = cluster(&eps);
+    crate::provider::one_tool::assert_both_shapes(
+        |how| ask::request("m", how, &shown(&[0], &cs), &[], &|t| t.to_string()),
+        ask::TOOL,
     );
 }

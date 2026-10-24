@@ -297,8 +297,8 @@ impl Core {
         let of = episodes.iter().map(|e| e.session_id.as_str());
         let provider = crate::google::private::over_sessions(provider, &self.store, &self.cfg, of);
         let scrubber = self.tools.scrubber.clone();
-        let thinking = self.runner.catalog.thinking_off(&target.model);
-        let request = card::request(&target.model, thinking, title, episodes, &|t| {
+        let how = self.runner.catalog.forcing(&target.model);
+        let request = card::request(&target.model, how, title, episodes, &|t| {
             scrubber.scrub(t).0
         });
         let Some(need) = self.audit_reserve(&request) else {
