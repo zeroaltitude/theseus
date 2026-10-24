@@ -79,7 +79,8 @@ fn card_text(body: &serde_json::Value) -> String {
             clip(said("yes"), 200),
             clip(said("no"), 200)
         ));
-        if !said("held").is_empty() {
+        // The approve list's clause is often the model's reason too: say it once.
+        if !said("held").is_empty() && said("held") != said("why") {
             t.push_str(&format!("\n-# held because {}", clip(said("held"), 200)));
         }
     } else {
@@ -302,6 +303,35 @@ mod tests {
         ] {
             assert!(settled.contains(kept), "{kept} in {settled}");
         }
+    }
+
+    /// A card whose reason and held clause are the same words says them once;
+    /// one whose clauses differ keeps the `held because` line.
+    #[test]
+    fn a_held_clause_equal_to_the_reason_is_printed_once() {
+        let card = |why: &str, held: &str| {
+            let card = json!({"kind": "approval", "what": "write a file", "who": "Calls from harness",
+                "risk": "writes", "why": why, "held": held, "yes": "Yes runs this one call.",
+                "no": "No refuses it.", "line": "x"});
+            super::needs_you(
+                &json!({"kind": "needs_you", "card": card, "choices": [], "prompt": "x"}),
+            )
+        };
+        let same = card(
+            "/work/outside is on the approve list",
+            "/work/outside is on the approve list",
+        );
+        assert_eq!(
+            same.matches("/work/outside is on the approve list").count(),
+            1,
+            "{same}"
+        );
+        assert!(!same.contains("held because"), "{same}");
+        let differs = card("to save the notes", "`fs.write` is set to ask");
+        assert!(
+            differs.contains("-# held because `fs.write` is set to ask"),
+            "{differs}"
+        );
     }
 
     #[test]
