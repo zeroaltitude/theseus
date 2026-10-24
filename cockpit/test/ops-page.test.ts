@@ -108,6 +108,11 @@ test('the Graph lens and the bulk acts (ops-graph): mounted in its branch, fanne
   assert.match(src('ops/act.ts'), /if \(!enabled\(verb, past\)\) return \{ ok: false, words: PAST_WORDS \}/)
   assert.match(src('ops/BulkBar.tsx'), /fanOut\(items\.filter\(\(i\) => i\.method\), \(i\) => send\(`bulk_\$\{verb\}`, i\.method!, i\.params\), 4\)/)
   assert.match(src('ops/DropLayer.tsx'), /await send\('drop', method, params\)/)
+  // One send for the page (ops-graph x ops-timeline x ops-act): no read again per call, one settle after a run.
+  const actTs = src('ops/act.ts')
+  assert.equal((actTs.match(/invalidateQueries/g) ?? []).length, 1, 'send never reads again: settle does, once')
+  assert.match(actTs, /settle: \(\) => qc\.invalidateQueries\(\)/)
+  assert.match(actTs, /const r = await send<T>\(verb, method, params\)/, 'post is send that rejects')
   // Approve always opens the review sheet; a floor approval is listed, never sent.
   assert.match(src('ops/BulkBar.tsx'), /else if \(verb === 'approve'\) setAsking\(\{ verb, items: o\.items, floor: o\.oneByOne \?\? \[\]/)
   assert.match(src('ops/BulkBar.tsx'), /asks one by one/)
