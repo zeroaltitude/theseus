@@ -988,6 +988,55 @@ pub(super) fn attach(
     update(shared, |_| {});
 }
 
+/// An utterance was heard: the notes, the board, and its transcription booked.
+fn utterance_heard(
+    shared: &Arc<Shared>,
+    serial: u64,
+    place: &VoicePlace,
+    u: theseus_voice::Utterance,
+) {
+    with_call(shared, serial, |c| c.notes.heard(&u));
+    update(shared, |s| {
+        s.utterances += 1;
+        s.heard_ms += u.length.as_millis() as u64;
+    });
+    let detail = json!({"speaker": u.speaker.0.to_string(),
+        "empty": u.text.trim().is_empty(), "heard_as": heard_as(u.heard_as),
+        "over": over(u.over.as_ref()), "judged": judgment(u.judged.as_ref())});
+    book(
+        shared,
+        place,
+        SpeechKind::Transcribed,
+        u.usage,
+        u.latency,
+        detail,
+    );
+}
+
+/// A listener's words cut Theseus short (`voice.barge_in`). When a listener's
+/// start of turn stopped the clip, the row says how fast, for the A/B against
+/// the pause rules (theseus-v774k).
+fn barge_in(
+    shared: &Shared,
+    place: &VoicePlace,
+    (speaker, what, dropped): (Speaker, Spoken, usize),
+    timing: Option<(Option<Duration>, Option<Duration>)>,
+) {
+    update(shared, |s| s.barge_ins += 1);
+    let mut detail =
+        json!({"speaker": speaker.0.to_string(), "what": spoken(what), "dropped": dropped});
+    if let Some((to_stop, to_ended)) = timing {
+        let ms = |d: Option<Duration>| d.map(|d| d.as_millis() as u64);
+        detail["stop_latency_ms"] = json!(ms(to_stop));
+        detail["ended_latency_ms"] = json!(ms(to_ended));
+    }
+    shared.core.binding_ledger(
+        LedgerKind::VoiceBargeIn,
+        session(shared, place).as_deref(),
+        detail,
+    );
+}
+
 /// A call ended: the board, its row, and, unless it was a `/leave`, a notice.
 fn ended(shared: &Shared, call: &Call, why: &str, by: &str) {
     let seconds = call.joined.elapsed().as_secs();
@@ -1035,24 +1084,7 @@ async fn pump(
                     }));
                 }
             }
-            Event::Utterance(u) => {
-                with_call(&shared, serial, |c| c.notes.heard(&u));
-                update(&shared, |s| {
-                    s.utterances += 1;
-                    s.heard_ms += u.length.as_millis() as u64;
-                });
-                let detail = json!({"speaker": u.speaker.0.to_string(),
-                    "empty": u.text.trim().is_empty(), "heard_as": heard_as(u.heard_as),
-                    "over": over(u.over.as_ref()), "judged": judgment(u.judged.as_ref())});
-                book(
-                    &shared,
-                    &place,
-                    SpeechKind::Transcribed,
-                    u.usage,
-                    u.latency,
-                    detail,
-                );
-            }
+            Event::Utterance(u) => utterance_heard(&shared, serial, &place, u),
             Event::Synthesized {
                 what,
                 usage,
@@ -1081,22 +1113,12 @@ async fn pump(
                 speaker,
                 what,
                 dropped,
-            } => {
-                update(&shared, |s| s.barge_ins += 1);
-                // A listener's start of turn stopped the clip: how fast, for
-                // the A/B against the pause rules (theseus-v774k).
-                let mut detail = json!({"speaker": speaker.0.to_string(), "what": spoken(what), "dropped": dropped});
-                if let Some((to_stop, to_ended)) = stop_timing.take() {
-                    let ms = |d: Option<Duration>| d.map(|d| d.as_millis() as u64);
-                    detail["stop_latency_ms"] = json!(ms(to_stop));
-                    detail["ended_latency_ms"] = json!(ms(to_ended));
-                }
-                shared.core.binding_ledger(
-                    LedgerKind::VoiceBargeIn,
-                    session(&shared, &place).as_deref(),
-                    detail,
-                );
-            }
+            } => barge_in(
+                &shared,
+                &place,
+                (speaker, what, dropped),
+                stop_timing.take(),
+            ),
             Event::Unlisted { speaker } => shared.core.binding_ledger(
                 LedgerKind::VoiceUnlisted,
                 session(&shared, &place).as_deref(),
