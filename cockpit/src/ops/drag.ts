@@ -9,7 +9,7 @@
 // wall-clock time; `when` is the instant in UTC (RFC 3339), so the local time the owner dropped on is the time it moves
 // to, DST included.
 import type { Mark } from '../lib/agenda.ts'
-import type { TaskRescheduleParams, TaskRescheduleResult } from './reschedule.ts'
+import type { TaskRescheduleParams, TaskRescheduleResult } from '@protocol'
 
 export const SNAP_MIN = 5
 
