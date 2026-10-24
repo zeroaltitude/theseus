@@ -391,3 +391,16 @@ export function stepNode(g: Pick<Graph, 'nodes'>, fromId: string | null, dx: num
   const x = dx > 0 ? Math.min(...side.map((n) => n.x)) : Math.max(...side.map((n) => n.x))
   return side.filter((n) => n.x === x).sort((a, b) => Math.abs(a.y - from.y) - Math.abs(b.y - from.y) || byPos(a, b))[0].id
 }
+
+/** What the owner has opened that the canvas can fold back: `lanes`, each lane in `expanded` whose "✓ N done" fold the
+ *  layout without openings (`base`) draws (`n` is its members), and `roots`, each root in `opened` whose "+N folded"
+ *  `base` draws and `g` shows open. Nothing when nothing is open, or an opening that changed nothing. */
+export function foldBacks(g: Graph, base: Graph, expanded: ReadonlySet<string>, opened: ReadonlySet<string>): { lanes: Array<{ lane: string; n: number }>; roots: string[] } {
+  const lanes: Array<{ lane: string; n: number }> = []
+  for (const l of expanded) {
+    const done = base.nodes.find((x) => x.id === `done:${l}`)
+    if (done && !g.nodes.some((x) => x.id === done.id)) lanes.push({ lane: l, n: done.members?.length ?? 0 })
+  }
+  const roots = [...opened].filter((r) => base.nodes.some((x) => x.id === `fold:${r}`) && !g.nodes.some((x) => x.id === `fold:${r}`) && g.nodes.some((x) => x.id === r))
+  return { lanes, roots }
+}

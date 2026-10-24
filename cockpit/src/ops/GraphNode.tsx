@@ -25,11 +25,13 @@ export interface NodeData extends Record<string, unknown> {
   /** A drag hovers it: `ok` takes the drop, `no` refuses it. */
   hover?: 'ok' | 'no'
   onFold?: () => void
+  /** An opened "+N folded" root: the way back, folding its subtree again. */
+  onFoldBack?: () => void
   /** `?redact=1`: a private or sensitive node shows its kind and short id for its title. */
   redact?: boolean
 }
 
-export interface LaneData extends Record<string, unknown> { lane: GLane; width: number; hover?: 'ok' | 'no'; redact?: boolean }
+export interface LaneData extends Record<string, unknown> { lane: GLane; width: number; hover?: 'ok' | 'no'; redact?: boolean; foldBack?: { n: number; onFold: () => void } }
 
 /** Each state's glyph: shape always goes with colour. */
 const GLYPH: Readonly<Record<string, string>> = {
@@ -84,6 +86,7 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
         {locked(n.data) && <span title={`${n.data} data: US-origin models only${n.data === 'sensitive' ? ', never a shared place' : ''}`} className="flex items-center gap-0.5 text-ink-dim"><Lock size={10} aria-label={n.data} />{n.data}</span>}
         {n.asks > 0 && <span className="rounded-full bg-wait/15 px-1.5 text-wait" title="questions it asks: answer them in the queue">? {n.asks}</span>}
         <span className="num ml-auto text-ink-faint" title={n.id}>{conv ? 'conversation' : n.kind === 'step' ? `step · ${shortId}` : shortId}</span>
+        {d.onFoldBack && <button type="button" onClick={(e) => { e.stopPropagation(); d.onFoldBack?.() }} className="nodrag rounded px-1 text-[10px] text-ink-dim ring-1 ring-line hover:text-ink" title="fold its subtree again">fold</button>}
       </div>
       <div className={cn('mt-1 line-clamp-2 leading-snug text-ink', conv ? 'font-display text-[13px] font-bold tracking-[0.02em]' : 'text-[12px] font-medium')} title={title}>{title}</div>
       {line && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
@@ -160,6 +163,7 @@ function Lane({ data: d }: NodeProps<Node<LaneData>>) {
         </div>
         {lane.words && !masked(lane, !!d.redact) && <div className="num mt-1 text-[10.5px] leading-snug text-ink-dim">{lane.words}</div>}
         {lane.needs > 0 && <div className="mt-1.5 inline-block rounded-full bg-wait/15 px-2 text-[10.5px] text-wait">● {lane.needs} need{lane.needs === 1 ? 's' : ''} you</div>}
+        {d.foldBack && <div><button type="button" onClick={d.foldBack.onFold} className="nodrag pointer-events-auto mt-1.5 rounded-full px-2 text-[10.5px] text-ok ring-1 ring-ok/40 hover:bg-ok/15" title="fold the ended work into one node again">fold {d.foldBack.n} done</button></div>}
       </div>
     </div>
   )

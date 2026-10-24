@@ -18,7 +18,7 @@ const FIT_LANES = { ...FIT, padding: 0.05 }
 /** The least zoom a first view takes: a node's title still reads. */
 const READABLE = 0.62
 import type { OpsRow } from './board'
-import { keeper, NODE_W, type Graph, type GEdge, type LaneMeta } from './graph'
+import { foldBacks, keeper, opsLayout, NODE_W, type Graph, type GEdge, type LaneMeta } from './graph'
 import { NODE_TYPES, typeOf, type LaneData, type NodeData } from './GraphNode'
 import type { Selection } from './selection'
 import type { DragDrop } from './DropLayer'
@@ -68,6 +68,9 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   // The last layout, which the next keeps every placed node of (sticky by id); "tidy" forgets it.
   const [memory] = useState(keeper)
   const g = useMemo(() => memory.lay(views, records, lanes, { now, future, expanded, opened }, tidy), [memory, views, records, lanes, now, future, expanded, opened, tidy])
+  // The layout without the openings, which says what each opening can fold back into (`foldBacks`).
+  const base = useMemo(() => (expanded.size || opened.size ? opsLayout(views, records, lanes, null, { now, future }) : g), [views, records, lanes, now, future, expanded, opened, g])
+  const back = useMemo(() => foldBacks(g, base, expanded, opened), [g, base, expanded, opened])
   useEffect(() => { layoutRef.current = g }, [g, layoutRef])
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
   // `?sel=` names a node by its id, or a task by its record's (`tsk_…`, the task graph's link).
@@ -83,7 +86,10 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   const nodes = useMemo(() => {
     const out: Node[] = g.lanes.map((l): Node<LaneData> => ({
       id: `lane:${l.key}`, type: 'lane', position: { x: 0, y: l.y }, measured: { width: g.width + 24, height: l.height }, draggable: false, selectable: false, zIndex: -1,
-      data: { lane: l, width: g.width + 24, redact, hover: hover?.key === `lane:${l.key}` ? (hover.ok ? 'ok' : 'no') : undefined },
+      data: {
+        lane: l, width: g.width + 24, redact, hover: hover?.key === `lane:${l.key}` ? (hover.ok ? 'ok' : 'no') : undefined,
+        foldBack: back.lanes.find((x) => x.lane === l.key) && { n: back.lanes.find((x) => x.lane === l.key)!.n, onFold: () => setExpanded((s) => { const t = new Set(s); t.delete(l.key); return t }) },
+      },
     }))
     for (const n of g.nodes) {
       const row = byId.get(n.id)
@@ -94,12 +100,13 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
         data: {
           n, row, now, redact, focused: fid === n.id, picked: picked.has(n.id), dim: shownIds != null && !shownIds.has(n.id) && n.kind !== 'done' && n.kind !== 'folded',
           hover: key && hover?.key === key ? (hover.ok ? 'ok' : 'no') : undefined,
+          onFoldBack: back.roots.includes(n.id) ? () => setOpened((s) => { const t = new Set(s); t.delete(n.id); return t }) : undefined,
           onFold: n.kind === 'done' ? () => setExpanded((s) => new Set([...s, n.lane])) : n.kind === 'folded' ? () => setOpened((s) => new Set([...s, n.parent ?? n.id.slice(5)])) : undefined,
         } satisfies NodeData,
       })
     }
     return out
-  }, [g, byId, now, fid, picked, shownIds, moving, hover, sizes, redact])
+  }, [g, back, byId, now, fid, picked, shownIds, moving, hover, sizes, redact])
 
   const edges = useMemo(() => g.edges.map((e): Edge => ({
     id: e.id, source: e.source, target: e.target, ...EDGE[e.kind],
