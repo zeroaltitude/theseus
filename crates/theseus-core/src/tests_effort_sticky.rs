@@ -378,3 +378,85 @@ async fn per_message_effort_is_catalog_data() {
     assert!(!carries(&reqs[0]));
     assert_eq!(top(&reqs[0]).as_deref(), Some("low"));
 }
+
+/// A long conversation on a model without per-message effort, a turn for
+/// each (level, confidence) Jev answers; the requests and the route rows.
+async fn talk_at(answers: &[(&str, f64)]) -> (Rig, Vec<ProviderRequest>, Vec<Value>) {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), answers.len(), |c| {
+        no_per_message(c);
+        long(c);
+    });
+    let mut session = None;
+    for (i, (level, confidence)) in answers.iter().enumerate() {
+        jev.script(
+            "reply_effort",
+            Jev::Choice {
+                option: (*level).into(),
+                confidence: *confidence,
+            },
+        );
+        let res = turn(&r.core, session.as_deref(), &format!("Question {i}?"), None).await;
+        session = Some(res.session_id);
+    }
+    let reqs = r.claude.requests();
+    let rows = decided(&r.core.store);
+    (r, reqs, rows)
+}
+
+fn reasons(rows: &[Value]) -> Vec<&str> {
+    rows.iter()
+        .map(|d| d["effort_reason"].as_str().unwrap_or(""))
+        .collect()
+}
+
+/// A `sticky` hold ends when a later sure answer still disagrees with it
+/// (theseus-u5a37): turn 2 is held at high, turn 3 asks medium again, sure,
+/// and the request carries medium; the reason is `sticky_reverted`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_later_sure_answer_ends_a_sticky_hold() {
+    let (_r, reqs, rows) = talk_at(&[("high", 0.95), ("medium", 0.95), ("medium", 0.95)]).await;
+    assert_eq!(reasons(&rows), ["applied", "sticky", "sticky_reverted"]);
+    assert_eq!(top(&reqs[1]).as_deref(), Some("high"), "held");
+    assert_eq!(top(&reqs[2]).as_deref(), Some("medium"), "reverted");
+    let d = &rows[2];
+    assert_eq!(
+        (&d["effort_ran"], d.get("effort_sent")),
+        (&json!("medium"), None)
+    );
+    assert_eq!(d["effort_applied"], true);
+}
+
+/// A `sticky` window wants a sure answer: an unsure one at the same level
+/// does not end it, the hold goes on being the previous request's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unsure_answer_does_not_end_a_sticky_hold() {
+    let (_r, reqs, rows) = talk_at(&[("high", 0.95), ("medium", 0.95), ("medium", 0.50)]).await;
+    assert_eq!(reasons(&rows), ["applied", "sticky", "sticky_unsure"]);
+    assert_eq!(top(&reqs[2]).as_deref(), Some("high"), "still held");
+}
+
+/// A `sticky_unsure` window has the lower bar, `effort_confidence`: an unsure
+/// answer at 0.36 ends it, one at 0.30 does not (it is `unsure`, and the
+/// window is not renewed).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sticky_unsure_hold_ends_at_the_lower_bar() {
+    let (_r, reqs, rows) = talk_at(&[("high", 0.95), ("medium", 0.40), ("medium", 0.36)]).await;
+    assert_eq!(
+        reasons(&rows),
+        ["applied", "sticky_unsure", "sticky_reverted"]
+    );
+    assert_eq!(top(&reqs[1]).as_deref(), Some("high"), "held");
+    assert_eq!(top(&reqs[2]).as_deref(), Some("medium"), "reverted");
+    let (_r, _reqs, rows) = talk_at(&[("high", 0.95), ("medium", 0.40), ("medium", 0.30)]).await;
+    assert_eq!(reasons(&rows), ["applied", "sticky_unsure", "unsure"]);
+}
+
+/// The turn that opens a hold never reverts it on its own answer, and an
+/// answer in no window is held as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_turn_that_opens_a_hold_does_not_revert_it() {
+    let (_r, _reqs, rows) = talk_at(&[("high", 0.95), ("medium", 0.95)]).await;
+    assert_eq!(reasons(&rows), ["applied", "sticky"]);
+}

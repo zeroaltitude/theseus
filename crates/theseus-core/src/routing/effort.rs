@@ -104,6 +104,9 @@ pub enum EffortReason {
     /// [`Sticky`](EffortReason::Sticky) holding an `applied_unsure` answer:
     /// the hold keeps the bar that admitted it visible (theseus-8zgji).
     StickyUnsure,
+    /// A later answer that disagrees with a sticky hold ended it early: the
+    /// request carries Jev's level (theseus-u5a37, [`reverts`]).
+    StickyReverted,
 }
 
 impl EffortReason {
@@ -122,6 +125,7 @@ impl EffortReason {
             EffortReason::Recorded => "recorded",
             EffortReason::Sticky => "sticky",
             EffortReason::StickyUnsure => "sticky_unsure",
+            EffortReason::StickyReverted => "sticky_reverted",
             EffortReason::Floored => "floored",
         }
     }
@@ -165,6 +169,7 @@ impl EffortDecision {
                 | EffortReason::HeldHighUnsure
                 | EffortReason::Sticky
                 | EffortReason::StickyUnsure
+                | EffortReason::StickyReverted
                 | EffortReason::Floored
         )
     }
@@ -270,6 +275,29 @@ pub fn decide(
 /// when `asked` is two steps or more away. Returns the level held at.
 pub fn sticky(asked: Effort, previous: Option<Effort>, tokens: u64, floor: u64) -> Option<Effort> {
     previous.filter(|p| *p != asked && tokens >= floor && (*p as i8).abs_diff(asked as i8) < 2)
+}
+
+/// The kind of sticky hold the session's last request carried: the window a
+/// later answer may end early (theseus-u5a37).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hold {
+    /// A held `applied` or `held_high` answer.
+    Sticky,
+    /// A held `applied_unsure` or `held_high_unsure` answer.
+    Unsure,
+}
+
+/// Whether an answer that disagrees with the held level ends the hold early.
+/// Inside a `sticky` window the answer must be `sure` (its band reached the
+/// question's own `confirm` bar); inside a `sticky_unsure` window the lower bar
+/// is enough, `effort_confidence` (the owner, 2026-10-22: "a lower bar to
+/// revert it for sticky_unsure"). No window, no revert.
+pub fn reverts(window: Option<Hold>, answer: &EffortAnswer, effort_bar: f64) -> bool {
+    match window {
+        None => false,
+        Some(Hold::Sticky) => answer.sure,
+        Some(Hold::Unsure) => answer.sure || answer.confidence >= effort_bar,
+    }
 }
 
 #[cfg(test)]
@@ -473,6 +501,7 @@ mod tests {
             EffortReason::Recorded,
             EffortReason::Sticky,
             EffortReason::StickyUnsure,
+            EffortReason::StickyReverted,
             EffortReason::Floored,
         ] {
             let word = format!("`{}`", r.as_str());
@@ -694,5 +723,34 @@ mod tests {
             (d.reason, d.ran),
             (EffortReason::Floored, Some(Effort::High))
         );
+    }
+
+    /// The revert's bars (theseus-u5a37): a `sticky` window needs a sure
+    /// answer, a `sticky_unsure` one `effort_confidence`; no window, none.
+    #[test]
+    fn a_sticky_hold_reverts_on_its_own_bar() {
+        for (window, sure, c, reverts_) in [
+            (Some(Hold::Sticky), true, 0.60, true),
+            (Some(Hold::Sticky), true, 0.95, true),
+            (Some(Hold::Sticky), false, 0.59, false),
+            (Some(Hold::Sticky), false, 0.35, false),
+            (Some(Hold::Unsure), false, 0.30, false),
+            (Some(Hold::Unsure), false, 0.34, false),
+            (Some(Hold::Unsure), false, 0.35, true),
+            (Some(Hold::Unsure), false, 0.59, true),
+            (Some(Hold::Unsure), true, 0.60, true),
+            (None, true, 0.95, false),
+            (None, false, 0.59, false),
+        ] {
+            let got = reverts(window, &at("medium", c, sure), 0.35);
+            assert_eq!(got, reverts_, "{window:?} sure={sure} at {c}");
+        }
+        assert_eq!(EffortReason::StickyReverted.as_str(), "sticky_reverted");
+        let d = EffortDecision {
+            reason: EffortReason::StickyReverted,
+            ran: Some(Effort::Medium),
+            sent: None,
+        };
+        assert!(d.applied());
     }
 }

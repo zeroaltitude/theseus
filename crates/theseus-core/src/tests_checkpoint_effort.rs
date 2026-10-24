@@ -300,3 +300,47 @@ async fn a_routed_profile_never_runs_below_its_own_effort() {
         );
     }
 }
+
+/// What Jev read at each checkpoint of a turn: the text's effort and
+/// checkpoint lines (theseus-ujzuh).
+fn evidence_lines(jev: &FakeJev) -> Vec<(Option<String>, String)> {
+    jev.seen()
+        .iter()
+        .filter_map(|s| {
+            let body = s.body.to_string();
+            let at = body.find("Checkpoints this turn:")?;
+            let line = |from: usize| {
+                let rest = &body[from..];
+                rest[..rest.find("\\n").unwrap_or(rest.len())].to_string()
+            };
+            let effort = body[..at].rfind("Effort: ").map(line);
+            Some((effort, line(at)))
+        })
+        .collect()
+}
+
+/// The second failing checkpoint reads the effort the loops ran at, that a
+/// checkpoint raised it, and that two checkpoints in a row found the work
+/// failing; the first reads one failing and no raise.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_checkpoint_tells_jev_the_effort_the_work_ran_at() {
+    let (rig, claude, jev) = routed("sonnet", "routine_coding", ("xhigh", 0.9));
+    turn(&rig.core, None, ASK, None).await;
+    let at = raised_at(&levels(&claude), "high", "xhigh");
+    let seen = evidence_lines(&jev);
+    assert!(seen.len() >= 2, "{seen:?}");
+    assert_eq!(
+        seen[0],
+        (
+            Some("Effort: high".into()),
+            "Checkpoints this turn: 1, failing 1 in a row".into()
+        )
+    );
+    assert_eq!(
+        seen[1],
+        (
+            Some(format!("Effort: xhigh, raised from high at loop {at}")),
+            "Checkpoints this turn: 2, failing 2 in a row".into()
+        )
+    );
+}

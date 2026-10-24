@@ -129,7 +129,7 @@ pub(super) struct RouteState {
     /// the turn it corrected, not this one.
     pub(super) correcting: bool,
     /// route.v3's effort for the turn (theseus-qe3v), once decided.
-    effort: Option<EffortDecision>,
+    pub(super) effort: Option<EffortDecision>,
     /// The turn's persona choices, prior and address (theseus-c1uz), while
     /// two or more personas could answer; and the persona once decided.
     pub(super) engage: Option<super::persona_engage::Engage>,
@@ -539,7 +539,7 @@ impl TurnRunner {
             high: r.high_effort_confidence,
         };
         let decided = effort::decide(bounds, bars, answer, runs, at.acts, carried);
-        Some(self.stick(t, spec, decided, model, tokens, at.checkpoint))
+        Some(self.stick(t, spec, decided, answer, (model, tokens), at.checkpoint))
     }
 
     /// The profile the session runs on when routing has not moved it: where
