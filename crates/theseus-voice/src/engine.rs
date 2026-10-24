@@ -58,10 +58,13 @@ use crate::audio::{Audio, FRAME};
 use crate::echo::Echo;
 use crate::heard::{classify, is_fragment_echo, is_join_noise, HeardAs, Overlap};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
+use crate::listen::Listened;
 use crate::sentences::speakable;
 use crate::speech::{Speech, SpeechError, Synthesis, Transcript, Usage, ACKNOWLEDGMENT};
 use crate::unclear::{self, Case, Judge, Judged, Said, Timing, Verdict};
 use crate::vad::{Closed, Vad, VadSettings};
+
+mod flux_path;
 
 /// The engine's settings. [`Config::new`] gives the design's.
 #[derive(Clone, Debug)]
@@ -262,6 +265,9 @@ pub enum Failure {
     /// The voice connection dropped (44b): the run ends, and the error says
     /// why, as the seam gave it (`VoiceIo::gone`).
     Connection,
+    /// The streaming listener (Deepgram Flux): a stream dropped, or it cannot
+    /// be reached and the call uses the pause rules (theseus-v774k).
+    Flux,
 }
 
 /// What the engine tells the session, the ledger, and the observatory.
@@ -306,6 +312,15 @@ pub enum Event {
         speaker: Speaker,
         what: Spoken,
         dropped: usize,
+    },
+    /// How fast the clip stopped for a listener's start of turn (theseus-v774k),
+    /// sent just before the `BargeIn` it belongs to: from receiving the
+    /// start of turn to the stop being sent, and to the seam reporting the
+    /// clip ended.
+    StopLatency {
+        speaker: Speaker,
+        to_stop: Option<Duration>,
+        to_ended: Option<Duration>,
     },
     /// A stop that came to nothing: the utterances over the held speech
     /// were `why` (wordless, echo, backchannel or resume), and after `held`
@@ -405,6 +420,13 @@ pub struct Engine {
     steady: BTreeMap<Speaker, u64>,
     work: FuturesUnordered<BoxFuture<'static, Done>>,
     outbox: Vec<Out>,
+    /// A streaming listener that ends the speakers' turns itself, if the call
+    /// has one (`with_listen`, theseus-v774k).
+    flux: Option<flux_path::Flux>,
+    /// Each turn in flight, until its reply's first audio: when its listener
+    /// ended it, and whether the listener ended it itself, for the journal's
+    /// first-word latency.
+    first_words: HashMap<TurnId, (Instant, bool)>,
 }
 
 /// How long after a sentence ends an utterance may still be its echo.
@@ -477,6 +499,10 @@ struct Pending {
     closed: Duration,
     opening: Opening,
     state: Transcribed,
+    /// The listener ended it and gave its words: nothing merges it.
+    flux: bool,
+    /// When its end was known: the VAD's close, or the listener's end of turn.
+    ended_at: Instant,
 }
 
 enum Transcribed {
@@ -520,6 +546,11 @@ struct Hold {
     into: Duration,
     /// What the utterances over it were heard as, the plainest reason.
     why: Option<HeardAs>,
+    /// A listener's start of turn stopped it: when that was received, and how
+    /// long it took to send the stop and to hear the clip had ended.
+    event_at: Option<Instant>,
+    stop_after: Option<Duration>,
+    ended_after: Option<Duration>,
 }
 
 /// A sentence or clip to say, in order. The queue's head may be playing.
@@ -585,6 +616,7 @@ enum Step {
     Done(Done),
     Command(Option<Command>),
     Heard(Option<Heard>),
+    Listened(Option<Listened>),
     AckDue,
 }
 
@@ -636,6 +668,8 @@ impl Engine {
             steady: BTreeMap::new(),
             work: FuturesUnordered::new(),
             outbox: Vec::new(),
+            flux: None,
+            first_words: HashMap::new(),
         };
         let handle = EngineHandle {
             commands: command_tx,
@@ -675,6 +709,7 @@ impl Engine {
                 biased;
                 Some(done) = self.work.next(), if !self.work.is_empty() => Step::Done(done),
                 command = self.commands.recv() => Step::Command(command),
+                event = flux_path::next(&mut self.flux) => Step::Listened(event),
                 heard = self.io.next() => Step::Heard(heard),
                 () = sleep_until(ack_at.unwrap_or_else(Instant::now)), if ack_at.is_some() => {
                     Step::AckDue
@@ -708,6 +743,8 @@ impl Engine {
                     }
                     break;
                 }
+                Step::Listened(Some(event)) => self.flux_event(event, now),
+                Step::Listened(None) => self.flux_gone(),
                 Step::Heard(Some(Heard::Tick(frames))) => self.tick(&frames, now),
                 Step::Heard(Some(Heard::Ended(id))) => self.ended(id, now),
                 Step::AckDue => {
@@ -717,27 +754,53 @@ impl Engine {
                 }
             }
             self.advance(now);
-            for out in std::mem::take(&mut self.outbox) {
-                match out {
-                    Out::Play(id, clip) => {
-                        self.io.play(id, clip.clone()).await;
-                        self.echo.play(&clip, self.io.lead_in(), Instant::now());
-                    }
-                    Out::Stop => {
-                        self.io.stop().await;
-                        self.echo.stop();
-                    }
-                }
-            }
+            self.send_outbox().await;
         }
         if self.playing.is_some() {
             self.io.stop().await;
+        }
+        if let Some(flux) = &mut self.flux {
+            flux.close().await;
         }
         tracing::info!(
             ticks = self.ticks,
             listened = self.listened.len(),
             utterances = self.next_utterance,
             "voice: the engine's call ended"
+        );
+    }
+
+    /// The calls into the `VoiceIo` that the last event asked for.
+    async fn send_outbox(&mut self) {
+        for out in std::mem::take(&mut self.outbox) {
+            match out {
+                Out::Play(id, clip) => {
+                    self.io.play(id, clip.clone()).await;
+                    self.echo.play(&clip, self.io.lead_in(), Instant::now());
+                }
+                Out::Stop => {
+                    self.io.stop().await;
+                    self.echo.stop();
+                    self.stop_timed();
+                }
+            }
+        }
+    }
+
+    /// The stop for a listener's start of turn has been sent: how long after
+    /// the start was received, said once in the journal.
+    fn stop_timed(&mut self) {
+        let Some(hold) = self.hold.as_mut() else {
+            return;
+        };
+        let Some(at) = hold.event_at.filter(|_| hold.stop_after.is_none()) else {
+            return;
+        };
+        let took = at.elapsed();
+        hold.stop_after = Some(took);
+        tracing::info!(
+            ms = took.as_millis() as u64,
+            "voice: the clip was stopped after the listener's start of turn"
         );
     }
 
@@ -751,6 +814,7 @@ impl Engine {
     fn tick(&mut self, frames: &[Frame], now: Instant) {
         let tick = self.ticks;
         self.ticks += 1;
+        self.flux_rejoin();
         let heard = self.at_the_door(frames, tick);
         let talking = self.playing.is_some() && !self.stopping && self.hold.is_none();
         let open = self
@@ -758,11 +822,25 @@ impl Engine {
             .iter()
             .filter(|(_, v)| v.is_open())
             .map(|(s, _)| *s);
-        let speakers: BTreeSet<Speaker> = heard.keys().copied().chain(open).collect();
+        let speakers: BTreeSet<Speaker> = heard
+            .keys()
+            .copied()
+            .chain(open)
+            .chain(self.flux_open_speakers())
+            .collect();
         let residuals = self.echo.tick(&heard, now);
         let mut barge = false;
         for speaker in speakers {
             let frame = heard.get(&speaker).copied();
+            // A speaker the listener hears has no VAD: its turn is the
+            // listener's (theseus-v774k).
+            if self.flux_hears(speaker) {
+                let residual = residuals
+                    .get(&speaker)
+                    .map(|r| r.speaks(self.vad.speech_rms));
+                self.flux_frame(speaker, frame, residual, now);
+                continue;
+            }
             let vad = self.vads.entry(speaker).or_default();
             let was_open = vad.is_open();
             let step = vad.push(tick, frame, &self.vad);
@@ -829,6 +907,7 @@ impl Engine {
         if barge {
             self.hold(now);
         }
+        self.flux_ticked(tick);
     }
 
     /// A tick's frames at the door: the listed speakers' kept, anyone
@@ -956,6 +1035,8 @@ impl Engine {
             closed: at_tick(tick + 1),
             opening,
             state: Transcribed::Waiting,
+            flux: false,
+            ended_at: Instant::now(),
         });
         let speech = Arc::clone(&self.speech);
         self.work.push(Box::pin(async move {
@@ -987,6 +1068,9 @@ impl Engine {
             what: item.what,
             into,
             why: None,
+            event_at: None,
+            stop_after: None,
+            ended_after: None,
         });
         self.talk_frames.clear();
         if self.playing.is_some() {
@@ -1071,13 +1155,14 @@ impl Engine {
     /// Someone holds the floor: an open utterance not heard as a sound with
     /// no words.
     fn floor_held(&self) -> bool {
-        self.vads.iter().any(|(speaker, vad)| {
-            vad.is_open()
-                && !self
-                    .opening
-                    .get(speaker)
-                    .is_some_and(|o| o.sound == Sound::Wordless)
-        })
+        self.flux_floor_held()
+            || self.vads.iter().any(|(speaker, vad)| {
+                vad.is_open()
+                    && !self
+                        .opening
+                        .get(speaker)
+                        .is_some_and(|o| o.sound == Sound::Wordless)
+            })
     }
 
     /// The floor's bound (theseus-aq4t): a reply that has waited
@@ -1190,6 +1275,13 @@ impl Engine {
             return;
         }
         let dropped = self.queue.len();
+        if let Some(hold) = self.hold.as_ref().filter(|h| h.event_at.is_some()) {
+            self.emit(Event::StopLatency {
+                speaker,
+                to_stop: hold.stop_after,
+                to_ended: hold.ended_after,
+            });
+        }
         self.cut(CutWhy::Words, now);
         self.emit(Event::BargeIn {
             speaker,
@@ -1246,6 +1338,7 @@ impl Engine {
             seen.push(item.what);
             if let Spoken::Reply(turn) = item.what {
                 self.split.remove(&turn);
+                self.first_words.remove(&turn);
             }
             let last_heard = match item.index {
                 0 => None,
@@ -1303,6 +1396,11 @@ impl Engine {
         }
         self.playing = None;
         self.stopping = false;
+        if let Some(hold) = self.hold.as_mut() {
+            if let Some(at) = hold.event_at.filter(|_| hold.ended_after.is_none()) {
+                hold.ended_after = Some(now.saturating_duration_since(at));
+            }
+        }
         if self.queue.front().is_some_and(|i| i.clip == Some(id)) {
             if let Some(item) = self.queue.pop_front() {
                 self.recent.push_back((now, item.text.clone()));
@@ -1693,6 +1791,9 @@ impl Engine {
             return;
         }
         let mut utterances: Vec<Utterance> = Vec::new();
+        // The listener's turns are ended by the listener: nothing merges them.
+        let mut joinable = false;
+        let mut ended: Option<(Instant, bool)> = None;
         while self
             .pending
             .front()
@@ -1700,12 +1801,21 @@ impl Engine {
         {
             if let Some(Pending {
                 state: Transcribed::Got(utterance),
+                flux,
+                ended_at,
                 ..
             }) = self.pending.pop_front()
             {
+                ended =
+                    Some(ended.map_or((ended_at, flux), |(at, f)| (at.max(ended_at), f || flux)));
                 match utterances.last_mut() {
-                    Some(last) if self.goes_on(last, &utterance) => join(last, *utterance),
-                    _ => utterances.push(*utterance),
+                    Some(last) if joinable && !flux && self.goes_on(last, &utterance) => {
+                        join(last, *utterance);
+                    }
+                    _ => {
+                        utterances.push(*utterance);
+                        joinable = !flux;
+                    }
                 }
             }
         }
@@ -1714,6 +1824,9 @@ impl Engine {
         }
         let id = TurnId(self.next_turn);
         self.next_turn += 1;
+        if let Some(ended) = ended {
+            self.first_words.insert(id, ended);
+        }
         let mut last_speech: BTreeMap<Speaker, Duration> = BTreeMap::new();
         for u in &utterances {
             let end = last_speech.entry(u.speaker).or_default();
@@ -1756,6 +1869,9 @@ impl Engine {
         else {
             return false;
         };
+        if self.pending[run - 1].flux {
+            return false;
+        }
         let window = self.config.merge;
         let begun = self
             .pending
@@ -1836,6 +1952,15 @@ impl Engine {
             sentences: item.count,
             first_audio: now - asked,
         });
+        if let (Some(_), Spoken::Reply(turn)) = (&first, item.what) {
+            if let Some((ended, flux)) = self.first_words.remove(&turn) {
+                tracing::info!(
+                    ms = now.saturating_duration_since(ended).as_millis() as u64,
+                    path = if flux { "flux" } else { "pause rules" },
+                    "voice: first word after the end of turn"
+                );
+            }
+        }
         // What an open utterance may echo.
         let text = item.text.clone();
         for opening in self.opening.values_mut() {

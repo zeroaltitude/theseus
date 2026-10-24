@@ -153,12 +153,7 @@ impl DeepgramSpeech {
 
     /// `text` without the key, cut to `BODY_QUOTED` characters.
     fn scrub(&self, text: &str) -> String {
-        let clean = text.replace(&self.key, "[key]");
-        let mut out: String = clean.chars().take(BODY_QUOTED).collect();
-        if clean.chars().count() > BODY_QUOTED {
-            out.push('…');
-        }
-        out
+        scrub_key(&self.key, text, BODY_QUOTED)
     }
 
     /// A transport error in words: a timeout says which bound, and nothing
@@ -377,8 +372,19 @@ fn pcm(bytes: &[u8]) -> Result<Audio, String> {
     Ok(audio)
 }
 
+/// `text` without `key`, cut to `limit` characters: the one scrub every
+/// Deepgram error and log line goes through, REST and Flux's socket alike.
+pub(crate) fn scrub_key(key: &str, text: &str, limit: usize) -> String {
+    let clean = text.replace(key, "[key]");
+    let mut out: String = clean.chars().take(limit).collect();
+    if clean.chars().count() > limit {
+        out.push('…');
+    }
+    out
+}
+
 /// An error and its sources, as one line.
-fn chain(e: &dyn std::error::Error) -> String {
+pub(crate) fn chain(e: &dyn std::error::Error) -> String {
     let mut out = e.to_string();
     let mut source = e.source();
     while let Some(s) = source {
