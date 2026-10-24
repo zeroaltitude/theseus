@@ -84,7 +84,7 @@ Six features in v1 are on and still being hardened. The [README](../README.md) l
 owner's rule (2026-10-18) is that a feature that exists ships on, with its broken parts said plainly, and the fixes
 follow.
 
-- **Jev's judgments** (`route.v7`, `classify.v4`, `rerank.v1`, `recall_cross.v1` and `security.v3`, live). Each message a person sends
+- **Jev's judgments** (`route.v8`, `classify.v4`, `rerank.v1`, `recall_cross.v1` and `security.v3`, live). Each message a person sends
   gets its model and effort, its class and its thread from Jev, waited for at most 300 ms on the owner's daemon (200 by
   default); Jev's persona pick is recorded in shadow, and recall's order waits for `rerank.v1`. At the v1 benchmarks
   (2026-10-18) Theseus paid the least of four harnesses for a solved task at high effort, level with Claude Code on
@@ -94,8 +94,9 @@ follow.
     whose loops keep failing asks Jev again and moves up, as a task does; the next benchmark run measures it.
   - `route.v6`'s data verdict called open-source work `private` in about 60% of turns. `route.v7` rewords the question
     (judge what the message carries, not the place); a probe of 14 made-up messages read every open one `open` at the
-    act band, against none on v6. Nothing acts on the verdict yet. The floor is the `[privacy] sensitive_names` list,
-    which goes only to models of US origin.
+    act band, against none on v6. Since v1 patch2 `route.v8` is live: it names the public signs of open-source work and
+    no longer treats an unshown owner as a reason for `unclear`. Nothing acts on the verdict yet. The floor is the
+    `[privacy] sensitive_names` list, which goes only to models of US origin.
 
   The fixes go toward v1 patch1 (theseus-a1wvq).
 - **The compiled context** (`theseus why`, `theseus project attach`). Each request is compiled from the store, with
@@ -561,6 +562,27 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-23: v1 patch2 rows** (theseus-zeyr3, theseus-nde5n, theseus-zcn80, theseus-gg78p, theseus-ujzuh,
+  theseus-u5a37, theseus-f9qa8, theseus-goq94, theseus-2uy56, theseus-yct32, theseus-ly75u). The recall bench's
+  generator reads its prices from `catalog.rs` (`catalog_prices`); Sonnet 5.5's cache reads are $0.10, so the seed-7
+  budget is $0.48 an arm for the smoke and $7.89 for the full run. The chat now follows a thread-placed turn's answered
+  question and its continuation (it watches the placed session), and the plain approval card says why it waits: the
+  thread guard's question names both threads, other rules say their clause, and a thread session is asked by its
+  thread's title. A message that asks for a task ('start two background tasks') now loads the tasks family for that
+  turn, with or without tool search, so a DM's step 1 starts tasks, not plain background jobs (theseus-gg78p). The
+  checkpoint's text tells Jev the effort the work ran at and how many checkpoints in a row found it failing; a sticky
+  effort hold now ends early when a later verdict is sure enough (`sticky_reverted`; a sure answer, or
+  `effort_confidence` in a `sticky_unsure` hold). xhigh now needs a sure answer (an unsure xhigh runs high). route.v8
+  (theseus-f9qa8): Jev's data question names the public signs of open-source work and no longer treats an unshown owner
+  as a reason for `unclear`; `private` is unchanged, and the verdict table (`tests_data_verdict.rs`) pins that only open
+  at act, naming no sensitive name, on a session without the private mark, reaches a restricted model. v8 also differs
+  from v7 in `reply_effort`'s `max`. A turn can be given a deadline (`theseus ask --deadline SECS`, `turn.submit`'s
+  `deadline_secs`): the model is told the minutes left, and a turn with no passing check is told to replan at half its
+  time or spend and to stop and report at 0.85 of its time (`turn.progress`); every session's block names the CPUs its
+  commands really have, from the cgroup quota (theseus-2uy56, theseus-yct32). The owner card no longer reads an
+  assistant's own setup notes as facts about the owner, never offers one task's instructions as a lasting preference,
+  keeps who acts and on whose behalf, offers no two conflicting proposals together, and lets the owner say where a kept
+  record holds (`theseus card keep --scope`, `card scope`) (theseus-ly75u).
 - **2026-10-23: v1 patch1 hotfix, install #75a** (theseus-050g2). A note Theseus writes itself is never posted cut
   off: the morning note's call had a 200-token cap and no `thinking` field, so Sonnet 5.5 thought through most of it and
   the note went out as half a sentence. The call now turns thinking off where the model lets it (Sonnet 5.5's
@@ -697,8 +719,9 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 - **2026-10-19 (night): v1 patch1's data and routing lane** (theseus-xs5ah, theseus-a1wvq, theseus-gasov):
   `[privacy] sensitive_names` go only to models of US origin, an allowlist that fails closed beneath the China-origin
   block; a conversation's turn the route placed asks a checkpoint when its loops keep failing, and moves up, as a task
-  does; `route.v7` rewords Jev's data question (content, not the place; `private` needs a sign; work whose owner the
-  message does not show is `unclear`) and asks a new `personal` question, whose yes warns the owner by DM (since
+  does; `route.v7` (live until v1 patch2's `route.v8`) rewords Jev's data question (content, not the place; `private`
+  needs a sign; work whose owner the message does not show is `unclear`) and asks a new `personal` question, whose
+  yes warns the owner by DM (since
   2026-10-21, with the reply held in a shared place: see the entry above). The template now shows the China-origin
   coding guidance (`cn_draft` and `final` on `routine_coding` and `deep_coding`, commented, with why), and
   `theseus model bench` reports each draft and its review's cost and the turns whose class drafts that did not
