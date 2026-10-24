@@ -1844,8 +1844,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     status, the calendar's label) is handed back to the caller to write. `calendar.window {from_ms, to_ms}` answers
     the owner on a private connection alone (`owner_in_private`; a span over 62 days is refused) and is no model tool;
     `calendar.changed {labels}` (no content) goes to the connections that watch every session when a refresh finds a
-    change, and the refresh tender (`Google::calendar_tend`, one timer wait of 5 minutes, not before the first window
-    read) ends when no window is kept. `theseusd check` prints one line a calendar (`calendar_check`). **The sensitive
+    change, and the refresh tender (`Google::calendar_tend`: one 5-minute wait a round, not before the first window
+    read; each round drops a window nobody read for 30 minutes, see **Idle and unreachable** below) ends when no window
+    is kept, so a closed page ends it. `theseusd check` prints one line a calendar (`calendar_check`). **The sensitive
     level** (`private::Level`, `private::level`): a read of a calendar with `sensitive = true` puts `"sensitive": true`
     beside `"private": true` in the result's meta, and `private::record` adds the META record
     `google.sensitive.<session>` to the same frame; the level follows what the private mark follows (`followed`,

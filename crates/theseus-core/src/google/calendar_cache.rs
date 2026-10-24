@@ -384,8 +384,9 @@ impl Google {
     /// Keep the windows a page has read fresh, and tell `told` what changed.
     /// Started by the first window read, never before: until a connection has
     /// read one, nothing is refreshed and nothing is sent. One timer wait of
-    /// [`TTL`] a round, no polling; it ends when no window is kept, and the
-    /// next read starts it again.
+    /// [`TTL`] a round, no polling; each round first drops a window nobody read
+    /// for [`IDLE`]; it ends when no window is kept, and the next read starts
+    /// it again.
     pub fn calendar_tend(self: &Arc<Self>, told: Told) {
         if self.calendars.tending.swap(true, Ordering::SeqCst) {
             return;
