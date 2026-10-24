@@ -16,6 +16,13 @@
 //!   the episodes it rests on. A statement citing none of its cluster's
 //!   episodes, copying a line, or repeating a live standing record or an
 //!   answered proposal is dropped.
+//! - **The live pass** (`live.rs`, theseus-6f8t0): nightly, for as long as
+//!   `[card] observe` is on and whether or not the card is done, the open
+//!   observations (`card.obs.<id>`, kept by the exchange-end observer) become
+//!   at most `live_per_night` questions: Stale (a record they contradict: keep,
+//!   edit or end it, `rpc/card_stale.rs`), Add, and Pattern (the same
+//!   preference or decision in `pattern_sessions` conversations). Only the
+//!   owner's answer keeps, edits or ends a record.
 //! - **Labels are respected, before any call.** An episode labelled
 //!   `partner-confidential` (or naming a partner codename) is counted and
 //!   never read: its text is in no cluster and no request. Outside text is
@@ -46,6 +53,7 @@ pub mod answer;
 pub mod ask;
 pub mod cluster;
 pub mod evidence;
+pub mod live;
 pub mod run;
 pub mod state;
 pub mod tender;
@@ -54,5 +62,7 @@ pub mod tender;
 mod fixture;
 #[cfg(test)]
 mod tests_job;
+#[cfg(test)]
+mod tests_live;
 #[cfg(test)]
 mod tests_pure;

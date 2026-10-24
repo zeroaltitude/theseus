@@ -54,6 +54,8 @@ pub enum CardCmd {
     Scope { id: String, scope: String },
     /// "Not this": the proposal is never made again for those sources.
     Decline { id: String },
+    /// End it: the record a Stale question asks about no longer holds, so it is revoked.
+    End { id: String },
     /// What was noticed about you in conversation, kept privately and not yet asked about
     /// (`--used` and `--dropped` list the others).
     Observed {
@@ -149,6 +151,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: CardCmd) -> Result<()> {
         }
         CardCmd::Scope { id, scope } => answer(conn, json, id, "scope", None, Some(scope)).await,
         CardCmd::Decline { id } => answer(conn, json, id, "decline", None, None).await,
+        CardCmd::End { id } => answer(conn, json, id, "end", None, None).await,
         CardCmd::Done { undo } => {
             let p = CardDoneParams {
                 done: !undo,
@@ -191,15 +194,38 @@ async fn answer(
         .request(method::CARD_ANSWER, serde_json::to_value(&p)?)
         .await?;
     output(json, v, |r: CardAnswerResult| {
-        println!("{}", answered_line(&r));
+        println!(
+            "{}",
+            if option == "end" {
+                ended_line(&r)
+            } else {
+                answered_line(&r)
+            }
+        );
         Ok(())
     })
+}
+
+/// What an End it says: the record a Stale question named is revoked.
+pub fn ended_line(r: &CardAnswerResult) -> String {
+    format!(
+        "Ended: {} is off your card; every prompt of its scope stops carrying it from its next turn.",
+        r.proposal.record.as_deref().unwrap_or("the record")
+    )
 }
 
 /// What an answer says.
 pub fn answered_line(r: &CardAnswerResult) -> String {
     let p = &r.proposal;
     match &r.record {
+        Some(rec) if p.ask == theseus_protocol::CardAsk::Stale && p.kept_text.is_none() => {
+            format!(
+                "Kept: {} {} still holds for {}.",
+                rec.kind.name(),
+                rec.id,
+                rec.scope.words()
+            )
+        }
         Some(rec) => format!(
             "Kept as {} {} for {}: every prompt of that scope carries it from its next turn.",
             rec.kind.name(),
@@ -274,8 +300,14 @@ pub fn list_lines(r: &CardListResult) -> Vec<String> {
         out.push("No proposals wait. `theseus card propose` reads your history for some.".into());
     }
     for p in &r.open {
+        // A live question (theseus-6f8t0) says what it asks and where from.
+        let kind = if p.observations.is_empty() && p.ask.is_add() {
+            String::new()
+        } else {
+            format!("{} from your conversations, ", ask_name(p.ask))
+        };
         out.push(format!(
-            "{}  {}  (asks until {})",
+            "{}  {}  ({kind}asks until {})",
             short(&p.id),
             p.question,
             render::fmt_date(p.expires_ms)
@@ -341,6 +373,15 @@ pub fn observed_lines(r: &CardObservedResult, now_ms: u64) -> Vec<String> {
             )
         })
         .collect()
+}
+
+/// What a question asks, in a word.
+fn ask_name(a: theseus_protocol::CardAsk) -> &'static str {
+    match a {
+        theseus_protocol::CardAsk::Add => "add",
+        theseus_protocol::CardAsk::Pattern => "pattern",
+        theseus_protocol::CardAsk::Stale => "stale",
+    }
 }
 
 fn line_of(p: &CardProposal) -> String {
@@ -535,5 +576,36 @@ mod tests {
             answered_line(&no),
             "Not this: aaaabbbb will not be proposed again for its 1 sources."
         );
+    }
+
+    #[test]
+    fn end_parses_and_a_live_question_says_what_it_asks_and_where_from() {
+        #[derive(clap::Parser)]
+        struct T {
+            #[command(subcommand)]
+            c: CardCmd,
+        }
+        use clap::Parser as _;
+        let t = T::try_parse_from(["t", "end", "cdp_x_aaaabbbb"]).unwrap();
+        assert!(matches!(t.c, CardCmd::End { id } if id == "cdp_x_aaaabbbb"));
+        assert!(T::try_parse_from(["t", "end"]).is_err());
+        let mut live = prop("cdp_x_11112222", "t", ProposalState::Open);
+        live.ask = theseus_protocol::CardAsk::Stale;
+        live.observations = vec!["cob_1".into()];
+        let plain = prop("cdp_x_33334444", "t", ProposalState::Open);
+        let lines = list_lines(&listed(vec![live, plain]));
+        assert!(
+            lines[0].contains("(stale from your conversations, asks until "),
+            "{lines:?}"
+        );
+        assert!(!lines[1].contains("conversations"), "{lines:?}");
+        let ended = CardAnswerResult {
+            proposal: CardProposal {
+                record: Some("std_1".into()),
+                ..prop("cdp_x_aaaabbbb", "t", ProposalState::Declined)
+            },
+            record: None,
+        };
+        assert!(ended_line(&ended).starts_with("Ended: std_1 is off your card"));
     }
 }

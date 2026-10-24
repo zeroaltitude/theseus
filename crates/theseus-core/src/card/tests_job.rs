@@ -26,13 +26,13 @@ use crate::rpc::Core;
 use crate::store::Store;
 use crate::test_support::ledger_rows_2k as rows;
 
-struct Rig {
-    core: Arc<Core>,
-    fake: Arc<FakeProvider>,
+pub(super) struct Rig {
+    pub(super) core: Arc<Core>,
+    pub(super) fake: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 
-fn rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(super) fn rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     rig_with(FakeProvider::scripted(script), tweak)
 }
 
@@ -53,7 +53,7 @@ fn rig_with(fake: FakeProvider, tweak: impl FnOnce(&mut Config)) -> Rig {
     }
 }
 
-fn cli() -> Answerer {
+pub(super) fn cli() -> Answerer {
     Answerer {
         label: "the CLI".into(),
         surface: Surface::Cli,
@@ -76,12 +76,12 @@ async fn import(c: &Arc<Core>, eps: &[Value]) {
     assert_eq!(got.rejected.len(), 0, "{got:?}");
 }
 
-async fn archive(r: &Rig) {
+pub(super) async fn archive(r: &Rig) {
     import(&r.core, &fixture::export(theseus_protocol::now_unix_ms())).await;
 }
 
 /// The model's answer: `(cluster, text, kind, episode label)` each.
-fn states(cards: &[(&str, &str, &str, &str)]) -> Scripted {
+pub(super) fn states(cards: &[(&str, &str, &str, &str)]) -> Scripted {
     let cards: Vec<Value> = cards
         .iter()
         .map(|(k, t, kind, e)| {
@@ -92,7 +92,7 @@ fn states(cards: &[(&str, &str, &str, &str)]) -> Scripted {
 }
 
 /// K1 is the opinion cluster (3 sources), K2 the gate one (2).
-fn two() -> Scripted {
+pub(super) fn two() -> Scripted {
     states(&[
         (
             "K1",
@@ -109,14 +109,14 @@ fn two() -> Scripted {
     ])
 }
 
-async fn propose(r: &Rig) -> CardProposeResult {
+pub(super) async fn propose(r: &Rig) -> CardProposeResult {
     r.core
         .card_propose(&Default::default(), cli())
         .await
         .unwrap()
 }
 
-async fn answer(
+pub(super) async fn answer(
     r: &Rig,
     id: &str,
     option: &str,
