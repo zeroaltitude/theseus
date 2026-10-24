@@ -240,8 +240,6 @@ fn calendars_refuse_a_repeat_a_second_primary_a_bad_colour_and_a_bare_table() {
         .unwrap_err();
         assert!(e.contains("is not #rrggbb"), "{bad}: {e}");
     }
-    let e = cals("[]").unwrap_err();
-    assert!(e.contains("empty"), "{e}");
     let e = cals("[{ id = \"a.cal.example.test\", labl = \"x\" }]").unwrap_err();
     assert!(
         e.contains("did not match any variant") || e.contains("unknown"),

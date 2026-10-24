@@ -54,6 +54,10 @@ async fn rig_as(
         cfg.secrets.remove("google_client");
         cfg.secrets.remove("google_refresh_token");
     }
+    // The account is a consumer one here: its own calendar (the fake lists the
+    // account, of a domain the default rule counts as a workplace's) is not
+    // sensitive. The calendar tests below mark one sensitive themselves.
+    cfg.google.sensitive_domains = Some(Vec::new());
     cfg.initiative.morning_hour = 0;
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
     cfg.personas.insert(
