@@ -193,7 +193,7 @@ impl Tool for CallTool {
                     // The long tail cannot say which calendar it read, so any
                     // Calendar read counts as the sensitive one's (fail closed).
                     let calendar = p.resolved.request.service == theseus_google::Service::Calendar;
-                    if calendar && g.cfg.calendar_specs().iter().any(|s| s.sensitive) {
+                    if calendar && g.calendars.any_sensitive() {
                         meta[super::private::SENSITIVE] = true.into();
                     }
                     let label = format!("google:{}", p.label);

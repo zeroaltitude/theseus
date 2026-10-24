@@ -236,7 +236,7 @@ impl Google {
             op: Mutex::new(None),
             refresh_ref: OnceLock::new(),
             memory_only: AtomicBool::new(false),
-            calendars: calendar_cache::Cache::new(cfg.calendar_specs()),
+            calendars: calendar_cache::Cache::new(&cfg),
         }))
     }
 

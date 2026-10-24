@@ -17,6 +17,14 @@
 //!   [`Google::call`], whose `google.called` row holds a method, a status and
 //!   the calendar's label, and those rows are handed back to the caller to
 //!   write.
+//! - **Which calendars.** The config's list, or, when it names none, every
+//!   calendar of the account's `calendarList`, read again when a read finds it
+//!   older than [`TTL`]: a calendar newly shared with the account appears
+//!   (and is told as changed), one no longer listed goes. Until the list is
+//!   read, or when it cannot be, the account's `primary` alone is read. The
+//!   list also gives each calendar Google's own colour (a config colour wins)
+//!   and its owner, whose domain can make it sensitive
+//!   (`config::google_calendars::sensitive_by_domain`).
 //! - **A change** found by a refresh is returned as the calendar's label; the
 //!   caller tells the connections (`calendar.changed`, no content).
 
@@ -34,7 +42,8 @@ use tokio::time::{Duration, Instant};
 
 use super::calendar::{call_link, instant, organized_by, rfc3339, text};
 use super::{Google, Meta, Phase};
-use crate::config::CalendarSpec;
+use crate::config::google_calendars::{color_ok, PALETTE};
+use crate::config::{primary_spec, CalendarSpec, GoogleConfig};
 use crate::recall::stamp;
 
 /// How long a window is served as it was read.
@@ -76,11 +85,36 @@ struct Slot {
     windows: Vec<Win>,
 }
 
-/// The cache: one slot per configured calendar, each read one at a time.
+/// One calendar of the account's `calendarList`.
+#[derive(Clone)]
+struct Listed1 {
+    id: String,
+    primary: bool,
+    name: Option<String>,
+    color: Option<String>,
+    owner: Option<String>,
+}
+
+/// The account's `calendarList` as last read.
+struct Listing {
+    at: Instant,
+    aged: u64,
+    names: HashMap<String, String>,
+}
+
+/// The cache: one slot per calendar read, each read one at a time.
 pub struct Cache {
-    specs: Vec<CalendarSpec>,
-    slots: Vec<tokio::sync::Mutex<Slot>>,
-    summaries: tokio::sync::OnceCell<HashMap<String, String>>,
+    /// The config names no calendar: the account's list says which.
+    every: bool,
+    domains: Option<Vec<String>>,
+    /// The calendars read now, in order, beside their slots.
+    specs: std::sync::RwLock<Vec<CalendarSpec>>,
+    slots: std::sync::RwLock<Vec<Arc<tokio::sync::Mutex<Slot>>>>,
+    listing: tokio::sync::Mutex<Option<Listing>>,
+    /// The listed names, for the sync readers (`calendar_targets`).
+    names: std::sync::RwLock<HashMap<String, String>>,
+    /// The list was read once (a sync answer to "may a calendar be sensitive").
+    listed: AtomicBool,
     /// The tender runs (see [`Google::calendar_tend`]).
     tending: AtomicBool,
     /// Milliseconds a test has aged every window by (the clock is real).
@@ -100,26 +134,147 @@ pub struct Read {
     pub changed: Vec<String>,
 }
 
+fn slot_of(spec: CalendarSpec) -> Arc<tokio::sync::Mutex<Slot>> {
+    Arc::new(tokio::sync::Mutex::new(Slot {
+        spec,
+        summary: None,
+        status: CalendarStatus::Ok,
+        detail: String::new(),
+        windows: Vec::new(),
+    }))
+}
+
 impl Cache {
-    pub fn new(specs: Vec<CalendarSpec>) -> Self {
+    pub fn new(cfg: &GoogleConfig) -> Self {
+        let named = cfg.calendar_specs();
+        let every = named.is_empty();
+        let specs = if every { vec![primary_spec()] } else { named };
         Self {
-            specs: specs.clone(),
-            slots: specs
-                .into_iter()
-                .map(|spec| {
-                    tokio::sync::Mutex::new(Slot {
-                        spec,
-                        summary: None,
-                        status: CalendarStatus::Ok,
-                        detail: String::new(),
-                        windows: Vec::new(),
-                    })
-                })
-                .collect(),
-            summaries: tokio::sync::OnceCell::new(),
+            every,
+            domains: cfg.sensitive_domains.clone(),
+            slots: std::sync::RwLock::new(specs.iter().cloned().map(slot_of).collect()),
+            specs: std::sync::RwLock::new(specs),
+            listing: tokio::sync::Mutex::new(None),
+            names: std::sync::RwLock::new(HashMap::new()),
+            listed: AtomicBool::new(false),
             tending: AtomicBool::new(false),
             aged_ms: AtomicU64::new(0),
         }
+    }
+
+    /// The calendars read now.
+    pub(crate) fn specs(&self) -> Vec<CalendarSpec> {
+        self.specs.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    fn slots(&self) -> Vec<Arc<tokio::sync::Mutex<Slot>>> {
+        self.slots.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Whether a calendar read may be of a sensitive calendar: one read now is,
+    /// or the config names none and the account's list was never read (fail
+    /// closed: the list may hold one).
+    pub fn any_sensitive(&self) -> bool {
+        (self.every && !self.listed.load(Ordering::SeqCst))
+            || self.specs().iter().any(|s| s.sensitive)
+    }
+
+    /// Whether `l` is still served as it was read.
+    fn listing_fresh(&self, l: &Listing) -> bool {
+        let aged = self.aged_ms.load(Ordering::Relaxed).saturating_sub(l.aged);
+        l.at.elapsed() + Duration::from_millis(aged) < TTL
+    }
+
+    /// Settle the calendars read on `entries`, the account's list: with no
+    /// configured calendar, every listed one (the primary first, as `primary`),
+    /// a slot kept for a calendar still listed; with a configured list, its
+    /// calendars take Google's colour (unless the config named one) and
+    /// their owner's domain. Returns the labels of calendars newly read.
+    async fn settle(&self, entries: &[Listed1]) -> Vec<String> {
+        let sensitive = |e: &Listed1| {
+            let d = self.domains.as_deref();
+            crate::config::google_calendars::sensitive_by_domain(&e.id, d)
+                || e.owner
+                    .as_deref()
+                    .is_some_and(|o| crate::config::google_calendars::sensitive_by_domain(o, d))
+        };
+        let google = |e: &Listed1| e.color.clone().filter(|c| color_ok(c));
+        if !self.every {
+            for slot in self.slots() {
+                let mut s = slot.lock().await;
+                let id = s.spec.id.clone();
+                let Some(e) = entries.iter().find(|e| {
+                    e.id.eq_ignore_ascii_case(&id)
+                        || (e.primary && id == crate::config::google_calendars::PRIMARY)
+                }) else {
+                    continue;
+                };
+                s.spec.sensitive |= sensitive(e);
+                if !s.spec.color_set {
+                    if let Some(c) = google(e) {
+                        s.spec.color = c;
+                    }
+                }
+            }
+            let specs: Vec<CalendarSpec> = {
+                let mut v = Vec::new();
+                for slot in self.slots() {
+                    v.push(slot.lock().await.spec.clone());
+                }
+                v
+            };
+            *self.specs.write().unwrap_or_else(|e| e.into_inner()) = specs;
+            return Vec::new();
+        }
+        if entries.is_empty() {
+            return Vec::new();
+        }
+        let mut ordered: Vec<&Listed1> = entries.iter().filter(|e| e.primary).collect();
+        ordered.extend(entries.iter().filter(|e| !e.primary));
+        let old = self.slots();
+        let mut slots = Vec::new();
+        let mut specs = Vec::new();
+        let mut added = Vec::new();
+        for (i, e) in ordered.into_iter().enumerate() {
+            let id = match e.primary {
+                true => crate::config::google_calendars::PRIMARY.to_string(),
+                false => e.id.clone(),
+            };
+            let spec = CalendarSpec {
+                id: id.clone(),
+                label: None,
+                color: google(e).unwrap_or_else(|| PALETTE[i % PALETTE.len()].into()),
+                color_set: false,
+                sensitive: sensitive(e),
+            };
+            let mut kept = None;
+            for slot in &old {
+                if slot.lock().await.spec.id == id {
+                    kept = Some(slot.clone());
+                    break;
+                }
+            }
+            let slot = match kept {
+                Some(slot) => {
+                    let mut s = slot.lock().await;
+                    if s.spec.sensitive != spec.sensitive {
+                        s.windows.clear();
+                    }
+                    s.spec = spec.clone();
+                    drop(s);
+                    slot
+                }
+                None => {
+                    added.push(e.name.clone().unwrap_or_else(|| id.clone()));
+                    slot_of(spec.clone())
+                }
+            };
+            slots.push(slot);
+            specs.push(spec);
+        }
+        *self.slots.write().unwrap_or_else(|e| e.into_inner()) = slots;
+        *self.specs.write().unwrap_or_else(|e| e.into_inner()) = specs;
+        added
     }
 
     /// Whether `w` is still served as it was read.
@@ -146,7 +301,8 @@ impl Google {
         let summaries = self.calendar_summaries().await;
         let mut out = Read::default();
         out.rows.extend(summaries.1);
-        for slot in &self.calendars.slots {
+        out.changed.extend(summaries.2);
+        for slot in self.calendars.slots() {
             let mut s = slot.lock().await;
             if s.summary.is_none() {
                 s.summary = summaries.0.get(&s.spec.id).cloned();
@@ -174,7 +330,7 @@ impl Google {
     /// to tell apart), and their row comes back.
     pub async fn calendar_all(&self) -> (Vec<Target>, Vec<Value>) {
         let mut rows = Vec::new();
-        if self.calendars.specs.len() > 1 {
+        if self.calendars.every || self.calendars.specs().len() > 1 {
             rows = self.calendar_summaries().await.1;
         }
         let all = self.calendar_targets(None, Some("all")).unwrap_or_default();
@@ -185,7 +341,12 @@ impl Google {
     /// while a page has read a window. Returns the changed labels and rows.
     pub async fn calendar_refresh(&self) -> Read {
         let mut out = Read::default();
-        for slot in &self.calendars.slots {
+        if self.calendars.every {
+            let (_, rows, added) = self.calendar_summaries().await;
+            out.rows.extend(rows);
+            out.changed.extend(added);
+        }
+        for slot in self.calendars.slots() {
             let mut s = slot.lock().await;
             let label = label_of(&s);
             let mut changed = false;
@@ -225,7 +386,7 @@ impl Google {
 
     /// Whether any window is kept (the tender has something to refresh).
     pub async fn calendars_kept(&self) -> bool {
-        for slot in &self.calendars.slots {
+        for slot in self.calendars.slots() {
             if !slot.lock().await.windows.is_empty() {
                 return true;
             }
@@ -233,46 +394,91 @@ impl Google {
         false
     }
 
-    /// The calendars' own names, once: `primary` is the entry marked so.
-    pub(super) async fn calendar_summaries(&self) -> (HashMap<String, String>, Vec<Value>) {
+    /// The calendars' own names (`primary` is the entry marked so), from the
+    /// account's `calendarList`: read once, and with no configured calendar
+    /// read again once it is older than [`TTL`], each read settling which
+    /// calendars are read (`Cache::settle`). Returns the names, the rows to
+    /// write, and the labels of calendars a later read of the list added.
+    pub(super) async fn calendar_summaries(
+        &self,
+    ) -> (HashMap<String, String>, Vec<Value>, Vec<String>) {
         let mut rows = Vec::new();
-        let map = self
-            .calendars
-            .summaries
-            .get_or_init(|| async {
-                let Ok(r) = resolve("calendar.calendarList.list", None, None) else {
-                    return HashMap::new();
-                };
-                let meta = meta("calendar.calendarList.list", None);
-                let reply = match self.call(meta, r.request).await {
-                    Ok(done) => {
-                        rows.push(done.row);
-                        done.response.json()
-                    }
-                    Err(f) => {
-                        rows.push(f.row);
-                        return HashMap::new();
-                    }
-                };
-                let mut names = HashMap::new();
-                for e in reply["items"].as_array().into_iter().flatten() {
-                    let Some(name) =
-                        text(e, &["summaryOverride"]).or_else(|| text(e, &["summary"]))
-                    else {
-                        continue;
-                    };
-                    if let Some(id) = text(e, &["id"]) {
-                        names.insert(id.to_string(), name.to_string());
-                    }
-                    if e["primary"] == true {
-                        names.insert("primary".to_string(), name.to_string());
-                    }
+        let mut l = self.calendars.listing.lock().await;
+        let stale = match &*l {
+            None => true,
+            Some(x) => self.calendars.every && !self.calendars.listing_fresh(x),
+        };
+        if !stale {
+            return (
+                l.as_ref().map(|x| x.names.clone()).unwrap_or_default(),
+                rows,
+                Vec::new(),
+            );
+        }
+        let again = l.is_some();
+        let entries = match self.calendar_list(&mut rows).await {
+            Some(e) => e,
+            None if again => {
+                return (
+                    l.as_ref().map(|x| x.names.clone()).unwrap_or_default(),
+                    rows,
+                    Vec::new(),
+                )
+            }
+            None => Vec::new(),
+        };
+        let mut names = HashMap::new();
+        for e in &entries {
+            if let Some(n) = &e.name {
+                names.insert(e.id.clone(), n.clone());
+                if e.primary {
+                    names.insert("primary".to_string(), n.clone());
                 }
-                names
-            })
-            .await
-            .clone();
-        (map, rows)
+            }
+        }
+        let added = self.calendars.settle(&entries).await;
+        *self
+            .calendars
+            .names
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = names.clone();
+        self.calendars.listed.store(true, Ordering::SeqCst);
+        *l = Some(Listing {
+            at: Instant::now(),
+            aged: self.calendars.aged_ms.load(Ordering::Relaxed),
+            names: names.clone(),
+        });
+        (names, rows, if again { added } else { Vec::new() })
+    }
+
+    /// The account's `calendarList`, or `None` when it cannot be read.
+    async fn calendar_list(&self, rows: &mut Vec<Value>) -> Option<Vec<Listed1>> {
+        let r = resolve("calendar.calendarList.list", None, None).ok()?;
+        let meta = meta("calendar.calendarList.list", None);
+        let reply = match self.call(meta, r.request).await {
+            Ok(done) => {
+                rows.push(done.row);
+                done.response.json()
+            }
+            Err(f) => {
+                rows.push(f.row);
+                return None;
+            }
+        };
+        let mut out = Vec::new();
+        for e in reply["items"].as_array().into_iter().flatten() {
+            let Some(id) = text(e, &["id"]) else { continue };
+            out.push(Listed1 {
+                id: id.to_string(),
+                primary: e["primary"] == true,
+                name: text(e, &["summaryOverride"])
+                    .or_else(|| text(e, &["summary"]))
+                    .map(str::to_string),
+                color: text(e, &["backgroundColor"]).map(str::to_ascii_lowercase),
+                owner: text(e, &["dataOwner"]).map(str::to_string),
+            });
+        }
+        Some(out)
     }
 
     /// The events of `slot` over `from..to`, and whether a refresh found a change.
@@ -565,7 +771,7 @@ impl Google {
         let summaries = self.calendar_summaries().await;
         let mut rows = summaries.1;
         let mut out = Vec::new();
-        for slot in &self.calendars.slots {
+        for slot in self.calendars.slots() {
             let mut s = slot.lock().await;
             if s.summary.is_none() {
                 s.summary = summaries.0.get(&s.spec.id).cloned();
@@ -606,15 +812,16 @@ impl Google {
     /// `"all"`, or a name no configured id or label answers to. Nothing is
     /// read for the primary calendar alone.
     pub fn calendar_needs_names(&self, name: Option<&str>, all: Option<&str>) -> bool {
+        let specs = self.calendars.specs();
         let direct = |n: &str| {
-            self.calendars.specs.iter().any(|s| {
+            specs.iter().any(|s| {
                 s.id.eq_ignore_ascii_case(n)
                     || s.label
                         .as_deref()
                         .is_some_and(|l| l.eq_ignore_ascii_case(n))
             })
         };
-        let unlabelled = self.calendars.specs.iter().any(|s| s.label.is_none());
+        let unlabelled = self.calendars.every || specs.iter().any(|s| s.label.is_none());
         unlabelled && (all.is_some() || name.is_some_and(|n| !n.contains('@') && !direct(n)))
     }
 
@@ -628,7 +835,14 @@ impl Google {
         name: Option<&str>,
         all: Option<&str>,
     ) -> Result<Vec<Target>, String> {
-        let names = self.calendars.summaries.get();
+        let names = self
+            .calendars
+            .names
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let names = Some(&names).filter(|m| !m.is_empty());
+        let specs = self.calendars.specs();
         let target = |s: &CalendarSpec| Target {
             id: s.id.clone(),
             label: s
@@ -641,12 +855,10 @@ impl Google {
         let name = name.map(str::trim).filter(|n| !n.is_empty());
         match (name, all) {
             (Some(_), Some(_)) => Err("name `calendar` or `calendars`, not both".into()),
-            (_, Some(a)) if a.eq_ignore_ascii_case("all") => {
-                Ok(self.calendars.specs.iter().map(target).collect())
-            }
+            (_, Some(a)) if a.eq_ignore_ascii_case("all") => Ok(specs.iter().map(target).collect()),
             (_, Some(a)) => Err(format!("`calendars` is \"all\" or left out, not {a:?}")),
             (None, None) => {
-                let primary = self.calendars.specs.iter().find(|s| s.id == "primary");
+                let primary = specs.iter().find(|s| s.id == "primary");
                 Ok(vec![primary.map_or_else(
                     || Target {
                         id: "primary".into(),
@@ -657,9 +869,7 @@ impl Google {
                 )])
             }
             (Some(n), None) => {
-                let found = self
-                    .calendars
-                    .specs
+                let found = specs
                     .iter()
                     .map(target)
                     .find(|t| t.label.eq_ignore_ascii_case(n) || t.id.eq_ignore_ascii_case(n));
@@ -673,12 +883,7 @@ impl Google {
                         sensitive: false,
                     }]);
                 }
-                let known: Vec<String> = self
-                    .calendars
-                    .specs
-                    .iter()
-                    .map(|s| target(s).label)
-                    .collect();
+                let known: Vec<String> = specs.iter().map(|s| target(s).label).collect();
                 Err(format!(
                     "no calendar is called {n:?}; the configured calendars are: {}",
                     known.join(", ")

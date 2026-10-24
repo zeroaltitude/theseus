@@ -22,8 +22,10 @@ What Google returns becomes part of the conversation, task or routine that asked
 owner's machine, in Theseus's own store. Theseus does not sell it, does not use it for advertising, and trains no model
 on it. It sends it nowhere except as the next section says.
 
-The owner may list several calendars under `[google] calendars` and mark one `sensitive` (a work calendar shared into the
-account, say). Its events are read only into a conversation or note that runs on a model of US origin, are never
+Theseus reads every calendar the account can see (a calendar shared into the account appears with no config edit), or
+only those `[google] calendars` lists. A calendar of a workplace's domain (a Google Workspace domain, by the calendar's
+id or its owner) is `sensitive` with no config; `[google] sensitive_domains` names those domains instead, and a listed
+calendar can be marked `sensitive` too. Its events are read only into a conversation or note that runs on a model of US origin, are never
 offered to a shared place such as a Discord channel others can read, and are written to no log or ledger row: the
 record of a read holds the calendar's label and a status, never an event's title, place, guests or call link.
 

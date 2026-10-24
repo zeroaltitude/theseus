@@ -1792,9 +1792,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `tests_private_authored.rs`.
   - **Google calendars, the cache and the sensitive level** (theseus-jid7t.1; no store format change: a new META key
     and no new record kind; `config/google_calendars.rs`, `google/calendar_cache.rs`, `rpc/calendar.rs`, wire
-    `theseus_protocol::calendar`). `[google] calendars` (default `["primary"]`, so nothing changes without it) lists
-    ids or `{ id, label, color, sensitive }`, validated at load (ids unique, `#rrggbb`, labels unique); a label
-    defaults to the calendar's own summary, read once from `calendarList` and kept for the daemon's life. The cache
+    `theseus_protocol::calendar`). `[google] calendars` lists ids or `{ id, label, color, sensitive }`, validated at
+    load (ids unique, `#rrggbb`, labels unique); unset or empty (the default, the owner's change of 2026-10-23), the
+    cache reads every calendar of the account's `calendarList` (`Cache::settle`; the primary as `primary`, read again
+    when older than 5 minutes, a newly listed calendar told as `calendar.changed`, `primary` alone until the list is
+    read or when it cannot be). A label defaults to the calendar's own summary, a colour to Google's `backgroundColor`
+    (then the palette). **Sensitive by default:** a calendar whose id or `dataOwner` is in a Google Workspace domain
+    (`google_calendars::sensitive_by_domain`: any domain but gmail.com, googlemail.com and `*.calendar.google.com`)
+    is sensitive; `[google] sensitive_domains`, when set, replaces that default. `google.call`'s Calendar reads are
+    sensitive while any calendar read is, or while the list was never read with none configured
+    (`Cache::any_sensitive`, fail closed). The cache
     (`Google::calendar_window`) keeps each calendar's events over the window asked for, widened a week each side, for
     5 minutes (at most 4 windows a calendar, 1,500 events a window; memory only, nothing about an event reaches the
     store, the ledger, a log or telemetry), then refreshes with `syncToken` (a 410 re-reads the window; a 403 asks

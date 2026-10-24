@@ -78,8 +78,9 @@ impl Core {
             "Calendar is not in `[google] services`"
         };
         CalendarWindowResult {
-            calendars: g
-                .calendar_specs()
+            calendars: Some(g.calendar_specs())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| vec![crate::config::primary_spec()])
                 .into_iter()
                 .map(|s| CalendarWindow {
                     label: s.label.clone().unwrap_or_else(|| s.id.clone()),

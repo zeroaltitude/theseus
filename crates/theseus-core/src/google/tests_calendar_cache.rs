@@ -633,3 +633,177 @@ async fn the_checks_lines_name_each_calendar_by_label() {
     none.google = Default::default();
     assert!(super::calendar_check(&none, &board(None)).await.is_empty());
 }
+
+// ------------------------------------------- every calendar of the account
+// The owner's change to theseus-jid7t.1 (2026-10-23): with `calendars` unset
+// the daemon reads every calendar the account's list holds, a calendar of a
+// workplace's domain is sensitive with no config, and each takes Google's own
+// colour.
+
+const CLUB: &str = "club.cal.example.test";
+const BOARD: &str = "board.cal.example.test";
+const LATE: &str = "late.cal.example.test";
+/// A consumer domain, kept out of an address literal.
+const CONSUMER: &str = "gmail.com";
+
+/// The account's list: its own calendar (Google's colour), a club calendar a
+/// consumer account owns, and a board calendar a workplace's domain owns.
+fn listed() -> Vec<Value> {
+    vec![
+        json!({"id": "mine.cal.example.test", "summary": "Mine", "primary": true,
+               "backgroundColor": "#A1B2C3"}),
+        json!({"id": CLUB, "summary": "Club", "dataOwner": format!("someone@{CONSUMER}"),
+               "backgroundColor": "#445566"}),
+        json!({"id": BOARD, "summary": "Board", "dataOwner": "team@corp.example.test",
+               "backgroundColor": "#112233"}),
+    ]
+}
+
+/// A rig whose Google serves `list` as the account's calendars (read again
+/// on every call, so a test can share one more) and each calendar's events.
+async fn every_rig(tweak: impl FnOnce(&mut Config)) -> (Rig, Arc<Mutex<Vec<Value>>>) {
+    let r = rig_with(
+        Some(REFRESH_TOKEN),
+        |_| "file:/tmp/unused-google-refresh-token".into(),
+        vec![],
+        |c| {
+            c.policy.enforcement = crate::policy::Posture::Open;
+            tweak(c);
+        },
+    )
+    .await;
+    for id in ["primary", CLUB, BOARD, LATE] {
+        calendar(
+            &r.fake,
+            id,
+            vec![ev(&format!("{id}-1"), "Standup", NOON.0, NOON.1)],
+        );
+    }
+    let list = Arc::new(Mutex::new(listed()));
+    let l = list.clone();
+    r.fake
+        .route("GET", "/calendar/v3/users/me/calendarList", move |_| {
+            Reply::json(200, json!({"items": *l.lock().unwrap()}))
+        });
+    (r, list)
+}
+
+fn seen(w: &super::calendar_cache::Read) -> Vec<(String, String, bool)> {
+    w.calendars
+        .iter()
+        .map(|c| (c.label.clone(), c.color.clone(), c.sensitive))
+        .collect()
+}
+
+#[tokio::test]
+async fn unset_calendars_read_every_listed_calendar_with_googles_colours() {
+    let (r, _) = every_rig(|_| {}).await;
+    assert_eq!(
+        r.g.calendars.specs().len(),
+        1,
+        "the primary alone before the list"
+    );
+    assert!(
+        r.g.calendars.any_sensitive(),
+        "fail closed before the list is read"
+    );
+    let (from, to) = day();
+    let w = r.g.calendar_window(from, to).await;
+    assert_eq!(
+        seen(&w),
+        [
+            ("Mine".to_string(), "#a1b2c3".to_string(), false),
+            ("Club".to_string(), "#445566".to_string(), false),
+            ("Board".to_string(), "#112233".to_string(), true),
+        ]
+    );
+    assert!(w.calendars.iter().all(|c| c.events.len() == 1));
+    assert_eq!(w.calendars[0].id, "primary");
+    assert_eq!(lists(&r.fake, BOARD).len(), 1);
+    assert!(r.g.calendars.any_sensitive());
+    let t = r.g.calendar_targets(Some("board"), None).unwrap();
+    assert!(t[0].sensitive && t[0].id == BOARD, "{t:?}");
+}
+
+#[tokio::test]
+async fn a_calendar_shared_later_appears_when_the_list_is_read_again() {
+    let (r, list) = every_rig(|_| {}).await;
+    let (from, to) = day();
+    assert_eq!(r.g.calendar_window(from, to).await.calendars.len(), 3);
+    list.lock()
+        .unwrap()
+        .push(json!({"id": LATE, "summary": "Late"}));
+    let again = r.g.calendar_window(from, to).await;
+    assert_eq!(
+        again.calendars.len(),
+        3,
+        "the list is fresh for five minutes"
+    );
+    r.g.calendars.age(Duration::from_secs(301));
+    let later = r.g.calendar_window(from, to).await;
+    let labels: Vec<&str> = later.calendars.iter().map(|c| c.label.as_str()).collect();
+    assert_eq!(labels, ["Mine", "Club", "Board", "Late"]);
+    assert_eq!(
+        later.changed,
+        ["Late"],
+        "the new calendar is told as a change"
+    );
+    // One no longer listed goes; a list with no workplace calendar is not
+    // sensitive once read.
+    list.lock().unwrap().retain(|e| e["id"] != BOARD);
+    r.g.calendars.age(Duration::from_secs(301));
+    let w = r.g.calendar_window(from, to).await;
+    assert!(w
+        .calendars
+        .iter()
+        .all(|c| c.label != "Board" && !c.sensitive));
+    assert!(!r.g.calendars.any_sensitive());
+}
+
+#[tokio::test]
+async fn sensitive_domains_replaces_the_workspace_default() {
+    let (r, list) = every_rig(|c| {
+        c.google.sensitive_domains = Some(vec!["other.example.test".into()]);
+    })
+    .await;
+    list.lock().unwrap()[1]["dataOwner"] = "x@other.example.test".into();
+    let (from, to) = day();
+    let w = r.g.calendar_window(from, to).await;
+    let s: Vec<(String, bool)> = w
+        .calendars
+        .iter()
+        .map(|c| (c.label.clone(), c.sensitive))
+        .collect();
+    assert_eq!(
+        s,
+        [
+            ("Mine".into(), false),
+            ("Club".into(), true),
+            ("Board".into(), false)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_configured_list_narrows_and_takes_googles_colour_and_owner() {
+    let (r, _) = every_rig(|c| {
+        c.google.calendars = vec![
+            CalendarEntry::Id(CLUB.into()),
+            CalendarEntry::Id(BOARD.into()),
+        ];
+    })
+    .await;
+    let (from, to) = day();
+    let w = r.g.calendar_window(from, to).await;
+    assert_eq!(
+        seen(&w),
+        [
+            ("Club".to_string(), "#445566".to_string(), false),
+            ("Board".to_string(), "#112233".to_string(), true),
+        ]
+    );
+    assert!(
+        lists(&r.fake, "primary").is_empty(),
+        "the primary is not read"
+    );
+}

@@ -15,7 +15,7 @@ use crate::secrets::{OpReader, SecretRef};
 mod aws;
 mod context;
 mod google;
-mod google_calendars;
+pub(crate) mod google_calendars;
 pub use context::ContextConfig;
 mod cache;
 mod inherit;
@@ -81,7 +81,7 @@ pub use aws::{
     AwsCredentialNames, HandsNetwork,
 };
 pub use google::{GoogleConfig, GoogleCredentialNames};
-pub use google_calendars::{CalendarEntry, CalendarSpec, CalendarTable};
+pub use google_calendars::{primary_spec, CalendarEntry, CalendarSpec, CalendarTable};
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
 pub use limits::{
     default_job_wait_beat_secs, default_job_wait_max_secs, default_job_wait_status,
