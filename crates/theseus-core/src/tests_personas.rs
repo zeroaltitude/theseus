@@ -164,7 +164,29 @@ fn migration_changes_no_prefix_byte() {
         );
         at += found.unwrap();
     }
-    let _ = &dir;
+    // The whole carried text, both layers, byte for byte against a golden
+    // (`THESEUS_GOLDEN=write` rewrites it). The rig's temp root is a
+    // placeholder, so the file holds the same bytes on every run.
+    let root = dir.path().to_string_lossy().into_owned();
+    let canon = dir
+        .path()
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let got = format!(
+        "=== persona_text ===\n{}\n=== context_text ===\n{}\n",
+        next.spec.persona_text, next.spec.context_text
+    )
+    .replace(&canon, "<root>")
+    .replace(&root, "<root>");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/persona_layers.txt");
+    if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
+        std::fs::write(&path, &got).unwrap();
+    }
+    let want = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(got, want, "THESEUS_GOLDEN=write rewrites it");
 }
 
 #[tokio::test]

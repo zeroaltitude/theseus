@@ -171,7 +171,11 @@ pub(crate) fn check_guidance(g: &Guidance) -> Result<(), Refusal> {
     }
 }
 
-/// At most one live persona is the default (the one `none` engages).
+/// At most one persona holds the default mark, live or awaiting its soul. The
+/// check does not look at liveness: `Book::default_live` gives the mark only
+/// once the persona has a soul, so Jev's `none` engages the built-in until
+/// then, and `Book::persona_key_for` still answers a session and place that
+/// name no persona as the awaiting default, which adds no text.
 pub(crate) fn check_default(onto: &Ontology, c: &Category) -> Result<(), Refusal> {
     if !c.persona.as_ref().is_some_and(|p| p.default) {
         return Ok(());
