@@ -33,6 +33,8 @@ sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"
+# The old-name digests (`names::OLD`), which the exam is checked against.
+theseus-judge = { path = "../theseus-judge", features = ["fake"] }
 
 [lints]
 workspace = true

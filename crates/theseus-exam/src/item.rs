@@ -595,11 +595,9 @@ fn validate_node(owner: &str, s: &str, k: usize, n: &PastNode) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// A real repository's name, which the synthetic exam must never carry: its length and the
-    /// SHA-256 of its lower-cased spelling, held as a digest so this file does not carry it.
-    const REAL_REPO_LEN: usize = 5;
-    const REAL_REPO_SHA256: &str =
-        "3a60e130bb5cfaae5fa51696b3310767b62e32543a3bb00aa488c34a56ab3a09";
+    /// The length of the old names the exam is checked for; a length is not a name. Their
+    /// digests are `theseus_judge::names::OLD`.
+    const OLD_NAME_LEN: usize = 5;
 
     /// Whether any `len`-byte window of `text`, lower-cased, has the SHA-256 hex digest `digest`.
     fn holds_digest(text: &str, len: usize, digest: &str) -> bool {
@@ -640,7 +638,9 @@ mod tests {
         assert!(e.item("needs-nothing-5").unwrap().held_out);
         assert!(!e.item("injection-5").unwrap().held_out);
         assert!(
-            !holds_digest(EXAM_V2, REAL_REPO_LEN, REAL_REPO_SHA256),
+            !theseus_judge::names::OLD
+                .iter()
+                .any(|d| holds_digest(EXAM_V2, OLD_NAME_LEN, d)),
             "the exam names a real repository"
         );
         // Scale: hundreds of sessions, from March to September.

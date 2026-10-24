@@ -69,8 +69,9 @@ pub fn packs_naming(names: &Names) -> Vec<(&'static str, usize)> {
 
 /// SHA-256 of four old organisation names, lower-cased. The repository is
 /// public, so they are held only as digests (theseus-a9zg9, theseus-cuv2o).
-#[cfg(test)]
-pub(crate) const OLD: [&str; 4] = [
+/// Other crates' tests read it through the `fake` feature.
+#[cfg(any(test, feature = "fake"))]
+pub const OLD: [&str; 4] = [
     "51571bf8b06e07629bde6177d7d08ebd8393cf247593f412f9200850afbe9456",
     "7380ccbf122a29113b7c0563493540d14337ed6d9d9c69048b49e619896a60a0",
     "3a60e130bb5cfaae5fa51696b3310767b62e32543a3bb00aa488c34a56ab3a09",

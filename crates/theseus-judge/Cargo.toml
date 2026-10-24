@@ -9,7 +9,8 @@ rust-version.workspace = true
 
 [features]
 # A fake Jev on 127.0.0.1 for other crates' tests and the simulator. The
-# crate's own unit tests always have it.
+# crate's own unit tests always have it. It also exports `names::OLD` (the old
+# names' digests) for other crates' tests.
 fake = []
 # The `jev-probe` binary: real calls with a key from the environment.
 probe = ["fake", "dep:clap"]
