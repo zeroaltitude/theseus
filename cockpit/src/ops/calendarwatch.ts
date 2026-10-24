@@ -6,10 +6,11 @@
 // The answer stays in memory: nothing is stored, logged or put in the address. A refusal (another connection, a shared
 // place) or an error is the lens's banner, in the daemon's words, never an empty grid.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CalendarWindow, CalendarWindowResult } from '@protocol'
+import type { CalendarWindowResult } from '@protocol'
 import { client, useConn } from '@/lib/rpc'
 import { weekWindow } from '@/lib/agenda'
 import { joinWindows } from './calendar'
+import { EMPTY, heldRead, type CalendarRead } from './calendarread'
 import { latches, wordsOf } from './refusal'
 import { readSpans, zoomed } from './timeline'
 
@@ -18,9 +19,7 @@ export const EVERY_MS = 5 * 60_000
 /** The push's bursts are one read. */
 const DEBOUNCE_MS = 300
 
-export interface CalendarRead { calendars: CalendarWindow[]; error: string | null; read: boolean }
-
-const EMPTY: CalendarRead = { calendars: [], error: null, read: false }
+export type { CalendarRead }
 
 /** `calendar.window` over `spans`, kept current by the push and the one timer. */
 export function useCalendar(spans: ReadonlyArray<{ from_ms: number; to_ms: number }>): CalendarRead {
@@ -31,6 +30,7 @@ export function useCalendar(spans: ReadonlyArray<{ from_ms: number; to_ms: numbe
   useEffect(() => { if (!open) latched.current = false }, [open])
   const sig = spans.map((s) => `${s.from_ms}-${s.to_ms}`).join(',')
   useEffect(() => {
+    if (!sig) setState((s) => heldRead(s, sig))
     if (!open || !sig) return
     let dead = false
     let soon: ReturnType<typeof setTimeout> | null = null

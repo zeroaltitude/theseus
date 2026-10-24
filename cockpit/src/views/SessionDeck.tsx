@@ -39,6 +39,7 @@ import { CallInspector } from '@/components/CallInspector'
 import { ModelInspector } from '@/components/ModelInspector'
 import { SessionGraph } from '@/components/SessionGraph'
 import { Composer } from '@/components/Composer'
+import { Toast } from '@/ops/Toast'
 import { TaskHeader } from '@/components/TaskHeader'
 import { useThreadBoard } from '@/lib/threadwatch'
 import { taskContext, viewOfTask } from '@/lib/taskpage'
@@ -192,6 +193,7 @@ function SessionDeck({ id }: { id: string }) {
       </Group>
       <CallInspector sessionId={id} />
       <ModelInspector sessionId={id} />
+      <Toast />
     </div>
   )
 }

@@ -16,6 +16,7 @@ import { profileChoices } from '../src/ops/newtask.ts'
 import { latches } from '../src/ops/refusal.ts'
 import { comingShows } from '../src/ops/regions.ts'
 import { readSpans } from '../src/ops/timeline.ts'
+import { EMPTY, heldRead, type CalendarRead } from '../src/ops/calendarread.ts'
 
 const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
 
@@ -240,4 +241,22 @@ test('Coming up’s read: nothing when it is not shown, and a refusal stops the 
   const hook = read('src/ops/calendarwatch.ts').replace(/\/\/.*$/gm, '')
   assert.match(hook, /if \(latches\(e\)\)/)
   assert.match(hook, /if \(!open\) latched\.current = false/)
+})
+
+test('Coming up folded drops the last answer: a stale read is not drawn again', () => {
+  const answer = { calendars: [{ id: 'c1@example.test' }], error: null, read: true } as unknown as CalendarRead
+  assert.deepEqual(heldRead(answer, ''), EMPTY)
+  assert.deepEqual(EMPTY, { calendars: [], error: null, read: false })
+  assert.equal(heldRead(answer, '1-2'), answer, 'a span change keeps the answer until the new read lands')
+  assert.match(read('src/ops/calendarwatch.ts').replace(/\/\/.*$/gm, ''), /heldRead\(/)
+})
+
+test('a refused hold’s words reach the deck as a toast', () => {
+  const panel = read('src/ops/EventDetail.tsx').replace(/\/\/.*$/gm, '')
+  assert.match(panel, /say\(refused\)/)
+  assert.ok(panel.indexOf('say(refused)') < panel.indexOf('nav(`/session/'), 'said before leaving the page')
+  assert.doesNotMatch(panel, /if \(refused\) setSaid/)
+  const deck = read('src/views/SessionDeck.tsx')
+  assert.match(deck, /import \{ Toast \} from '@\/ops\/Toast'/)
+  assert.match(deck, /<Toast \/>/)
 })

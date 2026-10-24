@@ -116,10 +116,7 @@ export const nodeIdOf = (v: Pick<WorkView, 'id' | 'kind' | 'session_id'>): strin
   (v.kind === 'conversation' || v.kind === 'task') && v.session_id ? v.session_id : v.id
 
 export function opsLayout(views: readonly WorkView[], records: readonly TaskRecord[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph {
-  const g = layout(views, records, lanes, prev, opts)
-  // The cap is never raised for an opening: when the graph is still over it with one open, lay it out without.
-  if (opts.opened?.size && g.nodes.length > (opts.cap ?? NODE_CAP)) return { ...layout(views, records, lanes, prev, { ...opts, opened: undefined }), cantOpen: true }
-  return g
+  return layout(views, records, lanes, prev, opts)
 }
 
 function layout(views: readonly WorkView[], records: readonly TaskRecord[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph {
@@ -207,6 +204,7 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
 
   // The cap: subtrees fold, the deepest and oldest first, never one that holds something that needs the owner.
   let folded = 0
+  let cantOpen = false
   if (shown.size > cap) {
     const kids = new Map<string, string[]>()
     for (const n of shown.values()) if (n.parent && shown.has(n.parent)) kids.set(n.parent, [...(kids.get(n.parent) ?? []), n.id])
@@ -216,15 +214,28 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
     // An opened root, and everything below it, stays as it is.
     const keep = new Set<string>()
     for (const o of opened) if (shown.has(o)) { keep.add(o); for (const m of below(o)) keep.add(m) }
-    for (const r of roots) {
-      if (shown.size <= cap) break
-      if (!shown.has(r) || keep.has(r)) continue
-      const sub = below(r)
-      if (sub.length < 2 || sub.some((m) => items.get(m)?.needs || keep.has(m))) continue
-      const id = `fold:${r}`
-      for (const m of sub) { shown.delete(m); into.set(m, id) }
-      shown.set(id, { id, kind: 'folded', lane: laneOf.get(r)!, col: depthOf.get(r)! + 1, parent: r, members: sub })
-      folded += sub.length
+    const pass = (hold: ReadonlySet<string>) => {
+      for (const r of roots) {
+        if (shown.size <= cap) break
+        if (!shown.has(r) || hold.has(r)) continue
+        const sub = below(r)
+        if (sub.length < 2 || sub.some((m) => items.get(m)?.needs || hold.has(m))) continue
+        const id = `fold:${r}`
+        for (const m of sub) { shown.delete(m); into.set(m, id) }
+        shown.set(id, { id, kind: 'folded', lane: laneOf.get(r)!, col: depthOf.get(r)! + 1, parent: r, members: sub })
+        folded += sub.length
+      }
+    }
+    const before = { shown: new Map(shown), into: new Map(into), folded }
+    pass(keep)
+    // The cap is never raised for an opening: if it is still over with the opening held, lay the folds out again
+    // without it. Only when that gets to the cap is the opening the cause.
+    if (keep.size && shown.size > cap) {
+      shown.clear(); for (const [k, v] of before.shown) shown.set(k, v)
+      into.clear(); for (const [k, v] of before.into) into.set(k, v)
+      folded = before.folded
+      pass(new Set())
+      cantOpen = shown.size <= cap
     }
   }
   const at = (id: string): string | undefined => { let x: string | undefined = alias.get(id) ?? id; for (let i = 0; x && !shown.has(x) && i < 8; i++) x = into.get(x); return x && shown.has(x) ? x : undefined }
@@ -303,7 +314,7 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
     for (const d of it.record?.deps ?? []) edge(it.id, d, 'deps')
     if (it.retryOf) edge(it.id, it.retryOf, 'retry')
   }
-  return { nodes, edges: [...edges.values()].sort((a, b) => (a.id < b.id ? -1 : 1)), lanes: out, width: GUTTER + cols * COL_W, slots, bands, order, folded }
+  return { nodes, edges: [...edges.values()].sort((a, b) => (a.id < b.id ? -1 : 1)), lanes: out, width: GUTTER + cols * COL_W, slots, bands, order, folded, ...(cantOpen ? { cantOpen } : {}) }
 }
 
 /** A task's kernel state as a work state, for the time machine's graph, which has the tasks but no views. */
