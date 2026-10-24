@@ -29,6 +29,10 @@
 //! the file `api.yaml` and the resource `deploy/api` share no whole word, and
 //! splitting words apart would join every `pytest tests/…` pair too. A call
 //! held back says so (`HELD`): "started after call 2, which names `web` too".
+//! A script's `cd /srv/app` names where it runs, as a call's own `cwd` does:
+//! two calls that change into one directory share nothing by that alone
+//! (`cd /srv/app && load-part 2` beside `… load-part 3`, theseus-1kr2g), but
+//! one that names that directory as a file or argument still waits for it.
 //!
 //! `[tools] parallel_reads`, `parallel_writes` and `parallel_runs` cap how
 //! many calls of a group of that class start at once; the rest of the group
@@ -100,9 +104,11 @@ impl Touch {
                 let argvs = plan.argv.iter().chain(plan.steps.iter().flatten());
                 let args = argvs.clone().flat_map(|a| a.iter().skip(1));
                 keys.extend(
-                    args.flat_map(|a| file_names(a))
+                    args.clone()
+                        .flat_map(|a| file_names(a))
                         .map(|n| format!("name:{n}")),
                 );
+                keys.extend(args.flat_map(|a| dir_names(a)).map(|n| format!("dir:{n}")));
                 keys.extend(
                     plan.resources
                         .iter()
@@ -165,8 +171,23 @@ impl Open {
 /// What two calls share: a key (a path, terminal, server or file name), else
 /// an operand.
 fn shared(m: &Touch, t: &Touch) -> Option<String> {
-    let key = m.keys.intersection(&t.keys).next().map(|k| shown(k));
+    let key = m.keys.iter().find(|k| meets(k, &t.keys)).map(|k| shown(k));
     key.or_else(|| operands::shared(&m.ops, &t.ops))
+}
+
+/// Whether one call's `key` meets a key of the other's: the same key, except
+/// that a directory both change into (`dir:`) is only where both run; a file
+/// name of the other's that names it (`name:`) meets it.
+fn meets(key: &str, other: &BTreeSet<String>) -> bool {
+    let crossed = |from: &str, to: &str| {
+        key.strip_prefix(from)
+            .is_some_and(|n| other.contains(&format!("{to}{n}")))
+    };
+    if key.starts_with("dir:") {
+        crossed("dir:", "name:")
+    } else {
+        other.contains(key) || crossed("name:", "dir:")
+    }
 }
 
 /// A shared key as the model reads it: the name, path or terminal.
@@ -186,8 +207,36 @@ pub(super) fn held_note(by: usize, on: &str) -> String {
 /// holds a `/` (a path or a URL), or that ends in an extension (`gen.py`).
 /// A shell script's words are split at its operators and quotes, and an
 /// option's value at its `=`. A device (`/dev/null`) is no file. It errs toward a name: two programs that share
-/// one only wait for each other.
+/// one only wait for each other. A script's `cd` and `pushd` name a directory,
+/// not a file (`dir_names`).
 pub(super) fn file_names(arg: &str) -> Vec<String> {
+    commands(arg)
+        .filter(|c| !changes_dir(c))
+        .flat_map(names)
+        .collect()
+}
+
+/// The directories a script's `cd` and `pushd` change into, named as
+/// `file_names` names a file: where the script runs, not a thing it works on.
+pub(super) fn dir_names(arg: &str) -> Vec<String> {
+    commands(arg)
+        .filter(|c| changes_dir(c))
+        .flat_map(names)
+        .collect()
+}
+
+/// A script's simple commands, split at its operators.
+fn commands(arg: &str) -> impl Iterator<Item = &str> {
+    arg.split(|c: char| ";|&\n()".contains(c))
+}
+
+/// Whether a simple command only changes the script's directory.
+fn changes_dir(command: &str) -> bool {
+    matches!(command.split_whitespace().next(), Some("cd" | "pushd"))
+}
+
+/// The file names one simple command's words name.
+fn names(arg: &str) -> Vec<String> {
     let words = arg.split(|c: char| c.is_whitespace() || "'\";|&<>()`=,$".contains(c));
     words
         .filter_map(|w| {
@@ -332,5 +381,85 @@ mod tests {
             got,
             [false, true, false, false, false, false, false, true, false, false]
         );
+    }
+
+    /// A `proc.run` call as the grouping reads it, through its gated plan:
+    /// `$ line` a `bash -c` line, else an argv split at its spaces.
+    fn proc_run(call: &str) -> Touch {
+        let argv: Vec<String> = match call.strip_prefix("$ ") {
+            Some(line) => vec!["bash".into(), "-c".into(), line.into()],
+            None => call.split(' ').map(String::from).collect(),
+        };
+        let plan = Plan {
+            argv: Some(argv),
+            ..Plan::default()
+        };
+        Touch::of(&theseus_tools::proc::Run, &Value::Null, &plan)
+    }
+
+    /// The whole rule, keys and operands, on the shapes a model writes a
+    /// fan-out of independent parts in (theseus-1kr2g): none shares a thing,
+    /// so all run together; what truly depends on another still waits.
+    #[test]
+    fn a_fan_out_of_parts_shares_nothing_and_a_true_share_still_waits() {
+        let independent = [
+            ("load-part 2", "load-part 3"),
+            ("load-part part-2", "load-part part-3"),
+            ("$ load-part 2", "$ load-part 3"),
+            (
+                "$ cd /srv/app && load-part 2",
+                "$ cd /srv/app && load-part 3",
+            ),
+            (
+                "$ pushd /srv/app; load-part 2",
+                "$ pushd /srv/app; load-part 3",
+            ),
+            (
+                "$ load-part 2; echo \"exit $?\"",
+                "$ load-part 3; echo \"exit $?\"",
+            ),
+            (
+                "$ load-part 2 2>&1 | tee part-2.log",
+                "$ load-part 3 2>&1 | tee part-3.log",
+            ),
+            ("$ timeout 600 load-part 2", "$ timeout 600 load-part 3"),
+            ("timeout 600 load-part 2", "timeout 600 load-part 3"),
+            (
+                "$ until load-part 2; do sleep 1; done",
+                "$ until load-part 3; do sleep 1; done",
+            ),
+            (
+                "$ cd /srv/app && load-part 2 2>&1 | tee /tmp/p2.log; echo \"exit=$?\"",
+                "$ cd /srv/app && load-part 3 2>&1 | tee /tmp/p3.log; echo \"exit=$?\"",
+            ),
+            ("$ cd /srv/app && load-part 2", "load-part /srv/app/3"),
+        ];
+        for (a, b) in independent {
+            assert_eq!(shared(&proc_run(a), &proc_run(b)), None, "{a} / {b}");
+            assert_eq!(shared(&proc_run(b), &proc_run(a)), None, "{b} / {a}");
+        }
+        let depends = [
+            (
+                "$ cd /srv/app && load-part 2",
+                "load-part 3 --out /srv/app",
+                "app",
+            ),
+            (
+                "$ load-part 2 > /srv/app/p2.out",
+                "$ cat /srv/app/p2.out",
+                "p2.out",
+            ),
+            (
+                "$ mkdir -p /srv/wt && load-part 2",
+                "$ cd /srv/wt && make",
+                "wt",
+            ),
+            ("git worktree add ../wt-a", "$ cd ../wt-a && make", "wt-a"),
+        ];
+        for (a, b, on) in depends {
+            let (a, b) = (proc_run(a), proc_run(b));
+            assert_eq!(shared(&a, &b).as_deref(), Some(on), "{a:?} / {b:?}");
+            assert!(shared(&b, &a).is_some(), "{b:?} / {a:?}");
+        }
     }
 }
