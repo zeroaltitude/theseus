@@ -339,7 +339,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_standing.rs`, `tests_standing_ring.rs` (three compactions), `standing::tests`, and the layouts sample and
   format-27 store test in `tests_layouts.rs`. Not yet: the context explorer's totals (`context.explain`) do not count
   the block.
-- **The owner card** (theseus-slvl.6; no store format change: META keys and two ledger kinds; `card/`, `rpc/card.rs`,
+- **The owner card** (theseus-slvl.6; no store format change then: META keys and two ledger kinds; live learning, theseus-6f8t0, is store format 51; `card/`, `rpc/card.rs`,
   `fact/card.rs`, `config/card.rs`, wire `theseus_protocol::card`): standing's facts and preferences, filled from the
   imported history one question at a time. `card::evidence` reads the archive's evidence by labels (a USER-style file, a
   feedback note, a `sop` book hint, a `decision_or_preference` triage) and **never a partner-confidential episode: the
@@ -361,7 +361,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and expiry (`card_expire`, applied when the card is read or the job runs, no timer) make its sources seen for good.
   The proposals are queue rows with owner-ask's words and options, not parked executions: thirty of those would hold
   thirty executions for a fortnight. The nightly tender (`card/tender.rs`) is the learning tender's `due` held to
-  `[card] every_days`, off once `card.done`. **Drafting** (theseus-ly75u): before clustering, `evidence::kept` drops a
+  `[card] every_days` for the archive pass, which is off once `card.done`; the live pass runs every night at the same
+  hour for as long as `[card] observe` is on, done or not. **Drafting** (theseus-ly75u): before clustering, `evidence::kept` drops a
   note's line addressed to an assistant about running itself (`addressed`: "you" as its reader, or a session's
   machinery, matched on word boundaries by `has_phrase` as `one_task` is; a bare "heartbeat" or "bootstrap" counts only in a line that also says "you"), keeps only the owner's lines (`about_owner`: a pronoun, "the owner", a third-person verb, or a name then one, "Mara prefers", "Mara is", unless the first word is a setup-file order or determiner from `NOT_A_NAME`) of an assistant's setup file (`setup_file`: soul, identity,
   bootstrap, agents, memory, heartbeat, tools, a dated daily log), and drops any line of one task, repository, branch or
@@ -374,6 +375,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   same kind, words and source). No coding scope: the route mode is decided after the standing block is fixed.
   Tests: `card/tests_pure.rs`, `card/tests_job.rs` (the invented archive in `card/fixture.rs`, and its `setup_export`),
   `config/tests_card.rs`.
+  **The live pass** (theseus-6f8t0; `card/live.rs`, `rpc/card_stale.rs`): the observer's `card.obs.<id>` notes (META, never a node:
+  not indexed, recalled or compiled; `CardObservation`, read through `state::observations` alone) become questions, nightly and after
+  the archive's run in `card.propose`: the observer's sweep first, then expiry, then **Stale** (an observation that contradicts a live
+  record: "still true?", Keep, Edit, End it; at most `[card] stale_per_night`, one open per record), **Add** (a fact or a correction
+  alone, at support 1, no call; or two or more clustered preferences and decisions, stated by the card's call) and **Pattern**
+  (preferences and decisions of at least `[card] pattern_sessions` distinct conversations), at most `[card] live_per_night` made since
+  this night's learning hour (`live::night_of`) and `max_open` open. An observation a question rests on is `used` in its frame; Not
+  this and expiry move it to `dropped`. `end` (`theseus card end`) revokes through `standing_revoke`; Edit on a Stale question is one
+  `standing.add` with `replaces`. Nothing keeps, ends or edits a record but the owner's answer. Tests: `card/tests_live.rs`.
   **The DM poster** (theseus-6f8t0; `card/dm.rs`, started with the card tender by `card_tenders_after_serving`): every 10 minutes, `due` picks
   the open proposals with `observations` and no `posted_ms`, oldest first, at most `[card] dm_per_day` a local day, from `[initiative]
   morning_hour` on, with `[card] observe` on, a DM bound and the pacer's window open (a closed window waits; never silent); each is one
