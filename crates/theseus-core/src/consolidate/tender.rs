@@ -64,6 +64,7 @@ impl Core {
                             written = d.written.len(),
                             refused = d.refused,
                             waiting = d.waiting,
+                            reasons = ?d.waits,
                             spent = d.spent,
                             stopped = d.stopped.as_deref().unwrap_or(""),
                             "dream: the guidance ran"
