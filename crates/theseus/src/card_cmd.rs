@@ -12,7 +12,8 @@ use clap::Subcommand;
 use theseus_client::{render, Conn};
 use theseus_protocol::{
     method, CardAnswerParams, CardAnswerResult, CardDoneParams, CardDoneResult, CardListParams,
-    CardListResult, CardProposal, CardProposeParams, CardProposeResult,
+    CardListResult, CardObservedParams, CardObservedResult, CardProposal, CardProposeParams,
+    CardProposeResult, ObservationState,
 };
 
 use crate::cmd::output;
@@ -53,6 +54,19 @@ pub enum CardCmd {
     Scope { id: String, scope: String },
     /// "Not this": the proposal is never made again for those sources.
     Decline { id: String },
+    /// What was noticed about you in conversation, kept privately and not yet asked about
+    /// (`--used` and `--dropped` list the others).
+    Observed {
+        /// Every state's, not only the open ones.
+        #[arg(long, conflicts_with_all = ["used", "dropped"])]
+        all: bool,
+        /// Those a question rests on.
+        #[arg(long, conflicts_with = "dropped")]
+        used: bool,
+        /// Those set aside.
+        #[arg(long)]
+        dropped: bool,
+    },
     /// Stop the nightly run: the card is done. `--undo` takes it back.
     Done {
         #[arg(long)]
@@ -71,6 +85,44 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: CardCmd) -> Result<()> {
                 .await?;
             output(json, v, |r: CardListResult| {
                 for l in list_lines(&r) {
+                    println!("{l}");
+                }
+                Ok(())
+            })
+        }
+        CardCmd::Observed { all, used, dropped } => {
+            let state = match (all, used, dropped) {
+                (true, ..) => None,
+                (_, true, _) => Some(ObservationState::Used),
+                (_, _, true) => Some(ObservationState::Dropped),
+                _ => Some(ObservationState::Open),
+            };
+            // The wire lists one state; `--all` asks each and joins them.
+            let mut r = CardObservedResult::default();
+            for s in [
+                ObservationState::Open,
+                ObservationState::Used,
+                ObservationState::Dropped,
+            ] {
+                if state.is_some_and(|w| w != s) {
+                    continue;
+                }
+                let p = CardObservedParams {
+                    state: Some(s),
+                    ..Default::default()
+                };
+                let v = conn
+                    .request(method::CARD_OBSERVED, serde_json::to_value(&p)?)
+                    .await?;
+                let one: CardObservedResult = serde_json::from_value(v)?;
+                r.observations.extend(one.observations);
+                (r.open, r.used, r.dropped, r.observe) =
+                    (one.open, one.used, one.dropped, one.observe);
+            }
+            r.observations
+                .sort_by(|a, b| (b.at_ms, &b.id).cmp(&(a.at_ms, &a.id)));
+            output(json, serde_json::to_value(&r)?, |r: CardObservedResult| {
+                for l in observed_lines(&r, theseus_protocol::now_unix_ms()) {
                     println!("{l}");
                 }
                 Ok(())
@@ -255,6 +307,42 @@ pub fn list_lines(r: &CardListResult) -> Vec<String> {
     out
 }
 
+/// `theseus card observed`'s lines: one for each observation (the handles of
+/// its messages, its kind, its words, its age), or one saying there are none.
+pub fn observed_lines(r: &CardObservedResult, now_ms: u64) -> Vec<String> {
+    if r.observations.is_empty() {
+        return vec![format!(
+            "Nothing observed here ({} open, {} used, {} dropped). [card] observe is {}.",
+            r.open,
+            r.used,
+            r.dropped,
+            if r.observe { "on" } else { "off" }
+        )];
+    }
+    r.observations
+        .iter()
+        .map(|o| {
+            let ids: Vec<&str> = o.nodes.iter().map(String::as_str).collect();
+            let handles = theseus_protocol::cite::handles_for(&ids).join(" ");
+            let days = now_ms.saturating_sub(o.at_ms) / 86_400_000;
+            let age = if days == 0 {
+                "today".to_string()
+            } else {
+                format!("{days}d ago")
+            };
+            format!(
+                "{}  {handles}  {}  {}  ({age})",
+                short(&o.id),
+                serde_json::to_value(o.kind)
+                    .ok()
+                    .and_then(|k| k.as_str().map(str::to_string))
+                    .unwrap_or_default(),
+                o.text
+            )
+        })
+        .collect()
+}
+
 fn line_of(p: &CardProposal) -> String {
     format!(
         "{}  {}  ({} sources{})",
@@ -296,7 +384,45 @@ mod tests {
             answered_by: None,
             kept_text: None,
             standing_id: None,
+            ask: Default::default(),
+            record: None,
+            observations: vec![],
+            posted_ms: None,
         }
+    }
+
+    #[test]
+    fn observed_lines_name_the_messages_the_kind_the_words_and_the_age() {
+        use theseus_protocol::{CardObservation, ObservationKind, ObservationState};
+        let none = CardObservedResult {
+            observe: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            observed_lines(&none, 0),
+            ["Nothing observed here (0 open, 0 used, 0 dropped). [card] observe is on."]
+        );
+        let one = CardObservedResult {
+            observations: vec![CardObservation {
+                id: "cob_00aa11bb".into(),
+                session: "ses_1".into(),
+                nodes: vec!["nod_000000abcdef".into()],
+                kind: ObservationKind::Fact,
+                text: "moors at the north jetty".into(),
+                at_ms: 0,
+                contradicts: None,
+                state: ObservationState::Open,
+                proposal: None,
+            }],
+            open: 1,
+            ..Default::default()
+        };
+        let lines = observed_lines(&one, 3 * 86_400_000);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(
+            lines[0],
+            "00aa11bb  m:abcdef  fact  moors at the north jetty  (3d ago)"
+        );
     }
 
     fn listed(open: Vec<CardProposal>) -> CardListResult {

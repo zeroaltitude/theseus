@@ -589,6 +589,7 @@ facts![
     initiative::InitiativeRated<'static>,
     card::CardProposed<'static>,
     card::CardAnswered<'static>,
+    card::CardObserved<'static>,
     persona_import::PersonaImported<'static>,
     persona_import::StandingProposalAnswered<'static>,
     standing::StandingAdded<'static>,

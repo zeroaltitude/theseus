@@ -144,7 +144,28 @@ pub(crate) const KIND_BEFORE_ONTO_CORE: &str = r#"{"name":"topic","basis":"inter
 /// build before theseus-utfnl writes.
 pub(crate) const CATEGORY_BEFORE_PERSONA: &str = r#"{"id":"person:ada-rowe","name":"Ada Rowe","description":"keeps the harbour log","added_by":"operator","handles":["email:ada@example.test"]}"#;
 
+/// A card proposal as format 50 wrote it, an archive job's `card.proposal.` META record,
+/// before the live pass's `ask`, `record`, `observations` and `posted_ms` (format 51,
+/// theseus-6f8t0). It reads as an Add question and writes back byte for byte. By hand, in
+/// the layout the build before theseus-6f8t0 writes.
+pub(crate) const CARD_PROPOSAL_AT_50: &str = r#"{"id":"cdp_0000000000000501","kind":"preference","scope":{"kind":"everywhere"},"text":"Prefers tide tables in metres","question":"Add to your card: 'Prefers tide tables in metres' (from 2 sources)? [Keep] [Edit] [Not this]","options":["Keep","Edit","Not this"],"sources":[{"episode":"ep_0000501","node":"nod_0000501","kind":"feedback","at_ms":1790000000501}],"support":2,"created_ms":1790000000502,"expires_ms":1790001200502,"state":"kept","run":"crd_0000000000000501","answered_ms":1790000000503,"answered_by":"owner","standing_id":"std_0000000000000501"}"#;
+
+#[test]
+fn a_format_50_card_proposal_reads_as_an_add_and_writes_back_byte_for_byte() {
+    let p: theseus_protocol::CardProposal = serde_json::from_str(CARD_PROPOSAL_AT_50).unwrap();
+    assert_eq!(p.ask, theseus_protocol::CardAsk::Add);
+    assert!(p.record.is_none() && p.observations.is_empty() && p.posted_ms.is_none());
+    assert_eq!(p.state, theseus_protocol::ProposalState::Kept);
+    assert_eq!(serde_json::to_string(&p).unwrap(), CARD_PROPOSAL_AT_50);
+}
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::META,
+        layout: "a card proposal at format 50 (theseus-utfnl's; unchanged since 34): before its ask, record, observations and posted time (51, theseus-6f8t0)",
+        bytes: CARD_PROPOSAL_AT_50,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::META,
         layout: "an ontology category at format 49 (theseus-a1wvq.5's): before a persona's card (50, theseus-utfnl)",
@@ -540,6 +561,10 @@ fn reread(kind: RecordKind, bytes: &[u8]) -> anyhow::Result<String> {
         kinds::META if String::from_utf8_lossy(bytes).contains(r#""basis":"#) => {
             again::<theseus_ontology::Kind>(bytes)
         }
+        // A card proposal (`card.proposal.`) has a question the others lack.
+        kinds::META if String::from_utf8_lossy(bytes).contains(r#""question":"#) => {
+            again::<theseus_protocol::CardProposal>(bytes)
+        }
         kinds::META => again::<theseus_ontology::Category>(bytes),
         k => anyhow::bail!("kind {k} has no reader here"),
     }
@@ -636,7 +661,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -688,7 +713,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -743,7 +768,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -816,7 +841,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -902,7 +927,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -967,7 +992,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -1014,7 +1039,7 @@ fn a_format_46_store_opens_with_its_nodes_and_takes_a_moved_range() {
     );
     store.append(&[note.record().unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let nodes = again.transcript(&sid).unwrap();
@@ -1092,7 +1117,7 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
         .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let all = crate::standing::Board::default().all(&again).unwrap();
@@ -1158,7 +1183,7 @@ fn a_format_39_store_opens_and_takes_a_pre_image() {
     let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
     store.append(&[p.record(0).unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
@@ -1235,7 +1260,7 @@ fn a_format_33_store_opens_with_no_headers_and_takes_one() {
         ])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let lib = crate::prefix::Library::default();
@@ -1309,7 +1334,7 @@ fn a_format_33_store_opens_with_no_hands_and_takes_them() {
         .put_meta(&crate::extend::broker::book_key("tidewc"), &book)
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 50);
+    assert_eq!(moved["format"], 51);
 }
 
 /// A task from before projects reads as a plain item, with no date and no

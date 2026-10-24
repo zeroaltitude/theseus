@@ -7,7 +7,10 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use theseus_protocol::{CardProposal, ProposalState, CARD_PROPOSAL_PREFIX};
+use theseus_protocol::{
+    CardObservation, CardProposal, ObservationState, ProposalState, CARD_OBS_PREFIX,
+    CARD_PROPOSAL_PREFIX,
+};
 use theseus_store::{kinds, NewRecord, Store as _};
 
 use crate::store::Store;
@@ -87,6 +90,40 @@ pub fn proposals(store: &Store) -> Result<Vec<CardProposal>> {
         }
     }
     out.sort_by(|a, b| (a.created_ms, &a.id).cmp(&(b.created_ms, &b.id)));
+    Ok(out)
+}
+
+/// The META key of an observation.
+pub fn obs_key(id: &str) -> String {
+    format!("{CARD_OBS_PREFIX}{id}")
+}
+
+/// The record of an observation (theseus-6f8t0).
+pub fn obs_record(o: &CardObservation) -> Result<NewRecord> {
+    NewRecord::json(kinds::META, Some(&obs_key(&o.id)), o)
+}
+
+/// Every observation, newest first, or only those in `state`. The one reader
+/// of the `card.obs.` records: the observer, the live pass and `card.observed`
+/// all call it. A record that does not read is left out and warned of.
+pub fn observations(
+    store: &Store,
+    state: Option<ObservationState>,
+) -> Result<Vec<CardObservation>> {
+    let mut out = Vec::new();
+    for r in store
+        .inner()
+        .latest_with_prefix(kinds::META, CARD_OBS_PREFIX)?
+    {
+        match r.decode::<CardObservation>() {
+            Ok(o) if state.is_none_or(|s| o.state == s) => out.push(o),
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!(key = ?r.key, error = %e, "a card observation does not read: left out")
+            }
+        }
+    }
+    out.sort_by(|a, b| (b.at_ms, &b.id).cmp(&(a.at_ms, &a.id)));
     Ok(out)
 }
 

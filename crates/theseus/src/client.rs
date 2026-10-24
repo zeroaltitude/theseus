@@ -565,7 +565,9 @@ mod tests {
             let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
             assert!(e.to_string().contains("theseus card"), "{e}");
         }
-        assert!(refuse_in_a_job(method::CARD_LIST, Some("ses_0000aa1b2c3")).is_ok());
+        for read in [method::CARD_LIST, method::CARD_OBSERVED] {
+            assert!(refuse_in_a_job(read, Some("ses_0000aa1b2c3")).is_ok());
+        }
     }
 
     /// A job's process cannot make or change a thread (theseus-nhew): the

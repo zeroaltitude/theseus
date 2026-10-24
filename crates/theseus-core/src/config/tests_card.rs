@@ -49,3 +49,34 @@ fn a_key_is_read_and_a_bad_one_is_refused_with_its_name() {
         assert!(format!("{e:#}").contains(word), "{bad}: {e:#}");
     }
 }
+
+#[test]
+fn live_learning_has_the_owners_defaults_and_its_bounds() {
+    let (cfg, _) = Config::parse(&doc("")).unwrap();
+    let c = &cfg.card;
+    assert_eq!(
+        (
+            c.observe,
+            c.live_per_night,
+            c.stale_per_night,
+            c.pattern_sessions,
+            c.dm_per_day
+        ),
+        (true, 5, 2, 3, 3)
+    );
+    for (bad, word) in [
+        ("live_per_night = 51", "live_per_night"),
+        ("stale_per_night = 6", "stale_per_night"),
+        ("pattern_sessions = 1", "pattern_sessions"),
+        ("pattern_sessions = 21", "pattern_sessions"),
+        ("dm_per_day = 11", "dm_per_day"),
+    ] {
+        let e = Config::parse(&doc(&format!("[card]\n{bad}\n"))).unwrap_err();
+        assert!(format!("{e:#}").contains(word), "{bad}: {e:#}");
+    }
+    let (cfg, _) = Config::parse(&doc(
+        "[card]\nobserve = false\nlive_per_night = 0\nstale_per_night = 0\ndm_per_day = 0\n",
+    ))
+    .unwrap();
+    assert!(!cfg.card.observe && cfg.card.live_per_night == 0 && cfg.card.dm_per_day == 0);
+}

@@ -549,3 +549,18 @@ fn the_starts_read_of_a_busy_day() {
         );
     }
 }
+
+/// The card's observer is model spend the day counts, as its job's proposals
+/// are, and every spend kind is a kind the ledger writes (theseus-6f8t0).
+#[test]
+fn the_card_observer_is_a_spend_kind() {
+    for k in ["card.observed", "card.proposed"] {
+        assert!(crate::day_ceiling::SPEND_KINDS.contains(&k), "{k}");
+    }
+    for k in crate::day_ceiling::SPEND_KINDS {
+        assert!(
+            k == "keep_warm" || theseus_protocol::LedgerKind::parse(k).is_some(),
+            "{k} is no ledger kind"
+        );
+    }
+}

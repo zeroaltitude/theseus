@@ -682,7 +682,10 @@ const BULK: usize = 4096;
 /// 50 = a persona (theseus-utfnl): an `onto:cat:persona:<key>` META record's `persona`
 /// card (the soul's path, its digest, the short fields, the default mark), the `persona`
 /// kind row, and the ledger kinds `persona.migrated` and `persona.soul`.
-const MANIFEST_FORMAT: u32 = 50;
+/// 51 = live learning (theseus-6f8t0): the META records `card.obs.<id>` (an owner
+/// observation) and `card.observe.<session>` (the observer's mark), a card proposal's
+/// `ask`, `record`, `observations` and `posted_ms`, and the ledger kind `card.observed`.
+const MANIFEST_FORMAT: u32 = 51;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
