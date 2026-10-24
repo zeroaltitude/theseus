@@ -40,6 +40,10 @@ use crate::speech::{SpeechError, Transcript, Usage};
 /// The turn in progress a ring keeps for a dropped stream: 30 s.
 pub(super) const RING: Duration = Duration::from_secs(30);
 
+/// A turn the listener has not ended after this long is given up on: 90 s.
+const TURN_MAX: Duration = Duration::from_secs(90);
+const TURN_MAX_TICKS: u64 = TURN_MAX.as_millis() as u64 / 20;
+
 /// Audio kept before a turn begins, which a `Start` arrives after: 1 s.
 const PRE_ROLL: Duration = Duration::from_secs(1);
 
@@ -184,10 +188,31 @@ impl Engine {
             .unwrap_or_default()
     }
 
-    /// Tell the listener a tick began.
+    /// Tell the listener a tick began, and give up on a turn it never ended:
+    /// open longer than [`TURN_MAX`], it is handed to the pre-recorded
+    /// recogniser as a dropped stream's is, so the floor is not held for ever.
     pub(super) fn flux_ticked(&mut self, tick: u64) {
-        if let Some(flux) = &mut self.flux {
-            flux.listen.tick(tick);
+        let Some(flux) = &mut self.flux else {
+            return;
+        };
+        flux.listen.tick(tick);
+        let stuck: Vec<Speaker> = flux
+            .lanes
+            .iter()
+            .filter(|(_, l)| {
+                l.turn
+                    .as_ref()
+                    .is_some_and(|t| tick.saturating_sub(t.start_tick) > TURN_MAX_TICKS)
+            })
+            .map(|(s, _)| *s)
+            .collect();
+        for speaker in stuck {
+            tracing::warn!(
+                speaker = speaker.0,
+                "voice: the listener never ended a turn open for {} s; its audio is transcribed once",
+                TURN_MAX.as_secs()
+            );
+            self.flux_lose_turn(speaker);
         }
     }
 

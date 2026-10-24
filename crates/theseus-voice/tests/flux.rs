@@ -650,3 +650,19 @@ async fn a_listener_that_cannot_be_reached_leaves_the_call_on_the_pause_rules() 
     assert_eq!(failed.len(), 1, "said once");
     assert!(failed[0].contains("401"), "{failed:?}");
 }
+
+/// A turn the listener never ends does not hold the floor for ever: after
+/// 90 s its audio is transcribed once and the turn happens.
+#[tokio::test(start_paused = true)]
+async fn a_turn_the_listener_never_ends_is_given_up_on() {
+    let mut io = WavIo::new(ms(100_000));
+    io.say(OWNER, ms(200), Audio::tone(220.0, ms(1_000), 0.3));
+    let listen = StandInListen::new();
+    let script = listen.0.at(tick_at(220), start());
+    let speech = Arc::new(StandInSpeech::new().transcript(OWNER, "Said, and never ended."));
+    let call = run(io, (script, listen.1), speech, false, |_| {}, nothing()).await;
+    let texts: Vec<_> = call.turns().into_iter().flat_map(|(_, t)| t).collect();
+    assert_eq!(texts, vec!["Said, and never ended.".to_string()]);
+    let at = call.turns()[0].0;
+    assert!(at >= ms(90_000) && at <= ms(91_500), "{at:?}");
+}
