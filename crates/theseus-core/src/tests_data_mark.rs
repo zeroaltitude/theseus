@@ -173,6 +173,8 @@ async fn a_sensitive_read_marks_the_session_and_a_task_under_it_sensitive() {
     );
     *r.model.hold.lock().unwrap() = Some("CHILD".into());
     let parent = parent_session(&r.core);
+    // The board holds views once something watches it.
+    let (_w, _) = crate::tests_work::Watcher::start(&r.core, WorkScope::default()).await;
     turn(&r.core, &parent, ASK).await;
     r.entered.recv().await.unwrap();
     let task = only_task(&r.core, &parent);
