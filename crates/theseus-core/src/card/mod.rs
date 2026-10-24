@@ -45,6 +45,14 @@
 //!   was made are remembered (`card.sent.<call>`), so a second run over the
 //!   same history sends nothing.
 //!
+//! - **Observations** (theseus-6f8t0; `observe.rs`): in a private conversation
+//!   the owner is alone in, one cheap call at an exchange's due point (and the
+//!   nightly sweep) reads the owner's own lines since its mark and keeps what
+//!   they say about the owner that should hold from now on, as unconfirmed
+//!   `card.obs.<id>` records. They are private notes: never a node, never
+//!   indexed or recalled, in no prompt and no shared place. A later pass turns
+//!   them into questions the owner answers.
+//!
 //! Nothing here is added to the card without the owner's answer, and nothing
 //! enters a turn's path: the job is off every turn, and the standing block's
 //! cached prefix changes only when the owner keeps one.
@@ -55,6 +63,7 @@ pub mod cluster;
 pub mod dm;
 pub mod evidence;
 pub mod live;
+pub mod observe;
 pub mod run;
 pub mod state;
 pub mod tender;
