@@ -110,7 +110,8 @@ All data is invented (titles like "Chart the quay soundings", "Tide tables"); no
 
 The VM's disk filled during the gate (about 40 GB of debug artifacts at two profiles): the gate got through **fmt, shape, features, clippy (`-D warnings`, whole workspace, all targets) and the cockpit's lint, test and build**, and failed in `test build` with `No space left on device`, not on a test. I cleared `target/` and ran what fits:
 
-GATE_RESULT_PLACEHOLDER
+- **`cargo nextest run -p theseus-core -p theseus-protocol`** (4,473 tests, 210 s, `TZ=America/Phoenix`): 4,472 passed, **1 failed**: `theseus-core data_mark::tests::a_sensitive_read_marks_the_session_and_a_task_under_it_sensitive` (`tests_data_mark.rs:197`, "the task's view": `work_snapshot_marked` returns no view for the task's session). **It is not mine**: it fails identically at the base: I took my `lib.rs` change and test file out, rebuilt, and it failed the same way (4,289 other tests filtered), then restored them; I did not look further, so its cause on this VM is unexplained (it is the ops-verbs row's test, `theseus-jid7t.2`). The registry test, `tests_layouts`, the golden output test (with the Phoenix clock) and my `tests_profile_floor` pass. The L1 reds the brief lists did not appear because I ran only these two crates.
+- **Not run: the rest of the workspace's suite** (theseusd, the sandbox crate, the bench phases), for the disk reason above; `THESEUS_GATE_NO_BENCH` was set anyway. The phases after the suite: `cargo deny --offline check` after `cargo deny fetch`: **advisories ok, bans ok, licenses ok, sources ok** (warnings only: unmatched licence allowances). The generated-TypeScript check needs no run: no protocol type changed, and the gate's `cockpit` phase passed.
 
 ## 10. For `docs/status.md`
 
