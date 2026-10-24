@@ -85,3 +85,43 @@ impl Fact for CardAnswered<'_> {
         );
     }
 }
+
+/// One call of the exchange-end observer (`card.observed`, theseus-6f8t0): what
+/// it cost and what it found. A row holds ids and counts, never the owner's
+/// words, which the `card.obs.` records hold. Its cost is the day's model
+/// spend (`day_ceiling::SPEND_KINDS`). The observer (a later row) writes it.
+pub struct CardObserved<'a> {
+    pub session: &'a str,
+    pub model: &'a str,
+    pub cost_usd: f64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// Observations the model returned, and those kept.
+    pub returned: u32,
+    pub kept: u32,
+    /// Those kept that restated a live standing record or an earlier
+    /// observation.
+    pub restated: u32,
+}
+
+impl Fact for CardObserved<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::CardObserved);
+
+    fn row(&self) -> Value {
+        json!({"session": self.session, "model": self.model, "cost_usd": self.cost_usd,
+               "input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
+               "returned": self.returned, "kept": self.kept, "restated": self.restated})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Card: an exchange read, {} found, {} kept, for {}.",
+                self.returned,
+                self.kept,
+                crate::narrative::dollars(theseus_judge::price::usd_to_micros(self.cost_usd))
+            ),
+        );
+    }
+}

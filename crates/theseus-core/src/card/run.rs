@@ -511,5 +511,9 @@ fn proposal(
         answered_by: None,
         kept_text: None,
         standing_id: None,
+        ask: Default::default(),
+        record: None,
+        observations: Vec::new(),
+        posted_ms: None,
     }
 }

@@ -11,7 +11,9 @@ export type CardAnswerParams = {
 id: string, 
 /**
  * `keep`, `edit` or `decline` (the question's options, any case); or
- * `scope`, on a kept proposal, with `scope`.
+ * `scope`, on a kept proposal, with `scope`; or `end` (End it), on a
+ * Stale question, which revokes its record (theseus-6f8t0; the live
+ * pass reads it).
  */
 option: string, 
 /**
