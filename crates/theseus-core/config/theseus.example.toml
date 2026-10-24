@@ -959,11 +959,12 @@ max_events = 10                         # at most this many events stand at once
 # [voice]
 # enabled = true
 # key_secret = "deepgram_api_key"       # the [secrets] entry holding the Deepgram key; only Theseus reads it
-# stt_model = "nova-3"                  # speech to text: "nova-3" (a pause of yours ends your turn: pause_ms, merge_ms), or
-#                                       # "flux-general-en" (Deepgram Flux, English: its model decides where your turn ends and
-#                                       # streams your voice for the whole call; pause_ms and merge_ms do not apply to it. If its
-#                                       # socket cannot be opened the call uses nova-3 and the pause rules. Voice notes and file
-#                                       # transcripts always use nova-3. Priced by the minute streamed)
+# stt_model = "flux-general-en"         # speech to text: "flux-general-en" (the default: Deepgram Flux, English; its model decides
+#                                       # where your turn ends and it streams your voice for the call; pause_ms and merge_ms do not
+#                                       # apply; if its socket cannot be opened the call uses nova-3 and the pause rules), or
+#                                       # "nova-3" (the fallback by config: a pause of yours ends your turn: pause_ms, merge_ms;
+#                                       # any language). Voice notes and file transcripts always use nova-3. Priced by the minute
+#                                       # streamed
 # eot_threshold = 0.7                   # Flux only: how sure it must be that your turn ended (0.5 to 0.9); higher: fewer early ends
 # eager_eot_threshold = 0.5             # Flux only: start a reply on an early end of turn (0.3 to 0.9) and take it back if you go on;
 #                                       # unset: off, only the end of turn starts a reply

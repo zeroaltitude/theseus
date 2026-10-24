@@ -40,6 +40,44 @@ fn the_rest_client_keeps_nova_3_and_the_socket_gets_flux() {
     assert!(!url.contains("dg-test-key"));
 }
 
+/// Flux is the default listener (the owner, 2026-10-24): a config with no
+/// `[voice]` table, or the owner's own (on, a lead-in, no model named),
+/// listens through Flux English, and the REST client still asks for nova-3.
+#[test]
+fn a_config_with_no_voice_table_listens_through_flux() {
+    for section in ["", "[voice]\nenabled = true\nlead_in_ms = 600"] {
+        let cfg = Config::parse(&format!("{}\n{section}\n", Config::EXAMPLE_TOML))
+            .unwrap()
+            .0
+            .voice;
+        assert!(cfg.uses_flux(), "{section:?}");
+        assert_eq!(settings(&cfg).stt_model, "nova-3", "{section:?}");
+        let listen = flux_listen("dg-test-key", &cfg, std::sync::Weak::new(), "k".into()).unwrap();
+        let url = listen.settings().url();
+        assert!(
+            url.starts_with("wss://api.deepgram.com/v2/listen?model=flux-general-en&"),
+            "{url}"
+        );
+    }
+}
+
+/// `stt_model = "nova-3"` is the fallback by config: no Flux socket, the
+/// pause rules end a turn, and both clients ask for nova-3.
+#[test]
+fn stt_model_nova_3_still_takes_the_pause_rules_path() {
+    let cfg = Config::parse(&format!(
+        "{}\n[voice]\nenabled = true\nstt_model = \"nova-3\"\n",
+        Config::EXAMPLE_TOML
+    ))
+    .unwrap()
+    .0
+    .voice;
+    assert!(!cfg.uses_flux());
+    assert_eq!((cfg.pause_ms, cfg.merge_ms), (1_200, 1_500));
+    assert_eq!(settings(&cfg).stt_model, "nova-3");
+    assert_eq!(cfg.prerecorded_model(), "nova-3");
+}
+
 /// A local `api_base` is a local socket, as it is for the REST client.
 #[test]
 fn a_local_api_base_is_a_local_socket() {

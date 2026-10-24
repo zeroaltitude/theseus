@@ -72,8 +72,8 @@ when it began against them (`Began`, `Timing`), its length, confidence and echo-
 `runtime/voice/tests_judged.rs` reads it. `tests/judged.rs` holds
 it all through the seam, in virtual time.
 
-Deepgram Flux can be the call's listener instead of the pause rules (theseus-v774k, `[voice] stt_model = "flux-general-en"`; the
-default stays nova-3). `src/listen.rs` is the seam (`Listen`: raw frames in, `Listened` events out; `StandInListen` scripts
+Deepgram Flux is the call's listener instead of the pause rules (theseus-v774k, `[voice] stt_model = "flux-general-en"`: the
+default (the owner, 2026-10-24); `stt_model = "nova-3"` is the fallback by config). `src/listen.rs` is the seam (`Listen`: raw frames in, `Listened` events out; `StandInListen` scripts
 events at ticks), `src/flux.rs` the client (`FluxListen`: one v2 socket per listed speaker, opened at their first audio,
 `CloseStream` at the call's end; the key only in the handshake's `Authorization` header and scrubbed by
 `deepgram::scrub_key`, the one scrub for REST and the socket; 80 ms chunks; 80 ms of silence every 5 s to a quiet speaker as the
@@ -81,13 +81,19 @@ keep-alive; an outbound queue of 8 s that drops the oldest audio, said once a sp
 30 s), and `src/engine/flux_path.rs` the engine's side (`Engine::with_listen`). With a listener, a speaker's utterance opens
 at `Start` and closes at `End` with Flux's words (the mean of the words' confidences, never the end-of-turn probability):
 no VAD, no `pause_ms`, no `merge_ms` (a Flux `Pending` is never merged), no second call; from the `Pending` on the engine is
-the same. A `Start` over Theseus's speech holds the clip at once if the residual (raw with `echo_cancel` off) shows 3 frames
-of speech since 200 ms before the turn and the speaker is not echo-prone, wordless or at the join; the `End`'s words then
-decide as ever. `Event::StopLatency` (start received to the stop sent, and to the clip's end) comes just before the
+the same. A `Start` over Theseus's speech holds the clip at once if the residual (raw with `echo_cancel` off) shows speech in 3
+of the last 10 ticks (`GATE_WINDOW`, a window, never a running total over the turn) and the speaker is not echo-prone,
+wordless or at the join; the `End`'s words then decide as ever. Discord sends no frames for a quiet speaker, so the engine
+fills: while a turn is open, and for `Listen::silence()` (`eot_timeout_ms`, else Flux's 5 s) after a speaker's last real
+frame, each tick pushes a zero frame (`Lane::fills`), so Flux hears the silence that ends the turn; after that window only
+the keep-alive runs. `Event::StopLatency` (start received to the stop sent, and to the clip's end) comes just before the
 `BargeIn` it belongs to, and `first word after the end of turn` is journaled on both paths. Eager end of turn (set by
 `eager_eot_threshold`): an `Eager` makes the turn, a `Resumed` before its reply plays takes the floor back and the reply is
 superseded by the `End`'s whole sentence, an unresumed `End` starts nothing. A stream that drops (`Down`) hands its turn in
 progress (a ring of at most 30 s) to the pre-recorded recogniser once and the speaker to the VAD until `Up`; a listener that
-cannot be reached (`Unavailable`) is off for the call. Both are `Failure::Flux`. Flux has no `smart_format`: dates, times
+cannot be reached (`Unavailable`) is off for the call. Both are `Failure::Flux`. At a reconnect the audio queued for the dead
+socket is dropped (`AudioQueue::clear`, counted in the dropped tally), never sent as the new session's first audio. Audio
+streamed that no `End` carried (the fill, the keep-alive, a dropped session's tail) is taken by `Listen::unbooked` and
+emitted as `Event::Streamed` at a `Down` and at the call's end, so every second streamed is booked. Flux has no `smart_format`: dates, times
 and numbers come unformatted. Tests: `tests/flux.rs` (the engine in virtual time), `tests/flux_socket.rs` (the client against a
 local socket server); plant the residual gate's removal and `a_start_of_turn_on_the_echo_alone_does_not_stop_the_clip` goes red.

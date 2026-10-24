@@ -4,7 +4,8 @@
 //!
 //! Flux is a streaming listener whose own model decides when a speaker's turn
 //! ends, so `pause_ms` and `merge_ms` do not apply to a call that uses it.
-//! `stt_model` stays `nova-3` until the owner changes it.
+//! `stt_model` defaults to Flux English (the owner, 2026-10-24); `nova-3` is
+//! the fallback by config (`stt_model = "nova-3"`: the pause rules).
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -129,15 +130,22 @@ mod tests {
         Config::parse(&format!("{}\n{section}\n", Config::EXAMPLE_TOML)).map(|(c, _)| c.voice)
     }
 
-    /// The default stays nova-3, with Flux's knobs unset; a Flux id parses.
+    /// The default is Flux English, with Flux's knobs unset; `nova-3` is the
+    /// fallback by config, with the pause rules; a Flux id parses.
     #[test]
-    fn the_default_stays_nova_3_and_a_flux_id_parses() {
+    fn the_default_is_flux_and_nova_3_is_the_fallback_by_config() {
         let none = Config::example().voice;
-        assert_eq!(none.stt_model, "nova-3");
-        assert!(!none.uses_flux());
+        assert_eq!(none.stt_model, "flux-general-en");
+        assert!(none.uses_flux());
         assert_eq!(none.eot_threshold, None);
         assert_eq!(none.eager_eot_threshold, None);
         assert_eq!(none.eot_timeout_ms, None);
+        let nova = with("[voice]\nstt_model = \"nova-3\"").unwrap();
+        assert!(!nova.uses_flux());
+        assert_eq!(
+            nova.pause_ms, 1_200,
+            "the fallback by config keeps the pause rules"
+        );
         let v = with("[voice]\nstt_model = \"flux-general-en\"").unwrap();
         assert!(v.uses_flux());
         assert_eq!(v.pause_ms, 1_200, "the pause rules keep their checks");
@@ -185,13 +193,18 @@ mod tests {
         let e = format!("{e:#}");
         assert!(e.contains("flux-general-en") && e.contains("\"de\""), "{e}");
         with("[voice]\nstt_model = \"flux-general-en\"\nlanguage = \"en-GB\"").unwrap();
-        // Nova-3 hears German as it always did.
-        with("[voice]\nlanguage = \"de\"").unwrap();
+        // Nova-3 hears German as it always did, by config.
+        with("[voice]\nstt_model = \"nova-3\"\nlanguage = \"de\"").unwrap();
+        // With no stt_model the default is Flux English: German alone is
+        // refused, and the message names the fallback.
+        let e = with("[voice]\nlanguage = \"de\"").unwrap_err();
+        let e = format!("{e:#}");
+        assert!(e.contains("\"nova-3\"") && e.contains("\"de\""), "{e}");
     }
 
     #[test]
     fn flux_knobs_without_a_flux_model_are_refused() {
-        let e = with("[voice]\neot_threshold = 0.8").unwrap_err();
+        let e = with("[voice]\nstt_model = \"nova-3\"\neot_threshold = 0.8").unwrap_err();
         assert!(format!("{e:#}").contains("not a Flux model"), "{e:#}");
     }
 

@@ -42,7 +42,8 @@ pub struct VoiceConfig {
     /// The `[secrets]` entry holding the Deepgram key.
     #[serde(default = "default_key_secret")]
     pub key_secret: String,
-    /// The speech-to-text model.
+    /// The speech-to-text model: Flux English by default (the owner,
+    /// 2026-10-24); `nova-3` is the fallback by config (the pause rules).
     #[serde(default = "default_stt_model")]
     pub stt_model: String,
     /// The language spoken, as Deepgram names it.
@@ -139,7 +140,7 @@ fn default_key_secret() -> String {
     "deepgram_api_key".into()
 }
 fn default_stt_model() -> String {
-    "nova-3".into()
+    FLUX_ENGLISH.into()
 }
 fn default_language() -> String {
     "en-US".into()
@@ -443,7 +444,7 @@ mod tests {
         };
         let cfg = with("[voice]\nenabled = true").unwrap();
         assert!(cfg.voice.enabled);
-        assert_eq!(cfg.voice.stt_model, "nova-3");
+        assert_eq!(cfg.voice.stt_model, "flux-general-en");
         assert_eq!(cfg.voice.language, "en-US");
         assert_eq!(cfg.voice.tts_voice, "aura-2-andromeda-en");
         assert_eq!(cfg.voice.api_base, super::DEEPGRAM_API);

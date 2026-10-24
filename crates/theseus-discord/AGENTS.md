@@ -504,13 +504,15 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `runtime/voice/tests_status.rs` (the pace on tokio's paused clock, the fake Discord's REST route and its 403), and
   `voice_status.rs`'s own.
 
-- **Flux as the call's listener** (theseus-v774k; `[voice] stt_model = "flux-general-en"`, default nova-3; `runtime/voice.rs`'s
+- **Flux as the call's listener** (theseus-v774k; `[voice] stt_model = "flux-general-en"`, the default; nova-3 by config; `runtime/voice.rs`'s
   `flux_listen`, `runtime/voice/tests_flux.rs`): the call's engine gets a `FluxListen` (`Engine::with_listen`), whose sockets open
   and whose turns start only while `speech_fits` has room (`FLUX_ESTIMATE`, half a minute of Flux audio); the REST client keeps
   `prerecorded_model()` (nova-3) for the fallback, and `file.read`'s voice notes do too. Flux audio is booked like any
   transcription, at the `flux-general` price (`Event::Utterance`'s usage: the audio streamed since the speaker's last turn). The
   `voice.barge_in` row gains `stop_latency_ms` and `ended_latency_ms` when a listener's start of turn stopped the clip (from
-  `Event::StopLatency`), and `voice.joined` names the `listener`. `pause_ms` and `merge_ms` apply only on the pause rules.
+  `Event::StopLatency`), and `voice.joined` names the `listener`. `pause_ms` and `merge_ms` apply only on the pause rules. The pump books
+  `Event::Streamed` (streamed audio no turn carried: the silence fill, the keep-alive, a dropped session's tail) as a
+  `speech.transcribed` row with `detail.trailing = true`.
 - **The join guard** (theseus-yf9ct; `[voice] join_guard`, on): the engine's `Config::join_guard` is set from it at the join; see
   theseus-voice's AGENTS.md. Off restores the old reading of a sound at the join and of a one-word echo.
 - **A call's judge of unclear transcripts** (theseus-s3dwj, `runtime/voice/judged.rs`; `[voice] judge_unclear`, on, and `judge_ms`, 250): the
