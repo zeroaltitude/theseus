@@ -43,7 +43,7 @@
     },
     {
      "key": "tasks",
-     "holds": "tasks and sub-sessions, and the task graph",
+     "holds": "tasks and sub-sessions, and the task graph; background work with a budget is task_create",
      "tools": [
       {
        "name": "task_create",
@@ -126,7 +126,7 @@
     },
     {
      "key": "tasks",
-     "holds": "tasks and sub-sessions, and the task graph",
+     "holds": "tasks and sub-sessions, and the task graph; background work with a budget is task_create",
      "tools": [
       {
        "name": "task_create",
@@ -209,7 +209,7 @@
     },
     {
      "key": "tasks",
-     "holds": "tasks and sub-sessions, and the task graph",
+     "holds": "tasks and sub-sessions, and the task graph; background work with a budget is task_create",
      "tools": [
       {
        "name": "task_create",
@@ -292,7 +292,7 @@
     },
     {
      "key": "tasks",
-     "holds": "tasks and sub-sessions, and the task graph",
+     "holds": "tasks and sub-sessions, and the task graph; background work with a budget is task_create",
      "tools": [
       {
        "name": "task_create",
@@ -375,7 +375,7 @@
     },
     {
      "key": "tasks",
-     "holds": "tasks and sub-sessions, and the task graph",
+     "holds": "tasks and sub-sessions, and the task graph; background work with a budget is task_create",
      "tools": [
       {
        "name": "task_create",
@@ -458,7 +458,7 @@
     },
     {
      "key": "tasks",
-     "holds": "tasks and sub-sessions, and the task graph",
+     "holds": "tasks and sub-sessions, and the task graph; background work with a budget is task_create",
      "tools": [
       {
        "name": "task_create",
@@ -541,7 +541,7 @@
     },
     {
      "key": "tasks",
-     "holds": "tasks and sub-sessions, and the task graph",
+     "holds": "tasks and sub-sessions, and the task graph; background work with a budget is task_create",
      "tools": [
       {
        "name": "task_create",

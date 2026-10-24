@@ -485,3 +485,66 @@ async fn a_reconnect_watches_the_placed_session_again() {
         .collect();
     assert!(ids.contains(&json!(PLACED)), "{ids:?}");
 }
+
+/// A question the placed session raised with no turn of this chat's (another
+/// surface's) is not owed here: its continuation does not print.
+#[tokio::test(start_paused = true)]
+async fn a_turnless_question_of_a_placed_session_is_not_owed() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.tell(asking(None));
+    r.tell(resolved("act_none"));
+    r.tell(continuation(PLACED, "turn_c1"));
+    r.tell(ended(PLACED, "turn_c1", "From the other surface."));
+    r.advance(300).await;
+    assert!(
+        !r.text().contains("From the other surface."),
+        "{}",
+        r.text()
+    );
+}
+
+/// A question of this chat's turn that closes with no answer (a stop) starts
+/// no continuation: a later one, another surface's, is not the chat's.
+#[tokio::test(start_paused = true)]
+async fn a_closed_question_leaves_nothing_owed() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    r.tell(placed("turn_t1"));
+    r.tell(asking(Some("turn_t1")));
+    r.shows("y yes").await;
+    r.tell(Event::ConfirmResolved(theseus_protocol::ConfirmResolved {
+        correlation_id: "act_turn_t1".into(),
+        session_id: PLACED.into(),
+        ..Default::default()
+    }));
+    r.tell(continuation(PLACED, "turn_c1"));
+    r.tell(ended(PLACED, "turn_c1", "Someone else's go."));
+    r.advance(300).await;
+    assert!(!r.text().contains("Someone else's go."), "{}", r.text());
+}
+
+/// The ninth placed session pushes the first out of `also`; it is unwatched,
+/// and the chat's own session never is.
+#[tokio::test(start_paused = true)]
+async fn an_evicted_placed_session_is_unwatched() {
+    let mut r = Rig::with(100, 40, placed_script()).await;
+    r.ready().await;
+    for n in 1..=9 {
+        r.tell(Event::ThreadPlaced(ThreadPlaced {
+            session_id: SID.into(),
+            placed: format!("ses_thread_{n}"),
+            turn_id: format!("turn_p{n}"),
+            tag: placed_tag(),
+        }));
+    }
+    r.settle().await;
+    let gone: Vec<_> = r
+        .daemon
+        .asked("session.unwatch")
+        .iter()
+        .map(|p| p["session_id"].clone())
+        .collect();
+    assert_eq!(gone, vec![json!("ses_thread_1")], "{gone:?}");
+}

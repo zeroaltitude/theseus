@@ -465,6 +465,7 @@ impl Chat {
             // follows, and the checklist goes into the transcript.
             Event::SessionMode(m) if self.ours(&m.session_id) => self.moded(&m),
             Event::ConfirmResolved(r) => {
+                self.placed_closed(&r);
                 if self
                     .question
                     .as_ref()

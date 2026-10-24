@@ -164,15 +164,6 @@ impl TurnRunner {
             .then(|| tools_defer::PLAN_FAMILY.to_string())
             .into_iter()
             .collect();
-        // A message that asks for a task loads the tasks family whichever way the model reaches
-        // the rest (theseus-gg78p); without tool search `want::extra` admits it, held to the fit.
-        if mechanism == Mechanism::Search
-            && !bare
-            && known.contains(tools_defer::family::TASKS)
-            && tools_defer::want::asks_for_task(ask)
-        {
-            extra.insert(tools_defer::family::TASKS.to_string());
-        }
         // Learned families stay inside the place's budget (theseus-buz3h).
         let rates = self
             .catalog
@@ -204,6 +195,19 @@ impl TurnRunner {
             true => BTreeSet::new(),
             false => offer(&extra, &fit),
         };
+        // A message that asks for a task loads the tasks family whichever way the model reaches
+        // the rest (theseus-gg78p), held to the ceiling as `want::extra` holds it. Left out, it
+        // stays deferred and searchable (theseus-s48k6).
+        if mechanism == Mechanism::Search
+            && !bare
+            && known.contains(tools_defer::family::TASKS)
+            && tools_defer::want::asks_for_task(ask)
+            && !loaded.contains(tools_defer::family::TASKS)
+            && tools_defer::want::fits(&fit, &loaded, tools_defer::family::TASKS)
+        {
+            extra.insert(tools_defer::family::TASKS.to_string());
+            loaded = offer(&extra, &fit);
+        }
         let mut raised = None;
         if mechanism == Mechanism::Find {
             // A family the message names, or Jev judged relevant, is held to the whole request, as

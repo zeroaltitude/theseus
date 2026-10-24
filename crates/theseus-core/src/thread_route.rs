@@ -673,9 +673,12 @@ pub fn apart_by_dir<'b>(
             let named_whole = |e: &str| {
                 entry_path(e, None, home).is_some() && has_token(&lower, &e.trim().to_lowercase())
             };
+            let before = h.len();
             h.retain(|(k, e)| !matches!(k, Kind::File | Kind::Root) || named_whole(e));
             *apart = true;
-            if p.sticky > 0.0 || p.chain > 0.0 || p.learned || h.len() < p.hits.len() {
+            // Entity hits alone: `p.hits` also holds a title the message names,
+            // which the rule keeps (theseus-axno0).
+            if p.sticky > 0.0 || p.chain > 0.0 || p.learned || h.len() < before {
                 dropped.push(p.slug.clone());
             }
         }
@@ -1604,6 +1607,43 @@ mod tests {
         assert!(pre[0].score > 0.0, "{pre:?}");
         assert_eq!(pre[1].chain, 0.0, "{pre:?}");
         assert!(pre[0].score > pre[1].score, "{pre:?}");
+    }
+
+    /// The debug trace names a thread whose evidence the rule dropped: a thread
+    /// named only by its title lost nothing; one whose file hit went did.
+    #[test]
+    fn a_title_only_apart_thread_is_not_dropped() {
+        let home = Path::new("/h");
+        let dev = th(
+            "dev",
+            "lighthouse dev",
+            ws(
+                &["#412"],
+                &[],
+                &[],
+                &["slow.sh"],
+                &[],
+                &["~/projects/harbor"],
+            ),
+        );
+        let ops = th("ops", "ops rota", ws(&["#977"], &[], &[], &[], &[], &[]));
+        let t = [&dev, &ops];
+        let base = |t: &ThreadInfo| (t.slug == "dev").then_some("/h/projects/harbor");
+        let run = |text: &str| {
+            let mut pre = pre_route(text, &t, None, 1_000, 600_000);
+            apart_by_dir(
+                &mut pre,
+                &t,
+                text,
+                Some("~/projects/walkthrough"),
+                base,
+                Some(home),
+            )
+        };
+        let titled = run("what is left in the lighthouse dev thread");
+        assert!(titled.is_empty(), "{titled:?}");
+        let filed = run("why is slow.sh failing");
+        assert_eq!(filed, ["dev"], "{filed:?}");
     }
 
     // ---- fusion and the decision table

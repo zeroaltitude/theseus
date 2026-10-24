@@ -14,8 +14,13 @@ const STEP_ONE: &str =
     "Start two background tasks, $1 each: A) bash ~/work/slow.sh census 3; B) slow.sh load 3";
 
 fn rig(search: bool) -> Rig {
+    rig_with(search, |_| {})
+}
+
+fn rig_with(search: bool, tweak: impl Fn(&mut crate::Config) + Send + 'static) -> Rig {
     rig_deferring(
         move |c| {
+            tweak(c);
             c.catalog.insert(
                 "claude-sonnet-5-5".into(),
                 CatalogRow {
@@ -30,7 +35,10 @@ fn rig(search: bool) -> Rig {
 
 /// Whether the first request to the model loads `task_create`: offered, and not deferred.
 async fn loads_tasks(search: bool, message: &str) -> bool {
-    let r = rig(search);
+    loads_tasks_with(rig(search), message).await
+}
+
+async fn loads_tasks_with(r: Rig, message: &str) -> bool {
     let sid = session(&r.core, Some(&format!("dm:{OWNER}")));
     turn(&r.core, &sid, message).await;
     let req: ProviderRequest = r.requests().remove(0);
@@ -44,6 +52,18 @@ async fn loads_tasks(search: bool, message: &str) -> bool {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_dm_message_asking_for_background_tasks_loads_the_tasks_family() {
     assert!(loads_tasks(true, STEP_ONE).await, "tool search on");
+}
+
+/// With tool search the asked family is held to the same ceiling as without: when it would
+/// not fit, `task_create` stays deferred and searchable (theseus-s48k6).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_asked_family_on_tool_search_stays_under_the_ceiling() {
+    let tight = rig_with(true, |c| c.tools.defer.admit_ceiling = 0.01);
+    assert!(!loads_tasks_with(tight, STEP_ONE).await);
+    assert!(
+        loads_tasks(true, STEP_ONE).await,
+        "the base config still loads it"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

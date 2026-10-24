@@ -168,21 +168,27 @@ pub fn extra(
         .chain(judged.into_iter().map(|(f, _)| (f.clone(), By::Jev)));
     let mut now = loaded.clone();
     for (fam, by) in order {
-        if !now.insert(fam.clone()) {
+        if now.contains(&fam) || !fits(fit, &now, &fam) {
             continue;
         }
-        if fit.total(&now) <= fit.ceiling {
-            let tokens = fit.tokens(&fam);
-            out.push(Admitted {
-                family: fam,
-                tokens,
-                by,
-            });
-        } else {
-            now.remove(&fam);
-        }
+        now.insert(fam.clone());
+        let tokens = fit.tokens(&fam);
+        out.push(Admitted {
+            family: fam,
+            tokens,
+            by,
+        });
     }
     out
+}
+
+/// Whether `family` joins `loaded` with the whole first request still at or
+/// under the ceiling: the one check of every family a message admits
+/// (theseus-s48k6).
+pub fn fits(fit: &Fit, loaded: &BTreeSet<String>, family: &str) -> bool {
+    let mut with = loaded.clone();
+    with.insert(family.to_string());
+    fit.total(&with) <= fit.ceiling
 }
 
 #[cfg(test)]

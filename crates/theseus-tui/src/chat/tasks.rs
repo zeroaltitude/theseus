@@ -93,6 +93,15 @@ impl Chat {
         )
     }
 
+    /// `session.unwatch` of one session: its events stop.
+    pub(super) fn unwatch_session(sid: &str) -> Effect {
+        call(
+            method::SESSION_UNWATCH,
+            json!({ "session_id": sid }),
+            Purpose::Watch,
+        )
+    }
+
     /// The same watch with the sessions of turns the router placed in
     /// threads (theseus-umb8a). A connection holds one `work.watch`, and a
     /// new one replaces the roots of the last, so this names them all.
