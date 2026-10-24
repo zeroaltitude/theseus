@@ -75,6 +75,31 @@ build.
     (`ops/facts.ts`) that must make every field the old component showed and the card that must draw it as
     `f.<field>`. A field added to a card goes into its fact function and its row's `fields`; a row a later lens takes
     over moves its `at` there. Never delete a row to make the test pass.
+  - **The acts** (theseus-jid7t.6; ops-act): the inspector's sections (`ops/InspectorSections.tsx` over `ops/sections.ts`: facts, the
+    Record, Standing, a job's command and eta), **Live** (`ops/Live.tsx` over `ops/live.ts`: the session's narrative, the model's
+    words from the push, and a followed job's output, which `ops/jobout.ts` drives by the pure `ops/follow.ts` machine: `work.peek`,
+    then `action.output`, and `action.unfollow` on leaving the selection, switching lens or unmounting, never twice), the **Join
+    pane** (`ops/JoinPane.tsx`, the address's `join`: `ses_…` a session, else a thread's slug; the deck's `Transcript` and drafts,
+    and the composer is the pure state `ops/composer.ts`: ⏎ steers a running turn, ⌘⏎ holds the message until `turn.ended`, esc
+    drops it, ⇧⇥ cycles the mode, `/t ` opens the thread picker, a thread with no session opens one on its first message), the
+    **model menu** `m` and **mode menu** `M` (`ops/ModelMenu.tsx` over `ops/menus.ts`: "this turn only" is `turn.submit
+    { profile }`, "from now on" is the sticky `session.profile` with a revert chip on the header and the toast's Undo; the
+    daemon's `refused` is shown in its words and changes nothing), the **dock** (`ops/Dock.tsx`, `\` folds it, ␣ pauses while it
+    has focus: the streams of `narrative.watch` and the models strip), the **palette** (`ops/palette.ts`, `PaletteGroups.tsx`,
+    `paletteStore.ts`: the page publishes a feed while mounted and the shell's ⌘K shows the verbs over a scope, one, all visible or
+    the selection, ⇥ cycling, and every entity; the selection scope is ops-graph's, passed at the one `// ops-graph: the selection
+    scope` line in `Ops.tsx`), the right-click menu (`ops/VerbMenu.tsx`), and sheets for the acts that need words (`ops/Sheet.tsx`:
+    New task, the thread verbs, re-home, reschedule; no `window.prompt` is left in `src/ops/`).
+  - **The verb table** (`ops/verbs.ts`) is the one list of acts: verb, kinds, method, posture (`do`, `arm`, `ask`, `floor`), and
+    whether one more call undoes it. The inspector, the palette and the right-click menu read it, and `test/ops-verbs.test.ts` pins
+    each row to the owner's table, each method to the protocol's, and each acting key of `keys.ts` to a verb (`KEY_VERB`). The one
+    row whose method the protocol lacks, `job.stop`, says so (`missing`) and is shown off.
+  - **The floor contract** (`ops/floor.ts`, `test/fixtures/profile_floor.json`): the daemon's refusal table (`data_mark::refusal_of`)
+    as data, one row per mark × origin × known. theseus-core's `tests_profile_floor.rs` holds the daemon to it and
+    `test/ops-floor.test.ts` holds `greyOf` (the menu's greying) to it; a change to the floor edits the file and both tests say so.
+  - **Quiet by construction**: a menu or sheet that is open owns the keys (`modal` in `Ops.tsx`); the dock's ␣ works only while the
+    dock has focus (the `dock` context outranks the rest), so ops-graph's ␣ is free elsewhere; every act is `useOpsAct`'s `act` (a
+    confirmed call) or `post` (the call with its answer, for a refusal in the daemon's words and an Undo).
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
   (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
   checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before

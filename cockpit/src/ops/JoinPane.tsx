@@ -8,7 +8,7 @@ import { Link } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { SendHorizontal } from 'lucide-react'
 import type { SessionHistoryResult, SessionInfo, SessionMode, SessionModeResult, ThreadRow } from '@protocol'
-import { useRpc, usePush, useSessionWatch } from '@/lib/rpc'
+import { useRpc, usePush } from '@/lib/rpc'
 import { turnRows } from '@/lib/derive'
 import { useHistoryRows } from '@/lib/history'
 import { addDraft, admitted, dropDraft, failDraft, useDrafts } from '@/lib/drafts'
@@ -21,13 +21,15 @@ import { transcriptTail } from './sections'
 import { MODES, modeAsk } from './menus'
 import { useOpsAct } from './act'
 import { useOpsUi } from './ui'
+import { StickyChip } from './ModelMenu'
+import { useWatchedSession } from './watch'
 
 export function JoinPane({ sessionId, thread, compact = false, session, focus = false, onPicker }: { sessionId?: string; thread?: string; compact?: boolean; session?: SessionInfo; focus?: boolean; onPicker?: () => void }) {
   const qc = useQueryClient()
   const { act, post, on } = useOpsAct()
   const { data: trow } = useRpc<ThreadRow>('thread.show', { slug: thread }, 0, { enabled: !!thread && !sessionId })
   const sid = sessionId ?? trow?.thread.session_id ?? undefined
-  useSessionWatch(sid)
+  useWatchedSession(sid)
   const { data: hist } = useRpc<SessionHistoryResult>('session.history', { session_id: sid, n: compact ? 12 : 60 }, 0, { enabled: !!sid })
   const { data: mode } = useRpc<SessionModeResult>('session.mode', { session_id: sid }, 0, { enabled: !!sid })
   const events = usePush((s) => s.events)
@@ -92,6 +94,7 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
         <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-[12px]">
           <span className="panel-title">join</span>
           <span className="truncate text-ink">{session?.title || trow?.thread.title || thread || sid}</span>
+          {sid && <StickyChip sessionId={sid} />}
           {mode && <span className="num rounded bg-white/5 px-1.5 text-[11px] text-ink-dim" title="⇧⇥ in the box cycles it">{mode.mode}</span>}
           {sid && <Link to={`/session/${sid}`} className="ml-auto text-[11px] text-live hover:underline">open the deck</Link>}
         </div>

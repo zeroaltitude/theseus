@@ -98,7 +98,7 @@ export const CTX_WORDS: Readonly<Record<Ctx, string>> = {
 }
 
 /** The verbs that act: off under the time machine. The table's, and the buttons' that no key presses. */
-export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark', 'join', 'model_turn', 'model_sticky', 'mode_set', 'live_profile'] as const
+export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark', 'join', 'model_turn', 'model_sticky', 'mode_set', 'live_profile', 'session_life', 'rehome', 'reschedule'] as const
 export type ButtonAct = (typeof BUTTON_ACTS)[number]
 export const ACTS: ReadonlySet<string> = new Set<string>([...KEYS.filter((k) => k.act).map((k) => k.verb), ...BUTTON_ACTS])
 

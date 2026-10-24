@@ -36,6 +36,24 @@ function Pop({ title, onClose, children }: { title: string; onClose: () => void;
   )
 }
 
+/** The session's held model and its one-click revert, with the toast's Undo (decision 2): on the header of the inspector
+ *  and of the Join pane. Shows nothing when no model is held. */
+export function StickyChip({ sessionId }: { sessionId: string }) {
+  const { post, on } = useOpsAct()
+  const say = useOpsUi((s) => s.say)
+  const sticky = stickyOf(useHistoryRows().rows, sessionId)
+  if (!sticky) return null
+  const revert = () => void post('model_sticky', 'session.profile', { session_id: sessionId, profile: null })
+    .then(() => say('back to the default', () => void post('model_sticky', 'session.profile', { session_id: sessionId, profile: sticky })))
+    .catch((e) => say(e?.message ?? String(e)))
+  return (
+    <span className="inline-flex items-center gap-1 rounded bg-gold/10 px-1.5 text-[11px] text-gold ring-1 ring-gold/30" title="the model chosen with “from now on”: every later turn runs on it">
+      ◇ {sticky} held
+      <button onClick={revert} disabled={!on('model_sticky')} aria-label="revert to the default model" className="inline-flex items-center gap-0.5 text-live hover:underline"><Undo2 size={10} /> revert</button>
+    </span>
+  )
+}
+
 export function ModelMenu({ session, onClose }: { session: SessionInfo; onClose: () => void }) {
   const qc = useQueryClient()
   const { post, on } = useOpsAct()

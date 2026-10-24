@@ -21,8 +21,10 @@ const LOOK: Record<Column, { glyph: string; tone: string; edge: string }> = {
   done: { glyph: '✓', tone: 'text-ok', edge: 'border-line' },
 }
 
-export function BoardLens({ cols, older, onMore, focus, onFocus, confirms, now }: {
+export function BoardLens({ cols, older, onMore, focus, onFocus, onContext, confirms, now }: {
   cols: BoardColumns; older: number; onMore: () => void; focus: string | null; onFocus: (id: string) => void
+  /** A right-click on a card: its verbs (`VerbMenu`). */
+  onContext?: (id: string, x: number, y: number) => void
   confirms: readonly ConfirmRequest[]; now: number
 }) {
   const lanes = laneRows(cols, older)
@@ -43,7 +45,7 @@ export function BoardLens({ cols, older, onMore, focus, onFocus, confirms, now }
               {rows.map((r, j) => (
                 <div key={r.id}>
                   {col === 'done' && j === cols.done.length && <div className="px-1 pb-1 pt-2 font-display text-[10px] font-bold uppercase tracking-[0.08em] text-ink-faint">older</div>}
-                  <Card r={r} now={now} focused={focus === r.id} onFocus={onFocus} asks={confirms.filter((c) => c.session_id === r.sessionId).length} />
+                  <Card r={r} now={now} focused={focus === r.id} onFocus={onFocus} onContext={onContext} asks={confirms.filter((c) => c.session_id === r.sessionId).length} />
                 </div>
               ))}
               {col === 'done' && cols.older.length > older && (
@@ -62,13 +64,13 @@ const EMPTY: Record<Column, string> = {
 }
 
 /** One card: every field of the Tasks page's card, and the model chip. */
-export const Card = memo(function Card({ r, now, focused, onFocus, asks }: { r: OpsRow; now: number; focused: boolean; onFocus: (id: string) => void; asks: number }) {
+export const Card = memo(function Card({ r, now, focused, onFocus, onContext, asks }: { r: OpsRow; now: number; focused: boolean; onFocus: (id: string) => void; onContext?: (id: string, x: number, y: number) => void; asks: number }) {
   const ref = useRef<HTMLDivElement>(null)
   const { busy, act, on } = useOpsAct()
   const f = cardFacts(r, now)
   useEffect(() => { if (focused) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [focused])
   return (
-    <div ref={ref} role="button" tabIndex={-1} aria-selected={focused} data-row={r.id} onClick={() => onFocus(r.id)}
+    <div ref={ref} role="button" tabIndex={-1} aria-selected={focused} data-row={r.id} onClick={() => onFocus(r.id)} onContextMenu={(e) => { if (onContext) { e.preventDefault(); onFocus(r.id); onContext(r.id, e.clientX, e.clientY) } }}
       className={cn('cursor-pointer rounded-lg border-l-2 bg-deck/70 px-2.5 py-2 ring-1 ring-transparent transition-shadow hover:ring-line', LOOK[r.column].edge,
         r.column === 'needs' && 'bg-wait/[0.05] shadow-[0_0_14px_-4px_var(--color-wait)]',
         focused && 'ring-gold shadow-[0_0_16px_-2px_rgb(214_165_72_/_0.55)]')}>

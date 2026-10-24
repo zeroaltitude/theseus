@@ -3,9 +3,9 @@
 // running job's output), its last turns with the composer, its Record and what stands for it; a job's command, eta and
 // followed output; a queue item's full card; a thread's panel with its verbs.
 import { Link } from 'react-router'
-import { Box, CircleStop, ExternalLink, Lock, MousePointerClick, OctagonX, Pause, Play, Undo2 } from 'lucide-react'
+import { Box, CircleStop, ExternalLink, Lock, MousePointerClick, OctagonX, Pause, Play } from 'lucide-react'
 import type { ConfirmRequest, TaskRecord } from '@protocol'
-import { useHistoryRows } from '@/lib/history'
+import { useState } from 'react'
 import { ConfirmCard } from '@/components/ConfirmCard'
 import { Pill, StatePill } from '@/components/ui'
 import { usd } from '@/lib/format'
@@ -20,9 +20,11 @@ import { Facts, RecordBlock, Section, StandingBlock } from './InspectorSections'
 import { JoinPane } from './JoinPane'
 import { Live } from './Live'
 import { jobFacts, recordFacts, runningJob, taskFacts } from './sections'
-import { stickyOf } from './menus'
+import { StickyChip } from './ModelMenu'
+import { RehomeSheet, RescheduleSheet } from './TaskSheets'
+import { targetOf, verbEntries } from './palette'
+import { useRunEntry } from './useRunEntry'
 import { verbById } from './verbs'
-import { useOpsUi } from './ui'
 
 /** What the inspector needs of the page beyond the selection. */
 export interface InspectorCx {
@@ -77,11 +79,11 @@ function ItemWhole({ i, past }: { i: QueueItem; past: number | null }) {
 
 /** A board row whole: the card's every field, its questions answered in place, and its verbs. */
 function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonly ConfirmRequest[]; past: number | null; now: number; cx: InspectorCx }) {
-  const { busy, act, post, on } = useOpsAct()
-  const say = useOpsUi((x) => x.say)
-  const ledger = useHistoryRows().rows
-  const sticky = r.sessionId ? stickyOf(ledger, r.sessionId) : null
+  const { busy, act, on } = useOpsAct()
+  const runEntry = useRunEntry()
+  const [sheet, setSheet] = useState<'rehome' | 'reschedule' | null>(null)
   const f = cardFacts(r, past ?? now)
+  const lifeEntries = verbEntries([targetOf(r)], { profiles: [], prices: new Map() }).filter((e) => ['recompile:transcript', 'recompile:fresh', 'retire', 'reopen'].includes(e.id) && !e.grey)
   const info = r.task?.info
   const running = r.view?.state === 'running' || r.view?.state === 'waiting' || r.session?.execution_state === 'running'
   // `execution.stop` is a conversation's; a task is stopped by `task.cancel`.
@@ -96,7 +98,7 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
       </div>
       <div className={r.kind === 'conversation' ? 'font-display text-[15px] font-bold tracking-[0.02em] text-ink' : 'text-[14px] font-semibold text-ink'}>{f.title}</div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
-        {f.model && <><dt className="text-ink-faint">model</dt><dd className="num text-model">◇ {f.model}{r.view?.moved_to ? ' (moved by a checkpoint)' : ''}{sticky && <span className="ml-1.5 text-gold" title="chosen with “from now on”">held <button onClick={() => void post('model_sticky', 'session.profile', { session_id: r.sessionId, profile: null }).then(() => say('back to the default', () => void post('model_sticky', 'session.profile', { session_id: r.sessionId, profile: sticky }))).catch((e) => say(e?.message ?? String(e)))} disabled={!on('model_sticky')} className="ml-1 inline-flex items-center gap-0.5 rounded px-1 text-live ring-1 ring-live/40 hover:bg-live/10"><Undo2 size={10} /> revert</button></span>}</dd></>}
+        {f.model && <><dt className="text-ink-faint">model</dt><dd className="num text-model">◇ {f.model}{r.view?.moved_to ? ' (moved by a checkpoint)' : ''}{r.sessionId && <span className="ml-1.5"><StickyChip sessionId={r.sessionId} /></span>}</dd></>}
         {f.place && <><dt className="text-ink-faint">place</dt><dd className="num text-ink" title={f.placeTip}>{f.place}</dd></>}
         {r.thread && <><dt className="text-ink-faint">thread</dt><dd className="num"><Link className="text-live" to={`/threads/${r.thread}`}>{r.thread}</Link></dd></>}
         {f.progress && <><dt className="text-ink-faint">progress</dt><dd className="num text-ink">{f.progress}</dd></>}
@@ -119,8 +121,13 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
         {r.kind === 'conversation' && <ActBtn verb="mode_menu" on={on} tone="idle" onClick={() => cx.onMenu('mode')} title="M: Ask, Edits, Plan, Auto">M · Mode</ActBtn>}
         {r.task?.info?.parent_session_id && <ActBtn verb="inspect" on={on} tone="idle" onClick={() => cx.onParent(r.task!.info!.parent_session_id)} title="p: its parent">p · Parent</ActBtn>}
         {r.kind === 'wake' && <ActBtn verb="cancel_wake" on={on} tone="fault" busy={busy === `${r.id}:x`} onClick={() => act('cancel_wake', `${r.id}:x`, 'wake.cancel', { wake: r.id }, `Cancel the wake “${f.title}”?`)}><OctagonX size={11} /> x · Cancel</ActBtn>}
+        {lifeEntries.map((e) => <ActBtn key={e.id} verb="session_life" on={on} tone="idle" onClick={() => void runEntry(e)}>{e.label}</ActBtn>)}
+        {r.kind === 'task' && r.task?.info && f.stop && <ActBtn verb="rehome" on={on} tone="think" onClick={() => setSheet('rehome')} title="move where its report goes (asks)">Re-home…</ActBtn>}
+        {r.kind === 'task' && r.column === 'scheduled' && <ActBtn verb="reschedule" on={on} tone="think" onClick={() => setSheet('reschedule')} title="change when it starts">Reschedule…</ActBtn>}
       </div>
       {confirms.map((c) => <ConfirmCard key={c.correlation_id} c={c} here past={past ?? undefined} />)}
+      {sheet === 'rehome' && <RehomeSheet task={r.id} title={f.title} home={r.task?.info?.parent_session_id} onClose={() => setSheet(null)} />}
+      {sheet === 'reschedule' && <RescheduleSheet task={r.id} title={f.title} startsAt={r.dueMs} onClose={() => setSheet(null)} />}
       {(r.kind === 'task' || r.kind === 'conversation') && <Sections r={r} cx={cx} now={now} />}
     </div>
   )

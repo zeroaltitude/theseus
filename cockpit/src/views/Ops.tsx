@@ -42,6 +42,7 @@ import { Dock, type DockState } from '@/ops/Dock'
 import { JoinPane } from '@/ops/JoinPane'
 import { ModeMenu, ModelMenu } from '@/ops/ModelMenu'
 import { Toast } from '@/ops/Toast'
+import { VerbMenu } from '@/ops/VerbMenu'
 import { entitiesOf, targetOf } from '@/ops/palette'
 import { useOpsPalette } from '@/ops/paletteStore'
 import { lastTurnOf } from '@/ops/sections'
@@ -143,6 +144,7 @@ export default function Ops() {
   const [newTask, setNewTask] = useState<{ home: string } | null>(null)
   const [menu, setMenu] = useState<'model' | 'mode' | null>(null)
   const [selfOpen, setSelfOpen] = useState(false)
+  const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [picker, setPicker] = useState(false)
   const [dockFold, setDockFold] = usePref(DOCK_KEY, parseFold)
   const [dock, setDock] = useState<DockState>({ paused: false, follow: false })
@@ -193,7 +195,7 @@ export default function Ops() {
   const living = focusRow?.view?.state === 'running' || focusRow?.view?.state === 'waiting'
   const exe = focusRow?.kind === 'conversation' ? focusRow.view?.id ?? focusRow.session?.execution_id : undefined
   // The session a menu or the composer acts on: the focused task's or conversation's.
-  const focusSession = focusRow && (focusRow.kind === 'task' || focusRow.kind === 'conversation') ? focusRow.session : undefined
+  const focusSession = (focusRow && (focusRow.kind === 'task' || focusRow.kind === 'conversation') ? focusRow.session : undefined) ?? sessions.find((x) => x.session_id === a.join)
   /** PgUp, PgDn and End scroll the open transcript (the Join pane's, else the inspector's). */
   const scrollTranscript = (by: number) => {
     const box = document.querySelector<HTMLElement>('[data-testid="join-pane"] .overflow-auto')
@@ -329,7 +331,7 @@ export default function Ops() {
   const joined = a.join ?? null
   const lensView = (
     <div className="h-full min-h-0 min-w-0 flex-1">
-      {a.lens === 'board' && <BoardLens cols={cols} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} confirms={confirms} now={now} />}
+      {a.lens === 'board' && <BoardLens cols={cols} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now} />}
       {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
         matches={(t) => shownSlugs.has(t.group.slug)} />}
       {a.lens === 'timeline' && (
@@ -387,6 +389,7 @@ export default function Ops() {
       {dockFold === 'open' && <Dock state={dock} onState={setDock} onFocus={setDockFocus} selected={focusRow?.sessionId ?? null} sessions={sessions} activeModel={a.f.model} onModel={(m) => filter('model', m)} />}
       {dockFold === 'folded' && <button onClick={() => setDockFold('open')} title="the dock (\\)" className="self-start rounded-lg border border-line bg-hull/60 px-3 py-1 text-[11px] text-ink-faint hover:text-ink">Dock · live streams and models <span className="kbd">\\</span></button>}
       <Toast />
+      {ctxMenu && rows.find((r) => r.id === ctxMenu.id) && <VerbMenu target={targetOf(rows.find((r) => r.id === ctxMenu.id)!)} x={ctxMenu.x} y={ctxMenu.y} onMenu={(m) => setMenu(m)} onClose={() => setCtxMenu(null)} />}
       {menu === 'model' && focusSession && <ModelMenu session={focusSession} onClose={() => setMenu(null)} />}
       {menu === 'mode' && focusSession && <ModeMenu session={focusSession} onClose={() => setMenu(null)} />}
       {selfOpen && (

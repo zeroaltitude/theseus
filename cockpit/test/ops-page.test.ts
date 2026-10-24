@@ -86,3 +86,10 @@ test('ops-act: the page mounts the Join pane, dock, menus and toast; no prompt o
   assert.match(src('ops/jobout.ts'), /run\(\{ kind: 'leave' \}\)/)
   assert.match(src('components/Shell.tsx'), /\{opsOn && <OpsPalette /)
 })
+
+test('a session is watched once however many panes hold it, and unwatched when the last leaves', () => {
+  const w = src('ops/watch.ts')
+  assert.match(w, /if \(n === 1\) client\.call\('session\.watch'/)
+  assert.match(w, /if \(left > 0\) \{ holders\.set\(sessionId, left\); return \}/)
+  assert.ok(!/useSessionWatch/.test(src('ops/JoinPane.tsx')), 'the pane uses the shared watch')
+})

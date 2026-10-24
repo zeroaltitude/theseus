@@ -25,6 +25,8 @@ export interface OpsTarget {
   paused: boolean
   /** A turn runs on it. */
   running: boolean
+  /** The owner retired it (conversations). */
+  retired: boolean
   /** It has ended or failed: a retry or a dismiss. */
   failed: boolean
   ended: boolean
@@ -37,6 +39,7 @@ export function targetOf(r: OpsRow): OpsTarget {
   return {
     id: r.id, kind, title: r.title, sessionId: r.sessionId, profile: r.model, data: r.data, paused: r.paused,
     running: state === 'running' || state === 'waiting' || r.session?.execution_state === 'running',
+    retired: !!r.session?.retired,
     failed: state === 'failed' || r.task?.info?.state === 'failed', ended: r.column === 'done',
     executionId: r.kind === 'conversation' ? r.view?.id ?? r.session?.execution_id : undefined,
   }
@@ -102,16 +105,31 @@ export function verbEntries(targets: readonly OpsTarget[], cx: Ctx): Entry[] {
       if (!t.sessionId || (t.kind !== 'conversation' && t.kind !== 'task')) skipped.push({ t, why: 'not a session' })
       else if (t.profile === p.name) skipped.push({ t, why: 'already on it' })
       else if (greyOf(t.data, p.name, p)) skipped.push({ t, why: `hold ${t.data} data` })
-      else takes.push({ t, plan: { verb: 'model_menu', key: `${t.sessionId}:model`, method: 'session.profile', params: { session_id: t.sessionId, profile: p.name } } })
+      else takes.push({ t, plan: { verb: 'model_sticky', key: `${t.sessionId}:model`, method: 'session.profile', params: { session_id: t.sessionId, profile: p.name } } })
     }
     const hint = costHint(cx.prices.get(p.model), cx.prices.get(cur?.model ?? ''))
     out.push(entry(`model:${p.name}`, `Switch model to ${p.name}`, takes, skipped, hint))
   }
   for (const m of ['ask', 'edits', 'plan', 'auto'] as const) {
     const ok = sessions.filter((t) => t.kind === 'conversation')
-    out.push(entry(`mode:${m}`, `Mode: ${m}`, ok.map((t) => ({ t, plan: { verb: 'mode_menu', key: `${t.sessionId}:mode`, method: 'session.mode', params: { session_id: t.sessionId, mode: m }, ask: m === 'auto' ? 'Set Auto? It then acts without asking (the floor still asks).' : undefined } })),
+    out.push(entry(`mode:${m}`, `Mode: ${m}`, ok.map((t) => ({ t, plan: { verb: 'mode_set', key: `${t.sessionId}:mode`, method: 'session.mode', params: { session_id: t.sessionId, mode: m }, ask: m === 'auto' ? 'Set Auto? It then acts without asking (the floor still asks).' : undefined } })),
       targets.filter((t) => !ok.includes(t)).map((t) => ({ t, why: 'not a conversation' }))))
   }
+  // Session life: recompile (the next turn's context again), the stop-nudge, retire and reopen.
+  const talk = targets.filter((t) => t.sessionId && (t.kind === 'conversation' || t.kind === 'task'))
+  const notTalk = targets.filter((t) => !talk.includes(t)).map((t) => ({ t, why: 'not a session' }))
+  for (const strategy of ['transcript', 'fresh'] as const) {
+    out.push(entry(`recompile:${strategy}`, `Recompile (${strategy})`, talk.map((t) => ({ t, plan: { verb: 'session_life', key: `${t.sessionId}:recompile`, method: 'session.recompile', params: { session_id: t.sessionId, strategy } } })), notTalk))
+  }
+  const convs = targets.filter((t) => t.kind === 'conversation' && t.sessionId)
+  const notConv = targets.filter((t) => !convs.includes(t)).map((t) => ({ t, why: 'not a conversation' }))
+  for (const on of [true, false]) {
+    out.push(entry(`nudge:${on ? 'on' : 'off'}`, `Stop-nudge ${on ? 'on' : 'off'}`, convs.map((t) => ({ t, plan: { verb: 'session_life', key: `${t.sessionId}:nudge`, method: 'session.nudge', params: { session_id: t.sessionId, on } } })), notConv))
+  }
+  out.push(entry('retire', 'Retire', convs.filter((t) => !t.retired).map((t) => ({ t, plan: { verb: 'session_life', key: `${t.sessionId}:retire`, method: 'session.retire', params: { session_id: t.sessionId }, ask: `Retire ${n(convs.filter((x) => !x.retired).length, 'conversation')}? Nothing is deleted; Reopen brings them back.` } })),
+    [...notConv, ...convs.filter((t) => t.retired).map((t) => ({ t, why: 'already retired' }))]))
+  out.push(entry('reopen', 'Reopen', convs.filter((t) => t.retired).map((t) => ({ t, plan: { verb: 'session_life', key: `${t.sessionId}:reopen`, method: 'session.reopen', params: { session_id: t.sessionId } } })),
+    [...notConv, ...convs.filter((t) => !t.retired).map((t) => ({ t, why: 'not retired' }))]))
   out.push({ id: 'new_task', label: 'Start a task', detail: 'its home the focused conversation', plans: [], opens: 'new_task' })
   return out
 }

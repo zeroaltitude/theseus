@@ -9,7 +9,7 @@ import { board, NOW } from './ops-fixtures.ts'
 
 const prof = (name: string, model: string, origin: string): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live: false, origin })
 const cx = { profiles: [prof('quick', 'm-s', 'us'), prof('deep', 'm-b', 'us'), prof('kimi', 'm-cn', 'cn')], prices: new Map([['m-s', { input: 1, output: 5, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 }], ['m-b', { input: 4, output: 20, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 }]]) }
-const t = (id: string, over: Partial<OpsTarget> = {}): OpsTarget => ({ id, kind: 'task', title: id, sessionId: id, profile: 'quick', paused: false, running: true, failed: false, ended: false, ...over })
+const t = (id: string, over: Partial<OpsTarget> = {}): OpsTarget => ({ id, kind: 'task', title: id, sessionId: id, profile: 'quick', paused: false, running: true, retired: false, failed: false, ended: false, ...over })
 const by = (es: ReturnType<typeof verbEntries>, id: string) => es.find((e) => e.id === id)!
 
 test('three cards selected: switch to the China-origin model is refused for the two that hold private data, per profile', () => {
@@ -28,7 +28,7 @@ test('three cards selected: switch to the China-origin model is refused for the 
 test('a sensitive card alone: the China-origin entry is greyed with the reason; a plan is one session.profile', () => {
   const es = verbEntries([t('c', { data: 'sensitive' })], cx)
   assert.ok(by(es, 'model:kimi').grey)
-  assert.deepEqual(by(es, 'model:deep').plans[0], { verb: 'model_menu', key: 'c:model', method: 'session.profile', params: { session_id: 'c', profile: 'deep' } })
+  assert.deepEqual(by(es, 'model:deep').plans[0], { verb: 'model_sticky', key: 'c:model', method: 'session.profile', params: { session_id: 'c', profile: 'deep' } })
 })
 
 test('pause, resume, cancel and stop take only what they apply to; the rest is counted', () => {
@@ -76,4 +76,15 @@ test('entities: sessions, tasks, threads, routines, projects and profiles, each 
   assert.deepEqual(es.find((e) => e.kind === 'thread')!.go, { sel: 'tide-tables' })
   assert.deepEqual(es.find((e) => e.id === 'kimi')!.go, { model: 'kimi' })
   assert.match(es.find((e) => e.id === 'ses_t1')!.hint, /sensitive/)
+})
+
+test('session life: recompile for sessions, nudge and retire for conversations, reopen for the retired; retire asks', () => {
+  const es = verbEntries([t('a', { kind: 'conversation' }), t('b', { kind: 'conversation', retired: true }), t('c')], cx)
+  assert.equal(by(es, 'recompile:fresh').plans.length, 3)
+  assert.deepEqual(by(es, 'recompile:fresh').plans[0].params, { session_id: 'a', strategy: 'fresh' })
+  assert.deepEqual(by(es, 'nudge:off').plans.map((p) => p.params), [{ session_id: 'a', on: false }, { session_id: 'b', on: false }])
+  assert.deepEqual(by(es, 'retire').plans.map((p) => p.key), ['a:retire'])
+  assert.match(by(es, 'retire').plans[0].ask!, /Retire 1 conversation/)
+  assert.deepEqual(by(es, 'reopen').plans.map((p) => p.method), ['session.reopen'])
+  assert.match(by(es, 'retire').detail, /1 already retired/)
 })
