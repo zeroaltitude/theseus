@@ -266,3 +266,96 @@ async fn a_bad_value_is_refused_with_the_allowed_ones() {
         ("Pilot", None)
     );
 }
+
+/// A persona the ontology refuses leaves no soul file: the check of the
+/// finished category runs before the file is written, so a reserved key and
+/// an empty field leave no file, no `.bak`, no `.md.new`, no persona and no
+/// `persona.soul` row.
+#[tokio::test]
+async fn a_refused_persona_writes_no_soul_file() {
+    let r = rig();
+    let refused = [
+        add("none", Some(SOUL)),
+        PersonaAddParams {
+            emoji: Some(String::new()),
+            ..add("pilot", Some(SOUL))
+        },
+    ];
+    for p in &refused {
+        assert!(r.core.persona_add(p, &owner()).is_err(), "{}", p.key);
+        let file = r.core.soul_home(&p.key);
+        let dir = file.parent().unwrap();
+        assert!(!file.exists(), "{}: the soul file was written", p.key);
+        let left: Vec<_> = std::fs::read_dir(dir)
+            .map(|d| d.flatten().map(|e| e.file_name()).collect())
+            .unwrap_or_default();
+        assert!(left.is_empty(), "{}: {left:?} left beside it", p.key);
+        assert!(!r.core.personas().exists(&p.key));
+    }
+    assert!(crate::tests_judge::kinds(&r.core.store, "persona.soul").is_empty());
+}
+
+/// A retired persona takes no write: it is out of the ontology's snapshot,
+/// so set and soul both say there is no such persona, it does not come back,
+/// and its old soul file is as it was with no new backup.
+#[tokio::test]
+async fn a_retired_persona_takes_no_write() {
+    let r = rig();
+    let made = r
+        .core
+        .persona_add(&add("pilot", Some(SOUL)), &owner())
+        .unwrap();
+    r.core
+        .persona_add(&add("scout", Some(SOUL)), &owner())
+        .unwrap();
+    let path = made.soul.unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let files = || {
+        let dir = std::path::Path::new(&path).parent().unwrap().to_owned();
+        let mut v: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        v.sort();
+        v
+    };
+    let listed = files();
+    r.core
+        .persona_retire(
+            &PersonaKeyParams {
+                key: Some("pilot".into()),
+                ..Default::default()
+            },
+            &owner(),
+        )
+        .unwrap();
+    let e = r
+        .core
+        .persona_set(
+            &PersonaSetParams {
+                key: "pilot".into(),
+                emoji: Some("🚢".into()),
+                ..Default::default()
+            },
+            &owner(),
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("no persona"), "{e}");
+    let e = r
+        .core
+        .persona_soul(
+            &PersonaSoulParams {
+                key: "pilot".into(),
+                text: "A new voice.".into(),
+                ..Default::default()
+            },
+            &owner(),
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("no persona"), "{e}");
+    assert!(!r.core.personas().exists("pilot"));
+    assert!(r.core.personas().exists("scout"));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(files(), listed, "no new backup or temp file");
+}

@@ -15,6 +15,8 @@ use crate::config::persona::capitalised;
 use crate::fact;
 use crate::rpc::Core;
 
+use super::soul;
+
 fn id_of(key: &str) -> Result<CategoryId> {
     Ok(CategoryId::new(super::KIND, key.trim())?)
 }
@@ -36,6 +38,18 @@ impl Core {
                 "no persona {key:?}: `theseus persona` lists them, `theseus persona add` makes one"
             ),
         }
+    }
+
+    /// The ontology's check of `c` as the frame will write it, run before
+    /// the soul file is written, so a refusal leaves no file behind. The
+    /// frame checks again under the ontology's lock; a write between the two
+    /// (the owner's, one at a time) can still refuse it after the file.
+    fn check_before_soul(&self, c: &Category) -> Result<()> {
+        self.runner
+            .ontology
+            .snapshot(&self.store)?
+            .check(&Record::Category(c.clone()), Origin::Operator)
+            .map_err(anyhow::Error::new)
     }
 
     /// Write `records` as the owner's, each with its category row, and
@@ -112,16 +126,18 @@ impl Core {
             card: p.card.clone(),
             ..PersonaCard::default()
         };
-        let written = match p.soul.as_deref() {
-            Some(text) => Some(self.write_soul(key, text, None)?),
+        let plan = match p.soul.as_deref() {
+            Some(text) => Some(self.plan_soul(key, text, None)?),
             None => None,
         };
-        if let Some(w) = &written {
-            card.soul = Some(w.path.clone());
-            card.soul_digest = Some(w.digest.clone());
+        if let Some(pl) = &plan {
+            card.soul = Some(pl.spelled.clone());
+            card.soul_digest = Some(pl.digest.clone());
         }
         let mut c = Category::new(id, name, super::soul_added_by(who));
         c.persona = Some(card);
+        self.check_before_soul(&c)?;
+        let written = plan.map(soul::Plan::write).transpose()?;
         let fact = written.as_ref().map(|w| super::soul_fact(key, w, who));
         self.write_persona_records(vec![c.clone()], who, || match &fact {
             Some(f) => Ok(vec![fact::row(f, None, None)?]),
@@ -151,9 +167,11 @@ impl Core {
             bail!("persona {key:?} is retired");
         }
         let card = c.persona.get_or_insert_with(PersonaCard::default);
-        let w = self.write_soul(key, &p.text, card.soul.as_deref())?;
-        card.soul = Some(w.path.clone());
-        card.soul_digest = Some(w.digest.clone());
+        let plan = self.plan_soul(key, &p.text, card.soul.as_deref())?;
+        card.soul = Some(plan.spelled.clone());
+        card.soul_digest = Some(plan.digest.clone());
+        self.check_before_soul(&c)?;
+        let w = plan.write()?;
         let fact = super::soul_fact(key, &w, who);
         self.write_persona_records(vec![c.clone()], who, || {
             Ok(vec![fact::row(&fact, None, None)?])

@@ -1,5 +1,6 @@
-//! A persona's soul file (theseus-utfnl): the cap on its size, and the one
-//! function that writes it.
+//! A persona's soul file (theseus-utfnl): the cap on its size, and the two
+//! steps that write it: [`Core::plan_soul`] checks the text and says what
+//! will be written, [`Plan::write`] writes it.
 //!
 //! A soul is small: `[context] persona_max_tokens` (2,000) bounds it, because
 //! every persona's soul sits in the DM's cached persona layer and a runbook
@@ -7,7 +8,7 @@
 //! with the count (never cut). A file already over it, by a hand edit or a
 //! migration, is carried whole and flagged.
 //!
-//! **Only the owner writes a soul.** [`Core::write_soul`] is reached only
+//! **Only the owner writes a soul.** [`Plan::write`] is reached only
 //! from the `persona.*` methods, each judged as an ontology write is: the
 //! owner, from a private place, and the CLI refuses them inside a job. No
 //! model tool writes a persona or its file. The write is atomic, the
@@ -61,16 +62,12 @@ impl Core {
             .join("PERSONA.md")
     }
 
-    /// Write `text` as `key`'s soul: at `current` (the path the category
-    /// holds) or at its home. The directory is 0700 and the file 0600; the
-    /// file is replaced atomically and the old one kept as `.<ms>.bak`. It
-    /// touches the disk: the callers run on the blocking pool.
-    pub(crate) fn write_soul(
-        &self,
-        key: &str,
-        text: &str,
-        current: Option<&str>,
-    ) -> Result<Written> {
+    /// Check `text` as `key`'s soul and work out what writing it would do:
+    /// the file at `current` (the path the category holds) or at its home,
+    /// the text as it will be written, its digest and its tokens. It writes
+    /// nothing, so a caller can check the category it will set before any
+    /// byte is on the disk.
+    pub(crate) fn plan_soul(&self, key: &str, text: &str, current: Option<&str>) -> Result<Plan> {
         let text = match text.trim() {
             "" => bail!(
                 "persona {key}'s soul is empty: write its voice, temperament and what it is for"
@@ -85,12 +82,39 @@ impl Core {
                 (p.display().to_string(), p)
             }
         };
-        let old = replace(&path, &text).with_context(|| format!("writing {}", path.display()))?;
-        Ok(Written {
-            path: spelled,
+        Ok(Plan {
+            spelled,
+            path,
             digest: crate::persona::digest(&text),
-            old,
+            text,
             tokens,
+        })
+    }
+}
+
+/// A soul checked and not yet written: [`Core::plan_soul`]'s answer.
+#[derive(Debug)]
+pub(crate) struct Plan {
+    /// The path as the category holds it.
+    pub spelled: String,
+    pub digest: String,
+    path: PathBuf,
+    text: String,
+    tokens: u64,
+}
+
+impl Plan {
+    /// Write it: the directory is 0700 and the file 0600; the file is
+    /// replaced atomically and the old one kept as `.<ms>.bak`. It touches
+    /// the disk: the callers run on the blocking pool.
+    pub(crate) fn write(self) -> Result<Written> {
+        let old = replace(&self.path, &self.text)
+            .with_context(|| format!("writing {}", self.path.display()))?;
+        Ok(Written {
+            path: self.spelled,
+            digest: self.digest,
+            old,
+            tokens: self.tokens,
         })
     }
 }

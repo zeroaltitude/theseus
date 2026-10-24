@@ -396,7 +396,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   with the count (`soul::within`), never cut; a hand-edited or migrated file over it is carried whole, said once a digest
   (`turn/persona_step.rs` `alert_over_cap`), flagged in `theseus census` and health. **Only the owner writes a soul**:
   `persona.add|soul|set|retire|default` are `Act::Ontology` acts (`judge_persona`: the owner, from a private place; the CLI
-  refuses them in a job), and `soul::write_soul` (atomic, 0600 in a 0700 directory, the replaced file kept as
+  refuses them in a job), and `soul::Plan::write` (checked first by `plan_soul` and the ontology, then atomic, 0600 in a 0700 directory, the replaced file kept as
   `.<ms>.bak`, a `persona.soul` row) is reached only from them. `persona.import` writes a category (origin import). A
   persona added without a soul draws one `persona_soul` post to the owner's DM (`personas/note.rs`; Discord's
   `runtime/persona_soul.rs`: Write its soul is a modal, Decline retires it, each `persona.soul` or `persona.retire` as the
