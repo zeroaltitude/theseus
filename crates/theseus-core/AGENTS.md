@@ -359,8 +359,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and expiry (`card_expire`, applied when the card is read or the job runs, no timer) make its sources seen for good.
   The proposals are queue rows with owner-ask's words and options, not parked executions: thirty of those would hold
   thirty executions for a fortnight. The nightly tender (`card/tender.rs`) is the learning tender's `due` held to
-  `[card] every_days`, off once `card.done`. Tests: `card/tests_pure.rs`, `card/tests_job.rs` (the invented archive in
-  `card/fixture.rs`), `config/tests_card.rs`.
+  `[card] every_days`, off once `card.done`. **Drafting** (theseus-ly75u): before clustering, `evidence::kept` drops a
+  note's line addressed to an assistant about running itself (`addressed`: "you" as its reader, or a session's
+  machinery), keeps only the owner's lines (`about_owner`) of an assistant's setup file (`setup_file`: soul, identity,
+  bootstrap, agents, memory, heartbeat, tools, a dated daily log), and drops any line of one task, repository, branch or
+  run (`one_task`); the result counts them (`setup`, `one_task`). The tool's `scope` takes `one_task`, which `parse`
+  drops and counts (no scope is that narrow); `parse` also drops a thin statement (under two content words) and one
+  that lost its lines' "on whose behalf". The tool's `conflicts` names a call's clusters a statement contradicts, and
+  `run::settle_conflicts` keeps the better supported of each pair and notes the other (`CardProposeResult.conflicts`).
+  **Scope**: `card.answer {scope}` (`StandingScope::from_words`, the one parser of `words()`'s forms) sets a keep's or
+  an edit's scope; option `scope` on a kept proposal writes its record again there (`standing.add` with `replaces`,
+  same kind, words and source). No coding scope: the route mode is decided after the standing block is fixed.
+  Tests: `card/tests_pure.rs`, `card/tests_job.rs` (the invented archive in `card/fixture.rs`, and its `setup_export`),
+  `config/tests_card.rs`.
 - **The owner's agents as personas** (theseus-a8n7, T10b; store format 41; `persona_import/`, `persona_recall.rs`,
   `standing_proposals.rs`, `rpc/persona_import.rs`, `rpc/standing_proposals.rs`, `config/persona_settings.rs`, `[persona_import]`
   because `[personas]` is a map of personas). `persona.import {from, name, agent?, dry_run}` (the import's act:

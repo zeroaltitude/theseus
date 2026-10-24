@@ -287,3 +287,210 @@ fn the_committed_fixture_is_the_builders_export() {
         crate::import::episode::parse(line).expect("every fixture line is a valid episode");
     }
 }
+
+/// What an assistant's setup is, by a line's words and a file's name; what
+/// the owner's lines are; and the count of what is dropped (theseus-ly75u).
+#[test]
+fn an_assistants_setup_is_no_evidence_and_the_owners_lines_stay() {
+    use super::evidence::{about_owner, addressed, kept, setup_file, Scan};
+    for l in [
+        "You are the lantern keeper's helper and you answer in a calm voice",
+        "Your first job is to greet the harbour master",
+        "Read this file first at every session start",
+        "Keep the daily log under the notes folder",
+    ] {
+        assert!(addressed(l), "{l}");
+    }
+    for l in [
+        "Never commit before the whole gate is green on the branch",
+        "Prefers short answers in the terminal and longer ones in documents",
+        "When you have an opinion on the mooring layout, give me your opinion",
+    ] {
+        assert!(!addressed(l), "{l}");
+    }
+    assert!(setup_file("memory.md") && setup_file("2026-10-01.md") && setup_file("heartbeat"));
+    assert!(!setup_file("user-harbour.md") && !setup_file("feedback_gate.md"));
+    for l in [
+        "Prefers tide tables in metric units",
+        "Lives in Mountain time",
+        "The owner keeps a boat at the north quay",
+        "He works best in the mornings",
+    ] {
+        assert!(about_owner(l), "{l}");
+    }
+    for l in [
+        "Always answer in a calm voice",
+        "Be warm but brief",
+        "You keep the ledger",
+    ] {
+        assert!(!about_owner(l), "{l}");
+    }
+    let mut scan = Scan::default();
+    // A note: the assistant's lines go, the owner's order stays.
+    assert!(!kept("You keep the harbour ledger", true, false, &mut scan));
+    assert!(kept(
+        "Never commit before the gate is green",
+        true,
+        false,
+        &mut scan
+    ));
+    // A setup file keeps only the owner's lines.
+    assert!(!kept(
+        "Be warm but brief with everyone",
+        true,
+        true,
+        &mut scan
+    ));
+    assert!(kept(
+        "Prefers tide tables in metric units",
+        true,
+        true,
+        &mut scan
+    ));
+    // A conversation's "you" is the owner speaking to his assistant.
+    assert!(kept(
+        "You should give me your opinion first",
+        false,
+        false,
+        &mut scan
+    ));
+    // One task's line, anywhere.
+    assert!(!kept(
+        "No builds in this task, the runner is busy",
+        false,
+        false,
+        &mut scan
+    ));
+    assert_eq!((scan.setup, scan.one_task), (2, 1));
+}
+
+#[test]
+fn one_tasks_words_are_found_and_a_lasting_line_is_not() {
+    use super::evidence::one_task;
+    for l in [
+        "No builds in this task",
+        "For this repo, merge lanes with a plain merge",
+        "Keep this branch rebased on main",
+        "In this run, skip the benches",
+    ] {
+        assert!(one_task(l), "{l}");
+    }
+    for l in [
+        "Read this runbook before a release",
+        "Wants the gate green before any commit",
+        "Prefers this terminal's colours dark",
+    ] {
+        assert!(!one_task(l), "{l}");
+    }
+}
+
+/// The instructions carry the who-and-on-whose-behalf rule, the specific
+/// wording rule, and the setup rule; the tool offers `one_task` and
+/// `conflicts`.
+#[test]
+fn the_instructions_keep_who_acts_and_on_whose_behalf() {
+    let i = ask::INSTRUCTIONS;
+    assert!(
+        i.contains("Keep who acts and on whose behalf exactly as the lines say"),
+        "{i}"
+    );
+    assert!(i.contains("not to speak on the owner's behalf"), "{i}");
+    assert!(i.contains("in words a later turn could act on"), "{i}");
+    assert!(i.contains("an assistant's instructions to itself"), "{i}");
+    let t = ask::tool();
+    let item = &t["input_schema"]["properties"]["cards"]["items"]["properties"];
+    assert!(item["scope"]["enum"]
+        .as_array()
+        .unwrap()
+        .contains(&json!(ask::ONE_TASK)));
+    assert_eq!(item["conflicts"]["type"], "array");
+}
+
+/// A statement that turns "do not speak on the owner's behalf" into "do not
+/// speak as yourself" is dropped; one that keeps it stays; a thin one is
+/// dropped; a `one_task` one is counted and not kept.
+#[test]
+fn a_turned_thin_or_one_task_statement_is_not_kept() {
+    let eps = vec![
+        ep(
+            "a",
+            1,
+            &["Do not speak on the owner's behalf in the harbour group chat"],
+        ),
+        ep(
+            "b",
+            2,
+            &["Have a real personality when answering questions"],
+        ),
+        ep("c", 3, &["For this repo, merge lanes with a plain merge"]),
+    ];
+    let cs = cluster(&eps);
+    let picked: Vec<usize> = (0..cs.len()).collect();
+    let s = shown(&picked, &cs);
+    let label_of = |id: &str| {
+        let i = eps.iter().position(|e| e.id == id).unwrap();
+        let k = s
+            .iter()
+            .find(|x| cs[x.cluster].episodes.contains(&i))
+            .unwrap();
+        (k.label.clone(), k.episodes[0].0.clone())
+    };
+    let (ka, ea) = label_of("a");
+    let (kb, eb) = label_of("b");
+    let (kc, ec) = label_of("c");
+    let turned = answer(json!([
+        {"cluster": ka, "text": "does not speak as itself in group chats", "kind": "preference", "scope": "everywhere", "episodes": [ea]},
+        {"cluster": kb, "text": "Have a personality", "kind": "preference", "scope": "everywhere", "episodes": [eb]},
+        {"cluster": kc, "text": "merges lanes with a plain merge", "kind": "preference", "scope": "one_task", "episodes": [ec]},
+    ]));
+    let got = parse(&turned, &s).unwrap();
+    assert_eq!(
+        (got.statements.len(), got.dropped, got.one_task),
+        (0, 2, 1),
+        "{got:?}"
+    );
+    let kept = answer(json!([
+        {"cluster": ka, "text": "never speaks on the owner's behalf in group chats", "kind": "preference", "scope": "everywhere", "episodes": [ea]},
+    ]));
+    let got = parse(&kept, &s).unwrap();
+    assert_eq!(got.statements.len(), 1, "{got:?}");
+}
+
+/// Of two statements that conflict, the better supported stays and the
+/// other is noted; statements that conflict with none all stay.
+#[test]
+fn of_two_conflicting_statements_the_better_supported_stays() {
+    use super::run::settle_conflicts;
+    let eps = vec![
+        ep("a", 1, &["ask before acting on anything in the harbour"]),
+        ep("b", 2, &["please ask before acting on the harbour work"]),
+        ep("c", 3, &["go ahead and act without waiting for a yes"]),
+        ep("d", 4, &["keeps tide tables in metric units always"]),
+    ];
+    let cs = cluster(&eps);
+    assert_eq!(cs[0].episodes.len(), 2, "{cs:?}");
+    let st = |c: usize, text: &str, conflicts: Vec<usize>| ask::Statement {
+        cluster: c,
+        text: text.into(),
+        kind: StandingKind::Preference,
+        scope: StandingScope::Everywhere,
+        conflicts,
+    };
+    let c_act = (0..cs.len()).find(|&i| cs[i].episodes == vec![2]).unwrap();
+    let c_metric = (0..cs.len()).find(|&i| cs[i].episodes == vec![3]).unwrap();
+    // The weaker names the stronger: the stronger stays.
+    let (kept, notes) = settle_conflicts(
+        &[
+            st(c_act, "acts without asking", vec![0]),
+            st(0, "asks before acting", vec![]),
+            st(c_metric, "keeps tide tables metric", vec![]),
+        ],
+        &cs,
+    );
+    let texts: Vec<&str> = kept.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(texts, ["asks before acting", "keeps tide tables metric"]);
+    assert_eq!(
+        notes,
+        ["kept 'asks before acting' over 'acts without asking': they conflict"]
+    );
+}

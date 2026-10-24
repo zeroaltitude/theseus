@@ -14,6 +14,10 @@
 //! run stops when `[card] max_open` are waiting, the day's line would be
 //! passed, or the clusters run out. A failed call writes its row and is not
 //! remembered as sent, so the next run reads those clusters again.
+//!
+//! Two statements of one call that the model says conflict are not both
+//! offered (`settle_conflicts`, theseus-ly75u): the one with more support
+//! stays, and the run's result notes the other.
 
 use theseus_kernel::micros_to_usd;
 use theseus_protocol::{
@@ -76,9 +80,16 @@ impl Job<'_> {
     /// The proposals `parsed`'s statements make: one each, until the queue
     /// is full, and none that repeats a live record or any proposal's words
     /// (`dropped` counts those left out).
-    fn statements(&mut self, parsed: &ask::Parsed, dropped: &mut u64) -> Vec<CardProposal> {
+    fn statements(
+        &mut self,
+        parsed: &ask::Parsed,
+        dropped: &mut u64,
+        conflicts: &mut Vec<String>,
+    ) -> Vec<CardProposal> {
+        let (kept, notes) = settle_conflicts(&parsed.statements, self.clusters);
+        conflicts.extend(notes);
         let mut made = Vec::new();
-        for s in &parsed.statements {
+        for s in &kept {
             if made.len() >= self.room || self.texts.iter().any(|t| cluster::similar(t, &s.text)) {
                 *dropped += 1;
                 continue;
@@ -173,8 +184,7 @@ impl Core {
         let fresh: Vec<usize> = (0..clusters.len())
             .filter(|&i| cluster::fresh(&clusters[i], &scan.episodes, &seen))
             .collect();
-        out.evidence = scan.episodes.len() as u64;
-        out.withheld = scan.withheld;
+        counted(&mut out, &scan);
         out.clusters = clusters.len() as u64;
         out.fresh = fresh.len() as u64;
         if full {
@@ -297,8 +307,9 @@ impl Core {
         out.spent_today_usd = job.st.spent_on(&job.today);
         let (model, usage, parsed, failed) = read_answer(&answered, &shown, &job.target.model);
         let mut dropped = u64::from(parsed.dropped);
-        let made = job.statements(&parsed, &mut dropped);
+        let made = job.statements(&parsed, &mut dropped, &mut out.conflicts);
         out.dropped += dropped;
+        out.one_task += u64::from(parsed.one_task);
         let ids: Vec<String> = made.iter().map(|p| p.id.clone()).collect();
         let f = CardProposed {
             run: &job.run,
@@ -367,6 +378,51 @@ impl Core {
             .ok_or_else(|| format!("no provider {:?} for {profile}", target.provider))?;
         Ok((target, provider))
     }
+}
+
+/// What a scan read and left out, on the run's result.
+fn counted(out: &mut CardProposeResult, scan: &Scan) {
+    out.evidence = scan.episodes.len() as u64;
+    out.withheld = scan.withheld;
+    out.setup = scan.setup;
+    out.one_task = scan.one_task;
+}
+
+/// The statements of one call with no conflicting pair: of two that conflict
+/// (either names the other's cluster), the one whose cluster has more
+/// support stays, a tie to the better ranked; the notes say what was kept
+/// over what. Pure.
+pub fn settle_conflicts(
+    statements: &[ask::Statement],
+    clusters: &[Cluster],
+) -> (Vec<ask::Statement>, Vec<String>) {
+    let mut order: Vec<usize> = (0..statements.len()).collect();
+    order.sort_by_key(|&i| {
+        let c = statements[i].cluster;
+        (std::cmp::Reverse(clusters[c].episodes.len()), c)
+    });
+    let clash = |a: &ask::Statement, b: &ask::Statement| {
+        a.conflicts.contains(&b.cluster) || b.conflicts.contains(&a.cluster)
+    };
+    let mut keep = vec![false; statements.len()];
+    let mut notes = Vec::new();
+    for i in order {
+        let s = &statements[i];
+        match (0..statements.len()).find(|&k| keep[k] && clash(&statements[k], s)) {
+            Some(k) => notes.push(format!(
+                "kept '{}' over '{}': they conflict",
+                statements[k].text, s.text
+            )),
+            None => keep[i] = true,
+        }
+    }
+    let kept = statements
+        .iter()
+        .zip(keep)
+        .filter(|&(_, k)| k)
+        .map(|(s, _)| s.clone())
+        .collect();
+    (kept, notes)
 }
 
 /// A proposal for `s`, resting on all of its cluster's episodes (the newest

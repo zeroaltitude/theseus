@@ -9,7 +9,7 @@ use theseus_client::{render, Conn};
 use theseus_protocol::method;
 use theseus_protocol::standing::{
     StandingAddParams, StandingAnswerParams, StandingAnswerResult, StandingChanged, StandingKind,
-    StandingListParams, StandingListResult, StandingRevokeParams, StandingScope, SURFACES,
+    StandingListParams, StandingListResult, StandingRevokeParams, StandingScope,
 };
 use theseus_protocol::{
     StandingProposal, StandingProposalAnswer, StandingProposalAnswered, StandingProposalsParams,
@@ -81,20 +81,7 @@ pub enum StandingCmd {
 }
 
 fn scope_of(s: &str) -> Result<StandingScope> {
-    Ok(match s.split_once(':') {
-        None if s == "everywhere" => StandingScope::Everywhere,
-        Some(("place", p)) if !p.is_empty() => StandingScope::Place(p.to_string()),
-        Some(("session", id)) if !id.is_empty() => StandingScope::Session(id.to_string()),
-        Some(("surface", n)) if SURFACES.contains(&n) => StandingScope::Surface(n.to_string()),
-        Some(("surface", n)) => bail!("`{n}` is no surface: write {}", SURFACES.join(", ")),
-        Some(("persona", n)) if !n.is_empty() => StandingScope::Persona(n.to_string()),
-        _ => {
-            bail!(
-                "`{s}` is no scope: write everywhere, place:TARGET, surface:NAME, persona:NAME, or \
-                 session:ID"
-            )
-        }
-    })
+    StandingScope::from_words(s).map_err(|e| anyhow::anyhow!(e))
 }
 
 fn age_ms(s: &str) -> Result<u64> {

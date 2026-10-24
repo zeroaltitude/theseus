@@ -80,6 +80,31 @@ impl StandingScope {
             Self::Everywhere => "everywhere".into(),
         }
     }
+
+    /// The scope `words()` wrote, read back: `everywhere`, `place:<target>`,
+    /// `surface:<name>` (one of [`SURFACES`]), `session:<id>`, or
+    /// `persona:<key>`. Any other form is refused with the list of forms.
+    pub fn from_words(s: &str) -> Result<Self, String> {
+        Ok(match s.trim().split_once(':') {
+            None if s.trim() == "everywhere" => Self::Everywhere,
+            Some(("place", p)) if !p.is_empty() => Self::Place(p.to_string()),
+            Some(("session", id)) if !id.is_empty() => Self::Session(id.to_string()),
+            Some(("surface", n)) if SURFACES.contains(&n) => Self::Surface(n.to_string()),
+            Some(("surface", n)) => {
+                return Err(format!(
+                    "`{n}` is no surface: write {}",
+                    SURFACES.join(", ")
+                ))
+            }
+            Some(("persona", n)) if !n.is_empty() => Self::Persona(n.to_string()),
+            _ => {
+                return Err(format!(
+                    "`{s}` is no scope: write everywhere, place:TARGET, surface:NAME, \
+                     persona:NAME, or session:ID"
+                ))
+            }
+        })
+    }
 }
 
 /// One record, as stored (a META record keyed `standing:<id>`).

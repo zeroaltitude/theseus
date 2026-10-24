@@ -2,7 +2,9 @@
 //! imported history. `card` lists what waits as questions (Keep, Edit, Not
 //! this), what was kept and declined, and the spend; `propose` runs the job
 //! now (`--dry-run` says what it would send and at most cost); `keep`,
-//! `edit` and `decline` answer one; `done` stops the nightly run. The writes
+//! `edit` and `decline` answer one (`--scope` says where a kept one holds);
+//! `scope` moves a kept one's record (theseus-ly75u); `done` stops the
+//! nightly run. The writes
 //! are the owner's acts (refused inside a job, `client::OPERATORS`).
 
 use anyhow::Result;
@@ -29,13 +31,26 @@ pub enum CardCmd {
         dry_run: bool,
     },
     /// Keep a proposal: it becomes a standing record every prompt of its scope carries.
-    Keep { id: String },
+    Keep {
+        id: String,
+        /// Where it holds, instead of the proposal's scope: everywhere, surface:NAME
+        /// (terminal, discord, voice, cockpit, mcp), place:TARGET, persona:NAME, or
+        /// session:ID.
+        #[arg(long)]
+        scope: Option<String>,
+    },
     /// Keep a proposal with your own words.
     Edit {
         id: String,
+        /// Where it holds, instead of the proposal's scope (as for keep).
+        #[arg(long)]
+        scope: Option<String>,
         #[arg(required = true)]
         text: Vec<String>,
     },
+    /// Move a kept proposal's record to another scope: the same words and source, the old
+    /// record ended. SCOPE as for keep's --scope.
+    Scope { id: String, scope: String },
     /// "Not this": the proposal is never made again for those sources.
     Decline { id: String },
     /// Stop the nightly run: the card is done. `--undo` takes it back.
@@ -76,9 +91,12 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: CardCmd) -> Result<()> {
                 Ok(())
             })
         }
-        CardCmd::Keep { id } => answer(conn, json, id, "keep", None).await,
-        CardCmd::Edit { id, text } => answer(conn, json, id, "edit", Some(text.join(" "))).await,
-        CardCmd::Decline { id } => answer(conn, json, id, "decline", None).await,
+        CardCmd::Keep { id, scope } => answer(conn, json, id, "keep", None, scope).await,
+        CardCmd::Edit { id, scope, text } => {
+            answer(conn, json, id, "edit", Some(text.join(" ")), scope).await
+        }
+        CardCmd::Scope { id, scope } => answer(conn, json, id, "scope", None, Some(scope)).await,
+        CardCmd::Decline { id } => answer(conn, json, id, "decline", None, None).await,
         CardCmd::Done { undo } => {
             let p = CardDoneParams {
                 done: !undo,
@@ -108,11 +126,13 @@ async fn answer(
     id: String,
     option: &str,
     text: Option<String>,
+    scope: Option<String>,
 ) -> Result<()> {
     let p = CardAnswerParams {
         id,
         option: option.into(),
         text,
+        scope,
         ..Default::default()
     };
     let v = conn
@@ -175,6 +195,16 @@ pub fn propose_lines(r: &CardProposeResult, dry_run: bool) -> Vec<String> {
                 String::new()
             }
         ));
+    }
+    if r.setup + r.one_task > 0 {
+        out.push(format!(
+            "Left out: {} lines of an assistant's setup (its instructions to itself), {} of one task, \
+             repository or run.",
+            r.setup, r.one_task
+        ));
+    }
+    for c in &r.conflicts {
+        out.push(format!("Conflict: {c}."));
     }
     if let Some(why) = &r.stopped {
         out.push(format!("Stopped: {why}."));
