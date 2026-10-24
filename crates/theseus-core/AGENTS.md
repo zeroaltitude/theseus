@@ -2688,7 +2688,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the provider's floor instead, as before). A turn fixes its model once (`route_to` routes once), so a running task takes it at
   its next turn, never mid-call. `null` puts back the target the session ran on when the hold began (`was`) and answers
   `previous`, which is the undo. **The refusal** is `data_mark::profile_refusal(cfg, catalog, mark, profile)`, pure over
-  `refusal_of(mark, profile, known, cleared)`, built on `uncleared` which `TurnRunner::uncleared_profile` reads too, so the menu
+  `refusal_of(mark, profile, known, origin, cleared)` (the origin picks the words only: a `us` profile that is not cleared is told the catalog does not list its model as of US origin), built on `uncleared` which `TurnRunner::uncleared_profile` reads too, so the menu
   and the route's floor cannot disagree (`turn/tests_sticky.rs` pins every mark x origin): a private or sensitive session runs
   only on a profile of US origin, an unknown profile runs nowhere, and a restricted profile on an open session is set with a note
   (the floor decides per turn). Nothing is written when refused. **The data mark** (`DataMark`: `open`, `private`,
@@ -2937,7 +2937,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **A turn's time, its progress, and its commands' CPUs** (theseus-2uy56, theseus-yct32). **The deadline**: a
   `turn.submit` may carry `deadline_secs` (`theseus ask --deadline SECS`), kept in memory by session and the request's
-  arrival (`turn/clock_step.rs`, `set_deadline` in `turn_submit`): the turn that submit started takes it at its first
+  arrival (`turn/clock_step.rs`, `set_deadline` in `turn_submit`; the map's key is `(session, arrival)`, so a later submit of the session, a steer or a queued submit, never takes or clears an earlier turn's): the turn that submit started takes it at its first
   loop (`take_deadline`, which drops it), and no other turn of the session has one (a nudge, a wake, a resume, a
   continuation, a submit that steers a running turn; a restart forgets it, and the turn has none). **The time line**: at a loop's start, when the whole minutes left changed (and at the first loop), a harness
   node `[The harness: 9 minutes left of this turn's 15.]` (author `harness:clock`): appended history, never the prefix,
