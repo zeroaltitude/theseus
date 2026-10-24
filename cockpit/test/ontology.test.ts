@@ -2,9 +2,9 @@
 // Invented categories and sessions.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { LedgerEntry, OntologyCategory, OntologyKind, OntologyMembership } from '@protocol'
+import type { LedgerEntry, OntologyCategory, OntologyKind, OntologyMembership, PersonaInfo, PersonaListResult } from '@protocol'
 import { readFileSync } from 'node:fs'
-import { ancestorsOf, confidenceWords, GROWTH_DAYS, growthOf, growthWords, groupKeyOf, groupsOf, guidanceInPlay, guidanceWords, judgmentHref, lastDays, mintedOf, NAMED_NOTE, nothingPending, parents, pendingOf, recordedOf, renamedOf, seriesOf, shown, treeOrder, undoAsk, undoneWrites, UNKNOWN_GROUP, withinCounts } from '../src/lib/ontology.ts'
+import { addParams, ancestorsOf, confidenceWords, GROWTH_DAYS, growthOf, growthWords, groupKeyOf, groupsOf, guidanceInPlay, guidanceWords, judgmentHref, lastDays, mintedOf, NAMED_NOTE, nothingPending, parents, pendingOf, personasOf, recordedOf, renamedOf, seriesOf, shown, soulAsk, soulState, soulWords, treeOrder, undoAsk, undoneWrites, UNKNOWN_GROUP, withinCounts } from '../src/lib/ontology.ts'
 
 const cat = (id: string, name: string, parent?: string, guidance?: [number, string], members = 0): OntologyCategory => ({
   id, kind: id.split(':')[0], name, parent, depth: 1, description: '', added_by: 'the operator', members,
@@ -322,4 +322,33 @@ test('a category write that is no rename is not listed as one, whatever its name
     catRow(at(0), 'topic:tides', 'sweep', undoRec('sweep-3-0-merge', 'onto:cat:topic:tides', { id: 'topic:tides', name: 'Tides' }, { id: 'topic:tides', name: 'tides' })),
   ]
   assert.deepEqual(renamedOf(other), [])
+})
+
+// Personas (theseus-utfnl).
+const persona = (key: string, over: Partial<PersonaInfo> = {}): PersonaInfo => ({
+  key, name: key[0].toUpperCase() + key.slice(1), initiative: 'normal', files: [], digest: 'd', places: [], warnings: [], ...over,
+})
+
+test('a persona’s soul is live, awaiting, or live over its cap, and says so with its size', () => {
+  const live = persona('alder', { soul_tokens: 312 })
+  const waiting = persona('scout', { awaiting: true })
+  const big = persona('ember', { soul_tokens: 2300, over_cap: true })
+  assert.deepEqual([live, waiting, big].map(soulState), ['live', 'awaiting', 'over_cap'])
+  assert.equal(soulWords(live, 2000), 'live · 312 of 2,000 tokens')
+  assert.equal(soulWords(waiting, 2000), 'awaiting its soul')
+  assert.equal(soulWords(big, 2000), 'over its cap · 2,300 of 2,000 tokens: carried whole, trim it')
+})
+
+test('the personas list has the default first, then by key, and not the built-in', () => {
+  const r: PersonaListResult = {
+    personas: [persona('dune'), { ...persona('x'), key: undefined, name: 'Theseus' }, persona('brook'), persona('cinder', { is_default: true })],
+    built_in_bytes: 0, built_in_digest: '', cap: 2000, places: [],
+  }
+  assert.deepEqual(personasOf(r).map((p) => p.key), ['cinder', 'brook', 'dune'])
+})
+
+test('the add form sends only what was written, from the cockpit; no soul means it awaits one', () => {
+  assert.deepEqual(addParams({ key: ' pilot ', name: '', emoji: '⚓', card: ' ', soul: '' }), { key: 'pilot', from: 'the cockpit', emoji: '⚓' })
+  assert.deepEqual(addParams({ key: 'pilot', name: 'Pilot', emoji: '', card: 'Harbour.', soul: 'Dry.' }), { key: 'pilot', from: 'the cockpit', name: 'Pilot', card: 'Harbour.', soul: 'Dry.' })
+  assert.match(soulAsk('pilot', 2000), /Write the soul of pilot\? .*2,000 tokens is refused/)
 })

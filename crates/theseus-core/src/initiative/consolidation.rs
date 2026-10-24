@@ -29,7 +29,7 @@ impl Core {
             .collect();
         if kept.is_empty()
             || !self
-                .cfg
+                .personas()
                 .persona_for(None, None)
                 .initiative
                 .lets(Proactive::Observation)

@@ -20,7 +20,7 @@ fn a_persona_has_optional_fields_with_defaults() {
         w.is_empty() || w.iter().all(|x| x.contains("default_persona")),
         "{w:?}"
     );
-    let v = cfg.persona_for(Some("pier"), None);
+    let v = crate::personas::Book::of_config(&cfg).persona_for(Some("pier"), None);
     assert_eq!(
         (
             v.name.as_str(),
@@ -34,7 +34,7 @@ fn a_persona_has_optional_fields_with_defaults() {
         (v.avatar.as_deref(), v.initiative.as_str()),
         (Some("~/a.png"), "chatty")
     );
-    let bare = cfg.persona_for(Some("quiet_one"), None);
+    let bare = crate::personas::Book::of_config(&cfg).persona_for(Some("quiet_one"), None);
     assert_eq!(
         (bare.name.as_str(), bare.initiative.as_str()),
         ("Quiet_one", "normal")
@@ -119,11 +119,14 @@ fn engagement_is_shadow_and_off_until_the_owner_says_otherwise() {
     assert_eq!(on.threads.persona_engage, PersonaEngage::Act);
     assert!(on.threads.seal_recommend);
     assert!(on.personas["pier"].shareable && !on.personas["quiet_one"].shareable);
-    assert!(on.persona_engaging(), "two personas engage");
+    assert!(
+        crate::personas::Book::of_config(&on).engaging(),
+        "two personas engage"
+    );
     assert!(Config::parse(&doc("[threads]\npersona_engage = \"always\"\n")).is_err());
     let one = Config::parse(&doc("[personas.pier]\n")).unwrap().0;
     assert!(
-        !one.persona_engaging(),
+        !crate::personas::Book::of_config(&one).engaging(),
         "one persona is the session's, nothing is engaged"
     );
 }

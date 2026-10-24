@@ -115,6 +115,10 @@ pub struct Category {
     /// `ontology.merged` row holds what the merge moved, so it can be undone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merged_into: Option<CategoryId>,
+    /// A persona's soul path and short fields (theseus-utfnl; store format
+    /// 50). Only a persona carries one ([`crate::persona`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<crate::persona::PersonaCard>,
 }
 
 impl Category {
@@ -130,6 +134,7 @@ impl Category {
             retired_ms: None,
             handles: Vec::new(),
             merged_into: None,
+            persona: None,
         }
     }
 
@@ -172,7 +177,8 @@ impl Category {
                 path: format!("{} › {}", self.id, self.id),
             });
         }
-        crate::person::check_handles(self)
+        crate::person::check_handles(self)?;
+        crate::persona::check_card(self)
     }
 }
 

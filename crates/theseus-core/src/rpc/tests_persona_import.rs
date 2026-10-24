@@ -63,6 +63,7 @@ fn the_drafted_card_is_offered_to_jev_only_once_kept() {
             "wren".into(),
             PersonaConfig {
                 card: Some(draft.clone()),
+                files: vec![crate::personas::test_soul("wren")],
                 ..Default::default()
             },
         );
@@ -70,6 +71,7 @@ fn the_drafted_card_is_offered_to_jev_only_once_kept() {
             "finch".into(),
             PersonaConfig {
                 card: Some(owners.into()),
+                files: vec![crate::personas::test_soul("finch")],
                 ..Default::default()
             },
         );

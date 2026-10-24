@@ -84,6 +84,8 @@ pub enum Buttons {
     Link(String, String),
     /// A mint's card (theseus-xzxqv): Undo, for this write (the judgment's id).
     OntoUndo(String),
+    /// A new persona's card (theseus-utfnl): Write its soul and Decline, for this persona.
+    PersonaSoul(String),
     /// A capture's card (theseus-slvl.5): `(mode, id, everywhere)`, a kept record's Undo or an ask's keep and not.
     Standing(String, String, bool),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.

@@ -1,7 +1,9 @@
-//! `theseus persona …` (theseus-slvl.2): the persona as data. `persona` shows
-//! every persona the config defines and the built-in default; `persona edit`
-//! sets a persona's short fields in the config file, or opens its file in
-//! `$EDITOR`; `persona history` lists the `persona.changed` rows.
+//! `theseus persona …` (theseus-slvl.2, theseus-utfnl): the persona as data.
+//! `persona` shows every persona (the ontology's `persona:` categories) and
+//! the built-in default; `persona add|soul|set|retire|default` write them,
+//! each a method of the daemon and the owner's alone; `persona edit` is `set`
+//! with field flags and `soul` without; `persona history` lists the
+//! `persona.changed` rows. The CLI writes no config file.
 
 use anyhow::{bail, Result};
 use clap::Subcommand;
@@ -9,9 +11,9 @@ use serde_json::Value;
 use theseus_client::{render, Conn};
 use theseus_protocol::initiative::{InitiativeWeekParams, InitiativeWeekResult};
 use theseus_protocol::{
-    method, HealthResult, LedgerTailParams, LedgerTailResult, PersonaCardConfirmParams,
-    PersonaCardConfirmResult, PersonaImportParams, PersonaImportResult, PersonaListParams,
-    PersonaListResult,
+    method, LedgerTailParams, LedgerTailResult, PersonaAddParams, PersonaCardConfirmParams,
+    PersonaCardConfirmResult, PersonaImportParams, PersonaImportResult, PersonaKeyParams,
+    PersonaListParams, PersonaListResult, PersonaSetParams, PersonaSoulParams, PersonaWriteResult,
 };
 
 use crate::cmd::output;
@@ -42,10 +44,66 @@ pub enum PersonaCmd {
     /// compiles that carried it, and the places that speak as it (default).
     #[default]
     Show,
-    /// Set a persona's short fields in the config file (a restart applies them), or, with none of
-    /// those flags, open its first file in $EDITOR. Yours alone (refused inside a job).
+    /// Add a persona: its key, and optionally its name, emoji, card and soul (`--soul TEXT` or
+    /// `--file PATH`). Without a soul it awaits one: you are asked once, and it is never picked
+    /// until `persona soul KEY` writes it. Yours alone (refused inside a job).
+    Add {
+        /// The persona's key.
+        key: String,
+        #[arg(long = "name", value_name = "NAME")]
+        display_name: Option<String>,
+        #[arg(long)]
+        emoji: Option<String>,
+        /// About 60 tokens of specialization and background.
+        #[arg(long)]
+        card: Option<String>,
+        /// The soul's text.
+        #[arg(long, conflicts_with = "file")]
+        soul: Option<String>,
+        /// A file holding the soul.
+        #[arg(long, value_name = "PATH")]
+        file: Option<std::path::PathBuf>,
+    },
+    /// Write a persona's soul: from `--file PATH`, from stdin when it is piped, else in $EDITOR.
+    /// A soul over `[context] persona_max_tokens` (2,000) is refused with its count. Yours alone.
+    Soul {
+        key: String,
+        #[arg(long, value_name = "PATH")]
+        file: Option<std::path::PathBuf>,
+    },
+    /// Set a persona's short fields (an empty value clears one). Yours alone.
+    Set {
+        key: String,
+        #[arg(long = "name", value_name = "NAME")]
+        display_name: Option<String>,
+        #[arg(long)]
+        emoji: Option<String>,
+        #[arg(long)]
+        card: Option<String>,
+        #[arg(long, alias = "voice")]
+        tts_voice: Option<String>,
+        #[arg(long)]
+        avatar: Option<String>,
+        /// `quiet`, `normal` or `chatty`.
+        #[arg(long)]
+        initiative: Option<String>,
+        /// A shared place may be answered by this persona too.
+        #[arg(long)]
+        shareable: Option<bool>,
+    },
+    /// Retire a persona (the ledger and `ontology undo` keep it). Yours alone.
+    Retire { key: String },
+    /// Make a persona the default, the one Jev's `none` engages; `--clear` takes the mark off.
+    #[command(name = "default")]
+    MakeDefault {
+        key: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
+    /// Set a persona's short fields (as `set`), or, with none of those flags, write its soul (as
+    /// `soul`). Kept as the older spelling. Yours alone (refused inside a job).
     Edit {
-        /// The persona's key in `[personas]`: omitted, the default persona.
+        /// The persona's key: omitted, the default persona.
         persona: Option<String>,
         /// Shown on replies, the bot's nickname, the voice greeting.
         #[arg(long = "name", value_name = "NAME")]
@@ -70,13 +128,13 @@ pub enum PersonaCmd {
         confirm_card: bool,
     },
     /// Carry an agent's workspace over as a persona, unchanged: its persona files are copied
-    /// byte for byte into the state dir, `[personas.<name>]` is pointed at them, a specialization card is
+    /// byte for byte into the state dir, the persona's soul is pointed at the first, a specialization card is
     /// drafted for you to read, and the agent's feedback is proposed as standing records. Yours alone.
     Import {
         /// The agent's workspace folder (SOUL.md, IDENTITY.md, USER.md, AGENTS.md, MEMORY.md, memory/).
         #[arg(long, value_name = "DIR")]
         from: String,
-        /// The persona's key in `[personas]`.
+        /// The persona's key.
         #[arg(long, value_name = "NAME")]
         name: String,
         /// The name its imported episodes carry, when it is not the persona's key.
@@ -95,9 +153,9 @@ pub enum PersonaCmd {
     },
 }
 
-/// The fields a flag set names, as (config key, value).
+/// The fields a flag set names, as (field, value).
 pub fn fields_of(cmd: &PersonaCmd) -> Vec<(&'static str, String)> {
-    let PersonaCmd::Edit {
+    let (PersonaCmd::Edit {
         display_name,
         emoji,
         card,
@@ -105,7 +163,16 @@ pub fn fields_of(cmd: &PersonaCmd) -> Vec<(&'static str, String)> {
         avatar,
         initiative,
         ..
-    } = cmd
+    }
+    | PersonaCmd::Set {
+        display_name,
+        emoji,
+        card,
+        tts_voice,
+        avatar,
+        initiative,
+        ..
+    }) = cmd
     else {
         return Vec::new();
     };
@@ -192,6 +259,13 @@ async fn shown(conn: &mut Conn, json: bool, cmd: PersonaCmd) -> Result<()> {
             agent,
             dry_run,
         } => import(conn, json, from, name, agent.as_deref(), *dry_run).await,
+        _ => write_cmd(conn, json, cmd).await,
+    }
+}
+
+/// The owner's writes: edit, add, soul, set, retire, default.
+async fn write_cmd(conn: &mut Conn, json: bool, cmd: PersonaCmd) -> Result<()> {
+    match &cmd {
         PersonaCmd::Edit {
             persona,
             confirm_card,
@@ -200,25 +274,92 @@ async fn shown(conn: &mut Conn, json: bool, cmd: PersonaCmd) -> Result<()> {
             if *confirm_card {
                 return confirm(conn, json, persona.as_deref()).await;
             }
-            edit(conn, persona.as_deref(), fields_of(&cmd)).await
+            let fields = fields_of(&cmd);
+            match fields.is_empty() {
+                true => {
+                    let key = in_play_or(conn, persona.as_deref()).await?;
+                    soul(conn, json, &key, None).await
+                }
+                false => {
+                    let key = in_play_or(conn, persona.as_deref()).await?;
+                    set(conn, json, &key, &fields, None).await
+                }
+            }
         }
+        PersonaCmd::Add {
+            key,
+            display_name,
+            emoji,
+            card,
+            soul: text,
+            file,
+        } => {
+            let soul = match (text, file) {
+                (Some(t), _) => Some(t.clone()),
+                (None, Some(f)) => Some(std::fs::read_to_string(f)?),
+                (None, None) => None,
+            };
+            let v = conn
+                .request(
+                    method::PERSONA_ADD,
+                    serde_json::to_value(PersonaAddParams {
+                        key: key.clone(),
+                        name: display_name.clone(),
+                        emoji: emoji.clone(),
+                        card: card.clone(),
+                        soul,
+                        from: Some("the CLI".into()),
+                        ..Default::default()
+                    })?,
+                )
+                .await?;
+            written(json, v)
+        }
+        PersonaCmd::Soul { key, file } => soul(conn, json, key, file.as_deref()).await,
+        PersonaCmd::Set { key, shareable, .. } => {
+            set(conn, json, key, &fields_of(&cmd), *shareable).await
+        }
+        PersonaCmd::Retire { key } => {
+            let v = conn
+                .request(
+                    method::PERSONA_RETIRE,
+                    serde_json::to_value(PersonaKeyParams {
+                        key: Some(key.clone()),
+                        ..Default::default()
+                    })?,
+                )
+                .await?;
+            written(json, v)
+        }
+        PersonaCmd::MakeDefault { key, clear } => {
+            let key = match (key, clear) {
+                (Some(k), false) => Some(k.clone()),
+                (None, true) => None,
+                _ => bail!("name the persona to make the default, or --clear"),
+            };
+            let v = conn
+                .request(
+                    method::PERSONA_DEFAULT,
+                    serde_json::to_value(PersonaKeyParams {
+                        key,
+                        ..Default::default()
+                    })?,
+                )
+                .await?;
+            written(json, v)
+        }
+        PersonaCmd::Voice { .. }
+        | PersonaCmd::Rate { .. }
+        | PersonaCmd::Show
+        | PersonaCmd::History { .. }
+        | PersonaCmd::Import { .. } => unreachable!("`shown` keeps these"),
     }
 }
 
-async fn edit(
-    conn: &mut Conn,
-    persona: Option<&str>,
-    fields: Vec<(&'static str, String)>,
-) -> Result<()> {
-    if let Some(s) = std::env::var("THESEUS_SESSION")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-    {
-        bail!(
-            "theseus persona edit refused: it is the operator's to run, and this shell is a \
-             Theseus job's (THESEUS_SESSION={s} is set), so it would answer for the operator. \
-             Run it from your own shell."
-        );
+/// The persona a command names, else the one in play.
+async fn in_play_or(conn: &mut Conn, persona: Option<&str>) -> Result<String> {
+    if let Some(p) = persona {
+        return Ok(p.to_string());
     }
     let listed: PersonaListResult = serde_json::from_value(
         conn.request(
@@ -227,84 +368,140 @@ async fn edit(
         )
         .await?,
     )?;
-    let key = match persona.map(str::to_string).or(listed.in_play.clone()) {
-        Some(k) => k,
+    match listed.in_play {
+        Some(k) => Ok(k),
         None => bail!(
-            "no persona is in play: name one (`theseus persona edit <name>`); the built-in \
-             default is not editable, and an install names its own under [personas.<name>]"
+            "no persona is in play: name one (`theseus persona soul <key>`); the built-in \
+             default is not editable (`theseus persona add <key>` makes one)"
         ),
-    };
+    }
+}
+
+/// `persona set`: the short fields.
+async fn set(
+    conn: &mut Conn,
+    json: bool,
+    key: &str,
+    fields: &[(&'static str, String)],
+    shareable: Option<bool>,
+) -> Result<()> {
+    let get = |k: &str| fields.iter().find(|(f, _)| *f == k).map(|(_, v)| v.clone());
+    if fields.is_empty() && shareable.is_none() {
+        bail!("name a field to set: --name, --emoji, --card, --tts-voice, --avatar, --initiative, --shareable");
+    }
+    let v = conn
+        .request(
+            method::PERSONA_SET,
+            serde_json::to_value(PersonaSetParams {
+                key: key.to_string(),
+                name: get("name"),
+                emoji: get("emoji"),
+                card: get("card"),
+                tts_voice: get("tts_voice"),
+                avatar: get("avatar"),
+                initiative: get("initiative"),
+                shareable,
+                ..Default::default()
+            })?,
+        )
+        .await?;
+    written(json, v)
+}
+
+/// `persona soul`: the text from a file, a pipe, or $EDITOR.
+async fn soul(
+    conn: &mut Conn,
+    json: bool,
+    key: &str,
+    file: Option<&std::path::Path>,
+) -> Result<()> {
+    let text = soul_text(conn, key, file).await?;
+    let v = conn
+        .request(
+            method::PERSONA_SOUL,
+            serde_json::to_value(PersonaSoulParams {
+                key: key.to_string(),
+                text,
+                ..Default::default()
+            })?,
+        )
+        .await?;
+    written(json, v)
+}
+
+async fn soul_text(conn: &mut Conn, key: &str, file: Option<&std::path::Path>) -> Result<String> {
+    use std::io::{IsTerminal, Read};
+    if let Some(f) = file {
+        return Ok(std::fs::read_to_string(f)?);
+    }
+    if !std::io::stdin().is_terminal() {
+        let mut t = String::new();
+        std::io::stdin().read_to_string(&mut t)?;
+        return Ok(t);
+    }
+    // The editor opens the soul as it stands (a copy), and what it saves is sent.
+    let listed: PersonaListResult = serde_json::from_value(
+        conn.request(
+            method::PERSONA_LIST,
+            serde_json::to_value(PersonaListParams::default())?,
+        )
+        .await?,
+    )?;
     let info = listed
         .personas
         .iter()
-        .find(|p| p.key.as_deref() == Some(&key));
-    if fields.is_empty() {
-        let Some(info) = info else {
-            bail!("{key:?} is not a persona: {}", names(&listed));
-        };
-        let Some(file) = info.files.first() else {
-            bail!(
-                "{key} names no files: add `files = [\"~/path/persona.md\"]` under \
-                 [personas.{key}] and run this again"
-            );
-        };
-        let editor = std::env::var("VISUAL")
-            .or_else(|_| std::env::var("EDITOR"))
-            .unwrap_or_else(|_| "vi".into());
-        let status = std::process::Command::new(&editor)
-            .arg(&file.path)
-            .status()?;
-        if !status.success() {
-            bail!("{editor} exited with {status}");
+        .find(|p| p.key.as_deref() == Some(key));
+    if info.is_none() {
+        bail!("{key:?} is not a persona: {}", names(&listed));
+    }
+    let current = info
+        .and_then(|i| i.files.first())
+        .and_then(|f| std::fs::read_to_string(&f.path).ok())
+        .unwrap_or_default();
+    let tmp = std::env::temp_dir().join(format!("theseus-soul-{key}-{}.md", std::process::id()));
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        f.write_all(current.as_bytes())?;
+    }
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".into());
+    let status = std::process::Command::new(&editor).arg(&tmp).status();
+    let text = std::fs::read_to_string(&tmp);
+    let _ = std::fs::remove_file(&tmp);
+    if !status?.success() {
+        bail!("{editor} exited without success: nothing was written");
+    }
+    Ok(text?)
+}
+
+/// What a persona write did, in a line.
+pub fn written_lines(r: &PersonaWriteResult) -> Vec<String> {
+    let soul = match (&r.soul, r.tokens) {
+        (Some(p), Some(t)) => format!("soul {p} ({t} of {} tokens)", r.cap),
+        (Some(p), None) => format!("soul {p}"),
+        (None, _) => "no soul yet: `theseus persona soul KEY` writes it".into(),
+    };
+    vec![format!("persona {}: {}; {soul}", r.key, r.state)]
+}
+
+fn written(json: bool, v: Value) -> Result<()> {
+    output(json, v, |r: PersonaWriteResult| {
+        for l in written_lines(&r) {
+            println!("{l}");
         }
-        println!(
-            "Edited {}. Every session that speaks as {key} recompiles with it at its next turn.",
-            file.path
-        );
-        return Ok(());
-    }
-    write_fields(conn, &key, &fields).await
+        Ok(())
+    })
 }
 
-/// Set `fields` under `[personas.<key>]` in the config file (a vault note is
-/// told what to hold instead).
-async fn write_fields(conn: &mut Conn, key: &str, fields: &[(&'static str, String)]) -> Result<()> {
-    let health: HealthResult = serde_json::from_value(
-        conn.request(method::HEALTH, serde_json::Value::Null)
-            .await?,
-    )?;
-    let doc = set_fields_doc(fields)?;
-    if health.config.source != "file" {
-        bail!(
-            "the config is the vault note {}: edit it there. Under [personas.{key}] set:\n{doc}",
-            health.config.reference
-        );
-    }
-    let path = std::path::PathBuf::from(&health.config.reference);
-    let text = std::fs::read_to_string(&path)?;
-    let edited = set_fields(&text, key, fields)?;
-    if edited == text {
-        println!("{key} already has those values.");
-        return Ok(());
-    }
-    // Keep what it was, then replace it whole.
-    let bak = path.with_extension(format!("toml.bak-{}", theseus_protocol::now_unix_ms()));
-    std::fs::copy(&path, &bak)?;
-    let tmp = path.with_extension("toml.new");
-    std::fs::write(&tmp, &edited)?;
-    std::fs::set_permissions(&tmp, std::fs::metadata(&path)?.permissions())?;
-    std::fs::rename(&tmp, &path)?;
-    println!(
-        "Set {} under [personas.{key}] in {} (the old file is {}). The daemon serves the config it \
-         started with: restart it to apply.",
-        fields.iter().map(|(k, _)| *k).collect::<Vec<_>>().join(", "),
-        path.display(),
-        bak.display()
-    );
-    Ok(())
-}
-
-/// `persona import`: the daemon carries the files; this writes the config.
+/// `persona import`: the daemon carries the files and makes the persona (its
+/// soul the first file, its card the draft); this prints what it did.
 async fn import(
     conn: &mut Conn,
     json: bool,
@@ -313,15 +510,6 @@ async fn import(
     agent: Option<&str>,
     dry_run: bool,
 ) -> Result<()> {
-    if let Some(s) = std::env::var("THESEUS_SESSION")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-    {
-        bail!(
-            "theseus persona import refused: it is the operator's to run, and this shell is a \
-             Theseus job's (THESEUS_SESSION={s} is set). Run it from your own shell."
-        );
-    }
     // The daemon reads the folder on its own machine: a relative path is made whole here.
     let from = std::fs::canonicalize(from)
         .map(|p| p.display().to_string())
@@ -345,27 +533,7 @@ async fn import(
             println!("{l}");
         }
     }
-    if dry_run || r.unchanged {
-        return Ok(());
-    }
-    let listed: PersonaListResult = serde_json::from_value(
-        conn.request(
-            method::PERSONA_LIST,
-            serde_json::to_value(PersonaListParams::default())?,
-        )
-        .await?,
-    )?;
-    let has_card = listed
-        .personas
-        .iter()
-        .find(|p| p.key.as_deref() == Some(name))
-        .is_some_and(|p| p.card.is_some());
-    let mut fields = vec![("files", r.context_paths.join("\n"))];
-    // The owner's own card is never replaced by a draft.
-    if let (Some(card), false) = (&r.card, has_card) {
-        fields.push(("card", card.clone()));
-    }
-    write_fields(conn, name, &fields).await
+    Ok(())
 }
 
 /// What an import (or a dry run of one) says, line by line.
@@ -470,96 +638,9 @@ async fn confirm(conn: &mut Conn, json: bool, persona: Option<&str>) -> Result<(
 fn names(r: &PersonaListResult) -> String {
     let known: Vec<_> = r.personas.iter().filter_map(|p| p.key.as_deref()).collect();
     match known.is_empty() {
-        true => "no [personas.<name>] table is defined".into(),
+        true => "none is defined (`theseus persona add`)".into(),
         false => format!("the personas are {}", known.join(", ")),
     }
-}
-
-/// The field lines a vault note would get.
-fn set_fields_doc(fields: &[(&'static str, String)]) -> Result<String> {
-    fields
-        .iter()
-        .map(|(k, v)| Ok(format!("{k} = {}", value_of(k, v)?)))
-        .collect::<Result<Vec<_>>>()
-        .map(|l| l.join("\n"))
-}
-
-/// A field's value as TOML, checked.
-fn value_of(field: &str, v: &str) -> Result<String> {
-    // `files` is a list: its paths, one a line.
-    if field == "files" {
-        let paths: Vec<&str> = v.lines().filter(|l| !l.trim().is_empty()).collect();
-        if paths.is_empty() {
-            bail!("files names no path");
-        }
-        return Ok(serde_json::to_string(&paths)?);
-    }
-    if v.trim().is_empty() {
-        bail!(
-            "--{} is empty: leave the flag out instead",
-            field.replace('_', "-")
-        );
-    }
-    if v.contains('\n') && field != "card" {
-        bail!("--{} must be one line", field.replace('_', "-"));
-    }
-    if field == "initiative" && !["quiet", "normal", "chatty"].contains(&v) {
-        bail!("--initiative {v:?} is not one of quiet, normal, chatty");
-    }
-    if field == "card" && v.chars().count() > 600 {
-        bail!("--card is at most 600 characters (about 60 tokens)");
-    }
-    Ok(serde_json::to_string(v)?)
-}
-
-/// `text` with `fields` set under `[personas.<key>]`: a line that sets one is
-/// replaced, a missing one is added after the table's last line, and a
-/// missing table is added at the end. Everything else is as it was, comments
-/// included.
-pub fn set_fields(text: &str, key: &str, fields: &[(&'static str, String)]) -> Result<String> {
-    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-    let header = |l: &str| {
-        let t = l.trim();
-        t == format!("[personas.{key}]") || t == format!("[personas.\"{key}\"]")
-    };
-    let Some(start) = lines.iter().position(|l| header(l)) else {
-        let mut out = text.trim_end().to_string();
-        if !out.is_empty() {
-            out.push_str("\n\n");
-        }
-        out.push_str(&format!("[personas.{key}]\n"));
-        for (k, v) in fields {
-            out.push_str(&format!("{k} = {}\n", value_of(k, v)?));
-        }
-        return Ok(out);
-    };
-    for (k, v) in fields {
-        let value = value_of(k, v)?;
-        let end = lines[start + 1..]
-            .iter()
-            .position(|l| l.trim_start().starts_with('['))
-            .map_or(lines.len(), |i| start + 1 + i);
-        let at = lines[start + 1..end].iter().position(|l| {
-            l.trim_start()
-                .strip_prefix(k)
-                .is_some_and(|rest| rest.trim_start().starts_with('='))
-        });
-        match at {
-            Some(i) => lines[start + 1 + i] = format!("{k} = {value}"),
-            None => {
-                let mut at = end;
-                while at > start + 1 && lines[at - 1].trim().is_empty() {
-                    at -= 1;
-                }
-                lines.insert(at, format!("{k} = {value}"));
-            }
-        }
-    }
-    let mut out = lines.join("\n");
-    if text.ends_with('\n') {
-        out.push('\n');
-    }
-    Ok(out)
 }
 
 /// `theseus persona`'s lines.
@@ -592,6 +673,25 @@ pub fn week_lines(w: &InitiativeWeekResult) -> Vec<String> {
     out
 }
 
+/// A persona's soul: its size against the cap, or what it waits for.
+fn soul_lines(p: &theseus_protocol::PersonaInfo, cap: u64) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(t) = p.soul_tokens {
+        let over = match p.over_cap {
+            true => format!(", OVER ITS CAP of {cap}"),
+            false => String::new(),
+        };
+        out.push(format!("  soul: {t} tokens{over}"));
+    }
+    if p.awaiting {
+        let key = p.key.as_deref().unwrap_or("KEY");
+        out.push(format!(
+            "  waiting for its soul: `theseus persona soul {key}`"
+        ));
+    }
+    out
+}
+
 pub fn show_lines(r: &PersonaListResult) -> Vec<String> {
     let mut out = Vec::new();
     for p in &r.personas {
@@ -605,7 +705,16 @@ pub fn show_lines(r: &PersonaListResult) -> Vec<String> {
             .map(|e| format!(" {e}"))
             .unwrap_or_default();
         let play = if p.in_play { "  [in play]" } else { "" };
-        out.push(format!("{shown}{emoji}  initiative {}{play}", p.initiative));
+        let mark = match (p.is_default, p.awaiting) {
+            (true, true) => "  [default] [awaiting its soul]",
+            (true, false) => "  [default]",
+            (false, true) => "  [awaiting its soul]",
+            (false, false) => "",
+        };
+        out.push(format!(
+            "{shown}{emoji}  initiative {}{play}{mark}",
+            p.initiative
+        ));
         if let Some(c) = &p.card {
             let state = if p.card_draft {
                 " (DRAFT: not offered to Jev until you keep it)"
@@ -625,6 +734,10 @@ pub fn show_lines(r: &PersonaListResult) -> Vec<String> {
                 "  {} bytes, digest {}: used by a persona with no file of its own",
                 r.built_in_bytes, r.built_in_digest
             ));
+            continue;
+        }
+        out.extend(soul_lines(p, r.cap));
+        if p.awaiting {
             continue;
         }
         for f in &p.files {
@@ -670,7 +783,7 @@ pub fn show_lines(r: &PersonaListResult) -> Vec<String> {
     }
     for x in r.places.iter().filter(|x| x.unknown) {
         out.push(format!(
-            "warning: {} names persona {:?}, which the config does not define: it speaks as the default",
+            "warning: {} names persona {:?}, which is not a persona: it speaks as the default",
             x.place, x.persona
         ));
     }
@@ -708,10 +821,6 @@ pub fn history_lines(r: &LedgerTailResult) -> Vec<String> {
 mod tests {
     use super::*;
 
-    fn f(k: &'static str, v: &str) -> (&'static str, String) {
-        (k, v.to_string())
-    }
-
     /// `persona edit --voice ID` is `--tts-voice ID` (theseus-slvl.7): it sets the persona's
     /// `tts_voice`.
     #[test]
@@ -731,39 +840,57 @@ mod tests {
         }
     }
 
-    /// A field present is replaced in place; one missing is added after the table's last line,
-    /// before the next table; comments and the rest are untouched.
+    /// `set` takes the same flags as `edit`, and `add`, `soul`, `retire` and `default` parse.
     #[test]
-    fn a_field_is_set_in_its_table_and_nothing_else_moves() {
-        let text = "[context]\nfiles = []\n\n[personas.pier]\n# the owner's words\nfiles = [\"~/p.md\"]\nemoji = \"x\"\n\n[kernel]\nspend = 1\n";
-        let out = set_fields(text, "pier", &[f("emoji", "🌊"), f("initiative", "quiet")]).unwrap();
+    fn the_writers_parse() {
+        #[derive(clap::Parser)]
+        struct T {
+            #[command(subcommand)]
+            c: PersonaCmd,
+        }
+        use clap::Parser as _;
+        let t = T::try_parse_from(["t", "set", "pier", "--emoji", "🌊", "--initiative", "quiet"])
+            .unwrap();
         assert_eq!(
-            out,
-            "[context]\nfiles = []\n\n[personas.pier]\n# the owner's words\nfiles = [\"~/p.md\"]\nemoji = \"🌊\"\ninitiative = \"quiet\"\n\n[kernel]\nspend = 1\n"
+            fields_of(&t.c),
+            vec![
+                ("emoji", "🌊".to_string()),
+                ("initiative", "quiet".to_string())
+            ]
         );
-        let again = set_fields(&out, "pier", &[f("emoji", "🌊")]).unwrap();
-        assert_eq!(again, out, "setting the same value changes nothing");
+        assert!(T::try_parse_from(["t", "add", "pier", "--soul", "x", "--file", "y"]).is_err());
+        for argv in [
+            ["t", "add", "pier", "--card", "Tides."].as_slice(),
+            ["t", "soul", "pier", "--file", "/x/s.md"].as_slice(),
+            ["t", "retire", "pier"].as_slice(),
+            ["t", "default", "pier"].as_slice(),
+            ["t", "default", "--clear"].as_slice(),
+        ] {
+            T::try_parse_from(argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
+        }
     }
 
-    /// A missing table is added at the end.
+    /// A write's line says the state, the soul and its size against the cap.
     #[test]
-    fn a_missing_table_is_added_at_the_end() {
-        let out = set_fields("[kernel]\nspend = 1\n", "pier", &[f("name", "Pier")]).unwrap();
+    fn a_write_says_the_state_the_soul_and_its_size() {
+        let r = PersonaWriteResult {
+            key: "pier".into(),
+            state: "live".into(),
+            soul: Some("/s/personas/pier/PERSONA.md".into()),
+            tokens: Some(312),
+            cap: 2000,
+        };
         assert_eq!(
-            out,
-            "[kernel]\nspend = 1\n\n[personas.pier]\nname = \"Pier\"\n"
+            written_lines(&r),
+            ["persona pier: live; soul /s/personas/pier/PERSONA.md (312 of 2000 tokens)"]
         );
-    }
-
-    /// A value is checked before it is written.
-    #[test]
-    fn a_bad_value_is_refused_with_the_allowed_ones() {
-        let e = set_fields("", "pier", &[f("initiative", "loud")])
-            .unwrap_err()
-            .to_string();
-        assert!(e.contains("quiet, normal, chatty"), "{e}");
-        assert!(set_fields("", "pier", &[f("emoji", " ")]).is_err());
-        assert!(set_fields("", "pier", &[f("name", "a\nb")]).is_err());
+        let waiting = PersonaWriteResult {
+            state: "awaiting".into(),
+            soul: None,
+            tokens: None,
+            ..r
+        };
+        assert!(written_lines(&waiting)[0].contains("no soul yet"));
     }
 
     /// The show lines carry each field, a missing file, and the tally.
@@ -801,6 +928,7 @@ mod tests {
             in_play: Some("pier".into()),
             built_in_bytes: 665,
             built_in_digest: "d1".into(),
+            cap: 2000,
             places: vec![],
         };
         let lines = show_lines(&r).join("\n");
@@ -814,33 +942,6 @@ mod tests {
         ] {
             assert!(lines.contains(want), "{want:?} not in\n{lines}");
         }
-    }
-
-    /// `files` is written as a TOML list of the paths, one a line in, and the line is a valid
-    /// array of strings.
-    #[test]
-    fn the_files_field_is_a_list_of_paths() {
-        let paths = "/s/personas/wren/SOUL.md\n/s/personas/wren/IDENTITY.md";
-        let out = set_fields(
-            "",
-            "wren",
-            &[f("files", paths), f("card", "Tides. Areas: a; b.")],
-        )
-        .unwrap();
-        assert_eq!(
-            out,
-            "[personas.wren]\nfiles = [\"/s/personas/wren/SOUL.md\",\"/s/personas/wren/IDENTITY.md\"]\ncard = \"Tides. Areas: a; b.\"\n"
-        );
-        // A JSON array of strings is a TOML array of strings.
-        let line = out
-            .lines()
-            .nth(1)
-            .unwrap()
-            .strip_prefix("files = ")
-            .unwrap();
-        let listed: Vec<String> = serde_json::from_str(line).unwrap();
-        assert_eq!(listed.len(), 2);
-        assert!(value_of("files", "\n \n").is_err());
     }
 
     /// The import's report says what is carried, what is a draft, and that nothing is live.

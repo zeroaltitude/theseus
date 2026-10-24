@@ -133,6 +133,7 @@ impl Core {
             retired_ms: None,
             handles,
             merged_into: None,
+            persona: None,
         };
         // A person whose exact handle another holds is that person: the new
         // handles and name join the held one (the automatic merge), and no
@@ -490,7 +491,7 @@ fn failure(e: anyhow::Error) -> RpcFailure {
 
 /// Who wrote a record, as its `added_by` holds it: one line of at most 100
 /// characters.
-pub(super) fn added_by(who: &Answerer) -> String {
+pub(crate) fn added_by(who: &Answerer) -> String {
     let w: String = who
         .who()
         .chars()

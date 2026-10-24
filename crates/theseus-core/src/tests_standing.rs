@@ -683,8 +683,13 @@ async fn a_persona_scoped_record_rides_the_turns_that_speak_as_it() {
     let speaks = |as_wren: bool| {
         move |c: &mut Config| {
             for p in ["wren", "finch"] {
-                c.personas
-                    .insert(p.into(), crate::config::PersonaConfig::default());
+                c.personas.insert(
+                    p.into(),
+                    crate::config::PersonaConfig {
+                        files: vec![crate::personas::test_soul(p)],
+                        ..Default::default()
+                    },
+                );
             }
             c.context.default_persona = Some(if as_wren { "wren" } else { "finch" }.into());
         }

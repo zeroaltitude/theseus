@@ -97,6 +97,7 @@ pub mod peer_proc;
 pub mod persona;
 pub mod persona_import;
 pub mod persona_recall;
+pub mod personas;
 pub mod place_warnings;
 pub mod places;
 pub mod policy;
@@ -462,6 +463,8 @@ mod tests_persona_recall;
 mod tests_personal_hold;
 #[cfg(test)]
 mod tests_personal_warn;
+#[cfg(test)]
+mod tests_personas;
 #[cfg(test)]
 mod tests_places;
 #[cfg(test)]

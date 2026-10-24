@@ -108,7 +108,11 @@ pub struct Resolved {
 
 /// What a correction may name in words: every configured profile with its
 /// model, and the acting route pack's modes.
-pub fn names(cfg: &crate::Config, pack: Option<&theseus_judge::Pack>) -> words::Names {
+pub fn names(
+    cfg: &crate::Config,
+    book: &crate::personas::Book,
+    pack: Option<&theseus_judge::Pack>,
+) -> words::Names {
     let modes = pack
         .and_then(|p| p.question(QUESTION))
         .map(|q| q.options.iter().map(|o| o.id.clone()).collect())
@@ -120,10 +124,9 @@ pub fn names(cfg: &crate::Config, pack: Option<&theseus_judge::Pack>) -> words::
             .map(|(n, p)| (n.clone(), p.model.clone()))
             .collect(),
         modes,
-        personas: cfg
-            .personas
-            .iter()
-            .map(|(k, p)| (k.clone(), crate::config::PersonaView::of(k, p).name))
+        personas: book
+            .live()
+            .map(|(k, v)| (k.clone(), v.name.clone()))
             .collect(),
     }
 }

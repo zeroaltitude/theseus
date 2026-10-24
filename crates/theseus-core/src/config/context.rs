@@ -19,6 +19,11 @@ pub struct ContextConfig {
     /// only choice. Absent: no persona, and the system level alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_persona: Option<String>,
+    /// The most tokens one persona's soul file may be (theseus-utfnl),
+    /// estimated as bytes over `task_graph::view::BYTES_PER_TOKEN`. Absent:
+    /// `PERSONA_MAX_TOKENS`; 200 to 8000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona_max_tokens: Option<u64>,
     /// The working window (theseus-3ki0): the tokens a request may take, at
     /// most the model's window in the catalog. Absent: the model's full
     /// window. A long instruction's turn clears old results and compacts
@@ -33,6 +38,10 @@ pub struct ContextConfig {
     pub kept_mb: Option<u64>,
 }
 
+/// `persona_max_tokens`' default and bounds.
+pub const PERSONA_MAX_TOKENS: u64 = 2000;
+pub const PERSONA_MAX_TOKENS_RANGE: std::ops::RangeInclusive<u64> = 200..=8000;
+
 /// `kept_mb`'s default.
 pub const KEPT_MB: u64 = 64;
 
@@ -42,6 +51,22 @@ impl ContextConfig {
             && self.default_persona.is_none()
             && self.working_window_tokens.is_none()
             && self.kept_mb.is_none()
+            && self.persona_max_tokens.is_none()
+    }
+
+    /// A persona's soul may be this many tokens.
+    pub fn persona_cap(&self) -> u64 {
+        self.persona_max_tokens.unwrap_or(PERSONA_MAX_TOKENS)
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if let Some(n) = self
+            .persona_max_tokens
+            .filter(|n| !PERSONA_MAX_TOKENS_RANGE.contains(n))
+        {
+            anyhow::bail!("context.persona_max_tokens = {n} is out of range: 200 to 8000");
+        }
+        Ok(())
     }
 
     /// The kept renders' bound, in bytes.

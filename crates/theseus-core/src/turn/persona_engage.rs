@@ -22,7 +22,6 @@ use crate::judge::inbound::{PersonaCtx, ThreadHead};
 use crate::places::PlaceClass;
 use crate::routing::Verdict;
 use crate::session::SessionRecord;
-use theseus_judge::builders::PersonaInput;
 use theseus_protocol::route::RoutePersona;
 
 /// What the inbound point worked out for the turn's persona.
@@ -43,13 +42,14 @@ impl TurnRunner {
         session_id: &str,
         engages: bool,
     ) -> Vec<Choice> {
-        if !engages || self.cfg.personas.len() < 2 {
+        let book = self.personas();
+        if !engages || book.len() < 2 {
             return Vec::new();
         }
         let own = self.place_persona(session_id);
         let shared = class == PlaceClass::Shared;
-        let all = engage::choices(&self.cfg.personas, shared, own.as_deref());
-        match all.len() >= 2 {
+        let all = engage::choices(&book, shared, own.as_deref());
+        match all.iter().filter(|c| c.key.is_some()).count() >= 2 {
             true => all,
             false => Vec::new(),
         }
@@ -59,7 +59,7 @@ impl TurnRunner {
     /// one that answered last, and the thread the session serves, if any. Memory
     /// only; empty with fewer than two personas, so a plain turn reads nothing.
     pub(crate) fn persona_ctx(&self, session_id: &str, class: PlaceClass) -> PersonaCtx {
-        let engages = self.cfg.persona_engaging()
+        let engages = self.personas().engaging()
             && self
                 .store
                 .get_session::<SessionRecord>(session_id)
@@ -81,16 +81,7 @@ impl TurnRunner {
                 answered: self.persona.engaged.recent(session_id),
             });
         PersonaCtx {
-            personas: options
-                .iter()
-                .filter_map(|o| {
-                    Some(PersonaInput {
-                        id: o.key.clone()?,
-                        name: o.name.clone(),
-                        card: o.card.clone()?,
-                    })
-                })
-                .collect(),
+            personas: engage::inputs(&options),
             speaker: prior.key,
             thread,
             categories: self.category_names(session_id, class),
@@ -108,11 +99,7 @@ impl TurnRunner {
                 .flatten()
                 .and_then(|s| self.persona_of(&s)),
         };
-        let built_in = || Choice {
-            key: None,
-            name: crate::config::DEFAULT_NAME.into(),
-            card: None,
-        };
+        let built_in = Choice::built_in;
         match key {
             Some(k) => options
                 .iter()
@@ -133,11 +120,9 @@ impl TurnRunner {
         let prior = self.persona_prior(t.tc.session_id, &options);
         // The built-in default answers to its name too.
         let mut addressable = options.clone();
-        addressable.push(Choice {
-            key: None,
-            name: crate::config::DEFAULT_NAME.into(),
-            card: None,
-        });
+        if addressable.iter().all(|c| c.key.is_some()) {
+            addressable.push(Choice::built_in());
+        }
         let explicit = engage::address(text, &addressable).map(|(c, _)| c);
         let decided = explicit.is_some() || t.route.persona_steer.is_some() || !asked;
         t.route.engage = Some(Engage {

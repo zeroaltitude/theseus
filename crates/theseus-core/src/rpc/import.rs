@@ -78,6 +78,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::voice_pick::OWN.contains(&name)
         || name.starts_with("initiative.")
         || super::persona_import::OWN.contains(&name)
+        || super::persona_write::OWN.contains(&name)
 }
 
 impl Core {
@@ -179,7 +180,7 @@ impl Core {
         if name.starts_with("initiative.") {
             return self.rpc_initiative(name, params, conn);
         }
-        if super::persona_import::OWN.contains(&name) {
+        if super::persona_import::OWN.contains(&name) || super::persona_write::OWN.contains(&name) {
             return self.rpc_persona_import(name, params, conn).await;
         }
         if name == method::LEDGER_VERIFY {

@@ -40,7 +40,13 @@ pub(crate) fn rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
     cfg.memory.mode = MemoryMode::Off;
-    cfg.personas.insert("wren".into(), PersonaConfig::default());
+    cfg.personas.insert(
+        "wren".into(),
+        PersonaConfig {
+            files: vec![crate::personas::test_soul("wren")],
+            ..Default::default()
+        },
+    );
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script));

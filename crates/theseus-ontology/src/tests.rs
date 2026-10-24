@@ -21,6 +21,7 @@ fn cat(i: &str, name: &str, parent: Option<&str>) -> Category {
         retired_ms: None,
         handles: Vec::new(),
         merged_into: None,
+        persona: None,
     }
 }
 
@@ -130,7 +131,8 @@ fn the_seed_rows_check_and_come_in_precedence_order() {
             "resource",
             "capability",
             "expertise",
-            "culture"
+            "culture",
+            "persona"
         ]
     );
     let t = o.kind("topic").unwrap();
@@ -1086,7 +1088,7 @@ fn every_record_round_trips_through_its_key_and_value() {
     o.put(Record::Members(list("s1", "topic", &["topic:web"])), OP)
         .unwrap();
     let records = o.records();
-    assert_eq!(records.len(), 11 + 8 + 1 + 1);
+    assert_eq!(records.len(), 12 + 8 + 1 + 1);
     for r in &records {
         let key = r.key();
         assert!(key.starts_with(keys::PREFIX), "{key}");

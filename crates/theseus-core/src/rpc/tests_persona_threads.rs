@@ -22,8 +22,20 @@ fn cli() -> Answerer {
 #[test]
 fn a_thread_born_in_a_bound_place_inherits_its_persona() {
     let r = rig_with(MemoryMode::Off, |c| {
-        c.personas.insert("wren".into(), PersonaConfig::default());
-        c.personas.insert("finch".into(), PersonaConfig::default());
+        c.personas.insert(
+            "wren".into(),
+            PersonaConfig {
+                files: vec![crate::personas::test_soul("wren")],
+                ..Default::default()
+            },
+        );
+        c.personas.insert(
+            "finch".into(),
+            PersonaConfig {
+                files: vec![crate::personas::test_soul("finch")],
+                ..Default::default()
+            },
+        );
     });
     let c = &r.core;
     let place = |target: &str, persona: &str| BoundPlace {

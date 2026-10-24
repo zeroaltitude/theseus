@@ -54,6 +54,7 @@ fn personas(c: &mut crate::Config, act: bool) {
             key.into(),
             PersonaConfig {
                 card: Some(card.into()),
+                files: vec![crate::personas::test_soul(key)],
                 ..Default::default()
             },
         );
@@ -156,6 +157,43 @@ async fn jevs_pick_engages_by_its_bands() {
             assert_eq!(rows[0]["jev"], "birch", "Jev's pick is kept for the label");
         }
     }
+}
+
+/// Jev's `none` engages the default persona: after birch was addressed, a
+/// message for nobody in particular goes back to alder, which the question
+/// offers as `none` and not under its own key.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn jevs_none_engages_the_default_persona() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    persona(&jev, "none", 0.95);
+    let r = rig(Some(&jev), 1, |c| personas(c, true));
+    let first = turn(&r.core, None, "Birch, is this a CVE?", None).await;
+    let second = turn(
+        &r.core,
+        Some(&first.session_id),
+        "Thanks. What's for lunch?",
+        None,
+    )
+    .await;
+    assert_eq!(
+        second.route.unwrap().persona.unwrap().key.as_deref(),
+        Some("alder")
+    );
+    let rows = engaged(&r);
+    assert_eq!(
+        (rows[0]["persona"].as_str(), rows[0]["how"].as_str()),
+        (Some("birch"), Some("explicit"))
+    );
+    assert_eq!(
+        (
+            rows[1]["persona"].as_str(),
+            rows[1]["how"].as_str(),
+            rows[1]["jev"].as_str()
+        ),
+        (Some("alder"), Some("jev"), Some("none")),
+        "{rows:?}"
+    );
 }
 
 /// The persona question rides the inbound request that was already going out:

@@ -225,6 +225,8 @@ ledger_kinds! {
     PersonaChanged = "persona.changed",
     PersonaEngaged = "persona.engaged",
     PersonaImported = "persona.imported",
+    PersonaMigrated = "persona.migrated",
+    PersonaSoul = "persona.soul",
     PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
     PlaceWarned = "place.warned",

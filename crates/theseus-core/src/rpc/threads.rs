@@ -263,7 +263,7 @@ impl Core {
             .place
             .as_deref()
             .and_then(|t| self.runner.place_rule.persona_of(t))
-            .filter(|n| self.cfg.personas.contains_key(n));
+            .filter(|n| self.personas().exists(n));
         let (who_s, via) = (who.who(), who.via());
         let written = self
             .runner

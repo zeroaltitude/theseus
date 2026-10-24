@@ -85,10 +85,11 @@ pub fn census_lines(r: &ContextCensusResult) -> Vec<String> {
         ));
         for p in &b.parts {
             out.push(format!(
-                "    {:<34} {:>9}  {} B",
+                "    {:<34} {:>9}  {} B{}",
                 p.name,
                 tok(p.tokens),
-                thousands(p.bytes)
+                thousands(p.bytes),
+                if p.over_cap { "  OVER ITS CAP" } else { "" }
             ));
         }
     }
@@ -165,6 +166,7 @@ mod tests {
                     name: "persona".into(),
                     bytes: 400,
                     tokens: 100,
+                    over_cap: false,
                 }],
             }],
             system_tokens: 103,

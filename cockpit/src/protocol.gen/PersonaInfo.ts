@@ -48,4 +48,21 @@ on_default?: boolean, places: Array<PersonaPlace>,
 /**
  * Plain words about what is wrong, if anything.
  */
-warnings: Array<string>, };
+warnings: Array<string>, 
+/**
+ * It has no soul yet (theseus-utfnl): listed, never offered to Jev,
+ * never addressable.
+ */
+awaiting?: boolean, 
+/**
+ * The persona Jev's `none` engages.
+ */
+is_default?: boolean, 
+/**
+ * The soul's size in tokens, when it could be read.
+ */
+soul_tokens?: number, 
+/**
+ * The soul is over `[context] persona_max_tokens`.
+ */
+over_cap?: boolean, };

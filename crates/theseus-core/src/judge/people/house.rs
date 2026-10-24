@@ -101,7 +101,9 @@ impl Core {
     /// hold.
     pub(crate) fn not_people(&self, lines: &[Line], o: &theseus_ontology::Ontology) -> NotPeople {
         let cfg = &self.runner.cfg;
+        let personas = crate::personas::Book::from_ontology(o);
         NotPeople::of(cfg, lines)
+            .with_names(personas.keys().iter())
             .with_owners(self.runner.place_rule.owners(cfg))
             .with_names(self.people_house().iter())
             .with_held(o)

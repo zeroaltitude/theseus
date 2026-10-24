@@ -159,6 +159,9 @@ pub struct Board {
     /// Each persona's agent, as its import recorded it (theseus-a8n7), read
     /// once.
     persona_agents: Mutex<HashMap<String, String>>,
+    /// The (persona, digest) of each soul over its cap the owner was told of
+    /// this run: one note a digest (theseus-utfnl).
+    over_cap: Mutex<std::collections::HashSet<(String, String)>>,
     /// The agent of each imported session recall met, read once
     /// (`persona_recall::PersonaScene`).
     pub(crate) agents: std::sync::Arc<Mutex<HashMap<String, Option<String>>>>,
@@ -184,6 +187,15 @@ impl Board {
             changes,
             write: Some(now),
         }
+    }
+
+    /// Whether this is the first time this run that `persona`'s soul of this
+    /// digest is met over its cap.
+    pub fn first_over_cap(&self, persona: &str, digest: &str) -> bool {
+        self.over_cap
+            .lock()
+            .unwrap()
+            .insert((persona.to_string(), digest.to_string()))
     }
 
     /// The name a persona's imported episodes carry, lower case: its import's

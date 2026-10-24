@@ -900,7 +900,9 @@ impl Lane {
             "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
             | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
             | "self_narrow_red" | "initiative" | "standing_card" | "digest" | "privacy_warning"
-            | "onto_card" | "home_size" | "link_card" => self.jev_post(a, &body).await,
+            | "onto_card" | "home_size" | "link_card" | "persona_soul" => {
+                self.jev_post(a, &body).await
+            }
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // An open question pinged the owner's DM (theseus-j7cje).
             "needs_you" => self.needs_you_post(&body).await,
@@ -1481,6 +1483,12 @@ impl Lane {
                     None => Buttons::Keep,
                 },
             ),
+            // A persona added without a soul asks for it (theseus-utfnl).
+            "persona_soul" => (
+                body["text"].as_str().unwrap_or("").to_string(),
+                format!("psoul:{}", a.correlation_id),
+                Buttons::PersonaSoul(crate::runtime::persona_soul::key_of(body)),
+            ),
             // What `directive.v1` kept, or asks about (theseus-slvl.5).
             "standing_card" => {
                 let (mode, id, everywhere) = crate::runtime::capture_card(body);
@@ -1751,6 +1759,7 @@ impl Lane {
             Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
             Buttons::Link(h, o) => crate::runtime::seal::link::buttons(h, o),
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
+            Buttons::PersonaSoul(key) => crate::runtime::persona_soul::buttons(key),
             Buttons::Again(q) => crate::runtime::again_buttons(q),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
             Buttons::Sources(session, srcs, offer) => {
@@ -1826,6 +1835,7 @@ impl Lane {
             Buttons::Seal(slug) => Some(crate::runtime::seal_buttons(slug)),
             Buttons::Link(h, o) => Some(crate::runtime::seal::link::buttons(h, o)),
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
+            Buttons::PersonaSoul(key) => Some(crate::runtime::persona_soul::buttons(key)),
             Buttons::Again(q) => Some(crate::runtime::again_buttons(q)),
             Buttons::Standing(mode, id, wide) => {
                 Some(crate::runtime::capture_buttons(mode, id, *wide))

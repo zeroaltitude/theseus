@@ -55,9 +55,9 @@ impl TurnRunner {
         kind: SessionKind,
         place: crate::ceiling::PlaceView,
     ) -> (RequestSpec, Vec<Unreadable>) {
-        let paths = self
-            .cfg
-            .context_paths(target.persona.as_deref(), target.engages);
+        let paths =
+            self.cfg
+                .context_paths(&self.personas(), target.persona.as_deref(), target.engages);
         let (files, unreadable) = self.context_files.load(&paths);
         (self.spec_of(target, kind, place, files), unreadable)
     }

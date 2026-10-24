@@ -179,6 +179,7 @@ fn topic(name: &str, desc: &str) -> Record {
         retired_ms: None,
         handles: Vec::new(),
         merged_into: None,
+        persona: None,
     })
 }
 
@@ -199,6 +200,7 @@ fn candidates_come_from_the_kinds_table() {
             retired_ms: None,
             handles: Vec::new(),
             merged_into: None,
+            persona: None,
         }),
         Origin::Transport,
     )

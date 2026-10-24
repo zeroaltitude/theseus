@@ -374,6 +374,34 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   same kind, words and source). No coding scope: the route mode is decided after the standing block is fixed.
   Tests: `card/tests_pure.rs`, `card/tests_job.rs` (the invented archive in `card/fixture.rs`, and its `setup_export`),
   `config/tests_card.rs`.
+- **Personas are the ontology's** (theseus-utfnl; store format 50; `personas.rs`, `personas/{migrate,soul,write,note}.rs`,
+  `rpc/persona_write.rs`, theseus-ontology's `persona.rs`). A persona is a `persona:<key>` category of the seeded `persona`
+  kind (interpreted, assigned by the operator and the import only, one per session, precedence 100; the row is pinned for
+  every writer, `Kind::check_basis`), whose `Category.persona` card holds the soul file's path (`soul`, `soul_public`,
+  `soul_digest`) and the short fields (`emoji`, `card`, `tts_voice`, `avatar`, `initiative`, `shareable`, `default`). It takes
+  no membership list, no guidance record and no merge from any origin (the ontology refuses them), so Jev, the sweep and the
+  dream can never write one (`tests_persona::no_machine_origin_writes_a_persona`). **`personas::Book`** is what every reader
+  reads (`Core::personas()`, `TurnRunner::personas()`): built from the ontology snapshot and rebuilt when a write swaps it
+  (`ontology::Board::personas`); a persona with a soul is *live*, one without *awaiting* (listed, in play when named, but
+  no text, never offered to Jev, not counted by `engaging()`). `Config::context_paths(&book, persona, engaging)` builds the
+  persona layer from the live ones in key order, each its soul with the same header as before, so the cached prefix did not
+  move at the migration (`tests_personas::migration_changes_no_prefix_byte`). **The migration** (`migrate.rs`, in
+  `Core::build`): a config with `[personas]` and no META `personas.migrated` writes a category each (origin operator,
+  `added_by` `config-migration`, the first file the soul, any other named in the `persona.migrated` row and the warning as
+  not carried) with the mark and the row in one frame, and one FYI note; then `[personas]` and `[context] default_persona` are
+  ignored (`Config::persona_warnings` says so at each start). **Jev's `none`**: the persona question gets one more item,
+  `none`, the default persona's name and card (else the general assistant's); the default is not listed beside it
+  (`engage::inputs`, `Choice::is_default`), and `none` engages the default persona, else the built-in. No pack changed.
+  **The cap**: `[context] persona_max_tokens` (2,000; 200 to 8,000), bytes over `BYTES_PER_TOKEN`; refused at every soul write
+  with the count (`soul::within`), never cut; a hand-edited or migrated file over it is carried whole, said once a digest
+  (`turn/persona_step.rs` `alert_over_cap`), flagged in `theseus census` and health. **Only the owner writes a soul**:
+  `persona.add|soul|set|retire|default` are `Act::Ontology` acts (`judge_persona`: the owner, from a private place; the CLI
+  refuses them in a job), and `soul::write_soul` (atomic, 0600 in a 0700 directory, the replaced file kept as
+  `.<ms>.bak`, a `persona.soul` row) is reached only from them. `persona.import` writes a category (origin import). A
+  persona added without a soul draws one `persona_soul` post to the owner's DM (`personas/note.rs`; Discord's
+  `runtime/persona_soul.rs`: Write its soul is a modal, Decline retires it, each `persona.soul` or `persona.retire` as the
+  presser). Nothing binds a persona to a place but the bindings file's `persona =`. Tests: `tests_personas.rs`,
+  `tests_persona_write.rs` (under `tests_ontology`), `engage::tests`, the ontology's `tests_persona.rs`.
 - **The owner's agents as personas** (theseus-a8n7, T10b; store format 41; `persona_import/`, `persona_recall.rs`,
   `standing_proposals.rs`, `rpc/persona_import.rs`, `rpc/standing_proposals.rs`, `config/persona_settings.rs`, `[persona_import]`
   because `[personas]` is a map of personas). `persona.import {from, name, agent?, dry_run}` (the import's act:

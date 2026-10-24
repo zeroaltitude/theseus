@@ -159,6 +159,7 @@ fn tree(o: &mut Ontology, paths: &[Vec<String>], tag: &str) -> Result<(Ids, Vec<
                         retired_ms: None,
                         handles: Vec::new(),
                         merged_into: None,
+                        persona: None,
                     };
                     o.put(Record::Category(c.clone()), Origin::Import)?;
                     made.push(c.clone());

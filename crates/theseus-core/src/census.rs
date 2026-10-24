@@ -104,9 +104,9 @@ pub struct NextRequest {
 impl TurnRunner {
     /// The context files `target` carries, read without a warning.
     fn peek_files(&self, target: &Target) -> Vec<crate::context_files::ContextFile> {
-        let paths = self
-            .cfg
-            .context_paths(target.persona.as_deref(), target.engages);
+        let paths =
+            self.cfg
+                .context_paths(&self.personas(), target.persona.as_deref(), target.engages);
         self.context_files.peek(&paths)
     }
 
@@ -120,7 +120,7 @@ impl TurnRunner {
         let Some(r) = rec else {
             let mut t = self.resolve_target(live, None, None, None)?;
             // A fresh session's place is the kind asked for.
-            t.engages = self.cfg.persona_engaging()
+            t.engages = self.personas().engaging()
                 && matches!(
                     PlaceKind::parse(place_kind),
                     Some(PlaceKind::Dm | PlaceKind::Channel)
@@ -520,6 +520,7 @@ impl crate::rpc::Core {
         let request = &next.compiled.request;
         let rates = TokenRates::of(&next.target.model);
         let mut res = census_parts(request, next, rates);
+        self.flag_over_cap(&mut res, next);
         res.session_id = session_id.map(str::to_string);
         res.place = if session_id.is_some() {
             "session"
@@ -591,6 +592,7 @@ pub fn census_parts(
             .into_iter()
             .zip(tokens.iter())
             .map(|((name, bytes), tokens)| CensusPart {
+                over_cap: false,
                 name,
                 bytes,
                 tokens: *tokens,
@@ -716,6 +718,19 @@ pub fn withhold_names(r: &mut ContextCensusResult) {
             if p.name != "standing orders" && p.name != "joins" {
                 p.name = "context".to_string();
             }
+        }
+    }
+}
+
+impl crate::rpc::Core {
+    /// Flag the persona parts whose soul is over `[context] persona_max_tokens`
+    /// (theseus-utfnl): the persona layer's parts are named by their files.
+    fn flag_over_cap(&self, res: &mut ContextCensusResult, next: &NextRequest) {
+        let cap = self.cfg.context.persona_cap();
+        let souls: Vec<&String> = next.persona_files.iter().map(|(n, _)| n).collect();
+        for p in res.system.iter_mut().flat_map(|b| b.parts.iter_mut()) {
+            let tokens = p.bytes.div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
+            p.over_cap = souls.contains(&&p.name) && tokens > cap;
         }
     }
 }

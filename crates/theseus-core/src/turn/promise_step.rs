@@ -26,7 +26,10 @@ impl TurnRunner {
             (false, _) => "wake",
             (true, false) => "report",
         };
-        let persona = self.cfg.persona_for(t.target.persona.as_deref(), None).name;
+        let persona = self
+            .personas()
+            .persona_for(t.target.persona.as_deref(), None)
+            .name;
         t.record(&fact::initiative::InitiativeSpoke {
             id: t.tc.turn_id,
             kind,

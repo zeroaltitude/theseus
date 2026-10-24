@@ -679,7 +679,10 @@ const BULK: usize = 4096;
 /// `thread.linked`, `thread.unlinked` and `thread.link_proposed`.
 /// 49 = a session's data state (theseus-a1wvq.5): a SESSION record's `data`
 /// (opened, the open run, the taint), and the ledger kind `session.data`.
-const MANIFEST_FORMAT: u32 = 49;
+/// 50 = a persona (theseus-utfnl): an `onto:cat:persona:<key>` META record's `persona`
+/// card (the soul's path, its digest, the short fields, the default mark), the `persona`
+/// kind row, and the ledger kinds `persona.migrated` and `persona.soul`.
+const MANIFEST_FORMAT: u32 = 50;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

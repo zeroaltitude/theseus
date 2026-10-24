@@ -794,7 +794,7 @@ impl TurnRunner {
             model,
             max_tokens,
             system: prof.system.clone(),
-            persona: self.cfg.persona().map(str::to_string),
+            persona: self.personas().default_key().map(str::to_string),
             engages: false,
             effort: prof.effort,
             thinking_display: prof.thinking_display,

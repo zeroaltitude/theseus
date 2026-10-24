@@ -216,6 +216,7 @@ impl Core {
                     let next_a = ThreadInfo {
                         state: r.was,
                         merged_into: None,
+                        persona: None,
                         surfaces: r.surfaces.clone(),
                         ..a.clone()
                     };

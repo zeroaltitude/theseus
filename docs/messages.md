@@ -86,6 +86,9 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 | Disk | Discord `diskwords.rs` `disk_note` | free space crossed a line or came back | operator channel, `disk` | Alert / FYI |
 | MCP changed | Discord `courier.rs` `mcp_note` | a server's tools or a prompt changed | operator channel, `mcp_changed` | FYI |
 | Voice deaf / lost / rejoined | Discord `runtime/voice/deaf.rs` constants | the call's hearing | place, `notice` | Alert / FYI / Action |
+| New persona | `personas/note.rs` `text` | a persona was added without a soul (CLI or cockpit); asked once | DM, `persona_soul` (buttons Write its soul, Decline) | Action |
+| Personas moved | `personas/migrate.rs` `note_text` | the first start that read `[personas]` from the config into the ontology | DM, `notice` | FYI |
+| Persona soul over its cap | `turn/persona_step.rs` `over_cap_text` | a compile carried a soul over `[context] persona_max_tokens`; once a digest | DM, `notice` | Alert |
 
 ## Not headed, and why
 

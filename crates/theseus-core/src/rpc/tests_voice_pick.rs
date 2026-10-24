@@ -156,6 +156,7 @@ fn persona(name: &str, voice: Option<&str>) -> PersonaConfig {
     PersonaConfig {
         name: Some(name.into()),
         tts_voice: voice.map(str::to_string),
+        files: vec![crate::personas::test_soul(name)],
         ..PersonaConfig::default()
     }
 }

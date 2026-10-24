@@ -462,6 +462,14 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Add a new topic to the ontology.',
     'Give a name and where in the tree it goes. It shows what it will send and asks first.',
     'A topic is a place for sessions and notes to be filed. Add one when the existing topics keep fitting badly.'),
+  'ontology.personas': e(
+    'List the personas: who can answer a message, and the state of each one’s soul.',
+    'One row per persona: its name, emoji and card, the default mark, and its soul as live, awaiting its soul, or over its cap with its tokens. Edit its soul opens a box that replaces the file (the old one is kept beside it); make default sets the one Jev’s “none” engages; retire takes it away. Each asks first.',
+    'A persona’s soul sits in every DM’s cached persona layer, so it is kept small. Only you, from a private place, can write one, and a soul over the cap is refused with its count.'),
+  'ontology.personaadd': e(
+    'Add a persona by its key.',
+    'Give a key, and optionally a name, an emoji, a card and a soul. With no soul the persona awaits one: it is listed and never picked, and you are asked for the soul once.',
+    'Jev picks a persona per message from the cards of those with a soul. A key may not be none or prior: they are the question’s own options.'),
   'ontology.kindadd': e(
     'Add a new kind of classification to the ontology, such as expertise or culture.',
     'Give a name (a lowercase letter, then letters, digits, _ or -), and say who may assign it, how many a session holds, where it nests, its precedence and rule, and up to five examples. A fault shows under its field, in the words the daemon would refuse it in. The confirm shows the exact params it will send.',

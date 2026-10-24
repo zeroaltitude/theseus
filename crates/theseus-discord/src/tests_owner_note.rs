@@ -37,6 +37,10 @@ fn every_unasked_discord_message_starts_with_a_kind_and_a_title() {
             "reminder",
             crate::runtime::remind_text(&json!({"text": "stretch"})),
         ),
+        (
+            "new persona card",
+            theseus_core::personas::note::text("pilot", "Pilot", "the cockpit", 2000),
+        ),
     ];
     let bad: Vec<String> = families
         .iter()

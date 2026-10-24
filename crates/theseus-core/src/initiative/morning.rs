@@ -54,7 +54,7 @@ impl Core {
         // The config is fixed for the daemon's life: a level that says no says
         // it for the day, and the tick asks nothing more.
         if !self
-            .cfg
+            .personas()
             .persona_for(None, None)
             .initiative
             .lets(Proactive::Morning)

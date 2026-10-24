@@ -236,8 +236,13 @@ stub_after_turns = 3
 # a file over 64 KB is cut.
 [context]
 files = []                              # the system level, e.g. ["~/.openclaw/workspace/USER.md"]
-# The persona in play: a key of [personas]. Until Jev chooses a persona from its ontology,
-# this is the only choice. Omitted: no persona, and the system level alone.
+# The most tokens one persona's soul file may be (200 to 8000; estimated at 3 bytes a token).
+# A soul over it is refused when it is written, never cut; a hand edit or a migrated file over
+# it is carried whole and flagged in `theseus census`, health and a note (it sits in every
+# DM's cached persona layer).
+# persona_max_tokens = 2000
+# The persona in play: a key of [personas], read once like them (the ontology's default persona is
+# `theseus persona default KEY` now; Jev's `none` engages it).
 # default_persona = "theseus"
 # The working window: the most tokens a request may take, below the model's own window.
 # Omitted: the model's full window from the catalog. Past half of it, a long turn's old
@@ -248,9 +253,18 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # none, and every turn renders its session whole.
 # kept_mb = 64
 
-# A persona's files, compiled after the system level's while it is in play. A file is
-# yours alone ([places] below); a table entry with readers = "public" lets a shared place
-# carry it too, and a shared place gets any other file's header and why instead.
+# Personas are the ontology's now (theseus-utfnl): a `persona:<key>` category each, its soul
+# one small file. `theseus persona add KEY` makes one (and asks you for its soul), `persona soul
+# KEY` writes the soul, `persona set KEY --emoji ..` sets its short fields, `persona default KEY`
+# marks the one Jev's `none` engages, `persona retire KEY` takes one away; the cockpit's
+# /ontology does the same. A [personas.<name>] table and [context] default_persona in an older
+# config are read once, at the first start that has them, and ignored after: delete them.
+# Nothing binds a persona to a place but the bindings file's `persona = "<name>"`.
+
+# Legacy form, read once (theseus-utfnl). A [personas.<name>] table below is read by the first start
+# of this version that has one: each becomes a persona of the ontology (its first file the soul, the
+# others not carried), and the tables are ignored from then on. The keys are what they always were.
+# A persona's soul file (a table entry with readers = "public" lets a shared place carry it).
 # The persona is data (theseus-slvl.2). Every key but the files is optional. With no persona
 # configured, or none whose file reads, the header carries the built-in default
 # (crates/theseus-core/persona/default.md: who Theseus is, a line of voice per surface, and

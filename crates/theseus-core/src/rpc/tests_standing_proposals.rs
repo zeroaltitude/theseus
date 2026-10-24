@@ -46,8 +46,20 @@ fn answer(id: &str) -> StandingProposalAnswer {
 #[test]
 fn feedback_is_proposed_never_live_and_kept_for_its_persona_alone() {
     let r = rig_with(MemoryMode::Off, |c| {
-        c.personas.insert("wren".into(), PersonaConfig::default());
-        c.personas.insert("finch".into(), PersonaConfig::default());
+        c.personas.insert(
+            "wren".into(),
+            PersonaConfig {
+                files: vec![crate::personas::test_soul("wren")],
+                ..Default::default()
+            },
+        );
+        c.personas.insert(
+            "finch".into(),
+            PersonaConfig {
+                files: vec![crate::personas::test_soul("finch")],
+                ..Default::default()
+            },
+        );
     });
     let c = &r.core;
     let live = || {
@@ -140,7 +152,13 @@ fn feedback_is_proposed_never_live_and_kept_for_its_persona_alone() {
 #[test]
 fn a_persona_scope_names_a_configured_persona() {
     let r = rig_with(MemoryMode::Off, |c| {
-        c.personas.insert("wren".into(), PersonaConfig::default());
+        c.personas.insert(
+            "wren".into(),
+            PersonaConfig {
+                files: vec![crate::personas::test_soul("wren")],
+                ..Default::default()
+            },
+        );
     });
     let add = |name: &str| {
         r.core.standing_add(

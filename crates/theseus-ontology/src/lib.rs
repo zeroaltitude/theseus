@@ -33,6 +33,7 @@ mod machine;
 pub mod merge;
 pub mod ontology;
 pub mod person;
+pub mod persona;
 pub mod refusal;
 mod renamed;
 pub mod sweep;
@@ -46,6 +47,7 @@ pub use kind::{
 pub use merge::CategoryMerge;
 pub use ontology::{Ontology, MAX_DEPTH};
 pub use person::{handle, handles_of, Merge};
+pub use persona::{Initiative, PersonaCard};
 pub use refusal::Refusal;
 pub use sweep::{Step, DECAY_MS};
 pub use text::{
@@ -171,6 +173,8 @@ mod tests_manifest;
 mod tests_origins;
 #[cfg(test)]
 mod tests_people;
+#[cfg(test)]
+mod tests_persona;
 #[cfg(test)]
 mod tests_renamed;
 #[cfg(test)]

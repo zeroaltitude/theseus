@@ -126,5 +126,16 @@
     "description": "How things are done here, learned from corrections over time.",
     "version": 1,
     "added_by": "seed"
+  },
+  {
+    "name": "persona",
+    "basis": "interpreted",
+    "assigned_by": ["operator", "import"],
+    "per_session": 1,
+    "precedence": 100,
+    "rule": "intent_line",
+    "description": "A persona: who answers a message. Its soul is a file; Jev picks one per message. Only the owner writes one.",
+    "version": 1,
+    "added_by": "seed"
   }
 ]
