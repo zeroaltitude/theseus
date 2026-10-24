@@ -49,7 +49,9 @@ On a terminal, bare `theseus` (no argument) opens a conversation in this directo
 - **`task`**: start a task from your word with no model turn. `theseus task start "write the changelog" --in-time 2h`.
   `theseus task show ID` prints one task whole (its brief, plan, children, spend, times, its whole report, and the
   commands that act on it now); `theseus task pause ID` holds a running task at its next loop and `theseus task resume ID`
-  lets it go on (yours alone, refused inside a job). `task` acts on one; `tasks` lists them.
+  lets it go on (yours alone, refused inside a job). `theseus task rehome ID HOME` sends its report to another
+  conversation or `thread:<slug>`; `theseus task reschedule ID --at WHEN | --in-time SPAN` moves a deferred start;
+  `theseus sessions model SESSION PROFILE|--off` holds a session's turns to a profile or lets the hold go. `task` acts on one; `tasks` lists them.
 - **`agenda`**: the future in one view: Now, Today, This week, Later, Recurring, Waiting on the world, Projects.
   `theseus agenda --watch`.
 - **`digest`**: what finished, failed, was answered or woke since you last looked (an agent's answer is told as the agent's, not

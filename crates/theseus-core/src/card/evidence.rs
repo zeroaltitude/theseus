@@ -109,8 +109,6 @@ const MACHINERY: &[&str] = &[
     "session start",
     "when you wake",
     "wake up",
-    "bootstrap",
-    "heartbeat",
     "memory file",
     "daily log",
     "daily note",
@@ -120,19 +118,41 @@ const MACHINERY: &[&str] = &[
     "your user",
 ];
 
+/// Words of a session's machinery that an owner's own note may also name
+/// ("Heartbeat agents must claim before working"): they count only in a line
+/// that is also addressed to its reader.
+const BARE_MACHINERY: &[&str] = &["bootstrap", "heartbeat"];
+
+/// Whether `phrase` stands in `lower` (already lower case) as whole words:
+/// not inside a longer one ("wake up" is not in "wake update").
+fn has_phrase(lower: &str, phrase: &str) -> bool {
+    lower.match_indices(phrase).any(|(i, _)| {
+        let before = lower[..i].chars().next_back();
+        let after = lower[i + phrase.len()..].chars().next();
+        !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+    })
+}
+
 /// Whether a line is addressed to an assistant about running itself: "you"
 /// is its reader, or it names a session's machinery. An order the owner
 /// gives ("Never commit before the gate is green") is not.
 pub fn addressed(line: &str) -> bool {
     let l = line.to_lowercase();
-    let first = l
+    let mut words = l
         .split(|c: char| !c.is_alphanumeric() && c != '\'')
-        .find(|w| !w.is_empty())
-        .unwrap_or("");
-    matches!(
-        first,
-        "you" | "your" | "you're" | "youre" | "yourself" | "you'll"
-    ) || MACHINERY.iter().any(|m| l.contains(m))
+        .filter(|w| !w.is_empty());
+    let you = |w: &str| {
+        matches!(
+            w,
+            "you" | "your" | "you're" | "youre" | "yourself" | "you'll"
+        )
+    };
+    let first = words.next().unwrap_or("");
+    you(first)
+        || MACHINERY.iter().any(|m| has_phrase(&l, m))
+        || (BARE_MACHINERY.iter().any(|m| has_phrase(&l, m))
+            && l.split(|c: char| !c.is_alphanumeric() && c != '\'')
+                .any(you))
 }
 
 /// Whether a file, by its name, is an assistant's setup: its soul, identity,
@@ -154,8 +174,24 @@ pub fn setup_file(name: &str) -> bool {
         )
 }
 
+/// What a setup line starts with when it is an order or a determiner, never
+/// a name ("Keep notes short").
+const NOT_A_NAME: &[&str] = &[
+    "keep", "check", "read", "write", "use", "make", "run", "update", "add", "remove", "store",
+    "save", "log", "post", "send", "avoid", "prefer", "follow", "stay", "take", "give", "ensure",
+    "be", "do", "don't", "never", "if", "when", "before", "after", "a", "an", "the", "this",
+    "that", "these", "those", "all", "each", "every", "any", "no", "some", "my", "our", "you",
+];
+
+/// Whether `w` looks like a third-person verb: "prefers", "is", "has".
+fn third_person(w: &str) -> bool {
+    matches!(w, "is" | "has" | "was" | "does")
+        || (w.len() > 3 && w.ends_with('s') && !w.ends_with("ss") && !w.ends_with("us"))
+}
+
 /// Whether a line's subject is the owner: it starts with the owner, the
-/// user, a third person, or a third-person verb ("Prefers", "Lives").
+/// user, a third person, or a third-person verb ("Prefers", "Lives"), or a
+/// name and then one ("Mara prefers", "Mara is").
 pub fn about_owner(line: &str) -> bool {
     let l = line.to_lowercase();
     let mut ws = l
@@ -167,11 +203,9 @@ pub fn about_owner(line: &str) -> bool {
         "the" | "my" => matches!(ws.next(), Some("owner" | "user" | "human")),
         "always" | "sometimes" | "perhaps" | "unless" | "thus" | "this" | "does" => false,
         w => {
-            w.len() > 3
-                && w.ends_with('s')
-                && !w.ends_with("ss")
-                && !w.ends_with("us")
-                && !addressed(line)
+            !addressed(line)
+                && ((w.len() > 3 && third_person(w))
+                    || (!NOT_A_NAME.contains(&w) && ws.next().is_some_and(third_person)))
         }
     }
 }
@@ -190,13 +224,8 @@ const ONE_TASK: &[&str] = &[
 
 /// Whether a line says it holds for one task, repository, branch or run.
 pub fn one_task(line: &str) -> bool {
-    let l = format!(" {} ", line.to_lowercase());
-    ONE_TASK.iter().any(|p| {
-        l.match_indices(p).any(|(i, _)| {
-            let after = l[i + p.len()..].chars().next().unwrap_or(' ');
-            !after.is_alphanumeric()
-        })
-    })
+    let l = line.to_lowercase();
+    ONE_TASK.iter().any(|p| has_phrase(&l, p))
 }
 
 /// Whether an episode's labels make it partner-confidential: the label, or a

@@ -14,6 +14,7 @@ import { History, Inbox, PanelLeftOpen, PanelRightOpen, X } from 'lucide-react'
 import type { CatalogList, ConfirmRequest, ProfileList, SessionListResult, TaskListResult } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { pricing } from '@/lib/money'
+import { watchRows } from '@/lib/agenda'
 import { useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
 import { useHistoryRows } from '@/lib/history'
@@ -191,8 +192,8 @@ export default function Ops() {
   const [dockFold, setDockFold] = usePref(DOCK_KEY, parseFold)
   const [dock, setDock] = useState<DockState>({ paused: false, follow: false })
   const [dockFocus, setDockFocus] = useState(false)
-  const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 30_000)
-  const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 60_000)
+  const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 0)
+  const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 0)
   const [flash, setFlash] = useState<string | null>(null)
   useEffect(() => { if (!flash) return; const t = window.setTimeout(() => setFlash(null), 3500); return () => window.clearTimeout(t) }, [flash])
   const searchRef = useRef<HTMLInputElement>(null)
@@ -286,7 +287,7 @@ export default function Ops() {
     fold_inspector: () => setIFold(flip(iFold)),
     fold_dock: () => setDockFold(flip(dockFold)),
     model_menu: () => { if (focusSession && on('model_menu')) setMenu({ kind: 'model', sid: focusSession.session_id }) },
-    mode_menu: () => { if (focusSession?.kind === 'conversation' && on('mode_menu')) setMenu({ kind: 'mode', sid: focusSession.session_id }) },
+    mode_menu: () => { if ((focusSession?.kind === 'conversation' || focusSession?.kind === 'task') && on('mode_menu')) setMenu({ kind: 'mode', sid: focusSession.session_id }) },
     compose: () => { const id = focusSession?.session_id ?? focusRow?.sessionId ?? item?.sessionId ?? slug; if (id) set({ join: id }); else setFlash('select a session, a task or a thread to join') },
     parent: () => { const p = focusRow?.task?.info?.parent_session_id; if (p) pick(p); else setFlash('it reports to no parent') },
     last_turn: () => { const sid = focusRow?.sessionId ?? item?.sessionId; const t = sid ? lastTurnOf(history.rows, sid) : undefined; if (sid && t) nav(`/session/${sid}/turn/${t}`); else setFlash('no turn has ended in it yet') },
@@ -388,11 +389,11 @@ export default function Ops() {
       visible: vis.rows.map(targetOf),
       selection: vis.rows.filter((r) => picked.has(r.id)).map(targetOf), // ops-graph: the selection scope
     },
-    entities: entitiesOf(rows, grouped.threads.map((t) => ({ slug: t.group.slug, title: t.group.title })), records, pl?.profiles ?? []),
+    entities: entitiesOf(rows, grouped.threads.map((t) => ({ slug: t.group.slug, title: t.group.title })), records, pl?.profiles ?? [], watchRows(views)),
     profiles: pl?.profiles ?? [], prices: pricing(cat),
-    go: (e: { go: { sel: string } | { model: string } }) => { if ('sel' in e.go) pick(e.go.sel); else set({ f: { ...a.f, model: e.go.model } }) },
+    go: (e: { go: { sel: string } | { model: string } | { lens: 'timeline' } }) => { if ('sel' in e.go) pick(e.go.sel); else if ('lens' in e.go) lens(e.go.lens); else set({ f: { ...a.f, model: e.go.model } }) },
     newTask: () => live.current.handlers.new_task('N'), selfChanges: () => setSelfOpen(true),
-  }), [focusRow, vis.rows, picked, rows, grouped.threads, records, pl, cat, a.f]) // eslint-disable-line react-hooks/exhaustive-deps
+  }), [focusRow, vis.rows, picked, rows, grouped.threads, records, pl, cat, a.f, views]) // eslint-disable-line react-hooks/exhaustive-deps
   // The palette opens over the picked cards while any are picked, and over the focused one when none are.
   useEffect(() => { useOpsPalette.setState({ scope: picked.size > 0 ? 'selection' : 'one' }) }, [picked.size > 0])
   const publish = useOpsPalette((x) => x.publish)

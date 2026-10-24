@@ -104,9 +104,19 @@ impl Core {
                 Some(home.to_string())
             }
         };
-        let mark = session.as_deref().map_or(DataMark::Open, |s| {
-            crate::data_mark::session_mark(&self.store, &self.cfg, s)
-        });
+        // A failed read of the home's mark is a refusal, not the top mark: the top
+        // would let any task's report in.
+        let mark = match session.as_deref() {
+            None => DataMark::Open,
+            Some(s) => {
+                crate::data_mark::try_session_mark(&self.store, &self.cfg, s).map_err(|e| {
+                    anyhow::anyhow!(
+                        "the data mark of {home} cannot be read ({e}): a report never goes to a \
+                         home whose mark is unknown"
+                    )
+                })?
+            }
+        };
         let target = session
             .as_deref()
             .and_then(|s| self.outbox.report_target(self.outbox.target(s)).0);
@@ -183,7 +193,8 @@ impl Core {
             from,
             to: home.target,
             note: format!(
-                "its budget stays carved from its original parent ({})",
+                "its budget stays carved from its original parent ({0}), and that parent's \
+                 next turn still reads the report",
                 parent.as_deref().unwrap_or("none")
             ),
         })

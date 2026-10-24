@@ -21,8 +21,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   stop read under the frame's lock, the wake nested so its failure takes back only itself. A failed turn's retry is
   the driver's (theseus-ljr), but not a `--stdio` daemon's: its run parks the turn on input for its one client
   (`turn/stdio_step.rs`, set by theseusd before serving, theseus-zqxv); `[model.retries]` can make a transient
-  failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; the bench profile's, since a
-  headless run ends with its turn: theseus-7gir.21). Once the stop has begun (`Outbox::stopping`), the driver begins
+  failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; a call cut at its whole-call bound is retried once a turn at most; the bench profile's, since a
+  headless run ends with its turn: theseus-7gir.21). Provider timeouts: `total_secs` bounds a call until its stream
+  begins; a live stream (events within `stream_idle_secs`) goes on to `Timeouts::whole_call`, `LIVE_STREAM_TOTALS` (3) times
+  it, and the model call's kernel action deadline is the same (theseus-5pg8u). Once the stop has begun (`Outbox::stopping`), the driver begins
   no continuation and a call about to be sent is settled failed unsent, class `stopping` (`ProviderError::Stopping`),
   with no in-turn retry, so the next start's driver retries it (`turn/stopping_step.rs`, theseus-jtrc); its run posts no
   notice and health and telemetry count no provider error for it (theseus-36re). A `--stdio` daemon started `--one-shot SECS`
@@ -91,7 +93,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (Haiku 5.5's: 5x past a 100,000-token prompt, theseus-3okf): `terms` prices a usage at the tier its prompt
   (input, cache reads and writes) picks, `reserve_micros` and `reserve_parts` at the tier the input estimate picks;
   price a usage only through them, never by reading a row's base prices. A refusal fallback's window holds its
-  model's (`every_refusal_fallbacks_window_holds_its_models_requests`).
+  model's (`every_refusal_fallbacks_window_holds_its_models_requests`). A call that must answer through one tool asks `Catalog::forcing(model)` (`thinking_off`, and `may_force`) and builds its tool and `tool_choice` with `provider::one_tool::one_tool` (theseus-yym79): forced only where thinking is plainly off (`disabled`, or none sent and not unasked), else `auto` with a strict tool whose every object is closed.
   - **Files given to the model** (theseus-9g2, theseus-c9l6): `attach.rs` and `blobs.rs`. A message's files: text as
     text (`[tools] max_read_bytes`), an image as an image, and any other file kept whole in the store's blobs up to
     `[tools] max_attachment_bytes` (32 MiB), a `File`. A PDF is read once, when it arrives, in theseus-files' capped
@@ -298,7 +300,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
   under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each
   call, so a stop keeps what was spent), an answer over 400 characters refused, never cut, a session whose first or last
-  message cannot be read left out (the category waits only below 5 left), and `[ontology] dream_guidance` off (default
+  message cannot be read left out (the category waits only below 5 left), a category that waits says why in `Dreamed.waits` (`Wait`: different profiles, a profile or provider that is missing, a model that thinks unasked, too few readable sessions, no price), which the tender logs, and `[ontology] dream_guidance` off (default
   on) reading, calling and writing nothing; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream
   write of the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim
   after the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours,
@@ -361,12 +363,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   thirty executions for a fortnight. The nightly tender (`card/tender.rs`) is the learning tender's `due` held to
   `[card] every_days`, off once `card.done`. **Drafting** (theseus-ly75u): before clustering, `evidence::kept` drops a
   note's line addressed to an assistant about running itself (`addressed`: "you" as its reader, or a session's
-  machinery), keeps only the owner's lines (`about_owner`) of an assistant's setup file (`setup_file`: soul, identity,
+  machinery, matched on word boundaries by `has_phrase` as `one_task` is; a bare "heartbeat" or "bootstrap" counts only in a line that also says "you"), keeps only the owner's lines (`about_owner`: a pronoun, "the owner", a third-person verb, or a name then one, "Mara prefers", "Mara is", unless the first word is a setup-file order or determiner from `NOT_A_NAME`) of an assistant's setup file (`setup_file`: soul, identity,
   bootstrap, agents, memory, heartbeat, tools, a dated daily log), and drops any line of one task, repository, branch or
   run (`one_task`); the result counts them (`setup`, `one_task`). The tool's `scope` takes `one_task`, which `parse`
   drops and counts (no scope is that narrow); `parse` also drops a thin statement (under two content words) and one
-  that lost its lines' "on whose behalf". The tool's `conflicts` names a call's clusters a statement contradicts, and
-  `run::settle_conflicts` keeps the better supported of each pair and notes the other (`CardProposeResult.conflicts`).
+  that lost the "on whose behalf" of the lines of the episodes it cites (`turned`). The tool's `conflicts` names a call's clusters a statement contradicts, and
+  `run::settle_conflicts` keeps the better supported of each pair and notes the other (`CardProposeResult.conflicts`). A later call of one run lists the run's earlier proposals after its clusters as `P1`, `P2`, … (`Job.earlier`, in the user message only: the system text and the tool stay the same bytes); a statement the model says conflicts with one is not offered and is noted the same way, and the call's privacy routing covers those proposals' clusters' sessions. `card.answer` refuses a decline that carries a `scope`.
   **Scope**: `card.answer {scope}` (`StandingScope::from_words`, the one parser of `words()`'s forms) sets a keep's or
   an edit's scope; option `scope` on a kept proposal writes its record again there (`standing.add` with `replaces`,
   same kind, words and source). No coding scope: the route mode is decided after the standing block is fixed.
@@ -612,7 +614,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`thread_route::address`, certain, no judge); then the in-memory pre-router (`thread_route.rs`, pure: entity matches
   against each live thread's working set, stickiness `[threads] sticky_half_life_secs`, the reply chain, fused as a
   noisy-or, a thread whose title the message names in every content word adding 0.35 unshared (`thread_title.rs`,
-  theseus-4qdh8: two titles named contend and are asked; a title names its thread as an entity does, so it halves another thread's stickiness and takes the replier's chain, and an apart thread keeps it, theseus-7nx13; with Jev down a single title named routes there as a guess, `GUESS` 0.30 under the title's 0.35); `thread_flow.rs` holds its `State`: the last thread per
+  theseus-4qdh8: two titles named contend and are asked; a title names its thread as an entity does, so it halves
+  another thread's stickiness and takes the replier's chain, and an apart thread keeps it, theseus-7nx13; with Jev down
+  a single title named routes there as a guess, `GUESS` 0.30 under the title's 0.35); `thread_flow.rs` holds its
+  `State`: the last thread per
   home session, routed turns, pending asks, correction memory); then `classify.v2`'s `thread` question
   (`Source::Threads`, at most 50 options plus `new_thread`
   and `home`), which rides **the same inbound request** as the rest of the batch: `JudgeService::inbound_early` begins
@@ -1848,7 +1853,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`scoped`/`within`/`bound` take a bool as private); both floors (the route step and `data_gate`) allow a US-origin
     model alone for any private level, and `place.publish` refuses a node of a sensitive session to a shared place
     (`sensitive_stays_private`); a shared place is offered no calendar tool. A morning note over a sensitive calendar
-    is asked of a US model alone and its `initiative.spoke` row holds no text (`initiative_post_as`). Tests:
+    is asked of a US model alone and its `initiative.spoke` row holds no text (`initiative_post_as`). **Idle and
+    unreachable** (theseus-b09do): the tender drops a window nobody read for `IDLE` (30 minutes) before it refreshes,
+    so a closed page costs Google nothing and the tender ends; a sync delta is merged against its window (`overlaps`,
+    the test `serve` answers by), so an event outside it is never kept or told, and a window cut at `MAX_EVENTS`
+    drops its token; a 5xx, a rate limit or the network is `CalendarStatus::Unreachable`, a real 403 `Forbidden`. Tests:
     `google/tests_calendar_cache.rs`, `tests_sensitive.rs`, `tests_morning.rs`, `tests_calendar.rs`.
   - **The open view** (theseus-a1wvq.7; `open_view.rs`): a request for open data carries none of the owner's material.
     `PlaceView.open` (the reach: `[routing.data] open_paths` via `open_view::open_roots(cfg, session)`, and whether the
@@ -2690,7 +2699,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `reports_to`, META `task.place.<session>`; the frame that ends the task reads the target again,
   `TaskOf::target_for_now`): `home` is a conversation's session id or `thread:<slug>`; the budget stays carved from the
   original parent and the parent's next turn still reads the report. A home with no place leaves the report on the board.
-  Refused: an ended task; a missing, retired, task or shared-place home; a home whose mark is weaker than the task's.
+  Refused: an ended task; a missing, retired, task or shared-place home; a home whose mark is weaker than the task's,
+  or **whose mark cannot be read** (`data_mark::try_session_mark` over `private::try_level`, the one walk `level` uses
+  too: a failed read is an error for the home, `Sensitive` for the task). A home with no place writes `task.place.<session>`
+  as JSON `null` (not `""`: a build before this one reads a string and binds nothing from null; this build's rebuild and
+  the index tender read null and `""` alike as no place). `session.profile` refuses a retired session (a let-go goes).
   **`task.reschedule { task, start_at_ms | start_after_ms | start_when }`** moves a sleeping deferred task's due wake
   (`Kernel::edit_task`) and its `task.deferred.<session>` times, parsed by `Core::start_time`, which `task.start` shares;
   `previous` is the undo. Tests: `rpc/tests_session_profile.rs`, `tests_task_rehome.rs`, `tests_task_reschedule.rs`,
@@ -2927,19 +2940,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **A turn's time, its progress, and its commands' CPUs** (theseus-2uy56, theseus-yct32). **The deadline**: a
-  `turn.submit` may carry `deadline_secs` (`theseus ask --deadline SECS`), kept in memory by session from the request's
-  arrival until it passes (`turn/clock_step.rs`, `set_deadline` in `turn_submit`; a restart forgets it, and the turn
-  has none). **The time line**: at a loop's start, when the whole minutes left changed (and at the first loop), a harness
+  `turn.submit` may carry `deadline_secs` (`theseus ask --deadline SECS`), kept in memory by session and the request's
+  arrival (`turn/clock_step.rs`, `set_deadline` in `turn_submit`): the turn that submit started takes it at its first
+  loop (`take_deadline`, which drops it), and no other turn of the session has one (a nudge, a wake, a resume, a
+  continuation, a submit that steers a running turn; a restart forgets it, and the turn has none). **The time line**: at a loop's start, when the whole minutes left changed (and at the first loop), a harness
   node `[The harness: 9 minutes left of this turn's 15.]` (author `harness:clock`): appended history, never the prefix,
   at most one a minute. **The progress check** (`turn/progress_step.rs`, `decide`, pure): at each loop's end, before the
-  checkpoint takes the loop's failure, a loop that ran a `proc.run` answered in the loop with no error result passed, one
-  with an error failed, any other is no check. Nothing fires while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
+  checkpoint takes the loop's failure, a loop whose `proc.run` calls answered in the loop with no error result passed, one
+  with a command's error result failed (another tool's error counts for the checkpoint, not here), a loop with no
+  command or with a command sent to the background is no check (`progress_step::Commands`, set as calls answer by
+  `Checkpoints::answered`). Nothing fires while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
   (3) loops; at `STEER_SHARE` (0.5) of the deadline or of the execution's spend limit spent by this turn, one steer note
   (replan or narrow); at `STOP_SHARE` (0.85) of the deadline only (spend never stops a turn: the owner's notify rule), a
   stop note asking for a report with no tool calls, and the next loop is the last (stop reason `progress_stop`, which the
   nudge and the end note leave alone). Each is a harness node (`harness:progress`) and a `turn.progress` row (the shares,
-  `since_pass`, `failing`, the times and spend; `fact/progress.rs`). The turn's state lives in a map by execution (turn.rs
-  is at its ceiling), begun at its first loop and dropped at its end. **The CPUs**: the session block names them after
+  `since_pass`, `failing`, the times and spend; `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
+  is at its ceiling), begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
   `Directory:` (`cpu/commands.rs`, `Cpus::of_commands`, read once per process): the tightest of the daemon's cgroup v2
   `cpu.max` (every ancestor's, rounded up), its `cpuset.cpus.effective`, and `available_parallelism`, with the host's
   online count when a limit applies (`CPUs available to commands: 2 (cgroup quota; the host shows 32).`); an unreadable
@@ -3087,6 +3103,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `toolrun/peek.rs`'s `newest` and `last_line`; `last_line` returns the last *complete* line, ended by a newline or a carriage return, so a sample never shows a line the job is still writing, while `peek` shows the live tail as it is). All read the job's output file, `results/<id>.out`, which its wrapper
   writes while it runs; nothing is timed on a turn's path and no frame is written. `work.peek` (a read, on the blocking
   pool): a stat and at most 64 KiB from the end, scrubbed, at most 20 lines, each cut to 1,000 characters.
+  `job.stop {id}` (p2f-ops-act, theseus-xzf71): the model's `job_stop` body, `toolrun::jobs_tools::stop_job`, for a surface, under `job_for`'s place rule; it answers the verdict's words only (`ended`, `verified`, `words`), and a job that had ended says so. Not in `client::OPERATORS`: a stop is protective, like `task.cancel`.
   `action.output {id, from?}`: a follower task for this connection (`SessionBus::follow`, aborted by `action.unfollow`
   and by the connection's end) that holds the file open, so a job that ends and is swept still reads, looks every
   100 ms, and sends whole lines (a longer one at 32 KiB) as `action.output.chunk` with their byte offset, then

@@ -4,4 +4,9 @@ export type ProfileInfo = { name: string, provider: string, model: string,
 /**
  * Output cap per call (the API's `max_tokens`), not an input limit.
  */
-max_output_tokens: number, has_system: boolean, live: boolean, origin?: string, };
+max_output_tokens: number, has_system: boolean, live: boolean, origin?: string, 
+/**
+ * Whether the floor clears this profile for private and sensitive content: US origin and a catalog row of
+ * `us`.
+ */
+cleared?: boolean, };

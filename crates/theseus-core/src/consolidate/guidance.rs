@@ -15,7 +15,7 @@
 //!   is `[memory] synth_profile`'s: `"session"` takes the profile all the
 //!   sampled sessions last used, and a category whose sessions disagree
 //!   waits, counted; so does a category whose model thinks whether asked or
-//!   not (Opus 5.5, Fable 5.x, GLM), whose 250 cap would go to thinking
+//!   not (Opus 5.5, Fable 5.x, GLM, DeepSeek), whose 250 cap would go to thinking
 //!   (theseus-ohiu8). The request holds the category's name and path, and for
 //!   its newest [`SAMPLE`] sessions the title and the first and last message
 //!   the person wrote, each cut to [`TEXT_CHARS`] characters and scrubbed. A
@@ -36,6 +36,7 @@
 //! it, and only while `[ontology] dream_guidance` is on (the default; off is
 //! its rollback: nothing is read, called or written).
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -90,11 +91,49 @@ pub struct Dreamed {
     pub written: Vec<String>,
     /// Answers refused: empty, or over 400 characters.
     pub refused: u64,
-    /// Categories whose sessions last used different profiles, or whose
-    /// profile did not resolve: asked on a later night.
+    /// Categories that waited, for any cause in [`Wait`]: asked on a later
+    /// night. `waits` says why, by reason.
     pub waiting: u64,
+    /// `waiting` by reason ([`Wait`]'s words), so a night that wrote nothing
+    /// says what held it.
+    pub waits: BTreeMap<String, u64>,
     pub stopped: Option<String>,
     pub spent: Micros,
+}
+
+/// Why a category waits for a later night: the one cause of each `None` the
+/// request used to give.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Wait {
+    /// The sampled sessions last used different profiles.
+    Profiles,
+    /// The profile does not resolve to a model.
+    Profile,
+    /// The profile's provider is not configured.
+    Provider,
+    /// The model thinks whether asked or not, so its small cap would go to
+    /// thinking (theseus-ohiu8); the model's name.
+    ThinksUnasked(String),
+    /// Fewer than [`MIN_SESSIONS`] sessions have text that can be read.
+    Unreadable,
+    /// The category is gone from the ontology.
+    NoCategory,
+    /// The model has no price, so no worst case can be reserved.
+    NoPrice,
+}
+
+impl std::fmt::Display for Wait {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Wait::Profiles => f.write_str("sessions last used different profiles"),
+            Wait::Profile => f.write_str("the profile does not resolve"),
+            Wait::Provider => f.write_str("the profile's provider is missing"),
+            Wait::ThinksUnasked(m) => write!(f, "{m} thinks unasked"),
+            Wait::Unreadable => f.write_str("too few sessions with readable text"),
+            Wait::NoCategory => f.write_str("the category is gone"),
+            Wait::NoPrice => f.write_str("the model has no price"),
+        }
+    }
 }
 
 /// A session a call reads: its title and the first and last message the
@@ -228,30 +267,38 @@ impl Core {
     }
 
     /// The request for `id`'s newest sessions, and where to send it: the
-    /// profile's target and provider. `None` when the category waits: its
-    /// sessions last used different profiles, the profile or its provider is
-    /// not there, fewer than [`MIN_SESSIONS`] of them have text that can be
-    /// read, or the model has no price.
+    /// profile's target and provider. A [`Wait`] says why the category waits:
+    /// its sessions last used different profiles, the profile or its provider
+    /// is not there, its model thinks unasked, fewer than [`MIN_SESSIONS`] of
+    /// them have text that can be read, or the model has no price.
     fn dream_request(
         &self,
         o: &Ontology,
         id: &CategoryId,
         sessions: &[SessionRecord],
-    ) -> Option<(
-        ProviderRequest,
-        crate::turn::Target,
-        Arc<dyn Provider>,
-        Micros,
-    )> {
+    ) -> Result<
+        (
+            ProviderRequest,
+            crate::turn::Target,
+            Arc<dyn Provider>,
+            Micros,
+        ),
+        Wait,
+    > {
         let sample: Vec<&SessionRecord> = sessions.iter().take(SAMPLE).collect();
         let ids: Vec<&str> = sample.iter().map(|s| s.session_id.as_str()).collect();
-        let profile = self.session_profile(&ids).ok()?;
+        let profile = self.session_profile(&ids).map_err(|_| Wait::Profiles)?;
         let (live, _) = self.live_profile();
         let target = self
             .runner
             .resolve_target(&live, Some(&profile), None, None)
-            .ok()?;
-        let provider = self.runner.providers.get(&target.provider).cloned()?;
+            .map_err(|_| Wait::Profile)?;
+        let provider = self
+            .runner
+            .providers
+            .get(&target.provider)
+            .cloned()
+            .ok_or(Wait::Provider)?;
         // A model that cannot turn thinking off spends the 250 cap thinking
         // and is cut or empty every time: the category waits, counted, rather
         // than reserve, send and pay for the same refusal each night
@@ -259,7 +306,7 @@ impl Core {
         // its first tries and need a record kept; this one costs nothing and
         // lifts the night the profile changes.
         if self.runner.catalog.thinks_unasked(&target.model) {
-            return None;
+            return Err(Wait::ThinksUnasked(target.model));
         }
         // A session whose first or last human text cannot be read is left out
         // of the call (theseus-23wd8); the category waits only when fewer than
@@ -277,7 +324,7 @@ impl Core {
                 .collect()
         });
         if seen.len() < MIN_SESSIONS {
-            return None;
+            return Err(Wait::Unreadable);
         }
         let path = o
             .path(id)
@@ -288,11 +335,10 @@ impl Core {
         let scrubber = self.tools.scrubber.clone();
         let thinking = self.runner.catalog.thinking_off(&target.model);
         let model = (target.model.as_str(), thinking);
-        let request = request_for(model, o.category(id)?, &path, &seen, &|t| {
-            scrubber.scrub(t).0
-        });
-        let need = self.audit_reserve(&request)?;
-        Some((request, target, provider, need))
+        let category = o.category(id).ok_or(Wait::NoCategory)?;
+        let request = request_for(model, category, &path, &seen, &|t| scrubber.scrub(t).0);
+        let need = self.audit_reserve(&request).ok_or(Wait::NoPrice)?;
+        Ok((request, target, provider, need))
     }
 
     /// One night's guidance at `now_ms`: for each category the dream may write
@@ -318,10 +364,13 @@ impl Core {
             if called >= PER_NIGHT || self.outbox.stopping() {
                 break;
             }
-            let Some((request, target, provider, need)) = self.dream_request(&o, &id, &sessions)
-            else {
-                out.waiting += 1;
-                continue;
+            let (request, target, provider, need) = match self.dream_request(&o, &id, &sessions) {
+                Ok(r) => r,
+                Err(why) => {
+                    out.waiting += 1;
+                    *out.waits.entry(why.to_string()).or_default() += 1;
+                    continue;
+                }
             };
             if spent.saturating_add(need) > limit {
                 out.stopped = Some(format!(

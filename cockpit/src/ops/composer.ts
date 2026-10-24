@@ -43,3 +43,14 @@ export function composerHint(s: ComposerState): string {
   if (s.kind === 'queued') return 'queued: it goes when the turn ends · esc drops it'
   return '⏎ sends · ⇧⇥ the mode'
 }
+
+/** What `turn.submit` takes for a message, and whether the "this turn only" profile is spent once it answers ok. A
+ *  steer reaches the turn already running, on the model it began with: it sends no `profile` and keeps the choice for
+ *  the next turn. A send that is refused or fails keeps it too: the pane clears it in the `.then`, never before. */
+export function submitOf(a: { sid?: string; thread?: string; input: string; turnProfile?: string | null; steer: boolean }): { params: Record<string, unknown>; clearOnOk: boolean } {
+  const profile = a.steer ? undefined : a.turnProfile ?? undefined
+  return {
+    params: { ...(a.sid ? { session_id: a.sid } : { thread: a.thread }), input: a.input, ...(profile && { profile }) },
+    clearOnOk: !!a.sid && !!profile,
+  }
+}

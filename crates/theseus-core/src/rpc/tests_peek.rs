@@ -571,3 +571,49 @@ async fn a_shared_place_reads_no_private_job_and_gets_no_last_line() {
     );
     v.doing = None;
 }
+
+fn stop_of(r: Response) -> theseus_protocol::JobStopResult {
+    serde_json::from_value(r.result.expect("a result")).unwrap()
+}
+
+/// `job.stop` stops a running job as the model's `job_stop` does: the action
+/// settles, the answer says it ended, and a second call says it had ended
+/// already. An id no job has is not found.
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn job_stop_stops_a_running_job_and_a_second_call_says_it_had_ended() {
+    let r = rig_with("echo up; sleep 60");
+    let (job, _) = start_job(&r).await;
+    let mut cli = Wire::connect(&r.core, Surface::Cli, 1 << 20);
+    peek_until(&mut cli, &job, |p| p.bytes > 0).await;
+    let first = stop_of(cli.call(method::JOB_STOP, json!({"id": job})).await);
+    assert_eq!(first.id, job);
+    assert!(first.ended, "{first:?}");
+    assert!(first.words.contains(&job), "{first:?}");
+    let a = r.core.kernel.action(&job).unwrap().unwrap();
+    assert!(a.state.is_settled(), "the action settled: {:?}", a.state);
+    let again = stop_of(cli.call(method::JOB_STOP, json!({"id": job})).await);
+    assert!(again.ended && !again.verified, "{again:?}");
+    assert!(again.words.contains("already ended"), "{again:?}");
+    let none = cli
+        .call(method::JOB_STOP, json!({"id": "act_nothing"}))
+        .await;
+    assert_eq!(none.error.unwrap().code, error_code::NOT_FOUND);
+}
+
+/// A connection that reads no private text is told no job exists for a
+/// private session's, as `work.peek` does, and the job runs on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn job_stop_obeys_the_place_rule() {
+    let r = rig_with("echo private work; sleep 60");
+    let (job, _) = start_job(&r).await;
+    let mut cli = Wire::connect(&r.core, Surface::Cli, 1 << 20);
+    peek_until(&mut cli, &job, |p| p.bytes > 0).await;
+    for surface in [Surface::Discord, Surface::Unnamed] {
+        let mut shared = Wire::connect(&r.core, surface, 1 << 20);
+        let s = shared.call(method::JOB_STOP, json!({"id": job})).await;
+        assert_eq!(s.error.expect("refused").code, error_code::NOT_FOUND);
+    }
+    let a = r.core.kernel.action(&job).unwrap().unwrap();
+    assert!(!a.state.is_settled(), "still running: {:?}", a.state);
+    stop_of(cli.call(method::JOB_STOP, json!({"id": job})).await);
+}

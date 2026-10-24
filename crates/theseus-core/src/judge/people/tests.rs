@@ -599,3 +599,14 @@ async fn an_extraction_cut_at_its_cap_says_so_and_thinks_off() {
     );
     assert_eq!(sent.thinking, want);
 }
+
+/// The extraction forces `propose_people` where thinking is off, and asks
+/// `auto` with a strict, closed tool where it cannot be (theseus-yym79).
+#[test]
+fn the_people_request_forces_its_tool_only_where_thinking_is_off() {
+    let lines = [line(1, "owner", "Ask Wren about the ferry")];
+    crate::provider::one_tool::assert_both_shapes(
+        |how| super::extract::request("m", how, "Ferry", &lines, &|t| t.to_string()),
+        super::extract::TOOL,
+    );
+}

@@ -34,7 +34,8 @@ use theseus_memory::recall::Place;
 use theseus_protocol::job_follow::{cut_line, FOLLOW_BEHIND, PEEK_LINES, PEEK_LINE_CHARS};
 use theseus_protocol::{
     error_code, method, ActionOutputChunk, ActionOutputEnd, ActionOutputParams, ActionOutputResult,
-    ActionUnfollowParams, ActionUnfollowResult, Event, Message, WorkPeekParams, WorkPeekResult,
+    ActionUnfollowParams, ActionUnfollowResult, Event, JobStopParams, JobStopResult, Message,
+    WorkPeekParams, WorkPeekResult,
 };
 
 use super::server::{parse, reply, Conn, RpcFailure};
@@ -97,6 +98,36 @@ impl Core {
             .map(|s| s.result_path(id))
             .ok_or_else(none)?;
         Ok(Job { action, path })
+    }
+
+    /// `job.stop`: the job stopped as the model's `job_stop` stops it
+    /// (`toolrun::jobs_tools::stop_job`), under `job_for`'s place rule. A job
+    /// that had ended already says so. Only the verdict's words go back.
+    pub(super) async fn job_stop(
+        self: &Arc<Self>,
+        p: JobStopParams,
+        conn: Conn<'_>,
+    ) -> Result<JobStopResult, RpcFailure> {
+        let job = self.job_for(&p.id, &conn)?;
+        let by = conn.actor(None);
+        let s = crate::toolrun::jobs_tools::stop_job(self, &p.id, &job.action, &by)
+            .await
+            .map_err(|e| RpcFailure::new(error_code::INTERNAL, format!("{e:#}")))?;
+        let words = match (s.already, s.ended, s.verified) {
+            (true, ..) => format!("Job {} had already ended.", p.id),
+            (_, true, true) => format!("Stopped job {}: nothing of it is left.", p.id),
+            (_, true, false) => format!(
+                "Told job {} to stop; its end was not verified, so some of it may still run.",
+                p.id
+            ),
+            _ => format!("Told job {} to stop; it has not ended yet.", p.id),
+        };
+        Ok(JobStopResult {
+            id: p.id,
+            ended: s.ended,
+            verified: s.verified,
+            words,
+        })
     }
 
     /// `work.peek`: the output's size and its last lines, scrubbed.

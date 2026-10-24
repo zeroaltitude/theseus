@@ -289,6 +289,8 @@ export type * from './InspectLoop';
 export type * from './InspectPrompt';
 export type * from './InspectRow';
 export type * from './InspectTotals';
+export type * from './JobStopParams';
+export type * from './JobStopResult';
 export type * from './JudgeAuditParams';
 export type * from './JudgeAuditResult';
 export type * from './JudgeBackfillParams';

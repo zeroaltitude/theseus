@@ -6,10 +6,14 @@
 //! node appended to the session, after every cache breakpoint, so the cached
 //! prefix never changes for it; a turn with no deadline adds nothing.
 //!
-//! The deadline is in memory, by session, from the request's arrival: a
-//! restart forgets it, and the turn then has none (it fails quiet). The
-//! progress check (`progress_step.rs`) reads the same deadline for its time
-//! share.
+//! The deadline belongs to the turn its `turn.submit` started. It is kept in
+//! memory by session and the request's arrival, and the turn whose arrival it
+//! is takes it at its first loop (`take_deadline`, which drops the entry):
+//! any other turn of the session (a nudge, a wake, a task's resume, an
+//! approval's continuation) has none, and so has a restarted daemon's (it
+//! fails quiet). A submit that joins a running turn (a steer) gives that turn
+//! no deadline. The progress check (`progress_step.rs`) reads the same
+//! deadline for its time share.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
@@ -69,8 +73,8 @@ impl Deadline {
 /// Each session's deadline, as its last `turn.submit` gave it.
 static DEADLINES: Mutex<Option<HashMap<String, Deadline>>> = Mutex::new(None);
 
-/// `session`'s turn has `secs` from `arrived` (none: no deadline). Deadlines
-/// already passed are dropped as a new one is set.
+/// `session`'s turn that arrived at `arrived` has `secs` from then (none: no
+/// deadline). Deadlines already passed are dropped as a new one is set.
 pub fn set_deadline(session: &str, arrived: Instant, secs: Option<u64>) {
     let mut map = DEADLINES.lock().unwrap_or_else(PoisonError::into_inner);
     let map = map.get_or_insert_with(HashMap::new);
@@ -88,13 +92,26 @@ pub fn set_deadline(session: &str, arrived: Instant, secs: Option<u64>) {
     };
 }
 
-/// `session`'s deadline, when it has one that has not passed.
-pub(super) fn deadline_of(session: &str) -> Option<Deadline> {
+/// `session`'s deadline, when it has one that has not passed and began at
+/// `arrived`: the turn that submit started and no other.
+pub(super) fn deadline_of(session: &str, arrived: Instant) -> Option<Deadline> {
     let map = DEADLINES.lock().unwrap_or_else(PoisonError::into_inner);
     map.as_ref()?
         .get(session)
         .copied()
-        .filter(|d| d.at > Instant::now())
+        .filter(|d| d.from == arrived && d.at > Instant::now())
+}
+
+/// The deadline of the turn that arrived at `arrived`, taken: the entry goes.
+pub(super) fn take_deadline(session: &str, arrived: Instant) -> Option<Deadline> {
+    let found = deadline_of(session, arrived);
+    if found.is_some() {
+        let mut map = DEADLINES.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(m) = map.as_mut() {
+            m.remove(session);
+        }
+    }
+    found
 }
 
 impl TurnRunner {
@@ -169,13 +186,29 @@ mod tests {
     fn a_deadline_is_kept_by_session_until_it_passes() {
         let now = Instant::now();
         set_deadline("ses_clock_a", now, Some(600));
-        assert_eq!(deadline_of("ses_clock_a").map(|d| d.minutes()), Some(10));
-        assert_eq!(deadline_of("ses_clock_b"), None);
+        assert_eq!(
+            deadline_of("ses_clock_a", now).map(|d| d.minutes()),
+            Some(10)
+        );
+        assert_eq!(deadline_of("ses_clock_b", now), None);
         // A passed one is none.
-        set_deadline("ses_clock_b", now - Duration::from_secs(5), Some(1));
-        assert_eq!(deadline_of("ses_clock_b"), None);
+        let old = now - Duration::from_secs(5);
+        set_deadline("ses_clock_b", old, Some(1));
+        assert_eq!(deadline_of("ses_clock_b", old), None);
         // A turn with none clears the session's.
         set_deadline("ses_clock_a", now, None);
-        assert_eq!(deadline_of("ses_clock_a"), None);
+        assert_eq!(deadline_of("ses_clock_a", now), None);
+    }
+
+    /// Only the turn whose submit set it has the deadline, and takes it once.
+    #[test]
+    fn a_deadline_belongs_to_the_turn_that_arrived_with_it() {
+        let now = Instant::now();
+        set_deadline("ses_clock_c", now, Some(600));
+        let later = now + Duration::from_millis(5);
+        assert_eq!(deadline_of("ses_clock_c", later), None, "another arrival");
+        assert_eq!(take_deadline("ses_clock_c", later), None);
+        assert!(take_deadline("ses_clock_c", now).is_some());
+        assert_eq!(take_deadline("ses_clock_c", now), None, "taken");
     }
 }

@@ -488,3 +488,43 @@ async fn a_revert_puts_back_the_target_it_ran_on_before_the_hold() {
     let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     assert_eq!(rec.last_target.unwrap().profile, "sonnet");
 }
+
+#[tokio::test]
+async fn a_retired_session_takes_no_hold_but_lets_one_go() {
+    let r = rig(None, 1, google_on(false));
+    let sid = session(&r.core);
+    hold(&r.core, &sid, Some("opus"));
+    r.core
+        .retire_session(&sid, &crate::approval::Answerer::from("cli"))
+        .unwrap();
+    let before = kinds(&r.core.store, "session.profile_set").len();
+    let held = r
+        .core
+        .store
+        .get_meta::<serde_json::Value>(&format!("session.profile.{sid}"))
+        .unwrap();
+    let e = r
+        .core
+        .session_set_profile(&params(&sid, Some("glm")), &cli())
+        .unwrap_err();
+    let said = format!("{e:#}");
+    assert!(
+        said.contains("is retired: `theseus sessions reopen` it first"),
+        "{said}"
+    );
+    assert_eq!(
+        r.core
+            .store
+            .get_meta::<serde_json::Value>(&format!("session.profile.{sid}"))
+            .unwrap(),
+        held,
+        "no META written"
+    );
+    assert_eq!(kinds(&r.core.store, "session.profile_set").len(), before);
+    // A let-go still goes, so a hold can always be cleared.
+    let gone = hold(&r.core, &sid, None);
+    assert_eq!(
+        (gone.profile, gone.previous.as_deref()),
+        (None, Some("opus"))
+    );
+}

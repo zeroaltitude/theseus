@@ -314,7 +314,7 @@ pub mod method {
         /// `work.changed` and `work.notice` until `work.unwatch` (`work_watch.rs`). A read.
         WORK_WATCH = "work.watch", WORK_UNWATCH = "work.unwatch", WORK_AGENDA = "work.agenda", WORK_DIGEST = "work.digest",
         /// A running job's last lines (`job_follow.rs`, theseus-e1hu4), and its output followed until `action.unfollow`.
-        WORK_PEEK = "work.peek", ACTION_OUTPUT = "action.output", ACTION_UNFOLLOW = "action.unfollow",
+        WORK_PEEK = "work.peek", JOB_STOP = "job.stop", ACTION_OUTPUT = "action.output", ACTION_UNFOLLOW = "action.unfollow",
         /// The counts behind `theseus status --short` (theseus-8kn12), read from the board's O(1) fields: no
         /// per-execution view, no subscription. `push::StatusShortResult`. A read.
         STATUS_SHORT = "status.short",
@@ -2042,6 +2042,11 @@ pub struct ProfileInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub origin: Option<String>,
+    /// Whether the floor clears this profile for private and sensitive content: US origin and a catalog row of
+    /// `us`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cleared: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

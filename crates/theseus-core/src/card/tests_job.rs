@@ -33,6 +33,10 @@ struct Rig {
 }
 
 fn rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
+    rig_with(FakeProvider::scripted(script), tweak)
+}
+
+fn rig_with(fake: FakeProvider, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -40,7 +44,7 @@ fn rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     cfg.memory.mode = MemoryMode::Off;
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
-    let fake = Arc::new(FakeProvider::scripted(script));
+    let fake = Arc::new(fake);
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
     Rig {
         core,
@@ -1084,4 +1088,157 @@ async fn the_owner_sets_a_kept_records_scope() {
     };
     let e = r.core.card_answer(&bare, cli()).await.unwrap_err();
     assert!(e.message.contains("gives the scope"), "{}", e.message);
+}
+
+/// A decline carries no scope: it is refused before anything is written, and
+/// the proposal stays open (theseus-0ly2a). (Planted revert: `card_answer`
+/// ignores the scope of a decline.)
+#[tokio::test]
+async fn a_decline_with_a_scope_is_refused() {
+    let r = rig(vec![two()], |_| {});
+    archive(&r).await;
+    let got = propose(&r).await;
+    let a = got.proposed[0].clone();
+    let before = r.core.store.stats().unwrap().last_position;
+    let e = r
+        .core
+        .card_answer(
+            &CardAnswerParams {
+                id: a.id.clone(),
+                option: "decline".into(),
+                scope: Some("everywhere".into()),
+                ..Default::default()
+            },
+            cli(),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("takes no scope"), "{}", e.message);
+    assert_eq!(r.core.store.stats().unwrap().last_position, before);
+    let kept = r
+        .core
+        .card_answer(
+            &CardAnswerParams {
+                id: a.id,
+                option: "keep".into(),
+                ..Default::default()
+            },
+            cli(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(kept.proposal.state, ProposalState::Kept);
+}
+
+/// The fixture's archive and six more single-line conversations, so a run
+/// has ten clusters and makes two calls (the first reads eight).
+async fn wide_archive(r: &Rig) {
+    let now = theseus_protocol::now_unix_ms();
+    let mut eps = fixture::export(now);
+    let lines = [
+        "Water the lantern garden before dusk every day",
+        "Order fresh rope from the chandler each spring",
+        "Pack the kettle and spare gloves for winter surveys",
+        "Send the monthly invoice to the ferry office on Friday",
+        "Label every sample jar with the cove name",
+        "Book the dry dock a season ahead",
+    ];
+    for (i, l) in lines.iter().enumerate() {
+        eps.push(fixture::episode(
+            now,
+            &fixture::Ep {
+                n: 11 + i as u64,
+                place: ("dm", None),
+                sensitivity: "personal",
+                partner: None,
+                book_hint: None,
+                triage: Some("decision_or_preference"),
+                days_ago: 1 + i as u64,
+                owner: &[l],
+                outside: &[],
+            },
+        ));
+    }
+    import(&r.core, &eps).await;
+}
+
+/// The first call states the opinion entry; the second names it, as `P1`, in
+/// the `conflicts` of its own.
+fn two_calls() -> Vec<Scripted> {
+    vec![
+        states(&[(
+            "K1",
+            "wants your opinion when you have one",
+            "preference",
+            "E1",
+        )]),
+        Scripted::tools(
+            "",
+            &[(
+                "tu",
+                TOOL,
+                json!({"cards": [{"cluster": "K1", "text": "wants a menu of options and no opinion", "kind": "preference", "scope": "everywhere", "episodes": ["E1"], "conflicts": ["P1"]}]}),
+            )],
+        ),
+    ]
+}
+
+/// A statement that conflicts with an entry an earlier call of the run made
+/// is not offered, and the run notes it; the later request lists the entry
+/// as `P1` after its clusters and is otherwise the first's bytes.
+/// (Planted revert: `parse` ignores `P` labels.)
+#[tokio::test]
+async fn a_conflict_across_two_calls_of_one_run_is_not_offered() {
+    let r = rig(two_calls(), |_| {});
+    wide_archive(&r).await;
+    let got = propose(&r).await;
+    assert_eq!(got.calls, 2, "{got:?}");
+    assert_eq!(got.proposed.len(), 1, "{got:?}");
+    assert_eq!(got.conflicts.len(), 1, "{got:?}");
+    assert!(
+        got.conflicts[0].starts_with("kept 'wants your opinion when you have one' over"),
+        "{got:?}"
+    );
+    let sent = r.fake.requests();
+    assert_eq!(sent.len(), 2);
+    let text = |q: &crate::provider::ProviderRequest| q.messages[0].to_string();
+    assert!(!text(&sent[0]).contains("P1:"));
+    assert!(text(&sent[1]).contains("P1: wants your opinion when you have one"));
+    assert_eq!(sent[0].system, sent[1].system);
+    assert_eq!(sent[0].tools, sent[1].tools);
+}
+
+/// The list of earlier entries is the model's words from their clusters'
+/// sessions: when one of those sessions is private, the later call goes the
+/// private way (here, nowhere: the model is not cleared) though its own
+/// clusters have none. (Planted revert: the session list leaves the earlier
+/// clusters out.)
+#[tokio::test]
+async fn the_earlier_statements_sessions_route_the_later_call() {
+    let gate = crate::provider::RequestGate::at(0);
+    let fake = FakeProvider {
+        gate: Some(gate.clone()),
+        ..FakeProvider::scripted(two_calls())
+    };
+    let r = rig_with(fake, crate::tests_private_background::private_on);
+    wide_archive(&r).await;
+    let scan = super::evidence::scan(&r.core.store).unwrap();
+    let first = scan
+        .episodes
+        .iter()
+        .find(|e| e.id == fixture::id_of(1))
+        .unwrap()
+        .session_id
+        .clone();
+    let core = r.core.clone();
+    let run = tokio::spawn(async move { core.card_propose(&Default::default(), cli()).await });
+    // The first call is in flight, its route fixed: the opinion cluster's
+    // session turns private before the second is made.
+    gate.reached().await;
+    crate::tests_private_background::mark(&r.core, &first);
+    gate.open();
+    let got = run.await.unwrap().unwrap();
+    assert_eq!(r.fake.requests().len(), 1, "the second call is not sent");
+    assert_eq!(got.proposed.len(), 1, "{got:?}");
+    assert!(got.stopped.is_some(), "{got:?}");
 }

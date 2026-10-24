@@ -4,9 +4,9 @@
 // followed output; a queue item's full card; a thread's panel with its verbs.
 import { Link } from 'react-router'
 import { Box, CircleStop, ExternalLink, Lock, MousePointerClick, OctagonX, Pause, Play } from 'lucide-react'
-import type { CalendarEvent, CalendarWindow, ConfirmRequest, SessionInfo, SessionModeResult, TaskRecord, ThreadRow } from '@protocol'
+import type { CalendarEvent, CalendarWindow, ConfirmRequest, JobStopResult, SessionInfo, SessionModeResult, TaskRecord, ThreadRow } from '@protocol'
 import { useRpc } from '@/lib/rpc'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ConfirmCard } from '@/components/ConfirmCard'
 import { Pill, StatePill } from '@/components/ui'
 import { usd } from '@/lib/format'
@@ -16,6 +16,8 @@ import type { QueueItem } from './queue'
 import { Answers } from './Queue'
 import { ThreadBody } from './ThreadPanel'
 import { useOpsAct } from './act'
+import { TWICE_MS } from './keys'
+import { useOpsUi } from './ui'
 import { ActBtn } from './ActBtn'
 import { EventDetail } from './EventDetail'
 import { Facts, RecordBlock, Section, StandingBlock } from './InspectorSections'
@@ -26,7 +28,6 @@ import { StickyChip } from './ModelMenu'
 import { RehomeSheet, RescheduleSheet } from './TaskSheets'
 import { targetOf, verbEntries } from './palette'
 import { useRunEntry } from './useRunEntry'
-import { verbById } from './verbs'
 
 /** What the inspector needs of the page beyond the selection. */
 export interface InspectorCx {
@@ -137,7 +138,7 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
         {f.stop && <ActBtn verb="cancel" on={on} tone="fault" busy={busy === `${r.id}:cancel`} onClick={() => act('cancel', `${r.id}:cancel`, 'task.cancel', { task: r.id }, `Stop task ${f.short} (${f.title})? Its jobs stop, and it reports that it was cancelled.`)}><OctagonX size={11} /> c c · Cancel</ActBtn>}
         {r.sessionId && <ActBtn verb="join" on={on} tone="live" onClick={() => cx.onJoin(r.sessionId!)} title="i: talk to it in the Join pane">i · Join</ActBtn>}
         {r.sessionId && <ActBtn verb="model_menu" on={on} tone="model" onClick={() => cx.onMenu('model', r.sessionId!)} title="m: the model for this session"><Box size={11} /> m · Model</ActBtn>}
-        {r.kind === 'conversation' && <ActBtn verb="mode_menu" on={on} tone="idle" onClick={() => cx.onMenu('mode', r.sessionId!)} title="M: Ask, Edits, Plan, Auto">M · Mode</ActBtn>}
+        {(r.kind === 'conversation' || r.kind === 'task') && r.sessionId && <ActBtn verb="mode_menu" on={on} tone="idle" onClick={() => cx.onMenu('mode', r.sessionId!)} title="M: Ask, Edits, Plan, Auto (a task has a mode of its own)">M · Mode</ActBtn>}
         {r.task?.info?.parent_session_id && <ActBtn verb="inspect" on={on} tone="idle" onClick={() => cx.onParent(r.task!.info!.parent_session_id)} title="p: its parent">p · Parent</ActBtn>}
         {r.kind === 'wake' && <ActBtn verb="cancel_wake" on={on} tone="fault" busy={busy === `${r.id}:x`} onClick={() => act('cancel_wake', `${r.id}:x`, 'wake.cancel', { wake: r.id }, `Cancel the wake “${f.title}”?`)}><OctagonX size={11} /> x · Cancel</ActBtn>}
         {lifeEntries.map((e) => <ActBtn key={e.id} verb="session_life" on={on} tone="idle" onClick={() => void runEntry(e)}>{e.label}</ActBtn>)}
@@ -170,14 +171,30 @@ function Sections({ r, cx, now }: { r: OpsRow; cx: InspectorCx; now: number }) {
 
 /** A job: its command, its time against its usual, its output followed live, and Stop. */
 function JobWhole({ r, now }: { r: OpsRow; now: number }) {
-  const { on } = useOpsAct()
-  const stop = verbById('job_stop')
+  const { on, post } = useOpsAct()
+  const say = useOpsUi((x) => x.say)
+  // The `arm` posture: the first press arms the button, a second within `TWICE_MS` stops the job (the TUI's `s s`).
+  const [armed, setArmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), TWICE_MS)
+    return () => clearTimeout(t)
+  }, [armed])
+  const stop = () => {
+    if (!armed) { setArmed(true); return }
+    setArmed(false)
+    setBusy(true)
+    post<JobStopResult>('job_stop', 'job.stop', { id: r.id })
+      .then((a) => say(a.words))
+      .catch((e) => say(e?.message ?? String(e)))
+      .finally(() => setBusy(false))
+  }
   return (
     <div className="flex flex-col gap-2 p-2.5" data-testid="inspector-job">
       <div className="flex items-center gap-1.5"><StatePill state={r.state ?? 'running'} /><span className="num text-[10.5px] text-ink-faint">job · {r.id.slice(-6)}</span></div>
       <Facts lines={jobFacts(r, now)} />
-      <div className="flex flex-wrap gap-1.5"><ActBtn verb="stop" on={on} tone="wait" onClick={() => {}} title={stop?.missing}><CircleStop size={11} /> Stop</ActBtn></div>
-      {stop?.missing && <div className="text-[11px] text-ink-faint">{stop.missing}</div>}
+      <div className="flex flex-wrap gap-1.5"><ActBtn verb="job_stop" on={on} tone="wait" busy={busy} onClick={stop} title="press twice to stop the job and its tree"><CircleStop size={11} /> {armed ? 'Press again to stop' : 'Stop'}</ActBtn></div>
       <Section title="Output"><Live sessionId={r.sessionId} jobId={r.id} /></Section>
       {r.sessionId && <Link to={`/session/${r.sessionId}`} className="text-[11.5px] text-live hover:underline">its session’s deck</Link>}
     </div>

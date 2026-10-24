@@ -41,6 +41,27 @@ pub enum TaskCmd {
         /// The task: its id, or the end of it (four characters at least).
         id: String,
     },
+    /// Send a task's report to another home, no model turn: a conversation, or `thread:<slug>`.
+    /// Its budget stays carved from its original parent. Yours alone (refused inside a job).
+    Rehome {
+        /// The task: its id, or the end of it (four characters at least).
+        id: String,
+        /// The new home: a conversation (its id, or the end of it), or `thread:<slug>`.
+        home: String,
+    },
+    /// Move a deferred task's start, no model turn: `--at fri 9:00` or `--in-time 2h`. Yours alone
+    /// (refused inside a job).
+    #[command(group(clap::ArgGroup::new("when").required(true).args(["at", "in_time"])))]
+    Reschedule {
+        /// The task: its id, or the end of it (four characters at least).
+        id: String,
+        /// Start then, as `task start --at` reads it.
+        #[arg(long = "at", value_name = "WHEN")]
+        at: Option<String>,
+        /// Start after this long: `90s`, `2h`, `1d`.
+        #[arg(long = "in-time", value_name = "SPAN")]
+        in_time: Option<String>,
+    },
 }
 
 /// `theseus task start`'s arguments.
@@ -85,6 +106,10 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: TaskCmd) -> Result<()> {
         TaskCmd::Show { id } => show(conn, json, &id).await,
         TaskCmd::Pause { id } => hold(conn, json, &id, true).await,
         TaskCmd::Resume { id } => hold(conn, json, &id, false).await,
+        TaskCmd::Rehome { id, home } => crate::ops_cmd::rehome(conn, json, &id, &home).await,
+        TaskCmd::Reschedule { id, at, in_time } => {
+            crate::ops_cmd::reschedule(conn, json, &id, start_when(at, in_time)).await
+        }
     }
 }
 
@@ -181,6 +206,12 @@ fn quote_of(path: &str) -> Result<String> {
     Ok(text)
 }
 
+/// The `start_when` a pair of time flags makes: `--at` as typed, or `--in-time 2h` as `in 2h`.
+/// `task reschedule` takes the same flags (`ops_cmd`).
+pub fn start_when(at: Option<String>, in_time: Option<String>) -> Option<String> {
+    at.or(in_time.map(|t| format!("in {t}")))
+}
+
 /// The call's params from the arguments (the quote files read, the times kept as
 /// typed: the daemon reads them in its zone).
 fn params_of(a: StartArgs, home: Option<String>) -> Result<TaskStartParams> {
@@ -195,7 +226,7 @@ fn params_of(a: StartArgs, home: Option<String>) -> Result<TaskStartParams> {
         home,
         budget_usd: a.budget,
         profile: a.profile,
-        start_when: a.at.or(a.in_time.map(|t| format!("in {t}"))),
+        start_when: start_when(a.at, a.in_time),
         quotes,
         report_to: report_to(a.report_to.as_deref())?,
         ..Default::default()

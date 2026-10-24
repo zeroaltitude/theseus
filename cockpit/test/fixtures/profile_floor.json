@@ -1,5 +1,5 @@
 {
- "note": "The floor's refusal table (data_mark::refusal_of): one row per mark x origin x known. theseus-core and the cockpit both read it.",
+ "note": "The floor's refusal table (data_mark::refusal_of): one row per mark x origin x known. theseus-core and the cockpit both read it. \"vouched_uncatalogued\" holds the one row the origin alone gets wrong: a provider the operator vouches `us`, serving a model the catalog does not know, has origin `us` and is not cleared (catalog::cleared_for_sensitive: the vouch alone clears nothing). It is refused on private and sensitive.",
  "rows": [
   {
    "mark": "open",
@@ -143,6 +143,26 @@
    "mark": "sensitive",
    "origin": "unknown",
    "known": false,
+   "refused": true
+  }
+ ],
+ "vouched_uncatalogued": [
+  {
+   "mark": "open",
+   "origin": "us",
+   "known": true,
+   "refused": false
+  },
+  {
+   "mark": "private",
+   "origin": "us",
+   "known": true,
+   "refused": true
+  },
+  {
+   "mark": "sensitive",
+   "origin": "us",
+   "known": true,
    "refused": true
   }
  ]

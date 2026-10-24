@@ -3,10 +3,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { ProfileInfo } from '../src/protocol.gen/index.ts'
-import { costHint, MODES, modeAsk, profileRows, profileToast, stickyOf, stickyWith } from '../src/ops/menus.ts'
+import { costHint, heldAt, MODES, modeAsk, profileRows, profileToast, stickyOf, stickyWith } from '../src/ops/menus.ts'
 import { session } from './ops-fixtures.ts'
 
-const prof = (name: string, model: string, origin: string, live = false): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live, origin })
+const prof = (name: string, model: string, origin: string, live = false): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live, origin, cleared: origin === 'us' })
 const profiles = [prof('quick', 'm-small', 'us', true), prof('deep', 'm-big', 'us'), prof('kimi', 'm-cn', 'cn'), prof('glm', 'm-cn2', 'cn')]
 const price = (input: number, output: number) => ({ input, output, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 })
 const prices = new Map([['m-small', price(1, 5)], ['m-big', price(4, 20)], ['m-cn', price(0.5, 2)]])
@@ -60,4 +60,15 @@ test('a choice just made shows before the ledger has it, and a newer ledger row 
   assert.equal(stickyWith([row('quick', 50), row(null, 150)], 'ses_a', { to: 'deep', at: 100 }), null, 'another surface let go after: the ledger wins')
   assert.equal(stickyWith([row('quick', 50)], 'ses_a', undefined), 'quick')
   assert.equal(stickyWith([], 'ses_a', { to: null, at: 1 }), null)
+})
+
+test('a hold is stamped with the daemon’s clock: a browser an hour ahead keeps no stale hold', () => {
+  const row = (to: string | null, at: number) => ({ kind: 'session.profile_set', session_id: 'ses_a', data: { to }, at_unix_ms: at })
+  assert.equal(heldAt([], 'ses_a'), 0)
+  assert.equal(heldAt([row('quick', 50), row('deep', 80)], 'ses_a'), 80)
+  assert.equal(heldAt([row('quick', 50)], 'ses_b'), 0, 'another session’s rows are not its')
+  const browserNow = 80 + 3_600_000
+  // Stamped with the browser's clock, the hold would outlast the next row from any surface; with the daemon's it yields.
+  assert.equal(stickyWith([row('quick', 50)], 'ses_a', { to: 'deep', at: browserNow }), 'deep')
+  assert.equal(stickyWith([row('quick', 50), row('other', 90)], 'ses_a', { to: 'deep', at: heldAt([row('quick', 50)], 'ses_a') }), 'other')
 })

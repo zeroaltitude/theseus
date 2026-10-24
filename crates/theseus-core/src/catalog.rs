@@ -803,6 +803,28 @@ impl Catalog {
             .is_some_and(|e| matches!(e.thinking, ThinkingMode::Always | ThinkingMode::Implicit))
     }
 
+    /// Whether a call to `model` may force its tool (`tool_choice` of type
+    /// `tool`): the model's thinking is off in the plain sense, so
+    /// [`thinking_off`] sends `disabled`, or it sends none and does not think
+    /// unasked (an unknown model is today's behaviour). Sonnet 5.5
+    /// (`between_tools`), Opus 5.5, Fable and the implicit thinkers refuse a
+    /// forced tool or think through it (theseus-yym79).
+    pub fn may_force(&self, model: &str) -> bool {
+        match self.thinking_off(model) {
+            Some(t) => t["type"] == "disabled",
+            None => !self.thinks_unasked(model),
+        }
+    }
+
+    /// How a one-tool call to `model` asks: its thinking off where it can be
+    /// and whether the tool may be forced.
+    pub fn forcing(&self, model: &str) -> crate::provider::one_tool::Forcing {
+        crate::provider::one_tool::Forcing {
+            thinking: self.thinking_off(model),
+            force: self.may_force(model),
+        }
+    }
+
     pub fn builtin() -> Self {
         use ThinkingMode::*;
         let mut e = BTreeMap::new();
@@ -1598,6 +1620,35 @@ mod tests {
         ] {
             assert!(!c.thinks_unasked(m), "{m}");
         }
+    }
+
+    /// A tool may be forced only where thinking is off in the plain sense
+    /// (theseus-yym79). (Planted revert: always true.)
+    #[test]
+    fn a_tool_may_be_forced_only_where_thinking_is_plainly_off() {
+        let c = Catalog::builtin();
+        for m in [
+            "claude-haiku-5-5",
+            "claude-haiku-4-5",
+            "claude-opus-5",
+            "no-such-model",
+        ] {
+            assert!(c.may_force(m), "{m}");
+        }
+        for m in [
+            "claude-sonnet-5-5",
+            "claude-opus-5-5",
+            "claude-fable-5-1",
+            "glm-5.3-flash",
+            "deepseek-v4-pro",
+        ] {
+            assert!(!c.may_force(m), "{m}");
+        }
+        let f = c.forcing("claude-sonnet-5-5");
+        assert_eq!(
+            (f.thinking, f.force),
+            (Some(serde_json::json!({"type": "between_tools"})), false)
+        );
     }
 
     /// Every built-in row says where its model was made (theseus-a1wvq.1):

@@ -376,3 +376,31 @@ async fn a_model_with_tool_search_asks_no_families_judgment_and_raises_nothing()
     assert_eq!(used[0]["mechanism"], "search", "{}", used[0]);
     assert!(used[0].get("raised").is_none(), "{}", used[0]);
 }
+
+/// The judge's labelled set shows Jev the family lines the table gives the
+/// model: a line the table changed is changed in the fixture too, or the set
+/// measures a prompt nobody sends (theseus-capcs).
+#[test]
+fn the_labelled_families_say_the_tables_lines() {
+    let cases = theseus_judge::eval_labelled::set("families.v1").unwrap();
+    assert!(!cases.is_empty());
+    let mut checked = 0;
+    for case in &cases {
+        for f in case.input["families"].as_array().unwrap() {
+            let key = f["key"].as_str().unwrap();
+            if let Some((_, line)) = crate::tools_defer::family::FAMILIES
+                .iter()
+                .find(|(k, _)| *k == key)
+            {
+                assert_eq!(
+                    f["holds"].as_str().unwrap(),
+                    *line,
+                    "{}: family {key}",
+                    case.name
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 0);
+}

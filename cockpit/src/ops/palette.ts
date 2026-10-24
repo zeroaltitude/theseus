@@ -4,6 +4,7 @@
 // no target takes is greyed: the palette hides nothing the daemon would allow and says why for what it would refuse.
 import type { DataMark, ProfileInfo, TaskRecord } from '@protocol'
 import type { OpsRow } from './board.ts'
+import { verbsFor, type WatchRow } from '../lib/agenda.ts'
 import { greyOf } from './floor.ts'
 import { costHint } from './menus.ts'
 import type { Price } from '../lib/money.ts'
@@ -148,15 +149,28 @@ export const searchValue = (verb: string, target: string): string => `${verb} ${
 /** Something the palette can fly to: a session, task, thread, routine, wake, project or profile. */
 export interface Entity {
   id: string
-  kind: 'session' | 'task' | 'thread' | 'routine' | 'wake' | 'job' | 'project' | 'profile'
+  kind: 'session' | 'task' | 'thread' | 'routine' | 'wake' | 'job' | 'project' | 'profile' | 'watch'
   label: string
   hint: string
-  /** What choosing it does to the address: select this (`sel`), or filter by this model. */
-  go: { sel: string } | { model: string }
+  /** What choosing it does to the address: select this (`sel`), filter by this model, or open a lens (a watch's is the
+   *  Timeline, whose Watches panel lists it). */
+  go: { sel: string } | { model: string } | { lens: 'timeline' }
+  /** A second entry for this entity: "Cancel the watch", which asks first. */
+  cancel?: Entry
+}
+
+/** A watch's palette entity: its check and when it gives up, and "failing" when its last check failed. */
+export function watchEntity(w: WatchRow): Entity {
+  const cancel = verbsFor({ key: w.id, kind: 'watch', at_ms: 0, title: w.title, id: w.id }).find((v) => v.key === 'cancel')!
+  return {
+    id: w.id, kind: 'watch', label: w.title, hint: `watch · ${w.check} · until ${w.until}${w.failing ? ' · failing' : ''}`, go: { lens: 'timeline' },
+    cancel: { id: `watch_cancel:${w.id}`, verb: 'watch_cancel', posture: verbById('watch_cancel')?.posture ?? 'ask', label: `Cancel the watch “${w.title}”`, detail: 'asks first',
+      plans: [{ verb: 'watch_cancel', key: `${w.id}:x`, method: cancel.method, params: cancel.params, ask: cancel.ask }] },
+  }
 }
 
 /** Every entity the page holds, in the order the palette lists them. */
-export function entitiesOf(rows: readonly OpsRow[], threads: ReadonlyArray<{ slug: string; title: string }>, records: readonly TaskRecord[], profiles: readonly ProfileInfo[]): Entity[] {
+export function entitiesOf(rows: readonly OpsRow[], threads: ReadonlyArray<{ slug: string; title: string }>, records: readonly TaskRecord[], profiles: readonly ProfileInfo[], watches: readonly WatchRow[] = []): Entity[] {
   const out: Entity[] = []
   for (const r of rows) {
     const kind = r.kind === 'conversation' ? 'session' : r.kind
@@ -165,5 +179,6 @@ export function entitiesOf(rows: readonly OpsRow[], threads: ReadonlyArray<{ slu
   for (const t of threads) out.push({ id: t.slug, kind: 'thread', label: t.title, hint: `thread · ${t.slug}`, go: { sel: t.slug } })
   for (const t of records.filter((x) => x.kind === 'project')) out.push({ id: t.id, kind: 'project', label: t.title, hint: 'project', go: { sel: t.session ?? t.id } })
   for (const p of profiles) out.push({ id: p.name, kind: 'profile', label: p.name, hint: `profile · ${p.model} · ${p.origin ?? 'unknown'}`, go: { model: p.name } })
+  for (const w of watches) out.push(watchEntity(w))
   return out
 }

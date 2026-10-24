@@ -601,11 +601,18 @@ impl Tender {
                     }
                 },
                 kinds::META => {
-                    if let Some((session, place)) = place_of(r) {
-                        if self.places.get(&session) != Some(&place) {
-                            self.places.insert(session, place);
+                    match place_of(r) {
+                        Some((session, Some(place))) => {
+                            if self.places.get(&session) != Some(&place) {
+                                self.places.insert(session, place);
+                                self.places_dirty = true;
+                            }
+                        }
+                        // A task that reports nowhere: its old place stops recalling it.
+                        Some((session, None)) if self.places.remove(&session).is_some() => {
                             self.places_dirty = true;
                         }
+                        _ => {}
                     }
                 }
                 _ => {}
@@ -865,17 +872,18 @@ impl Tender {
     }
 }
 
-/// A META record that says where a session lives: `(session, place)`.
-fn place_of(r: &Record) -> Option<(String, String)> {
+/// A META record that says where a session lives: `(session, place)`. A
+/// `task.place` record that is null or empty says the task has none: `(session,
+/// None)`, which takes the session's old place away.
+fn place_of(r: &Record) -> Option<(String, Option<String>)> {
     let key = r.key.as_deref()?;
-    let value: String = serde_json::from_slice(&r.payload).ok()?;
-    if let Some(place) = key.strip_prefix(PLACE_META_PREFIX) {
-        return Some((value, format!("discord:{place}")));
-    }
     if let Some(session) = key.strip_prefix(TASK_META_PREFIX) {
-        return Some((session.to_string(), value));
+        let value: Option<String> = serde_json::from_slice(&r.payload).ok()?;
+        return Some((session.to_string(), value.filter(|v| !v.is_empty())));
     }
-    None
+    let place = key.strip_prefix(PLACE_META_PREFIX)?;
+    let value: String = serde_json::from_slice(&r.payload).ok()?;
+    Some((value, Some(format!("discord:{place}"))))
 }
 
 /// The WAL's bytes after (segment, offset): the segment's rest, and every

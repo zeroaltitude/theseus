@@ -117,6 +117,12 @@ impl Core {
             .store
             .get_session::<crate::session::SessionRecord>(sid)?
             .ok_or_else(|| anyhow::anyhow!("no session {sid}"))?;
+        // A hold on a retired session is refused; a let-go always goes, so a hold
+        // can be cleared.
+        anyhow::ensure!(
+            p.profile.is_none() || rec.retired.is_none(),
+            "{sid} is retired: `theseus sessions reopen` it first"
+        );
         let held = self.runner.sticky(sid);
         let previous = held.as_ref().map(|s| s.profile.clone());
         let mut done = SessionProfileResult {

@@ -138,6 +138,9 @@ impl Core {
             })?;
             return self.card_rescope(p, scope, who).await;
         }
+        if option == "decline" && scope.is_some() {
+            return Err(RpcFailure::invalid(anyhow!("a decline takes no scope")));
+        }
         let prop = self.card_open(&p.id).await.map_err(RpcFailure::invalid)?;
         let (by, via) = (who.who(), who.via());
         if option == "decline" {

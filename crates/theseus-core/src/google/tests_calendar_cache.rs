@@ -31,6 +31,8 @@ pub(super) enum Mode {
     BusyOnly,
     /// 403 for the events, and `freebusy.query` fails too.
     Forbidden,
+    /// 503 for the events: Google did not answer.
+    Unavailable,
 }
 
 pub(super) struct Cal {
@@ -84,6 +86,7 @@ fn calendar(fake: &Fake, id: &str, items: Vec<Value>) -> Arc<Mutex<Cal>> {
             let sync = req.query().iter().any(|(k, _)| k == "syncToken");
             match c.mode {
                 Mode::NotFound => error(404, "notFound"),
+                Mode::Unavailable => error(503, "backendError"),
                 Mode::BusyOnly | Mode::Forbidden => error(403, "forbidden"),
                 Mode::Ok if sync && c.gone => error(410, "gone"),
                 Mode::Ok if sync => {
@@ -805,5 +808,133 @@ async fn a_configured_list_narrows_and_takes_googles_colour_and_owner() {
     assert!(
         lists(&r.fake, "primary").is_empty(),
         "the primary is not read"
+    );
+}
+
+// ------------------------------------------- the tender's bounds (theseus-b09do)
+
+#[tokio::test]
+async fn an_idle_window_is_dropped_and_the_tender_has_nothing_to_keep() {
+    let (r, cals) = cal_rig().await;
+    cals.personal.lock().unwrap().items = vec![ev("p1", "Dentist", NOON.0, NOON.1)];
+    let (from, to) = day();
+    r.g.calendar_window(from, to).await;
+    assert!(r.g.calendars_kept().await);
+    // Read again within the half hour: still refreshed (it is past the TTL), and
+    // that read is a use.
+    r.g.calendars.age(Duration::from_secs(600));
+    r.g.calendar_window(from, to).await;
+    assert_eq!(lists(&r.fake, PERSONAL).len(), 2);
+    r.g.calendars.age(Duration::from_secs(25 * 60));
+    r.g.calendar_refresh().await;
+    assert_eq!(
+        lists(&r.fake, PERSONAL).len(),
+        3,
+        "35 minutes after the first read, 25 after the last: refreshed"
+    );
+    // 31 minutes with no read: dropped, and no list is made for it.
+    r.g.calendars.age(Duration::from_secs(31 * 60));
+    let (p, w) = (lists(&r.fake, PERSONAL).len(), lists(&r.fake, WORK).len());
+    let read = r.g.calendar_refresh().await;
+    assert_eq!(lists(&r.fake, PERSONAL).len(), p);
+    assert_eq!(lists(&r.fake, WORK).len(), w);
+    assert!(read.changed.is_empty());
+    assert!(!r.g.calendars_kept().await, "nothing kept: the tender ends");
+    // The next read keeps one again.
+    r.g.calendar_window(from, to).await;
+    assert!(r.g.calendars_kept().await);
+}
+
+fn in_day(n: usize) -> Vec<Value> {
+    (0..n)
+        .map(|i| {
+            ev(
+                &format!("m{i}"),
+                "Standup",
+                "2026-10-22T10:00:00Z",
+                "2026-10-22T10:15:00Z",
+            )
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_sync_change_outside_the_window_is_not_kept_or_told() {
+    let (r, cals) = cal_rig().await;
+    cals.personal.lock().unwrap().items = vec![
+        ev("p1", "Dentist", NOON.0, NOON.1),
+        ev(
+            "p2",
+            "Lunch",
+            "2026-10-22T19:00:00Z",
+            "2026-10-22T20:00:00Z",
+        ),
+    ];
+    let (from, to) = day();
+    r.g.calendar_window(from, to).await;
+    assert_eq!(r.g.kept_events().await[0].0, 2);
+    // A delta for an event a month away: not kept, no change.
+    cals.personal.lock().unwrap().delta = vec![ev(
+        "far",
+        "Offsite",
+        "2026-11-22T10:00:00Z",
+        "2026-11-22T11:00:00Z",
+    )];
+    r.g.calendars.age(Duration::from_secs(301));
+    let quiet = r.g.calendar_window(from, to).await;
+    assert!(quiet.changed.is_empty(), "{:?}", quiet.changed);
+    assert_eq!(r.g.kept_events().await[0].0, 2);
+    // A kept event moved out of the window: removed, and a real change.
+    cals.personal.lock().unwrap().delta = vec![ev(
+        "p1",
+        "Dentist",
+        "2026-11-25T10:00:00Z",
+        "2026-11-25T11:00:00Z",
+    )];
+    r.g.calendars.age(Duration::from_secs(301));
+    let moved = r.g.calendar_window(from, to).await;
+    assert_eq!(moved.changed, ["Personal"]);
+    assert_eq!(r.g.kept_events().await[0].0, 1);
+    // A delta of more than MAX_EVENTS in-window events: cut, and no token.
+    cals.personal.lock().unwrap().delta = in_day(super::calendar_cache::MAX_EVENTS + 5);
+    r.g.calendars.age(Duration::from_secs(301));
+    r.g.calendar_window(from, to).await;
+    assert_eq!(
+        r.g.kept_events().await[0],
+        (super::calendar_cache::MAX_EVENTS, None)
+    );
+    cals.personal.lock().unwrap().delta = Vec::new();
+    r.g.calendars.age(Duration::from_secs(301));
+    r.g.calendar_window(from, to).await;
+    let reads = lists(&r.fake, PERSONAL);
+    assert_eq!(token_of(reads.last().unwrap()), None, "read whole again");
+}
+
+#[tokio::test]
+async fn a_5xx_is_unreachable_not_forbidden() {
+    let (r, cals) = cal_rig().await;
+    cals.personal.lock().unwrap().mode = Mode::Unavailable;
+    cals.work.lock().unwrap().mode = Mode::Forbidden;
+    let (from, to) = day();
+    let read = r.g.calendar_window(from, to).await;
+    let [personal, work] = &read.calendars[..] else {
+        panic!()
+    };
+    assert_eq!(personal.status, CalendarStatus::Unreachable);
+    assert!(
+        personal.detail.contains("could not be read just now")
+            && personal.detail.contains("tried again on the next read"),
+        "{}",
+        personal.detail
+    );
+    assert_eq!(work.status, CalendarStatus::Forbidden, "a real 403 stays");
+    let (lines, _) = r.g.calendar_reach().await;
+    assert_eq!(lines[0].1, CalendarStatus::Unreachable);
+    assert_eq!(lines[1].1, CalendarStatus::Forbidden);
+    let checked = super::calendar_check(&r.core.cfg, &board(Some(REFRESH_TOKEN))).await;
+    assert!(
+        checked[0].starts_with("google calendar Personal: unreachable: "),
+        "{}",
+        checked[0]
     );
 }

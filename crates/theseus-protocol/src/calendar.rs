@@ -34,6 +34,8 @@ pub enum CalendarStatus {
     AuthLapsed,
     /// No `[google]`: nothing is read.
     Off,
+    /// Google did not answer: a 5xx, a rate limit or the network; tried again on the next read.
+    Unreachable,
 }
 
 /// One event, or one busy block (`busy`, with no title, place or call).

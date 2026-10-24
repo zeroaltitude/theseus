@@ -178,6 +178,8 @@ mod tests_standing_proposals;
 #[cfg(test)]
 mod tests_stop_all;
 #[cfg(test)]
+mod tests_submit_deadline;
+#[cfg(test)]
 mod tests_surface;
 #[cfg(test)]
 mod tests_thread_bench;

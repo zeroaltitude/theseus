@@ -167,23 +167,37 @@ pub fn session_level(store: &Store, cfg: &crate::Config, session_id: &str) -> Le
     session_level_on(store, &cfg.google, session_id)
 }
 
-/// [`session_level`], for a caller that holds only the `[google]` table.
+/// [`session_level`], for a caller that holds only the `[google]` table. A
+/// mark that cannot be read is sensitive, the top level (`try_session_level_on`
+/// is the same walk that says so).
 pub fn session_level_on(
     store: &Store,
     google: &crate::config::GoogleConfig,
     session_id: &str,
 ) -> Level {
+    try_session_level_on(store, google, session_id).unwrap_or(Level::Sensitive)
+}
+
+/// [`session_level_on`], failing where it would guess: a mark the store cannot
+/// read (a record that does not decode) is an error.
+pub fn try_session_level_on(
+    store: &Store,
+    google: &crate::config::GoogleConfig,
+    session_id: &str,
+) -> anyhow::Result<Level> {
     if google.is_empty() {
-        return Level::Open;
+        return Ok(Level::Open);
     }
-    match store.get_meta::<String>(&sensitive_key(session_id)) {
-        Ok(None) => {}
-        _ => return Level::Sensitive,
+    if store
+        .get_meta::<String>(&sensitive_key(session_id))?
+        .is_some()
+    {
+        return Ok(Level::Sensitive);
     }
-    match store.get_meta::<String>(&meta_key(session_id)) {
-        Ok(None) => Level::Open,
-        _ => Level::Private,
-    }
+    Ok(match store.get_meta::<String>(&meta_key(session_id))? {
+        None => Level::Open,
+        Some(_) => Level::Private,
+    })
 }
 
 /// Whether `session_id` itself has read a sensitive calendar.
@@ -198,26 +212,37 @@ pub fn sensitive_session(store: &Store, cfg: &crate::Config, session_id: &str) -
 /// and the route step's floor agrees with it. A record the store cannot read,
 /// or a chain deeper than 16, counts as sensitive.
 pub(crate) fn level(store: &Store, cfg: &crate::Config, session_id: &str) -> Level {
+    try_level(store, cfg, session_id).unwrap_or(Level::Sensitive)
+}
+
+/// [`level`], failing where it would hold the session at the top: a mark the
+/// store cannot read, a session record it cannot read, or a chain deeper than
+/// 16 is an error. A caller that must not guess (a report's home, which a
+/// weaker mark would let anything in) asks this one; `level` is this walk.
+pub(crate) fn try_level(
+    store: &Store,
+    cfg: &crate::Config,
+    session_id: &str,
+) -> anyhow::Result<Level> {
     if cfg.google.is_empty() {
-        return Level::Open;
+        return Ok(Level::Open);
     }
     let mut at = session_id.to_string();
     let mut top = Level::Open;
     for _ in 0..16 {
-        top = top.max(session_level(store, cfg, &at));
+        top = top.max(try_session_level_on(store, &cfg.google, &at)?);
         if top == Level::Sensitive {
-            return top;
+            return Ok(top);
         }
-        match store.get_session::<crate::session::SessionRecord>(&at) {
-            Ok(Some(r)) => match r.task {
+        match store.get_session::<crate::session::SessionRecord>(&at)? {
+            Some(r) => match r.task {
                 Some(k) => at = k.parent_session,
-                None => return top,
+                None => return Ok(top),
             },
-            Ok(None) => return top,
-            Err(_) => return Level::Sensitive,
+            None => return Ok(top),
         }
     }
-    Level::Sensitive
+    anyhow::bail!("{session_id} sits under more than 16 tasks")
 }
 
 /// Whether `session_id` or any task above it has read a Google result.

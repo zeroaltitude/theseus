@@ -430,9 +430,10 @@ const TOOL_OUTCOME: &str = "theseus.tool.outcome";
 /// - Then 20 s, 30 s, 1 min, 2 min, 5 min, and 10 min, where turns and long
 ///   calls land (theseus-yf1; with the SDK's alone, every turn over 10 s fell
 ///   in the last bucket). No step is more than 2.5×, as in the SDK's own.
-/// - 10 min is a provider call's default timeout (`[model.timeouts]
-///   total_secs`) and `proc.run`'s (`proc_timeout_secs`), so the last bucket
-///   holds turns longer than any one default call may be.
+/// - 10 min is a provider call's default timeout before its stream begins
+///   (`[model.timeouts] total_secs`) and `proc.run`'s (`proc_timeout_secs`);
+///   a live stream may run longer (`Timeouts::whole_call`), so the last bucket
+///   also holds the longest calls.
 pub(super) const BOUNDS: [f64; 21] = [
     0.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0,
     10000.0, 20000.0, 30000.0, 60000.0, 120000.0, 300000.0, 600000.0,

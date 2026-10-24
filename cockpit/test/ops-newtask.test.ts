@@ -24,7 +24,7 @@ test('a bad budget blocks the start; blank is a quarter of what is left', () => 
   assert.equal(startParams({ ...EMPTY_FORM, brief: 'b', budget: 'x' }), null)
 })
 
-const prof = (name: string, origin: string): ProfileInfo => ({ name, provider: 'p', model: `m-${name}`, max_output_tokens: 1, has_system: false, live: false, origin })
+const prof = (name: string, origin: string): ProfileInfo => ({ name, provider: 'p', model: `m-${name}`, max_output_tokens: 1, has_system: false, live: false, origin, cleared: origin === 'us' })
 
 test('profile choices: the home’s mark greys other origins; a caller’s US-only reason does too', () => {
   const ps = [prof('quick', 'us'), prof('kimi', 'cn')]
@@ -35,6 +35,16 @@ test('profile choices: the home’s mark greys other origins; a caller’s US-on
   const cal = profileChoices(ps, 'open', 'a sensitive calendar event: US models only').choices
   assert.equal(cal[1].grey, 'a sensitive calendar event: US models only')
   assert.equal(cal[0].grey, null)
+})
+
+test('US only reads the daemon’s answer: a vouched US profile it does not clear is grey', () => {
+  const vouched: ProfileInfo = { ...prof('proxy', 'us'), cleared: false }
+  const why = 'this event’s calendar is sensitive: US models only'
+  const { choices, pick } = profileChoices([vouched, prof('quick', 'us')], 'open', why, 'proxy')
+  assert.equal(choices[0].grey, why)
+  assert.equal(choices[1].grey, null)
+  assert.equal(pick, 'quick')
+  assert.equal(profileChoices([{ ...vouched, cleared: undefined }], 'open', why).pick, '', 'no answer: fail closed')
 })
 
 test('US only fails closed (ops-timeline x ops-act): no profile, or a greyed one, starts nothing; one of US origin does', () => {

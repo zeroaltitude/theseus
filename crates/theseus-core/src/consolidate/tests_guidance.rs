@@ -353,3 +353,28 @@ async fn dream_guidance_off_writes_nothing() {
         .unwrap()
         .is_none());
 }
+
+/// A category that waits says why: a model that thinks unasked names itself,
+/// disagreeing profiles say so, and `waiting` stays the total (theseus-wdzmj).
+/// (Planted revert: one reason for every cause.)
+#[tokio::test]
+async fn a_waiting_category_says_why() {
+    let r = rig(ANSWER, |c| c.model.live = "opus".into());
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
+    assert_eq!(done.waiting, 1);
+    let want: std::collections::BTreeMap<String, u64> =
+        [("claude-opus-5-5 thinks unasked".to_string(), 1)].into();
+    assert_eq!(done.waits, want);
+
+    let r = rig(ANSWER, |_| {});
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    let mut rec: SessionRecord = r.core.store.get_session("harbour-0").unwrap().unwrap();
+    rec.last_target.as_mut().unwrap().profile = "another".into();
+    r.core.store.put_session("harbour-0", &rec).unwrap();
+    let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
+    assert_eq!(done.waiting, 1);
+    let want: std::collections::BTreeMap<String, u64> =
+        [("sessions last used different profiles".to_string(), 1)].into();
+    assert_eq!(done.waits, want);
+}

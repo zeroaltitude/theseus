@@ -269,6 +269,25 @@ impl Info {
         }
     }
 
+    /// The answer for a file whose content cannot be shown inline: its
+    /// metadata alone, and how to get the content. Nothing is fetched for it
+    /// (the over-cap case) or shown of it (the others), and the caller's
+    /// `finish` gives it the same source as a full read.
+    fn aside(&self, bytes: u64, why: &str, m: &mut Value) -> String {
+        m["inline"] = json!(false);
+        m["bytes"] = json!(bytes);
+        format!(
+            "{} ({}, {}): {bytes} bytes, {why}, so its content is not shown here\n\
+             owner: {} · modified: {}\n\
+             `save_to` with a workspace path writes it whole.\n",
+            self.name.replace('\n', " "),
+            type_word(&self.mime),
+            self.id,
+            self.owner,
+            self.modified
+        )
+    }
+
     fn line(&self) -> String {
         format!(
             "{} | {} | {} | {} | {} | {}shared | {}",
@@ -736,13 +755,10 @@ impl Reading {
             }
             _ => {
                 if i.size > INLINE_MAX && self.save_to.is_none() {
-                    return Err(refused(
-                        format!(
-                            "{} is {} bytes, over 1 MB: `save_to` writes it to a workspace path",
-                            i.name, i.size
-                        ),
-                        rows,
-                    ));
+                    let mut m = json!({"id": i.id, "name": i.name, "mime": i.mime});
+                    let text = i.aside(i.size, "over 1 MB", &mut m);
+                    let (m, row) = with_rows(m, rows);
+                    return Ok(finish(g.account(), text, m, row, i.source()));
                 }
                 let d = call(
                     g,
@@ -756,7 +772,7 @@ impl Reading {
         };
         let head = format!("{} ({}, {})", i.name, type_word(&i.mime), i.id);
         let mut m = json!({"id": i.id, "name": i.name, "mime": i.mime, "bytes": bytes.len()});
-        let text = self.shown(&head, bytes, &mut m, umask, &mut rows)?;
+        let text = self.shown(&i, &head, bytes, &mut m, umask, &mut rows)?;
         let (m, row) = with_rows(m, rows);
         Ok(finish(g.account(), text, m, row, i.source()))
     }
@@ -764,6 +780,7 @@ impl Reading {
     /// The result's text: the file saved to `save_to`, or its text whole.
     fn shown(
         &self,
+        i: &Info,
         head: &str,
         bytes: Vec<u8>,
         m: &mut Value,
@@ -782,25 +799,16 @@ impl Reading {
                     ));
                 }
                 m["saved_to"] = json!(path);
-                Ok(format!("{head}: {} bytes written to {}\n", bytes.len(), path.display()))
+                Ok(format!(
+                    "{head}: {} bytes written to {}\n",
+                    bytes.len(),
+                    path.display()
+                ))
             }
             None => match String::from_utf8(bytes) {
                 Ok(t) if (t.len() as u64) <= INLINE_MAX => Ok(format!("{head}\n\n{t}\n")),
-                Ok(t) => {
-                    Err(refused(
-                        format!(
-                            "{head} is {} bytes of text, over 1 MB: `save_to` writes it to a workspace path",
-                            t.len()
-                        ),
-                        std::mem::take(rows),
-                    ))
-                }
-                Err(_) => {
-                    Err(refused(
-                        format!("{head} is not text: `save_to` writes it to a workspace path"),
-                        std::mem::take(rows),
-                    ))
-                }
+                Ok(t) => Ok(i.aside(t.len() as u64, "text over 1 MB", m)),
+                Err(b) => Ok(i.aside(b.as_bytes().len() as u64, "not text", m)),
             },
         }
     }
