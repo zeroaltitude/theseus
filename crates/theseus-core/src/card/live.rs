@@ -8,7 +8,7 @@
 //! The order of a pass: sweep the observer's unread sessions
 //! ([`Core::sweep_observations`]); expire what nobody answered; read the open
 //! observations; then propose, until `[card] live_per_night` live questions
-//! have been made in the last day or `max_open` wait:
+//! have been made since this night's learning hour or `max_open` wait:
 //!
 //! 1. **Stale**, at most `stale_per_night` a night: an observation that
 //!    contradicts a record still live, which has no open Stale question,
@@ -226,6 +226,12 @@ pub(super) fn moved(
     }
 }
 
+/// The latest learning hour at or before `now_ms`: where this night's count
+/// of live questions starts (a `card propose` by day counts in its night).
+pub fn night_of(now_ms: u64, learning_hour: u8) -> u64 {
+    crate::learning::tender::due(now_ms, learning_hour, Some(now_ms)).0 - DAY_MS
+}
+
 /// Whether a proposal came from the live pass.
 pub fn is_live(p: &CardProposal) -> bool {
     !p.ask.is_add() || !p.observations.is_empty()
@@ -263,9 +269,12 @@ impl Core {
         }
         let all = theseus_store::blocking(|| state::proposals(&self.store))?;
         let open = state::in_state(&all, ProposalState::Open).count();
+        // This night's questions: those made since its learning hour, so the
+        // nightly pass never sees the last night's (a rolling day did, by ms).
+        let night = night_of(now, self.cfg.judge.learning_hour);
         let recent: Vec<&CardProposal> = all
             .iter()
-            .filter(|p| is_live(p) && p.created_ms + DAY_MS > now)
+            .filter(|p| is_live(p) && p.created_ms >= night)
             .collect();
         let stale_made = recent.iter().filter(|p| p.ask == CardAsk::Stale).count();
         let mut room = (cfg.live_per_night as usize)

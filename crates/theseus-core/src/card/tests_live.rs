@@ -589,6 +589,62 @@ async fn the_nights_caps_leave_the_rest_open() {
     );
 }
 
+/// `n` live questions (each resting on an observation) made at `at_ms`, open.
+fn asked_at(r: &Rig, n: usize, at_ms: u64) {
+    for i in 0..n {
+        let p = format!(
+            r#"{{"id":"cdp_n{i}","kind":"fact","scope":{{"kind":"everywhere"}},"text":"night question {i}","question":"q","options":["Keep","Edit","Not this"],"sources":[],"support":1,"created_ms":{at_ms},"expires_ms":{},"state":"open","run":"crd_n","observations":["cob_n{i}"]}}"#,
+            at_ms + 14 * DAY
+        );
+        let v: serde_json::Value = serde_json::from_str(&p).unwrap();
+        r.core
+            .store
+            .put_meta(&format!("card.proposal.cdp_n{i}"), &v)
+            .unwrap();
+    }
+}
+
+/// A night's line counts the questions made since its learning hour, not in
+/// the last 24 hours: last night's full line, made just before tonight's hour,
+/// leaves tonight its whole room; a full line made since the hour leaves none.
+/// (Without the fix the rolling day counted last night's, and tonight made none.)
+#[tokio::test]
+async fn a_nights_line_starts_at_its_learning_hour() {
+    let r = rig(vec![], |_| {});
+    let night = super::live::night_of(
+        theseus_protocol::now_unix_ms(),
+        r.core.cfg.judge.learning_hour,
+    );
+    asked_at(&r, r.core.cfg.card.live_per_night as usize, night - 1_000);
+    put(
+        &r,
+        &fact(
+            "cob_f0",
+            "ses_a",
+            "keeps the survey boat at the north jetty",
+        ),
+    );
+    let (_, made) = live(&r).await;
+    assert_eq!(
+        made.len(),
+        1,
+        "last night's questions left tonight its room"
+    );
+
+    let r = rig(vec![], |_| {});
+    asked_at(&r, r.core.cfg.card.live_per_night as usize, night);
+    put(
+        &r,
+        &fact(
+            "cob_f0",
+            "ses_a",
+            "keeps the survey boat at the north jetty",
+        ),
+    );
+    let (_, made) = live(&r).await;
+    assert!(made.is_empty(), "tonight's line was reached");
+}
+
 /// A proposal written before live learning (no `ask`) reads and answers as
 /// an Add.
 #[tokio::test]
