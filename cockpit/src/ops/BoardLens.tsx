@@ -95,7 +95,7 @@ export const Card = memo(function Card({ r, now, focused, onFocus, onContext, as
         picked && 'bg-gold/[0.06] ring-gold/50',
         focused && 'ring-gold shadow-[0_0_16px_-2px_rgb(214_165_72_/_0.55)]')}>
       <div className="flex items-center gap-1.5">
-        <input type="checkbox" checked={picked} onChange={() => onPick(r.id)} onClick={(e) => e.stopPropagation()} aria-label={`pick ${f.title}`} title="pick it for a bulk act (␣ on the focused card)"
+        <input type="checkbox" checked={picked} onChange={() => onPick(r.id)} data-pick={r.id} onClick={(e) => e.stopPropagation()} aria-label={`pick ${f.title}`} title="pick it for a bulk act (␣ on the focused card)"
           className="h-3 w-3 shrink-0 cursor-pointer accent-gold" />
         {f.paused ? <Pill tone="wait" title="held by the owner: resume lets it go on">{f.pill}</Pill> : <StatePill state={f.pill} />}
         {locked(r) && <Lock size={11} className="text-ink-faint" aria-label={`${r.data} data`} />}

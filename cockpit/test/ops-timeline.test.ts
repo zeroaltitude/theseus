@@ -218,3 +218,15 @@ test('the table holds the window’s marks and events by time, a sensitive event
     assert.ok(tableRows(marks, events, w, false, c, (m) => m.title).some((r) => r.line.includes(SECRET.title)), 'off: the title shows')
   })
 })
+
+test('a mark on the fold’s edge opens no extra hour', () => {
+  withZone('America/Phoenix', () => {
+    const w = weekWindow(local(2026, 10, 19, 8))
+    const at = (h: number, m = 0, kind: Mark['kind'] = 'reminder') => [mark('edge', kind, local(2026, 10, 22, h, m))]
+    assert.deepEqual(nightFold(w, at(22), []), { early: 7, late: 22, count: 0 }, '22:00 sits on the edge line, drawn, not counted')
+    assert.deepEqual(nightFold(w, at(7), []), { early: 7, late: 22, count: 0 }, '07:00 likewise')
+    assert.deepEqual(nightFold(w, at(22, 30), []), { early: 7, late: 23, count: 0 }, '22:30 opens through 23:00 and is drawn')
+    assert.deepEqual(nightFold(w, at(23, 30, 'run'), []), { early: 7, late: 22, count: 1 }, 'a series tick at 23:30 stays folded and is counted')
+    assert.equal(yOf(22, { early: 7, late: 22 }, 20, 18), 18 + 15 * 20, 'the edge line')
+  })
+})

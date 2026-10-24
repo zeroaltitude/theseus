@@ -5,8 +5,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { afterRun, bulkApprovable, bulkVerbs, clear, fanOut, selectAll, toggle, type BulkVerb } from '../src/ops/selection.ts'
-import { budgetWords, dropOf, dropKey, type DragItem, type DropTarget } from '../src/ops/rehome.ts'
+import { budgetWords, dropOf, dropKey, hintChanged, type DragItem, type DropTarget } from '../src/ops/rehome.ts'
 import { boardRows, type OpsRow } from '../src/ops/board.ts'
+import { scopeTargets, targetOf, verbEntries } from '../src/ops/palette.ts'
 import { queueOf } from '../src/ops/queue.ts'
 import { PAST_WORDS } from '../src/ops/keys.ts'
 import { board, confirm, NOW } from './ops-fixtures.ts'
@@ -138,4 +139,27 @@ test('drag: every refusal, with its reason', () => {
   assert.match(refused({ home: 'ses_tides' })!, /already reports there/)
   assert.match(refused({ sessionId: 'ses_tides' })!, /itself/)
   assert.match(refused({ sessionId: undefined })!, /no session/)
+})
+
+test('switch model over the picked cards: the selection scope holds the picked rows, one session.profile plan each', () => {
+  const picked = new Set(['ses_t2', 'ses_t3'])
+  const selection = rows.filter((r) => picked.has(r.id)).map(targetOf)
+  const targets = scopeTargets('selection', { focused: undefined, visible: rows.map(targetOf), selection })
+  assert.deepEqual(targets.map((t) => t.id).sort(), ['ses_t2', 'ses_t3'])
+  const cx = { profiles: [{ name: 'zz-deep', provider: 'p', model: 'zz-m', max_output_tokens: 1, has_system: false, live: false, origin: 'us' }], prices: new Map() }
+  const entry = verbEntries(targets, cx).find((e) => e.id === 'model:zz-deep')!
+  assert.ok(entry, 'a model:<name> entry')
+  assert.deepEqual(entry.plans.map((p) => [p.method, (p.params as { session_id: string }).session_id]).sort(), [['session.profile', 'ses_t2'], ['session.profile', 'ses_t3']])
+})
+
+test('the drag hint changes only when its words or place change', () => {
+  const h = { x: 100, y: 100, words: 're-home to Harbour', ok: true, key: 'lane:harbour' }
+  assert.equal(hintChanged(null, null), false)
+  assert.equal(hintChanged(null, h), true)
+  assert.equal(hintChanged(h, null), true)
+  assert.equal(hintChanged(h, { ...h, x: 102, y: 101 }), false, 'a pixel or two of travel is no render')
+  assert.equal(hintChanged(h, { ...h, x: 110 }), true, 'a few pixels moves the hint')
+  assert.equal(hintChanged(h, { ...h, words: 'refused' }), true)
+  assert.equal(hintChanged(h, { ...h, ok: false }), true)
+  assert.equal(hintChanged(h, { ...h, key: 'lane:tides' }), true)
 })

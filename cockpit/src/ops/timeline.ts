@@ -29,8 +29,10 @@ export function zoomed(w: Window, day: number | null): Window {
 
 /** The spans `calendar.window` is asked for: the shown window (a Day zoom read a day either side), and today and
  *  tomorrow for Coming up, one span when they meet. Local midnights, so a span moves only when the day does; each is at
- *  most the daemon's 62 days. */
-export function readSpans(shown: { from_ms: number; to_ms: number } | null, now: number, zoom = false): Array<{ from_ms: number; to_ms: number }> {
+ *  most the daemon's 62 days. Outside the Timeline (`shown` null) with Coming up not on screen (`coming` false) there is
+ *  nothing to read. */
+export function readSpans(shown: { from_ms: number; to_ms: number } | null, now: number, zoom = false, coming = true): Array<{ from_ms: number; to_ms: number }> {
+  if (!shown && !coming) return [] // no lens shows the calendar and Coming up is folded: ask for nothing
   const t = new Date(now)
   const today = { from_ms: midnight(now), to_ms: new Date(t.getFullYear(), t.getMonth(), t.getDate() + 2).getTime() }
   if (!shown) return [today]
@@ -140,7 +142,8 @@ const opens = (m: Mark) => m.kind !== 'run' && m.kind !== 'past' && m.kind !== '
 
 /** The night fold over `w`: the early hours `[0, early)` and the late ones `[late, 24)` fold, each shrinking to leave
  *  open any hour that holds an event or a one-off mark (a reminder, a check-in, a deferred start, a milestone) on any
- *  day shown. The series' ticks inside it are counted, never hidden silently. */
+ *  day shown. A mark exactly on the fold's edge (07:00, 22:00) sits on the edge line and opens nothing. The series'
+ *  ticks inside it are counted, never hidden silently. */
 export function nightFold(w: Window, marks: readonly Mark[], blocks: readonly Pick<Block, 'top' | 'bottom' | 'day'>[]): { early: number; late: number; count: number } {
   let early: number = NIGHT.to
   let late: number = NIGHT.from
@@ -150,10 +153,10 @@ export function nightFold(w: Window, marks: readonly Mark[], blocks: readonly Pi
   }
   for (const b of blocks) keep(b.top * 24, b.bottom * 24)
   const inWin = marks.filter((m) => m.at_ms >= w.from_ms && m.at_ms < w.to_ms && m.kind !== 'watch')
-  for (const m of inWin) if (opens(m)) { const h = wallHour(m.at_ms); keep(h, h + 0.01) }
+  for (const m of inWin) if (opens(m)) { const h = wallHour(m.at_ms); keep(h, h) }
   if (late < early) late = early
   let count = 0
-  for (const m of inWin) { const h = wallHour(m.at_ms); if (h < early || h >= late) count++ }
+  for (const m of inWin) { const h = wallHour(m.at_ms); if (h < early || h > late) count++ }
   return { early, late, count }
 }
 
