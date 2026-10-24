@@ -13,6 +13,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use theseus_core::catalog::same_model;
+
 use crate::drive::{CellRecall, Record};
 use crate::item::Exam;
 use crate::stats::{paired, Cell, Interval};
@@ -34,7 +36,8 @@ pub fn latest(records: &[Record]) -> Vec<Record> {
 
 /// Whether the counted records were answered by the models their profiles
 /// name: `Some(message)` when any record's `models` holds a model other than
-/// its `profile_model` (naming the profile, its model, and the models that
+/// its `profile_model` (a dated snapshot or a vendor prefix of it is the same
+/// model; naming the profile, its model, and the models that
 /// answered with the cells each answered). A record with no `profile_model`
 /// (written before it was recorded) cannot be checked and is passed over.
 pub fn model_mismatch(records: &[Record]) -> Option<String> {
@@ -45,11 +48,11 @@ pub fn model_mismatch(records: &[Record]) -> Option<String> {
         let Some(want) = r.profile_model.as_deref() else {
             continue;
         };
-        if r.models.iter().all(|m| m == want) {
+        if r.models.iter().all(|m| same_model(want, m)) {
             continue;
         }
         expected.insert((r.profile.as_deref().unwrap_or("?"), want));
-        for m in r.models.iter().filter(|m| *m != want) {
+        for m in r.models.iter().filter(|m| !same_model(want, m)) {
             *answered.entry(m.as_str()).or_default() += 1;
         }
     }
@@ -747,6 +750,17 @@ mod tests {
             md.contains("the profile's model is not recorded in 2 records: not checked"),
             "{md}"
         );
+    }
+
+    #[test]
+    fn a_report_takes_a_dated_echo_as_its_profiles_model() {
+        let exam = Exam::parse(EXAM_V2).unwrap();
+        let recs = vec![
+            answered("a", Some("model-a"), &["model-a-20261001"]),
+            answered("b", Some("model-a"), &["vendor-x/model-a"]),
+        ];
+        assert_eq!(model_mismatch(&recs), None);
+        assert!(render(&recs, &exam, "x.jsonl").contains("(profile profile-x)"));
     }
 
     #[test]

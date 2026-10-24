@@ -493,6 +493,33 @@ class Budget(unittest.TestCase):
         self.assertEqual(generate.catalog_long_prompts(src),
                          {"claude-aaa": (100_000, 0.50, 2.50, 0.05, 0.625)})
 
+    def test_the_catalog_readers_stop_at_the_test_module(self):
+        src = """
+        e.insert(
+            "claude-aaa".into(),
+            claude(m, 128_000, 1.0, 2.0, 0.30, 4.0, Adaptive, false, 1024),
+        );
+        }
+
+        #[cfg(test)]
+        mod tests {
+            fn a_fixture() {
+                CatalogEntry {
+                    long_prompt: Some(LongPrompt {
+                        above_tokens: 100_000,
+                        input_per_mtok: 0.50,
+                        output_per_mtok: 2.50,
+                        cache_read_per_mtok: 0.05,
+                        cache_write_per_mtok: 0.625,
+                    }),
+                    ..claude(m, 128_000, 9.0, 9.0, 9.0, 9.0, Adaptive, false, 512)
+                };
+            }
+        }
+        """
+        self.assertEqual(generate.catalog_long_prompts(src), {})
+        self.assertEqual(generate.catalog_prices(src), {"claude-aaa": (1.0, 2.0, 0.30, 4.0)})
+
     def test_a_call_past_the_long_tier_pays_its_prices(self):
         prog = generate.build(7, "smoke", PLAN)
         m = "claude-sonnet-5-5"

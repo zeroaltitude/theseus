@@ -3,6 +3,7 @@
 // three kinds of edge; jobs beside their session; "+ future" nodes only when asked.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import type { WorkView } from '../src/protocol.gen/index.ts'
 import { COL_W, GUTTER, HOME, NODE_CAP, opsLayout, shownTitle, stepNode, viewsOf, type Graph, type LaneMeta } from '../src/ops/graph.ts'
 import { boardRows } from '../src/ops/board.ts'
@@ -244,4 +245,25 @@ test('redact masks a private or sensitive node’s title, not an open one’s', 
   assert.equal(shownTitle({ ...secret, data: undefined }, true), secret.title)
   assert.equal(shownTitle({ title: 'Harbour survey', data: 'sensitive' }, true), 'a sensitive thread', 'a lane')
   assert.equal(shownTitle({ title: 'Harbour survey', data: 'private' }, true), 'a private thread')
+})
+
+test('an opening is not blamed when the graph is over its cap for another reason', () => {
+  // Every subtree that could fold holds a needs-you leaf, so the graph stays over the cap with or without the opening.
+  const views: WorkView[] = [view('exe_c', 'conversation', 'running', { session_id: 'ses_c', thread: 'tide-tables' })]
+  for (let p = 0; p < 4; p++) {
+    views.push(view(`exe_p${p}`, 'task', 'running', { session_id: `ses_p${p}`, parent: 'exe_c', thread: 'tide-tables', started_at_ms: NOW - HOUR + p * MIN }))
+    for (let k = 0; k < 3; k++) views.push(view(`exe_p${p}k${k}`, 'task', k === 0 ? 'needs_you' : 'running', { session_id: `ses_p${p}k${k}`, parent: `exe_p${p}`, thread: 'tide-tables' }, k === 0 ? 'needs_you' : undefined))
+  }
+  const plain = lay(views, null, [], { cap: 6 })
+  const opened = lay(views, null, [], { cap: 6, opened: new Set(['ses_p1']) })
+  assert.ok(plain.nodes.length > 6, 'over the cap with nothing to fold')
+  assert.ok(!opened.cantOpen, 'the opening is not the cause')
+  assert.ok(opened.nodes.length <= plain.nodes.length)
+})
+
+test('opsLayout lays the graph out once', () => {
+  const src = readFileSync(new URL('../src/ops/graph.ts', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
+  const at = src.indexOf('export function opsLayout')
+  const body = src.slice(at, src.indexOf('\n}\n', at))
+  assert.equal(body.split('layout(').length - 1, 1)
 })

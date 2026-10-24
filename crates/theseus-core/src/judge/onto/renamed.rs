@@ -20,9 +20,10 @@
 //!   names it; `none`, a pick below the band, or no answer leaves the most
 //!   shared name, as before. A kept pick names only a cluster that still
 //!   holds it: one the cluster no longer holds is dropped with its ask, and the
-//!   cluster is asked again.
+//!   cluster is asked again. So is a kept ask with no pick, once the cluster's
+//!   names differ from those it offered.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::json;
 use theseus_judge::builders::{KindSide, NameItInput, SameKindInput, SWEEP_TITLES};
@@ -239,6 +240,7 @@ impl Run<'_> {
         let mut asked = 0;
         for cluster in mint::leads(o, folds, &hints.same) {
             let names = cluster.spelled(folds);
+            let offer: BTreeSet<String> = cluster.folds.iter().take(NAMES).cloned().collect();
             let key = format!("kind-name {}", cluster.key);
             if names.len() < 2 {
                 continue;
@@ -272,7 +274,21 @@ impl Run<'_> {
                         self.mark.named.remove(&cluster.key);
                         self.mark.asked.remove(&key);
                     }
-                    None => continue,
+                    // No pick: the ask stays unless the cluster's names are no
+                    // longer those it offered (a mark from before `offered`
+                    // has none, and ages out).
+                    None if self
+                        .mark
+                        .offered
+                        .get(&cluster.key)
+                        .is_none_or(|was| *was == offer) =>
+                    {
+                        continue
+                    }
+                    None => {
+                        self.mark.offered.remove(&cluster.key);
+                        self.mark.asked.remove(&key);
+                    }
                 }
             }
             if !self.going() {
@@ -297,6 +313,7 @@ impl Run<'_> {
                         self.mark.named.insert(cluster.key.clone(), name.clone());
                         hints.named.insert(cluster.key.clone(), name);
                     }
+                    self.mark.offered.insert(cluster.key.clone(), offer);
                     self.paid(key, cost);
                 }
                 Asked::Over(need) => {

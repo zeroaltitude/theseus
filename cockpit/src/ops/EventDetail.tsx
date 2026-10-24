@@ -19,11 +19,13 @@ import { profileChoices } from './newtask'
 import { NewTask } from './NewTask'
 import { useOpsAct, PAST_WORDS } from './act'
 import { ActBtn } from './ActBtn'
+import { useOpsUi } from './ui'
 
 const LINK = 'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium hover:brightness-125'
 
 export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: CalendarWindow; redact: boolean }) {
   const nav = useNavigate()
+  const say = useOpsUi((s) => s.say)
   const { send, settle, on, past } = useOpsAct()
   const { data: pl } = useRpc<ProfileListResult>('profile.list', undefined, 0)
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null)
@@ -63,7 +65,7 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
         else refused = profileRefusal(r.result)
       } else void send('event_ask', c.method, c.params) // the first message: the deck follows the turn live
     }
-    if (refused) setSaid({ ok: false, text: refused })
+    if (refused) say(refused) // the deck opens next: the toast carries the words there
     nav(`/session/${sid}`)
   }
   return (

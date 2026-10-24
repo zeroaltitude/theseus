@@ -100,6 +100,11 @@ pub struct Mark {
     /// it; otherwise it is dropped with its ask.
     #[serde(default)]
     pub named: BTreeMap<String, String>,
+    /// The folded names a `kind-name <cluster>` ask offered, by the cluster's
+    /// key: kept as long as its ask. A kept ask with no pick is asked again
+    /// once the cluster's names differ from these (`renamed.rs`).
+    #[serde(default)]
+    pub offered: BTreeMap<String, BTreeSet<String>>,
     /// The `same_kind` yeses (a pair of folded names) of earlier nights, kept as
     /// long as their `kind <a> <b>` ask, so a chain asked over two nights still
     /// joins (`renamed.rs`).
@@ -318,9 +323,14 @@ impl Core {
         mark.asked
             .retain(|_, at| now_ms.saturating_sub(*at) < AGAIN_MS);
         let Mark {
-            asked, named, same, ..
+            asked,
+            named,
+            offered,
+            same,
+            ..
         } = &mut mark;
         named.retain(|cluster, _| asked.contains_key(&format!("kind-name {cluster}")));
+        offered.retain(|cluster, _| asked.contains_key(&format!("kind-name {cluster}")));
         same.retain(|(a, b)| asked.contains_key(&format!("kind {a} {b}")));
         let before = mark.spent_usd;
         let cap = usd_to_micros((cap_usd - before).max(0.0));

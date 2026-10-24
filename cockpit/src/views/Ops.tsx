@@ -395,7 +395,7 @@ export default function Ops() {
     newTask: () => live.current.handlers.new_task('N'), selfChanges: () => setSelfOpen(true),
   }), [focusRow, vis.rows, picked, rows, grouped.threads, records, pl, cat, a.f, views]) // eslint-disable-line react-hooks/exhaustive-deps
   // The palette opens over the picked cards while any are picked, and over the focused one when none are.
-  useEffect(() => { useOpsPalette.setState({ scope: picked.size > 0 ? 'selection' : 'one' }) }, [picked.size > 0])
+  useEffect(() => { useOpsPalette.setState({ scope: picked.size > 0 ? 'selection' : 'one' }) }, [picked.size])
   const publish = useOpsPalette((x) => x.publish)
   useEffect(() => { publish(feed as never); return () => publish(null) }, [feed, publish])
 

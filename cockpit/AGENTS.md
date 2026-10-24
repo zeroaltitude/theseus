@@ -168,6 +168,7 @@ build.
     open" (`Graph.cantOpen`); "tidy" forgets the openings. Under `?redact=1` a private or sensitive node or lane is drawn
     by `shownTitle` (its kind and short id, "a <mark> thread"). Only a node with a row is picked; a right-click opens
     the page's one `VerbMenu`; the palette opens over the selection while cards are picked.
+  - **Leftovers** (theseus-vhtuv): the calendar hook's answer drops to `EMPTY` when it has no span (`heldRead`, `ops/calendarread.ts`); `layout()` decides an opening in its one cap step (`cantOpen` only when the opening is the cause); a refused Ask hold is said as a toast, and the deck mounts the same `<Toast />`.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
   (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
   checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before
