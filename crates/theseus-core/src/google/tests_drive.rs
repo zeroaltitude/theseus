@@ -312,10 +312,12 @@ async fn a_large_binary_needs_save_to() {
         "image/png",
         vec![0xff, 0xd8, 0xff, 0x00],
     ));
-    let e = run(&r, "drive.read", json!({"id": "big"}))
-        .await
-        .unwrap_err();
-    assert!(e.contains("save_to"), "{e}");
+    let (out, _) = ok(&r, "drive.read", json!({"id": "big"})).await;
+    assert!(
+        out.text.contains("save_to") && out.text.contains("1048577 bytes"),
+        "{}",
+        out.text
+    );
     assert!(
         r.fake
             .log()
@@ -338,10 +340,12 @@ async fn a_large_binary_needs_save_to() {
     // A small text file is shown; a small binary is not, and says why.
     let (out, _) = ok(&r, "drive.read", json!({"id": "small"})).await;
     assert!(out.text.contains("hello"), "{}", out.text);
-    let e = run(&r, "drive.read", json!({"id": "blob"}))
-        .await
-        .unwrap_err();
-    assert!(e.contains("not text") && e.contains("save_to"), "{e}");
+    let (out, _) = ok(&r, "drive.read", json!({"id": "blob"})).await;
+    assert!(
+        out.text.contains("not text") && out.text.contains("save_to"),
+        "{}",
+        out.text
+    );
     // The saved file is a resource of the plan: the gate judges the path.
     let plan = plan_of(
         &r,
@@ -351,6 +355,40 @@ async fn a_large_binary_needs_save_to() {
     .unwrap();
     assert_eq!(plan.resources.len(), 1);
     assert_eq!(plan.resources[0].access, theseus_tools::Access::Write);
+}
+
+/// A file over the inline cap, read with no `save_to`, answers from its metadata
+/// alone: what it is, how big, whose, when, and how to get it (theseus-izyws).
+#[tokio::test]
+async fn a_large_file_without_save_to_answers_with_its_metadata() {
+    let (r, drive) = drive_rig(vec![]).await;
+    drive.add(File::binary(
+        "big",
+        "standup.mp3",
+        "audio/mpeg",
+        vec![7u8; (1 << 20) + 1],
+    ));
+    let (out, _) = ok(&r, "drive.read", json!({"id": "big"})).await;
+    for want in [
+        "standup.mp3",
+        "1048577 bytes",
+        "owner: you",
+        "2026-10-20T09:00:00Z",
+        "`save_to`",
+        "big",
+    ] {
+        assert!(out.text.contains(want), "{want}: {}", out.text);
+    }
+    assert!(out.text.contains("audio/mpeg"), "{}", out.text);
+    assert_eq!(out.meta["inline"], json!(false));
+    assert_eq!(out.meta["bytes"], json!(1_048_577));
+    assert!(
+        r.fake
+            .log()
+            .iter()
+            .all(|l| l.query.iter().all(|(k, _)| k != "alt")),
+        "nothing was downloaded"
+    );
 }
 
 #[tokio::test]
