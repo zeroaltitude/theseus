@@ -166,6 +166,19 @@ async fn labels_are_respected_before_any_call() {
     assert_eq!((got.withheld, got.calls), (1, 1), "{got:?}");
 }
 
+/// The owner card asks its own target model's forcing: on a Sonnet profile
+/// the call is not forced (theseus-7q9wt). (Planted revert: `forcing` of
+/// Haiku at the call site.)
+#[tokio::test]
+async fn on_a_sonnet_profile_the_card_call_is_not_forced() {
+    let r = rig(vec![two()], |c| c.card.profile = "sonnet".into());
+    archive(&r).await;
+    propose(&r).await;
+    let sent = r.fake.requests();
+    assert_eq!(sent.len(), 1);
+    crate::provider::one_tool::assert_unforced(&sent[0], TOOL);
+}
+
 /// Each statement is a question that cites the episodes its cluster rests on.
 #[tokio::test]
 async fn a_run_proposes_cited_questions() {

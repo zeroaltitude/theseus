@@ -369,6 +369,39 @@ async fn compaction_replaces_the_ring_on_overflow() {
     settled_as_reserved(&r, &sid, row, &s.id, *cost_usd);
 }
 
+/// The loop's model calls and the summary's call are dispatched with the
+/// whole-call deadline (theseus-5pg8u), not the stream's `total_secs`.
+#[tokio::test]
+async fn the_loop_and_summary_calls_are_dispatched_to_the_whole_call() {
+    let r = rig(
+        vec![],
+        vec![summary("The keeper logged six tides.", 9_000, 120)],
+    );
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    let timeouts = Config::example().model.timeouts;
+    let whole = timeouts.whole_call().as_millis() as u64;
+    assert_ne!(
+        whole,
+        timeouts.total_secs * 1000,
+        "the config can tell them apart"
+    );
+    let row = &rows(&r.core, "context.compacted")[0];
+    let corr = row["correlation_id"].as_str().unwrap();
+    let actions = r.core.kernel.actions().unwrap();
+    let span = |a: &theseus_kernel::Action| a.deadline_at_ms - a.planned_at_ms;
+    let summary_call = actions.iter().find(|a| a.correlation_id == corr).unwrap();
+    assert_eq!(span(summary_call), whole, "the summary's call");
+    let loops: Vec<_> = actions
+        .iter()
+        .filter(|a| a.tool == theseus_kernel::PROVIDER_TOOL && a.correlation_id != corr)
+        .collect();
+    assert!(!loops.is_empty(), "the loop made model calls");
+    for a in loops {
+        assert_eq!(span(a), whole, "the loop's call {}", a.correlation_id);
+    }
+}
+
 /// The summary's call was reserved before it ran and settled at its real
 /// cost: the row, the kernel's action, the execution's budget, and the
 /// session's books agree.

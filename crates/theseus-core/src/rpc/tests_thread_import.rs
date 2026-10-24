@@ -504,6 +504,20 @@ async fn a_card_cut_at_its_cap_says_so_and_thinks_off() {
     assert_eq!(sent[0].thinking, want);
 }
 
+/// The card call asks its own target model's forcing: on a Sonnet profile it
+/// is not forced (theseus-7q9wt).
+#[tokio::test]
+async fn on_a_sonnet_profile_the_thread_card_call_is_not_forced() {
+    let r = rig(vec![card_for(json!([]))], |c| {
+        c.threads.import_profile = "sonnet".into()
+    });
+    import_export(&r.core).await;
+    run(&r.core, &params(Some(&["boat-ops"]))).await;
+    let sent = r.fake.requests();
+    assert_eq!(sent.len(), 1);
+    crate::provider::one_tool::assert_unforced(&sent[0], TOOL);
+}
+
 /// The import is the owner's, from a private place: a person in a shared
 /// channel is refused, and with threads off so is everyone.
 #[tokio::test]

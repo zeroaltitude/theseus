@@ -600,6 +600,33 @@ async fn an_extraction_cut_at_its_cap_says_so_and_thinks_off() {
     assert_eq!(sent.thinking, want);
 }
 
+/// The extraction asks its own target model's forcing: on a Sonnet profile
+/// the call is not forced (theseus-7q9wt).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_a_sonnet_profile_the_people_extraction_is_not_forced() {
+    let jev = FakeJev::start().unwrap();
+    script(&jev);
+    jev.script("unlisted", Jev::Noul(0.9));
+    let r = rig(Some(&jev), EVERY, |c| {
+        people_on(c);
+        c.people.extract_profile = "sonnet".into();
+    });
+    r.fake.script.lock().unwrap().push_back(Scripted::Blocks {
+        blocks: vec![json!({"type": "tool_use", "id": "t", "name": "propose_people", "input": {}})],
+        stop_reason: "tool_use".into(),
+    });
+    let private = session(&r.core, None);
+    moorings(&r.core, &private, EVERY).await;
+    until_rows(&r.core.store, "people.extracted", 1).await;
+    let sent = r
+        .fake
+        .requests()
+        .into_iter()
+        .find(|q| q.tools.iter().any(|t| t["name"] == "propose_people"))
+        .expect("the extraction's request");
+    crate::provider::one_tool::assert_unforced(&sent, super::extract::TOOL);
+}
+
 /// The extraction forces `propose_people` where thinking is off, and asks
 /// `auto` with a strict, closed tool where it cannot be (theseus-yym79).
 #[test]

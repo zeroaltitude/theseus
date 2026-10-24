@@ -229,13 +229,14 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
     const before = { shown: new Map(shown), into: new Map(into), folded }
     pass(keep)
     // The cap is never raised for an opening: if it is still over with the opening held, lay the folds out again
-    // without it. Only when that gets to the cap is the opening the cause.
+    // without it. The opening is reported as not opened when the pass without it reaches the cap, or when that pass
+    // ends with the opening folded (the graph is over its cap for another reason too, and the opening could not stay).
     if (keep.size && shown.size > cap) {
       shown.clear(); for (const [k, v] of before.shown) shown.set(k, v)
       into.clear(); for (const [k, v] of before.into) into.set(k, v)
       folded = before.folded
       pass(new Set())
-      cantOpen = shown.size <= cap
+      cantOpen = shown.size <= cap || [...keep].some((k) => !shown.has(k))
     }
   }
   const at = (id: string): string | undefined => { let x: string | undefined = alias.get(id) ?? id; for (let i = 0; x && !shown.has(x) && i < 8; i++) x = into.get(x); return x && shown.has(x) ? x : undefined }

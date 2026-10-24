@@ -21,8 +21,8 @@ test('a US profile the daemon does not clear (a vouch, an uncatalogued model) is
     const got = greyOf(r.mark, 'p', { name: 'p', origin: r.origin, cleared: false })
     assert.equal(got !== null, r.refused, `${r.mark}: ${got}`)
   }
-  assert.equal(greyOf('private', 'x', { name: 'x', origin: 'us', cleared: false }), 'this conversation holds private content, and `x` is not a model of US origin')
-  assert.equal(greyOf('sensitive', 'x', { name: 'x', origin: 'us' }), 'this conversation holds sensitive content, and `x` is not a model of US origin', 'no answer: fail closed')
+  assert.equal(greyOf('private', 'x', { name: 'x', origin: 'us', cleared: false }), 'this conversation holds private content, and `x` is not cleared for it: the catalog does not list its model as of US origin')
+  assert.equal(greyOf('sensitive', 'x', { name: 'x', origin: 'us' }), 'this conversation holds sensitive content, and `x` is not cleared for it: the catalog does not list its model as of US origin', 'no answer: fail closed')
   assert.equal(greyOf('open', 'x', { name: 'x', origin: 'us', cleared: false }), null)
 })
 

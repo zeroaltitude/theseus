@@ -121,8 +121,11 @@ impl File {
         } else {
             json!({"emailAddress": "collaborator@example.test", "me": false})
         };
+        // Real Drive gives no `size` for a Google-native file.
         let size = match &self.content {
-            Content::Bytes(b) => Some(b.len().to_string()),
+            Content::Bytes(b) if !self.mime.starts_with("application/vnd.google-apps.") => {
+                Some(b.len().to_string())
+            }
             _ => None,
         };
         let mut m = json!({"id": self.id, "name": self.name, "mimeType": self.mime, "owners": [owner],
@@ -540,5 +543,20 @@ impl Drive {
             }
             _ => not_found(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The fake matches Drive: a Google-native file has no `size`, a blob has
+    /// its byte count as a string (so the metadata check cannot stop a Doc's read).
+    #[test]
+    fn a_docs_metadata_has_no_size() {
+        let doc = File::doc("d1", "Short Notes", "# Hi\n").meta();
+        assert!(doc.get("size").is_none(), "{doc}");
+        let blob = File::binary("b1", "note.txt", "text/plain", b"hello".to_vec()).meta();
+        assert_eq!(blob["size"], json!("5"));
     }
 }

@@ -500,6 +500,22 @@ fn of_two_conflicting_statements_the_better_supported_stays() {
     );
 }
 
+/// An agent-file imperative with a plural noun ("Commit messages carry the
+/// id") reads as no one's name (theseus-7q9wt).
+#[test]
+fn an_agent_files_imperative_with_a_plural_noun_is_not_the_owners() {
+    use super::evidence::about_owner;
+    for l in [
+        "Commit messages carry the id",
+        "Ask questions before acting",
+        "Open issues need a label",
+        "Review changes before merging",
+    ] {
+        assert!(!about_owner(l), "{l}");
+    }
+    assert!(about_owner("Mara prefers tide tables in metric units"));
+}
+
 /// A setup line that starts with the owner's name is the owner's; an order
 /// with a plural noun is not (theseus-0ly2a).
 #[test]

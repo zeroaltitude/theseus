@@ -181,6 +181,8 @@ const NOT_A_NAME: &[&str] = &[
     "save", "log", "post", "send", "avoid", "prefer", "follow", "stay", "take", "give", "ensure",
     "be", "do", "don't", "never", "if", "when", "before", "after", "a", "an", "the", "this",
     "that", "these", "those", "all", "each", "every", "any", "no", "some", "my", "our", "you",
+    "commit", "push", "ask", "tell", "reply", "open", "close", "merge", "review", "test", "search",
+    "start", "stop", "set", "call", "fetch", "list", "note",
 ];
 
 /// Whether `w` looks like a third-person verb: "prefers", "is", "has".

@@ -16,7 +16,7 @@
 
 use theseus_protocol::ops::DataMark;
 
-use crate::catalog::Catalog;
+use crate::catalog::{Catalog, ModelOrigin};
 use crate::store::Store;
 use crate::Config;
 
@@ -59,29 +59,40 @@ pub(crate) fn uncleared(cfg: &Config, catalog: &Catalog, profile: &str) -> bool 
 }
 
 /// Why a session marked `mark` cannot run on `profile`, from what the floor
-/// reads of it: whether it resolves (`known`) and whether its origin is
-/// cleared for private content (`cleared`).
+/// reads of it: whether it resolves (`known`), its `origin`, and whether it is
+/// cleared for private content (`cleared`). The decision reads `known`, `mark`
+/// and `cleared` alone; `origin` only picks the words: a profile whose origin
+/// is `us` yet is not cleared is one the catalog does not list as of US origin
+/// (a provider's vouch alone clears nothing), and the words say so.
 pub(crate) fn refusal_of(
     mark: DataMark,
     profile: &str,
     known: bool,
+    origin: ModelOrigin,
     cleared: bool,
 ) -> Option<String> {
     match (known, mark, cleared) {
         (false, ..) => Some(format!("`{profile}` is not a configured profile")),
         (true, DataMark::Open, _) | (true, _, true) => None,
-        _ => Some(format!(
-            "this conversation holds {} content, and `{profile}` is not a model of US origin",
-            match mark {
+        _ => {
+            let level = match mark {
                 DataMark::Sensitive => "sensitive",
                 _ => "private",
-            }
-        )),
+            };
+            Some(match origin {
+                ModelOrigin::Us => format!(
+                    "this conversation holds {level} content, and `{profile}` is not cleared for it: the catalog does not list its model as of US origin"
+                ),
+                _ => format!(
+                    "this conversation holds {level} content, and `{profile}` is not a model of US origin"
+                ),
+            })
+        }
     }
 }
 
 /// [`refusal_of`] for a configured daemon: the check `session.profile` makes
-/// and a model menu greys out by.
+/// and a model menu greys out by, with the profile's origin for the words.
 pub(crate) fn profile_refusal(
     cfg: &Config,
     catalog: &Catalog,
@@ -92,6 +103,7 @@ pub(crate) fn profile_refusal(
         mark,
         profile,
         cfg.all_profiles().contains_key(profile),
+        cfg.profile_origin(profile, catalog),
         cleared(cfg, catalog, profile),
     )
 }

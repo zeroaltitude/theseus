@@ -938,6 +938,28 @@ async fn a_shared_places_text_message_still_asks_onto_nothing() {
     assert!(!asked_onto, "no onto question left for a shared place");
 }
 
+/// The naming call asks its own target model's forcing: on a Sonnet profile
+/// it is not forced (theseus-7q9wt).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_a_sonnet_profile_the_naming_call_is_not_forced() {
+    let jev = FakeJev::start().unwrap();
+    let named = Scripted::tools(
+        "",
+        &[(
+            "tu_1",
+            "name_category",
+            json!({"names": ["Ledger move"], "description": "Moving the ledger."}),
+        )],
+    );
+    let r = rig_with(jev, vec![named], |c| c.serve_glm_as("claude-sonnet-5-5"));
+    let sid = bound(&r.core);
+    r.core.onto_name(&sid, "topic", SAID).await.unwrap();
+    let sent = r.namer.requests();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].model, "claude-sonnet-5-5");
+    crate::provider::one_tool::assert_unforced(&sent[0], crate::judge::onto::name::TOOL);
+}
+
 /// The naming call forces `name_category` where thinking is off, and asks
 /// `auto` with a strict, closed tool where it cannot be (theseus-yym79).
 #[test]

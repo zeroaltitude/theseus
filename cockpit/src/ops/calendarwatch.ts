@@ -29,8 +29,11 @@ export function useCalendar(spans: ReadonlyArray<{ from_ms: number; to_ms: numbe
   const latched = useRef(false)
   useEffect(() => { if (!open) latched.current = false }, [open])
   const sig = spans.map((s) => `${s.from_ms}-${s.to_ms}`).join(',')
+  // When the spans change, the held read is settled while rendering, not in an effect: empty spans drop it, so a
+  // reopen never draws the old answer as current.
+  const [seen, setSeen] = useState(sig)
+  if (sig !== seen) { setSeen(sig); setState((s) => heldRead(s, sig)) }
   useEffect(() => {
-    if (!sig) setState((s) => heldRead(s, sig))
     if (!open || !sig) return
     let dead = false
     let soon: ReturnType<typeof setTimeout> | null = null

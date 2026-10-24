@@ -251,6 +251,14 @@ test('Coming up folded drops the last answer: a stale read is not drawn again', 
   assert.match(read('src/ops/calendarwatch.ts').replace(/\/\/.*$/gm, ''), /heldRead\(/)
 })
 
+test('Coming up’s reset is not set inside an effect', () => {
+  const src = read('src/ops/calendarwatch.ts').replace(/\/\/.*$/gm, '')
+  const effects = src.split('useEffect(').slice(1).map((t) => t.slice(0, t.lastIndexOf('}, [')))
+  assert.ok(effects.length >= 2)
+  for (const e of effects) assert.ok(!e.includes('setState((s) => heldRead'), 'no reset in an effect')
+  assert.match(src, /heldRead\(/)
+})
+
 test('a refused hold’s words reach the deck as a toast', () => {
   const panel = read('src/ops/EventDetail.tsx').replace(/\/\/.*$/gm, '')
   assert.match(panel, /say\(refused\)/)

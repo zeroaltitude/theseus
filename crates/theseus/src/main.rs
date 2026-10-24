@@ -502,7 +502,9 @@ enum Cmd {
     /// or `--at fri 9:00` / `--in-time 2h`, under your Home conversation or `--in SESSION`, with
     /// `--budget`, `--profile`, and `--quote-file` text it reads verbatim. Yours alone (refused
     /// inside a job). `task show ID` prints one task whole, its report and the commands that act
-    /// on it; `task pause ID` and `task resume ID` hold and release a running one. `tasks` lists them.
+    /// on it; `task pause ID` and `task resume ID` hold and release a running one. `task rehome ID HOME`
+    /// sends a task's report to another conversation or `thread:<slug>`; `task reschedule ID --at
+    /// WHEN|--in-time SPAN` moves a deferred task's start. `tasks` lists them.
     #[command(hide = true)]
     Task {
         #[command(subcommand)]

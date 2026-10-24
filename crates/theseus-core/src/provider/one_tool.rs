@@ -53,7 +53,14 @@ pub fn assert_both_shapes(build: impl Fn(Forcing) -> super::ProviderRequest, too
         json!({"type": "tool", "name": tool})
     );
     assert_eq!(r.thinking, Some(json!({"type": "disabled"})));
-    let r = build(c.forcing("claude-sonnet-5-5"));
+    assert_unforced(&build(c.forcing("claude-sonnet-5-5")), tool);
+}
+
+/// The Sonnet half: a request that leaves the one tool to `auto`, with
+/// thinking `between_tools` and the tool strict and closed. A call site's test
+/// through a core on a Sonnet profile holds its request to this.
+#[cfg(test)]
+pub fn assert_unforced(r: &super::ProviderRequest, tool: &str) {
     assert_eq!(r.extra["tool_choice"], json!({"type": "auto"}));
     assert_eq!(r.thinking, Some(json!({"type": "between_tools"})));
     assert_eq!(r.tools[0]["name"], tool);
