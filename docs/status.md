@@ -563,11 +563,12 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 ## Recently landed
 
 - **2026-10-23: v1 patch2 rows** (theseus-zeyr3, theseus-cuv2o, theseus-nde5n, theseus-zcn80, theseus-gg78p,
-  theseus-ujzuh, theseus-u5a37, theseus-f9qa8, theseus-goq94, theseus-2uy56, theseus-yct32, theseus-ly75u). The recall
-  bench's generator reads its prices from `catalog.rs` (`catalog_prices`); Sonnet 5.5's cache reads are $0.10, so the
-  seed-7 budget is $0.48 an arm for the smoke and $7.89 for the full run. The chat now follows a thread-placed turn's
-  answered question and its continuation (it watches the placed session), and the plain approval card says why it waits:
-  the thread guard's question names both threads, other rules say their clause, and a thread session is asked by its
+  theseus-ujzuh, theseus-u5a37, theseus-f9qa8, theseus-goq94, theseus-2uy56, theseus-yct32, theseus-ly75u,
+  theseus-7e7hc, theseus-it4ta, theseus-1j7ib, theseus-i08xr, theseus-n17am, theseus-uy015). The recall bench's
+  generator reads its prices from `catalog.rs` (`catalog_prices`); Sonnet 5.5's cache reads are $0.10, so the seed-7
+  budget is $0.48 an arm for the smoke and $7.89 for the full run. The chat now follows a thread-placed turn's answered
+  question and its continuation (it watches the placed session), and the plain approval card says why it waits: the
+  thread guard's question names both threads, other rules say their clause, and a thread session is asked by its
   thread's title. A message that asks for a task ('start two background tasks') now loads the tasks family for that
   turn, with or without tool search, so a DM's step 1 starts tasks, not plain background jobs (theseus-gg78p). The
   checkpoint's text tells Jev the effort the work ran at and how many checkpoints in a row found it failing; a sticky
@@ -584,7 +585,14 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   keeps who acts and on whose behalf, offers no two conflicting proposals together, and lets the owner say where a kept
   record holds (`theseus card keep --scope`, `card scope`) (theseus-ly75u). The four old organisation names are gone
   from fixtures, tests and comments; one digest list (`names::OLD`) serves the template test and a tree-wide scan;
-  `policy.explain` reads a hold that has told the owner as no hold, as the gate does (theseus-cuv2o).
+  `policy.explain` reads a hold that has told the owner as no hold, as the gate does (theseus-cuv2o). A kept kind-name
+  pick names a kind only while its cluster still holds the name; a stale pick is dropped and its cluster asked again
+  under the day cap (theseus-7e7hc). The memory exam's scratch daemons run with routing off, each record names its
+  profile and model, and a run or report that finds another model answering stops; `bench/recall`'s tests run in the
+  gate, and its budget prices Haiku 5.5's long-prompt tier (theseus-1j7ib, theseus-it4ta). Operations follow-ups: Ask
+  Theseus keeps its US profile with a sticky `session.profile`; the calendar reads only where shown and stops after a
+  refusal; the night fold's edge is exact; the Graph has keys, openable folds under the 400 cap, redact masking, the
+  page's verb menu and row-only picks (theseus-i08xr, theseus-n17am, theseus-uy015).
 - **2026-10-23: v1 patch1 hotfix, install #75a** (theseus-050g2). A note Theseus writes itself is never posted cut
   off: the morning note's call had a 200-token cap and no `thinking` field, so Sonnet 5.5 thought through most of it and
   the note went out as half a sentence. The call now turns thinking off where the model lets it (Sonnet 5.5's
