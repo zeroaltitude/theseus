@@ -72,3 +72,25 @@ test('a page left alone renders nothing new: its lists hold still between render
   assert.match(page, /const came = arrived\(was, queue\)\n\s+if \(came\.length\) setFresh\(new Set\(came\)\)/)
   assert.match(page, /const NONE: never\[\] = \[\]/)
 })
+
+test('the Graph lens and the bulk acts (ops-graph): mounted in its branch, fanned out through enabled, esc clears the picks first', () => {
+  assert.match(page, /a\.lens === 'graph' && <GraphLens /)
+  assert.ok(!/TaskGraphView/.test(page), 'the old task graph lives on in Actions only')
+  // A bulk call and a drop go through `send`, which refuses under the time machine before it calls.
+  assert.match(src('ops/act.ts'), /if \(!enabled\(verb, past\)\) return \{ ok: false, words: PAST_WORDS \}/)
+  assert.match(src('ops/BulkBar.tsx'), /fanOut\(items\.filter\(\(i\) => i\.method\), \(i\) => send\(`bulk_\$\{verb\}`, i\.method!, i\.params\), 4\)/)
+  assert.match(src('ops/DropLayer.tsx'), /await send\('drop', method, params\)/)
+  // Approve always opens the review sheet; a floor approval is listed, never sent.
+  assert.match(src('ops/BulkBar.tsx'), /else if \(verb === 'approve'\) setAsking\(\{ verb, items: o\.items, floor: o\.oneByOne \?\? \[\]/)
+  assert.match(src('ops/BulkBar.tsx'), /asks one by one/)
+  assert.match(page, /back: \(\) => \{ if \(picked\.size\) unpick\(\); else/)
+  assert.match(page, /if \(e\.altKey \|\| \(\(e\.metaKey \|\| e\.ctrlKey\) && \(keyName\(e\) !== 'mod\+a' \|\| !live\.current\.picks\)\)\) return/)
+  assert.match(page, /select_all: \(\) => pickAll\(vis\.rows\.map\(\(r\) => r\.id\)\)/)
+  // A selection box on each Board card, and the failed items stay picked.
+  assert.match(src('ops/BoardLens.tsx'), /<input type="checkbox" checked=\{picked\} onChange=\{\(\) => onPick\(r\.id\)\}/)
+  assert.match(src('ops/BulkBar.tsx'), /if \(keep\) keepFailed\(results\)/)
+  // The flowing edge follows stir's rule and Calm's.
+  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+  assert.match(css, /html:not\(\.stirred\) \.ops-flow \.react-flow__edge-path \{ animation: none !important; \}/)
+  assert.match(css, /html\.calm \.ops-flow \.react-flow__edge-path, html\.calm \.ops-fade-in \{ animation: none !important; \}/)
+})

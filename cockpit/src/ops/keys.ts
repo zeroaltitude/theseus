@@ -16,6 +16,8 @@ export type Verb =
   | 'lens_graph' | 'lens_board' | 'lens_timeline' | 'lens_threads' | 'home' | 'search'
   | 'fold_queue' | 'fold_inspector' | 'fold_dock' | 'keys'
   | 'filter_needs' | 'filter_working' | 'filter_paused' | 'filter_done' | 'filter_all'
+  // ops-graph (theseus-jid7t.4): the selection.
+  | 'select' | 'select_all'
 
 export interface KeyDef {
   verb: Verb
@@ -40,7 +42,7 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'follow', keys: ['l'], ctx: 'job', words: 'on a job: follow it (its call in its session)' },
   { verb: 'inspect', keys: ['Enter'], ctx: 'card', words: 'inspect: the selection in the inspector; a queue item’s full card' },
   { verb: 'open', keys: ['o'], ctx: 'card', words: 'open its deck (/session/…)' },
-  { verb: 'back', keys: ['Escape'], ctx: 'page', words: 'back: close the card, then clear the selection, then the filters' },
+  { verb: 'back', keys: ['Escape'], ctx: 'page', words: 'back: clear the picked cards first, then close the card, clear the focus, then the filters' },
   { verb: 'next', keys: ['Tab'], ctx: 'page', words: 'the next thing that needs you' },
   { verb: 'prev', keys: ['shift+Tab'], ctx: 'page', words: 'the previous thing that needs you' },
   { verb: 'approve', keys: ['y'], ctx: 'answer', words: 'approve (reset, accept: the card’s first answer)', act: true },
@@ -71,6 +73,9 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'filter_paused', keys: ['r'], ctx: 'filter', words: 'only paused·queued (on a failure, r retries)' },
   { verb: 'filter_done', keys: ['d'], ctx: 'filter', words: 'only done today (on a failure, d dismisses)' },
   { verb: 'filter_all', keys: ['a'], ctx: 'filter', words: 'everything: clear the filters (on a card with a grant, a takes it)' },
+  // ops-graph (theseus-jid7t.4): the selection, on the Graph and the Board. The bulk verbs are buttons (BUTTON_ACTS).
+  { verb: 'select', keys: [' '], ctx: 'card', words: 'pick the focused card or node for a bulk act, or put it back' },
+  { verb: 'select_all', keys: ['mod+a'], ctx: 'page', words: 'pick everything shown, after the filters and the search (ctrl+a too)' },
 ]
 
 /** The contexts in the order a key looks for its meaning: the focus's own first, then the page, then the filters. */
@@ -84,7 +89,11 @@ export const CTX_WORDS: Readonly<Record<Ctx, string>> = {
 }
 
 /** The verbs that act: off under the time machine. The table's, and the buttons' that no key presses. */
-export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark'] as const
+export const BUTTON_ACTS = [
+  'answer', 'trust', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark',
+  // ops-graph (theseus-jid7t.4): the bulk bar's verbs, and a drop on a home or a project.
+  'bulk_pause', 'bulk_stop', 'bulk_cancel', 'bulk_rehome', 'bulk_approve', 'bulk_decline', 'bulk_attach', 'drop',
+] as const
 export type ButtonAct = (typeof BUTTON_ACTS)[number]
 export const ACTS: ReadonlySet<string> = new Set<string>([...KEYS.filter((k) => k.act).map((k) => k.verb), ...BUTTON_ACTS])
 
@@ -96,8 +105,10 @@ export function enabled(verb: Verb | ButtonAct, timeMachine: boolean): boolean {
   return !(timeMachine && ACTS.has(verb))
 }
 
-/** The key a keydown names: `shift+Tab` for a shifted Tab; a printable key as itself (its case is its shift). */
-export function keyName(e: { key: string; shiftKey: boolean }): string {
+/** The key a keydown names: `shift+Tab` for a shifted Tab; `mod+a` for ⌘A or ctrl+a; a printable key as itself (its
+ *  case is its shift). */
+export function keyName(e: { key: string; shiftKey: boolean; metaKey?: boolean; ctrlKey?: boolean }): string {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') return 'mod+a'
   return e.key === 'Tab' && e.shiftKey ? 'shift+Tab' : e.key
 }
 
@@ -127,7 +138,7 @@ export function pressTwice(armed: { verb: Verb; at: number } | null, verb: Verb,
 
 /** The `g` sequences: after `g`, the next key within `G_MS` completes one. */
 export const G_MS = 900
-export const SEQUENCES: readonly string[] = KEYS.flatMap((k) => k.keys.filter((x) => x.includes(' ')))
+export const SEQUENCES: readonly string[] = KEYS.flatMap((k) => k.keys.filter((x) => x.length > 1 && x.includes(' ')))
 
 /** The overlay: a heading per context in `PRIORITY` order, a line per entry. */
 export function overlay(): Array<{ ctx: Ctx; heading: string; lines: Array<{ verb: Verb; keys: string; words: string }> }> {
@@ -140,5 +151,5 @@ export function overlay(): Array<{ ctx: Ctx; heading: string; lines: Array<{ ver
 
 /** A key as the overlay prints it. */
 export function label(key: string): string {
-  return ({ Enter: '⏎', Escape: 'esc', Tab: 'tab', 'shift+Tab': '⇧tab', ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→' } as Record<string, string>)[key] ?? key
+  return ({ Enter: '⏎', Escape: 'esc', Tab: 'tab', 'shift+Tab': '⇧tab', ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→', ' ': '␣', 'mod+a': '⌘A' } as Record<string, string>)[key] ?? key
 }

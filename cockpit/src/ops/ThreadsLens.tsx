@@ -96,7 +96,7 @@ function Group({ t, now, focused, onFocus }: { t: GroupedThread; now: number; fo
         </div>
       )}
       <div className="mt-2 space-y-0.5" onClick={(e) => e.stopPropagation()}>
-        {t.items.length === 0 ? <div className="px-1 text-[12px] text-ink-faint">Nothing open.</div> : t.items.map((v) => <Item key={v.id} v={v} />)}
+        {f.items.length === 0 ? <div className="px-1 text-[12px] text-ink-faint">Nothing open.</div> : f.items.map((it, i) => <Item key={it.id} v={t.items[i]} />)}
       </div>
     </div>
   )

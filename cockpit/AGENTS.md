@@ -56,7 +56,7 @@ build.
     lies over the canvas, below 900 px the queue is the page.
   - **The lenses**: the Board (`ops/BoardLens.tsx` over `ops/board.ts`: five columns over `taskboard.ts`'s `rowsOf`,
     with conversations, jobs, and what is due today); the Threads lens (`ops/ThreadsLens.tsx`); the Timeline lens hosts
-    `views/Agenda.tsx` unchanged and the Graph lens `TaskGraphView` (`shown`), until their rows land.
+    `views/Agenda.tsx` unchanged until its row lands; the Graph lens (`ops/GraphLens.tsx`, below).
   - **It reads, it does not poll**: the one `work.watch`, `task.list`, `confirm.list` and `session.list` on their
     pushes, the ledger's one copy for today's spend, and the router's `thread.asked` while it is open
     (`ops/asks.ts`; no read lists them). `test/ops-page.test.ts` fails a timer or a refetch interval.
@@ -75,6 +75,27 @@ build.
     (`ops/facts.ts`) that must make every field the old component showed and the card that must draw it as
     `f.<field>`. A field added to a card goes into its fact function and its row's `fields`; a row a later lens takes
     over moves its `at` there. Never delete a row to make the test pass.
+  - **The Graph lens** (theseus-jid7t.4; `ops/GraphLens.tsx` and `ops/GraphNode.tsx` over the pure `ops/graph.ts`,
+    `test/ops-graph.test.ts`): a lane per live thread (needs-you first, a home lane for the rest), each conversation its
+    lane's anchor, columns by depth and rows by start time; a node's id is a row's (`ses_` for a conversation or a
+    task), so `?sel=`, the Board and the selection name the same thing. **Positions are sticky by id**: `opsLayout`
+    takes the last layout (`keeper()` holds it), every placed node keeps its slot, a new node takes the next free row
+    of its column, a node that leaves leaves a hole, and a lane's band keeps a spare row, so a live change moves no
+    other node; a new lane goes below, and only "tidy" lays it out afresh. Ended work older than an hour folds into
+    one "✓ N done" per lane (it opens on a click); past `NODE_CAP` (400) subtrees fold, deepest and oldest first, into
+    "+N folded", never one that holds something that needs the owner. Filters and the search fade nodes, never
+    remove them. A running edge flows under stir's rule and stops in Calm (`index.css`'s `ops-flow`).
+  - **The selection and the bulk acts** (`ops/selection.ts`, `test/ops-selection.test.ts`): a set of ids in memory
+    (`useSelection` in `ops/useSelection.ts`, the seam ops-act's palette reads), shared by the Graph and the Board;
+    `␣`, `⌘A`/`ctrl+a` (everything shown), `esc` (clears it before anything else). A bulk act is a client fan-out of
+    single calls, four at a time (`fanOut`, each through `useOpsAct`'s `send`, so each has its own ledger row and its
+    own refusal), never a batch method; the results toast says each refusal in the daemon's words and the failed
+    items stay picked. Stop, Cancel, Re-home and Decline ask once with the list. **Bulk Approve is the owner's
+    decision 4**: only tool approvals that are not `floor`, not a budget ask or a task change, and whose `may_answer`
+    is not false (`bulkApprovable`), each listed in a review sheet with a box, all ticked; a floor approval is listed
+    as "asks one by one" and never sent. Drag (`ops/drag.ts`'s `dropOf`, `ops/DropLayer.tsx`): a task onto a
+    conversation, a lane or the tray's thread re-homes it (`task.rehome`, asks, naming who the budget stays charged
+    to); a task or a conversation onto a project attaches it (`project.attach`); every refusal shows on the cursor.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
   (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
   checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before

@@ -78,6 +78,6 @@ test('every field the old component showed is made by its new home’s fact func
 test('the Timeline lens hosts the Agenda unchanged, and the Graph lens the task graph', () => {
   const page = src('src/views/Ops.tsx')
   assert.match(page, /import Agenda from '\.\/Agenda'/)
-  assert.match(page, /a\.lens === 'graph' && <TaskGraphView records=\{records\} past=\{past \?\? undefined\} shown \/>/)
-  assert.match(src('src/components/TaskGraph.tsx'), /if \(!shown && params\.get\('taskgraph'\) !== '1'\) return null/)
+  assert.match(page, /a\.lens === 'graph' && <GraphLens views=\{world \? graphViews : views\} records=\{records\}/)
+  assert.match(src('src/components/TaskGraph.tsx'), /<Link to=\{opsHref\(\{ lens: 'graph', sel: pick \}\)\}[^>]*>open in Operations<\/Link>/)
 })

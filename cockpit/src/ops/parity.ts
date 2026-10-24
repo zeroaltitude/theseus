@@ -31,6 +31,7 @@ const PANEL = 'src/ops/ThreadPanel.tsx'
 const QUEUE = 'src/ops/Queue.tsx'
 const KEYS = 'src/ops/keys.ts'
 const ACTIONS = 'src/views/Actions.tsx'
+const GRAPH = 'src/ops/GraphLens.tsx'
 const timeline: readonly [string, string] = [OPS, "a.lens === 'timeline' && ("]
 
 export const PARITY: readonly ParityRow[] = [
@@ -57,14 +58,14 @@ export const PARITY: readonly ParityRow[] = [
   { id: 'T5', group: '1b', datum: 'Done 50 at a time, "more (N older)", report lines read lazily', home: 'here', at: [['src/ops/board.ts', 'DONE_PAGE = 50'], [BOARD, 'older)</button>'], [OPS, 'reportLineOf(']] },
   { id: 'T6', group: '1b', datum: '?sel= scroll-to and glow', home: 'here', at: [[BOARD, 'scrollIntoView'], [BOARD, "focused && 'ring-gold"]] },
   // 1c. Threads: the Threads lens, its panel in the inspector, and the queue for seals.
-  { id: 'H1', group: '1c', datum: 'per thread: lock, title link, state, warm/cold and tooltip, ● N need you and the paused tooltip, details, seal box, open items', home: 'here', at: [[THREADS, 'threadFacts(t, now)'], [THREADS, '<Item key={v.id} v={v} />']],
-    facts: { fn: 'threadFacts', drawn: THREADS, fields: ['sealed', 'title', 'href', 'state', 'warmth', 'warmthTip', 'needs', 'needsCounted', 'pausedTip', 'details', 'seal'] } },
+  { id: 'H1', group: '1c', datum: 'per thread: lock, title link, state, warm/cold and tooltip, ● N need you and the paused tooltip, details, seal box, open items', home: 'here', at: [[THREADS, 'threadFacts(t, now)'], [THREADS, 'f.items.map((it, i) => <Item key={it.id} v={t.items[i]} />)']],
+    facts: { fn: 'threadFacts', drawn: THREADS, fields: ['sealed', 'title', 'href', 'state', 'warmth', 'warmthTip', 'needs', 'needsCounted', 'pausedTip', 'details', 'seal', 'items'] } },
   { id: 'H2', group: '1c', datum: '"N live · N need you on the board"', home: 'here', at: [[THREADS, 'need you on the board']] },
   { id: 'H3', group: '1c', datum: 'loose conversations and the Fleet link', home: 'here', at: [[THREADS, 'conversations are in no thread'], [THREADS, 'to="/fleet"']] },
   { id: 'H4', group: '1c', datum: 'the time machine’s "Threads then" fold and its caveat', home: 'here', at: [[THREADS, 'title="Threads then"'], [THREADS, 'is the present’s and is not folded']] },
   { id: 'H5', group: '1c', datum: 'the empty state’s words', home: 'here', at: [[THREADS, 'No thread is live.'], [THREADS, "'thread.new'"]] },
   { id: 'H6', group: '1c', datum: 'the thread page /threads/:slug', home: 'stays', at: [['src/main.tsx', "path: 'threads/:slug'"], ['src/views/Threads.tsx', '<ThreadBody'], ['src/ops/Inspector.tsx', '<ThreadBody']],
-    facts: { fn: 'threadPanelFacts', drawn: PANEL, fields: ['title', 'state', 'goal', 'details', 'context', 'today', 'sealPending', 'sealedBy', 'topics', 'links', 'card', 'workingSet', 'turnsOf'] } },
+    facts: { fn: 'threadPanelFacts', drawn: PANEL, fields: ['title', 'state', 'goal', 'details', 'context', 'today', 'sealPending', 'sealedBy', 'topics', 'links', 'card', 'workingSet', 'turnsOf', 'openWork'] } },
   // 1d. Actions: the queue takes what waits; the rest stays.
   { id: 'X1', group: '1d', datum: 'approvals waiting (ConfirmCard, every field, read-only under the time machine)', home: 'here', at: [[QUEUE, '<ConfirmCard c={i.confirm} past='], [ACTIONS, '<ConfirmCard']],
     facts: { fn: 'itemFacts', drawn: QUEUE, fields: ['glyph', 'kind', 'title', 'owner', 'age', 'left'] } },
@@ -73,11 +74,13 @@ export const PARITY: readonly ParityRow[] = [
   { id: 'X4', group: '1d', datum: 'the wakes link: to the Timeline lens', home: 'stays', at: [[ACTIONS, 'to="/agenda"'], ['src/ops/address.ts', "'/agenda': 'timeline'"]] },
   { id: 'X5', group: '1d', datum: 'the tasks panel', home: 'stays', at: [[ACTIONS, 'function Tasks(']] },
   { id: 'X6', group: '1d', datum: 'the task tree', home: 'stays', at: [[ACTIONS, '<TaskTree']] },
-  { id: 'X7', group: '1d', datum: 'the task graph view', home: 'here', at: [[OPS, '<TaskGraphView records={records}'], [ACTIONS, '<TaskGraphView']] },
+  { id: 'X7', group: '1d', datum: 'the task graph view (the Graph lens now; Actions’ ?taskgraph=1 keeps it, with an “open in Operations” link)', home: 'here',
+    at: [[OPS, "a.lens === 'graph' && <GraphLens"], [GRAPH, 'memory.lay('], [ACTIONS, '<TaskGraphView'], ['src/components/TaskGraph.tsx', 'open in Operations']] },
   { id: 'X8', group: '1d', datum: 'tool postures', home: 'stays', at: [[ACTIONS, '<Postures']] },
   { id: 'X9', group: '1d', datum: 'the time machine’s banner and disabled acts', home: 'here', at: [[OPS, 'folded from the ledger. Acting needs the present'], ['src/ops/act.ts', 'enabled(verb, past)']] },
   // 1e. The TUI's board and keys.
-  { id: 'B1', group: '1e', datum: 'every session as a tree, questions waiting (every session and question is on the Board and in the queue now; the tree is the Graph lens’s)', home: 'pending: ops-graph', at: [] },
+  { id: 'B1', group: '1e', datum: 'every session as a tree, questions waiting (the tree in the Graph lens’s lanes, a question a badge on its owner; every session on the Board, every question in the queue)', home: 'here',
+    at: [[OPS, '<GraphLens'], ['src/ops/graph.ts', 'export function opsLayout('], ['src/ops/GraphNode.tsx', 'n.asks > 0'], [OPS, '<BoardLens']] },
   { id: 'B2', group: '1e', datum: 'b w r d a filters, /', home: 'here', at: [[KEYS, "verb: 'filter_needs'"], [KEYS, "verb: 'search'"]] },
   { id: 'B3', group: '1e', datum: 'tab / ⇧tab', home: 'here', at: [[KEYS, "verb: 'next'"], [KEYS, "verb: 'prev'"]] },
   { id: 'B4', group: '1e', datum: 'y t n, 1-6, a e', home: 'here', at: [[KEYS, "verb: 'approve'"], [KEYS, "verb: 'choice'"], [KEYS, "verb: 'grant'"]] },
