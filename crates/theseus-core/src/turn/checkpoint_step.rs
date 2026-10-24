@@ -75,10 +75,28 @@ pub(super) struct Checkpoints {
     /// A tool result of the loop being run was an error as the runner marks
     /// one (`ResultStatus::is_error`), set as its calls answer.
     pub(super) failed: bool,
+    /// What the loop's commands did (`progress_step`), taken at its end.
+    pub(super) commands: super::progress_step::Commands,
+    /// The progress check's and the clock's state, begun at the turn's first
+    /// loop and gone with the turn.
+    pub(super) progress: Option<super::progress_step::State>,
     state: State,
 }
 
 impl Checkpoints {
+    /// A call of `tool` ended as `outcome`: any tool's error marks the loop
+    /// failed for the checkpoint, and a command's result is the loop's check.
+    pub(super) fn answered(&mut self, tool: &str, outcome: &crate::toolrun::CallOutcome) {
+        use crate::toolrun::CallOutcome::{AwaitingConfirm, Background, Done};
+        let result = match outcome {
+            Done { status } => Some(status.is_error()),
+            Background { .. } => None,
+            AwaitingConfirm { .. } => return,
+        };
+        self.failed |= result.unwrap_or(false);
+        self.commands.note(tool, result);
+    }
+
     /// The profile a task runs on when a checkpoint has moved it off its
     /// base: what its `loop.ended` rows say, so the board's line does.
     pub(super) fn moved_to(&self, on: &str) -> Option<String> {

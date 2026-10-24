@@ -62,17 +62,26 @@ impl Rig {
         let rec = SessionRecord::new(SessionKind::Conversation, None);
         self.core.store.put_session(&rec.session_id, &rec).unwrap();
         let sid = rec.session_id.clone();
-        if let Some((secs, ago)) = deadline {
-            set_deadline(&sid, Instant::now() - Duration::from_secs(ago), Some(secs));
-        }
+        // The start `turn.submit` gives both the deadline and the request.
+        let start = deadline.map(|(secs, ago)| {
+            let start = Instant::now() - Duration::from_secs(ago);
+            set_deadline(&sid, start, Some(secs));
+            start
+        });
+        let res = self.run(rec, start).await;
+        (sid, res)
+    }
+
+    /// One turn of `rec`'s session whose request arrived at `arrived`.
+    async fn run(&self, rec: SessionRecord, arrived: Option<Instant>) -> TurnSubmitResult {
+        let sid = rec.session_id.clone();
         let (live, _) = self.core.live_profile();
         let target = self
             .core
             .runner
             .resolve_target(&live, None, None, None)
             .unwrap();
-        let res = self
-            .core
+        self.core
             .runner
             .run(TurnRequest {
                 prompt: None,
@@ -84,13 +93,12 @@ impl Rig {
                 author: "test".into(),
                 recompile: None,
                 attachments: vec![],
-                arrived: None,
+                arrived,
                 reply_to: None,
                 answer_at: None,
             })
             .await
-            .unwrap();
-        (sid, res)
+            .unwrap()
     }
 
     fn rows(&self, sid: &str) -> Vec<serde_json::Value> {
@@ -291,4 +299,56 @@ async fn the_time_line_is_history_and_the_cached_prefix_holds() {
     assert_eq!(reqs.len(), 4);
     assert!(!messages(&reqs[2]).contains("left of this turn"));
     assert!(!messages(&reqs[3]).contains("left of this turn"));
+}
+
+/// A command that passes beside a read that fails, every loop: the check is
+/// the command's, so the turn is a passing one and is told nothing
+/// (theseus-rmjqr).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_passing_command_beside_a_failed_read_is_a_pass() {
+    let both = |root: &Path, n: u32| {
+        let run = json!({"argv": ["sh", "-c", "exit 0"], "cwd": root.display().to_string()});
+        let read = json!({"path": root.join("missing.txt").display().to_string()});
+        Scripted::tools(
+            "Checking, and reading.",
+            &[
+                (&format!("c{n}"), "proc_run", run),
+                (&format!("r{n}"), "fs_read", read),
+            ],
+        )
+    };
+    let r = rig(|root| {
+        let mut script: Vec<Scripted> = (1..=4).map(|n| both(root, n)).collect();
+        script.push(Scripted::text("Done."));
+        script
+    });
+    // 600 s, 360 used: 60%.
+    let (sid, res) = r.turn(Some((600, 360))).await;
+    assert_eq!(res.loops, 5);
+    for req in r.requests() {
+        let m = messages(&req);
+        assert!(!m.contains(STEER) && !m.contains(STOP), "{m}");
+        assert!(!m.contains("harness:progress"), "{m}");
+    }
+    assert!(r.rows(&sid).is_empty());
+}
+
+/// A deadline is the turn's whose submit set it: a later turn of the session,
+/// which arrived on its own (a nudge, a wake), has none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_later_turn_of_the_session_does_not_inherit_its_deadline() {
+    let r = rig(|_| vec![Scripted::text("First."), Scripted::text("Second.")]);
+    let (sid, _) = r.turn(Some((900, 0))).await;
+    assert!(messages(&r.requests()[0]).contains("minutes left of this turn's 15"));
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    r.run(rec, Some(Instant::now())).await;
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 2);
+    // The session's history holds the first turn's line, and no second one.
+    assert_eq!(
+        messages(&reqs[1])
+            .matches("minutes left of this turn's")
+            .count(),
+        1
+    );
 }

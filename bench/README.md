@@ -157,7 +157,7 @@ number of attempts.
    the model ends it, then a clean stop of the daemon. Then `theseus --json history` reads the session from the
    store. `--follow-for 0` ends the trial with its turn, as every run before `ask` followed late work (theseus-mqxk;
    the CLI's default is 30 minutes), so a rerun compares with them; `THESEUS_BENCH_FOLLOW_FOR` names a bound instead
-   (the task's agent timeout less a margin: Harbor's SIGTERM at the timeout ends the follow too).
+   (the task's agent timeout less a margin: Harbor's SIGTERM at the timeout ends the follow too). The ask also carries `--deadline` (the task's timeout less 60 s, `theseus_bench.deadline_secs`; `THESEUS_BENCH_DEADLINE=0` turns it off), so the turn is told its time and the progress check can steer and stop it before Harbor's timeout does.
 3. Harbor runs the task's tests and records the reward.
 
 `theseus ask`'s exit code says how the turn ended (`theseus ask --help`), and the adapter records a turn that the

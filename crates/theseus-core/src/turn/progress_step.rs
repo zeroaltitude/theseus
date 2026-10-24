@@ -5,10 +5,10 @@
 //! At each loop's end, a pure rule ([`decide`]) over what the turn already
 //! knows: the share of its deadline used (`clock_step`), the share of its
 //! execution's spend limit this turn has spent, and the loops since its last
-//! passing check. A loop that ran a command (`proc.run`) that answered in the
-//! loop, with no tool result an error, passed; one whose command failed
-//! failed; a loop with no command, or one sent to the background, is no
-//! check. The rule:
+//! passing check. A loop whose commands (`proc.run`) answered in the loop,
+//! none with an error result, passed; one whose command failed failed (a
+//! failed read beside a passing command is a pass); a loop with no command,
+//! or with a command sent to the background, is no check. The rule:
 //!
 //! - **Nothing** while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
 //!   loops: work that passes is going well, however long it runs.
@@ -25,12 +25,10 @@
 //! the cached prefix. A turn with no deadline and little spend pays a map
 //! lookup a loop.
 //!
-//! What the turn holds is kept here by execution, not on `Turn` (turn.rs is
-//! at its line ceiling): a turn's entry starts at its first loop, is dropped
-//! at its end, and is replaced by the execution's next turn.
-
-use std::collections::HashMap;
-use std::sync::{Mutex, PoisonError};
+//! What the turn holds is a field of its `Checkpoints` (turn.rs is at its line
+//! ceiling): the state begins at the turn's first loop, takes the deadline of
+//! the turn's own `turn.submit` (`clock_step::take_deadline`), and goes with
+//! the turn, however it ends.
 
 use super::clock_step::Deadline;
 use super::*;
@@ -100,9 +98,9 @@ pub fn decide(s: &Signals, steered: bool) -> Verdict {
     Verdict::Nothing
 }
 
-/// What one turn holds of its progress and its clock.
-struct State {
-    turn_id: String,
+/// What one turn holds of its progress and its clock; begun at its first
+/// loop, on the turn (`Checkpoints::progress`), so it ends with the turn.
+pub(super) struct State {
     deadline: Option<Deadline>,
     /// The time line last shown (`clock_step`).
     shown: Option<u64>,
@@ -110,24 +108,49 @@ struct State {
     limit_micros: Option<u64>,
     since_pass: u32,
     failing: u32,
-    /// The turn's background jobs at the last loop's end.
-    background: usize,
     steered: bool,
     /// The stop was said: the next loop is the last.
     last: bool,
 }
 
-/// Each execution's running turn's state.
-static STATES: Mutex<Option<HashMap<String, State>>> = Mutex::new(None);
+/// What a loop's commands did, set as their calls answer
+/// (`Checkpoints::answered`) and taken at the loop's end. Only commands: a
+/// failed read beside a passing command is a pass, and a command sent to the
+/// background is no check, whatever the turn's other jobs did.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Commands {
+    /// A command answered in the loop.
+    answered: bool,
+    /// An answered command's result was an error.
+    failed: bool,
+    /// A command went to the background.
+    background: bool,
+}
 
-/// `t`'s state, begun at its first use in the turn.
-fn with<R>(t: &Turn<'_>, f: impl FnOnce(&mut State) -> R) -> R {
-    let mut map = STATES.lock().unwrap_or_else(PoisonError::into_inner);
-    let map = map.get_or_insert_with(HashMap::new);
-    let fresh = map
-        .get(t.tc.execution_id)
-        .is_none_or(|s| s.turn_id != t.tc.turn_id);
-    if fresh {
+impl Commands {
+    /// A call of `tool` ended as `outcome`: `Some(is_error)` when it answered,
+    /// `None` when it went to the background.
+    pub(super) fn note(&mut self, tool: &str, outcome: Option<bool>) {
+        if !is_command(tool) {
+            return;
+        }
+        match outcome {
+            Some(error) => (self.answered, self.failed) = (true, self.failed | error),
+            None => self.background = true,
+        }
+    }
+
+    /// The loop's check: `Some(passed)` when a command answered and none went
+    /// to the background, else none.
+    fn check(self) -> Option<bool> {
+        (self.answered && !self.background).then_some(!self.failed)
+    }
+}
+
+/// `t`'s state, begun at its first use in the turn: the deadline its
+/// `turn.submit` gave it, if any.
+fn with<R>(t: &mut Turn<'_>, f: impl FnOnce(&mut State) -> R) -> R {
+    if t.checkpoint.progress.is_none() {
         let limit_micros =
             t.tc.kernel
                 .execution(t.tc.execution_id)
@@ -135,51 +158,26 @@ fn with<R>(t: &Turn<'_>, f: impl FnOnce(&mut State) -> R) -> R {
                 .flatten()
                 .map(|e| e.budget.limit_micros)
                 .filter(|l| *l > 0);
-        map.insert(
-            t.tc.execution_id.to_string(),
-            State {
-                turn_id: t.tc.turn_id.to_string(),
-                deadline: super::clock_step::deadline_of(t.tc.session_id),
-                shown: None,
-                limit_micros,
-                since_pass: 0,
-                failing: 0,
-                background: t.background.len(),
-                steered: false,
-                last: false,
-            },
-        );
+        t.checkpoint.progress = Some(State {
+            deadline: super::clock_step::take_deadline(t.tc.session_id, t.arrived),
+            shown: None,
+            limit_micros,
+            since_pass: 0,
+            failing: 0,
+            steered: false,
+            last: false,
+        });
     }
-    f(map.get_mut(t.tc.execution_id).expect("inserted above"))
+    f(t.checkpoint.progress.as_mut().expect("begun above"))
 }
 
-fn forget(t: &Turn<'_>) {
-    let mut map = STATES.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(m) = map.as_mut() {
-        m.remove(t.tc.execution_id);
-    }
-}
-
-/// The turn's deadline and the time line last shown, when it has one. A
-/// turn with none begins no state for it.
-pub(super) fn clock(t: &Turn<'_>) -> Option<(Deadline, Option<u64>)> {
-    if super::clock_step::deadline_of(t.tc.session_id).is_none() && !held(t) {
-        return None;
-    }
+/// The turn's deadline and the time line last shown, when it has one.
+pub(super) fn clock(t: &mut Turn<'_>) -> Option<(Deadline, Option<u64>)> {
     with(t, |s| s.deadline.map(|d| (d, s.shown)))
 }
 
-/// Whether the turn holds its state already: a deadline that passed during
-/// the turn still counts for it.
-fn held(t: &Turn<'_>) -> bool {
-    let map = STATES.lock().unwrap_or_else(PoisonError::into_inner);
-    map.as_ref()
-        .and_then(|m| m.get(t.tc.execution_id))
-        .is_some_and(|s| s.turn_id == t.tc.turn_id)
-}
-
 /// The time line `bucket` was shown.
-pub(super) fn shown(t: &Turn<'_>, bucket: u64) {
+pub(super) fn shown(t: &mut Turn<'_>, bucket: u64) {
     with(t, |s| s.shown = Some(bucket));
 }
 
@@ -191,19 +189,11 @@ fn is_command(name: &str) -> bool {
 impl TurnRunner {
     /// After loop `i`'s results, before the checkpoint takes the loop's
     /// failure: whether the turn goes on. `going_on` is the advancer's word.
-    pub(super) fn progress(
-        t: &mut Turn<'_>,
-        uses: &[ToolUse],
-        i: u32,
-        going_on: bool,
-    ) -> Result<bool> {
-        let ran = uses.iter().any(|u| is_command(&u.name));
-        let (failed, background) = (t.checkpoint.failed, t.background.len());
+    pub(super) fn progress(t: &mut Turn<'_>, i: u32, going_on: bool) -> Result<bool> {
+        let check = std::mem::take(&mut t.checkpoint.commands).check();
         let cost = t.cost;
         let now = Instant::now();
         let (signals, steered, last, deadline) = with(t, |s| {
-            let check = (ran && background == s.background).then_some(!failed);
-            s.background = background;
             match check {
                 Some(true) => (s.since_pass, s.failing) = (0, 0),
                 Some(false) => (s.since_pass, s.failing) = (s.since_pass + 1, s.failing + 1),
@@ -225,7 +215,6 @@ impl TurnRunner {
                     decision: PROGRESS_STOP,
                 });
             }
-            forget(t);
             return Ok(false);
         }
         let verdict = decide(&signals, steered);
@@ -293,7 +282,7 @@ fn used_words(
 /// The note the model reads: short, plain, and about no tool or language.
 fn note(verdict: Verdict, used: &str, s: &Signals) -> String {
     let checks = match s.failing {
-        0 => format!("no check has passed in its last {} loops", s.since_pass),
+        0 => format!("no check has run in its last {} loops", s.since_pass),
         f => format!(
             "no check has passed in its last {} loops ({f} failed)",
             s.since_pass
@@ -374,9 +363,43 @@ mod tests {
         );
         let sig = s(Some(0.9), None, 8, 0);
         assert!(note(Verdict::Stop, "13 of its 15 minutes", &sig).contains(
-            "no check has passed in its last 8 loops. Stop here: in your next answer make no \
+            "no check has run in its last 8 loops. Stop here: in your next answer make no \
              tool calls"
         ));
         assert!(is_command("proc_run") && is_command("proc.run") && !is_command("fs_read"));
+    }
+
+    /// A loop's check comes from its commands' results alone (theseus-rmjqr).
+    #[test]
+    fn a_loops_check_comes_from_its_commands_alone() {
+        let (done, error) = (Some(false), Some(true));
+        let loop_of = |calls: &[(&str, Option<bool>)]| {
+            let mut c = Commands::default();
+            for (tool, outcome) in calls {
+                c.note(tool, *outcome);
+            }
+            c.check()
+        };
+        // A passing command beside a failed read is a pass.
+        assert_eq!(
+            loop_of(&[("proc_run", done), ("fs_read", error)]),
+            Some(true)
+        );
+        // A failed command is a failed check, wherever it sits.
+        assert_eq!(
+            loop_of(&[("proc_run", error), ("fs_read", done)]),
+            Some(false)
+        );
+        assert_eq!(
+            loop_of(&[("proc.run", done), ("proc_run", error)]),
+            Some(false)
+        );
+        // No command, no check.
+        assert_eq!(loop_of(&[("fs_read", done), ("fs_read", error)]), None);
+        assert_eq!(loop_of(&[]), None);
+        // A command sent to the background is no check, though a job that
+        // ended in the same loop left the turn's count unchanged.
+        assert_eq!(loop_of(&[("proc_run", None)]), None);
+        assert_eq!(loop_of(&[("proc_run", done), ("proc_run", None)]), None);
     }
 }

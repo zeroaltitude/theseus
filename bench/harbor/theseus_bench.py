@@ -125,6 +125,36 @@ DONE = "theseus-done"
 # agent timeout less a margin (Harbor's SIGTERM at the timeout ends the follow).
 FOLLOW_FOR = "0"
 FOLLOW_FOR_ENV = "THESEUS_BENCH_FOLLOW_FOR"
+
+# The seconds of a task's timeout the turn's deadline leaves out: one minute
+# for the stop note's report, the stop script and the history read. The turn
+# is told the rest (`ask --deadline`, theseus-5mkz1), so its time steer and its
+# stop-and-report can fire before Harbor's timeout ends the trial unreported.
+DEADLINE_MARGIN_S = 60
+# `THESEUS_BENCH_DEADLINE=0` runs the turn with no deadline (an A/B).
+DEADLINE_ENV = "THESEUS_BENCH_DEADLINE"
+
+
+def task_timeout(task_dir) -> float:
+    """The task's agent timeout in seconds, from `task.toml`'s `[agent]
+    timeout_sec` under `task_dir` (900 when absent or unreadable)."""
+    try:
+        cfg = tomllib.loads((Path(task_dir) / "task.toml").read_text())
+        return float(cfg.get("agent", {}).get("timeout_sec") or 900)
+    except (OSError, ValueError):
+        return 900.0
+
+
+def deadline_secs(timeout: float) -> int | None:
+    """The turn's deadline for a task of `timeout` seconds: the timeout less
+    `DEADLINE_MARGIN_S`, none when that leaves under 60 s or when
+    `THESEUS_BENCH_DEADLINE=0`. Harbor's timeout multiplier is not read (the
+    async agent does not read it either), so the deadline falls early, never
+    late."""
+    if os.environ.get(DEADLINE_ENV) == "0":
+        return None
+    left = int(timeout) - DEADLINE_MARGIN_S
+    return left if left >= 60 else None
 JUDGE = "theseus-judge.json"
 ROUTES = "theseus-routes.json"
 
@@ -246,7 +276,7 @@ def profile(text: str, values: dict[tuple[str, str], Any]) -> str:
 
 def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
                sample_ms: int = smp.INTERVAL_MS, routed: bool = False,
-               follow_for: str = FOLLOW_FOR) -> str:
+               follow_for: str = FOLLOW_FOR, deadline: int | None = None) -> str:
     """The trial's one command, run as the task's user, with the instruction
     in `THESEUS_BENCH_INSTRUCTION` (unset before anything else starts).
 
@@ -258,6 +288,10 @@ def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
     of a turn cut short), and the done marker is written. A failure's last
     `theseus:` line goes to stderr, where Harbor reads a failed command's
     cause, and the command exits with `ask`'s code.
+
+    With `deadline` (seconds; `deadline_secs`), the ask carries `--deadline
+    <n>`: the turn is told its time and the progress check can steer and stop
+    it (theseus-5mkz1). Without it only the spend steer can fire.
 
     With `sampler` (its path in the container), the harness sampler
     (`sampler.py`, theseus-7gir.12) starts before the turn and stops after
@@ -271,6 +305,7 @@ def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
     b, s, lg = (shlex.quote(p) for p in (bin_dir, state, logs))
     spawn = f"{b}/theseus --spawn {b}/theseusd --json"
     arm = ef.ARMS["theseus"]
+    limit = f" --deadline {shlex.quote(str(deadline))}" if deadline else ""
     start = stop = ""
     if sampler:
         start = smp.start_script(sampler, logs, state, arm["names"], arm["wrapper_args"],
@@ -286,7 +321,7 @@ def run_script(bin_dir: str, state: str, logs: str, sampler: str | None = None,
         'instruction="$THESEUS_BENCH_INSTRUCTION"; unset THESEUS_BENCH_INSTRUCTION; '
         f"rm -f {lg}/{DONE}; "
         f"{start}"
-        f'printf "%s" "$instruction" | {spawn} ask --follow-for {shlex.quote(follow_for)} - '
+        f'printf "%s" "$instruction" | {spawn} ask --follow-for {shlex.quote(follow_for)}{limit} - '
         f"> {lg}/{TURN} 2> {lg}/{LOG} & "
         f"echo $! > {s}/ask.pid; wait $!; rc=$?; "
         f"echo $rc > {lg}/{EXIT}; "

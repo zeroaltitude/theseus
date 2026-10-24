@@ -19,6 +19,7 @@ import tempfile
 import time
 import tomllib
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import sampler as smp
@@ -129,6 +130,25 @@ class Profile(unittest.TestCase):
         cfg = tomllib.loads(text)
         self.assertEqual(cfg["tools"], {"projects_dir": "/app", "roots": ["/"]})
         self.assertEqual(cfg["kernel"], {"spend_limit_usd": 1.0})
+
+
+class Deadline(unittest.TestCase):
+    """theseus-5mkz1: the task's timeout, and the deadline the turn is told."""
+
+    def test_the_task_timeout_is_read_from_task_toml_else_900(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(tb.task_timeout(d), 900.0)
+            (Path(d) / "task.toml").write_text('[agent]\ntimeout_sec = 3600.0\n')
+            self.assertEqual(tb.task_timeout(d), 3600.0)
+
+    def test_the_deadline_is_the_timeout_less_a_minute_and_can_be_turned_off(self):
+        env = {k: v for k, v in os.environ.items() if k != tb.DEADLINE_ENV}
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(tb.deadline_secs(3600), 3540)
+            self.assertIsNone(tb.deadline_secs(90))
+            self.assertEqual(tb.deadline_secs(120), 60)
+        with unittest.mock.patch.dict(os.environ, {tb.DEADLINE_ENV: "0"}):
+            self.assertIsNone(tb.deadline_secs(3600))
 
 
 class Routed(unittest.TestCase):
@@ -504,13 +524,14 @@ class Scripts(unittest.TestCase):
         self.addCleanup(stop_samplers, self, self.logs, self.state, d)
 
     def start(self, ask: str, sampler: bool = False, path: str | None = None,
-              routed: bool = False, follow_for: str = tb.FOLLOW_FOR) -> subprocess.Popen:
+              routed: bool = False, follow_for: str = tb.FOLLOW_FOR,
+              deadline: int | None = None) -> subprocess.Popen:
         env = dict(os.environ, STANDIN_DIR=self.tmp.name, STANDIN_ASK=ask,
                    THESEUS_BENCH_INSTRUCTION="Fix the repository's history.")
         if path is not None:
             env["PATH"] = path
         script = tb.run_script(str(self.bin), str(self.state), str(self.logs),
-                               str(SAMPLER) if sampler else None, 50, routed, follow_for)
+                               str(SAMPLER) if sampler else None, 50, routed, follow_for, deadline)
         p = subprocess.Popen([BASH, "-c", "set -o pipefail; " + script], env=env,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.addCleanup(self.reap, p)
@@ -553,6 +574,18 @@ class Scripts(unittest.TestCase):
         p = self.start("done", follow_for="25m")
         p.communicate(timeout=30)
         self.assertIn(" ask --follow-for 25m -", args.read_text())
+
+    def test_the_ask_carries_the_deadline_it_is_given(self):
+        """theseus-5mkz1: a deadline reaches `ask --deadline`, so the turn is
+        told its time; without one the ask has no such flag."""
+        args = Path(self.tmp.name) / "ask-args"
+        p = self.start("done", deadline=3540)
+        _, err = p.communicate(timeout=30)
+        self.assertEqual(p.returncode, 0, err)
+        self.assertIn(" ask --follow-for 0 --deadline 3540 -", args.read_text())
+        p = self.start("done")
+        p.communicate(timeout=30)
+        self.assertNotIn("--deadline", args.read_text())
 
     def test_only_the_routed_run_reads_the_ledger_for_jevs_calls_and_the_routes(self):
         """theseus-eo3h: the routed arm leaves the `judge.call` and

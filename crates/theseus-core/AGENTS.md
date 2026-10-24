@@ -21,8 +21,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   stop read under the frame's lock, the wake nested so its failure takes back only itself. A failed turn's retry is
   the driver's (theseus-ljr), but not a `--stdio` daemon's: its run parks the turn on input for its one client
   (`turn/stdio_step.rs`, set by theseusd before serving, theseus-zqxv); `[model.retries]` can make a transient
-  failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; the bench profile's, since a
-  headless run ends with its turn: theseus-7gir.21). Once the stop has begun (`Outbox::stopping`), the driver begins
+  failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; a call cut at its whole-call bound is retried once a turn at most; the bench profile's, since a
+  headless run ends with its turn: theseus-7gir.21). Provider timeouts: `total_secs` bounds a call until its stream
+  begins; a live stream (events within `stream_idle_secs`) goes on to `Timeouts::whole_call`, `LIVE_STREAM_TOTALS` (3) times
+  it, and the model call's kernel action deadline is the same (theseus-5pg8u). Once the stop has begun (`Outbox::stopping`), the driver begins
   no continuation and a call about to be sent is settled failed unsent, class `stopping` (`ProviderError::Stopping`),
   with no in-turn retry, so the next start's driver retries it (`turn/stopping_step.rs`, theseus-jtrc); its run posts no
   notice and health and telemetry count no provider error for it (theseus-36re). A `--stdio` daemon started `--one-shot SECS`
@@ -2933,19 +2935,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
 - **A turn's time, its progress, and its commands' CPUs** (theseus-2uy56, theseus-yct32). **The deadline**: a
-  `turn.submit` may carry `deadline_secs` (`theseus ask --deadline SECS`), kept in memory by session from the request's
-  arrival until it passes (`turn/clock_step.rs`, `set_deadline` in `turn_submit`; a restart forgets it, and the turn
-  has none). **The time line**: at a loop's start, when the whole minutes left changed (and at the first loop), a harness
+  `turn.submit` may carry `deadline_secs` (`theseus ask --deadline SECS`), kept in memory by session and the request's
+  arrival (`turn/clock_step.rs`, `set_deadline` in `turn_submit`): the turn that submit started takes it at its first
+  loop (`take_deadline`, which drops it), and no other turn of the session has one (a nudge, a wake, a resume, a
+  continuation, a submit that steers a running turn; a restart forgets it, and the turn has none). **The time line**: at a loop's start, when the whole minutes left changed (and at the first loop), a harness
   node `[The harness: 9 minutes left of this turn's 15.]` (author `harness:clock`): appended history, never the prefix,
   at most one a minute. **The progress check** (`turn/progress_step.rs`, `decide`, pure): at each loop's end, before the
-  checkpoint takes the loop's failure, a loop that ran a `proc.run` answered in the loop with no error result passed, one
-  with an error failed, any other is no check. Nothing fires while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
+  checkpoint takes the loop's failure, a loop whose `proc.run` calls answered in the loop with no error result passed, one
+  with a command's error result failed (another tool's error counts for the checkpoint, not here), a loop with no
+  command or with a command sent to the background is no check (`progress_step::Commands`, set as calls answer by
+  `Checkpoints::answered`). Nothing fires while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
   (3) loops; at `STEER_SHARE` (0.5) of the deadline or of the execution's spend limit spent by this turn, one steer note
   (replan or narrow); at `STOP_SHARE` (0.85) of the deadline only (spend never stops a turn: the owner's notify rule), a
   stop note asking for a report with no tool calls, and the next loop is the last (stop reason `progress_stop`, which the
   nudge and the end note leave alone). Each is a harness node (`harness:progress`) and a `turn.progress` row (the shares,
-  `since_pass`, `failing`, the times and spend; `fact/progress.rs`). The turn's state lives in a map by execution (turn.rs
-  is at its ceiling), begun at its first loop and dropped at its end. **The CPUs**: the session block names them after
+  `since_pass`, `failing`, the times and spend; `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
+  is at its ceiling), begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
   `Directory:` (`cpu/commands.rs`, `Cpus::of_commands`, read once per process): the tightest of the daemon's cgroup v2
   `cpu.max` (every ancestor's, rounded up), its `cpuset.cpus.effective`, and `available_parallelism`, with the host's
   online count when a limit applies (`CPUs available to commands: 2 (cgroup quota; the host shows 32).`); an unreadable
