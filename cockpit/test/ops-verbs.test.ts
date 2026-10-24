@@ -29,12 +29,16 @@ test('the reversible acts offer Undo: pause, snooze, the sticky model, reschedul
   for (const id of ['cancel', 'wake_cancel', 'retire', 'rehome']) assert.ok(!verbById(id)?.undo, id)
 })
 
-test('every method of the table is one the protocol has', () => {
+test('every method is one the protocol has, except the one it lacks, which the table says', () => {
   const proto = ['lib.rs', 'ledger.rs'].map((f) => readFileSync(new URL(`../../crates/theseus-protocol/src/${f}`, import.meta.url), 'utf8')).join('\n')
+  const lacks: string[] = []
+  // Since p2f-ops-act the daemon has job.stop, so no row lacks its method: the list is empty and a row that lacks one fails here.
   for (const v of VERBS) for (const m of v.methods) {
     if (m === 'nav') continue
+    if (!proto.includes(`"${m}"`)) lacks.push(m)
     assert.ok(proto.includes(`"${m}"`), `${v.id}: ${m} is not the protocol's`)
   }
+  assert.deepEqual(lacks, [])
 })
 
 test('every acting key names a verb of the table, and the palette reads the same table', () => {
