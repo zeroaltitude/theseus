@@ -720,7 +720,7 @@ async fn a_cut_off_answer_whose_retry_the_days_line_refuses_is_the_template() {
     use crate::initiative::speak::{MAX_TOKENS, RETRY_MAX_TOKENS};
     // The reservations, on a rig like the capped one.
     let probe = rig(Initiative::Chatty, |_| {});
-    let persona = probe.core.cfg.persona_for(None, None);
+    let persona = probe.core.personas().persona_for(None, None);
     let reserve = |cap| {
         let q = probe
             .core
