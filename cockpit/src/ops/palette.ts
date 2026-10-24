@@ -7,7 +7,7 @@ import type { OpsRow } from './board.ts'
 import { greyOf } from './floor.ts'
 import { costHint } from './menus.ts'
 import type { Price } from '../lib/money.ts'
-import type { Kind } from './verbs.ts'
+import { verbById, type Kind, type Posture } from './verbs.ts'
 
 export type Scope = 'one' | 'visible' | 'selection'
 export const SCOPES: readonly Scope[] = ['one', 'visible', 'selection']
@@ -55,6 +55,9 @@ export interface Plan { verb: string; key: string; method: string; params: unkno
 
 export interface Entry {
   id: string
+  /** The verb of the table (`verbs.ts`) it runs, and that verb's posture. */
+  verb: string
+  posture: Posture
   label: string
   /** What the entry would do and what it would skip, in words: "2 targets · 1 already on it". */
   detail: string
@@ -69,18 +72,22 @@ export interface Ctx { profiles: readonly ProfileInfo[]; prices: ReadonlyMap<str
 
 const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`
 
+/** The table's verb each entry is: the palette reads `verbs.ts`, so its methods and postures are the table's. */
+const TABLE_VERB = (id: string): string => (id === 'pause' || id === 'resume' ? 'task_pause' : id === 'mode:auto' ? 'mode_auto' : id.startsWith('mode:') ? 'mode' : id.startsWith('model:') ? 'model_sticky' : id.startsWith('recompile:') ? 'recompile' : id.startsWith('nudge:') ? 'nudge' : id)
+
 function entry(id: string, label: string, takes: Array<{ t: OpsTarget; plan: Plan }>, skipped: Array<{ t: OpsTarget; why: string }>, extra = ''): Entry {
   const why = new Map<string, number>()
   for (const s of skipped) why.set(s.why, (why.get(s.why) ?? 0) + 1)
   const skip = [...why].map(([w, c]) => `${c} ${w}`).join(' · ')
   const detail = [takes.length ? n(takes.length, 'target') : '', skip, extra].filter(Boolean).join(' · ')
-  return { id, label, detail, plans: takes.map((x) => x.plan), grey: takes.length ? undefined : skipped[0]?.why ?? 'nothing here takes it' }
+  const verb = TABLE_VERB(id)
+  return { id, verb, posture: verbById(verb)?.posture ?? 'do', label, detail, plans: takes.map((x) => x.plan), grey: takes.length ? undefined : skipped[0]?.why ?? 'nothing here takes it' }
 }
 
 /** Every verb the palette offers over `targets`, each entry with the plans it would make and the targets it skips. */
 export function verbEntries(targets: readonly OpsTarget[], cx: Ctx): Entry[] {
   const out: Entry[] = []
-  if (!targets.length) return [{ id: 'new_task', label: 'Start a task', detail: 'anywhere', plans: [], opens: 'new_task' }]
+  if (!targets.length) return [{ id: 'new_task', verb: 'new_task', posture: 'do', label: 'Start a task', detail: 'anywhere', plans: [], opens: 'new_task' }]
   const tasks = targets.filter((t) => t.kind === 'task')
   const pausers = tasks.filter((t) => !t.ended)
   out.push(entry('pause', 'Pause', pausers.filter((t) => !t.paused).map((t) => ({ t, plan: { verb: 'pause', key: t.id, method: 'task.pause', params: { task: t.id } } })),
@@ -130,7 +137,7 @@ export function verbEntries(targets: readonly OpsTarget[], cx: Ctx): Entry[] {
     [...notConv, ...convs.filter((t) => t.retired).map((t) => ({ t, why: 'already retired' }))]))
   out.push(entry('reopen', 'Reopen', convs.filter((t) => t.retired).map((t) => ({ t, plan: { verb: 'session_life', key: `${t.sessionId}:reopen`, method: 'session.reopen', params: { session_id: t.sessionId } } })),
     [...notConv, ...convs.filter((t) => !t.retired).map((t) => ({ t, why: 'not retired' }))]))
-  out.push({ id: 'new_task', label: 'Start a task', detail: 'its home the focused conversation', plans: [], opens: 'new_task' })
+  out.push({ id: 'new_task', verb: 'new_task', posture: 'do', label: 'Start a task', detail: 'its home the focused conversation', plans: [], opens: 'new_task' })
   return out
 }
 

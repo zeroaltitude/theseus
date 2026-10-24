@@ -319,7 +319,7 @@ export default function Ops() {
     entities: entitiesOf(rows, grouped.threads.map((t) => ({ slug: t.group.slug, title: t.group.title })), records, pl?.profiles ?? []),
     profiles: pl?.profiles ?? [], prices: pricing(cat),
     go: (e: { go: { sel: string } | { model: string } }) => { if ('sel' in e.go) pick(e.go.sel); else set({ f: { ...a.f, model: e.go.model } }) },
-    newTask: () => handlers.new_task('N'), selfChanges: () => setSelfOpen(true),
+    newTask: () => live.current.handlers.new_task('N'), selfChanges: () => setSelfOpen(true),
   }), [focusRow, vis.rows, rows, grouped.threads, records, pl, cat, a.f]) // eslint-disable-line react-hooks/exhaustive-deps
   const publish = useOpsPalette((x) => x.publish)
   useEffect(() => { publish(feed as never); return () => publish(null) }, [feed, publish])

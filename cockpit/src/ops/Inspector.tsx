@@ -4,7 +4,8 @@
 // followed output; a queue item's full card; a thread's panel with its verbs.
 import { Link } from 'react-router'
 import { Box, CircleStop, ExternalLink, Lock, MousePointerClick, OctagonX, Pause, Play } from 'lucide-react'
-import type { ConfirmRequest, TaskRecord } from '@protocol'
+import type { ConfirmRequest, SessionInfo, SessionModeResult, TaskRecord, ThreadRow } from '@protocol'
+import { useRpc } from '@/lib/rpc'
 import { useState } from 'react'
 import { ConfirmCard } from '@/components/ConfirmCard'
 import { Pill, StatePill } from '@/components/ui'
@@ -19,7 +20,7 @@ import { ActBtn } from './ActBtn'
 import { Facts, RecordBlock, Section, StandingBlock } from './InspectorSections'
 import { JoinPane } from './JoinPane'
 import { Live } from './Live'
-import { jobFacts, recordFacts, runningJob, taskFacts } from './sections'
+import { jobFacts, recordFacts, runningJob, taskFacts, type FactLine } from './sections'
 import { StickyChip } from './ModelMenu'
 import { RehomeSheet, RescheduleSheet } from './TaskSheets'
 import { targetOf, verbEntries } from './palette'
@@ -55,9 +56,20 @@ export function Inspector({ sel, confirms, past, now, cx }: { sel: Selection; co
 
 function ThreadJoin({ slug, cx }: { slug: string; cx: InspectorCx }) {
   const { on } = useOpsAct()
+  // Beside the Join pane: the thread's mode and data mark, its session's, then the thread page (card, working set).
+  const { data: row } = useRpc<ThreadRow>('thread.show', { slug }, 0)
+  const sid = row?.thread.session_id ?? undefined
+  const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
+  const { data: mode } = useRpc<SessionModeResult>('session.mode', { session_id: sid }, 0, { enabled: !!sid })
+  const mark = sl?.sessions.find((x) => x.session_id === sid)?.data ?? 'open'
+  const lines: FactLine[] = sid ? [{ label: 'mode', value: mode?.mode ?? '…' }, { label: 'data', value: mark, tone: mark === 'open' ? undefined : 'wait' }] : [{ label: 'session', value: 'opens with the first message' }]
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-1.5 px-2.5 pt-2.5"><ActBtn verb="join" on={on} tone="live" onClick={() => cx.onJoin(slug)} title="i: talk to the thread; its first message opens its session">i · Join and chat</ActBtn></div>
+      <div className="flex flex-wrap items-center gap-2 px-2.5 pt-2.5">
+        <ActBtn verb="join" on={on} tone="live" onClick={() => cx.onJoin(slug)} title="i: talk to the thread; its first message opens its session">i · Join and chat</ActBtn>
+        {mark !== 'open' && <Pill tone="wait" title="the floor keeps this to models of US origin"><Lock size={10} /> {mark}</Pill>}
+      </div>
+      <div className="px-2.5"><Facts lines={lines} /></div>
       <ThreadBody slug={slug} live wide={false} />
     </div>
   )

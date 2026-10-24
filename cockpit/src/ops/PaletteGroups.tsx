@@ -32,6 +32,7 @@ export function OpsPalette({ close }: { close: () => void }) {
           <Command.Item key={e.id} value={searchValue(e.label, SCOPE_WORDS[scope])} keywords={[e.id]} disabled={!!e.grey} onSelect={() => void run(e)} className={cn(ITEM, e.grey && 'opacity-50')}>
             <span>{e.label}</span>
             <span className="num truncate text-[11px] text-ink-faint">{e.detail}</span>
+            {(e.posture === 'ask' || e.posture === 'arm') && !e.grey && <span className="shrink-0 text-[10.5px] text-wait" title="it asks before it acts">asks first</span>}
             {e.grey && <span className="ml-auto flex items-center gap-1 text-[11px] text-fault"><Lock size={10} /> {e.grey}</span>}
           </Command.Item>
         ))}

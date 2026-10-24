@@ -4,6 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { ProfileInfo } from '../src/protocol.gen/index.ts'
 import { boardRows } from '../src/ops/board.ts'
+import { verbById } from '../src/ops/verbs.ts'
 import { entitiesOf, nextScope, scopeTargets, searchValue, targetOf, verbEntries, type OpsTarget } from '../src/ops/palette.ts'
 import { board, NOW } from './ops-fixtures.ts'
 
@@ -87,4 +88,21 @@ test('session life: recompile for sessions, nudge and retire for conversations, 
   assert.match(by(es, 'retire').plans[0].ask!, /Retire 1 conversation/)
   assert.deepEqual(by(es, 'reopen').plans.map((p) => p.method), ['session.reopen'])
   assert.match(by(es, 'retire').detail, /1 already retired/)
+})
+
+test('the palette reads the verb table: every entry is a verb of it, every plan’s method is one of that verb’s, and a plan that asks is an ask or an arm', () => {
+  const es = verbEntries([t('a', { kind: 'conversation', executionId: 'exe_a', failed: true }), t('b', { retired: true, kind: 'conversation' })], cx)
+  assert.ok(es.length > 10)
+  for (const e of es) {
+    const v = verbById(e.verb)
+    assert.ok(v, `${e.id}: ${e.verb} is no verb of the table`)
+    assert.equal(e.posture, v.posture, e.id)
+    for (const p of e.plans) {
+      assert.ok(v.methods.includes(p.method), `${e.id}: ${p.method} is not ${e.verb}'s`)
+      if (p.ask) assert.notEqual(v.posture, 'do', `${e.id} asks but the table says do`)
+    }
+  }
+  assert.equal(by(es, 'mode:auto').posture, 'ask')
+  assert.equal(by(es, 'retire').posture, 'ask')
+  assert.equal(by(es, 'model:deep').posture, 'do')
 })
