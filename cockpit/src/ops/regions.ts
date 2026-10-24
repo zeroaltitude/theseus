@@ -33,3 +33,7 @@ export function regionsFor(width: number, queue: Fold, inspector: Fold, selected
   if (width < WIDE_PX) return { queue: q, inspector: selected ? 'over' : 'none', canvas: true }
   return { queue: q, inspector: selected ? 'side' : 'idle', canvas: true }
 }
+
+/** Whether Coming up (the queue's foot) is on screen at `width` with the queue as kept: the queue region is not a tab.
+ *  The page asks the calendar for it only then. */
+export const comingShows = (width: number, queue: Fold): boolean => regionsFor(width, queue, 'open', false).queue !== 'folded'

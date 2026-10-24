@@ -8,11 +8,14 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { CalendarStatus, ProfileInfo } from '../src/protocol.gen/index.ts'
 import {
-  BAR, comingEvents, drawnEvents, eventFacts, eventMatches, EVENT_VERBS, eventVerbPayload, findEvent, joinWindows, payloadStrings,
+  askCalls, BAR, comingEvents, drawnEvents, eventFacts, eventMatches, EVENT_VERBS, eventVerbPayload, findEvent, joinWindows, payloadStrings, profileRefusal,
   redactEvent, SHARING_STEPS, stateOf, US_ONLY_WORDS,
 } from '../src/ops/calendar.ts'
 import { cal, ev, local, OPEN, SECRET, twoCalendars } from './ops-calendar-fixtures.ts'
 import { profileChoices } from '../src/ops/newtask.ts'
+import { latches } from '../src/ops/refusal.ts'
+import { comingShows } from '../src/ops/regions.ts'
+import { readSpans } from '../src/ops/timeline.ts'
 
 const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
 
@@ -197,4 +200,43 @@ test('the calendar read: the one timer, every five minutes while visible, stoppe
   assert.ok(!/refetchInterval|useRpc\(/.test(code))
   // A failed read drops the last one's events: a stale week is never shown as current.
   assert.match(code, /setState\(\{ calendars: \[\], error:/)
+})
+
+test('ask on a sensitive event holds its US profile: session.open, then session.profile, then turn.submit', () => {
+  const { secret, work, open, personal } = twoCalendars()
+  const p = eventVerbPayload(secret, work, 'ask')
+  assert.equal(p.kind, 'ask')
+  if (p.kind !== 'ask') return
+  const calls = askCalls('ses_harbour', p, 'us-model')
+  assert.deepEqual(calls.map((c) => c.method), ['session.open', 'session.profile', 'turn.submit'])
+  assert.deepEqual(calls[1].params, { session_id: 'ses_harbour', profile: 'us-model' })
+  assert.equal(calls[2].params.profile, 'us-model', 'the first turn names it too')
+  // An open event with no pick holds nothing.
+  const o = eventVerbPayload(open, personal, 'ask')
+  if (o.kind !== 'ask') throw new Error('ask')
+  assert.deepEqual(askCalls('ses_harbour', o, undefined).map((c) => c.method), ['session.open', 'turn.submit'])
+  // A refused hold is an ok answer with `refused`: its words, and the page sends no first turn.
+  assert.equal(profileRefusal({ refused: 'not for this data' }), 'not for this data')
+  assert.equal(profileRefusal({}), undefined)
+  const panel = read('src/ops/EventDetail.tsx').replace(/\/\/.*$/gm, '')
+  assert.match(panel, /if \(refused\) break/)
+  assert.ok(panel.indexOf("c.method === 'session.profile'") < panel.indexOf("void send('event_ask', c.method"), 'the hold is sent before the turn')
+})
+
+test('Coming up’s read: nothing when it is not shown, and a refusal stops the re-reads', () => {
+  const now = local(2026, 10, 21, 12)
+  assert.deepEqual(readSpans(null, now, false, false), [], 'outside the Timeline with Coming up folded: no span')
+  assert.equal(readSpans(null, now, false, true).length, 1, 'Coming up shown: today and tomorrow')
+  assert.equal(readSpans(null, now).length, 1, 'the default is as it was')
+  assert.equal(readSpans({ from_ms: now, to_ms: now + 7 * 86_400_000 }, now, false, false).length, 1, 'the Timeline reads its window either way')
+  assert.equal(comingShows(1440, 'open'), true)
+  assert.equal(comingShows(1440, 'folded'), false)
+  assert.equal(comingShows(600, 'folded'), true, 'on a narrow screen the queue is the page')
+  assert.equal(latches({ code: -32005, message: 'REFUSED' }), true)
+  assert.equal(latches({ code: -32603, message: 'internal' }), false)
+  assert.equal(latches(new Error('offline')), false)
+  assert.equal(latches(null), false)
+  const hook = read('src/ops/calendarwatch.ts').replace(/\/\/.*$/gm, '')
+  assert.match(hook, /if \(latches\(e\)\)/)
+  assert.match(hook, /if \(!open\) latched\.current = false/)
 })

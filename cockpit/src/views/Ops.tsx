@@ -35,7 +35,7 @@ import { useDragDrop } from '@/ops/DropLayer'
 import { useSelection } from '@/ops/useSelection'
 import type { DropTarget } from '@/ops/rehome'
 import type { RunResult } from '@/ops/selection'
-import { DOCK_KEY, flip, INSPECTOR_KEY, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
+import { comingShows, DOCK_KEY, flip, INSPECTOR_KEY, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
 import { BoardLens } from '@/ops/BoardLens'
 import { ThreadsLens } from '@/ops/ThreadsLens'
 import { Queue } from '@/ops/Queue'
@@ -91,7 +91,9 @@ export default function Ops() {
   const { act, on } = useOpsAct()
   // The Timeline's calendar (ops-timeline): the window shown in its lens, and today and tomorrow for Coming up.
   const day = a.lens === 'timeline' ? parseDay(params.get('day')) : null
-  const cal = useOpsCalendar(a.lens === 'timeline', a.w, day, tick)
+  const [qFold, setQFold] = usePref(QUEUE_KEY, parseFold)
+  const [frame, width] = useWidth<HTMLDivElement>()
+  const cal = useOpsCalendar(a.lens === 'timeline', a.w, day, tick, comingShows(width || 1440, qFold))
   const [tlr, setTl] = useState<TimelineReport | null>(null)
 
   // What the page holds: the present's, or the time machine's world (the board's views are the present's only).
@@ -176,9 +178,7 @@ export default function Ops() {
   const [note, setNote] = useState<{ key: string; text: string } | null>(null)
 
   // The regions, their folds kept in this browser, and the narrow-screen rules.
-  const [qFold, setQFold] = usePref(QUEUE_KEY, parseFold)
   const [iFold, setIFold] = usePref(INSPECTOR_KEY, parseFold)
-  const [frame, width] = useWidth<HTMLDivElement>()
   const reg = regionsFor(width || 1440, qFold, iFold, selection.kind !== 'none')
   const [keysOpen, setKeysOpen] = useState(false)
   const [newTask, setNewTask] = useState<{ home: string } | null>(null)
