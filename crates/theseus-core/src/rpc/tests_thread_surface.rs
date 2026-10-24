@@ -240,6 +240,7 @@ async fn say_in_dm(core: Arc<Core>, slug: &str, answer_at: &str, user: u64) -> s
             thread: Some(slug.into()),
             in_reply_to: None,
             route_at_ms: None,
+            deadline_secs: None,
             speaking: Some(Speaking {
                 discord: DiscordOrigin {
                     user_id: user.to_string(),

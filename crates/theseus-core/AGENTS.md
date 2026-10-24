@@ -1673,7 +1673,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `effort_bounds`, is not gated, and `effort_reason` is `floored` only when it raised the level; on the base profile Jev
     may still go below.
     **The effort** (route.v3, theseus-qe3v; xhigh and max only above `[routing] high_effort_confidence`, 0.40, else
-    `high` with `effort_reason` `held_high`, theseus-p8dy): `reply_effort` rides the route pack's one request beside `mode`;
+    `high` with `effort_reason` `held_high`, theseus-p8dy; xhigh also only on a sure answer, so an unsure xhigh runs
+    `high` as `held_high_unsure` at any confidence, theseus-goq94, while max keeps the bar alone): `reply_effort` rides the route pack's one request beside `mode`;
     `routing/effort.rs` decides, purely: Jev's level over the profile's `effort` unless `effort_fixed`, clamped to
     `[routing] effort_bounds`, only for a model whose catalog row takes effort; an answer below the question's confirm
     band still applies at `[routing] effort_confidence` (0.35) or more, as `applied_unsure` (theseus-7pm8t: an effort
@@ -1703,7 +1704,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     held answer was `applied_unsure`, so the row keeps the bar that admitted it (theseus-8zgji). An `xhigh` or `max` held at `high` says `held_high` for
     a sure answer and `held_high_unsure` for one under the confirm bar; a held one then held again by `stick` says
     `sticky`, or `sticky_unsure` for a `held_high_unsure` one (theseus-t7b96).
-    Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`, `tests_effort_sticky.rs`.
+    **A sticky hold has a way out** (theseus-u5a37): `keep_warm.sent` keeps, beside the level a request carried, the
+    kind of hold that carried it (`effort::Hold`: `Sticky`, or `Unsure` for `sticky_unsure`), in memory. On a later turn
+    a held change whose answer is sure enough ends the hold: `effort::reverts` wants a `sure` answer in a `sticky`
+    window and `confidence >= [routing] effort_confidence` in a `sticky_unsure` one (the lower bar the owner asked
+    for); the request then carries Jev's level and the row says `sticky_reverted`. The turn that opens a hold never
+    reverts it, and a checkpoint's raise is never held or reverted. A revert rewrites the messages' cache once, as a
+    two-step change does.
+    **The checkpoint says what effort the work ran at** (theseus-ujzuh): `checkpoint::text_with` adds two lines before
+    `Now:`, kept whole when the text is cut: `Effort: <level>[, raised from <level> at loop <n>]` (the top-level effort
+    the last loop's request carried) and `Checkpoints this turn: <n>, failing <k> in a row`, from `Active.evidence`.
+    No new call and no stored state.
+    Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`, `tests_effort_sticky.rs`, `tests_checkpoint_effort.rs`.
   - **Which persona answers a message** (route.v5, theseus-c1uz, T10a; no store format: nothing new is stored; `engage.rs`,
     `turn/persona_engage.rs`, `judge/seal.rs`, `fact/persona.rs`). With two or more `[personas]` (`Config::persona_engaging`) **in a place where a message can engage another persona**
     (`TurnRunner::engages`, `Target.engages`: a DM, a channel, a thread; a cli, task or headless session's persona is fixed, so
@@ -1748,6 +1760,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     to us-based models"): `ModelOrigin::cleared_for_sensitive` admits only `us`, and never a `restricted` origin (`cn`,
     `unknown`), so the China-origin block stays the floor beneath it; the route, the chokepoint and a private motif's
     model (`rsi::mint::data_rule`) all read it. Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
+    **route.v8** (theseus-f9qa8) is the acting route pack, route.v7 word for word but the `data` question's `open` and
+    `unclear` options, and `reply_effort`'s `max`, which names the evidence a checkpoint shows (theseus-ujzuh): v7 still
+    read open-source work as `private` or below the act bar, because `unclear` counted a working directory's unshown
+    owner (every one hides it) and `open` named no public sign. v8 lists the signs (a public project, toolchain or
+    dataset, a fork of public code, a public licence) and says an unshown owner is none; `private` is v7's word for
+    word, and no code rule reads the wording. The verdict table that holds the floor is `tests_data_verdict.rs`;
+    `reply_data.v1` still asks v7's words of a reply (its own version when it moves).
   - **The restricted-origin floor** (theseus-a1wvq.3; `data.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/data_floor.rs`,
     `fact/data.rs`): no request reaches a model of restricted origin (`cn` or `unknown`, `catalog::origin_of`) without a
     `data::DataPass` minted for that one request (it holds the request's digest; not `Clone`, a copied `ProviderRequest`
@@ -2821,6 +2840,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   is bounded instead, and no answer carries the key. Tests: `rpc/tests_voice_pick.rs` (a stand-in Deepgram).
 - **Parked tasks** (28b; theseus-vug): `parked.rs`, health's `tasks.parked`: each task that cannot progress by itself,
   with its blocker, from the open executions alone (a question counts as progress for 24 hours).
+- **A turn's time, its progress, and its commands' CPUs** (theseus-2uy56, theseus-yct32). **The deadline**: a
+  `turn.submit` may carry `deadline_secs` (`theseus ask --deadline SECS`), kept in memory by session from the request's
+  arrival until it passes (`turn/clock_step.rs`, `set_deadline` in `turn_submit`; a restart forgets it, and the turn
+  has none). **The time line**: at a loop's start, when the whole minutes left changed (and at the first loop), a harness
+  node `[The harness: 9 minutes left of this turn's 15.]` (author `harness:clock`): appended history, never the prefix,
+  at most one a minute. **The progress check** (`turn/progress_step.rs`, `decide`, pure): at each loop's end, before the
+  checkpoint takes the loop's failure, a loop that ran a `proc.run` answered in the loop with no error result passed, one
+  with an error failed, any other is no check. Nothing fires while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
+  (3) loops; at `STEER_SHARE` (0.5) of the deadline or of the execution's spend limit spent by this turn, one steer note
+  (replan or narrow); at `STOP_SHARE` (0.85) of the deadline only (spend never stops a turn: the owner's notify rule), a
+  stop note asking for a report with no tool calls, and the next loop is the last (stop reason `progress_stop`, which the
+  nudge and the end note leave alone). Each is a harness node (`harness:progress`) and a `turn.progress` row (the shares,
+  `since_pass`, `failing`, the times and spend; `fact/progress.rs`). The turn's state lives in a map by execution (turn.rs
+  is at its ceiling), begun at its first loop and dropped at its end. **The CPUs**: the session block names them after
+  `Directory:` (`cpu/commands.rs`, `Cpus::of_commands`, read once per process): the tightest of the daemon's cgroup v2
+  `cpu.max` (every ancestor's, rounded up), its `cpuset.cpus.effective`, and `available_parallelism`, with the host's
+  online count when a limit applies (`CPUs available to commands: 2 (cgroup quota; the host shows 32).`); an unreadable
+  file is no limit. Commands run as the daemon's children, so its cgroup is theirs. Tests: `tests_turn_progress.rs`,
+  `turn::progress_step::tests`, `turn::clock_step::tests`, `cpu::commands::tests`.
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):
   `turn/budget_step.rs`. With `[kernel] spend_limit_mode = "notify"` (the default) a provider call past the
   session's limit goes out (`Kernel::overdraws`, theseus-kernel's `overdraw.rs`), and the loop whose call took the

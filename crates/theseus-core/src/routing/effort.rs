@@ -16,9 +16,13 @@
 //!   an answer of either applies only when its confidence is strictly above
 //!   `[routing] high_effort_confidence` (0.40, the owner's live bar of
 //!   2026-10-22); at or below, the turn runs at `high` and the row says
-//!   `held_high`, the answered level still recorded. The gate applies first
-//!   and the bounds clamp after; where both lower an answer, the reason is
-//!   the gate's. It holds whether or not the answer's band was sure.
+//!   `held_high`, the answered level still recorded. `xhigh` needs more
+//!   (theseus-goq94, the owner's call of 2026-10-23: it doubles the cost for
+//!   one solve in thirty): it applies only on a sure answer, so an unsure
+//!   `xhigh` runs `high` (`held_high_unsure`) whatever its confidence, and
+//!   never says `applied_unsure`. `max` keeps the bar alone, sure or not. The
+//!   gate applies first and the bounds clamp after; where both lower an
+//!   answer, the reason is the gate's.
 //! - **A routed profile's own effort is its floor** (theseus-53ujg.3): on a
 //!   profile a routing class chose (not the session's base), the turn runs at
 //!   no less than the profile's own `effort`, the level the profile is
@@ -77,6 +81,7 @@ pub enum EffortReason {
     HeldHigh,
     /// [`HeldHigh`](EffortReason::HeldHigh) for an answer under the question's
     /// confirm bar: `held_high` keeps meaning the sure one (theseus-t7b96).
+    /// An unsure `xhigh` is always held, above the bar too (theseus-goq94).
     HeldHighUnsure,
     /// Under the question's confirm bar and under `effort_confidence`.
     Unsure,
@@ -104,6 +109,9 @@ pub enum EffortReason {
     /// [`Sticky`](EffortReason::Sticky) holding an `applied_unsure` answer:
     /// the hold keeps the bar that admitted it visible (theseus-8zgji).
     StickyUnsure,
+    /// A later answer that disagrees with a sticky hold ended it early: the
+    /// request carries Jev's level (theseus-u5a37, [`reverts`]).
+    StickyReverted,
 }
 
 impl EffortReason {
@@ -122,6 +130,7 @@ impl EffortReason {
             EffortReason::Recorded => "recorded",
             EffortReason::Sticky => "sticky",
             EffortReason::StickyUnsure => "sticky_unsure",
+            EffortReason::StickyReverted => "sticky_reverted",
             EffortReason::Floored => "floored",
         }
     }
@@ -165,6 +174,7 @@ impl EffortDecision {
                 | EffortReason::HeldHighUnsure
                 | EffortReason::Sticky
                 | EffortReason::StickyUnsure
+                | EffortReason::StickyReverted
                 | EffortReason::Floored
         )
     }
@@ -239,8 +249,14 @@ pub fn decide(
         return stand(EffortReason::Fixed);
     }
     let [lo, hi] = bounds;
-    // The gate first: an unsure xhigh or max is a high.
-    let held = level >= Effort::Xhigh && answer.confidence <= bars.high;
+    // The gate first: an xhigh on an unsure answer, or any xhigh or max at or
+    // under the bar, is a high.
+    // `xhigh` also needs a sure answer (theseus-goq94); `max` keeps the bar alone.
+    let held = match level {
+        Effort::Xhigh => !answer.sure || answer.confidence <= bars.high,
+        Effort::Max => answer.confidence <= bars.high,
+        _ => false,
+    };
     let gated = match held {
         true => Effort::High,
         false => level,
@@ -270,6 +286,29 @@ pub fn decide(
 /// when `asked` is two steps or more away. Returns the level held at.
 pub fn sticky(asked: Effort, previous: Option<Effort>, tokens: u64, floor: u64) -> Option<Effort> {
     previous.filter(|p| *p != asked && tokens >= floor && (*p as i8).abs_diff(asked as i8) < 2)
+}
+
+/// The kind of sticky hold the session's last request carried: the window a
+/// later answer may end early (theseus-u5a37).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hold {
+    /// A held `applied` or `held_high` answer.
+    Sticky,
+    /// A held `applied_unsure` or `held_high_unsure` answer.
+    Unsure,
+}
+
+/// Whether an answer that disagrees with the held level ends the hold early.
+/// Inside a `sticky` window the answer must be `sure` (its band reached the
+/// question's own `confirm` bar); inside a `sticky_unsure` window the lower bar
+/// is enough, `effort_confidence` (the owner, 2026-10-22: "a lower bar to
+/// revert it for sticky_unsure"). No window, no revert.
+pub fn reverts(window: Option<Hold>, answer: &EffortAnswer, effort_bar: f64) -> bool {
+    match window {
+        None => false,
+        Some(Hold::Sticky) => answer.sure,
+        Some(Hold::Unsure) => answer.sure || answer.confidence >= effort_bar,
+    }
 }
 
 #[cfg(test)]
@@ -473,6 +512,7 @@ mod tests {
             EffortReason::Recorded,
             EffortReason::Sticky,
             EffortReason::StickyUnsure,
+            EffortReason::StickyReverted,
             EffortReason::Floored,
         ] {
             let word = format!("`{}`", r.as_str());
@@ -648,6 +688,32 @@ mod tests {
         );
     }
 
+    /// The owner's call of 2026-10-23 (theseus-goq94): `xhigh` costs about
+    /// twice a `high` for one solve in thirty, so it applies only on a sure
+    /// answer. An unsure `xhigh` runs `high` even above the bar and never says
+    /// `applied_unsure`; a sure one applies, and `max` keeps its bar alone.
+    #[test]
+    fn an_unsure_xhigh_runs_high_even_above_the_bar() {
+        let r = runs(Some(Effort::Medium), false, true);
+        let d = decide(FULL, LIVE, &at("xhigh", 0.45, false), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::HeldHighUnsure, Some(Effort::High))
+        );
+        assert_eq!(d.reason.as_str(), "held_high_unsure");
+        let d = decide(FULL, LIVE, &at("xhigh", 0.45, true), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::Applied, Some(Effort::Xhigh))
+        );
+        // Only xhigh: an unsure max above the bar still runs at max.
+        let d = decide(FULL, LIVE, &at("max", 0.45, false), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::AppliedUnsure, Some(Effort::Max))
+        );
+    }
+
     /// Under `effort_confidence` an unsure answer leaves the profile's own.
     #[test]
     fn an_unsure_answer_under_effort_confidence_keeps_the_profiles_effort() {
@@ -694,5 +760,34 @@ mod tests {
             (d.reason, d.ran),
             (EffortReason::Floored, Some(Effort::High))
         );
+    }
+
+    /// The revert's bars (theseus-u5a37): a `sticky` window needs a sure
+    /// answer, a `sticky_unsure` one `effort_confidence`; no window, none.
+    #[test]
+    fn a_sticky_hold_reverts_on_its_own_bar() {
+        for (window, sure, c, reverts_) in [
+            (Some(Hold::Sticky), true, 0.60, true),
+            (Some(Hold::Sticky), true, 0.95, true),
+            (Some(Hold::Sticky), false, 0.59, false),
+            (Some(Hold::Sticky), false, 0.35, false),
+            (Some(Hold::Unsure), false, 0.30, false),
+            (Some(Hold::Unsure), false, 0.34, false),
+            (Some(Hold::Unsure), false, 0.35, true),
+            (Some(Hold::Unsure), false, 0.59, true),
+            (Some(Hold::Unsure), true, 0.60, true),
+            (None, true, 0.95, false),
+            (None, false, 0.59, false),
+        ] {
+            let got = reverts(window, &at("medium", c, sure), 0.35);
+            assert_eq!(got, reverts_, "{window:?} sure={sure} at {c}");
+        }
+        assert_eq!(EffortReason::StickyReverted.as_str(), "sticky_reverted");
+        let d = EffortDecision {
+            reason: EffortReason::StickyReverted,
+            ran: Some(Effort::Medium),
+            sent: None,
+        };
+        assert!(d.applied());
     }
 }

@@ -69,6 +69,7 @@ async fn ask(r: &Rig, input: &str) -> (String, u64) {
                 speaking: None,
                 in_reply_to: None,
                 route_at_ms: None,
+                deadline_secs: None,
                 surface: None,
                 via: None,
             },

@@ -393,6 +393,7 @@ ledger_kinds! {
     TurnFailed = "turn.failed",
     TurnNext = "turn.next",
     TurnNudged = "turn.nudged",
+    TurnProgress = "turn.progress",
     TurnRefused = "turn.refused",
     TurnReplayed = "turn.replayed",
     TurnStarted = "turn.started",

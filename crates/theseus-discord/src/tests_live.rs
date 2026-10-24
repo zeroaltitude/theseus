@@ -113,6 +113,7 @@ impl Rig {
             speaking: None,
             in_reply_to: None,
             route_at_ms: None,
+            deadline_secs: None,
             via: None,
         };
         rpc.call(theseus_protocol::method::TURN_SUBMIT, p)

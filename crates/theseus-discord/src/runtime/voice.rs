@@ -729,6 +729,7 @@ impl Place {
                         speaking: None,
                         in_reply_to: None,
                         route_at_ms: None,
+                        deadline_secs: None,
                         via: Some(theseus_core::surface::VOICE.into()),
                         surface: Some("voice".into()),
                     },

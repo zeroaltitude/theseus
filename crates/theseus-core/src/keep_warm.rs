@@ -86,10 +86,18 @@ pub struct KeepWarm {
     /// (`keep_warm_wait`), by session.
     pub(crate) waits: Mutex<HashMap<String, Arc<crate::keep_warm_wait::Stash>>>,
     /// The model and effort each session's last request carried (`sent`).
-    sent: Mutex<HashMap<String, (String, Option<crate::config::Effort>)>>,
+    sent: Mutex<HashMap<String, Sent>>,
     /// Where `theseus.keep_warm.reads` counts, once telemetry exports.
     pub telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
 }
+
+/// A session's last request: its model, its effort, and the sticky hold that
+/// carried the effort (theseus-u5a37).
+type Sent = (
+    String,
+    Option<crate::config::Effort>,
+    Option<crate::routing::effort::Hold>,
+);
 
 #[derive(Debug, Clone)]
 struct Kept {
@@ -164,22 +172,34 @@ impl KeepWarm {
     /// keep-warm read replays it, and the sticky rule holds to it
     /// (theseus-rwpbg.4). In memory: a restart forgets it, and the first
     /// request after applies Jev's level as asked.
-    pub fn sent(&self, session_id: &str, model: &str, effort: Option<crate::config::Effort>) {
-        let mut sent = self.sent.lock().unwrap();
-        match sent.get_mut(session_id) {
-            Some(last) => *last = (model.to_string(), effort),
-            None => {
-                sent.insert(session_id.to_string(), (model.to_string(), effort));
-            }
-        }
+    pub fn sent(
+        &self,
+        session_id: &str,
+        model: &str,
+        effort: Option<crate::config::Effort>,
+        hold: Option<crate::routing::effort::Hold>,
+    ) {
+        self.sent
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), (model.to_string(), effort, hold));
     }
 
     /// The effort `session_id`'s last request carried, if it went to `model`.
     pub fn last_effort(&self, session_id: &str, model: &str) -> Option<crate::config::Effort> {
         let sent = self.sent.lock().unwrap();
         sent.get(session_id)
-            .filter(|(m, _)| m == model)
-            .and_then(|(_, e)| *e)
+            .filter(|(m, ..)| m == model)
+            .and_then(|(_, e, _)| *e)
+    }
+
+    /// The sticky hold that carried `session_id`'s last request's effort, if
+    /// it went to `model` and was held (theseus-u5a37).
+    pub fn last_hold(&self, session_id: &str, model: &str) -> Option<crate::routing::effort::Hold> {
+        let sent = self.sent.lock().unwrap();
+        sent.get(session_id)
+            .filter(|(m, ..)| m == model)
+            .and_then(|(_, _, h)| *h)
     }
 
     /// A session as a restart finds it: its person's message and its last

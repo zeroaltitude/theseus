@@ -77,6 +77,7 @@ pub mod persona_import;
 pub mod place;
 pub mod prefix;
 pub mod privacy;
+pub mod progress;
 pub mod recall;
 pub mod reply_data;
 pub mod retract;
@@ -345,6 +346,7 @@ facts![
     turn::FellBack<'static>,
     turn::TurnNudged<'static>,
     turn::TurnEndNoted<'static>,
+    progress::TurnProgress<'static>,
     steer::TurnSteered<'static>,
     turn::EffortRefused<'static>,
     turn::BudgetAsked<'static>,

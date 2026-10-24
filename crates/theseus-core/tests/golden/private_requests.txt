@@ -42,7 +42,7 @@
       "type": "text"
     },
     {
-      "text": "Directory: <dir>/work",
+      "text": "Directory: <dir>/work\nCPUs available to commands: <cpus>.",
       "type": "text"
     }
   ],
@@ -98,7 +98,7 @@ tools sha256: f4c1918be41562a787c78e85828f51d6ccfbf13f521501537eb2251f39d117ba
       "type": "text"
     },
     {
-      "text": "Directory: <dir>/work",
+      "text": "Directory: <dir>/work\nCPUs available to commands: <cpus>.",
       "type": "text"
     }
   ],

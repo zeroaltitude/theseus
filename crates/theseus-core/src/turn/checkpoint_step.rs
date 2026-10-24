@@ -123,9 +123,25 @@ struct Active {
     /// The last compile's estimate, and whether its request names a sensitive name.
     est: u64,
     sensitive: bool,
+    /// The effort evidence the text carries (theseus-ujzuh): the level the
+    /// last loop ran at and where a checkpoint raised it, and the count of
+    /// checkpoints asked and of those in a row that found the work failing.
+    evidence: cp::Evidence,
 }
 
 impl Active {
+    /// The level a loop's request carried, and where it rose above the last.
+    fn note_effort(&mut self, request: &crate::provider::ProviderRequest, index: u32) {
+        let level = request
+            .output_config
+            .as_ref()
+            .and_then(|o| o["effort"].as_str());
+        let Some(level) = level.and_then(effort::parse) else {
+            return;
+        };
+        self.evidence.note(level, index);
+    }
+
     /// Its rows' `source`.
     fn source(&self) -> &'static str {
         if self.task {
@@ -245,6 +261,7 @@ impl TurnRunner {
             brief,
             est: 0,
             sensitive: false,
+            evidence: cp::Evidence::default(),
         }))
     }
 
@@ -339,6 +356,7 @@ impl TurnRunner {
         a.loops
             .drain(..a.loops.len().saturating_sub(cp::LOOP_LINES));
         a.est = e.compiled.est_tokens;
+        a.note_effort(&e.compiled.request, e.index);
         a.sensitive |= self.sensitive_request(&e.compiled.request);
         let window = self.cfg.routing.task_checkpoints.min_loops_between;
         // A flight a window old is given up: its late answer is dropped.
@@ -377,7 +395,12 @@ impl TurnRunner {
             return;
         }
         let plan: Vec<(String, &str)> = a.plan.iter().map(|(n, s)| (n.clone(), s.name())).collect();
-        let text = cp::text(&a.brief, &plan, &a.loops, &trigger);
+        a.evidence.checkpoints += 1;
+        a.evidence.failing = match trigger {
+            Trigger::Failing(_) => a.evidence.failing + 1,
+            _ => 0,
+        };
+        let text = cp::text_with(&a.brief, &plan, &a.loops, &trigger, &a.evidence);
         let class = t.tc.class;
         let place = self.outbox.try_target(sid).ok().flatten();
         let route = self.route_mode(t.target, sid);

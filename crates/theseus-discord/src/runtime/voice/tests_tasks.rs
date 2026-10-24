@@ -232,6 +232,7 @@ async fn asked(core: &Arc<Core>) -> String {
                 speaking: None,
                 in_reply_to: None,
                 route_at_ms: None,
+                deadline_secs: None,
                 surface: None,
                 via: None,
             },

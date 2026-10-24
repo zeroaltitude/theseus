@@ -100,6 +100,7 @@ pub async fn ask(
         speaking: None,
         in_reply_to: None,
         route_at_ms: a.route_at_ms,
+        deadline_secs: a.deadline,
         via: Some("ask".into()),
     })?;
     let follow_for = spawned.then_some(a.follow_for);

@@ -114,7 +114,11 @@ pub struct Layer {
 /// A route pack version and the one before it whose `mode` question it asks
 /// word for word (the pack test pins it): the older version's entries still
 /// steer while the newer acts.
-pub const SAME_MODE: &[(&str, &str)] = &[("route.v7", "route.v6")];
+pub const SAME_MODE: &[(&str, &str)] = &[
+    ("route.v7", "route.v6"),
+    ("route.v8", "route.v7"),
+    ("route.v8", "route.v6"),
+];
 
 /// Whether an entry judged by `pack` steers while `acting` acts.
 pub fn steers_under(pack: &str, acting: &str) -> bool {
@@ -317,6 +321,28 @@ mod tests {
             .unwrap();
         assert_eq!(e.turn, "t1");
         assert_eq!((l.len(), l.retired), (1, 1), "v5's entry retired");
+    }
+
+    /// route.v7's and v6's entries steer under route.v8, whose `mode` question
+    /// is theirs word for word (theseus-f9qa8); route.v5's retire.
+    #[test]
+    fn route_v8_keeps_route_v7s_and_v6s_entries_and_retires_older_ones() {
+        let mut l = Layer::default();
+        for (turn, text, pack) in [
+            ("t1", "plan the ferry timetable migration", "route.v7"),
+            ("t2", "draft the harbour lease renewal", "route.v6"),
+            ("t3", "sketch the lighthouse rota", "route.v5"),
+        ] {
+            l.add(entry(turn, text, pack), 8);
+        }
+        for (turn, text) in [
+            ("t1", "plan the ferry timetable migration"),
+            ("t2", "draft the harbour lease renewal"),
+        ] {
+            let (e, _) = l.nearest(&words(text), "route.v8", 0.5).unwrap();
+            assert_eq!(e.turn, turn);
+        }
+        assert_eq!((l.len(), l.retired), (2, 1), "v5's entry retired");
     }
 
     /// Once another version of the route pack acts, the old version's

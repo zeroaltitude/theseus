@@ -1308,9 +1308,11 @@ pub(crate) mod tests {
     #[test]
     fn each_pack_asks_its_golden_request() {
         for p in embedded().as_ref().unwrap() {
-            // route.v6, v7 and reply_data.v1 ask about the operator's names, so their goldens have some.
+            // route.v6 to v8 and reply_data.v1 ask about the operator's names, so their goldens have some.
             let (_, prepared) = match p.name().as_str() {
-                "route.v6" | "route.v7" | "reply_data.v1" => prepared_from(p, &names_fixture()),
+                "route.v6" | "route.v7" | "route.v8" | "reply_data.v1" => {
+                    prepared_from(p, &names_fixture())
+                }
                 "onto.v1" => prepared_from(p, &onto_fixture()),
                 // classify.v4's `scope` is asked only with live threads.
                 "classify.v4" => prepared_from(p, &threads_fixture()),
@@ -1362,6 +1364,7 @@ pub(crate) mod tests {
             "route.v5",
             "route.v6",
             "route.v7",
+            "route.v8",
             "directive.v1",
             "reply_data.v1",
         ] {
