@@ -162,7 +162,7 @@ fn a_format_50_card_proposal_reads_as_an_add_and_writes_back_byte_for_byte() {
 const SAMPLES: &[Sample] = &[
     Sample {
         kind: kinds::META,
-        layout: "a card proposal at format 50 (theseus-utfnl's; unchanged since 34): before its ask, record, observations and posted time (51, theseus-6f8t0)",
+        layout: "a card proposal at format 50 (theseus-utfnl's; unchanged since 43): before its ask, record, observations and posted time (51, theseus-6f8t0)",
         bytes: CARD_PROPOSAL_AT_50,
         kept: Kept::All,
     },
