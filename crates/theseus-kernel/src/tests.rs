@@ -416,6 +416,31 @@ fn a_cancelled_jobs_late_completion_taken_twice_writes_one_row() {
 }
 
 #[test]
+fn a_failed_jobs_row_says_how_it_failed() {
+    let w = world();
+    let (s, _, g) = running(&w);
+    for (detail, want) in [
+        (json!({"exit_code": 2, "signal": null}), Some("exit")),
+        (
+            json!({"exit_code": null, "signal": 9, "timed_out": true}),
+            Some("timeout"),
+        ),
+        (json!({"spawn_error": "no such file"}), Some("spawn")),
+        (json!({"error": "refused"}), None),
+    ] {
+        let a = dispatched(&w, &g, "proc.run", 10);
+        let mut c = completion(&a.correlation_id, Outcome::Failed, None);
+        c.producer = "wrapper:4242".into();
+        c.detail = Some(detail);
+        w.kernel.accept_completion(&c).unwrap();
+        let failed = rows(&w, &s, "action.failed");
+        let row = failed.last().unwrap();
+        assert_eq!(row["correlation_id"], a.correlation_id.as_str());
+        assert_eq!(row.get("failure").and_then(|f| f.as_str()), want, "{row}");
+    }
+}
+
+#[test]
 fn crash_mid_turn_requeues_as_interrupted_and_nothing_else_changes() {
     let w = world();
     let (_, e, g) = running(&w);

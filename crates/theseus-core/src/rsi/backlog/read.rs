@@ -177,8 +177,22 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             let p = word(&d["producer"]);
             o.key = format!("action.failed:{p}");
             o.title = calls_failing(&p);
+            let mut how = String::new();
+            // A job's row names how it failed. A command that ran and
+            // exited non-zero gave its own answer (a `grep` that finds
+            // nothing), which is no fault to fix; the rest are causes each
+            // its own, whatever process ran them. A row from before the
+            // field keeps the producer's key.
+            if let Some(f) = d["failure"].as_str().map(|f| word(&Value::from(f))) {
+                if f == "exit" {
+                    return None;
+                }
+                o.key = format!("action.failed:{p}:{f}");
+                o.title = format!("{} ({f})", o.title);
+                how = format!(" ({f})");
+            }
             o.note = format!(
-                "action {} failed after {} ms",
+                "action {} failed{how} after {} ms",
                 d["correlation_id"], d["duration_ms"]
             );
             o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
@@ -541,6 +555,37 @@ mod tests {
             data,
         };
         of_row(7, &row).unwrap().title
+    }
+
+    /// A job's failure is its own cause by how it failed, never by which
+    /// wrapper process ran it; a command's own non-zero exit is no cause;
+    /// a row from before the `failure` field keeps the producer's key.
+    #[test]
+    fn a_wrapper_failure_is_a_cause_by_how_it_failed() {
+        let of = |producer: &str, failure: Option<&str>| {
+            let mut data = json!({"producer": producer, "duration_ms": 5});
+            if let Some(f) = failure {
+                data["failure"] = json!(f);
+            }
+            let row = LedgerRow {
+                at_unix_ms: 1,
+                kind: "action.failed".into(),
+                session_id: None,
+                turn_id: None,
+                data,
+            };
+            of_row(7, &row)
+        };
+        assert!(of("wrapper:101", Some("exit")).is_none());
+        let a = of("wrapper:101", Some("timeout")).unwrap();
+        let b = of("wrapper:202", Some("timeout")).unwrap();
+        assert_eq!(a.key, "action.failed:wrapper:timeout");
+        assert_eq!(a.key, b.key);
+        assert_ne!(a.key, of("wrapper:101", Some("spawn")).unwrap().key);
+        assert_eq!(group(vec![a, b]).len(), 1);
+        let old = of("wrapper:101", None).unwrap();
+        assert_eq!(old.key, "action.failed:wrapper");
+        assert_eq!(old.title, "Wrapper tool calls failing");
     }
 
     /// A backlog item's title is in plain words, and an item filed under the
