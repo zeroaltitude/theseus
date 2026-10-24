@@ -562,58 +562,62 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
-- **2026-10-23: v1 patch2 rows** (theseus-zeyr3, theseus-cuv2o, theseus-nde5n, theseus-zcn80, theseus-gg78p,
-  theseus-ujzuh, theseus-u5a37, theseus-f9qa8, theseus-goq94, theseus-2uy56, theseus-yct32, theseus-ly75u,
-  theseus-7e7hc, theseus-it4ta, theseus-1j7ib, theseus-i08xr, theseus-n17am, theseus-uy015, theseus-dyukm,
-  theseus-xzf71, theseus-0ly2a, theseus-wdzmj, theseus-yym79, theseus-1kr2g, theseus-hk0dk, theseus-axno0,
-  theseus-capcs, theseus-s48k6, theseus-izyws, theseus-5iqf8, theseus-b09do, theseus-rmjqr, theseus-5mkz1,
-  theseus-5pg8u). The recall bench's generator reads its prices from `catalog.rs` (`catalog_prices`); Sonnet 5.5's cache
-  reads are $0.10, so the seed-7 budget is $0.48 an arm for the smoke and $7.89 for the full run. The chat now follows a
-  thread-placed turn's answered question and its continuation (it watches the placed session), and the plain approval
-  card says why it waits: the thread guard's question names both threads, other rules say their clause, and a thread
-  session is asked by its thread's title. A message that asks for a task ('start two background tasks') now loads the
-  tasks family for that turn, with or without tool search, so a DM's step 1 starts tasks, not plain background jobs
-  (theseus-gg78p). The checkpoint's text tells Jev the effort the work ran at and how many checkpoints in a row found it
-  failing; a sticky effort hold now ends early when a later verdict is sure enough (`sticky_reverted`; a sure answer, or
-  `effort_confidence` in a `sticky_unsure` hold). xhigh now needs a sure answer (an unsure xhigh runs high). route.v8
-  (theseus-f9qa8): Jev's data question names the public signs of open-source work and no longer treats an unshown owner
-  as a reason for `unclear`; `private` is unchanged, and the verdict table (`tests_data_verdict.rs`) pins that only open
-  at act, naming no sensitive name, on a session without the private mark, reaches a restricted model. v8 also differs
-  from v7 in `reply_effort`'s `max`. A turn can be given a deadline (`theseus ask --deadline SECS`, `turn.submit`'s
-  `deadline_secs`): the model is told the minutes left, and a turn with no passing check is told to replan at half its
-  time or spend and to stop and report at 0.85 of its time (`turn.progress`); every session's block names the CPUs its
-  commands really have, from the cgroup quota (theseus-2uy56, theseus-yct32). The owner card no longer reads an
-  assistant's own setup notes as facts about the owner, never offers one task's instructions as a lasting preference,
-  keeps who acts and on whose behalf, offers no two conflicting proposals together, and lets the owner say where a kept
-  record holds (`theseus card keep --scope`, `card scope`) (theseus-ly75u). The four old organisation names are gone
-  from fixtures, tests and comments; one digest list (`names::OLD`) serves the template test and a tree-wide scan;
-  `policy.explain` reads a hold that has told the owner as no hold, as the gate does (theseus-cuv2o). A kept kind-name
-  pick names a kind only while its cluster still holds the name; a stale pick is dropped and its cluster asked again
-  under the day cap (theseus-7e7hc). The memory exam's scratch daemons run with routing off, each record names its
-  profile and model, and a run or report that finds another model answering stops; `bench/recall`'s tests run in the
-  gate, and its budget prices Haiku 5.5's long-prompt tier (theseus-1j7ib, theseus-it4ta). Operations follow-ups: Ask
-  Theseus keeps its US profile with a sticky `session.profile`; the calendar reads only where shown and stops after a
-  refusal; the night fold's edge is exact; the Graph has keys, openable folds under the 400 cap, redact masking, the
-  page's verb menu and row-only picks (theseus-i08xr, theseus-n17am, theseus-uy015). The model menu greys a profile by
-  the daemon's own floor answer (`profile.list`'s `cleared`, missing greys); `job.stop` stops a job from the cockpit
-  under `work.peek`'s place rule; the deck's live turn is the page's `liveOf`, watches are in the palette, and the
-  profile/catalog reads poll no more (theseus-dyukm, theseus-xzf71). The owner card keeps a setup line that starts with
-  the owner's name, matches machinery phrases on word boundaries, drops a statement only for the lines it cites, refuses
-  a decline with a scope, and names a conflict with an earlier call's entry; dream guidance says why a category waits;
-  and the four forced-tool calls plus the exam reviewer force their tool only where thinking is off (otherwise auto with
-  a strict, closed tool) (theseus-0ly2a, theseus-wdzmj, theseus-yym79). A `cd` both scripts begin with is where they
-  run, not a file they share, so one response's fanned-out programs run at once; a name of that directory as a file or
-  argument still waits (theseus-1kr2g). The TUI chat marks a placed thread's question owed only for its own turn and
-  unwatches an evicted placed session; the apart debug line no longer names a thread kept by its title; the asked
-  `tasks` family is held to the ceiling on tool search; the labelled families fixture says the table's lines;
-  `drive.read` of a file over 1 MB answers with its metadata (theseus-hk0dk, theseus-axno0, theseus-capcs,
-  theseus-s48k6, theseus-izyws). Operations verbs from a shell: `theseus task rehome`, `task reschedule` (its undo
-  prints a time `--at` reads) and `sessions model` (all refused inside a job); a rehome fails closed on an unreadable
-  home mark; the calendar cache drops windows idle for 30 minutes, keeps sync deltas to their window, and says
-  `unreachable` for a 5xx (theseus-5iqf8, theseus-b09do). A turn's progress check now reads a loop's commands alone and
-  its state lives on the turn; a deadline belongs to the turn its `turn.submit` started; the bench driver passes `ask
-  --deadline` (the task's timeout less a minute); and a live model stream runs to three times `total_secs` before being
-  cut, with a whole-call timeout retried once a turn at most (theseus-rmjqr, theseus-5mkz1, theseus-5pg8u).
+- **2026-10-23: v1 patch2 rows** (theseus-zeyr3, theseus-cuv2o, theseus-utfnl, theseus-nde5n, theseus-zcn80,
+  theseus-gg78p, theseus-ujzuh, theseus-u5a37, theseus-f9qa8, theseus-goq94, theseus-2uy56, theseus-yct32,
+  theseus-ly75u, theseus-7e7hc, theseus-it4ta, theseus-1j7ib, theseus-i08xr, theseus-n17am, theseus-uy015,
+  theseus-dyukm, theseus-xzf71, theseus-0ly2a, theseus-wdzmj, theseus-yym79, theseus-1kr2g, theseus-hk0dk,
+  theseus-axno0, theseus-capcs, theseus-s48k6, theseus-izyws, theseus-5iqf8, theseus-b09do, theseus-rmjqr,
+  theseus-5mkz1, theseus-5pg8u). The recall bench's generator reads its prices from `catalog.rs` (`catalog_prices`);
+  Sonnet 5.5's cache reads are $0.10, so the seed-7 budget is $0.48 an arm for the smoke and $7.89 for the full run. The
+  chat now follows a thread-placed turn's answered question and its continuation (it watches the placed session), and
+  the plain approval card says why it waits: the thread guard's question names both threads, other rules say their
+  clause, and a thread session is asked by its thread's title. A message that asks for a task ('start two background
+  tasks') now loads the tasks family for that turn, with or without tool search, so a DM's step 1 starts tasks, not
+  plain background jobs (theseus-gg78p). The checkpoint's text tells Jev the effort the work ran at and how many
+  checkpoints in a row found it failing; a sticky effort hold now ends early when a later verdict is sure enough
+  (`sticky_reverted`; a sure answer, or `effort_confidence` in a `sticky_unsure` hold). xhigh now needs a sure answer
+  (an unsure xhigh runs high). route.v8 (theseus-f9qa8): Jev's data question names the public signs of open-source work
+  and no longer treats an unshown owner as a reason for `unclear`; `private` is unchanged, and the verdict table
+  (`tests_data_verdict.rs`) pins that only open at act, naming no sensitive name, on a session without the private mark,
+  reaches a restricted model. v8 also differs from v7 in `reply_effort`'s `max`. A turn can be given a deadline
+  (`theseus ask --deadline SECS`, `turn.submit`'s `deadline_secs`): the model is told the minutes left, and a turn with
+  no passing check is told to replan at half its time or spend and to stop and report at 0.85 of its time
+  (`turn.progress`); every session's block names the CPUs its commands really have, from the cgroup quota
+  (theseus-2uy56, theseus-yct32). The owner card no longer reads an assistant's own setup notes as facts about the
+  owner, never offers one task's instructions as a lasting preference, keeps who acts and on whose behalf, offers no two
+  conflicting proposals together, and lets the owner say where a kept record holds (`theseus card keep --scope`, `card
+  scope`) (theseus-ly75u). The four old organisation names are gone from fixtures, tests and comments; one digest list
+  (`names::OLD`) serves the template test and a tree-wide scan; `policy.explain` reads a hold that has told the owner as
+  no hold, as the gate does (theseus-cuv2o). A kept kind-name pick names a kind only while its cluster still holds the
+  name; a stale pick is dropped and its cluster asked again under the day cap (theseus-7e7hc). The memory exam's scratch
+  daemons run with routing off, each record names its profile and model, and a run or report that finds another model
+  answering stops; `bench/recall`'s tests run in the gate, and its budget prices Haiku 5.5's long-prompt tier
+  (theseus-1j7ib, theseus-it4ta). Operations follow-ups: Ask Theseus keeps its US profile with a sticky
+  `session.profile`; the calendar reads only where shown and stops after a refusal; the night fold's edge is exact; the
+  Graph has keys, openable folds under the 400 cap, redact masking, the page's verb menu and row-only picks
+  (theseus-i08xr, theseus-n17am, theseus-uy015). The model menu greys a profile by the daemon's own floor answer
+  (`profile.list`'s `cleared`, missing greys); `job.stop` stops a job from the cockpit under `work.peek`'s place rule;
+  the deck's live turn is the page's `liveOf`, watches are in the palette, and the profile/catalog reads poll no more
+  (theseus-dyukm, theseus-xzf71). The owner card keeps a setup line that starts with the owner's name, matches machinery
+  phrases on word boundaries, drops a statement only for the lines it cites, refuses a decline with a scope, and names a
+  conflict with an earlier call's entry; dream guidance says why a category waits; and the four forced-tool calls plus
+  the exam reviewer force their tool only where thinking is off (otherwise auto with a strict, closed tool)
+  (theseus-0ly2a, theseus-wdzmj, theseus-yym79). A `cd` both scripts begin with is where they run, not a file they
+  share, so one response's fanned-out programs run at once; a name of that directory as a file or argument still waits
+  (theseus-1kr2g). The TUI chat marks a placed thread's question owed only for its own turn and unwatches an evicted
+  placed session; the apart debug line no longer names a thread kept by its title; the asked `tasks` family is held to
+  the ceiling on tool search; the labelled families fixture says the table's lines; `drive.read` of a file over 1 MB
+  answers with its metadata (theseus-hk0dk, theseus-axno0, theseus-capcs, theseus-s48k6, theseus-izyws). Operations
+  verbs from a shell: `theseus task rehome`, `task reschedule` (its undo prints a time `--at` reads) and `sessions
+  model` (all refused inside a job); a rehome fails closed on an unreadable home mark; the calendar cache drops windows
+  idle for 30 minutes, keeps sync deltas to their window, and says `unreachable` for a 5xx (theseus-5iqf8,
+  theseus-b09do). A turn's progress check now reads a loop's commands alone and its state lives on the turn; a deadline
+  belongs to the turn its `turn.submit` started; the bench driver passes `ask --deadline` (the task's timeout less a
+  minute); and a live model stream runs to three times `total_secs` before being cut, with a whole-call timeout retried
+  once a turn at most (theseus-rmjqr, theseus-5mkz1, theseus-5pg8u). Personas are the ontology's (store format 50): a
+  `persona:<key>` category per persona with its soul in a small file (cap `[context] persona_max_tokens`, 2,000), Jev's
+  persona question has a `none` item for the default persona, the owner is asked once for a new persona's soul, and
+  `[personas]` is read once at the first start of 1.0.2 and ignored after (theseus-utfnl).
 - **2026-10-23: v1 patch1 hotfix, install #75a** (theseus-050g2). A note Theseus writes itself is never posted cut
   off: the morning note's call had a 200-token cap and no `thinking` field, so Sonnet 5.5 thought through most of it and
   the note went out as half a sentence. The call now turns thinking off where the model lets it (Sonnet 5.5's
