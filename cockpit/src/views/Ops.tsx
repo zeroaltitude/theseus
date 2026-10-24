@@ -393,7 +393,7 @@ export default function Ops() {
     profiles: pl?.profiles ?? [], prices: pricing(cat),
     go: (e: { go: { sel: string } | { model: string } | { lens: 'timeline' } }) => { if ('sel' in e.go) pick(e.go.sel); else if ('lens' in e.go) lens(e.go.lens); else set({ f: { ...a.f, model: e.go.model } }) },
     newTask: () => live.current.handlers.new_task('N'), selfChanges: () => setSelfOpen(true),
-  }), [focusRow, vis.rows, picked, rows, grouped.threads, records, pl, cat, a.f]) // eslint-disable-line react-hooks/exhaustive-deps
+  }), [focusRow, vis.rows, picked, rows, grouped.threads, records, pl, cat, a.f, views]) // eslint-disable-line react-hooks/exhaustive-deps
   // The palette opens over the picked cards while any are picked, and over the focused one when none are.
   useEffect(() => { useOpsPalette.setState({ scope: picked.size > 0 ? 'selection' : 'one' }) }, [picked.size > 0])
   const publish = useOpsPalette((x) => x.publish)

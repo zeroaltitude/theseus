@@ -167,6 +167,12 @@ test('the deck’s live turn is the Operations page’s liveOf: no second copy',
   assert.match(deck, /useMemo\(\(\) => liveOf\(events, id\), \[events, id\]\)/)
 })
 
+test('the palette sees a watch the moment it appears or ends: its feed is recomputed on the board’s views (join fix)', () => {
+  const feed = page.slice(page.indexOf('const feed = useMemo('), page.indexOf('// eslint-disable-line', page.indexOf('const feed = useMemo(')))
+  assert.match(feed, /watchRows\(views\)/)
+  assert.match(feed, /\}\), \[[^\]]*\bviews\b[^\]]*\]\) $/)
+})
+
 test('the Graph’s follow-ups are wired: keys, the palette scope, the verb menu, row-backed picks, homes, space, redact', () => {
   const lens = src('ops/GraphLens.tsx').replace(/\/\/.*$/gm, '')
   const board = src('ops/BoardLens.tsx')
