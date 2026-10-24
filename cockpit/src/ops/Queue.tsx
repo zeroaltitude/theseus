@@ -58,7 +58,7 @@ function Item({ i, at, whole, onCursor, note, onNote, past, now, fresh }: {
   return (
     <motion.div ref={ref} layout={!calm} initial={fresh && !calm ? { opacity: 0, x: -12 } : false} animate={{ opacity: 1, x: 0 }}
       role="button" tabIndex={-1} aria-selected={at} data-item={i.key} onClick={() => onCursor(i.key)}
-      className={cn('cursor-pointer overflow-hidden rounded-lg bg-deck/80 ring-1 transition-shadow',
+      className={cn('shrink-0 cursor-pointer overflow-hidden rounded-lg bg-deck/80 ring-1 transition-shadow',
         at ? 'ring-gold shadow-[0_0_16px_-2px_rgb(214_165_72_/_0.55)]' : 'ring-wait/25 shadow-[0_0_12px_-6px_var(--color-wait)] hover:ring-wait/50')}>
       {f.left !== undefined && <div className="h-0.5 bg-wait/15" title="how much of its time is left"><div className="h-full bg-wait" style={{ width: `${f.left * 100}%` }} /></div>}
       <div className="px-2.5 py-2">

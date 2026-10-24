@@ -5,7 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { WorkView } from '../src/protocol.gen/index.ts'
-import { COL_W, GUTTER, HOME, NODE_CAP, opsLayout, shownTitle, stepNode, viewsOf, type Graph, type LaneMeta } from '../src/ops/graph.ts'
+import { COL_W, foldBacks, GUTTER, HOME, NODE_CAP, opsLayout, shownTitle, stepNode, viewsOf, type Graph, type LaneMeta } from '../src/ops/graph.ts'
 import { boardRows } from '../src/ops/board.ts'
 import { board, HOUR, MIN, NOW, record, view } from './ops-fixtures.ts'
 
@@ -283,4 +283,43 @@ test('an opening that folds again while the graph stays over its cap says so', (
   assert.ok(opened.nodes.some((n) => n.id === 'fold:ses_a'), 'A folded again')
   assert.deepEqual(opened.nodes.map((n) => n.id).sort(), plain.nodes.map((n) => n.id).sort(), 'what is drawn is what nothing opened draws')
   assert.equal(opened.cantOpen, true)
+})
+
+test('an opening offers its way back, and folding back lays out as if it were never opened (item 5)', () => {
+  const views = [
+    view('exe_c', 'conversation', 'ready', { session_id: 'ses_c', thread: 'tide-tables' }),
+    view('exe_old1', 'task', 'done', { session_id: 'ses_old1', parent: 'exe_c', thread: 'tide-tables', ended_at_ms: NOW - 61 * MIN }, 'idle'),
+    view('exe_old2', 'task', 'failed', { session_id: 'ses_old2', parent: 'exe_c', thread: 'tide-tables', ended_at_ms: NOW - 3 * HOUR }, 'idle'),
+  ]
+  const ids = (g: Graph) => g.nodes.map((n) => n.id).sort()
+  // A lane's done fold.
+  const base = lay(views)
+  const folds = base.nodes.filter((n) => n.kind === 'done')
+  assert.ok(folds.length > 0, 'the fixture folds something done')
+  const lane = folds[0].lane
+  const open = lay(views, base, [], { expanded: new Set([lane]) })
+  const back = foldBacks(open, base, new Set([lane]), new Set())
+  assert.deepEqual(back.lanes, [{ lane, n: folds[0].members!.length }])
+  assert.deepEqual(back.roots, [])
+  assert.deepEqual(foldBacks(base, base, new Set(), new Set()), { lanes: [], roots: [] }, 'nothing open: nothing offered')
+  assert.deepEqual(foldBacks(base, base, new Set([lane]), new Set()).lanes, [], 'an opening that is not drawn open offers nothing')
+  const folded = lay(views, open, [], {})
+  assert.deepEqual(ids(folded), ids(base), 'the same nodes as never opened')
+  // The fold node itself is placed afresh (the rows its members held stay holes, as for any node that left); the rest does not move.
+  const rest = (g: Graph) => Object.fromEntries(Object.entries(where(g)).filter(([id]) => !id.startsWith('done:')))
+  assert.deepEqual(rest(folded), rest(base), 'sticky slots of the rest unchanged')
+  // An opened "+N folded" root.
+  const many = wide()
+  const closed = lay(many, null, [])
+  const root = closed.nodes.find((n) => n.kind === 'folded')!.parent!
+  const o = lay(many, closed, [], { opened: new Set([root]) })
+  assert.deepEqual(foldBacks(o, closed, new Set(), new Set([root])).roots, [root])
+  assert.deepEqual(ids(lay(many, o, [], {})), ids(closed), 'folding back gives the layout without the opening')
+})
+
+test('GraphLens folds an opening back by deleting it from a copy of its set (item 5)', () => {
+  const s = readFileSync(new URL('../src/ops/GraphLens.tsx', import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, '')
+  assert.match(s, /setExpanded\(\(s\) => \{ const t = new Set\(s\); t\.delete\(/)
+  assert.match(s, /setOpened\(\(s\) => \{ const t = new Set\(s\); t\.delete\(/)
+  assert.match(s, /foldBacks\(/)
 })

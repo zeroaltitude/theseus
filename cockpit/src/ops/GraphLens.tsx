@@ -11,14 +11,14 @@ import { useCalm } from '@/lib/calm'
 import type { TaskRecord, WorkView } from '@protocol'
 import { toneHex } from '@/lib/taxonomy'
 import { cn } from '@/lib/format'
-import { FIT } from '@/components/FullGraph'
+import { FIT, useFullGraph } from '@/components/FullGraph'
 
 /** The lanes fill the canvas edge to edge: less margin than the other graphs' fit. */
 const FIT_LANES = { ...FIT, padding: 0.05 }
 /** The least zoom a first view takes: a node's title still reads. */
 const READABLE = 0.62
 import type { OpsRow } from './board'
-import { keeper, NODE_W, type Graph, type GEdge, type LaneMeta } from './graph'
+import { foldBacks, keeper, opsLayout, NODE_W, type Graph, type GEdge, type LaneMeta } from './graph'
 import { NODE_TYPES, typeOf, type LaneData, type NodeData } from './GraphNode'
 import type { Selection } from './selection'
 import type { DragDrop } from './DropLayer'
@@ -60,6 +60,7 @@ export function GraphLens(p: GraphLensProps) {
 
 function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onFocus, onPick, onLasso, onOpen, onContext, redact, layoutRef, drag, titleOf }: GraphLensProps) {
   const rf = useReactFlow()
+  const fullGraph = useFullGraph('Graph')
   const calm = useCalm((s) => s.calm)
   const [future, setFuture] = useState(false)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
@@ -68,6 +69,9 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   // The last layout, which the next keeps every placed node of (sticky by id); "tidy" forgets it.
   const [memory] = useState(keeper)
   const g = useMemo(() => memory.lay(views, records, lanes, { now, future, expanded, opened }, tidy), [memory, views, records, lanes, now, future, expanded, opened, tidy])
+  // The layout without the openings, which says what each opening can fold back into (`foldBacks`).
+  const base = useMemo(() => (expanded.size || opened.size ? opsLayout(views, records, lanes, null, { now, future }) : g), [views, records, lanes, now, future, expanded, opened, g])
+  const back = useMemo(() => foldBacks(g, base, expanded, opened), [g, base, expanded, opened])
   useEffect(() => { layoutRef.current = g }, [g, layoutRef])
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
   // `?sel=` names a node by its id, or a task by its record's (`tsk_…`, the task graph's link).
@@ -83,7 +87,10 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   const nodes = useMemo(() => {
     const out: Node[] = g.lanes.map((l): Node<LaneData> => ({
       id: `lane:${l.key}`, type: 'lane', position: { x: 0, y: l.y }, measured: { width: g.width + 24, height: l.height }, draggable: false, selectable: false, zIndex: -1,
-      data: { lane: l, width: g.width + 24, redact, hover: hover?.key === `lane:${l.key}` ? (hover.ok ? 'ok' : 'no') : undefined },
+      data: {
+        lane: l, width: g.width + 24, redact, hover: hover?.key === `lane:${l.key}` ? (hover.ok ? 'ok' : 'no') : undefined,
+        foldBack: back.lanes.find((x) => x.lane === l.key) && { n: back.lanes.find((x) => x.lane === l.key)!.n, onFold: () => setExpanded((s) => { const t = new Set(s); t.delete(l.key); return t }) },
+      },
     }))
     for (const n of g.nodes) {
       const row = byId.get(n.id)
@@ -94,12 +101,13 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
         data: {
           n, row, now, redact, focused: fid === n.id, picked: picked.has(n.id), dim: shownIds != null && !shownIds.has(n.id) && n.kind !== 'done' && n.kind !== 'folded',
           hover: key && hover?.key === key ? (hover.ok ? 'ok' : 'no') : undefined,
+          onFoldBack: back.roots.includes(n.id) ? () => setOpened((s) => { const t = new Set(s); t.delete(n.id); return t }) : undefined,
           onFold: n.kind === 'done' ? () => setExpanded((s) => new Set([...s, n.lane])) : n.kind === 'folded' ? () => setOpened((s) => new Set([...s, n.parent ?? n.id.slice(5)])) : undefined,
         } satisfies NodeData,
       })
     }
     return out
-  }, [g, byId, now, fid, picked, shownIds, moving, hover, sizes, redact])
+  }, [g, back, byId, now, fid, picked, shownIds, moving, hover, sizes, redact])
 
   const edges = useMemo(() => g.edges.map((e): Edge => ({
     id: e.id, source: e.source, target: e.target, ...EDGE[e.kind],
@@ -153,8 +161,9 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   }
 
   return (
-    <div ref={box} className="relative h-full min-h-[420px] overflow-hidden rounded-xl border border-line bg-deck" data-testid="ops-graph">
-      <ReactFlow nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} onNodesChange={onNodesChange} minZoom={0.08} maxZoom={1.6} colorMode="dark"
+    <div ref={box} role={fullGraph.panel.dialog ? 'dialog' : undefined} aria-label={fullGraph.panel.dialog} data-testid="ops-graph"
+      className={cn('relative h-full min-h-[420px] overflow-hidden rounded-xl border border-line bg-deck', fullGraph.panel.className)}>
+      <ReactFlow onInit={fullGraph.onInit} nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} onNodesChange={onNodesChange} minZoom={0.08} maxZoom={1.6} colorMode="dark"
         proOptions={{ hideAttribution: true }} multiSelectionKeyCode={null} selectionKeyCode="Shift" deleteKeyCode={null}
         onNodeClick={(e, n) => {
           if (n.type === 'lane') return
@@ -185,6 +194,7 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
           nodeColor={(n) => (n.type === 'lane' ? 'rgba(214,165,72,0.08)' : (n.data as NodeData).n?.needs ? toneHex.wait : (n.data as NodeData).picked ? '#d6a548' : '#6b7d94')} />
       </ReactFlow>
       <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2 rounded-lg bg-hull/90 px-2.5 py-1.5 text-[11px] text-ink-dim ring-1 ring-line backdrop-blur">
+        {fullGraph.button}
         <span className="num">{g.nodes.length} nodes{g.folded ? ` · ${g.folded} folded` : ''}</span>
         {g.cantOpen && <span role="status" className="text-wait">could not open: the graph is at its cap; narrow it with the filters or the search</span>}
         <button type="button" aria-pressed={future} onClick={() => setFuture((f) => !f)} className={cn('rounded px-1.5 ring-1', future ? 'bg-think/15 text-think ring-think/40' : 'ring-line hover:text-ink')}

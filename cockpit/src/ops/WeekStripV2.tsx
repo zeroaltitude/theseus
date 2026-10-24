@@ -5,14 +5,14 @@
 // gutter, the Agenda's glyphs and tones. All-day events ride a band above the hours, the night folds to a band with
 // its count, a ◆ marks a clash, and the thin cyan line is now. Drawn from the layout alone (`ops/timeline.ts`): no
 // read of its own. A drag says on its cursor what a drop would do, or why it is refused (`ops/drag.ts`).
-import { memo, useMemo, useRef, useState, type DragEvent } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { ChevronLeft, ChevronRight, Lock, MoonStar } from 'lucide-react'
 import { cn } from '@/lib/format'
 import { toneHex } from '@/lib/taxonomy'
 import { glyph, layout, toneOf, type Mark, type Placed, type Window } from '@/lib/agenda'
 import { markLine } from '@/lib/agendawords'
 import { eventFacts, hatch, hm, stateOf } from './calendar'
-import { eventLayout, hourAt, heightOf, nightFold, ranBars, yOf, type AllDay, type Block, type CalEvent, type Clashes, type Ran } from './timeline'
+import { centerHour, eventLayout, hourAt, heightOf, nightFold, openHours, ranBars, scrollFor, yOf, type AllDay, type Block, type CalEvent, type Clashes, type Ran } from './timeline'
 import { dropAt, dropOf, type Drop } from './drag'
 import type { CalendarWindow, RunRow, WorkView } from '@protocol'
 
@@ -69,6 +69,8 @@ export interface StripProps {
   /** A key that matches the search, or every key when there is none. */
   matches: (key: string) => boolean
   zoom: boolean; weeks: number
+  /** The panel fills the window: the hours take its height instead of two thirds of the page's. */
+  full?: boolean
   onPick: (key: string) => void; onHover: (line: string | null) => void; onWeek: (delta: number) => void; onToday: () => void
   onZoom: (day: number | null) => void; onDrop: (d: Drop & { method: string }) => void
 }
@@ -80,8 +82,9 @@ export function WeekStripV2(p: StripProps) {
   const ev = useMemo(() => eventLayout(events, w), [events, w])
   const ran = useMemo(() => ranBars(p.views, p.runs, w, now), [p.views, p.runs, w, now])
   const nf = useMemo(() => nightFold(w, marks, ev.blocks), [w, marks, ev.blocks])
-  const [unfold, setUnfold] = useState(false)
-  const fold = unfold || (nf.early === 0 && nf.late === 24) ? null : nf
+  // All 24 hours show by default; folding the night is the owner's choice.
+  const [foldNight, setFoldNight] = useState(false)
+  const fold = !foldNight || (nf.early === 0 && nf.late === 24) ? null : nf
   const H = heightOf(fold, hourPx, FOLD_PX)
   const byDay = useMemo(() => {
     const d = w.days.map(() => ({ ticks: [] as Placed[], blocks: [] as Block[], ran: [] as Ran[], allDay: [] as AllDay[] }))
@@ -96,6 +99,24 @@ export function WeekStripV2(p: StripProps) {
   const [cursor, setCursor] = useState<{ x: number; y: number; text: string; ok: boolean } | null>(null)
   const dragged = useRef<Mark | { event: true } | null>(null)
   const yHour = (h: number) => yOf(h, fold, hourPx, FOLD_PX)
+  // The first view of a week, a day, a zoom, or Today scrolls the hours so that now (when today is shown), else the
+  // first meeting or one-off mark, else 08:00, is in the middle. Once the owner scrolls it stays where they put it.
+  const box = useRef<HTMLDivElement>(null)
+  const [again, setAgain] = useState(0)
+  const seen = useRef('')
+  const set = useRef(0)
+  const moved = useRef(false)
+  const nowDate = new Date(now)
+  const centre = Math.floor(centerHour(w.days.some((d) => d.today) ? nowDate.getHours() + nowDate.getMinutes() / 60 : null, openHours(w, marks, ev.blocks)))
+  const viewKey = `${w.from_ms}:${p.zoom}:${again}:${foldNight}`
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    if (seen.current !== viewKey) { seen.current = viewKey; moved.current = false }
+    if (moved.current) return
+    el.scrollTop = scrollFor(yOf(centre, fold, hourPx, FOLD_PX), el.clientHeight, el.scrollHeight)
+    set.current = el.scrollTop
+  }, [viewKey, centre, fold, hourPx])
   const atY = (frac: number) => yHour(frac * 24)
   const onDrag = (e: DragEvent, what: Mark | { event: true }) => { dragged.current = what; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'theseus-mark') }
   const dropFor = (e: DragEvent, day: Window['days'][number]) => {
@@ -108,7 +129,7 @@ export function WeekStripV2(p: StripProps) {
     <div data-testid="week-strip" className="relative" onDragEnd={() => { dragged.current = null; setCursor(null) }}>
       <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
         <button type="button" onClick={() => p.onWeek(-1)} aria-label={p.zoom ? 'Earlier day' : 'Earlier week'} title=", (comma)" className="rounded p-0.5 hover:text-ink"><ChevronLeft size={14} /></button>
-        <button type="button" onClick={p.onToday} disabled={p.weeks === 0 && !p.zoom} className="rounded px-1.5 py-0.5 ring-1 ring-line hover:text-ink disabled:opacity-40">Today</button>
+        <button type="button" onClick={() => { moved.current = false; setAgain((n) => n + 1); p.onToday() }} disabled={p.weeks === 0 && !p.zoom} className="rounded px-1.5 py-0.5 ring-1 ring-line hover:text-ink disabled:opacity-40">Today</button>
         <button type="button" onClick={() => p.onWeek(1)} aria-label={p.zoom ? 'Later day' : 'Later week'} title=". (period)" className="rounded p-0.5 hover:text-ink"><ChevronRight size={14} /></button>
         <span role="tablist" aria-label="Zoom" className="ml-1 flex items-center rounded-md bg-black/30 p-0.5 ring-1 ring-line">
           {(['day', 'week'] as const).map((z) => (
@@ -117,24 +138,25 @@ export function WeekStripV2(p: StripProps) {
           ))}
         </span>
         {nf.early > 0 || nf.late < 24 ? (
-          <button type="button" onClick={() => setUnfold((v) => !v)} className="flex items-center gap-1 rounded px-1.5 py-0.5 ring-1 ring-line hover:text-ink" title="the night hours with no meeting or one-off mark fold to a band">
-            <MoonStar size={11} /> {unfold ? 'fold the night' : `night folded${nf.count ? ` · ${nf.count} mark${nf.count === 1 ? '' : 's'} inside` : ''}`}
+          <button type="button" onClick={() => setFoldNight((v) => !v)} className="flex items-center gap-1 rounded px-1.5 py-0.5 ring-1 ring-line hover:text-ink" title="the night hours with no meeting or one-off mark fold to a band">
+            <MoonStar size={11} /> {foldNight ? `night folded${nf.count ? ` · ${nf.count} mark${nf.count === 1 ? '' : 's'} inside` : ''}` : 'fold the night'}
           </button>
         ) : null}
       </div>
-      <div className="overflow-x-auto rounded-lg bg-line/60 ring-1 ring-line">
+      <div ref={box} className="overflow-auto rounded-lg bg-line/60 ring-1 ring-line" data-testid="strip-hours" style={{ maxHeight: p.full ? 'calc(100vh - 9rem)' : '66vh' }}
+        onScroll={(e) => { if (Math.abs(e.currentTarget.scrollTop - set.current) > 2) moved.current = true }}>
         <div className="grid gap-px" style={{ gridTemplateColumns: `30px repeat(${w.days.length}, minmax(0, 1fr))`, minWidth: p.zoom ? 0 : 640 }}>
-          <div className="bg-hull/80" />
+          <div className="sticky top-0 z-30 h-6 bg-hull/80" />
           {w.days.map((d) => (
             <button type="button" key={d.start_ms} onClick={() => p.onZoom(p.zoom ? null : d.index)} title={p.zoom ? 'back to the week (w)' : 'this day (d)'}
-              className={cn('bg-hull/80 px-1.5 py-1 text-center text-[11px] hover:text-ink', d.today ? 'font-semibold text-gold' : 'text-ink-dim')}>
+              className={cn('sticky top-0 z-30 h-6 bg-hull/80 px-1.5 py-1 text-center text-[11px] hover:text-ink', d.today ? 'font-semibold text-gold' : 'text-ink-dim')}>
               {d.label}{d.hours !== 24 ? <span className="ml-1 text-ink-faint" title="a day with a clock change">{d.hours}h</span> : null}
             </button>
           ))}
           {bandRows > 0 && <>
-            <div className="bg-hull/70 pr-1 pt-0.5 text-right text-[9px] text-ink-faint">all day</div>
+            <div className="sticky top-6 z-30 bg-hull/70 pr-1 pt-0.5 text-right text-[9px] text-ink-faint">all day</div>
             {w.days.map((d) => (
-              <div key={d.start_ms} className="flex flex-col gap-px bg-hull/70 p-0.5" style={{ minHeight: bandRows * 17 + 4 }}>
+              <div key={d.start_ms} className="sticky top-6 z-30 flex flex-col gap-px bg-hull/70 p-0.5" style={{ minHeight: bandRows * 17 + 4 }}>
                 {byDay[d.index].allDay.map((a) => {
                   const f = eventFacts(a.ev, a.cal, p.redact)
                   return (

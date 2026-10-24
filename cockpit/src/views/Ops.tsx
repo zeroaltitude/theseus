@@ -24,6 +24,7 @@ import { usePref } from '@/lib/usePref'
 import { reportLineOf } from '@/lib/taskboard'
 import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
+import { fullKey, parseFull, writeFull } from '@/lib/fullgraph'
 import { parseAddress, writeAddress, type Address, type FilterKey, type Lens } from '@/ops/address'
 import { alive, boardRows, chipChoices, columnsOf, countersOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
 import { answerOf, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
@@ -69,15 +70,21 @@ const NONE: never[] = []
 
 const isItemKey = (s: string | null): boolean => !!s && /^[qfsha]:/.test(s)
 
+/** The lenses that can fill the window (`useFullGraph`). */
+const FULLABLE: readonly Lens[] = ['graph', 'timeline']
+
 export default function Ops() {
   const nav = useNavigate()
   const [params, setParams] = useSearchParams()
   const a = useMemo(() => parseAddress(params), [params])
+  const full = parseFull(params) && FULLABLE.includes(a.lens)
   // Each change is made on the address as it stands now: two keys pressed faster than a render (`g h`, then tab)
   // must not rebuild the second from the query the first replaced.
   const set = useCallback((patch: Partial<Address>) => setParams(() => {
     const now = new URLSearchParams(window.location.search)
-    return writeAddress({ ...parseAddress(now), ...patch }, now)
+    const next = writeAddress({ ...parseAddress(now), ...patch }, now)
+    // A lens with no full-window view leaves the filled window; the Graph and the Timeline keep it, so the new one fills too.
+    return patch.lens && !FULLABLE.includes(patch.lens) ? writeFull(next, false) : next
   }, { replace: true }), [setParams])
   const tick = useTick(15_000)
   const world = useDeferredValue(useWorld())
@@ -323,6 +330,7 @@ export default function Ops() {
       if (id) pickOne(id)
     },
     select_all: () => pickAll(vis.rows.map((r) => r.id)),
+    full_window: () => { if (FULLABLE.includes(a.lens)) setParams((p) => writeFull(p, !full), { replace: full }) },
   } // end of handlers
 
   // The contexts the focus offers, most specific first (`keys.ts`).
@@ -348,8 +356,8 @@ export default function Ops() {
   // (`g f`) goes on to the shell. Keys never fire while typing.
   const modal = !!(newTask || menu || selfOpen || picker)
   const picks = a.lens === 'graph' || a.lens === 'board'
-  const live = useRef({ handlers, ctxs, focusItem, keysOpen, modal, picks })
-  useLayoutEffect(() => { live.current = { handlers, ctxs, focusItem, keysOpen, modal, picks } })
+  const live = useRef({ handlers, ctxs, focusItem, keysOpen, modal, picks, full })
+  useLayoutEffect(() => { live.current = { handlers, ctxs, focusItem, keysOpen, modal, picks, full } })
   useEffect(() => {
     let g = 0
     const k = (e: KeyboardEvent) => {
@@ -359,8 +367,12 @@ export default function Ops() {
       const { handlers: h, ctxs: c, focusItem: fi, keysOpen: ko, modal: mo } = live.current
       if (mo) return // a sheet or a menu has the keys
       if (ko && e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); h.keys('?'); return }
+      // The window is filled: Esc only leaves it (the graph helper's own listener does, after this one), and clears nothing.
+      if (live.current.full && fullKey(e, true) === 'leave') return
       let name = keyName(e)
-      if (g && Date.now() - g < G_MS && SEQUENCES.includes(`g ${name}`)) name = `g ${name}`
+      const afterG = g > 0 && Date.now() - g < G_MS
+      if (afterG && SEQUENCES.includes(`g ${name}`)) name = `g ${name}`
+      else if (afterG && name === 'f') { g = 0; return } // `g f` is the shell's (the Fleet)
       g = 0
       if (name === 'g') { g = Date.now(); return }
       let hit = resolve(name, c, false)

@@ -283,3 +283,28 @@ export function tableRows(marks: readonly Mark[], events: readonly CalEvent[], w
   }
   return rows.sort((a, b) => a.at_ms - b.at_ms || (a.key < b.key ? -1 : 1))
 }
+
+// ---------------------------------------------------------------- where the hours open
+
+/** The hour the strip opens at when nothing else decides. */
+export const DEFAULT_HOUR = 8
+
+/** The wall-clock hours (fractional) at which a meeting starts or a one-off mark sits on any day shown: what the first
+ *  view of an unfolded day looks for. A series' tick or a watch's window does not count (as in `nightFold`). */
+export function openHours(w: Window, marks: readonly Mark[], blocks: readonly Pick<Block, 'top'>[]): number[] {
+  const out = blocks.map((b) => b.top * 24)
+  for (const m of marks) if (m.at_ms >= w.from_ms && m.at_ms < w.to_ms && m.kind !== 'watch' && opens(m)) out.push(wallHour(m.at_ms))
+  return out
+}
+
+/** The hour the first view of a week or a day centres on: now when today is shown (`nowHour`), else the earliest of
+ *  `hours`, else 08:00. */
+export function centerHour(nowHour: number | null, hours: readonly number[]): number {
+  if (nowHour != null) return nowHour
+  return hours.length ? Math.min(...hours) : DEFAULT_HOUR
+}
+
+/** The `scrollTop` that puts `hour` in the middle of a box `viewPx` tall over `contentPx` of hours, kept inside it. */
+export function scrollFor(y: number, viewPx: number, contentPx: number): number {
+  return Math.max(0, Math.min(Math.round(y - viewPx / 2), Math.max(0, contentPx - viewPx)))
+}

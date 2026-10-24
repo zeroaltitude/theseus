@@ -3,10 +3,11 @@
 // Day zoom and the spans read; the keys' order and the Horizon verbs; the table's rows. All on invented events.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import type { RunRow, WorkView } from '../src/protocol.gen/index.ts'
 import { weekWindow, type Mark } from '../src/lib/agenda.ts'
 import {
-  calEvents, clashes, eventLayout, heightOf, horizonVerb, hourAt, meetingCount, nightFold, ranBars, readSpans, stepOrder, tableRows, timelineOrder, yOf, zoomDay, zoomed,
+  calEvents, centerHour, clashes, eventLayout, heightOf, horizonVerb, hourAt, meetingCount, nightFold, openHours, ranBars, readSpans, scrollFor, stepOrder, tableRows, timelineOrder, yOf, zoomDay, zoomed,
 } from '../src/ops/timeline.ts'
 import { cal, ev, local, SECRET, twoCalendars } from './ops-calendar-fixtures.ts'
 
@@ -229,4 +230,30 @@ test('a mark on the fold’s edge opens no extra hour', () => {
     assert.deepEqual(nightFold(w, at(23, 30, 'run'), []), { early: 7, late: 22, count: 1 }, 'a series tick at 23:30 stays folded and is counted')
     assert.equal(yOf(22, { early: 7, late: 22 }, 20, 18), 18 + 15 * 20, 'the edge line')
   })
+})
+
+test('the first view centres on now when today is shown, else the first meeting or one-off mark, else 08:00 (item 8)', () => {
+  withZone('America/Phoenix', () => {
+    const w = weekWindow(local(2026, 10, 19, 8))
+    const at = (h: number, kind: Mark['kind'] = 'reminder') => mark('c', kind, local(2026, 10, 22, h))
+    assert.equal(centerHour(14.5, [9]), 14.5, 'now wins when today is shown')
+    assert.equal(centerHour(null, []), 8, 'nothing: 08:00')
+    assert.deepEqual(openHours(w, [at(13), at(6)], [{ top: 10 / 24 }]).sort((a, b) => a - b), [6, 10, 13])
+    assert.equal(centerHour(null, openHours(w, [at(13), at(15)], [{ top: 10 / 24 }])), 10, 'the earliest')
+    assert.deepEqual(openHours(w, [at(3, 'run'), at(4, 'past'), at(5, 'watch')], []), [], 'a series tick alone does not pick the hour')
+    assert.equal(centerHour(null, openHours(w, [at(3, 'run')], [])), 8)
+    assert.deepEqual(openHours(w, [mark('far', 'reminder', local(2026, 11, 30, 2))], []), [], 'outside the window')
+  })
+})
+
+test('the scroll puts an hour in the middle of the box, inside the content (item 8)', () => {
+  assert.equal(scrollFor(800, 400, 24 * 44), 600)
+  assert.equal(scrollFor(100, 400, 24 * 44), 0, 'near the top: no negative scroll')
+  assert.equal(scrollFor(1050, 400, 24 * 44), 24 * 44 - 400, 'near the bottom: the last screenful')
+  assert.equal(scrollFor(10, 400, 300), 0, 'a box taller than its content')
+  // The strip starts unfolded and its hours scroll inside it.
+  const s = readFileSync(new URL('../src/ops/WeekStripV2.tsx', import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, '')
+  assert.match(s, /const \[foldNight, setFoldNight\] = useState\(false\)/, 'all 24 hours by default')
+  assert.match(s, /ref=\{box\} className="overflow-auto[^"]*"[^>]*maxHeight/, 'the hours scroll inside the strip')
+  assert.match(s, /sticky top-0/)
 })
