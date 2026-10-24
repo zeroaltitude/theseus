@@ -2819,8 +2819,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   mode`, and nothing it finds moves routing): "which model you actually need, measured on your own past work".
   - **System blocks by digest.** A new compilation stamps each system block's SHA-256 into its cache layout
     (`BlockBreakpoint.digest`, `compiler::cache::stamp`) and writes each distinct text once to the blobs
-    (`cache::keep`, one `put_many` before the frame that names them; `TurnRunner::keep_blocks`, called beside
-    `persist_compilation` in `compile_step.rs` and `route_step.rs`). The digests are of the request's own system blocks,
+    (`cache::keep`, one `put_many` on the blocking pool; `TurnRunner::keep_blocks`, called beside
+    `persist_compilation` in `compile_step.rs` and `route_step.rs`). The request never waits on the blobs' syncs
+    (theseus-nsp9l.4: two files and the directory, ~21 ms of the send path on the owner's disk): the batch starts once
+    the call's plan frame is durable (`start_keeping` in `call_model`; started beside the frames, it slowed their
+    syncs), and the turn waits for it once its body is done (`blocks_kept`), so a crash in between costs that
+    compilation its replay (the
+    missing blob is named), never the turn (`own_bench::tests::a_new_compilations_request_never_waits_on_its_blocks_syncs`).
+    The digests are of the request's own system blocks,
     so a guidance edit or a changed context file is a new blob. A compilation from before format 34 has none, and a
     replay says so. Blobs follow the blobs' own rules (nothing sweeps them but a person).
   - **`turn.replay { session, turn, profile, effort?, scope?, compare? }`** (`own_bench/replay.rs`, the owner's run:
