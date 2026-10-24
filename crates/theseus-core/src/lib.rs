@@ -471,6 +471,8 @@ mod tests_progress;
 #[cfg(test)]
 mod tests_projects;
 #[cfg(test)]
+mod tests_profile_floor;
+#[cfg(test)]
 mod tests_prove;
 #[cfg(test)]
 mod tests_push;

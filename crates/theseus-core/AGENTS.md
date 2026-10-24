@@ -2657,7 +2657,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   **`task.reschedule { task, start_at_ms | start_after_ms | start_when }`** moves a sleeping deferred task's due wake
   (`Kernel::edit_task`) and its `task.deferred.<session>` times, parsed by `Core::start_time`, which `task.start` shares;
   `previous` is the undo. Tests: `rpc/tests_session_profile.rs`, `tests_task_rehome.rs`, `tests_task_reschedule.rs`,
-  `tests_data_mark.rs`, `turn/tests_sticky.rs`, the kernel's `tests_task_edit.rs`.
+  `tests_data_mark.rs`, `turn/tests_sticky.rs`, the kernel's `tests_task_edit.rs`. **The floor's table is shared with the cockpit**
+  (theseus-jid7t.6): `cockpit/test/fixtures/profile_floor.json` lists every mark × origin × known case and whether
+  `refusal_of` refuses it; `tests_profile_floor.rs` holds the daemon to it and the cockpit's `test/ops-floor.test.ts` holds the model
+  menu's greying to it, so a change to the floor edits that file and both tests say where the other side must follow.
 - **Starting a task with no model turn** (theseus-7oq0w): `task.start { brief, title?, home?, budget_usd?, profile?,
   start_at_ms? | start_after_ms? | start_when?, quotes?, report_to? }` (`rpc/task_start.rs`, `theseus_protocol::task_start`),
   the owner's verb for every surface (`theseus task start`, the TUI's `N`; Discord's "New task" and the horizon's deferred start
