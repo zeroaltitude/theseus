@@ -251,4 +251,44 @@ mod tests {
             "`echo done` twice is one shape, not a thing both name"
         );
     }
+
+    /// The operands of a fan-out of independent parts (theseus-1kr2g), in
+    /// the shapes a model writes one: argv and `bash -c` lines, a `cd`
+    /// prefix, an exit-code echo, a `tee` log, a `timeout`, a retry loop.
+    /// None shares an operand; a part's output read back, and a directory
+    /// made then built in, do.
+    #[test]
+    fn a_fan_out_of_parts_shares_no_operand() {
+        let sh = |line: &str| of_argvs([&vec!["bash".into(), "-c".into(), line.into()]]);
+        let shapes = [
+            "load-part {}",
+            "load-part part-{}",
+            "cd /srv/app && load-part {}",
+            "load-part {}; echo \"exit $?\"",
+            "load-part {} 2>&1 | tee part-{}.log",
+            "timeout 600 load-part {}",
+            "until load-part {}; do sleep 1; done",
+            "which load-part; load-part {}",
+            "cd /srv/app && load-part {} 2>&1 | tee /tmp/p{}.log; echo \"exit=$?\"",
+        ];
+        for shape in shapes {
+            let (a, b) = (shape.replace("{}", "2"), shape.replace("{}", "3"));
+            assert_eq!(shared(&sh(&a), &sh(&b)), None, "{a} / {b}");
+        }
+        let argv = |a: &str, b: &str| assert_eq!(between(a, b), None, "{a} / {b}");
+        argv("load-part 2", "load-part 3");
+        argv("load-part part-2", "load-part part-3");
+        argv("timeout 600 load-part 2", "timeout 600 load-part 3");
+        assert_eq!(
+            shared(
+                &sh("load-part 2 --out /srv/out"),
+                &sh("tar -C /srv/out -cf p.tar .")
+            ),
+            Some("/srv/out".to_string())
+        );
+        assert_eq!(
+            shared(&sh("mkdir -p /srv/wt"), &sh("cd /srv/wt && make")),
+            Some("/srv/wt".to_string())
+        );
+    }
 }

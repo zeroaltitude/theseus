@@ -62,9 +62,10 @@ impl Tool for Prog {
                 .join(" ")
         });
         let log = self.0.clone();
+        let hold = Duration::from_millis(input["ms"].as_u64().unwrap_or(100));
         Box::pin(async move {
             log.push(format!("begin {line}"));
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(hold).await;
             log.push(format!("end {line}"));
             Ok((
                 ToolOutput {
@@ -243,4 +244,67 @@ async fn the_cap_of_programs_is_the_config() {
     let v: Vec<_> = (0..7).map(|i| prog(&format!("p{i}"), "sleep 2")).collect();
     let (_r, log, _) = run(&v, |cfg| cfg.tools.parallel_runs = 3).await;
     assert_eq!(log.most_at_once(), 3);
+}
+
+/// A slow program of `argv`, held `secs` (virtual) seconds.
+fn slow(id: &str, argv: &[&str], secs: u64) -> (String, &'static str, Value) {
+    (
+        id.into(),
+        "test_prog",
+        json!({ "argv": argv, "ms": secs * 1000 }),
+    )
+}
+
+/// One response's fan-out of five independent parts (theseus-1kr2g), in the
+/// shapes a model writes them, each part held 20 s: all five are in flight at
+/// once, and each result says it ran beside the other four. A `cd` into the
+/// one directory both work in is no thing they share.
+#[tokio::test(start_paused = true)]
+async fn a_fan_out_of_five_slow_programs_runs_at_once() {
+    let shapes: [fn(u32) -> Vec<String>; 8] = [
+        |n| vec!["load-part".into(), n.to_string()],
+        |n| vec!["load-part".into(), format!("part-{n}")],
+        |n| vec!["bash".into(), "-c".into(), format!("load-part {n}")],
+        |n| {
+            let line = format!("cd /srv/app && load-part {n}");
+            vec!["bash".into(), "-c".into(), line]
+        },
+        |n| {
+            let line = format!("load-part {n}; echo \"exit $?\"");
+            vec!["bash".into(), "-c".into(), line]
+        },
+        |n| {
+            let line = format!("load-part {n} 2>&1 | tee part-{n}.log");
+            vec!["bash".into(), "-c".into(), line]
+        },
+        |n| {
+            let line = format!("timeout 600 load-part {n}");
+            vec!["bash".into(), "-c".into(), line]
+        },
+        |n| {
+            let line = format!(
+                "cd /srv/app && fetch-shard {n} 2>&1 | tee /tmp/shard-{n}.log; echo \"exit=$?\""
+            );
+            vec!["bash".into(), "-c".into(), line]
+        },
+    ];
+    for shape in shapes {
+        let v: Vec<_> = (1..=5)
+            .map(|n| {
+                let argv = shape(n);
+                let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+                slow(&format!("p{n}"), &argv, 20)
+            })
+            .collect();
+        let (_r, log, texts) = run(&v, |_| {}).await;
+        let first = shape(1).join(" ");
+        assert_eq!(log.most_at_once(), 5, "{first}: {texts:?}");
+        for t in &texts {
+            assert!(
+                t.contains("[ran at once with 4 other calls of the same response]"),
+                "{first}: {t}"
+            );
+            assert!(!t.contains("started after"), "{first}: {t}");
+        }
+    }
 }
