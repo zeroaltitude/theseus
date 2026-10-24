@@ -129,6 +129,8 @@ pub struct Hints {
     /// Pairs of folded names called one kind at the act band.
     pub same: Vec<(String, String)>,
     /// A cluster's key (its smallest folded name) and the mined name picked.
+    /// A pick names only a cluster that still holds it: the key outlives a
+    /// cluster's shape, so a pick for a name now elsewhere is ignored.
     pub named: BTreeMap<String, String>,
     /// What the questions cost.
     pub spent: theseus_judge::price::Micros,
@@ -234,6 +236,12 @@ impl Cluster<'_> {
     pub fn spelled(&self, names: &Folds<'_>) -> Vec<String> {
         self.folds.iter().map(|f| names[f].0.clone()).collect()
     }
+
+    /// Whether `pick` is one of the cluster's names: a pick names only a
+    /// cluster that still holds it (theseus-7e7hc).
+    pub fn holds(&self, pick: &str) -> bool {
+        self.folds.contains(&fold(pick))
+    }
 }
 
 /// The kept yeses that still join names: a yes whose partner a kind of the
@@ -323,7 +331,11 @@ pub fn plan_with(
         };
         let spelled = cluster.spelled(&names);
         let default = spelled[0].clone();
-        let picked = hints.named.get(&cluster.key).cloned();
+        let picked = hints
+            .named
+            .get(&cluster.key)
+            .filter(|p| cluster.holds(p))
+            .cloned();
         // The names that at least `CLUSTER` of its sessions share, then by how
         // many share them.
         let mut shared: Vec<(usize, &String)> = names

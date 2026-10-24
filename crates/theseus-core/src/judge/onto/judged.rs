@@ -96,7 +96,8 @@ pub struct Mark {
     pub asked: BTreeMap<String, u64>,
     /// The mined name Jev picked for a cluster (by its key) whose kind did not
     /// mint that night: kept as long as its `kind-name` ask, and used when the
-    /// cluster mints (`renamed.rs`).
+    /// cluster mints (`renamed.rs`). It names only a cluster that still holds
+    /// it; otherwise it is dropped with its ask.
     #[serde(default)]
     pub named: BTreeMap<String, String>,
     /// The `same_kind` yeses (a pair of folded names) of earlier nights, kept as

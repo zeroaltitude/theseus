@@ -354,3 +354,59 @@ async fn a_kept_pick_follows_its_cluster_to_a_new_key() {
     let questions = r.jev.seen().len();
     assert_eq!(questions, 3, "three pairs, no kind name");
 }
+
+/// A pick kept under `lanternledger` was made among `Lantern Ledger` and
+/// `Ledger App`. The owner then lists `Ledger App` and a kept yes joins
+/// `Lantern Maps` to the key: the cluster no longer holds the pick, so the
+/// pick and its ask are dropped and the new cluster is asked its name
+/// (theseus-7e7hc).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stale_kept_pick_is_dropped_and_its_cluster_asked_again() {
+    use theseus_protocol::OntologyKindAddParams;
+    let jev = kind_jev(0.1);
+    pick(&jev, "n2", 0.9);
+    let r = rig(jev, |_| {});
+    plant_other(&r);
+    said_other(&r, "o4", &["Lantern Maps"]);
+    let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+    let kept = Mark {
+        day: crate::judge::spend::local_day(fresh()),
+        asked: [
+            ("kind lanternledger ledgerapp".to_string(), fresh()),
+            ("kind lanternledger lanternmaps".to_string(), fresh()),
+            ("kind-name lanternledger".to_string(), fresh()),
+        ]
+        .into(),
+        named: [("lanternledger".to_string(), "Ledger App".to_string())].into(),
+        same: [
+            pair("lanternledger", "ledgerapp"),
+            pair("lanternledger", "lanternmaps"),
+        ]
+        .into(),
+        ..Mark::default()
+    };
+    r.core.store.put_meta(MARK, &kept).unwrap();
+    r.core
+        .ontology_kind_add(
+            &OntologyKindAddParams {
+                name: "ledger-apps".into(),
+                description: "The apps that keep a ledger".into(),
+                examples: vec!["Ledger App".into()],
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap();
+    let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
+    assert_eq!((swept.kinds, swept.named_kinds), (1, 1), "{swept:?}");
+    let o = snapshot(&r.core);
+    assert!(o.kind("lantern-maps").is_some(), "Jev's pick names it");
+    assert!(o.kind("ledger-app").is_none(), "the stale pick does not");
+    assert_eq!(r.jev.seen().len(), 1, "only the kind's name was asked");
+    let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
+    assert_ne!(
+        mark.named.get("lanternledger").map(String::as_str),
+        Some("Ledger App"),
+        "{mark:?}"
+    );
+}
