@@ -60,7 +60,11 @@ fn proposal(n: u64, ask: CardAsk) -> CardProposal {
 
 /// A question written and posted; its message in ana's DM.
 async fn asked(r: &Rig, n: u64, ask: CardAsk) -> theseus_sim::fake_discord::Msg {
-    let p = proposal(n, ask);
+    asked_as(r, n, proposal(n, ask)).await
+}
+
+/// `asked`, of a proposal already built (a Stale one names its record).
+async fn asked_as(r: &Rig, n: u64, p: CardProposal) -> theseus_sim::fake_discord::Msg {
     let rec = theseus_core::card::state::record(&p).unwrap();
     r.core.store.append(&[rec]).unwrap();
     // Each question a pacer window (30 minutes) after the one before it.
@@ -203,18 +207,42 @@ async fn not_this_declines_and_edit_opens_a_modal_holding_the_words() {
 #[tokio::test]
 async fn a_stale_question_shows_end_it_and_the_press_reaches_card_answer_as_end() {
     let r = rig().await;
-    let q = asked(&r, 4, CardAsk::Stale).await;
+    // The record the Stale question asks about, kept from the CLI.
+    let cli = theseus_core::approval::Answerer {
+        label: "the CLI".into(),
+        surface: theseus_core::approval::Surface::Cli,
+        discord: None,
+        agent: None,
+    };
+    let add = theseus_protocol::StandingAddParams {
+        kind: StandingKind::Fact,
+        text: "Moors at the south jetty".into(),
+        scope: StandingScope::Everywhere,
+        ..Default::default()
+    };
+    let rid = r.core.standing_add(&add, cli).unwrap().record.id;
+    let q = asked_as(
+        &r,
+        4,
+        CardProposal {
+            record: Some(rid.clone()),
+            ..proposal(4, CardAsk::Stale)
+        },
+    )
+    .await;
     assert_eq!(labels(&q), ["Keep", "Edit", "End it"]);
     let pressed = r.press(&q.id, "End it", (ANA, "ana"));
-    // The press is `card.answer { option: end }` as ana. Until the live pass's handler is joined
-    // the core names `end` as an option it does not know; either way ana is told, alone.
+    // The press is `card.answer { option: end }` as ana, which ends the record; ana is told, alone.
     r.until("ana is told", || {
         r.fake.replies().iter().any(|x| {
             x.interaction.as_deref() == Some(pressed.as_str())
                 && x.content
                     .as_deref()
-                    .is_some_and(|c| c.starts_with("↩️ Ended") || c.contains("\"end\""))
+                    .is_some_and(|c| c.starts_with("↩️ Ended"))
         })
     })
     .await;
+    let board = r.core.runner.standing.all(&r.core.store).unwrap();
+    let live = theseus_core::standing::live(&board, None, theseus_protocol::now_unix_ms());
+    assert!(live.iter().all(|x| x.id != rid), "the record was ended");
 }
