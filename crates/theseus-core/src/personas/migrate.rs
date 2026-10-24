@@ -106,7 +106,7 @@ pub fn note_text(keys: &[&str], dropped: &[String]) -> String {
         "Personas moved into the ontology",
         "your config's [personas] was read once, at this start",
         &format!(
-            "{} persona(s) ({}) are the ontology's now. `theseus persona list` shows them, \
+            "{} persona(s) ({}) are the ontology's now. `theseus persona` shows them, \
              `theseus persona add KEY` makes another, and `theseus persona soul KEY` writes a \
              soul. The [personas] tables and [context] default_persona in your config do \
              nothing from here: delete them.{not_carried}",
