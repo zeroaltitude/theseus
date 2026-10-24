@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use crate::names::names_an_old_name;
 
-const SKIP: [&str; 5] = ["vendor", "target", "node_modules", ".git", "dist"];
+// .beads is the local issue tracker: git-ignored, never published.
+const SKIP: [&str; 6] = ["vendor", "target", "node_modules", ".git", "dist", ".beads"];
 
 fn files(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap().flatten() {
