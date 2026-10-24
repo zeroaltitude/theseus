@@ -12,7 +12,9 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use theseus_voice::{FluxListen, FluxSettings, Listen, Listened, Speaker, FLUX_MODEL};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
+use tokio_tungstenite::tungstenite::handshake::server::{
+    Callback, ErrorResponse, Request, Response,
+};
 use tokio_tungstenite::tungstenite::Message;
 
 /// The key the stand-in expects. Invented, as every key in a test is.
@@ -87,28 +89,42 @@ impl Server {
     }
 }
 
-async fn serve(sock: tokio::net::TcpStream, plan: Plan, log: Arc<Mutex<Vec<Conn>>>, index: usize) {
-    if plan.hang {
-        tokio::time::sleep(Duration::from_secs(60)).await;
-        return;
-    }
-    let (seen, reject) = (Arc::clone(&log), plan.reject);
-    // The handshake callback's error type is tungstenite's, large as it is.
-    #[allow(clippy::result_large_err)]
-    let callback = move |req: &Request, resp: Response| -> Result<Response, ErrorResponse> {
-        let mut log = seen.lock().unwrap();
-        log[index].uri = req.uri().to_string();
+/// The stand-in's handshake: it records the request, and refuses it with a 401
+/// that quotes the key when the plan says so. A trait impl, since the error
+/// type is tungstenite's.
+struct Handshake {
+    seen: Arc<Mutex<Vec<Conn>>>,
+    index: usize,
+    reject: bool,
+}
+
+impl Callback for Handshake {
+    fn on_request(self, req: &Request, resp: Response) -> Result<Response, ErrorResponse> {
+        let mut log = self.seen.lock().unwrap();
+        log[self.index].uri = req.uri().to_string();
         for (k, v) in req.headers() {
-            log[index]
+            log[self.index]
                 .headers
                 .insert(k.to_string(), v.to_str().unwrap_or_default().to_string());
         }
-        if reject {
+        if self.reject {
             let mut refused = ErrorResponse::new(Some(format!("invalid credentials {KEY}")));
             *refused.status_mut() = tokio_tungstenite::tungstenite::http::StatusCode::UNAUTHORIZED;
             return Err(refused);
         }
         Ok(resp)
+    }
+}
+
+async fn serve(sock: tokio::net::TcpStream, plan: Plan, log: Arc<Mutex<Vec<Conn>>>, index: usize) {
+    if plan.hang {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        return;
+    }
+    let callback = Handshake {
+        seen: Arc::clone(&log),
+        index,
+        reject: plan.reject,
     };
     let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(sock, callback).await else {
         return;
