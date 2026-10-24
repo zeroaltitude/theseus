@@ -97,7 +97,7 @@ impl Core {
         let min_cluster = p.min_cluster.unwrap_or(MIN_CLUSTER).max(1);
         let now = theseus_protocol::now_unix_ms();
         let existing: BTreeSet<String> = self.threads().all().map(|t| t.slug.clone()).collect();
-        let personas: BTreeSet<String> = self.personas().live().map(|(k, _)| k.clone()).collect();
+        let personas: BTreeSet<String> = self.personas().keys().into_iter().collect();
         let core = self.clone();
         let scan_from = from.clone();
         let plan = blocking(move || {
