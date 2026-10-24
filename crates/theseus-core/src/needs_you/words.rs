@@ -131,9 +131,10 @@ pub fn words(asked: Option<String>, req: &ConfirmRequest, who: &str) -> (Questio
         }
         QuestionKind::Extension | QuestionKind::Approval => {
             let trust = req.external_text.is_some();
+            let held = super::plain::held(req);
             Words::of(
                 what_of(&req.tool, &req.input),
-                format!("{who} asks: {}.", super::plain::held(req)),
+                format!("{who} asks: {}.", held.strip_suffix('.').unwrap_or(&held)),
                 match (kind, trust) {
                     (QuestionKind::Extension, _) => "Yes loads it.".into(),
                     (_, true) => {
@@ -267,6 +268,28 @@ mod tests {
         assert_eq!(card["risk"], "read-only");
         assert_eq!(card["who"], "Theseus's self-repair: fix the tides");
         assert_eq!(card["line"], json!(w.line));
+    }
+
+    /// A held clause that ends in a period gets no second one; one without
+    /// gets exactly one; `?` and `!` are left alone.
+    #[test]
+    fn an_asks_sentence_ends_in_one_period() {
+        for tool in ["fs.write", crate::extend::ACK] {
+            for (clause, said) in [
+                ("the folder is protected.", "the folder is protected."),
+                ("the folder is protected", "the folder is protected."),
+                ("is the folder protected?", "is the folder protected?."),
+            ] {
+                let r = req(
+                    tool,
+                    json!({"path": "x"}),
+                    &format!("{tool} — approve ({clause})"),
+                );
+                let (_, w) = words(None, &r, "ignored");
+                assert!(w.why.ends_with(&format!("asks: {said}")), "{}", w.why);
+                assert!(!w.why.ends_with(".."), "{}", w.why);
+            }
+        }
     }
 
     #[test]

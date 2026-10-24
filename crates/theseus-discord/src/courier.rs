@@ -918,6 +918,16 @@ impl Lane {
         Ok(self.reply(body, channel))
     }
 
+    /// A reply's post answers its anchor, whether its own first part used it
+    /// or the stream took it: a live key of the turn written after the post
+    /// must not reply again (theseus-nxnqc). A newer anchor, the owner's next
+    /// message, stays: compared by value.
+    fn answered(&mut self, to: Option<u64>) {
+        if to.is_some() && self.anchor == to {
+            self.anchor = None;
+        }
+    }
+
     /// A turn's reply: its loops' final text under the stream's keys, which
     /// edits what the stream posted and creates what it did not.
     fn reply(&mut self, body: &Value, channel: u64) -> Plan {
@@ -945,6 +955,7 @@ impl Lane {
         let streamed = self.msgs.keys().any(|k| k.starts_with(&prefix));
         let to: Option<u64> = body["reply_to"].as_str().and_then(|s| s.parse().ok());
         let mut anchor = (!streamed).then_some(to).flatten();
+        self.answered(to);
         // Its first part is the answer when it answers the owner's own
         // message and the stream did not write that part already: a live
         // create of it takes `owed`, so `owed` says so alone. The stream may

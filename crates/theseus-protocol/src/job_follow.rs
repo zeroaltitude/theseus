@@ -58,6 +58,14 @@ pub struct WorkPeekResult {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct JobStopParams {
     pub id: String,
+    /// Who stops it, as a label. Default: the connection. It names and proves nothing; the connection's surface
+    /// decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 /// What `job.stop` did, as the model's `job_stop` tool tells it: whether the job has ended, whether its end was

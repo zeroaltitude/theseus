@@ -60,6 +60,7 @@ fn rig(script: Vec<Scripted>) -> Rig {
     cfg.tools.proc_sync_secs = 10;
     cfg.policy.enforcement = Posture::Notify;
     cfg.policy.tools.remove("proc.run");
+    cfg.places.owner = Some(vec![format!("discord:{}", crate::tests_places::OWNER)]);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script));
     let mut p = crate::rpc::Parts::for_tests(cfg, fake, store);
@@ -608,12 +609,112 @@ async fn job_stop_obeys_the_place_rule() {
     let (job, _) = start_job(&r).await;
     let mut cli = Wire::connect(&r.core, Surface::Cli, 1 << 20);
     peek_until(&mut cli, &job, |p| p.bytes > 0).await;
-    for surface in [Surface::Discord, Surface::Unnamed] {
-        let mut shared = Wire::connect(&r.core, surface, 1 << 20);
-        let s = shared.call(method::JOB_STOP, json!({"id": job})).await;
-        assert_eq!(s.error.expect("refused").code, error_code::NOT_FOUND);
-    }
+    // The owner's own Discord account is trusted, but Discord reads no private
+    // text, so the place rule still hides a private session's job from it.
+    // (An untrusted surface is refused first: `untrusted_channels_may_not_stop_a_job`.)
+    let mut shared = Wire::connect(&r.core, Surface::Discord, 1 << 20);
+    let s = shared
+        .call(
+            method::JOB_STOP,
+            json!({"id": job, "discord": owner_in("1", Some("2"))}),
+        )
+        .await;
+    assert_eq!(s.error.expect("refused").code, error_code::NOT_FOUND);
     let a = r.core.kernel.action(&job).unwrap().unwrap();
     assert!(!a.state.is_settled(), "still running: {:?}", a.state);
     stop_of(cli.call(method::JOB_STOP, json!({"id": job})).await);
+}
+
+/// The owner's Discord account, speaking in `channel` of guild `guild`.
+fn owner_in(channel: &str, guild: Option<&str>) -> Value {
+    json!({"user_id": crate::tests_places::OWNER.to_string(), "channel_id": channel,
+           "guild_id": guild})
+}
+
+/// A job in a session of the shared place `#lab`.
+async fn shared_job(r: &Rig) -> String {
+    r.core.bind_places(vec![crate::places::BoundPlace {
+        target: format!("discord:channel:{}", crate::tests_places::LAB),
+        name: "#lab".into(),
+        private: false,
+        ..Default::default()
+    }]);
+    // A shared place's own turn may not run a program, so the job starts in a
+    // private session, which then speaks in the shared place.
+    let (job, sid) = start_job(r).await;
+    let place = format!("channel:{}", crate::tests_places::LAB);
+    r.core.outbox.bind_place(&place, &sid).unwrap();
+    job
+}
+
+/// A channel Theseus does not trust as the owner's may not stop a job, even
+/// one in a shared place that it may read: an MCP client, a connection no
+/// listener named, Discord naming nobody, and a Discord user who is not an
+/// owner are each refused, with why, and the job runs on. One refusal is one
+/// `approval.refused` row naming the act.
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn untrusted_channels_may_not_stop_a_job() {
+    let r = rig_with("echo lab work; sleep 60");
+    let job = shared_job(&r).await;
+    let stranger = json!({"user_id": crate::tests_places::ALICE.to_string(),
+                          "channel_id": "1", "guild_id": "2"});
+    let cases = [
+        (Surface::Unnamed, json!({"id": job})),
+        (Surface::Discord, json!({"id": job})),
+        (Surface::Discord, json!({"id": job, "discord": stranger})),
+    ];
+    for (n, (surface, params)) in cases.into_iter().enumerate() {
+        let mut w = Wire::connect(&r.core, surface, 1 << 20);
+        let e = w
+            .call(method::JOB_STOP, params)
+            .await
+            .error
+            .expect("refused");
+        assert_eq!(e.code, error_code::REFUSED, "{surface:?}: {}", e.message);
+        assert!(e.message.contains("The job runs on."), "{}", e.message);
+        let why = e.data["why"].as_str().unwrap_or("");
+        assert!(!why.is_empty(), "{surface:?}: {e:?}");
+        let a = r.core.kernel.action(&job).unwrap().unwrap();
+        assert!(
+            !a.state.is_settled(),
+            "{surface:?} stopped it: {:?}",
+            a.state
+        );
+        let refused = crate::test_support::rows(&r.core, "approval.refused");
+        assert_eq!(refused.len(), n + 1, "one row a refusal: {refused:?}");
+        assert_eq!(refused[n]["act"], method::JOB_STOP);
+        assert_eq!(refused[n]["job"], job.as_str());
+    }
+    // A refusal tells nothing of which jobs exist.
+    let mut w = Wire::connect(&r.core, Surface::Unnamed, 1 << 20);
+    let e = w.call(method::JOB_STOP, json!({"id": "act_nothing"})).await;
+    assert_eq!(e.error.unwrap().code, error_code::REFUSED);
+    // The MCP server's own allow-list never offers the method at all.
+    let mut mcp = Wire::connect(&r.core, Surface::Mcp, 1 << 20);
+    let e = mcp.call(method::JOB_STOP, json!({"id": job})).await;
+    assert!(e.error.is_some(), "{e:?}");
+    let a = r.core.kernel.action(&job).unwrap().unwrap();
+    assert!(!a.state.is_settled(), "{:?}", a.state);
+}
+
+/// A trusted channel stops a job: the owner's own Discord account in a shared
+/// channel (the job's place), and the CLI a job of a private session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn a_trusted_channel_stops_a_job() {
+    let r = rig_with("echo lab work; sleep 60");
+    let job = shared_job(&r).await;
+    let mut d = Wire::connect(&r.core, Surface::Discord, 1 << 20);
+    let params = json!({"id": job, "discord": owner_in("1", Some("2"))});
+    let s = stop_of(d.call(method::JOB_STOP, params).await);
+    assert!(s.ended, "{s:?}");
+    let a = r.core.kernel.action(&job).unwrap().unwrap();
+    assert!(a.state.is_settled(), "{:?}", a.state);
+    assert!(crate::test_support::rows(&r.core, "approval.refused").is_empty());
+
+    let r = rig_with("echo private work; sleep 60");
+    let (job, _) = start_job(&r).await;
+    let mut cli = Wire::connect(&r.core, Surface::Cli, 1 << 20);
+    peek_until(&mut cli, &job, |p| p.bytes > 0).await;
+    let s = stop_of(cli.call(method::JOB_STOP, json!({"id": job})).await);
+    assert!(s.ended, "{s:?}");
 }
