@@ -595,9 +595,30 @@ fn validate_node(owner: &str, s: &str, k: usize, n: &PastNode) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// A real repository's name, which the synthetic exam must never carry; spelled in parts so
-    /// this file does not carry it either.
-    const REAL_REPO: &str = concat!("bh", "-", "ai");
+    /// A real repository's name, which the synthetic exam must never carry: its length and the
+    /// SHA-256 of its lower-cased spelling, held as a digest so this file does not carry it.
+    const REAL_REPO_LEN: usize = 5;
+    const REAL_REPO_SHA256: &str =
+        "3a60e130bb5cfaae5fa51696b3310767b62e32543a3bb00aa488c34a56ab3a09";
+
+    /// Whether any `len`-byte window of `text`, lower-cased, has the SHA-256 hex digest `digest`.
+    fn holds_digest(text: &str, len: usize, digest: &str) -> bool {
+        let lower = text.to_ascii_lowercase();
+        len > 0
+            && lower
+                .as_bytes()
+                .windows(len)
+                .any(|w| format!("{:x}", Sha256::digest(w)) == digest)
+    }
+
+    #[test]
+    fn holds_digest_finds_a_name_in_any_case_inside_a_word() {
+        let digest = format!("{:x}", Sha256::digest(b"ex-q1"));
+        assert!(holds_digest("see EX-Q1 here", 5, &digest));
+        assert!(holds_digest("fooex-q1bar", 5, &digest));
+        assert!(!holds_digest("ex-q2", 5, &digest));
+        assert!(!holds_digest("", 5, &digest));
+    }
 
     /// The exam: ten families (four items each, two held out), and the four
     /// hard families (eight each, four held out); hundreds of sessions over
@@ -618,7 +639,10 @@ mod tests {
         assert!(e.item("needs-nothing-3").is_none() && e.item("injection-1").is_none());
         assert!(e.item("needs-nothing-5").unwrap().held_out);
         assert!(!e.item("injection-5").unwrap().held_out);
-        assert!(!EXAM_V2.contains(REAL_REPO));
+        assert!(
+            !holds_digest(EXAM_V2, REAL_REPO_LEN, REAL_REPO_SHA256),
+            "the exam names a real repository"
+        );
         // Scale: hundreds of sessions, from March to September.
         let sessions = e.pasts().count();
         assert!(sessions >= 500, "{sessions} sessions");
