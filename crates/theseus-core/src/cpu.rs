@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 
+pub mod commands;
+
 #[derive(Debug)]
 pub struct CpuPool {
     permits: Arc<Semaphore>,

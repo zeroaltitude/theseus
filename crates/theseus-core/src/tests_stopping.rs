@@ -168,6 +168,7 @@ async fn submit(core: &Arc<Core>, sid: &str, input: &str) -> theseus_protocol::R
         speaking: None,
         in_reply_to: None,
         route_at_ms: None,
+        deadline_secs: None,
         via: None,
     };
     let mut line =

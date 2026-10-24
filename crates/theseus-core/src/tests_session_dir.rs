@@ -175,10 +175,7 @@ async fn a_session_started_in_a_directory_works_there() {
     assert_eq!(r.fake.requests().len(), 3, "a loop a call, and the answer");
     let req = r.fake.requests().pop().unwrap();
     let blocks = system_texts(&req);
-    assert_eq!(
-        blocks.last().unwrap(),
-        &format!("Directory: {}", x.display())
-    );
+    assert_eq!(blocks.last().unwrap(), &block(&x));
     assert!(
         blocks[0].contains("Relative paths resolve against the session's directory"),
         "the header names no directory"
@@ -206,14 +203,8 @@ async fn two_sessions_share_the_header_and_differ_only_in_block_3() {
         "every block before the session's is the same bytes"
     );
     assert_eq!(one.tools, two.tools);
-    assert_eq!(
-        one.system[n - 1]["text"],
-        format!("Directory: {}", a.display())
-    );
-    assert_eq!(
-        two.system[n - 1]["text"],
-        format!("Directory: {}", b.display())
-    );
+    assert_eq!(one.system[n - 1]["text"], block(&a));
+    assert_eq!(two.system[n - 1]["text"], block(&b));
     assert!(
         one.system[n - 1].get("cache_control").is_none(),
         "the session's block takes no breakpoint of its own (the layers use three): {:?}",
@@ -271,10 +262,7 @@ async fn a_resumed_session_keeps_its_directory_and_dir_moves_it() {
     assert_eq!(record(&r.core, &sid).dir.as_deref(), b.to_str());
     assert!(result_of(&r.core, &sid, "t2").contains(&format!("{}\n", b.display())));
     let req = r.fake.requests().pop().unwrap();
-    assert_eq!(
-        system_texts(&req).last().unwrap(),
-        &format!("Directory: {}", b.display())
-    );
+    assert_eq!(system_texts(&req).last().unwrap(), &block(&b));
 }
 
 /// A client that sends no directory (Discord, the cockpit) gets today's
@@ -292,10 +280,7 @@ async fn a_client_that_sends_no_directory_gets_todays_cwd() {
         "{printed}"
     );
     let req = r.fake.requests().pop().unwrap();
-    assert_eq!(
-        system_texts(&req).last().unwrap(),
-        &format!("Directory: {}", r.root.display())
-    );
+    assert_eq!(system_texts(&req).last().unwrap(), &block(&r.root));
 }
 
 /// A relative `dir` is refused as invalid params, before any session opens.
@@ -326,4 +311,14 @@ async fn a_relative_directory_is_refused() {
     cw.shutdown().await.unwrap();
     drop((cw, lines));
     let _ = srv.await;
+}
+
+/// The session block for `dir`: its directory, then its commands' CPUs
+/// (theseus-yct32).
+fn block(dir: &std::path::Path) -> String {
+    format!(
+        "Directory: {}\n{}",
+        dir.display(),
+        crate::cpu::commands::Cpus::of_commands().fact()
+    )
 }

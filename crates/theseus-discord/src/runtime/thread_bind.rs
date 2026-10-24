@@ -804,6 +804,7 @@ impl Place {
                 thread: Some(slug),
                 in_reply_to: None,
                 route_at_ms: None,
+                deadline_secs: None,
                 speaking: Some(Speaking {
                     discord: origin,
                     answer_at: Some(answer_at),

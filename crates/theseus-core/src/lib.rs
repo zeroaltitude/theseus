@@ -645,6 +645,8 @@ mod tests_turn_checkpoint;
 #[cfg(test)]
 mod tests_turn_effort;
 #[cfg(test)]
+mod tests_turn_progress;
+#[cfg(test)]
 mod tests_turn_reserve;
 #[cfg(test)]
 mod tests_turn_retry;

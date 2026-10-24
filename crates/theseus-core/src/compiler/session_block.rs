@@ -5,9 +5,10 @@
 //! of one session's goes there (`crates/theseus-core/AGENTS.md`). What is
 //! the session's own, and the same for its every request, goes here: its
 //! directory, `Directory: /work/harbour-tides`, the one `ToolRuntime::cwd_for`
-//! resolves for its tools. Static for the session: it changes only when the
-//! session moves (`turn.submit` with another `dir`), which is a
-//! `system_changed` recompile, as an edited context file is. So a request
+//! resolves for its tools, and the CPUs its commands have, read once per
+//! process (`cpu::commands`, theseus-yct32). Static for the session: it
+//! changes only when the session moves (`turn.submit` with another `dir`),
+//! which is a `system_changed` recompile, as an edited context file is. So a request
 //! that replays a session's prefix replays this block's bytes unchanged.
 //! `project-context` (a later row) fills the same block.
 //!
@@ -35,6 +36,10 @@ impl TurnRunner {
         if withheld || !self.tools.enabled() {
             return String::new();
         }
-        format!("Directory: {}", self.tools.cwd_for(dir).display())
+        format!(
+            "Directory: {}\n{}",
+            self.tools.cwd_for(dir).display(),
+            crate::cpu::commands::Cpus::of_commands().fact()
+        )
     }
 }

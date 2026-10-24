@@ -983,6 +983,8 @@ impl Core {
         // A directory it names moves the session there: the turn's session
         // write keeps it (theseus-aab7). Outside the roots, the CLI says so.
         let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
+        // The turn's time, when the client gave one (theseus-yct32).
+        crate::turn::clock_step::set_deadline(&session.session_id, conn.arrived, p.deadline_secs);
         // The owner's words, read as a correction for the turn (theseus-q31l).
         self.expect_correction(&p, conn, &session.session_id);
         // The owner's explicit "seal this thread" (theseus-f2g0).

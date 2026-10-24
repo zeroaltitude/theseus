@@ -99,4 +99,11 @@ surface?: string,
  * a message typed in its place. Honoured only under `[threads]
  * bench_clock`, a test hook; any other daemon refuses it.
  */
-route_at_ms?: number, };
+route_at_ms?: number, 
+/**
+ * The turn's time, in seconds from the request's arrival (theseus-yct32):
+ * the model is told the time it has left once a minute, and the progress
+ * check reads the share used (theseus-2uy56). Kept in memory for the
+ * session until it passes. Absent: no deadline, as before.
+ */
+deadline_secs?: number, };
