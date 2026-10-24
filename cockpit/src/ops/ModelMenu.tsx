@@ -3,7 +3,7 @@
 // mark is greyed with the floor's words (`floor.ts`, the daemon's table). Two ways to choose: "this turn only"
 // (`turn.submit { profile }`, held for the Join composer's next message) and "from now on" (`session.profile`, sticky,
 // with a revert and the toast's Undo). If the daemon still refuses, the toast shows its words and nothing changes.
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Lock, Undo2, X } from 'lucide-react'
 import type { CatalogList, ProfileList, SessionInfo, SessionMode, SessionModeResult, SessionProfileResult } from '@protocol'
@@ -12,7 +12,7 @@ import { useHistoryRows } from '@/lib/history'
 import { pricing } from '@/lib/money'
 import { cn } from '@/lib/format'
 import { Pill } from '@/components/ui'
-import { MODES, modeAsk, profileRows, profileToast, stickyWith } from './menus'
+import { heldAt, MODES, modeAsk, profileRows, profileToast, stickyWith } from './menus'
 import { useOpsAct } from './act'
 import { useOpsUi } from './ui'
 
@@ -21,6 +21,16 @@ export function useSticky(sessionId: string): string | null {
   const rows = useHistoryRows().rows
   const held = useOpsUi((s) => s.held[sessionId])
   return stickyWith(rows, sessionId, held)
+}
+
+/** `hold` stamped with the daemon's clock (`heldAt` of the ledger's newest rows, read when the choice is made, not when
+ *  the closure was drawn). */
+export function useHolder(): (sid: string, to: string | null) => void {
+  const hold = useOpsUi((s) => s.hold)
+  const rows = useHistoryRows().rows
+  const now = useRef(rows)
+  useEffect(() => { now.current = rows }, [rows])
+  return (sid, to) => hold(sid, to, heldAt(now.current, sid))
 }
 
 const ORIGIN_TONE = { us: 'ok', eu: 'idle', cn: 'wait', unknown: 'idle' } as const
@@ -48,16 +58,25 @@ function Pop({ title, onClose, children }: { title: string; onClose: () => void;
 export function StickyChip({ sessionId }: { sessionId: string }) {
   const { post, on } = useOpsAct()
   const say = useOpsUi((s) => s.say)
-  const hold = useOpsUi((s) => s.hold)
+  const hold = useHolder()
   const sticky = useSticky(sessionId)
+  // `post` skips `useAct`'s busy guard (the bulk fan-out relies on that), so a double click is held off here.
+  const [busy, setBusy] = useState(false)
+  const out = useRef(false)
   if (!sticky) return null
-  const revert = () => void post<SessionProfileResult>('model_sticky', 'session.profile', { session_id: sessionId, profile: null })
-    .then(() => { hold(sessionId, null); say('back to the default', () => void post('model_sticky', 'session.profile', { session_id: sessionId, profile: sticky }).then(() => hold(sessionId, sticky))) })
-    .catch((e) => say(e?.message ?? String(e)))
+  const revert = () => {
+    if (out.current) return
+    out.current = true
+    setBusy(true)
+    void post<SessionProfileResult>('model_sticky', 'session.profile', { session_id: sessionId, profile: null })
+      .then(() => { hold(sessionId, null); say('back to the default', () => void post('model_sticky', 'session.profile', { session_id: sessionId, profile: sticky }).then(() => hold(sessionId, sticky))) })
+      .catch((e) => say(e?.message ?? String(e)))
+      .finally(() => { out.current = false; setBusy(false) })
+  }
   return (
     <span className="inline-flex items-center gap-1 rounded bg-gold/10 px-1.5 text-[11px] text-gold ring-1 ring-gold/30" title="the model chosen with “from now on”: every later turn runs on it">
       ◇ {sticky} held
-      <button onClick={revert} disabled={!on('model_sticky')} aria-label="revert to the default model" className="inline-flex items-center gap-0.5 text-live hover:underline"><Undo2 size={10} /> revert</button>
+      <button onClick={revert} disabled={busy || !on('model_sticky')} aria-label="revert to the default model" className="inline-flex items-center gap-0.5 text-live hover:underline"><Undo2 size={10} /> revert</button>
     </span>
   )
 }
@@ -67,29 +86,35 @@ export function ModelMenu({ session, onClose }: { session: SessionInfo; onClose:
   const { post, on } = useOpsAct()
   const say = useOpsUi((s) => s.say)
   const setTurn = useOpsUi((s) => s.setTurnProfile)
-  const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 30_000)
+  const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 0)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
-  const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 60_000)
-  const hold = useOpsUi((s) => s.hold)
+  const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 0)
+  const hold = useHolder()
   const sid = session.session_id
   const sticky = useSticky(sid)
   const current = sticky ?? session.profile
   const list = profileRows(pl?.profiles ?? [], sl?.sessions ?? [session], session.data, current, pricing(cat))
+  // One `session.profile` call at a time: a double click would send two, and the Undo would undo only to the first.
+  const [busy, setBusy] = useState(false)
+  const out = useRef(false)
   const set = async (name: string | null) => {
+    if (out.current) return
+    out.current = true
+    setBusy(true)
     try {
       const r = await post<SessionProfileResult>('model_sticky', 'session.profile', { session_id: sid, profile: name })
       const t = profileToast(r, name)
       if (!r.refused) hold(sid, r.profile)
       say(t.text, t.undo === undefined ? undefined : () => { void post<SessionProfileResult>('model_sticky', 'session.profile', { session_id: sid, profile: t.undo }).then((u) => { hold(sid, u.profile); say(profileToast(u, t.undo ?? null).text); void qc.invalidateQueries() }).catch((e) => say(e?.message ?? String(e))) })
       if (!r.refused) { void qc.invalidateQueries(); onClose() }
-    } catch (e: any) { say(e?.message ?? String(e)) }
+    } catch (e: any) { say(e?.message ?? String(e)) } finally { out.current = false; setBusy(false) }
   }
   return (
     <Pop title={`Model · ${session.title || session.label || sid.slice(-6)}`} onClose={onClose}>
       <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[11.5px] text-ink-dim">
         <span>now on <span className="num text-model">◇ {current ?? 'the default'}</span>{sticky && ' (held from now on)'}</span>
         {session.data && session.data !== 'open' && <Pill tone="wait" title="the floor keeps this conversation to models of US origin"><Lock size={10} /> {session.data} data</Pill>}
-        {sticky && <button onClick={() => void set(null)} disabled={!on('model_sticky')} className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-live ring-1 ring-live/40 hover:bg-live/10"><Undo2 size={11} /> Revert to the default</button>}
+        {sticky && <button onClick={() => void set(null)} disabled={busy || !on('model_sticky')} className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-live ring-1 ring-live/40 hover:bg-live/10"><Undo2 size={11} /> Revert to the default</button>}
       </div>
       <ul className="flex flex-col gap-1" data-testid="model-menu">
         {list.map((r) => (
@@ -105,7 +130,7 @@ export function ModelMenu({ session, onClose }: { session: SessionInfo; onClose:
               <span className="ml-auto flex gap-1.5">
                 <button disabled={!!r.grey || !on('model_turn')} onClick={() => { setTurn(sid, r.name); say(`◇ ${r.name} for the next message only`); onClose() }}
                   className="rounded px-1.5 py-0.5 text-[11px] text-ink-dim ring-1 ring-line hover:text-ink disabled:cursor-not-allowed disabled:opacity-50">this turn only</button>
-                <button disabled={!!r.grey || !on('model_sticky') || r.name === sticky} onClick={() => void set(r.name)}
+                <button disabled={busy || !!r.grey || !on('model_sticky') || r.name === sticky} onClick={() => void set(r.name)}
                   className="rounded px-1.5 py-0.5 text-[11px] text-live ring-1 ring-live/40 hover:bg-live/10 disabled:cursor-not-allowed disabled:opacity-50">from now on</button>
               </span>
             </div>

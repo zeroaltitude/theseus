@@ -67,6 +67,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name.starts_with("card.")
         || name.starts_with("thread.")
         || name.starts_with("work.")
+        || name == method::JOB_STOP
         || super::peek::OWN.contains(&name)
         || name == method::LEDGER_VERIFY
         || name == method::TOOL_DEFER
@@ -145,7 +146,7 @@ impl Core {
         if super::peek::OWN.contains(&name) {
             return self.rpc_peek(name, params, conn);
         }
-        if name.starts_with("work.") {
+        if name.starts_with("work.") || name == method::JOB_STOP {
             return self.rpc_work(name, params, conn).await;
         }
         if super::routines::OWN.contains(&name) {

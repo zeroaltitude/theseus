@@ -5,10 +5,10 @@ import assert from 'node:assert/strict'
 import type { ProfileInfo } from '../src/protocol.gen/index.ts'
 import { boardRows } from '../src/ops/board.ts'
 import { verbById } from '../src/ops/verbs.ts'
-import { entitiesOf, nextScope, scopeTargets, searchValue, targetOf, verbEntries, type OpsTarget } from '../src/ops/palette.ts'
+import { entitiesOf, nextScope, watchEntity, scopeTargets, searchValue, targetOf, verbEntries, type OpsTarget } from '../src/ops/palette.ts'
 import { board, NOW } from './ops-fixtures.ts'
 
-const prof = (name: string, model: string, origin: string): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live: false, origin })
+const prof = (name: string, model: string, origin: string): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live: false, origin, cleared: origin === 'us' })
 const cx = { profiles: [prof('quick', 'm-s', 'us'), prof('deep', 'm-b', 'us'), prof('kimi', 'm-cn', 'cn')], prices: new Map([['m-s', { input: 1, output: 5, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 }], ['m-b', { input: 4, output: 20, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 }]]) }
 const t = (id: string, over: Partial<OpsTarget> = {}): OpsTarget => ({ id, kind: 'task', title: id, sessionId: id, profile: 'quick', paused: false, running: true, retired: false, failed: false, ended: false, ...over })
 const by = (es: ReturnType<typeof verbEntries>, id: string) => es.find((e) => e.id === id)!
@@ -105,4 +105,19 @@ test('the palette reads the verb table: every entry is a verb of it, every plan�
   assert.equal(by(es, 'mode:auto').posture, 'ask')
   assert.equal(by(es, 'retire').posture, 'ask')
   assert.equal(by(es, 'model:deep').posture, 'do')
+})
+
+test('a watch is an entity: its check and when it gives up, failing said; choosing it opens the Timeline; Cancel asks and plans wake.cancel', () => {
+  const w = { id: 'wak_w1', title: 'Quay gate', check: 'gate open?', until: 'it opens', checks: 3, state: 'waiting' }
+  const es = entitiesOf([], [], [], [], [w, { ...w, id: 'wak_w2', title: 'Pier', failing: 'timed out' }])
+  const a = es.find((e) => e.id === 'wak_w1')!
+  assert.equal(a.kind, 'watch')
+  assert.equal(a.hint, 'watch · gate open? · until it opens')
+  assert.match(es.find((e) => e.id === 'wak_w2')!.hint, / · failing$/)
+  assert.deepEqual(a.go, { lens: 'timeline' })
+  assert.equal(a.cancel!.verb, 'watch_cancel')
+  assert.equal(a.cancel!.posture, 'ask')
+  assert.deepEqual(a.cancel!.plans.map((p) => [p.verb, p.method, p.params]), [['watch_cancel', 'wake.cancel', { wake: 'wak_w1' }]])
+  assert.match(a.cancel!.plans[0].ask!, /Cancel the watch “Quay gate”/)
+  assert.deepEqual(watchEntity(w), a)
 })

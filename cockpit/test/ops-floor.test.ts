@@ -4,14 +4,26 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { greyOf } from '../src/ops/floor.ts'
 
-const table = JSON.parse(readFileSync(new URL('./fixtures/profile_floor.json', import.meta.url), 'utf8')) as { rows: { mark: 'open' | 'private' | 'sensitive'; origin: string; known: boolean; refused: boolean }[] }
+interface Row { mark: 'open' | 'private' | 'sensitive'; origin: string; known: boolean; refused: boolean }
+const table = JSON.parse(readFileSync(new URL('./fixtures/profile_floor.json', import.meta.url), 'utf8')) as { rows: Row[]; vouched_uncatalogued: Row[] }
 
 test('greyOf agrees with every row of the floor’s table', () => {
   assert.equal(table.rows.length, 24)
   for (const r of table.rows) {
-    const got = greyOf(r.mark, 'p', r.known ? { name: 'p', origin: r.origin } : undefined)
+    const got = greyOf(r.mark, 'p', r.known ? { name: 'p', origin: r.origin, cleared: r.origin === 'us' } : undefined)
     assert.equal(got !== null, r.refused, `${r.mark} ${r.origin} known=${r.known}: ${got}`)
   }
+})
+
+test('a US profile the daemon does not clear (a vouch, an uncatalogued model) is grey on private and sensitive, never on open', () => {
+  assert.equal(table.vouched_uncatalogued.length, 3)
+  for (const r of table.vouched_uncatalogued) {
+    const got = greyOf(r.mark, 'p', { name: 'p', origin: r.origin, cleared: false })
+    assert.equal(got !== null, r.refused, `${r.mark}: ${got}`)
+  }
+  assert.equal(greyOf('private', 'x', { name: 'x', origin: 'us', cleared: false }), 'this conversation holds private content, and `x` is not a model of US origin')
+  assert.equal(greyOf('sensitive', 'x', { name: 'x', origin: 'us' }), 'this conversation holds sensitive content, and `x` is not a model of US origin', 'no answer: fail closed')
+  assert.equal(greyOf('open', 'x', { name: 'x', origin: 'us', cleared: false }), null)
 })
 
 test('the reasons are the daemon’s words, and an origin the daemon did not tell is not US', () => {

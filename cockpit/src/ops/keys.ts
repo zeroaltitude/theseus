@@ -126,6 +126,8 @@ export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal',
   // ops-act (theseus-jid7t.6): the Join pane, the menus, the session's life and the task sheets.
   'join', 'model_turn', 'model_sticky', 'mode_set', 'live_profile', 'session_life', 'rehome', 'reschedule',
   // ops-graph (theseus-jid7t.4): the bulk bar's verbs, and a drop on a home or a project.
+  // p2f-ops-act (theseus-xzf71): a job's Stop, and a watch's Cancel from the palette.
+  'job_stop', 'watch_cancel',
   'bulk_pause', 'bulk_stop', 'bulk_cancel', 'bulk_rehome', 'bulk_approve', 'bulk_decline', 'bulk_attach', 'drop'] as const
 export type ButtonAct = (typeof BUTTON_ACTS)[number]
 export const ACTS: ReadonlySet<string> = new Set<string>([...KEYS.filter((k) => k.act).map((k) => k.verb), ...BUTTON_ACTS])

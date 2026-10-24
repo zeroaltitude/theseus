@@ -32,7 +32,8 @@ import { Echart } from '@/components/Echart'
 import { Flame } from '@/components/Flame'
 import { ChartTable, Legend, Swatch, TableToggle, TipArea, TipBody, TipTarget, type LegendItem } from '@/components/ChartPanel'
 import { JsonView } from '@/components/JsonView'
-import { Transcript, type LiveTurn } from '@/components/Transcript'
+import { Transcript } from '@/components/Transcript'
+import { liveOf, type LiveTurn } from '@/ops/live'
 import { ConfirmCard, HELD_POST_TOOL } from '@/components/ConfirmCard'
 import { CallInspector } from '@/components/CallInspector'
 import { ModelInspector } from '@/components/ModelInspector'
@@ -119,7 +120,8 @@ function SessionDeck({ id }: { id: string }) {
     return m
   }, [rows])
   const calls = useMemo(() => providerCalls(rows), [rows])
-  const liveNow = useLive(id)
+  const events = usePush((s) => s.events)
+  const liveNow: LiveTurn | null = useMemo(() => liveOf(events, id), [events, id])
   const live = asOf === null ? liveNow : null
   // What was sent from here and is not written yet; a draft goes once its user node is in the history.
   const allDrafts = useDrafts((x) => x.drafts)
@@ -129,7 +131,6 @@ function SessionDeck({ id }: { id: string }) {
   }, [drafts, hist])
 
   // A written node or an ended turn means the transcript changed: read it again now, not at the next poll.
-  const events = usePush((s) => s.events)
   const lastEvent = events[events.length - 1]
   useEffect(() => {
     if (!lastEvent) return
@@ -223,31 +224,6 @@ function Follow({ children, deps }: { children: React.ReactNode; deps: unknown[]
       )}
     </>
   )
-}
-
-/** What this session's current turn is doing that no node holds yet, from the push: the streamed text and thinking of
- *  the loop under way, and the tools running (`tool.started` until `tool.ended`). */
-function useLive(sessionId: string): LiveTurn | null {
-  const events = usePush((s) => s.events)
-  return useMemo(() => {
-    let turn: string | null = null
-    let text = ''
-    let thinking = ''
-    let running: { id: string; tool: string; startedAt: number }[] = []
-    for (const e of events) {
-      const p = e.params as Record<string, any>
-      if (e.method === 'turn.started' && p.session_id === sessionId) { turn = p.turn_id; text = ''; thinking = ''; running = [] }
-      else if (turn && p.turn_id === turn) {
-        if (e.method === 'model.delta') text += p.text ?? ''
-        else if (e.method === 'model.thinking') thinking += p.text ?? ''
-        else if (e.method === 'loop.started') { text = ''; thinking = '' }
-        else if (e.method === 'tool.started') running = [...running, { id: String(p.tool_use_id), tool: String(p.tool), startedAt: e.at }]
-        else if (e.method === 'tool.ended') running = running.filter((t) => t.id !== String(p.tool_use_id))
-        else if (e.method === 'turn.ended' || e.method === 'turn.failed') { turn = null; text = ''; thinking = ''; running = [] }
-      }
-    }
-    return turn ? { turn_id: turn, text, thinking, running } : null
-  }, [events, sessionId])
 }
 
 function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: ExecutionInfo; onBack: () => void }) {

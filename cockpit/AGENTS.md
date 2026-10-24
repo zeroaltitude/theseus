@@ -117,11 +117,22 @@ build.
     New task, the thread verbs, re-home, reschedule; no `window.prompt` is left in `src/ops/`).
   - **The verb table** (`ops/verbs.ts`) is the one list of acts: verb, kinds, method, posture (`do`, `arm`, `ask`, `floor`), and
     whether one more call undoes it. The inspector, the palette and the right-click menu read it, and `test/ops-verbs.test.ts` pins
-    each row to the owner's table, each method to the protocol's, and each acting key of `keys.ts` to a verb (`KEY_VERB`). The one
-    row whose method the protocol lacks, `job.stop`, says so (`missing`) and is shown off.
+    each row to the owner's table, each method to the protocol's, and each acting key of `keys.ts` to a verb (`KEY_VERB`). Every
+    method is the protocol's (`job.stop` since p2f-ops-act); a job's Stop in the inspector arms on a first press and calls it on a
+    second, and the toast says the answer's `words`.
   - **The floor contract** (`ops/floor.ts`, `test/fixtures/profile_floor.json`): the daemon's refusal table (`data_mark::refusal_of`)
     as data, one row per mark × origin × known. theseus-core's `tests_profile_floor.rs` holds the daemon to it and
     `test/ops-floor.test.ts` holds `greyOf` (the menu's greying) to it; a change to the floor edits the file and both tests say so.
+  - **What the daemon clears, jobs, watches** (p2f-ops-act; theseus-dyukm, theseus-xzf71): the menu greys a profile by
+    `ProfileInfo.cleared`, the daemon's own floor answer (`data_mark::cleared`: US origin *and* a catalog row of `us`; a
+    provider's vouch alone clears nothing), never by `origin` alone; a missing `cleared` greys (fail closed), and the New task
+    sheet's "US only" reads it too. The shared table has a second array, `vouched_uncatalogued`, for the case the origin gets
+    wrong. `job.stop` is a method now (`JobStopParams`/`JobStopResult` in `job_follow.rs`, served beside `work.peek` under its
+    place rule). A watch is a palette entity (`watchEntity`: its check, when it gives up, "failing"); choosing it opens the
+    Timeline lens, and "Cancel the watch" plans `wake.cancel` and asks first. `profile.list` and `catalog.list` are read once
+    and on `profile.changed`/the menu's invalidate, not on a timer; `hold` is stamped with the daemon's clock (`heldAt`);
+    the deck's live turn is `liveOf` (`ops/live.ts`), one copy. `M` opens the mode menu on a task too: a task is a session
+    with its own mode.
   - **Quiet by construction**: a menu or sheet that is open owns the keys (`modal` in `Ops.tsx`); the dock's ␣ works only while the
     dock has focus (the `dock` context outranks the rest), so ops-graph's ␣ is free elsewhere; every act is `useOpsAct`'s `act` (a
     confirmed call) or `post` (the call with its answer, for a refusal in the daemon's words and an Undo).

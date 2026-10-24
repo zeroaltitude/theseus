@@ -153,7 +153,7 @@ test('the spans’ answers join: one calendar each, its events once, a failed sp
 })
 
 test('the New task sheet: a sensitive event offers US models only, the rest greyed with the reason; none known, none picked', () => {
-  const p = (name: string, origin?: string): ProfileInfo => ({ name, provider: 'x', model: `${name}-model`, max_output_tokens: 1, has_system: true, live: false, ...(origin && { origin }) } as ProfileInfo)
+  const p = (name: string, origin?: string): ProfileInfo => ({ name, provider: 'x', model: `${name}-model`, max_output_tokens: 1, has_system: true, live: false, ...(origin && { origin, cleared: origin === 'us' }) } as ProfileInfo)
   const profiles = [p('harbour', 'cn'), p('quay', 'us'), p('jetty', 'us'), p('dock')]
   // One profileChoices (ops-act's newtask.ts), with the Timeline's US-only pick (theseus-jid7t.5 x .6).
   const s = profileChoices(profiles, undefined, US_ONLY_WORDS, 'jetty')

@@ -53,6 +53,24 @@ pub struct WorkPeekResult {
     pub usual_ms: Option<u64>,
 }
 
+/// `job.stop`'s params: a job's id (`act_…`, as `work.peek` takes it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JobStopParams {
+    pub id: String,
+}
+
+/// What `job.stop` did, as the model's `job_stop` tool tells it: whether the job has ended, whether its end was
+/// verified (nothing of it is left), and the words for a toast. A job that had ended already answers `ended: true`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JobStopResult {
+    pub id: String,
+    pub ended: bool,
+    pub verified: bool,
+    pub words: String,
+}
+
 /// `action.output`'s params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

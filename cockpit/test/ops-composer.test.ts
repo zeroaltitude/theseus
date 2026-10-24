@@ -1,7 +1,8 @@
 // The Join pane's composer (theseus-jid7t.6): ⏎ steers a running turn, ⌘⏎ holds a message until the turn ends, esc drops it.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { composerHint, composerStep, type ComposerState } from '../src/ops/composer.ts'
+import { readFileSync } from 'node:fs'
+import { composerHint, composerStep, submitOf, type ComposerState } from '../src/ops/composer.ts'
 
 const idle: ComposerState = { kind: 'idle' }
 const running: ComposerState = { kind: 'running' }
@@ -35,4 +36,22 @@ test('the composer says what ⏎ and ⌘⏎ do', () => {
   assert.match(composerHint(running), /⏎ steers.*⌘⏎ queues/)
   assert.match(composerHint({ kind: 'queued', text: 'x' }), /esc drops/)
   assert.match(composerHint(idle), /⏎ sends/)
+})
+
+test('a steer sends no profile and keeps the choice; a send clears it only when the daemon answers ok', () => {
+  const steer = submitOf({ sid: 'ses_a', input: 'wait', turnProfile: 'deep', steer: true })
+  assert.deepEqual(steer.params, { session_id: 'ses_a', input: 'wait' })
+  assert.equal(steer.clearOnOk, false, 'the choice is for the next turn')
+  const send = submitOf({ sid: 'ses_a', input: 'go', turnProfile: 'deep', steer: false })
+  assert.deepEqual(send.params, { session_id: 'ses_a', input: 'go', profile: 'deep' })
+  assert.equal(send.clearOnOk, true)
+  assert.equal(submitOf({ sid: 'ses_a', input: 'go', turnProfile: null, steer: false }).clearOnOk, false, 'nothing chosen, nothing to clear')
+  assert.deepEqual(submitOf({ thread: 'quay', input: 'hi', turnProfile: 'deep', steer: false }).params, { thread: 'quay', input: 'hi', profile: 'deep' })
+})
+
+test('the pane clears the choice in the answer’s then, never before the call', () => {
+  const src = readFileSync(new URL('../src/ops/JoinPane.tsx', import.meta.url), 'utf8')
+  const send = src.slice(src.indexOf('const send ='), src.indexOf('const step ='))
+  assert.ok(send.indexOf("post('join'") < send.indexOf('setTurnProfile(sid, null)'), 'cleared after the post is made')
+  assert.match(send, /\.then\(\(\) => \{[^}]*clearOnOk[^}]*setTurnProfile\(sid, null\)/)
 })

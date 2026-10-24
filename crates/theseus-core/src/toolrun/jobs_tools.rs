@@ -324,16 +324,7 @@ impl ToolRuntime {
 /// look at its own job takes one (`job_settled`): where no notice reaches
 /// the drain (heartbeat only), a job's end is still seen at the next look.
 fn now(core: &Core, f: &Found) -> Action {
-    if let Some(spool) = &core.tools.spool {
-        if let Ok(Some(a)) = ToolRuntime::job_settled(&core.kernel, spool, &f.corr) {
-            return a;
-        }
-    }
-    core.kernel
-        .action(&f.corr)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| f.action.clone())
+    job_now(core, &f.corr, &f.action)
 }
 
 /// `job.read` of one job: how long it has run (or how it ended), how much it
@@ -538,40 +529,85 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64, asked: u64) -> AsyncMediaRes
     }
 }
 
-/// `job.stop`: the job told to stop, as a disk floor's stop tells one
-/// (`Kernel::stop_call`), its tree stopped through the one stop
-/// (`terminate_all`: its cgroup where it has one, else its tree), each
-/// verdict recorded; then its output so far, as its result.
-async fn stop(core: Arc<Core>, f: Found) -> AsyncMediaResult {
-    let rt = &core.tools;
-    let a = theseus_store::blocking(|| now(&core, &f));
+/// What stopping a job did (`stop_job`): the job as it stands after, whether it had ended before the stop, and
+/// whether it has ended now and its end was verified (nothing of it is left).
+pub(crate) struct Stopped {
+    pub action: Action,
+    pub already: bool,
+    pub ended: bool,
+    pub verified: bool,
+}
+
+/// A job's action as it stands: settled from its spool if its wrapper has finished, else the kernel's, else `fallback`.
+fn job_now(core: &Core, corr: &str, fallback: &Action) -> Action {
+    if let Some(spool) = &core.tools.spool {
+        if let Ok(Some(a)) = ToolRuntime::job_settled(&core.kernel, spool, corr) {
+            return a;
+        }
+    }
+    core.kernel
+        .action(corr)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| fallback.clone())
+}
+
+/// Stop the job `corr`, as a disk floor's stop tells one (`Kernel::stop_call`), its tree stopped through the one
+/// stop (`terminate_all`: its cgroup where it has one, else its tree), each verdict recorded. The one body of the
+/// model's `job_stop` and of `job.stop`; a job that had ended already is not stopped again. `by` names who stopped it.
+pub(crate) async fn stop_job(
+    core: &Core,
+    corr: &str,
+    fallback: &Action,
+    by: &str,
+) -> anyhow::Result<Stopped> {
+    let a = theseus_store::blocking(|| job_now(core, corr, fallback));
     if ended(&a) {
-        return theseus_store::blocking(|| delivered(&core, &f, &a, "It had already ended.\n"));
+        return Ok(Stopped {
+            action: a,
+            already: true,
+            ended: true,
+            verified: false,
+        });
     }
-    let by = "a job_stop call";
-    if let Err(e) = theseus_store::blocking(|| core.kernel.stop_call(&f.corr, by)) {
-        return Err(ToolFailure::new(format!(
-            "job {} was not stopped: {e:#}",
-            f.name
-        )));
-    }
-    let ended_all = rt
+    theseus_store::blocking(|| core.kernel.stop_call(corr, by))?;
+    let ended_all = core
+        .tools
         .terminate_all(
             &core.kernel,
             &core.store,
-            std::slice::from_ref(&f.corr),
+            std::slice::from_ref(&corr.to_string()),
             true,
         )
         .await;
     for e in ended_all.iter().filter(|e| e.written) {
         e.record(&core.session_rec(&e.action.session_id));
     }
-    let a = theseus_store::blocking(|| now(&core, &f));
-    let gone = a
+    let a = theseus_store::blocking(|| job_now(core, corr, fallback));
+    let verified = a
         .verdict
         .as_ref()
         .is_some_and(theseus_kernel::Verdict::verified);
-    let line = match (ended(&a), gone) {
+    Ok(Stopped {
+        ended: ended(&a),
+        action: a,
+        already: false,
+        verified,
+    })
+}
+
+/// `job.stop`: the job stopped (`stop_job`); then its output so far, as its result.
+async fn stop(core: Arc<Core>, f: Found) -> AsyncMediaResult {
+    let s = stop_job(&core, &f.corr, &f.action, "a job_stop call")
+        .await
+        .map_err(|e| ToolFailure::new(format!("job {} was not stopped: {e:#}", f.name)))?;
+    if s.already {
+        return theseus_store::blocking(|| {
+            delivered(&core, &f, &s.action, "It had already ended.\n")
+        });
+    }
+    let a = s.action;
+    let line = match (s.ended, s.verified) {
         (true, true) => format!("Stopped job {}: nothing of it is left.\n", f.called()),
         (true, false) => format!(
             "Told job {} to stop; its end was not verified, so some of it may still run.\n",
