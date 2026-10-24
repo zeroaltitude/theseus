@@ -167,6 +167,33 @@ fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     }
 }
 
+/// Where a failed action went and why, for its observation's note: the tool,
+/// the outbox target a post was bound for, the outcome, and the producer's
+/// own reason (`detail.error`: a refusal's words, Discord's answer). A settle
+/// that wrote none says nothing. Without this a failing post reads as "failed
+/// after 0 ms" and the item that fixes it cannot tell which refusal it is.
+fn action_why(d: &Value) -> String {
+    let mut parts = Vec::new();
+    for (label, v) in [
+        ("tool", &d["tool"]),
+        ("to", &d["outbox"]),
+        ("outcome", &d["outcome"]),
+    ] {
+        if let Some(s) = v.as_str().filter(|s| !s.is_empty()) {
+            parts.push(format!("{label} {s}"));
+        }
+    }
+    if let Some(e) = d["detail"]["error"].as_str().filter(|e| !e.is_empty()) {
+        let e: String = e.chars().take(240).collect();
+        parts.push(format!("error: {e}"));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", parts.join("; "))
+    }
+}
+
 /// What one ledger row shows, if it shows a problem.
 pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     let d = &row.data;
@@ -178,8 +205,10 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             o.key = format!("action.failed:{p}");
             o.title = calls_failing(&p);
             o.note = format!(
-                "action {} failed after {} ms",
-                d["correlation_id"], d["duration_ms"]
+                "action {} failed after {} ms{}",
+                d["correlation_id"],
+                d["duration_ms"],
+                action_why(d)
             );
             o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
             o.task_failed = true;
@@ -541,6 +570,43 @@ mod tests {
             data,
         };
         of_row(7, &row).unwrap().title
+    }
+
+    fn note_of(kind: &str, data: Value) -> String {
+        let row = LedgerRow {
+            at_unix_ms: 1,
+            kind: kind.into(),
+            session_id: None,
+            turn_id: None,
+            data,
+        };
+        of_row(7, &row).unwrap().note
+    }
+
+    /// A failed post's note says where it went and why it was refused, so the
+    /// item filed for it can tell one refusal from another.
+    #[test]
+    fn a_failed_post_note_names_its_target_and_reason() {
+        let note = note_of(
+            "action.failed",
+            json!({"producer": "discord", "correlation_id": "out_1", "duration_ms": 0,
+                   "tool": "outbox.post", "outbox": "discord:channel:42", "outcome": "failed",
+                   "detail": {"error": "not bound here any more (channel:42)"}}),
+        );
+        for needle in [
+            "out_1",
+            "discord:channel:42",
+            "not bound here any more (channel:42)",
+            "outbox.post",
+        ] {
+            assert!(note.contains(needle), "{needle} missing from {note}");
+        }
+        // A row with none of it reads as before.
+        let bare = note_of(
+            "action.failed",
+            json!({"producer": "proc", "correlation_id": "act_1", "duration_ms": 10}),
+        );
+        assert_eq!(bare, "action \"act_1\" failed after 10 ms");
     }
 
     /// A backlog item's title is in plain words, and an item filed under the
