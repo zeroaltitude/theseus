@@ -2289,7 +2289,6 @@ pub fn build_runtime(
         secrets: secrets.clone(),
         hearing: crate::file_read::Hearing {
             key_secret: cfg.voice.key_secret.clone(),
-            // Flux streams; a recording is read pre-recorded (theseus-v774k).
             model: cfg.voice.prerecorded_model().to_string(),
             language: cfg.voice.language.clone(),
             api_base: cfg.voice.api_base.clone(),
