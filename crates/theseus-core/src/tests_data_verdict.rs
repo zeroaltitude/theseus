@@ -66,7 +66,8 @@ fn only_open_at_act_with_no_name_on_an_open_session_reaches_a_restricted_model()
         for (band, confidence) in BANDS {
             for name_hit in [false, true] {
                 for level in LEVELS {
-                    let want = answer == "open" && band == Band::Act && !name_hit && level == Level::Open;
+                    let want =
+                        answer == "open" && band == Band::Act && !name_hit && level == Level::Open;
                     assert_eq!(
                         may_see(answer, confidence, name_hit, level),
                         want,
