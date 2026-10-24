@@ -267,3 +267,20 @@ test('opsLayout lays the graph out once', () => {
   const body = src.slice(at, src.indexOf('\n}\n', at))
   assert.equal(body.split('layout(').length - 1, 1)
 })
+
+test('an opening that folds again while the graph stays over its cap says so', () => {
+  // Subtree A can fold; each B holds a needs-you leaf and never folds. Over the cap with A held, and over it without.
+  const views: WorkView[] = [view('exe_c', 'conversation', 'running', { session_id: 'ses_c', thread: 'tide-tables' })]
+  views.push(view('exe_a', 'task', 'running', { session_id: 'ses_a', parent: 'exe_c', thread: 'tide-tables', started_at_ms: NOW - HOUR }))
+  for (let k = 0; k < 3; k++) views.push(view(`exe_ak${k}`, 'task', 'running', { session_id: `ses_ak${k}`, parent: 'exe_a', thread: 'tide-tables' }))
+  for (let p = 0; p < 4; p++) {
+    views.push(view(`exe_b${p}`, 'task', 'running', { session_id: `ses_b${p}`, parent: 'exe_c', thread: 'tide-tables', started_at_ms: NOW - HOUR + (p + 1) * MIN }))
+    for (let k = 0; k < 3; k++) views.push(view(`exe_b${p}k${k}`, 'task', k === 0 ? 'needs_you' : 'running', { session_id: `ses_b${p}k${k}`, parent: `exe_b${p}`, thread: 'tide-tables' }, k === 0 ? 'needs_you' : undefined))
+  }
+  const plain = lay(views, null, [], { cap: 6 })
+  const opened = lay(views, null, [], { cap: 6, opened: new Set(['ses_a']) })
+  assert.ok(opened.nodes.length > 6, 'over the cap')
+  assert.ok(opened.nodes.some((n) => n.id === 'fold:ses_a'), 'A folded again')
+  assert.deepEqual(opened.nodes.map((n) => n.id).sort(), plain.nodes.map((n) => n.id).sort(), 'what is drawn is what nothing opened draws')
+  assert.equal(opened.cantOpen, true)
+})
