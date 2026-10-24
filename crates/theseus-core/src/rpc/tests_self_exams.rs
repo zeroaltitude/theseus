@@ -552,6 +552,30 @@ async fn the_reviewer_does_not_force_the_tool_and_leaves_room_to_think() {
     assert!(req.max_tokens > 600, "always-on thinking spends a 600 cap");
 }
 
+/// The reviewer asks its own target model's forcing: on a Sonnet profile the
+/// call is not forced (theseus-7q9wt).
+#[tokio::test]
+async fn on_a_sonnet_profile_the_reviewers_call_is_not_forced() {
+    let verdict = crate::provider::Scripted::tools(
+        "",
+        &[(
+            "tu",
+            "judge_exam_item",
+            json!({"tests_behaviour": true, "answer_right": true, "not_gamed": true, "reason": "fair"}),
+        )],
+    );
+    let (c, fake) = acting_scripted(vec![verdict]);
+    let item = one_item(&c);
+    let reviewer = CoreReviewer {
+        core: &c,
+        profile: "sonnet".into(),
+    };
+    reviewer.review(&item).await.unwrap();
+    let sent = fake.requests();
+    assert_eq!(sent[0].model, "claude-sonnet-5-5");
+    crate::provider::one_tool::assert_unforced(&sent[0], "judge_exam_item");
+}
+
 /// A review cut at its cap says so (theseus-j06y6), not "no tool call".
 #[tokio::test]
 async fn a_review_cut_at_its_cap_says_so() {
