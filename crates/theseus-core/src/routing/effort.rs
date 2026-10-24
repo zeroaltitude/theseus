@@ -16,9 +16,13 @@
 //!   an answer of either applies only when its confidence is strictly above
 //!   `[routing] high_effort_confidence` (0.40, the owner's live bar of
 //!   2026-10-22); at or below, the turn runs at `high` and the row says
-//!   `held_high`, the answered level still recorded. The gate applies first
-//!   and the bounds clamp after; where both lower an answer, the reason is
-//!   the gate's. It holds whether or not the answer's band was sure.
+//!   `held_high`, the answered level still recorded. `xhigh` needs more
+//!   (theseus-goq94, the owner's call of 2026-10-23: it doubles the cost for
+//!   one solve in thirty): it applies only on a sure answer, so an unsure
+//!   `xhigh` runs `high` (`held_high_unsure`) whatever its confidence, and
+//!   never says `applied_unsure`. `max` keeps the bar alone, sure or not. The
+//!   gate applies first and the bounds clamp after; where both lower an
+//!   answer, the reason is the gate's.
 //! - **A routed profile's own effort is its floor** (theseus-53ujg.3): on a
 //!   profile a routing class chose (not the session's base), the turn runs at
 //!   no less than the profile's own `effort`, the level the profile is
@@ -77,6 +81,7 @@ pub enum EffortReason {
     HeldHigh,
     /// [`HeldHigh`](EffortReason::HeldHigh) for an answer under the question's
     /// confirm bar: `held_high` keeps meaning the sure one (theseus-t7b96).
+    /// An unsure `xhigh` is always held, above the bar too (theseus-goq94).
     HeldHighUnsure,
     /// Under the question's confirm bar and under `effort_confidence`.
     Unsure,
@@ -244,8 +249,14 @@ pub fn decide(
         return stand(EffortReason::Fixed);
     }
     let [lo, hi] = bounds;
-    // The gate first: an unsure xhigh or max is a high.
-    let held = level >= Effort::Xhigh && answer.confidence <= bars.high;
+    // The gate first: an xhigh on an unsure answer, or any xhigh or max at or
+    // under the bar, is a high.
+    // `xhigh` also needs a sure answer (theseus-goq94); `max` keeps the bar alone.
+    let held = match level {
+        Effort::Xhigh => !answer.sure || answer.confidence <= bars.high,
+        Effort::Max => answer.confidence <= bars.high,
+        _ => false,
+    };
     let gated = match held {
         true => Effort::High,
         false => level,
@@ -674,6 +685,32 @@ mod tests {
         assert_eq!(
             (d.reason, d.ran),
             (EffortReason::Applied, Some(Effort::Max))
+        );
+    }
+
+    /// The owner's call of 2026-10-23 (theseus-goq94): `xhigh` costs about
+    /// twice a `high` for one solve in thirty, so it applies only on a sure
+    /// answer. An unsure `xhigh` runs `high` even above the bar and never says
+    /// `applied_unsure`; a sure one applies, and `max` keeps its bar alone.
+    #[test]
+    fn an_unsure_xhigh_runs_high_even_above_the_bar() {
+        let r = runs(Some(Effort::Medium), false, true);
+        let d = decide(FULL, LIVE, &at("xhigh", 0.45, false), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::HeldHighUnsure, Some(Effort::High))
+        );
+        assert_eq!(d.reason.as_str(), "held_high_unsure");
+        let d = decide(FULL, LIVE, &at("xhigh", 0.45, true), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::Applied, Some(Effort::Xhigh))
+        );
+        // Only xhigh: an unsure max above the bar still runs at max.
+        let d = decide(FULL, LIVE, &at("max", 0.45, false), r, true, false);
+        assert_eq!(
+            (d.reason, d.ran),
+            (EffortReason::AppliedUnsure, Some(Effort::Max))
         );
     }
 

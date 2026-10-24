@@ -235,3 +235,33 @@ async fn a_400_on_the_messages_asks_again_without_them_and_remembers() {
     assert_eq!(effective(&next), Some(Effort::Medium));
     assert_eq!(r.claude.requests().len(), 3, "no further failed call");
 }
+
+/// The owner's call of 2026-10-23 (theseus-goq94): `xhigh` costs about twice a
+/// `high`, so it applies only on a sure answer. Jev's `xhigh` at 0.45 is above
+/// the 0.40 bar but under the effort question's confirm bar, and the request
+/// carries `high`; the same answer on `max` keeps the bar alone and runs at
+/// `max` (`an_unsure_max_at_0_42_runs_at_max_on_the_effort_bar`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unsure_xhigh_above_the_bar_runs_high() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "sophisticated", 0.95);
+    effort(&jev, "xhigh", 0.45);
+    let r = rig(Some(&jev), 1, |_| {});
+    let res = turn(
+        &r.core,
+        None,
+        "Weigh two designs for a crash-safe log.",
+        None,
+    )
+    .await;
+    assert_eq!(effective(&r.claude.requests()[0]), Some(Effort::High));
+    let route = res.route.unwrap();
+    assert_eq!(
+        (
+            route.effort.as_deref(),
+            route.effort_reason.as_deref(),
+            route.effort_applied.as_deref()
+        ),
+        (Some("xhigh"), Some("held_high_unsure"), Some("high"))
+    );
+}
