@@ -250,3 +250,47 @@ fn a_pair_that_cannot_reach_a_cluster_is_not_asked() {
         "joined already: {pairs:?}"
     );
 }
+
+/// KEY (theseus-f61px): a kept `same_kind` yes joins an unlisted name to a
+/// partner; when the partner is then listed by another path (the owner adds a
+/// kind naming it), the yes is void and the unlisted name mints on its own
+/// sessions, rather than waiting out the 30 days the kept answer lives.
+#[test]
+fn a_kept_yes_is_void_once_its_partner_is_listed_another_way() {
+    use crate::judge::onto::mint::{folds, leads, plan_with, Hints};
+    use theseus_protocol::OntologyKindAddParams;
+    let (core, _dir) = core();
+    let mut all = said(&["s1", "s2", "s3"], "Lantern Ledger");
+    all.extend(said(&["s4"], "Ledger App"));
+    let hints = Hints {
+        same: vec![("lanternledger".to_string(), "ledgerapp".to_string())],
+        ..Hints::default()
+    };
+    let now = now_unix_ms();
+    let write = |n: usize| format!("sweep-{now}-{n}-kind");
+
+    // The yes joins the two names: one cluster of four sessions.
+    let o = snapshot(&core);
+    let plan = plan_with(&o, &all, now, write, &hints);
+    assert_eq!((plan.minted.len(), plan.minted[0].sessions), (1, 4));
+
+    // The owner lists the partner by a kind of their own.
+    core.ontology_kind_add(
+        &OntologyKindAddParams {
+            name: "ledger-apps".into(),
+            description: "The apps that keep a ledger".into(),
+            examples: vec!["Ledger App".into()],
+            ..Default::default()
+        },
+        "the CLI",
+    )
+    .unwrap();
+    let o = snapshot(&core);
+    let names = folds(&all);
+    let lead = leads(&o, &names, &hints.same);
+    assert_eq!(lead.len(), 1, "the unlisted name leads: {lead:?}");
+    assert_eq!(lead[0].folds, vec!["lanternledger".to_string()]);
+    let plan = plan_with(&o, &all, now, write, &hints);
+    assert_eq!(plan.minted.len(), 1, "the unlisted name mints");
+    assert_eq!(plan.minted[0].sessions, 3);
+}
