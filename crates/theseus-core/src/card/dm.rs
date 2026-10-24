@@ -139,8 +139,9 @@ impl Core {
 
     /// One look: post what is due, once. How many went. The conditions are
     /// `due`'s, then a DM with the owner bound and the pacer's window open;
-    /// the proposals are read again under the writer handshake just before
-    /// the frame, so an answer that landed meanwhile is never overwritten.
+    /// the proposals are read again just before the frame, which narrows (does
+    /// not close) the window in which an answer that landed meanwhile is
+    /// overwritten: the writer handshake counts writers, it does not exclude them.
     pub async fn card_dm_tick(&self, now_ms: u64) -> Result<usize> {
         let cfg = &self.cfg.card;
         let hour = self.cfg.initiative.morning_hour;
@@ -167,6 +168,15 @@ impl Core {
 
     /// The frame: the posts and the proposals marked, written once.
     fn card_dm_write(&self, now_ms: u64) -> Result<usize> {
+        // The handshake can wait minutes: a needs-you or digest may have taken
+        // the pacer's window meanwhile, and these would be a second buzz in it.
+        if !self
+            .outbox
+            .pacer
+            .open(now_ms, 1000 * self.cfg.notify.unprompted_pace_secs)
+        {
+            return Ok(0);
+        }
         let all = state::proposals(&self.store)?;
         let hour = self.cfg.initiative.morning_hour;
         let mut frame = Vec::new();

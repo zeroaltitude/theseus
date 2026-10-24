@@ -21,8 +21,7 @@ use theseus_protocol::{
 use twilight_model::application::interaction::modal::ModalInteractionData;
 use twilight_model::application::interaction::Interaction;
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
-use twilight_model::channel::message::MessageFlags;
-use twilight_model::http::interaction::{InteractionResponseData, InteractionResponseType};
+use twilight_model::http::interaction::InteractionResponseType;
 
 use super::{origin_of, Shared};
 
@@ -203,6 +202,15 @@ impl Shared {
         who: &str,
         discord: Option<DiscordOrigin>,
     ) {
+        // Acknowledge first: `card.answer` writes between turns (`pass.writing()`),
+        // which can outlast Discord's three seconds while a turn runs.
+        self.respond(
+            i,
+            InteractionResponseType::DeferredUpdateMessage,
+            None,
+            false,
+        )
+        .await;
         let r = self
             .rpc
             .call::<_, CardAnswerResult>(
@@ -217,33 +225,23 @@ impl Shared {
                 },
             )
             .await;
-        match r {
+        let said = match r {
             Ok(done) => {
-                let data = InteractionResponseData {
-                    components: Some(Vec::new()),
-                    ..Default::default()
-                };
-                self.answer(i, InteractionResponseType::UpdateMessage, Some(data))
-                    .await;
-                self.followup(i, &told(option, &done)).await;
+                // A counted answer: the card's buttons go.
+                if let Err(e) = self
+                    .interact
+                    .interaction(i.application_id)
+                    .update_response(&i.token)
+                    .components(Some(&[]))
+                    .await
+                {
+                    self.board.error("card question", None, e);
+                }
+                told(option, &done)
             }
-            Err(e) => {
-                let data = InteractionResponseData {
-                    content: Some(super::capture_card::failed(&e)),
-                    flags: Some(MessageFlags::EPHEMERAL),
-                    allowed_mentions: Some(
-                        twilight_model::channel::message::AllowedMentions::default(),
-                    ),
-                    ..Default::default()
-                };
-                self.answer(
-                    i,
-                    InteractionResponseType::ChannelMessageWithSource,
-                    Some(data),
-                )
-                .await;
-            }
-        }
+            Err(e) => super::capture_card::failed(&e),
+        };
+        self.followup(i, &said).await;
     }
 }
 

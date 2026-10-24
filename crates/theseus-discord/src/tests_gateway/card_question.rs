@@ -113,11 +113,22 @@ async fn an_add_shows_keep_edit_not_this_and_keep_writes_the_record() {
         })
     })
     .await;
-    // The card itself is updated (a type 7 callback) with no components; the stand-in does
-    // not apply an update to a message, so the callback is what is read.
-    assert!(r.fake.replies().iter().any(|x| {
-        x.interaction.as_deref() == Some(pressed.as_str()) && x.response_type == Some(7)
-    }));
+    // The press is acknowledged first (a type 6 deferred update), before `card.answer`
+    // writes between turns; the card itself is then edited (the original response) with
+    // no components. The stand-in does not apply an edit to a message, so the calls are
+    // what is read.
+    let of_press: Vec<_> = r
+        .fake
+        .replies()
+        .into_iter()
+        .filter(|x| x.interaction.as_deref() == Some(pressed.as_str()))
+        .collect();
+    assert_eq!(of_press[0].kind, "callback", "{of_press:?}");
+    assert_eq!(of_press[0].response_type, Some(6), "{of_press:?}");
+    assert!(
+        of_press.iter().any(|x| x.kind == "original"),
+        "{of_press:?}"
+    );
 }
 
 #[tokio::test]
