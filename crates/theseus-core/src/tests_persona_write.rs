@@ -2,7 +2,7 @@
 //! at the write, a persona that awaits its soul, the default and retiring.
 
 use super::*;
-use theseus_protocol::{PersonaAddParams, PersonaKeyParams, PersonaSoulParams};
+use theseus_protocol::{PersonaAddParams, PersonaKeyParams, PersonaSetParams, PersonaSoulParams};
 
 const SOUL: &str = "A careful harbour pilot: plain words, dry humour, loves a clean chart. ⚓";
 
@@ -228,4 +228,41 @@ async fn the_default_moves_and_a_persona_retires() {
         .persona_add(&add("none", Some(SOUL)), &owner())
         .unwrap_err();
     assert!(format!("{e:#}").contains("route option"), "{e:#}");
+}
+
+/// A value is checked before it is written (moved from persona_cmd.rs, whose
+/// config edit is gone): a bad initiative names the allowed ones, an empty
+/// field and a two-line name are refused, and nothing moves.
+#[tokio::test]
+async fn a_bad_value_is_refused_with_the_allowed_ones() {
+    let r = rig();
+    r.core
+        .persona_add(&add("pilot", Some(SOUL)), &owner())
+        .unwrap();
+    let set = |f: fn(&mut PersonaSetParams)| {
+        let mut p = PersonaSetParams {
+            key: "pilot".into(),
+            ..Default::default()
+        };
+        f(&mut p);
+        r.core.persona_set(&p, &owner())
+    };
+    let e = set(|p| p.initiative = Some("loud".into())).unwrap_err();
+    assert!(
+        format!("{e:#}").contains("quiet, normal or chatty"),
+        "{e:#}"
+    );
+    assert!(set(|p| p.emoji = Some(" ".into())).is_err());
+    assert!(set(|p| p.name = Some("a\nb".into())).is_err());
+    let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
+    let c = o
+        .category(&theseus_ontology::CategoryId::new("persona", "pilot").unwrap())
+        .unwrap();
+    assert_eq!(
+        (
+            c.name.as_str(),
+            c.persona.as_ref().unwrap().emoji.as_deref()
+        ),
+        ("Pilot", None)
+    );
 }
