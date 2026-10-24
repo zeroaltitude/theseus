@@ -210,7 +210,7 @@ export default function Ops() {
   /** Move within the canvas: along a column (`j`/`k`) or across (`h`/`l`), the queue left of the first column. */
   const move = (dx: number, dy: number) => {
     if (a.lens === 'graph' && (region !== 'queue' || dx > 0)) {
-      const to = stepNode(graphRef.current ?? { nodes: [] }, region === 'queue' ? null : row?.id ?? null, dx, dy)
+      const to = stepNode(graphRef.current ?? { nodes: [] }, region === 'queue' ? null : row?.id ?? a.sel ?? null, dx, dy)
       if (to) pick(to); else if (dx < 0) pick(queue[0]?.key ?? null)
       return
     }

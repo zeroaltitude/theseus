@@ -368,7 +368,7 @@ const WALKABLE = new Set<GKind>(['conversation', 'task', 'step', 'job'])
 export function stepNode(g: Pick<Graph, 'nodes'>, fromId: string | null, dx: number, dy: number): string | null {
   const nodes = g.nodes.filter((n) => WALKABLE.has(n.kind))
   const byPos = (a: GNode, b: GNode) => a.y - b.y || a.x - b.x || (a.id < b.id ? -1 : 1)
-  const from = fromId ? nodes.find((n) => n.id === fromId) : undefined
+  const from = fromId ? nodes.find((n) => n.id === fromId || n.record?.id === fromId) : undefined
   if (!from) return [...nodes].sort(byPos).find((n) => n.needs)?.id ?? [...nodes].sort(byPos)[0]?.id ?? null
   if (dy) {
     const col = nodes.filter((n) => n.x === from.x && (dy > 0 ? n.y > from.y : n.y < from.y)).sort(byPos)

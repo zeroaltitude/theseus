@@ -202,6 +202,20 @@ test('the keys walk the graph’s nodes', () => {
   assert.ok(ids.length > 0)
 })
 
+test('the keys walk from a step node and from a task’s record id (join fix A)', () => {
+  // The page's selection can be a step's or a task's record id (`?sel=tsk_…`); the keys start from that node.
+  const records = [record('tsk_a', { session: 'ses_t2' }), record('tsk_s1', { parent: 'tsk_a', created_at_ms: NOW - 50 * MIN }), record('tsk_s2', { parent: 'tsk_a', created_at_ms: NOW - 40 * MIN })]
+  const g = lay(board().views, null, records)
+  const s1 = node(g, 'tsk_s1')!, s2 = node(g, 'tsk_s2')!
+  assert.equal(s1.kind, 'step')
+  assert.equal(s1.x, s2.x, 'both steps sit in one column')
+  const [top, low] = s1.y < s2.y ? [s1, s2] : [s2, s1]
+  assert.equal(stepNode(g, top.id, 0, 1), low.id, 'j from a step: the next step below')
+  assert.equal(node(g, 'ses_t2')!.record?.id, 'tsk_a')
+  assert.equal(stepNode(g, 'tsk_a', 1, 0), stepNode(g, 'ses_t2', 1, 0), 'l from a task’s record id is l from its node')
+  assert.equal(stepNode(g, 'tsk_a', 0, 1), stepNode(g, 'ses_t2', 0, 1), 'j from a task’s record id is j from its node')
+})
+
 test('redact masks a private or sensitive node’s title, not an open one’s', () => {
   const secret = { id: 'ses_harbour_7f3a2c', kind: 'task', title: 'Tide survey for the invented quay', data: 'sensitive' as const }
   assert.equal(shownTitle(secret, true), 'task 7f3a2c')
