@@ -162,7 +162,7 @@ impl Core {
     /// answer: one stopped on `max_tokens` is asked once more with more room,
     /// then the template stands in.
     pub async fn initiative_speak(self: &Arc<Self>, facts: &Facts<'_>) -> Spoken {
-        let persona = self.cfg.persona_for(None, None);
+        let persona = self.personas().persona_for(None, None);
         let id = crate::new_id("ini");
         let template = |cost: Micros, model: Option<String>, last: Option<&ModelResponse>| Spoken {
             id: id.clone(),
@@ -252,7 +252,7 @@ impl Core {
     /// Send a message to the owner's DM and write its `initiative.spoke` row
     /// in the same frame. The owner's alone: nothing reaches a shared place.
     pub fn initiative_post(&self, kind: &'static str, s: &Spoken) -> Result<()> {
-        let persona = self.cfg.persona_for(None, None);
+        let persona = self.personas().persona_for(None, None);
         let body =
             json!({"kind": "initiative", "what": kind, "id": s.id, "text": headed(kind, &s.text)});
         let (a, mut frame) = self.outbox.stage_to_operator(None, body)?;

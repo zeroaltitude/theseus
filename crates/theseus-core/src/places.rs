@@ -747,7 +747,7 @@ mod tests {
             "the bound DM's person by default"
         );
         let public: Vec<(String, bool)> = cfg
-            .context_paths(None, false)
+            .context_paths(&crate::personas::Book::of_config(&cfg), None, false)
             .into_iter()
             .map(|p| (p.path, p.public))
             .collect();

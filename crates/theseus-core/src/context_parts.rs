@@ -88,9 +88,9 @@ impl TurnRunner {
             open: rec.as_ref().and_then(|r| self.open_of(r)),
             ..self.view_of(session)
         };
-        let paths = self
-            .cfg
-            .context_paths(target.persona.as_deref(), target.engages);
+        let paths =
+            self.cfg
+                .context_paths(&self.personas(), target.persona.as_deref(), target.engages);
         let mut files = self.context_files.peek(&paths);
         if place.content_class() == PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);

@@ -159,7 +159,7 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 ## Persona, owner and standing wishes
 
 - **`persona`**: the persona as data: every persona, its voice, files and places. `theseus persona`;
-  `persona edit|import|history`.
+  `persona add|soul|set|retire|default|edit|import|history`.
 - **`persona voice`**: the voice a call speaks in; `persona voice audition` makes the greeting in several voices. `theseus persona voice`.
 - **`persona rate`**: rate the latest message Theseus sent unprompted. `theseus persona rate up`.
 - **`standing`**: the owner's standing orders, preferences and facts, kept in every prompt of their scope.

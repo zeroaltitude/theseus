@@ -615,6 +615,15 @@ fn the_vault_discord_section_loads_with_notice_embeds_off() {
 /// `[personas.<name>] files`, chosen by `[context] default_persona`. Every
 /// path must be absolute or start with `~/`, and the key is named when one
 /// is not. Loading checks spelling only: nothing is read.
+/// The context paths a config's own `[personas]` would carry, as (path, persona).
+fn paths_of(cfg: &Config, persona: Option<&str>) -> Vec<(String, Option<String>)> {
+    let book = crate::personas::Book::of_config(cfg);
+    cfg.context_paths(&book, persona, book.engaging())
+        .into_iter()
+        .map(|p| (p.path, p.persona))
+        .collect()
+}
+
 #[test]
 fn context_files_come_in_two_levels_and_must_be_absolute_or_home_paths() {
     let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n\
@@ -623,14 +632,15 @@ fn context_files_come_in_two_levels_and_must_be_absolute_or_home_paths() {
                     [personas.theseus]\nfiles = [\"~/w/persona.md\"]\n\n\
                     [personas.quiet]\n";
     let (cfg, warnings) = Config::parse(base).unwrap();
-    assert!(warnings.is_empty(), "{warnings:?}");
-    assert_eq!(cfg.persona(), Some("theseus"));
-    let paths = |persona: Option<&str>| -> Vec<(String, Option<String>)> {
-        cfg.context_paths(persona, cfg.persona_engaging())
-            .into_iter()
-            .map(|p| (p.path, p.persona))
-            .collect()
-    };
+    // The tables are read once, by the migration: the only thing the config
+    // says of them now is that they do nothing.
+    assert_eq!(warnings, cfg.persona_warnings());
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(
+        crate::personas::Book::of_config(&cfg).default_key(),
+        Some("theseus")
+    );
+    let paths = |persona: Option<&str>| paths_of(&cfg, persona);
     let system = |p: &str| (p.to_string(), None);
     // With two or more personas every persona's files are in the request
     // whoever is in play (theseus-c1uz), the system level first.
@@ -657,12 +667,7 @@ fn context_files_come_in_two_levels_and_must_be_absolute_or_home_paths() {
          [personas.theseus]\nfiles = [\"~/w/persona.md\"]\n",
     )
     .unwrap();
-    let one_paths = |persona: Option<&str>| -> Vec<(String, Option<String>)> {
-        one.context_paths(persona, one.persona_engaging())
-            .into_iter()
-            .map(|p| (p.path, p.persona))
-            .collect()
-    };
+    let one_paths = |persona: Option<&str>| paths_of(&one, persona);
     assert_eq!(
         one_paths(Some("theseus")),
         [system("~/w/USER.md"), all[2].clone()]
@@ -694,7 +699,13 @@ fn context_files_come_in_two_levels_and_must_be_absolute_or_home_paths() {
     // and `theseusd config` shows neither table.
     let (plain, w) = Config::parse("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n").unwrap();
     assert!(w.is_empty(), "{w:?}");
-    assert!(plain.context_paths(plain.persona(), false).is_empty());
+    assert!(plain
+        .context_paths(
+            &crate::personas::Book::of_config(&plain),
+            crate::personas::Book::of_config(&plain).default_key(),
+            false
+        )
+        .is_empty());
     let shown = toml::to_string_pretty(&plain).unwrap();
     assert!(
         !shown.contains("[context]") && !shown.contains("personas"),
@@ -740,12 +751,9 @@ fn an_unknown_default_persona_is_refused_naming_the_known_ones() {
     );
     assert!(e.contains("no [personas.<name>] table is defined"), "{e}");
     let (cfg, w) = Config::parse(&doc("[personas.theseus]\nfiles = [\"~/p.md\"]")).unwrap();
-    assert_eq!(cfg.persona(), None);
+    assert_eq!(crate::personas::Book::of_config(&cfg).default_key(), None);
     assert!(
-        w.len() == 1
-            && w[0].starts_with(
-                "[personas] defines theseus, but context.default_persona names none of them"
-            ),
+        w.len() == 1 && w[0].starts_with("[personas] and [context] default_persona are read once"),
         "{w:?}"
     );
 }

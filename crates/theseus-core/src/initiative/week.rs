@@ -60,7 +60,12 @@ impl Core {
             up_share: share(up, up + down),
             voiced: voiced.len() as u64,
             voiced_usd: voiced.iter().sum(),
-            level: self.cfg.persona_for(None, None).initiative.as_str().into(),
+            level: self
+                .personas()
+                .persona_for(None, None)
+                .initiative
+                .as_str()
+                .into(),
         })
     }
 }

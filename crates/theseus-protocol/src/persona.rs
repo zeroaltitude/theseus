@@ -121,6 +121,20 @@ pub struct PersonaInfo {
     /// Plain words about what is wrong, if anything.
     #[serde(default)]
     pub warnings: Vec<String>,
+    /// It has no soul yet (theseus-utfnl): listed, never offered to Jev,
+    /// never addressable.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub awaiting: bool,
+    /// The persona Jev's `none` engages.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_default: bool,
+    /// The soul's size in tokens, when it could be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "number"))]
+    pub soul_tokens: Option<u64>,
+    /// The soul is over `[context] persona_max_tokens`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub over_cap: bool,
 }
 
 /// `persona.list`'s answer.
@@ -136,6 +150,10 @@ pub struct PersonaListResult {
     /// The built-in default's size and digest.
     pub built_in_bytes: u64,
     pub built_in_digest: String,
+    /// `[context] persona_max_tokens`, the most a soul may be.
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub cap: u64,
     /// Bound places that name a persona, whatever the config has.
     #[serde(default)]
     pub places: Vec<PersonaPlace>,

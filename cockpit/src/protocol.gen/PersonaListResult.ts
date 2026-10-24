@@ -19,6 +19,10 @@ in_play?: string,
  */
 built_in_bytes: number, built_in_digest: string, 
 /**
+ * `[context] persona_max_tokens`, the most a soul may be.
+ */
+cap: number, 
+/**
  * Bound places that name a persona, whatever the config has.
  */
 places: Array<PersonaPlace>, };

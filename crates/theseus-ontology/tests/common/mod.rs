@@ -26,6 +26,7 @@ pub fn category(i: &str, name: &str, parent: Option<&str>) -> Category {
         retired_ms: None,
         handles: Vec::new(),
         merged_into: None,
+        persona: None,
     }
 }
 

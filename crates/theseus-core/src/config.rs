@@ -1401,14 +1401,7 @@ impl Config {
         let cfg = Self::from_toml(text).context("parsing config TOML")?;
         cfg.validate()?;
         let mut warnings = Vec::new();
-        if cfg.context.default_persona.is_none() && !cfg.personas.is_empty() {
-            warnings.push(format!(
-                "[personas] defines {}, but context.default_persona names none of them, so no \
-                 persona's files are compiled: until Jev chooses a persona (theseus-8kk), \
-                 context.default_persona is the only choice",
-                cfg.persona_names()
-            ));
-        }
+        warnings.extend(cfg.persona_warnings());
         Ok((cfg, warnings))
     }
 
@@ -1541,6 +1534,7 @@ impl Config {
         self.sessions.validate()?;
         self.threads.validate()?;
         self.persona_import.validate()?;
+        self.context.validate()?;
         self.cockpit.validate()?;
         self.routines.validate()?;
         self.watch_for.validate()?;
@@ -1566,7 +1560,7 @@ impl Config {
             if !self.personas.contains_key(name) {
                 anyhow::bail!(
                     "context.default_persona = {name:?} is not a persona: {}",
-                    match self.persona_names() {
+                    match self.personas.keys().cloned().collect::<Vec<_>>().join(", ") {
                         known if known.is_empty() => "no [personas.<name>] table is defined".into(),
                         known => format!("the personas are {known}"),
                     }
@@ -1928,18 +1922,13 @@ impl Config {
         })
     }
 
-    /// The persona in play (theseus-c48): `[context].default_persona`, the
-    /// only choice until Jev chooses one (theseus-8kk, theseus-0j2).
-    pub fn persona(&self) -> Option<&str> {
-        self.context.default_persona.as_deref()
-    }
-
     /// The context files a session gets while `persona` is in play, in the
     /// order its system carries them: the system level, then the
     /// persona's. `engaging`: a message here can engage another persona
-    /// (`TurnRunner::engages`), so every persona's files are carried.
+    /// (`TurnRunner::engages`), so every live persona's soul is carried.
     pub fn context_paths(
         &self,
+        book: &crate::personas::Book,
         persona: Option<&str>,
         engaging: bool,
     ) -> Vec<crate::context_files::ContextPath> {
@@ -1949,15 +1938,14 @@ impl Config {
             persona: None,
             public: p.readers() == crate::context_files::ContextReaders::Public,
         });
-        // Where a message can engage another persona, every persona's files
-        // are in the request (the persona layer), so a message's persona is
+        // Where a message can engage another persona, every persona's soul
+        // is in the request (the persona layer), so a message's persona is
         // a line in its tail and a switch changes no byte of the prefix
         // (theseus-c1uz). Elsewhere (a cli, task or headless session, whose
         // persona is fixed) only the persona in play is carried, and a change
         // of it is a `system_changed` recompile (theseus-nsp9l.1).
-        let own = self
-            .personas
-            .iter()
+        let own = book
+            .live()
             .filter(|(name, _)| engaging || Some(name.as_str()) == persona)
             .flat_map(|(name, p)| {
                 p.files.iter().map(|f| ContextPath {
@@ -1967,38 +1955,6 @@ impl Config {
                 })
             });
         system.chain(own).collect()
-    }
-
-    /// Two or more `[personas]`: where a message can engage another persona
-    /// (`TurnRunner::engages`) the request carries all their files, the
-    /// header is the built-in default whoever answers, and each message is
-    /// answered by the persona it calls for (`engage`, theseus-c1uz).
-    pub fn persona_engaging(&self) -> bool {
-        self.personas.len() >= 2
-    }
-
-    /// The persona in play for a session (theseus-slvl.2): the session's own
-    /// choice, else its place's, else `[context] default_persona`, else the
-    /// built-in default. A name no `[personas]` table has is passed over to
-    /// the next, never an error at a turn.
-    pub fn persona_for(&self, session: Option<&str>, place: Option<&str>) -> PersonaView {
-        match self.persona_key_for(session, place) {
-            Some(k) => PersonaView::of(k, &self.personas[k]),
-            None => PersonaView::built_in(),
-        }
-    }
-
-    /// The `[personas]` key `persona_for` finds, none for the built-in.
-    pub fn persona_key_for(&self, session: Option<&str>, place: Option<&str>) -> Option<&str> {
-        [session, place, self.context.default_persona.as_deref()]
-            .into_iter()
-            .flatten()
-            .find_map(|n| self.personas.get_key_value(n).map(|(k, _)| k.as_str()))
-    }
-
-    /// Every persona's name, comma-separated.
-    pub fn persona_names(&self) -> String {
-        self.personas.keys().cloned().collect::<Vec<_>>().join(", ")
     }
 
     /// A profile's model origin (theseus-a1wvq): its provider's endpoint, its

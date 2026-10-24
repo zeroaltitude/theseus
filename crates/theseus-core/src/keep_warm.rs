@@ -399,9 +399,9 @@ impl TurnRunner {
         {
             return forget("its profile does not cache for an hour, or keeps nothing warm");
         }
-        let paths = self
-            .cfg
-            .context_paths(target.persona.as_deref(), target.engages);
+        let paths =
+            self.cfg
+                .context_paths(&self.personas(), target.persona.as_deref(), target.engages);
         let mut spec = self.spec_of(&target, rec.kind, place, self.context_files.peek(&paths));
         spec.walk = self.walk(sid, place.class);
         // The effort the last request carried, not the profile's (Jev's level

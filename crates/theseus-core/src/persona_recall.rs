@@ -16,7 +16,6 @@ use std::sync::{Arc, Mutex};
 
 use theseus_memory::{Candidate, PersonaBoost};
 
-use crate::config::PersonaView;
 use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::turn::TurnRunner;
@@ -104,8 +103,7 @@ impl TurnRunner {
         if self.cfg.persona_import.own_boost <= 1.0 {
             return None;
         }
-        let cfg = self.cfg.personas.get(key)?;
-        let view = PersonaView::of(key, cfg);
+        let view = self.personas().get(key)?.clone();
         Some(PersonaScene {
             name: view.name,
             agent: self.persona.agent_of(&self.state_root(), key),

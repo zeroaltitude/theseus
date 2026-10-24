@@ -64,11 +64,14 @@ impl Core {
             session.and_then(|id| self.store.get_session::<SessionRecord>(id).ok().flatten());
         let key = match &record {
             Some(r) => self.runner.persona_of(r),
-            None => self.cfg.persona_key_for(None, None).map(str::to_string),
+            None => self
+                .personas()
+                .persona_key_for(None, None)
+                .map(str::to_string),
         };
         let view = key
             .as_deref()
-            .and_then(|k| self.cfg.personas.get(k).map(|c| PersonaView::of(k, c)))
+            .and_then(|k| self.personas().get(k).cloned())
             .unwrap_or_else(PersonaView::built_in);
         let from_persona = view.tts_voice.is_some();
         SpokenAs {

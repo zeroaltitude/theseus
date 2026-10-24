@@ -1,7 +1,7 @@
 // The ontology view's pure parts (theseus-8kk.2): the category tree's order and depth, and what a session's memberships
 // and guidance say that its newest compilation's manifest does not yet. Pure, with no import but the protocol's types,
 // so `node --test` runs its test (`cockpit/test/ontology.test.ts`) as it is.
-import type { LedgerEntry, OntologyCategory, OntologyKind, OntologyMembership } from '@protocol'
+import type { LedgerEntry, OntologyCategory, OntologyKind, OntologyMembership, PersonaAddParams, PersonaInfo, PersonaListResult } from '@protocol'
 import { localDay } from './learning.ts'
 
 export interface TreeRow { category: OntologyCategory; depth: number }
@@ -549,4 +549,45 @@ export function parseOriginParam(v: string | null): Set<string> {
 export function originParam(s: ReadonlySet<string>): string | null {
   const words = ORIGIN_CHOICES.filter((o) => s.has(o))
   return words.length ? words.join(',') : null
+}
+
+// Personas (theseus-utfnl): a `persona:<key>` category each, its soul one small file. The view reads `persona.list`.
+
+/** A persona's soul as the list shows it: live, awaiting its soul, or live but over `[context] persona_max_tokens`. */
+export type SoulState = 'live' | 'awaiting' | 'over_cap'
+
+export function soulState(p: Pick<PersonaInfo, 'awaiting' | 'over_cap'>): SoulState {
+  return p.awaiting ? 'awaiting' : p.over_cap ? 'over_cap' : 'live'
+}
+
+/** The state in words, with its size against the cap: `live · 312 of 2,000 tokens`. */
+export function soulWords(p: Pick<PersonaInfo, 'awaiting' | 'over_cap' | 'soul_tokens'>, cap: number): string {
+  const size = p.soul_tokens === undefined ? '' : ` · ${p.soul_tokens.toLocaleString('en-US')} of ${cap.toLocaleString('en-US')} tokens`
+  switch (soulState(p)) {
+    case 'awaiting': return 'awaiting its soul'
+    case 'over_cap': return `over its cap${size}: carried whole, trim it`
+    default: return `live${size}`
+  }
+}
+
+/** The personas that have a key (the built-in default has none), the default first, then by key. */
+export function personasOf(r: Pick<PersonaListResult, 'personas'>): PersonaInfo[] {
+  return r.personas
+    .filter((p) => p.key !== undefined)
+    .sort((a, b) => Number(!!b.is_default) - Number(!!a.is_default) || (a.key ?? '').localeCompare(b.key ?? ''))
+}
+
+/** What the add form sends: trimmed, and only what was written (a persona with no soul awaits it). */
+export function addParams(f: { key: string; name: string; emoji: string; card: string; soul: string }): PersonaAddParams {
+  const p: PersonaAddParams = { key: f.key.trim(), from: 'the cockpit' }
+  if (f.name.trim()) p.name = f.name.trim()
+  if (f.emoji.trim()) p.emoji = f.emoji.trim()
+  if (f.card.trim()) p.card = f.card.trim()
+  if (f.soul.trim()) p.soul = f.soul
+  return p
+}
+
+/** What the confirm says before a soul is written: the persona, the cap, and that the file is replaced (and kept). */
+export function soulAsk(key: string, cap: number): string {
+  return `Write the soul of ${key}? The file is replaced and the old one kept beside it. A soul over ${cap.toLocaleString('en-US')} tokens is refused. It goes live at the next compile.`
 }

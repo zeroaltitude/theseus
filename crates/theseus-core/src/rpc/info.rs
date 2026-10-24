@@ -26,17 +26,18 @@ impl Core {
     }
 
     /// The context files every session gets, and the persona in play with
-    /// its own (theseus-c48), as the config names them.
+    /// its own (theseus-c48), as the config and the ontology name them.
     pub fn context_status(&self) -> theseus_protocol::ContextStatus {
-        let persona = self.cfg.persona();
+        let book = self.personas();
+        let persona = book.default_key();
         theseus_protocol::ContextStatus {
             system_files: paths(&self.cfg.context.files),
             persona: persona.map(str::to_string),
             persona_files: persona
-                .and_then(|p| self.cfg.personas.get(p))
+                .and_then(|p| book.get(p))
                 .map(|p| paths(&p.files))
                 .unwrap_or_default(),
-            personas: self.cfg.personas.keys().cloned().collect(),
+            personas: book.live().map(|(k, _)| k.clone()).collect(),
             warnings: self.persona_warnings(),
         }
     }

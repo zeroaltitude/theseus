@@ -54,13 +54,13 @@ impl TurnRunner {
     /// none is the built-in default. Memory only: no read of the store but the
     /// first, and nothing at all while no persona is configured.
     pub fn persona_of(&self, session: &SessionRecord) -> Option<String> {
-        if self.cfg.personas.is_empty() {
+        let book = self.personas();
+        if book.is_empty() {
             return None;
         }
         let own = self.session_persona(session);
         let place = self.place_persona(&session.session_id);
-        self.cfg
-            .persona_key_for(own.as_deref(), place.as_deref())
+        book.persona_key_for(own.as_deref(), place.as_deref())
             .map(str::to_string)
     }
 
@@ -79,7 +79,7 @@ impl TurnRunner {
     /// replay, the census.
     pub fn engages(&self, session: &SessionRecord) -> bool {
         use crate::tools_defer::PlaceKind;
-        if !self.cfg.persona_engaging() {
+        if !self.personas().engaging() {
             return false;
         }
         match self.place_kind(&session.session_id, session.task.is_some()) {
@@ -143,13 +143,13 @@ impl TurnRunner {
     /// and the new state, both in the turn's next frame. A first sighting
     /// stores the state and says nothing.
     pub(super) fn observe_persona(&self, t: &mut Turn<'_>, target: &Target, spec: &RequestSpec) {
+        self.alert_over_cap(spec);
         let Some(key) = target.persona.as_deref() else {
             return;
         };
-        let Some(p) = self.cfg.personas.get(key) else {
+        let Some(view) = self.personas().get(key).cloned() else {
             return;
         };
-        let view = crate::config::PersonaView::of(key, p);
         let Some(now) =
             crate::persona::sighting(&view, &spec.context_files, theseus_protocol::now_unix_ms())
         else {
@@ -181,6 +181,45 @@ impl TurnRunner {
             }
         }
     }
+}
+
+impl TurnRunner {
+    /// A soul the compile carried over `[context] persona_max_tokens` (a hand
+    /// edit, or a migrated file): carried whole, never cut, and said to the
+    /// owner once for each digest. A shared place's withheld file says
+    /// nothing of its size.
+    fn alert_over_cap(&self, spec: &RequestSpec) {
+        let cap = self.cfg.context.persona_cap();
+        let book = self.personas();
+        for f in &spec.context_files {
+            let (Some(key), Some(digest)) = (f.persona.as_deref(), f.digest.as_deref()) else {
+                continue;
+            };
+            let tokens = f.bytes.div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
+            if f.withheld.is_some() || tokens <= cap || !self.persona.first_over_cap(key, digest) {
+                continue;
+            }
+            let name = book.get(key).map_or(key, |v| v.name.as_str());
+            let text = over_cap_text(name, &f.path, tokens, cap);
+            if let Err(e) = self
+                .outbox
+                .to_operator(None, serde_json::json!({"kind": "notice", "text": text}))
+            {
+                tracing::warn!(persona = key, error = %format!("{e:#}"), "the over-cap note was not posted");
+            }
+        }
+    }
+}
+
+/// The note: a soul over its cap is still carried whole.
+pub(crate) fn over_cap_text(name: &str, path: &str, tokens: u64, cap: u64) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Alert,
+        &format!("Persona {name}'s soul is over its cap"),
+        &format!("the compile carried {path}: {tokens} tokens, the cap is {cap}"),
+        "It is carried whole and sits in every DM's cached persona layer. Trim it to the cap: \
+         a persona is one small file.",
+    )
 }
 
 /// A persona's unreadable file, said to the owner (theseus-x8b9k).

@@ -956,6 +956,7 @@ mod earned;
 mod horizon;
 mod link;
 mod onto;
+mod persona_soul;
 mod remind;
 mod reply;
 mod seal;

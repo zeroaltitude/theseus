@@ -55,7 +55,7 @@ mod forecast;
 mod grants;
 mod judge_latency;
 mod memory_read;
-mod ontology;
+pub(crate) mod ontology;
 pub(crate) mod ontology_kinds;
 pub(crate) mod ontology_machine;
 pub(crate) mod ordered;
@@ -67,6 +67,7 @@ mod people;
 mod persona;
 mod persona_import;
 mod persona_view;
+mod persona_write;
 mod policy;
 mod prefix;
 mod projects;
@@ -999,6 +1000,11 @@ impl Core {
         // stored list, offered at once; each starts after serving.
         if let Err(e) = core.seed_extensions() {
             tracing::warn!(error = %format!("{e:#}"), "the loaded extensions did not read");
+        }
+        // `[personas]`, read once (theseus-utfnl): one frame at the first
+        // start that has them, nothing after.
+        if let Err(e) = core.migrate_personas() {
+            tracing::warn!(error = %format!("{e:#}"), "the personas were not migrated");
         }
         // The loaded flows (theseus-pw1q.21.4): one META key, and each one's
         // frozen copy read back and checked against its digest.

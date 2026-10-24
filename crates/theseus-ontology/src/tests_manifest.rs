@@ -21,6 +21,7 @@ fn category(i: &str, name: &str, parent: Option<&str>, by: &str) -> Category {
         retired_ms: None,
         handles: Vec::new(),
         merged_into: None,
+        persona: None,
     }
 }
 

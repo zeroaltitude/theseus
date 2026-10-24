@@ -92,7 +92,13 @@ fn scored(c: &Arc<Core>, picks: Vec<(String, f64)>) -> Ask {
 fn rig(default_persona: Option<&str>, boost: f64) -> Rig {
     rig_with(MemoryMode::Canary, |c| {
         c.memory.canary_fraction = 1.0;
-        c.personas.insert("wren".into(), PersonaConfig::default());
+        c.personas.insert(
+            "wren".into(),
+            PersonaConfig {
+                files: vec![crate::personas::test_soul("wren")],
+                ..Default::default()
+            },
+        );
         c.context.default_persona = default_persona.map(str::to_string);
         c.persona_import.own_boost = boost;
     })

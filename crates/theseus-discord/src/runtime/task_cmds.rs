@@ -263,6 +263,12 @@ impl Shared {
                 send(What::NewTaskSubmit(start_task::Submit::of(m)))
             }
             Some(InteractionData::ModalSubmit(m))
+                if m.custom_id.starts_with(super::persona_soul::MODAL) =>
+            {
+                self.persona_soul_modal(i, m, &who).await;
+                true
+            }
+            Some(InteractionData::ModalSubmit(m))
                 if m.custom_id.starts_with(crate::render::answer_v2::MODAL) =>
             {
                 self.answer_modal(i, m, &who).await;

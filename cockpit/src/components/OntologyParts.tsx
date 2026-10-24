@@ -39,6 +39,7 @@ export function useOntologyWrite() {
     } finally {
       await qc.invalidateQueries({ queryKey: ['ontology.list'] })
       await qc.invalidateQueries({ queryKey: ['ontology.proposals'] })
+      await qc.invalidateQueries({ queryKey: ['persona.list'] })
       await qc.invalidateQueries({ queryKey: ['compilation.list'] })
       setBusy(false)
     }

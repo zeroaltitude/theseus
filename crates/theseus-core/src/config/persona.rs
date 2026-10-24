@@ -150,3 +150,33 @@ impl PersonaConfig {
 
 /// The card's cap, in characters: about 60 tokens with room.
 pub const CARD_MAX: usize = 600;
+
+impl crate::config::Config {
+    /// What the config says of personas that no longer does anything
+    /// (theseus-utfnl): `[personas]` and `[context] default_persona` are read
+    /// once, by the migration at the first start of the version that moved
+    /// personas into the ontology, and ignored after it. One warning at each
+    /// start while they stay in the file, naming any file a persona listed
+    /// beyond its first, which is not carried (a persona is one small file).
+    pub fn persona_warnings(&self) -> Vec<String> {
+        if self.personas.is_empty() && self.context.default_persona.is_none() {
+            return Vec::new();
+        }
+        let mut text = String::from(
+            "[personas] and [context] default_persona are read once, at the first start of this \
+             version, and the personas are the ontology's now (`theseus persona list`, `add`, \
+             `soul`): they do nothing here, and the file may drop them",
+        );
+        for (key, p) in &self.personas {
+            if p.files.len() > 1 {
+                let rest: Vec<&str> = p.files[1..].iter().map(ContextEntry::path).collect();
+                text.push_str(&format!(
+                    "; persona {key}'s soul is {}, and its other files are no longer carried: {}",
+                    p.files[0].path(),
+                    rest.join(", ")
+                ));
+            }
+        }
+        vec![text]
+    }
+}

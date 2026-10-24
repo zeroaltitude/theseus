@@ -21,7 +21,8 @@ use std::sync::Mutex;
 
 use theseus_judge::band::Band;
 
-use crate::config::{PersonaConfig, PersonaView};
+use crate::config::PersonaView;
+use crate::personas::Book;
 
 /// One persona a message may be answered as.
 #[derive(Debug, Clone, PartialEq)]
@@ -30,6 +31,8 @@ pub struct Choice {
     pub key: Option<String>,
     pub name: String,
     pub card: Option<String>,
+    /// What Jev's `none` engages: the default persona, else the built-in.
+    pub is_default: bool,
 }
 
 impl Choice {
@@ -38,25 +41,73 @@ impl Choice {
             key: view.key.clone(),
             name: view.name.clone(),
             card: view.card.clone(),
+            is_default: false,
+        }
+    }
+
+    /// The built-in default, which answers where no persona is the default.
+    pub fn built_in() -> Self {
+        Self {
+            is_default: true,
+            ..Self::of(&PersonaView::built_in())
         }
     }
 }
 
-/// The personas a place may be answered as: every configured one in a
-/// private place; in a shared place its own and those marked `shareable`.
-/// None unless two or more could answer (the built-in default counts only
-/// when it is the place's own or addressed by name).
-pub fn choices(
-    personas: &std::collections::BTreeMap<String, PersonaConfig>,
-    shared: bool,
-    own: Option<&str>,
-) -> Vec<Choice> {
-    let allowed = |k: &str, p: &PersonaConfig| !shared || p.shareable || own == Some(k);
-    personas
+/// The route option that engages the default persona (route.v7's persona
+/// question has `prior` as its one static option; this one is added with the
+/// personas, theseus-utfnl).
+pub const NONE: &str = "none";
+
+/// The card `none` shows when the default persona has none.
+pub const NONE_CARD: &str =
+    "No specialist: the general assistant, for anything the other cards do not cover.";
+
+/// The personas a place may be answered as: every live one in a private
+/// place; in a shared place its own and those marked `shareable`. The
+/// default persona is marked, and the built-in default is among them only
+/// where no persona is the default, so `none` always has one to engage.
+pub fn choices(book: &Book, shared: bool, own: Option<&str>) -> Vec<Choice> {
+    let default = book.default_live();
+    let mut out: Vec<Choice> = book
+        .live()
+        .filter(|(k, v)| !shared || v.shareable || own == Some(k.as_str()))
+        .map(|(k, v)| Choice {
+            is_default: default == Some(k.as_str()),
+            ..Choice::of(v)
+        })
+        .collect();
+    if default.is_none() {
+        out.push(Choice::built_in());
+    }
+    out
+}
+
+/// route.v7's persona items: every option with a card, the default persona
+/// not among them, and `none` (the default persona's name and card, else the
+/// general assistant's) in its place. A persona without a card is never
+/// offered but as the default.
+pub fn inputs(options: &[Choice]) -> Vec<theseus_judge::builders::PersonaInput> {
+    let default = options.iter().find(|o| o.is_default);
+    let mut out: Vec<theseus_judge::builders::PersonaInput> = options
         .iter()
-        .filter(|(k, p)| allowed(k, p))
-        .map(|(k, p)| Choice::of(&PersonaView::of(k, p)))
-        .collect()
+        .filter(|o| !o.is_default)
+        .filter_map(|o| {
+            Some(theseus_judge::builders::PersonaInput {
+                id: o.key.clone()?,
+                name: o.name.clone(),
+                card: o.card.clone()?,
+            })
+        })
+        .collect();
+    out.push(theseus_judge::builders::PersonaInput {
+        id: NONE.into(),
+        name: default.map_or_else(|| crate::config::DEFAULT_NAME.into(), |d| d.name.clone()),
+        card: default
+            .and_then(|d| d.card.clone())
+            .unwrap_or_else(|| NONE_CARD.into()),
+    });
+    out
 }
 
 /// How the persona came to answer.
@@ -217,9 +268,10 @@ pub fn decide(
     let Some(a) = answer else {
         return prior(prior_of);
     };
-    let picked = options
-        .iter()
-        .find(|o| o.key.as_deref() == Some(a.choice.as_str()));
+    let picked = options.iter().find(|o| match a.choice.as_str() {
+        NONE => o.is_default,
+        id => o.key.as_deref() == Some(id),
+    });
     let (Some(c), true) = (picked, allowed && a.acts) else {
         return Engaged {
             jev,
@@ -418,6 +470,7 @@ mod tests {
             key: key.map(str::to_string),
             name: name.into(),
             card: (!card.is_empty()).then(|| card.into()),
+            is_default: false,
         }
     }
 
@@ -513,6 +566,55 @@ mod tests {
         assert_eq!(who(None, Some(&ghost), true, msg).how, How::Prior);
     }
 
+    fn with_default(default: Option<&str>) -> Vec<Choice> {
+        let mut o = options();
+        o.pop();
+        for c in &mut o {
+            c.is_default = c.key.as_deref() == default;
+        }
+        if default.is_none() {
+            o.push(Choice::built_in());
+        }
+        o
+    }
+
+    /// `none` is the default persona: Jev picking it engages it.
+    #[test]
+    fn none_engages_the_default() {
+        let o = with_default(Some("alder"));
+        let sure = answer(NONE, 0.95, Band::Act, true);
+        let e = decide(&o[0], &o, None, None, Some(&sure), true, "hello");
+        assert_eq!((e.key.as_deref(), e.how), (Some("alder"), How::Jev));
+        assert_eq!(e.jev.as_deref(), Some("none"));
+    }
+
+    /// With no persona marked default `none` is the built-in.
+    #[test]
+    fn none_with_no_default_is_the_built_in() {
+        let o = with_default(None);
+        let sure = answer(NONE, 0.95, Band::Act, true);
+        let e = decide(&o[1], &o, None, None, Some(&sure), true, "hello");
+        assert_eq!((e.key, e.name.as_str(), e.how), (None, "Theseus", How::Jev));
+    }
+
+    /// The default persona is Jev's `none` item, with its own name and card
+    /// (else the general assistant's), and not an item of its own too.
+    #[test]
+    fn the_default_is_not_offered_twice() {
+        let ids = |o: &[Choice]| -> Vec<String> { inputs(o).into_iter().map(|p| p.id).collect() };
+        let mut o = with_default(Some("alder"));
+        assert_eq!(ids(&o), ["birch", "none"]);
+        let card = o[1].card.take();
+        let none = inputs(&o).pop().unwrap();
+        assert_eq!(none.name, "Alder");
+        assert_eq!(none.card, NONE_CARD, "a default with no card");
+        o[1].card = card.clone();
+        assert_eq!(inputs(&o).pop().unwrap().card, card.unwrap());
+        let o = with_default(None);
+        assert_eq!(ids(&o), ["birch", "alder", "none"]);
+        assert_eq!(inputs(&o).pop().unwrap().name, "Theseus");
+    }
+
     /// An explicit address wins at confidence 1, over Jev's pick, which is
     /// kept as a label.
     #[test]
@@ -552,7 +654,8 @@ mod tests {
     #[test]
     fn a_shared_place_offers_its_own_and_the_shareable() {
         use crate::config::PersonaConfig;
-        let mut ps = std::collections::BTreeMap::new();
+        let mut cfg = crate::config::Config::example();
+        let ps = &mut cfg.personas;
         ps.insert("birch".to_string(), PersonaConfig::default());
         ps.insert(
             "alder".to_string(),
@@ -562,8 +665,9 @@ mod tests {
             },
         );
         ps.insert("cedar".to_string(), PersonaConfig::default());
+        let book = Book::of_config(&cfg);
         let keys = |shared, own: Option<&str>| -> Vec<String> {
-            choices(&ps, shared, own)
+            choices(&book, shared, own)
                 .into_iter()
                 .filter_map(|c| c.key)
                 .collect()
