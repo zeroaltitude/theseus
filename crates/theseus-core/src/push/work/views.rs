@@ -12,7 +12,10 @@ use theseus_protocol::work::{
 };
 use theseus_protocol::{Attention, Level};
 
-use super::{answered, eta, hm, horizon, is_job, step_state, ActIn, EndedWake, ExecIn, WorkBoard};
+use super::{
+    answered, eta, hm, horizon, is_job, step_paused, step_state, ActIn, EndedWake, ExecIn,
+    WorkBoard,
+};
 
 /// A title's longest: a command or a note cut to a line.
 const TITLE_CHARS: usize = 120;
@@ -508,6 +511,9 @@ impl WorkBoard {
         v.session_id = Some(t.origin.session.clone());
         v.title = line(&t.title);
         v.state = step_state(t.state);
+        // A suspended record (cancelled or out of budget, recoverable) is held,
+        // as an owner-paused task is: one attention rule reads both (theseus-g00vv).
+        v.paused = step_paused(t.state);
         v.started_at_ms = t.created_at_ms;
         v.state_since_ms = t.updated_at_ms;
         if t.state.is_closed() {

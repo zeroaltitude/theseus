@@ -1138,6 +1138,14 @@ fn notice_of(prev: Option<&WorkView>, next: &WorkView, rules: &Rules) -> Option<
     policy(prev, next, rules, &hm)
 }
 
+/// Whether a record's step is held, not under way: a suspended record is a
+/// cancelled or out-of-budget execution, recoverable, so its step sets the
+/// view's `paused` as an owner-paused task does, and attention reads both the
+/// same way ("paused", at rest; theseus-g00vv).
+pub(super) fn step_paused(s: TaskState) -> bool {
+    s == TaskState::Suspended
+}
+
 /// A task record's state, as the work board says it.
 fn step_state(s: TaskState) -> WorkState {
     match s {
