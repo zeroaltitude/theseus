@@ -8,6 +8,11 @@
 //!   it rests on (`settle`). A crash between the two leaves a live record and
 //!   an open proposal; answering again finds the record already live (the
 //!   same kind, scope and text) and settles the proposal.
+//! - **Scope** (theseus-ly75u): `keep` and `edit` take the owner's scope in
+//!   place of the proposal's; `scope` on a kept proposal writes its record
+//!   again in the new scope (`standing.add` with `replaces`, so the old one
+//!   ends in the same frame; the same kind, words and source), then the
+//!   proposal with the new record's id and a `card.answered` row.
 //! - **Not this** is the same key written again as declined: the sources are
 //!   seen for good, and the statement's words are never proposed again.
 //! - **Expiry** is applied when the card is read or the job runs
@@ -15,19 +20,23 @@
 //!   by `expiry`, in one frame with its row. No timer.
 
 use anyhow::{anyhow, bail, Result};
-use theseus_protocol::{CardListResult, CardProposal, ProposalState, CARD_LIST_ANSWERED};
+use theseus_protocol::{
+    CardListResult, CardProposal, ProposalState, StandingRecord, CARD_LIST_ANSWERED,
+};
 
 use super::state::{self, State};
 use crate::fact::card::CardAnswered;
 use crate::judge::spend;
 use crate::rpc::Core;
 
-/// An option's word, any case: `keep`, `edit`, `decline`.
+/// An option's word, any case: `keep`, `edit`, `decline`; or `scope`, the
+/// owner's move of a kept proposal's record (theseus-ly75u).
 pub fn option_of(s: &str) -> Option<&'static str> {
     match s.trim().to_lowercase().replace(['_', '-'], " ").as_str() {
         "keep" | "k" | "yes" | "1" => Some("keep"),
         "edit" | "e" | "2" => Some("edit"),
         "decline" | "not this" | "no" | "drop" | "3" => Some("decline"),
+        "scope" => Some("scope"),
         _ => None,
     }
 }
@@ -80,13 +89,28 @@ impl Core {
         Ok(p.clone())
     }
 
+    /// The kept proposal `id` names, or why there is none: what a re-scope
+    /// moves.
+    pub(crate) fn card_kept(&self, id: &str) -> Result<CardProposal> {
+        let all = theseus_store::blocking(|| state::proposals(&self.store))?;
+        let p = state::resolve(&all, id).map_err(|e| anyhow!(e))?;
+        if p.state != ProposalState::Kept || p.standing_id.is_none() {
+            bail!(
+                "{} is {}: only a kept proposal's record can be moved to another scope",
+                p.id,
+                p.state.name()
+            );
+        }
+        Ok(p.clone())
+    }
+
     /// Write `prop`'s answer: the proposal as `state` with the words kept (when
-    /// they were edited) and the standing record's id, and its row.
+    /// they were edited), the standing record's id and scope, and its row.
     pub(crate) async fn card_settle(
         &self,
         prop: &CardProposal,
         option: &str,
-        kept: Option<(String, String)>,
+        kept: Option<(String, &StandingRecord)>,
         by: &str,
         via: &str,
     ) -> Result<CardProposal> {
@@ -94,11 +118,13 @@ impl Core {
         next.answered_ms = Some(theseus_protocol::now_unix_ms());
         next.answered_by = Some("owner".into());
         match kept {
-            Some((text, standing_id)) => {
+            Some((text, record)) => {
                 if text != prop.text {
                     next.kept_text = Some(text);
                 }
-                next.standing_id = Some(standing_id);
+                // The scope it holds in: the owner's, when he named one.
+                next.scope = record.scope.clone();
+                next.standing_id = Some(record.id.clone());
                 next.state = ProposalState::Kept;
             }
             None => next.state = ProposalState::Declined,

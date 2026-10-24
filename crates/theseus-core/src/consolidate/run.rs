@@ -546,7 +546,7 @@ impl Core {
         hold.settle(cost);
         let (text, model, cost, cut) = match answered {
             Ok(resp) => {
-                let cut = resp.stop_reason.as_deref() == Some("max_tokens");
+                let cut = crate::provider::hit_cap(resp.stop_reason.as_deref());
                 (resp.text.trim().to_string(), resp.model, cost, cut)
             }
             Err(e) => {
@@ -568,11 +568,7 @@ impl Core {
         let entry = pure::entry(&text);
         // A cut-off answer is rejected for its form, never kept (theseus-050g2).
         let verdict = match cut {
-            true => Verdict::Rejected(
-                format!("the answer stopped at its cap of {MAX_TOKENS} tokens (max_tokens)"),
-                Vec::new(),
-                None,
-            ),
+            true => Verdict::Rejected(crate::provider::cap_phrase(MAX_TOKENS), Vec::new(), None),
             false => self.verdict(&id, entry.text, sources).await,
         };
         let session = match &verdict {
@@ -900,8 +896,10 @@ impl Verdict {
 /// failed call's row has no text, and counts as nothing), unless every
 /// answer was rejected for its form (its `synthesis.checked` row `rejected`
 /// with no `judgment`: the deterministic checks, never Jev) and there are
-/// fewer than [`FORM_TRIES`]. Jev's rejection, a kept synthesis, or an
-/// answer with no checked row leaves it done.
+/// fewer than [`FORM_TRIES`]. An answer cut at its cap with no text at all
+/// (a model that spent the cap thinking, theseus-kf4pf) is rejected for its
+/// form too, so its row counts as a try. Jev's rejection, a kept synthesis,
+/// or an answer with no checked row leaves it done.
 fn done_clusters(
     proposed: &[LedgerRow],
     checked: &[LedgerRow],
@@ -917,10 +915,13 @@ fn done_clusters(
     // Each cluster's answers, and the fault of its last one if every one
     // was rejected for its form (oldest first, so the last is the newest).
     let mut answers: BTreeMap<&str, (usize, Option<&str>)> = BTreeMap::new();
-    for r in proposed
-        .iter()
-        .filter(|r| r.data["text"].as_str().is_some_and(|t| !t.is_empty()))
-    {
+    let counts = |r: &LedgerRow| {
+        r.data["text"].as_str().is_some_and(|t| !t.is_empty())
+            || r.data["synthesis_id"]
+                .as_str()
+                .is_some_and(|id| form.contains_key(id))
+    };
+    for r in proposed.iter().filter(|r| counts(r)) {
         let Some(cluster) = r.data["cluster"].as_str() else {
             continue;
         };

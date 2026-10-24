@@ -114,3 +114,67 @@ pub fn export_text(now_ms: u64) -> String {
     }
     out
 }
+
+/// An assistant's own setup note (theseus-ly75u): every line speaks to the
+/// assistant about running itself, so none is evidence about the owner.
+pub const SETUP_LINES: [&str; 3] = [
+    "You are the lantern keeper's helper and you answer in a calm voice",
+    "Read this file first at every session start, before anything else",
+    "Keep the daily log under the notes folder before the evening ends",
+];
+/// The owner's line in a USER file that also holds an assistant's line.
+pub const OWNER_LINE: &str = "Prefers tide tables in metric units with the high water first";
+/// That file's assistant line.
+pub const HELPER_LINE: &str = "You keep the harbour ledger and read it again each session";
+/// A line one task said, never the owner's lasting preference.
+pub const ONE_TASK_LINE: &str = "No builds in this task, the runner is busy with the survey";
+
+/// The invented archive's additions for the setup and one-task rules: an
+/// assistant's setup note filed as feedback, a USER file mixing the owner's
+/// line with the assistant's, and a decision whose line holds for one task.
+/// Kept apart from [`export`], so the committed fixture and its tests stand.
+pub fn setup_export(now_ms: u64) -> Vec<Value> {
+    let setup = SETUP_LINES.map(|l| format!("- {l}")).join("\n");
+    let mixed = format!("- {OWNER_LINE}\n- {HELPER_LINE}");
+    let eps = [
+        Ep {
+            n: 21,
+            place: ("file", Some("lantern-setup.md")),
+            sensitivity: "personal",
+            partner: None,
+            book_hint: None,
+            triage: None,
+            days_ago: 6,
+            owner: &[setup.as_str()],
+            outside: &[],
+        },
+        Ep {
+            n: 22,
+            place: ("file", Some("user-harbour.md")),
+            sensitivity: "personal",
+            partner: None,
+            book_hint: None,
+            triage: None,
+            days_ago: 6,
+            owner: &[mixed.as_str()],
+            outside: &[],
+        },
+        Ep {
+            n: 23,
+            place: ("dm", None),
+            sensitivity: "personal",
+            partner: None,
+            book_hint: None,
+            triage: Some("decision_or_preference"),
+            days_ago: 1,
+            owner: &[ONE_TASK_LINE],
+            outside: &[],
+        },
+    ];
+    let mut out: Vec<Value> = eps.iter().map(|e| episode(now_ms, e)).collect();
+    // The setup note is feedback by its path, as a harness's notes folder is.
+    out[0]["labels"]["topic"] = json!(["feedback"]);
+    let h = hash_of(&out[0]);
+    out[0]["hash"] = json!(h);
+    out
+}

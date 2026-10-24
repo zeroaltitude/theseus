@@ -19,6 +19,16 @@ evidence: number,
  */
 withheld: number, 
 /**
+ * Lines left out as an assistant's setup (its instructions to itself),
+ * not the owner's words (theseus-ly75u).
+ */
+setup: number, 
+/**
+ * Lines and statements left out as one task's, one repository's,
+ * branch's or run's: the card holds what lasts.
+ */
+one_task: number, 
+/**
  * Clusters of near-duplicate lines, and those worth a call (mostly new).
  */
 clusters: number, fresh: number, 
@@ -42,4 +52,9 @@ at_most_usd: number, spent_today_usd: number, day_usd: number,
 /**
  * Why it stopped short (`full`, `budget`, `off`, `done`, a failure), if it did.
  */
-stopped?: string | null, };
+stopped?: string | null, 
+/**
+ * Statements of one call that gave opposite instructions: the one
+ * kept and the one not offered, a line each.
+ */
+conflicts?: Array<string>, };

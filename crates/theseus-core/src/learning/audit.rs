@@ -116,8 +116,15 @@ fn question_text(q: &QuestionDef) -> String {
     }
 }
 
-/// The request for one state.
-pub fn request_for(pack: &Pack, state: &str, model: &str, max_tokens: u32) -> ProviderRequest {
+/// The request for one state, with `thinking` as `catalog::thinking_off`
+/// gives it for `model` (theseus-1iqg0: a model that thinks by default spends
+/// a cap this small on thinking).
+pub fn request_for(
+    pack: &Pack,
+    state: &str,
+    (model, thinking): (&str, Option<Value>),
+    max_tokens: u32,
+) -> ProviderRequest {
     let questions: Vec<String> = asked(pack).into_iter().map(question_text).collect();
     let content = format!(
         "State:\n{state}\n\nQuestions:\n{}\n\nReply with one JSON object.",
@@ -129,7 +136,7 @@ pub fn request_for(pack: &Pack, state: &str, model: &str, max_tokens: u32) -> Pr
         system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": content}]})],
         tools: Vec::new(),
-        thinking: None,
+        thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),
@@ -212,6 +219,23 @@ fn send_on_runtime(
     .and_then(|r| r)
 }
 
+/// Why the run stops before a request that would pass the audit's limit.
+fn limit_words(need: Micros, limit: Micros, spent: Micros) -> String {
+    format!(
+        "the next request would reserve {}, past [judge] audit_limit_usd ({}) with {} spent",
+        crate::narrative::dollars(need),
+        crate::narrative::dollars(limit),
+        crate::narrative::dollars(spent)
+    )
+}
+
+/// The seed of a run that names none: the sha256 of its id.
+fn seed_of(id: &str) -> u64 {
+    use sha2::Digest;
+    let h = sha2::Sha256::digest(id.as_bytes());
+    u64::from_be_bytes(h[..8].try_into().expect("8 bytes"))
+}
+
 /// One label the run writes.
 struct Labeled {
     id: String,
@@ -263,6 +287,15 @@ impl Core {
         rx.await.context("the audit's thread ended")?.1
     }
 
+    /// The state a judgment's blob holds, as Jev read it.
+    fn state_of(&self, s: &Seen) -> Option<String> {
+        s.judgment.context["blob"]
+            .as_str()
+            .and_then(|d| self.store.blobs().base64(d))
+            .and_then(|b| crate::blobs::decode(&b).ok())
+            .and_then(|b| String::from_utf8(b).ok())
+    }
+
     /// What one request reserves at the model's prices.
     pub(crate) fn audit_reserve(&self, request: &ProviderRequest) -> Option<Micros> {
         let price = self.runner.catalog.get(&request.model)?;
@@ -310,11 +343,7 @@ impl Core {
             .into_iter()
             .filter(|s| s.judgment.outcome == theseus_judge::Outcome::Answered && !audited(s))
             .collect();
-        let seed = p.seed.unwrap_or_else(|| {
-            use sha2::Digest;
-            let h = sha2::Sha256::digest(id.as_bytes());
-            u64::from_be_bytes(h[..8].try_into().expect("8 bytes"))
-        });
+        let seed = p.seed.unwrap_or_else(|| seed_of(&id));
         let picked = sample(&eligible, seed, p.sample as usize);
         let limit = usd_to_micros(self.cfg.judge.audit_limit_usd);
         let mut r = JudgeAuditResult {
@@ -330,25 +359,18 @@ impl Core {
         };
         let (mut spent, mut labels): (Micros, Vec<Labeled>) = (0, Vec::new());
         for s in picked {
-            let Some(state) = s.judgment.context["blob"]
-                .as_str()
-                .and_then(|d| self.store.blobs().base64(d))
-                .and_then(|b| crate::blobs::decode(&b).ok())
-                .and_then(|b| String::from_utf8(b).ok())
-            else {
+            let Some(state) = self.state_of(s) else {
                 r.failed += 1;
                 continue;
             };
-            let request = request_for(pack, &state, &target.model, target.max_tokens);
-            let need = self.audit_reserve(&request).unwrap_or(u64::MAX);
+            let thinking = self.runner.catalog.thinking_off(&target.model);
+            let request = request_for(pack, &state, (&target.model, thinking), target.max_tokens);
+            let (need, cap) = (
+                self.audit_reserve(&request).unwrap_or(u64::MAX),
+                request.max_tokens,
+            );
             if spent.saturating_add(need) > limit {
-                r.stopped = Some(format!(
-                    "the next request would reserve {}, past [judge] audit_limit_usd ({}) with \
-                     {} spent",
-                    crate::narrative::dollars(need),
-                    crate::narrative::dollars(limit),
-                    crate::narrative::dollars(spent)
-                ));
+                r.stopped = Some(limit_words(need, limit, spent));
                 break;
             }
             // The daemon's day ceiling (theseus-kp20) holds the call too.
@@ -366,6 +388,16 @@ impl Core {
             // A failed request may have been billed: booked at its reservation.
             spent += cost;
             match sent {
+                // A cut answer is no list of unparsed questions: the next state's
+                // would be cut at the same cap, so the run stops and says so.
+                Ok(resp) if crate::provider::hit_cap(resp.stop_reason.as_deref()) => {
+                    r.failed += 1;
+                    r.stopped = Some(format!(
+                        "{}; the rest of the sample is not asked",
+                        crate::provider::cap_phrase(cap)
+                    ));
+                    break;
+                }
                 Ok(resp) => {
                     let (got, dropped) = labels_of(pack, &resp.text);
                     r.dropped += dropped;

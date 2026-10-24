@@ -711,6 +711,44 @@ async fn a_cut_off_answer_is_never_posted_and_two_are_the_template() {
     assert_eq!(spoke[0]["output_tokens"], 9);
 }
 
+/// The retry is held to the day's line with what the first call spent
+/// (theseus-kf4pf): a line that admits the 2,048 reservation alone (so the
+/// 1,024 one first) but not the first call's cost plus it sends one request,
+/// and the template stands in with the first call's stop.
+#[tokio::test]
+async fn a_cut_off_answer_whose_retry_the_days_line_refuses_is_the_template() {
+    use crate::initiative::speak::{MAX_TOKENS, RETRY_MAX_TOKENS};
+    // The reservations, on a rig like the capped one.
+    let probe = rig(Initiative::Chatty, |_| {});
+    let persona = probe.core.cfg.persona_for(None, None);
+    let reserve = |cap| {
+        let q = probe
+            .core
+            .initiative_request(&persona, &note_facts(), "claude-sonnet-5-5", cap);
+        probe.core.audit_reserve(&q).unwrap()
+    };
+    let (first, retry) = (reserve(MAX_TOKENS), reserve(RETRY_MAX_TOKENS));
+    assert!(retry > first);
+    // A line one micro past the retry's reservation: both fit alone, and the
+    // cut call's cost plus the retry's does not.
+    let line = theseus_judge::price::micros_to_usd(retry + 1);
+    let r = rig(Initiative::Chatty, |c| c.initiative.day_usd = line);
+    *r.model.cut.lock().unwrap() = 1;
+    let spoken = r.core.initiative_speak(&note_facts()).await;
+    assert!(!spoken.voiced, "{spoken:?}");
+    assert!(spoken.text.starts_with("🌊 Ondine: "), "{}", spoken.text);
+    assert_eq!(spoken.stop_reason.as_deref(), Some("max_tokens"));
+    let caps: Vec<u32> = r
+        .model
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|q| q.max_tokens)
+        .collect();
+    assert_eq!(caps, [MAX_TOKENS], "the retry was refused by the line");
+}
+
 /// One cut-off answer is retried with more room, and the retry's whole
 /// answer is the note; its row records `end_turn`.
 #[tokio::test]

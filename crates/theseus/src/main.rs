@@ -716,7 +716,8 @@ enum Cmd {
     /// The owner card, proposed from your imported history: `card` lists what
     /// waits as questions (Keep, Edit, Not this), what you kept and declined, and the spend;
     /// `card propose [--dry-run]` runs the job (under `[card] day_usd`); `card keep|edit|decline ID`
-    /// answers one; `card done` stops the nightly run. Nothing is added without your answer; the
+    /// answers one (`--scope` says where a kept one holds); `card scope ID SCOPE` moves a kept
+    /// one's record; `card done` stops the nightly run. Nothing is added without your answer; the
     /// writes are yours alone (refused inside a job).
     #[command(hide = true)]
     Card {

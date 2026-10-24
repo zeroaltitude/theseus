@@ -333,7 +333,7 @@ pub fn stop_phrase(stop_reason: Option<&str>, tool_uses: usize) -> String {
             count(tool_uses as u64, "tool", "tools")
         ),
         Some("end_turn") => "it ended its turn".into(),
-        Some("max_tokens") => "it hit its output limit".into(),
+        Some(crate::provider::HIT_CAP) => "it hit its output limit".into(),
         Some(crate::provider::WINDOW_EXCEEDED) => "it was cut at the model's context window".into(),
         Some("refusal") => "it refused".into(),
         Some("stop_sequence") => "it hit a stop sequence".into(),

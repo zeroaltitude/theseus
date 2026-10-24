@@ -10,10 +10,17 @@ export type CardAnswerParams = {
  */
 id: string, 
 /**
- * `keep`, `edit` or `decline` (the question's options, any case).
+ * `keep`, `edit` or `decline` (the question's options, any case); or
+ * `scope`, on a kept proposal, with `scope`.
  */
 option: string, 
 /**
  * The words to keep, for `edit`.
  */
-text?: string | null, author?: string | null, discord?: DiscordOrigin | null, };
+text?: string | null, 
+/**
+ * Where the record holds, in `StandingScope::words()`'s forms, for
+ * `keep` and `edit` (else the proposal's), and for `scope`, which moves
+ * a kept proposal's record to it (theseus-ly75u).
+ */
+scope?: string | null, author?: string | null, discord?: DiscordOrigin | null, };

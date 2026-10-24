@@ -487,3 +487,89 @@ async fn a_review_holds_on_the_self_budget() {
     assert_eq!(count(&room, "self.budget.settled"), 1);
     assert_eq!(count(&room, "self.budget.stopped"), 0);
 }
+
+/// A core in act mode whose models answer from `script`.
+fn acting_scripted(script: Vec<crate::provider::Scripted>) -> (Arc<Core>, Arc<FakeProvider>) {
+    let c = test_core("the tide is out");
+    let mut cfg = (*c.cfg).clone();
+    cfg.self_improve.mode = SelfMode::Act;
+    let fake = Arc::new(FakeProvider::scripted(script));
+    let c = Core::build(Parts::for_tests(cfg, fake.clone(), c.store.clone())).unwrap();
+    resume(&c);
+    (c, fake)
+}
+
+/// The first seeded candidate, scrubbed, as a reviewer is asked about it.
+fn one_item(c: &Core) -> Item {
+    let plain = |s: &str| s.to_string();
+    let scrub = Scrub {
+        secrets: &plain,
+        names: &[],
+    };
+    let now = theseus_protocol::now_unix_ms();
+    seed(c, now);
+    let later = theseus_protocol::now_unix_ms();
+    let raws = c.exam_raws(later - DAY, later, later).unwrap();
+    Item::scrubbed(&raws[0], &scrub)
+}
+
+/// The reviewer's request (theseus-j06y6): Fable 5.1 answers a forced
+/// `tool_choice` with a 400, so the call asks with `auto`, a strict tool and
+/// an instruction naming it, and its cap leaves room for thinking that
+/// cannot be turned off.
+#[tokio::test]
+async fn the_reviewer_does_not_force_the_tool_and_leaves_room_to_think() {
+    let verdict = crate::provider::Scripted::tools(
+        "",
+        &[(
+            "tu",
+            "judge_exam_item",
+            json!({"tests_behaviour": true, "answer_right": true, "not_gamed": true, "reason": "fair"}),
+        )],
+    );
+    let (c, fake) = acting_scripted(vec![verdict]);
+    let item = one_item(&c);
+    let v = CoreReviewer::new(&c).review(&item).await.unwrap();
+    assert!(v.tests_behaviour && v.answer_right && v.not_gamed);
+    let sent = fake.requests();
+    let req = &sent[0];
+    assert_eq!(req.model, "claude-fable-5-1");
+    let forced = req.extra.get("tool_choice").map(|t| t["type"].as_str());
+    assert!(
+        matches!(forced, None | Some(Some("auto"))),
+        "a forced tool_choice is a 400 on Fable 5.1: {forced:?}"
+    );
+    assert_eq!(req.tools[0]["strict"], true);
+    // A strict tool's schema closes its object.
+    assert_eq!(req.tools[0]["input_schema"]["additionalProperties"], false);
+    assert!(
+        req.system[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("judge_exam_item"),
+        "the instruction names the tool"
+    );
+    assert!(req.max_tokens > 600, "always-on thinking spends a 600 cap");
+}
+
+/// A review cut at its cap says so (theseus-j06y6), not "no tool call".
+#[tokio::test]
+async fn a_review_cut_at_its_cap_says_so() {
+    let cut = crate::provider::Scripted::Blocks {
+        blocks: vec![json!({"type": "thinking", "thinking": "hmm", "signature": "s"})],
+        stop_reason: "max_tokens".into(),
+    };
+    let (c, _fake) = acting_scripted(vec![cut]);
+    let item = one_item(&c);
+    let e = CoreReviewer::new(&c).review(&item).await.unwrap_err();
+    let why = format!("{e:#}");
+    assert!(
+        why.contains("max_tokens") && !why.contains("held no"),
+        "{why}"
+    );
+    // One subject: cap_phrase already starts with "the answer".
+    assert!(
+        why.contains(&crate::provider::cap_phrase(4_096)) && !why.contains("reviewer's the"),
+        "{why}"
+    );
+}

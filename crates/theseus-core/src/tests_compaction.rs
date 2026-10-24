@@ -538,6 +538,68 @@ async fn the_ring_runs_when_the_summary_call_fails() {
     assert_eq!(exec.budget.reserved_micros, 0);
 }
 
+/// A summary cut at its own cap is a failed summary (theseus-2c6iz): its text
+/// is a fragment of the range, so it never replaces the range. The ring runs,
+/// the row says the call hit its cap, no `Summary` node is written, and the
+/// call was settled, nothing left held.
+#[tokio::test]
+async fn a_summary_cut_at_its_cap_leaves_the_range_uncompacted() {
+    let cut = Scripted::Blocks {
+        blocks: vec![json!({"type": "text", "text": "The keeper logged the tide and the w"})],
+        stop_reason: "max_tokens".into(),
+    };
+    let r = rig(vec![], vec![cut]);
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    let compiled = rows(&r.core, "context.compiled");
+    assert_eq!(compiled.last().unwrap()["strategy"], "ring");
+    let row = &rows(&r.core, "context.compacted")[0];
+    assert_eq!(row["outcome"], "ring", "{row}");
+    assert!(
+        row["why"].as_str().unwrap().contains("max_tokens"),
+        "the row names the cap: {row}"
+    );
+    // One subject: cap_phrase already starts with "the answer".
+    assert!(
+        row["why"]
+            .as_str()
+            .unwrap()
+            .contains("the summary call was cut: the answer stopped at its cap of"),
+        "{row}"
+    );
+    assert!(r
+        .core
+        .store
+        .transcript(&sid)
+        .unwrap()
+        .iter()
+        .all(|(_, n)| !matches!(n.body, Body::Summary { .. })));
+    let q = r.model.requests().pop().unwrap();
+    assert!(!first_text(&q).starts_with("[Summary"));
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    let exec = r
+        .core
+        .kernel
+        .execution(rec.execution_id.as_deref().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(exec.budget.reserved_micros, 0);
+}
+
+/// The summary call turns thinking off where the model can (theseus-2c6iz):
+/// Sonnet 5.5 thinks by default, and a summary's cap is spent on thinking
+/// first. It takes `between_tools` (`catalog::thinking_off`), not `disabled`.
+#[tokio::test]
+async fn the_summary_call_turns_thinking_off_on_an_adaptive_model() {
+    let r = session_rig(vec![], vec![]);
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    let asked: Vec<ProviderRequest> = r.model.requests().into_iter().filter(is_summary).collect();
+    assert_eq!(asked.len(), 1, "one summary call, on the session's model");
+    assert_eq!(asked[0].model, "claude-sonnet-5-5");
+    assert_eq!(asked[0].thinking, Some(json!({"type": "between_tools"})));
+}
+
 /// `summary_profile = "off"` keeps the ring: no call, no row.
 #[tokio::test]
 async fn summary_profile_off_keeps_the_ring() {

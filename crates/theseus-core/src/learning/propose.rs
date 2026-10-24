@@ -701,14 +701,23 @@ impl Core {
             messages: vec![json!({"role": "user", "content": [{"type": "text",
                 "text": propose::writer_message(parent_text, cases)}]})],
             tools: Vec::new(),
-            thinking: None,
-            output_config: None,
+            // Off where the model lets it; the writer's Opus 5.5 always
+            // thinks, so there its thinking counts in the cap (theseus-1iqg0).
+            thinking: self.runner.catalog.thinking_off(&target.model),
+            // Low effort where the catalog says the model takes effort: a
+            // pack file is a rewrite, and the thinking it cannot turn off
+            // counts in the cap (theseus-o6ifc).
+            output_config: crate::compiler::output_config(
+                self.runner.catalog.get(&target.model),
+                Some(crate::config::Effort::Low),
+            ),
             cache_control: None,
             betas: Vec::new(),
             extra: Default::default(),
             image_tokens: 0,
             data_pass: None,
         };
+        let cap = request.max_tokens;
         let need = self.audit_reserve(&request).with_context(|| {
             format!(
                 "{} has no price in the catalog: nothing is sent",
@@ -758,7 +767,7 @@ impl Core {
         hold.settle(cost);
         prop.writer_usd = micros_to_usd(cost);
         let reply = match reply {
-            Ok(resp) => resp.text,
+            Ok(resp) => resp,
             Err(e) => {
                 let why = format!("the writer's request failed: {e:#}");
                 return self.writer_refused(prop, parent_name, why, who, via);
@@ -766,7 +775,13 @@ impl Core {
         };
         // The candidate: text only, through the loader.
         let version = self.next_learned(&parent.id);
-        let (cand_text, cand) = match propose::candidate_from_reply(parent, &reply, version) {
+        // A file cut at the cap is a fragment: refused for that, not for the
+        // parse error its end makes (theseus-1iqg0).
+        let candidate = match crate::provider::hit_cap(reply.stop_reason.as_deref()) {
+            true => Err(crate::provider::cap_phrase(cap)),
+            false => propose::candidate_from_reply(parent, &reply.text, version),
+        };
+        let (cand_text, cand) = match candidate {
             Ok(c) => c,
             Err(why) => {
                 prop.decision = "refused".into();

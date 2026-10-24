@@ -55,9 +55,11 @@ pub fn tool() -> Value {
 }
 
 /// The request: the session's title and its lines, each labelled `L<n>`
-/// with its author, scrubbed by `scrub`.
+/// with its author, scrubbed by `scrub`, with `thinking` as
+/// `catalog::thinking_off` gives it (theseus-opypg).
 pub fn request(
     model: &str,
+    thinking: Option<Value>,
     title: &str,
     lines: &[Line],
     scrub: &dyn Fn(&str) -> String,
@@ -79,7 +81,7 @@ pub fn request(
         system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": content}]})],
         tools: vec![tool()],
-        thinking: None,
+        thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),

@@ -142,9 +142,11 @@ pub fn tool() -> Value {
     })
 }
 
-/// The request for `episodes`, scrubbed by `scrub`.
+/// The request for `episodes`, scrubbed by `scrub`, with `thinking` as
+/// `catalog::thinking_off` gives it (theseus-opypg).
 pub fn request(
     model: &str,
+    thinking: Option<Value>,
     title: &str,
     episodes: &[Episode],
     scrub: &dyn Fn(&str) -> String,
@@ -167,7 +169,7 @@ pub fn request(
         system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": body}]})],
         tools: vec![tool()],
-        thinking: None,
+        thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),
