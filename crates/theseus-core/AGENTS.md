@@ -1748,6 +1748,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     to us-based models"): `ModelOrigin::cleared_for_sensitive` admits only `us`, and never a `restricted` origin (`cn`,
     `unknown`), so the China-origin block stays the floor beneath it; the route, the chokepoint and a private motif's
     model (`rsi::mint::data_rule`) all read it. Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
+    **route.v8** (theseus-f9qa8) is the acting route pack, route.v7 word for word but the `data` question's `open` and
+    `unclear` options: v7 still read open-source work as `private` or below the act bar, because `unclear` counted a
+    working directory's unshown owner (every one hides it) and `open` named no public sign. v8 lists the signs (a public
+    project, toolchain or dataset, a fork of public code, a public licence) and says an unshown owner is none; `private` is
+    v7's word for word, and no code rule reads the wording. The verdict table that holds the floor is
+    `tests_data_verdict.rs`; `reply_data.v1` still asks v7's words of a reply (its own version when it moves).
   - **The restricted-origin floor** (theseus-a1wvq.3; `data.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/data_floor.rs`,
     `fact/data.rs`): no request reaches a model of restricted origin (`cn` or `unknown`, `catalog::origin_of`) without a
     `data::DataPass` minted for that one request (it holds the request's digest; not `Clone`, a copied `ProviderRequest`

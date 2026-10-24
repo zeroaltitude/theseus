@@ -15,7 +15,7 @@ const T: Thresholds = Thresholds {
     confirm: 0.60,
 };
 
-fn choice(question: &str, picked: &str, confidence: f64) -> AnswerRecord {
+pub(crate) fn choice(question: &str, picked: &str, confidence: f64) -> AnswerRecord {
     let answer = Answer::Choice {
         choice: picked.into(),
         probabilities: vec![(picked.into(), confidence)],
@@ -30,7 +30,7 @@ fn choice(question: &str, picked: &str, confidence: f64) -> AnswerRecord {
     }
 }
 
-fn judgment(answers: Vec<AnswerRecord>, drift: bool) -> Judgment {
+pub(crate) fn judgment(answers: Vec<AnswerRecord>, drift: bool) -> Judgment {
     serde_json::from_value(json!({
         "id": "jdg_data", "pack": ROUTE_PACK, "version": 6, "pack_sha256": "00",
         "point": "inbound", "mode": "live", "model": "jev-1.13.0",
@@ -48,7 +48,7 @@ fn judgment(answers: Vec<AnswerRecord>, drift: bool) -> Judgment {
 
 #[test]
 fn the_acting_route_pack_is_v7() {
-    assert_eq!(ROUTE_PACK, "route.v7");
+    assert_eq!(ROUTE_PACK, "route.v8");
 }
 
 #[test]
