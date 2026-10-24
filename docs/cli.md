@@ -165,7 +165,8 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`standing`**: the owner's standing orders, preferences and facts, kept in every prompt of their scope.
   `theseus standing add --kind order "no emoji"`; `standing revoke ID`.
 - **`card`**: the owner card, proposed from imported history; each proposal is a question to keep, edit or decline.
-  `theseus card`; `card propose|keep|edit|decline|done`.
+  `theseus card`; `card propose|keep|edit|decline|scope|done`; `card keep ID --scope surface:terminal` says where a kept
+  one holds, and `card scope ID everywhere` moves a kept one's record.
 
 ## Memory
 
