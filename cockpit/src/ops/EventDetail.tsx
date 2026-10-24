@@ -27,9 +27,10 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null)
   const [prep, setPrep] = useState(false)
   const f = eventFacts(ev, cal, redact)
-  // The links come from the event as the page shows it: under redact a sensitive event has no call link to open.
+  // The links come from the event as the page shows it: under redact a sensitive event has no call
+  // link and no Google link to open.
   const shown = redactEvent(ev, cal, redact)
-  const pay = (v: EventVerb) => eventVerbPayload(v === 'join' ? shown : ev, cal, v)
+  const pay = (v: EventVerb) => eventVerbPayload(v === 'join' || v === 'google' ? shown : ev, cal, v)
   const join = pay('join')
   const google = pay('google')
   const prepSheet = pay('prep')

@@ -23,11 +23,12 @@ export interface Shown extends CalendarEvent { redacted: boolean }
 
 /** `ev` as the page may show it. Under redact, a sensitive calendar's event keeps its key, times, kind and link to
  *  Google (an href, never drawn as text), and loses its title, place, call link and attendee count. */
+// Under redact a sensitive event keeps no Google link: its `eid` is the event and calendar ids in base64.
 export function redactEvent(ev: CalendarEvent, cal: Pick<CalendarWindow, 'sensitive'>, on: boolean): Shown {
   if (!on || !cal.sensitive) return { ...ev, redacted: false }
   return {
     key: ev.key, start_ms: ev.start_ms, end_ms: ev.end_ms, all_day: ev.all_day, attendees: 0, organizer_self: ev.organizer_self,
-    self_response: ev.self_response, html_link: ev.html_link, busy: ev.busy, redacted: true,
+    self_response: ev.self_response, html_link: '', busy: ev.busy, redacted: true,
   }
 }
 

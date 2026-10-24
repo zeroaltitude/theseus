@@ -95,6 +95,9 @@ test('a sensitive eventâ€™s verbs carry only its time and calendar; an open oneâ
   assert.deepEqual(eventVerbPayload(secret, work, 'google', now), { kind: 'link', href: SECRET.html_link })
   // Under redact the panel opens the call from the redacted event: there is none to open.
   assert.equal(eventVerbPayload(redactEvent(secret, work, true), work, 'join', now).kind, 'none')
+  // Nor Google's own link: its eid carries the sensitive calendar's id.
+  assert.equal(eventVerbPayload(redactEvent(secret, work, true), work, 'google', now).kind, 'none')
+  assert.match(read('src/ops/EventDetail.tsx'), /v === 'join' \|\| v === 'google' \? shown : ev/)
   assert.equal(eventVerbPayload(secret, work, 'remind', local(2026, 10, 23, 15)).kind, 'none', 'a reminder for a meeting begun is refused')
 })
 
