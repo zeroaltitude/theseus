@@ -307,7 +307,7 @@ export default function Ops() {
   const n = a.lens === 'threads' ? threadList.length : vis.rows.length
   const of = a.lens === 'threads' ? grouped.threads.length : vis.of
 
-  const inspectorCx = { records, rows, onMenu: (m: 'model' | 'mode') => setMenu(m), onParent: (sid: string) => pick(sid), onJoin: (id: string) => set({ join: id }) }
+  const inspectorCx = { records, rows, onMenu: (m: 'model' | 'mode') => setMenu(m), onParent: (sid: string) => pick(sid), onJoin: (id: string) => set({ join: id }), joined: a.join }
 
   // What the palette sees: the focused card, all that are visible, and (at the join) the selection.
   const feed = useMemo(() => ({

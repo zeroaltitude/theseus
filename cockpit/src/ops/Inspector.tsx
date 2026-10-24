@@ -36,6 +36,8 @@ export interface InspectorCx {
   onParent: (sessionId: string) => void
   /** Join a session by its id or a thread by its slug (the Join pane). */
   onJoin: (id: string) => void
+  /** The id in the Join pane: its session's composer is there, so the inspector keeps no second one. */
+  joined: string | null
 }
 
 export type Selection =
@@ -154,7 +156,7 @@ function Sections({ r, cx, now }: { r: OpsRow; cx: InspectorCx; now: number }) {
     <>
       <Section title="Live" hint={job ? `following ${job.title}` : undefined}><Live sessionId={r.sessionId} jobId={job?.id ?? null} /></Section>
       {facts.length > 0 && <Section title="Facts"><Facts lines={facts} /></Section>}
-      {r.sessionId && <Section title="Transcript" hint={<Link className="text-live" to={`/session/${r.sessionId}`}>open the deck for more</Link>}><JoinPane sessionId={r.sessionId} session={r.session} compact /></Section>}
+      {r.sessionId && cx.joined !== r.sessionId && <Section title="Transcript" hint={<Link className="text-live" to={`/session/${r.sessionId}`}>open the deck for more</Link>}><JoinPane sessionId={r.sessionId} session={r.session} compact /></Section>}
       {rec && <Section title="Record"><RecordBlock f={rec} /></Section>}
       {r.sessionId && <Section title="Standing"><StandingBlock sessionId={r.sessionId} /></Section>}
     </>
