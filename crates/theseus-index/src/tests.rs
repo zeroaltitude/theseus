@@ -635,6 +635,43 @@ fn a_session_s_place_comes_from_the_core_s_meta_records() {
     );
 }
 
+/// A `task.place.<session>` record, whatever it holds.
+fn task_place(rig: &Rig, session: &str, value: &serde_json::Value) {
+    rig.wal
+        .append(&[NewRecord::json(
+            kinds::META,
+            Some(&format!("{TASK_META_PREFIX}{session}")),
+            value,
+        )
+        .unwrap()])
+        .unwrap();
+}
+
+#[test]
+fn a_null_or_empty_task_place_leaves_the_session_without_one() {
+    let rig = Rig::new();
+    rig.put(&[user("ses_task", "aardvark in a task")]);
+    task_place(&rig, "ses_task", &serde_json::json!("discord:dm:42"));
+    let mut t = rig.open();
+    settle(&mut t);
+    assert_eq!(
+        t.places().get("ses_task").map(String::as_str),
+        Some("discord:dm:42")
+    );
+    // A rehome to nowhere writes null: the old place stops recalling the task.
+    task_place(&rig, "ses_task", &serde_json::Value::Null);
+    settle(&mut t);
+    assert_eq!(t.places().get("ses_task"), None);
+    // So does the empty string an earlier build wrote, after a real place again.
+    task_place(&rig, "ses_task", &serde_json::json!("discord:dm:43"));
+    settle(&mut t);
+    assert_eq!(t.places().len(), 1);
+    task_place(&rig, "ses_task", &serde_json::json!(""));
+    settle(&mut t);
+    assert_eq!(t.places().get("ses_task"), None, "\"\" is no place");
+    assert!(t.places().values().all(|p| !p.is_empty()));
+}
+
 #[test]
 fn a_long_result_is_chunked_and_a_hit_names_its_chunk() {
     let rig = Rig::new();

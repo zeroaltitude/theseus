@@ -138,7 +138,8 @@ async fn the_next_report_lands_in_the_new_home_and_the_carve_stays_with_the_pare
         (Some(TARGET), Some(PRIVATE_CHANNEL))
     );
     assert!(
-        got.note.contains("carved from its original parent"),
+        got.note.contains("carved from its original parent")
+            && got.note.contains("next turn still reads"),
         "{}",
         got.note
     );
@@ -242,14 +243,14 @@ async fn a_thread_is_a_home_and_a_conversation_with_no_place_leaves_the_board_al
             .map(|a| crate::outbox::target_of(a).to_string())
             .collect::<Vec<_>>()
     );
-    // The old place is gone for a restarted index too: its record says none.
+    // The old place is gone for a restarted index too: its record says none
+    // (null, which a build that reads a string binds nothing from).
     assert_eq!(
         r.core
             .store
-            .get_meta::<String>(&format!("task.place.{}", task.session_id))
-            .unwrap()
-            .as_deref(),
-        Some("")
+            .get_meta::<Option<String>>(&format!("task.place.{}", task.session_id))
+            .unwrap(),
+        Some(None)
     );
     assert!(parent_exec(&r.core, &parent).reports.contains(&task.id));
 }
@@ -378,4 +379,68 @@ async fn moving_a_report_posts_nothing() {
     })
     .await;
     let _ = turn_in;
+}
+
+#[tokio::test]
+async fn a_home_whose_mark_cannot_be_read_is_refused() {
+    let mut r = rig_with_a_task();
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let task = only_task(&r.core, &parent);
+    r.entered.recv().await.unwrap();
+    let home = terminal_home(&r);
+    // A sensitive record that does not decode as a string: the mark is unknown.
+    r.core
+        .store
+        .put_meta(&crate::google::private::sensitive_key(&home), &42u64)
+        .unwrap();
+    let e = r
+        .core
+        .task_rehome(&params(&task.id, &home), &cli())
+        .unwrap_err();
+    let said = format!("{e:#}");
+    assert!(
+        said.contains("cannot be read")
+            && said.contains("a report never goes to a home whose mark is unknown"),
+        "{said}"
+    );
+    unchanged(&r, &task);
+}
+
+#[tokio::test]
+async fn a_rehome_to_nowhere_writes_a_null_place_a_rollback_reads_as_none() {
+    let mut r = rig_with_a_task();
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let task = only_task(&r.core, &parent);
+    r.core
+        .thread_new(
+            &ThreadNewParams {
+                slug: "harbor".into(),
+                title: Some("Harbor".into()),
+                ..Default::default()
+            },
+            cli(),
+        )
+        .unwrap();
+    r.entered.recv().await.unwrap();
+    let got = r
+        .core
+        .task_rehome(&params(&task.id, "thread:harbor"), &cli())
+        .unwrap();
+    assert_eq!(got.to, None);
+    let key = format!("task.place.{}", task.session_id);
+    let record = r
+        .core
+        .store
+        .get_meta::<serde_json::Value>(&key)
+        .unwrap()
+        .expect("the record is there");
+    assert!(record.is_null(), "{record}");
+    // A build that reads the record as a string (1.0.1's rebuild) binds nothing.
+    assert!(serde_json::from_value::<String>(record).is_err());
+    // This build's rebuild: no target for the task.
+    let again = crate::outbox::Outbox::new(r.core.store.clone(), r.core.kernel.clone());
+    assert_eq!(again.target(&task.session_id), None);
+    r.model.gate.add_permits(1);
 }

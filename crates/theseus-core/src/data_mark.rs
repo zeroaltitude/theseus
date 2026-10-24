@@ -30,6 +30,21 @@ pub(crate) fn session_mark(store: &Store, cfg: &Config, session_id: &str) -> Dat
     }
 }
 
+/// [`session_mark`], failing where it would hold the session at the top: a
+/// mark that cannot be read is an error, not `Sensitive`.
+pub(crate) fn try_session_mark(
+    store: &Store,
+    cfg: &Config,
+    session_id: &str,
+) -> anyhow::Result<DataMark> {
+    use crate::google::private::{self, Level};
+    Ok(match private::try_level(store, cfg, session_id)? {
+        Level::Open => DataMark::Open,
+        Level::Private => DataMark::Private,
+        Level::Sensitive => DataMark::Sensitive,
+    })
+}
+
 /// Whether `profile` may be sent private content: its origin is on the
 /// allowlist and the catalog's own row says `us` (a provider's vouch alone
 /// clears nothing), and it resolves. The one place the answer is computed:

@@ -81,7 +81,8 @@ pub struct TaskRehomeResult {
     /// Where its report went before and goes now (none: the board alone).
     pub from: Option<String>,
     pub to: Option<String>,
-    /// What stays: the budget is still carved from the original parent.
+    /// What stays: the budget is still carved from the original parent, and that parent's next
+    /// turn still reads the report.
     pub note: String,
 }
 

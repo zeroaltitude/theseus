@@ -627,9 +627,19 @@ impl Outbox {
     }
 
     /// `task_record`, for a task moved to where it reports nowhere (`None`:
-    /// the record is empty, which a rebuild reads as no place).
+    /// the record is JSON `null`). A build before this one decodes a string
+    /// there, so `null` binds nothing in a rollback, where `""` bound a place
+    /// named nothing. This build's rebuild and the index tender read a null
+    /// and a `""` (written before) alike: no place.
     pub fn task_place_record(&self, task_session: &str, target: Option<&str>) -> Result<NewRecord> {
-        self.task_record(task_session, target.unwrap_or(""))
+        match target {
+            Some(t) => self.task_record(task_session, t),
+            None => NewRecord::json(
+                kinds::META,
+                Some(&format!("{TASK_META_PREFIX}{task_session}")),
+                &Option::<&str>::None,
+            ),
+        }
     }
 
     /// A task no longer reports to a place (in memory; its record is written).
