@@ -912,7 +912,8 @@ async fn policy_list(conn: &mut Conn, json: bool) -> Result<()> {
     for why in &h.tools_not_offered {
         println!("{why}");
     }
-    if let Some(line) = render::external_line(&h.external_text) {
+    // In the daemon's mode's words, as health's own line: under notify a hold makes nothing wait.
+    if let Some(line) = render::external::line(&h.external_text, &h.external_text_mode) {
         println!("{line}");
     }
     Ok(())
@@ -2124,6 +2125,14 @@ mod tests {
         assert!(render::external::line(&many, "notify")
             .unwrap()
             .contains(", and 2 more"));
+        // `theseus policy` prints the same mode-aware line as health, never the ask words alone.
+        let src = include_str!("cmd.rs");
+        let list = &src[src.find("async fn policy_list(").unwrap()..];
+        let list = &list[..list.find("\n}\n").unwrap()];
+        assert!(
+            list.contains("render::external::line(&h.external_text, &h.external_text_mode)"),
+            "theseus policy's hold line must follow the mode"
+        );
     }
 
     /// Health's executions say what the waiting ones wait on, and keep every
