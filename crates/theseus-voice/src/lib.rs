@@ -40,7 +40,7 @@ pub use deepgram::{DeepgramSettings, DeepgramSpeech};
 pub use engine::{
     Command, Config, CutWhy, Engine, EngineHandle, Event, Failure, Over, Spoken, TurnId, Utterance,
 };
-pub use flux::{is_flux, FluxListen, FluxSettings, FLUX_MODEL};
+pub use flux::{FluxListen, FluxSettings, FLUX_MODEL};
 pub use heard::HeardAs;
 pub use io::{ClipId, Frame, Heard, PlayLog, Played, Speaker, VoiceIo, WavIo};
 pub use listen::{Listen, ListenLog, Listened, StandInListen};

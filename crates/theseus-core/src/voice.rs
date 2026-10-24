@@ -21,6 +21,10 @@ use serde_json::{json, Value};
 use theseus_kernel::{micros_to_usd, Micros};
 use theseus_protocol::LedgerKind;
 
+mod flux;
+
+pub use flux::{is_flux, Threshold, FLUX_ENGLISH};
+
 use crate::catalog::speech_price;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
@@ -106,6 +110,18 @@ pub struct VoiceConfig {
     /// one turn. 0 is off.
     #[serde(default = "default_merge_ms")]
     pub merge_ms: u64,
+    /// Deepgram Flux (`stt_model = "flux-general-en"`): how sure it must be
+    /// that your turn ended, 0.5 to 0.9. Unset: Flux's own (0.7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eot_threshold: Option<Threshold>,
+    /// Flux: start a reply on an early end of turn, 0.3 to 0.9, and take it
+    /// back if you go on. Unset: off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eager_eot_threshold: Option<Threshold>,
+    /// Flux: force a turn's end after this much silence, 500 to 10000 ms.
+    /// Unset: Flux's own (5000).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eot_timeout_ms: Option<u32>,
 }
 
 /// `[voice] greeting`'s default, with `{name}` for the persona's name.
@@ -174,6 +190,9 @@ impl Default for VoiceConfig {
             lead_in_ms: default_lead_in_ms(),
             gap_lead_in_ms: default_gap_lead_in_ms(),
             merge_ms: default_merge_ms(),
+            eot_threshold: None,
+            eager_eot_threshold: None,
+            eot_timeout_ms: None,
         }
     }
 }
@@ -244,7 +263,7 @@ impl crate::config::Config {
                 v.api_base
             );
         }
-        Ok(())
+        v.validate_flux()
     }
 
     /// The voice key's `[secrets]` name, when Theseus may read it: voice is
