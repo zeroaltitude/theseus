@@ -2289,7 +2289,7 @@ pub fn build_runtime(
         secrets: secrets.clone(),
         hearing: crate::file_read::Hearing {
             key_secret: cfg.voice.key_secret.clone(),
-            model: cfg.voice.stt_model.clone(),
+            model: cfg.voice.prerecorded_model().to_string(),
             language: cfg.voice.language.clone(),
             api_base: cfg.voice.api_base.clone(),
             max_minutes: t.transcribe_max_minutes,
