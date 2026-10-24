@@ -258,8 +258,9 @@ async fn thread_session(c: &Arc<Core>, jev: &FakeJev, slug: &str) -> String {
 /// `recall`, the same turn also admits a plain recalled note (another
 /// thread's), whose frame
 /// rewrites the recall rides: the mark still rides the first call's frame.
-/// With `sensitive_note`, that note's session is sensitive, and the asker ends
-/// sensitive though the digest marked it private first (J2 of theseus-jid7t.1).
+/// With `sensitive_note`, that note's session is sensitive and its thread
+/// paused (not shown), and the asker ends sensitive though the digest marked
+/// it private first (J2 of theseus-jid7t.1).
 async fn the_digest_marks(recall: bool, sensitive_note: bool) {
     let jev = FakeJev::start().unwrap();
     let r = rig_on(texts(6), Some(&jev), |c| {
@@ -297,6 +298,9 @@ async fn the_digest_marks(recall: bool, sensitive_note: bool) {
             c.store
                 .put_meta(&crate::google::private::sensitive_key(&quill), &"nd_test")
                 .unwrap();
+            // Paused, the thread is not shown in the digest: only recall
+            // reaches its sensitive note, so the digest's mark stays private.
+            c.thread_pause("quillhn", cli()).unwrap();
         }
         c.runner
             .memory
