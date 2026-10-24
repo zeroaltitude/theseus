@@ -66,12 +66,16 @@ pub const NONE_CARD: &str =
 /// The personas a place may be answered as: every live one in a private
 /// place; in a shared place its own and those marked `shareable`. The
 /// default persona is marked, and the built-in default is among them only
-/// where no persona is the default, so `none` always has one to engage.
+/// where no persona the place may be answered as is the default (a default
+/// the place may not use is none there), so `none` always has one to engage.
 pub fn choices(book: &Book, shared: bool, own: Option<&str>) -> Vec<Choice> {
-    let default = book.default_live();
+    let allowed = |k: &str, v: &PersonaView| !shared || v.shareable || own == Some(k);
+    let default = book
+        .default_live()
+        .filter(|k| book.get(k).is_some_and(|v| allowed(k, v)));
     let mut out: Vec<Choice> = book
         .live()
-        .filter(|(k, v)| !shared || v.shareable || own == Some(k.as_str()))
+        .filter(|(k, v)| allowed(k, v))
         .map(|(k, v)| Choice {
             is_default: default == Some(k.as_str()),
             ..Choice::of(v)
@@ -675,6 +679,46 @@ mod tests {
         assert_eq!(keys(false, None), ["alder", "birch", "cedar"]);
         assert_eq!(keys(true, None), ["alder"]);
         assert_eq!(keys(true, Some("cedar")), ["alder", "cedar"]);
+    }
+
+    /// In a shared place a default that is neither shareable nor the place's
+    /// own is not offered, so `none` engages the built-in there and the
+    /// private places and a shareable or own default are as before.
+    #[test]
+    fn a_shared_place_none_engages_the_built_in_when_the_default_is_not_shared() {
+        use crate::config::PersonaConfig;
+        let mut cfg = crate::config::Config::example();
+        let ps = &mut cfg.personas;
+        ps.insert(
+            "alder".to_string(),
+            PersonaConfig {
+                shareable: true,
+                ..Default::default()
+            },
+        );
+        ps.insert("birch".to_string(), PersonaConfig::default());
+        ps.insert("cedar".to_string(), PersonaConfig::default());
+        cfg.context.default_persona = Some("birch".to_string());
+        let book = Book::of_config(&cfg);
+        let defaults = |shared, own: Option<&str>| -> Vec<Option<String>> {
+            choices(&book, shared, own)
+                .into_iter()
+                .filter(|c| c.is_default)
+                .map(|c| c.key)
+                .collect()
+        };
+        assert_eq!(defaults(true, None), [None], "the built-in, alone");
+        let o = choices(&book, true, None);
+        let sure = answer(NONE, 0.95, Band::Act, true);
+        let e = decide(&o[0], &o, None, None, Some(&sure), true, "hello");
+        assert_eq!((e.key, e.how), (None, How::Jev), "none engages it");
+        assert_eq!(
+            defaults(true, Some("birch")),
+            [Some("birch".to_string())],
+            "the place's own default"
+        );
+        assert_eq!(defaults(false, None), [Some("birch".to_string())]);
+        assert!(choices(&book, false, None).iter().all(|c| c.key.is_some()));
     }
 
     /// The engagement memory keeps who answered the recent turns, bounded.
