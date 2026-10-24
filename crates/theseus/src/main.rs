@@ -54,6 +54,7 @@ mod notices_cmd;
 mod onto_cmd;
 mod ontology;
 mod open;
+mod ops_cmd;
 mod own_bench;
 mod packs;
 mod pages;
@@ -1277,6 +1278,18 @@ enum SessionsCmd {
         session: String,
         #[arg(value_parser = ["on", "off"])]
         state: String,
+    },
+    /// Hold a session's turns to one model profile from its next turn (`sessions model S glm`), or
+    /// let the hold go (`--off`). The floor may refuse a profile for the session's data. The
+    /// operator's own.
+    Model {
+        session: String,
+        /// The profile to hold it to.
+        #[arg(required_unless_present = "off", conflicts_with = "off")]
+        profile: Option<String>,
+        /// Let the hold go: the session's turns route as the default does.
+        #[arg(long)]
+        off: bool,
     },
 }
 

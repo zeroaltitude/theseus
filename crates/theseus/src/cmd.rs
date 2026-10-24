@@ -1134,6 +1134,11 @@ pub async fn sessions(
                 Ok(())
             })
         }
+        SessionsCmd::Model {
+            session,
+            profile,
+            off: _,
+        } => crate::ops_cmd::model(conn, json, &session, profile).await,
         SessionsCmd::Nudge { session, state } => {
             let p = theseus_protocol::nudge::SessionNudgeParams {
                 session_id: session,

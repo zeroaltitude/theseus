@@ -295,8 +295,9 @@ pub fn job_session() -> Option<String> {
 /// the owner's away, and the topics write tens of thousands of memberships),
 /// a correction of routing (theseus-q31l: it labels the route judgment
 /// and picks the session's model), and a session's retirement and its
-/// reopening (theseus-emqx: a retired session leaves the default view).
-pub const OPERATORS: [(&str, &str); 97] = [
+/// reopening (theseus-emqx: a retired session leaves the default view), and the
+/// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
+pub const OPERATORS: [(&str, &str); 100] = [
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
     (method::GOOGLE_AUTH_FINISH, "theseus google auth"),
     (method::GOOGLE_REVOKE, "theseus google revoke"),
@@ -406,6 +407,9 @@ pub const OPERATORS: [(&str, &str); 97] = [
     (method::TASK_PAUSE, "theseus task pause"),
     (method::TASK_RESUME, "theseus task resume"),
     (method::SESSION_MODE, "theseus mode"),
+    (method::SESSION_PROFILE, "theseus sessions model"),
+    (method::TASK_REHOME, "theseus task rehome"),
+    (method::TASK_RESCHEDULE, "theseus task reschedule"),
 ];
 
 /// Refuse an operator's method from inside a Theseus job (theseus-zmgb):
@@ -515,6 +519,20 @@ mod tests {
         }
         assert!(refuse_in_a_job(method::ONTOLOGY_LIST, Some("ses_0000aa1b2c3")).is_ok());
         assert!(refuse_in_a_job(method::ONTOLOGY_PROPOSALS, Some("ses_0000aa1b2c3")).is_ok());
+    }
+
+    /// A job's process cannot hold a session to a model, move a task's report or move its
+    /// start (theseus-5iqf8): each refusal names the command that makes it.
+    #[test]
+    fn a_jobs_process_cannot_hold_a_model_or_move_a_task() {
+        for (m, command) in [
+            (method::SESSION_PROFILE, "theseus sessions model"),
+            (method::TASK_REHOME, "theseus task rehome"),
+            (method::TASK_RESCHEDULE, "theseus task reschedule"),
+        ] {
+            let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
+            assert!(e.to_string().contains(command), "{e}");
+        }
     }
 
     /// A job's process cannot write the owner's standing records
