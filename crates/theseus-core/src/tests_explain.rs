@@ -478,3 +478,36 @@ async fn a_batch_is_judged_as_its_strictest_step() {
         .unwrap();
     assert!(row.conditions.iter().any(|c| c.layer == "steps"), "{row:?}");
 }
+
+/// A notify hold that has told the owner already lets its later calls run
+/// quietly, and the explanation says what the call does now: the gate's own
+/// reading of the hold (`held_untold`), not the hold itself (theseus-cuv2o).
+#[tokio::test]
+async fn explain_after_a_told_hold_predicts_no_raise() {
+    let r = rig_with(|c| c.policy.external_text = Some(crate::external::Mode::Notify));
+    let core = &r.core;
+    let quiet = session(core, None);
+    let sid = session(core, None);
+    let mut rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
+    let hold = ExternalText {
+        since_ms: 1_759_300_000_000,
+        tool: "http.fetch".into(),
+        url: "tides.example/today".into(),
+        ..Default::default()
+    };
+    rec.external = Some(hold.clone());
+    core.store.put_session(&sid, &rec).unwrap();
+    let results = |s: &str| -> Vec<(String, String)> {
+        explained(core, s)
+            .into_iter()
+            .map(|t| (t.tool, t.result))
+            .collect()
+    };
+    let baseline = results(&quiet);
+    let untold = results(&sid);
+    assert_ne!(untold, baseline, "an untold hold raises a call that acts");
+    core.store
+        .put_meta(&crate::external::told_key(&sid), &hold.since_ms)
+        .unwrap();
+    assert_eq!(results(&sid), baseline, "a told hold raises nothing");
+}

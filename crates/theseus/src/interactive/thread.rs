@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(command("/t"), Some(""));
         assert_eq!(command("  /t  "), Some(""));
         assert_eq!(command("/t 2"), Some("2"));
-        assert_eq!(command("/t bh-ai pr"), Some("bh-ai pr"));
+        assert_eq!(command("/t ex-ai pr"), Some("ex-ai pr"));
         assert_eq!(command("/tide"), None);
         assert_eq!(command("t 2"), None);
         assert_eq!(command("what is /t"), None);

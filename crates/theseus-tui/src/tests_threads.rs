@@ -35,7 +35,7 @@ fn threads() -> Value {
     );
     tides["thread"]["persona"] = json!("surveyor");
     json!({"threads": [
-        row("pr", "bh-ai pr", Some("ses_dm0001"), "active", 60),
+        row("pr", "ex-ai pr", Some("ses_dm0001"), "active", 60),
         tides,
         row("moons", "Moon table", None, "active", 9000),
         row("old-notes", "Old notes", None, "paused", 90000),
@@ -70,7 +70,7 @@ async fn the_header_names_the_current_thread_and_a_tui_without_threads_says_noth
     let mut rig = rig_with_threads();
     rig.runner.app.thread = Some("pr".into());
     rig.asked("thread.list", 1).await;
-    rig.shows("bh-ai pr · active · 41K ctx · warm").await;
+    rig.shows("ex-ai pr · active · 41K ctx · warm").await;
     // Narrower: the state goes first.
     let world = harbour_world();
     world
@@ -81,7 +81,7 @@ async fn the_header_names_the_current_thread_and_a_tui_without_threads_says_noth
     let mut narrow = Rig::new(50, 24, script(world));
     narrow.runner.app.thread = Some("pr".into());
     narrow.asked("thread.list", 1).await;
-    narrow.shows("bh-ai pr · 41K ctx · warm").await;
+    narrow.shows("ex-ai pr · 41K ctx · warm").await;
     assert!(
         !narrow.screen()[0].contains("active"),
         "{}",
@@ -98,7 +98,7 @@ async fn ctrl_t_opens_the_picker_and_typing_moving_and_closing_ask_nothing() {
     rig.shows("Tide log rewrite").await;
     let screen = rig.screen().join("\n");
     assert!(
-        screen.contains(" 1   bh-ai pr · active · 14:12 · 41K ctx · warm"),
+        screen.contains(" 1   ex-ai pr · active · 14:12 · 41K ctx · warm"),
         "{screen}"
     );
     assert!(
@@ -117,7 +117,7 @@ async fn ctrl_t_opens_the_picker_and_typing_moving_and_closing_ask_nothing() {
     rig.shows("1 shown").await;
     let filtered = rig.screen().join("\n");
     assert!(
-        filtered.contains("Moon table") && !filtered.contains("bh-ai pr ·"),
+        filtered.contains("Moon table") && !filtered.contains("ex-ai pr ·"),
         "{filtered}"
     );
     rig.press(&[KeyCode::Backspace, KeyCode::Esc]).await;
@@ -169,11 +169,11 @@ async fn enter_switches_remembers_and_focuses_the_threads_session() {
     // The session's header carries the thread's tag, and the status line its state.
     let screen = rig.screen();
     assert!(
-        screen.iter().any(|l| l.contains("→ bh-ai pr")),
+        screen.iter().any(|l| l.contains("→ ex-ai pr")),
         "{screen:#?}"
     );
     assert!(
-        screen[0].contains("bh-ai pr · active · 41K ctx · warm"),
+        screen[0].contains("ex-ai pr · active · 41K ctx · warm"),
         "{}",
         screen[0]
     );

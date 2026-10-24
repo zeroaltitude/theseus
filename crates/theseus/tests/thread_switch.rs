@@ -38,10 +38,10 @@ fn daemon(dir: &Path) -> (PathBuf, Arc<Mutex<Vec<Value>>>) {
             let req: Value = serde_json::from_str(&line).unwrap();
             let result = match req["method"].as_str().unwrap() {
                 "thread.list" => json!({"threads": [
-                    thread("pr", "bh-ai pr round"),
+                    thread("pr", "ex-ai pr round"),
                     thread("tides-gauge", "Tide gauge four"),
                     thread("tides-log", "Tide log rewrite")], "total": 3}),
-                "thread.show" => thread("pr", "bh-ai pr round"),
+                "thread.show" => thread("pr", "ex-ai pr round"),
                 "turn.submit" => turn_result(),
                 _ => json!({}),
             };
@@ -82,11 +82,11 @@ fn switch_resolves_a_name_a_number_or_a_start_and_prints_the_export() {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().join("state");
     let (sock, _) = daemon(dir.path());
-    let o = run(&sock, &state, None, &["thread", "switch", "bh-ai"]);
+    let o = run(&sock, &state, None, &["thread", "switch", "ex-ai"]);
     assert!(o.status.success(), "{}", err(&o));
     assert_eq!(out(&o), "export THESEUS_THREAD=pr");
     assert!(
-        err(&o).contains("current thread: bh-ai pr round"),
+        err(&o).contains("current thread: ex-ai pr round"),
         "{}",
         err(&o)
     );
@@ -158,7 +158,7 @@ fn ask_uses_the_thread_only_when_the_shell_exported_it() {
     let sent = got3.lock().unwrap().clone();
     assert_eq!(sent[0]["params"]["thread"], "pr");
     assert!(sent[0]["params"]["session_id"].is_null());
-    assert!(err(&o).contains("→ bh-ai pr round"), "{}", err(&o));
+    assert!(err(&o).contains("→ ex-ai pr round"), "{}", err(&o));
 
     // A named session wins over the variable: it continues that session.
     let dir4 = tempfile::tempdir().unwrap();
@@ -172,5 +172,5 @@ fn ask_uses_the_thread_only_when_the_shell_exported_it() {
     assert!(o.status.success(), "{}", err(&o));
     let sent = got4.lock().unwrap().clone();
     assert!(sent[0]["params"].get("thread").is_none(), "{}", sent[0]);
-    assert!(!err(&o).contains("→ bh-ai pr round"));
+    assert!(!err(&o).contains("→ ex-ai pr round"));
 }
