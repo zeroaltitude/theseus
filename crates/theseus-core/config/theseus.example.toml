@@ -959,7 +959,16 @@ max_events = 10                         # at most this many events stand at once
 # [voice]
 # enabled = true
 # key_secret = "deepgram_api_key"       # the [secrets] entry holding the Deepgram key; only Theseus reads it
-# stt_model = "nova-3"                  # speech to text
+# stt_model = "flux-general-en"         # speech to text: "flux-general-en" (the default: Deepgram Flux, English; its model decides
+#                                       # where your turn ends and it streams your voice for the call; pause_ms and merge_ms do not
+#                                       # apply; if its socket cannot be opened the call uses nova-3 and the pause rules), or
+#                                       # "nova-3" (the fallback by config: a pause of yours ends your turn: pause_ms, merge_ms;
+#                                       # any language). Voice notes and file transcripts always use nova-3. Priced by the minute
+#                                       # streamed
+# eot_threshold = 0.7                   # Flux only: how sure it must be that your turn ended (0.5 to 0.9); higher: fewer early ends
+# eager_eot_threshold = 0.5             # Flux only: start a reply on an early end of turn (0.3 to 0.9) and take it back if you go on;
+#                                       # unset: off, only the end of turn starts a reply
+# eot_timeout_ms = 5000                 # Flux only: force a turn's end after this much silence (500 to 10000)
 # language = "en-US"
 # tts_voice = "aura-2-andromeda-en"     # the voice: an Aura model; a persona's own tts_voice wins while it is in play
 #                                       # (`theseus persona voice` shows the one in play, `theseus persona voice audition` lets you hear several)
@@ -979,12 +988,12 @@ max_events = 10                         # at most this many events stand at once
 #                                       # answer, Theseus's own echo, or noise; at Jev's act band it decides, else the rules do.
 #                                       # false: the rules alone, as before
 # judge_ms = 250                        # how long such a transcript waits for Jev (1 to 2000); past it the rules decide
-# pause_ms = 1200                       # how long you are quiet before your sentence is a turn (300 to 3000); longer: fewer chopped
+# pause_ms = 1200                       # nova-3 only (Flux ends turns itself): how long you are quiet before your sentence is a turn (300 to 3000); longer: fewer chopped
 #                                       # sentences, each reply a little later (1200 adds about 0.5 s over the old 700)
 # lead_in_ms = 600                      # silence sent before Theseus's first sound after quiet (0 to 1000; 0 is off); longer: a whole
 #                                       # first word, a later first sound. Between a reply's sentences silence keeps playing (0.7 s).
 # gap_lead_in_ms = 200                  # silence before a later sentence when nothing kept the line warm between (0 to 1000; 0 is off)
-# merge_ms = 1500                       # a sentence of yours with no ., ? or ! at its end waits this long (0 to 5000; 0 is off) for the
+# merge_ms = 1500                       # nova-3 only: a sentence of yours with no ., ? or ! at its end waits this long (0 to 5000; 0 is off) for the
 #                                       # next thing you say, and the two are one turn; a finished sentence never waits
 # speak_tasks = true                    # in a call in a private place, a task's new question and its end are said once at the next
 #                                       # pause (a title and a sentence or two), and "approve", "the second one" or "stop it"

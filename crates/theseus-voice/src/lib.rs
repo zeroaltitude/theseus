@@ -22,8 +22,10 @@ pub mod audio;
 pub mod deepgram;
 mod echo;
 mod engine;
+pub mod flux;
 mod heard;
 mod io;
+pub mod listen;
 mod sentences;
 #[cfg(feature = "voice")]
 mod songbird_io;
@@ -38,8 +40,10 @@ pub use deepgram::{DeepgramSettings, DeepgramSpeech};
 pub use engine::{
     Command, Config, CutWhy, Engine, EngineHandle, Event, Failure, Over, Spoken, TurnId, Utterance,
 };
+pub use flux::{FluxListen, FluxSettings, FLUX_MODEL};
 pub use heard::HeardAs;
 pub use io::{ClipId, Frame, Heard, PlayLog, Played, Speaker, VoiceIo, WavIo};
+pub use listen::{Listen, ListenLog, Listened, StandInListen};
 pub use sentences::{sentences, speakable, CODE, TABLE};
 pub use speech::{
     Speech, SpeechError, SpeechFuture, StandInSpeech, Synthesis, Transcript, Usage, ACKNOWLEDGMENT,

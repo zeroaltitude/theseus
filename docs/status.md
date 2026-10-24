@@ -371,7 +371,8 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
   sentence by sentence with barge-in, and speech counted as spend. On since October 3 at 23:38. Since October 6 a
   barge-in holds the reply until the words over it decide: a wordless sound, an echo, a backchannel or "go on"
   resumes the cut sentence from its held audio, words cut it, and a reply waits for the floor (Item
-  202).
+  202). Since 1.0.2 a call listens through Deepgram Flux by default, whose own model decides where a turn ends;
+  `[voice] stt_model = "nova-3"` brings back the pause rules, and voice notes stay pre-recorded nova-3 (Item 256).
 - **Set it up in one command:** `scripts/setup.sh` checks the machine, builds the cockpit and the binaries, installs
   them, and writes the default config, `/etc/theseus/theseus.toml`, which `theseusd` reads by default (Item
   138). The config holds only what differs: `theseusd config --sparse` cuts one to your own values and
@@ -562,6 +563,16 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-24: v1 patch2's voice lane, Deepgram Flux** (theseus-v774k). A call now listens through Deepgram Flux by
+  default (`[voice] stt_model = "flux-general-en"`): each listed speaker's audio streams over a socket, and Flux's own
+  model decides where a turn ends (`eot_threshold`, `eager_eot_threshold`, `eot_timeout_ms`), so `pause_ms` and
+  `merge_ms` do not apply. A quiet speaker is fed silence for the end-of-turn window, so the end comes on time; a
+  barge-in over a reply is held when residual speech fills 3 of the last 10 ticks behind the echo canceller; a dropped
+  socket reconnects without replaying stale audio; streamed audio no turn carried is booked as a `trailing`
+  `speech.transcribed` row ($0.0077 a minute streamed). `stt_model = "nova-3"` is the fallback by config (the pause
+  rules, any language); voice notes and file transcripts stay on pre-recorded nova-3; a socket that never opens drops
+  the call to nova-3 and the pause rules, said once. A `[voice] language` that is not English with no `stt_model` now
+  refuses at load and names `nova-3`. Awaiting the owner's live retest with Flux as the default.
 - **2026-10-23: v1 patch2 rows** (theseus-zeyr3, theseus-cuv2o, theseus-utfnl, theseus-nde5n, theseus-zcn80,
   theseus-gg78p, theseus-ujzuh, theseus-u5a37, theseus-f9qa8, theseus-goq94, theseus-2uy56, theseus-yct32,
   theseus-ly75u, theseus-7e7hc, theseus-it4ta, theseus-1j7ib, theseus-i08xr, theseus-n17am, theseus-uy015,

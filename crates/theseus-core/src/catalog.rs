@@ -1017,6 +1017,13 @@ pub const SPEECH_PRICES: &[SpeechPrice] = &[
     },
     SpeechPrice {
         provider: "deepgram",
+        model: "flux-general",
+        unit: SpeechUnit::Minute,
+        usd: 0.0077,
+        source: "Deepgram pay-as-you-go list price, Flux English streaming (2026; a promotional $0.0065 was listed), to confirm",
+    },
+    SpeechPrice {
+        provider: "deepgram",
         model: "nova-2",
         unit: SpeechUnit::Minute,
         usd: 0.0043,

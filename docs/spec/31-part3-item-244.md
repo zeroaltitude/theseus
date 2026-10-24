@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 255 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 256 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -479,3 +479,55 @@ feature could have been off in production with every test green.
 
 **Left open.** The layers' live checks stay the owner's (laptop speakers and a long reply for layer 3; a short "yeah" over
 Theseus's speech for layer 4).
+
+### Item 256. Deepgram Flux listens to a call, by default: its model ends a turn, nova-3 is the fallback by config (theseus-v774k; v1 patch2's voice lane, the cloud rows p2j-flux and p2j-flux-fix of 2026-10-24, joined into integ/release for install #78)
+
+**Why.** The pause rules end a speaker's turn after `[voice] pause_ms` of silence (1200 ms) and wait `merge_ms` for an
+unfinished sentence, so every reply starts at least that late, and a thinking pause mid-sentence still cuts a turn in two.
+Deepgram Flux is a streaming listener whose own model decides where a turn ends. The owner asked for it on 2026-10-24
+(design and checklist in the issue's notes), then, at 11:55 the same day, for Flux as the default listener in 1.0.2,
+tested as such.
+
+**What landed.**
+
+- **The seam and the client** (theseus-voice). `src/listen.rs`'s `Listen` (raw frames in, `Listened` events out:
+  `Start`, `Eager`, `Resumed`, `End`, `Down`, `Up`, `Unavailable`), with `StandInListen` for the tests. `src/flux.rs`'s
+  `FluxListen`: one v2 socket per listed speaker, opened at their first audio; the key only in the handshake's
+  `Authorization` header; 80 ms chunks; a keep-alive; an 8 s outbound queue that drops the oldest audio; a reconnect
+  backoff of 1 s doubling to 30 s; `CloseStream` at the call's end.
+- **The engine's streaming path** (`src/engine/flux_path.rs`, `Engine::with_listen`). An utterance opens at `Start` and
+  closes at `End` with Flux's words; no VAD, no `pause_ms`, no `merge_ms`; from the `Pending` on the engine is the same.
+  A `Start` over Theseus's speech holds the clip when the residual after echo removal shows speech in 3 of the last 10
+  ticks and the speaker is not echo-prone, wordless or at the join; the `End`'s words then decide through `heard()` and
+  Jev's judge, as before. A turn the listener never ends is given up at `TURN_MAX`. A dropped stream hands its turn in
+  progress to the pre-recorded recogniser once; a listener that cannot be reached is off for the call (nova-3 and the
+  pause rules), said once.
+- **The fix round** (the first review rejected for a fix round: F1 High, F2 Medium, L1-L4). Discord sends no frames for a
+  quiet speaker, so Flux heard no silence and an end of turn could come in 5 s steps or only at the backstop: the engine
+  now feeds zero frames while a turn is open and for `eot_timeout_ms` (Flux's 5 s) after a speaker's last real frame.
+  The barge-in gate counts a window of 10 ticks, not the whole turn. The queue of a dead socket is cleared at the
+  reconnect; `first_words` drops a reply with no audio; streamed audio no `End` carried is booked (`Event::Streamed`, a
+  `speech.transcribed` row with `detail.trailing`).
+- **Config** (core `voice.rs`, `voice/flux.rs`). `[voice] stt_model` takes a Flux id (`is_flux`), with `eot_threshold`,
+  `eager_eot_threshold` and `eot_timeout_ms` in Deepgram's ranges, refused with any other model. **The join's fix makes
+  `flux-general-en` the default** (the owner, 11:55); `stt_model = "nova-3"` is the fallback by config, with the pause
+  rules and any language. Flux English with a language that is not English is refused at load, naming both fixes, so a
+  `[voice] language = "de"` with no `stt_model` now refuses where it used to parse (right over compatible; the owner's
+  config sets no language). Voice notes and file transcripts always use pre-recorded nova-3 (`prerecorded_model`), with
+  `smart_format`, which Flux does not have.
+- **Spend.** Flux is priced by the minute streamed (`deepgram/flux-general`, $0.0077 a minute, against nova-3's $0.0043
+  on utterances alone); a socket opens and a turn starts only while the session's spend has room. The silence fill costs
+  at most `eot_timeout_ms` a spell, about $0.08 to $0.19 for a busy hour.
+- **Rows.** `voice.joined` names the `listener`; `voice.barge_in` gains `stop_latency_ms` and `ended_latency_ms`; the
+  journal line `first word after the end of turn` carries `ms` and `path` (`flux` or `pause rules`) on both paths.
+
+**How it was proven.** The engine's tests run in virtual time against `StandInListen` (`tests/flux.rs`), the client
+against a local socket server (`tests/flux_socket.rs`), each fix red first as a planted revert; the join adds that a
+config with no `[voice]` table listens through Flux and that `stt_model = "nova-3"` still takes the pause rules. The
+DM-flow golden and the echo canceller's golden are byte-identical to main's; store format 50 is unchanged.
+
+**Left open.** The live A/B with Flux as the default (first-word latency by `path`, `voice.resumed` against
+`voice.barge_in` on speakers, a `trailing` row at `/leave`, a voice note still read by nova-3) is the owner's retest.
+Flux's keep-alive and idle timeout were read from Deepgram's docs only. Falling back to nova-3 when `FluxListen::new`
+fails (unreachable today beyond the checks the REST client makes first), a Discord-side test that `Event::Streamed`
+books a trailing row, and the `files.rs` race under plain `cargo test` are follow-ups.
