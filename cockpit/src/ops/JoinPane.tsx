@@ -15,7 +15,7 @@ import { addDraft, admitted, dropDraft, failDraft, useDrafts } from '@/lib/draft
 import { cn, ago } from '@/lib/format'
 import { Transcript } from '@/components/Transcript'
 import { Empty } from '@/components/ui'
-import { composerHint, composerStep, type ComposerState } from './composer'
+import { composerHint, composerStep, submitOf, type ComposerState } from './composer'
 import { liveOf } from './live'
 import { transcriptTail } from './sections'
 import { MODES, modeAsk } from './menus'
@@ -50,19 +50,18 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
   const rows = useHistoryRows().rows
   const turns = useMemo(() => new Map(turnRows(rows.filter((r) => r.session_id === sid)).map((t) => [t.turn_id, t])), [rows, sid])
 
-  const send = (input: string) => {
+  const send = (input: string, steer = false) => {
     setError(null)
     const draft = sid ? addDraft(sid, input) : null
-    const params = sid ? { session_id: sid, input, profile: turnProfile } : { thread, input, profile: turnProfile }
-    if (sid && turnProfile) setTurnProfile(sid, null)
+    const { params, clearOnOk } = submitOf({ sid, thread, input, turnProfile, steer })
     post('join', 'turn.submit', params)
-      .then(() => { if (draft != null) dropDraft(draft); void qc.invalidateQueries({ queryKey: ['thread.show'] }) })
+      .then(() => { if (draft != null) dropDraft(draft); if (clearOnOk && sid) setTurnProfile(sid, null); void qc.invalidateQueries({ queryKey: ['thread.show'] }) })
       .catch((e: any) => { if (draft != null) failDraft(draft, e?.message ?? String(e)); else setError(e?.message ?? String(e)) })
   }
   const step = (e: Parameters<typeof composerStep>[1]) => {
     const r = composerStep(cs, e)
     setCs(r.state)
-    if (r.effect) send(r.effect.send)
+    if (r.effect) send(r.effect.send, r.effect.steer)
     if ((e.kind === 'enter' || e.kind === 'mod_enter') && (r.effect || r.state.kind === 'queued')) setText('')
   }
   // A turn that starts or ends moves the composer; a held message goes when the turn ends.
@@ -72,7 +71,7 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
     was.current = running
     const r = composerStep(cs, { kind: running ? 'turn_started' : 'turn_ended' })
     setCs(r.state)
-    if (r.effect) send(r.effect.send)
+    if (r.effect) send(r.effect.send, r.effect.steer)
   }, [running]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (cs.kind === 'idle' && running) setCs({ kind: 'running' }) }, [running, cs.kind])
 
@@ -121,7 +120,7 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
         </div>
         <div className="mt-1 flex items-center gap-2 text-[10.5px] text-ink-faint" data-testid="composer-hint">
           <span>{composerHint(cs)}</span>
-          {turnProfile && <span className="num text-model" title="the profile for this turn only">◇ {turnProfile} · this turn</span>}
+          {turnProfile && <span className="num text-model" title="the profile for this turn only">◇ {turnProfile} · {running ? 'the next turn' : 'this turn'}</span>}
         </div>
       </div>
     </div>

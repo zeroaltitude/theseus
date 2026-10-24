@@ -21,8 +21,6 @@ export interface VerbDef {
   undo?: boolean
   /** Needs a running turn (or task). */
   running?: boolean
-  /** The protocol has no such method yet: the page shows the verb off, with these words. */
-  missing?: string
 }
 
 const ANY: readonly Kind[] = ['session', 'conversation', 'task', 'thread', 'routine', 'wake', 'watch', 'job', 'project', 'question']
@@ -46,7 +44,7 @@ export const VERBS: readonly VerbDef[] = [
   { id: 'stop', label: 'Stop the turn (keep its jobs)', on: ['conversation'], methods: ['execution.stop'], posture: 'arm', running: true },
   { id: 'stop_all', label: 'Stop it and cancel every task under it', on: ['conversation'], methods: ['execution.stop'], posture: 'ask', running: true },
   { id: 'cancel', label: 'Cancel the task', on: ['task'], methods: ['task.cancel'], posture: 'arm' },
-  { id: 'job_stop', label: 'Stop the job', on: ['job'], methods: ['job.stop'], posture: 'arm', missing: 'the daemon has no job.stop yet: stop the turn that runs it' },
+  { id: 'job_stop', label: 'Stop the job', on: ['job'], methods: ['job.stop'], posture: 'arm' },
   { id: 'answer', label: 'Answer', on: ['question'], methods: ['work.answer'], posture: 'floor' },
   { id: 'trust', label: 'Trust the session again', on: ['session', 'conversation'], methods: ['policy.trust'], posture: 'ask' },
   { id: 'retry', label: 'Retry the failed task', on: ['task'], methods: ['task.retry'], posture: 'do' },

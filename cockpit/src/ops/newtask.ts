@@ -40,11 +40,11 @@ export function startParams(f: NewTaskForm): TaskStartParams | null {
 export interface Choice { name: string; label: string; grey: string | null }
 
 /** The profiles a task may run on: each with the floor's reason when the home's data refuses it, or the caller's "US
- *  only" reason for a profile of another origin (ops-timeline: a sensitive calendar's event). Under "US only" the sheet
+ *  only" reason for a profile the daemon does not clear (ops-timeline: a sensitive calendar's event). Under "US only" the sheet
  *  picks one that is not greyed (the live one if it may, else the first), and none when none may: it fails closed.
  *  Otherwise it picks none (the parent's model). */
 export function profileChoices(profiles: readonly ProfileInfo[], mark: DataMark | undefined, usOnly?: string, live?: string): { choices: Choice[]; pick: string } {
-  const choices = profiles.map((p) => ({ name: p.name, label: `${p.name} · ${p.model}${p.origin ? ` · ${p.origin}` : ''}`, grey: (usOnly && p.origin !== 'us' ? usOnly : null) ?? greyOf(mark, p.name, p) }))
+  const choices = profiles.map((p) => ({ name: p.name, label: `${p.name} · ${p.model}${p.origin ? ` · ${p.origin}` : ''}`, grey: (usOnly && p.cleared !== true ? usOnly : null) ?? greyOf(mark, p.name, p) }))
   if (!usOnly) return { choices, pick: '' }
   const ok = choices.filter((c) => !c.grey)
   return { choices, pick: (ok.find((c) => c.name === live) ?? ok[0])?.name ?? '' }

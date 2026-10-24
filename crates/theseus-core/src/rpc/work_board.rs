@@ -37,6 +37,7 @@ impl Core {
             }
             method::WORK_UNWATCH => reply(self.work_unwatch(conn)),
             method::WORK_PEEK => reply(self.work_peek(parse(params)?, conn).await?),
+            method::JOB_STOP => reply(self.job_stop(parse(params)?, conn).await?),
             method::WORK_AGENDA => reply(self.work_agenda_rpc(parse(params)?, conn).await?),
             method::WORK_DIGEST => {
                 let params = if params.is_null() { json!({}) } else { params };

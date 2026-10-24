@@ -29,14 +29,12 @@ test('the reversible acts offer Undo: pause, snooze, the sticky model, reschedul
   for (const id of ['cancel', 'wake_cancel', 'retire', 'rehome']) assert.ok(!verbById(id)?.undo, id)
 })
 
-test('every method is one the protocol has, except the one it lacks, which the table says', () => {
+test('every method of the table is one the protocol has', () => {
   const proto = ['lib.rs', 'ledger.rs'].map((f) => readFileSync(new URL(`../../crates/theseus-protocol/src/${f}`, import.meta.url), 'utf8')).join('\n')
-  const lacks: string[] = []
   for (const v of VERBS) for (const m of v.methods) {
     if (m === 'nav') continue
-    if (!proto.includes(`"${m}"`)) { lacks.push(m); assert.ok(v.missing, `${v.id}: ${m} is not the protocol's`) }
+    assert.ok(proto.includes(`"${m}"`), `${v.id}: ${m} is not the protocol's`)
   }
-  assert.deepEqual(lacks, ['job.stop'])
 })
 
 test('every acting key names a verb of the table, and the palette reads the same table', () => {
@@ -44,4 +42,12 @@ test('every acting key names a verb of the table, and the palette reads the same
   for (const id of Object.values(KEY_VERB)) assert.ok(verbById(id), id)
   assert.ok(verbsOn('wake').every((v) => v.on.includes('wake')) && verbsOn('wake').length >= 3)
   assert.ok(verbsOn('job').some((v) => v.id === 'job_stop'))
+})
+
+test('the Inspector’s Stop on a job calls job.stop through useOpsAct, armed by a first press, and says the answer’s words', () => {
+  const src = readFileSync(new URL('../src/ops/Inspector.tsx', import.meta.url), 'utf8')
+  assert.match(src, /post<JobStopResult>\('job_stop', 'job\.stop', \{ id: r\.id \}\)/)
+  assert.match(src, /\.then\(\(a\) => say\(a\.words\)\)/)
+  assert.match(src, /if \(!armed\) \{ setArmed\(true\); return \}/)
+  assert.doesNotMatch(src, /onClick=\{\(\) => \{\}\}/)
 })

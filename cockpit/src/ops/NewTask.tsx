@@ -25,7 +25,7 @@ export function NewTask({ home: initialHome = '', profile: initialProfile = '', 
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
-  const { data: pl } = useRpc<ProfileListResult>('profile.list', undefined, 30_000)
+  const { data: pl } = useRpc<ProfileListResult>('profile.list', undefined, 0)
   const open = (sl?.sessions ?? []).filter((s) => s.kind === 'conversation' && !s.retired)
   const mark = open.find((s) => s.session_id === f.home)?.data
   const { choices, pick } = profileChoices(pl?.profiles ?? [], mark, usWhy, pl?.live)

@@ -39,11 +39,16 @@ export function OpsPalette({ close }: { close: () => void }) {
         <Command.Item value="self changes what theseus changed about itself" onSelect={() => { close(); feed.selfChanges() }} className={ITEM}>Self changes <span className="ml-auto text-[11px] text-ink-faint">what Theseus changed about itself</span></Command.Item>
       </Command.Group>
       <Command.Group heading="Operations · everything on the page" className={HEAD}>
-        {feed.entities.map((en) => (
+        {feed.entities.flatMap((en) => [
           <Command.Item key={`${en.kind}:${en.id}`} value={`${en.kind} ${en.label} ${en.id}`} onSelect={() => { close(); feed.go(en) }} className={ITEM}>
             <span className="truncate">{en.label}</span><span className="num ml-auto shrink-0 text-[11px] text-ink-faint">{en.hint}</span>
-          </Command.Item>
-        ))}
+          </Command.Item>,
+          ...(en.cancel ? [(
+            <Command.Item key={`${en.kind}:${en.id}:cancel`} value={searchValue(en.cancel.label, en.label)} onSelect={() => void run(en.cancel!)} className={ITEM}>
+              <span className="truncate">{en.cancel.label}</span><span className="num ml-auto shrink-0 text-[10.5px] text-wait">asks first</span>
+            </Command.Item>
+          )] : []),
+        ])}
       </Command.Group>
     </>
   )

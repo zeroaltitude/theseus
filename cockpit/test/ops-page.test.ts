@@ -127,3 +127,42 @@ test('the Graph lens and the bulk acts (ops-graph): mounted in its branch, fanne
   assert.match(css, /html:not\(\.stirred\) \.ops-flow \.react-flow__edge-path \{ animation: none !important; \}/)
   assert.match(css, /html\.calm \.ops-flow \.react-flow__edge-path, html\.calm \.ops-fade-in \{ animation: none !important; \}/)
 })
+
+test('profile.list and catalog.list are read once and on their invalidations: no interval in src/ops or the page', () => {
+  for (const [f, s] of [['Ops.tsx', page] as const, ...parts]) {
+    for (const m of s.matchAll(/useRpc<[^>]+>\('(profile|catalog)\.list',\s*undefined,\s*([^,)]+)/g)) assert.equal(m[2].trim(), '0', `${f}: ${m[1]}.list polls every ${m[2]}`)
+  }
+  assert.match(page, /useRpc<ProfileList>\('profile\.list', undefined, 0\)/, 'the page still reads them')
+  // What brings a fresh read: profile.changed (the always-mounted heartbeat), the menu's invalidate, the dock's act.
+  assert.match(src('components/Heartbeat.tsx'), /m === 'profile\.changed'\) void qc\.invalidateQueries\(\{ queryKey: \['profile\.list'\]/)
+  assert.match(src('ops/ModelMenu.tsx'), /void qc\.invalidateQueries\(\); onClose\(\)/)
+})
+
+test('M opens the mode menu on a task as on a conversation: a task has a session, and the mode board is keyed by it', () => {
+  const h = page.slice(page.indexOf('mode_menu: () =>'), page.indexOf('compose: () =>'))
+  assert.match(h, /focusSession\?\.kind === 'task'/)
+  assert.match(src('ops/Inspector.tsx'), /\(r\.kind === 'conversation' \|\| r\.kind === 'task'\) && r\.sessionId && <ActBtn verb="mode_menu"/)
+})
+
+test('the model menu sends one session.profile at a time: set returns while a call is out, and the rows are off', () => {
+  const m = src('ops/ModelMenu.tsx')
+  const set = m.slice(m.indexOf('const set = async'), m.indexOf('return (\n    <Pop'))
+  assert.match(set, /if \(out\.current\) return\n\s+out\.current = true/)
+  assert.match(set, /finally \{ out\.current = false/)
+  assert.match(m, /disabled=\{busy \|\| !!r\.grey \|\| !on\('model_sticky'\)/)
+  const revert = m.slice(m.indexOf('const revert ='), m.indexOf('return (\n    <span'))
+  assert.match(revert, /if \(out\.current\) return/)
+  // useOpsAct().post stays unguarded: the bulk fan-out relies on it.
+  assert.doesNotMatch(src('ops/act.ts'), /out\.current/)
+})
+
+test('a hold takes the daemon’s clock, never this browser’s', () => {
+  assert.doesNotMatch(src('ops/ui.ts').replace(/\/\/.*$/gm, ''), /Date\.now\(\)/)
+})
+
+test('the deck’s live turn is the Operations page’s liveOf: no second copy', () => {
+  const deck = src('views/SessionDeck.tsx')
+  assert.doesNotMatch(deck, /function useLive/)
+  assert.match(deck, /import \{ liveOf, type LiveTurn \} from '@\/ops\/live'/)
+  assert.match(deck, /useMemo\(\(\) => liveOf\(events, id\), \[events, id\]\)/)
+})

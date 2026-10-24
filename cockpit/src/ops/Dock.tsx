@@ -26,7 +26,7 @@ export function Dock({ state, onState, onFocus, selected, sessions, activeModel,
   // Pausing holds the newest line seen then: lines that come meanwhile wait, and show when it resumes.
   const heldAt = useMemo(() => narrative[narrative.length - 1]?.seq ?? 0, [state.paused]) // eslint-disable-line react-hooks/exhaustive-deps
   const lines = useMemo(() => dockStream(narrative, { follow: state.follow ? selected : null, pausedAt: state.paused ? heldAt : null }), [narrative, state.follow, selected, state.paused, heldAt])
-  const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 30_000)
+  const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 0)
   const rows = useHistoryRows().rows
   const calls = useMemo(() => providerCalls(rows.filter((r) => r.kind === 'provider.call').slice(-400)), [rows])
   const strip = useMemo(() => modelsStrip(pl?.profiles ?? [], sessions, calls), [pl, sessions, calls])

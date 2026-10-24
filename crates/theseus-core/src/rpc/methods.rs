@@ -1186,6 +1186,7 @@ impl Core {
                 origin: Some(
                     crate::data_gate::word(self.cfg.profile_origin(name, &self.catalog)).into(),
                 ),
+                cleared: Some(crate::data_mark::cleared(&self.cfg, &self.catalog, name)),
             })
             .collect();
         ProfileListResult {

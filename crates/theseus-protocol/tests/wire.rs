@@ -679,6 +679,8 @@ fn the_ops_fields_are_optional_on_the_wire() {
         "max_output_tokens": 1, "has_system": false, "live": false}))
     .unwrap();
     assert_eq!(p.origin, None);
+    assert_eq!(p.cleared, None);
+    assert!(!serde_json::to_string(&p).unwrap().contains("cleared"));
     let marked = SessionInfo {
         data: Some(DataMark::Sensitive),
         ..s

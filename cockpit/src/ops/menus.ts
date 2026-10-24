@@ -56,6 +56,12 @@ export function stickyOf(rows: readonly Pick<LedgerEntry, 'kind' | 'session_id' 
   return newestSet(rows, sessionId)?.to ?? null
 }
 
+/** When the daemon wrote the session's newest `session.profile_set` row (0 if none): the clock `hold` stamps a choice
+ *  with, so `stickyWith` compares the daemon's time with the daemon's, never with this browser's. */
+export function heldAt(rows: readonly Pick<LedgerEntry, 'kind' | 'session_id' | 'data' | 'at_unix_ms'>[], sessionId: string): number {
+  return newestSet(rows, sessionId)?.at ?? 0
+}
+
 /** What this page just set (`at`, its clock), which shows until the ledger's own newer row arrives: the ledger is read
  *  a little behind the daemon, and a choice should show when it is made. A row written after the choice wins. */
 export function stickyWith(rows: readonly Pick<LedgerEntry, 'kind' | 'session_id' | 'data' | 'at_unix_ms'>[], sessionId: string, held?: { to: string | null; at: number }): string | null {
