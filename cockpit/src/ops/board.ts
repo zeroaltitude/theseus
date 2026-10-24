@@ -8,6 +8,7 @@ import { rowsOf, type TaskRow } from '../lib/taskboard.ts'
 import { progressLine } from '../lib/progressLine.ts'
 import { midnight } from '../lib/agenda.ts'
 import type { Bucket, Filters } from './address.ts'
+import { bucketOf, bucketOfSession, endOfDay, type StateBucket } from './state.ts'
 
 export type Column = 'needs' | 'working' | 'paused' | 'scheduled' | 'done'
 export const COLUMNS: readonly Column[] = ['needs', 'working', 'paused', 'scheduled', 'done']
@@ -27,6 +28,9 @@ export interface OpsRow {
   /** Its work state (`WorkState`), or a task record's state when the board holds no view of it. */
   state?: string
   paused: boolean
+  /** A conversation at rest, from the time machine's sessions: a Graph anchor and a Threads header, never a Board row
+   *  nor a count (`ops/state.ts`). */
+  rest?: boolean
   view?: WorkView
   task?: TaskRow
   session?: SessionInfo
@@ -45,27 +49,20 @@ export interface OpsRow {
   activityMs: number
 }
 
-const ENDED = ['done', 'failed', 'cancelled', 'expired']
 // The kernel's terminal states, as the Tasks page reads them.
 const ENDED_INFO = ['complete', 'cancelled', 'failed', 'budget_exhausted']
-
-/** The local midnight ending the day that holds `now`. */
-const endOfDay = (now: number): number => { const d = new Date(midnight(now)); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime() }
 
 /** The profile a row runs on: a checkpoint's move first (the progress line's `on sonnet`), then its session's. */
 export function modelOf(view: WorkView | undefined, session: SessionInfo | undefined): string | undefined {
   return view?.moved_to ?? session?.profile ?? session?.model ?? undefined
 }
 
-/** Where a view stands on the board, by the attention every surface reads, then its state. */
-function columnOfView(v: WorkView): Column {
-  if (v.attention.level === 'needs_you') return 'needs'
-  if (ENDED.includes(v.state)) return 'done'
-  if (v.paused || v.state === 'queued') return 'paused'
-  if (v.state === 'running' || v.state === 'waiting') return 'working'
-  // A conversation at rest: its turn is done.
-  return 'done'
-}
+/** The column of a state bucket (`ops/state.ts`, the one model). A conversation at rest keeps the column it had, Done,
+ *  where a view of one is held; the present's board holds no such view, and the time machine's drops it (`boardRows`). */
+const COLUMN_OF: Readonly<Record<StateBucket, Column>> = { needs: 'needs', working: 'working', scheduled: 'scheduled', paused: 'paused', rest: 'done', ended: 'done' }
+
+/** Where a view stands on the board. */
+const columnOfView = (v: WorkView, now: number): Column => COLUMN_OF[bucketOf(v, now)]
 
 function columnOfTask(r: TaskRow, now: number): Column {
   // A failure not yet dismissed still asks for someone: it needs you, where the Tasks page put it under Done.
@@ -74,7 +71,7 @@ function columnOfTask(r: TaskRow, now: number): Column {
   const starts = r.info?.starts_at_ms ?? (r.view?.state === 'queued' ? r.view.next_at_ms : undefined)
   if (starts != null && starts > now) return starts < endOfDay(now) ? 'scheduled' : 'paused'
   if (r.paused || r.view?.state === 'queued' || r.info?.state === 'queued') return 'paused'
-  return 'working'
+  return r.view ? COLUMN_OF[bucketOf(r.view, now)] : 'working'
 }
 
 export interface BoardInput {
@@ -83,17 +80,25 @@ export interface BoardInput {
   sessions: readonly SessionInfo[]
   /** Report lines read from ended tasks' sessions (`reportLineOf`). */
   lines?: Readonly<Record<string, string>>
+  /** The task records: a suspended record keeps its task open though its execution ended. */
+  records?: readonly TaskRecord[]
   now: number
+  /** The time machine shows the past (`world != null`): the board holds no views then, and the sessions stand in for
+   *  the conversations. Absent, it is guessed from the views, as before the page passed it. */
+  past?: boolean
 }
 
 /** Every row of the board, once. Under the time machine the board holds no views: the rows are the tasks and
- *  sessions as they stood. */
-export function boardRows({ views, tasks, sessions, lines = {}, now }: BoardInput): OpsRow[] {
+ *  sessions as they stood. In the present, a conversation at rest is a row only for the Graph (`rest`). */
+export function boardRows({ views, tasks, sessions, lines = {}, records = [], now, past = views.length === 0 }: BoardInput): OpsRow[] {
+  const suspended = new Set(records.flatMap((t) => (t.state === 'suspended' && t.session ? [t.session] : [])))
   const bySession = new Map(sessions.map((s) => [s.session_id, s]))
   const out: OpsRow[] = []
   for (const r of rowsOf([...views], [...tasks], lines)) {
     const s = bySession.get(r.id)
-    const column = columnOfTask(r, now)
+    const ended = columnOfTask(r, now)
+    // A suspended record whose execution ended is paused·queued: open and recoverable (`ops/state.ts`).
+    const column: Column = ended === 'done' && suspended.has(r.id) ? 'paused' : ended
     out.push({
       id: r.id, kind: 'task', column, title: r.title, short: r.short, state: r.view?.state ?? r.info?.state, paused: r.paused,
       view: r.view, task: r, session: s, model: modelOf(r.view, s), place: r.place, thread: r.view?.thread, sessionId: r.id,
@@ -109,7 +114,7 @@ export function boardRows({ views, tasks, sessions, lines = {}, now }: BoardInpu
       if (seen.has(id)) continue
       seen.add(id)
       const s = v.session_id ? bySession.get(v.session_id) : undefined
-      const column = columnOfView(v)
+      const column = columnOfView(v, now)
       out.push({
         id, kind: v.kind, column, title: v.title || s?.title || s?.label || v.attention.label, short: id.slice(-6), state: v.state, paused: v.paused === true,
         view: v, session: s, model: modelOf(v, s), place: v.place, thread: v.thread, sessionId: v.session_id,
@@ -123,12 +128,15 @@ export function boardRows({ views, tasks, sessions, lines = {}, now }: BoardInpu
     }
   }
   // The time machine's board: no views, so the conversations are the sessions as they stood, retired ones left out.
-  if (views.length === 0) {
+  // `ready` is at rest, never working: its row is flagged `rest`, so the Graph keeps its anchor and no count has it.
+  if (past) {
     for (const s of sessions) {
       if (s.kind !== 'conversation' || s.retired || seen.has(s.session_id)) continue
+      const bucket = bucketOfSession(s)
       const st = s.execution_state ?? 'idle'
-      const column: Column = s.attention?.level === 'needs_you' ? 'needs' : st === 'running' || st === 'waiting' ? 'working' : st === 'queued' ? 'paused' : 'done'
+      const column = COLUMN_OF[bucket]
       out.push({
+        ...(bucket === 'rest' ? { rest: true } : {}),
         id: s.session_id, kind: 'conversation', column, title: s.title || s.label || s.session_id.slice(-6), short: s.session_id.slice(-6), state: st,
         paused: false, session: s, model: modelOf(undefined, s), sessionId: s.session_id,
         endedMs: column === 'done' ? s.last_active_ms : undefined, activityMs: s.last_active_ms,
@@ -162,6 +170,7 @@ export function columnsOf(rows: readonly OpsRow[], now: number): BoardColumns {
   const out: BoardColumns = { needs: [], working: [], paused: [], scheduled: [], done: [], older: [] }
   const today = midnight(now)
   for (const r of rows) {
+    if (r.rest) continue
     if (r.column === 'done') ((r.endedMs ?? r.activityMs) >= today ? out.done : out.older).push(r)
     else out[r.column].push(r)
   }
@@ -203,7 +212,7 @@ export function inBucket(r: OpsRow, b: Bucket, now: number, spentToday: Readonly
     case 'working': return r.column === 'working'
     case 'paused': return r.column === 'paused'
     case 'still': return r.column === 'scheduled'
-    case 'done': return r.column === 'done' && (r.endedMs ?? r.activityMs) >= midnight(now)
+    case 'done': return r.column === 'done' && !r.rest && (r.endedMs ?? r.activityMs) >= midnight(now)
     case 'spent': return r.sessionId != null && spentToday.has(r.sessionId)
   }
 }
@@ -258,8 +267,8 @@ export interface Counters { working: number; paused: number; still: number; done
 
 export function countersOf(rows: readonly OpsRow[], now: number, spentUsd: number): Counters {
   const today = midnight(now)
-  const n = (c: Column) => rows.filter((r) => r.column === c).length
-  return { working: n('working'), paused: n('paused'), still: n('scheduled'), done: rows.filter((r) => r.column === 'done' && (r.endedMs ?? r.activityMs) >= today).length, spent: spentUsd }
+  const n = (c: Column) => rows.filter((r) => r.column === c && !r.rest).length
+  return { working: n('working'), paused: n('paused'), still: n('scheduled'), done: rows.filter((r) => r.column === 'done' && !r.rest && (r.endedMs ?? r.activityMs) >= today).length, spent: spentUsd }
 }
 
 /** Today's spend from the ledger's model calls since local midnight, in all and by session: Money's meaning. */

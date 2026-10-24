@@ -15,6 +15,7 @@
 //   on"), and `retry_of` (dotted).
 import type { DataMark, TaskInfo, TaskRecord, WorkView } from '@protocol'
 import type { OpsRow } from './board.ts'
+import { bucketOfWork } from './state.ts'
 
 export const COL_W = 288
 export const ROW_H = 140
@@ -143,7 +144,14 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
   for (const t of records) {
     // A record whose task runs in its own session is that task's node; a step is a node of its own.
     const same = (t.session && bySession.get(t.session)) || (items.has(t.id) ? t.id : undefined)
-    if (same) { alias.set(t.id, same); const it = items.get(same)!; it.record ??= t; continue }
+    if (same) {
+      alias.set(t.id, same)
+      const it = items.get(same)!
+      it.record ??= t
+      // A suspended record whose execution ended is open and recoverable: drawn paused, never folded as done.
+      if (it.view && it.ended && t.state === 'suspended' && bucketOfWork(it.view, now, t) !== 'ended') { it.ended = false; it.state = 'suspended' }
+      continue
+    }
     const project = t.kind === 'project' || t.kind === 'milestone'
     if (project && !future) continue
     items.set(t.id, {

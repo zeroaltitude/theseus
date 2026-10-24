@@ -12,6 +12,7 @@ import { taskShort } from '@/lib/taskgraph'
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { clock, cn, usd } from '@/lib/format'
 import type { OpsRow } from './board'
+import { bucketGlyph, bucketOfNode, bucketTone, FADED, FILTERED_OUT, look } from './state'
 import { masked, NODE_W, shownTitle, type GLane, type GNode } from './graph'
 
 export interface NodeData extends Record<string, unknown> {
@@ -65,7 +66,9 @@ const Pick = ({ on }: { on: boolean }) => (
 
 function Work({ data: d }: NodeProps<Node<NodeData>>) {
   const { n, row, now } = d
-  const tone = toneHex[stateTone(n.state === 'paused' ? 'queued' : n.state)] ?? toneHex.idle
+  const bucket = bucketOfNode(n, now)
+  const { faded } = look(bucket, d.dim)
+  const tone = toneHex[bucketTone(bucket, n.state) ?? stateTone(n.state === 'paused' ? 'queued' : n.state)] ?? toneHex.idle
   const conv = n.kind === 'conversation'
   const v = n.view
   const cost = v?.cost ?? (row?.task?.info ? { spent_usd: row.task.info.spent_usd, limit_usd: row.task.info.limit_usd } : undefined)
@@ -74,12 +77,12 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
   const shortId = n.kind === 'step' ? taskShort(n.id) : row?.short ?? n.id.slice(-6)
   return (
     <div data-drop={conv && row?.sessionId ? `conversation:${row.sessionId}` : undefined} data-node={n.id}
-      className={cn('rounded-lg bg-hull/95 px-2.5 py-2 backdrop-blur transition-opacity', n.fresh && 'ops-fade-in', d.dim && 'opacity-30', conv && 'bg-[#0d2036]/95')}
+      className={cn('rounded-lg bg-hull/95 px-2.5 py-2 backdrop-blur transition-opacity', n.fresh && 'ops-fade-in', d.dim && FILTERED_OUT, faded && FADED, conv && 'bg-[#0d2036]/95')}
       style={{ width: NODE_W, ...ring(d, tone) }}>
       <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
       <div className="flex items-center gap-1.5 text-[10.5px]" style={{ color: n.needs ? toneHex.wait : tone }}>
         <Pick on={d.picked} />
-        <span aria-hidden>{GLYPH[n.state] ?? '·'}</span>
+        <span aria-hidden>{bucketGlyph(bucket, n.state) ?? GLYPH[n.state] ?? '·'}</span>
         <span className="font-semibold uppercase tracking-wider">{n.state.replace('_', ' ')}</span>
         {locked(n.data) && <span title={`${n.data} data: US-origin models only${n.data === 'sensitive' ? ', never a shared place' : ''}`} className="flex items-center gap-0.5 text-ink-dim"><Lock size={10} aria-label={n.data} />{n.data}</span>}
         {n.asks > 0 && <span className="rounded-full bg-wait/15 px-1.5 text-wait" title="questions it asks: answer them in the queue">? {n.asks}</span>}
@@ -108,8 +111,9 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
 function Job({ data: d }: NodeProps<Node<NodeData>>) {
   const { n } = d
   const tone = toneHex[stateTone(n.state)] ?? toneHex.idle
+  const { faded } = look(bucketOfNode(n, d.now), d.dim)
   return (
-    <div className={cn('flex w-[210px] items-center gap-1.5 rounded-full bg-hull/95 px-2.5 py-1 text-[10.5px]', n.fresh && 'ops-fade-in', d.dim && 'opacity-30')} style={ring(d, tone)} title={`job · ${shownTitle(n, !!d.redact)}`}>
+    <div className={cn('flex w-[210px] items-center gap-1.5 rounded-full bg-hull/95 px-2.5 py-1 text-[10.5px]', n.fresh && 'ops-fade-in', d.dim && FILTERED_OUT, faded && FADED)} style={ring(d, tone)} title={`job · ${shownTitle(n, !!d.redact)}`}>
       <Handle type="target" position={Position.Left} className="!h-1 !w-1 !border-0 !bg-line-strong" />
       <Pick on={d.picked} />
       <span style={{ color: tone }} aria-hidden>{GLYPH[n.state] ?? '·'}</span>
@@ -136,7 +140,7 @@ function Future({ data: d }: NodeProps<Node<NodeData>>) {
   const v = n.view
   const project = n.kind === 'project'
   return (
-    <div data-drop={project ? `project:${n.id}` : undefined} className={cn('w-[210px] rounded-lg border border-dashed border-think/50 bg-hull/90 px-2.5 py-1.5', d.dim && 'opacity-30')} style={d.hover ? ring(d, toneHex.think) : undefined}>
+    <div data-drop={project ? `project:${n.id}` : undefined} className={cn('w-[210px] rounded-lg border border-dashed border-think/50 bg-hull/90 px-2.5 py-1.5', d.dim && FILTERED_OUT)} style={d.hover ? ring(d, toneHex.think) : undefined}>
       <Handle type="target" position={Position.Left} className="!h-1 !w-1 !border-0 !bg-line-strong" />
       <div className="flex items-center gap-1.5 text-[10px] text-think"><span aria-hidden>{FUTURE_GLYPH[n.kind]}</span><span className="uppercase tracking-wider">{n.kind}</span>
         {v?.next_at_ms != null && <span className="num ml-auto text-ink-faint">{clock(v.next_at_ms)}</span>}</div>

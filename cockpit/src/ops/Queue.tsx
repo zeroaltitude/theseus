@@ -20,13 +20,15 @@ import type { ButtonAct, Verb } from './keys'
 
 const TONE: Record<string, string> = { wait: 'text-wait', fault: 'text-fault', think: 'text-think', money: 'text-money', live: 'text-live' }
 
-export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, coming, arrivedKeys, events = [] }: {
+export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, coming, arrivedKeys, events = [], notices }: {
   items: readonly QueueItem[]; cursor: string | null; onCursor: (key: string) => void; open: string | null
   /** The item whose decline (or "something else") note is open, and its words. */
   note: { key: string; text: string } | null; onNote: (n: { key: string; text: string } | null) => void
   past: number | null; now: number; coming: readonly WorkView[]; arrivedKeys: ReadonlySet<string>
   /** The calendar's events in the next three hours, redacted as the page is (ops-timeline, theseus-jid7t.5). */
   events?: readonly ComingEvent[]
+  /** The Notices strip (ops/Notices.tsx): holds that wait on nothing. It scrolls with the list and is never counted. */
+  notices?: ReactNode
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="ops-queue">
@@ -36,6 +38,7 @@ export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, 
             <CircleCheck size={18} className="text-ok" /> {past ? 'nothing waited for you then' : 'nothing waits for you'}
           </div>
         )}
+        {notices}
         {items.map((i) => (
           <Item key={i.key} i={i} at={i.key === cursor} whole={i.key === open} onCursor={onCursor} note={note?.key === i.key ? note.text : null} onNote={onNote}
             past={past} now={now} fresh={arrivedKeys.has(i.key)} />
@@ -90,7 +93,7 @@ export function Answers({ i, whole, note, onNote, past }: { i: QueueItem; whole:
   return (
     <div className="mt-2 flex flex-col gap-1.5">
       {i.proposal && <div className="text-[11.5px] text-think">{changeWords(i.proposal.record)}</div>}
-      {i.hold && <div className="num text-[10.5px] text-ink-faint">since {clock(i.hold.external_text.since_ms)} · {i.hold.external_text.via ?? 'read here'}</div>}
+      {i.hold && <div className="num text-[10.5px] text-ink-faint">since {clock(i.hold.external_text.since_ms)} · {i.hold.external_text.via ?? 'read here'} · its calls that act wait</div>}
       {i.ask && <div className="text-[11px] text-ink-dim">“{i.ask.message}”</div>}
       <div className="flex flex-wrap gap-1.5">
         {(i.confirm || i.proposal) && i.kind !== 'question' && <>

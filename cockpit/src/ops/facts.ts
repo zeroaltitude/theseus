@@ -184,6 +184,9 @@ export const ITEM_LOOK: Readonly<Record<QueueItem['kind'], { glyph: string; word
   ask: { glyph: '↪', word: 'which thread', tone: 'live' },
 }
 
+/** A notice's look, apart from a needs-you hold's (⚑, amber): an outlined flag, no colour of its own. It asks nothing. */
+export const NOTICE_LOOK = { glyph: '⚐', word: 'notice', tone: 'idle' } as const
+
 export function itemFacts(i: QueueItem, now: number): ItemFacts {
   const asked = i.confirm?.requested_at_ms ?? i.since
   const span = i.expiresAt && asked ? i.expiresAt - asked : 0

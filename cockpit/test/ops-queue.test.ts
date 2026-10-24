@@ -4,7 +4,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { answerOf, arrived, choiceOption, comingUp, grantKey, itemFor, keepCursor, queueOf, step } from '../src/ops/queue.ts'
 import { itemFacts } from '../src/ops/facts.ts'
-import { board, confirm, execution, HOUR, MIN, NOW, record, view } from './ops-fixtures.ts'
+import { holdsOf } from '../src/ops/notices.ts'
+import { board, confirm, execution, HOUR, MIN, NOW, record, session, view } from './ops-fixtures.ts'
 
 const titleOf = (s: string) => `«${s}»`
 
@@ -173,4 +174,31 @@ test('each answer is one protocol call, the one every surface makes; an item tha
   assert.ok(answerOf(by.get('hold')!, { verb: 'trust' })?.ask, 'a trust asks first, as Actions does')
   assert.deepEqual(answerOf(by.get('ask')!, { verb: 'thread_answer', key: '2' }), { method: 'thread.answer', params: { ask_id: 'ask_1', choice: '2' } })
   assert.equal(answerOf(by.get('hold')!, { verb: 'approve' }), null)
+})
+
+// External text (theseus-g00vv): a hold is an item only when it makes a call wait; the rest are notices.
+
+const hold = (over: object = {}) => ({ since_ms: NOW - HOUR, tool: 'web.search', url: '', node_id: 'nod_1', query: 'tide tables', ...over })
+
+test('a hold whose session does not wait gives no queue item; one that waits gives one hold', () => {
+  const quiet = [session('ses_n', { external_text: hold(), external_waits: false })]
+  assert.deepEqual(queueOf({ confirms: [], views: [], holds: holdsOf(quiet).waiting, past: false }), [])
+  const asks = [session('ses_a', { external_text: hold(), external_waits: true })]
+  const q = queueOf({ confirms: [], views: [], holds: holdsOf(asks).waiting, past: false })
+  assert.deepEqual(q.map((i) => [i.key, i.kind]), [['h:ses_a', 'hold']])
+  assert.equal(answerOf(q[0], { verb: 'trust' })?.method, 'policy.trust')
+})
+
+test('a hold on an ended task (shaped like a dry-run task) is neither an item nor a notice', () => {
+  const ended = [session('ses_e', { kind: 'task', execution_state: 'complete', external_text: hold({ via: 'quote' }) })]
+  const h = holdsOf(ended)
+  assert.deepEqual(h.waiting, [])
+  assert.deepEqual(h.notices, [])
+  assert.deepEqual(queueOf({ confirms: [], views: [], holds: h.waiting, past: false }), [])
+})
+
+test('the present is told, not guessed: past false with no views reads no executions', () => {
+  const ex = [execution('exe_x', 'failed')]
+  assert.deepEqual(queueOf({ confirms: [], views: [], executions: ex, past: false }), [])
+  assert.equal(queueOf({ confirms: [], views: [], executions: ex, past: true }).length, 1)
 })
