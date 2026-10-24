@@ -29,6 +29,7 @@ import argparse
 import dataclasses
 import datetime as dt
 import itertools
+import re
 import sys
 from pathlib import Path
 
@@ -150,17 +151,30 @@ ALONE_MARGIN = 0.10
 RECALL_TOKENS = 12000
 BULK_MIN_TOKENS = 1000  # a bulk read is at least this long
 
-# The catalog's prices per million tokens (theseus-core's catalog.rs, the
-# built-in table; test_generate holds this copy to it): input, output, cache
-# read, cache write (5 minutes).
-PRICES = {
-    "claude-fable-5-1": (10.0, 50.0, 0.25, 12.50),
-    "claude-opus-5-5": (4.0, 20.0, 0.20, 5.00),
-    "claude-opus-5": (5.0, 25.0, 0.50, 6.25),
-    "claude-sonnet-5-5": (2.0, 10.0, 0.20, 2.50),
-    "claude-sonnet-5": (2.0, 10.0, 0.20, 2.50),
-    "claude-haiku-4-5": (1.0, 5.0, 0.10, 1.25),
-}
+CATALOG = Path(__file__).resolve().parents[2] / "crates/theseus-core/src/catalog.rs"
+# One `claude(window, max_output, input, output, cache read, cache write, ..)`
+# call; the window is `m` or a literal.
+_CLAUDE_CALL = re.compile(
+    r"claude\(\s*(?:m|\d[\d_]*),\s*[\d_]+,\s*([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)"
+)
+
+
+def catalog_prices(src: str) -> dict[str, tuple[float, float, float, float]]:
+    """Per million tokens: input, output, cache read, cache write (5
+    minutes), of each model the built-in catalog builds with `claude(..)`,
+    either as the plain call or as `CatalogEntry { .. ..claude(..) }`. Each
+    `e.insert(` block is read alone, so one entry never takes another's call."""
+    out = {}
+    for block in src.split("e.insert(")[1:]:
+        key, call = re.match(r'\s*"([^"]+)"', block), _CLAUDE_CALL.search(block)
+        if key and call:
+            out[key.group(1)] = tuple(float(x) for x in call.groups())
+    return out
+
+
+# The catalog's prices, read from theseus-core's catalog.rs so a price change
+# there reaches the budget with no second copy to keep.
+PRICES = catalog_prices(CATALOG.read_text())
 
 SMOKE_CELLS = (
     ("near", "incidental", "direct"),

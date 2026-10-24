@@ -103,7 +103,10 @@ least one of each kind. `full` is three sessions of 200 turns: two on one day an
 topic blocks each, a mark in each session, and 6 probes in each of the 34 bucket × salience × kind cells (204 in
 all; an abstention has no supersession). The generator prints the counts and an estimate of the tokens and dollars
 per arm at the catalog's price (`--model`), each mark's reads with their bounds, and the window and its budget.
-For seed 7, planned at 13,943, it says about $0.57 an arm for the smoke and about $11.98 for the full. Treat these as
+For seed 7, planned at 13,943, it says about $0.48 an arm for the smoke and about $7.89 for the full, at Sonnet
+5.5's $0.10 a million for cache reads (read from the catalog). The recall window itself moved the full run's
+estimate down, from $12.02 to $11.98, and the smoke's up, from $0.54 to $0.57; correcting the cache-read price from
+$0.20 to $0.10 then took them to $7.89 and $0.48. Treat these as
 a budget, not a measurement: the replies' length and the turns' recall notes are guesses.
 
 **Run live only in a throwaway container or VM.** Neither arm's tools are confined to the workspace on a bare host.
