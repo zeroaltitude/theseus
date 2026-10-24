@@ -1743,22 +1743,17 @@ mod tests {
         let ids = |p: &Pack| p.questions.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
         assert_eq!(ids(&v8), ids(&v7), "the same questions");
         let (d7, d8) = (v7.question("data").unwrap(), v8.question("data").unwrap());
-        assert_eq!(
+        // A question's frame: all but its options.
+        let frame = |q: &QuestionDef| {
             (
-                &d8.instructions,
-                &d8.decides,
-                &d8.kind,
-                &d8.thresholds,
-                &d8.no_match
-            ),
-            (
-                &d7.instructions,
-                &d7.decides,
-                &d7.kind,
-                &d7.thresholds,
-                &d7.no_match
+                q.instructions.clone(),
+                q.decides,
+                q.kind,
+                q.thresholds,
+                q.no_match.clone(),
             )
-        );
+        };
+        assert_eq!(frame(d8), frame(d7));
         let opts = |q: &QuestionDef| q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>();
         assert_eq!(opts(d8), ["open", "private", "unclear"]);
         assert_eq!(opts(d8), opts(d7));
@@ -1775,22 +1770,7 @@ mod tests {
             v7.question("reply_effort").unwrap(),
             v8.question("reply_effort").unwrap(),
         );
-        assert_eq!(
-            (
-                &e8.instructions,
-                &e8.decides,
-                &e8.kind,
-                &e8.thresholds,
-                &e8.no_match
-            ),
-            (
-                &e7.instructions,
-                &e7.decides,
-                &e7.kind,
-                &e7.thresholds,
-                &e7.no_match
-            )
-        );
+        assert_eq!(frame(e8), frame(e7));
         assert_eq!(opts(e8), opts(e7));
         for id in opts(e7).iter().filter(|id| *id != "max") {
             assert_eq!(
