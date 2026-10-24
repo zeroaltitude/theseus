@@ -1673,7 +1673,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `effort_bounds`, is not gated, and `effort_reason` is `floored` only when it raised the level; on the base profile Jev
     may still go below.
     **The effort** (route.v3, theseus-qe3v; xhigh and max only above `[routing] high_effort_confidence`, 0.40, else
-    `high` with `effort_reason` `held_high`, theseus-p8dy): `reply_effort` rides the route pack's one request beside `mode`;
+    `high` with `effort_reason` `held_high`, theseus-p8dy; xhigh also only on a sure answer, so an unsure xhigh runs
+    `high` as `held_high_unsure` at any confidence, theseus-goq94, while max keeps the bar alone): `reply_effort` rides the route pack's one request beside `mode`;
     `routing/effort.rs` decides, purely: Jev's level over the profile's `effort` unless `effort_fixed`, clamped to
     `[routing] effort_bounds`, only for a model whose catalog row takes effort; an answer below the question's confirm
     band still applies at `[routing] effort_confidence` (0.35) or more, as `applied_unsure` (theseus-7pm8t: an effort
