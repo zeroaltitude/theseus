@@ -76,7 +76,8 @@ test('a page left alone renders nothing new: its lists hold still between render
 test('ops-act: the page mounts the Join pane, dock, menus and toast; no prompt or ?call= link; the palette gets a feed with the selection seam', () => {
   for (const m of ['<Dock ', '<JoinPane ', '<ModelMenu ', '<ModeMenu ', '<Toast />']) assert.ok(page.includes(m), m)
   assert.match(page, /\/\/ ops-graph: the selection scope/)
-  assert.match(page, /selection: \[\] as ReturnType<typeof targetOf>\[\], \/\/ ops-graph: the selection scope/)
+  assert.match(page, /selection: vis\.rows\.filter\(\(r\) => picked\.has\(r\.id\)\)\.map\(targetOf\), \/\/ ops-graph: the selection scope/)
+  assert.match(page, /\}\), \[focusRow, vis\.rows, picked, rows,/)
   assert.ok(!page.includes('?call='), 'l follows in the inspector')
   assert.match(page, /if \(mo\) return \/\/ a sheet or a menu has the keys/)
   for (const [f, s] of parts) assert.ok(!/window\.prompt/.test(s.replace(/\/\/.*$/gm, '')), `${f} asks with a prompt, not a sheet`)

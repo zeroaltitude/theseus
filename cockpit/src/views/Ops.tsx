@@ -370,18 +370,18 @@ export default function Ops() {
 
   const inspectorCx = { records, rows, onMenu: (m: 'model' | 'mode', sid: string) => setMenu({ kind: m, sid }), onParent: (sid: string) => pick(sid), onJoin: (id: string) => set({ join: id }), joined: a.join }
 
-  // What the palette sees: the focused card, all that are visible, and (at the join) the selection.
+  // What the palette sees: the focused card, all that are visible, and the picked ones (ops-graph's selection).
   const feed = useMemo(() => ({
     targets: {
       one: focusRow ? [targetOf(focusRow)] : [],
       visible: vis.rows.map(targetOf),
-      selection: [] as ReturnType<typeof targetOf>[], // ops-graph: the selection scope
+      selection: vis.rows.filter((r) => picked.has(r.id)).map(targetOf), // ops-graph: the selection scope
     },
     entities: entitiesOf(rows, grouped.threads.map((t) => ({ slug: t.group.slug, title: t.group.title })), records, pl?.profiles ?? []),
     profiles: pl?.profiles ?? [], prices: pricing(cat),
     go: (e: { go: { sel: string } | { model: string } }) => { if ('sel' in e.go) pick(e.go.sel); else set({ f: { ...a.f, model: e.go.model } }) },
     newTask: () => live.current.handlers.new_task('N'), selfChanges: () => setSelfOpen(true),
-  }), [focusRow, vis.rows, rows, grouped.threads, records, pl, cat, a.f]) // eslint-disable-line react-hooks/exhaustive-deps
+  }), [focusRow, vis.rows, picked, rows, grouped.threads, records, pl, cat, a.f]) // eslint-disable-line react-hooks/exhaustive-deps
   const publish = useOpsPalette((x) => x.publish)
   useEffect(() => { publish(feed as never); return () => publish(null) }, [feed, publish])
 
