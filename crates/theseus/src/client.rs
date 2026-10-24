@@ -370,7 +370,10 @@ pub const OPERATORS: [(&str, &str); 105] = [
     (method::TASK_RETRY, "theseus retry"),
     (method::STANDING_ADD, "theseus standing add"),
     (method::CARD_PROPOSE, "theseus card propose"),
-    (method::CARD_ANSWER, "theseus card keep|edit|decline|scope"),
+    (
+        method::CARD_ANSWER,
+        "theseus card keep|edit|decline|end|scope",
+    ),
     (method::CARD_DONE, "theseus card done"),
     (method::STANDING_REVOKE, "theseus standing revoke"),
     (method::STANDING_ANSWER, "theseus standing answer"),

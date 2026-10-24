@@ -36,31 +36,34 @@ use crate::standing;
 
 /// The most model calls one run makes.
 pub const MAX_CALLS: usize = 8;
-const DAY_MS: u64 = 86_400_000;
+pub(super) const DAY_MS: u64 = 86_400_000;
 
 /// One run at a time: the owner's and the nightly tender's.
-static RUNNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(super) static RUNNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// What one run holds while it goes: the evidence and its clusters, the
 /// model, the day's state, and the words already taken.
-struct Job<'a> {
-    run: String,
-    now: u64,
-    today: String,
-    cfg: &'a crate::config::card::CardConfig,
-    scan: &'a Scan,
-    clusters: &'a [Cluster],
-    target: crate::turn::Target,
-    provider: std::sync::Arc<dyn crate::provider::Provider>,
-    st: State,
+pub(super) struct Job<'a> {
+    pub(super) run: String,
+    pub(super) now: u64,
+    pub(super) today: String,
+    pub(super) cfg: &'a crate::config::card::CardConfig,
+    pub(super) scan: &'a Scan,
+    pub(super) clusters: &'a [Cluster],
+    pub(super) target: crate::turn::Target,
+    pub(super) provider: std::sync::Arc<dyn crate::provider::Provider>,
+    pub(super) st: State,
     /// Texts a statement must not repeat: live standing records and every
     /// proposal's words, kept, open or declined.
-    texts: Vec<String>,
+    pub(super) texts: Vec<String>,
     /// Proposals the queue still has room for.
-    room: usize,
+    pub(super) room: usize,
     /// What this run's earlier calls made: each proposal's words and its
     /// cluster, listed in the later calls so a conflict with one is named.
-    earlier: Vec<(String, usize)>,
+    pub(super) earlier: Vec<(String, usize)>,
+    /// The live pass's: what each cluster asks and the observations the
+    /// scan's episodes are (`live.rs`); none for the archive's run.
+    pub(super) live: Option<super::live::LiveMeta>,
 }
 
 impl Job<'_> {
@@ -133,14 +136,18 @@ impl Job<'_> {
             }
             self.texts.push(s.text.clone());
             self.earlier.push((s.text.clone(), s.cluster));
-            made.push(proposal(
+            let mut p = proposal(
                 &self.run,
                 s,
                 &self.clusters[s.cluster],
                 self.scan,
                 self.now,
                 self.cfg.ask_days,
-            ));
+            );
+            if let Some(live) = &self.live {
+                live.shape(&mut p, s.cluster, &self.clusters[s.cluster], self.scan);
+            }
+            made.push(p);
         }
         self.room -= made.len();
         made
@@ -260,6 +267,7 @@ impl Core {
             texts,
             room: cfg.max_open as usize - open,
             earlier: Vec::new(),
+            live: None,
         };
         out.run = job.run.clone();
         let batches: Vec<Vec<usize>> = fresh
@@ -300,7 +308,7 @@ impl Core {
 
     /// One batch of clusters: reserve, call, parse, filter, and write the
     /// call's frame. False when the run should stop (`out.stopped` says why).
-    async fn card_call(
+    pub(super) async fn card_call(
         &self,
         job: &mut Job<'_>,
         n: usize,
@@ -346,7 +354,9 @@ impl Core {
         hold.settle(cost);
         let cost_usd = micros_to_usd(cost);
         job.st.spend(&job.today, cost_usd);
-        job.st.last_run_ms = Some(job.now);
+        if job.live.is_none() {
+            job.st.last_run_ms = Some(job.now);
+        }
         out.calls += 1;
         out.spent_usd += cost_usd;
         out.spent_today_usd = job.st.spent_on(&job.today);
@@ -373,7 +383,10 @@ impl Core {
         for p in &made {
             frame.push(state::record(p)?);
         }
-        if failed.is_none() {
+        if let Some(live) = &job.live {
+            // The observations a question rests on are used, in its frame.
+            frame.extend(live.used(&made, job.scan)?);
+        } else if failed.is_none() {
             // Every episode of every cluster sent is seen, shown or not.
             let mut sent: Vec<String> = picked
                 .iter()
@@ -401,7 +414,7 @@ impl Core {
     }
 
     /// `[card] profile`'s target and provider.
-    fn card_model(
+    pub(super) fn card_model(
         &self,
     ) -> Result<
         (
@@ -473,7 +486,7 @@ pub fn settle_conflicts(
 
 /// A proposal for `s`, resting on all of its cluster's episodes (the newest
 /// [`CARD_MAX_SOURCES`]).
-fn proposal(
+pub(super) fn proposal(
     run: &str,
     s: &ask::Statement,
     c: &Cluster,

@@ -7,9 +7,9 @@
 use anyhow::anyhow;
 use serde_json::{json, Value};
 use theseus_protocol::{
-    error_code, method, CardAnswerParams, CardAnswerResult, CardDoneParams, CardDoneResult,
-    CardListParams, CardObservedParams, CardProposeParams, ObservationState, StandingAddParams,
-    StandingChanged, StandingScope,
+    error_code, method, CardAnswerParams, CardAnswerResult, CardAsk, CardDoneParams,
+    CardDoneResult, CardListParams, CardObservedParams, CardProposeParams, ObservationState,
+    StandingAddParams, StandingChanged, StandingScope,
 };
 
 use super::confirms::Act;
@@ -90,7 +90,15 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> Result<theseus_protocol::CardProposeResult, RpcFailure> {
         self.judge_card(&who.into(), method::CARD_PROPOSE, "the card's proposals")?;
-        self.card_run(p.dry_run).await.map_err(RpcFailure::invalid)
+        let mut out = self
+            .card_run(p.dry_run)
+            .await
+            .map_err(RpcFailure::invalid)?;
+        // The live pass runs second: the archive's result stands if it fails.
+        if let Err(e) = self.card_live_run(p.dry_run, &mut out).await {
+            out.stopped.get_or_insert(format!("the live pass: {e:#}"));
+        }
+        Ok(out)
     }
 
     /// `card.list`: what waits, what was kept and declined, the spend.
@@ -156,7 +164,7 @@ impl Core {
         let option = option_of(&p.option).ok_or_else(|| {
             RpcFailure::invalid(anyhow!(
                 "{:?} is not one of the question's options: keep, edit, or decline (\"Not this\"); \
-                 or scope, for a kept one",
+                 end, for a question about a record you keep; or scope, for a kept one",
                 p.option
             ))
         })?;
@@ -177,6 +185,13 @@ impl Core {
             return Err(RpcFailure::invalid(anyhow!("a decline takes no scope")));
         }
         let prop = self.card_open(&p.id).await.map_err(RpcFailure::invalid)?;
+        if option == "end" && prop.ask != CardAsk::Stale {
+            return Err(RpcFailure::invalid(anyhow!(
+                "{} asks to add something to your card, not about a record you keep: \
+                 end it answers a Stale question; use keep, edit, or decline here",
+                prop.id
+            )));
+        }
         let (by, via) = (who.who(), who.via());
         if option == "decline" {
             let proposal = self
@@ -199,6 +214,10 @@ impl Core {
             }
             _ => prop.text.clone(),
         };
+        if prop.ask == CardAsk::Stale {
+            let edited = (option == "edit").then(|| text.clone());
+            return self.card_stale(p, &prop, option, edited, scope, who).await;
+        }
         let add = StandingAddParams {
             kind: prop.kind,
             text: text.clone(),

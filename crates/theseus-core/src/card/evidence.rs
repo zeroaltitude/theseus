@@ -28,6 +28,7 @@
 
 use std::path::Path;
 use theseus_protocol::term::words::cut_marked;
+use theseus_protocol::{CardObservation, ObservationState};
 
 use anyhow::Result;
 
@@ -49,6 +50,9 @@ pub enum Kind {
     Feedback,
     Sop,
     Decision,
+    /// A live observation (theseus-6f8t0): the owner's own words, kept at the
+    /// end of an exchange by the observer.
+    Live,
 }
 
 impl Kind {
@@ -58,12 +62,13 @@ impl Kind {
             Kind::Feedback => "feedback",
             Kind::Sop => "sop",
             Kind::Decision => "decision",
+            Kind::Live => "live",
         }
     }
 
     /// A note, not a conversation: its agent text counts too.
     fn note(self) -> bool {
-        !matches!(self, Kind::Decision)
+        !matches!(self, Kind::Decision | Kind::Live)
     }
 }
 
@@ -418,4 +423,41 @@ fn episode(
         anchor: summary.unwrap_or_else(|| first.node.clone()),
         lines,
     }))
+}
+
+/// The open observations (theseus-6f8t0), oldest first, each as an episode
+/// anchored at its first cited message: its session, its time, its one line.
+/// `episodes[i]` is `observations[i]`'s. An observation citing no node is
+/// left out (the observer writes at least one). Read from the store alone: no
+/// archive record, so a partner-confidential episode is never in it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LiveScan {
+    pub episodes: Vec<Episode>,
+    pub observations: Vec<CardObservation>,
+}
+
+/// Every open `card.obs.<id>`, as [`LiveScan`] holds them.
+pub fn observations(store: &Store) -> Result<LiveScan> {
+    let mut open = super::state::observations(store, Some(ObservationState::Open))?;
+    open.retain(|o| !o.nodes.is_empty());
+    open.sort_by(|a, b| (a.at_ms, &a.id).cmp(&(b.at_ms, &b.id)));
+    let episodes = open
+        .iter()
+        .map(|o| Episode {
+            id: o.id.clone(),
+            session_id: o.session.clone(),
+            kind: Kind::Live,
+            end_ms: o.at_ms,
+            anchor: o.nodes[0].clone(),
+            lines: vec![Line {
+                text: o.text.clone(),
+                node: o.nodes[0].clone(),
+                at_ms: o.at_ms,
+            }],
+        })
+        .collect();
+    Ok(LiveScan {
+        episodes,
+        observations: open,
+    })
 }
