@@ -88,6 +88,9 @@ export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal',
 export type ButtonAct = (typeof BUTTON_ACTS)[number]
 export const ACTS: ReadonlySet<string> = new Set<string>([...KEYS.filter((k) => k.act).map((k) => k.verb), ...BUTTON_ACTS])
 
+/** What an act under the time machine says instead. */
+export const PAST_WORDS = 'the past: acting needs the present (LIVE in the ship’s log below)'
+
 /** May `verb` run now? Every act is off while the time machine shows the past; the rest (moving, looking) stay. */
 export function enabled(verb: Verb | ButtonAct, timeMachine: boolean): boolean {
   return !(timeMachine && ACTS.has(verb))

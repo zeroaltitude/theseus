@@ -2,9 +2,9 @@
 // reads read again), and goes through `enabled`: under the time machine it is off, with the banner's words.
 import { useAsOf } from '@/lib/timemachine'
 import { useAct } from '@/components/ConfirmCard'
-import { enabled, type ButtonAct, type Verb } from './keys'
+import { enabled, PAST_WORDS, type ButtonAct, type Verb } from './keys'
 
-export const PAST_WORDS = 'the past: acting needs the present (LIVE in the ship’s log below)'
+export { PAST_WORDS }
 
 /** The page's acts: `run` refuses a verb `enabled` says is off. */
 export function useOpsAct() {
