@@ -16,7 +16,7 @@ import { useThreadBoard } from '@/lib/threadwatch'
 import { useFuture, useRoutineRuns } from '@/lib/agendawatch'
 import { useTick } from '@/lib/hooks'
 import { useTableView } from '@/lib/chartview'
-import { allMarks, pastMarks, projectRows, routineRows, verbsFor, watchRows, weekWindow, type Mark } from '@/lib/agenda'
+import { allMarks, pastMarks, projectRows, routineRows, verbsFor, watchRows, weekWindow, type Mark, type Verb as MarkVerb } from '@/lib/agenda'
 import { markLine } from '@/lib/agendawords'
 import { cn, stamp } from '@/lib/format'
 import { toneHex } from '@/lib/taxonomy'
@@ -32,6 +32,7 @@ import type { Call, Drop } from './drag'
 import { WeekStripV2 } from './WeekStripV2'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
+import { FIELD, Sheet } from './Sheet'
 
 /** What the lens tells the page: its marks (for the Horizon keys), the order `j`/`k` step, the command bar's two
  *  counters, and the search's "n of m". */
@@ -188,6 +189,9 @@ function MarkDetail({ mark, onClose, onOpen }: { mark: Mark; onClose: () => void
   const { busy, act, on } = useOpsAct()
   const verbs = verbsFor(mark).filter((v) => !(v.key === 'resume' && !mark.paused) && !(v.key === 'pause' && mark.paused && mark.kind === 'run'))
   const session = mark.run_session ?? mark.session_id
+  // A verb that needs a time (Move…) asks in a sheet, as every act on the page that needs words does (ops-act).
+  const [asking, setAsking] = useState<MarkVerb | null>(null)
+  const [when, setWhen] = useState('')
   return (
     <div className="mt-3 rounded-lg px-3 py-2 ring-1 ring-gold/40" data-testid="mark-detail">
       <div className="flex items-start gap-2">
@@ -202,13 +206,19 @@ function MarkDetail({ mark, onClose, onOpen }: { mark: Mark; onClose: () => void
         <div className="mt-2 flex flex-wrap gap-1.5">
           {verbs.map((v) => (
             <ActBtn key={v.key} verb="mark" on={on} tone={v.tone} busy={busy === `${mark.key}:${v.key}`} onClick={() => {
-              let params = v.params
-              if (v.prompts) { const when = window.prompt(v.prompts); if (!when) return; params = { ...params, when } }
-              void act('mark', `${mark.key}:${v.key}`, v.method, params, v.ask)
+              if (v.prompts) { setWhen(''); setAsking(v); return }
+              void act('mark', `${mark.key}:${v.key}`, v.method, v.params, v.ask)
             }}>{v.label}</ActBtn>
           ))}
         </div>
       ) : <Empty><span className="text-[11px]">nothing to do with this one</span></Empty>}
+      {asking && (
+        <Sheet title={`${asking.label.replace(/…$/, '')} ${mark.title}`} note={asking.prompts} verb="mark" submit={asking.label.replace(/…$/, '')} busy={busy === `${mark.key}:${asking.key}`}
+          disabled={!when.trim()} onClose={() => setAsking(null)}
+          onSubmit={() => void act('mark', `${mark.key}:${asking.key}`, asking.method, { ...asking.params, when: when.trim() }, asking.ask).then((ok) => { if (ok) setAsking(null) })}>
+          <input autoFocus value={when} onChange={(e) => setWhen(e.target.value)} placeholder="10m, tomorrow 9:00, fri 14:00" aria-label="When" className={FIELD} />
+        </Sheet>
+      )}
     </div>
   )
 }
