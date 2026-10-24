@@ -408,6 +408,22 @@ pub fn held_untold(
     Ok(h.filter(|h| mode != Mode::Notify || !told(store, session_id, h)))
 }
 
+/// Whether a hold makes a call wait (theseus-g00vv): under ask, while its
+/// session's execution can still make calls. Under notify a hold is a notice,
+/// and an execution that has ended (complete, cancelled, failed) makes none.
+/// An execution that cannot be read counts as live, so a hold that may make a
+/// call wait is never reported as one that does not.
+pub fn waits(mode: Mode, state: Option<theseus_kernel::ExecState>) -> bool {
+    mode == Mode::Ask && !state.is_some_and(ended)
+}
+
+/// An execution that will make no more calls: complete, cancelled or failed.
+/// A budget-exhausted one is not here: a new budget resumes it.
+pub fn ended(state: theseus_kernel::ExecState) -> bool {
+    use theseus_kernel::ExecState as S;
+    matches!(state, S::Complete | S::Cancelled | S::Failed)
+}
+
 /// A call the hold leaves at its own posture, whose gate reads no record: a
 /// `Read`, and a one-shot `wake.at`, whose turn runs in this same session,
 /// where the hold still covers what it does. A repeating one, whose `input`
@@ -658,13 +674,24 @@ pub fn with_hold<R>(
 }
 
 /// The sessions of `sessions` that hold external text, the longest-held
-/// first: health's list, from the records it reads anyway. Each hold's time
+/// first: health's list, from the records it reads anyway, without the
+/// sessions `ended` names. Each hold's time
 /// is in the daemon's local time, as its reason says it (theseus-qiy).
-pub fn listed(sessions: &[SessionRecord], now_ms: u64) -> Vec<theseus_protocol::ExternalTextInfo> {
+pub fn listed(
+    sessions: &[SessionRecord],
+    now_ms: u64,
+    ended: impl Fn(&SessionRecord) -> bool,
+) -> Vec<theseus_protocol::ExternalTextInfo> {
     let mut v: Vec<theseus_protocol::ExternalTextInfo> = sessions
         .iter()
         .filter_map(|r| {
             let held = r.external.clone()?;
+            // A session whose execution has ended (`ended`) makes no call the
+            // hold could stop or tell of: left out, never cleared (the record
+            // and the ledger keep it, theseus-g00vv).
+            if ended(r) {
+                return None;
+            }
             Some(theseus_protocol::ExternalTextInfo {
                 session_id: r.session_id.clone(),
                 title: r.title.clone(),
@@ -1010,11 +1037,11 @@ mod tests {
         // the hold is older than today.
         let mut rec = SessionRecord::new(SessionKind::Conversation, None);
         rec.external = Some(search);
-        let listed_now = listed(std::slice::from_ref(&rec), at + 5_000);
+        let listed_now = listed(std::slice::from_ref(&rec), at + 5_000, |_| false);
         assert_eq!(listed_now[0].since_local, crate::wake::local(at).hms());
         assert!(listed_now[0].since_local.starts_with(&hm));
         assert!(!listed_now[0].since_local.ends_with('Z'), "never UTC");
-        let later = listed(std::slice::from_ref(&rec), at + 3 * 86_400_000);
+        let later = listed(std::slice::from_ref(&rec), at + 3 * 86_400_000, |_| false);
         let l = crate::wake::local(at);
         assert!(
             later[0]

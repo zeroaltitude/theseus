@@ -441,6 +441,8 @@ impl SessionRecord {
             parent_session_id: self.task.as_ref().map(|t| t.parent_session.clone()),
             limit_usd: None,
             external_text: self.external.clone(),
+            external_waits: false,
+            external_told: false,
             attention: None,
             state: None,
             retired: self.retired.clone(),

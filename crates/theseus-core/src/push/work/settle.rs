@@ -67,6 +67,8 @@ pub(super) fn bump(r: &mut Rollup, v: &WorkView) {
             WorkState::NeedsYou => {}
             WorkState::Done if matches!(v.kind, WorkKind::Task | WorkKind::System) => r.done += 1,
             WorkState::Queued if v.kind == WorkKind::Step => {}
+            // Held (an owner-paused task, a suspended step): not under way.
+            WorkState::Waiting if v.paused => {}
             s if s.working() => r.working += 1,
             _ => {}
         },

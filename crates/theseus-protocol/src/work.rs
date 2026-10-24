@@ -689,6 +689,10 @@ fn work_level_and_label(v: &WorkView) -> (Level, String) {
                 _ => "queued".into(),
             },
         ),
+        // Held: an owner-paused task, or a suspended record's step. Nothing
+        // runs and nothing is asked of the owner until it is resumed, so it
+        // is at rest (`Idle`), not work under way (theseus-g00vv).
+        WorkState::Waiting if v.paused => (Level::Idle, "paused".into()),
         WorkState::Waiting => (Level::Working, doing().unwrap_or_else(|| "waiting".into())),
         WorkState::Ready => (Level::Ready, "ready".into()),
         WorkState::Done => (

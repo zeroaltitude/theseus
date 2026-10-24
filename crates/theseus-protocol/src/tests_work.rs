@@ -536,3 +536,25 @@ fn an_older_question_without_a_turn_parses() {
         serde_json::from_str(&serde_json::to_string(&named).unwrap()).unwrap();
     assert_eq!(back.turn_id.as_deref(), Some("turn_1"));
 }
+
+/// A waiting view that is held (an owner-paused task, a suspended record's
+/// step) reads "paused" at rest, whatever its kind; one that is not reads as
+/// work under way (theseus-g00vv).
+#[test]
+fn a_paused_waiting_view_reads_paused_and_is_not_working() {
+    for kind in KINDS {
+        let mut v = view(kind, WorkState::Waiting, None);
+        assert_eq!(attention_of(&v).level, Level::Working, "{kind:?}");
+        v.paused = true;
+        let a = attention_of(&v);
+        assert_eq!(
+            (a.level, a.label.as_str()),
+            (Level::Idle, "paused"),
+            "{kind:?}"
+        );
+    }
+    // Only a waiting view: a running one that is held is not waiting.
+    let mut v = view(WorkKind::Task, WorkState::Running, None);
+    v.paused = true;
+    assert_eq!(attention_of(&v).level, Level::Working);
+}

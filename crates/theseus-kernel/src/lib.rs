@@ -47,6 +47,7 @@ pub mod tree;
 mod tx;
 pub mod types;
 pub mod umask;
+mod waiting;
 pub mod wake_kinds;
 pub mod wake_owner;
 pub mod wakes;
@@ -100,6 +101,8 @@ mod tests_terms;
 #[cfg(test)]
 mod tests_tx;
 #[cfg(test)]
+mod tests_waiting;
+#[cfg(test)]
 mod tests_wake_owner;
 #[cfg(test)]
 mod tests_wakes;
@@ -123,6 +126,7 @@ pub use spool::Spool;
 pub use stops::Stop;
 pub use tasks::{carve_key, task_ids, Opening, TakenReports, TaskOpen};
 pub use types::*;
+pub use waiting::WaitingByWake;
 pub use wake_kinds::{NewWake, Purpose, TaskRun, WakeLimits, WakeProbe, WakeRun};
 pub use wake_owner::{NoticeFired, NoticePost};
 pub use wakes::{wake_id, FiredWake, MoveTo, WakeMoved, WakeSet, MAX_PENDING};

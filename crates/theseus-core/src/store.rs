@@ -45,9 +45,11 @@ use crate::node_cache::NodeCache;
 /// term `e` while it holds external text, and an imported session's book
 /// terms (`books::session_terms`, theseus-civ0). A change to what these say
 /// renames it, and every store builds them again once, after serving
-/// (`projection.core.3`: the kernel's `ot`, a task not ended, theseus-id8d).
+/// (`projection.core.4`: `r`, a session retired by the owner or by a
+/// supersession, theseus-g00vv; before it, the kernel's `ot`, a task not
+/// ended, theseus-id8d).
 pub static PROJECTION: Projection = Projection {
-    name: "projection.core.3",
+    name: "projection.core.4",
     kinds: &[kinds::EXECUTION, kinds::ACTION, kinds::SESSION],
     terms: terms_of,
     sums: sums_of,
@@ -56,18 +58,29 @@ pub static PROJECTION: Projection = Projection {
 /// The term of a session that holds external text (health's list of them).
 pub const EXTERNAL: &str = "e";
 
+/// The term of a session whose record says it was retired (health's split of
+/// the executions at rest on input).
+pub const RETIRED: &str = "r";
+
 fn terms_of(kind: RecordKind, payload: &[u8]) -> Vec<String> {
     #[derive(serde::Deserialize)]
     struct Held {
         #[serde(default)]
         external: Option<serde::de::IgnoredAny>,
+        #[serde(default)]
+        retired: Option<serde::de::IgnoredAny>,
     }
     match kind {
         kinds::SESSION => {
-            let mut terms = match serde_json::from_slice::<Held>(payload) {
-                Ok(Held { external: Some(_) }) => vec![EXTERNAL.to_string()],
-                _ => Vec::new(),
-            };
+            let mut terms = Vec::new();
+            if let Ok(h) = serde_json::from_slice::<Held>(payload) {
+                if h.external.is_some() {
+                    terms.push(EXTERNAL.to_string());
+                }
+                if h.retired.is_some() {
+                    terms.push(RETIRED.to_string());
+                }
+            }
             terms.extend(crate::books::session_terms(payload));
             terms
         }

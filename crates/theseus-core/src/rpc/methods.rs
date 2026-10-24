@@ -98,7 +98,14 @@ impl Core {
             external_text: crate::external::listed(
                 &totals.holding,
                 theseus_protocol::now_unix_ms(),
+                |r| {
+                    r.execution_id
+                        .as_deref()
+                        .and_then(|id| self.kernel.execution(id).ok().flatten())
+                        .is_some_and(|e| crate::external::ended(e.state))
+                },
             ),
+            external_text_mode: self.tools.external.mode.as_str().into(),
             web: self.web_refusals.status(self.cfg.web.dev_origin.as_deref()),
             disk: self.tools.disk.status(),
             binary: crate::binary::status(),
@@ -682,6 +689,11 @@ impl Core {
             .as_deref()
             .and_then(|id| self.kernel.execution(id).ok().flatten());
         i.execution_state = e.as_ref().map(|e| e.state.as_str().to_string());
+        if let Some(h) = &i.external_text {
+            i.external_waits =
+                crate::external::waits(self.tools.external.mode, e.as_ref().map(|e| e.state));
+            i.external_told = crate::external::told(&self.store, &r.session_id, h);
+        }
         i.started_on = self.started_on(r);
         i.data = Some(crate::data_mark::session_mark(
             &self.store,

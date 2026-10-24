@@ -272,3 +272,43 @@ fn a_rows_kind_is_read_without_decoding_it() {
     // A payload that does not look as expected is kept, never dropped.
     assert!(wanted(b"{\"unexpected\":true}"));
 }
+
+/// A suspended record's step is held, as an owner-paused task is: the view
+/// is `paused`, attention reads "paused" at rest, and the rollup does not
+/// count it as work under way (theseus-g00vv).
+#[test]
+fn a_suspended_records_step_reads_paused_not_working() {
+    use crate::task_graph::TaskState;
+    use theseus_protocol::work::attention_of;
+    use theseus_protocol::Level;
+    for s in [
+        TaskState::Proposed,
+        TaskState::Accepted,
+        TaskState::InProgress,
+        TaskState::Blocked,
+        TaskState::WaitingHuman,
+        TaskState::Done,
+        TaskState::Failed,
+        TaskState::Abandoned,
+    ] {
+        assert!(!super::step_paused(s), "{s:?}");
+    }
+    assert_eq!(super::step_state(TaskState::Suspended), WorkState::Waiting);
+    assert!(super::step_paused(TaskState::Suspended));
+    let mut step = blank("tsk_s", WorkKind::Step, 1);
+    step.state = super::step_state(TaskState::Suspended);
+    step.paused = super::step_paused(TaskState::Suspended);
+    let a = attention_of(&step);
+    assert_eq!((a.level, a.label.as_str()), (Level::Idle, "paused"));
+    let mut r = Rollup::default();
+    bump(&mut r, &step);
+    assert_eq!((r.working, r.total), (0, 1));
+    // An owner-paused task, parked on its hold, reads the same.
+    let mut task = blank("exe_t", WorkKind::Task, 1);
+    task.state = WorkState::Waiting;
+    task.paused = true;
+    assert_eq!(attention_of(&task), attention_of(&step));
+    // Not held: a waiting view is work under way, as before.
+    task.paused = false;
+    assert_eq!(attention_of(&task).level, Level::Working);
+}

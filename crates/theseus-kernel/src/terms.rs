@@ -16,6 +16,10 @@
 //! - `nw`, it holds an unattended wake that is not paused, in any open state:
 //!   a notice, or a routine's task (`terms.kernel.4`, theseus-pvm5c). Both fire at
 //!   once, even while a turn runs (`Kernel::notice_executions`);
+//! - `wk:time` and `wk:work`, waiting on a due time, or on work (an action,
+//!   a question, a budget reset, a child task): health splits its waiting
+//!   count by wake (`waiting.rs`, theseus-g00vv). A waiting execution with
+//!   neither is on the owner's input;
 //! - `l:<limit>`, open, and its limit follows the config's
 //!   (`follows_limit`), the limit in 16 hex digits, so a changed config finds
 //!   the executions with another limit in two ranges;
@@ -40,7 +44,7 @@ use crate::types::{ActionState, ExecState, SessionKind, Wake, SCHEMA};
 /// The kernel's projection: the store keeps these terms with every
 /// execution and action it appends.
 pub static PROJECTION: Projection = Projection {
-    name: "terms.kernel.4",
+    name: "terms.kernel.5",
     kinds: &[kinds::EXECUTION, kinds::ACTION],
     terms: of,
     sums: no_sums,
@@ -123,6 +127,10 @@ pub const OPEN_TASK: &str = "ot";
 /// that is not paused.
 pub const NOTICE: &str = "nw";
 
+/// A waiting execution's wake is a due time (`wk:time`) or work (`wk:work`).
+pub const WAIT_TIME: &str = "wk:time";
+pub const WAIT_WORK: &str = "wk:work";
+
 /// An unsettled action's term under its execution.
 pub fn unsettled_of(execution_id: &str) -> String {
     format!("x:{execution_id}")
@@ -179,6 +187,13 @@ fn execution(payload: &[u8]) -> Option<Vec<String>> {
             || !e.report_wakes.is_empty())
     {
         t.push("due".into());
+    }
+    if e.state == ExecState::Waiting {
+        match e.wake {
+            Some(Wake::DueAt { .. }) => t.push(WAIT_TIME.into()),
+            Some(Wake::Input) | None => {}
+            Some(_) => t.push(WAIT_WORK.into()),
+        }
     }
     if !e.wakes.is_empty() {
         t.push("w".into());

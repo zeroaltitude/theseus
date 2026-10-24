@@ -338,6 +338,7 @@ impl Core {
             method::POLICY_TIGHTEN => route(params, |p| self.policy_tighten(p, conn)),
             method::POLICY_UNTIGHTEN => route(params, |p| self.policy_untighten(p, conn)),
             method::POLICY_TRUST => route(params, |p| self.policy_trust(p, conn)),
+            method::POLICY_NOTICE_SEEN => route(params, |p| self.policy_notice_seen(p, conn)),
             method::PLACE_PUBLISH => route(params, |p| self.place_publish(p, conn)),
             method::TASK_START => route(params, |p| self.task_start_rpc(p, conn)),
             method::HANDS_LIST => route(params, |p| self.rpc_hands_list(&p)),
