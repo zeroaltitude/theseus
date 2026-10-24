@@ -75,8 +75,8 @@ impl Core {
         lines: &[Line],
     ) -> crate::provider::ProviderRequest {
         let scrubber = self.runner.judge.scrubber.clone();
-        let thinking = self.runner.catalog.thinking_off(model);
-        extract::request(model, thinking, title, lines, &|t| scrubber.scrub(t).0)
+        let how = self.runner.catalog.forcing(model);
+        extract::request(model, how, title, lines, &|t| scrubber.scrub(t).0)
     }
 
     /// The names each session was asked about before (`people.v1`'s

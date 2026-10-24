@@ -937,3 +937,13 @@ async fn a_shared_places_text_message_still_asks_onto_nothing() {
     let asked_onto = r.jev.seen().iter().any(|s| !onto_questions(s).is_empty());
     assert!(!asked_onto, "no onto question left for a shared place");
 }
+
+/// The naming call forces `name_category` where thinking is off, and asks
+/// `auto` with a strict, closed tool where it cannot be (theseus-yym79).
+#[test]
+fn the_naming_request_forces_its_tool_only_where_thinking_is_off() {
+    crate::provider::one_tool::assert_both_shapes(
+        |how| crate::judge::onto::name::request("m", how, "topic", "said", &|t| t.to_string()),
+        crate::judge::onto::name::TOOL,
+    );
+}

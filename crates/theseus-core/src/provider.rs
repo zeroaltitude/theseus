@@ -852,6 +852,7 @@ pub type CountFuture<'a> = futures_util::future::BoxFuture<'a, Result<u64>>;
 
 mod count;
 mod digest;
+pub mod one_tool;
 #[cfg(test)]
 mod tests_count;
 #[cfg(test)]

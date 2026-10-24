@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use theseus_kernel::micros_to_usd;
 
 use super::{Item, Reviewer, Verdict};
+use crate::provider::one_tool::{one_tool, Forcing};
 use crate::provider::ProviderRequest;
 use crate::rpc::Core;
 use crate::rsi::budget::Reserved;
@@ -42,7 +43,6 @@ fn tool() -> Value {
     let b = |d: &str| json!({"type": "boolean", "description": d});
     json!({
         "name": TOOL,
-        "strict": true,
         "description": "Your verdict on one candidate exam item.",
         "input_schema": {
             "type": "object",
@@ -52,15 +52,15 @@ fn tool() -> Value {
                 "not_gamed": b("True when no reply can pass the check without the behaviour."),
                 "reason": {"type": "string", "description": "One or two sentences: why, and for an unfair item what is wrong."}
             },
-            "required": ["tests_behaviour", "answer_right", "not_gamed", "reason"],
-            "additionalProperties": false
+            "required": ["tests_behaviour", "answer_right", "not_gamed", "reason"]
         }
     })
 }
 
-/// The request for `item`, with `thinking` as `catalog::thinking_off` gives
-/// it (none for Fable 5.1, which always thinks).
-pub fn request(model: &str, thinking: Option<Value>, item: &Item) -> ProviderRequest {
+/// The request for `item`, with `how` as `catalog::forcing` gives it: for
+/// Fable 5.1, which always thinks, no `thinking` and the tool left to `auto`,
+/// strict and closed.
+pub fn request(model: &str, how: Forcing, item: &Item) -> ProviderRequest {
     let content = format!(
         "Family: {}\n\nThe exam asks the agent:\n{}\n\nThe check (the check language: `reply has \
          \"x\"` holds when the reply contains x; `word` makes it a whole word; `lacks` is the \
@@ -70,15 +70,16 @@ pub fn request(model: &str, thinking: Option<Value>, item: &Item) -> ProviderReq
         item.check,
         item.note
     );
+    let (tool, choice) = one_tool(tool(), how.force);
     let mut extra = BTreeMap::new();
-    extra.insert("tool_choice".to_string(), json!({"type": "auto"}));
+    extra.insert("tool_choice".to_string(), choice);
     ProviderRequest {
         model: model.to_string(),
         max_tokens: MAX_TOKENS,
         system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": content}]})],
-        tools: vec![tool()],
-        thinking,
+        tools: vec![tool],
+        thinking: how.thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),
@@ -138,8 +139,8 @@ impl Reviewer for CoreReviewer<'_> {
                 .get(&target.provider)
                 .cloned()
                 .ok_or_else(|| anyhow!("no provider {:?} for {}", target.provider, self.profile))?;
-            let thinking = c.runner.catalog.thinking_off(&target.model);
-            let req = request(&target.model, thinking, item);
+            let how = c.runner.catalog.forcing(&target.model);
+            let req = request(&target.model, how, item);
             let need = c
                 .audit_reserve(&req)
                 .ok_or_else(|| anyhow!("no price for {}", target.model))?;

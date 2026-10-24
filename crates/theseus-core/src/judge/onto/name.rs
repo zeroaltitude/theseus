@@ -15,13 +15,14 @@ use theseus_store::NewRecord;
 
 use crate::fact::{self, onto::OntoNamed};
 use crate::judge::spend;
+use crate::provider::one_tool::{one_tool, Forcing};
 use crate::provider::ProviderRequest;
 use crate::rpc::Core;
 
 /// The names asked for.
 pub const NAMES: usize = 3;
 /// The one tool the namer answers through.
-const TOOL: &str = "name_category";
+pub(crate) const TOOL: &str = "name_category";
 /// The answer's tokens at most: three names and a line.
 const MAX_TOKENS: u32 = 300;
 /// The message the namer reads, in characters.
@@ -93,29 +94,27 @@ fn tool() -> Value {
 }
 
 /// The request: the kind and what it is for, and what was said, with
-/// `thinking` as `catalog::thinking_off` gives it: the 300-token cap would be
+/// `how` as `catalog::forcing` gives it: the 300-token cap would be
 /// spent thinking first (theseus-opypg).
-fn request(
+pub(crate) fn request(
     model: &str,
-    thinking: Option<Value>,
+    how: Forcing,
     kind: &str,
     said: &str,
     scrub: &dyn Fn(&str) -> String,
 ) -> ProviderRequest {
     let said: String = scrub(said).chars().take(SAID_CHARS).collect();
+    let (tool, choice) = one_tool(tool(), how.force);
     let mut extra = std::collections::BTreeMap::new();
-    extra.insert(
-        "tool_choice".to_string(),
-        json!({"type": "tool", "name": TOOL}),
-    );
+    extra.insert("tool_choice".to_string(), choice);
     ProviderRequest {
         model: model.to_string(),
         max_tokens: MAX_TOKENS,
         system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
         messages: vec![json!({"role": "user", "content": [{"type": "text",
             "text": format!("Kind of category: {kind}\n\nWhat was said:\n{said}")}]})],
-        tools: vec![tool()],
-        thinking,
+        tools: vec![tool],
+        thinking: how.thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),
@@ -194,10 +193,8 @@ impl Core {
         let provider =
             crate::google::private::for_session(provider, &self.store, &self.cfg, session);
         let scrubber = self.runner.judge.scrubber.clone();
-        let thinking = self.runner.catalog.thinking_off(&target.model);
-        let request = request(&target.model, thinking, kind, said, &|t| {
-            scrubber.scrub(t).0
-        });
+        let how = self.runner.catalog.forcing(&target.model);
+        let request = request(&target.model, how, kind, said, &|t| scrubber.scrub(t).0);
         let need = self
             .audit_reserve(&request)
             .ok_or_else(|| format!("no price for {}", target.model))?;

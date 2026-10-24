@@ -500,9 +500,13 @@ fn a_handle_names_one_imported_node_across_the_store() {
 #[test]
 fn the_request_holds_the_episodes_scrubbed_and_nothing_else() {
     let eps = episodes();
-    let req = card::request("claude-haiku-5-5", None, "Tide gauges", &eps, &|t| {
-        t.replace("Gauge", "G")
-    });
+    let req = card::request(
+        "claude-haiku-5-5",
+        crate::catalog::Catalog::builtin().forcing("claude-haiku-5-5"),
+        "Tide gauges",
+        &eps,
+        &|t| t.replace("Gauge", "G"),
+    );
     let body = req.messages[0]["content"][0]["text"].as_str().unwrap();
     assert!(body.starts_with("Thread: Tide gauges\n"), "{body}");
     assert!(
@@ -565,4 +569,15 @@ fn a_slug_always_fits_the_thread_records_bound() {
             d.cand.slug
         );
     }
+}
+
+/// The card call forces `write_card` where thinking is off, and asks `auto`
+/// with a strict, closed tool where it cannot be (theseus-yym79).
+#[test]
+fn the_thread_card_request_forces_its_tool_only_where_thinking_is_off() {
+    let eps = episodes();
+    crate::provider::one_tool::assert_both_shapes(
+        |how| card::request("m", how, "Tide gauges", &eps, &|t| t.to_string()),
+        card::TOOL,
+    );
 }

@@ -91,7 +91,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (Haiku 5.5's: 5x past a 100,000-token prompt, theseus-3okf): `terms` prices a usage at the tier its prompt
   (input, cache reads and writes) picks, `reserve_micros` and `reserve_parts` at the tier the input estimate picks;
   price a usage only through them, never by reading a row's base prices. A refusal fallback's window holds its
-  model's (`every_refusal_fallbacks_window_holds_its_models_requests`).
+  model's (`every_refusal_fallbacks_window_holds_its_models_requests`). A call that must answer through one tool asks `Catalog::forcing(model)` (`thinking_off`, and `may_force`) and builds its tool and `tool_choice` with `provider::one_tool::one_tool` (theseus-yym79): forced only where thinking is plainly off (`disabled`, or none sent and not unasked), else `auto` with a strict tool whose every object is closed.
   - **Files given to the model** (theseus-9g2, theseus-c9l6): `attach.rs` and `blobs.rs`. A message's files: text as
     text (`[tools] max_read_bytes`), an image as an image, and any other file kept whole in the store's blobs up to
     `[tools] max_attachment_bytes` (32 MiB), a `File`. A PDF is read once, when it arrives, in theseus-files' capped
@@ -298,7 +298,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
   under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each
   call, so a stop keeps what was spent), an answer over 400 characters refused, never cut, a session whose first or last
-  message cannot be read left out (the category waits only below 5 left), and `[ontology] dream_guidance` off (default
+  message cannot be read left out (the category waits only below 5 left), a category that waits says why in `Dreamed.waits` (`Wait`: different profiles, a profile or provider that is missing, a model that thinks unasked, too few readable sessions, no price), which the tender logs, and `[ontology] dream_guidance` off (default
   on) reading, calling and writing nothing; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream
   write of the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim
   after the voiced words. **No card goes out at night** for any of these writes: the pacer is a gap and not quiet hours,
@@ -361,12 +361,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   thirty executions for a fortnight. The nightly tender (`card/tender.rs`) is the learning tender's `due` held to
   `[card] every_days`, off once `card.done`. **Drafting** (theseus-ly75u): before clustering, `evidence::kept` drops a
   note's line addressed to an assistant about running itself (`addressed`: "you" as its reader, or a session's
-  machinery), keeps only the owner's lines (`about_owner`) of an assistant's setup file (`setup_file`: soul, identity,
+  machinery, matched on word boundaries by `has_phrase` as `one_task` is; a bare "heartbeat" or "bootstrap" counts only in a line that also says "you"), keeps only the owner's lines (`about_owner`: a pronoun, "the owner", a third-person verb, or a name then one, "Mara prefers", "Mara is", unless the first word is a setup-file order or determiner from `NOT_A_NAME`) of an assistant's setup file (`setup_file`: soul, identity,
   bootstrap, agents, memory, heartbeat, tools, a dated daily log), and drops any line of one task, repository, branch or
   run (`one_task`); the result counts them (`setup`, `one_task`). The tool's `scope` takes `one_task`, which `parse`
   drops and counts (no scope is that narrow); `parse` also drops a thin statement (under two content words) and one
-  that lost its lines' "on whose behalf". The tool's `conflicts` names a call's clusters a statement contradicts, and
-  `run::settle_conflicts` keeps the better supported of each pair and notes the other (`CardProposeResult.conflicts`).
+  that lost the "on whose behalf" of the lines of the episodes it cites (`turned`). The tool's `conflicts` names a call's clusters a statement contradicts, and
+  `run::settle_conflicts` keeps the better supported of each pair and notes the other (`CardProposeResult.conflicts`). A later call of one run lists the run's earlier proposals after its clusters as `P1`, `P2`, … (`Job.earlier`, in the user message only: the system text and the tool stay the same bytes); a statement the model says conflicts with one is not offered and is noted the same way, and the call's privacy routing covers those proposals' clusters' sessions. `card.answer` refuses a decline that carries a `scope`.
   **Scope**: `card.answer {scope}` (`StandingScope::from_words`, the one parser of `words()`'s forms) sets a keep's or
   an edit's scope; option `scope` on a kept proposal writes its record again there (`standing.add` with `replaces`,
   same kind, words and source). No coding scope: the route mode is decided after the standing block is fixed.

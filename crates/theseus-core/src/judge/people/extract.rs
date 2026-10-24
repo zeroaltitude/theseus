@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use theseus_judge::builders::PersonCandidate;
 
 use super::{fold, Line, CANDIDATES};
+use crate::provider::one_tool::{one_tool, Forcing};
 use crate::provider::ProviderRequest;
 
 /// The one tool the extractor answers through.
@@ -55,11 +56,11 @@ pub fn tool() -> Value {
 }
 
 /// The request: the session's title and its lines, each labelled `L<n>`
-/// with its author, scrubbed by `scrub`, with `thinking` as
-/// `catalog::thinking_off` gives it (theseus-opypg).
+/// with its author, scrubbed by `scrub`, with `how` as
+/// `catalog::forcing` gives it (theseus-opypg, theseus-yym79).
 pub fn request(
     model: &str,
-    thinking: Option<Value>,
+    how: Forcing,
     title: &str,
     lines: &[Line],
     scrub: &dyn Fn(&str) -> String,
@@ -70,18 +71,16 @@ pub fn request(
         .map(|(i, l)| format!("L{} {}: {}", i + 1, scrub(&l.author), scrub(&l.text)))
         .collect();
     let content = format!("Session: {}\n\n{}", scrub(title.trim()), body.join("\n"));
+    let (tool, choice) = one_tool(tool(), how.force);
     let mut extra = std::collections::BTreeMap::new();
-    extra.insert(
-        "tool_choice".to_string(),
-        json!({"type": "tool", "name": TOOL}),
-    );
+    extra.insert("tool_choice".to_string(), choice);
     ProviderRequest {
         model: model.to_string(),
         max_tokens: MAX_TOKENS,
         system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": content}]})],
-        tools: vec![tool()],
-        thinking,
+        tools: vec![tool],
+        thinking: how.thinking,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),
