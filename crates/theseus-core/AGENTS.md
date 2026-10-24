@@ -375,6 +375,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   same kind, words and source). No coding scope: the route mode is decided after the standing block is fixed.
   Tests: `card/tests_pure.rs`, `card/tests_job.rs` (the invented archive in `card/fixture.rs`, and its `setup_export`),
   `config/tests_card.rs`.
+  **The observer** (theseus-6f8t0; `card/observe.rs`, `card/observe/extract.rs`, hooked in `judge/categorize.rs`'s
+  `at_exchange_end` beside people.v1's): in a Private session the owner is alone in (`capture::owner_alone`; never a
+  task), at `categorize::due` on its own META mark `card.observe.<session>`, one forced-tool call on `[card] profile`
+  (through `google::private::for_session`, so the data gate; scrubbed; `audit_reserve`, `[card] day_usd` and `day_hold`)
+  reads the owner's own lines since the mark: only the nodes `turn.submit` noted as the owner's (`capture::expect`'s
+  owner mark, in memory, so lost at a restart: earlier lines are then not read). Code keeps an item only if it cites a
+  line, is lasting, is not one task's or a paste, and is not a restatement (that counts as said again, as capture's
+  `standing.repeated`). The observations, the moved mark and the `card.observed` row are one frame; a due point with none
+  of the owner's lines moves only the in-memory mark and writes no frame. Spawned after the turn, so the census and the
+  turn path are unchanged. `observe::sweep` (called first by the live pass) reads each owner-alone session active in the
+  last 48 h past its mark. Read with `theseus card observed`. Tests: `card/observe/tests.rs`.
   **The live pass** (theseus-6f8t0; `card/live.rs`, `rpc/card_stale.rs`): the observer's `card.obs.<id>` notes (META, never a node:
   not indexed, recalled or compiled; `CardObservation`, read through `state::observations` alone) become questions, nightly and after
   the archive's run in `card.propose`: the observer's sweep first, then expiry, then **Stale** (an observation that contradicts a live

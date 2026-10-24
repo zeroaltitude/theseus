@@ -34,7 +34,7 @@
 //!   and the frame loses the call and nothing else: the mark is unmoved and
 //!   the next due point reads the same lines again. A call that fails writes
 //!   nothing.
-//! - **The sweep** ([`Core::observe_sweep`], nightly, called by the live pass)
+//! - **The sweep** ([`sweep`], nightly, called first by the live pass)
 //!   reads each such session's lines past its mark, due or not, so the end of
 //!   the day's last conversation is not lost. Its rows say `sweep`.
 

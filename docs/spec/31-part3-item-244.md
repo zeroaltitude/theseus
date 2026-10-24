@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 256 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 257 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM)) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -531,3 +531,55 @@ DM-flow golden and the echo canceller's golden are byte-identical to main's; sto
 Flux's keep-alive and idle timeout were read from Deepgram's docs only. Falling back to nova-3 when `FluxListen::new`
 fails (unreachable today beyond the checks the REST client makes first), a Discord-side test that `Event::Streamed`
 books a trailing row, and the `files.rs` race under plain `cargo test` are follow-ups.
+
+### Item 257. Live learning: the exchange-end observer, the card's live pass (Add, Pattern, Stale) and live questions in the owner's DM (theseus-6f8t0; v1 patch2's live-learning lane, the cloud rows p2k-types, p2k-obs, p2k-live and p2k-dm of 2026-10-24, joined into integ/p2-learn for install #79)
+
+**Why.** The owner card learned only from the imported history and from whole-message directives. A fact said in
+passing inside a work request ("fix the build. I'm on the M1 now, by the way") judged as `none`, so it was lost;
+nothing saw a preference repeated across conversations, or a record contradicted later. Recall could find such a
+remark by similarity, but nothing put it on the curated, owner-approved, always-in-context card. The design check
+(options A to D) recommended A + C for 1.0.2; the owner's GO (2026-10-24 10:42) took A + C, the DM cards (O1), the
+live pass after `card done` (O2) and the thresholds (O3), and left `owner.ask` (B) and the learning bench (D) to 1.0.3.
+
+**What landed.**
+
+- **The types** (p2k-types; no behaviour). `CardObservation` (kind fact | preference | decision | correction, by
+  construction no trait kind; text at most 160 characters; its nodes; `contradicts`; state open | used | dropped),
+  `card.observed` (RPC, CLI `theseus card observed`, ledger kind, spend kind), `CardProposal`'s `ask` (add | pattern |
+  stale, serde default add, so an old proposal reads and writes back byte for byte), `record`, `observations` and
+  `posted_ms`, the `end` answer, and `[card] observe` (true), `live_per_night` (5), `stale_per_night` (2),
+  `pattern_sessions` (3) and `dm_per_day` (3). **Store format 51**, the lane's only bump, with a literal format-50
+  proposal sample.
+- **The observer** (p2k-obs; option A, a copy of people.v1's live pattern). At an exchange's due point in a Private
+  session the owner is alone in, never a task, one forced-tool call on `[card] profile` reads the owner's own lines
+  since its mark (the nodes `turn.submit` noted as the owner's: not a job's, the MCP server's, a prompt's or one with
+  files) beside the live fact and preference records, through the session's Google and privacy marks and so the data
+  gate, scrubbed and reserved. Code keeps an item only when it cites a line, is lasting, is not one task's or a paste
+  and restates no record (a restatement counts as said again); the observations, the mark and the row are one frame.
+  The nightly sweep reads what never came due.
+- **The live pass** (p2k-live; option C). Nightly at the learning hour, for as long as `[card] observe` is on and
+  whether or not the card is done, and after the archive's run in `theseus card propose`: the sweep, then Stale (a
+  contradicted live record: Keep, Edit in one `standing.add` with `replaces`, End it through `standing.revoke`), Add (a
+  fact or a correction alone, at support 1, with no call; or clustered preferences and decisions) and Pattern (at
+  least `pattern_sessions` distinct conversations), capped per night and by `max_open`. Not this and expiry set the
+  observations aside for good.
+- **The DM cards** (p2k-dm; O1). A poster posts open live questions to the owner's DM as `card_question` cards
+  through the pacer, from the morning hour, at most `dm_per_day` a local day, the posts and the `posted_ms` marks in
+  one frame; Keep, Edit (a modal holding the words), Not this or End it answer as the presser. The DM task flow's
+  messages are untouched.
+- **The join's fixes.** The live pass's `// join:` stub calls `observe::sweep`; a named contradiction wins over a
+  named restatement; a night's line counts from its learning hour, not a rolling day (a full night left the next none
+  by milliseconds); a DM press is acknowledged before `card.answer`, which can wait for a running turn past Discord's
+  three seconds; the poster re-checks the pacer after the writer handshake; theseusd's versions test reads format 51.
+
+**How it was proven.** Every row red first or by planted reverts (p2k-dm's by plants), each review's join fix with a
+test that fails without it, and the lane's plants on the merged tree. No observation text reaches a compiled request,
+the census or the index (the observer's test 7: a census and a DM request byte-identical across an observation); every
+golden, the DM-flow golden among them, is byte-identical to main's. A China-origin `[card] profile` is refused at the
+chokepoint. The lane's one ARM gate and the x86 finish passed before install #79.
+
+**Left open.** The live check on a scratch daemon with real Haiku (three facts said in passing, a contradiction, a
+shared place: the observed list, Add, Pattern and Stale, End it, under $0.05) runs with the owner after install. One
+lock for card proposal writes (theseus-kxb8d), a no-expiry read for the Edit modal's words (theseus-5pypl), and whether
+three morning questions should buzz once each or one per pacer window are follow-ups; `owner.ask` (theseus-mqret) and
+the learning bench (theseus-92q5b) are 1.0.3.
