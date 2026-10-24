@@ -81,3 +81,11 @@ test('the Timeline lens hosts the Agenda unchanged, and the Graph lens the task 
   assert.match(page, /a\.lens === 'graph' && <TaskGraphView records=\{records\} past=\{past \?\? undefined\} shown \/>/)
   assert.match(src('src/components/TaskGraph.tsx'), /if \(!shown && params\.get\('taskgraph'\) !== '1'\) return null/)
 })
+
+test('ops-act left nothing pending: B5, B10, B11, B13, B14, B15 and R6 are here, R3 stays with its reason', () => {
+  assert.deepEqual(PARITY.filter((r) => r.home === 'pending: ops-act').map((r) => r.id), [])
+  const by = Object.fromEntries(PARITY.map((r) => [r.id, r]))
+  for (const id of ['B5', 'B10', 'B11', 'B13', 'B14', 'B15', 'R6']) assert.equal(by[id].home, 'here', id)
+  assert.equal(by.R3.home, 'stays')
+  assert.match(by.R3.datum, /no honest way/)
+})

@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { ProfileInfo } from '../src/protocol.gen/index.ts'
 import { boardRows } from '../src/ops/board.ts'
-import { nextScope, scopeTargets, searchValue, targetOf, verbEntries, type OpsTarget } from '../src/ops/palette.ts'
+import { entitiesOf, nextScope, scopeTargets, searchValue, targetOf, verbEntries, type OpsTarget } from '../src/ops/palette.ts'
 import { board, NOW } from './ops-fixtures.ts'
 
 const prof = (name: string, model: string, origin: string): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live: false, origin })
@@ -66,4 +66,14 @@ test('a board row becomes a target with its profile, mark and execution', () => 
   assert.equal(x.kind, 'task')
   assert.equal(x.data, 'sensitive')
   assert.equal(x.profile, 'quick')
+})
+
+test('entities: sessions, tasks, threads, routines, projects and profiles, each with where choosing it goes', () => {
+  const rows = boardRows({ ...board(), now: NOW })
+  const es = entitiesOf(rows, [{ slug: 'tide-tables', title: 'Tide tables' }], [{ id: 'tsk_p', kind: 'project', title: 'Harbour', session: undefined }] as never, cx.profiles)
+  const kinds = new Set(es.map((e) => e.kind))
+  for (const k of ['session', 'task', 'thread', 'project', 'profile', 'job']) assert.ok(kinds.has(k as never), k)
+  assert.deepEqual(es.find((e) => e.kind === 'thread')!.go, { sel: 'tide-tables' })
+  assert.deepEqual(es.find((e) => e.id === 'kimi')!.go, { model: 'kimi' })
+  assert.match(es.find((e) => e.id === 'ses_t1')!.hint, /sensitive/)
 })

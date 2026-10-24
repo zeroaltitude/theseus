@@ -1,7 +1,7 @@
 // A thread, whole (theseus-5i8i; theseus-jid7t.3): its record, its work and its recent turns, drawn from
 // `threadPanelFacts`. The thread's own page (`/threads/:slug`) shows it, and the Threads lens's inspector shows it with
 // the thread's verbs (pause, resume, done, reopen, seal, unseal, edit), each one existing call.
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { GitBranch, MessagesSquare } from 'lucide-react'
@@ -15,6 +15,7 @@ import { AttentionPill, Empty, Panel, Pill } from '@/components/ui'
 import { threadPanelFacts } from './facts'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
+import { EditThreadSheet, SealThreadSheet } from './ThreadSheets'
 
 /** One open task, question or wake: its attention, its title, and the session it lives in. */
 export function Item({ v }: { v: WorkView }) {
@@ -114,18 +115,7 @@ function ThreadVerbs({ row }: { row: ThreadRow }) {
   const t = row.thread
   const slug = t.slug
   const go = (verb: Parameters<typeof act>[0], method: string, params: Record<string, unknown>, ask?: string) => void act(verb, `${slug}:${method}`, method, params, ask)
-  const edit = () => {
-    const title = window.prompt('Title', t.title)
-    if (title == null) return
-    const goal = window.prompt('Goal', t.goal ?? '')
-    if (goal == null) return
-    go('thread_edit', 'thread.edit', { slug, ...(title !== t.title && { title }), ...(goal !== (t.goal ?? '') && { goal }) })
-  }
-  const seal = () => {
-    const reason = window.prompt(`Seal ${t.title}? Its notes stop reaching any other thread’s recall. Why (optional):`, t.seal_pending ?? '')
-    if (reason == null) return
-    go('seal', 'thread.seal', { slug, ...(reason.trim() && { reason: reason.trim() }) })
-  }
+  const [sheet, setSheet] = useState<'edit' | 'seal' | null>(null)
   const b = (k: string) => busy === `${slug}:${k}`
   return (
     <div className="flex flex-wrap gap-1.5 pt-1" data-testid="thread-verbs">
@@ -133,10 +123,12 @@ function ThreadVerbs({ row }: { row: ThreadRow }) {
       {t.state === 'paused' && <ActBtn verb="thread_resume" on={on} tone="ok" busy={b('thread.resume')} onClick={() => go('thread_resume', 'thread.resume', { slug })}>Resume</ActBtn>}
       {t.state !== 'done' && <ActBtn verb="thread_done" on={on} tone="idle" busy={b('thread.done')} onClick={() => go('thread_done', 'thread.done', { slug }, `Mark ${t.title} done?`)}>Done</ActBtn>}
       {t.state === 'done' && <ActBtn verb="thread_reopen" on={on} tone="live" busy={b('thread.reopen')} onClick={() => go('thread_reopen', 'thread.reopen', { slug })}>Reopen</ActBtn>}
-      {!t.sealed && <ActBtn verb="seal" on={on} tone="think" busy={b('thread.seal')} onClick={seal}>Seal</ActBtn>}
+      {!t.sealed && <ActBtn verb="seal" on={on} tone="think" busy={b('thread.seal')} onClick={() => setSheet('seal')}>Seal</ActBtn>}
       {t.sealed && <ActBtn verb="unseal" on={on} tone="think" busy={b('thread.unseal')} onClick={() => go('unseal', 'thread.unseal', { slug }, `Unseal ${t.title}? Its notes may reach other threads again.`)}>Unseal</ActBtn>}
       {t.seal_pending && <ActBtn verb="seal_dismiss" on={on} tone="fault" busy={b('thread.seal_dismiss')} onClick={() => go('seal_dismiss', 'thread.seal_dismiss', { slug })}>Not now</ActBtn>}
-      <ActBtn verb="thread_edit" on={on} tone="idle" busy={b('thread.edit')} onClick={edit}>Edit…</ActBtn>
+      <ActBtn verb="thread_edit" on={on} tone="idle" busy={b('thread.edit')} onClick={() => setSheet('edit')}>Edit…</ActBtn>
+      {sheet === 'edit' && <EditThreadSheet t={t} onClose={() => setSheet(null)} />}
+      {sheet === 'seal' && <SealThreadSheet t={t} onClose={() => setSheet(null)} />}
     </div>
   )
 }

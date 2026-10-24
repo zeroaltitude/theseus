@@ -72,3 +72,25 @@ export function dockStream(lines: readonly NarrativeLine[], opts: { follow: stri
 
 /** A narrative line's session, short, for the dock's left edge. */
 export const whoOf = (l: NarrativeLine): string => (l.session_id ? short(l.session_id) : 'daemon')
+
+/** One row of the dock's models strip. */
+export interface ModelStrip { name: string; model: string; origin: string; live: boolean; sessions: number; headroom: string | null }
+
+/** The Bridge's headroom, from a call's rate headers: the tightest of the requests and tokens left, as a share. */
+export function headroom(r: { requests_remaining?: number; requests_limit?: number; tokens_remaining?: number; tokens_limit?: number } | undefined): string | null {
+  const shares = ([[r?.requests_remaining, r?.requests_limit, 'requests'], [r?.tokens_remaining, r?.tokens_limit, 'tokens']] as const)
+    .flatMap(([rem, lim, what]) => (rem != null && lim ? [{ s: rem / lim, what }] : []))
+  if (!shares.length) return null
+  const t = shares.reduce((a, b) => (b.s < a.s ? b : a))
+  return `${Math.round(t.s * 100)}% of ${t.what} left`
+}
+
+/** The dock's strip: each profile with its origin, the live flag, the sessions on it (from `session.list`'s `profile`)
+ *  and the headroom of the newest call that model made. `calls` come oldest first. */
+export function modelsStrip(profiles: ReadonlyArray<{ name: string; model: string; live: boolean; origin?: string }>, sessions: ReadonlyArray<{ profile?: string; retired?: unknown }>, calls: ReadonlyArray<{ model: string; rate?: Parameters<typeof headroom>[0] }>): ModelStrip[] {
+  return profiles.map((p) => {
+    let rate: Parameters<typeof headroom>[0]
+    for (let i = calls.length - 1; i >= 0; i--) if (calls[i].model === p.model && calls[i].rate) { rate = calls[i].rate; break }
+    return { name: p.name, model: p.model, origin: p.origin ?? 'unknown', live: p.live, sessions: sessions.filter((s) => s.profile === p.name && !s.retired).length, headroom: headroom(rate) }
+  })
+}

@@ -3,7 +3,7 @@
 // `test/ops-sections.test.ts` runs them over invented fixtures.
 import type { NodeInfo, StandingInfo, TaskRecord, WorkForecast } from '@protocol'
 import { ago, clock, ms, short, usd } from '../lib/figures.ts'
-import type { OpsRow } from './board.ts'
+import { alive, type OpsRow } from './board.ts'
 
 export interface FactLine { label: string; value: string; tone?: 'money' | 'wait' | 'fault' | 'ok' | 'think' | 'dim' }
 
@@ -79,4 +79,18 @@ export function jobFacts(r: OpsRow, now: number): FactLine[] {
     if (r.sessionId) out.push({ label: 'session', value: short(r.sessionId) })
   }
   return out
+}
+
+/** The job to follow for a session: its first running job on the board. */
+export function runningJob(rows: readonly OpsRow[], sessionId: string | undefined): OpsRow | undefined {
+  return sessionId ? rows.find((r) => r.kind === 'job' && r.sessionId === sessionId && alive(r)) : undefined
+}
+
+/** The newest turn that ended in a session, from the ledger's rows: what `I` inspects. */
+export function lastTurnOf(rows: ReadonlyArray<{ kind: string; session_id?: string | null; turn_id?: string | null }>, sessionId: string): string | undefined {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i]
+    if (r.session_id === sessionId && r.turn_id && (r.kind === 'turn.ended' || r.kind === 'turn.failed')) return r.turn_id
+  }
+  return undefined
 }

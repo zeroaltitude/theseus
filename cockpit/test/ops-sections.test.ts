@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { TaskRecord } from '../src/protocol.gen/index.ts'
 import { boardRows } from '../src/ops/board.ts'
-import { cacheWords, forecastWords, jobFacts, recordFacts, standingLines, taskFacts, transcriptTail } from '../src/ops/sections.ts'
+import { cacheWords, forecastWords, jobFacts, lastTurnOf, recordFacts, runningJob, standingLines, taskFacts, transcriptTail } from '../src/ops/sections.ts'
 import { board, NOW } from './ops-fixtures.ts'
 
 const rows = new Map(boardRows({ ...board(), now: NOW }).map((r) => [r.id, r]))
@@ -47,4 +47,15 @@ test('standing records, the last turns, and a job', () => {
   const jf = jobFacts(job, NOW)
   assert.equal(jf[0].label, 'command')
   assert.ok(jf.some((l) => l.label === 'running'))
+})
+
+test('the job to follow is the session’s running one; the last turn is the newest that ended', () => {
+  const all = [...rows.values()]
+  const j = runningJob(all, 'ses_tides')
+  assert.equal(j?.id, 'act_j1')
+  assert.equal(runningJob(all, 'ses_t4'), undefined)
+  assert.equal(runningJob(all, undefined), undefined)
+  const led = [{ kind: 'turn.ended', session_id: 'ses_a', turn_id: 't1' }, { kind: 'turn.failed', session_id: 'ses_a', turn_id: 't2' }, { kind: 'turn.ended', session_id: 'ses_b', turn_id: 't9' }, { kind: 'provider.call', session_id: 'ses_a', turn_id: 't3' }]
+  assert.equal(lastTurnOf(led, 'ses_a'), 't2')
+  assert.equal(lastTurnOf(led, 'ses_zz'), undefined)
 })

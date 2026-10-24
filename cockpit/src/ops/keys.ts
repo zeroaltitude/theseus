@@ -7,7 +7,7 @@
 // sequence (`g` then a letter) is one key here: `g b`.
 
 /** What the focus is on, most specific first: each focus offers its contexts, and `page` is always there. */
-export type Ctx = 'answer' | 'choice' | 'grant' | 'failure' | 'task' | 'running' | 'job' | 'wake' | 'card' | 'page' | 'filter'
+export type Ctx = 'dock' | 'answer' | 'choice' | 'grant' | 'failure' | 'task' | 'running' | 'job' | 'wake' | 'session' | 'card' | 'page' | 'filter'
 
 export type Verb =
   | 'down' | 'up' | 'left' | 'right' | 'inspect' | 'open' | 'back' | 'next' | 'prev'
@@ -15,6 +15,7 @@ export type Verb =
   | 'cancel' | 'cancel_wake' | 'follow' | 'new_task'
   | 'lens_graph' | 'lens_board' | 'lens_timeline' | 'lens_threads' | 'home' | 'search'
   | 'fold_queue' | 'fold_inspector' | 'fold_dock' | 'keys'
+  | 'model_menu' | 'mode_menu' | 'compose' | 'parent' | 'last_turn' | 'scroll_up' | 'scroll_down' | 'scroll_end' | 'self_changes' | 'thread_picker' | 'palette' | 'dock_pause'
   | 'filter_needs' | 'filter_working' | 'filter_paused' | 'filter_done' | 'filter_all'
 
 export interface KeyDef {
@@ -37,7 +38,7 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'up', keys: ['k', 'ArrowUp'], ctx: 'page', words: 'previous row or item' },
   { verb: 'left', keys: ['h', 'ArrowLeft'], ctx: 'page', words: 'the column to the left (the queue left of the first)' },
   { verb: 'right', keys: ['l', 'ArrowRight'], ctx: 'page', words: 'the column to the right' },
-  { verb: 'follow', keys: ['l'], ctx: 'job', words: 'on a job: follow it (its call in its session)' },
+  { verb: 'follow', keys: ['l'], ctx: 'job', words: 'on a job: follow its output in the inspector' },
   { verb: 'inspect', keys: ['Enter'], ctx: 'card', words: 'inspect: the selection in the inspector; a queue item’s full card' },
   { verb: 'open', keys: ['o'], ctx: 'card', words: 'open its deck (/session/…)' },
   { verb: 'back', keys: ['Escape'], ctx: 'page', words: 'back: close the card, then clear the selection, then the filters' },
@@ -56,6 +57,13 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'cancel', keys: ['c'], ctx: 'task', words: 'twice: cancel the task', act: true, twice: true },
   { verb: 'cancel_wake', keys: ['x'], ctx: 'wake', words: 'on a wake: cancel it (asks), the TUI’s x', act: true },
   { verb: 'new_task', keys: ['N'], ctx: 'page', words: 'new task (its home: the conversation under the cursor)', act: true },
+  // ops-act (theseus-jid7t.6): the acting keys. Where the TUI and the web differ, the overlay says which wins.
+  { verb: 'model_menu', keys: ['m'], ctx: 'session', words: 'the model menu: this turn only, or from now on (greyed: the floor refuses it)', act: true },
+  { verb: 'mode_menu', keys: ['M'], ctx: 'session', words: 'the mode menu: Ask, Edits, Plan, Auto (Auto asks)', act: true },
+  { verb: 'compose', keys: ['i'], ctx: 'session', words: 'compose: join it (⏎ steers a running turn, ⌘⏎ queues, ⇧⇥ the mode)' },
+  { verb: 'last_turn', keys: ['I'], ctx: 'session', words: 'inspect its newest turn (the turn inspector)' },
+  { verb: 'parent', keys: ['p', 'Backspace'], ctx: 'task', words: 'its parent, and what stands for it (in a box, ⌫ erases)' },
+  { verb: 'dock_pause', keys: [' '], ctx: 'dock', words: 'in the dock: pause or resume the streams' },
   { verb: 'lens_graph', keys: ['g g'], ctx: 'page', words: 'the Graph lens' },
   { verb: 'lens_board', keys: ['g b'], ctx: 'page', words: 'the Board lens' },
   { verb: 'lens_timeline', keys: ['g t'], ctx: 'page', words: 'the Timeline lens' },
@@ -64,8 +72,14 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'search', keys: ['/'], ctx: 'page', words: 'search' },
   { verb: 'fold_queue', keys: ['['], ctx: 'page', words: 'fold or unfold the queue' },
   { verb: 'fold_inspector', keys: [']'], ctx: 'page', words: 'fold or unfold the inspector' },
-  { verb: 'fold_dock', keys: ['\\'], ctx: 'page', words: 'the dock (kept for a later row)' },
+  { verb: 'fold_dock', keys: ['\\'], ctx: 'page', words: 'fold or unfold the dock' },
   { verb: 'keys', keys: ['?'], ctx: 'page', words: 'these keys' },
+  { verb: 'palette', keys: ['meta+k'], ctx: 'page', words: '⌘K: the palette, with every session, task, thread and verb (the shell opens it; ⇥ cycles its scope)' },
+  { verb: 'scroll_up', keys: ['PageUp'], ctx: 'page', words: 'scroll the open session’s transcript up' },
+  { verb: 'scroll_down', keys: ['PageDown'], ctx: 'page', words: 'scroll it down' },
+  { verb: 'scroll_end', keys: ['End'], ctx: 'page', words: 'scroll it to the end' },
+  { verb: 'self_changes', keys: ['L'], ctx: 'page', words: 'what Theseus changed about itself' },
+  { verb: 'thread_picker', keys: ['T'], ctx: 'page', words: 'the thread picker (also /t in the box)' },
   { verb: 'filter_needs', keys: ['b'], ctx: 'filter', words: 'only what needs you' },
   { verb: 'filter_working', keys: ['w'], ctx: 'filter', words: 'only what is working' },
   { verb: 'filter_paused', keys: ['r'], ctx: 'filter', words: 'only paused·queued (on a failure, r retries)' },
@@ -74,17 +88,17 @@ export const KEYS: readonly KeyDef[] = [
 ]
 
 /** The contexts in the order a key looks for its meaning: the focus's own first, then the page, then the filters. */
-export const PRIORITY: readonly Ctx[] = ['answer', 'choice', 'grant', 'failure', 'task', 'running', 'job', 'wake', 'card', 'page', 'filter']
+export const PRIORITY: readonly Ctx[] = ['dock', 'answer', 'choice', 'grant', 'failure', 'task', 'running', 'job', 'wake', 'session', 'card', 'page', 'filter']
 
 /** Words for each context, for the overlay's headings. */
 export const CTX_WORDS: Readonly<Record<Ctx, string>> = {
-  answer: 'On a question', choice: 'On a question with choices', grant: 'On a card that offers a grant', failure: 'On a failure',
-  task: 'On a task', running: 'On something running', job: 'On a job', wake: 'On a wake', card: 'On anything selected',
+  dock: 'In the dock', answer: 'On a question', choice: 'On a question with choices', grant: 'On a card that offers a grant', failure: 'On a failure',
+  task: 'On a task', running: 'On something running', job: 'On a job', wake: 'On a wake', session: 'On a session or a task', card: 'On anything selected',
   page: 'Anywhere', filter: 'Counters (where no card claims the key)',
 }
 
 /** The verbs that act: off under the time machine. The table's, and the buttons' that no key presses. */
-export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark'] as const
+export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark', 'join', 'model_turn', 'model_sticky', 'mode_set', 'live_profile'] as const
 export type ButtonAct = (typeof BUTTON_ACTS)[number]
 export const ACTS: ReadonlySet<string> = new Set<string>([...KEYS.filter((k) => k.act).map((k) => k.verb), ...BUTTON_ACTS])
 
@@ -124,7 +138,7 @@ export function pressTwice(armed: { verb: Verb; at: number } | null, verb: Verb,
 
 /** The `g` sequences: after `g`, the next key within `G_MS` completes one. */
 export const G_MS = 900
-export const SEQUENCES: readonly string[] = KEYS.flatMap((k) => k.keys.filter((x) => x.includes(' ')))
+export const SEQUENCES: readonly string[] = KEYS.flatMap((k) => k.keys.filter((x) => x.length > 1 && x.includes(' ')))
 
 /** The overlay: a heading per context in `PRIORITY` order, a line per entry. */
 export function overlay(): Array<{ ctx: Ctx; heading: string; lines: Array<{ verb: Verb; keys: string; words: string }> }> {
@@ -137,5 +151,5 @@ export function overlay(): Array<{ ctx: Ctx; heading: string; lines: Array<{ ver
 
 /** A key as the overlay prints it. */
 export function label(key: string): string {
-  return ({ Enter: '⏎', Escape: 'esc', Tab: 'tab', 'shift+Tab': '⇧tab', ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→' } as Record<string, string>)[key] ?? key
+  return ({ Enter: '⏎', Escape: 'esc', Tab: 'tab', 'meta+k': '⌘K', ' ': '␣', Backspace: '⌫', PageUp: 'PgUp', PageDown: 'PgDn', 'shift+Tab': '⇧tab', ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→' } as Record<string, string>)[key] ?? key
 }

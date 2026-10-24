@@ -3,7 +3,7 @@
 // its open items), drawn from `threadFacts`; the title "N live · N need you on the board"; the conversations in no
 // thread; and, when no thread is live, the empty state's words and a New thread button. A click selects the thread,
 // whose panel the inspector shows. Under the time machine the list is the threads as the ledger's rows left them.
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { ExternalLink, GitBranch, Lock, Plus, Snowflake, Sun } from 'lucide-react'
 import type { WorkView } from '@protocol'
@@ -15,6 +15,7 @@ import { threadFacts } from './facts'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
 import { Item } from './ThreadPanel'
+import { NewThreadSheet } from './ThreadSheets'
 
 export function ThreadsLens({ views, groups, ready, error, now, past, focus, onFocus, matches }: {
   views: readonly WorkView[]; groups: Parameters<typeof groupThreads>[1]; ready: boolean; error: string | null; now: number; past: number | null
@@ -58,18 +59,13 @@ export function ThreadsLens({ views, groups, ready, error, now, past, focus, onF
 
 /** No thread is live: the Threads page's words, and the button that makes one (`thread.new`). */
 function NoThreads() {
-  const { busy, act, on } = useOpsAct()
-  const make = () => {
-    const title = window.prompt('A new thread: its title')
-    if (!title?.trim()) return
-    const slug = window.prompt('Its slug (letters, digits and dashes)', title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''))
-    if (!slug?.trim()) return
-    void act('thread_new', 'thread.new', 'thread.new', { slug: slug.trim(), title: title.trim() })
-  }
+  const { busy, on } = useOpsAct()
+  const [sheet, setSheet] = useState(false)
   return (
     <div className="flex flex-col items-center gap-3 py-8">
       <Empty>No thread is live. <code className="mx-1">theseus thread new</code> makes one.</Empty>
-      <ActBtn verb="thread_new" on={on} busy={busy === 'thread.new'} onClick={make} title="thread.new: a title and a slug"><Plus size={12} /> New thread</ActBtn>
+      <ActBtn verb="thread_new" on={on} busy={busy === 'thread.new'} onClick={() => setSheet(true)} title="thread.new: a title and a slug"><Plus size={12} /> New thread</ActBtn>
+      {sheet && <NewThreadSheet onClose={() => setSheet(false)} />}
     </div>
   )
 }

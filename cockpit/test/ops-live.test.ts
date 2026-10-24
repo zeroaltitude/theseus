@@ -3,7 +3,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { NarrativeLine } from '../src/protocol.gen/index.ts'
-import { appendChunk, dockStream, EMPTY_OUT, liveOf, mergeLive, narrativeOf, peekOut, whoOf } from '../src/ops/live.ts'
+import { appendChunk, dockStream, EMPTY_OUT, headroom, liveOf, mergeLive, modelsStrip, narrativeOf, peekOut, whoOf } from '../src/ops/live.ts'
 
 const ev = (method: string, params: Record<string, unknown>, at = 0) => ({ method, at, params })
 const line = (seq: number, session_id: string | undefined, text: string, at = seq * 1000): NarrativeLine => ({ seq, at_unix_ms: at, part: 'turn', session_id, text } as NarrativeLine)
@@ -46,4 +46,13 @@ test('the dock: newest first, a pause holds its line, a follow shows one session
   assert.deepEqual(dockStream(all, { follow: null, pausedAt: 2 }).map((l) => l.text), ['b1', 'a1'], 'paused: later lines wait')
   assert.deepEqual(dockStream(all, { follow: 'ses_a', pausedAt: null }).map((l) => l.text), ['a2', 'a1'])
   assert.equal(whoOf(all[3]), 'daemon')
+})
+
+test('the models strip: sessions on each profile and the newest call’s headroom, the tightest gauge', () => {
+  assert.equal(headroom({ requests_remaining: 900, requests_limit: 1000, tokens_remaining: 20_000, tokens_limit: 100_000 }), '20% of tokens left')
+  assert.equal(headroom({}), null)
+  const profiles = [{ name: 'quick', model: 'm-s', live: true, origin: 'us' }, { name: 'kimi', model: 'm-cn', live: false, origin: 'cn' }, { name: 'idle', model: 'm-i', live: false }]
+  const calls = [{ model: 'm-s', rate: { tokens_remaining: 10, tokens_limit: 100 } }, { model: 'm-s', rate: { tokens_remaining: 50, tokens_limit: 100 } }, { model: 'm-cn' }]
+  const strip = modelsStrip(profiles, [{ profile: 'quick' }, { profile: 'quick' }, { profile: 'quick', retired: {} }, { profile: 'kimi' }], calls)
+  assert.deepEqual(strip.map((r) => [r.name, r.sessions, r.headroom, r.origin]), [['quick', 2, '50% of tokens left', 'us'], ['kimi', 1, null, 'cn'], ['idle', 0, null, 'unknown']])
 })

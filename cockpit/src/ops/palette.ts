@@ -2,7 +2,7 @@
 // that are visible, or the selection (`⇥` cycles); the targets come in as input (`OpsTarget[]`), so the Graph lens's
 // selection joins through one seam. A target the verb would not touch is counted, with the floor's reason, and an entry
 // no target takes is greyed: the palette hides nothing the daemon would allow and says why for what it would refuse.
-import type { DataMark, ProfileInfo } from '@protocol'
+import type { DataMark, ProfileInfo, TaskRecord } from '@protocol'
 import type { OpsRow } from './board.ts'
 import { greyOf } from './floor.ts'
 import { costHint } from './menus.ts'
@@ -119,3 +119,26 @@ export function verbEntries(targets: readonly OpsTarget[], cx: Ctx): Entry[] {
 /** The grammar: a verb then its target ("pause tides"), or a target then its verb. cmdk matches a value by its words in
  *  any order, so one value holds both. */
 export const searchValue = (verb: string, target: string): string => `${verb} ${target} ${target} ${verb}`.toLowerCase()
+
+/** Something the palette can fly to: a session, task, thread, routine, wake, project or profile. */
+export interface Entity {
+  id: string
+  kind: 'session' | 'task' | 'thread' | 'routine' | 'wake' | 'job' | 'project' | 'profile'
+  label: string
+  hint: string
+  /** What choosing it does to the address: select this (`sel`), or filter by this model. */
+  go: { sel: string } | { model: string }
+}
+
+/** Every entity the page holds, in the order the palette lists them. */
+export function entitiesOf(rows: readonly OpsRow[], threads: ReadonlyArray<{ slug: string; title: string }>, records: readonly TaskRecord[], profiles: readonly ProfileInfo[]): Entity[] {
+  const out: Entity[] = []
+  for (const r of rows) {
+    const kind = r.kind === 'conversation' ? 'session' : r.kind
+    out.push({ id: r.id, kind, label: r.title, hint: `${kind} · ${r.state ?? r.column}${r.data && r.data !== 'open' ? ` · ${r.data}` : ''}`, go: { sel: r.id } })
+  }
+  for (const t of threads) out.push({ id: t.slug, kind: 'thread', label: t.title, hint: `thread · ${t.slug}`, go: { sel: t.slug } })
+  for (const t of records.filter((x) => x.kind === 'project')) out.push({ id: t.id, kind: 'project', label: t.title, hint: 'project', go: { sel: t.session ?? t.id } })
+  for (const p of profiles) out.push({ id: p.name, kind: 'profile', label: p.name, hint: `profile · ${p.model} · ${p.origin ?? 'unknown'}`, go: { model: p.name } })
+  return out
+}
