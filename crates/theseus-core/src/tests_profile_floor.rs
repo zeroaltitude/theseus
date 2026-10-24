@@ -32,7 +32,13 @@ fn the_floors_refusals_match_the_shared_table() {
     assert_eq!(table.rows.len(), 24, "3 marks x 4 origins x known or not");
     for r in &table.rows {
         // A profile is cleared for private content when its origin is US.
-        let got = refusal_of(r.mark, "some-profile", r.known, r.origin == "us");
+        let got = refusal_of(
+            r.mark,
+            "some-profile",
+            r.known,
+            origin_named(&r.origin),
+            r.origin == "us",
+        );
         assert_eq!(
             got.is_some(),
             r.refused,
@@ -88,11 +94,15 @@ fn profile_list_says_what_the_floor_refuses_for_every_row() {
         if r.known {
             assert_eq!(cfg.profile_origin(name, catalog), origin, "{what}");
         }
-        assert_eq!(
-            profile_refusal(cfg, catalog, r.mark, name).is_some(),
-            r.refused,
-            "{what}"
-        );
+        let refusal = profile_refusal(cfg, catalog, r.mark, name);
+        assert_eq!(refusal.is_some(), r.refused, "{what}");
+        if uncatalogued && r.refused {
+            let words = refusal.unwrap();
+            assert!(
+                words.contains("the catalog does not list its model"),
+                "{what}: {words}"
+            );
+        }
         let listed = rig.core.profile_list();
         let info = listed.profiles.iter().find(|p| p.name == name);
         assert_eq!(

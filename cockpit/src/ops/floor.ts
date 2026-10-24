@@ -3,7 +3,8 @@
 // file, `test/fixtures/profile_floor.json`, that theseus-core's `tests_profile_floor.rs` reads too. A profile the daemon
 // clears (`ProfileInfo.cleared`: US origin and a catalog row of `us`) runs anywhere; a provider's vouch alone clears
 // nothing, and a daemon that did not say clears nothing. Any other profile is refused a private or sensitive session;
-// one that is not configured is refused always. The page greys what the floor refuses, in the floor's words.
+// one that is not configured is refused always. The page greys what the floor refuses, in the floor's words: a profile of `us` origin the daemon
+// does not clear is told the catalog does not list its model as `us`; any other is told it is not a model of US origin.
 import type { DataMark } from '@protocol'
 
 /** What the menu knows of a profile: its name, and its origin and the daemon's own floor answer (`ProfileInfo.origin`, `.cleared`). */
@@ -13,5 +14,7 @@ export interface FloorProfile { name: string; origin?: string; cleared?: boolean
 export function greyOf(mark: DataMark | undefined, name: string, profile: FloorProfile | undefined): string | null {
   if (!profile) return `\`${name}\` is not a configured profile`
   if ((mark ?? 'open') === 'open' || profile.cleared === true) return null
-  return `this conversation holds ${mark === 'sensitive' ? 'sensitive' : 'private'} content, and \`${name}\` is not a model of US origin`
+  const level = mark === 'sensitive' ? 'sensitive' : 'private'
+  if (profile.origin === 'us') return `this conversation holds ${level} content, and \`${name}\` is not cleared for it: the catalog does not list its model as of US origin`
+  return `this conversation holds ${level} content, and \`${name}\` is not a model of US origin`
 }

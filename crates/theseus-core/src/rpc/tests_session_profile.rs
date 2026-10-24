@@ -7,6 +7,7 @@ use serde_json::json;
 use theseus_protocol::ops::{DataMark, SessionProfileParams, SessionProfileResult};
 use theseus_protocol::{SessionKind, TurnSubmitResult};
 
+use crate::catalog::ModelOrigin;
 use crate::data_mark::{refusal_of, session_mark};
 use crate::provider::Scripted;
 use crate::rpc::Core;
@@ -363,13 +364,28 @@ fn the_refusal_over_every_mark_and_origin() {
         (DataMark::Sensitive, false, true, true),
     ] {
         assert_eq!(
-            refusal_of(mark, "p", known, cleared).is_some(),
+            refusal_of(mark, "p", known, ModelOrigin::Us, cleared).is_some(),
             refused,
             "{mark:?} known={known} cleared={cleared}"
         );
     }
-    let w = refusal_of(DataMark::Sensitive, "p", true, false).unwrap();
+    let w = refusal_of(DataMark::Sensitive, "p", true, ModelOrigin::Cn, false).unwrap();
     assert!(w.contains("sensitive content"), "{w}");
+}
+
+/// A vouched provider serving a model the catalog does not list as `us` has
+/// origin `us` and is not cleared: the words say the catalog's part, not that
+/// the model is foreign. Any other origin keeps the original words.
+#[test]
+fn a_vouched_uncatalogued_profile_is_refused_in_the_catalogs_words() {
+    assert_eq!(
+        refusal_of(DataMark::Private, "p", true, ModelOrigin::Us, false).unwrap(),
+        "this conversation holds private content, and `p` is not cleared for it: the catalog does not list its model as of US origin"
+    );
+    assert_eq!(
+        refusal_of(DataMark::Private, "p", true, ModelOrigin::Cn, false).unwrap(),
+        "this conversation holds private content, and `p` is not a model of US origin"
+    );
 }
 
 /// A running task keeps the model of the call it is making and of the rest of
