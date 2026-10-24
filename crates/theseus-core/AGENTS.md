@@ -1703,7 +1703,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     held answer was `applied_unsure`, so the row keeps the bar that admitted it (theseus-8zgji). An `xhigh` or `max` held at `high` says `held_high` for
     a sure answer and `held_high_unsure` for one under the confirm bar; a held one then held again by `stick` says
     `sticky`, or `sticky_unsure` for a `held_high_unsure` one (theseus-t7b96).
-    Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`, `tests_effort_sticky.rs`.
+    **A sticky hold has a way out** (theseus-u5a37): `keep_warm.sent` keeps, beside the level a request carried, the
+    kind of hold that carried it (`effort::Hold`: `Sticky`, or `Unsure` for `sticky_unsure`), in memory. On a later turn
+    a held change whose answer is sure enough ends the hold: `effort::reverts` wants a `sure` answer in a `sticky`
+    window and `confidence >= [routing] effort_confidence` in a `sticky_unsure` one (the lower bar the owner asked
+    for); the request then carries Jev's level and the row says `sticky_reverted`. The turn that opens a hold never
+    reverts it, and a checkpoint's raise is never held or reverted. A revert rewrites the messages' cache once, as a
+    two-step change does.
+    **The checkpoint says what effort the work ran at** (theseus-ujzuh): `checkpoint::text_with` adds two lines before
+    `Now:`, kept whole when the text is cut: `Effort: <level>[, raised from <level> at loop <n>]` (the top-level effort
+    the last loop's request carried) and `Checkpoints this turn: <n>, failing <k> in a row`, from `Active.evidence`.
+    No new call and no stored state.
+    Tests: `tests_turn_effort.rs`, `tests_effort_beta.rs`, `tests_effort_sticky.rs`, `tests_checkpoint_effort.rs`.
   - **Which persona answers a message** (route.v5, theseus-c1uz, T10a; no store format: nothing new is stored; `engage.rs`,
     `turn/persona_engage.rs`, `judge/seal.rs`, `fact/persona.rs`). With two or more `[personas]` (`Config::persona_engaging`) **in a place where a message can engage another persona**
     (`TurnRunner::engages`, `Target.engages`: a DM, a channel, a thread; a cli, task or headless session's persona is fixed, so

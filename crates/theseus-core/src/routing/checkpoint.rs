@@ -19,9 +19,10 @@
 //! - **The cap**: `max_switches` moves per task; past it nothing moves up,
 //!   and the step back down to the base still does.
 
+use super::effort;
 use super::{decide as route_decide, Ask, Decision, Hold, HoldNext, Profiles, Reason, Verdict};
 use crate::config::routing::TaskCheckpoints;
-use crate::config::RoutingConfig;
+use crate::config::{Effort, RoutingConfig};
 
 /// The most the pack reads, in tokens (estimated at [`CHARS_PER_TOKEN`] characters, which is
 /// conservative for English).
@@ -171,16 +172,90 @@ pub fn tokens(s: &str) -> usize {
 /// first, then the plan's last steps, then the brief's tail; the trigger's
 /// line stays.
 pub fn text(brief: &str, plan: &[(String, &str)], loops: &[LoopLine], trigger: &Trigger) -> String {
-    text_within(brief, plan, loops, trigger, MAX_TOKENS * CHARS_PER_TOKEN)
+    render(
+        brief,
+        plan,
+        loops,
+        trigger,
+        (None, MAX_TOKENS * CHARS_PER_TOKEN),
+    )
+}
+
+/// What the work shows of its own effort, for the pack to read beside the
+/// loops (theseus-ujzuh): the level the loops ran at, and whether a checkpoint
+/// raised it; how many checkpoints this turn (or task) has asked, and how many
+/// in a row found the work failing. A failure after more careful effort reads
+/// differently from one at the first level.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Evidence {
+    /// The effort the last loop's request carried; none when unknown.
+    pub effort: Option<Effort>,
+    /// The level before a checkpoint raised it, and the loop it was raised at.
+    pub raised: Option<(Effort, u32)>,
+    /// Checkpoints asked so far, this one included.
+    pub checkpoints: u32,
+    /// Checkpoints in a row, this one included, that found the work failing.
+    pub failing: u32,
+}
+
+impl Evidence {
+    /// The lines the text carries: the effort (when known) and the checkpoints.
+    fn lines(&self) -> String {
+        let mut out = String::new();
+        if let Some(e) = self.effort {
+            out.push_str(&format!("Effort: {}", effort::name(e)));
+            if let Some((from, at)) = self.raised {
+                out.push_str(&format!(
+                    ", raised from {} at loop {at}",
+                    effort::name(from)
+                ));
+            }
+            out.push('\n');
+        }
+        out.push_str(&format!(
+            "Checkpoints this turn: {}, failing {} in a row\n",
+            self.checkpoints, self.failing
+        ));
+        out
+    }
+}
+
+/// [`text`] with the work's effort evidence, kept whole when the text is cut
+/// (as the trigger's line is).
+pub fn text_with(
+    brief: &str,
+    plan: &[(String, &str)],
+    loops: &[LoopLine],
+    trigger: &Trigger,
+    evidence: &Evidence,
+) -> String {
+    render(
+        brief,
+        plan,
+        loops,
+        trigger,
+        (Some(evidence), MAX_TOKENS * CHARS_PER_TOKEN),
+    )
 }
 
 /// [`text`] within `max` characters.
+#[cfg(test)]
 fn text_within(
     brief: &str,
     plan: &[(String, &str)],
     loops: &[LoopLine],
     trigger: &Trigger,
     max: usize,
+) -> String {
+    render(brief, plan, loops, trigger, (None, max))
+}
+
+fn render(
+    brief: &str,
+    plan: &[(String, &str)],
+    loops: &[LoopLine],
+    trigger: &Trigger,
+    (evidence, max): (Option<&Evidence>, usize),
 ) -> String {
     let steps: Vec<String> = plan
         .iter()
@@ -219,6 +294,9 @@ fn text_within(
             lines[from..]
                 .iter()
                 .for_each(|s| out.push_str(&format!("{s}\n")));
+        }
+        if let Some(ev) = evidence {
+            out.push_str(&ev.lines());
         }
         out.push_str(&format!("Now: {}", trigger.line()));
         if out.chars().count() <= max {
@@ -628,5 +706,84 @@ mod tests {
         assert!(tight.ends_with("Now: no progress for 8 loops"), "{tight}");
         assert!(tight.chars().count() <= 60);
         assert!(at(1).chars().count() <= 1, "never over, whatever the bound");
+    }
+
+    fn raised_twice() -> Evidence {
+        Evidence {
+            effort: Some(Effort::Xhigh),
+            raised: Some((Effort::High, 4)),
+            checkpoints: 3,
+            failing: 2,
+        }
+    }
+
+    /// The text says the effort the loops ran at, that a checkpoint raised
+    /// it, and how many checkpoints found the work failing in a row
+    /// (theseus-ujzuh); a first checkpoint says one; a turn whose effort is
+    /// unknown leaves that line out; a text without evidence is unchanged.
+    #[test]
+    fn the_text_carries_the_works_effort_evidence() {
+        let loops = [LoopLine {
+            index: 5,
+            say: Some("ran the checks".into()),
+            failed: Some("check failed".into()),
+        }];
+        let t = Trigger::Failing(3);
+        let s = text_with("Fix the build.", &[], &loops, &t, &raised_twice());
+        assert!(
+            s.contains("Effort: xhigh, raised from high at loop 4\n"),
+            "{s}"
+        );
+        assert!(
+            s.contains("Checkpoints this turn: 3, failing 2 in a row\n"),
+            "{s}"
+        );
+        assert!(s.ends_with("Now: failing: 3 failed loops in a row"), "{s}");
+        let first = Evidence {
+            effort: Some(Effort::High),
+            checkpoints: 1,
+            failing: 1,
+            ..Evidence::default()
+        };
+        let s = text_with("Fix the build.", &[], &loops, &t, &first);
+        assert!(s.contains("Effort: high\nCheckpoints this turn: 1, failing 1 in a row"));
+        assert!(!s.contains("raised"));
+        let s = text_with("Fix the build.", &[], &loops, &t, &Evidence::default());
+        assert!(!s.contains("Effort:") && s.contains("Checkpoints this turn: 0"));
+        assert_eq!(
+            text("Fix the build.", &[], &loops, &t),
+            text_within("Fix the build.", &[], &loops, &t, 4_500),
+            "no evidence, no lines"
+        );
+    }
+
+    /// A long brief and many loops are cut, never the evidence lines.
+    #[test]
+    fn the_evidence_survives_the_cut() {
+        let long = "word ".repeat(400);
+        let plan: Vec<(String, &str)> = (0..30)
+            .map(|n| (format!("step {n} {long}"), "todo"))
+            .collect();
+        let loops: Vec<LoopLine> = (0..40)
+            .map(|index| LoopLine {
+                index,
+                say: Some(long.clone()),
+                failed: Some(long.clone()),
+            })
+            .collect();
+        let s = text_with(
+            &long.repeat(3),
+            &plan,
+            &loops,
+            &Trigger::Report,
+            &raised_twice(),
+        );
+        assert!(tokens(&s) <= MAX_TOKENS, "{}", tokens(&s));
+        assert!(
+            s.contains("Effort: xhigh, raised from high at loop 4"),
+            "{s}"
+        );
+        assert!(s.contains("Checkpoints this turn: 3, failing 2 in a row"));
+        assert!(s.ends_with("Now: before the report"));
     }
 }

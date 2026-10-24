@@ -94,14 +94,17 @@ impl TurnRunner {
     /// both levels; an `applied_unsure` or `held_high_unsure` answer held
     /// says `sticky_unsure`, so the row still shows which bar admitted it. A
     /// checkpoint's raise is never held: the work's own evidence is what the
-    /// rule waits for (theseus-53ujg.3).
+    /// rule waits for (theseus-53ujg.3). A hold ends early when a later answer
+    /// disagrees and is sure enough for the window it is in (`effort::reverts`,
+    /// theseus-u5a37): the request carries Jev's level and the reason is
+    /// `sticky_reverted`; a checkpoint never reverts.
     pub(super) fn stick(
         &self,
         t: &Turn<'_>,
         spec: &RequestSpec,
         d: EffortDecision,
-        model: &str,
-        tokens: u64,
+        answer: &effort::EffortAnswer,
+        (model, tokens): (&str, u64),
         checkpoint: bool,
     ) -> EffortDecision {
         let entry = self.catalog.get(model);
@@ -116,7 +119,13 @@ impl TurnRunner {
                 effort::sticky(asked, previous, tokens, self.cfg.cache.keep_warm_min_tokens)
                     .filter(|held| !(checkpoint && asked > *held))
             });
+        let window = self.keep_warm.last_hold(t.tc.session_id, model);
+        let bar = self.cfg.routing.effort_confidence;
         match held {
+            Some(_) if !checkpoint && effort::reverts(window, answer, bar) => EffortDecision {
+                reason: EffortReason::StickyReverted,
+                ..d
+            },
             Some(sent) => EffortDecision {
                 reason: match d.reason {
                     EffortReason::AppliedUnsure | EffortReason::HeldHighUnsure => {
@@ -136,7 +145,17 @@ impl TurnRunner {
     /// request is outside the session's compilation and records none.
     pub(super) fn note_sent(&self, t: &Turn<'_>, spec: &RequestSpec, model: &str) {
         if t.route.keeps.is_none() {
-            self.keep_warm.sent(t.tc.session_id, model, spec.effort);
+            let hold = t
+                .route
+                .effort
+                .filter(|d| d.sent == spec.effort)
+                .and_then(|d| match d.reason {
+                    EffortReason::Sticky => Some(effort::Hold::Sticky),
+                    EffortReason::StickyUnsure => Some(effort::Hold::Unsure),
+                    _ => None,
+                });
+            self.keep_warm
+                .sent(t.tc.session_id, model, spec.effort, hold);
         }
     }
 }
