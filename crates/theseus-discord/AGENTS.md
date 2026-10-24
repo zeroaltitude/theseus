@@ -118,6 +118,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   narrower) and **Not this** (`standing:<keep|everywhere|not>:<ask id>`, `standing.answer`), each as the presser with
   their `DiscordOrigin`, which the core judges. Only a Discord-origin message makes a card; the CLI and the web UI hear
   the narrative line. Tests: `tests_gateway/standing.rs`.
+  **Live owner-card questions** (theseus-6f8t0, `runtime/card_question.rs`, `Buttons::CardQuestion`): the core's `card_question` post
+  (kind in `pacer::UNPROMPTED`; `jev_post`, the owner's DM alone) has **Keep**, **Edit**, **Not this** (add, pattern) or **End it** (stale)
+  (`card:<keep|edit|not|end>:<cdp id>`); a press is `card.answer` as the presser with their `DiscordOrigin` (`not` is option `decline`),
+  **Edit** opens a modal of the proposal's words (read by `card.list` as the presser, at most 160 characters; `card:m:<id>`), and a counted
+  answer removes the buttons (an update-message callback) and is told to the presser alone. Tests: `tests_gateway/card_question.rs`.
 - **Reminders** (theseus-8ux6x, `runtime/remind.rs`): the core's `reminder` post (a wake's note as it is, `Event::Reminder`, in no
   ping category, so it always pings) goes to the place the core chose, with Done, Snooze 10 min, Snooze 1 h and Tomorrow 9:00
   (`wake:<answer>:<wake id>`, `Buttons::Reminder`); a press is `wake.done` or `wake.snooze { fired }` as the presser, answered in the

@@ -112,24 +112,30 @@ pub(crate) fn modal(key: &str) -> Value {
     }})
 }
 
-/// The modal's text, and the persona it is for.
-fn submitted(m: &ModalInteractionData) -> Option<(String, String)> {
-    fn walk(c: &ModalInteractionComponent, out: &mut String) {
+/// The text of the modal's input named `field`, walked through its labels and
+/// rows (`persona_soul` and `card_question` each read one).
+pub(super) fn field_of(m: &ModalInteractionData, field: &str) -> String {
+    fn walk(c: &ModalInteractionComponent, field: &str, out: &mut String) {
         match c {
-            ModalInteractionComponent::Label(l) => walk(&l.component, out),
+            ModalInteractionComponent::Label(l) => walk(&l.component, field, out),
             ModalInteractionComponent::ActionRow(r) => {
-                r.components.iter().for_each(|c| walk(c, out))
+                r.components.iter().for_each(|c| walk(c, field, out))
             }
-            ModalInteractionComponent::TextInput(t) if t.custom_id == FIELD => {
+            ModalInteractionComponent::TextInput(t) if t.custom_id == field => {
                 out.push_str(&t.value)
             }
             _ => {}
         }
     }
-    let key = m.custom_id.strip_prefix(MODAL).filter(|k| key_ok(k))?;
     let mut text = String::new();
-    m.components.iter().for_each(|c| walk(c, &mut text));
-    Some((key.to_string(), text))
+    m.components.iter().for_each(|c| walk(c, field, &mut text));
+    text
+}
+
+/// The modal's text, and the persona it is for.
+fn submitted(m: &ModalInteractionData) -> Option<(String, String)> {
+    let key = m.custom_id.strip_prefix(MODAL).filter(|k| key_ok(k))?;
+    Some((key.to_string(), field_of(m, FIELD)))
 }
 
 /// What the owner is told of a refusal or a failure.

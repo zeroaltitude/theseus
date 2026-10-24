@@ -1144,7 +1144,7 @@ async fn after_serving(
     // People's nightly sweep (theseus-j8qb), at the same hour.
     core.people_sweep_after_serving();
     // The owner card's weekly proposals (theseus-slvl.6), at the same hour, until done.
-    core.card_after_serving();
+    core.card_tenders_after_serving(); // and its live questions in the owner's DM (theseus-6f8t0)
     if let Some(text) = keep {
         keep_copy(&core, &text);
     }
