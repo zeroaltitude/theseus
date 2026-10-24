@@ -71,7 +71,9 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   const g = useMemo(() => memory.lay(views, records, lanes, { now, future, expanded, opened }, tidy), [memory, views, records, lanes, now, future, expanded, opened, tidy])
   // The layout without the openings, which says what each opening can fold back into (`foldBacks`).
   const base = useMemo(() => (expanded.size || opened.size ? opsLayout(views, records, lanes, null, { now, future }) : g), [views, records, lanes, now, future, expanded, opened, g])
-  const back = useMemo(() => foldBacks(g, base, expanded, opened), [g, base, expanded, opened])
+  // The roots' fold-backs read the layout with the lanes' openings: a fold opened inside an opened lane is only there.
+  const baseRoots = useMemo(() => (opened.size && expanded.size ? opsLayout(views, records, lanes, null, { now, future, expanded }) : base), [views, records, lanes, now, future, expanded, opened, base])
+  const back = useMemo(() => foldBacks(g, base, expanded, opened, baseRoots), [g, base, expanded, opened, baseRoots])
   useEffect(() => { layoutRef.current = g }, [g, layoutRef])
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
   // `?sel=` names a node by its id, or a task by its record's (`tsk_…`, the task graph's link).

@@ -317,9 +317,30 @@ test('an opening offers its way back, and folding back lays out as if it were ne
   assert.deepEqual(ids(lay(many, o, [], {})), ids(closed), 'folding back gives the layout without the opening')
 })
 
+test('a fold opened inside an opened done lane has its own fold-back (item 5, join fix F1)', () => {
+  const views: WorkView[] = [view('exe_c', 'conversation', 'ready', { session_id: 'ses_c', thread: 'tide-tables' })]
+  for (let p = 0; p < 60; p++) {
+    views.push(view(`exe_d${p}`, 'task', 'done', { session_id: `ses_d${p}`, parent: 'exe_c', thread: 'tide-tables', ended_at_ms: NOW - 2 * HOUR }, 'idle'))
+    for (let k = 0; k < 8; k++) views.push(view(`exe_d${p}k${k}`, 'task', 'done', { session_id: `ses_d${p}k${k}`, parent: `exe_d${p}`, thread: 'tide-tables', ended_at_ms: NOW - 2 * HOUR }, 'idle'))
+  }
+  const ids = (g: Graph) => g.nodes.map((n) => n.id).sort()
+  const base = lay(views)
+  const ex = new Set(['tide-tables'])
+  const lane = lay(views, null, [], { expanded: ex })
+  const fold = lane.nodes.find((n) => n.kind === 'folded')
+  assert.ok(fold, 'the opened lane is over the cap, so subtrees fold')
+  const root = fold!.parent!
+  const op = new Set([root])
+  const g2 = lay(views, lane, [], { expanded: ex, opened: op })
+  assert.ok(node(g2, root) && !node(g2, `fold:${root}`), 'the root is drawn open')
+  assert.deepEqual(foldBacks(g2, base, ex, op, lay(views, null, [], { expanded: ex })).roots, [root], 'its fold-back is offered')
+  assert.deepEqual(ids(lay(views, g2, [], { expanded: ex })), ids(lane), 'folding it back gives the opened lane without it')
+})
+
 test('GraphLens folds an opening back by deleting it from a copy of its set (item 5)', () => {
   const s = readFileSync(new URL('../src/ops/GraphLens.tsx', import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, '')
   assert.match(s, /setExpanded\(\(s\) => \{ const t = new Set\(s\); t\.delete\(/)
   assert.match(s, /setOpened\(\(s\) => \{ const t = new Set\(s\); t\.delete\(/)
   assert.match(s, /foldBacks\(/)
+  assert.match(s, /foldBacks\(g, base, expanded, opened, baseRoots\)/, 'the roots read the layout with the lanes opened (join fix F1)')
 })
