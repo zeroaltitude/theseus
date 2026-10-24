@@ -143,3 +143,27 @@ test('a view the board lacks a session for still shows', () => {
   const rows = boardRows({ views: [view('act_j9', 'job', 'running', { title: '' })], tasks: [], sessions: [], now: NOW })
   assert.equal(rows[0].title, 'running', 'its attention’s label stands in for an empty title')
 })
+
+test('WORKING is work in flight: a conversation at rest is no working row, in the present or the past (theseus-g00vv)', () => {
+  const rest = { execution_state: 'waiting', attention: { level: 'ready', label: 'ready', since_ms: NOW } } as never
+  const sessions = [session('ses_c1', rest), session('ses_c2', rest), session('ses_c3', rest)]
+  const present = boardRows({ views: [], tasks: [], sessions, now: NOW, past: false })
+  assert.deepEqual(present, [], 'the present holds no view of a conversation at rest, and no row is guessed from the sessions')
+  assert.equal(countersOf(present, NOW, 0).working, 0)
+  const then = boardRows({ views: [], tasks: [], sessions, now: NOW, past: true })
+  assert.equal(countersOf(then, NOW, 0).working, 0, 'the time machine maps ready to rest')
+  assert.equal(countersOf(then, NOW, 0).done, 0, 'done counts ended work, not a conversation that went to rest')
+  assert.equal(columnsOf(then, NOW).done.length + columnsOf(then, NOW).older.length, 0)
+  assert.equal(then.length, 3, 'the rows stay for the Graph’s anchors')
+})
+
+test('a running view and a view waiting on a job are working; a sleeping one with a time today is scheduled', () => {
+  const job = { what: 'job', label: 'job', since_ms: NOW, turn: 1, loop_index: 0 } as never
+  const sleeping = { what: 'sleeping', label: 'sleeping', since_ms: NOW, turn: 1, loop_index: 0 } as never
+  const views = [view('exe_a', 'task', 'running', { session_id: 'ses_a' }), view('exe_b', 'task', 'waiting', { session_id: 'ses_b', doing: job }),
+    view('exe_s', 'task', 'waiting', { session_id: 'ses_s', doing: sleeping, next_at_ms: NOW + 2 * HOUR })]
+  const rows = boardRows({ views, tasks: [], sessions: [], now: NOW, past: false })
+  assert.equal(countersOf(rows, NOW, 0).working, 2)
+  assert.equal(rows.find((r) => r.id === 'ses_s')!.column, 'scheduled')
+  assert.equal(countersOf(rows, NOW, 0).still, 1)
+})

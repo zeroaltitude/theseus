@@ -32,6 +32,7 @@ import { StateBadge } from './SessionLife'
 import { entered, groupOf, isOpen, NAV_GROUPS, parseChoices, pressed } from '@/lib/navgroups'
 import { paletteOrder, searchText, stateOf } from '@/lib/sessionState'
 import { OpsPalette } from '@/ops/PaletteGroups'
+import { TRUST_WORDS } from '@/ops/notices'
 import { useOpsPalette } from '@/ops/paletteStore'
 
 const NAV = [
@@ -484,8 +485,8 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
             ))}
             {held.map((s) => (
               <Command.Item key={`t-${s.session_id}`} value={`trust ${title(s.session_id)}`} className={item}
-                onSelect={() => act(`Trust ${title(s.session_id)} again? Its calls that act stop waiting.`, 'policy.trust', { session_id: s.session_id })}>
-                <ShieldCheck size={14} className="text-wait" /> Trust <span className="truncate">{title(s.session_id)}</span>
+                onSelect={() => act(s.external_waits === true ? `Trust ${title(s.session_id)} again? Its calls that act stop waiting.` : `Trust ${title(s.session_id)} again? ${TRUST_WORDS}.`, 'policy.trust', { session_id: s.session_id })}>
+                <ShieldCheck size={14} className="text-wait" /> Trust {s.external_waits === true ? '' : '(notice) '}<span className="truncate">{title(s.session_id)}</span>
               </Command.Item>
             ))}
           </Command.Group>

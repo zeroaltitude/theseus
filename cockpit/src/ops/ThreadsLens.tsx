@@ -17,12 +17,12 @@ import { ActBtn } from './ActBtn'
 import { Item } from './ThreadPanel'
 import { NewThreadSheet } from './ThreadSheets'
 
-export function ThreadsLens({ views, groups, ready, error, now, past, focus, onFocus, matches }: {
-  views: readonly WorkView[]; groups: Parameters<typeof groupThreads>[1]; ready: boolean; error: string | null; now: number; past: number | null
+export function ThreadsLens({ views, groups, records, ready, error, now, past, focus, onFocus, matches }: {
+  views: readonly WorkView[]; groups: Parameters<typeof groupThreads>[1]; records?: Parameters<typeof groupThreads>[2]; ready: boolean; error: string | null; now: number; past: number | null
   focus: string | null; onFocus: (slug: string) => void; matches: (t: GroupedThread) => boolean
 }) {
   const history = useHistoryRows(past === null)
-  const grouped = useMemo(() => groupThreads([...views].sort((a, b) => a.state_since_ms - b.state_since_ms), groups), [views, groups])
+  const grouped = useMemo(() => groupThreads([...views].sort((a, b) => a.state_since_ms - b.state_since_ms), groups, records), [views, groups, records])
   const then = useMemo(() => (past === null ? null : foldThreads(history.rows, past)), [past, history.rows])
   if (then) {
     return (

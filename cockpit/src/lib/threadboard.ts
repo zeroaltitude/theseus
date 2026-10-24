@@ -8,7 +8,8 @@
 // - A paused thread shows its items and its count, and leaves the board's count.
 // - A done thread shows only while something under it is open.
 // - Warm is a last activity within five minutes, the provider cache's lifetime.
-import type { ThreadGroup, WorkChanged, WorkView, WorkWatchResult } from '@protocol'
+import type { TaskRecord, ThreadGroup, WorkChanged, WorkView, WorkWatchResult } from '@protocol'
+import { openView } from '../ops/state.ts'
 
 export const WARM_MS = 5 * 60 * 1000
 
@@ -64,10 +65,10 @@ export function applyChanged(s: BoardState, c: WorkChanged): BoardState {
   return { views, groups, position: Math.max(s.position, c.position) }
 }
 
-/** An open task, question or wake, or one that failed and has not been looked at. */
-function listed(v: WorkView): boolean {
-  const ended = ['done', 'failed', 'cancelled', 'expired'].includes(v.state)
-  return ['task', 'question', 'wake'].includes(v.kind) && (!ended || v.attention.level === 'needs_you')
+/** An open task, question or wake (`ops/state.ts`: waiting counts as open), or one that failed and has not been looked
+ *  at. A suspended record keeps its task's work open though its execution ended. */
+function listed(v: WorkView, records: ReadonlyMap<string, TaskRecord>): boolean {
+  return ['task', 'question', 'wake'].includes(v.kind) && openView(v, v.session_id ? records.get(v.session_id) : undefined)
 }
 
 /** How many of `views` wait on the owner; a conversation or task that asks counts through its question view when the
@@ -92,13 +93,14 @@ export interface GroupedThread {
 export interface Grouped { threads: GroupedThread[]; loose: WorkView[] }
 
 /** The board by thread: needs-you threads first, then the most recently active; the work in no thread stays loose. */
-export function groupThreads(views: WorkView[], groups: ThreadGroup[]): Grouped {
+export function groupThreads(views: WorkView[], groups: ThreadGroup[], records: readonly TaskRecord[] = []): Grouped {
+  const bySession = new Map(records.flatMap((r) => (r.session ? [[r.session, r] as const] : [])))
   const threads: GroupedThread[] = []
   for (const g of groups) {
     const mine = views.filter((v) => v.thread === g.slug)
     const head = mine.find((v) => v.kind === 'conversation' && v.parent == null) ?? null
     const rank = (v: WorkView) => ({ needs_you: 0, working: 2, ready: 3, idle: 4 })[v.attention.level]
-    const items = mine.filter(listed).sort((a, b) => rank(a) - rank(b) || a.state_since_ms - b.state_since_ms || (a.id < b.id ? -1 : 1))
+    const items = mine.filter((v) => listed(v, bySession)).sort((a, b) => rank(a) - rank(b) || a.state_since_ms - b.state_since_ms || (a.id < b.id ? -1 : 1))
     if (g.state === 'done' && items.length === 0) continue
     const counted = head ? [...items, head] : items
     threads.push({

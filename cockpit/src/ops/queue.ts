@@ -42,11 +42,15 @@ export interface QueueInput {
   views: readonly WorkView[]
   records?: readonly TaskRecord[]
   groups?: readonly ThreadGroup[]
+  /** The holds that wait (ask mode, a live session): `holdsOf(sessions).waiting`. A hold that makes nothing wait is a
+   *  notice (`ops/notices.ts`), never an item. */
   holds?: ReadonlyArray<{ session_id: string; title: string; external_text: ExternalText }>
   /** The router's open questions, each with when the page heard it. */
   asks?: ReadonlyArray<{ ask: ThreadAsk; heard_ms: number }>
   /** Under the time machine: the executions as they stood (the board holds no views then). */
   executions?: readonly ExecutionInfo[]
+  /** The time machine shows the past (`world != null`). Absent, it is guessed from the views, as before the page passed it. */
+  past?: boolean
   /** A session's title, for the owner column. */
   titleOf?: (sessionId: string) => string
 }
@@ -99,7 +103,7 @@ export function queueOf(q: QueueInput): QueueItem[] {
       })
     }
   }
-  if (q.views.length === 0) {
+  if (q.past ?? q.views.length === 0) {
     for (const e of q.executions ?? []) {
       if (!FAILED_EXEC.includes(e.state)) continue
       out.push({

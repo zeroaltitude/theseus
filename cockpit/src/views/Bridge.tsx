@@ -71,6 +71,9 @@ export function Bridge() {
   const title = useMemo(() => titleOf(sessions), [sessions])
 
   const k = h?.kernel
+  // Under notify no hold makes a call wait: every listed hold is a notice (HealthResult.external_text_mode). Absent mode reads as ask.
+  const heldNotices = h?.external_text_mode === 'notify' ? h.external_text?.length ?? 0 : 0
+  const heldWaiting = (h?.external_text?.length ?? 0) - heldNotices
   const exStates = k?.executions_by_state ?? {}
   const running = exStates.running ?? 0
   const inFlight = Object.entries(k?.actions_by_state ?? {})
@@ -124,9 +127,9 @@ export function Bridge() {
           hint={usage ? `${tokens(usage.cache_read_input_tokens)} read from cache` : undefined} onClick={() => nav('/economics')} />
         <StatTile label="Approvals waiting" icon={<ShieldCheck size={12} />} value={confirms.length} format={(n) => n.toFixed(0)}
           tone={confirms.length ? 'wait' : 'ok'} hint={confirms[0] ? `${confirms[0].tool} · ${ago(confirms[0].requested_at_ms)}` : 'nothing waits'} onClick={() => nav('/actions')} />
-        <StatTile label="External-text holds" icon={<Siren size={12} />} value={h?.external_text?.length ?? 0} format={(n) => n.toFixed(0)}
-          tone={h?.external_text?.length ? 'wait' : 'ok'} hint={h?.external_text?.[0] ? `${h.external_text[0].held.tool} ${ago(h.external_text[0].held.since_ms)}` : 'every session trusted'}
-          onClick={() => nav('/boundaries')} />
+        <StatTile label="External-text holds" icon={<Siren size={12} />} value={heldWaiting} format={(n) => n.toFixed(0)}
+          tone={heldWaiting ? 'wait' : 'ok'} hint={heldNotices ? `${heldNotices} notice${heldNotices === 1 ? '' : 's'}: nothing waits on ${heldNotices === 1 ? 'it' : 'them'}` : h?.external_text?.[0] ? `${h.external_text[0].held.tool} ${ago(h.external_text[0].held.since_ms)}` : 'every session trusted'}
+          onClick={() => nav('/boundaries')} title="holds that make a call wait (ask mode); under notify every listed hold is a notice, which waits on nothing" />
         <StatTile label="Wakes due" icon={<Hourglass size={12} />} value={h?.wakes?.length ?? 0} format={(n) => n.toFixed(0)} tone={h?.wakes?.length ? 'live' : undefined}
           hint={h?.wakes?.[0] ? `next ${h.wakes[0].due_local}` : 'none set'} onClick={() => nav('/ops?lens=timeline')} title="the wakes, routines and watches are on the Timeline; a click opens it" />
       </div>

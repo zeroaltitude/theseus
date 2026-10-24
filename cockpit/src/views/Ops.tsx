@@ -31,6 +31,8 @@ import { answerOf, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arriv
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
 import { threadFacts } from '@/ops/facts'
 import { stepNode, viewsOf, type Graph, type LaneMeta } from '@/ops/graph'
+import { Notices } from '@/ops/Notices'
+import { holdsOf, pastNotices } from '@/ops/notices'
 import { GraphLens } from '@/ops/GraphLens'
 import { BulkBar, ResultsToast, useBulk } from '@/ops/BulkBar'
 import { useDragDrop } from '@/ops/DropLayer'
@@ -114,11 +116,11 @@ export default function Ops() {
   const titleOf = useCallback((sid: string) => { const s = sessions.find((x) => x.session_id === sid); return s?.title || s?.label || sid.slice(-6) }, [sessions])
 
   // An ended task the board no longer holds has its report in its session: the first fifty, read once each.
-  const ended = useMemo(() => boardRows({ views, tasks, sessions, now }).filter((r) => r.kind === 'task' && r.column === 'done' && !r.view?.report).slice(0, DONE_PAGE), [views, tasks, sessions, now])
+  const ended = useMemo(() => boardRows({ views, tasks, sessions, records, now, past: !!world }).filter((r) => r.kind === 'task' && r.column === 'done' && !r.view?.report).slice(0, DONE_PAGE), [views, tasks, sessions, records, now, world])
   const read = useQueries({ queries: ended.map((r) => ({ queryKey: ['task.report', r.id], staleTime: Infinity, queryFn: async () => reportLineOf((await call<{ nodes: { kind: string; text?: string }[] }>('session.history', { session_id: r.id, n: 3 })).nodes) ?? null })) })
   const lines = useMemo(() => Object.fromEntries(ended.flatMap((r, i) => (read[i]?.data ? [[r.id, read[i].data as string]] : []))), [ended, read])
 
-  const rows = useMemo(() => boardRows({ views, tasks, sessions, lines, now }), [views, tasks, sessions, lines, now])
+  const rows = useMemo(() => boardRows({ views, tasks, sessions, records, lines, now, past: !!world }), [views, tasks, sessions, records, lines, now, world])
   const graphViews = useMemo(() => (world ? viewsOf(rows) : []), [world, rows])
   const spend = useMemo(() => spendToday(history.rows, now), [history.rows, now])
   const cx = useMemo(() => ({ now, spentToday: spend.sessions, records }), [now, spend.sessions, records])
@@ -127,14 +129,19 @@ export default function Ops() {
   const cols = useMemo(() => columnsOf(vis.rows, now), [vis.rows, now])
   // The Graph fades what the filters and the search leave out, so nothing moves.
   const shownIds = useMemo(() => (Object.keys(a.f).length || a.q ? new Set(vis.rows.map((r) => r.id)) : null), [a.f, a.q, vis.rows])
-  const holds = useMemo(() => (world
-    ? world.holds.map((h) => ({ session_id: h.session_id, title: h.title || titleOf(h.session_id), external_text: h.held }))
-    : sessions.flatMap((s) => (s.external_text ? [{ session_id: s.session_id, title: s.title || s.label || s.session_id.slice(-6), external_text: s.external_text }] : []))), [world, sessions, titleOf])
+  // External text (ops/notices.ts): a hold that makes a call wait is an item of the queue; one that does not is a notice,
+  // never counted. The time machine's holds are notices, read-only: the fold knows the hold, not the mode of the day.
+  const held = useMemo(() => holdsOf(world ? [] : sessions), [world, sessions])
+  const notices = useMemo(() => (world
+    ? pastNotices(world.holds.map((h) => ({ session_id: h.session_id, title: h.title || titleOf(h.session_id), external_text: h.held })),
+      new Set(sessions.filter((s) => ['complete', 'cancelled', 'failed', 'budget_exhausted'].includes(s.execution_state ?? '')).map((s) => s.session_id)))
+    : held.notices), [world, sessions, held, titleOf])
+  const holds = held.waiting
   const queue = useMemo(() => queueOf({
-    confirms, views, records: world ? [] : records, groups: world ? [] : groups, holds, asks: world ? [] : asks, executions: world?.executions, titleOf,
+    confirms, views, records: world ? [] : records, groups: world ? [] : groups, holds, asks: world ? [] : asks, executions: world?.executions, past: !!world, titleOf,
   }), [confirms, views, records, groups, holds, asks, world, titleOf])
   const counts = useMemo(() => ({ needs: queue.length, ...countersOf(rows, now, spend.usd) }), [queue.length, rows, now, spend.usd])
-  const grouped = useMemo(() => groupThreads(views, groups), [views, groups])
+  const grouped = useMemo(() => groupThreads(views, groups, records), [views, groups, records])
 
   // The selection (ops-graph): in memory, shared by the Graph and the Board, the bulk bar and the palette.
   const picked = useSelection((s) => s.ids)
@@ -413,14 +420,15 @@ export default function Ops() {
 
   const queuePanel = (
     <Queue items={queue} cursor={item?.key ?? null} onCursor={(k) => pick(k)} open={open} note={note} onNote={setNote} past={past} now={now}
-      coming={world ? [] : comingUp(Object.values(board.views), tick)} events={world ? [] : comingEvents(cal.calendars, tick, a.redact)} arrivedKeys={fresh} />
+      coming={world ? [] : comingUp(Object.values(board.views), tick)} events={world ? [] : comingEvents(cal.calendars, tick, a.redact)} arrivedKeys={fresh}
+      notices={<Notices notices={notices} now={now} readOnly={!!world} redact={a.redact} />} />
   )
   const joined = a.join ?? null
   const lensView = (
     <div className="h-full min-h-0 min-w-0 flex-1">
       {a.lens === 'board' && <BoardLens cols={cols} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now}
         picked={picked} onPick={pickOne} drag={drag} titleOf={titleOf} />}
-      {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
+      {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} records={records} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
         matches={(t) => shownSlugs.has(t.group.slug)} />}
       {a.lens === 'timeline' && (
         <div className="h-full overflow-y-auto pr-1">
