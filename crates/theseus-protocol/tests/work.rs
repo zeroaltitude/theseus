@@ -155,6 +155,7 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
         routine: None,
         watch: None,
         project: None,
+        data: None,
     };
     v.attention = attention_of(&v);
     v

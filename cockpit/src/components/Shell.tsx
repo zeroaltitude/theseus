@@ -4,8 +4,8 @@ import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-route
 import { motion } from 'motion/react'
 import { Command, defaultFilter } from 'cmdk'
 import {
-  Activity, CalendarClock, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Library, ListChecks, Navigation, OctagonX, Pause, Radio,
-  GitBranch, Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, Telescope, Zap,
+  Activity, BellOff, BellRing, ChevronDown, ChevronUp, CircleCheck, Moon, Sun, SunMoon, Check, Coins, Command as CommandIcon, Cpu, Crosshair, FlaskConical, Gauge, Gavel, Landmark, Layers, Library, Navigation, OctagonX, Pause, Radio,
+  Sailboat, Scale, ScrollText, ShieldCheck, ShieldHalf, Shapes, ShipWheel, Telescope, Zap,
 } from 'lucide-react'
 import type { ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo } from '@protocol'
 import { call, client, useConn, useRpc, usePush } from '@/lib/rpc'
@@ -31,14 +31,14 @@ import { TimeMachine } from './TimeMachine'
 import { StateBadge } from './SessionLife'
 import { entered, groupOf, isOpen, NAV_GROUPS, parseChoices, pressed } from '@/lib/navgroups'
 import { paletteOrder, searchText, stateOf } from '@/lib/sessionState'
+import { OpsPalette } from '@/ops/PaletteGroups'
+import { useOpsPalette } from '@/ops/paletteStore'
 
 const NAV = [
   { to: '/ship', label: 'Ship', icon: Sailboat },
+  { to: '/ops', label: 'Ops', icon: ShipWheel },
   { to: '/bridge', label: 'Bridge', icon: Gauge },
   { to: '/fleet', label: 'Fleet', icon: Layers },
-  { to: '/tasks', label: 'Tasks', icon: ListChecks },
-  { to: '/threads', label: 'Threads', icon: GitBranch },
-  { to: '/agenda', label: 'Agenda', icon: CalendarClock },
   { to: '/actions', label: 'Actions', icon: ShieldCheck },
   { to: '/boundaries', label: 'Bounds', icon: ShieldHalf },
   { to: '/policy', label: 'Policy', icon: Gavel },
@@ -58,7 +58,7 @@ type NavItemDef = (typeof NAV)[number]
 const NAV_KEY = 'cockpit.nav.groups'
 
 const GO: Record<string, string> = {
-  h: '/ship', d: '/agenda', b: '/bridge', f: '/fleet', t: '/tasks', a: '/actions', o: '/boundaries', p: '/policy', l: '/ledger', m: '/money', e: '/economics', w: '/speed', k: '/benchmarks', j: '/judgment', s: '/systems',
+  h: '/ship', d: '/ops?lens=timeline', b: '/bridge', f: '/fleet', t: '/ops?lens=board', a: '/actions', o: '/boundaries', p: '/policy', l: '/ledger', m: '/money', e: '/economics', w: '/speed', k: '/benchmarks', j: '/judgment', s: '/systems',
 }
 
 export function Shell() {
@@ -421,9 +421,13 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
   const running = (el?.executions ?? []).filter((e) => e.state === 'running' || e.state === 'queued')
   const held = (data?.sessions ?? []).filter((s) => s.external_text)
   const sessions = useMemo(() => paletteOrder(data?.sessions ?? []), [data])
+  // On the Operations page ⇥ changes the scope of its verbs (theseus-jid7t.6).
+  const opsOn = useOpsPalette((s) => s.feed !== null)
+  const cycle = useOpsPalette((s) => s.cycle)
   return (
     <Command.Dialog
       open={open}
+      onKeyDown={(e) => { if (opsOn && e.key === 'Tab') { e.preventDefault(); cycle() } }}
       onOpenChange={onOpenChange}
       filter={retiredAfter}
       label="Command palette"
@@ -436,6 +440,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
       />
       <Command.List className="max-h-[420px] overflow-auto p-2">
         <Command.Empty className="px-3 py-6 text-center text-sm text-ink-faint">Nothing matches.</Command.Empty>
+        {opsOn && <OpsPalette close={() => onOpenChange(false)} />}
         <Command.Group heading="Look" className={group}>
           {CHOICES.map((c) => {
             const { Icon, name, what } = CHOICE_WORDS[c]

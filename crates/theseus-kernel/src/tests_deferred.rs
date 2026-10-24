@@ -7,12 +7,12 @@ use crate::tasks::Opening;
 use crate::tests::*;
 use crate::types::*;
 
-fn exec(w: &World, id: &str) -> Execution {
+pub(crate) fn exec(w: &World, id: &str) -> Execution {
     w.kernel.execution(id).unwrap().unwrap()
 }
 
 /// A parent with a turn, and a task its call opened to start `in_ms` from now.
-fn asleep(w: &World, want: Micros, in_ms: u64) -> (Execution, Execution, u64) {
+pub(crate) fn asleep(w: &World, want: Micros, in_ms: u64) -> (Execution, Execution, u64) {
     let (_, parent, g) = running(w);
     let at = w.kernel.now_ms() + in_ms;
     let how = Opening {

@@ -189,7 +189,13 @@ impl Tool for CallTool {
                         "{}: HTTP {} · {} attempt(s)\n{body}\n",
                         p.label, r.status, r.attempts
                     );
-                    let meta = json!({"method": p.label, "http_status": r.status});
+                    let mut meta = json!({"method": p.label, "http_status": r.status});
+                    // The long tail cannot say which calendar it read, so any
+                    // Calendar read counts as the sensitive one's (fail closed).
+                    let calendar = p.resolved.request.service == theseus_google::Service::Calendar;
+                    if calendar && g.calendars.any_sensitive() {
+                        meta[super::private::SENSITIVE] = true.into();
+                    }
                     let label = format!("google:{}", p.label);
                     let source = match own_echo(p.class(), &p.label) {
                         true => Source::None,

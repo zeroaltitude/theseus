@@ -386,7 +386,8 @@ impl Push {
             self.events.fetch_add(n, Ordering::Relaxed);
             core.telemetry().record_push(n, f.committed.elapsed());
         }
-        if let Some(out) = work {
+        if let Some(mut out) = work {
+            core.stamp_data(&mut out.views);
             if out
                 .views
                 .iter()

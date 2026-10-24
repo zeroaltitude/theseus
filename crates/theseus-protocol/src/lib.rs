@@ -15,6 +15,7 @@ mod aws;
 pub mod bench;
 pub mod books;
 mod budgets;
+pub mod calendar;
 pub mod cancel;
 pub mod card;
 pub mod census;
@@ -67,6 +68,7 @@ mod nodes;
 pub mod notices;
 pub mod nudge;
 mod ontology;
+pub mod ops;
 mod outbox;
 pub mod own_bench;
 pub mod packs;
@@ -231,6 +233,7 @@ pub mod method {
         SESSION_HISTORY = "session.history",
         SESSION_WATCH = "session.watch", SESSION_UNWATCH = "session.unwatch",
         SESSION_RECOMPILE = "session.recompile", SESSION_NUDGE = "session.nudge", SESSION_MODE = "session.mode",
+        SESSION_PROFILE = "session.profile",
         /// A new conversation from any moment of another, by reference (theseus-2qzx, `fork::SessionForkParams`).
         SESSION_FORK = "session.fork",
         /// Rewind (theseus-23rk, `rewind`): a session's messages with the
@@ -285,6 +288,8 @@ pub mod method {
         TASK_LIST = "task.list",
         /// Stop a task and its jobs; the place hears it once.
         TASK_CANCEL = "task.cancel", TASK_PAUSE = "task.pause", TASK_RESUME = "task.resume", // the owner holds a task at its next loop, and lets it go on
+        TASK_REHOME = "task.rehome",
+        TASK_RESCHEDULE = "task.reschedule",
         /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).
         TASK_START = "task.start",
         /// Wakes (DD8): the turns conversations asked for at a time, with `wake.at`, that have not run yet.
@@ -417,6 +422,8 @@ pub mod method {
         SELF_NARROW = "self.narrow",
         /// Google Workspace (`google`): the one-time consent, the revoke, and the status. The CLI's alone.
         GOOGLE_AUTH_BEGIN = "google.auth.begin", GOOGLE_AUTH_FINISH = "google.auth.finish", GOOGLE_REVOKE = "google.revoke", GOOGLE_STATUS = "google.status",
+        /// The calendars over a window, for the owner's page (`calendar::CalendarWindowResult`); its `calendar.changed` carries no content. The owner, in a private place.
+        CALENDAR_WINDOW = "calendar.window",
     }
 }
 
@@ -494,6 +501,7 @@ pub mod notify {
         SELF_CHANGED = "self.changed",
         /// What capture did with the owner's words (theseus-slvl.5): a record kept, or a question.
         STANDING_NOTICED = "standing.noticed",
+        CALENDAR_CHANGED = "calendar.changed",
     }
 }
 
@@ -1957,6 +1965,9 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub started_on: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub data: Option<ops::DataMark>,
     /// With `session.list`'s `with_text`: the words of its first user
     /// message and of its last message, cut short; and `prompts`, the head
     /// and the tail of each of its newest user messages, for a search.
@@ -2028,6 +2039,9 @@ pub struct ProfileInfo {
     pub max_output_tokens: u32,
     pub has_system: bool,
     pub live: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub origin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

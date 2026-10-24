@@ -1289,12 +1289,12 @@ impl TurnRunner {
             let mut records = closing.records(e, report.node.as_deref())?;
             let joined = self.tools.job_waits.steers.joined(&e.session_id);
             records.extend(crate::task::joined_record(&e.session_id, joined)?);
-            let Some(target) = task.target_for(&frames.store, &report) else {
+            let Some(target) = task.target_for_now(&frames.store, &e.session_id, &report) else {
                 return Ok(records);
             };
             let (post, more) =
                 self.outbox
-                    .stage(&e.session_id, &e.id, target, report.post_body())?;
+                    .stage(&e.session_id, &e.id, &target, report.post_body())?;
             records.extend(more);
             *reported.lock().unwrap() = Some(post);
             Ok(records)
@@ -2398,7 +2398,7 @@ impl TurnRunner {
         // are one frame, with the loop's rows in front (theseus-qa0), and
         // a recall's node and edges (M6 30b).
         let mut rides = std::mem::take(&mut t.recall.rides);
-        rides.extend(t.digest.mark.take());
+        rides.extend(std::mem::take(&mut t.digest.mark));
         t.recall.pending = None;
         let action = match t.tc.kernel.plan_and_dispatch(
             t.tc.guard,
@@ -2505,7 +2505,7 @@ impl TurnRunner {
         let armed = self.stops.arm(t.tc.execution_id);
         let outcome = {
             // The provider floor reads the session's mark as the call is made.
-            let private = self.private_session(t);
+            let private = self.session_level(t);
             let sid = t.tc.session_id;
             let mut stream = std::pin::pin!(crate::data_gate::for_session(sid, || {
                 crate::google::private::scoped(private, || {

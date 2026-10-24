@@ -64,7 +64,7 @@ fn rig_on(
 }
 
 /// [`rig_on`], with `tweak` applied to its config last.
-fn rig_tweaked(
+pub(super) fn rig_tweaked(
     jev: Option<&FakeJev>,
     fake: &Fake,
     script: Vec<Scripted>,
@@ -106,7 +106,7 @@ fn rig_tweaked(
     (r, claude)
 }
 
-async fn run_on(
+pub(super) async fn run_on(
     core: &Arc<crate::Core>,
     sid: &str,
     input: &str,
@@ -137,7 +137,7 @@ async fn run_on(
         .await
 }
 
-fn new_session(core: &crate::Core) -> String {
+pub(super) fn new_session(core: &crate::Core) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     rec.session_id
@@ -260,4 +260,44 @@ async fn a_turn_that_recalls_a_private_note_is_routed_off_restricted_profiles() 
             marked
         );
     }
+}
+
+/// What the Operations page lists (theseus-jid7t.2): a session is `open` until
+/// it reads a Google result, and `private` after, in `session.list`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_google_read_shows_as_the_sessions_data_mark() {
+    use theseus_protocol::ops::DataMark;
+    let fake = Fake::start().await;
+    fake.json(
+        "GET",
+        "/drive/v3/files",
+        json!({"files": [{"id": "f1", "name": "Quarterly plan"}]}),
+    );
+    let (r, _) = rig(
+        None,
+        &fake,
+        vec![
+            call("c1", json!({"method": "drive.files.list"})),
+            Scripted::text("Done."),
+        ],
+    );
+    let core = r.core.clone();
+    let mark = |sid: String| {
+        let core = core.clone();
+        async move {
+            let all: theseus_protocol::SessionListResult = serde_json::from_value(
+                crate::tests_route::call(&core, "session.list", json!({})).await,
+            )
+            .unwrap();
+            all.sessions
+                .into_iter()
+                .find(|s| s.session_id == sid)
+                .unwrap()
+                .data
+        }
+    };
+    let sid = new_session(&r.core);
+    assert_eq!(mark(sid.clone()).await, Some(DataMark::Open));
+    run_on(&r.core, &sid, "list my files", None).await.unwrap();
+    assert_eq!(mark(sid).await, Some(DataMark::Private));
 }

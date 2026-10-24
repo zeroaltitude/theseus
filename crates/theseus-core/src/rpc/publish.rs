@@ -15,6 +15,7 @@ use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::fact;
 use crate::node::{Body, Node};
+use crate::places::PlaceClass;
 use crate::session::SessionRecord;
 
 /// The most of a published item the place's notice shows; the conversation
@@ -62,6 +63,8 @@ impl Core {
                 place: &place.target,
             },
         )?;
+        let class = self.runner.place_rule.class(&self.cfg, Some(&place.target));
+        self.sensitive_stays_private(p, class)?;
         // Read only once who asks may publish: a refusal says nothing of
         // what it named, not even whether a file exists, or its size.
         let item = self.item(p)?;
@@ -88,7 +91,6 @@ impl Core {
             use sha2::{Digest, Sha256};
             hex::encode(Sha256::digest(item.text.as_bytes()))[..16].to_string()
         };
-        let class = self.runner.place_rule.class(&self.cfg, Some(&place.target));
         let published = fact::place::Published {
             who: &who.who(),
             via: &who.via(),
@@ -111,6 +113,26 @@ impl Core {
             bytes: item.text.len() as u64,
             digest,
         })
+    }
+
+    /// A node of a session that read a sensitive calendar never goes to a
+    /// shared place, whoever asks (theseus-jid7t.1). The refusal names no
+    /// calendar and no event.
+    fn sensitive_stays_private(&self, p: &PlacePublishParams, class: PlaceClass) -> Result<()> {
+        let Some(id) = p.node_id.as_deref().filter(|_| class == PlaceClass::Shared) else {
+            return Ok(());
+        };
+        let Some((_, n)) = self.store.get_node(id)? else {
+            return Ok(());
+        };
+        let level = crate::google::private::level(&self.store, &self.cfg, &n.session_id);
+        if level == crate::google::private::Level::Sensitive {
+            bail!(
+                "{id} is from a session that read a sensitive calendar, and sensitive content \
+                 never goes to a shared place"
+            );
+        }
+        Ok(())
     }
 
     /// The item `p` names: exactly one of a node, a file, or a message.

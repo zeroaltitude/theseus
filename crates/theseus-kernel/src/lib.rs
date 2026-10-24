@@ -40,6 +40,7 @@ mod spawn;
 pub mod spend;
 pub mod spool;
 pub mod stops;
+pub mod task_edit;
 pub mod tasks;
 pub mod terms;
 pub mod tree;
@@ -90,6 +91,8 @@ mod tests_runaway;
 mod tests_spool;
 #[cfg(test)]
 mod tests_stops;
+#[cfg(test)]
+mod tests_task_edit;
 #[cfg(test)]
 mod tests_tasks;
 #[cfg(test)]

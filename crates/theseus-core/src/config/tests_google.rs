@@ -143,9 +143,13 @@ fn the_templates_google_section_uncommented_parses() {
         .take_while(|l| !l.is_empty())
         .map(|l| l.strip_prefix("# ").unwrap_or(l))
         .collect();
-    assert_eq!(section.len(), 6, "{section:?}");
+    assert_eq!(section.len(), 8, "{section:?}");
     let cfg = load(&section.join("\n")).unwrap();
     assert_eq!(cfg.google.account, "owner@example.test");
+    assert_eq!(
+        cfg.google.sensitive_domains.as_deref(),
+        Some(&["corp.example.test".to_string()][..])
+    );
     assert_eq!(cfg.google.trusted_senders, ["dana@example.test"]);
     assert_eq!(cfg.google.services.len(), 6);
     assert_eq!(
@@ -185,4 +189,156 @@ fn the_templates_drive_share_line_asks() {
         cfg.policy.tools["drive.share"],
         crate::policy::Posture::Approve
     );
+}
+
+const ACCOUNT: &str = "account = \"owner@example.test\"\n";
+
+fn cals(list: &str) -> Result<Vec<crate::config::CalendarSpec>, String> {
+    load(&format!("{ACCOUNT}calendars = {list}\n")).map(|c| c.google.calendar_specs())
+}
+
+/// `calendars` unset names none (every calendar of the account's list is
+/// read, the primary alone until the list is); an entry is an id or a table.
+#[test]
+fn calendars_default_to_every_calendar_and_take_ids_or_tables() {
+    let d = load(ACCOUNT).unwrap();
+    assert!(d.google.calendar_specs().is_empty());
+    assert_eq!(d.google.sensitive_domains, None);
+    let p = crate::config::primary_spec();
+    assert_eq!(
+        (p.id.as_str(), p.sensitive, &p.label),
+        ("primary", false, &None)
+    );
+    assert_eq!(p.color, "#c9a24a", "brass first");
+    assert!(
+        cals("[]").unwrap().is_empty(),
+        "empty is every calendar too"
+    );
+
+    let specs = cals(
+        "[\"primary\", { id = \"work.cal.example.test\", label = \"Work\", sensitive = true }, \
+         { id = \"club.cal.example.test\", color = \"#112233\" }]",
+    )
+    .unwrap();
+    assert_eq!(specs[0].id, "primary");
+    assert_eq!(specs[1].label.as_deref(), Some("Work"));
+    assert!(specs[1].sensitive && !specs[0].sensitive);
+    assert_eq!(specs[1].color, "#5fa08d", "verdigris by position");
+    assert_eq!(specs[2].color, "#112233");
+}
+
+#[test]
+fn calendars_refuse_a_repeat_a_second_primary_a_bad_colour_and_a_bare_table() {
+    let e = cals("[\"a.cal.example.test\", \"A.cal.example.test\"]").unwrap_err();
+    assert!(e.contains("twice"), "{e}");
+    let e = cals("[\"primary\", { id = \"primary\", label = \"Me\" }]").unwrap_err();
+    assert!(e.contains("\"primary\" twice"), "{e}");
+    for bad in ["red", "#12345", "#12345g", "123456", "#1234567"] {
+        let e = cals(&format!(
+            "[{{ id = \"a.cal.example.test\", color = \"{bad}\" }}]"
+        ))
+        .unwrap_err();
+        assert!(e.contains("is not #rrggbb"), "{bad}: {e}");
+    }
+    let e = cals("[{ id = \"a.cal.example.test\", labl = \"x\" }]").unwrap_err();
+    assert!(
+        e.contains("did not match any variant") || e.contains("unknown"),
+        "{e}"
+    );
+    let e =
+        cals("[{ id = \"a\", label = \"Same\" }, { id = \"b\", label = \"same\" }]").unwrap_err();
+    assert!(e.contains("names two calendars"), "{e}");
+}
+
+/// The default does not serialize, so the owner's sparse config stays as it is.
+#[test]
+fn the_default_calendars_are_not_written_back() {
+    let c = load(ACCOUNT).unwrap();
+    let text = toml::to_string(&c.google).unwrap();
+    assert!(!text.contains("calendars"), "{text}");
+    let c = load(&format!(
+        "{ACCOUNT}calendars = [{{ id = \"w.cal.example.test\", sensitive = true }}]\n"
+    ))
+    .unwrap();
+    let text = toml::to_string(&c.google).unwrap();
+    assert!(
+        text.contains("w.cal.example.test") && text.contains("sensitive"),
+        "{text}"
+    );
+}
+
+/// The template's `calendars` line, un-commented, loads and marks one sensitive.
+#[test]
+fn the_templates_calendars_line_loads() {
+    let line = Config::EXAMPLE_TOML
+        .lines()
+        .find(|l| l.starts_with("# calendars = "))
+        .unwrap();
+    let specs = cals(
+        line.trim_start_matches("# calendars = ")
+            .split("   #")
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(specs.len(), 2);
+    assert!(specs[1].sensitive && specs[1].label.as_deref() == Some("Team"));
+}
+
+/// A calendar of a workplace's domain is sensitive with no config, one of a
+/// consumer domain or of Google's own ids is not, and `sensitive_domains`
+/// replaces that default (owner change to theseus-jid7t.1, 2026-10-23).
+#[test]
+fn a_workspace_domain_calendar_is_sensitive_by_default_and_sensitive_domains_narrows() {
+    use crate::config::google_calendars::sensitive_by_domain as by;
+    /// A consumer domain, kept out of an address literal.
+    const CONSUMER: &str = "gmail.com";
+    let (consumer, mixed) = (
+        format!("someone@{CONSUMER}"),
+        format!("someone@{}", "GoogleMail.com"),
+    );
+    for (id, want) in [
+        ("someone@corp.example.test", true),
+        ("team@sub.corp.example.test", true),
+        (consumer.as_str(), false),
+        (mixed.as_str(), false),
+        ("abc123@group.calendar.google.com", false),
+        ("en.usa#holiday@group.v.calendar.google.com", false),
+        ("primary", false),
+        ("personal.cal.example.test", false),
+    ] {
+        assert_eq!(by(id, None), want, "{id}");
+    }
+    let only = ["corp.example.test".to_string()];
+    assert!(by("team@sub.corp.example.test", Some(&only)));
+    assert!(!by("someone@other.example.test", Some(&only)));
+    assert!(
+        !by("someone@corp.example.test", Some(&[])),
+        "an empty list: none by domain"
+    );
+    let specs = cals(&format!(
+        "[\"someone@corp.example.test\", \"someone@{CONSUMER}\"]"
+    ))
+    .unwrap();
+    assert_eq!((specs[0].sensitive, specs[1].sensitive), (true, false));
+    let c = load(&format!(
+        "{ACCOUNT}calendars = [\"someone@corp.example.test\", \"x@other.example.test\"]\n\
+         sensitive_domains = [\"other.example.test\"]\n"
+    ))
+    .unwrap();
+    let s: Vec<bool> = c
+        .google
+        .calendar_specs()
+        .iter()
+        .map(|s| s.sensitive)
+        .collect();
+    assert_eq!(s, [false, true]);
+    assert!(c
+        .google
+        .calendar_sensitive_by_domain("primary", Some("x@other.example.test")));
+    let e = load(&format!(
+        "{ACCOUNT}sensitive_domains = [\"a@b.example.test\"]\n"
+    ))
+    .unwrap_err();
+    assert!(format!("{e:#}").contains("not a bare domain"), "{e:#}");
 }

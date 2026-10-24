@@ -1820,6 +1820,36 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     profile (`standing_step.rs`, `authored`), milestone reminders with it (`commitments.rs`), while the task view and
     project slice are already outside the open view. The mark never spreads to the readers. Tests:
     `tests_private_authored.rs`.
+  - **Google calendars, the cache and the sensitive level** (theseus-jid7t.1; no store format change: a new META key
+    and no new record kind; `config/google_calendars.rs`, `google/calendar_cache.rs`, `rpc/calendar.rs`, wire
+    `theseus_protocol::calendar`). `[google] calendars` lists ids or `{ id, label, color, sensitive }`, validated at
+    load (ids unique, `#rrggbb`, labels unique); unset or empty (the default, the owner's change of 2026-10-23), the
+    cache reads every calendar of the account's `calendarList` (`Cache::settle`; the primary as `primary`, read again
+    when older than 5 minutes, a newly listed calendar told as `calendar.changed`, `primary` alone until the list is
+    read or when it cannot be). A label defaults to the calendar's own summary, a colour to Google's `backgroundColor`
+    (then the palette). **Sensitive by default:** a calendar whose id or `dataOwner` is in a Google Workspace domain
+    (`google_calendars::sensitive_by_domain`: any domain but gmail.com, googlemail.com and `*.calendar.google.com`)
+    is sensitive; `[google] sensitive_domains`, when set, replaces that default. `google.call`'s Calendar reads are
+    sensitive while any calendar read is, or while the list was never read with none configured
+    (`Cache::any_sensitive`, fail closed). The cache
+    (`Google::calendar_window`) keeps each calendar's events over the window asked for, widened a week each side, for
+    5 minutes (at most 4 windows a calendar, 1,500 events a window; memory only, nothing about an event reaches the
+    store, the ledger, a log or telemetry), then refreshes with `syncToken` (a 410 re-reads the window; a 403 asks
+    `freebusy.query` for blocks with no title). Every call is `Google::call`, and its `google.called` row (method,
+    status, the calendar's label) is handed back to the caller to write. `calendar.window {from_ms, to_ms}` answers
+    the owner on a private connection alone (`owner_in_private`; a span over 62 days is refused) and is no model tool;
+    `calendar.changed {labels}` (no content) goes to the connections that watch every session when a refresh finds a
+    change, and the refresh tender (`Google::calendar_tend`, one timer wait of 5 minutes, not before the first window
+    read) ends when no window is kept. `theseusd check` prints one line a calendar (`calendar_check`). **The sensitive
+    level** (`private::Level`, `private::level`): a read of a calendar with `sensitive = true` puts `"sensitive": true`
+    beside `"private": true` in the result's meta, and `private::record` adds the META record
+    `google.sensitive.<session>` to the same frame; the level follows what the private mark follows (`followed`,
+    `inherited`, a task's lineage) and never lowers. The task-local the chokepoint reads carries the level
+    (`scoped`/`within`/`bound` take a bool as private); both floors (the route step and `data_gate`) allow a US-origin
+    model alone for any private level, and `place.publish` refuses a node of a sensitive session to a shared place
+    (`sensitive_stays_private`); a shared place is offered no calendar tool. A morning note over a sensitive calendar
+    is asked of a US model alone and its `initiative.spoke` row holds no text (`initiative_post_as`). Tests:
+    `google/tests_calendar_cache.rs`, `tests_sensitive.rs`, `tests_morning.rs`, `tests_calendar.rs`.
   - **The open view** (theseus-a1wvq.7; `open_view.rs`): a request for open data carries none of the owner's material.
     `PlaceView.open` (the reach: `[routing.data] open_paths` via `open_view::open_roots(cfg, session)`, and whether the
     session's directory is within them) makes `content_class()` the shared class: every content reader on the compile
@@ -2636,6 +2666,38 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `from` a user id, `discord:<id>` or a name (any case, contained); `words` text in any case or a `/pattern/`. Its seed is due
   at its expiry, which is its one look. Set by the owner's `watch.create` (the place rule is `Act::Watch`'s) and the model's
   `watch` tool (asks the owner once). Tests: `watch/tests_reply.rs`.
+- **The Operations page's verbs** (theseus-jid7t.2; no store format change: META `session.profile.<session>`, three ledger
+  kinds, `theseus_protocol::ops`; `rpc/session_profile.rs`, `rpc/task_rehome.rs`, `rpc/task_reschedule.rs`, `data_mark.rs`,
+  `fact/ops.rs`, the kernel's `task_edit.rs`), each the owner's act (`session.profile`: `Act::Session`; the two task verbs:
+  `Act::Task`) and none a Discord message (a card follows the kernel's records, as it does for any surface's change).
+  **`session.profile { session_id, profile | null }`** holds a session to a profile: the META key (`{profile, was}`, `null`
+  once let go) and its `session.profile_set` row are one frame. A turn's model: its own `profile` (not a pane's `carried`
+  one), then the hold (`TurnRunner::sticky_named`, in `turn.submit`; `target_as_ran`, so a continuation, a wake, a task's
+  next turn, keep-warm and the census read it too), then the last turn's, the place's and the live one; routing may move a
+  turn that was not pinned, and the floor moves a refused base as it moves any (a judge-less core's private session fails at
+  the provider's floor instead, as before). A turn fixes its model once (`route_to` routes once), so a running task takes it at
+  its next turn, never mid-call. `null` puts back the target the session ran on when the hold began (`was`) and answers
+  `previous`, which is the undo. **The refusal** is `data_mark::profile_refusal(cfg, catalog, mark, profile)`, pure over
+  `refusal_of(mark, profile, known, cleared)`, built on `uncleared` which `TurnRunner::uncleared_profile` reads too, so the menu
+  and the route's floor cannot disagree (`turn/tests_sticky.rs` pins every mark x origin): a private or sensitive session runs
+  only on a profile of US origin, an unknown profile runs nowhere, and a restricted profile on an open session is set with a note
+  (the floor decides per turn). Nothing is written when refused. **The data mark** (`DataMark`: `open`, `private`,
+  `sensitive`) is `session_mark`, read from `google::private::level`: the Google level of the session or any task above it
+  (sensitive after a sensitive calendar's read, private after other Google content), else open. It rides `SessionInfo.data`
+  and `WorkView.data` (stamped as a view leaves the board, `Core::stamp_data`; the board reads no store) and
+  `ProfileInfo.origin` names each profile's origin word.
+  **`task.rehome { task, home }`** moves where the report is posted (the task record's `target`, the execution's
+  `reports_to`, META `task.place.<session>`; the frame that ends the task reads the target again,
+  `TaskOf::target_for_now`): `home` is a conversation's session id or `thread:<slug>`; the budget stays carved from the
+  original parent and the parent's next turn still reads the report. A home with no place leaves the report on the board.
+  Refused: an ended task; a missing, retired, task or shared-place home; a home whose mark is weaker than the task's.
+  **`task.reschedule { task, start_at_ms | start_after_ms | start_when }`** moves a sleeping deferred task's due wake
+  (`Kernel::edit_task`) and its `task.deferred.<session>` times, parsed by `Core::start_time`, which `task.start` shares;
+  `previous` is the undo. Tests: `rpc/tests_session_profile.rs`, `tests_task_rehome.rs`, `tests_task_reschedule.rs`,
+  `tests_data_mark.rs`, `turn/tests_sticky.rs`, the kernel's `tests_task_edit.rs`. **The floor's table is shared with the cockpit**
+  (theseus-jid7t.6): `cockpit/test/fixtures/profile_floor.json` lists every mark × origin × known case and whether
+  `refusal_of` refuses it; `tests_profile_floor.rs` holds the daemon to it and the cockpit's `test/ops-floor.test.ts` holds the model
+  menu's greying to it, so a change to the floor edits that file and both tests say where the other side must follow.
 - **Starting a task with no model turn** (theseus-7oq0w): `task.start { brief, title?, home?, budget_usd?, profile?,
   start_at_ms? | start_after_ms? | start_when?, quotes?, report_to? }` (`rpc/task_start.rs`, `theseus_protocol::task_start`),
   the owner's verb for every surface (`theseus task start`, the TUI's `N`; Discord's "New task" and the horizon's deferred start

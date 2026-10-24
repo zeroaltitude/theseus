@@ -81,12 +81,20 @@ impl TurnRunner {
             })
     }
 
+    /// The data level of the call the turn is about to make: its session's own
+    /// marks, a recall that admitted a marked session's note, and the task
+    /// lineage. The floors read it as private or above; the chokepoint
+    /// carries the level itself.
+    pub(super) fn session_level(&self, t: &Turn<'_>) -> crate::google::private::Level {
+        use crate::google::private::{self, Level};
+        let own = private::level(t.tc.store, &self.cfg, t.tc.session_id);
+        own.max(Level::from(self.private_session(t)))
+    }
+
     /// Whether `profile` may not be sent the sensitive names: its origin is
     /// not on the allowlist.
     pub(super) fn uncleared_profile(&self, profile: &str) -> bool {
-        !self
-            .cfg
-            .profile_cleared_for_sensitive(profile, &self.catalog)
+        crate::data_mark::uncleared(&self.cfg, &self.catalog, profile)
     }
 
     /// Whether `profile`'s model is of restricted origin (a profile that does
@@ -274,3 +282,7 @@ pub(crate) fn open_route(result: &mut Option<TurnRoute>, from: &str, origin: &st
     });
     d.clearance = "open".into();
 }
+
+#[cfg(test)]
+#[path = "tests_sticky.rs"]
+mod tests_sticky;

@@ -1,7 +1,7 @@
 import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
+import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router'
 import '@fontsource-variable/inter'
 import '@fontsource-variable/jetbrains-mono'
 import '@fontsource-variable/cinzel'
@@ -11,6 +11,7 @@ import './lib/calm'
 import { useMode } from './lib/mode'
 import { Shell } from './components/Shell'
 import { Crash, NotFound } from './components/Crash'
+import { redirectOf } from './ops/address'
 
 // Every view loads on first visit. The Ship (three.js) is the landing view; the others never pay for its bundle.
 const loadShip = () => import('./views/Ship')
@@ -41,6 +42,12 @@ const queries = new QueryClient({
 })
 bindPush(queries)
 
+/** The Agenda's, Tasks' and Threads' old addresses: their Operations lens, the query kept (the owner's decision 1). */
+function ToOps() {
+  const l = useLocation()
+  return <Navigate to={redirectOf(l.pathname, l.search) ?? '/ops'} replace />
+}
+
 const wrap = (el: React.ReactNode) => <Suspense fallback={<div className="p-6 text-ink-faint">Loading…</div>}>{el}</Suspense>
 const wrapShip = (el: React.ReactNode) => <Suspense fallback={<div className="ship-root h-full w-full" />}>{el}</Suspense>
 
@@ -59,13 +66,16 @@ const router = createBrowserRouter(
             { path: 'bridge', element: wrap(<Bridge />) },
             { path: 'fleet', element: wrap(<Fleet />) },
             { path: 'session/:id', element: wrap(<SessionDeck />) },
-            // The threads on the work board (theseus-5i8i), and one thread's view. The route loads its chunk.
-            { path: 'threads', lazy: async () => ({ Component: (await import('./views/Threads')).default }) },
+            // Operations (theseus-jid7t.3): the needs-you queue, the lenses and the inspector. The route loads its chunk.
+            { path: 'ops', lazy: async () => ({ Component: (await import('./views/Ops')).default }) },
+            // The threads on the work board (theseus-5i8i) are the Threads lens now; one thread's view stays a page.
+            { path: 'threads', element: <ToOps /> },
             { path: 'threads/:slug', lazy: async () => ({ Component: (await import('./views/Threads')).ThreadView }) },
             // One turn, whole (theseus-x9swu): the flame graph, each loop's request and answer, each tool call.
             { path: 'session/:id/turn/:turn', lazy: async () => ({ Component: (await import('./views/TurnInspect')).default }) },
-            { path: 'tasks', lazy: async () => ({ Component: (await import('./views/Tasks')).default }) },
-            { path: 'agenda', lazy: async () => ({ Component: (await import('./views/Agenda')).default }) },
+            // The Tasks and Agenda pages are the Board and Timeline lenses now (theseus-jid7t.3).
+            { path: 'tasks', element: <ToOps /> },
+            { path: 'agenda', element: <ToOps /> },
             { path: 'actions', element: wrap(<Actions />) },
             { path: 'ledger', element: wrap(<Ledger />) },
             { path: 'economics', element: wrap(<Economics />) },

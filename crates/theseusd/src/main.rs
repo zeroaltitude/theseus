@@ -1002,8 +1002,13 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &P
         .outside_vault_words()
         .map(|w| format!("{w}; the vault is the recommended source\n"))
         .unwrap_or_default();
+    let calendars: String = theseus_core::google::calendar_check(cfg, secrets)
+        .await
+        .iter()
+        .map(|l| format!("{l}\n"))
+        .collect();
     out(&format!(
-        "ok: config loaded from {source}; {}\n{outside}{}\n{}\nL1: the self-test {}\n{}\n",
+        "ok: config loaded from {source}; {}\n{outside}{calendars}{}\n{}\nL1: the self-test {}\n{}\n",
         resolved_words(&st),
         kept.line(),
         // Which killer features are on, and why the judge is off if it is.

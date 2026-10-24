@@ -33,6 +33,10 @@ impl TurnRunner {
         s: &SessionRecord,
         live_profile: &str,
     ) -> anyhow::Result<Target> {
+        // The owner's held choice (`session.profile`) is what the session runs on.
+        if let Some(tg) = self.sticky_target(&s.session_id, live_profile) {
+            return Ok(tg);
+        }
         if let Some(t) = &s.last_target {
             let as_it_ran = self.resolve_target(
                 live_profile,

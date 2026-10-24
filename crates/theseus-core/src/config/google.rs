@@ -9,6 +9,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use theseus_google::Service;
 
+use super::google_calendars::{self as cals, CalendarEntry, CalendarSpec};
+
 /// The one configured account (a second is a rename to
 /// `[google.accounts.<email>]` later).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +41,16 @@ pub struct GoogleConfig {
     /// scratch daemons only, so that no request leaves the machine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
+    /// The calendars read: an id, or `{ id, label, color, sensitive }`. Unset
+    /// (or empty): every calendar the account's `calendarList` holds, read
+    /// again with the list, so a newly shared calendar appears with no edit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub calendars: Vec<CalendarEntry>,
+    /// The domains whose calendars are sensitive by default (an id's or its
+    /// owner's). Unset: every Google Workspace domain, that is any domain but
+    /// the consumer ones and Google's own calendar ids (`cals::sensitive_by_domain`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensitive_domains: Option<Vec<String>>,
 }
 
 fn default_services() -> Vec<String> {
@@ -58,6 +70,8 @@ impl Default for GoogleConfig {
             trusted_senders: Vec::new(),
             credentials: GoogleCredentialNames::default(),
             endpoint: None,
+            calendars: Vec::new(),
+            sensitive_domains: None,
         }
     }
 }
@@ -66,6 +80,19 @@ impl GoogleConfig {
     /// No account: Google is off.
     pub fn is_empty(&self) -> bool {
         self.account.is_empty()
+    }
+
+    /// The configured calendars, in order, with their colours; empty when the
+    /// config names none (every calendar of the account's list is read).
+    pub fn calendar_specs(&self) -> Vec<CalendarSpec> {
+        cals::specs(&self.calendars, self.sensitive_domains.as_deref())
+    }
+
+    /// Whether a calendar `id` (or one its `owner` holds) is sensitive by its
+    /// domain, under `sensitive_domains`.
+    pub fn calendar_sensitive_by_domain(&self, id: &str, owner: Option<&str>) -> bool {
+        let d = self.sensitive_domains.as_deref();
+        cals::sensitive_by_domain(id, d) || owner.is_some_and(|o| cals::sensitive_by_domain(o, d))
     }
 
     /// The services the config turns on, in the order it lists them.
@@ -133,6 +160,8 @@ impl super::Config {
         if let Some(a) = g.trusted_senders.iter().find(|a| !email_ok(a)) {
             anyhow::bail!("google.trusted_senders names {a:?}, which is not an email address");
         }
+        cals::validate(&g.calendars)?;
+        cals::validate_domains(g.sensitive_domains.as_deref())?;
         let mut seen = BTreeSet::new();
         for s in &g.services {
             if Service::parse(s).is_none() {

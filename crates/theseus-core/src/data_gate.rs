@@ -129,9 +129,16 @@ impl Gated {
             return None;
         } else {
             self.counted("sensitive");
-            "this request names something in `[privacy] sensitive_names`, or its session read \
-             private content, and its model is not of US origin; nothing was sent"
-                .into()
+            let level = crate::google::private::level_in_scope();
+            let held = if level == crate::google::private::Level::Sensitive {
+                "its session read a sensitive calendar"
+            } else {
+                "its session read private content"
+            };
+            format!(
+                "this request names something in `[privacy] sensitive_names`, or {held}, and its \
+                 model is not of US origin; nothing was sent"
+            )
         };
         Some(ProviderError::DataGate { message }.into())
     }

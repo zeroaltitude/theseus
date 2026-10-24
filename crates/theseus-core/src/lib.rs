@@ -41,6 +41,7 @@ pub mod cpu;
 pub mod crash;
 pub mod data;
 pub mod data_gate;
+mod data_mark;
 pub mod day_ceiling;
 pub mod disk;
 pub mod draft;
@@ -132,6 +133,7 @@ pub mod surface;
 pub mod sweep;
 pub mod task;
 pub mod task_graph;
+mod task_home;
 pub mod task_start;
 pub mod telemetry;
 pub mod tender;
@@ -468,6 +470,8 @@ mod tests_private_authored;
 mod tests_private_background;
 #[cfg(test)]
 mod tests_private_recall;
+#[cfg(test)]
+mod tests_profile_floor;
 #[cfg(test)]
 mod tests_progress;
 #[cfg(test)]

@@ -76,7 +76,7 @@ impl Core {
             let spoken = crate::google::private::within(
                 private,
                 core.initiative_speak(&Facts {
-                    private,
+                    private: private.into(),
                     kind: "consolidation",
                     brief: &brief,
                     line: Line::Consolidation,

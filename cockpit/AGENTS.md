@@ -17,8 +17,8 @@ build.
   `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the categories as closed groups one a kind with their trees inside (`groupsOf`; `<unknown>` for a kind the table lacks, theseus-7mow), guidance, and topics; people,
   searchable by handle, a person's page and merge, adding one, and Jev's proposals with select-all accept, in
   `src/components/People.tsx` over `src/lib/people.ts`, theseus-wy7y; it shows the present only; its proposals panel lists people one row per proposed person, each with one accept and one reject, theseus-fvyx; the growth chart and the list of what the machines minted sit above the tree, `src/components/OntologyGrowth.tsx` over `growthOf` and `mintedOf` in `src/lib/ontology.ts`: 90 days of `ontology.category` and `ontology.kind` rows from the shared ledger history, stacked by origin, a ring on a day whose write was later undone, and each mint with its judgment link and an `ontology.undo` button, theseus-dd3kw; the tree's origin and confidence columns and its origin filter, `?origin=`, from the first `ontology.category` row of each category, `originsOf` and `originFilter`: a match keeps its ancestors as dimmed context and `unknown` is an option, so no category is hidden from every filter, theseus-tq7s8; an add-a-kind form beside add-a-topic, `src/components/OntologyKindAdd.tsx` over `buildKindAdd` and `kindAddAsk` in `src/lib/ontokinds.ts`: it mirrors the daemon's checks of `ontology.kind.add`, and its confirm carries the exact params it sends, theseus-s430x; the Judgment view draws the ontology pack's line under its row, `ontoLine` over `ontoStatsOf` in `src/lib/ontostats.ts`: judgments, acts, confirms and undos counted from the ledger's `judge.call`, `onto.filed` and `ontology.undo` rows, theseus-wzvxp; the learning report's ontology block draws the same line for the report's day with the undo rate per kind: the line's counts are `ontoStatsOf(rows, { day })` from the ledger (theseus-0vhyn), the undo rate is the daemon's, the report's own `pack.undo` and `pack.undo_days` worded by `ontoKindWords` (one definition, `onto_undo::undo_rates`, theseus-ukmbn); the kind groups fold open and shut in `src/lib/groupfold.ts`, the reader's own set kept while a filter forces them all open, theseus-5kd37), `Context` (the context explorer, theseus-7n3e: what Theseus knows and what a turn sees), and `Books` (the imported episodes by their book, first cut: `books.list`, `books.page`, an episode's messages by `session.history`; its pure parts are `src/lib/books.ts`, theseus-civ0). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`), whose pulldown groups topics and people and searches both.
-- The Agenda (theseus-p17fd; horizon HZ9): `src/views/Agenda.tsx` at `/agenda` (rail group Live, `g d`; `?w=` the week, `?sel=` the
-  selected mark). A week strip (`src/components/WeekStrip.tsx`: seven local days by the hour; a dot a reminder, a ring a
+- The Agenda (theseus-p17fd; horizon HZ9): its page moved whole into the Operations page's Timeline lens
+  (`src/ops/TimelineLens.tsx`, theseus-jid7t.5; `/agenda` redirects there, `g d`; `?w=` the week, `?sel=` the selected mark). The first week strip (`src/components/WeekStrip.tsx`, which the lens's v2 replaced: seven local days by the hour; a dot a reminder, a ring a
   check-in, a tick a routine run, a ✓ ✗ – for a past one by outcome, ▷ a deferred task's start, a flag a milestone, a bar a
   watch's window; a click opens the mark's verbs, each one call), the Routines table (`RoutinesTable.tsx`: schedule, next
   and last run, 30-day record, month spend of limit, a cost sparkline, and the last 30 runs of `routine.runs` in an
@@ -31,13 +31,121 @@ build.
   the Threads views keep, and each routine's `routine.runs` when its signature changes: the page polls nothing (a test
   reads its files for a timer). A window the daemon's 200-line cap does not fill is one read; a busier one (a routine
   every five minutes) is read on from where its lines stopped, at most 12 reads. It shows the present only.
-- Threads on the work board (theseus-5i8i): `src/views/Threads.tsx` (`/threads`: each live thread as a group, its open
-  tasks, questions and wakes under it, needs you first, a seal waiting as a red line; `/threads/:slug`: the thread's
+- Threads on the work board (theseus-5i8i): the list is the Operations page's Threads lens (`src/ops/ThreadsLens.tsx`;
+  `/threads` redirects there): each live thread as a group, its open tasks, questions and wakes under it, needs you
+  first, a seal waiting as a red line. `/threads/:slug` (`src/views/Threads.tsx` over `src/ops/ThreadPanel.tsx`): the thread's
   goal, card, working set, `parent`/`split_from`/`merged_into` links, recent turns by `session.history`, and its open
   work). One `work.watch` while a Threads view is mounted (`src/lib/threadwatch.ts`), kept by the position rule in the pure
   `src/lib/threadboard.ts` (the grouping and counting rules of `theseus_protocol::group`, tested by
   `test/threadboard.test.ts`). Under the time machine the list is `foldThreads` over the ledger's `thread.*` rows (state
   and title as of the moment); the work under a thread is the present's and the view says so.
+- **Operations** (theseus-jid7t.3): `src/views/Ops.tsx` at `/ops`, the rail's second item after the Ship (which stays
+  the landing view). `/agenda`, `/tasks` and `/threads` redirect to its Timeline, Board and Threads lenses with their
+  query kept (`redirectOf`); `/threads/:slug` stays a page. Its pure halves are `src/ops/*.ts`, each tested by a
+  `test/ops-*.test.ts` over the invented board in `test/ops-fixtures.ts`.
+  - **The address** (`ops/address.ts`): `lens` (`graph` · `board` · `timeline` · `threads`, board by default), `sel`
+    (a row's `ses_`/`act_`/`wak_` id, a thread's slug, a mark's key, or a queue item's key, `q:act_…`, `f:exe_…`,
+    `s:<slug>`, `h:ses_…`, `a:<ask>`), `f` (the chips, `key:value` pairs), `q`, `w`, `join` and `redact` (parsed and
+    carried; later rows give them meaning), and `do=answer` (a deep link opens the item's answer). Keys the page does
+    not own (`task`, `table`) are kept. A link reopens exactly what was on screen.
+  - **The regions**: the command bar (`ops/CommandBar.tsx`: counters that are filters, with their hour's sparkline and
+    `?table=ops.counters`; the lens switch; the chips; the search's "n of m"; New task), then the needs-you queue
+    (`ops/Queue.tsx` over `ops/queue.ts`: longest waiting first by `attention.since_ms`, a cursor kept by key so a
+    new item never moves it, each answer one call, `answerOf`), the canvas, and the inspector (`ops/Inspector.tsx`).
+    `[` and `]` fold the queue and the inspector (`ops/regions.ts`, kept in this browser); below 1280 px the inspector
+    lies over the canvas, below 900 px the queue is the page.
+  - **The lenses**: the Board (`ops/BoardLens.tsx` over `ops/board.ts`: five columns over `taskboard.ts`'s `rowsOf`,
+    with conversations, jobs, and what is due today); the Threads lens (`ops/ThreadsLens.tsx`); the Timeline lens (below);
+    and the Graph lens (`ops/GraphLens.tsx`, below).
+  - **It reads, it does not poll**: the one `work.watch`, `task.list`, `confirm.list` and `session.list` on their
+    pushes, the ledger's one copy for today's spend, and the router's `thread.asked` while it is open
+    (`ops/asks.ts`; no read lists them). `test/ops-page.test.ts` fails a timer or a refetch interval.
+  - **Every act goes through `enabled`** (`ops/keys.ts`): `useOpsAct` (`ops/act.ts`) and `ActBtn` refuse an act under
+    the time machine, where every lens shows the folded past with Actions' banner. No `useAct`, `Btn` or bare `call`
+    in `src/ops/`, which the page test holds.
+  - **The key table** (`ops/keys.ts`'s `KEYS`) drives both the page's one handler (`handlers` in `Ops.tsx`, a
+    `Record<Verb, …>`, so a verb with no handler does not compile) and the `?` overlay (`ops/KeysOverlay.tsx`). A key
+    means the most specific thing the focus offers (`PRIORITY`): `r`/`d` retry and dismiss on a failure and filter
+    elsewhere, `a`/`e` take the card's grant when offered, `l` follows on a job row. The handler listens in the
+    capture phase, ahead of the shell's: a `g` sequence the page claims (`g g/b/t/h/m`) is the page's, another (`g f`)
+    goes on to the shell. A new key is a row of `KEYS` and a handler; the tests check both.
+  - **The parity table** (`ops/parity.ts`, `test/ops-parity.test.ts`): every datum and act of the old Agenda, Tasks,
+    Threads and Actions pages and of the TUI's board, with its home (`here`, `stays`, or `pending: ops-act|graph|
+    timeline` for 1e and herdr only), the source that renders it, and for each card the fact function
+    (`ops/facts.ts`) that must make every field the old component showed and the card that must draw it as
+    `f.<field>`. A field added to a card goes into its fact function and its row's `fields`; a row a later lens takes
+    over moves its `at` there. Never delete a row to make the test pass.
+  - **The Timeline lens** (theseus-jid7t.5): `ops/TimelineLens.tsx` (the Agenda's page, moved: its reads, its
+    panels unchanged, the mark's `MarkDetail`), drawing `ops/WeekStripV2.tsx`: three layers a day, the calendar's events
+    as background blocks in side-by-side lanes with an all-day band (`ops/timeline.ts` `eventLayout`), the ran bars of
+    each run in a 3 px left gutter (`ranBars`), Theseus's marks in the right gutter; the night folds (`nightFold`: a
+    meeting or one-off mark holds its hour open, a series' ticks are counted inside); clashes (`clashes`: a mark inside a
+    meeting, or two meetings that overlap; all-day and declined events never) are a ◆ and the command bar's two
+    Timeline-only counters; `?day=` is the Day zoom (`d`/`w`, which beat the counter filters in the lens), `,`/`.` the
+    week, and on a focused mark the TUI's Horizon keys (`ops/timelinekeys.ts`). **The materials rule**: colour is for
+    state; a calendar is drawn in its own `color` (the daemon's hull materials, never a signal tone), a sensitive one
+    hatched with a lock, a free/busy block hatched; a calendar's state (`stateOf`: ok, busy_only, not_found with the
+    sharing steps, forbidden, auth_lapsed, off) is said in its legend in a state tone with its one fix, and a calendar not
+    read draws no events (a stale week is never current). **The data rules** (`ops/calendar.ts`, the owner's rule 3):
+    every surface that draws an event (block, tooltip, header line, the inspector's `EventDetail`, Coming up, the table,
+    the search) takes its strings from `eventFacts`, over `redactEvent`, so `?redact=1` (`⇧R`) masks a sensitive
+    calendar's title, place, call and attendees everywhere and the search does not match them; a verb's payload is
+    `eventVerbPayload`'s, and for a sensitive calendar names only its label and the time (the task or chat reads it with
+    the calendar tool; the New task sheet offers only a profile of US origin, `profileChoices`); Join the call and Open in
+    Google only open the link in a new tab. An event lives in memory only: no storage, no log, and the address holds its
+    opaque key (`?sel=ev:<key>`). `test/ops-calendar.test.ts` scans every string for invented content. **The one timer**:
+    `ops/calendarwatch.ts` reads `calendar.window` over `readSpans` (the window shown, and today and tomorrow for Coming
+    up) when they change, on `calendar.changed`, and every five minutes while the document is visible; it is the only
+    timer, stopped when hidden and on unmount. **Drag** (`ops/drag.ts` `dropOf`): a reminder or check-in moves by
+    `wake.snooze` with the instant as `when`, a deferred start by `task.reschedule` (`ops/reschedule.ts` until ops-verbs'
+    types join), each with Undo; the rest is refused with the reason on the cursor. `useOpsAct`'s `send` is the gate for
+    an act whose result the page reads.
+  - **The acts** (theseus-jid7t.6; ops-act): the inspector's sections (`ops/InspectorSections.tsx` over `ops/sections.ts`: facts, the
+    Record, Standing, a job's command and eta), **Live** (`ops/Live.tsx` over `ops/live.ts`: the session's narrative, the model's
+    words from the push, and a followed job's output, which `ops/jobout.ts` drives by the pure `ops/follow.ts` machine: `work.peek`,
+    then `action.output`, and `action.unfollow` on leaving the selection, switching lens or unmounting, never twice), the **Join
+    pane** (`ops/JoinPane.tsx`, the address's `join`: `ses_…` a session, else a thread's slug; the deck's `Transcript` and drafts,
+    and the composer is the pure state `ops/composer.ts`: ⏎ steers a running turn, ⌘⏎ holds the message until `turn.ended`, esc
+    drops it, ⇧⇥ cycles the mode, `/t ` opens the thread picker, a thread with no session opens one on its first message), the
+    **model menu** `m` and **mode menu** `M` (`ops/ModelMenu.tsx` over `ops/menus.ts`: "this turn only" is `turn.submit
+    { profile }`, "from now on" is the sticky `session.profile` with a revert chip on the header and the toast's Undo; the
+    daemon's `refused` is shown in its words and changes nothing), the **dock** (`ops/Dock.tsx`, `\` folds it, ␣ pauses while it
+    has focus: the streams of `narrative.watch` and the models strip), the **palette** (`ops/palette.ts`, `PaletteGroups.tsx`,
+    `paletteStore.ts`: the page publishes a feed while mounted and the shell's ⌘K shows the verbs over a scope, one, all visible or
+    the selection, ⇥ cycling, and every entity; the selection scope is ops-graph's, passed at the one `// ops-graph: the selection
+    scope` line in `Ops.tsx`), the right-click menu (`ops/VerbMenu.tsx`), and sheets for the acts that need words (`ops/Sheet.tsx`:
+    New task, the thread verbs, re-home, reschedule; no `window.prompt` is left in `src/ops/`).
+  - **The verb table** (`ops/verbs.ts`) is the one list of acts: verb, kinds, method, posture (`do`, `arm`, `ask`, `floor`), and
+    whether one more call undoes it. The inspector, the palette and the right-click menu read it, and `test/ops-verbs.test.ts` pins
+    each row to the owner's table, each method to the protocol's, and each acting key of `keys.ts` to a verb (`KEY_VERB`). The one
+    row whose method the protocol lacks, `job.stop`, says so (`missing`) and is shown off.
+  - **The floor contract** (`ops/floor.ts`, `test/fixtures/profile_floor.json`): the daemon's refusal table (`data_mark::refusal_of`)
+    as data, one row per mark × origin × known. theseus-core's `tests_profile_floor.rs` holds the daemon to it and
+    `test/ops-floor.test.ts` holds `greyOf` (the menu's greying) to it; a change to the floor edits the file and both tests say so.
+  - **Quiet by construction**: a menu or sheet that is open owns the keys (`modal` in `Ops.tsx`); the dock's ␣ works only while the
+    dock has focus (the `dock` context outranks the rest), so ops-graph's ␣ is free elsewhere; every act is `useOpsAct`'s `act` (a
+    confirmed call) or `post` (the call with its answer, for a refusal in the daemon's words and an Undo).
+  - **The Graph lens** (theseus-jid7t.4; `ops/GraphLens.tsx` and `ops/GraphNode.tsx` over the pure `ops/graph.ts`,
+    `test/ops-graph.test.ts`): a lane per live thread (needs-you first, a home lane for the rest), each conversation its
+    lane's anchor, columns by depth and rows by start time; a node's id is a row's (`ses_` for a conversation or a
+    task), so `?sel=`, the Board and the selection name the same thing. **Positions are sticky by id**: `opsLayout`
+    takes the last layout (`keeper()` holds it), every placed node keeps its slot, a new node takes the next free row
+    of its column, a node that leaves leaves a hole, and a lane's band keeps a spare row, so a live change moves no
+    other node; a new lane goes below, and only "tidy" lays it out afresh. Ended work older than an hour folds into
+    one "✓ N done" per lane (it opens on a click); past `NODE_CAP` (400) subtrees fold, deepest and oldest first, into
+    "+N folded", never one that holds something that needs the owner. Filters and the search fade nodes, never
+    remove them. A running edge flows under stir's rule and stops in Calm (`index.css`'s `ops-flow`).
+  - **The selection and the bulk acts** (`ops/selection.ts`, `test/ops-selection.test.ts`): a set of ids in memory
+    (`useSelection` in `ops/useSelection.ts`, the seam ops-act's palette reads), shared by the Graph and the Board;
+    `␣`, `⌘A`/`ctrl+a` (everything shown), `esc` (clears it before anything else). A bulk act is a client fan-out of
+    single calls, four at a time (`fanOut`, each through `useOpsAct`'s `send`, so each has its own ledger row and its
+    own refusal), never a batch method; the results toast says each refusal in the daemon's words and the failed
+    items stay picked. Stop, Cancel, Re-home and Decline ask once with the list. **Bulk Approve is the owner's
+    decision 4**: only tool approvals that are not `floor`, not a budget ask or a task change, and whose `may_answer`
+    is not false (`bulkApprovable`), each listed in a review sheet with a box, all ticked; a floor approval is listed
+    as "asks one by one" and never sent. Drag (`ops/rehome.ts`'s `dropOf`, `ops/DropLayer.tsx`): a task onto a
+    conversation, a lane or the tray's thread re-homes it (`task.rehome`, asks, naming who the budget stays charged
+    to); a task or a conversation onto a project attaches it (`project.attach`); every refusal shows on the cursor.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
   (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
   checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before

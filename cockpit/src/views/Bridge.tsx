@@ -128,7 +128,7 @@ export function Bridge() {
           tone={h?.external_text?.length ? 'wait' : 'ok'} hint={h?.external_text?.[0] ? `${h.external_text[0].held.tool} ${ago(h.external_text[0].held.since_ms)}` : 'every session trusted'}
           onClick={() => nav('/boundaries')} />
         <StatTile label="Wakes due" icon={<Hourglass size={12} />} value={h?.wakes?.length ?? 0} format={(n) => n.toFixed(0)} tone={h?.wakes?.length ? 'live' : undefined}
-          hint={h?.wakes?.[0] ? `next ${h.wakes[0].due_local}` : 'none set'} onClick={() => nav('/agenda')} title="the wakes, routines and watches are on the Agenda page; a click opens it" />
+          hint={h?.wakes?.[0] ? `next ${h.wakes[0].due_local}` : 'none set'} onClick={() => nav('/ops?lens=timeline')} title="the wakes, routines and watches are on the Timeline; a click opens it" />
       </div>
 
       <NowStrip sessions={sessions} executions={el?.executions ?? []} />

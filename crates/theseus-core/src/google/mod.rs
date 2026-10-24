@@ -36,6 +36,7 @@ use crate::secrets::{Secret, SecretBoard, Waited};
 
 pub mod auth;
 pub mod calendar;
+pub mod calendar_cache;
 pub mod call;
 pub mod drive;
 pub mod external;
@@ -54,6 +55,8 @@ mod tests_auth;
 #[cfg(test)]
 mod tests_calendar;
 #[cfg(test)]
+pub(crate) mod tests_calendar_cache;
+#[cfg(test)]
 mod tests_config;
 #[cfg(test)]
 mod tests_drive;
@@ -65,6 +68,8 @@ mod tests_mail;
 mod tests_morning;
 #[cfg(test)]
 mod tests_private;
+#[cfg(test)]
+mod tests_sensitive;
 #[cfg(test)]
 mod tests_sheets_slides;
 #[cfg(test)]
@@ -185,6 +190,8 @@ pub struct Google {
     pub(crate) refresh_ref: OnceLock<String>,
     /// The store refused the token: it is held in memory only until a restart.
     pub(crate) memory_only: AtomicBool,
+    /// The configured calendars' events, kept in memory ([`calendar_cache`]).
+    pub(crate) calendars: calendar_cache::Cache,
 }
 
 impl Google {
@@ -229,6 +236,7 @@ impl Google {
             op: Mutex::new(None),
             refresh_ref: OnceLock::new(),
             memory_only: AtomicBool::new(false),
+            calendars: calendar_cache::Cache::new(cfg),
         }))
     }
 
@@ -626,6 +634,32 @@ pub fn build(cfg: &crate::Config, board: &Arc<SecretBoard>, tools_on: bool) -> O
         .refresh_ref
         .set(cfg.secrets.get(name).cloned().unwrap_or_default());
     Some(g)
+}
+
+/// `theseusd check`'s lines for Google's calendars: one per configured
+/// calendar, by label (never by an event), with how its read went and, when it
+/// did not go, the one fix. Empty with no `[google]` or no calendar service.
+/// Reads Google (a refresh and one list a calendar); a calendar that fails is
+/// said, and fails nothing.
+pub async fn calendar_check(cfg: &crate::Config, board: &Arc<SecretBoard>) -> Vec<String> {
+    let Some(g) = build(cfg, board, true).filter(|g| g.services().contains(&Service::Calendar))
+    else {
+        return Vec::new();
+    };
+    let (lines, _) = g.calendar_reach().await;
+    lines
+        .into_iter()
+        .map(|(label, status, detail)| {
+            let word = serde_json::to_value(status)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_default();
+            match detail.is_empty() {
+                true => format!("google calendar {label}: {word}"),
+                false => format!("google calendar {label}: {word}: {detail}"),
+            }
+        })
+        .collect()
 }
 
 /// Gmail's quota units for a method (the design's §4.3); other services have

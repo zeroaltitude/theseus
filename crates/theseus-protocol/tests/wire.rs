@@ -615,6 +615,78 @@ fn session_mode() {
     );
 }
 
+/// The ops verbs' params and answers (theseus-jid7t.2), one fixture a verb.
+#[test]
+fn ops_verbs() {
+    use theseus_protocol::ops::*;
+    let both = |p: serde_json::Value, r: serde_json::Value| {
+        serde_json::to_string(&serde_json::json!({"params": p, "result": r})).unwrap()
+    };
+    let p = SessionProfileParams {
+        session_id: S.into(),
+        profile: Some("sonnet".into()),
+        author: None,
+        discord: None,
+    };
+    let r = SessionProfileResult {
+        session_id: S.into(),
+        profile: Some("sonnet".into()),
+        previous: None,
+        refused: None,
+        note: Some("the floor decides each turn".into()),
+    };
+    wire("ops/session_profile", &both(json!(p), json!(r)));
+    let p = TaskRehomeParams {
+        task: "ses_t1".into(),
+        home: "thread:harbor".into(),
+        author: None,
+        discord: None,
+    };
+    let r = TaskRehomeResult {
+        task: "ses_t1".into(),
+        from: Some("discord:dm:a1".into()),
+        to: None,
+        note: "the budget stays carved from its original parent".into(),
+    };
+    wire("ops/task_rehome", &both(json!(p), json!(r)));
+    let p = TaskRescheduleParams {
+        task: "ses_t1".into(),
+        start_at_ms: Some(1_790_000_000_000),
+        start_after_ms: None,
+        start_when: None,
+        author: None,
+        discord: None,
+    };
+    let r = TaskRescheduleResult {
+        task: "ses_t1".into(),
+        starts_at_ms: 1_790_000_000_000,
+        previous: 1_789_990_000_000,
+    };
+    wire("ops/task_reschedule", &both(json!(p), json!(r)));
+}
+
+/// An older daemon's `session.list` and `profile.list` rows, which carry neither
+/// the data mark nor the origin, still decode, and a mark rides the wire as a word.
+#[test]
+fn the_ops_fields_are_optional_on_the_wire() {
+    use theseus_protocol::ops::DataMark;
+    let s: SessionInfo = serde_json::from_value(json!({"session_id": S, "kind": "conversation",
+        "label": null, "created_at_unix_ms": 1, "turns": 0}))
+    .unwrap();
+    assert_eq!(s.data, None);
+    assert!(!serde_json::to_string(&s).unwrap().contains("\"data\""));
+    let p: ProfileInfo = serde_json::from_value(json!({"name": "a", "provider": "b", "model": "c",
+        "max_output_tokens": 1, "has_system": false, "live": false}))
+    .unwrap();
+    assert_eq!(p.origin, None);
+    let marked = SessionInfo {
+        data: Some(DataMark::Sensitive),
+        ..s
+    };
+    assert_eq!(serde_json::to_value(&marked).unwrap()["data"], "sensitive");
+    assert!(DataMark::Open < DataMark::Private && DataMark::Private < DataMark::Sensitive);
+}
+
 #[test]
 fn narrative_line() {
     wire(
@@ -1133,6 +1205,78 @@ fn typed_action_output() {
     );
 }
 
+/// `calendar.changed` carries labels and nothing else; `calendar.window`'s
+/// answer (in `wire/calendar/`, which is no notification) round-trips with
+/// the optional fields of a busy block left off the wire.
+#[test]
+fn calendar_window_and_changed() {
+    use calendar::{
+        CalendarChanged, CalendarEvent, CalendarStatus, CalendarWindow, CalendarWindowResult,
+    };
+    typed(
+        "calendar_changed",
+        Event::CalendarChanged(CalendarChanged {
+            labels: vec!["Work".into(), "Personal".into()],
+        }),
+    );
+    let result = CalendarWindowResult {
+        calendars: vec![
+            CalendarWindow {
+                id: "personal.cal.example.test".into(),
+                label: "Personal".into(),
+                color: "#c9a24a".into(),
+                sensitive: false,
+                status: CalendarStatus::Ok,
+                detail: String::new(),
+                events: vec![CalendarEvent {
+                    key: "3f9a1c0b7d2e4a58".into(),
+                    start_ms: 1_761_148_800_000,
+                    end_ms: 1_761_150_600_000,
+                    title: Some("Dentist".into()),
+                    location: Some("Room 4".into()),
+                    call: Some("https://meet.example.test/x-y-z".into()),
+                    attendees: 2,
+                    self_response: Some("accepted".into()),
+                    organizer_self: true,
+                    html_link: "https://calendar.example.test/e/p1".into(),
+                    ..Default::default()
+                }],
+            },
+            CalendarWindow {
+                id: "work.cal.example.test".into(),
+                label: "Work".into(),
+                color: "#5fa08d".into(),
+                sensitive: true,
+                status: CalendarStatus::BusyOnly,
+                detail: "only free/busy of `Work` is shared".into(),
+                events: vec![CalendarEvent {
+                    key: "a1b2c3d4e5f60718".into(),
+                    start_ms: 1_761_149_700_000,
+                    end_ms: 1_761_152_400_000,
+                    busy: true,
+                    ..Default::default()
+                }],
+            },
+            CalendarWindow {
+                id: "club.cal.example.test".into(),
+                label: "Club".into(),
+                color: "#5f7fb8".into(),
+                status: CalendarStatus::AuthLapsed,
+                detail: "run `theseus google auth`".into(),
+                ..Default::default()
+            },
+        ],
+    };
+    let got = serde_json::to_string(&result).unwrap();
+    wire("calendar/window", &got);
+    let again: CalendarWindowResult = serde_json::from_str(&got).unwrap();
+    assert_eq!(again, result);
+    assert!(
+        !got.contains("\"title\":null") && got.contains("\"status\":\"busy_only\""),
+        "{got}"
+    );
+}
+
 /// Every fixture decodes as its `Event` and writes the same bytes again: what a
 /// client reads is what the daemon sent.
 #[test]
@@ -1158,7 +1302,7 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
         assert_eq!(again, line, "{}", path.display());
         n += 1;
     }
-    assert_eq!(n, 45);
+    assert_eq!(n, 46);
 }
 
 /// Every line of a real daemon's capture (`theseus --json watch`, its path in

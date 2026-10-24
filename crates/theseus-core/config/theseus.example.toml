@@ -605,6 +605,8 @@ judge_wait_ms = 200                     # the most a turn waits for that judgmen
 # trusted_senders = ["dana@example.test"]   # whose mail may start a task through a mail watch (then: task), only when Gmail authenticated the sender (DMARC pass, or DKIM aligned with the From); else the watch only notices; empty: a mail watch only notices
 # credentials = { client = "google_client", refresh_token = "google_refresh_token" }   # [secrets] names (these, by default)
 # endpoint = "http://127.0.0.1:7499"    # tests and scratch daemons only: a stand-in for Google on this machine
+# calendars = ["primary", { id = "team.cal@example.test", label = "Team", color = "#5fa08d", sensitive = true }]   # the calendars read (default: every calendar the account's list holds, read again with the list; set, it narrows); colour: Google's own, else a palette; sensitive: its events reach only a model of US origin, never a shared place or the ledger
+# sensitive_domains = ["corp.example.test"]   # the domains whose calendars (by id or owner) are sensitive with no config (default: every Google Workspace domain, that is any but the consumer ones and Google's own calendar ids)
 
 # ---------------------------------------------------------------- policy
 # The gate (spec §3.9) decides per tool, from the finite list of tools (and,

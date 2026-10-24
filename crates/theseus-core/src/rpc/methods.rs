@@ -683,6 +683,11 @@ impl Core {
             .and_then(|id| self.kernel.execution(id).ok().flatten());
         i.execution_state = e.as_ref().map(|e| e.state.as_str().to_string());
         i.started_on = self.started_on(r);
+        i.data = Some(crate::data_mark::session_mark(
+            &self.store,
+            &self.cfg,
+            &r.session_id,
+        ));
         let asks = r
             .execution_id
             .as_deref()
@@ -1021,6 +1026,11 @@ impl Core {
                 .filter(|f| self.cfg.all_profiles().contains_key(*f)),
             false => p.profile.as_deref(),
         };
+        // The owner's held choice (`session.profile`) beats the last turn's.
+        let mut held = None;
+        let named = self
+            .runner
+            .sticky_named(&session.session_id, &p, named, &mut held);
         let mut target = self
             .runner
             .resolve_target(&live, named, p.provider.as_deref(), p.model.as_deref())
@@ -1175,6 +1185,9 @@ impl Core {
                 has_system: p.system.is_some(),
                 provider: p.provider.clone(),
                 model: p.model.clone(),
+                origin: Some(
+                    crate::data_gate::word(self.cfg.profile_origin(name, &self.catalog)).into(),
+                ),
             })
             .collect();
         ProfileListResult {
