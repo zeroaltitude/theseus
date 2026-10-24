@@ -383,6 +383,10 @@ struct Turn<'a> {
     loops: u32,
     output: String,
     usage: Usage,
+    /// The time the turn's model calls took, summed: the turn's wall time
+    /// less its tools' runs and its own work, which the backlog's slow-turn
+    /// check holds against the model.
+    model_ms: u64,
     /// `None` once any call's price is unknown.
     cost: Option<f64>,
     tool_calls: u32,
@@ -554,6 +558,7 @@ impl<'a> Turn<'a> {
             loops: 0,
             output: String::new(),
             usage: Usage::default(),
+            model_ms: 0,
             cost: Some(0.0),
             tool_calls: 0,
             home_weighed: false,
@@ -2749,6 +2754,7 @@ impl TurnRunner {
         // frame is written: a turn that faults on that frame still books
         // what the provider charged (R1).
         add_usage(&mut t.usage, &resp.usage);
+        t.model_ms = t.model_ms.saturating_add(resp.timing.total_ms);
         let call = fact::turn::ProviderCall {
             loop_index: i,
             provider: &target.provider,
@@ -3345,6 +3351,7 @@ impl TurnRunner {
             session_usage: &session.usage,
             late,
             w0,
+            model_ms: t.model_ms,
         });
         t.ended = true;
         // A task's turns post nothing to the place: its report does, once,
