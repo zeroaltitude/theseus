@@ -84,6 +84,9 @@ fn asked(r: &Rig) -> Vec<crate::provider::ProviderRequest> {
 async fn says(core: &Arc<Core>, sid: &str, text: &str) {
     core.runner.standing.expected.note_owner(sid, text);
     turn(core, sid, text).await;
+    // An exchange end that finds the last one's decision still running makes
+    // none (as `people.v1`'s): the next waits for the last.
+    settled(core).await;
 }
 
 /// `n` owner lines, the one at `at` being `M1`.
