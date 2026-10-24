@@ -253,7 +253,8 @@ pub fn filter(parsed: Parsed, records: &[Shown], held: &Held<'_>) -> Filtered {
                 && (cluster::similar(&r.text, &it.text)
                     || crate::capture::words::same(&r.text, &it.text))
         });
-        if let Some(r) = it.restates.or(similar) {
+        // A named contradiction wins over a named restatement of the same item.
+        if let Some(r) = it.restates.filter(|_| it.contradicts.is_none()).or(similar) {
             if !out.restated.iter().any(|(i, _)| *i == r) {
                 out.restated.push((r, it.nodes[0].clone()));
             }
@@ -266,8 +267,9 @@ pub fn filter(parsed: Parsed, records: &[Shown], held: &Held<'_>) -> Filtered {
         {
             continue;
         }
+        // Past the cap, later restatements are still counted as said again.
         if out.keep.len() >= MAX_KEPT {
-            break;
+            continue;
         }
         // A contradiction the model named must be a record it was shown.
         it.contradicts = it.contradicts.filter(|&i| i < records.len());

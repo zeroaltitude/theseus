@@ -719,6 +719,19 @@ fn filter_counts_a_restatement_and_keeps_a_contradiction() {
     assert_eq!(f.restated, vec![(0, "nod_1".to_string())]);
     assert_eq!(f.keep.len(), 1);
     assert_eq!(f.keep[0].contradicts, Some(0));
+    // An item the model names as both a restatement and a contradiction of one
+    // record is the contradiction: kept, and not counted as said again.
+    let mut both = item("correction", "Works from the east quay office", &["L1"]);
+    both["restates"] = json!("R1");
+    both["contradicts"] = json!("R1");
+    let f = filter(
+        parse(&call(json!([both])), &lines, &records).unwrap(),
+        &records,
+        &Held::default(),
+    );
+    assert!(f.restated.is_empty(), "{:?}", f.restated);
+    assert_eq!(f.keep.len(), 1);
+    assert_eq!(f.keep[0].contradicts, Some(0));
     // Capped at eight; an ask capture holds is not kept again.
     let things = [
         "Keeps a spare anchor aboard",
