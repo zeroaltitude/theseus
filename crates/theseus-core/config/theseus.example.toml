@@ -75,7 +75,7 @@ api_key_secret = "anthropic_api_key"    # name of the [secrets] entry holding it
 connect_secs = 10                       # TCP + TLS
 first_byte_secs = 60                    # request sent → response headers
 stream_idle_secs = 60                   # longest silence between stream events
-total_secs = 600                        # the whole call
+total_secs = 600                        # a call before its stream begins; a live stream may run to 3x this
 
 # A call that fails with a class that passes with time (timeout, network,
 # rate_limited, overloaded, server, stream, truncated) can be made again
@@ -282,7 +282,7 @@ kind = "anthropic_messages"             # the only wire protocol today
 # connect_secs = 10
 # first_byte_secs = 60
 # stream_idle_secs = 60
-# total_secs = 600
+# total_secs = 600                      # a call before its stream begins; a live stream may run to 3x this
 
 # DeepSeek's Anthropic-compatible endpoint. Add its key to the secrets table before un-commenting.
 # [providers.deepseek]

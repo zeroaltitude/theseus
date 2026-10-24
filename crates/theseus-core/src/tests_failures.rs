@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use theseus_kernel::{ExecState, Wake};
 use theseus_protocol::SessionKind;
 
-use crate::provider::{FakeProvider, ProviderError, Scripted};
+use crate::provider::{FakeProvider, ProviderError, Scripted, TimeoutPhase};
 use crate::session::{SessionRecord, Then};
 use crate::store::Store;
 use crate::test_support::try_turn as turn;
@@ -117,6 +117,14 @@ fn bad_request() -> Scripted {
 fn overloaded() -> Scripted {
     Scripted::Fail(ProviderError::Overloaded {
         message: "overloaded_error: Overloaded".into(),
+    })
+}
+
+/// A call cut at its whole-call bound.
+fn cut_at(phase: TimeoutPhase) -> Scripted {
+    Scripted::Fail(ProviderError::Timeout {
+        phase,
+        elapsed_ms: 1_800_000,
     })
 }
 
@@ -363,4 +371,39 @@ async fn a_stdio_daemon_leaves_a_transient_failure_to_its_client() {
         assert_eq!(answered.output, "The tide turns at four.");
         assert_eq!(r.fake.requests().len(), 2);
     }
+}
+
+/// A call cut at the whole-call bound is retried once a turn, whatever
+/// `transient` allows: the same call would most likely run as long again
+/// (theseus-5pg8u). Other transient classes keep their count.
+#[tokio::test]
+async fn a_whole_call_timeout_is_retried_once_in_a_turn() {
+    let retrying = |script| {
+        rig_with(script, |c| {
+            c.model.retries = crate::config::Retries {
+                transient: 4,
+                backoff_ms: 5,
+                backoff_max_ms: 5,
+                ..Default::default()
+            }
+        })
+    };
+    let total = || cut_at(TimeoutPhase::Total);
+    let r = retrying(vec![total(), Scripted::text("Done.")]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, "say done").await.expect("it answers");
+    assert_eq!(res.output, "Done.");
+    assert_eq!(r.fake.requests.lock().unwrap().len(), 2);
+
+    let r = retrying(vec![total(), total(), Scripted::text("Done.")]);
+    let sid = bound_session(&r.core);
+    turn(&r.core, &sid, "say done").await.expect_err("it fails");
+    assert_eq!(r.fake.requests.lock().unwrap().len(), 2, "no third try");
+
+    let idle = || cut_at(TimeoutPhase::StreamIdle);
+    let r = retrying(vec![idle(), idle(), Scripted::text("Done.")]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, "say done").await.expect("it answers");
+    assert_eq!(res.output, "Done.");
+    assert_eq!(r.fake.requests.lock().unwrap().len(), 3);
 }

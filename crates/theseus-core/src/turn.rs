@@ -1800,7 +1800,7 @@ impl TurnRunner {
         let mut image_retried = false;
         let mut effort_asked = false;
         // A transient failure's retries in this turn (`[model.retries]`).
-        let mut retried = 0;
+        let mut retried = retry_step::Retried::default();
         let mut strip: Option<&'static str> = None;
         // A request the provider said passed the window (theseus-9p88): the
         // next loop recompiles with a ring by the provider's numbers and calls
@@ -2049,7 +2049,7 @@ impl TurnRunner {
             let fell = self.fall_back(t, &mut spec, fallback, (&resp, &node), said_before);
             run_model = self.advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             self.loops_noticed(t, i, run_model)?;
-            run_model = Self::progress(t, &uses, i, run_model)?;
+            run_model = Self::progress(t, i, run_model)?;
             let ended = checkpoint_step::Ended {
                 compiled: &compiled,
                 resp: &resp,
@@ -2404,7 +2404,7 @@ impl TurnRunner {
             t.tc.guard,
             &proposal,
             RetryClass::SafeToRepeat,
-            Some(self.cfg.model.timeouts.total_secs * 1000),
+            Some(self.cfg.model.timeouts.whole_call().as_millis() as u64),
             reserve,
             |_| Ok(rides),
         ) {
@@ -3156,16 +3156,14 @@ impl TurnRunner {
         calls::trace_calls(&mut t.trace, &self.tools, uses, &batch.ran);
         let mut answered = 0;
         for r in batch.ran {
+            t.checkpoint.answered(&uses[r.index].name, &r.outcome);
             match r.outcome {
                 CallOutcome::AwaitingConfirm { .. } => {}
                 CallOutcome::Background { correlation_id } => {
                     t.background.push(correlation_id);
                     answered += 1;
                 }
-                CallOutcome::Done { status } => {
-                    t.checkpoint.failed |= status.is_error();
-                    answered += 1;
-                }
+                CallOutcome::Done { .. } => answered += 1,
             }
         }
         t.awaiting = batch.awaiting;

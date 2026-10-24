@@ -6,8 +6,34 @@
 //! (theseus-ljr): an operator's daemon keeps that. A headless run (`theseus
 //! --spawn theseusd ask`) ends with its turn, so it gets no later retry, and
 //! the bench profile sets `transient`.
+//!
+//! A call cut at its whole-call bound (`ProviderError::Timeout { phase: Total
+//! }`: a stream that was alive, cut at `Timeouts::whole_call`) is retried at
+//! most once a turn, whatever `transient` allows: the same call would most
+//! likely run as long again (theseus-5pg8u). Other classes keep their count.
 
 use super::*;
+use crate::provider::TimeoutPhase;
+
+/// A turn's in-turn retries so far.
+#[derive(Debug, Default)]
+pub(super) struct Retried {
+    /// All of them; the backoff's step.
+    count: u32,
+    /// Of those, the whole-call timeouts.
+    whole_call: u32,
+}
+
+/// Whether `failure` is a call cut at its whole-call bound.
+fn is_whole_call(failure: &Failure) -> bool {
+    matches!(
+        failure.source.downcast_ref::<ProviderError>(),
+        Some(ProviderError::Timeout {
+            phase: TimeoutPhase::Total,
+            ..
+        })
+    )
+}
 
 impl TurnRunner {
     /// Whether the loop makes `failure`'s call again: a class that passes
@@ -19,14 +45,20 @@ impl TurnRunner {
         &self,
         t: &mut Turn<'_>,
         failure: &Failure,
-        retried: &mut u32,
+        retried: &mut Retried,
     ) -> Result<bool> {
         let r = self.cfg.model.retries;
-        if !failure.transient || self.stopping() || *retried >= r.transient {
+        let whole = is_whole_call(failure);
+        if !failure.transient
+            || self.stopping()
+            || retried.count >= r.transient
+            || (whole && retried.whole_call >= 1)
+        {
             return Ok(false);
         }
-        let wait = r.wait(*retried);
-        *retried += 1;
+        let wait = r.wait(retried.count);
+        retried.count += 1;
+        retried.whole_call += u32::from(whole);
         let (w0, started) = (t.trace.now_us(), Instant::now());
         {
             let armed = self.stops.arm(t.tc.execution_id);
@@ -43,7 +75,7 @@ impl TurnRunner {
         t.record(&fact::turn::ModelRetried {
             model: &t.target.model,
             class: &failure.class,
-            retry: *retried,
+            retry: retried.count,
             of: r.transient,
             w0,
             waited_ms: started.elapsed().as_millis() as u64,

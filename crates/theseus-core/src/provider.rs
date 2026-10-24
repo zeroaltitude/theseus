@@ -374,8 +374,27 @@ pub struct Timeouts {
     pub first_byte_secs: u64,
     /// Longest silence tolerated between stream events.
     pub stream_idle_secs: u64,
-    /// Whole call, whatever it is doing.
+    /// The call before its stream begins (connect, send, the response
+    /// headers); once events flow, `LIVE_STREAM_TOTALS` times this bounds it
+    /// (`whole_call`), as long as they keep arriving within
+    /// `stream_idle_secs`.
     pub total_secs: u64,
+}
+
+/// How many `total_secs` a live stream may last (theseus-5pg8u). A max-effort
+/// call can think for many minutes while the stream shows the provider is
+/// working, so `total_secs` alone cut a live call; a stream that trickles
+/// events forever must still end, and this is where.
+pub const LIVE_STREAM_TOTALS: u32 = 3;
+
+impl Timeouts {
+    /// The longest a call may last once its stream began.
+    pub fn whole_call(&self) -> Duration {
+        Duration::from_secs(
+            self.total_secs
+                .saturating_mul(u64::from(LIVE_STREAM_TOTALS)),
+        )
+    }
 }
 
 impl Default for Timeouts {
@@ -836,6 +855,8 @@ mod digest;
 #[cfg(test)]
 mod tests_count;
 #[cfg(test)]
+mod tests_timeouts;
+#[cfg(test)]
 mod tests_warm;
 
 /// How long the client keeps an idle connection (theseus-tnky). reqwest's own
@@ -1016,6 +1037,8 @@ impl Anthropic {
         };
         self.heard();
         let first_byte_ms = elapsed(started);
+        // The stream began: it may go on while events arrive, to the hard bound.
+        let deadline = started + self.timeouts.whole_call();
         let headers = resp.headers().clone();
         let status = resp.status();
         let request_id = headers

@@ -360,7 +360,7 @@ impl TurnRunner {
                 t.tc.guard,
                 &proposal,
                 RetryClass::SafeToRepeat,
-                Some(self.cfg.model.timeouts.total_secs * 1000),
+                Some(self.cfg.model.timeouts.whole_call().as_millis() as u64),
                 p.reserve,
                 |_| Ok(Vec::new()),
             )
