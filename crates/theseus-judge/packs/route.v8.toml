@@ -1,6 +1,7 @@
 # route.v8 (ROUTE, theseus-f9qa8, 2026-10-23): route.v7 word for word (its
 # five questions, both rollback rules, the state) but for the `data`
-# question's `open` and `unclear` options. v7 cut open-source work called
+# question's `open` and `unclear` options, and `reply_effort`'s `max`, which
+# names the evidence a checkpoint shows (theseus-ujzuh). v7 cut open-source work called
 # private from 60% to 17%, but a benchmark retest on 2026-10-23 (27 open-source
 # programming tasks, each in a container with no owner shown) still read 30%
 # of verdicts `private`, and most `open` ones below the act bar. Two words did
@@ -60,7 +61,7 @@ options = [
   { id = "medium", means = "Some care, but the way is clear: a direct question, ongoing conversation, or work that is long but mechanical, such as repeated edits, renames, or following a plan already agreed." },
   { id = "high", means = "Careful thought: a design with trade-offs, a bug whose cause is unknown, a careful analysis, or writing that must be right." },
   { id = "xhigh", means = "Very careful thought: a hard design or a hard bug that spans many parts, where a mistake would be costly and the reply must reason through many steps." },
-  { id = "max", means = "The most thought there is: the hardest or most novel problems, or high-stakes work where every step must be checked, or the person asks for the most thorough reply possible." },
+  { id = "max", means = "The most thought there is: the hardest or most novel problems, or high-stakes work where every step must be checked, or the person asks for the most thorough reply possible, or the work has kept failing after more careful effort was already given, or a check it must pass still fails." },
   { id = "unclear", means = "The message gives too little to tell how much thought its reply needs." },
 ]
 

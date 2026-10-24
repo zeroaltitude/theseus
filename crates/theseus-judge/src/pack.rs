@@ -1731,11 +1731,13 @@ mod tests {
     /// question's `open` and `unclear` options: `open` names the public signs
     /// and says an unshown owner is no sign of private matter; `unclear` stops
     /// counting an unshown owner; `private`, the instructions, the thresholds
-    /// and the no-match are v7's, so what reads the answer reads it unchanged.
+    /// and the no-match are v7's, so what reads the answer reads it unchanged;
+    /// and `reply_effort`'s `max` (theseus-ujzuh), which adds the evidence a
+    /// checkpoint shows to v7's words.
     #[test]
-    fn route_v8_is_v7_word_for_word_but_the_data_options() {
+    fn route_v8_is_v7_word_for_word_but_the_data_options_and_effort_max() {
         let (v7, v8) = (by_name("route.v7").unwrap(), by_name("route.v8").unwrap());
-        for q in ["mode", "reply_effort", "persona", "seal", "personal"] {
+        for q in ["mode", "persona", "seal", "personal"] {
             assert_eq!(v8.question(q), v7.question(q), "{q} word for word");
         }
         let ids = |p: &Pack| p.questions.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
@@ -1769,6 +1771,38 @@ mod tests {
                 .clone()
                 .unwrap_or_default()
         };
+        let (e7, e8) = (
+            v7.question("reply_effort").unwrap(),
+            v8.question("reply_effort").unwrap(),
+        );
+        assert_eq!(
+            (
+                &e8.instructions,
+                &e8.decides,
+                &e8.kind,
+                &e8.thresholds,
+                &e8.no_match
+            ),
+            (
+                &e7.instructions,
+                &e7.decides,
+                &e7.kind,
+                &e7.thresholds,
+                &e7.no_match
+            )
+        );
+        assert_eq!(opts(e8), opts(e7));
+        for id in opts(e7).iter().filter(|id| *id != "max") {
+            assert_eq!(
+                means(e8, id),
+                means(e7, id),
+                "reply_effort {id} word for word"
+            );
+        }
+        assert_eq!(
+            means(e8, "max"),
+            "The most thought there is: the hardest or most novel problems, or high-stakes work where every step must be checked, or the person asks for the most thorough reply possible, or the work has kept failing after more careful effort was already given, or a check it must pass still fails."
+        );
         assert_eq!(
             means(d8, "private"),
             means(d7, "private"),
