@@ -3,4 +3,4 @@
 /**
  * How a calendar read went.
  */
-export type CalendarStatus = "ok" | "busy_only" | "not_found" | "forbidden" | "auth_lapsed" | "off";
+export type CalendarStatus = "ok" | "busy_only" | "not_found" | "forbidden" | "auth_lapsed" | "off" | "unreachable";

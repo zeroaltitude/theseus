@@ -1851,7 +1851,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`scoped`/`within`/`bound` take a bool as private); both floors (the route step and `data_gate`) allow a US-origin
     model alone for any private level, and `place.publish` refuses a node of a sensitive session to a shared place
     (`sensitive_stays_private`); a shared place is offered no calendar tool. A morning note over a sensitive calendar
-    is asked of a US model alone and its `initiative.spoke` row holds no text (`initiative_post_as`). Tests:
+    is asked of a US model alone and its `initiative.spoke` row holds no text (`initiative_post_as`). **Idle and
+    unreachable** (theseus-b09do): the tender drops a window nobody read for `IDLE` (30 minutes) before it refreshes,
+    so a closed page costs Google nothing and the tender ends; a sync delta is merged against its window (`overlaps`,
+    the test `serve` answers by), so an event outside it is never kept or told, and a window cut at `MAX_EVENTS`
+    drops its token; a 5xx, a rate limit or the network is `CalendarStatus::Unreachable`, a real 403 `Forbidden`. Tests:
     `google/tests_calendar_cache.rs`, `tests_sensitive.rs`, `tests_morning.rs`, `tests_calendar.rs`.
   - **The open view** (theseus-a1wvq.7; `open_view.rs`): a request for open data carries none of the owner's material.
     `PlaceView.open` (the reach: `[routing.data] open_paths` via `open_view::open_roots(cfg, session)`, and whether the
@@ -2693,7 +2697,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `reports_to`, META `task.place.<session>`; the frame that ends the task reads the target again,
   `TaskOf::target_for_now`): `home` is a conversation's session id or `thread:<slug>`; the budget stays carved from the
   original parent and the parent's next turn still reads the report. A home with no place leaves the report on the board.
-  Refused: an ended task; a missing, retired, task or shared-place home; a home whose mark is weaker than the task's.
+  Refused: an ended task; a missing, retired, task or shared-place home; a home whose mark is weaker than the task's,
+  or **whose mark cannot be read** (`data_mark::try_session_mark` over `private::try_level`, the one walk `level` uses
+  too: a failed read is an error for the home, `Sensitive` for the task). A home with no place writes `task.place.<session>`
+  as JSON `null` (not `""`: a build before this one reads a string and binds nothing from null; this build's rebuild and
+  the index tender read null and `""` alike as no place). `session.profile` refuses a retired session (a let-go goes).
   **`task.reschedule { task, start_at_ms | start_after_ms | start_when }`** moves a sleeping deferred task's due wake
   (`Kernel::edit_task`) and its `task.deferred.<session>` times, parsed by `Core::start_time`, which `task.start` shares;
   `previous` is the undo. Tests: `rpc/tests_session_profile.rs`, `tests_task_rehome.rs`, `tests_task_reschedule.rs`,

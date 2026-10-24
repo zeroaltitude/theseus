@@ -12,6 +12,11 @@
 //!   recently read goes first), at most [`MAX_EVENTS`] events a window (past it
 //!   the window is cut and carries no sync token, so its next refresh reads it
 //!   again).
+//! - **Idle.** A window nobody has read for [`IDLE`] (30 minutes) is dropped
+//!   by the tender before it refreshes, so a page left closed costs Google
+//!   nothing; the tender ends when none is kept, and the next read starts it.
+//!   A sync delta is merged against the window's own bounds (`overlaps`), so
+//!   an event outside it is never kept and never told as a change.
 //! - **Memory only.** Nothing about an event is written to the store, the
 //!   ledger, a log line or telemetry. Every call goes through
 //!   [`Google::call`], whose `google.called` row holds a method, a status and
@@ -48,6 +53,8 @@ use crate::recall::stamp;
 
 /// How long a window is served as it was read.
 pub const TTL: Duration = Duration::from_secs(300);
+/// A window nobody has read for this long (6 x [`TTL`]) is dropped by the tender.
+const IDLE: Duration = Duration::from_secs(1800);
 /// A window is read this much wider than asked, each side.
 const WIDEN_MS: u64 = 7 * 86_400_000;
 pub const MAX_WINDOWS: usize = 4;
@@ -72,6 +79,8 @@ struct Win {
     /// The test clock's age when it was read.
     aged: u64,
     used: Instant,
+    /// The test clock's age when it was last read (as `aged` is for `at`).
+    used_aged: u64,
     token: Option<String>,
     items: Vec<Stored>,
 }
@@ -283,6 +292,15 @@ impl Cache {
         w.at.elapsed() + Duration::from_millis(aged) < TTL
     }
 
+    /// Whether nobody has read `w` for [`IDLE`].
+    fn idle(&self, w: &Win) -> bool {
+        let aged = self
+            .aged_ms
+            .load(Ordering::Relaxed)
+            .saturating_sub(w.used_aged);
+        w.used.elapsed() + Duration::from_millis(aged) >= IDLE
+    }
+
     /// A test's clock: every kept window is `by` older.
     #[cfg(test)]
     pub(crate) fn age(&self, by: Duration) {
@@ -350,6 +368,7 @@ impl Google {
             let mut s = slot.lock().await;
             let label = label_of(&s);
             let mut changed = false;
+            s.windows.retain(|w| !self.calendars.idle(w));
             for i in 0..s.windows.len() {
                 if s.windows.get(i).is_some_and(|w| !self.calendars.fresh(w)) {
                     changed |= self.refresh(&mut s, i, &mut out.rows).await;
@@ -500,10 +519,11 @@ impl Google {
             return (Vec::new(), changed);
         };
         w.used = Instant::now();
+        w.used_aged = self.calendars.aged_ms.load(Ordering::Relaxed);
         let events = w
             .items
             .iter()
-            .filter(|i| i.event.start_ms < to && i.event.end_ms.max(i.event.start_ms + 1) > from)
+            .filter(|i| overlaps(&i.event, from, to))
             .map(|i| i.event.clone())
             .collect();
         (events, changed)
@@ -537,8 +557,19 @@ impl Google {
                     let account = self.account().to_string();
                     let id = s.spec.id.clone();
                     let w = &mut s.windows[i];
-                    let changed = merge(&mut w.items, &page.items, &account, &id);
+                    let mut changed =
+                        merge(&mut w.items, &page.items, &account, &id, (w.from, w.to));
                     w.token = page.next_sync.or(w.token.take());
+                    // A cut delta lost changes, and a cut window is cut as `fetch` cuts it: no
+                    // token, so the next refresh reads it whole.
+                    let cut = w.items.len() > MAX_EVENTS;
+                    if cut {
+                        w.items.truncate(MAX_EVENTS);
+                        changed = true;
+                    }
+                    if cut || page.truncated {
+                        w.token = None;
+                    }
                     w.at = Instant::now();
                     w.aged = self.calendars.aged_ms.load(Ordering::Relaxed);
                     return changed;
@@ -572,6 +603,7 @@ impl Google {
             at: Instant::now(),
             aged: self.calendars.aged_ms.load(Ordering::Relaxed),
             used: Instant::now(),
+            used_aged: self.calendars.aged_ms.load(Ordering::Relaxed),
             token,
             items,
         };
@@ -580,7 +612,7 @@ impl Google {
                 s.status = CalendarStatus::Ok;
                 s.detail.clear();
                 let mut items = Vec::new();
-                merge(&mut items, &page.items, &account, &id);
+                merge(&mut items, &page.items, &account, &id, (wf, wt));
                 let token = page.next_sync.filter(|_| !page.truncated);
                 Some(win(items, token))
             }
@@ -627,7 +659,7 @@ impl Google {
             ),
             Fail::Status(other) => (other, format!("Google refused the read of `{label}`")),
             Fail::Gone | Fail::Other => (
-                CalendarStatus::Forbidden,
+                CalendarStatus::Unreachable,
                 format!("`{label}` could not be read just now; it is tried again on the next read"),
             ),
         };
@@ -999,16 +1031,32 @@ fn project(e: &Value, account: &str, calendar: &str) -> Option<Stored> {
     })
 }
 
+/// Whether `e` falls in `[from, to)`: the one test `serve` answers by and
+/// `merge` keeps by (an event of no length counts as one millisecond long).
+fn overlaps(e: &CalendarEvent, from: u64, to: u64) -> bool {
+    e.start_ms < to && e.end_ms.max(e.start_ms + 1) > from
+}
+
 /// Merge Google's items into `kept` by event id (a cancelled one removes its
-/// event); true when anything differs. Sorted by start.
-fn merge(kept: &mut Vec<Stored>, items: &[Value], account: &str, calendar: &str) -> bool {
+/// event, and so does one that no longer overlaps the window `bounds`, a
+/// `[from, to)`: a sync delta covers the whole calendar); true when anything
+/// differs. Sorted by start.
+fn merge(
+    kept: &mut Vec<Stored>,
+    items: &[Value],
+    account: &str,
+    calendar: &str,
+    bounds: (u64, u64),
+) -> bool {
     let mut changed = false;
     for raw in items {
         let Some(id) = text(raw, &["id"]) else {
             continue;
         };
         let at = kept.iter().position(|k| k.id == id);
-        match (project(raw, account, calendar), at) {
+        let projected =
+            project(raw, account, calendar).filter(|p| overlaps(&p.event, bounds.0, bounds.1));
+        match (projected, at) {
             (Some(new), Some(i)) => {
                 changed |= kept[i].stamp != new.stamp || kept[i].event != new.event;
                 kept[i] = new;
@@ -1026,6 +1074,21 @@ fn merge(kept: &mut Vec<Stored>, items: &[Value], account: &str, calendar: &str)
     }
     kept.sort_by_key(|k| (k.event.start_ms, k.event.end_ms));
     changed
+}
+
+#[cfg(test)]
+impl Google {
+    /// How many events the first kept window of every calendar holds, and its
+    /// sync token (a test's view of the bounds).
+    pub(crate) async fn kept_events(&self) -> Vec<(usize, Option<String>)> {
+        let mut out = Vec::new();
+        for slot in self.calendars.slots() {
+            for w in &slot.lock().await.windows {
+                out.push((w.items.len(), w.token.clone()));
+            }
+        }
+        out
+    }
 }
 
 /// A hash of what a window holds, to tell a full re-read that found a change.

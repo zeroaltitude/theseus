@@ -112,6 +112,7 @@ test('the four states: each status has its tone, words, fix and what the strip d
     not_found: ['wait', /not shared yet/, 'lane'],
     forbidden: ['fault', /refused/, 'none'],
     auth_lapsed: ['fault', /consent lapsed/, 'none'],
+    unreachable: ['wait', /not reachable just now/, 'none'],
     off: ['fault', /Google is off/, 'none'],
   }
   for (const [status, [tone, words, draws]] of Object.entries(want) as Array<[CalendarStatus, [string, RegExp, string]]>) {
@@ -128,7 +129,7 @@ test('the four states: each status has its tone, words, fix and what the strip d
   assert.doesNotMatch(SHARING_STEPS, /@|\.com|\.org/)
   // A stale week is never drawn as current: a calendar not read draws no events, whatever it holds.
   const e = ev('evk_x', 1, 2)
-  for (const status of ['forbidden', 'auth_lapsed', 'off', 'not_found'] as const) assert.deepEqual(drawnEvents(cal('work.cal.example.test', { status, events: [e] })), [], status)
+  for (const status of ['forbidden', 'auth_lapsed', 'off', 'not_found', 'unreachable'] as const) assert.deepEqual(drawnEvents(cal('work.cal.example.test', { status, events: [e] })), [], status)
   assert.equal(drawnEvents(cal('work.cal.example.test', { status: 'busy_only', events: [e] })).length, 1)
 })
 

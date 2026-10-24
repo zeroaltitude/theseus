@@ -60,6 +60,7 @@ const STATES: Readonly<Record<CalendarStatus, CalState>> = {
   not_found: { tone: 'wait', words: 'not shared yet', fix: SHARING_STEPS, draws: 'lane' },
   forbidden: { tone: 'fault', words: 'refused by Google', fix: 'Run `theseus google auth` from your own shell, or see the Systems page.', draws: 'none' },
   auth_lapsed: { tone: 'fault', words: 'Google’s consent lapsed', fix: 'Run `theseus google auth` from your own shell to consent again.', draws: 'none' },
+  unreachable: { tone: 'wait', words: 'not reachable just now', fix: 'Google did not answer; it is tried again on the next read.', draws: 'none' },
   off: { tone: 'fault', words: 'Google is off', fix: 'Set up [google] in the config (the Systems page says how), then restart.', draws: 'none' },
 }
 

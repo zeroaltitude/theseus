@@ -1277,6 +1277,15 @@ fn calendar_window_and_changed() {
         !got.contains("\"title\":null") && got.contains("\"status\":\"busy_only\""),
         "{got}"
     );
+    // A 5xx is its own word on the wire, and reads back.
+    assert_eq!(
+        serde_json::to_string(&CalendarStatus::Unreachable).unwrap(),
+        "\"unreachable\""
+    );
+    assert_eq!(
+        serde_json::from_str::<CalendarStatus>("\"unreachable\"").unwrap(),
+        CalendarStatus::Unreachable
+    );
 }
 
 /// Every fixture decodes as its `Event` and writes the same bytes again: what a

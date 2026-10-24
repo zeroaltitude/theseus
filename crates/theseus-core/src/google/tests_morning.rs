@@ -497,11 +497,20 @@ mod calendars {
     /// ledger row.
     #[tokio::test(flavor = "multi_thread")]
     async fn no_event_content_is_in_any_ledger_row() {
-        let (m, cals) = rigged(
-            vec![Scripted::text("Board prep and the Dentist in Room 4."); 4],
-            |_| {},
-        )
-        .await;
+        // The model's tool path first: a turn that calls `calendar_events`, then
+        // the brief's four replies.
+        let mut script = vec![
+            Scripted::tools(
+                "",
+                &[("c1", "calendar_events", json!({"calendars": "all"}))],
+            ),
+            Scripted::text("Read."),
+        ];
+        script.extend(vec![
+            Scripted::text("Board prep and the Dentist in Room 4.");
+            4
+        ]);
+        let (m, cals) = rigged(script, |_| {}).await;
         cals.work.lock().unwrap().busy =
             vec![("2026-10-22T16:00:00Z".into(), "2026-10-22T17:00:00Z".into())];
         let (from, to) = crate::google::tests_calendar_cache::day();
@@ -530,11 +539,27 @@ mod calendars {
         .await
         .unwrap();
         cals.work.lock().unwrap().mode = Mode::Ok;
+        // A turn in a private session where the model reads the calendars itself.
+        crate::test_support::turn_in(&m.core, None, "what is on my calendar?").await;
+        assert!(
+            m.model
+                .requests()
+                .iter()
+                .any(|r| serde_json::to_string(&r.body())
+                    .unwrap()
+                    .contains("Board prep")),
+            "the model was given the events (the tool ran)"
+        );
         spoken(&m).await;
         let rows = all_rows(&m.core);
         assert!(
             rows.iter().any(|r| r.contains("google.called")),
             "the reads are rows"
+        );
+        assert!(
+            rows.iter()
+                .any(|r| r.contains("tool.ended") || r.contains("action.")),
+            "the tool run wrote its rows"
         );
         let wrote = rows.join("\n");
         for secret in [
