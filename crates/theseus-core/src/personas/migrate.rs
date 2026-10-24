@@ -119,8 +119,8 @@ pub fn note_text(keys: &[&str], dropped: &[String]) -> String {
 impl Core {
     /// Read `[personas]` once, before serving. Nothing is read when the
     /// config has none, and a start after the first writes nothing: one META
-    /// key says it was done. A persona the ontology refuses (a twin name) is
-    /// left out and said.
+    /// key says it was done. One frame: a persona the ontology refuses fails
+    /// the whole migration, which is logged and tried again at the next start.
     pub(crate) fn migrate_personas(&self) -> Result<()> {
         if self.cfg.personas.is_empty() || self.store.get_meta::<Value>(MARKER)?.is_some() {
             return Ok(());
