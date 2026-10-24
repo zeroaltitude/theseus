@@ -127,6 +127,16 @@ pub struct CardProposeResult {
     /// Episodes left unread because they are partner-confidential.
     #[cfg_attr(test, ts(type = "number"))]
     pub withheld: u64,
+    /// Lines left out as an assistant's setup (its instructions to itself),
+    /// not the owner's words (theseus-ly75u).
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub setup: u64,
+    /// Lines and statements left out as one task's, one repository's,
+    /// branch's or run's: the card holds what lasts.
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub one_task: u64,
     /// Clusters of near-duplicate lines, and those worth a call (mostly new).
     #[cfg_attr(test, ts(type = "number"))]
     pub clusters: u64,
@@ -151,6 +161,10 @@ pub struct CardProposeResult {
     /// Why it stopped short (`full`, `budget`, `off`, `done`, a failure), if it did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stopped: Option<String>,
+    /// Statements of one call that gave opposite instructions: the one
+    /// kept and the one not offered, a line each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<String>,
 }
 
 /// `card.list`.
@@ -195,11 +209,17 @@ pub struct CardListResult {
 pub struct CardAnswerParams {
     /// A proposal's id, or the end of one that no other shares (four characters at least).
     pub id: String,
-    /// `keep`, `edit` or `decline` (the question's options, any case).
+    /// `keep`, `edit` or `decline` (the question's options, any case); or
+    /// `scope`, on a kept proposal, with `scope`.
     pub option: String,
     /// The words to keep, for `edit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Where the record holds, in `StandingScope::words()`'s forms, for
+    /// `keep` and `edit` (else the proposal's), and for `scope`, which moves
+    /// a kept proposal's record to it (theseus-ly75u).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

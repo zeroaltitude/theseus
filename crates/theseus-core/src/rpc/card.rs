@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use serde_json::{json, Value};
 use theseus_protocol::{
     error_code, method, CardAnswerParams, CardAnswerResult, CardDoneParams, CardDoneResult,
-    CardListParams, CardProposeParams, StandingAddParams, StandingChanged,
+    CardListParams, CardProposeParams, StandingAddParams, StandingChanged, StandingScope,
 };
 
 use super::confirms::Act;
@@ -120,10 +120,24 @@ impl Core {
         self.judge_card(&who, method::CARD_ANSWER, "an answer to a card proposal")?;
         let option = option_of(&p.option).ok_or_else(|| {
             RpcFailure::invalid(anyhow!(
-                "{:?} is not one of the question's options: keep, edit, or decline (\"Not this\")",
+                "{:?} is not one of the question's options: keep, edit, or decline (\"Not this\"); \
+                 or scope, for a kept one",
                 p.option
             ))
         })?;
+        // The owner's scope is read before anything is written.
+        let scope = p
+            .scope
+            .as_deref()
+            .map(StandingScope::from_words)
+            .transpose()
+            .map_err(|e| RpcFailure::invalid(anyhow!(e)))?;
+        if option == "scope" {
+            let scope = scope.ok_or_else(|| {
+                RpcFailure::invalid(anyhow!("a move gives the scope: --scope or SCOPE"))
+            })?;
+            return self.card_rescope(p, scope, who).await;
+        }
         let prop = self.card_open(&p.id).await.map_err(RpcFailure::invalid)?;
         let (by, via) = (who.who(), who.via());
         if option == "decline" {
@@ -150,7 +164,7 @@ impl Core {
         let add = StandingAddParams {
             kind: prop.kind,
             text: text.clone(),
-            scope: prop.scope.clone(),
+            scope: scope.unwrap_or_else(|| prop.scope.clone()),
             source: Some(format!("card:{}", prop.id)),
             author: p.author.clone(),
             discord: p.discord.clone(),
@@ -158,7 +172,40 @@ impl Core {
         };
         let StandingChanged { record, .. } = self.standing_add(&add, who.clone())?;
         let proposal = self
-            .card_settle(&prop, option, Some((text, record.id.clone())), &by, &via)
+            .card_settle(&prop, option, Some((text, &record)), &by, &via)
+            .await
+            .map_err(RpcFailure::invalid)?;
+        Ok(CardAnswerResult {
+            proposal,
+            record: Some(record),
+        })
+    }
+
+    /// `card.answer` with `scope`: a kept proposal's record written again in
+    /// `scope`, with its kind, its words and its source, ending the old one
+    /// in the same frame; then the proposal names the new record.
+    async fn card_rescope(
+        &self,
+        p: &CardAnswerParams,
+        scope: StandingScope,
+        who: Answerer,
+    ) -> Result<CardAnswerResult, RpcFailure> {
+        let prop = self.card_kept(&p.id).map_err(RpcFailure::invalid)?;
+        let text = prop.kept_text.clone().unwrap_or_else(|| prop.text.clone());
+        let add = StandingAddParams {
+            kind: prop.kind,
+            text: text.clone(),
+            scope,
+            source: Some(format!("card:{}", prop.id)),
+            replaces: prop.standing_id.clone(),
+            author: p.author.clone(),
+            discord: p.discord.clone(),
+            ..StandingAddParams::default()
+        };
+        let StandingChanged { record, .. } = self.standing_add(&add, who.clone())?;
+        let (by, via) = (who.who(), who.via());
+        let proposal = self
+            .card_settle(&prop, "scope", Some((text, &record)), &by, &via)
             .await
             .map_err(RpcFailure::invalid)?;
         Ok(CardAnswerResult {

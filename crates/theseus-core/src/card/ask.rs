@@ -5,8 +5,11 @@
 //!
 //! A statement is kept only if it is **cited** (it names an episode the call
 //! showed for its cluster), **its own words** (it does not copy a line of 60
-//! characters or more), and **short**. Whether it repeats something is the
-//! job's check (`run.rs`).
+//! characters or more), and **short**; and (theseus-ly75u) **lasting** (the
+//! model did not mark it `one_task`), **specific** (two content words at
+//! least), and **for whom it was said** (a line about acting on someone's
+//! behalf keeps that in the statement). Whether it repeats something, and
+//! which of two conflicting statements is offered, is the job's (`run.rs`).
 
 use std::collections::BTreeMap;
 use theseus_protocol::term::words::cut_marked;
@@ -30,10 +33,27 @@ const SHOWN_LINES: usize = 4;
 pub const TEXT_CHARS: usize = 160;
 /// A line this long, copied, is a message and not a statement.
 const PASTE_CHARS: usize = 60;
+/// The scope a statement of one task, repository, branch or run is given.
+pub const ONE_TASK: &str = "one_task";
+/// The fewest content words a statement has: fewer says nothing a turn can act on.
+const MIN_CONTENT: usize = 2;
+/// The words that say on whose behalf one acts.
+const BEHALF: &[&str] = &[
+    "behalf",
+    "in his name",
+    "in her name",
+    "in their name",
+    "speak for",
+];
 
 /// What the model is told, beside the tool.
 pub const INSTRUCTIONS: &str = "These clusters are the owner's own words, grouped by what they \
-say. State each as a card entry with the state_cards tool, from the lines below and nothing else.";
+say. State each as a card entry with the state_cards tool, from the lines below and nothing else. \
+Keep who acts and on whose behalf exactly as the lines say: a line telling an assistant not to \
+speak on the owner's behalf must not become one telling it not to speak at all. Each entry says \
+what to do or not do, and when, in words a later turn could act on; give none for a cluster that \
+cannot be made that specific, and none for an assistant's instructions to itself (how to run a \
+session, what file to read, how to keep its memory), which are not about the owner.";
 
 /// One cluster as the call sees it.
 #[derive(Debug, Clone, PartialEq)]
@@ -86,6 +106,7 @@ pub fn shown(picked: &[usize], clusters: &[Cluster]) -> Vec<Shown> {
 pub fn tool() -> Value {
     let mut scopes = vec!["everywhere".to_string()];
     scopes.extend(SURFACES.iter().map(|s| s.to_string()));
+    scopes.push(ONE_TASK.to_string());
     json!({
         "name": TOOL,
         "description": "Entries for the owner's card: lasting facts and preferences about the owner.",
@@ -101,7 +122,9 @@ pub fn tool() -> Value {
                             "cluster": {"type": "string", "description": "The cluster's label (K1, K2, ...)."},
                             "text": {"type": "string", "description": format!("The fact or preference, one short phrase about the owner that completes \"The owner ...\", in your own words, never a line copied, under {TEXT_CHARS} characters.")},
                             "kind": {"type": "string", "enum": ["preference", "fact"]},
-                            "scope": {"type": "string", "enum": scopes, "description": "Where it holds: everywhere, or only on the one surface the lines say it for."},
+                            "scope": {"type": "string", "enum": scopes, "description": "Where it holds: everywhere, only on the one surface the lines say it for, or one_task when the lines speak of one task, one repository, one branch or one run."},
+                            "conflicts": {"type": "array", "items": {"type": "string"},
+                                "description": "The labels of this call's other clusters whose entry gives the opposite instruction for the same situation, if any."},
                             "episodes": {"type": "array", "items": {"type": "string"},
                                 "description": "The labels (E1, E2, ...) of the episodes it rests on; at least one, from that cluster's lines."}
                         },
@@ -153,15 +176,20 @@ pub struct Statement {
     pub text: String,
     pub kind: StandingKind,
     pub scope: StandingScope,
+    /// The clusters (indexes into the caller's) of this call whose statement
+    /// the model said gives the opposite instruction.
+    pub conflicts: Vec<usize>,
 }
 
-/// What the answer's `state_cards` call held: its kept statements, and how
-/// many it dropped (an unknown cluster, uncited, a paste, empty, or a second
-/// for one cluster).
+/// What the answer's `state_cards` call held: its kept statements, how many
+/// it dropped (an unknown cluster, uncited, a paste, empty, thin, a turned
+/// "on whose behalf", or a second for one cluster), and how many were one
+/// task's.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Parsed {
     pub statements: Vec<Statement>,
     pub dropped: u32,
+    pub one_task: u32,
 }
 
 /// The statements of an answer's content; `None` when it holds no such call.
@@ -186,7 +214,11 @@ pub fn parse(content: &[Value], shown: &[Shown]) -> Option<Parsed> {
             out.dropped += 1;
             continue;
         };
-        if pasted(&text, s) || out.statements.iter().any(|x| x.cluster == s.cluster) {
+        if pasted(&text, s)
+            || thin(&text)
+            || turned(&text, s)
+            || out.statements.iter().any(|x| x.cluster == s.cluster)
+        {
             out.dropped += 1;
             continue;
         }
@@ -195,14 +227,30 @@ pub fn parse(content: &[Value], shown: &[Shown]) -> Option<Parsed> {
             _ => StandingKind::Preference,
         };
         let scope = match c["scope"].as_str() {
+            // No scope narrower than everywhere holds one task's words: the
+            // statement is not proposed.
+            Some(ONE_TASK) => {
+                out.one_task += 1;
+                continue;
+            }
             Some(x) if SURFACES.contains(&x) => StandingScope::Surface(x.to_string()),
             _ => StandingScope::Everywhere,
         };
+        let conflicts = c["conflicts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|l| l.as_str())
+            .filter_map(|l| shown.iter().find(|x| x.label == l.trim()))
+            .map(|x| x.cluster)
+            .filter(|&k| k != s.cluster)
+            .collect();
         out.statements.push(Statement {
             cluster: s.cluster,
             text,
             kind,
             scope,
+            conflicts,
         });
     }
     Some(out)
@@ -218,6 +266,22 @@ fn norm(s: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
+}
+
+/// Whether `text` says too little for a turn to act on.
+fn thin(text: &str) -> bool {
+    super::cluster::words(text).len() < MIN_CONTENT
+}
+
+/// Whether `text` lost the "on whose behalf" its cluster's lines say: a line
+/// about acting on someone's behalf, restated without it, has changed who
+/// the instruction is about.
+fn turned(text: &str, s: &Shown) -> bool {
+    let has = |t: &str| {
+        let t = norm(t);
+        BEHALF.iter().any(|b| t.contains(b))
+    };
+    !has(text) && s.lines.iter().any(|(_, l)| has(l))
 }
 
 /// Whether `text` copies a line shown for its cluster, or a stretch of one.

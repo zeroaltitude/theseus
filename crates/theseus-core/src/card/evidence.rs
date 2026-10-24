@@ -15,6 +15,16 @@
 //! - **Lines.** A note is split into its lines and bullets, a message into
 //!   its paragraphs; each is cut to [`LINE_CHARS`], and an episode gives at
 //!   most [`PER_EPISODE`].
+//! - **Not an assistant's setup** (theseus-ly75u). A note's line addressed
+//!   to an assistant about running itself ([`addressed`]: "you" as its reader, or a
+//!   session's machinery) is no evidence about the owner; an assistant's
+//!   setup file ([`setup_file`]: its soul, identity, bootstrap, agents,
+//!   memory, heartbeat or tools file, or a dated daily log) gives only the
+//!   lines whose subject is the owner ([`about_owner`]). Both are counted in
+//!   [`Scan::setup`].
+//! - **Not one task's** (theseus-ly75u). A line that says it holds for one
+//!   task, repository, branch or run ([`one_task`]) is dropped and counted
+//!   in [`Scan::one_task`]: the card holds what lasts.
 
 use std::path::Path;
 use theseus_protocol::term::words::cut_marked;
@@ -83,6 +93,110 @@ pub struct Scan {
     pub episodes: Vec<Episode>,
     /// Evidence episodes left unread because they are partner-confidential.
     pub withheld: u64,
+    /// Lines dropped as an assistant's setup, not the owner's words.
+    pub setup: u64,
+    /// Lines dropped as one task's, one repository's, branch's or run's.
+    pub one_task: u64,
+}
+
+/// What an assistant's instructions to itself say: a session's machinery.
+const MACHINERY: &[&str] = &[
+    "read this file",
+    "this file is",
+    "each session",
+    "every session",
+    "new session",
+    "session start",
+    "when you wake",
+    "wake up",
+    "bootstrap",
+    "heartbeat",
+    "memory file",
+    "daily log",
+    "daily note",
+    "long-term memory",
+    "your human",
+    "your owner",
+    "your user",
+];
+
+/// Whether a line is addressed to an assistant about running itself: "you"
+/// is its reader, or it names a session's machinery. An order the owner
+/// gives ("Never commit before the gate is green") is not.
+pub fn addressed(line: &str) -> bool {
+    let l = line.to_lowercase();
+    let first = l
+        .split(|c: char| !c.is_alphanumeric() && c != '\'')
+        .find(|w| !w.is_empty())
+        .unwrap_or("");
+    matches!(
+        first,
+        "you" | "your" | "you're" | "youre" | "yourself" | "you'll"
+    ) || MACHINERY.iter().any(|m| l.contains(m))
+}
+
+/// Whether a file, by its name, is an assistant's setup: its soul, identity,
+/// bootstrap, agents, memory, heartbeat or tools file, or a dated daily log.
+pub fn setup_file(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").to_lowercase();
+    let dated = stem.len() >= 10
+        && stem.chars().take(10).enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                c == '-'
+            } else {
+                c.is_ascii_digit()
+            }
+        });
+    dated
+        || matches!(
+            stem.as_str(),
+            "soul" | "identity" | "bootstrap" | "agents" | "memory" | "heartbeat" | "tools"
+        )
+}
+
+/// Whether a line's subject is the owner: it starts with the owner, the
+/// user, a third person, or a third-person verb ("Prefers", "Lives").
+pub fn about_owner(line: &str) -> bool {
+    let l = line.to_lowercase();
+    let mut ws = l
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty());
+    let first = ws.next().unwrap_or("");
+    match first {
+        "he" | "she" | "they" | "his" | "her" | "their" | "owner" | "user" => true,
+        "the" | "my" => matches!(ws.next(), Some("owner" | "user" | "human")),
+        "always" | "sometimes" | "perhaps" | "unless" | "thus" | "this" | "does" => false,
+        w => {
+            w.len() > 3
+                && w.ends_with('s')
+                && !w.ends_with("ss")
+                && !w.ends_with("us")
+                && !addressed(line)
+        }
+    }
+}
+
+/// What says a line holds for one task, repository, branch or run.
+const ONE_TASK: &[&str] = &[
+    "this task",
+    "this repo",
+    "this repository",
+    "this branch",
+    "this run",
+    "this pr",
+    "this pull request",
+    "this ticket",
+];
+
+/// Whether a line says it holds for one task, repository, branch or run.
+pub fn one_task(line: &str) -> bool {
+    let l = format!(" {} ", line.to_lowercase());
+    ONE_TASK.iter().any(|p| {
+        l.match_indices(p).any(|(i, _)| {
+            let after = l[i + p.len()..].chars().next().unwrap_or(' ');
+            !after.is_alphanumeric()
+        })
+    })
 }
 
 /// Whether an episode's labels make it partner-confidential: the label, or a
@@ -186,7 +300,7 @@ pub fn scan(store: &Store) -> Result<Scan> {
                 out.withheld += 1;
                 continue;
             }
-            if let Some(e) = episode(store, &sid, &i, kind)? {
+            if let Some(e) = episode(store, &sid, &i, kind, &mut out)? {
                 out.episodes.push(e);
             }
         }
@@ -195,7 +309,42 @@ pub fn scan(store: &Store) -> Result<Scan> {
     Ok(out)
 }
 
-fn episode(store: &Store, sid: &str, i: &ImportedFrom, kind: Kind) -> Result<Option<Episode>> {
+/// Whether a line of an episode is evidence about the owner: not an
+/// assistant's setup, and not one task's. `note`: the episode is a file, not
+/// a conversation (in a conversation "you" is the owner speaking to his
+/// assistant); `setup`: its file is an assistant's setup file. What is
+/// dropped is counted in `scan`.
+pub fn kept(line: &str, note: bool, setup: bool, scan: &mut Scan) -> bool {
+    if (note || setup) && (addressed(line) || (setup && !about_owner(line))) {
+        scan.setup += 1;
+        return false;
+    }
+    if one_task(line) {
+        scan.one_task += 1;
+        return false;
+    }
+    true
+}
+
+/// Whether an episode's file (its note's name, else its path) is an
+/// assistant's setup file.
+fn setup_of(i: &ImportedFrom) -> bool {
+    let file = Path::new(&i.file)
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    i.place.name.as_deref().is_some_and(setup_file) || setup_file(&file)
+}
+
+fn episode(
+    store: &Store,
+    sid: &str,
+    i: &ImportedFrom,
+    kind: Kind,
+    scan: &mut Scan,
+) -> Result<Option<Episode>> {
+    let setup = setup_of(i);
+    let note = kind.note() || i.place.kind == "file";
     let mut lines = Vec::new();
     let mut summary = None;
     for (_, n) in shown(store, store.session_nodes(sid)?)? {
@@ -212,6 +361,9 @@ fn episode(store: &Store, sid: &str, i: &ImportedFrom, kind: Kind) -> Result<Opt
                     continue;
                 }
                 for l in lines_of(&text) {
+                    if !kept(&l, note, setup, scan) {
+                        continue;
+                    }
                     lines.push(Line {
                         text: l,
                         node: n.id.clone(),

@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use theseus_protocol::import::{ImportEpisodesParams, ImportEpisodesResult};
 use theseus_protocol::{
     method, CardAnswerParams, CardListParams, CardProposal, CardProposeResult, ProposalState,
-    StandingKind, StandingListParams,
+    StandingKind, StandingListParams, StandingScope,
 };
 
 use super::ask::TOOL;
@@ -875,4 +875,180 @@ async fn a_card_below_max_open_runs_again_on_its_normal_schedule() {
     assert!(at >= last + 7 * day && at < last + 9 * day, "{at}");
     let got = r.core.card_run(false).await.unwrap();
     assert!(got.stopped.is_none() && got.evidence > 0, "{got:?}");
+}
+
+/// The archive with the setup and one-task additions (theseus-ly75u).
+async fn archive_with_setup(r: &Rig) {
+    let now = theseus_protocol::now_unix_ms();
+    let mut eps = fixture::export(now);
+    eps.extend(fixture::setup_export(now));
+    import(&r.core, &eps).await;
+}
+
+/// An assistant's setup note gives no lines, a USER file gives only its
+/// owner line, a one-task line is dropped before any call, and the run's
+/// result counts both. (Planted revert: `evidence::kept` keeps every line,
+/// and the setup lines reach the request and the counts are 0.)
+#[tokio::test]
+async fn an_assistants_setup_and_one_tasks_words_are_no_evidence() {
+    let r = rig(vec![two()], |_| {});
+    archive_with_setup(&r).await;
+    let got = propose(&r).await;
+    let sent = bodies(&r);
+    assert_eq!(sent.len(), 1, "{got:?}");
+    let leaked = fixture::SETUP_LINES
+        .iter()
+        .chain([&fixture::HELPER_LINE, &fixture::ONE_TASK_LINE]);
+    for line in leaked {
+        assert!(!sent[0].contains(line), "{line} reached the model");
+    }
+    assert!(
+        sent[0].contains(fixture::OWNER_LINE),
+        "the owner's line did"
+    );
+    assert_eq!((got.setup, got.one_task), (4, 1), "{got:?}");
+}
+
+/// The model's `one_task` mark drops a statement (an invented project's
+/// merge steps); a general preference is still proposed everywhere.
+/// (Planted revert: read `one_task` as everywhere in `ask::parse`.)
+#[tokio::test]
+async fn a_one_task_statement_is_never_proposed_everywhere() {
+    let answer = Scripted::tools(
+        "",
+        &[(
+            "tu",
+            TOOL,
+            json!({"cards": [
+                {"cluster": "K1", "text": "wants your opinion when you have one", "kind": "preference", "scope": "everywhere", "episodes": ["E1"]},
+                {"cluster": "K2", "text": "merges the quay-ledger lanes with a plain merge, then regenerates its lockfile", "kind": "preference", "scope": "one_task", "episodes": ["E4"]},
+            ]}),
+        )],
+    );
+    let r = rig(vec![answer], |_| {});
+    archive(&r).await;
+    let got = propose(&r).await;
+    assert_eq!(got.proposed.len(), 1, "{got:?}");
+    assert_eq!(got.proposed[0].scope, StandingScope::Everywhere);
+    assert_eq!(got.proposed[0].text, "wants your opinion when you have one");
+    assert_eq!(got.one_task, 1, "{got:?}");
+}
+
+/// Two statements of one call that conflict yield one proposal, the better
+/// supported, and one noted conflict. (Planted revert: `settle_conflicts`
+/// keeps every statement.)
+#[tokio::test]
+async fn two_conflicting_statements_yield_one_proposal_and_a_note() {
+    let answer = Scripted::tools(
+        "",
+        &[(
+            "tu",
+            TOOL,
+            json!({"cards": [
+                {"cluster": "K1", "text": "wants to be asked before any commit is made", "kind": "preference", "scope": "everywhere", "episodes": ["E1"], "conflicts": ["K2"]},
+                {"cluster": "K2", "text": "wants commits made without asking once the gate is green", "kind": "preference", "scope": "everywhere", "episodes": ["E4"]},
+            ]}),
+        )],
+    );
+    let r = rig(vec![answer], |_| {});
+    archive(&r).await;
+    let got = propose(&r).await;
+    assert_eq!(got.proposed.len(), 1, "{got:?}");
+    // K1 has three sources, K2 two: K1 stays.
+    assert_eq!(
+        got.proposed[0].text,
+        "wants to be asked before any commit is made"
+    );
+    assert_eq!(got.conflicts.len(), 1, "{got:?}");
+    assert!(got.conflicts[0].contains("without asking"), "{got:?}");
+}
+
+/// The owner's scope on keep and edit: the record holds there; an unknown
+/// form is refused and nothing is written; a kept record moves to another
+/// scope with its words and source, the old one ended. (Planted revert:
+/// `card_answer` ignores `scope`, and the record is everywhere.)
+#[tokio::test]
+async fn the_owner_sets_a_kept_records_scope() {
+    let r = rig(vec![two()], |_| {});
+    archive(&r).await;
+    let got = propose(&r).await;
+    let (a, b) = (got.proposed[0].clone(), got.proposed[1].clone());
+    let with = |id: &str, option: &str, text: Option<&str>, scope: &str| CardAnswerParams {
+        id: id.into(),
+        option: option.into(),
+        text: text.map(String::from),
+        scope: Some(scope.into()),
+        ..Default::default()
+    };
+    // An unknown form: refused with the forms, and nothing written.
+    let before = r.core.store.stats().unwrap().last_position;
+    let e = r
+        .core
+        .card_answer(&with(&a.id, "keep", None, "work:coding"), cli())
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("surface:NAME"), "{}", e.message);
+    assert_eq!(r.core.store.stats().unwrap().last_position, before);
+    let e = r
+        .core
+        .card_answer(&with(&a.id, "keep", None, "surface:phone"), cli())
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("terminal"), "{}", e.message);
+    // Keep with a surface.
+    let kept = r
+        .core
+        .card_answer(&with(&a.id, "keep", None, "surface:terminal"), cli())
+        .await
+        .unwrap();
+    let rec = kept.record.unwrap();
+    assert_eq!(rec.scope, StandingScope::Surface("terminal".into()));
+    assert_eq!(kept.proposal.scope, rec.scope);
+    // Edit with a scope.
+    let edited = r
+        .core
+        .card_answer(
+            &with(
+                &b.id,
+                "edit",
+                Some("wants the gate green before a commit"),
+                "surface:cockpit",
+            ),
+            cli(),
+        )
+        .await
+        .unwrap();
+    let rec_b = edited.record.unwrap();
+    assert_eq!(rec_b.scope, StandingScope::Surface("cockpit".into()));
+    // A scope move of the edited one: its words and source, the old ended.
+    let moved = r
+        .core
+        .card_answer(&with(&b.id, "scope", None, "everywhere"), cli())
+        .await
+        .unwrap();
+    let rec2 = moved.record.unwrap();
+    assert_eq!(rec2.scope, StandingScope::Everywhere);
+    assert_eq!(rec2.text, "wants the gate green before a commit");
+    assert_eq!(rec2.source, format!("card:{}", b.id));
+    assert_eq!(rec2.kind, rec_b.kind);
+    assert_eq!(rec2.ends.as_deref(), Some(rec_b.id.as_str()));
+    assert_eq!(
+        moved.proposal.standing_id.as_deref(),
+        Some(rec2.id.as_str())
+    );
+    assert_eq!(moved.proposal.state, ProposalState::Kept);
+    let live = r
+        .core
+        .standing_list(&StandingListParams::default(), cli())
+        .unwrap();
+    assert_eq!(live.records.len(), 2, "{live:?}");
+    assert!(live.records.iter().all(|i| i.record.id != rec_b.id));
+    // A move names its scope.
+    let bare = CardAnswerParams {
+        id: b.id.clone(),
+        option: "scope".into(),
+        ..Default::default()
+    };
+    let e = r.core.card_answer(&bare, cli()).await.unwrap_err();
+    assert!(e.message.contains("gives the scope"), "{}", e.message);
 }
