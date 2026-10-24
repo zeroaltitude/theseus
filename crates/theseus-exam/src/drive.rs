@@ -157,6 +157,13 @@ pub struct Record {
     /// Calls declined for waiting on approval.
     pub declined: u32,
     pub models: Vec<String>,
+    /// The profile the cell was meant to run on, and that profile's model as
+    /// the daemon listed it: what `models` is checked against. Records from
+    /// before the check have neither.
+    #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub profile_model: Option<String>,
     pub latency_ms: u64,
     #[serde(default)]
     pub session_id: Option<String>,
@@ -178,6 +185,9 @@ pub struct Plan {
     pub sockets: BTreeMap<String, PathBuf>,
     pub notes: Notes,
     pub profile: String,
+    /// The profile's model, from the pre-flight (`preflight`): a cell whose
+    /// answers name another model stops the run.
+    pub profile_model: String,
     pub arms: Vec<Arm>,
     pub runs: u32,
     /// Item ids; empty: every item.
@@ -311,7 +321,7 @@ pub fn verify_store(c: &mut Client, m: &Manifest) -> Result<usize> {
 
 /// Before a run: the store is this exam's, and on every daemon the profile
 /// is live and the nodes are served as written.
-pub fn preflight(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<String> {
+pub fn preflight(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<(String, String)> {
     ensure!(
         m.digest == exam.digest,
         "the store was written from {} ({}), not this exam ({}): write it again",
@@ -320,6 +330,7 @@ pub fn preflight(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<String> {
         exam.digest
     );
     let mut said = Vec::new();
+    let mut models = BTreeSet::new();
     let daemons: BTreeSet<&str> = plan.arms.iter().map(|a| a.daemon()).collect();
     for d in daemons {
         let sock = plan
@@ -339,15 +350,32 @@ pub fn preflight(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<String> {
             .as_array()
             .and_then(|ps| ps.iter().find(|x| x["name"] == plan.profile.as_str()))
             .and_then(|x| x["model"].as_str())
-            .unwrap_or("?")
+            .context("profile.list names no model for the profile")?
             .to_string();
+        models.insert(model.clone());
         let n = verify_store(&mut c, m)?;
         said.push(format!(
             "{d}: profile {} ({model}) is live; {n} keyed nodes served as written",
             plan.profile
         ));
     }
-    Ok(said.join("; "))
+    ensure!(
+        models.len() == 1,
+        "the daemons disagree on profile {}'s model: {models:?}",
+        plan.profile
+    );
+    let model = models.into_iter().next().context("no daemon")?;
+    Ok((said.join("; "), model))
+}
+
+/// The first model in `rec.models` other than `expected`, if any: the run
+/// stops when a cell's answer came from another model than its profile's
+/// (routing or a fallback moved it).
+pub fn foreign_model<'a>(rec: &'a Record, expected: &str) -> Option<&'a str> {
+    rec.models
+        .iter()
+        .map(String::as_str)
+        .find(|m| *m != expected)
 }
 
 /// The session's recall rows, each of which must name the daemon's arm:
@@ -442,6 +470,8 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
         held_out: item.held_out,
         arm: arm.as_str().into(),
         run,
+        profile: Some(plan.profile.clone()),
+        profile_model: Some(plan.profile_model.clone()),
         started_at_ms,
         ..Default::default()
     };
@@ -617,6 +647,8 @@ struct Shared {
     in_flight: usize,
     done: usize,
     stopped_at_cap: bool,
+    /// The first cell whose answer came from another model than its profile's.
+    moved: Option<String>,
 }
 
 /// What a run did.
@@ -664,6 +696,7 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
         in_flight: 0,
         done: 0,
         stopped_at_cap: false,
+        moved: None,
     }));
     let out = Arc::new(Mutex::new(
         std::fs::OpenOptions::new()
@@ -680,7 +713,9 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
             scope.spawn(move || loop {
                 let next = {
                     let mut s = shared.lock().expect("lock");
-                    if s.spent + (s.in_flight as f64 + 1.0) * RESERVE_USD > plan.limit_usd {
+                    if s.moved.is_some() {
+                        None
+                    } else if s.spent + (s.in_flight as f64 + 1.0) * RESERVE_USD > plan.limit_usd {
                         if !s.queue.is_empty() {
                             s.stopped_at_cap = true;
                         }
@@ -709,6 +744,15 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
                     s.in_flight -= 1;
                     s.done += 1;
                     s.spent += r.cost_usd;
+                    if s.moved.is_none() {
+                        if let Some(m) = foreign_model(&r, &plan.profile_model) {
+                            s.moved = Some(format!(
+                                "cell {} {} r{run} was answered by {m}, not profile {}'s model {} \
+                                 (routing or a fallback moved it): no more cells were started",
+                                r.item, r.arm, plan.profile, plan.profile_model
+                            ));
+                        }
+                    }
                     (s.done, s.spent)
                 };
                 if r.error.is_some() {
@@ -732,6 +776,9 @@ pub fn run(plan: &Plan, exam: &Exam, m: &Manifest) -> Result<Summary> {
         }
     });
     let s = shared.lock().expect("lock");
+    if let Some(why) = &s.moved {
+        bail!("{why}");
+    }
     let errors = *errors.lock().expect("lock");
     Ok(Summary {
         planned,
@@ -785,6 +832,38 @@ mod tests {
             (pairs / 3..=pairs * 2 / 3).contains(&oracle_first),
             "{oracle_first} of {pairs}"
         );
+    }
+
+    #[test]
+    fn a_run_stops_on_a_cell_another_model_answered() {
+        let r = |models: &[&str]| Record {
+            models: models.iter().map(|m| (*m).to_string()).collect(),
+            ..Default::default()
+        };
+        assert_eq!(foreign_model(&r(&["model-a"]), "model-a"), None);
+        assert_eq!(foreign_model(&r(&[]), "model-a"), None);
+        assert_eq!(
+            foreign_model(&r(&["model-a", "model-b"]), "model-a"),
+            Some("model-b")
+        );
+    }
+
+    #[test]
+    fn a_record_round_trips_with_its_profile_and_an_old_line_parses() {
+        let r = Record {
+            profile: Some("profile-x".into()),
+            profile_model: Some("model-a".into()),
+            ..Default::default()
+        };
+        let back: Record = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(back.profile.as_deref(), Some("profile-x"));
+        assert_eq!(back.profile_model.as_deref(), Some("model-a"));
+        let mut v = serde_json::to_value(&r).unwrap();
+        let o = v.as_object_mut().unwrap();
+        o.remove("profile");
+        o.remove("profile_model");
+        let old: Record = serde_json::from_value(v).unwrap();
+        assert_eq!((old.profile, old.profile_model), (None, None));
     }
 
     #[test]
