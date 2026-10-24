@@ -51,11 +51,6 @@ use crate::speech::SpeechError;
 /// The model id (Deepgram's docs, "Flux quickstart").
 pub const FLUX_MODEL: &str = "flux-general-en";
 
-/// Whether `model` is a Flux model: the one test every caller uses.
-pub fn is_flux(model: &str) -> bool {
-    model.starts_with("flux-")
-}
-
 /// The reconnect backoff after a drop doubles to this: 30 s (it starts at
 /// [`FluxSettings::backoff`], 1 s).
 pub const BACKOFF_CAP: Duration = Duration::from_secs(30);

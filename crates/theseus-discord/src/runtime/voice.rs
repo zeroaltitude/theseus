@@ -68,6 +68,8 @@ mod tests_config;
 #[cfg(test)]
 mod tests_deaf;
 #[cfg(test)]
+mod tests_flux;
+#[cfg(test)]
 mod tests_heard;
 #[cfg(test)]
 mod tests_judged;
@@ -418,6 +420,20 @@ impl Place {
             .cloned()
             .ok_or("The gateway isn't up yet; try again in a moment.")?;
         let speech = DeepgramSpeech::new(&key, settings(&voice.cfg)).map_err(|e| e.to_string())?;
+        // Deepgram Flux listens when `stt_model` is one (theseus-v774k): the
+        // same key, the same budget, a socket per speaker.
+        let listen = match voice.cfg.uses_flux() {
+            true => Some(
+                flux_listen(
+                    &key,
+                    &voice.cfg,
+                    Arc::downgrade(&self.shared.core),
+                    place.key.clone(),
+                )
+                .map_err(|e| e.to_string())?,
+            ),
+            false => None,
+        };
         drop(key);
         let (guild, chan) = (
             NonZeroU64::new(place.guild).ok_or("no guild")?,
@@ -442,7 +458,9 @@ impl Place {
                 return Err(self.join_failed(&songbird, &place, why).await);
             }
         };
-        Ok(self.start_call(io, speech, channel, place, by).await)
+        Ok(self
+            .start_call(io, speech, listen, channel, place, by)
+            .await)
     }
 
     /// The voice key from the secret board: only Theseus reads it.
@@ -488,6 +506,7 @@ impl Place {
         &self,
         io: SongbirdIo,
         speech: DeepgramSpeech,
+        listen: Option<theseus_voice::FluxListen>,
         channel: u64,
         place: VoicePlace,
         by: &str,
@@ -524,6 +543,13 @@ impl Place {
             greeting.clone(),
             Some(flowing),
         );
+        let engine = match listen {
+            Some(listen) => {
+                let eager = voice.cfg.eager_eot_threshold.is_some();
+                engine.with_listen(Box::new(listen), &voice.cfg.stt_model, eager)
+            }
+            None => engine,
+        };
         let engine = judged::attach(engine, shared, &self.session_id, &self.target);
         let serial = voice
             .calls
@@ -557,11 +583,16 @@ impl Place {
             s.deaf_failed = false;
         });
         let who = shared.core.voice_of(Some(&self.session_id));
+        let listener = match voice.cfg.uses_flux() {
+            true => voice.cfg.stt_model.as_str(),
+            false => "pause rules",
+        };
         shared.core.binding_ledger(
             LedgerKind::VoiceJoined,
             None,
             json!({"place": place.label, "channel": channel.to_string(), "by": by, "hears": hears,
-                "voice": who.voice, "persona": who.persona, "greeting": greeting.is_some()}),
+                "voice": who.voice, "persona": who.persona, "greeting": greeting.is_some(),
+                "listener": listener}),
         );
         tokio::spawn(engine.run());
         tokio::spawn(pump(
@@ -921,7 +952,9 @@ fn engine_config(users: impl IntoIterator<Item = Speaker>, cfg: &VoiceConfig) ->
 fn settings(cfg: &VoiceConfig) -> DeepgramSettings {
     DeepgramSettings {
         api_base: cfg.api_base.clone(),
-        stt_model: cfg.stt_model.clone(),
+        // Flux streams; the pre-recorded endpoint (the fallback's, a rejoin's
+        // probe) is asked for nova-3 (theseus-v774k).
+        stt_model: cfg.prerecorded_model().to_string(),
         language: cfg.language.clone(),
         tts_voice: cfg.tts_voice.clone(),
         ..DeepgramSettings::default()
@@ -982,6 +1015,7 @@ async fn pump(
     place: VoicePlace,
     mut events: mpsc::UnboundedReceiver<Event>,
 ) {
+    let mut stop_timing = None;
     while let Some(e) = events.recv().await {
         match e {
             Event::Turn { id, utterances } => {
@@ -1040,16 +1074,27 @@ async fn pump(
                     detail,
                 );
             }
+            Event::StopLatency {
+                to_stop, to_ended, ..
+            } => stop_timing = Some((to_stop, to_ended)),
             Event::BargeIn {
                 speaker,
                 what,
                 dropped,
             } => {
                 update(&shared, |s| s.barge_ins += 1);
+                // A listener's start of turn stopped the clip: how fast, for
+                // the A/B against the pause rules (theseus-v774k).
+                let mut detail = json!({"speaker": speaker.0.to_string(), "what": spoken(what), "dropped": dropped});
+                if let Some((to_stop, to_ended)) = stop_timing.take() {
+                    let ms = |d: Option<Duration>| d.map(|d| d.as_millis() as u64);
+                    detail["stop_latency_ms"] = json!(ms(to_stop));
+                    detail["ended_latency_ms"] = json!(ms(to_ended));
+                }
                 shared.core.binding_ledger(
                     LedgerKind::VoiceBargeIn,
                     session(&shared, &place).as_deref(),
-                    json!({"speaker": speaker.0.to_string(), "what": spoken(what), "dropped": dropped}),
+                    detail,
                 );
             }
             Event::Unlisted { speaker } => shared.core.binding_ledger(
@@ -1206,6 +1251,7 @@ fn failed(shared: &Shared, serial: u64, place: &VoicePlace, what: &Failure, erro
         Failure::Transcribe(s) => format!("transcribe {}", s.0),
         Failure::Synthesize(w) => format!("synthesize {}", spoken(*w)),
         Failure::Connection => "connection".into(),
+        Failure::Flux => "listener".into(),
     };
     update(shared, |s| {
         s.failures += 1;
@@ -1310,24 +1356,71 @@ impl Metered {
         audio: Duration,
         chars: usize,
     ) -> Result<(), SpeechError> {
-        let Some(core) = self.core.upgrade() else {
-            return Err(SpeechError("the daemon is stopping".into()));
-        };
-        let call = SpeechCall {
-            kind,
-            provider: theseus_voice::deepgram::PROVIDER,
-            model,
-            audio,
-            chars,
-            latency: Duration::ZERO,
-            detail: serde_json::Value::Null,
-        };
-        let (Some(estimate), Ok(Some(sid))) = (call.cost(), core.outbox.place_session(&self.key))
-        else {
-            return Ok(());
-        };
-        core.speech_fits(&sid, estimate).map_err(SpeechError)
+        speech_fits(&self.core, &self.key, kind, model, audio, chars).map_err(SpeechError)
     }
+}
+
+/// Whether a speech call that would cost about what `model` prices `audio`
+/// and `chars` at fits the voice place's session's limit.
+fn speech_fits(
+    core: &Weak<Core>,
+    key: &str,
+    kind: SpeechKind,
+    model: &str,
+    audio: Duration,
+    chars: usize,
+) -> Result<(), String> {
+    let Some(core) = core.upgrade() else {
+        return Err("the daemon is stopping".into());
+    };
+    let call = SpeechCall {
+        kind,
+        provider: theseus_voice::deepgram::PROVIDER,
+        model,
+        audio,
+        chars,
+        latency: Duration::ZERO,
+        detail: serde_json::Value::Null,
+    };
+    let (Some(estimate), Ok(Some(sid))) = (call.cost(), core.outbox.place_session(key)) else {
+        return Ok(());
+    };
+    core.speech_fits(&sid, estimate)
+}
+
+/// The audio a Flux stream is asked to fit before it opens and at each turn:
+/// the cost of half a minute at Flux's price.
+const FLUX_ESTIMATE: Duration = Duration::from_secs(30);
+
+/// Deepgram Flux for a call (theseus-v774k): its sockets open and its turns
+/// start only while the session's limit has room for them, checked as a
+/// transcription is.
+fn flux_listen(
+    key: &str,
+    cfg: &VoiceConfig,
+    core: Weak<Core>,
+    place_key: String,
+) -> Result<theseus_voice::FluxListen, SpeechError> {
+    let settings = theseus_voice::FluxSettings {
+        ws_base: theseus_voice::FluxSettings::ws_base_of(&cfg.api_base),
+        model: cfg.stt_model.clone(),
+        eot_threshold: cfg.eot_threshold.map(|t| t.0),
+        eager_eot_threshold: cfg.eager_eot_threshold.map(|t| t.0),
+        eot_timeout_ms: cfg.eot_timeout_ms,
+        ..theseus_voice::FluxSettings::default()
+    };
+    let model = cfg.stt_model.clone();
+    let admit: theseus_voice::flux::Admit = Arc::new(move |_| {
+        speech_fits(
+            &core,
+            &place_key,
+            SpeechKind::Transcribed,
+            &model,
+            FLUX_ESTIMATE,
+            0,
+        )
+    });
+    theseus_voice::FluxListen::new(key, settings, Some(admit))
 }
 
 impl Speech for Metered {
@@ -1725,7 +1818,10 @@ mod tests {
 
     /// A core whose sessions may spend `limit_usd`, and a voice place on a
     /// session opened there, bound to the lounge.
-    async fn spending(dir: &std::path::Path, limit_usd: f64) -> (Arc<Core>, Place, String) {
+    pub(super) async fn spending(
+        dir: &std::path::Path,
+        limit_usd: f64,
+    ) -> (Arc<Core>, Place, String) {
         let core = core_with(dir, SecretBoard::empty(), |c| {
             c.voice.enabled = true;
             c.kernel.spend_limit_usd = limit_usd;

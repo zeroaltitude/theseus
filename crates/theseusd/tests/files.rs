@@ -415,6 +415,45 @@ fn file_read_reads_sections_a_member_and_a_recording_heard_once() {
     );
 }
 
+/// Deepgram Flux listens on calls (theseus-v774k), but a voice note is a
+/// recording, and Flux streams: with `stt_model` a Flux one, `file.read` still
+/// posts it to the pre-recorded endpoint, asking for nova-3.
+#[test]
+fn a_voice_note_is_heard_pre_recorded_when_the_listener_is_flux() {
+    let (base, heard) = fake_deepgram("Moor at the outer mark after six.");
+    let r = Rig::start_with(
+        |prompt| match prompt.lines().last().unwrap_or("") {
+            "Hear the memo." => vec![("file_read", json!({"name": "memo.ogg"}))],
+            _ => vec![],
+        },
+        move |t| {
+            table(t, "voice").insert("api_base".into(), base.into());
+            table(t, "voice").insert("stt_model".into(), "flux-general-en".into());
+            table(t, "secrets").insert(
+                "deepgram_api_key".into(),
+                "op://Test/deepgram_api_key/credential".into(),
+            );
+        },
+    );
+    let s = r.call("session.open", json!({"label": "files"})).unwrap();
+    let sid = s["session_id"].as_str().unwrap();
+    let ogg = b"OggS\x00\x02 a recording, by its first bytes".to_vec();
+    r.submit(sid, "sonnet", "Hear the memo.", Some(("memo.ogg", &ogg)));
+    let got = last_tool_result(&r.model);
+    assert!(
+        got.contains("by Deepgram nova-3") && got.contains("Moor at the outer mark"),
+        "{got}"
+    );
+    let seen = heard.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert!(
+        seen[0].0.starts_with("/v1/listen?model=nova-3"),
+        "{}",
+        seen[0].0
+    );
+    assert!(!seen[0].0.contains("flux"), "{}", seen[0].0);
+}
+
 /// The blocks of the last user message of the last request the model got.
 fn last_user_blocks(model: &FakeModel) -> Vec<Value> {
     let reqs = model.requests();
