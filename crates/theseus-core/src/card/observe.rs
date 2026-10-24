@@ -555,7 +555,7 @@ impl Core {
 }
 
 /// The nightly sweep, for the card's live pass: how many sessions it read.
-/// Until the live pass calls it, only the tests do.
+/// The live pass calls it first (`Core::sweep_observations`).
 pub async fn sweep(core: &Core, now_ms: u64) -> Result<u32> {
     core.observe_sweep(now_ms).await
 }

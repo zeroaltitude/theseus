@@ -238,11 +238,10 @@ pub fn is_live(p: &CardProposal) -> bool {
 }
 
 impl Core {
-    /// Read what the observer has not yet read of the sessions that ended an
-    /// exchange, and write its observations (p2k-obs). How many it wrote.
-    async fn sweep_observations(&self, _now_ms: u64) -> anyhow::Result<u32> {
-        // join: replace this body with crate::card::observe::sweep(self, now_ms).await (p2k-obs)
-        std::future::ready(Ok(0)).await
+    /// Read what the observer has not yet read of the owner's recent sessions,
+    /// and write its observations (`observe::sweep`). How many sessions it read.
+    async fn sweep_observations(&self, now_ms: u64) -> anyhow::Result<u32> {
+        crate::card::observe::sweep(self, now_ms).await
     }
 
     /// The live pass (see the module's words). Its new proposals are added to

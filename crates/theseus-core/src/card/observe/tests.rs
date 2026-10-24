@@ -827,3 +827,32 @@ async fn the_sweep_reads_what_never_came_due_and_skips_tasks_and_shared_places()
     // Past the window nothing is read.
     let _ = SWEEP_WINDOW_MS;
 }
+
+// 10. The join (p2k-obs + p2k-live): the card's live pass sweeps first, so a
+// conversation that never reached a due point is read the same night and its
+// fact is a question at once. (Without the wiring the pass's sweep was a no-op
+// and found no observation.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_live_pass_sweeps_first_and_asks_of_what_it_read() {
+    let r = rig_with(2, |_| {});
+    let mine = session(&r.core, Some(&dm()));
+    exchange(&r.core, &mine, 2, 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(asked(&r).is_empty(), "nothing was due");
+    script(
+        &r,
+        answers(json!([item("fact", "Is on the M1 machine now", &["L2"])])),
+    );
+    let mut out = theseus_protocol::CardProposeResult::default();
+    let made = r.core.card_live_run(false, &mut out).await.unwrap();
+    assert_eq!(asked(&r).len(), 1, "the pass swept the owner's session");
+    assert_eq!(made.len(), 1, "{made:?}");
+    assert_eq!(made[0].ask, theseus_protocol::CardAsk::Add);
+    assert_eq!(made[0].text, "Is on the M1 machine now");
+    let obs = observed(&r.core);
+    assert_eq!(obs.len(), 1);
+    assert_eq!(obs[0].session, mine);
+    assert_eq!(obs[0].state, theseus_protocol::ObservationState::Used);
+    let row = kinds(&r.core.store, "card.observed");
+    assert_eq!(row[0].data["purpose"], "sweep");
+}
