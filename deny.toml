@@ -61,6 +61,11 @@ ignore = [
     { id = "RUSTSEC-2026-0208", reason = "libcrux-sha3 AVX2 SHAKE-256: unreachable from DAVE, as RUSTSEC-2026-0207 (44a's trace)" },
     { id = "RUSTSEC-2026-0212", reason = "libcrux-secrets: reached only through libcrux-sha3, unreachable from DAVE (44a's trace)" },
     { id = "RUSTSEC-2026-0293", reason = "ringbuf: songbird's only ring is of u8, which has no Drop to panic, for HTTP/HLS inputs voice never makes" },
+    # theseus-ux1gl (patch2 release, 2026-10-23): crypto-bigint 0.5.5 comes only through DAVE's P-256 (elliptic-curve
+    # 0.13 under p256, p384, k256, hpke-rs and openmls, from davey in songbird); the fix is 0.7.6, which needs
+    # elliptic-curve 0.14, and davey 0.1.5 does not move. A timing side channel needs an observer on this machine
+    # during a voice session's key work. Drop when the DAVE stack moves to elliptic-curve 0.14.
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 timing: DAVE's P-256 only, local observer needed, no 0.5 fix (ux1gl)" },
     # theseus-n402p: theseus-files reads archives through zip 9 (patched); zip 8.6 stays only for candle-core 0.11.0
     # (the latest, which pins ^8.6). All three are in ZipArchive::extract / ZipStreamReader::extract, which neither
     # candle (npy/pickle: ZipArchive::by_name and ZipWriter) nor this workspace ever calls. Drop with candle's bump.
