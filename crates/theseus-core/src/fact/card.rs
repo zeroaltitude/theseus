@@ -92,6 +92,8 @@ impl Fact for CardAnswered<'_> {
 /// spend (`day_ceiling::SPEND_KINDS`). The observer (a later row) writes it.
 pub struct CardObserved<'a> {
     pub session: &'a str,
+    /// `live` (the exchange end) or `sweep` (the nightly pass).
+    pub purpose: &'a str,
     pub model: &'a str,
     pub cost_usd: f64,
     pub input_tokens: u64,
@@ -99,8 +101,8 @@ pub struct CardObserved<'a> {
     /// Observations the model returned, and those kept.
     pub returned: u32,
     pub kept: u32,
-    /// Those kept that restated a live standing record or an earlier
-    /// observation.
+    /// Those that restated a live standing record: each wrote no
+    /// observation and counted as said again.
     pub restated: u32,
 }
 
@@ -108,7 +110,8 @@ impl Fact for CardObserved<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::CardObserved);
 
     fn row(&self) -> Value {
-        json!({"session": self.session, "model": self.model, "cost_usd": self.cost_usd,
+        json!({"session": self.session, "purpose": self.purpose, "model": self.model,
+               "cost_usd": self.cost_usd,
                "input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
                "returned": self.returned, "kept": self.kept, "restated": self.restated})
     }

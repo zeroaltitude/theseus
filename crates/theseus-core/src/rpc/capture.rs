@@ -210,6 +210,19 @@ impl Core {
         if self.capture_wanted(p, conn) {
             self.runner.standing.expected.note(session, &p.input);
         }
+        // The exchange-end observer reads these, with capture off too.
+        if self.cfg.card.observe && Self::owner_message(p, conn) {
+            self.runner.standing.expected.note_owner(session, &p.input);
+        }
+    }
+
+    /// Whether this message is the owner's own: not a job's (`opened_from`),
+    /// a prompt's, or through the MCP server or an unnamed surface.
+    fn owner_message(p: &TurnSubmitParams, conn: Conn<'_>) -> bool {
+        p.opened_from.is_none()
+            && p.prompt.is_none()
+            && p.attachments.is_empty()
+            && !matches!(conn.surface, Surface::Mcp | Surface::Unnamed)
     }
 
     /// The rule `expect_capture` notes by, for the router's early judge too
@@ -217,11 +230,6 @@ impl Core {
     /// message: the owner's 2026-10-15 "I think that sounds right" to asking
     /// `directive.v1` in the routing call each message already makes).
     pub(super) fn capture_wanted(&self, p: &TurnSubmitParams, conn: Conn<'_>) -> bool {
-        self.cfg.standing.capture
-            && self.cfg.judge.enabled
-            && p.opened_from.is_none()
-            && p.prompt.is_none()
-            && p.attachments.is_empty()
-            && !matches!(conn.surface, Surface::Mcp | Surface::Unnamed)
+        self.cfg.standing.capture && self.cfg.judge.enabled && Self::owner_message(p, conn)
     }
 }
