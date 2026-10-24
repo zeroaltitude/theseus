@@ -391,6 +391,64 @@ async fn a_large_file_without_save_to_answers_with_its_metadata() {
     );
 }
 
+/// A Google Doc has no size in its metadata, so the read does not stop before the
+/// export: the text over the inline cap is found after the download, and the
+/// answer is the same metadata, with the true size.
+#[tokio::test]
+async fn an_exported_doc_over_1_mb_answers_with_its_metadata() {
+    let (r, drive) = drive_rig(vec![]).await;
+    let head = "# Notes\n";
+    let md = format!("{head}{}", "a".repeat((1 << 20) + 1 - head.len()));
+    assert_eq!(md.len(), (1 << 20) + 1);
+    drive.add(File::doc("bigdoc", "Long Notes", &md));
+    let (out, _) = ok(&r, "drive.read", json!({"id": "bigdoc"})).await;
+    for want in [
+        "text over 1 MB",
+        "1048577 bytes",
+        "Long Notes",
+        "bigdoc",
+        "`save_to`",
+    ] {
+        assert!(out.text.contains(want), "{want}: {}", out.text);
+    }
+    assert!(out.text.len() < 2_000, "the body is not shown");
+    assert_eq!(out.meta["inline"], json!(false));
+    assert_eq!(out.meta["bytes"], json!(1_048_577));
+    assert!(
+        r.fake
+            .log()
+            .iter()
+            .any(|l| l.path == "/drive/v3/files/bigdoc/export"),
+        "the export happened: this is the arm after the download"
+    );
+}
+
+#[tokio::test]
+async fn an_exported_doc_that_is_not_text_says_so() {
+    let (r, drive) = drive_rig(vec![]).await;
+    drive.add(File::binary(
+        "rawdoc",
+        "Odd Doc",
+        theseus_google::fake::drive::DOC,
+        vec![0xff, 0xfe, 0x00, 0x80],
+    ));
+    let (out, _) = ok(&r, "drive.read", json!({"id": "rawdoc"})).await;
+    assert!(
+        out.text.contains("not text") && out.text.contains("`save_to`"),
+        "{}",
+        out.text
+    );
+    assert_eq!(out.meta["inline"], json!(false));
+    assert_eq!(out.meta["bytes"], json!(4));
+    assert!(
+        r.fake
+            .log()
+            .iter()
+            .any(|l| l.path == "/drive/v3/files/rawdoc/export"),
+        "the export happened"
+    );
+}
+
 #[tokio::test]
 async fn a_sheet_reads_as_tabs_and_a_table_and_slides_as_text_by_object() {
     let (r, drive) = drive_rig(vec![]).await;
