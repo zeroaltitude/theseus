@@ -201,8 +201,20 @@ impl Chat {
     /// A question of a placed session's, which this chat's turn raised: the
     /// answer will start a continuation turn there (theseus-nde5n).
     pub(super) fn placed_asked(&mut self, c: &theseus_protocol::ConfirmRequest) {
-        if self.placed.also.contains(&c.session_id) {
-            self.placed.owed.insert(c.session_id.clone());
+        let ours = c.turn_id.as_ref().is_some_and(|t| self.mine.contains(t));
+        if ours && self.placed.also.contains(&c.session_id) {
+            self.placed
+                .owed
+                .insert(c.correlation_id.clone(), c.session_id.clone());
+        }
+    }
+
+    /// A question closed with no answer (a stop, new input over it) starts
+    /// no continuation: nothing is owed for it. An answer or an expiry wakes
+    /// the execution, so those keep their mark for the continuation.
+    pub(super) fn placed_closed(&mut self, r: &theseus_protocol::ConfirmResolved) {
+        if r.option.is_none() && !r.expired {
+            self.placed.owed.remove(&r.correlation_id);
         }
     }
 
@@ -211,7 +223,14 @@ impl Chat {
     /// surface sent there is not a continuation (theseus-nde5n).
     pub(super) fn placed_continues(&mut self, e: &Event) {
         if let Event::TurnStarted(t) = e {
-            if t.continuation && self.placed.owed.remove(&t.session_id) {
+            let due = self
+                .placed
+                .owed
+                .iter()
+                .find(|(_, s)| **s == t.session_id)
+                .map(|(c, _)| c.clone());
+            if let Some(c) = due.filter(|_| t.continuation) {
+                self.placed.owed.remove(&c);
                 self.mine.insert(t.turn_id.clone());
             }
         }
@@ -228,14 +247,23 @@ impl Chat {
             return Vec::new();
         }
         also.push(session_id.to_string());
-        if also.len() > ALSO {
-            also.remove(0);
+        let evicted = (also.len() > ALSO).then(|| also.remove(0));
+        if let Some(old) = &evicted {
+            self.placed.owed.retain(|_, s| s != old);
         }
         match self.session.clone() {
-            Some(sid) => vec![
-                Self::watch_with(&sid, &self.placed.also),
-                Self::watch_session(session_id),
-            ],
+            Some(sid) => {
+                let mut out = vec![
+                    Self::watch_with(&sid, &self.placed.also),
+                    Self::watch_session(session_id),
+                ];
+                out.extend(
+                    evicted
+                        .filter(|old| *old != sid)
+                        .map(|old| Self::unwatch_session(&old)),
+                );
+                out
+            }
             None => Vec::new(),
         }
     }
@@ -251,7 +279,7 @@ pub(super) struct Placed {
     pub(super) also: Vec<String>,
     /// Turns whose placement was told, so it is told once.
     pub(super) told: std::collections::HashSet<String>,
-    /// Placed sessions with a question of this chat's turn open: the next
-    /// continuation turn there is this chat's.
-    pub(super) owed: std::collections::HashSet<String>,
+    /// Open questions of this chat's placed turns, by correlation id, with
+    /// their session: the next continuation turn there is this chat's.
+    pub(super) owed: std::collections::HashMap<String, String>,
 }

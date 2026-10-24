@@ -158,7 +158,8 @@ new lines, the dock again, in synchronized-output mode 2026).
   sends `session.watch` for it (and again at each reconnect), and a question of that session which this chat's turn raised
   marks it `owed` (`Placed::owed`): its next `turn.started` with `continuation` is this chat's turn (`placed_continues`), so
   the card resolves (`approved`) and the continuation's reply prints. Another turn of that session (Discord's, say) stays out
-  (theseus-nde5n).
+  (theseus-nde5n). The mark is made only for a question of one of this chat's own turns, is kept by correlation id, and goes when the question
+  closes with no answer or its session is evicted from `also` (the ninth placed session), which is then unwatched (theseus-hk0dk).
 - **Coming back** (theseus-6yka). `theseus -c` (`theseus-tui chat -c`) asks `session.list {dir, n: 50}` and continues
   the directory's most recently active conversation (`chat/reopen.rs`: `last_here`: a conversation, with a turn, not
   retired, `started_on` not `discord`, so never a task's, a DM's or a shared place's); with none it says so and opens
