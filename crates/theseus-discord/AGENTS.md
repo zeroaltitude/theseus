@@ -623,8 +623,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   the reply is queued: the order of a fast host, theseus-wpv2g). Each asserts its scenario happened. `render/process.rs`'s unit tests: the stream and the fold, a tool loop folding at
   `model.answered` and not at its end after the tool ran, a fence in the thinking escaped, the cut.
   `src/courier/tests_order.rs`: a loop's thinking queued as a new message goes before the lane's waiting post, and a
-  tool line alone after it (the lane run against the fake, everything queued before it starts, so load cannot
-  reorder it).
+  tool line alone after it, and a turn whose post goes before its stream replies to the owner's message once
+  (theseus-nxnqc; a newer anchor survives an older post) (the lane run against the fake, everything queued before it
+  starts, so load cannot reorder it).
 - `src/tests_gateway.rs` drives it through the stand-in's gateway too (theseus-6g62): `FakeDiscord::say` types a
   message as a user, and `press` presses a button the binding posted, each sent as Discord sends it; `replies()`
   is what the binding answered each press, and each message keeps every version (theseus-qifw). A guild set on
