@@ -222,31 +222,37 @@ async fn a_place_or_sender_that_is_not_the_owner_alone_gives_no_request() {
         assert!(asked(&r).is_empty(), "{target}: a request was made");
         assert!(marks(&r.core, &sid).is_none());
     }
-    // A task's session: the hook is told it is a task's.
+    // A task's session: the hook is told it is a task's. The turns' own ends
+    // are held off (the session's decision taken meanwhile), so the lines are
+    // due and unread when the task's end comes: only the flag stops it.
     let sid = session(&r.core, Some(&dm()));
-    exchange(&r.core, &sid, EVERY, 2).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let deciding = || r.core.runner.judge.observing.deciding.lock().unwrap();
+    deciding().insert(sid.clone());
+    for i in 0..EVERY {
+        let t = format!("Mooring line {i}: is it chafing at low tide?");
+        r.core.runner.standing.expected.note_owner(&sid, &t);
+        turn(&r.core, &sid, &t).await;
+    }
+    deciding().remove(&sid);
     let before = asked(&r).len();
-    r.core.runner.judge.observe_at_exchange_end(
-        &crate::judge::categorize::ExchangeEnd {
-            session_id: sid.clone(),
-            execution_id: String::new(),
-            turn_id: "trn_x".into(),
-        },
-        true,
-    );
+    let end = crate::judge::categorize::ExchangeEnd {
+        session_id: sid.clone(),
+        execution_id: String::new(),
+        turn_id: "trn_x".into(),
+    };
+    r.core.runner.judge.observe_at_exchange_end(&end, true);
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(asked(&r).len(), before, "a task's end made a request");
-    assert!(
-        r.core
-            .runner
-            .judge
-            .observing
-            .deciding
-            .lock()
-            .unwrap()
-            .is_empty(),
-        "nothing was begun"
+    assert!(deciding().is_empty(), "nothing was begun");
+    assert!(marks(&r.core, &sid).is_none());
+    // The same end as a conversation's is read: the lines were due.
+    script(&r, answers(json!([])));
+    r.core.runner.judge.observe_at_exchange_end(&end, false);
+    settled(&r.core).await;
+    assert_eq!(
+        asked(&r).len(),
+        before + 1,
+        "the conversation's end is read"
     );
 }
 
