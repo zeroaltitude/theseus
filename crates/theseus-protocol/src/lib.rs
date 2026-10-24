@@ -65,6 +65,7 @@ pub mod mcp_server;
 pub mod memory;
 pub mod modes;
 mod nodes;
+pub mod notice;
 pub mod notices;
 pub mod nudge;
 mod ontology;
@@ -259,6 +260,8 @@ pub mod method {
         /// Trust a session again (theseus-9bp): it no longer holds external text, so its calls that act go back to
         /// their postures. It loosens, so it takes the same trusted answer as an approval.
         POLICY_TRUST = "policy.trust",
+        /// The owner has seen a hold's notice (theseus-g00vv): the hold stays, and its notice counts as told. Owner only, from a private place, as `policy.trust`.
+        POLICY_NOTICE_SEEN = "policy.notice_seen",
         /// Publish an item into a place's conversation (the place rule, theseus-nbsh): the owner's act, from a private place.
         PLACE_PUBLISH = "place.publish",
         /// The ontology (M4 §2.8, theseus-8kk.1): the kinds, the categories and their guidance, and memberships; then
@@ -741,10 +744,15 @@ pub struct HealthResult {
     #[serde(default)]
     pub wakes: Vec<WakeInfo>,
     /// The sessions that hold external text (theseus-9bp), the longest-held
-    /// first: in each, a call that acts waits for approval until the operator
-    /// trusts it again.
+    /// first, those whose execution has not ended (theseus-g00vv): under `ask`
+    /// a call that acts waits for approval until the operator trusts it
+    /// again; under `notify` the first one tells the owner.
     #[serde(default)]
     pub external_text: Vec<ExternalTextInfo>,
+    /// What a hold does: `ask` or `notify` (`[policy] external_text`). Empty
+    /// from a daemon before it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub external_text_mode: String,
     /// The web UI's refusals since the daemon's image started (theseus-70f).
     #[serde(default)]
     pub web: WebStatus,
@@ -1566,6 +1574,9 @@ pub struct KernelStatus {
     /// Counts by state: queued, running, waiting, blocked, cancelled, failed, budget_exhausted, complete.
     #[serde(default)]
     pub executions_by_state: std::collections::BTreeMap<String, u64>,
+    /// `executions_by_state["waiting"]` by what each waits on (theseus-g00vv). Zeroes from an older daemon.
+    #[serde(default, skip_serializing_if = "notice::WaitingSplit::is_empty")]
+    pub waiting_split: notice::WaitingSplit,
     /// Counts by state: planned, authorized, dispatched, succeeded, failed, outcome_unknown, cancelled.
     #[serde(default)]
     pub actions_by_state: std::collections::BTreeMap<String, u64>,
@@ -1933,6 +1944,17 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub external_text: Option<ExternalText>,
+    /// The hold makes a call wait: the session holds external text, `[policy]
+    /// external_text` is `ask`, and its execution has not ended. Under
+    /// `notify` it is always false (the hold is a notice), and so for a session
+    /// whose execution is complete, cancelled or failed (theseus-g00vv).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub external_waits: bool,
+    /// The current hold has told the owner already (`external::told`), by
+    /// its first call that acts or by `policy.notice_seen`. False when there
+    /// is no hold (theseus-g00vv).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub external_told: bool,
     /// What its execution needs from people, by `attention()` (theseus-in3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

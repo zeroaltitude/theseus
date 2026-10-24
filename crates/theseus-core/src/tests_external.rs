@@ -28,6 +28,7 @@ use crate::test_support::{turn, until};
 use crate::web::tests::{serve, web};
 use crate::{Config, Core};
 
+mod notice;
 mod once;
 
 /// A stand-in model that answers each request from the request itself.

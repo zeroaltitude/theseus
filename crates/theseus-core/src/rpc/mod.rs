@@ -110,6 +110,7 @@ mod watch;
 mod work_board;
 #[cfg(test)]
 pub(crate) use server::write_item;
+mod notice_seen;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

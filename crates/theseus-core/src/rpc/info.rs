@@ -16,12 +16,46 @@ impl Core {
             admission_ceiling: st.admission_ceiling,
             turns_held: st.turns_held,
             executions_by_state: st.executions_by_state,
+            waiting_split: self.waiting_split(&st.waiting_by_wake),
             actions_by_state: st.actions_by_state,
             quarantined_completions: st.quarantined_completions,
             startup: self.startup_report.clone(),
             spend_limit_usd: self.cfg.kernel.spend_limit_usd,
             spend_limit_mode: Some(self.cfg.kernel.spend_limit_mode.as_str().into()),
             lingering_wrappers: self.spool.lingering().len() as u64,
+        }
+    }
+
+    /// The waiting executions by wake, with the retired sessions told apart
+    /// from the live conversations at rest on input (theseus-g00vv). A label:
+    /// no execution changes, and nothing is read but counts. A session is
+    /// retired by its record (the owner's `session.retire`, a supersession),
+    /// counted by the session index's `r` term; the kernel knows nothing of
+    /// retirement, so the count is capped at the executions waiting on input.
+    /// A session retired by age alone is not counted, and none is while the
+    /// index is built after an upgrade.
+    fn waiting_split(
+        &self,
+        w: &theseus_kernel::WaitingByWake,
+    ) -> theseus_protocol::notice::WaitingSplit {
+        use theseus_store::Store as _;
+        let (lo, hi) = (
+            crate::store::RETIRED.to_string(),
+            format!("{}\u{1}", crate::store::RETIRED),
+        );
+        let retired = self
+            .store
+            .inner()
+            .count_by_terms(theseus_store::kinds::SESSION, &lo, &hi)
+            .ok()
+            .flatten()
+            .unwrap_or(0)
+            .min(w.input);
+        theseus_protocol::notice::WaitingSplit {
+            at_rest: w.input - retired,
+            retired,
+            work: w.work,
+            time: w.time,
         }
     }
 

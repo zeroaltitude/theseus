@@ -846,6 +846,25 @@ pub async fn policy(conn: &mut Conn, json: bool, cmd: PolicyCmd) -> Result<()> {
         }
         PolicyCmd::Revoke { id } => crate::earned::revoke(conn, json, id).await,
         PolicyCmd::Grants { session } => crate::earned::grants(conn, json, session).await,
+        PolicyCmd::Dismiss { session } => {
+            let h: HealthResult =
+                serde_json::from_value(conn.request(method::HEALTH, Value::Null).await?)?;
+            let session_id = trust_target(&h.external_text, &session)?;
+            let v = conn
+                .request(
+                    method::POLICY_NOTICE_SEEN,
+                    theseus_protocol::notice::PolicyNoticeSeenParams {
+                        session_id,
+                        author: None,
+                        discord: None,
+                    },
+                )
+                .await?;
+            output(json, v, |r| {
+                println!("{}", render::external::notice_seen_line(&r));
+                Ok(())
+            })
+        }
         PolicyCmd::Trust { session } => {
             // A short name is looked for among the sessions that hold
             // external text (theseus-9bp), which health lists.
@@ -2065,6 +2084,76 @@ mod tests {
             .to_string()
             .contains("no session that holds external text"));
         assert_eq!(trust_target(&two, "ses_other").unwrap(), "ses_other");
+    }
+
+    /// Under `notify` a hold waits for nothing: health says each one's first
+    /// call that acts tells the owner, and never "wait" (theseus-g00vv). Under
+    /// `ask`, and from a daemon that names no mode, the words are as before.
+    #[test]
+    fn external_text_line_says_what_a_hold_does_under_each_mode() {
+        let held = theseus_protocol::ExternalTextInfo {
+            session_id: "ses_0000aa1111".into(),
+            held: theseus_protocol::ExternalText {
+                since_ms: 0,
+                tool: "http.fetch".into(),
+                url: "https://example.test/a".into(),
+                node_id: "trs_1".into(),
+                ..Default::default()
+            },
+            since_local: "12:55:01".into(),
+            ..Default::default()
+        };
+        let two = [held.clone(), held.clone()];
+        let notify = render::external::line(&two, "notify").unwrap();
+        assert_eq!(
+            notify,
+            "external text: 2 sessions read it; under notify each one's first call that acts tells \
+             you: …aa1111 since 12:55:01 (http.fetch https://example.test/a); …aa1111 since \
+             12:55:01 (http.fetch https://example.test/a) · trust one again: theseus policy \
+             trust <session>"
+        );
+        assert!(!notify.contains("wait"), "{notify}");
+        let ask = render::external::line(&two, "ask").unwrap();
+        assert!(ask.contains("so their calls that act wait"), "{ask}");
+        assert_eq!(Some(ask), external_line(&two));
+        assert_eq!(
+            render::external::line(&two, "").unwrap(),
+            external_line(&two).unwrap()
+        );
+        let many = vec![held; 5];
+        assert!(render::external::line(&many, "notify")
+            .unwrap()
+            .contains(", and 2 more"));
+    }
+
+    /// Health's executions say what the waiting ones wait on, and keep every
+    /// state's count as it was.
+    #[test]
+    fn the_executions_line_splits_the_waiting_count_by_wake() {
+        let mut k = theseus_protocol::KernelStatus {
+            executions_by_state: [("cancelled", 4), ("complete", 33), ("waiting", 189)]
+                .map(|(s, n)| (s.to_string(), n))
+                .into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            render::external::executions(&k),
+            "4 cancelled, 33 complete, 189 waiting",
+            "a daemon that sends no split"
+        );
+        k.waiting_split = theseus_protocol::notice::WaitingSplit {
+            at_rest: 180,
+            retired: 9,
+            work: 0,
+            time: 0,
+        };
+        assert_eq!(
+            render::external::executions(&k),
+            "4 cancelled, 33 complete, 189 waiting: 180 at rest on input, 9 retired, 0 on work, \
+             0 on a time"
+        );
+        k.executions_by_state.clear();
+        assert_eq!(render::external::executions(&k), "none");
     }
 
     #[test]

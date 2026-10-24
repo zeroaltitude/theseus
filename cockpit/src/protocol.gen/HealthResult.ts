@@ -158,10 +158,16 @@ earned?: Array<EarnedGrant>,
 wakes: Array<WakeInfo>, 
 /**
  * The sessions that hold external text (theseus-9bp), the longest-held
- * first: in each, a call that acts waits for approval until the operator
- * trusts it again.
+ * first, those whose execution has not ended (theseus-g00vv): under `ask`
+ * a call that acts waits for approval until the operator trusts it
+ * again; under `notify` the first one tells the owner.
  */
 external_text: Array<ExternalTextInfo>, 
+/**
+ * What a hold does: `ask` or `notify` (`[policy] external_text`). Empty
+ * from a daemon before it.
+ */
+external_text_mode?: string, 
 /**
  * The web UI's refusals since the daemon's image started (theseus-70f).
  */

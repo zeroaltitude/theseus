@@ -433,6 +433,8 @@ pub struct StartupStep {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct KernelStats {
     pub executions_by_state: BTreeMap<String, u64>,
+    /// The waiting ones by wake (theseus-g00vv; `waiting.rs`).
+    pub waiting_by_wake: crate::waiting::WaitingByWake,
     pub actions_by_state: BTreeMap<String, u64>,
     pub turns_held: u32,
     pub admission_ceiling: u32,
@@ -863,7 +865,11 @@ impl Kernel {
     /// How many latest records of `kind` have each of `wanted`'s terms
     /// (theseus-lv2): counted in the store's terms, or, from a store that
     /// keeps none, over every record of the kind, once.
-    fn counts_by(&self, kind: theseus_store::RecordKind, wanted: &[String]) -> Result<Vec<u64>> {
+    pub(crate) fn counts_by(
+        &self,
+        kind: theseus_store::RecordKind,
+        wanted: &[String],
+    ) -> Result<Vec<u64>> {
         let mut out = Vec::with_capacity(wanted.len());
         for t in wanted {
             let (lo, hi) = terms::one(t);
@@ -969,6 +975,8 @@ impl Kernel {
                 s.executions_by_state.insert(st.as_str().to_string(), n);
             }
         }
+        let waiting = s.executions_by_state.get("waiting").copied().unwrap_or(0);
+        s.waiting_by_wake = self.waiting_by_wake(waiting)?;
         let wanted = ACTION_STATES.map(terms::action_state);
         for (st, n) in ACTION_STATES
             .iter()

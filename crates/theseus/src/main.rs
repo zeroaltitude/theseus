@@ -869,6 +869,14 @@ enum PolicyCmd {
         #[arg(value_name = "SESSION")]
         session: String,
     },
+    /// Dismiss the notice of SESSION's hold on external text: under `[policy] external_text =
+    /// "notify"` the hold has told you, and nothing waits on it. The hold and its record stay;
+    /// a later hold tells again. A hold that waits for you (ask mode) is answered or trusted
+    /// instead. Yours alone to run. SESSION is its id, or at least its last four characters.
+    Dismiss {
+        #[arg(value_name = "SESSION")]
+        session: String,
+    },
     /// Earned autonomy: what you approved every time, with no decline, offered back once a week
     /// as a grant (a notice instead of a question). With no subcommand, the number (interrupts
     /// per active hour over four weeks, and what the grants would have saved), the grants and

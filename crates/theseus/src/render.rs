@@ -30,6 +30,7 @@ mod connections;
 pub mod day;
 pub mod defer;
 pub mod diffview;
+pub mod external;
 mod failed;
 mod features;
 mod flight;
@@ -1517,44 +1518,9 @@ pub fn budget_line(b: &theseus_protocol::BudgetInfo) -> String {
 }
 
 /// The sessions that hold external text (theseus-9bp), as health and `policy
-/// list` say them: how many, the first three with what each read and since
-/// when, and the way to trust one again.
+/// list` say them under `ask`; [`external::line`] says them for a mode.
 pub fn external_line(held: &[theseus_protocol::ExternalTextInfo]) -> Option<String> {
-    if held.is_empty() {
-        return None;
-    }
-    let each: Vec<String> = held
-        .iter()
-        .take(3)
-        .map(|i| {
-            let name = match &i.task {
-                Some(t) => format!("task {t}"),
-                None => short_id(&i.session_id),
-            };
-            format!(
-                "{name} since {} ({}{})",
-                held_since(&i.since_local, &i.held),
-                held_what(&i.held),
-                match i.held.via.as_deref() {
-                    Some("task.create") => ", from the session that started it",
-                    Some("task.report") => ", from a task's report",
-                    Some("job") => ", from the session whose job reached it",
-                    _ => "",
-                }
-            )
-        })
-        .collect();
-    let more = match held.len() {
-        n if n > 3 => format!(", and {} more", n - 3),
-        _ => String::new(),
-    };
-    Some(format!(
-        "external text: {} session{} read it, so their calls that act wait: {}{more} · trust one \
-         again: theseus policy trust <session>",
-        held.len(),
-        if held.len() == 1 { "" } else { "s" },
-        each.join("; ")
-    ))
+    external::line(held, "ask")
 }
 
 /// What a session read, as the hold's reason names it (theseus-qiy): a
@@ -1752,7 +1718,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
         if k.accepting { "accepting" } else { "starting" },
         k.turns_held,
         k.admission_ceiling,
-        fmt_counts(&k.executions_by_state),
+        external::executions(k),
         fmt_counts(&k.actions_by_state),
         k.quarantined_completions,
         lingering_note(k.lingering_wrappers),
@@ -1887,7 +1853,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
             ),
         );
     }
-    if let Some(line) = external_line(&h.external_text) {
+    if let Some(line) = external::line(&h.external_text, &h.external_text_mode) {
         push(o, Tag::Plain, &line);
     }
     // A line per open terminal (theseus-n88g.4), and what their closes left.

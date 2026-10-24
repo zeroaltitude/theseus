@@ -43,6 +43,19 @@ limit_usd?: number,
  */
 external_text?: ExternalText, 
 /**
+ * The hold makes a call wait: the session holds external text, `[policy]
+ * external_text` is `ask`, and its execution has not ended. Under
+ * `notify` it is always false (the hold is a notice), and so for a session
+ * whose execution is complete, cancelled or failed (theseus-g00vv).
+ */
+external_waits?: boolean, 
+/**
+ * The current hold has told the owner already (`external::told`), by
+ * its first call that acts or by `policy.notice_seen`. False when there
+ * is no hold (theseus-g00vv).
+ */
+external_told?: boolean, 
+/**
  * What its execution needs from people, by `attention()` (theseus-in3).
  */
 attention?: Attention, 
