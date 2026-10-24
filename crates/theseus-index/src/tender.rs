@@ -609,12 +609,10 @@ impl Tender {
                             }
                         }
                         // A task that reports nowhere: its old place stops recalling it.
-                        Some((session, None)) => {
-                            if self.places.remove(&session).is_some() {
-                                self.places_dirty = true;
-                            }
+                        Some((session, None)) if self.places.remove(&session).is_some() => {
+                            self.places_dirty = true;
                         }
-                        None => {}
+                        _ => {}
                     }
                 }
                 _ => {}
