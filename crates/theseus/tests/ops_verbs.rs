@@ -125,6 +125,22 @@ fn reschedule_sends_start_when_as_task_start_does_and_prints_the_undo() {
             && said.contains("to undo: theseus task reschedule e4f9a1 --at"),
         "{said}"
     );
+    // The undo's time is one `--at` reads back (wake::parse_at): RFC 3339 with its offset.
+    let undo = said
+        .split("--at \"")
+        .nth(1)
+        .and_then(|t| t.split('"').next())
+        .unwrap_or_default();
+    let shape = "dddd-dd-ddTdd:dd:dd+dd:dd";
+    assert!(
+        undo.len() == shape.len()
+            && undo.chars().zip(shape.chars()).all(|(c, s)| match s {
+                'd' => c.is_ascii_digit(),
+                '+' => c == '+' || c == '-',
+                s => c == s,
+            }),
+        "the undo's --at is not a time --at reads: {undo:?} in {said}"
+    );
 
     let (dir, sock, daemon) = one_request(json!({
         "task": "ses_0000ab1c2d3e4f", "starts_at_ms": 1u64, "previous": 2u64}));

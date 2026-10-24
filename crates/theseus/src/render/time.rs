@@ -131,6 +131,11 @@ pub fn fmt_stamp(unix_ms: u64) -> String {
     at(unix_ms, "%Y-%m-%d %H:%M:%S")
 }
 
+/// A time `--at` reads back (`wake::parse_at`): `2026-03-14T02:12:05-07:00`.
+pub fn fmt_rfc3339(unix_ms: u64) -> String {
+    at(unix_ms, "%Y-%m-%dT%H:%M:%S%:z")
+}
+
 /// The unix ms of `hour:minute` on this machine's calendar day `days_ago`
 /// days before the one `now_ms` falls on (theseus-m2tiu: `yesterday 22:00`).
 pub fn local_day_at(now_ms: u64, days_ago: i64, hour: i8, minute: i8) -> Option<u64> {

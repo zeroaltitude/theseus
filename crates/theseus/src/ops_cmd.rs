@@ -3,7 +3,10 @@
 //! so a job's shell is refused before anything is sent.
 
 use anyhow::{bail, Result};
-use theseus_client::render::{short_id, task_tree, time::fmt_stamp};
+use theseus_client::render::{
+    short_id, task_tree,
+    time::{fmt_rfc3339, fmt_stamp},
+};
 use theseus_client::Conn;
 use theseus_protocol::method;
 use theseus_protocol::ops::{
@@ -73,7 +76,7 @@ pub async fn reschedule(
             task_tree::short_id(&r.task),
             fmt_stamp(r.starts_at_ms),
             fmt_stamp(r.previous),
-            fmt_stamp(r.previous)
+            fmt_rfc3339(r.previous)
         );
         Ok(())
     })
