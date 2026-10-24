@@ -24,18 +24,18 @@ import { reportLineOf } from '@/lib/taskboard'
 import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
 import { parseAddress, writeAddress, type Address, type FilterKey, type Lens } from '@/ops/address'
-import { boardRows, chipChoices, columnsOf, countersOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
+import { alive, boardRows, chipChoices, columnsOf, countersOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
 import { answerOf, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
 import { threadFacts } from '@/ops/facts'
-import { viewsOf, type LaneMeta } from '@/ops/graph'
+import { stepNode, viewsOf, type Graph, type LaneMeta } from '@/ops/graph'
 import { GraphLens } from '@/ops/GraphLens'
 import { BulkBar, ResultsToast, useBulk } from '@/ops/BulkBar'
 import { useDragDrop } from '@/ops/DropLayer'
 import { useSelection } from '@/ops/useSelection'
 import type { DropTarget } from '@/ops/rehome'
 import type { RunResult } from '@/ops/selection'
-import { DOCK_KEY, flip, INSPECTOR_KEY, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
+import { comingShows, DOCK_KEY, flip, INSPECTOR_KEY, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
 import { BoardLens } from '@/ops/BoardLens'
 import { ThreadsLens } from '@/ops/ThreadsLens'
 import { Queue } from '@/ops/Queue'
@@ -91,7 +91,9 @@ export default function Ops() {
   const { act, on } = useOpsAct()
   // The Timeline's calendar (ops-timeline): the window shown in its lens, and today and tomorrow for Coming up.
   const day = a.lens === 'timeline' ? parseDay(params.get('day')) : null
-  const cal = useOpsCalendar(a.lens === 'timeline', a.w, day, tick)
+  const [qFold, setQFold] = usePref(QUEUE_KEY, parseFold)
+  const [frame, width] = useWidth<HTMLDivElement>()
+  const cal = useOpsCalendar(a.lens === 'timeline', a.w, day, tick, comingShows(width || 1440, qFold))
   const [tlr, setTl] = useState<TimelineReport | null>(null)
 
   // What the page holds: the present's, or the time machine's world (the board's views are the present's only).
@@ -138,7 +140,7 @@ export default function Ops() {
     return { key: t.group.slug, title: t.group.title, needs: t.needsYou, words: [f.warmth, f.details].filter(Boolean).join(' · '), sealed: f.sealed, data: dataOf(t.group.session_id) }
   }), [grouped.threads, now, dataOf])
   const homes = useMemo((): DropTarget[] => [
-    ...rows.flatMap((r): DropTarget[] => (r.kind === 'conversation' && r.sessionId ? [{ kind: 'conversation', sessionId: r.sessionId, title: r.title, data: r.view?.data ?? r.session?.data ?? undefined }] : [])),
+    ...rows.flatMap((r): DropTarget[] => (r.kind === 'conversation' && r.sessionId && alive(r) && !r.session?.retired ? [{ kind: 'conversation', sessionId: r.sessionId, title: r.title, data: r.view?.data ?? r.session?.data ?? undefined }] : [])),
     ...laneMetas.map((l): DropTarget => ({ kind: 'lane', slug: l.key, title: l.title, data: l.data })),
   ], [rows, laneMetas])
   const projects = useMemo(() => records.filter((t) => t.kind === 'project').map((t): DropTarget => ({ kind: 'project', id: t.id, title: t.title })), [records])
@@ -176,15 +178,14 @@ export default function Ops() {
   const [note, setNote] = useState<{ key: string; text: string } | null>(null)
 
   // The regions, their folds kept in this browser, and the narrow-screen rules.
-  const [qFold, setQFold] = usePref(QUEUE_KEY, parseFold)
   const [iFold, setIFold] = usePref(INSPECTOR_KEY, parseFold)
-  const [frame, width] = useWidth<HTMLDivElement>()
   const reg = regionsFor(width || 1440, qFold, iFold, selection.kind !== 'none')
   const [keysOpen, setKeysOpen] = useState(false)
   const [newTask, setNewTask] = useState<{ home: string } | null>(null)
   // A menu carries the session it acts on: the Join pane's own, not the focused card's (ops-act J1).
   const [menu, setMenu] = useState<{ kind: 'model' | 'mode'; sid: string } | null>(null)
   const [selfOpen, setSelfOpen] = useState(false)
+  const graphRef = useRef<Graph | null>(null) // the Graph lens's last layout, for `j k h l`
   const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [picker, setPicker] = useState(false)
   const [dockFold, setDockFold] = usePref(DOCK_KEY, parseFold)
@@ -208,6 +209,11 @@ export default function Ops() {
   }
   /** Move within the canvas: along a column (`j`/`k`) or across (`h`/`l`), the queue left of the first column. */
   const move = (dx: number, dy: number) => {
+    if (a.lens === 'graph' && (region !== 'queue' || dx > 0)) {
+      const to = stepNode(graphRef.current ?? { nodes: [] }, region === 'queue' ? null : row?.id ?? a.sel ?? null, dx, dy)
+      if (to) pick(to); else if (dx < 0) pick(queue[0]?.key ?? null)
+      return
+    }
     if (region === 'queue' || (a.lens !== 'board' && a.lens !== 'threads')) {
       if (dx > 0 && a.lens === 'board') { const first = lanes.find((l) => l.length); if (first) pick(first[0].id); return }
       if (dy) pick(step(queue, item?.key ?? null, dy > 0 ? 1 : -1))
@@ -309,7 +315,12 @@ export default function Ops() {
     mark_run: () => tk.run('mark_run'),
     mark_cancel: () => tk.run('mark_cancel'),
     mark_open: () => tk.run('mark_open'),
-    select: () => { const id = focusRow?.id ?? row?.id; if (id) pickOne(id) },
+    select: () => {
+      // The pick box that holds the DOM focus (a click on it does not focus the card), else the focused card.
+      const held = document.activeElement?.closest<HTMLElement>('[data-pick]')?.dataset.pick
+      const id = held ?? focusRow?.id ?? row?.id
+      if (id) pickOne(id)
+    },
     select_all: () => pickAll(vis.rows.map((r) => r.id)),
   } // end of handlers
 
@@ -382,6 +393,8 @@ export default function Ops() {
     go: (e: { go: { sel: string } | { model: string } }) => { if ('sel' in e.go) pick(e.go.sel); else set({ f: { ...a.f, model: e.go.model } }) },
     newTask: () => live.current.handlers.new_task('N'), selfChanges: () => setSelfOpen(true),
   }), [focusRow, vis.rows, picked, rows, grouped.threads, records, pl, cat, a.f]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The palette opens over the picked cards while any are picked, and over the focused one when none are.
+  useEffect(() => { useOpsPalette.setState({ scope: picked.size > 0 ? 'selection' : 'one' }) }, [picked.size > 0])
   const publish = useOpsPalette((x) => x.publish)
   useEffect(() => { publish(feed as never); return () => publish(null) }, [feed, publish])
 
@@ -405,7 +418,7 @@ export default function Ops() {
       )}
       {a.lens === 'graph' && <GraphLens views={world ? graphViews : views} records={records} rows={rows} lanes={laneMetas} now={now} focus={row?.id ?? a.sel} picked={picked}
         shownIds={shownIds} onFocus={pick} onPick={pickOne} onLasso={(ids) => pickAll([...picked, ...ids])}
-        onOpen={(sid) => nav(`/session/${sid}`)} offersFor={(id) => bulk.offers([id])} onVerb={(v, ids) => bulk.start(v, ids, false)} drag={drag} titleOf={titleOf} />}
+        onOpen={(sid) => nav(`/session/${sid}`)} onContext={(id, x, y) => setCtxMenu({ id, x, y })} redact={a.redact} layoutRef={graphRef} drag={drag} titleOf={titleOf} />}
     </div>
   )
   const canvas = joined ? (

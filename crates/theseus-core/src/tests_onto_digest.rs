@@ -283,14 +283,17 @@ fn a_kind_jev_named_says_so_in_its_line() {
         .iter()
         .map(|s| Said {
             session: s.to_string(),
-            names: vec!["Lantern Ledger".into()],
+            names: vec!["Lantern Ledger".into(), "Ledger Works".into()],
             confidence: 0.9,
         })
         .collect();
     for (pick, tail) in [(Some("Ledger Works"), ", named by Jev"), (None, "")] {
         let r = rig(|_| {});
         let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
-        let mut hints = Hints::default();
+        let mut hints = Hints {
+            same: vec![("lanternledger".to_string(), "ledgerworks".to_string())],
+            ..Hints::default()
+        };
         hints
             .named
             .extend(pick.map(|p| ("lanternledger".to_string(), p.to_string())));

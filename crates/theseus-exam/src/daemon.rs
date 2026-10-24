@@ -6,7 +6,10 @@
 //! - **The config.** The base config is the maintainer's scratch config (its
 //!   profiles, providers and secrets). Each daemon's copy sets `[memory] mode
 //!   = "live"` and `arm`, and turns off what would collide or reach outside:
-//!   Discord, the web UI, and Theseus's own MCP server. The `none` daemon
+//!   Discord, the web UI, and Theseus's own MCP server, and turns routing
+//!   off (`[routing] enabled = false`, `rung = "shadow"`, task checkpoints
+//!   off) so the named profile answers every cell, whatever `[judge]` and
+//!   `[routing]` the base holds. The `none` daemon
 //!   runs no index tender (it asks the index nothing); the others run one.
 //! - **The start.** `theseusd --config … --state-dir … --socket …`, with
 //!   `THESEUS_CONFIG`, `THESEUS_STATE_DIR`, `THESEUS_SOCKET` and
@@ -46,7 +49,7 @@ fn table<'a>(t: &'a mut toml::Table, key: &str) -> &'a mut toml::Table {
 }
 
 /// The config of the daemon that runs `arm` (`none`, `bm25`, `baseline`),
-/// from `base`.
+/// from `base`, with routing off.
 pub fn config_for(base: &toml::Table, arm: &str) -> toml::Table {
     let mut t = base.clone();
     let m = table(&mut t, "memory");
@@ -58,6 +61,14 @@ pub fn config_for(base: &toml::Table, arm: &str) -> toml::Table {
         table(&mut t, "mcp_server").insert("enabled".into(), false.into());
     }
     table(&mut t, "index").insert("enabled".into(), (arm != "none").into());
+    // Jev must not choose the answering model: every cell runs on the named
+    // profile. `enabled = false` and `rung = "shadow"` each stop it (both,
+    // so a later default cannot turn it back on); a running task's model
+    // checkpoints are routing too. The base's other routing keys are kept.
+    let r = table(&mut t, "routing");
+    r.insert("enabled".into(), false.into());
+    r.insert("rung".into(), "shadow".into());
+    table(r, "task_checkpoints").insert("enabled".into(), false.into());
     t
 }
 
@@ -370,6 +381,39 @@ port = 7434
             assert_eq!(t["index"]["enabled"].as_bool(), Some(arm != "none"));
         }
         assert!(!config_for(&toml::Table::new(), "bm25").contains_key("mcp_server"));
+    }
+
+    #[test]
+    fn each_arms_config_turns_routing_off() {
+        let base: toml::Table = r#"
+[routing]
+enabled = true
+rung = "live"
+switch_confidence = 0.7
+[routing.task_checkpoints]
+enabled = true
+failing_streak = 5
+"#
+        .parse()
+        .unwrap();
+        let mut configs: Vec<toml::Table> = ["none", "bm25", "baseline", "+activation"]
+            .iter()
+            .map(|a| config_for(&base, a))
+            .collect();
+        configs.push(replay_config(&base));
+        configs.push(config_for(&toml::Table::new(), "bm25"));
+        for t in configs {
+            let r = &t["routing"];
+            assert_eq!(r["enabled"].as_bool(), Some(false));
+            assert_eq!(r["rung"].as_str(), Some("shadow"));
+            assert_eq!(r["task_checkpoints"]["enabled"].as_bool(), Some(false));
+        }
+        let t = config_for(&base, "bm25");
+        assert_eq!(t["routing"]["switch_confidence"].as_float(), Some(0.7));
+        assert_eq!(
+            t["routing"]["task_checkpoints"]["failing_streak"].as_integer(),
+            Some(5)
+        );
     }
 
     #[test]

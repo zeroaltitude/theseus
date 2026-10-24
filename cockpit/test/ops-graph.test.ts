@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { WorkView } from '../src/protocol.gen/index.ts'
-import { COL_W, GUTTER, HOME, NODE_CAP, opsLayout, viewsOf, type Graph, type LaneMeta } from '../src/ops/graph.ts'
+import { COL_W, GUTTER, HOME, NODE_CAP, opsLayout, shownTitle, stepNode, viewsOf, type Graph, type LaneMeta } from '../src/ops/graph.ts'
 import { boardRows } from '../src/ops/board.ts'
 import { board, HOUR, MIN, NOW, record, view } from './ops-fixtures.ts'
 
@@ -153,4 +153,95 @@ test('a first layout that placed nothing (before the first read) keeps no lane o
   const g = opsLayout(board().views, [], LANES, empty, { now: NOW })
   assert.deepEqual(g.lanes.map((l) => l.key), ['harbour-survey', 'tide-tables', HOME], 'needs-you first, home last, as a fresh layout')
   assert.ok(g.nodes.every((n) => !n.fresh), 'nothing fades in on the first read')
+})
+
+/** The 541-node graph of the cap test. */
+function wide(): WorkView[] {
+  const views: WorkView[] = [view('exe_c', 'conversation', 'running', { session_id: 'ses_c', thread: 'tide-tables' })]
+  for (let p = 0; p < 60; p++) {
+    views.push(view(`exe_p${p}`, 'task', 'running', { session_id: `ses_p${p}`, parent: 'exe_c', thread: 'tide-tables', started_at_ms: NOW - HOUR + p * MIN }))
+    for (let k = 0; k < 8; k++) views.push(view(`exe_p${p}k${k}`, 'task', p === 0 && k === 3 ? 'needs_you' : 'running', { session_id: `ses_p${p}k${k}`, parent: `exe_p${p}`, thread: 'tide-tables' }, p === 0 && k === 3 ? 'needs_you' : undefined))
+  }
+  return views
+}
+
+test('an opened fold shows its subtree and the cap still holds', () => {
+  const views = wide()
+  const g = lay(views, null, [], { opened: new Set(['ses_p1']) })
+  assert.ok(node(g, 'ses_p1k0') && node(g, 'ses_p1k7'), 'the opened root’s members are drawn')
+  assert.ok(!node(g, 'fold:ses_p1'))
+  assert.ok(g.nodes.length <= NODE_CAP, `${g.nodes.length} nodes`)
+  assert.ok(node(g, 'fold:ses_p2'), 'another subtree folds instead')
+  assert.ok(!g.cantOpen)
+  // Everything opened cannot hold: it folds back, and says so.
+  const all = lay(views, null, [], { opened: new Set(Array.from({ length: 60 }, (_, i) => `ses_p${i}`)) })
+  assert.ok(all.nodes.length <= NODE_CAP && all.cantOpen === true, 'the cap is never raised')
+  assert.ok(node(all, 'fold:ses_p1'))
+})
+
+test('an opened subtree survives a fold of its ancestor (join fix B)', () => {
+  // root → mid → five leaves, and a second root with four leaves, over a cap of 10: opening mid keeps its leaves
+  // drawn, and the other subtree folds instead; if nothing else can fold, the page says the opening cannot hold.
+  const views: WorkView[] = [view('exe_c', 'conversation', 'running', { session_id: 'ses_c', thread: 'tide-tables' })]
+  views.push(view('exe_r', 'task', 'running', { session_id: 'ses_r', parent: 'exe_c', thread: 'tide-tables', started_at_ms: NOW - HOUR }))
+  views.push(view('exe_m', 'task', 'running', { session_id: 'ses_m', parent: 'exe_r', thread: 'tide-tables', started_at_ms: NOW - 50 * MIN }))
+  for (let k = 0; k < 5; k++) views.push(view(`exe_mk${k}`, 'task', 'running', { session_id: `ses_mk${k}`, parent: 'exe_m', thread: 'tide-tables', started_at_ms: NOW - 40 * MIN }))
+  views.push(view('exe_r2', 'task', 'running', { session_id: 'ses_r2', parent: 'exe_c', thread: 'tide-tables', started_at_ms: NOW - 30 * MIN }))
+  for (let k = 0; k < 4; k++) views.push(view(`exe_r2k${k}`, 'task', 'running', { session_id: `ses_r2k${k}`, parent: 'exe_r2', thread: 'tide-tables', started_at_ms: NOW - 20 * MIN }))
+  const g = lay(views, null, [], { cap: 10, opened: new Set(['ses_m']) })
+  for (let k = 0; k < 5; k++) assert.ok(node(g, `ses_mk${k}`), `the opened mid's leaf ${k} is drawn`)
+  assert.ok(!(node(g, 'fold:ses_r')?.members ?? []).some((m) => m.startsWith('ses_mk')), 'no fold of the root holds them')
+  assert.ok(node(g, 'fold:ses_r2'), 'the other subtree folds instead')
+  assert.ok(g.nodes.length <= 10 && !g.cantOpen, `${g.nodes.length} nodes`)
+  // With nothing else to fold, the opening cannot hold: it folds back, and says so.
+  const tight = lay(views.filter((v) => !v.id.startsWith('exe_r2')), null, [], { cap: 6, opened: new Set(['ses_m']) })
+  assert.ok(tight.nodes.length <= 6 && tight.cantOpen === true, 'the cap is never raised')
+})
+
+test('the keys walk the graph’s nodes', () => {
+  const g = lay(board().views)
+  const ids = g.nodes.map((n) => n.id)
+  const home = node(g, 'ses_home')!
+  assert.equal(stepNode(g, null, 0, 1), 'ses_t1', 'from nothing: the first node that needs the owner')
+  assert.equal(stepNode({ nodes: g.nodes.filter((n) => !n.needs) }, null, 0, 1) !== null, true, 'else the top-left one')
+  const right = stepNode(g, home.id, 1, 0)!
+  assert.equal(node(g, right)!.x, home.x + COL_W, 'l: the next column right')
+  assert.equal(stepNode(g, right, -1, 0) !== null && node(g, stepNode(g, right, -1, 0)!)!.x, home.x, 'h: back left')
+  assert.equal(stepNode(g, home.id, -1, 0), null, 'left of column 0 is nowhere: the page goes to the queue')
+  const col = g.nodes.filter((n) => n.x === node(g, right)!.x && ['task', 'job', 'step', 'conversation'].includes(n.kind)).sort((a, b) => a.y - b.y)
+  if (col.length > 1) {
+    assert.equal(stepNode(g, col[0].id, 0, 1), col[1].id, 'j: the nearest below')
+    assert.equal(stepNode(g, col[1].id, 0, -1), col[0].id, 'k: the nearest above')
+  }
+  assert.equal(stepNode(g, col.at(-1)!.id, 0, 1), null, 'nothing below the last')
+  for (const k of [-1, 1]) for (const id of ids) { const to = stepNode(g, id, k, 0); if (to) assert.ok(!['done', 'folded'].includes(node(g, to)!.kind)) }
+  // Folds are skipped.
+  const fold = lay(wide())
+  for (const n of fold.nodes) for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { const to = stepNode(fold, n.id, dx, dy); if (to) assert.notEqual(node(fold, to)!.kind, 'folded') }
+  assert.ok(ids.length > 0)
+})
+
+test('the keys walk from a step node and from a task’s record id (join fix A)', () => {
+  // The page's selection can be a step's or a task's record id (`?sel=tsk_…`); the keys start from that node.
+  const records = [record('tsk_a', { session: 'ses_t2' }), record('tsk_s1', { parent: 'tsk_a', created_at_ms: NOW - 50 * MIN }), record('tsk_s2', { parent: 'tsk_a', created_at_ms: NOW - 40 * MIN })]
+  const g = lay(board().views, null, records)
+  const s1 = node(g, 'tsk_s1')!, s2 = node(g, 'tsk_s2')!
+  assert.equal(s1.kind, 'step')
+  assert.equal(s1.x, s2.x, 'both steps sit in one column')
+  const [top, low] = s1.y < s2.y ? [s1, s2] : [s2, s1]
+  assert.equal(stepNode(g, top.id, 0, 1), low.id, 'j from a step: the next step below')
+  assert.equal(node(g, 'ses_t2')!.record?.id, 'tsk_a')
+  assert.equal(stepNode(g, 'tsk_a', 1, 0), stepNode(g, 'ses_t2', 1, 0), 'l from a task’s record id is l from its node')
+  assert.equal(stepNode(g, 'tsk_a', 0, 1), stepNode(g, 'ses_t2', 0, 1), 'j from a task’s record id is j from its node')
+})
+
+test('redact masks a private or sensitive node’s title, not an open one’s', () => {
+  const secret = { id: 'ses_harbour_7f3a2c', kind: 'task', title: 'Tide survey for the invented quay', data: 'sensitive' as const }
+  assert.equal(shownTitle(secret, true), 'task 7f3a2c')
+  assert.equal(shownTitle({ ...secret, data: 'private' }, true), 'task 7f3a2c')
+  assert.equal(shownTitle(secret, false), secret.title, 'no redact: the title')
+  assert.equal(shownTitle({ ...secret, data: 'open' }, true), secret.title)
+  assert.equal(shownTitle({ ...secret, data: undefined }, true), secret.title)
+  assert.equal(shownTitle({ title: 'Harbour survey', data: 'sensitive' }, true), 'a sensitive thread', 'a lane')
+  assert.equal(shownTitle({ title: 'Harbour survey', data: 'private' }, true), 'a private thread')
 })

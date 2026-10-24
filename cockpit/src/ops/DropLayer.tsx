@@ -6,7 +6,7 @@ import { useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { ArrowRightLeft } from 'lucide-react'
 import type { TaskRehomeResult } from '@protocol'
 import { useOpsAct } from './act'
-import { dropKey, dropOf, type DragItem, type DropTarget } from './rehome'
+import { dropKey, dropOf, hintChanged, type DragItem, type DropHint, type DropTarget } from './rehome'
 import type { RunResult } from './selection'
 import { Sheet } from './BulkBar'
 
@@ -26,7 +26,9 @@ export function useDragDrop(targetOf: (key: string) => DropTarget | null, tray: 
   const { send, settle, past } = useOpsAct()
   const src = useRef<DragItem | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [hint, setHint] = useState<{ x: number; y: number; words: string; ok: boolean } | null>(null)
+  const [hint, setHintNow] = useState<DropHint | null>(null)
+  // One page render per change of words, verdict or target, or a few pixels of travel, not one per pointer move.
+  const setHint = (next: DropHint | null) => setHintNow((prev) => (hintChanged(prev, next) ? next : prev))
   const [asking, setAsking] = useState<{ src: DragItem; t: DropTarget; method: string; params: Record<string, string>; words: string } | null>(null)
   const targetIn = (el: Element | null) => { const k = el?.closest('[data-drop]')?.getAttribute('data-drop'); return k ? targetOf(k) : null }
 
@@ -42,9 +44,9 @@ export function useDragDrop(targetOf: (key: string) => DropTarget | null, tray: 
     const s = src.current
     if (!s) return false
     const t = targetIn(el)
-    if (!t) { setHint({ x, y, words: s.kind === 'task' ? 'drop on a conversation, a thread’s lane or a project' : 'drop on a project', ok: false }); return false }
+    if (!t) { setHint({ x, y, words: s.kind === 'task' ? 'drop on a conversation, a thread’s lane or a project' : 'drop on a project', ok: false, key: 'none' }); return false }
     const d = dropOf(s, t, past)
-    setHint({ x, y, words: 'refused' in d ? d.refused : d.posture === 'ask' ? `re-home to ${t.title}` : d.words, ok: !('refused' in d) })
+    setHint({ x, y, words: 'refused' in d ? d.refused : d.posture === 'ask' ? `re-home to ${t.title}` : d.words, ok: !('refused' in d), key: dropKey(t) })
     return !('refused' in d)
   }
   const drop = (el: Element | null) => {

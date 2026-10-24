@@ -354,6 +354,12 @@ fn check_records(recs: &[drive::Record]) {
             r.run,
             r.error
         );
+        // The cell ran on the profile it names, whose model alone answered:
+        // the stand-in's id in `detail.model` is `profile.list`'s, so the
+        // report's model check passes a good run.
+        assert_eq!(r.profile.as_deref(), Some("sonnet"), "{} {}", r.item, r.arm);
+        let want = r.profile_model.clone().expect("the profile's model");
+        assert_eq!(r.models, [want], "{} {} r{}", r.item, r.arm, r.run);
         *passes.entry((r.arm.clone(), r.item.clone())).or_default() +=
             u32::from(r.pass == Some(true));
         match r.arm.as_str() {

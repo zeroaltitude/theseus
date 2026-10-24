@@ -12,7 +12,7 @@ import { taskShort } from '@/lib/taskgraph'
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { clock, cn, usd } from '@/lib/format'
 import type { OpsRow } from './board'
-import { NODE_W, type GLane, type GNode } from './graph'
+import { masked, NODE_W, shownTitle, type GLane, type GNode } from './graph'
 
 export interface NodeData extends Record<string, unknown> {
   n: GNode
@@ -25,9 +25,11 @@ export interface NodeData extends Record<string, unknown> {
   /** A drag hovers it: `ok` takes the drop, `no` refuses it. */
   hover?: 'ok' | 'no'
   onFold?: () => void
+  /** `?redact=1`: a private or sensitive node shows its kind and short id for its title. */
+  redact?: boolean
 }
 
-export interface LaneData extends Record<string, unknown> { lane: GLane; width: number; hover?: 'ok' | 'no' }
+export interface LaneData extends Record<string, unknown> { lane: GLane; width: number; hover?: 'ok' | 'no'; redact?: boolean }
 
 /** Each state's glyph: shape always goes with colour. */
 const GLYPH: Readonly<Record<string, string>> = {
@@ -67,7 +69,8 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
   const conv = n.kind === 'conversation'
   const v = n.view
   const cost = v?.cost ?? (row?.task?.info ? { spent_usd: row.task.info.spent_usd, limit_usd: row.task.info.limit_usd } : undefined)
-  const line = v && !['done', 'failed', 'cancelled', 'expired'].includes(v.state) ? progressLine(v, now) : undefined
+  const line = v && !masked(n, !!d.redact) && !['done', 'failed', 'cancelled', 'expired'].includes(v.state) ? progressLine(v, now) : undefined
+  const title = shownTitle(n, !!d.redact)
   const shortId = n.kind === 'step' ? taskShort(n.id) : row?.short ?? n.id.slice(-6)
   return (
     <div data-drop={conv && row?.sessionId ? `conversation:${row.sessionId}` : undefined} data-node={n.id}
@@ -82,7 +85,7 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
         {n.asks > 0 && <span className="rounded-full bg-wait/15 px-1.5 text-wait" title="questions it asks: answer them in the queue">? {n.asks}</span>}
         <span className="num ml-auto text-ink-faint" title={n.id}>{conv ? 'conversation' : n.kind === 'step' ? `step · ${shortId}` : shortId}</span>
       </div>
-      <div className={cn('mt-1 line-clamp-2 leading-snug text-ink', conv ? 'font-display text-[13px] font-bold tracking-[0.02em]' : 'text-[12px] font-medium')} title={n.title}>{n.title}</div>
+      <div className={cn('mt-1 line-clamp-2 leading-snug text-ink', conv ? 'font-display text-[13px] font-bold tracking-[0.02em]' : 'text-[12px] font-medium')} title={title}>{title}</div>
       {line && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
       {cost && cost.limit_usd > 0 && (
         <div className="mt-1.5" title={`${usd(cost.spent_usd)} of ${usd(cost.limit_usd)}`}>
@@ -106,11 +109,11 @@ function Job({ data: d }: NodeProps<Node<NodeData>>) {
   const { n } = d
   const tone = toneHex[stateTone(n.state)] ?? toneHex.idle
   return (
-    <div className={cn('flex w-[210px] items-center gap-1.5 rounded-full bg-hull/95 px-2.5 py-1 text-[10.5px]', n.fresh && 'ops-fade-in', d.dim && 'opacity-30')} style={ring(d, tone)} title={`job · ${n.title}`}>
+    <div className={cn('flex w-[210px] items-center gap-1.5 rounded-full bg-hull/95 px-2.5 py-1 text-[10.5px]', n.fresh && 'ops-fade-in', d.dim && 'opacity-30')} style={ring(d, tone)} title={`job · ${shownTitle(n, !!d.redact)}`}>
       <Handle type="target" position={Position.Left} className="!h-1 !w-1 !border-0 !bg-line-strong" />
       <Pick on={d.picked} />
       <span style={{ color: tone }} aria-hidden>{GLYPH[n.state] ?? '·'}</span>
-      <span className="num min-w-0 flex-1 truncate text-ink-dim">⚙ {n.title}</span>
+      <span className="num min-w-0 flex-1 truncate text-ink-dim">⚙ {shownTitle(n, !!d.redact)}</span>
       <span className="text-[9.5px]" style={{ color: tone }}>{n.state}</span>
     </div>
   )
@@ -120,8 +123,8 @@ function Fold({ data: d }: NodeProps<Node<NodeData>>) {
   const { n } = d
   const done = n.kind === 'done'
   return (
-    <button type="button" onClick={d.onFold} disabled={!done} className={cn('w-[180px] rounded-full px-3 py-1.5 text-left text-[11.5px] ring-1', n.fresh && 'ops-fade-in', done ? 'bg-ok/[0.07] text-ok ring-ok/40 hover:bg-ok/15' : 'cursor-default bg-white/[0.03] text-ink-dim ring-line')}
-      title={done ? `${n.members!.length} ended over an hour ago: open them` : `${n.members!.length} nodes folded to keep the graph under its cap: narrow it with the filters or the search to see them`}>
+    <button type="button" onClick={d.onFold} disabled={!d.onFold} className={cn('w-[180px] rounded-full px-3 py-1.5 text-left text-[11.5px] ring-1', n.fresh && 'ops-fade-in', done ? 'bg-ok/[0.07] text-ok ring-ok/40 hover:bg-ok/15' : 'bg-white/[0.03] text-ink-dim ring-line hover:bg-white/[0.07]')}
+      title={done ? `${n.members!.length} ended over an hour ago: open them` : `${n.members!.length} nodes folded to keep the graph under its cap: open them (other subtrees fold instead), or narrow it with the filters or the search`}>
       <Handle type="target" position={Position.Left} className="!h-1 !w-1 !border-0 !bg-line-strong" />
       {n.title}
     </button>
@@ -137,7 +140,7 @@ function Future({ data: d }: NodeProps<Node<NodeData>>) {
       <Handle type="target" position={Position.Left} className="!h-1 !w-1 !border-0 !bg-line-strong" />
       <div className="flex items-center gap-1.5 text-[10px] text-think"><span aria-hidden>{FUTURE_GLYPH[n.kind]}</span><span className="uppercase tracking-wider">{n.kind}</span>
         {v?.next_at_ms != null && <span className="num ml-auto text-ink-faint">{clock(v.next_at_ms)}</span>}</div>
-      <div className="mt-0.5 line-clamp-2 text-[11.5px] text-ink">{n.title}</div>
+      <div className="mt-0.5 line-clamp-2 text-[11.5px] text-ink">{shownTitle(n, !!d.redact)}</div>
       {project && <div className="mt-0.5 text-[9.5px] text-ink-faint">drop a task or a conversation here to attach it</div>}
     </div>
   )
@@ -153,9 +156,9 @@ function Lane({ data: d }: NodeProps<Node<LaneData>>) {
         boxShadow: d.hover === 'ok' ? `inset 0 0 0 2px ${toneHex.ok}` : d.hover === 'no' ? `inset 0 0 0 2px ${toneHex.fault}` : lane.needs ? `inset 0 0 0 1px ${toneHex.wait}44` : 'inset 0 0 0 1px rgb(176 141 87 / 0.14)' }}>
       <div className="absolute left-4 top-4 w-[180px]">
         <div className="font-display text-[15px] font-bold uppercase leading-tight tracking-[0.12em] text-gold" style={{ textShadow: '0 1px 0 rgb(0 0 0 / 0.6), 0 -1px 0 rgb(255 230 180 / 0.12)' }}>
-          {lane.sealed && <Lock size={11} className="mr-1 inline text-ink-faint" aria-label="sealed" />}{lane.title}
+          {lane.sealed && <Lock size={11} className="mr-1 inline text-ink-faint" aria-label="sealed" />}{shownTitle(lane, !!d.redact)}
         </div>
-        {lane.words && <div className="num mt-1 text-[10.5px] leading-snug text-ink-dim">{lane.words}</div>}
+        {lane.words && !masked(lane, !!d.redact) && <div className="num mt-1 text-[10.5px] leading-snug text-ink-dim">{lane.words}</div>}
         {lane.needs > 0 && <div className="mt-1.5 inline-block rounded-full bg-wait/15 px-2 text-[10.5px] text-wait">● {lane.needs} need{lane.needs === 1 ? 's' : ''} you</div>}
       </div>
     </div>

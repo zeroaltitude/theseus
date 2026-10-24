@@ -217,6 +217,21 @@ export function payloadStrings(p: Payload): string[] {
     .flatMap((v) => (typeof v === 'string' ? [v] : Object.values(v).filter((x): x is string => typeof x === 'string')))
 }
 
+/** Ask Theseus's calls, in order: open the chat, hold the picked profile on the session (sticky, so every later turn
+ *  keeps it), then the first message (which names the profile too). With no pick there is no `session.profile`. The
+ *  open call's params do not need the id; the others carry `sessionId`. */
+export function askCalls(sessionId: string, p: { label: string; input: string }, pick: string | undefined): Array<{ method: string; params: Record<string, unknown> }> {
+  return [
+    { method: 'session.open', params: { kind: 'conversation', label: p.label } },
+    ...(pick ? [{ method: 'session.profile', params: { session_id: sessionId, profile: pick } }] : []),
+    { method: 'turn.submit', params: { session_id: sessionId, input: p.input, ...(pick && { profile: pick }) } },
+  ]
+}
+
+/** The floor's words when `session.profile` answered that it refuses the profile (an ok answer with `refused` set);
+ *  the chat then sends no first turn and never falls back to another profile. */
+export const profileRefusal = (r: { refused?: string }): string | undefined => r.refused
+
 // ---------------------------------------------------------------- the New task sheet's profiles
 
 export const US_ONLY_WORDS = 'this event’s calendar is sensitive: US models only'

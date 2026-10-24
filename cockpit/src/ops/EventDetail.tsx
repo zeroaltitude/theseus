@@ -5,15 +5,16 @@
 //   Join the call, Open in Google   a link opened in a new tab; nothing is sent to the daemon
 //   Remind me                       one `wake.create`, its note naming only the calendar and the time when sensitive
 //   Start a prep task               the New task sheet, filled in; a sensitive event's sheet offers US models only
-//   Ask Theseus                     a private chat (`session.open`, then its first message), on a US model when sensitive
+//   Ask Theseus                     a private chat (`session.open`, `session.profile` holding the pick, then its first
+//                                   message), on a US model when sensitive
 // Each goes through `useOpsAct`, so the time machine turns it off.
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Bell, ExternalLink, Lock, MessageCircle, NotebookPen, Video } from 'lucide-react'
-import type { CalendarEvent, CalendarWindow, ProfileListResult } from '@protocol'
+import type { CalendarEvent, CalendarWindow, ProfileListResult, SessionProfileResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { toneHex } from '@/lib/taxonomy'
-import { eventFacts, eventVerbPayload, PRIVACY_NOTE, redactEvent, US_ONLY_WORDS, type EventVerb } from './calendar'
+import { askCalls, eventFacts, eventVerbPayload, PRIVACY_NOTE, profileRefusal, redactEvent, US_ONLY_WORDS, type EventVerb } from './calendar'
 import { profileChoices } from './newtask'
 import { NewTask } from './NewTask'
 import { useOpsAct, PAST_WORDS } from './act'
@@ -47,11 +48,23 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
     if (p.kind !== 'ask') return
     const { pick } = profileChoices(pl?.profiles ?? [], undefined, p.usOnly ? US_ONLY_WORDS : undefined, pl?.live)
     if (p.usOnly && !pick) { setSaid({ ok: false, text: `${US_ONLY_WORDS}, and no profile of US origin is known` }); return }
-    const o = await send<{ session_id: string }>('event_ask', 'session.open', { kind: 'conversation', label: p.label })
+    const calls = askCalls('', p, pick)
+    const o = await send<{ session_id: string }>('event_ask', 'session.open', calls[0].params)
     if (!o.ok) { setSaid({ ok: false, text: o.words }); return }
-    // The first message, as a draft deck's composer sends it: the deck follows the turn live.
-    void send('event_ask', 'turn.submit', { session_id: o.result.session_id, input: p.input, ...(pick && { profile: pick }) })
-    nav(`/session/${o.result.session_id}`)
+    const sid = o.result.session_id
+    // The chosen profile is held on the session before the first turn, so every later turn keeps it; a refusal sends
+    // no turn (the chat exists, and the deck opens), and no other profile is tried.
+    let refused: string | undefined
+    for (const c of askCalls(sid, p, pick).slice(1)) {
+      if (refused) break
+      if (c.method === 'session.profile') {
+        const r = await send<SessionProfileResult>('event_ask', c.method, c.params)
+        if (!r.ok) refused = r.words
+        else refused = profileRefusal(r.result)
+      } else void send('event_ask', c.method, c.params) // the first message: the deck follows the turn live
+    }
+    if (refused) setSaid({ ok: false, text: refused })
+    nav(`/session/${sid}`)
   }
   return (
     <div className="flex flex-col gap-2 p-2.5" data-testid="event-detail">

@@ -15,10 +15,13 @@ and `report.rs`, `replay.rs`, `tender.rs` (the retrieval probe). Read by: the ma
   each item's keyed nodes to their ids and positions.
 - `theseus-exam run` copies that store once per daemon (`none`, `bm25`, `baseline`, and `+activation` when
   `--arms` names it: M6 32b, its own `[memory] arm`), writes each config from a base
-  config (`[memory] mode = "live"` and `arm`; Discord, the web UI and the MCP server off; no index for `none`),
+  config (`[memory] mode = "live"` and `arm`; Discord, the web UI and the MCP server off; routing off, so the named
+  profile answers every cell; no index for `none`),
   waits until each tender holds the store, keeps that state as the arm's snapshot, and then, for each run, starts
   fresh daemons from the snapshots, runs that run's cells, and stops them. `oracle`'s cells go to the `none` daemon,
   with the gold after the task.
+- Each record names its `profile` and that profile's model (`profile_model`, from the pre-flight). A run starts no
+  more cells once one's `models` holds another model, and `report` refuses such records (`report::model_mismatch`).
 - `theseus-exam report --out F` writes the frozen report: each arm's rate with its interval and n, the paired
   differences (`+activation − baseline` among them, when the records hold both), cost per pass, the halves, the
   decision per feature, and what could not be measured. It names the

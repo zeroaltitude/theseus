@@ -18,7 +18,9 @@
 //! - **The kind's name** (`name_it.v1`, same method): a cluster that will mint
 //!   and has two names or more is asked which of them names the kind. Jev's pick
 //!   names it; `none`, a pick below the band, or no answer leaves the most
-//!   shared name, as before.
+//!   shared name, as before. A kept pick names only a cluster that still
+//!   holds it: one the cluster no longer holds is dropped with its ask, and the
+//!   cluster is asked again.
 
 use std::collections::BTreeMap;
 
@@ -248,7 +250,7 @@ impl Run<'_> {
                     .mark
                     .named
                     .iter()
-                    .find(|(k, n)| cluster.folds.contains(k) && names.contains(n));
+                    .find(|(k, n)| cluster.folds.contains(k) && cluster.holds(n));
                 let old = old.map(|(k, n)| (format!("kind-name {k}"), n.clone()));
                 if let Some((at, name)) =
                     old.and_then(|(k, n)| Some((*self.mark.asked.get(&k)?, n)))
@@ -259,10 +261,19 @@ impl Run<'_> {
             }
             if self.mark.asked.contains_key(&key) {
                 // Paid for on an earlier night, when the kind did not mint.
-                if let Some(name) = self.mark.named.get(&cluster.key) {
-                    hints.named.insert(cluster.key.clone(), name.clone());
+                match self.mark.named.get(&cluster.key) {
+                    Some(name) if cluster.holds(name) => {
+                        hints.named.insert(cluster.key.clone(), name.clone());
+                        continue;
+                    }
+                    // The cluster changed shape under its key and no longer
+                    // holds the pick: a different question, asked again.
+                    Some(_) => {
+                        self.mark.named.remove(&cluster.key);
+                        self.mark.asked.remove(&key);
+                    }
+                    None => continue,
                 }
-                continue;
             }
             if !self.going() {
                 continue;

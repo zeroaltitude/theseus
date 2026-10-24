@@ -146,6 +146,17 @@ build.
     as "asks one by one" and never sent. Drag (`ops/rehome.ts`'s `dropOf`, `ops/DropLayer.tsx`): a task onto a
     conversation, a lane or the tray's thread re-homes it (`task.rehome`, asks, naming who the budget stays charged
     to); a task or a conversation onto a project attaches it (`project.attach`); every refusal shows on the cursor.
+  - **Follow-ups** (p2f-ops-ui; theseus-i08xr, n17am): **the calendar read** reads only where it is shown (`readSpans`'s
+    `coming` flag, from `comingShows` in `ops/regions.ts`: outside the Timeline, nothing while the queue is a tab) and a
+    `REFUSED` (-32005) `calendar.window` latches (`latches` in `ops/refusal.ts`): the banner stays, the five-minute
+    re-reads stop, a span change does not retry, and only the `calendar.changed` push or a reopened connection reads
+    again. Ask Theseus holds its picked profile with a sticky `session.profile` between `session.open` and the first
+    `turn.submit` (`askCalls`); a refused hold sends no turn. **The Graph's keys** `j k h l` walk its nodes (`stepNode`
+    over the lens's last layout, handed up by a ref; left from column 0 goes to the queue); a `+N folded` node opens its
+    subtree (`opened` in `LayoutOpts`) while the 400 cap holds, folding other subtrees, or folding back with "could not
+    open" (`Graph.cantOpen`); "tidy" forgets the openings. Under `?redact=1` a private or sensitive node or lane is drawn
+    by `shownTitle` (its kind and short id, "a <mark> thread"). Only a node with a row is picked; a right-click opens
+    the page's one `VerbMenu`; the palette opens over the selection while cards are picked.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
   (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
   checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before

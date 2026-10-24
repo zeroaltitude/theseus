@@ -164,7 +164,8 @@ fn a_chain_of_singletons_clusters() {
         ..Hints::default()
     };
     let plan = plan_with(&o, &all, now, |n| format!("sweep-{now}-{n}-kind"), &hints);
-    assert_eq!((plan.minted.len(), plan.minted[0].sessions), (1, 3));
+    assert_eq!(plan.minted.len(), 1, "{plan:?}");
+    assert_eq!(plan.minted[0].sessions, 3);
     assert!(kind_pairs(&o, &folds(&said(&["s1", "s2"], "Alpha Ledger")), &none).is_empty());
 }
 
@@ -272,7 +273,8 @@ fn a_kept_yes_is_void_once_its_partner_is_listed_another_way() {
     // The yes joins the two names: one cluster of four sessions.
     let o = snapshot(&core);
     let plan = plan_with(&o, &all, now, write, &hints);
-    assert_eq!((plan.minted.len(), plan.minted[0].sessions), (1, 4));
+    assert_eq!(plan.minted.len(), 1, "{plan:?}");
+    assert_eq!(plan.minted[0].sessions, 4);
 
     // The owner lists the partner by a kind of their own.
     core.ontology_kind_add(
@@ -293,4 +295,48 @@ fn a_kept_yes_is_void_once_its_partner_is_listed_another_way() {
     let plan = plan_with(&o, &all, now, write, &hints);
     assert_eq!(plan.minted.len(), 1, "the unlisted name mints");
     assert_eq!(plan.minted[0].sessions, 3);
+}
+
+/// A kept pick names only a cluster that still holds it (theseus-7e7hc): the
+/// pick `Ledger App` was made for the cluster the kept yes joined, and the
+/// owner has since listed it, so the cluster keyed `lanternledger` no longer
+/// holds it and its kind takes the most shared name.
+#[test]
+fn a_kept_pick_not_in_the_cluster_does_not_name_its_kind() {
+    use crate::judge::onto::mint::{plan_with, Hints};
+    use theseus_protocol::OntologyKindAddParams;
+    let (core, _dir) = core();
+    let mut all = said(&["s1", "s2", "s3"], "Lantern Ledger");
+    all.extend(said(&["s4"], "Ledger App"));
+    let hints = Hints {
+        same: vec![("lanternledger".to_string(), "ledgerapp".to_string())],
+        named: [("lanternledger".to_string(), "Ledger App".to_string())].into(),
+        ..Hints::default()
+    };
+    core.ontology_kind_add(
+        &OntologyKindAddParams {
+            name: "ledger-apps".into(),
+            description: "The apps that keep a ledger".into(),
+            examples: vec!["Ledger App".into()],
+            ..Default::default()
+        },
+        "the CLI",
+    )
+    .unwrap();
+    let now = now_unix_ms();
+    let plan = plan_with(
+        &snapshot(&core),
+        &all,
+        now,
+        |n| format!("sweep-{now}-{n}-kind"),
+        &hints,
+    );
+    assert_eq!(plan.minted.len(), 1, "{plan:?}");
+    let made = &plan.minted[0];
+    assert_eq!(made.kind, "lantern-ledger");
+    assert!(!made.named, "{made:?}");
+    assert!(
+        !format!("{:?}", made.records).contains("Ledger App"),
+        "{made:?}"
+    );
 }

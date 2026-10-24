@@ -82,3 +82,14 @@ export function dragOf(r: OpsRow, titleOf: (sessionId: string) => string): DragI
     home, homeTitle: home ? titleOf(home) : undefined,
   }
 }
+
+/** The cursor's hint while a drag is over the page: its words, its verdict, the target it speaks of, and where. */
+export interface DropHint { x: number; y: number; words: string; ok: boolean; key?: string }
+/** How far the pointer moves before the hint follows it: below this, only a change of words, verdict or target redraws. */
+export const HINT_STEP_PX = 6
+
+/** Whether `next` is worth a render over `prev`: a different target, verdict or words, or a pointer moved a few pixels. */
+export function hintChanged(prev: DropHint | null, next: DropHint | null): boolean {
+  if (!prev || !next) return prev !== next
+  return prev.key !== next.key || prev.ok !== next.ok || prev.words !== next.words || Math.hypot(next.x - prev.x, next.y - prev.y) >= HINT_STEP_PX
+}

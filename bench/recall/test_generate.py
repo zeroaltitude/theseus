@@ -458,6 +458,57 @@ class Budget(unittest.TestCase):
         self.assertEqual(round(full["usd_per_arm"] - unread["usd_per_arm"], 2),
                          round(full["read_tokens"] * 0.10 / 1e6, 2))
 
+    def test_the_long_prompt_tiers_are_the_catalogs(self):
+        src = (REPO / "crates/theseus-core/src/catalog.rs").read_text()
+        self.assertEqual(generate.LONG_PROMPTS, generate.catalog_long_prompts(src))
+        # Haiku 5.5: 5x every price above a 100,000-token prompt (theseus-3okf).
+        self.assertEqual(generate.LONG_PROMPTS["claude-haiku-5-5"], (100_000, 0.50, 2.50, 0.05, 0.625))
+        self.assertNotIn("claude-sonnet-5-5", generate.LONG_PROMPTS)
+
+    def test_the_catalog_reader_takes_a_long_tier_only_from_its_own_entry(self):
+        src = """
+        e.insert(
+            "claude-aaa".into(),
+            CatalogEntry {
+                long_prompt: Some(LongPrompt {
+                    above_tokens: 100_000,
+                    input_per_mtok: 0.50,
+                    output_per_mtok: 2.50,
+                    cache_read_per_mtok: 0.05,
+                    cache_write_per_mtok: 0.625,
+                    cache_write_1h_per_mtok: 1.00,
+                }),
+                ..claude(m, 128_000, 0.10, 0.50, 0.01, 0.125, Adaptive, false, 512)
+            },
+        );
+        e.insert(
+            "claude-bbb".into(),
+            claude(m, 128_000, 1.0, 2.0, 0.30, 4.0, Adaptive, false, 1024),
+        );
+        e.insert(
+            "claude-ccc".into(),
+            CatalogEntry { ..claude(200_000, 64_000, 3.0, 5.0, 0.50, 1.25, Budget, false, 4096) },
+        );
+        """
+        self.assertEqual(generate.catalog_long_prompts(src),
+                         {"claude-aaa": (100_000, 0.50, 2.50, 0.05, 0.625)})
+
+    def test_a_call_past_the_long_tier_pays_its_prices(self):
+        prog = generate.build(7, "smoke", PLAN)
+        m = "claude-sonnet-5-5"
+        base = generate.estimate(prog, m)
+        self.assertEqual(base["long_calls"], 0)
+        five = tuple(5 * x for x in generate.PRICES[m])
+        with mock.patch.dict(generate.LONG_PROMPTS, {m: (0, *five)}):
+            every = generate.estimate(prog, m)
+        self.assertAlmostEqual(every["usd_per_arm"], 5 * base["usd_per_arm"], delta=0.05)
+        calls = sum(1 if t.role == "probe" else 2 for t in prog.turns) + base["compactions"]
+        self.assertEqual(every["long_calls"], calls)
+        with mock.patch.dict(generate.LONG_PROMPTS, {m: (10**9, *five)}):
+            none = generate.estimate(prog, m)
+        self.assertEqual(none["usd_per_arm"], base["usd_per_arm"])
+        self.assertEqual(none["long_calls"], 0)
+
     def test_the_cli_writes_the_progression_and_prints_the_budget(self):
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "rc"

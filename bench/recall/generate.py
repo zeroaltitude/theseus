@@ -172,9 +172,32 @@ def catalog_prices(src: str) -> dict[str, tuple[float, float, float, float]]:
     return out
 
 
+_LONG_PROMPT = re.compile(r"long_prompt:\s*Some\(\s*LongPrompt\s*\{(.*?)\}\s*\)", re.S)
+_LONG_FIELDS = ("above_tokens", "input_per_mtok", "output_per_mtok", "cache_read_per_mtok", "cache_write_per_mtok")
+
+
+def catalog_long_prompts(src: str) -> dict[str, tuple[int, float, float, float, float]]:
+    """The second price tier of each model that has one (`long_prompt: Some(LongPrompt
+    { .. })`): the prompt length it applies above, then per million tokens its input,
+    output, cache read and cache write (5 minutes). A call whose whole prompt (input, cache
+    reads and writes) is longer pays these for every token class. Each `e.insert(` block is
+    read alone, so one entry never takes another's tier."""
+    out = {}
+    for block in src.split("e.insert(")[1:]:
+        key, tier = re.match(r'\s*"([^"]+)"', block), _LONG_PROMPT.search(block)
+        if not (key and tier):
+            continue
+        fields = dict(re.findall(r"(\w+):\s*([\d_.]+)", tier.group(1)))
+        if all(f in fields for f in _LONG_FIELDS):
+            above, *prices = (fields[f].replace("_", "") for f in _LONG_FIELDS)
+            out[key.group(1)] = (int(above), *(float(x) for x in prices))
+    return out
+
+
 # The catalog's prices, read from theseus-core's catalog.rs so a price change
 # there reaches the budget with no second copy to keep.
 PRICES = catalog_prices(CATALOG.read_text())
+LONG_PROMPTS = catalog_long_prompts(CATALOG.read_text())
 
 SMOKE_CELLS = (
     ("near", "incidental", "direct"),
@@ -1225,7 +1248,19 @@ def estimate(prog: Progression, model: str) -> dict:
     m = model.split("/", 1)[-1]
     if m not in PRICES:
         raise SystemExit(f"no price for {m!r}: the catalog's models are {', '.join(sorted(PRICES))}")
-    pin, pout, pread, pwrite = (x / 1e6 for x in PRICES[m])
+    base = tuple(x / 1e6 for x in PRICES[m])
+    long = LONG_PROMPTS.get(m)
+    above = long[0] if long else None
+    tier = tuple(x / 1e6 for x in long[1:]) if long else None
+    long_calls = 0
+
+    def is_long(prompt: int) -> bool:
+        return above is not None and prompt > above
+
+    def prices(prompt: int) -> tuple[float, float, float, float]:
+        """(input, output, cache read, cache write) of a call with this whole prompt."""
+        return tier if is_long(prompt) else base
+
     budget = pg.request_budget(prog.context_window)
     overhead = planned_overhead(prog)
     out_tokens = 250
@@ -1236,19 +1271,23 @@ def estimate(prog: Progression, model: str) -> dict:
     for t in prog.turns:
         if t.session != session:
             session, ctx = t.session, overhead
-            usd += overhead * pwrite
+            usd += overhead * prices(overhead)[3]
         calls = 1 if t.role == "probe" else 2
         new = t.est_tokens
         if tk.upper(ctx, new) > budget:
+            pin, pout, _, _ = prices(ctx)
+            long_calls += is_long(ctx)
             usd += ctx * pin + SUMMARY_TOKENS * pout
             ctx = overhead + SUMMARY_TOKENS
             compactions += 1
+        pin, pout, pread, pwrite = prices(ctx + new)
+        long_calls += calls if is_long(ctx + new) else 0
         usd += calls * ctx * pread + new * pwrite + calls * out_tokens * pout
         read += calls * ctx
         written += new
         ctx += new
     return {"model": m, "read_tokens": int(read), "new_tokens": int(written), "usd_per_arm": round(usd, 2),
-            "compactions": compactions}
+            "compactions": compactions, "long_calls": long_calls}
 
 
 def summary(prog: Progression, model: str) -> str:
@@ -1289,6 +1328,7 @@ def summary(prog: Progression, model: str) -> str:
         f"estimate per arm at {e['model']}'s catalog price: {e['read_tokens']:,} tokens read from cache, "
         f"{e['new_tokens']:,} new, {e['compactions']} compactions, ${e['usd_per_arm']:.2f} "
         f"(two arms: ${2 * e['usd_per_arm']:.2f})"
+        + (f"; {e['long_calls']} calls past {e['model']}'s long-prompt tier" if e["long_calls"] else "")
     )
     return "\n".join(lines)
 

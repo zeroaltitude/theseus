@@ -228,6 +228,7 @@ pub fn run(
             sockets: BTreeMap::new(),
             notes: notes.clone(),
             profile: plan.profile.clone(),
+            profile_model: String::new(),
             arms: plan.arms.clone(),
             runs: plan.runs,
             items: items.iter().map(|i| i.id.clone()).collect(),
@@ -252,7 +253,9 @@ pub fn run(
             dp.sockets.insert(d.to_string(), daemon.socket.clone());
             up.push(daemon);
         }
-        log(&format!("run {run}: {}", drive::preflight(&dp, exam, m)?));
+        let (said, model) = drive::preflight(&dp, exam, m)?;
+        dp.profile_model = model;
+        log(&format!("run {run}: {said}"));
         let s = drive::run(&dp, exam, m);
         stop_all(&mut up, &mut killed)?;
         let s = s?;

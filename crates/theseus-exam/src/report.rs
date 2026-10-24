@@ -32,6 +32,46 @@ pub fn latest(records: &[Record]) -> Vec<Record> {
     m.into_values().collect()
 }
 
+/// Whether the counted records were answered by the models their profiles
+/// name: `Some(message)` when any record's `models` holds a model other than
+/// its `profile_model` (naming the profile, its model, and the models that
+/// answered with the cells each answered). A record with no `profile_model`
+/// (written before it was recorded) cannot be checked and is passed over.
+pub fn model_mismatch(records: &[Record]) -> Option<String> {
+    let recs = latest(records);
+    let mut answered: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut expected: BTreeSet<(&str, &str)> = BTreeSet::new();
+    for r in &recs {
+        let Some(want) = r.profile_model.as_deref() else {
+            continue;
+        };
+        if r.models.iter().all(|m| m == want) {
+            continue;
+        }
+        expected.insert((r.profile.as_deref().unwrap_or("?"), want));
+        for m in r.models.iter().filter(|m| *m != want) {
+            *answered.entry(m.as_str()).or_default() += 1;
+        }
+    }
+    if answered.is_empty() {
+        return None;
+    }
+    let wanted = expected
+        .iter()
+        .map(|(p, m)| format!("profile {p} ({m})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let by = answered
+        .iter()
+        .map(|(m, n)| format!("{m} in {n} cells"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "the records were not all answered by their profile's model: expected {wanted}; \
+         also answered by {by} (routing or a fallback moved it): no report is written"
+    ))
+}
+
 /// Score stored replies again with `exam`'s checks (a corrected exam is a
 /// new version; the report says which scored them). Calls are not stored in
 /// full form, so a check on calls reads them as stored.
@@ -269,10 +309,25 @@ pub fn render(records: &[Record], exam: &Exam, source: &str) -> String {
         exam.digest,
         digests.iter().copied().collect::<Vec<_>>().join(", ")
     );
+    let unchecked = recs.iter().filter(|r| r.profile_model.is_none()).count();
+    let profiles: BTreeSet<&str> = recs.iter().filter_map(|r| r.profile.as_deref()).collect();
+    let mut answered = models.iter().copied().collect::<Vec<_>>().join(", ");
+    if !profiles.is_empty() && unchecked == 0 && model_mismatch(records).is_none() {
+        let _ = write!(
+            answered,
+            " (profile {})",
+            profiles.iter().copied().collect::<Vec<_>>().join(", ")
+        );
+    }
+    if unchecked > 0 {
+        let _ = write!(
+            answered,
+            " (the profile's model is not recorded in {unchecked} records: not checked)"
+        );
+    }
     let _ = writeln!(
         o,
-        "- Models that answered: {}. Runs per item and arm: up to {runs}. Data window: {} to {} (UTC).",
-        models.iter().copied().collect::<Vec<_>>().join(", "),
+        "- Models that answered: {answered}. Runs per item and arm: up to {runs}. Data window: {} to {} (UTC).",
         crate::time::format_local(first, 0),
         crate::time::format_local(last, 0)
     );
@@ -658,6 +713,39 @@ mod tests {
         assert_eq!(
             (get("a"), get("b"), get("c")),
             (Some(false), Some(false), None)
+        );
+    }
+
+    fn answered(item: &str, profile_model: Option<&str>, models: &[&str]) -> Record {
+        Record {
+            profile: profile_model.map(|_| "profile-x".to_string()),
+            profile_model: profile_model.map(str::to_string),
+            models: models.iter().map(|m| (*m).to_string()).collect(),
+            ..rec(item, "none", 1, Some(true))
+        }
+    }
+
+    #[test]
+    fn a_report_refuses_records_answered_by_another_model() {
+        let exam = Exam::parse(EXAM_V2).unwrap();
+        let bad = vec![
+            answered("a", Some("model-a"), &["model-a"]),
+            answered("b", Some("model-a"), &["model-b"]),
+            answered("c", Some("model-a"), &["model-a", "model-b"]),
+        ];
+        let why = model_mismatch(&bad).expect("a mismatch");
+        for part in ["profile profile-x (model-a)", "model-b in 2 cells"] {
+            assert!(why.contains(part), "{part}: {why}");
+        }
+        let good = vec![answered("a", Some("model-a"), &["model-a"])];
+        assert_eq!(model_mismatch(&good), None);
+        assert!(render(&good, &exam, "x.jsonl").contains("model-a (profile profile-x)"));
+        let old = vec![answered("a", None, &["model-b"]), answered("b", None, &[])];
+        assert_eq!(model_mismatch(&old), None);
+        let md = render(&old, &exam, "x.jsonl");
+        assert!(
+            md.contains("the profile's model is not recorded in 2 records: not checked"),
+            "{md}"
         );
     }
 

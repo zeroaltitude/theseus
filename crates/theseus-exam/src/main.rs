@@ -71,7 +71,9 @@ enum Cmd {
     Run {
         /// The scratch config every daemon's is written from: its profiles,
         /// providers and secrets. `[memory]` mode and arm are set, and
-        /// Discord, the web UI and the MCP server turned off.
+        /// Discord, the web UI and the MCP server turned off, and routing
+        /// off (`[routing] enabled = false`, `rung = "shadow"`, task
+        /// checkpoints off), so the named profile answers every cell.
         #[arg(long)]
         base_config: PathBuf,
         /// The exam's store, as `write-store` wrote it (never served: each
@@ -333,6 +335,9 @@ fn main() -> Result<()> {
             let mut records = drive::read_records(&runs)?;
             if rescore {
                 report::rescore(&mut records, &exam);
+            }
+            if let Some(why) = report::model_mismatch(&records) {
+                anyhow::bail!("{why}");
             }
             let md = report::render(&records, &exam, &runs.display().to_string());
             match out {
