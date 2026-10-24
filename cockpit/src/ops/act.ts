@@ -13,7 +13,8 @@ export const PAST_WORDS = 'the past: acting needs the present (LIVE in the shipâ
 export type Sent<T> = { ok: true; result: T } | { ok: false; error: string }
 
 /** The page's acts: `run` refuses a verb `enabled` says is off. `send` is the same gate for an act whose result the
- *  page needs (a drag's Undo reads `previous`), saying a refusal back instead of alerting it. */
+ *  page needs (a drag's Undo reads `previous`), saying a refusal back instead of alerting it. `post` is the same call
+ *  with its answer for an act that shows what the daemon said (a refusal in its words, an Undo): it rejects instead. */
 export function useOpsAct() {
   const past = useAsOf((s) => s.t !== null)
   const qc = useQueryClient()
@@ -24,5 +25,7 @@ export function useOpsAct() {
     if (!enabled(verb, past)) return { ok: false, error: PAST_WORDS }
     try { const result = await call<T>(method, params); void qc.invalidateQueries(); return { ok: true, result } } catch (e) { return { ok: false, error: wordsOf(e) } }
   }
-  return { busy, act, send, past, on: (verb: Verb | ButtonAct) => enabled(verb, past) }
+  const post = <T,>(verb: Verb | ButtonAct, method: string, params: unknown): Promise<T> =>
+    enabled(verb, past) ? call<T>(method, params) : Promise.reject(new Error(PAST_WORDS))
+  return { busy, act, send, post, past, on: (verb: Verb | ButtonAct) => enabled(verb, past) }
 }

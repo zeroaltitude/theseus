@@ -31,6 +31,8 @@ import { TimeMachine } from './TimeMachine'
 import { StateBadge } from './SessionLife'
 import { entered, groupOf, isOpen, NAV_GROUPS, parseChoices, pressed } from '@/lib/navgroups'
 import { paletteOrder, searchText, stateOf } from '@/lib/sessionState'
+import { OpsPalette } from '@/ops/PaletteGroups'
+import { useOpsPalette } from '@/ops/paletteStore'
 
 const NAV = [
   { to: '/ship', label: 'Ship', icon: Sailboat },
@@ -419,9 +421,13 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
   const running = (el?.executions ?? []).filter((e) => e.state === 'running' || e.state === 'queued')
   const held = (data?.sessions ?? []).filter((s) => s.external_text)
   const sessions = useMemo(() => paletteOrder(data?.sessions ?? []), [data])
+  // On the Operations page ⇥ changes the scope of its verbs (theseus-jid7t.6).
+  const opsOn = useOpsPalette((s) => s.feed !== null)
+  const cycle = useOpsPalette((s) => s.cycle)
   return (
     <Command.Dialog
       open={open}
+      onKeyDown={(e) => { if (opsOn && e.key === 'Tab') { e.preventDefault(); cycle() } }}
       onOpenChange={onOpenChange}
       filter={retiredAfter}
       label="Command palette"
@@ -434,6 +440,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
       />
       <Command.List className="max-h-[420px] overflow-auto p-2">
         <Command.Empty className="px-3 py-6 text-center text-sm text-ink-faint">Nothing matches.</Command.Empty>
+        {opsOn && <OpsPalette close={() => onOpenChange(false)} />}
         <Command.Group heading="Look" className={group}>
           {CHOICES.map((c) => {
             const { Icon, name, what } = CHOICE_WORDS[c]

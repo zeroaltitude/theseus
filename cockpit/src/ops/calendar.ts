@@ -11,7 +11,7 @@
 //   title, place, attendees or links. The daemon's own read of the event, with the calendar tool, is what marks the
 //   session sensitive.
 // - Nothing here is stored or logged: the page holds an event in memory, and the address holds only its opaque key.
-import type { CalendarEvent, CalendarStatus, CalendarWindow, CalendarWindowResult, ProfileInfo } from '@protocol'
+import type { CalendarEvent, CalendarStatus, CalendarWindow, CalendarWindowResult } from '@protocol'
 
 /** What a redacted title is drawn as. */
 export const BAR = '▬▬▬▬▬▬'
@@ -219,22 +219,7 @@ export function payloadStrings(p: Payload): string[] {
 
 // ---------------------------------------------------------------- the New task sheet's profiles
 
-/** A profile's origin, as `ProfileInfo.origin` says it (ops-verbs adds the field; until then it is unknown). */
-export const originOf = (p: ProfileInfo): string | undefined => (p as ProfileInfo & { origin?: string }).origin
-
 export const US_ONLY_WORDS = 'this event’s calendar is sensitive: US models only'
-
-export interface ProfileChoice { name: string; model: string; off?: string }
-
-/** The profiles the sheet offers and the one it picks. Under `usOnly` (a sensitive calendar's event) only a profile
- *  of US origin may be picked: the rest are greyed with the reason, and with none of US origin known nothing is
- *  picked, so the sheet fails closed. Otherwise every profile, and none picked (the parent's model). */
-export function profileChoices(profiles: readonly ProfileInfo[], usOnly: boolean, live?: string): { choices: ProfileChoice[]; pick: string } {
-  const choices = profiles.map((p) => ({ name: p.name, model: p.model, ...(usOnly && originOf(p) !== 'us' && { off: US_ONLY_WORDS }) }))
-  if (!usOnly) return { choices, pick: '' }
-  const ok = choices.filter((c) => !c.off)
-  return { choices, pick: (ok.find((c) => c.name === live) ?? ok[0])?.name ?? '' }
-}
 
 // ---------------------------------------------------------------- Coming up
 

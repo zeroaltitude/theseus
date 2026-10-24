@@ -126,7 +126,7 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
             </div>
             <div className="flex flex-col gap-2">
               {g.turn_id && !g.items.some((it) => it.kind === 'user') && <Continuation late={late.get(g.turn_id) ?? []} callOf={callOf} />}
-              {g.items.map((it) => it.kind === 'user' ? <UserItem key={it.node.node_id} n={it.node} />
+              {g.items.map((it, ix) => it.kind === 'user' ? <UserItem key={it.node.node_id} n={it.node} steered={g.items.slice(0, ix).some((x) => x.kind === 'user')} />
                 : it.kind === 'assistant' ? <AssistantItem key={it.node.node_id} n={it.node} cites={cites} />
                 : it.kind === 'queued' ? (waits && it.use ? <QueuedItem key={`${it.node.node_id}:${it.use.id}`} at={it.node.at_unix_ms} use={it.use} /> : null)
                 : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} scores={scores} noticed={noticed} />)}
@@ -233,7 +233,7 @@ function Gutter({ icon, at, tone }: { icon: React.ReactNode; at?: number; tone: 
   )
 }
 
-function UserItem({ n }: { n: NodeInfo }) {
+function UserItem({ n, steered }: { n: NodeInfo; steered?: boolean }) {
   // The harness's own line (a stop nudge, theseus-fh0u; a day ceiling's note): quiet, never the person's words.
   if (n.author?.startsWith('harness:')) return <div className="ml-[76px] px-3 py-1 text-[12px] italic text-ink-faint">{n.text}</div>
   return (
@@ -243,6 +243,7 @@ function UserItem({ n }: { n: NodeInfo }) {
         {/* Who wrote it in the Ship's words ("you, from the CLI"), with the connection's own label beside it. */}
         <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
           {authorWord(n.author)}{n.author && authorWord(n.author) !== n.author && <span className="ml-1.5 font-normal normal-case tracking-normal opacity-80">{n.author}</span>}
+          {steered && <span className="ml-2 rounded bg-live/10 px-1.5 text-live" title="sent while the turn ran: it reached the turn at its next step (turn.steered)">↪ steered</span>}
         </div>
         <div className="whitespace-pre-wrap text-[13px] text-ink">{n.text}</div>
       </div>

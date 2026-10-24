@@ -13,7 +13,8 @@ import { Bell, ExternalLink, Lock, MessageCircle, NotebookPen, Video } from 'luc
 import type { CalendarEvent, CalendarWindow, ProfileListResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { toneHex } from '@/lib/taxonomy'
-import { eventFacts, eventVerbPayload, PRIVACY_NOTE, profileChoices, redactEvent, US_ONLY_WORDS, type EventVerb } from './calendar'
+import { eventFacts, eventVerbPayload, PRIVACY_NOTE, redactEvent, US_ONLY_WORDS, type EventVerb } from './calendar'
+import { profileChoices } from './newtask'
 import { NewTask } from './NewTask'
 import { useOpsAct, PAST_WORDS } from './act'
 import { ActBtn } from './ActBtn'
@@ -43,7 +44,7 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
   const ask = async () => {
     const p = pay('ask')
     if (p.kind !== 'ask') return
-    const { pick } = profileChoices(pl?.profiles ?? [], p.usOnly, pl?.live)
+    const { pick } = profileChoices(pl?.profiles ?? [], undefined, p.usOnly ? US_ONLY_WORDS : undefined, pl?.live)
     if (p.usOnly && !pick) { setSaid({ ok: false, text: `${US_ONLY_WORDS}, and no profile of US origin is known` }); return }
     const o = await send<{ session_id: string }>('event_ask', 'session.open', { kind: 'conversation', label: p.label })
     if (!o.ok) { setSaid({ ok: false, text: o.error }); return }

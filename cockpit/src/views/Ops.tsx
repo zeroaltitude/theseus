@@ -11,8 +11,9 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, use
 import { useNavigate, useSearchParams } from 'react-router'
 import { useQueries } from '@tanstack/react-query'
 import { History, Inbox, PanelLeftOpen, PanelRightOpen, X } from 'lucide-react'
-import type { ConfirmRequest, SessionListResult, TaskListResult } from '@protocol'
+import type { CatalogList, ConfirmRequest, ProfileList, SessionListResult, TaskListResult } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
+import { pricing } from '@/lib/money'
 import { useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
 import { useHistoryRows } from '@/lib/history'
@@ -24,10 +25,10 @@ import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
 import { TaskGraphView } from '@/components/TaskGraph'
 import { parseAddress, writeAddress, type Address, type FilterKey, type Lens } from '@/ops/address'
-import { boardRows, chipChoices, columnsOf, countersOf, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
+import { boardRows, chipChoices, columnsOf, countersOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
 import { answerOf, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
-import { flip, INSPECTOR_KEY, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
+import { DOCK_KEY, flip, INSPECTOR_KEY, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
 import { BoardLens } from '@/ops/BoardLens'
 import { ThreadsLens } from '@/ops/ThreadsLens'
 import { Queue } from '@/ops/Queue'
@@ -35,6 +36,17 @@ import { Inspector, type Selection } from '@/ops/Inspector'
 import { CommandBar } from '@/ops/CommandBar'
 import { KeysOverlay } from '@/ops/KeysOverlay'
 import { NewTask } from '@/ops/NewTask'
+import { ThreadPicker } from '@/ops/ThreadPicker'
+import { Dock, type DockState } from '@/ops/Dock'
+import { JoinPane } from '@/ops/JoinPane'
+import { ModeMenu, ModelMenu } from '@/ops/ModelMenu'
+import { Toast } from '@/ops/Toast'
+import { VerbMenu } from '@/ops/VerbMenu'
+import { entitiesOf, targetOf } from '@/ops/palette'
+import { useOpsPalette } from '@/ops/paletteStore'
+import { lastTurnOf } from '@/ops/sections'
+import { Sheet } from '@/ops/Sheet'
+import { SelfChangesCard } from '@/components/SelfChanges'
 import { useOpsAct } from '@/ops/act'
 import { useRouterAsks } from '@/ops/asks'
 import { HelpButton } from '@/components/Help'
@@ -139,6 +151,15 @@ export default function Ops() {
   const reg = regionsFor(width || 1440, qFold, iFold, selection.kind !== 'none')
   const [keysOpen, setKeysOpen] = useState(false)
   const [newTask, setNewTask] = useState<{ home: string } | null>(null)
+  const [menu, setMenu] = useState<'model' | 'mode' | null>(null)
+  const [selfOpen, setSelfOpen] = useState(false)
+  const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [picker, setPicker] = useState(false)
+  const [dockFold, setDockFold] = usePref(DOCK_KEY, parseFold)
+  const [dock, setDock] = useState<DockState>({ paused: false, follow: false })
+  const [dockFocus, setDockFocus] = useState(false)
+  const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 30_000)
+  const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 60_000)
   const [flash, setFlash] = useState<string | null>(null)
   useEffect(() => { if (!flash) return; const t = window.setTimeout(() => setFlash(null), 3500); return () => window.clearTimeout(t) }, [flash])
   const searchRef = useRef<HTMLInputElement>(null)
@@ -183,16 +204,24 @@ export default function Ops() {
   const living = focusRow?.view?.state === 'running' || focusRow?.view?.state === 'waiting'
   const exe = focusRow?.kind === 'conversation' ? focusRow.view?.id ?? focusRow.session?.execution_id : undefined
   const tk = useTimelineKeys({ a, day, report: tlr, mark, set, pick, flash: setFlash, open: (sid) => nav(`/session/${sid}`) })
+  // The session a menu or the composer acts on: the focused task's or conversation's.
+  const focusSession = (focusRow && (focusRow.kind === 'task' || focusRow.kind === 'conversation') ? focusRow.session : undefined) ?? sessions.find((x) => x.session_id === a.join)
+  /** PgUp, PgDn and End scroll the open transcript (the Join pane's, else the inspector's). */
+  const scrollTranscript = (by: number) => {
+    const box = document.querySelector<HTMLElement>('[data-testid="join-pane"] .overflow-auto')
+    if (box) box.scrollTop = by === Infinity ? box.scrollHeight : box.scrollTop + by * box.clientHeight
+  }
 
   const handlers: Record<Verb, (key: string) => void> = {
     down: () => move(0, 1),
     up: () => move(0, -1),
     left: () => move(-1, 0),
     right: () => move(1, 0),
-    follow: () => { if (focusRow?.sessionId) nav(`/session/${focusRow.sessionId}?call=${focusRow.id}`) },
+    // `l` follows a job in the inspector, where its output streams (Live); the job is already the selection.
+    follow: () => { if (iFold === 'folded') setIFold('open') },
     inspect: () => { if (item) setOpen(open === item.key ? null : item.key); else if (iFold === 'folded') setIFold('open') },
     open: () => { const sid = focusRow?.sessionId ?? item?.sessionId; if (sid) nav(`/session/${sid}`) },
-    back: () => { if (note) setNote(null); else if (open) setOpen(null); else if (a.sel) pick(null); else set({ f: {}, q: '' }) },
+    back: () => { if (note) setNote(null); else if (a.join) set({ join: null }); else if (open) setOpen(null); else if (a.sel) pick(null); else set({ f: {}, q: '' }) },
     next: () => pick(step(queue, item?.key ?? null, 1)),
     prev: () => pick(step(queue, item?.key ?? null, -1)),
     approve: () => answer('approve', { verb: 'approve' }),
@@ -216,7 +245,19 @@ export default function Ops() {
     search: () => searchRef.current?.focus(),
     fold_queue: () => setQFold(flip(qFold)),
     fold_inspector: () => setIFold(flip(iFold)),
-    fold_dock: () => setFlash('\\ is kept for the dock, which a later row brings'),
+    fold_dock: () => setDockFold(flip(dockFold)),
+    model_menu: () => { if (focusSession && on('model_menu')) setMenu('model') },
+    mode_menu: () => { if (focusSession?.kind === 'conversation' && on('mode_menu')) setMenu('mode') },
+    compose: () => { const id = focusSession?.session_id ?? focusRow?.sessionId ?? item?.sessionId ?? slug; if (id) set({ join: id }); else setFlash('select a session, a task or a thread to join') },
+    parent: () => { const p = focusRow?.task?.info?.parent_session_id; if (p) pick(p); else setFlash('it reports to no parent') },
+    last_turn: () => { const sid = focusRow?.sessionId ?? item?.sessionId; const t = sid ? lastTurnOf(history.rows, sid) : undefined; if (sid && t) nav(`/session/${sid}/turn/${t}`); else setFlash('no turn has ended in it yet') },
+    scroll_up: () => scrollTranscript(-0.85),
+    scroll_down: () => scrollTranscript(0.85),
+    scroll_end: () => scrollTranscript(Infinity),
+    self_changes: () => setSelfOpen(true),
+    thread_picker: () => setPicker(true),
+    palette: () => {}, // the shell's own listener opens ⌘K; this entry is its line in the overlay
+    dock_pause: () => setDock((d) => ({ ...d, paused: !d.paused })),
     keys: () => setKeysOpen((v) => !v),
     filter_needs: () => bucket('needs'),
     filter_working: () => bucket('working'),
@@ -251,19 +292,23 @@ export default function Ops() {
     if (focusRow?.kind === 'wake') c.add('wake')
     if (a.lens === 'timeline' && region === 'canvas') c.add('timeline')
     if (mark) c.add('mark')
+    if (focusSession) c.add('session')
+    if (dockFocus) c.add('dock')
     return c
-  }, [focusItem, focusRow, slug, living, a.lens, region, mark])
+  }, [focusItem, focusRow, focusSession, slug, living, a.lens, region, mark, dockFocus])
 
   // One handler for the page, ahead of the shell's: a `g` sequence the page claims is the page's; one it does not
   // (`g f`) goes on to the shell. Keys never fire while typing.
-  const live = useRef({ handlers, ctxs, focusItem, keysOpen })
-  useLayoutEffect(() => { live.current = { handlers, ctxs, focusItem, keysOpen } })
+  const modal = !!(newTask || menu || selfOpen || picker)
+  const live = useRef({ handlers, ctxs, focusItem, keysOpen, modal })
+  useLayoutEffect(() => { live.current = { handlers, ctxs, focusItem, keysOpen, modal } })
   useEffect(() => {
     let g = 0
     const k = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
       if (typingIn(e.target as HTMLElement | null)) return
-      const { handlers: h, ctxs: c, focusItem: fi, keysOpen: ko } = live.current
+      const { handlers: h, ctxs: c, focusItem: fi, keysOpen: ko, modal: mo } = live.current
+      if (mo) return // a sheet or a menu has the keys
       if (ko && e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); h.keys('?'); return }
       let name = keyName(e)
       if (g && Date.now() - g < G_MS && SEQUENCES.includes(`g ${name}`)) name = `g ${name}`
@@ -282,17 +327,35 @@ export default function Ops() {
   }, [])
 
   const filter = (k: FilterKey, v: string | null) => set({ f: { ...a.f, [k]: v ?? undefined } })
-  const choices = useMemo(() => ({ ...chipChoices(rows), project: records.filter((t) => t.kind === 'project').map((t) => t.id) }), [rows, records])
+  const choices = useMemo(() => ({ ...chipChoices(rows), project: records.filter((t) => t.kind === 'project').map((t) => t.id), data: [...DATA_MARKS] }), [rows, records])
   const n = a.lens === 'threads' ? threadList.length : a.lens === 'timeline' && tlr ? tlr.n : vis.rows.length
   const of = a.lens === 'threads' ? grouped.threads.length : a.lens === 'timeline' && tlr ? tlr.of : vis.of
+
+  const inspectorCx = { records, rows, onMenu: (m: 'model' | 'mode') => setMenu(m), onParent: (sid: string) => pick(sid), onJoin: (id: string) => set({ join: id }), joined: a.join }
+
+  // What the palette sees: the focused card, all that are visible, and (at the join) the selection.
+  const feed = useMemo(() => ({
+    targets: {
+      one: focusRow ? [targetOf(focusRow)] : [],
+      visible: vis.rows.map(targetOf),
+      selection: [] as ReturnType<typeof targetOf>[], // ops-graph: the selection scope
+    },
+    entities: entitiesOf(rows, grouped.threads.map((t) => ({ slug: t.group.slug, title: t.group.title })), records, pl?.profiles ?? []),
+    profiles: pl?.profiles ?? [], prices: pricing(cat),
+    go: (e: { go: { sel: string } | { model: string } }) => { if ('sel' in e.go) pick(e.go.sel); else set({ f: { ...a.f, model: e.go.model } }) },
+    newTask: () => live.current.handlers.new_task('N'), selfChanges: () => setSelfOpen(true),
+  }), [focusRow, vis.rows, rows, grouped.threads, records, pl, cat, a.f]) // eslint-disable-line react-hooks/exhaustive-deps
+  const publish = useOpsPalette((x) => x.publish)
+  useEffect(() => { publish(feed as never); return () => publish(null) }, [feed, publish])
 
   const queuePanel = (
     <Queue items={queue} cursor={item?.key ?? null} onCursor={(k) => pick(k)} open={open} note={note} onNote={setNote} past={past} now={now}
       coming={world ? [] : comingUp(Object.values(board.views), tick)} events={world ? [] : comingEvents(cal.calendars, tick, a.redact)} arrivedKeys={fresh} />
   )
-  const canvas = (
-    <div className="h-full min-h-0">
-      {a.lens === 'board' && <BoardLens cols={cols} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} confirms={confirms} now={now} />}
+  const joined = a.join ?? null
+  const lensView = (
+    <div className="h-full min-h-0 min-w-0 flex-1">
+      {a.lens === 'board' && <BoardLens cols={cols} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now} />}
       {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
         matches={(t) => shownSlugs.has(t.group.slug)} />}
       {a.lens === 'timeline' && (
@@ -305,6 +368,14 @@ export default function Ops() {
       {a.lens === 'graph' && <TaskGraphView records={records} past={past ?? undefined} shown />}
     </div>
   )
+  const canvas = joined ? (
+    <div className="flex h-full min-h-0 gap-2.5">
+      {lensView}
+      <aside aria-label="Join" className="flex w-[460px] max-w-[48%] shrink-0 flex-col overflow-hidden rounded-xl border border-line-strong bg-hull/60">
+        <JoinPane key={joined} sessionId={joined.startsWith('ses_') ? joined : undefined} thread={joined.startsWith('ses_') ? undefined : joined} session={sessions.find((x) => x.session_id === joined)} focus onPicker={() => setPicker(true)} onMenu={(m) => setMenu(m)} />
+      </aside>
+    </div>
+  ) : lensView
   return (
     <div ref={frame} className="flex h-full min-h-[560px] flex-col gap-2.5" data-testid="ops-page">
       {world && (
@@ -328,18 +399,28 @@ export default function Ops() {
         {reg.inspector === 'side' && (
           <aside aria-label="Inspector" className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-line bg-hull/60">
             <RegionHead title="Inspector" onFold={() => setIFold('folded')} fold="]" />
-            <div className="min-h-0 flex-1 overflow-y-auto"><Inspector sel={selection} confirms={confirms} past={past} now={now} /></div>
+            <div className="min-h-0 flex-1 overflow-y-auto"><Inspector sel={selection} confirms={confirms} past={past} now={now} cx={inspectorCx} /></div>
           </aside>
         )}
         {reg.inspector === 'over' && (
           <aside aria-label="Inspector" className="absolute inset-y-0 right-0 z-20 flex w-[min(380px,92%)] flex-col overflow-hidden rounded-xl border border-line-strong bg-hull/95 shadow-2xl backdrop-blur">
             <RegionHead title="Inspector" onFold={() => pick(null)} fold="esc" />
-            <div className="min-h-0 flex-1 overflow-y-auto"><Inspector sel={selection} confirms={confirms} past={past} now={now} /></div>
+            <div className="min-h-0 flex-1 overflow-y-auto"><Inspector sel={selection} confirms={confirms} past={past} now={now} cx={inspectorCx} /></div>
           </aside>
         )}
         {reg.inspector === 'folded' && <Tab side="right" label="Inspector" onClick={() => setIFold('open')} />}
         {reg.inspector === 'idle' && <Tab side="right" label="Inspector · select a card" onClick={() => pick(queue[0]?.key ?? null)} />}
       </div>
+      {dockFold === 'open' && <Dock state={dock} onState={setDock} onFocus={setDockFocus} selected={focusRow?.sessionId ?? null} sessions={sessions} activeModel={a.f.model} onModel={(m) => filter('model', m)} />}
+      {dockFold === 'folded' && <button onClick={() => setDockFold('open')} title="the dock (\\)" className="self-start rounded-lg border border-line bg-hull/60 px-3 py-1 text-[11px] text-ink-faint hover:text-ink">Dock · live streams and models <span className="kbd">\\</span></button>}
+      <Toast />
+      {ctxMenu && rows.find((r) => r.id === ctxMenu.id) && <VerbMenu target={targetOf(rows.find((r) => r.id === ctxMenu.id)!)} x={ctxMenu.x} y={ctxMenu.y} onMenu={(m) => setMenu(m)} onClose={() => setCtxMenu(null)} />}
+      {menu === 'model' && focusSession && <ModelMenu session={focusSession} onClose={() => setMenu(null)} />}
+      {menu === 'mode' && focusSession && <ModeMenu session={focusSession} onClose={() => setMenu(null)} />}
+      {selfOpen && (
+        <Sheet title="What Theseus changed about itself" verb="inspect" submit="Close" onSubmit={() => setSelfOpen(false)} onClose={() => setSelfOpen(false)} wide><SelfChangesCard now={now} /></Sheet>
+      )}
+      {picker && <ThreadPicker threads={threadList.length ? threadList.map((t) => t.group) : grouped.threads.map((t) => t.group)} onPick={(slug) => { setPicker(false); set({ lens: 'threads', sel: slug, join: slug }) }} onClose={() => setPicker(false)} />}
       {flash && <div role="status" className="pointer-events-none fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-lg bg-hull/95 px-3 py-1.5 text-[12px] text-ink ring-1 ring-line-strong shadow-xl">{flash}</div>}
       {keysOpen && <KeysOverlay onClose={() => setKeysOpen(false)} />}
     </div>

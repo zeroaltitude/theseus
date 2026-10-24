@@ -8,10 +8,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { CalendarStatus, ProfileInfo } from '../src/protocol.gen/index.ts'
 import {
-  BAR, comingEvents, drawnEvents, eventFacts, eventMatches, EVENT_VERBS, eventVerbPayload, findEvent, joinWindows, payloadStrings, profileChoices,
+  BAR, comingEvents, drawnEvents, eventFacts, eventMatches, EVENT_VERBS, eventVerbPayload, findEvent, joinWindows, payloadStrings,
   redactEvent, SHARING_STEPS, stateOf, US_ONLY_WORDS,
 } from '../src/ops/calendar.ts'
 import { cal, ev, local, OPEN, SECRET, twoCalendars } from './ops-calendar-fixtures.ts'
+import { profileChoices } from '../src/ops/newtask.ts'
 
 const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
 
@@ -151,19 +152,21 @@ test('the spans’ answers join: one calendar each, its events once, a failed sp
 test('the New task sheet: a sensitive event offers US models only, the rest greyed with the reason; none known, none picked', () => {
   const p = (name: string, origin?: string): ProfileInfo => ({ name, provider: 'x', model: `${name}-model`, max_output_tokens: 1, has_system: true, live: false, ...(origin && { origin }) } as ProfileInfo)
   const profiles = [p('harbour', 'cn'), p('quay', 'us'), p('jetty', 'us'), p('dock')]
-  const s = profileChoices(profiles, true, 'jetty')
+  // One profileChoices (ops-act's newtask.ts), with the Timeline's US-only pick (theseus-jid7t.5 x .6).
+  const s = profileChoices(profiles, undefined, US_ONLY_WORDS, 'jetty')
   assert.equal(s.pick, 'jetty', 'the live one, when it is of US origin')
-  assert.deepEqual(s.choices.filter((c) => c.off).map((c) => c.name), ['harbour', 'dock'], 'not of US origin, or of none known')
-  for (const c of s.choices.filter((x) => x.off)) assert.equal(c.off, US_ONLY_WORDS)
-  assert.equal(profileChoices(profiles, true, 'harbour').pick, 'quay', 'the live one is not: the first that is')
-  assert.equal(profileChoices([p('harbour', 'cn'), p('dock')], true).pick, '', 'none of US origin: it fails closed')
-  const open = profileChoices(profiles, false, 'harbour')
+  assert.deepEqual(s.choices.filter((c) => c.grey).map((c) => c.name), ['harbour', 'dock'], 'not of US origin, or of none known')
+  for (const c of s.choices.filter((x) => x.grey)) assert.equal(c.grey, US_ONLY_WORDS)
+  assert.equal(profileChoices(profiles, undefined, US_ONLY_WORDS, 'harbour').pick, 'quay', 'the live one is not: the first that is')
+  assert.equal(profileChoices([p('harbour', 'cn'), p('dock')], undefined, US_ONLY_WORDS).pick, '', 'none of US origin: it fails closed')
+  const open = profileChoices(profiles, undefined, undefined, 'harbour')
   assert.equal(open.pick, '', 'an open event: the parent’s model, as before')
-  assert.ok(open.choices.every((c) => !c.off))
+  assert.ok(open.choices.every((c) => !c.grey))
   assert.equal(US_ONLY_WORDS, 'this event’s calendar is sensitive: US models only')
   const sheet = read('src/ops/NewTask.tsx')
-  assert.match(sheet, /disabled=\{!!c\.off\}/)
+  assert.match(sheet, /disabled=\{!!c\.grey\}/)
   assert.match(sheet, /if \(closed\) \{ setSaid/)
+  assert.match(sheet, /disabled=\{!p \|\| !!chosen\?\.grey \|\| closed\}/)
   assert.match(read('src/ops/EventDetail.tsx'), /<NewTask brief=\{prepSheet\.brief\} title=\{prepSheet\.title\} usOnly=\{prepSheet\.usOnly\}/)
 })
 

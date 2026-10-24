@@ -6,6 +6,7 @@
 
 export const QUEUE_KEY = 'cockpit.ops.queue'
 export const INSPECTOR_KEY = 'cockpit.ops.inspector'
+export const DOCK_KEY = 'cockpit.ops.dock'
 
 export type Fold = 'open' | 'folded'
 export const parseFold = (raw: string | null): Fold => (raw === 'folded' ? 'folded' : 'open')

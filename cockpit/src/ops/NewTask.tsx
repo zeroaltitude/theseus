@@ -1,73 +1,80 @@
-// The New task box, moved from the Tasks page with every field (theseus-ypnxt.6; theseus-jid7t.3): a brief, a title, a
-// budget, and where it goes. It calls `task.start`, which opens the task with no model turn; the row it makes is
-// selected on the board (the page writes it into the address), and a refusal shows the daemon's own words. `N` opens it with the conversation under the
-// cursor as its home. The profile it runs on can be picked; a task about a sensitive calendar's event (`usOnly`,
-// theseus-jid7t.5) offers only a profile of US origin, the others greyed with the reason, and starts on none if none is
-// known (it fails closed).
+// The New task sheet (theseus-jid7t.3, .6): every field of the Tasks page's form (a brief, a title, a budget, where it
+// goes) and what `task.start` takes besides: the profile, greyed by the home's data mark as the model menu is, a start
+// time, quotes, and an open task. It calls `task.start`, which opens the task with no model turn; the row it makes is
+// selected on the board (the page writes it into the address), and a refusal shows the daemon's own words. `N` opens it
+// with the conversation under the cursor as its home. A caller may pass a profile, a brief and a title, and "US only"
+// (the Timeline does for a sensitive calendar event, theseus-jid7t.5): then another origin's profile is greyed with
+// `US_ONLY_WORDS`, a profile of US origin is picked, and with none known it starts nothing (it fails closed).
 import { useState } from 'react'
-import { Plus, Send, X } from 'lucide-react'
-import type { ProfileListResult, SessionInfo, TaskStartParams, TaskStartResult } from '@protocol'
+import { Send } from 'lucide-react'
+import type { ProfileListResult, SessionInfo, TaskStartResult } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { cn, short, usd } from '@/lib/format'
-import { Panel } from '@/components/ui'
 import { useOpsAct } from './act'
-import { ActBtn } from './ActBtn'
-import { profileChoices, US_ONLY_WORDS } from './calendar'
+import { FIELD, Sheet } from './Sheet'
+import { US_ONLY_WORDS } from './calendar'
+import { dollarsOf, EMPTY_FORM, profileChoices, startParams, usClosed } from './newtask'
 
-export function NewTask({ home: initialHome = '', brief: initialBrief = '', title: initialTitle = '', usOnly = false, onStarted, onClose }: {
-  home?: string; brief?: string; title?: string; usOnly?: boolean; onStarted: (taskId: string) => void; onClose: () => void
+export function NewTask({ home: initialHome = '', profile: initialProfile = '', brief: initialBrief = '', title: initialTitle = '', usOnly = false, onStarted, onClose }: {
+  home?: string; profile?: string; brief?: string; title?: string; usOnly?: boolean; onStarted: (taskId: string) => void; onClose: () => void
 }) {
   const { on } = useOpsAct()
-  const [brief, setBrief] = useState(initialBrief)
-  const [title, setTitle] = useState(initialTitle)
-  const { data: pl } = useRpc<ProfileListResult>('profile.list', undefined, 0)
-  const profiles = profileChoices(pl?.profiles ?? [], usOnly, pl?.live)
-  const [picked, setProfile] = useState<string | null>(null)
-  const profile = picked ?? profiles.pick
-  const closed = usOnly && !profiles.choices.some((c) => c.name === profile && !c.off)
-  const [budget, setBudget] = useState('')
-  const [home, setHome] = useState(initialHome)
+  const [f, setF] = useState({ ...EMPTY_FORM, home: initialHome, profile: initialProfile, brief: initialBrief, title: initialTitle })
+  const usWhy = usOnly ? US_ONLY_WORDS : undefined
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }))
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
+  const { data: pl } = useRpc<ProfileListResult>('profile.list', undefined, 30_000)
   const open = (sl?.sessions ?? []).filter((s) => s.kind === 'conversation' && !s.retired)
-  const dollars = budget.trim() === '' ? undefined : Number(budget.trim().replace(/^\$/, ''))
-  const bad = dollars !== undefined && !(dollars > 0)
+  const mark = open.find((s) => s.session_id === f.home)?.data
+  const { choices, pick } = profileChoices(pl?.profiles ?? [], mark, usWhy, pl?.live)
+  // Under "US only" the sheet picks a profile of US origin until one is chosen.
+  const profile = f.profile || (usOnly ? pick : '')
+  const chosen = choices.find((c) => c.name === profile)
+  const closed = usClosed(choices, profile, usWhy)
+  const bad = dollarsOf(f.budget).bad
+  const p = startParams({ ...f, profile })
   const start = async () => {
     if (!on('new_task')) return
     if (closed) { setSaid({ ok: false, text: `${US_ONLY_WORDS}: pick a profile of US origin` }); return }
-    const p: TaskStartParams = { brief: brief.trim(), ...(title.trim() && { title: title.trim() }), ...(home && { home }), ...(dollars !== undefined && { budget_usd: dollars }), ...(profile && { profile }) }
+    if (!p || chosen?.grey) return
     setBusy(true)
     try {
       const r = await call<TaskStartResult>('task.start', p)
       setSaid({ ok: true, text: `started ${r.short}${p.title ? ` · ${p.title}` : ''} · ${usd(r.limit_usd)}` })
-      setBrief(''); setTitle(''); setBudget('')
+      setF((x) => ({ ...x, brief: '', title: '', budget: '', quotes: '' }))
       onStarted(r.task_id)
     } catch (e: any) {
       setSaid({ ok: false, text: e?.message ?? String(e) })
     } finally { setBusy(false) }
   }
-  const field = 'rounded-md bg-black/20 px-2 py-1.5 text-[12.5px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/60'
   return (
-    <Panel help="tasks.new" title="New task" icon={<Plus size={13} />} bodyClassName="flex flex-col gap-2 p-3"
-      actions={<button onClick={onClose} title="close (esc)" aria-label="close the New task box" className="text-ink-faint hover:text-ink"><X size={13} /></button>}>
-      <textarea autoFocus value={brief} onChange={(e) => setBrief(e.target.value)} rows={3} placeholder="What should it do? A task works on its own and reports back." aria-label="Brief"
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && brief.trim() && !bad && !busy) void start(); if (e.key === 'Escape') onClose() }} className={cn(field, 'resize-y')} />
+    <Sheet title="New task" note="A task works on its own and reports back. It starts at once, with no model turn." help="tasks.new" verb="new_task" submit="Start task" busy={busy}
+      disabled={!p || !!chosen?.grey || closed} result={said} onClose={onClose} onSubmit={() => void start()} wide>
+      <textarea autoFocus value={f.brief} onChange={set('brief')} rows={3} placeholder="What should it do? A task works on its own and reports back." aria-label="Brief"
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && p && !busy) { e.preventDefault(); void start() } }} className={cn(FIELD, 'resize-y')} />
       <div className="flex flex-wrap items-center gap-2">
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (the brief’s first line)" aria-label="Title" className={cn(field, 'min-w-48 flex-1')} />
-        <input value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Budget $ (a quarter of what’s left)" aria-label="Budget in dollars" inputMode="decimal" className={cn(field, 'w-52', bad && 'ring-fault/60')} />
-        <select value={home} onChange={(e) => setHome(e.target.value)} aria-label="Where it goes" className={cn(field, 'max-w-64')}>
-          <option value="">Home conversation</option>
-          {open.map((s) => <option key={s.session_id} value={s.session_id}>{s.title || s.label || short(s.session_id)}</option>)}
-        </select>
-        <select value={profile} onChange={(e) => setProfile(e.target.value)} aria-label="The profile it runs on" title={usOnly ? US_ONLY_WORDS : 'the profile its turns run on'} className={cn(field, 'max-w-56', closed && 'ring-fault/60')}>
-          {!usOnly && <option value="">Parent’s model</option>}
-          {usOnly && !profiles.pick && <option value="">no profile of US origin is known</option>}
-          {profiles.choices.map((c) => <option key={c.name} value={c.name} disabled={!!c.off} title={c.off}>{c.name} · {c.model}{c.off ? ' (US models only)' : ''}</option>)}
-        </select>
-        <ActBtn verb="new_task" on={on} busy={busy} onClick={() => { if (brief.trim() && !bad) void start() }} title="Start it now, with no model turn (Ctrl+Enter)"><Send size={12} /> Start task</ActBtn>
+        <input value={f.title} onChange={set('title')} placeholder="Title (the brief’s first line)" aria-label="Title" className={cn(FIELD, 'min-w-48 flex-1')} />
+        <input value={f.budget} onChange={set('budget')} placeholder="Budget $ (a quarter of what’s left)" aria-label="Budget in dollars" inputMode="decimal" className={cn(FIELD, 'w-52', bad && 'ring-fault/60')} />
       </div>
-      {said && <div role="status" className={cn('num text-[11.5px]', said.ok ? 'text-ok' : 'text-fault')}>{said.text}</div>}
-    </Panel>
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={f.home} onChange={set('home')} aria-label="Where it goes" className={cn(FIELD, 'max-w-64')}>
+          <option value="">Home conversation</option>
+          {open.map((s) => <option key={s.session_id} value={s.session_id}>{s.title || s.label || short(s.session_id)}{s.data && s.data !== 'open' ? ` · ${s.data}` : ''}</option>)}
+        </select>
+        <select value={profile} onChange={set('profile')} aria-label="Profile" title={usWhy} className={cn(FIELD, 'max-w-64', (chosen?.grey || closed) && 'ring-fault/60')}>
+          <option value="">{usOnly ? (pick ? 'pick a profile of US origin' : 'no profile of US origin is known') : 'Profile: the parent’s model'}</option>
+          {choices.map((c) => <option key={c.name} value={c.name} disabled={!!c.grey} title={c.grey ?? undefined}>{c.label}{c.grey ? ' · refused' : ''}</option>)}
+        </select>
+        <input value={f.startWhen} onChange={set('startWhen')} placeholder="Start: now, 2h, fri 9:00" aria-label="Start time" className={cn(FIELD, 'w-44')} />
+        <label className="flex items-center gap-1.5 text-[12px] text-ink-dim" title="An open task: its data may go to a model of any origin once its content is judged open">
+          <input type="checkbox" checked={f.open} onChange={(e) => setF((x) => ({ ...x, open: e.target.checked }))} /> open task
+        </label>
+      </div>
+      {(chosen?.grey || closed) && <div className="text-[11.5px] text-fault">{chosen?.grey ?? `${US_ONLY_WORDS}: pick a profile of US origin`}</div>}
+      <textarea value={f.quotes} onChange={set('quotes')} rows={2} placeholder="Quotes the task reads verbatim (a message, a pasted log); a blank line between two" aria-label="Quotes" className={cn(FIELD, 'resize-y')} />
+      <span className="sr-only"><Send size={12} /> Ctrl+Enter starts it</span>
+    </Sheet>
   )
 }
