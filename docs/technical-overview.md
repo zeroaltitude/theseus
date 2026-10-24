@@ -6,6 +6,9 @@ This was the repository's README until 2026-10-01; the new README is the plain-l
 overview covers the core as built through M3: the protocol, the store, the kernel, and the tool loop. Everything
 built since is recorded milestone by milestone in the design document's Part III:
 - the Daily Driver (Discord, approvals, tasks, wakes, the web tools, the secret broker);
+- voice in a Discord call, with Deepgram: since 1.0.2 Deepgram Flux listens by default and decides where a turn
+  ends (`[voice] stt_model = "nova-3"` is the fallback by config: the pause rules), replies are spoken sentence by
+  sentence with a held barge-in, and voice notes are transcribed by pre-recorded nova-3 (Part III, Item 256);
 - the lifecycle budgets;
 - the hardening;
 - the cockpit.
