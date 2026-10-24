@@ -77,7 +77,9 @@ test('every field the old component showed is made by its new home’s fact func
 
 test('the Timeline lens hosts the Agenda unchanged, and the Graph lens the task graph', () => {
   const page = src('src/views/Ops.tsx')
-  assert.match(page, /import Agenda from '\.\/Agenda'/)
+  // The Timeline lens is its own now (ops-timeline, theseus-jid7t.5): the Agenda's page moved into it, whole.
+  assert.match(page, /import \{ TimelineLens, type TimelineReport \} from '@\/ops\/TimelineLens'/)
+  assert.ok(!existsSync(new URL('../src/views/Agenda.tsx', import.meta.url)), 'the Agenda moved, not copied')
   assert.match(page, /a\.lens === 'graph' && <TaskGraphView records=\{records\} past=\{past \?\? undefined\} shown \/>/)
   assert.match(src('src/components/TaskGraph.tsx'), /if \(!shown && params\.get\('taskgraph'\) !== '1'\) return null/)
 })

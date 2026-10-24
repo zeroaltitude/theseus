@@ -197,8 +197,8 @@ test('the Wakes panel moved here loses no field it showed on Actions', () => {
   assert.ok(!/function Wakes\b/.test(actions) && !/<Wakes\b/.test(actions), 'the panel left Actions')
   assert.match(actions, /<Link to="\/agenda"/)
   assert.match(actions, /data-testid="wakes-link"/)
-  // The Bridge's tile opens the page.
-  assert.match(read('src/views/Bridge.tsx'), /label="Wakes due"[\s\S]{0,400}nav\('\/agenda'\)/)
+  // The Bridge's tile opens the page: the Operations page's Timeline lens (theseus-jid7t.5).
+  assert.match(read('src/views/Bridge.tsx'), /label="Wakes due"[\s\S]{0,400}nav\('\/ops\?lens=timeline'\)[\s\S]{0,80}on the Timeline/)
 })
 
 test('the page is on the rail, in a group, behind a route, and says what it shows', () => {
@@ -206,18 +206,18 @@ test('the page is on the rail, in a group, behind a route, and says what it show
   assert.match(read('src/components/Shell.tsx'), /d: '\/ops\?lens=timeline'/)
   assert.match(read('src/lib/navgroups.ts'), /'\/ops'/)
   assert.match(read('src/main.tsx'), /path: 'agenda', element: <ToOps \/>/)
-  const page = [read('src/views/Agenda.tsx'), read('src/components/Wakes.tsx')].join('\n')
+  const page = [read('src/ops/TimelineLens.tsx'), read('src/components/Wakes.tsx')].join('\n')
   for (const id of ['agenda.week', 'agenda.routines', 'agenda.watches', 'agenda.projects', 'agenda.wakes']) assert.ok(page.includes(`help="${id}"`), id)
 })
 
 test('the page idles: no timer of its own that asks, no refetch interval, and only a change of the future reads it again', () => {
-  const files = ['src/lib/agendawatch.ts', 'src/views/Agenda.tsx', 'src/components/WeekStrip.tsx', 'src/components/RoutinesTable.tsx', 'src/components/FutureLists.tsx', 'src/components/Wakes.tsx']
+  const files = ['src/lib/agendawatch.ts', 'src/ops/TimelineLens.tsx', 'src/ops/WeekStripV2.tsx', 'src/components/WeekStrip.tsx', 'src/components/RoutinesTable.tsx', 'src/components/FutureLists.tsx', 'src/components/Wakes.tsx']
   for (const f of files) {
     const src = read(f)
     assert.ok(!/setInterval|refetchInterval|useRpc\(|useQuery\(/.test(src.replace(/\/\/.*$/gm, '')), `${f} polls`)
   }
   // The only timers: the page's minute hand (a state change, no call) and the push's debounce.
-  assert.match(read('src/views/Agenda.tsx'), /useTick\(60_000\)/)
+  assert.match(read('src/ops/TimelineLens.tsx'), /useTick\(60_000\)/)
   assert.match(read('src/lib/agendawatch.ts'), /setTimeout\(\(\) => \{ timer = null; void read\(\) \}, DEBOUNCE_MS\)/)
   const none = new Set<string>()
   assert.equal(touchesFuture({ views: [{ kind: 'conversation' }, { kind: 'job' }, { kind: 'question' }] }, none), false, 'a conversation, a job or a question is not the future')

@@ -24,7 +24,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- the Agenda (theseus-p17fd)
   'agenda.week': e(
     'Show the week ahead on one strip: what is due, what runs, what is being watched and what starts, with the week just gone for the routines.',
-    'Seven columns, one a day, the hours down each (today in gold, the red line is now). A dot is a reminder, a ring a check-in, a bar a routine run due, a ✓ or ✗ a run that ended, a ▷ a task that starts, a flag a milestone, a tall bar a watch across its window. Hover names it; a click opens its verbs.',
+    'Seven columns, a day each (d zooms to one). Behind, your meetings in each calendar’s colour, a sensitive one hatched with a lock (⇧R hides its titles). Right: Theseus’s marks (● reminder, ○ check-in, │ run due, ✓ ✗ runs, ▷ a start, ⚑ milestone). Left: thin bars for what ran. ◆ is a clash; the cyan line is now. A click opens its verbs; drag a reminder or start to move it.',
     'It is the one place to see every horizon at once. A crowded hour, a run that failed, or a reminder at the wrong time is cheaper to fix here than after it fires.'),
   'agenda.routines': e(
     'Show each routine with its schedule, its last run and what it costs, so you can tell a routine that earns its keep from one that does not.',

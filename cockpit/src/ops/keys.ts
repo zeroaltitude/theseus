@@ -7,7 +7,7 @@
 // sequence (`g` then a letter) is one key here: `g b`.
 
 /** What the focus is on, most specific first: each focus offers its contexts, and `page` is always there. */
-export type Ctx = 'answer' | 'choice' | 'grant' | 'failure' | 'task' | 'running' | 'job' | 'wake' | 'card' | 'page' | 'filter'
+export type Ctx = 'answer' | 'choice' | 'grant' | 'failure' | 'task' | 'running' | 'job' | 'mark' | 'wake' | 'card' | 'timeline' | 'page' | 'filter'
 
 export type Verb =
   | 'down' | 'up' | 'left' | 'right' | 'inspect' | 'open' | 'back' | 'next' | 'prev'
@@ -16,6 +16,9 @@ export type Verb =
   | 'lens_graph' | 'lens_board' | 'lens_timeline' | 'lens_threads' | 'home' | 'search'
   | 'fold_queue' | 'fold_inspector' | 'fold_dock' | 'keys'
   | 'filter_needs' | 'filter_working' | 'filter_paused' | 'filter_done' | 'filter_all'
+  // ops-timeline (theseus-jid7t.5)
+  | 'zoom_day' | 'zoom_week' | 'redact' | 'week_prev' | 'week_next' | 'mark_next' | 'mark_prev'
+  | 'mark_snooze' | 'mark_pause' | 'mark_run' | 'mark_cancel' | 'mark_open'
 
 export interface KeyDef {
   verb: Verb
@@ -71,20 +74,36 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'filter_paused', keys: ['r'], ctx: 'filter', words: 'only paused·queued (on a failure, r retries)' },
   { verb: 'filter_done', keys: ['d'], ctx: 'filter', words: 'only done today (on a failure, d dismisses)' },
   { verb: 'filter_all', keys: ['a'], ctx: 'filter', words: 'everything: clear the filters (on a card with a grant, a takes it)' },
+  // ops-timeline (theseus-jid7t.5): the Timeline lens's keys, and the Horizon's on a focused mark (the TUI's H).
+  { verb: 'zoom_day', keys: ['d'], ctx: 'timeline', words: 'Day zoom (in the Timeline, d beats the done filter: the lens is more specific)' },
+  { verb: 'zoom_week', keys: ['w'], ctx: 'timeline', words: 'Week zoom (in the Timeline, w beats the working filter)' },
+  { verb: 'redact', keys: ['R'], ctx: 'timeline', words: 'redact: a sensitive calendar’s titles become bars, its place, call and attendees go' },
+  { verb: 'week_prev', keys: [','], ctx: 'timeline', words: 'the previous week (a day, in Day zoom)' },
+  { verb: 'week_next', keys: ['.'], ctx: 'timeline', words: 'the next week (a day, in Day zoom)' },
+  { verb: 'mark_next', keys: ['j', 'ArrowDown'], ctx: 'timeline', words: 'the next mark or event, by time' },
+  { verb: 'mark_prev', keys: ['k', 'ArrowUp'], ctx: 'timeline', words: 'the previous mark or event' },
+  { verb: 'mark_snooze', keys: ['z'], ctx: 'mark', words: 'snooze the reminder or check-in 10 minutes', act: true },
+  { verb: 'mark_pause', keys: ['p'], ctx: 'mark', words: 'pause or resume it', act: true },
+  { verb: 'mark_run', keys: ['r'], ctx: 'mark', words: 'run the routine now (asks; on a mark, r beats the paused filter)', act: true },
+  { verb: 'mark_cancel', keys: ['x'], ctx: 'mark', words: 'cancel it (asks)', act: true },
+  { verb: 'mark_open', keys: ['Enter'], ctx: 'mark', words: 'open its session' },
 ]
 
 /** The contexts in the order a key looks for its meaning: the focus's own first, then the page, then the filters. */
-export const PRIORITY: readonly Ctx[] = ['answer', 'choice', 'grant', 'failure', 'task', 'running', 'job', 'wake', 'card', 'page', 'filter']
+export const PRIORITY: readonly Ctx[] = ['answer', 'choice', 'grant', 'failure', 'task', 'running', 'job', 'mark', 'wake', 'card', 'timeline', 'page', 'filter']
 
 /** Words for each context, for the overlay's headings. */
 export const CTX_WORDS: Readonly<Record<Ctx, string>> = {
   answer: 'On a question', choice: 'On a question with choices', grant: 'On a card that offers a grant', failure: 'On a failure',
-  task: 'On a task', running: 'On something running', job: 'On a job', wake: 'On a wake', card: 'On anything selected',
+  task: 'On a task', running: 'On something running', job: 'On a job', mark: 'On a mark of the Timeline', wake: 'On a wake', card: 'On anything selected',
+  timeline: 'In the Timeline lens',
   page: 'Anywhere', filter: 'Counters (where no card claims the key)',
 }
 
 /** The verbs that act: off under the time machine. The table's, and the buttons' that no key presses. */
-export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark'] as const
+export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark',
+  // ops-timeline (theseus-jid7t.5): an event's verbs that reach the daemon, and a drag with its Undo.
+  'event_remind', 'event_prep', 'event_ask', 'drag', 'undo'] as const
 export type ButtonAct = (typeof BUTTON_ACTS)[number]
 export const ACTS: ReadonlySet<string> = new Set<string>([...KEYS.filter((k) => k.act).map((k) => k.verb), ...BUTTON_ACTS])
 

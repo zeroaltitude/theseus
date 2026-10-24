@@ -24,7 +24,8 @@ export interface ParityRow {
 }
 
 const OPS = 'src/views/Ops.tsx'
-const AGENDA = 'src/views/Agenda.tsx'
+const LENS = 'src/ops/TimelineLens.tsx'
+const STRIP = 'src/ops/WeekStripV2.tsx'
 const BOARD = 'src/ops/BoardLens.tsx'
 const THREADS = 'src/ops/ThreadsLens.tsx'
 const PANEL = 'src/ops/ThreadPanel.tsx'
@@ -34,19 +35,19 @@ const ACTIONS = 'src/views/Actions.tsx'
 const timeline: readonly [string, string] = [OPS, "a.lens === 'timeline' && ("]
 
 export const PARITY: readonly ParityRow[] = [
-  // 1a. The Agenda: the Timeline lens hosts the page unchanged until its own row lands.
-  { id: 'A1', group: '1a', datum: 'week strip: 7 local days by wall-clock hour, DST days, today, now line, ‹ Today ›, ?w=', home: 'here', at: [timeline, [OPS, '<Agenda />'], [AGENDA, '<WeekStrip']] },
-  { id: 'A2', group: '1a', datum: 'marks: reminder, check-in, run due, past runs, deferred start, milestone, watch bar', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, 'allMarks(']] },
-  { id: 'A3', group: '1a', datum: 'hover line (markLine)', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, 'markLine(hover)']] },
-  { id: 'A4', group: '1a', datum: '"the daemon would say more than the strip holds"', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, 'hidden={agenda?.more}']] },
-  { id: 'A5', group: '1a', datum: 'selected mark (?sel=): title, line, Open, Snooze, Move…, Pause/Resume, Cancel, routine and watch verbs', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, 'verbsFor(mark)']] },
-  { id: 'A6', group: '1a', datum: '"This week · N items"', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, 'This week ·']] },
-  { id: 'A7', group: '1a', datum: 'routines table: every column, the 30-run expansion and tally', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, '<RoutinesTable']] },
-  { id: 'A8', group: '1a', datum: 'watches, every field', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, '<WatchList']] },
-  { id: 'A9', group: '1a', datum: 'projects, every field', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, '<ProjectList']] },
-  { id: 'A10', group: '1a', datum: 'wakes: every field and verb, the tip', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, '<Wakes']] },
-  { id: 'A11', group: '1a', datum: '"the agenda could not be read: …"', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, 'the agenda could not be read']] },
-  { id: 'A12', group: '1a', datum: 'the read discipline: work.agenda and wake.list only when the week changes or touchesFuture', home: 'here', at: [[OPS, '<Agenda />'], [AGENDA, 'useFuture(']] },
+  // 1a. The Agenda: the Timeline lens (ops-timeline, theseus-jid7t.5), its strip v2 and the Agenda's panels unchanged.
+  { id: 'A1', group: '1a', datum: 'week strip: 7 local days by wall-clock hour, DST days, today, now line, ‹ Today ›, ?w=', home: 'here', at: [timeline, [OPS, '<TimelineLens weeks={a.w}'], [LENS, '<WeekStripV2'], [LENS, 'weekWindow(now, weeks)'], [STRIP, "d.hours !== 24"], [STRIP, 'title={`now ${hm(now)}`}'], [STRIP, '>Today</button>']] },
+  { id: 'A2', group: '1a', datum: 'marks: reminder, check-in, run due, past runs, deferred start, milestone, watch bar', home: 'here', at: [[LENS, 'allMarks('], [STRIP, '{glyph(m)}'], [STRIP, 'data-mark="watch"']] },
+  { id: 'A3', group: '1a', datum: 'hover line (markLine)', home: 'here', at: [[LENS, 'onHover={setHover}'], [STRIP, "onHover(markLine(m).split('\\n')[0])"]] },
+  { id: 'A4', group: '1a', datum: '"the daemon would say more than the strip holds"', home: 'here', at: [[LENS, 'more={agenda?.more}'], [LENS, 'the daemon would say more than the strip holds: busy series are cut']] },
+  { id: 'A5', group: '1a', datum: 'selected mark (?sel=): title, line, Open, Snooze, Move…, Pause/Resume, Cancel, routine and watch verbs', home: 'here', at: [[LENS, '<MarkDetail mark={picked}'], [LENS, 'verbsFor(mark)']] },
+  { id: 'A6', group: '1a', datum: '"This week · N items"', home: 'here', at: [[LENS, 'This week ·']] },
+  { id: 'A7', group: '1a', datum: 'routines table: every column, the 30-run expansion and tally', home: 'here', at: [[LENS, '<RoutinesTable']] },
+  { id: 'A8', group: '1a', datum: 'watches, every field', home: 'here', at: [[LENS, '<WatchList']] },
+  { id: 'A9', group: '1a', datum: 'projects, every field', home: 'here', at: [[LENS, '<ProjectList']] },
+  { id: 'A10', group: '1a', datum: 'wakes: every field and verb, the tip', home: 'here', at: [[LENS, '<Wakes']] },
+  { id: 'A11', group: '1a', datum: '"the agenda could not be read: …"', home: 'here', at: [[LENS, 'the agenda could not be read']] },
+  { id: 'A12', group: '1a', datum: 'the read discipline: work.agenda and wake.list only when the week changes or touchesFuture', home: 'here', at: [[LENS, 'useFuture(win.from_ms, win.to_ms, held)']] },
   // 1b. Tasks: the Board lens, the command bar and the queue.
   { id: 'T1', group: '1b', datum: 'New task: brief, title, budget validated, home conversation, Ctrl+Enter, the result line, a refusal in the daemon’s words', home: 'here',
     at: [[OPS, '<NewTask'], ['src/ops/NewTask.tsx', "call<TaskStartResult>('task.start'"], ['src/ops/NewTask.tsx', 'a quarter of what’s left'], ['src/ops/NewTask.tsx', 'Ctrl+Enter'], ['src/ops/NewTask.tsx', 'Home conversation'], ['src/ops/NewTask.tsx', 'e?.message'], ['src/ops/NewTask.tsx', "ring-fault/60"]] },
@@ -92,7 +93,7 @@ export const PARITY: readonly ParityRow[] = [
   { id: 'B13', group: '1e', datum: 'L self changes', home: 'pending: ops-act', at: [] },
   { id: 'B14', group: '1e', datum: 'p standing records / parent', home: 'pending: ops-act', at: [] },
   { id: 'B15', group: '1e', datum: 'I the newest turn', home: 'pending: ops-act', at: [] },
-  { id: 'B16', group: '1e', datum: 'H the Horizon (j k z p r x enter)', home: 'pending: ops-timeline', at: [] },
+  { id: 'B16', group: '1e', datum: 'H the Horizon (j k z p r x enter)', home: 'here', at: [[KEYS, "verb: 'mark_next'"], [KEYS, "verb: 'mark_snooze'"], [KEYS, "verb: 'mark_open'"], ['src/ops/timelinekeys.ts', 'horizonVerb(mark, k)']] },
   { id: 'B17', group: '1e', datum: 'flash lines (toasts)', home: 'here', at: [[OPS, 'setFlash(']] },
   { id: 'B18', group: '1e', datum: 'narrow screens', home: 'here', at: [['src/ops/regions.ts', 'NARROW_PX'], [OPS, 'regionsFor(']] },
   // herdr's commands and links.

@@ -17,8 +17,8 @@ build.
   `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the categories as closed groups one a kind with their trees inside (`groupsOf`; `<unknown>` for a kind the table lacks, theseus-7mow), guidance, and topics; people,
   searchable by handle, a person's page and merge, adding one, and Jev's proposals with select-all accept, in
   `src/components/People.tsx` over `src/lib/people.ts`, theseus-wy7y; it shows the present only; its proposals panel lists people one row per proposed person, each with one accept and one reject, theseus-fvyx; the growth chart and the list of what the machines minted sit above the tree, `src/components/OntologyGrowth.tsx` over `growthOf` and `mintedOf` in `src/lib/ontology.ts`: 90 days of `ontology.category` and `ontology.kind` rows from the shared ledger history, stacked by origin, a ring on a day whose write was later undone, and each mint with its judgment link and an `ontology.undo` button, theseus-dd3kw; the tree's origin and confidence columns and its origin filter, `?origin=`, from the first `ontology.category` row of each category, `originsOf` and `originFilter`: a match keeps its ancestors as dimmed context and `unknown` is an option, so no category is hidden from every filter, theseus-tq7s8; an add-a-kind form beside add-a-topic, `src/components/OntologyKindAdd.tsx` over `buildKindAdd` and `kindAddAsk` in `src/lib/ontokinds.ts`: it mirrors the daemon's checks of `ontology.kind.add`, and its confirm carries the exact params it sends, theseus-s430x; the Judgment view draws the ontology pack's line under its row, `ontoLine` over `ontoStatsOf` in `src/lib/ontostats.ts`: judgments, acts, confirms and undos counted from the ledger's `judge.call`, `onto.filed` and `ontology.undo` rows, theseus-wzvxp; the learning report's ontology block draws the same line for the report's day with the undo rate per kind: the line's counts are `ontoStatsOf(rows, { day })` from the ledger (theseus-0vhyn), the undo rate is the daemon's, the report's own `pack.undo` and `pack.undo_days` worded by `ontoKindWords` (one definition, `onto_undo::undo_rates`, theseus-ukmbn); the kind groups fold open and shut in `src/lib/groupfold.ts`, the reader's own set kept while a filter forces them all open, theseus-5kd37), `Context` (the context explorer, theseus-7n3e: what Theseus knows and what a turn sees), and `Books` (the imported episodes by their book, first cut: `books.list`, `books.page`, an episode's messages by `session.history`; its pure parts are `src/lib/books.ts`, theseus-civ0). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`), whose pulldown groups topics and people and searches both.
-- The Agenda (theseus-p17fd; horizon HZ9): `src/views/Agenda.tsx`, which the Operations page's Timeline lens hosts unchanged
-  (`/agenda` redirects there, `g d`; `?w=` the week, `?sel=` the selected mark). A week strip (`src/components/WeekStrip.tsx`: seven local days by the hour; a dot a reminder, a ring a
+- The Agenda (theseus-p17fd; horizon HZ9): its page moved whole into the Operations page's Timeline lens
+  (`src/ops/TimelineLens.tsx`, theseus-jid7t.5; `/agenda` redirects there, `g d`; `?w=` the week, `?sel=` the selected mark). The first week strip (`src/components/WeekStrip.tsx`, which the lens's v2 replaced: seven local days by the hour; a dot a reminder, a ring a
   check-in, a tick a routine run, a ✓ ✗ – for a past one by outcome, ▷ a deferred task's start, a flag a milestone, a bar a
   watch's window; a click opens the mark's verbs, each one call), the Routines table (`RoutinesTable.tsx`: schedule, next
   and last run, 30-day record, month spend of limit, a cost sparkline, and the last 30 runs of `routine.runs` in an
@@ -55,8 +55,8 @@ build.
     `[` and `]` fold the queue and the inspector (`ops/regions.ts`, kept in this browser); below 1280 px the inspector
     lies over the canvas, below 900 px the queue is the page.
   - **The lenses**: the Board (`ops/BoardLens.tsx` over `ops/board.ts`: five columns over `taskboard.ts`'s `rowsOf`,
-    with conversations, jobs, and what is due today); the Threads lens (`ops/ThreadsLens.tsx`); the Timeline lens hosts
-    `views/Agenda.tsx` unchanged and the Graph lens `TaskGraphView` (`shown`), until their rows land.
+    with conversations, jobs, and what is due today); the Threads lens (`ops/ThreadsLens.tsx`); the Timeline lens (below);
+    and the Graph lens `TaskGraphView` (`shown`), until its row lands.
   - **It reads, it does not poll**: the one `work.watch`, `task.list`, `confirm.list` and `session.list` on their
     pushes, the ledger's one copy for today's spend, and the router's `thread.asked` while it is open
     (`ops/asks.ts`; no read lists them). `test/ops-page.test.ts` fails a timer or a refetch interval.
@@ -75,6 +75,31 @@ build.
     (`ops/facts.ts`) that must make every field the old component showed and the card that must draw it as
     `f.<field>`. A field added to a card goes into its fact function and its row's `fields`; a row a later lens takes
     over moves its `at` there. Never delete a row to make the test pass.
+  - **The Timeline lens** (theseus-jid7t.5): `ops/TimelineLens.tsx` (the Agenda's page, moved: its reads, its
+    panels unchanged, the mark's `MarkDetail`), drawing `ops/WeekStripV2.tsx`: three layers a day, the calendar's events
+    as background blocks in side-by-side lanes with an all-day band (`ops/timeline.ts` `eventLayout`), the ran bars of
+    each run in a 3 px left gutter (`ranBars`), Theseus's marks in the right gutter; the night folds (`nightFold`: a
+    meeting or one-off mark holds its hour open, a series' ticks are counted inside); clashes (`clashes`: a mark inside a
+    meeting, or two meetings that overlap; all-day and declined events never) are a ◆ and the command bar's two
+    Timeline-only counters; `?day=` is the Day zoom (`d`/`w`, which beat the counter filters in the lens), `,`/`.` the
+    week, and on a focused mark the TUI's Horizon keys (`ops/timelinekeys.ts`). **The materials rule**: colour is for
+    state; a calendar is drawn in its own `color` (the daemon's hull materials, never a signal tone), a sensitive one
+    hatched with a lock, a free/busy block hatched; a calendar's state (`stateOf`: ok, busy_only, not_found with the
+    sharing steps, forbidden, auth_lapsed, off) is said in its legend in a state tone with its one fix, and a calendar not
+    read draws no events (a stale week is never current). **The data rules** (`ops/calendar.ts`, the owner's rule 3):
+    every surface that draws an event (block, tooltip, header line, the inspector's `EventDetail`, Coming up, the table,
+    the search) takes its strings from `eventFacts`, over `redactEvent`, so `?redact=1` (`⇧R`) masks a sensitive
+    calendar's title, place, call and attendees everywhere and the search does not match them; a verb's payload is
+    `eventVerbPayload`'s, and for a sensitive calendar names only its label and the time (the task or chat reads it with
+    the calendar tool; the New task sheet offers only a profile of US origin, `profileChoices`); Join the call and Open in
+    Google only open the link in a new tab. An event lives in memory only: no storage, no log, and the address holds its
+    opaque key (`?sel=ev:<key>`). `test/ops-calendar.test.ts` scans every string for invented content. **The one timer**:
+    `ops/calendarwatch.ts` reads `calendar.window` over `readSpans` (the window shown, and today and tomorrow for Coming
+    up) when they change, on `calendar.changed`, and every five minutes while the document is visible; it is the only
+    timer, stopped when hidden and on unmount. **Drag** (`ops/drag.ts` `dropOf`): a reminder or check-in moves by
+    `wake.snooze` with the instant as `when`, a deferred start by `task.reschedule` (`ops/reschedule.ts` until ops-verbs'
+    types join), each with Undo; the rest is refused with the reason on the cursor. `useOpsAct`'s `send` is the gate for
+    an act whose result the page reads.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`
   (the whole ledger, read once with `ledger.tail`'s `after` and followed), `src/lib/timemachine.ts` (the fold, its
   checkpoints, and the log's axis), `src/lib/marks.ts` (the marks: a start whose build differs from the one before
