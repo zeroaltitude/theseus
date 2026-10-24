@@ -308,3 +308,53 @@ async fn a_cancel_during_a_group_of_programs_starts_none_that_waits() {
     let e = r.core.kernel.execution(&exec).unwrap().unwrap();
     assert_eq!(e.state.as_str(), "cancelled");
 }
+
+/// Five real `proc.run` calls of one response that each pass `proc_sync`
+/// and go on as jobs (theseus-1kr2g): each touches its own marker and waits
+/// for all five, so a dispatch that starts a call only once the one before
+/// it has ended, or gone to the background, never gets the five there. A
+/// call that waits about 4 s for the others gives up, well before
+/// `proc_sync` (8 s) would put it in the background, and its job says it
+/// waited alone. The five results are placeholders, each saying it ran
+/// beside the other four, and every job meets the others.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn five_jobs_of_one_response_meet_at_once_past_proc_sync() {
+    let five: Vec<(String, &str, Value)> = (1..=5)
+        .map(|k| {
+            let line = format!(
+                "touch fan{k}; n=0; until [ $(ls fan? | wc -l) -ge 5 ]; do n=$((n+1)); \
+                 [ $n -ge 40 ] && {{ echo alone > met{k}; exit 1; }}; sleep 0.1; done; \
+                 echo met > met{k}; sleep 10"
+            );
+            (format!("f{k}"), "proc_run", json!({ "command": line }))
+        })
+        .collect();
+    let r = rig_with(vec![calls(&five), Scripted::text("They go on.")], |cfg| {
+        cfg.tools.proc_sync_secs = 8;
+        cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+    });
+    let res = turn(&r.core, None, "load five parts").await;
+    assert_eq!((res.loops, res.tool_calls), (2, 5), "{res:?}");
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs.len(), 5);
+    for (status, text) in &rs {
+        assert_eq!(*status, ResultStatus::Background, "{text}");
+        assert!(text.starts_with("Still running as job j"), "{text}");
+        assert!(
+            text.contains("[ran at once with 4 other calls of the same response]"),
+            "{text}"
+        );
+    }
+    // Each job has said by now how its wait ended; give a loaded machine's
+    // last writes a bound, never the test's verdict.
+    let said = |k: u32| std::fs::read_to_string(r.root.join(format!("met{k}"))).ok();
+    for _ in 0..300 {
+        if (1..=5).all(|k| said(k).is_some()) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    for k in 1..=5 {
+        assert_eq!(said(k).as_deref(), Some("met\n"), "job {k}");
+    }
+}
