@@ -82,6 +82,12 @@ test('ops-act: the page mounts the Join pane, dock, menus and toast; no prompt o
   for (const [f, s] of parts) assert.ok(!/window\.prompt/.test(s.replace(/\/\/.*$/gm, '')), `${f} asks with a prompt, not a sheet`)
   const join = src('ops/JoinPane.tsx')
   assert.match(join, /composerStep\(cs, e\)/)
+  // J1: a menu carries its session: the Join pane's own (a thread's included), never the focused card's.
+  assert.match(page, /onMenu=\{\(m, sid\) => setMenu\(\{ kind: m, sid \}\)\}/)
+  assert.match(join, /onMenu\('model', sid\)/)
+  assert.match(join, /onMenu\('mode', sid\)/)
+  assert.match(page, /<ModelMenu session=\{menuSession\}/)
+  assert.ok(!/<Mod[e]l?Menu session=\{focusSession\}/.test(page), 'the menus render for the session they carry')
   assert.match(join, /post\('join', 'turn\.submit'/)
   assert.match(src('ops/jobout.ts'), /run\(\{ kind: 'leave' \}\)/)
   assert.match(src('components/Shell.tsx'), /\{opsOn && <OpsPalette /)

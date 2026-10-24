@@ -32,7 +32,8 @@ import { verbById } from './verbs'
 export interface InspectorCx {
   records: readonly TaskRecord[]
   rows: readonly OpsRow[]
-  onMenu: (m: 'model' | 'mode') => void
+  /** Open the model or mode menu on that session. */
+  onMenu: (m: 'model' | 'mode', sid: string) => void
   /** The parent's row, when the selection reports to one (`p`). */
   onParent: (sessionId: string) => void
   /** Join a session by its id or a thread by its slug (the Join pane). */
@@ -135,8 +136,8 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
         {running && exe && <ActBtn verb="stop_all" on={on} tone="fault" busy={busy === `${exe}:all`} onClick={() => act('stop_all', `${exe}:all`, 'execution.stop', { execution_id: exe, tasks: true }, 'Stop its turn, and cancel every task under it?')}><OctagonX size={11} /> S · Stop all</ActBtn>}
         {f.stop && <ActBtn verb="cancel" on={on} tone="fault" busy={busy === `${r.id}:cancel`} onClick={() => act('cancel', `${r.id}:cancel`, 'task.cancel', { task: r.id }, `Stop task ${f.short} (${f.title})? Its jobs stop, and it reports that it was cancelled.`)}><OctagonX size={11} /> c c · Cancel</ActBtn>}
         {r.sessionId && <ActBtn verb="join" on={on} tone="live" onClick={() => cx.onJoin(r.sessionId!)} title="i: talk to it in the Join pane">i · Join</ActBtn>}
-        {r.sessionId && <ActBtn verb="model_menu" on={on} tone="model" onClick={() => cx.onMenu('model')} title="m: the model for this session"><Box size={11} /> m · Model</ActBtn>}
-        {r.kind === 'conversation' && <ActBtn verb="mode_menu" on={on} tone="idle" onClick={() => cx.onMenu('mode')} title="M: Ask, Edits, Plan, Auto">M · Mode</ActBtn>}
+        {r.sessionId && <ActBtn verb="model_menu" on={on} tone="model" onClick={() => cx.onMenu('model', r.sessionId!)} title="m: the model for this session"><Box size={11} /> m · Model</ActBtn>}
+        {r.kind === 'conversation' && <ActBtn verb="mode_menu" on={on} tone="idle" onClick={() => cx.onMenu('mode', r.sessionId!)} title="M: Ask, Edits, Plan, Auto">M · Mode</ActBtn>}
         {r.task?.info?.parent_session_id && <ActBtn verb="inspect" on={on} tone="idle" onClick={() => cx.onParent(r.task!.info!.parent_session_id)} title="p: its parent">p · Parent</ActBtn>}
         {r.kind === 'wake' && <ActBtn verb="cancel_wake" on={on} tone="fault" busy={busy === `${r.id}:x`} onClick={() => act('cancel_wake', `${r.id}:x`, 'wake.cancel', { wake: r.id }, `Cancel the wake “${f.title}”?`)}><OctagonX size={11} /> x · Cancel</ActBtn>}
         {lifeEntries.map((e) => <ActBtn key={e.id} verb="session_life" on={on} tone="idle" onClick={() => void runEntry(e)}>{e.label}</ActBtn>)}

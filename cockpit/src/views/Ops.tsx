@@ -151,7 +151,8 @@ export default function Ops() {
   const reg = regionsFor(width || 1440, qFold, iFold, selection.kind !== 'none')
   const [keysOpen, setKeysOpen] = useState(false)
   const [newTask, setNewTask] = useState<{ home: string } | null>(null)
-  const [menu, setMenu] = useState<'model' | 'mode' | null>(null)
+  // A menu carries the session it acts on: the Join pane's own, not the focused card's (ops-act J1).
+  const [menu, setMenu] = useState<{ kind: 'model' | 'mode'; sid: string } | null>(null)
   const [selfOpen, setSelfOpen] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [picker, setPicker] = useState(false)
@@ -204,7 +205,8 @@ export default function Ops() {
   const living = focusRow?.view?.state === 'running' || focusRow?.view?.state === 'waiting'
   const exe = focusRow?.kind === 'conversation' ? focusRow.view?.id ?? focusRow.session?.execution_id : undefined
   const tk = useTimelineKeys({ a, day, report: tlr, mark, set, pick, flash: setFlash, open: (sid) => nav(`/session/${sid}`) })
-  // The session a menu or the composer acts on: the focused task's or conversation's.
+  const menuSession = menu ? sessions.find((x) => x.session_id === menu.sid) : undefined
+  // The session the keys' menus and the composer act on: the focused task's or conversation's.
   const focusSession = (focusRow && (focusRow.kind === 'task' || focusRow.kind === 'conversation') ? focusRow.session : undefined) ?? sessions.find((x) => x.session_id === a.join)
   /** PgUp, PgDn and End scroll the open transcript (the Join pane's, else the inspector's). */
   const scrollTranscript = (by: number) => {
@@ -246,8 +248,8 @@ export default function Ops() {
     fold_queue: () => setQFold(flip(qFold)),
     fold_inspector: () => setIFold(flip(iFold)),
     fold_dock: () => setDockFold(flip(dockFold)),
-    model_menu: () => { if (focusSession && on('model_menu')) setMenu('model') },
-    mode_menu: () => { if (focusSession?.kind === 'conversation' && on('mode_menu')) setMenu('mode') },
+    model_menu: () => { if (focusSession && on('model_menu')) setMenu({ kind: 'model', sid: focusSession.session_id }) },
+    mode_menu: () => { if (focusSession?.kind === 'conversation' && on('mode_menu')) setMenu({ kind: 'mode', sid: focusSession.session_id }) },
     compose: () => { const id = focusSession?.session_id ?? focusRow?.sessionId ?? item?.sessionId ?? slug; if (id) set({ join: id }); else setFlash('select a session, a task or a thread to join') },
     parent: () => { const p = focusRow?.task?.info?.parent_session_id; if (p) pick(p); else setFlash('it reports to no parent') },
     last_turn: () => { const sid = focusRow?.sessionId ?? item?.sessionId; const t = sid ? lastTurnOf(history.rows, sid) : undefined; if (sid && t) nav(`/session/${sid}/turn/${t}`); else setFlash('no turn has ended in it yet') },
@@ -331,7 +333,7 @@ export default function Ops() {
   const n = a.lens === 'threads' ? threadList.length : a.lens === 'timeline' && tlr ? tlr.n : vis.rows.length
   const of = a.lens === 'threads' ? grouped.threads.length : a.lens === 'timeline' && tlr ? tlr.of : vis.of
 
-  const inspectorCx = { records, rows, onMenu: (m: 'model' | 'mode') => setMenu(m), onParent: (sid: string) => pick(sid), onJoin: (id: string) => set({ join: id }), joined: a.join }
+  const inspectorCx = { records, rows, onMenu: (m: 'model' | 'mode', sid: string) => setMenu({ kind: m, sid }), onParent: (sid: string) => pick(sid), onJoin: (id: string) => set({ join: id }), joined: a.join }
 
   // What the palette sees: the focused card, all that are visible, and (at the join) the selection.
   const feed = useMemo(() => ({
@@ -372,7 +374,7 @@ export default function Ops() {
     <div className="flex h-full min-h-0 gap-2.5">
       {lensView}
       <aside aria-label="Join" className="flex w-[460px] max-w-[48%] shrink-0 flex-col overflow-hidden rounded-xl border border-line-strong bg-hull/60">
-        <JoinPane key={joined} sessionId={joined.startsWith('ses_') ? joined : undefined} thread={joined.startsWith('ses_') ? undefined : joined} session={sessions.find((x) => x.session_id === joined)} focus onPicker={() => setPicker(true)} onMenu={(m) => setMenu(m)} />
+        <JoinPane key={joined} sessionId={joined.startsWith('ses_') ? joined : undefined} thread={joined.startsWith('ses_') ? undefined : joined} session={sessions.find((x) => x.session_id === joined)} focus onPicker={() => setPicker(true)} onMenu={(m, sid) => setMenu({ kind: m, sid })} />
       </aside>
     </div>
   ) : lensView
@@ -414,9 +416,9 @@ export default function Ops() {
       {dockFold === 'open' && <Dock state={dock} onState={setDock} onFocus={setDockFocus} selected={focusRow?.sessionId ?? null} sessions={sessions} activeModel={a.f.model} onModel={(m) => filter('model', m)} />}
       {dockFold === 'folded' && <button onClick={() => setDockFold('open')} title="the dock (\\)" className="self-start rounded-lg border border-line bg-hull/60 px-3 py-1 text-[11px] text-ink-faint hover:text-ink">Dock · live streams and models <span className="kbd">\\</span></button>}
       <Toast />
-      {ctxMenu && rows.find((r) => r.id === ctxMenu.id) && <VerbMenu target={targetOf(rows.find((r) => r.id === ctxMenu.id)!)} x={ctxMenu.x} y={ctxMenu.y} onMenu={(m) => setMenu(m)} onClose={() => setCtxMenu(null)} />}
-      {menu === 'model' && focusSession && <ModelMenu session={focusSession} onClose={() => setMenu(null)} />}
-      {menu === 'mode' && focusSession && <ModeMenu session={focusSession} onClose={() => setMenu(null)} />}
+      {ctxMenu && rows.find((r) => r.id === ctxMenu.id) && <VerbMenu target={targetOf(rows.find((r) => r.id === ctxMenu.id)!)} x={ctxMenu.x} y={ctxMenu.y} onMenu={(m) => { const sid = rows.find((r) => r.id === ctxMenu.id)?.sessionId; if (sid) setMenu({ kind: m, sid }) }} onClose={() => setCtxMenu(null)} />}
+      {menu?.kind === 'model' && menuSession && <ModelMenu session={menuSession} onClose={() => setMenu(null)} />}
+      {menu?.kind === 'mode' && menuSession && <ModeMenu session={menuSession} onClose={() => setMenu(null)} />}
       {selfOpen && (
         <Sheet title="What Theseus changed about itself" verb="inspect" submit="Close" onSubmit={() => setSelfOpen(false)} onClose={() => setSelfOpen(false)} wide><SelfChangesCard now={now} /></Sheet>
       )}
