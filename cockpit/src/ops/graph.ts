@@ -220,7 +220,7 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
       if (shown.size <= cap) break
       if (!shown.has(r) || keep.has(r)) continue
       const sub = below(r)
-      if (sub.length < 2 || sub.some((m) => items.get(m)?.needs)) continue
+      if (sub.length < 2 || sub.some((m) => items.get(m)?.needs || keep.has(m))) continue
       const id = `fold:${r}`
       for (const m of sub) { shown.delete(m); into.set(m, id) }
       shown.set(id, { id, kind: 'folded', lane: laneOf.get(r)!, col: depthOf.get(r)! + 1, parent: r, members: sub })

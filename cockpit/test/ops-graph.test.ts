@@ -179,6 +179,25 @@ test('an opened fold shows its subtree and the cap still holds', () => {
   assert.ok(node(all, 'fold:ses_p1'))
 })
 
+test('an opened subtree survives a fold of its ancestor (join fix B)', () => {
+  // root → mid → five leaves, and a second root with four leaves, over a cap of 10: opening mid keeps its leaves
+  // drawn, and the other subtree folds instead; if nothing else can fold, the page says the opening cannot hold.
+  const views: WorkView[] = [view('exe_c', 'conversation', 'running', { session_id: 'ses_c', thread: 'tide-tables' })]
+  views.push(view('exe_r', 'task', 'running', { session_id: 'ses_r', parent: 'exe_c', thread: 'tide-tables', started_at_ms: NOW - HOUR }))
+  views.push(view('exe_m', 'task', 'running', { session_id: 'ses_m', parent: 'exe_r', thread: 'tide-tables', started_at_ms: NOW - 50 * MIN }))
+  for (let k = 0; k < 5; k++) views.push(view(`exe_mk${k}`, 'task', 'running', { session_id: `ses_mk${k}`, parent: 'exe_m', thread: 'tide-tables', started_at_ms: NOW - 40 * MIN }))
+  views.push(view('exe_r2', 'task', 'running', { session_id: 'ses_r2', parent: 'exe_c', thread: 'tide-tables', started_at_ms: NOW - 30 * MIN }))
+  for (let k = 0; k < 4; k++) views.push(view(`exe_r2k${k}`, 'task', 'running', { session_id: `ses_r2k${k}`, parent: 'exe_r2', thread: 'tide-tables', started_at_ms: NOW - 20 * MIN }))
+  const g = lay(views, null, [], { cap: 10, opened: new Set(['ses_m']) })
+  for (let k = 0; k < 5; k++) assert.ok(node(g, `ses_mk${k}`), `the opened mid's leaf ${k} is drawn`)
+  assert.ok(!(node(g, 'fold:ses_r')?.members ?? []).some((m) => m.startsWith('ses_mk')), 'no fold of the root holds them')
+  assert.ok(node(g, 'fold:ses_r2'), 'the other subtree folds instead')
+  assert.ok(g.nodes.length <= 10 && !g.cantOpen, `${g.nodes.length} nodes`)
+  // With nothing else to fold, the opening cannot hold: it folds back, and says so.
+  const tight = lay(views.filter((v) => !v.id.startsWith('exe_r2')), null, [], { cap: 6, opened: new Set(['ses_m']) })
+  assert.ok(tight.nodes.length <= 6 && tight.cantOpen === true, 'the cap is never raised')
+})
+
 test('the keys walk the graph’s nodes', () => {
   const g = lay(board().views)
   const ids = g.nodes.map((n) => n.id)
