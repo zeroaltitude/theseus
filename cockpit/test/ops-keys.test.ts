@@ -140,7 +140,7 @@ test('ops-act’s keys: m and M and i and I on a session, p on a task, the dock�
   assert.equal(resolve('p', on('card', 'task'), false)?.verb, 'parent')
   assert.equal(resolve('Backspace', on('card', 'task'), false)?.verb, 'parent')
   assert.equal(resolve(' ', on('dock', 'card', 'session'), false)?.verb, 'dock_pause', 'space pauses the dock only while it has focus')
-  assert.equal(resolve(' ', on('card', 'session'), false), null, 'elsewhere space is the selection’s (ops-graph)')
+  assert.equal(resolve(' ', on('card', 'session'), false)?.verb, 'select', 'elsewhere space is the selection’s (ops-graph)')
   assert.equal(resolve('\\', on(), false)?.verb, 'fold_dock')
   for (const k of ['PageUp', 'PageDown', 'End', 'L', 'T']) assert.ok(resolve(k, on(), false), k)
   const lines = overlay().flatMap((g) => g.lines)
@@ -148,4 +148,28 @@ test('ops-act’s keys: m and M and i and I on a session, p on a task, the dock�
   assert.equal(lines.find((l) => l.verb === 'dock_pause')!.keys, '␣')
   assert.ok(ACTS.has('model_menu') && ACTS.has('mode_menu') && !ACTS.has('compose'), 'the menus act; composing is a form (join is a button act)')
   assert.ok(BUTTON_ACTS.includes('join' as never) && enabled('join', true) === false)
+})
+
+test('the selection’s keys (ops-graph): ␣ picks the focused card, ⌘A and ctrl+a pick everything shown, esc clears first', () => {
+  assert.equal(resolve(' ', on('card'), false)?.verb, 'select')
+  assert.equal(resolve(' ', on(), false), null, 'nothing focused: nothing to pick')
+  assert.equal(resolve('mod+a', on(), false)?.verb, 'select_all')
+  assert.equal(keyName({ key: 'a', shiftKey: false, metaKey: true }), 'mod+a')
+  assert.equal(keyName({ key: 'a', shiftKey: false, ctrlKey: true }), 'mod+a')
+  assert.equal(keyName({ key: 'a', shiftKey: false }), 'a', 'a bare a is still the filter')
+  assert.equal(resolve('a', on(), false)?.verb, 'filter_all')
+  const lines = overlay().flatMap((g) => g.lines)
+  assert.equal(lines.find((l) => l.verb === 'select')!.keys, '␣')
+  assert.equal(lines.find((l) => l.verb === 'select_all')!.keys, '⌘A')
+  assert.match(lines.find((l) => l.verb === 'back')!.words, /^back: clear the picked cards first/)
+  for (const k of [' ', 'mod+a']) assert.equal(resolve(k, on(...PRIORITY), true), null, `${k} while typing`)
+  // The bulk bar's verbs and a drop are buttons that act: off under the time machine.
+  for (const b of ['bulk_pause', 'bulk_stop', 'bulk_cancel', 'bulk_rehome', 'bulk_approve', 'bulk_decline', 'bulk_attach', 'drop'] as const) {
+    assert.ok((BUTTON_ACTS as readonly string[]).includes(b), b)
+    assert.equal(enabled(b, true), false, b)
+  }
+  assert.ok(!SEQUENCES.includes(' '), 'the space bar is a key, not a sequence')
+  // A Board card's pick box keeps the page's keys once clicked: esc still clears, ␣ still picks.
+  assert.ok(!typingIn({ tagName: 'INPUT', type: 'checkbox' }))
+  assert.ok(typingIn({ tagName: 'INPUT', type: 'text' }) && typingIn({ tagName: 'INPUT' }) && typingIn({ tagName: 'INPUT', type: 'search' }))
 })

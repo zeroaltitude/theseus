@@ -23,11 +23,18 @@ import { usePref } from '@/lib/usePref'
 import { reportLineOf } from '@/lib/taskboard'
 import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
-import { TaskGraphView } from '@/components/TaskGraph'
 import { parseAddress, writeAddress, type Address, type FilterKey, type Lens } from '@/ops/address'
 import { boardRows, chipChoices, columnsOf, countersOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
 import { answerOf, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
+import { threadFacts } from '@/ops/facts'
+import { viewsOf, type LaneMeta } from '@/ops/graph'
+import { GraphLens } from '@/ops/GraphLens'
+import { BulkBar, ResultsToast, useBulk } from '@/ops/BulkBar'
+import { useDragDrop } from '@/ops/DropLayer'
+import { useSelection } from '@/ops/useSelection'
+import type { DropTarget } from '@/ops/rehome'
+import type { RunResult } from '@/ops/selection'
 import { DOCK_KEY, flip, INSPECTOR_KEY, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
 import { BoardLens } from '@/ops/BoardLens'
 import { ThreadsLens } from '@/ops/ThreadsLens'
@@ -102,11 +109,14 @@ export default function Ops() {
   const lines = useMemo(() => Object.fromEntries(ended.flatMap((r, i) => (read[i]?.data ? [[r.id, read[i].data as string]] : []))), [ended, read])
 
   const rows = useMemo(() => boardRows({ views, tasks, sessions, lines, now }), [views, tasks, sessions, lines, now])
+  const graphViews = useMemo(() => (world ? viewsOf(rows) : []), [world, rows])
   const spend = useMemo(() => spendToday(history.rows, now), [history.rows, now])
   const cx = useMemo(() => ({ now, spentToday: spend.sessions, records }), [now, spend.sessions, records])
   const vis = useMemo(() => shown(rows, a.f, a.q, cx), [rows, a.f, a.q, cx])
   const [older, setOlder] = useState(DONE_PAGE)
   const cols = useMemo(() => columnsOf(vis.rows, now), [vis.rows, now])
+  // The Graph fades what the filters and the search leave out, so nothing moves.
+  const shownIds = useMemo(() => (Object.keys(a.f).length || a.q ? new Set(vis.rows.map((r) => r.id)) : null), [a.f, a.q, vis.rows])
   const holds = useMemo(() => (world
     ? world.holds.map((h) => ({ session_id: h.session_id, title: h.title || titleOf(h.session_id), external_text: h.held }))
     : sessions.flatMap((s) => (s.external_text ? [{ session_id: s.session_id, title: s.title || s.label || s.session_id.slice(-6), external_text: s.external_text }] : []))), [world, sessions, titleOf])
@@ -115,6 +125,27 @@ export default function Ops() {
   }), [confirms, views, records, groups, holds, asks, world, titleOf])
   const counts = useMemo(() => ({ needs: queue.length, ...countersOf(rows, now, spend.usd) }), [queue.length, rows, now, spend.usd])
   const grouped = useMemo(() => groupThreads(views, groups), [views, groups])
+
+  // The selection (ops-graph): in memory, shared by the Graph and the Board, the bulk bar and the palette.
+  const picked = useSelection((s) => s.ids)
+  const { toggle: pickOne, set: pickAll, clear: unpick } = useSelection.getState()
+  const [results, setResults] = useState<RunResult[] | null>(null)
+  const closeResults = useCallback(() => setResults(null), [])
+  // The Graph's lanes, the threads' words (`threadFacts`), and where a drag or a re-home may send a report.
+  const dataOf = useCallback((sid: string | undefined) => sessions.find((x) => x.session_id === sid)?.data ?? undefined, [sessions])
+  const laneMetas = useMemo((): LaneMeta[] => grouped.threads.map((t) => {
+    const f = threadFacts(t, now)
+    return { key: t.group.slug, title: t.group.title, needs: t.needsYou, words: [f.warmth, f.details].filter(Boolean).join(' · '), sealed: f.sealed, data: dataOf(t.group.session_id) }
+  }), [grouped.threads, now, dataOf])
+  const homes = useMemo((): DropTarget[] => [
+    ...rows.flatMap((r): DropTarget[] => (r.kind === 'conversation' && r.sessionId ? [{ kind: 'conversation', sessionId: r.sessionId, title: r.title, data: r.view?.data ?? r.session?.data ?? undefined }] : [])),
+    ...laneMetas.map((l): DropTarget => ({ kind: 'lane', slug: l.key, title: l.title, data: l.data })),
+  ], [rows, laneMetas])
+  const projects = useMemo(() => records.filter((t) => t.kind === 'project').map((t): DropTarget => ({ kind: 'project', id: t.id, title: t.title })), [records])
+  const dropTargetOf = (key: string): DropTarget | null => [...homes, ...projects].find((t) => (t.kind === 'conversation' ? `conversation:${t.sessionId}` : t.kind === 'lane' ? `lane:${t.slug}` : `project:${t.id}`) === key) ?? null
+  const drag = useDragDrop(dropTargetOf, [...homes.filter((t) => t.kind === 'lane'), ...projects], setResults)
+  const bulk = useBulk({ rows, queue, homes, projects, titleOf, now, onResults: setResults })
+  const offers = bulk.offers(picked)
 
   // The queue's cursor is an item's key: a new item never moves it; when its item is answered, the next takes it.
   const keys = useMemo(() => queue.map((i) => i.key), [queue])
@@ -223,7 +254,7 @@ export default function Ops() {
     follow: () => { if (iFold === 'folded') setIFold('open') },
     inspect: () => { if (item) setOpen(open === item.key ? null : item.key); else if (iFold === 'folded') setIFold('open') },
     open: () => { const sid = focusRow?.sessionId ?? item?.sessionId; if (sid) nav(`/session/${sid}`) },
-    back: () => { if (note) setNote(null); else if (a.join) set({ join: null }); else if (open) setOpen(null); else if (a.sel) pick(null); else set({ f: {}, q: '' }) },
+    back: () => { if (picked.size) unpick(); else if (note) setNote(null); else if (a.join) set({ join: null }); else if (open) setOpen(null); else if (a.sel) pick(null); else set({ f: {}, q: '' }) },
     next: () => pick(step(queue, item?.key ?? null, 1)),
     prev: () => pick(step(queue, item?.key ?? null, -1)),
     approve: () => answer('approve', { verb: 'approve' }),
@@ -278,6 +309,8 @@ export default function Ops() {
     mark_run: () => tk.run('mark_run'),
     mark_cancel: () => tk.run('mark_cancel'),
     mark_open: () => tk.run('mark_open'),
+    select: () => { const id = focusRow?.id ?? row?.id; if (id) pickOne(id) },
+    select_all: () => pickAll(vis.rows.map((r) => r.id)),
   } // end of handlers
 
   // The contexts the focus offers, most specific first (`keys.ts`).
@@ -302,12 +335,14 @@ export default function Ops() {
   // One handler for the page, ahead of the shell's: a `g` sequence the page claims is the page's; one it does not
   // (`g f`) goes on to the shell. Keys never fire while typing.
   const modal = !!(newTask || menu || selfOpen || picker)
-  const live = useRef({ handlers, ctxs, focusItem, keysOpen, modal })
-  useLayoutEffect(() => { live.current = { handlers, ctxs, focusItem, keysOpen, modal } })
+  const picks = a.lens === 'graph' || a.lens === 'board'
+  const live = useRef({ handlers, ctxs, focusItem, keysOpen, modal, picks })
+  useLayoutEffect(() => { live.current = { handlers, ctxs, focusItem, keysOpen, modal, picks } })
   useEffect(() => {
     let g = 0
     const k = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return
+      // ⌘A and ctrl+a pick everything shown on the Graph and the Board; any other chord is the browser's.
+      if (e.altKey || ((e.metaKey || e.ctrlKey) && (keyName(e) !== 'mod+a' || !live.current.picks))) return
       if (typingIn(e.target as HTMLElement | null)) return
       const { handlers: h, ctxs: c, focusItem: fi, keysOpen: ko, modal: mo } = live.current
       if (mo) return // a sheet or a menu has the keys
@@ -357,7 +392,8 @@ export default function Ops() {
   const joined = a.join ?? null
   const lensView = (
     <div className="h-full min-h-0 min-w-0 flex-1">
-      {a.lens === 'board' && <BoardLens cols={cols} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now} />}
+      {a.lens === 'board' && <BoardLens cols={cols} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now}
+        picked={picked} onPick={pickOne} drag={drag} titleOf={titleOf} />}
       {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
         matches={(t) => shownSlugs.has(t.group.slug)} />}
       {a.lens === 'timeline' && (
@@ -367,7 +403,9 @@ export default function Ops() {
             onReport={setTl} onOpen={(sid) => nav(`/session/${sid}`)} />
         </div>
       )}
-      {a.lens === 'graph' && <TaskGraphView records={records} past={past ?? undefined} shown />}
+      {a.lens === 'graph' && <GraphLens views={world ? graphViews : views} records={records} rows={rows} lanes={laneMetas} now={now} focus={row?.id ?? a.sel} picked={picked}
+        shownIds={shownIds} onFocus={pick} onPick={pickOne} onLasso={(ids) => pickAll([...picked, ...ids])}
+        onOpen={(sid) => nav(`/session/${sid}`)} offersFor={(id) => bulk.offers([id])} onVerb={(v, ids) => bulk.start(v, ids, false)} drag={drag} titleOf={titleOf} />}
     </div>
   )
   const canvas = joined ? (
@@ -397,7 +435,12 @@ export default function Ops() {
         )}
         {reg.queue === 'folded' && <Tab side="left" label={`Needs you · ${queue.length}`} onClick={() => setQFold('open')} glow={queue.length > 0} />}
         {reg.queue === 'page' && <section aria-label="Needs you" className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-hull/60"><RegionHead title="Needs you" count={queue.length} glow={queue.length > 0} />{queuePanel}</section>}
-        {reg.canvas && <main aria-label={`${a.lens} lens`} className="min-h-0 min-w-0 flex-1">{canvas}</main>}
+        {reg.canvas && (
+          <main aria-label={`${a.lens} lens`} className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
+            {picks && picked.size > 0 && <BulkBar count={picked.size} offers={offers} onVerb={(v) => bulk.start(v, picked)} onClear={unpick} />}
+            <div className="min-h-0 flex-1">{canvas}</div>
+          </main>
+        )}
         {reg.inspector === 'side' && (
           <aside aria-label="Inspector" className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-line bg-hull/60">
             <RegionHead title="Inspector" onFold={() => setIFold('folded')} fold="]" />
@@ -425,6 +468,9 @@ export default function Ops() {
       {picker && <ThreadPicker threads={threadList.length ? threadList.map((t) => t.group) : grouped.threads.map((t) => t.group)} onPick={(slug) => { setPicker(false); set({ lens: 'threads', sel: slug, join: slug }) }} onClose={() => setPicker(false)} />}
       {flash && <div role="status" className="pointer-events-none fixed bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-lg bg-hull/95 px-3 py-1.5 text-[12px] text-ink ring-1 ring-line-strong shadow-xl">{flash}</div>}
       {keysOpen && <KeysOverlay onClose={() => setKeysOpen(false)} />}
+      {drag.layer}
+      {bulk.sheet}
+      {results && <ResultsToast results={results} onClose={closeResults} />}
     </div>
   )
 }

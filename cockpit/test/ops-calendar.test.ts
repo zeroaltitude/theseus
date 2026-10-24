@@ -183,7 +183,7 @@ test('nothing is stored, logged or put in the address; the links open in a new t
   // Every verb that reaches the daemon goes through `useOpsAct`'s gate.
   assert.match(panel, /send\('event_remind', p\.method, p\.params\)/)
   assert.match(panel, /send<\{ session_id: string \}>\('event_ask', 'session\.open'/)
-  assert.match(read('src/ops/act.ts'), /if \(!enabled\(verb, past\)\) return \{ ok: false, error: PAST_WORDS \}/)
+  assert.match(read('src/ops/act.ts'), /if \(!enabled\(verb, past\)\) return \{ ok: false, words: PAST_WORDS \}/)
 })
 
 test('the calendar read: the one timer, every five minutes while visible, stopped when hidden and on unmount', () => {

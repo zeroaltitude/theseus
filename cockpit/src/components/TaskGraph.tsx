@@ -3,7 +3,7 @@
 // from the panel with its state in the address (`?taskgraph=1`, and `&task=<id>` for the one picked). It shows the
 // present: under the time machine it says so, and its acts are off. `task.changed` reads `task.list` again (rpc.ts).
 import { useMemo } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { AnimatePresence } from 'motion/react'
 import { ReactFlow, Background, Controls, Handle, Position, type Edge, type Node, type NodeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -15,6 +15,7 @@ import { stateTone, toneHex } from '@/lib/taxonomy'
 import { Empty, Panel, Pill, StatePill } from './ui'
 import { ConfirmCard } from './ConfirmCard'
 import { FIT, useFullGraph } from './FullGraph'
+import { opsHref } from '@/ops/address'
 
 /** The records as a tree, with a button that opens the graph. `past`: the time machine's moment, when it has one. */
 export function TaskTree({ records, confirms, past }: { records: TaskRecord[]; confirms: ConfirmRequest[]; past?: number }) {
@@ -80,9 +81,9 @@ function TNode({ data, selected }: NodeProps<Node<TData>>) {
 
 const nodeTypes = { t: TNode }
 
-/** The graph, when the address opens it (or the Operations page's Graph lens shows it): parents to children, and
- *  (dashed) each task to what it waits on. */
-export function TaskGraphView({ records, past, shown }: { records: TaskRecord[]; past?: number; shown?: boolean }) {
+/** The graph, when the address opens it: parents to children, and (dashed) each task to what it waits on. The
+ *  Operations page's Graph lens shows the same records among the live work, and its link opens it there. */
+export function TaskGraphView({ records, past }: { records: TaskRecord[]; past?: number }) {
   const now = useTick(15000)
   const [params, setParams] = useSearchParams()
   const pick = params.get('task')
@@ -93,10 +94,11 @@ export function TaskGraphView({ records, past, shown }: { records: TaskRecord[];
     const edges: Edge[] = l.links.map((k) => ({ id: k.id, source: k.source, target: k.target, style: k.dep ? { stroke: '#6e6450', strokeDasharray: '4 4' } : { stroke: '#9c907a' } }))
     return { nodes, edges }
   }, [records, now, pick])
-  if (!shown && params.get('taskgraph') !== '1') return null
+  if (params.get('taskgraph') !== '1') return null
   const picked = records.find((t) => t.id === pick)
   return (
-    <Panel help="actions.taskgraph" title={<>Task graph · {records.length} tasks</>} icon={<Network size={13} />} actions={fg.button} className={fg.panel.className} dialog={fg.panel.dialog}
+    <Panel help="actions.taskgraph" title={<>Task graph · {records.length} tasks</>} icon={<Network size={13} />} className={fg.panel.className} dialog={fg.panel.dialog}
+      actions={<span className="flex items-center gap-3"><Link to={opsHref({ lens: 'graph', sel: pick })} className="text-[11px] text-live hover:underline" data-testid="open-in-ops">open in Operations</Link>{fg.button}</span>}
       bodyClassName={fg.full ? 'flex flex-col overflow-auto p-0' : 'p-0'}>
       {past !== undefined && <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-wait"><History size={12} /> the present, not the log&rsquo;s moment</div>}
       <div className={fg.full ? 'relative min-h-0 flex-1' : 'relative h-[420px]'}>

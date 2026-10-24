@@ -83,17 +83,19 @@ export function TimelineLens({ weeks, day, sel, redact, q, cal, past, onSel, onW
   const [hover, setHover] = useState<string | null>(null)
   const [table, setTable] = useTableView('ops.timeline')
   const picked = sel ? marks.find((m) => m.key === sel) ?? null : null
-  const { send, on } = useOpsAct()
+  const { send, settle, on } = useOpsAct()
   const [toast, setToast] = useState<{ text: string; undo?: Call; bad?: boolean } | null>(null)
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(null), toast.undo ? 10_000 : 5000); return () => window.clearTimeout(t) }, [toast])
   const drop = async (x: Drop & { method: string }) => {
     if ('refused' in x) return
     const r = await send('drag', x.method, x.params)
-    setToast(r.ok ? { text: x.words, undo: x.undo(r.result) } : { text: r.error, bad: true })
+    void settle()
+    setToast(r.ok ? { text: x.words, undo: x.undo(r.result) } : { text: r.words, bad: true })
   }
   const undo = async (c: Call) => {
     const r = await send('undo', c.method, c.params)
-    setToast(r.ok ? { text: 'put back as it was' } : { text: r.error, bad: true })
+    void settle()
+    setToast(r.ok ? { text: 'put back as it was' } : { text: r.words, bad: true })
   }
   const title = day != null && shown.days[0] ? `This week · ${total} item${total === 1 ? '' : 's'} · ${shown.days[0].label}` : `This week · ${total} item${total === 1 ? '' : 's'}`
   return (

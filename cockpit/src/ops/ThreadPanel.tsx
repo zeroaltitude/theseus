@@ -98,7 +98,7 @@ export function ThreadBody({ slug, live = false, wide = true }: { slug: string; 
       <div className="space-y-3">
         <Panel title="Open work" icon={<GitBranch size={14} />} help="threads.work">
           <div className="space-y-0.5 p-3">
-            {!mine || mine.items.length === 0 ? <div className="text-[12px] text-ink-faint">Nothing open.</div> : mine.items.map((v) => <Item key={v.id} v={v} />)}
+            {!mine || f.openWork.length === 0 ? <div className="text-[12px] text-ink-faint">Nothing open.</div> : f.openWork.map((w, i) => <Item key={w.id} v={mine.items[i]} />)}
           </div>
         </Panel>
         <Panel title="Recent turns" icon={<MessagesSquare size={14} />} help="threads.turns">

@@ -80,8 +80,8 @@ test('the Timeline lens hosts the Agenda unchanged, and the Graph lens the task 
   // The Timeline lens is its own now (ops-timeline, theseus-jid7t.5): the Agenda's page moved into it, whole.
   assert.match(page, /import \{ TimelineLens, type TimelineReport \} from '@\/ops\/TimelineLens'/)
   assert.ok(!existsSync(new URL('../src/views/Agenda.tsx', import.meta.url)), 'the Agenda moved, not copied')
-  assert.match(page, /a\.lens === 'graph' && <TaskGraphView records=\{records\} past=\{past \?\? undefined\} shown \/>/)
-  assert.match(src('src/components/TaskGraph.tsx'), /if \(!shown && params\.get\('taskgraph'\) !== '1'\) return null/)
+  assert.match(page, /a\.lens === 'graph' && <GraphLens views=\{world \? graphViews : views\} records=\{records\}/)
+  assert.match(src('src/components/TaskGraph.tsx'), /<Link to=\{opsHref\(\{ lens: 'graph', sel: pick \}\)\}[^>]*>open in Operations<\/Link>/)
 })
 
 test('ops-act left nothing pending: B5, B10, B11, B13, B14, B15 and R6 are here, R3 stays with its reason', () => {

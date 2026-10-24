@@ -23,7 +23,7 @@ const LINK = 'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px
 
 export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: CalendarWindow; redact: boolean }) {
   const nav = useNavigate()
-  const { send, on, past } = useOpsAct()
+  const { send, settle, on, past } = useOpsAct()
   const { data: pl } = useRpc<ProfileListResult>('profile.list', undefined, 0)
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null)
   const [prep, setPrep] = useState(false)
@@ -39,7 +39,8 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
     const p = pay('remind')
     if (p.kind !== 'call') { setSaid({ ok: false, text: p.kind === 'none' ? p.why : 'nothing to do' }); return }
     const r = await send('event_remind', p.method, p.params)
-    setSaid(r.ok ? { ok: true, text: `a reminder is set for ${new Date(p.params.when).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` } : { ok: false, text: r.error })
+    void settle()
+    setSaid(r.ok ? { ok: true, text: `a reminder is set for ${new Date(p.params.when).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` } : { ok: false, text: r.words })
   }
   const ask = async () => {
     const p = pay('ask')
@@ -47,7 +48,7 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
     const { pick } = profileChoices(pl?.profiles ?? [], undefined, p.usOnly ? US_ONLY_WORDS : undefined, pl?.live)
     if (p.usOnly && !pick) { setSaid({ ok: false, text: `${US_ONLY_WORDS}, and no profile of US origin is known` }); return }
     const o = await send<{ session_id: string }>('event_ask', 'session.open', { kind: 'conversation', label: p.label })
-    if (!o.ok) { setSaid({ ok: false, text: o.error }); return }
+    if (!o.ok) { setSaid({ ok: false, text: o.words }); return }
     // The first message, as a draft deck's composer sends it: the deck follows the turn live.
     void send('event_ask', 'turn.submit', { session_id: o.result.session_id, input: p.input, ...(pick && { profile: pick }) })
     nav(`/session/${o.result.session_id}`)

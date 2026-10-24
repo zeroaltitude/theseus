@@ -1,7 +1,9 @@
 // The Board lens (theseus-jid7t.3): five columns, Needs you, Working, Paused·queued, Scheduled and Done (today, then
 // older, fifty at a time), each card every field of the Tasks page's card and a model chip, drawn from `cardFacts`.
-// A card's questions are answered in place in the queue and the inspector; the card says how many wait.
-import { memo, useEffect, useRef } from 'react'
+// A card's questions are answered in place in the queue and the inspector; the card says how many wait. Each card has
+// a box that picks it for a bulk act (⇧/⌘-click too, theseus-jid7t.4), a task or a conversation drags onto a
+// conversation card or the tray's homes and projects (`ops/DropLayer.tsx`), and a conversation card takes a drop.
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, type DragEvent } from 'react'
 import { Link } from 'react-router'
 import { Lock, OctagonX, Pause, Play } from 'lucide-react'
 import type { ConfirmRequest } from '@protocol'
@@ -11,6 +13,9 @@ import { COLUMN_TITLES, laneRows, locked, type BoardColumns, type Column, type O
 import { cardFacts } from './facts'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
+import { dragOf } from './rehome'
+import type { DragDrop } from './DropLayer'
+import type { Selection } from './selection'
 
 /** Each column's glyph and tone: shape always goes with colour. */
 const LOOK: Record<Column, { glyph: string; tone: string; edge: string }> = {
@@ -21,15 +26,24 @@ const LOOK: Record<Column, { glyph: string; tone: string; edge: string }> = {
   done: { glyph: '✓', tone: 'text-ok', edge: 'border-line' },
 }
 
-export function BoardLens({ cols, older, onMore, focus, onFocus, onContext, confirms, now }: {
+export function BoardLens({ cols, older, onMore, focus, onFocus, onContext, confirms, now, picked, onPick, drag, titleOf }: {
   cols: BoardColumns; older: number; onMore: () => void; focus: string | null; onFocus: (id: string) => void
   /** A right-click on a card: its verbs (`VerbMenu`). */
   onContext?: (id: string, x: number, y: number) => void
-  confirms: readonly ConfirmRequest[]; now: number
+  confirms: readonly ConfirmRequest[]; now: number; picked: Selection; onPick: (id: string) => void; drag: DragDrop; titleOf: (sessionId: string) => string
 }) {
   const lanes = laneRows(cols, older)
+  // The drag's hand reads the latest rows and titles; the cards keep one callback, so their memo holds.
+  const live = useRef({ lanes, drag, titleOf })
+  useLayoutEffect(() => { live.current = { lanes, drag, titleOf } })
+  const onDrag = useCallback((id: string) => {
+    const r = live.current.lanes.flat().find((x) => x.id === id)
+    if (r) live.current.drag.begin(dragOf(r, live.current.titleOf))
+  }, [])
+  const over = (e: DragEvent) => { if (drag.hover(e.target as Element, e.clientX, e.clientY)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move' } }
   return (
-    <div className="grid h-full min-h-0 auto-cols-[minmax(196px,1fr)] grid-flow-col gap-2.5 overflow-x-auto pb-1" data-testid="ops-board">
+    <div className="grid h-full min-h-0 auto-cols-[minmax(196px,1fr)] grid-flow-col gap-2.5 overflow-x-auto pb-1" data-testid="ops-board"
+      onDragOver={over} onDrop={(e) => { e.preventDefault(); drag.drop(e.target as Element) }} onDragEnd={() => drag.end()}>
       {(['needs', 'working', 'paused', 'scheduled', 'done'] as const).map((col, i) => {
         const rows = lanes[i]
         const count = col === 'done' ? cols.done.length : rows.length
@@ -45,7 +59,7 @@ export function BoardLens({ cols, older, onMore, focus, onFocus, onContext, conf
               {rows.map((r, j) => (
                 <div key={r.id}>
                   {col === 'done' && j === cols.done.length && <div className="px-1 pb-1 pt-2 font-display text-[10px] font-bold uppercase tracking-[0.08em] text-ink-faint">older</div>}
-                  <Card r={r} now={now} focused={focus === r.id} onFocus={onFocus} onContext={onContext} asks={confirms.filter((c) => c.session_id === r.sessionId).length} />
+                  <Card r={r} now={now} focused={focus === r.id} onFocus={onFocus} onContext={onContext} asks={confirms.filter((c) => c.session_id === r.sessionId).length} picked={picked.has(r.id)} onPick={onPick} onDrag={onDrag} />
                 </div>
               ))}
               {col === 'done' && cols.older.length > older && (
@@ -64,17 +78,25 @@ const EMPTY: Record<Column, string> = {
 }
 
 /** One card: every field of the Tasks page's card, and the model chip. */
-export const Card = memo(function Card({ r, now, focused, onFocus, onContext, asks }: { r: OpsRow; now: number; focused: boolean; onFocus: (id: string) => void; onContext?: (id: string, x: number, y: number) => void; asks: number }) {
+export const Card = memo(function Card({ r, now, focused, onFocus, onContext, asks, picked, onPick, onDrag }: {
+  r: OpsRow; now: number; focused: boolean; onFocus: (id: string) => void; onContext?: (id: string, x: number, y: number) => void; asks: number; picked: boolean; onPick: (id: string) => void; onDrag: (id: string) => void
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const { busy, act, on } = useOpsAct()
   const f = cardFacts(r, now)
   useEffect(() => { if (focused) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [focused])
   return (
-    <div ref={ref} role="button" tabIndex={-1} aria-selected={focused} data-row={r.id} onClick={() => onFocus(r.id)} onContextMenu={(e) => { if (onContext) { e.preventDefault(); onFocus(r.id); onContext(r.id, e.clientX, e.clientY) } }}
+    <div ref={ref} role="button" tabIndex={-1} aria-selected={focused} data-row={r.id} onClick={(e) => (e.shiftKey || e.metaKey || e.ctrlKey ? onPick(r.id) : onFocus(r.id))}
+      onContextMenu={(e) => { if (onContext) { e.preventDefault(); onFocus(r.id); onContext(r.id, e.clientX, e.clientY) } }}
+      data-drop={r.kind === 'conversation' && r.sessionId ? `conversation:${r.sessionId}` : undefined}
+      draggable={r.kind === 'task' || r.kind === 'conversation'} onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); onDrag(r.id) }}
       className={cn('cursor-pointer rounded-lg border-l-2 bg-deck/70 px-2.5 py-2 ring-1 ring-transparent transition-shadow hover:ring-line', LOOK[r.column].edge,
         r.column === 'needs' && 'bg-wait/[0.05] shadow-[0_0_14px_-4px_var(--color-wait)]',
+        picked && 'bg-gold/[0.06] ring-gold/50',
         focused && 'ring-gold shadow-[0_0_16px_-2px_rgb(214_165_72_/_0.55)]')}>
       <div className="flex items-center gap-1.5">
+        <input type="checkbox" checked={picked} onChange={() => onPick(r.id)} onClick={(e) => e.stopPropagation()} aria-label={`pick ${f.title}`} title="pick it for a bulk act (␣ on the focused card)"
+          className="h-3 w-3 shrink-0 cursor-pointer accent-gold" />
         {f.paused ? <Pill tone="wait" title="held by the owner: resume lets it go on">{f.pill}</Pill> : <StatePill state={f.pill} />}
         {locked(r) && <Lock size={11} className="text-ink-faint" aria-label={`${r.data} data`} />}
         <span className="num ml-auto text-[10px] text-ink-faint" title={r.id}>{r.kind === 'task' ? f.short : `${r.kind} · ${short(r.id)}`}</span>

@@ -20,6 +20,8 @@ export type Verb =
   // ops-timeline (theseus-jid7t.5)
   | 'zoom_day' | 'zoom_week' | 'redact' | 'week_prev' | 'week_next' | 'mark_next' | 'mark_prev'
   | 'mark_snooze' | 'mark_pause' | 'mark_run' | 'mark_cancel' | 'mark_open'
+  // ops-graph (theseus-jid7t.4): the selection.
+  | 'select' | 'select_all'
 
 export interface KeyDef {
   verb: Verb
@@ -44,7 +46,7 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'follow', keys: ['l'], ctx: 'job', words: 'on a job: follow its output in the inspector' },
   { verb: 'inspect', keys: ['Enter'], ctx: 'card', words: 'inspect: the selection in the inspector; a queue item’s full card' },
   { verb: 'open', keys: ['o'], ctx: 'card', words: 'open its deck (/session/…)' },
-  { verb: 'back', keys: ['Escape'], ctx: 'page', words: 'back: close the card, then clear the selection, then the filters' },
+  { verb: 'back', keys: ['Escape'], ctx: 'page', words: 'back: clear the picked cards first, then close the card, clear the focus, then the filters' },
   { verb: 'next', keys: ['Tab'], ctx: 'page', words: 'the next thing that needs you' },
   { verb: 'prev', keys: ['shift+Tab'], ctx: 'page', words: 'the previous thing that needs you' },
   { verb: 'approve', keys: ['y'], ctx: 'answer', words: 'approve (reset, accept: the card’s first answer)', act: true },
@@ -101,6 +103,9 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'mark_run', keys: ['r'], ctx: 'mark', words: 'run the routine now (asks; on a mark, r beats the paused filter)', act: true },
   { verb: 'mark_cancel', keys: ['x'], ctx: 'mark', words: 'cancel it (asks)', act: true },
   { verb: 'mark_open', keys: ['Enter'], ctx: 'mark', words: 'open its session' },
+  // ops-graph (theseus-jid7t.4): the selection, on the Graph and the Board. The bulk verbs are buttons (BUTTON_ACTS).
+  { verb: 'select', keys: [' '], ctx: 'card', words: 'pick the focused card or node for a bulk act, or put it back' },
+  { verb: 'select_all', keys: ['mod+a'], ctx: 'page', words: 'pick everything shown, after the filters and the search (ctrl+a too)' },
 ]
 
 /** The contexts in the order a key looks for its meaning: the focus's own first, then the page, then the filters. */
@@ -119,17 +124,24 @@ export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal',
   // ops-timeline (theseus-jid7t.5): an event's verbs that reach the daemon, and a drag with its Undo.
   'event_remind', 'event_prep', 'event_ask', 'drag', 'undo',
   // ops-act (theseus-jid7t.6): the Join pane, the menus, the session's life and the task sheets.
-  'join', 'model_turn', 'model_sticky', 'mode_set', 'live_profile', 'session_life', 'rehome', 'reschedule'] as const
+  'join', 'model_turn', 'model_sticky', 'mode_set', 'live_profile', 'session_life', 'rehome', 'reschedule',
+  // ops-graph (theseus-jid7t.4): the bulk bar's verbs, and a drop on a home or a project.
+  'bulk_pause', 'bulk_stop', 'bulk_cancel', 'bulk_rehome', 'bulk_approve', 'bulk_decline', 'bulk_attach', 'drop'] as const
 export type ButtonAct = (typeof BUTTON_ACTS)[number]
 export const ACTS: ReadonlySet<string> = new Set<string>([...KEYS.filter((k) => k.act).map((k) => k.verb), ...BUTTON_ACTS])
+
+/** What an act under the time machine says instead. */
+export const PAST_WORDS = 'the past: acting needs the present (LIVE in the ship’s log below)'
 
 /** May `verb` run now? Every act is off while the time machine shows the past; the rest (moving, looking) stay. */
 export function enabled(verb: Verb | ButtonAct, timeMachine: boolean): boolean {
   return !(timeMachine && ACTS.has(verb))
 }
 
-/** The key a keydown names: `shift+Tab` for a shifted Tab; a printable key as itself (its case is its shift). */
-export function keyName(e: { key: string; shiftKey: boolean }): string {
+/** The key a keydown names: `shift+Tab` for a shifted Tab; `mod+a` for ⌘A or ctrl+a; a printable key as itself (its
+ *  case is its shift). */
+export function keyName(e: { key: string; shiftKey: boolean; metaKey?: boolean; ctrlKey?: boolean }): string {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') return 'mod+a'
   return e.key === 'Tab' && e.shiftKey ? 'shift+Tab' : e.key
 }
 
@@ -145,9 +157,12 @@ export function resolve(key: string, ctxs: ReadonlySet<Ctx>, typing: boolean): K
   return null
 }
 
+/** An input that takes no typing: a pick box keeps the page's keys (ops-graph). */
+const UNTYPED: ReadonlySet<string> = new Set(['checkbox', 'radio', 'button', 'submit', 'reset'])
+
 /** Is the event's target a place where a person types? */
-export function typingIn(t: { tagName?: string; isContentEditable?: boolean } | null | undefined): boolean {
-  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable === true)
+export function typingIn(t: { tagName?: string; type?: string; isContentEditable?: boolean } | null | undefined): boolean {
+  return !!t && ((t.tagName === 'INPUT' && !UNTYPED.has(t.type ?? '')) || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable === true)
 }
 
 /** A key that fires on its second press: the first arms it, a second within `TWICE_MS` fires it, anything else
@@ -172,5 +187,5 @@ export function overlay(): Array<{ ctx: Ctx; heading: string; lines: Array<{ ver
 
 /** A key as the overlay prints it. */
 export function label(key: string): string {
-  return ({ Enter: '⏎', Escape: 'esc', Tab: 'tab', 'meta+k': '⌘K', ' ': '␣', Backspace: '⌫', PageUp: 'PgUp', PageDown: 'PgDn', 'shift+Tab': '⇧tab', ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→' } as Record<string, string>)[key] ?? key
+  return ({ Enter: '⏎', Escape: 'esc', Tab: 'tab', 'meta+k': '⌘K', 'mod+a': '⌘A', ' ': '␣', Backspace: '⌫', PageUp: 'PgUp', PageDown: 'PgDn', 'shift+Tab': '⇧tab', ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→' } as Record<string, string>)[key] ?? key
 }
