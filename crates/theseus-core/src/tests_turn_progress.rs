@@ -561,3 +561,113 @@ async fn a_turn_that_has_not_edited_yet_is_not_steered_for_reading() {
     }
     assert!(r.rows(&sid).is_empty());
 }
+
+/// The first loop writes a file, the next starts `sleep` in the background.
+fn build(root: &Path) -> Vec<Scripted> {
+    vec![
+        Scripted::tools(
+            "Writing.",
+            &[(
+                "w1",
+                "fs_write",
+                json!({"path": root.join("notes.txt").display().to_string(), "content": "high\n"}),
+            )],
+        ),
+        Scripted::tools(
+            "Building.",
+            &[(
+                "b1",
+                "proc_run",
+                json!({"argv": ["sleep", "20"], "background": true}),
+            )],
+        ),
+    ]
+}
+
+/// A read of the file `build` wrote, as loop `id`'s one call.
+fn reread(root: &Path, id: &str) -> Scripted {
+    Scripted::tools(
+        "Looking again.",
+        &[(
+            id,
+            "fs_read",
+            json!({"path": root.join("notes.txt").display().to_string()}),
+        )],
+    )
+}
+
+/// A build in the background is progress (theseus-duzha): a turn that
+/// started one and then reads it, loop after loop, is told nothing at 60% of
+/// its deadline and not stopped at 90%.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_waits_on_a_background_build_is_neither_steered_nor_stopped() {
+    for used in [360, 540] {
+        let r = rig(|root| {
+            let mut script = build(root);
+            for n in 1..=7 {
+                script.push(Scripted::tools(
+                    "Reading the build.",
+                    &[(&format!("j{n}"), "job_read", json!({"job": "j1"}))],
+                ));
+            }
+            script.push(Scripted::text("The build is still running."));
+            script
+        });
+        let (sid, res) = r.turn(Some((600, used))).await;
+        assert_eq!(
+            (res.loops, res.stop_reason.as_str()),
+            (10, "no_tool_calls"),
+            "{used} s used"
+        );
+        for req in r.requests() {
+            assert!(!messages(&req).contains(STEER), "{used} s used");
+            assert!(!messages(&req).contains(STOP), "{used} s used");
+        }
+        assert!(r.rows(&sid).is_empty(), "{used} s used");
+    }
+}
+
+/// The steer is still there: a build that runs does not quiet a turn that
+/// is not looking at it, but re-reading a file, and the same job's loops
+/// once the build is not what they touch count as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_running_build_does_not_quiet_loops_that_do_not_touch_it() {
+    let r = rig(|root| {
+        let mut script = build(root);
+        for n in 1..=6 {
+            script.push(reread(root, &format!("r{n}")));
+        }
+        script.push(Scripted::text("Nothing new."));
+        script
+    });
+    // 600 s, 360 used: 60%.
+    let (sid, res) = r.turn(Some((600, 360))).await;
+    assert_eq!(res.loops, 9);
+    let reqs = r.requests();
+    assert!(messages(reqs.last().unwrap()).contains(STEER));
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "steer");
+    assert_eq!(rows[0]["since_pass"], 3);
+}
+
+/// And the same turn with no build at all is steered, and at 90% stopped, so
+/// a build changes nothing but its own loops.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_with_no_build_and_no_progress_is_still_steered_and_stopped() {
+    for (used, decision) in [(360, "steer"), (540, "stop")] {
+        let r = rig(|root| {
+            let mut script = vec![build(root).remove(0)];
+            for n in 1..=6 {
+                script.push(reread(root, &format!("r{n}")));
+            }
+            script.push(Scripted::text("Nothing new."));
+            script
+        });
+        let (sid, res) = r.turn(Some((600, used))).await;
+        let rows = r.rows(&sid);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0]["decision"], decision);
+        assert_eq!(res.stop_reason == PROGRESS_STOP, decision == "stop");
+    }
+}

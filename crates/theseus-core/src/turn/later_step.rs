@@ -78,13 +78,22 @@ impl TurnRunner {
         exec_id: &str,
         background: &[String],
     ) -> anyhow::Result<usize> {
+        Ok(self.running_jobs(exec_id, background)?.len())
+    }
+
+    /// The same jobs, by correlation id.
+    pub(super) fn running_jobs(
+        &self,
+        exec_id: &str,
+        background: &[String],
+    ) -> anyhow::Result<std::collections::HashSet<String>> {
         let outstanding = self
             .kernel
             .execution(exec_id)?
             .map(|e| e.outstanding)
             .unwrap_or_default();
         Ok(outstanding
-            .iter()
+            .into_iter()
             .filter(|c| {
                 background.contains(c)
                     || self
@@ -94,6 +103,6 @@ impl TurnRunner {
                         .flatten()
                         .is_some_and(|a| a.tool != PROVIDER_TOOL && a.tool != BUDGET_TOOL)
             })
-            .count())
+            .collect())
     }
 }

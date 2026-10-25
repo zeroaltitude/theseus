@@ -8,7 +8,11 @@
 //! passing check. A loop whose commands (`proc.run`) answered in the loop,
 //! none with an error result, passed; one whose command failed failed (a
 //! failed read beside a passing command is a pass); a loop with no command,
-//! or with a command sent to the background, is no check. Reading is progress
+//! or with a command sent to the background, is no check. A build that runs
+//! in the background is progress, though (theseus-duzha): a loop that sent a
+//! command there, or that waited on or read a job while a job of the turn
+//! ran or had just ended, holds both counts where they were, since waiting is
+//! what a long build asks of the turn. Reading is progress
 //! until there is something to check (theseus-ikr75): a turn that has not
 //! edited yet counts no unchecked loops, and after its first edit a loop that
 //! read ground the turn had not read before (a path, a pattern, a slice of a
@@ -143,13 +147,28 @@ pub(super) struct State {
     steered: bool,
     /// The stop was said: the next loop is the last.
     last: bool,
+    /// The turn's jobs that ran when a loop last touched one (their
+    /// correlation ids): one gone from it has just ended.
+    running: HashSet<String>,
 }
 
 impl State {
     /// A loop ended: what its calls did moves the count of loops since a
-    /// passing check.
-    fn end_loop(&mut self, commands: Commands) {
+    /// passing check. `live` is the turn's running jobs, read only for a
+    /// loop that touched a job (`Commands::touches_jobs`).
+    fn end_loop(&mut self, commands: Commands, live: Option<HashSet<String>>) {
         let check = commands.check();
+        // A job running, or one that ended since the last loop that touched
+        // one, makes a loop that waited on it or started it progress.
+        let held = check.is_none()
+            && live.as_ref().is_some_and(|live| {
+                commands.background
+                    || !live.is_empty()
+                    || self.running.iter().any(|c| !live.contains(c))
+            });
+        if let Some(live) = live {
+            self.running = live;
+        }
         self.edited |= commands.edited;
         // Past the cap nothing new is coverage, or every read would reset the count.
         let fresh = !commands.read_failed
@@ -161,10 +180,10 @@ impl State {
             }
         }
         // The stop's count: a passing command resets it, and nothing else does.
-        self.since_check = if check == Some(true) {
-            0
-        } else {
-            self.since_check + 1
+        self.since_check = match check {
+            Some(true) => 0,
+            None if held => self.since_check,
+            _ => self.since_check + 1,
         };
         match check {
             Some(true) => (self.since_pass, self.failing) = (0, 0),
@@ -175,6 +194,8 @@ impl State {
             None if !self.edited => {}
             // New ground, read without error, is progress.
             None if fresh => (self.since_pass, self.failing) = (0, 0),
+            // A build in the background, or one just done: nothing lost.
+            None if held => {}
             None => self.since_pass += 1,
         }
     }
@@ -185,6 +206,8 @@ const SEEN_MAX: usize = 4096;
 /// The tools that change a file, and the read-only ones that open a path.
 const EDITS: [&str; 3] = ["fs.write", "fs.edit", "fs.patch"];
 const READS: [&str; 4] = ["fs.read", "fs.list", "fs.glob", "fs.grep"];
+/// The calls that look at a job without changing it (theseus-duzha).
+const JOB_CALLS: [&str; 2] = [theseus_tools::jobs::WAIT, theseus_tools::jobs::READ];
 
 /// What a loop's commands did, set as their calls answer
 /// (`Checkpoints::answered`) and taken at the loop's end. Only commands: a
@@ -204,6 +227,8 @@ pub(super) struct Commands {
     read_failed: bool,
     /// What the loop's answered reads opened.
     reads: Vec<String>,
+    /// A `job.wait` or `job.read` answered without error.
+    job_touched: bool,
 }
 
 impl Commands {
@@ -212,6 +237,9 @@ impl Commands {
         self.note(&u.name, outcome);
         let Some(error) = outcome else { return };
         let is = |canon: &str| u.name == canon || u.name == theseus_tools::wire_name(canon);
+        if !error && JOB_CALLS.iter().any(|t| is(t)) {
+            self.job_touched = true;
+        }
         if !error && EDITS.iter().any(|t| is(t)) {
             self.edited = true;
         }
@@ -252,6 +280,11 @@ impl Commands {
         }
     }
 
+    /// The loop started a job in the background or waited on or read one.
+    fn touches_jobs(&self) -> bool {
+        self.background || self.job_touched
+    }
+
     /// The loop's check: `Some(passed)` when a command answered and none went
     /// to the background, else none.
     fn check(&self) -> Option<bool> {
@@ -281,6 +314,7 @@ fn with<R>(t: &mut Turn<'_>, f: impl FnOnce(&mut State) -> R) -> R {
             seen: HashSet::new(),
             steered: false,
             last: false,
+            running: HashSet::new(),
         });
     }
     f(t.checkpoint.progress.as_mut().expect("begun above"))
@@ -309,8 +343,13 @@ impl TurnRunner {
         let commands = std::mem::take(&mut t.checkpoint.commands);
         let cost = t.cost;
         let now = Instant::now();
+        // Read from the kernel; an unreadable one counts the loop as before.
+        let live = commands
+            .touches_jobs()
+            .then(|| self.running_jobs(t.tc.execution_id, &t.background).ok())
+            .flatten();
         let (signals, steered, last, deadline) = with(t, |s| {
-            s.end_loop(commands);
+            s.end_loop(commands, live);
             let spend = s.limit_micros.zip(cost).map(|(l, c)| c * 1e6 / l as f64);
             let signals = Signals {
                 time: s.deadline.map(|d| d.used(now)),
@@ -599,41 +638,42 @@ mod tests {
             seen: HashSet::new(),
             steered: false,
             last: false,
+            running: HashSet::new(),
         };
         // Before any edit, reads count nothing, new ground or not.
         for _ in 0..6 {
-            st.end_loop(loop_of(&[("fs_read", "a.rs", false)]));
+            st.end_loop(loop_of(&[("fs_read", "a.rs", false)]), None);
         }
         assert_eq!(st.since_pass, 0);
         // A failed edit is no edit; an answered one is.
         let c = loop_of(&[("fs_edit", "a.rs", true)]);
         assert!(!c.edited);
-        st.end_loop(c);
+        st.end_loop(c, None);
         assert_eq!((st.edited, st.since_pass), (false, 0));
-        st.end_loop(loop_of(&[("fs_edit", "a.rs", false)]));
+        st.end_loop(loop_of(&[("fs_edit", "a.rs", false)]), None);
         assert_eq!(
             (st.edited, st.since_pass),
             (true, 1),
             "the edit's own loop is unchecked"
         );
         // Re-reading what was read is not coverage; a new path is.
-        st.end_loop(loop_of(&[("fs_read", "a.rs", false)]));
+        st.end_loop(loop_of(&[("fs_read", "a.rs", false)]), None);
         assert_eq!(st.since_pass, 2);
-        st.end_loop(loop_of(&[("fs_read", "b.rs", false)]));
+        st.end_loop(loop_of(&[("fs_read", "b.rs", false)]), None);
         assert_eq!(st.since_pass, 0);
         // A new path beside a read that failed is not coverage either.
-        st.end_loop(loop_of(&[
-            ("fs_read", "c.rs", false),
-            ("fs_read", "gone.rs", true),
-        ]));
+        st.end_loop(
+            loop_of(&[("fs_read", "c.rs", false), ("fs_read", "gone.rs", true)]),
+            None,
+        );
         assert_eq!(st.since_pass, 1);
         // The same path searched for something else is new ground.
-        st.end_loop(loop_of(&[("fs_grep", "b.rs", false)]));
+        st.end_loop(loop_of(&[("fs_grep", "b.rs", false)]), None);
         assert_eq!(st.since_pass, 0);
         // A failed command is a failed check, whatever was read.
         let mut c = loop_of(&[("fs_read", "d.rs", false)]);
         c.note("proc_run", Some(true));
-        st.end_loop(c);
+        st.end_loop(c, None);
         assert_eq!((st.since_pass, st.failing), (1, 1));
     }
 
@@ -650,6 +690,7 @@ mod tests {
             seen: HashSet::new(),
             steered: false,
             last: false,
+            running: HashSet::new(),
         }
     }
 
@@ -679,19 +720,19 @@ mod tests {
     fn each_new_slice_of_a_file_is_new_ground_and_the_same_slice_is_not() {
         use serde_json::json;
         let mut st = edited_state();
-        st.end_loop(slice("big.rs", json!({})));
+        st.end_loop(slice("big.rs", json!({})), None);
         assert_eq!(st.since_pass, 0, "the first slice is new");
-        st.end_loop(slice("big.rs", json!({})));
+        st.end_loop(slice("big.rs", json!({})), None);
         assert_eq!(st.since_pass, 1, "the same bare read is a re-read");
-        st.end_loop(slice("big.rs", json!({ "offset": 1, "limit": 400 })));
+        st.end_loop(slice("big.rs", json!({ "offset": 1, "limit": 400 })), None);
         assert_eq!(st.since_pass, 2, "offset=1 is the bare read's slice");
-        st.end_loop(slice("big.rs", json!({ "offset": 401, "limit": 400 })));
+        st.end_loop(slice("big.rs", json!({ "offset": 401, "limit": 400 })), None);
         assert_eq!(st.since_pass, 0, "the next slice is new ground");
-        st.end_loop(slice("big.rs", json!({ "offset": 401, "limit": 100 })));
+        st.end_loop(slice("big.rs", json!({ "offset": 401, "limit": 100 })), None);
         assert_eq!(st.since_pass, 1, "the same start again is a re-read");
-        st.end_loop(slice("big.rs", json!({ "offset": 801, "limit": 400 })));
+        st.end_loop(slice("big.rs", json!({ "offset": 801, "limit": 400 })), None);
         assert_eq!(st.since_pass, 0);
-        st.end_loop(slice("other.rs", json!({})));
+        st.end_loop(slice("other.rs", json!({})), None);
         assert_eq!(st.since_pass, 0, "another file's first slice is new");
     }
 
@@ -709,7 +750,7 @@ mod tests {
         let mut st = edited_state();
         st.edited = false;
         for n in 0..6 {
-            st.end_loop(read(n));
+            st.end_loop(read(n), None);
         }
         assert_eq!(
             (st.since_pass, st.since_check),
@@ -718,7 +759,7 @@ mod tests {
         );
         st.edited = true;
         for n in 6..9 {
-            st.end_loop(read(n));
+            st.end_loop(read(n), None);
         }
         assert_eq!(
             (st.since_pass, st.since_check),
@@ -727,14 +768,14 @@ mod tests {
         );
         // A loop with no call is unchecked for both; a failed command and a
         // command sent to the background are no pass either.
-        st.end_loop(Commands::default());
+        st.end_loop(Commands::default(), None);
         assert_eq!((st.since_pass, st.since_check), (1, 10));
-        st.end_loop(command(Some(true)));
+        st.end_loop(command(Some(true)), None);
         assert_eq!((st.since_pass, st.since_check), (2, 11));
-        st.end_loop(command(None));
+        st.end_loop(command(None), None);
         assert_eq!((st.since_pass, st.since_check), (3, 12));
         // A passing command resets both.
-        st.end_loop(command(Some(false)));
+        st.end_loop(command(Some(false)), None);
         assert_eq!((st.since_pass, st.since_check), (0, 0));
     }
 
@@ -747,13 +788,145 @@ mod tests {
             .map(|n| format!("fs.read:f{n}.rs:@1"))
             .collect();
         st.since_pass = 2;
-        st.end_loop(slice("unseen.rs", serde_json::json!({})));
+        st.end_loop(slice("unseen.rs", serde_json::json!({})), None);
         assert_eq!(st.since_pass, 3, "the cap is reached, so nothing is new");
         assert_eq!(st.seen.len(), SEEN_MAX);
         // Below the cap the same read is new ground.
         let mut st = edited_state();
         st.since_pass = 2;
-        st.end_loop(slice("unseen.rs", serde_json::json!({})));
+        st.end_loop(slice("unseen.rs", serde_json::json!({})), None);
         assert_eq!(st.since_pass, 0);
+    }
+    /// A call `name` that answered without error.
+    fn answered(name: &str) -> Commands {
+        let mut c = Commands::default();
+        let input = serde_json::json!({ "job": "j1" });
+        let u = ToolUse {
+            id: "t".into(),
+            name: name.into(),
+            input,
+        };
+        c.note_use(&u, Some(false));
+        c
+    }
+
+    /// The running jobs, as the kernel names them.
+    fn live(jobs: &[&str]) -> Option<HashSet<String>> {
+        Some(jobs.iter().map(|j| j.to_string()).collect())
+    }
+
+    fn counts(st: &State) -> (u32, u32, u32) {
+        (st.since_pass, st.since_check, st.failing)
+    }
+
+    /// A build in the background is progress (theseus-duzha): a command sent
+    /// there, a wait on a running job and a read of one hold both counts where
+    /// they were, however many loops go by.
+    #[test]
+    fn a_job_that_runs_holds_both_counts() {
+        let mut st = edited_state();
+        st.since_pass = 2;
+        st.since_check = 4;
+        // The command goes to the background.
+        let mut bg = Commands::default();
+        bg.note("proc.run", None);
+        assert!(bg.touches_jobs());
+        st.end_loop(bg, live(&["c1"]));
+        assert_eq!(counts(&st), (2, 4, 0));
+        // Waits and reads while it runs.
+        for name in ["job_wait", "job_read", "job_wait", "job.wait", "job.read"] {
+            let c = answered(name);
+            assert!(c.touches_jobs(), "{name}");
+            st.end_loop(c, live(&["c1"]));
+            assert_eq!(counts(&st), (2, 4, 0), "{name}");
+        }
+        // The loop that sees it ended is held too: the result is news.
+        st.end_loop(answered("job_wait"), live(&[]));
+        assert_eq!(counts(&st), (2, 4, 0), "newly finished");
+        // The next read of the finished job is not.
+        st.end_loop(answered("job_read"), live(&[]));
+        assert_eq!(counts(&st), (3, 5, 0), "an old job is no news");
+    }
+
+    /// What the hold does not touch: a loop with no job call is counted as it
+    /// was, a failing command still fails, a passing one still resets, new
+    /// ground still resets, and before the first edit nothing counts.
+    #[test]
+    fn the_hold_leaves_the_rest_of_the_rule_as_it_was() {
+        let mut st = edited_state();
+        st.since_pass = 2;
+        st.since_check = 2;
+        // A job runs, but this loop did not touch it.
+        st.end_loop(Commands::default(), None);
+        assert_eq!(counts(&st), (3, 3, 0), "no job call, no hold");
+        // A command that failed beside a read of a running job: it failed.
+        let mut c = answered("job_read");
+        c.note("proc.run", Some(true));
+        st.end_loop(c, live(&["c1"]));
+        assert_eq!(counts(&st), (4, 4, 1));
+        // New ground beside a running job resets the steer's count only.
+        let mut c = slice("a.rs", serde_json::json!({}));
+        c.job_touched = true;
+        st.end_loop(c, live(&["c1"]));
+        assert_eq!(counts(&st), (0, 4, 0));
+        // A job call with nothing running and nothing just ended.
+        st.end_loop(answered("job_wait"), live(&[]));
+        assert_eq!(counts(&st), (1, 5, 0));
+        // A job call that failed (an unknown job) touches none.
+        let mut c = Commands::default();
+        c.note_use(
+            &ToolUse {
+                id: "t".into(),
+                name: "job_wait".into(),
+                input: serde_json::json!({ "job": "j9" }),
+            },
+            Some(true),
+        );
+        assert!(!c.touches_jobs());
+        // A passing command resets both, a job running or not.
+        let mut c = Commands::default();
+        c.note("proc.run", Some(false));
+        st.end_loop(c, live(&["c1"]));
+        assert_eq!(counts(&st), (0, 0, 0));
+        // Before the first edit the steer counts nothing; the stop's count
+        // is held with the job.
+        let mut st = edited_state();
+        st.edited = false;
+        st.end_loop(answered("job_wait"), live(&["c1"]));
+        assert_eq!(counts(&st), (0, 0, 0));
+    }
+
+    /// The feature stays: held loops do not reach the steer or the stop, and
+    /// the first loop with no job in it that is no progress counts again, so
+    /// the steer and the stop fire when there is genuinely none.
+    #[test]
+    fn the_steer_and_the_stop_still_fire_when_nothing_progresses() {
+        let mut st = edited_state();
+        let mut verdicts = Vec::new();
+        let at = |st: &State, time: f64| {
+            let sig = Signals {
+                time: Some(time),
+                spend: None,
+                since_pass: st.since_pass,
+                since_check: st.since_check,
+                failing: st.failing,
+                guarded: false,
+            };
+            decide(&sig, st.steered)
+        };
+        // Ten loops waiting on a build, deep into the deadline: nothing.
+        for _ in 0..10 {
+            st.end_loop(answered("job_wait"), live(&["c1"]));
+            verdicts.push(at(&st, 0.9));
+        }
+        assert!(verdicts.iter().all(|v| *v == Verdict::Nothing), "{verdicts:?}");
+        // Then loops that touch nothing and pass nothing: the count moves.
+        for _ in 0..2 {
+            st.end_loop(Commands::default(), None);
+        }
+        assert_eq!(at(&st, 0.55), Verdict::Nothing);
+        st.end_loop(Commands::default(), None);
+        assert_eq!(at(&st, 0.55), Verdict::Steer);
+        assert_eq!(at(&st, 0.9), Verdict::Stop);
     }
 }
