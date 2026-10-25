@@ -3017,11 +3017,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   it is not a stop (with a failing check it also asks for the smallest step that can make it pass; theseus-ikr75). Reading
   is progress until there is something to check (`State::end_loop`): until the turn's first answered `fs.write`, `fs.edit`
   or `fs.patch`, a loop with no command adds nothing to `since_pass`; after it, a loop whose reads (`fs.read`, `fs.list`,
-  `fs.glob`, `fs.grep`) all answered and opened a key (tool, path, pattern) not seen before resets it like a passing
-  command (the seen keys are on `State`, bounded by `SEEN_MAX`); at `STOP_SHARE` (0.85) of the deadline only (spend never stops a turn: the owner's notify rule), a
-  stop note asking for a report with no tool calls, and the next loop is the last (stop reason `progress_stop`, which the
-  nudge and the end note leave alone). Each is a harness node (`harness:progress`) and a `turn.progress` row (the shares,
-  `since_pass`, `failing`, the times and spend; `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
+  `fs.glob`, `fs.grep`) all answered and opened a key not seen before resets it like a passing
+  command (the seen keys are on `State`, bounded by `SEEN_MAX`; past the cap nothing is new, so a full set cannot reset the
+  count on every read). The key is tool, path and pattern, and for `fs.read` the slice's first line (a bare read is
+  `offset=1`, as it returns from line 1) and its pages: the narrow-read hint's slices of a long file are new ground at
+  each new start, and the same slice again is a re-read (theseus-tdkcn with theseus-ikr75). At `STOP_SHARE` (0.85) of the
+  deadline only (spend never stops a turn: the owner's notify rule), a stop note asking for a report with no tool calls,
+  and the next loop is the last (stop reason `progress_stop`, which the nudge and the end note leave alone). **The stop
+  counts apart from the steer** (`since_check`): it moves as it did before reading counted, one more for every loop that
+  was not a passing command, reset only by one, so a turn that only reads, or opens new files after its edit, is still
+  stopped at its deadline (the deadline's stop is the only thing that enforces it). Each is a harness node
+  (`harness:progress`) and a `turn.progress` row (the shares, `since_pass`, `since_check`, `failing`, the times and spend;
+  `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
   is at its ceiling), begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
   `Directory:` (`cpu/commands.rs`, `Cpus::of_commands`, read once per process): the tightest of the daemon's cgroup v2
   `cpu.max` (every ancestor's, rounded up), its `cpuset.cpus.effective`, and `available_parallelism`, with the host's

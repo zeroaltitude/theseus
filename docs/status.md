@@ -688,8 +688,9 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   (`tests_data_verdict.rs`) pins that only open at act, naming no sensitive name, on a session without the private mark,
   reaches a restricted model. v8 also differs from v7 in `reply_effort`'s `max`. A turn can be given a deadline
   (`theseus ask --deadline SECS`, `turn.submit`'s `deadline_secs`): the model is told the minutes left, and a turn with
-  no passing check is told to replan at half its time or spend and to stop and report at 0.85 of its time
-  (`turn.progress`); every session's block names the CPUs its commands really have, from the cgroup quota
+  no passing check is told once, at half its time (or its spend, when it has a deadline and a limit that only
+  notifies), that this is not a stop and to go on, and to stop and report at 0.85 of its time (`turn.progress`);
+  reading new ground quiets the first and never the second (theseus-ikr75); every session's block names the CPUs its commands really have, from the cgroup quota
   (theseus-2uy56, theseus-yct32). The owner card no longer reads an assistant's own setup notes as facts about the
   owner, never offers one task's instructions as a lasting preference, keeps who acts and on whose behalf, offers no two
   conflicting proposals together, and lets the owner say where a kept record holds (`theseus card keep --scope`, `card

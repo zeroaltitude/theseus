@@ -478,10 +478,21 @@ async fn a_turn_that_only_reads_is_still_stopped_at_its_deadline() {
     assert_eq!(reqs.len(), 4, "the stop's request is the last");
     assert_eq!((res.loops, res.stop_reason.as_str()), (4, PROGRESS_STOP));
     assert!(messages(&reqs[3]).contains(STOP), "{}", messages(&reqs[3]));
-    assert!(!messages(&reqs[2]).contains(STOP), "not before the third loop");
+    assert!(
+        !messages(&reqs[2]).contains(STOP),
+        "not before the third loop"
+    );
     let rows = r.rows(&sid);
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0]["decision"], "stop");
+    // The steer's count held at 0 (reading is progress); the stop's did not.
+    assert_eq!(rows[0]["since_pass"], 0);
+    assert_eq!(rows[0]["since_check"], 3);
+    assert!(
+        messages(&reqs[3]).contains("no check has run in its last 3 loops"),
+        "{}",
+        messages(&reqs[3])
+    );
 }
 
 /// The same after the turn's first edit, where a read of a new file is
@@ -521,6 +532,8 @@ async fn a_turn_that_keeps_opening_new_files_after_an_edit_is_still_stopped() {
     let rows = r.rows(&sid);
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0]["decision"], "stop");
+    assert_eq!(rows[0]["since_pass"], 0);
+    assert_eq!(rows[0]["since_check"], 3);
 }
 
 /// Reading is progress until there is something to check: a turn that only

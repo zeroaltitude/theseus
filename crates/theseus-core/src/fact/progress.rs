@@ -33,6 +33,7 @@ impl TurnProgress<'_> {
             "time_share": s.time,
             "spend_share": s.spend,
             "since_pass": s.since_pass,
+            "since_check": s.since_check,
             "failing": s.failing,
             "guarded": s.guarded,
             "elapsed_ms": self.elapsed_ms,
@@ -64,7 +65,7 @@ impl Fact for TurnProgress<'_> {
             format!(
                 "No check had passed in {} loops, with {} of the turn's time and {} of its spend \
                  limit used, so the harness told the model {what}.",
-                self.signals.since_pass,
+                self.signals.since_check,
                 share(self.signals.time),
                 share(self.signals.spend),
             ),

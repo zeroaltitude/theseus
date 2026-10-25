@@ -11,11 +11,16 @@
 //! or with a command sent to the background, is no check. Reading is progress
 //! until there is something to check (theseus-ikr75): a turn that has not
 //! edited yet counts no unchecked loops, and after its first edit a loop that
-//! read a path the turn had not read before, every read answering, resets the
-//! count like a passing command. The rule:
+//! read ground the turn had not read before (a path, a pattern, a slice of a
+//! file from a new first line), every read answering, resets the count like a
+//! passing command. That count is the steer's. The stop keeps its own
+//! (`since_check`), which only a passing command resets, because the stop is
+//! the only thing that enforces a deadline and reading must not delay it. The
+//! rule:
 //!
 //! - **Nothing** while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
-//!   loops: work that passes is going well, however long it runs.
+//!   loops (or, for the steer, new ground was read in them): work that passes
+//!   is going well, however long it runs.
 //! - **A steer** (once a turn) at `STEER_SHARE` of the deadline, or of the
 //!   spend limit when the turn has a deadline and its limit is a notice, not
 //!   a guard (a guarded turn ends at its limit anyway): a harness note that
@@ -66,9 +71,14 @@ pub struct Signals {
     /// The share of its execution's spend limit this turn has spent; none
     /// without a limit or a known price.
     pub spend: Option<f64>,
-    /// Loops since the last passing check (all of them, with none yet).
+    /// Loops since the last passing check or, before a turn's first edit or
+    /// after a read of new ground, since that (all of them, with none yet).
+    /// The steer reads this one.
     pub since_pass: u32,
-    /// Of those, the loops whose command failed.
+    /// Loops since the last passing check, however much was read: the
+    /// stop reads this one, so reading never postpones a deadline.
+    pub since_check: u32,
+    /// Of `since_pass`, the loops whose command failed.
     pub failing: u32,
     /// The execution's spend limit is a guard (`spend_limit_mode = "ask"`):
     /// the turn ends at it, so spend alone steers nothing. The spend is still
@@ -96,12 +106,14 @@ impl Verdict {
 
 /// The rule: `steered` is whether the turn was steered already.
 pub fn decide(s: &Signals, steered: bool) -> Verdict {
+    let time = s.time.unwrap_or(0.0);
+    // The stop counts as the base did: nothing else enforces a deadline, so
+    // reading (which only quiets the steer) never delays it.
+    if s.since_check >= MIN_LOOPS_WITHOUT_PASS && time >= STOP_SHARE {
+        return Verdict::Stop;
+    }
     if s.since_pass < MIN_LOOPS_WITHOUT_PASS {
         return Verdict::Nothing;
-    }
-    let time = s.time.unwrap_or(0.0);
-    if time >= STOP_SHARE {
-        return Verdict::Stop;
     }
     // Spend steers a turn that has a deadline and a limit that only notifies.
     let spend_steers = s.time.is_some() && !s.guarded;
@@ -121,10 +133,12 @@ pub(super) struct State {
     /// The execution's spend limit, read once.
     limit_micros: Option<u64>,
     since_pass: u32,
+    /// Loops since a passing check, reading or not (`Signals::since_check`).
+    since_check: u32,
     failing: u32,
     /// An edit call has answered without error in the turn.
     edited: bool,
-    /// The paths the turn has read (keys, no contents), up to `SEEN_MAX`.
+    /// What the turn has read (keys, no contents), up to `SEEN_MAX`.
     seen: HashSet<String>,
     steered: bool,
     /// The stop was said: the next loop is the last.
@@ -137,12 +151,21 @@ impl State {
     fn end_loop(&mut self, commands: Commands) {
         let check = commands.check();
         self.edited |= commands.edited;
-        let fresh = !commands.read_failed && commands.reads.iter().any(|k| !self.seen.contains(k));
+        // Past the cap nothing new is coverage, or every read would reset the count.
+        let fresh = !commands.read_failed
+            && self.seen.len() < SEEN_MAX
+            && commands.reads.iter().any(|k| !self.seen.contains(k));
         for k in commands.reads {
             if self.seen.len() < SEEN_MAX {
                 self.seen.insert(k);
             }
         }
+        // The stop's count: a passing command resets it, and nothing else does.
+        self.since_check = if check == Some(true) {
+            0
+        } else {
+            self.since_check + 1
+        };
         match check {
             Some(true) => (self.since_pass, self.failing) = (0, 0),
             Some(false) => {
@@ -203,8 +226,17 @@ impl Commands {
             } else {
                 field("path")
             };
-            self.reads
-                .push(format!("{canon}:{path}:{}", field("pattern")));
+            // What makes a read new ground: a search's pattern, and a file's
+            // slice, named by its first line (a bare read returns from line 1,
+            // as `offset=1` does) or its pages. Slicing a long file, as the
+            // narrow-read hint asks, covers new ground at each new start.
+            let line = u.input.get("offset").and_then(|v| v.as_u64()).unwrap_or(1);
+            let what = if *canon == "fs.read" {
+                format!("@{}:{}", line.max(1), field("pages"))
+            } else {
+                field("pattern").to_string()
+            };
+            self.reads.push(format!("{canon}:{path}:{what}"));
         }
     }
 
@@ -243,6 +275,7 @@ fn with<R>(t: &mut Turn<'_>, f: impl FnOnce(&mut State) -> R) -> R {
             shown: None,
             limit_micros,
             since_pass: 0,
+            since_check: 0,
             failing: 0,
             edited: false,
             seen: HashSet::new(),
@@ -283,6 +316,7 @@ impl TurnRunner {
                 time: s.deadline.map(|d| d.used(now)),
                 spend,
                 since_pass: s.since_pass,
+                since_check: s.since_check,
                 failing: s.failing,
                 guarded,
             };
@@ -361,12 +395,14 @@ fn used_words(
 
 /// The note the model reads: short, plain, and about no tool or language.
 fn note(verdict: Verdict, used: &str, s: &Signals) -> String {
+    // A stop fires on the loops since a passing check, reading or not.
+    let loops = match verdict {
+        Verdict::Stop => s.since_check,
+        _ => s.since_pass,
+    };
     let checks = match s.failing {
-        0 => format!("no check has run in its last {} loops", s.since_pass),
-        f => format!(
-            "no check has passed in its last {} loops ({f} failed)",
-            s.since_pass
-        ),
+        0 => format!("no check has run in its last {loops} loops"),
+        f => format!("no check has passed in its last {loops} loops ({f} failed)"),
     };
     match verdict {
         Verdict::Stop => format!(
@@ -395,9 +431,17 @@ mod tests {
             time,
             spend,
             since_pass,
+            since_check: since_pass,
             failing,
             guarded: false,
         }
+    }
+
+    /// A turn that read its way to `since_pass` while `since_check` loops
+    /// passed no check.
+    fn reading(mut sig: Signals, since_check: u32) -> Signals {
+        sig.since_check = since_check;
+        sig
     }
 
     /// The same under a guard (`spend_limit_mode = "ask"`).
@@ -445,6 +489,16 @@ mod tests {
             (s(Some(0.9), Some(0.9), 2, 2), true, Nothing),
             // No deadline and no limit: nothing to measure.
             (s(None, None, 50, 50), false, Nothing),
+            // Reading quiets the steer, never the stop: a turn that read new
+            // ground (nothing unchecked, as far as the steer counts) has
+            // still gone `since_check` loops without a passing check.
+            (reading(s(Some(0.6), None, 0, 0), 5), false, Nothing),
+            (reading(s(Some(0.6), None, 1, 0), 9), false, Nothing),
+            (reading(s(Some(0.9), None, 0, 0), 5), false, Stop),
+            (reading(s(Some(0.85), None, 2, 0), 3), true, Stop),
+            (reading(s(Some(0.9), Some(0.1), 0, 0), 2), false, Nothing),
+            (guarded(reading(s(Some(0.9), None, 0, 0), 4)), false, Stop),
+            (reading(s(None, Some(3.0), 0, 0), 30), false, Nothing),
         ];
         for (signals, steered, want) in rows {
             assert_eq!(
@@ -539,6 +593,7 @@ mod tests {
             shown: None,
             limit_micros: None,
             since_pass: 0,
+            since_check: 0,
             failing: 0,
             edited: false,
             seen: HashSet::new(),
@@ -589,6 +644,7 @@ mod tests {
             shown: None,
             limit_micros: None,
             since_pass: 0,
+            since_check: 0,
             failing: 0,
             edited: true,
             seen: HashSet::new(),
@@ -639,12 +695,57 @@ mod tests {
         assert_eq!(st.since_pass, 0, "another file's first slice is new");
     }
 
+    /// The stop's count moves as the base's did, whatever was read: only a
+    /// passing command resets it (theseus-ikr75 join fix 1).
+    #[test]
+    fn the_stops_count_moves_as_the_base_did_whatever_was_read() {
+        use serde_json::json;
+        let read = |n: u32| slice(&format!("f{n}.rs"), json!({}));
+        let command = |outcome: Option<bool>| {
+            let mut c = Commands::default();
+            c.note("proc_run", outcome);
+            c
+        };
+        let mut st = edited_state();
+        st.edited = false;
+        for n in 0..6 {
+            st.end_loop(read(n));
+        }
+        assert_eq!(
+            (st.since_pass, st.since_check),
+            (0, 6),
+            "before an edit, reading is free to the steer alone"
+        );
+        st.edited = true;
+        for n in 6..9 {
+            st.end_loop(read(n));
+        }
+        assert_eq!(
+            (st.since_pass, st.since_check),
+            (0, 9),
+            "new files reset the steer's count, not the stop's"
+        );
+        // A loop with no call is unchecked for both; a failed command and a
+        // command sent to the background are no pass either.
+        st.end_loop(Commands::default());
+        assert_eq!((st.since_pass, st.since_check), (1, 10));
+        st.end_loop(command(Some(true)));
+        assert_eq!((st.since_pass, st.since_check), (2, 11));
+        st.end_loop(command(None));
+        assert_eq!((st.since_pass, st.since_check), (3, 12));
+        // A passing command resets both.
+        st.end_loop(command(Some(false)));
+        assert_eq!((st.since_pass, st.since_check), (0, 0));
+    }
+
     /// The remembered reads are capped, and past the cap a read is no
     /// coverage: a full set does not turn every unseen key into new ground.
     #[test]
     fn a_full_set_of_reads_does_not_make_every_read_new() {
         let mut st = edited_state();
-        st.seen = (0..SEEN_MAX).map(|n| format!("fs.read:f{n}.rs:@1")).collect();
+        st.seen = (0..SEEN_MAX)
+            .map(|n| format!("fs.read:f{n}.rs:@1"))
+            .collect();
         st.since_pass = 2;
         st.end_loop(slice("unseen.rs", serde_json::json!({})));
         assert_eq!(st.since_pass, 3, "the cap is reached, so nothing is new");
