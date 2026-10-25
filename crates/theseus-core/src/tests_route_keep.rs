@@ -54,13 +54,16 @@ use crate::tests_route::{mode, rig, turn};
 /// 40,200, 45,800 and 46,200 hold, 45,400 and 46,600 do not: a sweep at its join).
 /// And 46,000 before `task_wait` joined the catalog (theseus-z9mze.2: billed as it is here, 45,400 to
 /// 46,100 and 46,600 and up do not hold; 46,200 to 46,500 hold: a sweep at its join).
-const WINDOW: u64 = 46_300;
+/// And 46,300 before `task_fan_out` joined it (theseus-z9mze.3: with it, no window from 43,000 to 46,700 held at
+/// any input billed; at 47,300 and up the input billed from 41,400 or 42,200 to 44,200 does, so both moved: a 2-D
+/// sweep at its join; 47,600 with 42,600 is inside both bands).
+const WINDOW: u64 = 47_600;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget (38,600
 /// before projects joined, theseus-n5ui2, and 39,400 before modes, theseus-lyxy:
 /// the band above).
-const BILLED: u64 = 40_200;
+const BILLED: u64 = 42_600;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {

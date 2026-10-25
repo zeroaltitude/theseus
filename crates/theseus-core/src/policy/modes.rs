@@ -136,7 +136,17 @@ impl ToolRuntime {
     pub(crate) fn refusal_at(&self, at: &At<'_>, tool: &dyn Tool, plan: &Plan) -> Option<String> {
         self.refusal(at.place, tool.name(), plan)
             .or_else(|| plan_refusal(self, at, tool, plan))
+            .or_else(|| helper_refusal(self, at, tool))
     }
+}
+
+/// A helper's refusal (theseus-z9mze.3): it reads and reports, so a call to a
+/// tool outside the reader set is refused in its words, even one the model was
+/// not offered.
+fn helper_refusal(rt: &ToolRuntime, at: &At<'_>, tool: &dyn Tool) -> Option<String> {
+    let why = crate::task_fan_out::refusal(tool)?;
+    let core = rt.jobs.core()?;
+    crate::task_fan_out::is_helper(&core.store, &core.kernel, at.session?).then_some(why)
 }
 
 /// Plan mode's refusal, in words the model can act on.

@@ -85,6 +85,7 @@ mod end_step;
 mod fallback_step;
 mod families_step;
 mod fill_step;
+pub(crate) mod helper_step;
 pub(crate) mod home_size_step;
 mod inbound_step;
 mod join_step;
@@ -810,6 +811,7 @@ impl TurnRunner {
     /// session's persona (theseus-slvl.2).
     pub fn target_for_session(&self, s: &SessionRecord, live_profile: &str) -> Result<Target> {
         let tg = self.target_as_ran(s, live_profile)?;
+        let tg = self.helper_target(s, tg);
         Ok(Target {
             persona: self.persona_of(s),
             engages: self.engages(s),
@@ -1868,6 +1870,7 @@ impl TurnRunner {
                 self.defer_found(t, &mut spec);
             }
             Self::clock_line(t)?;
+            Self::helper_note(t)?;
             let i = t.loops;
             t.loops += 1;
             t.record(&fact::turn::LoopOpened {
@@ -2610,6 +2613,10 @@ impl TurnRunner {
         spent: Micros,
         limit: Micros,
     ) -> Result<()> {
+        // A helper at its carve ends and reports; nobody answers its question.
+        if helper_step::at_carve(t) {
+            return Ok(());
+        }
         let call = Self::budget_call(t);
         let q =
             t.tc.kernel
