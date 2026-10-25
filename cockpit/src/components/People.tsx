@@ -16,6 +16,7 @@ import {
 import { cn } from '@/lib/format'
 import { Empty, Panel } from '@/components/ui'
 import { Act, Refused, useOntologyWrite } from '@/components/OntologyParts'
+import { BulkActions, NeversList, PersonNever, TopicActions } from '@/components/ProposalActions'
 
 const field = 'rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40 disabled:opacity-50'
 
@@ -138,7 +139,7 @@ export function ProposalsPanel({ disabled }: { disabled: boolean }) {
       ...gs.map((g) => `${g.name} (${proposals(g.judgments.length)}${g.first_names?.length ? `, with ${g.first_names.join(', ')}` : ''})`),
     ].join('; ')
     const calls: [string, unknown][] = [
-      ...(topics.length ? [['ontology.proposal.accept_all', { min_confidence: 0, judgments: topics }] as [string, unknown]] : []),
+      ...(topics.length ? [[accept ? 'ontology.proposal.accept_all' : 'ontology.proposal.reject_all', accept ? { min_confidence: 0, judgments: topics } : { judgments: topics }] as [string, unknown]] : []),
       ...gs.map((g): [string, unknown] => accept ? ['ontology.proposal.accept_all', rowAccept(g)] : ['ontology.proposal.reject_all', rowReject(g)]),
     ]
     const ask = accept
@@ -159,6 +160,7 @@ export function ProposalsPanel({ disabled }: { disabled: boolean }) {
           ))}
           <button type="button" className="ml-auto text-ink-faint hover:text-live" onClick={() => { setPicked(new Set(selectAll(ps.filter((p) => !p.person), kind))); setRows(new Set(selectRows(people))) }}>select all</button>
           <Act onClick={() => void answer(chosen, [...picked], true)} busy={busy} off={disabled || count === 0} title="ontology.proposal.accept_all: confirmed first"><Check size={12} /> Accept {count || ''}</Act>
+          <BulkActions topics={ps.filter((p) => picked.has(p.judgment))} people={chosen} onDone={() => { setPicked(new Set()); setRows(new Set()) }} disabled={disabled} busy={busy} writeEach={writeEach} />
         </div>
         <Refused words={refused} />
         {ps.length === 0 && people.length === 0 ? <Empty>no unanswered proposals{kind ? ` of ${kind}s` : ''}</Empty> : (
@@ -175,19 +177,22 @@ export function ProposalsPanel({ disabled }: { disabled: boolean }) {
                   <td className="whitespace-nowrap px-1 text-right align-top">
                     <button type="button" disabled={disabled || busy} onClick={() => void answer([g], [], true)} aria-label={`accept ${g.name}`} title="ontology.proposal.accept_all: every proposal of this person, confirmed first" className="px-1 text-ink-faint hover:text-live disabled:opacity-40"><Check size={12} /></button>
                     <button type="button" disabled={disabled || busy} onClick={() => void answer([g], [], false)} aria-label={`reject ${g.name}`} title="ontology.proposal.reject_all: every proposal of this person, confirmed first" className="px-1 text-ink-faint hover:text-fault disabled:opacity-40"><X size={12} /></button>
+                    <PersonNever g={g} disabled={disabled} busy={busy} writeEach={writeEach} />
                   </td>
                 </tr>
               ))}
               {ps.map((p) => (
                 <tr key={p.judgment} className="border-t border-line/50">
                   <td className="py-1 pr-1"><input type="checkbox" aria-label={`pick ${p.judgment}`} disabled={!bulkable(p)} checked={picked.has(p.judgment)} onChange={() => flip(setPicked, p.judgment)} /></td>
-                  <td className="text-ink">{p.new_topic ? <span className="text-wait">a new topic</span> : proposalWhat(p)}<div className="num text-[10px] text-ink-faint">{proposalKind(p)} · {p.session_title ?? p.session_id}</div></td>
+                  <td className="text-ink">{p.new_topic ? <span className="text-wait">a new topic (unnamed)</span> : proposalWhat(p)}<div className="num text-[10px] text-ink-faint">{proposalKind(p)} · {p.session_title ?? p.session_id}</div></td>
                   <td className="num px-1 text-right text-ink-dim">{p.confidence.toFixed(2)} <span className="text-ink-faint">{p.band}</span></td>
+                  <TopicActions p={p} disabled={disabled} busy={busy} writeEach={writeEach} />
                 </tr>
               ))}
             </tbody>
           </table></div>
         )}
+        <NeversList disabled={disabled} busy={busy} writeEach={writeEach} />
       </div>
     </Panel>
   )

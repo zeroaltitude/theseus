@@ -26,7 +26,7 @@ use theseus_protocol::{
 };
 
 use super::confirms::Act;
-use super::server::{route, Conn, RpcFailure};
+use super::server::{or_empty, route, Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::fact;
@@ -433,6 +433,22 @@ impl Core {
                     self.ontology_proposal_reject_all(&p, who).map_err(failure)
                 },
             ),
+            method::ONTOLOGY_PROPOSAL_NEVER => route(
+                params,
+                |p: theseus_protocol::OntologyProposalNeverParams| {
+                    let who = conn.answerer(p.author.clone(), p.discord.clone());
+                    self.ontology_proposal_never(&p, who).map_err(failure)
+                },
+            ),
+            method::ONTOLOGY_NEVER_LIST => route(or_empty(params), |p| {
+                self.ontology_never_list(&p).map_err(RpcFailure::invalid)
+            }),
+            method::ONTOLOGY_NEVER_UNDO => {
+                route(params, |p: theseus_protocol::OntologyNeverUndoParams| {
+                    let who = conn.answerer(p.author.clone(), p.discord.clone());
+                    self.ontology_never_undo(&p, who).map_err(failure)
+                })
+            }
             _ => route(params, |p| self.rpc_ontology_membership_set(p, conn)),
         }
     }

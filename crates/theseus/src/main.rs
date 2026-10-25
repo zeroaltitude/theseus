@@ -985,6 +985,10 @@ enum OntologyCmd {
         #[command(subcommand)]
         cmd: PersonCmd,
     },
+    /// Never propose again: each JUDGMENT's proposal is rejected and what it proposes (the topic's
+    /// name, the person's name, or for a new topic with no name, that session) is kept as a never.
+    /// --list shows the nevers; --undo KEY takes one back.
+    Never(crate::onto_cmd::NeverArgs),
     /// Reject a proposal: the judgment is labelled, and nothing else changes. --person NAME
     /// rejects a person's row, every proposal of it.
     Reject {

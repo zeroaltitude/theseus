@@ -57,6 +57,7 @@ mod forecast;
 mod grants;
 mod judge_latency;
 mod memory_read;
+mod never;
 pub(crate) mod ontology;
 pub(crate) mod ontology_kinds;
 pub(crate) mod ontology_machine;

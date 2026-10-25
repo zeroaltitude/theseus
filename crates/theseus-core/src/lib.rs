@@ -408,6 +408,8 @@ mod tests_memory_lookup;
 #[cfg(test)]
 mod tests_money;
 #[cfg(test)]
+mod tests_never;
+#[cfg(test)]
 mod tests_notices;
 #[cfg(test)]
 mod tests_observability;
