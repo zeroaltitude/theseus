@@ -32,6 +32,7 @@
 pub mod activation;
 pub mod adjacency;
 pub mod cite;
+pub mod current;
 pub mod evidence;
 pub mod labels;
 pub mod neighbour;
@@ -43,6 +44,8 @@ pub mod stamp;
 pub mod temporal;
 pub mod when;
 
+#[cfg(test)]
+mod tests_current;
 #[cfg(test)]
 mod tests_time;
 
@@ -856,13 +859,15 @@ impl Memory {
         params.persona = scene.persona.as_ref().and_then(|p| p.boost(&candidates));
         params.category = scene.category.as_ref().and_then(|c| c.boost(&candidates));
         (params.floor, m.relevance) = relevance::of(&self.cfg, &r_weights, &m.sources, &candidates);
+        let sci = &*scene.science;
         let pack = match begun.temporal {
-            Some(kind) => temporal::pack(kind, &*scene.science, &asker, &candidates, &params),
-            None => pipeline::recall(&*scene.science, &asker, candidates.clone(), &params),
+            Some(k) => temporal::pack(k, &begun.said, sci, &asker, &candidates, &params),
+            None => pipeline::recall(sci, &asker, candidates.clone(), &params),
         };
         let kept = ranks.clone();
         fill(&mut m, pack, &mut ranks, texts);
         neighbour::apply(&mut m.admitted, &neighbour::marks(&candidates));
+        current::mark(&mut m.admitted, begun, &links, &candidates);
         self.retention_items(&*scene.science, &mut m, &retention, asker.now_ms);
         m.timings.pack_ms = ms(t0.elapsed());
         m.timings.total_ms = ms(begun.started.elapsed());
@@ -1027,6 +1032,7 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
                 fused: a.candidate.fused,
                 tokens: a.tokens,
                 text: texts.then_some(a.excerpt),
+                superseded: None,
                 retention: None,
                 neighbour: None,
             }

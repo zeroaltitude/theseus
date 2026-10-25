@@ -2163,6 +2163,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     in memory only, never on the wire or in the store (no format change; `memory.search` clients never see it). No
     config key switches it off. Tests: `recall::neighbour::tests` (the rule), `tests_recall_neighbour.rs` (the header
     on the node, whole-core).
+  - **Current-value questions** (theseus-mo1vm; `recall/current.rs`, `recall/tests_current.rs`): a "now / currently /
+    still" question that asks for a value ("how many days of X do we keep now?", "which port is Y on now?", "do we
+    still keep 30 days?") is `temporal::Kind::Current`; `temporal::read` hands a question it reads no event in to
+    `current::read`, and a "now" question that is an event, or asks for no value ("what are we doing now?", "what day
+    is it now?", "what time does the backup run now?"), is read as before. Notes about such a subject repeat every
+    value it had, so the pack goes by `current::order`: the hits that state the subject's value (most of the
+    question's content words and a number) first, newest first (a `supersedes` link among them wins over time; the
+    exam's probe has none), the rest after in relevance order. An older statement whose values do not include the
+    newest's carries `, superseded: older than the <day> statement` at the end of its frozen header
+    (`RecallItem.superseded`, `#[serde(skip)]`, set by `current::mark` after `fill` and read by `hold_node`'s
+    `current::with_mark`); nothing else changes, so a pack with no such question renders byte for byte as before. A
+    live rerank (`refill`) does not carry the marks. Tests: `recall/tests_current.rs`.
   - **`memory.lookup`, the model's own read of memory** (theseus-w9qv; `memory_lookup.rs`, `memory_lookup/read.rs`):
     words through recall's pipeline, a span or a book or a topic through the import catalog, and since theseus-8c8s
     `session` (one session's messages in order, paged, tool calls and outside text left out and counted; with words, a

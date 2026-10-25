@@ -31,7 +31,8 @@ use crate::client::Client;
 use crate::fixture::Manifest;
 use crate::item::Exam;
 use crate::probe::{self, ItemProbe, KS};
-use theseus_core::recall::temporal;
+use theseus_core::recall::current;
+use theseus_core::recall::temporal::{self, Kind};
 use theseus_memory::{Candidate, Place};
 
 /// The sources a tender ranks.
@@ -258,10 +259,9 @@ pub fn node_ranks(hits: &[Value]) -> Result<HashMap<String, usize>> {
     Ok(rank)
 }
 
-/// Each node's rank when the hits are ordered as recall orders them for a
-/// question about time: the first [`temporal::SUBJECT_TOP`] distinct nodes
-/// by the kind's order, the rest as they came.
-pub fn temporal_ranks(kind: temporal::Kind, hits: &[Value]) -> Result<HashMap<String, usize>> {
+/// Each node's rank when the hits are ordered as recall orders them for the
+/// question `q` about time (the first [`temporal::SUBJECT_TOP`], the rest as came).
+pub fn temporal_ranks(kind: Kind, q: &str, hits: &[Value]) -> Result<HashMap<String, usize>> {
     let mut seen = std::collections::HashSet::new();
     let mut cands = Vec::new();
     for h in hits {
@@ -286,7 +286,7 @@ pub fn temporal_ranks(kind: temporal::Kind, hits: &[Value]) -> Result<HashMap<St
             matched: Vec::new(),
         });
     }
-    Ok(temporal::order(kind, &cands)
+    Ok(current::order_of(kind, q, &cands)
         .iter()
         .enumerate()
         .map(|(i, k)| (k.split('#').next().unwrap_or("").to_string(), i + 1))
@@ -400,7 +400,7 @@ pub fn run(exam: &Exam, m: &Manifest, plan: &Plan, log: &mut dyn FnMut(&str)) ->
                 .with_context(|| format!("{}: an answer without hits", item.id))?;
             let hits = floored(hits, &a["weights"], plan.floor);
             let rank = match &asked {
-                Some(a) => temporal_ranks(a.kind, &hits)?,
+                Some(a) => temporal_ranks(a.kind, task, &hits)?,
                 None => node_ranks(&hits)?,
             };
             let trap = rank
@@ -775,7 +775,7 @@ text = "held out gold"
         ];
         let plain = node_ranks(&hits).unwrap();
         assert_eq!((plain["late"], plain["event"]), (1, 2));
-        let timed = temporal_ranks(temporal::Kind::When, &hits).unwrap();
+        let timed = temporal_ranks(temporal::Kind::When, "", &hits).unwrap();
         assert_eq!((timed["event"], timed["early"], timed["late"]), (1, 2, 3));
     }
 

@@ -515,6 +515,12 @@ pub struct RecallItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub text: Option<String>,
+    /// A current-value question (theseus-mo1vm): the day of the newer
+    /// statement this one's value was superseded by. Not stored: the turn's
+    /// `Recall` node freezes it into the header.
+    #[serde(skip)]
+    #[cfg_attr(test, ts(skip))]
+    pub superseded: Option<String>,
     /// Under `+retention` (32a): its node's retention as the rank read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
