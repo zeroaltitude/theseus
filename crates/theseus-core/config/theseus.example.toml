@@ -180,6 +180,21 @@ max_loops = 40
 # model = "deepseek-v4-pro"
 # effort = "high"
 
+# Kimi (Moonshot AI), a China-origin model like the two above: it gets only open work, and a
+# Claude profile reviews what it drafts. Add its key first (the commented moonshot_api_key under
+# the secrets table), then un-comment these and the moonshot provider. It always thinks and takes
+# three effort levels: low, high and max. It is in no class list and no route pack: a draft
+# share waits on a measured comparison against the models above.
+# [profiles.kimi]
+# provider = "moonshot"
+# model = "kimi-k3.1-pro"               # 1M context; the faster kimi-k3.1-pro-highspeed costs double
+# effort = "high"
+#
+# [profiles.kimimax]
+# provider = "moonshot"
+# model = "kimi-k3.1-pro"
+# effort = "max"
+
 # Claude Haiku 5.5: $0.10 in and $0.50 out per million tokens up to a 100,000-token
 # prompt, 5x above it (`theseus catalog` lists both). At its default effort it thinks
 # before a short answer (text began 3 to 4.5 s in, the lane's probe of 2026-10-07); at
@@ -305,6 +320,13 @@ kind = "anthropic_messages"             # the only wire protocol today
 # kind = "anthropic_messages"
 # origin = "cn"                         # a China-origin host is "cn" whatever is written here; for an unknown host, the operator's word
 
+# Moonshot AI's Kimi, on its Anthropic-compatible endpoint. Add its key to the secrets table before un-commenting.
+# [providers.moonshot]
+# api_base = "https://api.moonshot.ai/anthropic"
+# api_key_secret = "moonshot_api_key"
+# kind = "anthropic_messages"
+# origin = "cn"                         # a China-origin host is "cn" whatever is written here; for an unknown host, the operator's word
+
 # ---------------------------------------------------------------- secrets
 # name → where its value comes from. The vault is the recommended source.
 # Each placeholder below names what to put there: make one item per secret in
@@ -331,6 +353,7 @@ kind = "anthropic_messages"             # the only wire protocol today
 anthropic_api_key = "op://<your vault>/<Anthropic API key item>/notesPlain"
 zai_api_key = "op://<your vault>/<Z.ai API key item>/notesPlain"
 # deepseek_api_key = "op://<your vault>/<DeepSeek API key item>/notesPlain"   # the deepseek provider's key: add the item first
+# moonshot_api_key = "op://<your vault>/<Moonshot API key item>/notesPlain"   # the moonshot provider's key: add the item first
 jev_api_key = "op://<your vault>/<Jev API key item>/notesPlain"
 github_token = "op://<your vault>/<GitHub token item>/notesPlain"
 aws_access_key_id = "op://<your vault>/<AWS key item>/notesPlain#AWS_ACCESS_KEY_ID"
