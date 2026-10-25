@@ -347,15 +347,29 @@ pub fn source_at(h: &ExternalText, now_ms: u64) -> String {
     source_said(h, &format!("{} on {date}, {ago}", then.hm()))
 }
 
+/// What the first source was, plainly: a quote a start handed in that was not
+/// the owner's own words (theseus-nfhaf: an email a watch quoted, another
+/// person's message), else the tool and what it read.
+fn first_said(h: &ExternalText) -> String {
+    match (h.tool.as_str(), h.url.as_str()) {
+        ("task.start", "quoted text") => {
+            "a quote that was not the owner's own words (an email or another person's message)"
+                .into()
+        }
+        _ => h.what().trim_end().to_string(),
+    }
+}
+
 fn source_said(h: &ExternalText, at: &str) -> String {
-    let what = h.what();
-    let what = what.trim_end();
+    let what = first_said(h);
     let from = h.from_session.as_deref().map(crate::task::short);
     match (h.via.as_deref(), from) {
         (Some(VIA_TASK), Some(s)) => {
             format!("{what}, which session {s} had read before it started this task, at {at}")
         }
-        (Some(VIA_REPORT), Some(s)) => format!("{what}, in task {s}'s report, at {at}"),
+        (Some(VIA_REPORT), Some(s)) => {
+            format!("from task {s}'s report, which read {what}, at {at}")
+        }
         (Some(VIA_JOB), Some(s)) => {
             format!("{what}, which session {s} had read before its job reached this one, at {at}")
         }
@@ -933,7 +947,7 @@ mod tests {
             source(&task)
         );
         let report = taken(&task, "ses_0000dd4e5f6", VIA_REPORT, "nod_r", 0);
-        assert!(source(&report).contains(", in task d4e5f6's report, at "));
+        assert!(source(&report).contains("from task d4e5f6's report, which read "));
         assert_eq!(report.tool, "web.search", "the first source");
     }
 
