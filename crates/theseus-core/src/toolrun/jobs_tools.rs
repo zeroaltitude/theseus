@@ -61,6 +61,11 @@ impl Board {
     pub fn attach(&self, core: &Arc<Core>) {
         let _ = self.core.set(Arc::downgrade(core));
     }
+
+    /// The core, once built and while it lives.
+    pub fn core(&self) -> Option<Arc<Core>> {
+        self.core.get().and_then(Weak::upgrade)
+    }
 }
 
 /// A job a call names, found in the calling session.
@@ -258,6 +263,7 @@ impl ToolRuntime {
         tc: &TurnCtx<'_>,
         tool: &str,
         input: &Value,
+        correlation_id: &str,
     ) -> AsyncMediaRun {
         let fail = |why: String| -> AsyncMediaRun {
             Box::pin(std::future::ready(Err(ToolFailure::new(why))))
@@ -315,6 +321,7 @@ impl ToolRuntime {
                 }
             }
             crate::task::WAIT => crate::task_wait::run(core, tc, input),
+            crate::task::FAN_OUT => crate::task_fan_out::run(core, tc, correlation_id, input),
             other => fail(format!("{other} is not a job tool")),
         }
     }

@@ -58,11 +58,6 @@ use crate::toolrun::TurnCtx;
 use crate::turn::admission::LEND_AFTER;
 use crate::Core;
 
-/// `p3h-fan-out`'s wire name, until its `task::FAN_OUT` lands at the join
-/// (theseus-z9mze.3): the keep-warm stash and the run-alone rule must cover
-/// both tools from the first commit.
-pub(crate) const FAN_OUT_WIRE: &str = "task_fan_out";
-
 /// The longest index the wait's result carries, in characters: under
 /// `compiler::clearing::MIN_CHARS`, so the clearing pass never stubs it.
 pub const INDEX_MAX_CHARS: usize = 2_000;
@@ -160,12 +155,13 @@ impl Tool for TaskWait {
 pub(crate) fn register(r: &mut theseus_tools::Registry) {
     r.register(Arc::new(task::TaskCreate));
     r.register(Arc::new(TaskWait));
+    r.register(Arc::new(crate::task_fan_out::TaskFanOut));
 }
 
 /// Whether a call of `tool` runs alone in a batch: it holds the turn, and a
 /// call beside it would run while the turn waits.
 pub(crate) fn alone(tool: &str) -> bool {
-    tool == task::WAIT || theseus_tools::wire_name(tool) == FAN_OUT_WIRE
+    tool == task::WAIT || tool == task::FAN_OUT
 }
 
 /// The tools that wait on a conversation's tasks or fan work out to them: a
@@ -173,19 +169,21 @@ pub(crate) fn alone(tool: &str) -> bool {
 /// holds every public tool, and the shared channel's is at its budget; the
 /// owner's fan-out is for the CLI, headless and work sessions.
 pub(crate) fn helper_tool(name: &str) -> bool {
-    name == task::WAIT || name == "task.fan_out"
+    name == task::WAIT || name == task::FAN_OUT
 }
 
 /// Whether `name` (a response's wire name) is a call of the wait or of the
 /// fan-out that waits.
 pub(crate) fn is_task_wait_wire(name: &str) -> bool {
-    name == theseus_tools::wire_name(task::WAIT) || name == FAN_OUT_WIRE
+    name == theseus_tools::wire_name(task::WAIT) || name == theseus_tools::wire_name(task::FAN_OUT)
 }
 
-/// Whether an async tool of this family runs through the core: the jobs' and
-/// the tasks'.
-pub(crate) fn core_run(family: &str) -> bool {
-    family == theseus_tools::jobs::FAMILY || family == task::FAMILY
+impl crate::toolrun::ToolRuntime {
+    /// Whether an async tool of this family runs through the core: the jobs' and
+    /// the tasks'.
+    pub(crate) fn core_run(family: &str) -> bool {
+        family == theseus_tools::jobs::FAMILY || family == task::FAMILY
+    }
 }
 
 /// The turn a wait runs in, held by value: the wait runs in its own task, so
@@ -600,7 +598,16 @@ fn take(core: &Core, session: &str, ask: &WaitAsk, total: usize) -> anyhow::Resu
                 let mut reports = Vec::new();
                 for id in ids {
                     if let Some(mut r) = task::load_report(&turn.store, &turn.kernel, id)? {
-                        r.text = r.text.take().or_else(|| said_so_far(&turn.store, &r.task));
+                        // A helper that reached its carve may have said nothing
+                        // as its last words: its findings so far are its report.
+                        let ended_by_budget = turn
+                            .kernel
+                            .execution(id)?
+                            .is_some_and(|e| state_of(&e) == "budget");
+                        r.text = match ended_by_budget {
+                            true => said_so_far(&turn.store, &r.task).or(r.text.take()),
+                            false => r.text.take().or_else(|| said_so_far(&turn.store, &r.task)),
+                        };
                         reports.push(r);
                     }
                 }

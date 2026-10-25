@@ -80,6 +80,7 @@ impl TurnRunner {
         session_id: &str,
         compilation_id: Option<&str>,
     ) {
+        self.helper_spec(spec, session_id);
         let board = self
             .cfg
             .threads

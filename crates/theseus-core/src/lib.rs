@@ -133,6 +133,7 @@ pub mod succession;
 pub mod surface;
 pub mod sweep;
 pub mod task;
+pub mod task_fan_out;
 pub mod task_graph;
 mod task_home;
 pub mod task_start;
@@ -626,6 +627,8 @@ mod tests_task_checkpoint;
 mod tests_task_claims;
 #[cfg(test)]
 mod tests_task_close;
+#[cfg(test)]
+mod tests_task_fan_out;
 #[cfg(test)]
 mod tests_task_graph;
 #[cfg(test)]

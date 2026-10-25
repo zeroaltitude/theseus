@@ -205,6 +205,21 @@ pub fn default_fan_in_chars() -> usize {
     36_000
 }
 
+/// `[tools] helper_floor_usd` (theseus-z9mze.3): the least a `task_fan_out`
+/// helper's share of the budget may be. A call asking for more helpers than the
+/// carve affords at this is refused, in words.
+pub fn default_helper_floor_usd() -> f64 {
+    1.0
+}
+
+/// `[tools] helper_max_output_tokens` (theseus-z9mze.3): the most output a
+/// helper's call may ask for, so the worst case one call reserves falls from
+/// about $1.75 to under $0.50 on this class of model and a small carve is
+/// workable.
+pub fn default_helper_max_output_tokens() -> u32 {
+    16_000
+}
+
 /// `[tools] job_wait_max_secs` is at least `proc_sync_secs` (a wait is never
 /// shorter than a foreground run's) and at most what the tool's deadline
 /// covers (`theseus_tools::jobs::WAIT_SECS_MAX`).
