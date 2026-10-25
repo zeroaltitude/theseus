@@ -140,15 +140,9 @@ pub fn short_name(name: &str) -> String {
         .to_string()
 }
 
-/// A span as a label says it: `41 s`, `4 m`, `1 h 5 m`.
+/// A span as a label says it: `41s`, `4m`, `1h 5m`, `1d 21h` (the shared rule, theseus-hnm37).
 pub fn span(ms: u64) -> String {
-    let s = ms / 1000;
-    match s {
-        0..=59 => format!("{s} s"),
-        60..=3599 => format!("{} m", s / 60),
-        _ if s % 3600 / 60 == 0 => format!("{} h", s / 3600),
-        _ => format!("{} h {} m", s / 3600, s % 3600 / 60),
-    }
+    theseus_protocol::human_time::span(ms)
 }
 
 /// A call in words, for the `doing` token and the working label: the tool,
@@ -423,7 +417,7 @@ mod tests {
         let s = slots(Some(&w), &f, 1_041_000);
         assert_eq!(s.label, "turn 3 · proc.run cargo test");
         let doing = s.tokens.iter().find(|t| t.0 == "doing").unwrap();
-        assert_eq!(doing.1.as_deref(), Some("proc.run cargo test · 41 s"));
+        assert_eq!(doing.1.as_deref(), Some("proc.run cargo test · 41s"));
         assert_eq!(s.agent, "Write the harbour log");
         assert_eq!(next_tick(Some(&w), &f, 1_041_000), Some(1_045_000));
         let idle = Facts { tool: None, ..f };
@@ -436,9 +430,9 @@ mod tests {
 
     #[test]
     fn spans_read_in_the_biggest_unit() {
-        assert_eq!(span(41_000), "41 s");
-        assert_eq!(span(4 * 60_000 + 5_000), "4 m");
-        assert_eq!(span(3_600_000), "1 h");
-        assert_eq!(span(3_900_000), "1 h 5 m");
+        assert_eq!(span(41_000), "41s");
+        assert_eq!(span(4 * 60_000 + 5_000), "4m");
+        assert_eq!(span(3_600_000), "1h");
+        assert_eq!(span(3_900_000), "1h 5m");
     }
 }

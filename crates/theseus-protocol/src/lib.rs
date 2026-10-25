@@ -44,6 +44,7 @@ pub mod grants;
 mod hands;
 mod health;
 mod history;
+pub mod human_time;
 pub mod import;
 pub mod import_sync;
 pub mod index;

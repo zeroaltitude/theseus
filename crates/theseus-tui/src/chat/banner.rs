@@ -43,16 +43,9 @@ pub fn model_words(id: &str) -> String {
     }
 }
 
-/// `3 min ago`, `2 h ago`, `yesterday`, `5 days ago`.
+/// `now`, `3m ago`, `2h 5m ago`, `1d 21h ago` (the shared rule, theseus-hnm37).
 pub fn ago(now_ms: u64, then_ms: u64) -> String {
-    let s = now_ms.saturating_sub(then_ms) / 1000;
-    match s {
-        0..=59 => "just now".to_string(),
-        60..=3599 => format!("{} min ago", s / 60),
-        3600..=86_399 => format!("{} h ago", s / 3600),
-        86_400..=172_799 => "yesterday".to_string(),
-        _ => format!("{} days ago", s / 86_400),
-    }
+    theseus_protocol::human_time::ago(now_ms, then_ms)
 }
 
 /// The directory's newest conversation that had a turn.
@@ -121,10 +114,11 @@ mod tests {
     #[test]
     fn a_time_since_is_in_a_person_s_units() {
         let now = 10_000_000_000;
-        assert_eq!(ago(now, now - 30_000), "just now");
-        assert_eq!(ago(now, now - 5 * 60_000), "5 min ago");
-        assert_eq!(ago(now, now - 3 * 3_600_000), "3 h ago");
-        assert_eq!(ago(now, now - 30 * 3_600_000), "yesterday");
-        assert_eq!(ago(now, now - 5 * 86_400_000), "5 days ago");
+        assert_eq!(ago(now, now - 3_000), "now");
+        assert_eq!(ago(now, now - 30_000), "30s ago");
+        assert_eq!(ago(now, now - 5 * 60_000), "5m ago");
+        assert_eq!(ago(now, now - 3 * 3_600_000), "3h ago");
+        assert_eq!(ago(now, now - 30 * 3_600_000), "1d 6h ago");
+        assert_eq!(ago(now, now - 5 * 86_400_000), "5d ago");
     }
 }
