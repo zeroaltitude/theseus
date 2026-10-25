@@ -430,12 +430,6 @@ pub(super) fn tell(
     Ok(())
 }
 
-/// Whether the turn edited a file or ran a command: the doubt gate
-/// (theseus-rqu7j) asks nothing of a turn that did neither.
-pub(super) fn worked(t: &Turn<'_>) -> bool {
-    t.checkpoint.progress.as_ref().is_some_and(|s| s.worked)
-}
-
 /// Whether the turn wrote or edited a file with a file tool: it built
 /// something, which is what the deliverable hint (theseus-eb4o4) is for.
 pub(super) fn edited(t: &Turn<'_>) -> bool {
