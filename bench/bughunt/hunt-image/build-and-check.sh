@@ -7,6 +7,10 @@
 # $0 model calls, no network for the checks. The candidate is built under its own tag and takes the live tag
 # (what task.toml's docker_image names) only when every check passes; the old image is kept as :pre-mtime.
 set -u
+# A lane unit runs under the user manager, which may not carry the docker group a login has.
+if ! docker info > /dev/null 2>&1 && [ -z "${HUNT_IN_SG:-}" ]; then
+    HUNT_IN_SG=1 exec sg docker -c "bash $(printf '%q' "$0")"
+fi
 W=$HOME/bughunt
 LANE=${LANE_DIR:-$HOME/lanes/p3-bench5}/bench/bughunt/hunt-image
 LIVE=bughunt-rs-hunt-core:0.1-pilot
