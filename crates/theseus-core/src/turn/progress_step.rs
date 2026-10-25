@@ -581,4 +581,78 @@ mod tests {
         st.end_loop(c);
         assert_eq!((st.since_pass, st.failing), (1, 1));
     }
+
+    /// A turn that has edited, with nothing yet read.
+    fn edited_state() -> State {
+        State {
+            deadline: None,
+            shown: None,
+            limit_micros: None,
+            since_pass: 0,
+            failing: 0,
+            edited: true,
+            seen: HashSet::new(),
+            steered: false,
+            last: false,
+        }
+    }
+
+    /// One `fs_read` of `path`, the way a call's input names its slice.
+    fn slice(path: &str, extra: serde_json::Value) -> Commands {
+        let mut input = serde_json::json!({ "path": path });
+        if let (Some(into), Some(from)) = (input.as_object_mut(), extra.as_object()) {
+            into.extend(from.clone());
+        }
+        let mut c = Commands::default();
+        c.note_use(
+            &ToolUse {
+                id: "t".into(),
+                name: "fs_read".into(),
+                input,
+            },
+            Some(false),
+        );
+        c
+    }
+
+    /// Reading a long file slice by slice, as the narrow-read hint asks
+    /// (theseus-tdkcn), is progress at each new slice; reading the same slice
+    /// again is not. A bare read is the slice from line 1, which is what it
+    /// returns, so it and `offset=1` are one slice.
+    #[test]
+    fn each_new_slice_of_a_file_is_new_ground_and_the_same_slice_is_not() {
+        use serde_json::json;
+        let mut st = edited_state();
+        st.end_loop(slice("big.rs", json!({})));
+        assert_eq!(st.since_pass, 0, "the first slice is new");
+        st.end_loop(slice("big.rs", json!({})));
+        assert_eq!(st.since_pass, 1, "the same bare read is a re-read");
+        st.end_loop(slice("big.rs", json!({ "offset": 1, "limit": 400 })));
+        assert_eq!(st.since_pass, 2, "offset=1 is the bare read's slice");
+        st.end_loop(slice("big.rs", json!({ "offset": 401, "limit": 400 })));
+        assert_eq!(st.since_pass, 0, "the next slice is new ground");
+        st.end_loop(slice("big.rs", json!({ "offset": 401, "limit": 100 })));
+        assert_eq!(st.since_pass, 1, "the same start again is a re-read");
+        st.end_loop(slice("big.rs", json!({ "offset": 801, "limit": 400 })));
+        assert_eq!(st.since_pass, 0);
+        st.end_loop(slice("other.rs", json!({})));
+        assert_eq!(st.since_pass, 0, "another file's first slice is new");
+    }
+
+    /// The remembered reads are capped, and past the cap a read is no
+    /// coverage: a full set does not turn every unseen key into new ground.
+    #[test]
+    fn a_full_set_of_reads_does_not_make_every_read_new() {
+        let mut st = edited_state();
+        st.seen = (0..SEEN_MAX).map(|n| format!("fs.read:f{n}.rs:@1")).collect();
+        st.since_pass = 2;
+        st.end_loop(slice("unseen.rs", serde_json::json!({})));
+        assert_eq!(st.since_pass, 3, "the cap is reached, so nothing is new");
+        assert_eq!(st.seen.len(), SEEN_MAX);
+        // Below the cap the same read is new ground.
+        let mut st = edited_state();
+        st.since_pass = 2;
+        st.end_loop(slice("unseen.rs", serde_json::json!({})));
+        assert_eq!(st.since_pass, 0);
+    }
 }

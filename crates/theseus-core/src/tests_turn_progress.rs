@@ -447,6 +447,82 @@ async fn spend_alone_does_not_steer_a_turn_with_no_deadline_under_notify() {
     assert!(r.rows(&sid).is_empty());
 }
 
+/// The deadline's stop is the only thing that enforces a turn's deadline, and
+/// it counts loops with no passing check as the base did, reading or not
+/// (theseus-ikr75 join fix 1). A turn that only reads, past 0.85 of its
+/// deadline, is stopped after its third loop, as a turn with no check always
+/// was; its steer stays quiet at 60% (the test below).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_only_reads_is_still_stopped_at_its_deadline() {
+    let r = rig(|root| {
+        let mut script: Vec<Scripted> = (1..=6)
+            .map(|n| {
+                let file = root.join(format!("tides{n}.txt"));
+                std::fs::write(&file, "high\n").unwrap();
+                Scripted::tools(
+                    "Reading.",
+                    &[(
+                        &format!("r{n}"),
+                        "fs_read",
+                        json!({ "path": file.display().to_string() }),
+                    )],
+                )
+            })
+            .collect();
+        script.push(Scripted::text("Read it all."));
+        script
+    });
+    // 600 s, 540 used: 90%.
+    let (sid, res) = r.turn(Some((600, 540))).await;
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 4, "the stop's request is the last");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (4, PROGRESS_STOP));
+    assert!(messages(&reqs[3]).contains(STOP), "{}", messages(&reqs[3]));
+    assert!(!messages(&reqs[2]).contains(STOP), "not before the third loop");
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "stop");
+}
+
+/// The same after the turn's first edit, where a read of a new file is
+/// progress for the steer: it is still no check, and the stop still fires.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_keeps_opening_new_files_after_an_edit_is_still_stopped() {
+    let r = rig(|root| {
+        let mut script = vec![Scripted::tools(
+            "Writing.",
+            &[(
+                "w1",
+                "fs_write",
+                json!({"path": root.join("notes.txt").display().to_string(), "content": "high\n"}),
+            )],
+        )];
+        for n in 1..=6 {
+            let file = root.join(format!("tides{n}.txt"));
+            std::fs::write(&file, "high\n").unwrap();
+            script.push(Scripted::tools(
+                "Reading.",
+                &[(
+                    &format!("r{n}"),
+                    "fs_read",
+                    json!({ "path": file.display().to_string() }),
+                )],
+            ));
+        }
+        script.push(Scripted::text("Read it all."));
+        script
+    });
+    // 600 s, 540 used: 90%.
+    let (sid, res) = r.turn(Some((600, 540))).await;
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 4, "the stop's request is the last");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (4, PROGRESS_STOP));
+    assert!(messages(&reqs[3]).contains(STOP), "{}", messages(&reqs[3]));
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "stop");
+}
+
 /// Reading is progress until there is something to check: a turn that only
 /// reads, past half its deadline, is told nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
