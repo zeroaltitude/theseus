@@ -822,6 +822,8 @@ async fn make_this_a_task_on_the_owners_own_message_holds_nothing() {
         .find(|c| c["component"]["custom_id"] == "quote")
         .expect("the message is offered as a quote");
     assert_eq!(quote["component"]["value"], text);
+    // The id the Discord path produced for the presser's own message.
+    assert_eq!(modal["custom_id"], "nt:");
     let sub = r
         .fake
         .submit_modal(
@@ -863,6 +865,9 @@ async fn make_this_a_task_on_another_persons_message_holds_the_session_as_outsid
         .find(|c| c["component"]["custom_id"] == "quote")
         .expect("the message is offered as a quote");
     assert_eq!(quote["component"]["value"], text);
+    // The id the Discord path produced for another person's message: the
+    // `!` is what keeps the quote marking the task's session.
+    assert_eq!(modal["custom_id"], "nt:!");
     let sub = r
         .fake
         .submit_modal(
