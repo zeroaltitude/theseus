@@ -78,11 +78,9 @@ impl Rig {
         for a in approve {
             std::fs::create_dir_all(p(a)).unwrap();
         }
-        cfg.tools.approve_paths.extend(
-            approve
-                .iter()
-                .map(|a| p(a).to_string_lossy().into_owned()),
-        );
+        cfg.tools
+            .approve_paths
+            .extend(approve.iter().map(|a| p(a).to_string_lossy().into_owned()));
         let sandbox = theseus_core::toolrun::sandbox_for(&cfg, &repo.join("state"));
         let tree = Tree {
             slug: "t".into(),
