@@ -293,3 +293,167 @@ fn an_aws_reservation_past_the_limit_is_still_refused_under_the_soft_settings() 
     // A model call over the same limit is made: only tokens went soft.
     plan(&w, &g, 200_000).expect("a model call past the session limit notifies");
 }
+
+// A fan-out's spend counts in its parent's burn window (theseus-o1h3f.5).
+
+/// A world whose burn line is 1,000 micros, a parent running a turn, and `n`
+/// tasks of it, each admitted with a turn of its own.
+fn family(n: usize) -> (World, Execution, TurnGuard, Vec<(Execution, TurnGuard)>) {
+    let w = world_with(KernelConfig {
+        burn_line_micros: 1_000,
+        ..KernelConfig::default()
+    });
+    let (_, parent, g) = running(&w);
+    let kids = (0..n)
+        .map(|_| {
+            let t = w
+                .kernel
+                .open_task(&g, &new_id("act"), 30_000, None, false, |_| Ok(vec![]))
+                .unwrap()
+                .task;
+            let tg = w.kernel.admit(&t.id).unwrap();
+            (t, tg)
+        })
+        .collect();
+    (w, parent, g, kids)
+}
+
+fn window(w: &World, id: &str) -> Option<Micros> {
+    let c = w.kernel.day_ceiling();
+    // The line is 1,000, so a stop reads the spend exactly when reached.
+    c.burn_stop(c.now(), id).map(|b| b.spent)
+}
+
+/// Two helpers, each just over half the line, trip their parent's line
+/// together though neither reaches its own; the parent's next provider call
+/// is refused as a burn-rate stop.
+#[test]
+fn two_children_trip_their_parents_burn_line() {
+    let (w, parent, g, kids) = family(2);
+    for (_, tg) in &kids {
+        let a = dispatched(&w, tg, PROVIDER_TOOL, 600);
+        settle(&w, &a, 600);
+    }
+    for (t, _) in &kids {
+        assert_eq!(
+            window(&w, &t.id),
+            None,
+            "600 of 1,000 in a child's own window"
+        );
+    }
+    assert_eq!(
+        window(&w, &parent.id),
+        Some(1_200),
+        "the parent's window holds both"
+    );
+    let stop = braked(&plan(&w, &g, 1)).expect("the parent's next call is refused");
+    assert_eq!((stop.spent, stop.line), (1_200, 1_000));
+}
+
+/// The ancestors are walked all the way up, not one step: a record made for
+/// an execution reaches every parent above it (a task's depth is one today,
+/// so the chain is stored by hand).
+#[test]
+fn a_settled_cost_reaches_every_ancestor_to_the_top() {
+    let (w, parent, _g, kids) = family(1);
+    let (task, _) = &kids[0];
+    // A helper under the task, written as the store would hold it.
+    let mut helper = task.clone();
+    helper.id = new_id("exe");
+    helper.session_id = new_id("ses");
+    helper.parent = Some(task.id.clone());
+    helper.state = ExecState::Running;
+    let rec = crate::kernel::exec_record(&helper).unwrap();
+    w.kernel.commit(&[rec]).unwrap();
+    w.kernel.apply_day([crate::day_ceiling::Effect::Settle {
+        id: "res-x".into(),
+        execution_id: helper.id.clone(),
+        reserved: 700,
+        actual: Some(700),
+    }]);
+    let read = |id: &str| w.kernel.day_ceiling().burn_len(id);
+    assert_eq!(read(&helper.id), 1, "its own");
+    assert_eq!(read(&task.id), 1, "its parent task's");
+    assert_eq!(read(&parent.id), 1, "the conversation's");
+}
+
+/// The day's total counts a cost once: the same two settles leave
+/// `Today`'s spend at 1,200, and nothing held.
+#[test]
+fn the_day_counts_a_childs_cost_once() {
+    let (w, _parent, _g, kids) = family(2);
+    for (_, tg) in &kids {
+        let a = dispatched(&w, tg, PROVIDER_TOOL, 600);
+        settle(&w, &a, 600);
+    }
+    let c = w.kernel.day_ceiling();
+    let t = c.today(c.now());
+    assert_eq!((t.spent, t.held), (1_200, 0));
+}
+
+/// A settle inside a transaction that fails books nothing, for the child
+/// or for its parent.
+#[test]
+fn a_failed_frame_books_nothing_in_any_window() {
+    let (w, parent, _g, kids) = family(1);
+    let (task, tg) = &kids[0];
+    let a = dispatched(&w, tg, PROVIDER_TOOL, 600);
+    let done = completion(&a.correlation_id, Outcome::Succeeded, Some(600));
+    let r: anyhow::Result<()> = w.kernel.frame(&[&task.id, &parent.id], |k| {
+        k.accept_completion(&done)?;
+        anyhow::bail!("the frame fails after the settle");
+    });
+    assert!(r.is_err());
+    let c = w.kernel.day_ceiling();
+    assert_eq!(c.burn_len(&task.id), 0, "nothing for the child");
+    assert_eq!(c.burn_len(&parent.id), 0, "nothing for the parent");
+    assert_eq!(c.today(c.now()).spent, 0);
+}
+
+/// An execution with no parent writes exactly one ring, and a task writes
+/// its own and its parent's, no more.
+#[test]
+fn a_plain_execution_writes_one_ring() {
+    let (w, parent, g, kids) = family(1);
+    let a = dispatched(&w, &g, PROVIDER_TOOL, 400);
+    settle(&w, &a, 400);
+    let c = w.kernel.day_ceiling();
+    assert_eq!(c.burn_rings(), 1, "a conversation: its own");
+    assert_eq!(c.burn_len(&parent.id), 1);
+    let b = dispatched(&w, &kids[0].1, PROVIDER_TOOL, 300);
+    settle(&w, &b, 300);
+    assert_eq!(c.burn_rings(), 2, "a task: its own and its parent's");
+    assert_eq!(c.burn_len(&parent.id), 2);
+}
+
+/// Resume is the resumed execution's own window and no other: resuming a
+/// parent empties the parent's, so the helpers' earlier spend does not stop
+/// it again, while a helper's window stays its own (it has its own line) and
+/// resuming a helper never empties its parent's, which would loosen the
+/// aggregate line. Spend after the resume counts in the parent from empty.
+#[test]
+fn a_resume_clears_only_the_resumed_executions_window() {
+    let (w, parent, g, kids) = family(2);
+    for (_, tg) in &kids {
+        let a = dispatched(&w, tg, PROVIDER_TOOL, 600);
+        settle(&w, &a, 600);
+    }
+    let c = w.kernel.day_ceiling();
+    c.burn_clear(&kids[0].0.id);
+    assert_eq!(
+        window(&w, &parent.id),
+        Some(1_200),
+        "resuming a child must not loosen its parent's line"
+    );
+    c.burn_clear(&parent.id);
+    assert_eq!(
+        window(&w, &parent.id),
+        None,
+        "the parent resumed with an empty window"
+    );
+    assert_eq!(c.burn_len(&kids[1].0.id), 1, "a child's window is its own");
+    plan(&w, &g, 1).expect("the earlier spend does not stop the resumed parent");
+    let a = dispatched(&w, &kids[1].1, PROVIDER_TOOL, 300);
+    settle(&w, &a, 300);
+    assert_eq!(c.burn_len(&parent.id), 1, "later spend counts from empty");
+}
