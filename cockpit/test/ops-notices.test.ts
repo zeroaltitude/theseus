@@ -64,7 +64,7 @@ test('Notices.tsx deletes nothing, calls only the two helpers’ methods, and ac
 test('the page counts holds that wait, never notices; the strip is mounted in the queue’s list', () => {
   const page = readFileSync(new URL('../src/views/Ops.tsx', import.meta.url), 'utf8')
   assert.match(page, /const holds = held\.waiting/)
-  assert.match(page, /needs: queue\.length/)
+  assert.match(page, /allCounters\(rows/)
   assert.match(page, /<Notices notices=\{notices\}/)
   assert.match(src('Queue.tsx'), /\{notices\}/)
 })

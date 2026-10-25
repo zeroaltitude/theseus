@@ -77,7 +77,7 @@ test('the buckets: a paused view reads paused·queued though its attention is id
   assert.equal(bucketOf(view('exe_s2', 'task', 'waiting', { doing: doing('sleeping'), next_at_ms: NOW + 30 * HOUR }), NOW), 'paused')
   assert.equal(bucketOf(view('exe_q', 'task', 'queued'), NOW), 'paused')
   assert.equal(bucketOf(view('exe_f', 'task', 'failed', {}, 'needs_you'), NOW), 'needs', 'a failure not dismissed asks')
-  for (const [s, b] of [['suspended', 'paused'], ['accepted', 'paused'], ['proposed', 'paused'], ['in_progress', 'working'], ['waiting_human', 'needs'], ['blocked', 'needs'], ['done', 'ended'], ['failed', 'ended'], ['abandoned', 'ended']] as const) assert.equal(bucketOfRecord(s), b, s)
+  for (const [s, b] of [['suspended', 'paused'], ['accepted', 'todo'], ['proposed', 'todo'], ['in_progress', 'working'], ['waiting_human', 'needs'], ['blocked', 'needs'], ['done', 'ended'], ['failed', 'ended'], ['abandoned', 'ended']] as const) assert.equal(bucketOfRecord(s), b, s)
   assert.equal(bucketOfSession(session('ses_a', { execution_state: 'waiting', attention: { level: 'ready', label: 'ready', since_ms: 1 } })), 'rest')
   assert.equal(bucketGlyph('paused', 'suspended'), '⏸')
   assert.equal(bucketGlyph('paused', 'accepted'), '◷')
@@ -140,11 +140,11 @@ test('the ended view states are named once (theseus-jo84p)', () => {
 
 import { bucketOfCard, OWNER_CALLS, RECOMMENDED, type OwnerCalls } from '../src/ops/state.ts'
 
-test('bucketOfCard over every row of the record table, under today’s answers and under the recommended ones', () => {
+test('bucketOfCard over every row of the record table, before the owner’s answers and under the recommended ones', () => {
   const rec = (state: string, over = {}) => record('tsk_x', { state, ...over } as never)
   const at = (calls: OwnerCalls, c: Parameters<typeof bucketOfCard>[0]) => bucketOfCard(c, NOW, calls)
   const table: Array<[string, Parameters<typeof bucketOfCard>[0], string, string]> = [
-    // [row, card, today's bucket, the recommended bucket]
+    // [row, card, the bucket before the owner's answers, the recommended bucket]
     ['waiting_human', { kind: 'step', record: rec('waiting_human') }, 'needs', 'needs'],
     ['blocked', { kind: 'step', record: rec('blocked') }, 'needs', 'needs'],
     ['a proposal waiting', { kind: 'step', record: rec('proposed', { proposal: { card: 'act_p', at_ms: NOW } }) }, 'needs', 'needs'],
@@ -159,9 +159,13 @@ test('bucketOfCard over every row of the record table, under today’s answers a
     ['abandoned', { kind: 'step', record: rec('abandoned') }, 'ended', 'ended'],
     ['any card with an ask', { kind: 'step', record: rec('done'), asks: 1 }, 'needs', 'needs'],
   ]
-  for (const [row, card, today, recommended] of table) {
-    assert.equal(at(OWNER_CALLS, card), today, `${row}, today`)
+  // The page's setting is the owner's answers (2026-10-24), the recommended ones; "before" is every question answered the other way.
+  const before: OwnerCalls = { needsPerCard: false, todoApart: false, agentsOnly: false, hideRest: false, scheduledLabel: false, stalledIsPaused: false }
+  assert.deepEqual(OWNER_CALLS, RECOMMENDED, 'the owner took every recommendation')
+  for (const [row, card, was, recommended] of table) {
+    assert.equal(at(before, card), was, `${row}, before the owner’s answers`)
     assert.equal(at(RECOMMENDED, card), recommended, `${row}, recommended`)
+    assert.equal(at(OWNER_CALLS, card), recommended, `${row}, the page’s setting`)
   }
 })
 

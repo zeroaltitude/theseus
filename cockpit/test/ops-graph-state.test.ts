@@ -23,10 +23,12 @@ test('a filtered-out node gets the dashed treatment, not the opacity class', () 
   assert.equal(look(bucketOfNode(g.nodes.find((x) => x.id === 'tsk_d')!, NOW), false).faded, true, 'ended: faded')
 })
 
-test('a node wears its row’s bucket: a to-do step under the recommended answers is todo, today it is paused', () => {
+test('a node wears its row’s bucket: a to-do step is todo (Q2 A), and paused·queued under Q2 B', () => {
   const records = [record('tsk_td', { state: 'accepted' })]
+  const asB = layoutRows(boardRows({ views: [], tasks: [], sessions: [], records, now: NOW, calls: { ...RECOMMENDED, todoApart: false } }), [], null, { now: NOW })
+  assert.equal(bucketOfNode(asB.nodes[0], NOW), 'paused')
   const today = layoutRows(boardRows({ views: [], tasks: [], sessions: [], records, now: NOW }), [], null, { now: NOW })
-  assert.equal(bucketOfNode(today.nodes[0], NOW), 'paused')
+  assert.equal(bucketOfNode(today.nodes[0], NOW), 'todo', 'by default, the owner’s answer')
   const rec = layoutRows(boardRows({ views: [], tasks: [], sessions: [], records, now: NOW, calls: RECOMMENDED }), [], null, { now: NOW })
   assert.equal(bucketOfNode(rec.nodes[0], NOW), 'todo')
   assert.equal(look(bucketOfNode(rec.nodes[0], NOW), false).faded, false, 'a to-do step is open work, never faded')

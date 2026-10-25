@@ -351,7 +351,8 @@ import { contextOf, shown } from '../src/ops/board.ts'
 import { layoutRows } from '../src/ops/graph.ts'
 
 test('the filter keeps records: a counter click keeps a matching step drawn normally, its parents as context', () => {
-  const records = [record('tsk_pl', { state: 'in_progress', title: 'Survey' }), record('tsk_su', { state: 'suspended', parent: 'tsk_pl', title: 'Paint' })]
+  // The plan is carried by a task in flight (ses_t2): a plan nobody works is paused·queued itself (Q9) and would be kept.
+  const records = [record('tsk_pl', { state: 'in_progress', title: 'Survey', origin: { session: 'ses_t2' } as never }), record('tsk_su', { state: 'suspended', parent: 'tsk_pl', title: 'Paint' })]
   const rows = boardRows({ ...board(), records, now: NOW })
   const kept = new Set(shown(rows, { bucket: 'paused' }, '', { now: NOW, spentToday: new Set(), records }).rows.map((r) => r.id))
   assert.ok(kept.has('tsk_su'), 'the step is kept (shownIds is built from the one set)')

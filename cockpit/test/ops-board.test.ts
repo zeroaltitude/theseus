@@ -100,7 +100,7 @@ test('a selection names a row by its session, view, execution or short id', () =
 test('the counters, and today’s spend from the model calls since midnight', () => {
   const b = board()
   const c = countersOf(boardRows({ ...b, now: NOW }), NOW, 1.5)
-  assert.deepEqual(c, { working: 3, paused: 1, still: 2, done: 2, spent: 1.5 })
+  assert.deepEqual(c, { working: 2, paused: 1, still: 2, done: 2, spent: 1.5 })
   const rows = [
     { kind: 'provider.call', at_unix_ms: NOW - 20 * HOUR, session_id: 'ses_y', data: { cost_usd: 9 } },
     { kind: 'provider.call', at_unix_ms: NOW - HOUR, session_id: 'ses_a', data: { cost_usd: 0.4 } },
@@ -223,16 +223,16 @@ test('COLUMN_OF null: a row with no column is on no Board column and no counter'
   assert.equal([c.needs, c.working, c.paused, c.scheduled, c.done, c.older].flat().length, 0)
   assert.deepEqual(countersOf(rows, NOW, 0), { working: 0, paused: 0, still: 0, done: 0, spent: 0 })
   const today = boardRows({ views: [], tasks: [], sessions: [], records: [record('tsk_td', { state: 'accepted' })], now: NOW })
-  assert.deepEqual([today[0].bucket, today[0].column], ['paused', 'paused'], 'by default a listed step is paused·queued')
+  assert.deepEqual([today[0].bucket, today[0].column], ['todo', null], 'by default (the owner’s Q2 A) a listed step is to-do, on no column')
 })
 
 test('countersOf reads the rows alone: a row not counted is no count, and all six counters come from the same rows', () => {
   const rows = boardRows({ ...board(), now: NOW })
-  const lone = rows.map((r) => (r.id === 'act_j1' ? { ...r, counted: false } : r))
-  assert.equal(countersOf(lone, NOW, 0).working, countersOf(rows, NOW, 0).working - 1)
+  const lone = rows.map((r) => (r.id === 'ses_t2' ? { ...r, counted: false } : r))
+  assert.equal(countersOf(lone, NOW, 0).working, countersOf(rows, NOW, 0).working - 1, 'a counted working task, uncounted, is one fewer (the job is already not counted: Q3)')
   assert.equal(countersOf.length, 3, 'rows, now, dollars: no queue')
   const all = allCounters(rows, NOW, 2)
-  assert.deepEqual(all, { needs: 0, working: 3, paused: 1, still: 2, done: 2, spent: 2 }, 'no asks were given: today’s answer counts asks')
+  assert.deepEqual(all, { needs: 2, working: 2, paused: 1, still: 2, done: 2, spent: 2 }, 'no asks were given: Q1 A counts the two cards that need the owner, Q3 leaves the job out of working')
 })
 
 test('a counter click keeps records too: the filter reads the one set, and its context is the parents of what it keeps', () => {
@@ -244,5 +244,5 @@ test('a counter click keeps records too: the filter reads the one set, and its c
   assert.deepEqual([...ctx].sort(), ['ses_t2', 'tsk_pl'], 'its plan, and the task the plan hangs from')
   assert.equal(chipWords('paused', 4), 'paused·queued · 4')
   assert.equal(chipWords('still', 2, RECOMMENDED), 'scheduled today · 2')
-  assert.equal(counterLabel('still'), 'still today', 'the label stays until the owner answers Q8')
+  assert.equal(counterLabel('still'), 'scheduled today', 'Q8: the counter reads like the Board’s column')
 })
