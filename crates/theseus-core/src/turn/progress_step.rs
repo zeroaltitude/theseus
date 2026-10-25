@@ -781,11 +781,20 @@ mod tests {
         assert_eq!(st.since_pass, 1, "the same bare read is a re-read");
         st.end_loop(slice("big.rs", json!({ "offset": 1, "limit": 400 })), None);
         assert_eq!(st.since_pass, 2, "offset=1 is the bare read's slice");
-        st.end_loop(slice("big.rs", json!({ "offset": 401, "limit": 400 })), None);
+        st.end_loop(
+            slice("big.rs", json!({ "offset": 401, "limit": 400 })),
+            None,
+        );
         assert_eq!(st.since_pass, 0, "the next slice is new ground");
-        st.end_loop(slice("big.rs", json!({ "offset": 401, "limit": 100 })), None);
+        st.end_loop(
+            slice("big.rs", json!({ "offset": 401, "limit": 100 })),
+            None,
+        );
         assert_eq!(st.since_pass, 1, "the same start again is a re-read");
-        st.end_loop(slice("big.rs", json!({ "offset": 801, "limit": 400 })), None);
+        st.end_loop(
+            slice("big.rs", json!({ "offset": 801, "limit": 400 })),
+            None,
+        );
         assert_eq!(st.since_pass, 0);
         st.end_loop(slice("other.rs", json!({})), None);
         assert_eq!(st.since_pass, 0, "another file's first slice is new");
@@ -976,7 +985,10 @@ mod tests {
             st.end_loop(answered("job_wait"), live(&["c1"]));
             verdicts.push(at(&st, 0.9));
         }
-        assert!(verdicts.iter().all(|v| *v == Verdict::Nothing), "{verdicts:?}");
+        assert!(
+            verdicts.iter().all(|v| *v == Verdict::Nothing),
+            "{verdicts:?}"
+        );
         // Then loops that touch nothing and pass nothing: the count moves.
         for _ in 0..2 {
             st.end_loop(Commands::default(), None);

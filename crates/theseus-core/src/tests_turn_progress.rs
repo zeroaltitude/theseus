@@ -692,7 +692,13 @@ fn write(root: &Path, id: &str) -> Scripted {
 /// never carries it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_working_turn_is_told_to_call_its_deliverable_as_the_task_spells_it() {
-    let r = rig(|root| vec![write(root, "w1"), command(root, "c1", 0), Scripted::text("Done.")]);
+    let r = rig(|root| {
+        vec![
+            write(root, "w1"),
+            command(root, "c1", 0),
+            Scripted::text("Done."),
+        ]
+    });
     let (_, res) = r.turn(None).await;
     assert_eq!(res.loops, 3);
     let reqs = r.requests();
@@ -738,13 +744,25 @@ async fn a_doubt_the_closing_message_names_sends_an_early_turn_back_once() {
 async fn a_doubt_does_not_send_a_turn_back_past_the_share_or_without_work() {
     let doubt = "I did not check the date.";
     // 600 s, 300 used: 50%.
-    let r = rig(|root| vec![write(root, "w1"), Scripted::text(doubt), Scripted::text("x")]);
+    let r = rig(|root| {
+        vec![
+            write(root, "w1"),
+            Scripted::text(doubt),
+            Scripted::text("x"),
+        ]
+    });
     let (sid, res) = r.turn(Some((600, 300))).await;
     assert_eq!(res.loops, 2, "past 40% of the time");
     assert!(r.rows(&sid).is_empty());
     // Under the time share, over the spend share ($0.47 of $1).
     let r = rig_with(
-        |root| vec![billed(write(root, "w1")), Scripted::text(doubt), Scripted::text("x")],
+        |root| {
+            vec![
+                billed(write(root, "w1")),
+                Scripted::text(doubt),
+                Scripted::text("x"),
+            ]
+        },
         |c| {
             c.kernel.spend_limit_usd = 1.0;
             c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Notify;
