@@ -131,7 +131,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   [--at WHEN | --in-time SPAN] [--quote-file FILE]… [--report-to home|board]`, one `task.start` call with no model turn; it prints
   the task's short id and where to follow it. The times go to the daemon as typed (`start_when`, read in the daemon's zone, as
   `remind`'s are). `--in` resolves a session like `watch` does. A quote file's text is outside text for the task (it holds
-  the task's session). `task.start` is in `client::OPERATORS`, so a job's shell is refused before anything is sent. `task`
+  the task's session) **unless what was quoted is the owner's own words**: since theseus-nfhaf the owner's own
+  message marks nothing, and a mark the task inherits names the source it came from. `task.start` is in `client::OPERATORS`, so a job's shell is refused before anything is sent. `task`
   (this verb) and `tasks` (the list) are separate subcommands. `task show ID` is one `task.list {id}` read drawn whole by
   `render/task_history.rs::show` (state, where it reports, a `model` line for where its brief put it and each move a checkpoint made, read from its session's `route.decided` rows by one more `ledger.tail`, theseus-ypnxt.9, brief, plan, children, spend, times, the whole report, and the commands that
   act on it now); `task pause ID` and `task resume ID` are `task.pause` and `task.resume` (in `client::OPERATORS`), printing what
