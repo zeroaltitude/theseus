@@ -223,8 +223,14 @@ fn a_reads_stub_names_the_lines_its_result_held_and_the_note_is_cut_on_a_word() 
 /// sum to about `small` tokens, after a first message sized so that the
 /// request, before any pass, is `target` tokens by the estimator's own count
 /// (the estimator charges each call's ids and framing, so the sizes alone
-/// would miss). With the nodes, the large reads' ids.
-fn mixed_session(target: u64, large: usize, small: u64) -> (Vec<(u64, Stub)>, Vec<String>) {
+/// would miss). With the nodes, the large reads' ids. The small results come
+/// last, or first when `small_first`, which leaves the large reads the newest.
+fn mixed_session(
+    target: u64,
+    large: usize,
+    small: u64,
+    small_first: bool,
+) -> (Vec<(u64, Stub)>, Vec<String>) {
     let pb = per_byte();
     let build = |lead: u64| {
         let mut nodes: Vec<(u64, Stub)> = Vec::new();
@@ -236,24 +242,37 @@ fn mixed_session(target: u64, large: usize, small: u64) -> (Vec<(u64, Stub)>, Ve
             "web",
             &"word ".repeat((lead as f64 / pb) as usize / 5 + 1),
         ));
-        for k in 0..large {
-            let id = format!("L{k}");
-            let text = format!("Read large file {k} and found nothing wrong there.");
-            push(text_answer(
-                &text,
-                vec![read_call(&id, &format!("src/l{k}.rs"))],
-            ));
-            let r = result(&id, &read_of(10_000, pb, 400, k as u64));
-            ids.push(r.id.clone());
-            push(r);
-        }
-        for k in 0..(small as f64 / (1_900.0 * pb)).round() as usize {
-            let id = format!("S{k}");
-            push(text_answer(
-                "Checked a short file.",
-                vec![read_call(&id, &format!("src/s{k}.rs"))],
-            ));
-            push(result(&id, &format!("{k:>6}\t{}", "y".repeat(1_890))));
+        let order = if small_first {
+            [false, true]
+        } else {
+            [true, false]
+        };
+        for large_now in order {
+            match large_now {
+                true => {
+                    for k in 0..large {
+                        let id = format!("L{k}");
+                        let text = format!("Read large file {k} and found nothing wrong there.");
+                        push(text_answer(
+                            &text,
+                            vec![read_call(&id, &format!("src/l{k}.rs"))],
+                        ));
+                        let r = result(&id, &read_of(10_000, pb, 400, k as u64));
+                        ids.push(r.id.clone());
+                        push(r);
+                    }
+                }
+                false => {
+                    for k in 0..(small as f64 / (1_900.0 * pb)).round() as usize {
+                        let id = format!("S{k}");
+                        push(text_answer(
+                            "Checked a short file.",
+                            vec![read_call(&id, &format!("src/s{k}.rs"))],
+                        ));
+                        push(result(&id, &format!("{k:>6}\t{}", "y".repeat(1_890))));
+                    }
+                }
+            }
         }
         (nodes, ids)
     };
@@ -290,7 +309,7 @@ fn cleared_ids(c: &Compiled) -> Vec<String> {
 /// exchange whole, and taken under the old rule's line.
 #[test]
 fn past_the_percent_line_small_results_do_not_stop_the_pass_the_old_rule_made() {
-    let (nodes, large) = mixed_session(480_000, 14, 160_000);
+    let (nodes, large) = mixed_session(480_000, 14, 160_000, false);
     let c = compile_nodes(&nodes, None, 1_000_000);
     let budget = 1_000_000 - 128_000 - 4_096;
     assert!(
@@ -317,12 +336,43 @@ fn past_the_percent_line_small_results_do_not_stop_the_pass_the_old_rule_made() 
     closed(&c).unwrap();
 }
 
+/// The retry keeps only the newest exchange whole, not the token rule's 40K:
+/// that is what makes it clear everything the 20-exchange rule could. Here the
+/// small results are the oldest and the 14 large reads the newest, so a keep of
+/// 40K would hold the newest four whole and end above the old rule's line,
+/// while keep 0 clears 13 of the 14 (the newest exchange's read stays) and ends
+/// under it.
+#[test]
+fn the_retry_clears_everything_but_the_newest_exchange() {
+    let (nodes, large) = mixed_session(470_000, 14, 150_000, true);
+    let c = compile_nodes(&nodes, None, 1_000_000);
+    let budget = 1_000_000 - 128_000 - 4_096;
+    let pass = c.cleared.unwrap_or_else(|| {
+        panic!(
+            "no pass at {} tokens, past the percent line {}",
+            c.est_tokens,
+            budget * 50 / 100
+        )
+    });
+    assert!(pass.tokens_before > budget * 50 / 100, "{pass:?}");
+    assert!(
+        pass.tokens_after <= budget * (clearing::CLEAR_AT + clearing::CLEAR_TO) / 200,
+        "{pass:?}: ends under the old rule's line"
+    );
+    assert_eq!(
+        cleared_ids(&c),
+        large[..13].to_vec(),
+        "every large read but the newest exchange's"
+    );
+    closed(&c).unwrap();
+}
+
 /// The retry is for the percent line only: under it the old rule did not
 /// clear, so a refused token pass stays refused and is not taken at keep 0
 /// (which would clear what the keep exists to hold).
 #[test]
 fn under_the_percent_line_a_refused_token_pass_is_not_retried_at_keep_zero() {
-    let (nodes, _) = mixed_session(390_000, 10, 160_000);
+    let (nodes, _) = mixed_session(390_000, 10, 160_000, false);
     let c = compile_nodes(&nodes, None, 1_000_000);
     let budget = 1_000_000 - 128_000 - 4_096;
     assert!(
