@@ -431,7 +431,7 @@ export default function Ops() {
   const joined = a.join ?? null
   const lensView = (
     <div className="h-full min-h-0 min-w-0 flex-1">
-      {a.lens === 'board' && <BoardLens cols={cols} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now}
+      {a.lens === 'board' && <BoardLens cols={cols} rows={rows} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now}
         picked={picked} onPick={pickOne} drag={drag} titleOf={titleOf} />}
       {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} records={records} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
         matches={(t) => shownSlugs.has(t.group.slug)} />}

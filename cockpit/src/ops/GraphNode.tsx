@@ -13,7 +13,9 @@ import { stateTone, toneHex } from '@/lib/taxonomy'
 import { clock, cn, usd } from '@/lib/format'
 import type { OpsRow } from './board'
 import { bucketGlyph, bucketOfNode, bucketTone, FADED, FILTERED_OUT, isEndedState, look } from './state'
-import { masked, NODE_W, shownTitle, type GLane, type GNode } from './graph'
+import { masked, NODE_W, shownTitle, type GLane, type GNode, type LaneMeta } from './graph'
+import { STEP_WORDS, toneVar, type Badge, type Progress } from './forms'
+import { PlanBar } from './BoardLens'
 
 export interface NodeData extends Record<string, unknown> {
   n: GNode
@@ -30,6 +32,10 @@ export interface NodeData extends Record<string, unknown> {
   onFoldBack?: () => void
   /** `?redact=1`: a private or sensitive node shows its kind and short id for its title. */
   redact?: boolean
+  /** A plan's chevron: the owner folds or opens it (the lens keeps the fold). */
+  onPlan?: () => void
+  /** The lane a head card heads: its words and its seal. */
+  laneMeta?: LaneMeta
 }
 
 export interface LaneData extends Record<string, unknown> { lane: GLane; width: number; hover?: 'ok' | 'no'; redact?: boolean; foldBack?: { n: number; onFold: () => void } }
@@ -48,7 +54,7 @@ function ring(d: NodeData, tone: string): CSSProperties {
   const gold = 'var(--color-gold)'
   if (d.hover === 'ok') return { boxShadow: `0 0 0 2px ${toneHex.ok}, 0 0 22px -4px ${toneHex.ok}` }
   if (d.hover === 'no') return { boxShadow: `0 0 0 2px ${toneHex.fault}` }
-  const glow = d.n.needs ? `0 0 26px -6px ${toneHex.wait}` : d.n.state === 'running' ? `0 0 18px -8px ${toneHex.live}` : ''
+  const glow = d.n.needs ? `0 0 26px -6px ${toneHex.wait}` : d.n.state === 'running' || d.n.form?.badge?.running ? `0 0 18px -8px ${toneHex.live}` : ''
   const edge = d.picked || d.focused ? `0 0 0 ${d.focused ? 2 : 1.5}px ${gold}, 0 0 20px -4px color-mix(in srgb, ${gold} 66%, transparent)` : `0 0 0 1px ${d.n.needs ? toneHex.wait : tone}55`
   return { boxShadow: [edge, glow].filter(Boolean).join(', ') }
 }
@@ -62,37 +68,39 @@ function keysOf(d: NodeData): string {
   return 'y approve · n decline'
 }
 
+/** The strip along the bottom of the step or plan a task carries out: its glyph, the word "task", the model chip, the
+ *  spend bar and its live progress line. A claim reads "worked by ‹title›". */
+function BadgeStrip({ b, hide }: { b: Badge; hide: boolean }) {
+  if (b.kind === 'claim') return <div className="mt-1.5 truncate rounded-md bg-black/20 px-1.5 py-0.5 text-[10px] text-ink-dim ring-1 ring-line" title={`claimed: worked by ${b.by}`}>worked by {hide ? 'a task' : b.by}</div>
+  const tone = b.asks ? toneHex.wait : b.running ? toneHex.live : undefined
+  return (
+    <div data-badge="task" className="mt-1.5 rounded-md bg-black/25 px-1.5 py-1 text-[10px] ring-1" style={{ boxShadow: `0 0 0 1px ${tone ?? 'rgb(176 141 87 / 0.25)'}66` }}>
+      <div className="flex items-center gap-1.5">
+        <span aria-hidden style={{ color: tone }}>{b.glyph}</span>
+        <span className="uppercase tracking-wider text-ink-dim">{b.word}</span>
+        {b.model && <span className="rounded bg-model/10 px-1 text-[9.5px] text-model ring-1 ring-model/30" title="the profile it runs on">◇ {b.model}</span>}
+        {b.limit != null && b.limit > 0 && b.spent != null && (
+          <span className="num ml-auto flex items-center gap-1 text-money" title={`${usd(b.spent)} of ${usd(b.limit)}`}>
+            <span className="inline-block h-1 w-10 overflow-hidden rounded-full bg-white/5"><span className="block h-full rounded-full bg-money/80" style={{ width: `${Math.min(100, (b.spent / b.limit) * 100)}%` }} /></span>{usd(b.spent)}
+          </span>
+        )}
+      </div>
+      {b.line && <div className="num mt-0.5 truncate text-ink-dim" title={b.line}>{b.line}</div>}
+    </div>
+  )
+}
+
 const Pick = ({ on }: { on: boolean }) => (
   <span aria-label={on ? 'picked' : 'not picked'} className={cn('flex h-3 w-3 shrink-0 items-center justify-center rounded-[3px] text-[8px] ring-1', on ? 'bg-gold text-deck ring-gold' : 'ring-ink-faint/60')}>{on ? '✓' : ''}</span>
 )
 
-function Work({ data: d }: NodeProps<Node<NodeData>>) {
-  const { n, row, now } = d
-  const bucket = bucketOfNode(n, now)
-  const { faded } = look(bucket, d.dim)
-  const tone = toneHex[bucketTone(bucket, n.state) ?? stateTone(n.state === 'paused' ? 'queued' : n.state)] ?? toneHex.idle
-  const conv = n.kind === 'conversation'
+/** The cost bar and the model chip of a card that carries no task badge. */
+function Spend({ d }: { d: NodeData }) {
+  const { n, row } = d
   const v = n.view
   const cost = v?.cost ?? (row?.task?.info ? { spent_usd: row.task.info.spent_usd, limit_usd: row.task.info.limit_usd } : undefined)
-  const line = v && !masked(n, !!d.redact) && !isEndedState(v.state) ? progressLine(v, now) : undefined
-  const title = shownTitle(n, !!d.redact)
-  const shortId = n.kind === 'step' ? taskShort(n.id) : row?.short ?? n.id.slice(-6)
   return (
-    <div data-drop={conv && row?.sessionId ? `conversation:${row.sessionId}` : undefined} data-node={n.id}
-      className={cn('rounded-lg bg-hull/95 px-2.5 py-2 backdrop-blur transition-opacity', n.fresh && 'ops-fade-in', d.dim && FILTERED_OUT, faded && FADED, conv && 'bg-[#0d2036]/95')}
-      style={{ width: NODE_W, ...ring(d, tone) }}>
-      <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
-      <div className="flex items-center gap-1.5 text-[10.5px]" style={{ color: n.needs ? toneHex.wait : tone }}>
-        <Pick on={d.picked} />
-        <span aria-hidden>{bucketGlyph(bucket, n.state) ?? GLYPH[n.state] ?? '·'}</span>
-        <span className="font-semibold uppercase tracking-wider">{n.state.replace('_', ' ')}</span>
-        {locked(n.data) && <span title={`${n.data} data: US-origin models only${n.data === 'sensitive' ? ', never a shared place' : ''}`} className="flex items-center gap-0.5 text-ink-dim"><Lock size={10} aria-label={n.data} />{n.data}</span>}
-        {n.asks > 0 && <span className="rounded-full bg-wait/15 px-1.5 text-wait" title="questions it asks: answer them in the queue">? {n.asks}</span>}
-        <span className="num ml-auto text-ink-faint" title={n.id}>{conv ? 'conversation' : n.kind === 'step' ? `step · ${shortId}` : shortId}</span>
-        {d.onFoldBack && <button type="button" onClick={(e) => { e.stopPropagation(); d.onFoldBack?.() }} className="nodrag rounded px-1 text-[10px] text-ink-dim ring-1 ring-line hover:text-ink" title="fold its subtree again">fold</button>}
-      </div>
-      <div className={cn('mt-1 line-clamp-2 leading-snug text-ink', conv ? 'font-display text-[13px] font-bold tracking-[0.02em]' : 'text-[12px] font-medium')} title={title}>{title}</div>
-      {line && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
+    <>
       {cost && cost.limit_usd > 0 && (
         <div className="mt-1.5" title={`${usd(cost.spent_usd)} of ${usd(cost.limit_usd)}`}>
           <div className="h-1 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-money/80" style={{ width: `${Math.min(100, (cost.spent_usd / cost.limit_usd) * 100)}%` }} /></div>
@@ -105,8 +113,104 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
           {row.place && <span className="rounded bg-white/5 px-1 text-ink-dim ring-1 ring-line">{row.place}</span>}
         </div>
       )}
+    </>
+  )
+}
+
+/** The work card: a conversation (navy; a thread's own one is its lane's head), a task, or a step with its checkbox. A
+ *  task that carries out a step or a plan is never one: it is the badge along the bottom of that card. */
+function Work({ data: d }: NodeProps<Node<NodeData>>) {
+  const { n, row, now } = d
+  const bucket = bucketOfNode(n, now)
+  const { faded } = look(bucket, d.dim)
+  const f = n.form
+  const step = f?.look
+  const tone = step ? toneVar(step.tone) : toneHex[bucketTone(bucket, n.state) ?? stateTone(n.state === 'paused' ? 'queued' : n.state)] ?? toneHex.idle
+  const conv = n.kind === 'conversation'
+  const head = n.head === true
+  const v = n.view
+  const line = v && !masked(n, !!d.redact) && !isEndedState(v.state) ? progressLine(v, now) : undefined
+  const title = shownTitle(n, !!d.redact)
+  const shortId = n.kind === 'step' || step ? taskShort(n.record?.id ?? n.id) : row?.short ?? n.id.slice(-6)
+  const lane = d.laneMeta
+  const p = f?.progress
+  return (
+    <div data-drop={conv && row?.sessionId ? `conversation:${row.sessionId}` : undefined} data-node={n.id} data-form={f?.form}
+      className={cn('rounded-lg bg-hull/95 px-2.5 py-2 backdrop-blur transition-opacity', n.fresh && 'ops-fade-in', d.dim && FILTERED_OUT, faded && FADED, conv && 'bg-[#0d2036]/95')}
+      style={{ width: NODE_W, ...ring(d, tone) }}>
+      <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
+      <div className="flex items-center gap-1.5 text-[10.5px]" style={{ color: n.needs ? toneHex.wait : tone }}>
+        <Pick on={d.picked} />
+        {step ? <span aria-hidden className="text-[12px] leading-none" title={STEP_WORDS[step.word]}>{step.glyph}</span> : <span aria-hidden>{bucketGlyph(bucket, n.state) ?? GLYPH[n.state] ?? '·'}</span>}
+        <span className="font-semibold uppercase tracking-wider">{step ? STEP_WORDS[step.word] : n.state.replace('_', ' ')}</span>
+        {locked(n.data) && <span title={`${n.data} data: US-origin models only${n.data === 'sensitive' ? ', never a shared place' : ''}`} className="flex items-center gap-0.5 text-ink-dim"><Lock size={10} aria-label={n.data} />{n.data}</span>}
+        {n.asks > 0 && <span className="rounded-full bg-wait/15 px-1.5 text-wait" title="questions it asks: answer them in the queue">? {n.asks}</span>}
+        <span className="num ml-auto text-ink-faint" title={n.id}>{head ? 'thread' : conv ? 'conversation' : step ? `step · ${shortId}` : shortId}</span>
+        {d.onFoldBack && <button type="button" onClick={(e) => { e.stopPropagation(); d.onFoldBack?.() }} className="nodrag rounded px-1 text-[10px] text-ink-dim ring-1 ring-line hover:text-ink" title="fold its subtree again">fold</button>}
+      </div>
+      <div className={cn('mt-1 line-clamp-2 leading-snug text-ink', conv ? 'font-display text-[13px] font-bold tracking-[0.02em]' : 'text-[12px] font-medium')} title={title}>{title}</div>
+      {head && lane && !masked(lane, !!d.redact) && (lane.words || lane.sealed) && (
+        <div className="num mt-0.5 flex items-center gap-1 text-[10.5px] text-ink-dim">{lane.sealed && <Lock size={10} aria-label="sealed" className="text-ink-faint" />}{lane.words}</div>
+      )}
+      {head && p && p.m > 0 && <div className="num mt-0.5 text-[10.5px] text-ink-dim" title={p.summary}>plan <span className="text-ok">{p.n}/{p.m}</span> · {p.summary}</div>}
+      {line && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
+      {f?.badge ? <BadgeStrip b={f.badge} hide={!!d.redact && locked(n.data)} /> : <Spend d={d} />}
       {n.needs && <div className="num mt-1.5 rounded bg-wait/10 px-1.5 py-0.5 text-[10px] text-wait ring-1 ring-wait/30">needs you · {keysOf(d)}</div>}
       <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
+    </div>
+  )
+}
+
+/** A plan: a card with a folder tab (the chevron, "PLAN", its short id), the title, an n/m bar and, folded, its one-line
+ *  summary. Unfolded, its children sit in the next column under solid edges. A folded plan that holds a needs card says so. */
+function Plan({ data: d }: NodeProps<Node<NodeData>>) {
+  const { n, now } = d
+  const bucket = bucketOfNode(n, now)
+  const { faded } = look(bucket, d.dim)
+  const f = n.form!
+  const p = f.progress ?? { n: 0, m: 0, counts: {} as Progress['counts'], failed: 0, summary: '', needs: 0 }
+  const tone = f.look ? toneVar(f.look.tone) : toneHex.idle
+  const open = n.open !== false
+  const title = shownTitle(n, !!d.redact)
+  const line = n.view && !masked(n, !!d.redact) && !isEndedState(n.view.state) ? progressLine(n.view, now) : undefined
+  return (
+    <div data-node={n.id} data-form="plan" className="relative mt-3" style={{ width: NODE_W }}>
+      <div className="absolute -top-[13px] left-3 flex items-center gap-1 rounded-t-md bg-hull px-2 pb-[1px] pt-[1px] text-[9.5px] ring-1 ring-line" style={{ color: tone }}>
+        <button type="button" onClick={(e) => { e.stopPropagation(); d.onPlan?.() }} className="nodrag text-[11px] leading-none" aria-expanded={open} aria-label={open ? 'fold the plan' : 'open the plan'} title={open ? 'fold: its children stand in the card' : 'open: show its children'}>{open ? '▾' : '▸'}</button>
+        <span className="font-semibold uppercase tracking-wider">plan</span>
+        <span className="num text-ink-faint" title={n.id}>{taskShort(n.record?.id ?? n.id)}</span>
+      </div>
+      <div className={cn('rounded-lg rounded-tl-none bg-hull/95 px-2.5 py-2 backdrop-blur transition-opacity', n.fresh && 'ops-fade-in', d.dim && FILTERED_OUT, faded && FADED)} style={ring(d, tone)}>
+        <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
+        <div className="flex items-center gap-1.5 text-[10.5px]" style={{ color: n.needs ? toneHex.wait : tone }}>
+          <Pick on={d.picked} />
+          {f.look && <span aria-hidden className="text-[12px] leading-none">{f.look.glyph}</span>}
+          <span className="font-semibold uppercase tracking-wider">{f.look ? STEP_WORDS[f.look.word] : n.state}</span>
+          {locked(n.data) && <span className="flex items-center gap-0.5 text-ink-dim" title={`${n.data} data`}><Lock size={10} aria-label={n.data} />{n.data}</span>}
+          {n.asks > 0 && <span className="rounded-full bg-wait/15 px-1.5 text-wait" title="questions it asks: answer them in the queue">? {n.asks}</span>}
+        </div>
+        <div className="mt-1 line-clamp-2 text-[12px] font-medium leading-snug text-ink" title={title}>{title}</div>
+        <PlanBar p={p} />
+        {!open && p.summary && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={p.summary}>{p.summary}</div>}
+        {!open && p.needs > 0 && <div className="num mt-1 inline-block rounded-full bg-wait/15 px-2 text-[10.5px] text-wait">● {p.needs} needs you</div>}
+        {line && !f.badge && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
+        {f.badge ? <BadgeStrip b={f.badge} hide={!!d.redact && locked(n.data)} /> : <Spend d={d} />}
+        {n.needs && <div className="num mt-1.5 rounded bg-wait/10 px-1.5 py-0.5 text-[10px] text-wait ring-1 ring-wait/30">needs you · {keysOf(d)}</div>}
+        <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
+      </div>
+    </div>
+  )
+}
+
+/** A loose ask (no card owns it): a small amber card in its lane with the ask's words and its keys. */
+function Ask({ data: d }: NodeProps<Node<NodeData>>) {
+  const { n } = d
+  return (
+    <div data-node={n.id} data-form="ask" className={cn('w-[210px] rounded-lg bg-hull/95 px-2.5 py-1.5', n.fresh && 'ops-fade-in', d.dim && FILTERED_OUT)} style={ring(d, toneHex.wait)}>
+      <Handle type="target" position={Position.Left} className="!h-1 !w-1 !border-0 !bg-line-strong" />
+      <div className="flex items-center gap-1.5 text-[10px] text-wait"><Pick on={d.picked} /><span aria-hidden>●</span><span className="font-semibold uppercase tracking-wider">ask</span></div>
+      <div className="mt-0.5 line-clamp-3 text-[11.5px] text-ink" title={shownTitle(n, !!d.redact)}>{shownTitle(n, !!d.redact)}</div>
+      <div className="num mt-1 text-[10px] text-wait">{keysOf(d)}</div>
     </div>
   )
 }
@@ -148,6 +252,8 @@ function Future({ data: d }: NodeProps<Node<NodeData>>) {
       <div className="flex items-center gap-1.5 text-[10px] text-think"><span aria-hidden>{FUTURE_GLYPH[n.kind]}</span><span className="uppercase tracking-wider">{n.kind}</span>
         {v?.next_at_ms != null && <span className="num ml-auto text-ink-faint">{clock(v.next_at_ms)}</span>}</div>
       <div className="mt-0.5 line-clamp-2 text-[11.5px] text-ink">{shownTitle(n, !!d.redact)}</div>
+      {project && n.record && <div className="num mt-0.5 text-[9.5px] text-ink-dim">◈ since {clock(n.record.created_at_ms)} · updated {clock(n.record.updated_at_ms)}</div>}
+      {project && n.form?.progress && n.form.progress.m > 0 && <PlanBar p={n.form.progress} />}
       {project && <div className="mt-0.5 text-[9.5px] text-ink-faint">drop a task or a conversation here to attach it</div>}
     </div>
   )
@@ -160,7 +266,7 @@ function Lane({ data: d }: NodeProps<Node<LaneData>>) {
   return (
     <div data-drop={home ? undefined : `lane:${lane.key}`} className="relative rounded-xl"
       style={{ width: d.width, height: lane.height, background: 'linear-gradient(90deg, rgb(214 165 72 / 0.06), rgb(10 24 40 / 0.35) 220px, rgb(10 24 40 / 0.18))',
-        boxShadow: d.hover === 'ok' ? `inset 0 0 0 2px ${toneHex.ok}` : d.hover === 'no' ? `inset 0 0 0 2px ${toneHex.fault}` : lane.needs ? `inset 0 0 0 1px ${toneHex.wait}44` : 'inset 0 0 0 1px rgb(176 141 87 / 0.14)' }}>
+        boxShadow: d.hover === 'ok' ? `inset 0 0 0 2px ${toneHex.ok}` : d.hover === 'no' ? `inset 0 0 0 2px ${toneHex.fault}` : lane.needs ? `inset 0 0 0 1px ${toneHex.wait}66, 0 0 24px -8px ${toneHex.wait}` : 'inset 0 0 0 1px rgb(176 141 87 / 0.14)' }}>
       <div className="absolute left-4 top-4 w-[180px]">
         <div className="font-display text-[15px] font-bold uppercase leading-tight tracking-[0.12em] text-gold" style={{ textShadow: '0 1px 0 rgb(0 0 0 / 0.6), 0 -1px 0 rgb(255 230 180 / 0.12)' }}>
           {lane.sealed && <Lock size={11} className="mr-1 inline text-ink-faint" aria-label="sealed" />}{shownTitle(lane, !!d.redact)}
@@ -173,8 +279,14 @@ function Lane({ data: d }: NodeProps<Node<LaneData>>) {
   )
 }
 
-export const NODE_TYPES = { work: memo(Work), job: memo(Job), fold: memo(Fold), future: memo(Future), lane: memo(Lane) }
+export const NODE_TYPES = { work: memo(Work), plan: memo(Plan), ask: memo(Ask), job: memo(Job), fold: memo(Fold), future: memo(Future), lane: memo(Lane) }
 
 /** The node type that draws a kind. */
-export const typeOf = (k: GNode['kind']): keyof typeof NODE_TYPES =>
-  k === 'job' ? 'job' : k === 'done' || k === 'folded' ? 'fold' : k === 'wake' || k === 'routine' || k === 'watch' || k === 'project' ? 'future' : 'work'
+export const typeOf = (n: Pick<GNode, 'kind' | 'form'>): keyof typeof NODE_TYPES => {
+  const k = n.kind
+  if (k === 'job') return 'job'
+  if (k === 'done' || k === 'folded') return 'fold'
+  if (k === 'wake' || k === 'routine' || k === 'watch' || k === 'project') return 'future'
+  if (k === 'ask') return 'ask'
+  return n.form?.form === 'plan' ? 'plan' : 'work'
+}
