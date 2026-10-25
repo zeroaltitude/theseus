@@ -186,8 +186,12 @@ export default function Ops() {
   // What is selected, and where.
   const item: QueueItem | undefined = isItemKey(a.sel) ? queue.find((i) => i.key === a.sel) : a.do === 'answer' ? itemFor(queue, a.sel) : undefined
   const row: OpsRow | undefined = item ? undefined : rowFor(rows, a.sel)
-  const handOpen = a.sel === OPEN_SEL // the idle tab opened the panel with nothing selected
-  const slug = a.lens === 'threads' && a.sel && !item && !handOpen ? a.sel : null
+  // A thread's head card on the Graph selects its lane, which is a thread, not a row (theseus-hl0r1 F4).
+  const laneSel = a.lens === 'graph' && laneMetas.some((l) => l.key === a.sel)
+  // The idle tab opened the panel with nothing selected; so does a Graph or Board selection nothing resolves
+  // (theseus-gnhnk F5), which would otherwise fall back to the idle tab.
+  const handOpen = a.sel === OPEN_SEL || ((a.lens === 'graph' || a.lens === 'board') && !!a.sel && !item && !row && !laneSel)
+  const slug = (a.lens === 'threads' || laneSel) && a.sel && !item && !handOpen ? a.sel : null
   const event = a.lens === 'timeline' && a.sel?.startsWith('ev:') ? findEvent(cal.calendars, a.sel.slice(3)) : null
   const mark = a.lens === 'timeline' && !item && !handOpen ? tlr?.marks.find((m) => m.key === a.sel) : undefined
   const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel && !handOpen ? { kind: 'mark', key: a.sel } : { kind: 'none', counts: noneCounts(counts), onFilter: (b) => set({ f: { ...a.f, bucket: b } }) }

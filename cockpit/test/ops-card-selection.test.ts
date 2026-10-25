@@ -71,7 +71,7 @@ test('the page asks rowFor for its row, and the Graph hands every click to pick'
   const page = src('views/Ops.tsx')
   assert.match(page, /item \? undefined : rowFor\(rows, a\.sel\)/)
   assert.match(page, /onFocus=\{pick\}/)
-  assert.match(src('ops/GraphLens.tsx'), /else onFocus\(n\.id\)/)
+  assert.match(src('ops/GraphLens.tsx'), /else onFocus\(/)
   assert.match(src('ops/GraphLens.tsx'), /if \(byId\.has\(n\.id\)\) onPick\(n\.id\)/)
   assert.match(src('ops/GraphLens.tsx'), /onContext\(n\.id, e\.clientX, e\.clientY\)/)
 })

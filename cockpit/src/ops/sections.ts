@@ -5,6 +5,7 @@ import type { NodeInfo, StandingInfo, TaskRecord, WorkForecast } from '@protocol
 import { ago, clock, ms, short, usd } from '../lib/figures.ts'
 import { alive, counterLabel, selects, type AllCounters, type OpsRow } from './board.ts'
 import type { Bucket } from './address.ts'
+import { bucketGlyph } from './state.ts'
 
 export interface FactLine { label: string; value: string; tone?: 'money' | 'wait' | 'fault' | 'ok' | 'think' | 'dim' }
 
@@ -99,8 +100,8 @@ export function lastTurnOf(rows: ReadonlyArray<{ kind: string; session_id?: stri
 /** Which body the inspector draws for a row: a job's, a step's or plan's record, else the card's whole. */
 export const bodyOf = (r: OpsRow): 'job' | 'step' | 'row' => (r.kind === 'job' ? 'job' : r.kind === 'step' ? 'step' : 'row')
 
-/** The state glyph of a bucket, as the cards draw it. */
-export const GLYPH: Readonly<Record<OpsRow['bucket'], string>> = { needs: '!', working: '◐', scheduled: '◷', paused: '⏸', todo: '○', rest: '·', ended: '✓' }
+/** The state glyph of a bucket: the fallback when `bucketGlyph` has no opinion. */
+export const GLYPH: Readonly<Record<OpsRow['bucket'], string>> = { needs: '●', working: '◐', scheduled: '◷', paused: '⏸', todo: '○', rest: '·', ended: '✓' }
 
 export interface StepView {
   noun: 'plan' | 'step'
@@ -144,9 +145,9 @@ export function stepView(r: OpsRow, rows: readonly OpsRow[], now: number): StepV
   const task = r.task ? r : sid ? rows.find((x) => x.kind === 'task' && x.sessionId === sid) : undefined
   const carrier = r.carrier ? rowOf(r.carrier) : undefined
   return {
-    noun: r.plan ? 'plan' : 'step', glyph: GLYPH[r.bucket], stateWord: stateWords(r.state), short: r.short, crumbs,
+    noun: r.plan ? 'plan' : 'step', glyph: bucketGlyph(r.bucket, r.state ?? '') ?? GLYPH[r.bucket], stateWord: stateWords(r.state), short: r.short, crumbs,
     progress: r.plan ? { n: kids.filter(closed).length, m: kids.length } : undefined,
-    children: kids.map((c) => ({ id: c.id, title: c.title, glyph: GLYPH[c.bucket], stateWord: stateWords(c.state), closed: closed(c) })),
+    children: kids.map((c) => ({ id: c.id, title: c.title, glyph: bucketGlyph(c.bucket, c.state ?? '') ?? GLYPH[c.bucket], stateWord: stateWords(c.state), closed: closed(c) })),
     history, ledger: rec ? `/ledger?q=${rec.id}` : undefined, carrier: carrier ? { id: carrier.id, title: carrier.title } : undefined, task,
   }
 }
