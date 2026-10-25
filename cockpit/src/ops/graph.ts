@@ -71,7 +71,7 @@ export type EdgeKind = 'parent' | 'deps' | 'retry'
 export interface GEdge { id: string; source: string; target: string; kind: EdgeKind; running: boolean }
 
 /** A lane's words, from the page (the Threads lens's `threadFacts`): the layout reads `key` and `needs` alone. */
-export interface LaneMeta { key: string; title: string; needs: number; words?: string; sealed?: boolean; data?: DataMark }
+export interface LaneMeta { key: string; title: string; needs: number; words?: string; sealed?: boolean; data?: DataMark; /** The thread's own conversation (its session), drawn as the lane's head card. */ head?: string }
 
 export interface GLane extends LaneMeta { y: number; height: number; rows: number }
 
@@ -241,6 +241,7 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
   const old = new Map<string, string[]>()
   for (const it of items.values()) {
     if (!(it.kind === 'task' || it.kind === 'step' || it.kind === 'job') || !it.ended || it.needs) continue
+    if (into.has(it.id)) continue // already standing in its folded plan
     if ((it.endedMs ?? it.startedMs) > now - DONE_FOLD_MS) continue
     const l = laneOf.get(it.id)!
     if (expanded.has(l)) continue
@@ -355,7 +356,7 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
       data: it?.data, startedMs: it?.startedMs ?? 0, members: n.members, fresh: prev != null && !placed[n.id], ...(it ? { bucket: it.bucket } : {}),
       ...(it && forms.has(it.id) ? { form: forms.get(it.id) } : {}),
       ...(planOpen.has(n.id) ? { open: planOpen.get(n.id) } : {}),
-      ...(it?.kind === 'conversation' && s.lane !== HOME && it.thread === s.lane ? { head: true } : {}),
+      ...(it?.kind === 'conversation' && s.lane !== HOME && metas.get(s.lane)?.head === it.id ? { head: true } : {}),
     })
   }
   nodes.sort((a, b) => (a.id < b.id ? -1 : 1))

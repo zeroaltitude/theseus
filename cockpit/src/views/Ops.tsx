@@ -157,7 +157,7 @@ export default function Ops() {
   const dataOf = useCallback((sid: string | undefined) => sessions.find((x) => x.session_id === sid)?.data ?? undefined, [sessions])
   const laneMetas = useMemo((): LaneMeta[] => grouped.threads.map((t) => {
     const f = threadFacts(t, now)
-    return { key: t.group.slug, title: t.group.title, needs: t.needsYou, words: [f.warmth, f.details].filter(Boolean).join(' · '), sealed: f.sealed, data: dataOf(t.group.session_id) }
+    return { key: t.group.slug, title: t.group.title, needs: t.needsYou, words: [f.warmth, f.details].filter(Boolean).join(' · '), sealed: f.sealed, data: dataOf(t.group.session_id), head: t.head?.session_id ?? t.group.session_id }
   }), [grouped.threads, now, dataOf])
   const homes = useMemo((): DropTarget[] => [
     ...rows.flatMap((r): DropTarget[] => (r.kind === 'conversation' && r.sessionId && alive(r) && !r.session?.retired ? [{ kind: 'conversation', sessionId: r.sessionId, title: r.title, data: r.view?.data ?? r.session?.data ?? undefined }] : [])),

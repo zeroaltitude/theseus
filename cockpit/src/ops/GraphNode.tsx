@@ -55,7 +55,7 @@ function ring(d: NodeData, tone: string): CSSProperties {
   if (d.hover === 'ok') return { boxShadow: `0 0 0 2px ${toneHex.ok}, 0 0 22px -4px ${toneHex.ok}` }
   if (d.hover === 'no') return { boxShadow: `0 0 0 2px ${toneHex.fault}` }
   const glow = d.n.needs ? `0 0 26px -6px ${toneHex.wait}` : d.n.state === 'running' || d.n.form?.badge?.running ? `0 0 18px -8px ${toneHex.live}` : ''
-  const edge = d.picked || d.focused ? `0 0 0 ${d.focused ? 2 : 1.5}px ${gold}, 0 0 20px -4px color-mix(in srgb, ${gold} 66%, transparent)` : `0 0 0 1px ${d.n.needs ? toneHex.wait : tone}55`
+  const edge = d.picked || d.focused ? `0 0 0 ${d.focused ? 2 : 1.5}px ${gold}, 0 0 20px -4px color-mix(in srgb, ${gold} 66%, transparent)` : `0 0 0 1px color-mix(in srgb, ${d.n.needs ? toneHex.wait : tone} 33%, transparent)`
   return { boxShadow: [edge, glow].filter(Boolean).join(', ') }
 }
 
@@ -70,11 +70,12 @@ function keysOf(d: NodeData): string {
 
 /** The strip along the bottom of the step or plan a task carries out: its glyph, the word "task", the model chip, the
  *  spend bar and its live progress line. A claim reads "worked by ‹title›". */
-function BadgeStrip({ b, hide }: { b: Badge; hide: boolean }) {
-  if (b.kind === 'claim') return <div className="mt-1.5 truncate rounded-md bg-black/20 px-1.5 py-0.5 text-[10px] text-ink-dim ring-1 ring-line" title={`claimed: worked by ${b.by}`}>worked by {hide ? 'a task' : b.by}</div>
+function BadgeStrip({ b, hide, redact }: { b: Badge; hide: boolean; redact?: boolean }) {
+  const held = hide || (!!redact && locked(b.byData))
+  if (b.kind === 'claim') return <div className="mt-1.5 truncate rounded-md bg-black/20 px-1.5 py-0.5 text-[10px] text-ink-dim ring-1 ring-line" title={held ? 'claimed: worked by a task' : `claimed: worked by ${b.by}`}>worked by {held ? 'a task' : b.by}</div>
   const tone = b.asks ? toneHex.wait : b.running ? toneHex.live : undefined
   return (
-    <div data-badge="task" className="mt-1.5 rounded-md bg-black/25 px-1.5 py-1 text-[10px] ring-1" style={{ boxShadow: `0 0 0 1px ${tone ?? 'rgb(176 141 87 / 0.25)'}66` }}>
+    <div data-badge="task" className="mt-1.5 rounded-md bg-black/25 px-1.5 py-1 text-[10px] ring-1" style={{ boxShadow: `0 0 0 1px ${tone ? `color-mix(in srgb, ${tone} 40%, transparent)` : 'rgb(176 141 87 / 0.25)'}` }}>
       <div className="flex items-center gap-1.5">
         <span aria-hidden style={{ color: tone }}>{b.glyph}</span>
         <span className="uppercase tracking-wider text-ink-dim">{b.word}</span>
@@ -153,8 +154,8 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
         <div className="num mt-0.5 flex items-center gap-1 text-[10.5px] text-ink-dim">{lane.sealed && <Lock size={10} aria-label="sealed" className="text-ink-faint" />}{lane.words}</div>
       )}
       {head && p && p.m > 0 && <div className="num mt-0.5 text-[10.5px] text-ink-dim" title={p.summary}>plan <span className="text-ok">{p.n}/{p.m}</span> · {p.summary}</div>}
-      {line && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
-      {f?.badge ? <BadgeStrip b={f.badge} hide={!!d.redact && locked(n.data)} /> : <Spend d={d} />}
+      {line && !f?.badge && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
+      {f?.badge ? <BadgeStrip b={f.badge} hide={!!d.redact && locked(n.data)} redact={d.redact} /> : <Spend d={d} />}
       {n.needs && <div className="num mt-1.5 rounded bg-wait/10 px-1.5 py-0.5 text-[10px] text-wait ring-1 ring-wait/30">needs you · {keysOf(d)}</div>}
       <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
     </div>
@@ -194,7 +195,7 @@ function Plan({ data: d }: NodeProps<Node<NodeData>>) {
         {!open && p.summary && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={p.summary}>{p.summary}</div>}
         {!open && p.needs > 0 && <div className="num mt-1 inline-block rounded-full bg-wait/15 px-2 text-[10.5px] text-wait">● {p.needs} needs you</div>}
         {line && !f.badge && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
-        {f.badge ? <BadgeStrip b={f.badge} hide={!!d.redact && locked(n.data)} /> : <Spend d={d} />}
+        {f.badge ? <BadgeStrip b={f.badge} hide={!!d.redact && locked(n.data)} redact={d.redact} /> : <Spend d={d} />}
         {n.needs && <div className="num mt-1.5 rounded bg-wait/10 px-1.5 py-0.5 text-[10px] text-wait ring-1 ring-wait/30">needs you · {keysOf(d)}</div>}
         <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
       </div>

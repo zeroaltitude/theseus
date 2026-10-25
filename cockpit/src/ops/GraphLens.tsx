@@ -230,7 +230,6 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
         {g.cantOpen && <span role="status" className="text-wait">could not open: the graph is at its cap; narrow it with the filters or the search</span>}
         <button type="button" aria-pressed={future} onClick={() => setFuture((f) => !f)} className={cn('rounded px-1.5 ring-1', future ? 'bg-think/15 text-think ring-think/40' : 'ring-line hover:text-ink')}
           title="wakes, routines, watches and projects (a project takes a dropped task or conversation)">+ future</button>
-        {/* theseus-99l9z: the visibility checkbox group goes here, between "+ future" and "tidy" */}
         <button type="button" onClick={() => { setExpanded(new Set()); setOpened(new Set()); setTidy((t) => t + 1) }} className="rounded px-1.5 ring-1 ring-line hover:text-ink"
           title="lay it out afresh: needs-you lanes first, holes closed (live changes never move a node)">tidy</button>
       </div>

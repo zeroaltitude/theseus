@@ -198,6 +198,9 @@ test('the Graph’s follow-ups are wired: keys, the palette scope, the verb menu
   // n17am 4: the node and lane titles are drawn through shownTitle.
   const node = src('ops/GraphNode.tsx')
   assert.ok(!/title=\{n\.title\}|⚙ \{n\.title\}|>\{n\.title\}<\/div>|\{lane\.title\}/.test(node.replace(/\/\/.*$/gm, "")), "a title is drawn bare")
+  // theseus-hl0r1 F2: `tone` can be a CSS var() or an rgb(), so an alpha is never concatenated onto it
+  // (an 8-digit hex is fine where the value is one of taxonomy's own `toneHex` literals, hence the word bound).
+  assert.ok(!/\$\{[^}]*\btone\b[^}]*\}(55|66)/.test(node), 'an alpha is concatenated onto a tone, which makes the whole box-shadow invalid')
   // n17am 3: "+N folded" opens its subtree; tidy forgets the openings.
   assert.match(lens, /setOpened\(\(s\) => new Set\(\[\.\.\.s, n\.parent/)
   assert.match(lens, /setOpened\(new Set\(\)\); setTidy/)

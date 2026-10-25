@@ -9,7 +9,7 @@ import { layoutRows, NODE_CAP, type Graph, type LaneMeta } from '../src/ops/grap
 import { queueOf } from '../src/ops/queue.ts'
 import { confirm, NOW, record, view } from './ops-fixtures.ts'
 
-const LANES: LaneMeta[] = [{ key: 'harbour-survey', title: 'Harbour survey', needs: 0 }]
+const LANES: LaneMeta[] = [{ key: 'harbour-survey', title: 'Harbour survey', needs: 0, head: 'ses_home' }]
 const MIN = 60_000
 const rec = (id: string, state: string, over: Partial<TaskRecord> = {}) => record(id, { state, updated_at_ms: NOW - 5 * MIN, ...over } as Partial<TaskRecord>)
 
@@ -18,6 +18,7 @@ const rec = (id: string, state: string, over: Partial<TaskRecord> = {}) => recor
 function fixture() {
   const views: WorkView[] = [
     view('exe_home', 'conversation', 'ready', { session_id: 'ses_home', thread: 'harbour-survey' }),
+    view('exe_side', 'conversation', 'ready', { session_id: 'ses_side', thread: 'harbour-survey' }),
     view('exe_t2', 'task', 'running', { session_id: 'ses_t2', title: 'Survey the quay', thread: 'harbour-survey', parent: 'exe_home', moved_to: 'sonnet' }),
     view('act_j1', 'job', 'running', { session_id: 'ses_t2', parent: 'exe_t2', thread: 'harbour-survey', title: 'cargo test -p quay' }),
     view('wak_r1', 'wake', 'waiting', { session_id: 'ses_home', title: 'check the gauge', next_at_ms: NOW + 2 * 3_600_000 }),
@@ -201,6 +202,7 @@ test('the counter filter through the forms: a collapsed plan holding a kept card
 test('the thread’s conversation is its lane’s head; a loose ask and a task with no record keep their forms', () => {
   const g = lay(rowsOfFixture())
   assert.equal(node(g, 'ses_home')!.head, true)
+  assert.equal(node(g, 'ses_side')!.head, undefined, 'a second conversation in the thread is not its head (theseus-hl0r1 F1)')
   assert.equal(node(g, 'ses_home')!.form!.form, 'anchor')
   assert.equal(node(g, 'ses_home')!.form!.progress!.m > 0, true, 'its plan-mode n/m')
   const ask = g.nodes.find((n) => n.kind === 'ask')!
@@ -218,4 +220,16 @@ test('the Board’s plan card: its direct children with their glyphs, and the sa
   const step = formsOf(rows, NOW).get('tsk_td1')!
   assert.equal(step.form, 'step')
   assert.equal(step.kids, undefined, 'a step has no children list')
+})
+
+test('an ended card standing in its folded plan does not also join the lane’s “✓ N done” fold (theseus-hl0r1 F6)', () => {
+  const f = fixture()
+  const stale = NOW - 2 * 3_600_000
+  const records = f.records.map((r) => (r.id === 'tsk_n1' || r.id === 'tsk_n2' ? { ...r, state: 'done', updated_at_ms: stale } as TaskRecord : r))
+  const rows = boardRows({ views: f.views, tasks: [], sessions: [], records, queue: f.queue, now: NOW })
+  const g = lay(rows, null, { folds: new Map([['tsk_sub', false]]) })
+  assert.equal(node(g, 'tsk_sub')!.open, false, 'the plan is folded by the owner')
+  assert.ok(!node(g, 'tsk_n1') && !node(g, 'tsk_n2'), 'its children stand in it')
+  assert.ok(!g.nodes.some((n) => n.id === 'done:harbour-survey'), 'and not in a second “✓ N done” fold of the lane')
+  assert.ok(!g.edges.some((e) => e.source.startsWith('done:') || e.target.startsWith('done:')), 'no edge resolves to a done fold')
 })

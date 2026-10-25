@@ -8,6 +8,7 @@
 //   step          the work card with a checkbox glyph in its state colour
 //   task          attached to a step or plan: a badge strip along its bottom, never a card of its own
 //   job, ask, wake, routine, watch, project   as before
+import type { DataMark } from '@protocol'
 import type { OpsRow } from './board.ts'
 import { progressLine } from '../lib/progressLine.ts'
 import { bucketTone, type StateBucket } from './state.ts'
@@ -144,6 +145,8 @@ export interface Badge {
   line?: string
   /** A claim's holder, "worked by ‹title›". */
   by?: string
+  /** The holder's own data mark, so redact masks the title it shows. */
+  byData?: DataMark
   /** It runs: the card glows cyan. */
   running: boolean
   /** It asks: the card glows amber. */
@@ -203,7 +206,7 @@ function carried(r: OpsRow, plan: boolean, ix: Index, now: number): RowForm {
     }
   } else if (r.record?.claim) {
     const by = r.carrier ? ix.byRow.get(r.carrier) : undefined
-    if (by) form.badge = { kind: 'claim', glyph: '', word: 'claim', by: by.title, running: by.view?.state === 'running', asks: false }
+    if (by) form.badge = { kind: 'claim', glyph: '', word: 'claim', by: by.title, byData: by.data, running: by.view?.state === 'running', asks: false }
   }
   return form
 }
