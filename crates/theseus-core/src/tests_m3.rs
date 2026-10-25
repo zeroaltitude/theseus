@@ -3692,11 +3692,11 @@ async fn an_ordinary_over_budget_call_still_asks_resets_and_goes_ahead() {
 }
 
 /// One call's reservation and settlement in dollars, by hand from the
-/// catalog (Sonnet 5.5: $2 in, $10 out, $0.10 cache read, $2.50 cache write
+/// catalog (Sonnet 5.5: $2 in, $10 out, $0.20 cache read, $2.50 cache write
 /// per million tokens). The call reserves 128,000 output tokens at $10 plus
 /// the estimate's upper bound at $2, and settles at 1,200 in, 900 out,
-/// 40,000 cache reads, and 3,000 cache writes: $0.0024 + $0.009 + $0.004 +
-/// $0.0075 = $0.0229, in the budget, the session, and the ledger alike.
+/// 40,000 cache reads, and 3,000 cache writes: $0.0024 + $0.009 + $0.008 +
+/// $0.0075 = $0.0269, in the budget, the session, and the ledger alike.
 #[tokio::test]
 async fn one_calls_reservation_and_settlement_match_the_catalog_by_hand() {
     let usage = theseus_protocol::Usage {
@@ -3739,7 +3739,7 @@ async fn one_calls_reservation_and_settlement_match_the_catalog_by_hand() {
         .execution(res.execution_id.as_deref().unwrap())
         .unwrap()
         .unwrap();
-    assert_eq!(e.budget.spent_micros, 2_400 + 9_000 + 4_000 + 7_500);
+    assert_eq!(e.budget.spent_micros, 2_400 + 9_000 + 8_000 + 7_500);
     assert_eq!(e.budget.reserved_micros, 0);
     let s = r
         .core
@@ -3747,13 +3747,13 @@ async fn one_calls_reservation_and_settlement_match_the_catalog_by_hand() {
         .get_session::<SessionRecord>(&res.session_id)
         .unwrap()
         .unwrap();
-    assert!((s.cost_usd - 0.0229).abs() < 1e-12, "{}", s.cost_usd);
+    assert!((s.cost_usd - 0.0269).abs() < 1e-12, "{}", s.cost_usd);
     let row = &ledgered(&r, "provider.call")[0];
     assert!(
-        (row["cost_usd"].as_f64().unwrap() - 0.0229).abs() < 1e-12,
+        (row["cost_usd"].as_f64().unwrap() - 0.0269).abs() < 1e-12,
         "{row}"
     );
-    assert!((res.cost_usd.unwrap() - 0.0229).abs() < 1e-12);
+    assert!((res.cost_usd.unwrap() - 0.0269).abs() < 1e-12);
 }
 
 /// A 1-hour cache write is priced at 2 × input (theseus-ev1), in the budget,

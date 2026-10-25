@@ -20,8 +20,13 @@ const FILES: usize = 65;
 /// The system block, and each answer, in tokens.
 const SYSTEM: u64 = 7_500;
 const ANSWER: u64 = 450;
-/// Sonnet 5.5's prices, dollars per million tokens (fitted to the hunt's
-/// 207 per-call costs): cache read, cache write, output.
+/// Sonnet 5.5's prices, dollars per million tokens as they stood when the
+/// hunt was billed (fitted to its 207 per-call costs): cache read, cache
+/// write, output. The cache read stays at the $0.10 the catalog then held
+/// (it is $0.20 since 2026-10-25, theseus-rko44), because the figures this
+/// replay is held against, the 20-exchange rule's $17.67 and the owner's
+/// hunt's ~$16, were priced that way; at $0.20 the same replay costs $15.20
+/// and the `dollars` bound below would need a decision of its own.
 const READ: f64 = 0.10;
 const WRITE: f64 = 2.50;
 const OUT: f64 = 10.0;
