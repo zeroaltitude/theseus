@@ -99,3 +99,56 @@ test('the needs counter under today’s answer is the Needs-you list’s length;
   assert.equal(b.find((r) => r.id === 'ses_ak')!.asks, 2)
   assert.equal(b.find((r) => r.id === 'a:ask_1')!.kind, 'ask')
 })
+
+// ---- the owner's calls, proved by tests that pass the setting and fail without the code (join fixes of theseus-odj0m) ----
+
+test('Q3: agents only uncounts what is drawn working, never a card in Needs: a doing step with a goal-change ask and a job that needs the owner stay counted', () => {
+  const T = { thread: 'harbour-survey' }
+  const views: WorkView[] = [
+    view('exe_hv', 'conversation', 'running', { session_id: 'ses_hv', ...T }),
+    view('act_jb', 'job', 'running', { session_id: 'ses_hv', parent: 'exe_hv', ...T, title: 'cargo test -p quays' }),
+  ]
+  const records = [
+    record('tsk_g', { title: 'Chart the shoals', state: 'in_progress', origin: { session: 'ses_hv' } as never, proposal: { objective: 'chart the reefs too', by: 'ses_hv', card: 'act_px', base_version: 1, at_ms: NOW - 3 * MIN } as never }),
+  ]
+  const confirms: ConfirmRequest[] = [confirm('act_cj', { session_id: 'ses_nowhere', execution_id: 'act_jb' })]
+  const queue = queueOf({ confirms, views, records })
+  const rows = boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false, calls: RECOMMENDED })
+  const step = rows.find((r) => r.id === 'tsk_g')!
+  const job = rows.find((r) => r.id === 'act_jb')!
+  assert.deepEqual([step.kind, step.asks, step.bucket, step.column, step.counted], ['step', 1, 'needs', 'needs', true], 'a doing step carrying a goal-change ask, its carrier working')
+  assert.deepEqual([job.kind, job.asks, job.bucket, job.column, job.counted], ['job', 1, 'needs', 'needs', true], 'a job that needs the owner')
+  const needs = columnsOf(rows, NOW).needs
+  assert.deepEqual(needs.map((r) => r.id).sort(), ['act_jb', 'tsk_g'], 'both sit in the Needs column')
+  assert.equal(allCounters(rows, NOW, 0, RECOMMENDED).needs, needs.length, 'the needs counter is the Needs column, not one less (the 20:01 mismatch)')
+})
+
+test('Q1 A: a task with two asks is one needs card, and Q1 B counts both asks', () => {
+  const T = { thread: 'harbour-survey' }
+  const views: WorkView[] = [view('exe_ak', 'task', 'running', { session_id: 'ses_ak', ...T })]
+  const queue = queueOf({ confirms: [confirm('act_c1', { session_id: 'ses_ak' }), confirm('act_c2', { session_id: 'ses_ak', tool: 'fs.delete' })], views })
+  const count = (calls: OwnerCalls) => allCounters(boardRows({ views, tasks: [], sessions: [], queue, now: NOW, past: false, calls }), NOW, 0, calls).needs
+  assert.equal(count({ ...RECOMMENDED, needsPerCard: false }), 2, 'Q1 B: one per ask')
+  assert.equal(count(RECOMMENDED), 1, 'Q1 A: one per card, however many questions it holds')
+  assert.equal(count({ ...OWNER_CALLS, needsPerCard: true }), 1, 'the one switch alone makes it so')
+})
+
+test('Q3: agents only drops the job and the steps an agent is already doing from Working, and nothing else', () => {
+  const { views, records, queue } = fixture()
+  const offCalls = { ...RECOMMENDED, agentsOnly: false }
+  const build = (calls: OwnerCalls) => boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false, calls })
+  const off = build(offCalls)
+  const on = build(RECOMMENDED)
+  // The job, the step a running task is doing, and the plan its conversation is carrying out: all drawn working, none a second agent.
+  const dropped = ['act_jb', 'tsk_do', 'tsk_plan']
+  for (const id of dropped) {
+    assert.equal(on.find((r) => r.id === id)!.bucket, 'working', `${id} is still drawn working`)
+    assert.equal(off.find((r) => r.id === id)!.counted, true, `${id} counts when agents-only is off`)
+    assert.equal(on.find((r) => r.id === id)!.counted, false, `${id} is not counted again`)
+  }
+  const counted = (rows: OpsRow[]) => rows.filter((r) => r.counted && r.bucket === 'working').map((r) => r.id).sort()
+  assert.deepEqual(counted(off).filter((id) => !counted(on).includes(id)), [...dropped].sort(), 'exactly those three leave the count')
+  assert.deepEqual(counted(on), ['ses_hv', 'ses_tk'], 'the agents themselves, the running conversation and task, still count')
+  const working = (rows: OpsRow[], calls: OwnerCalls) => allCounters(rows, NOW, 0, calls).working
+  assert.equal(working(off, offCalls) - working(on, RECOMMENDED), dropped.length, 'the Working counter falls by exactly those')
+})

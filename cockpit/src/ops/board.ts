@@ -220,7 +220,8 @@ export function boardRows({ views, tasks, sessions, lines = {}, records = [], qu
     const timed = r.kind === 'wake' || r.kind === 'routine' || r.kind === 'watch'
     const onBoard = !timed || dueToday || r.asks > 0
     r.column = onBoard ? COLUMN_OF[r.bucket] : null
-    r.counted = r.column != null && countedCard({ kind: r.kind, carrierInFlight }, calls)
+    // `agentsOnly` uncounts only what is drawn working: a card in Needs (a step with a goal-change ask, a failed job) stays counted.
+    r.counted = r.column != null && (r.bucket !== 'working' || countedCard({ kind: r.kind, carrierInFlight }, calls))
     const v = r.view
     if (r.kind === 'task') {
       r.dueMs = r.column === 'scheduled' ? r.task?.info?.starts_at_ms ?? v?.next_at_ms : undefined
