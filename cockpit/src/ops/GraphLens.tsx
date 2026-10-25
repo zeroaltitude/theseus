@@ -24,6 +24,8 @@ import type { DragDrop } from './DropLayer'
 import { dragOf, type DragItem } from './rehome'
 import { FilterChip, type FilterChipProps } from './FilterChip'
 import { OWNER_CALLS, type OwnerCalls } from './state'
+import { hiddenIds, rowItem, tally } from './retire'
+import { RetireBar, useRetire } from './RetireBar'
 
 const EDGE: Readonly<Record<GEdge['kind'], Partial<Edge>>> = {
   parent: { style: { stroke: '#9c907a', strokeWidth: 1.25 } },
@@ -82,11 +84,16 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
   // Q4 A: a counter's click leaves everything but the kept cards and their context out of the drawing, each slot kept as
   // a hole so nothing moves; Q4 B (today's) only outlines the rest.
   const keep = useMemo(() => (calls.hideRest && shownIds ? new Set([...shownIds, ...(contextIds ?? [])]) : undefined), [calls.hideRest, shownIds, contextIds])
-  const g = useMemo(() => memory.lay(rows, lanes, { now, future, expanded, opened, keep }, tidy), [memory, rows, lanes, now, future, expanded, opened, keep, tidy])
+  // Soft retire (theseus-99l9z): old nodes are left out of the drawing like a counter's rest, never out of `rows`.
+  const retire = useRetire('graph')
+  const retiredOut = useMemo(() => hiddenIds(rows, (r) => r.id, (r) => r.parent, rowItem, retire.choice.show, now, retire.choice.days, [focus, ...picked].filter((x): x is string => !!x)), [rows, retire.choice, now, focus, picked])
+  const kept = useMemo(() => (retiredOut.size ? new Set([...(keep ?? rows.map((r) => r.id))].filter((id) => !retiredOut.has(id))) : keep), [keep, rows, retiredOut])
+  const retireCounts = useMemo(() => tally(rows, rowItem, now, retire.choice.days), [rows, now, retire.choice.days])
+  const g = useMemo(() => memory.lay(rows, lanes, { now, future, expanded, opened, keep: kept }, tidy), [memory, rows, lanes, now, future, expanded, opened, kept, tidy])
   // The layout without the openings, which says what each opening can fold back into (`foldBacks`).
-  const base = useMemo(() => (expanded.size || opened.size ? layoutRows(rows, lanes, null, { now, future, keep }) : g), [rows, lanes, now, future, keep, expanded, opened, g])
+  const base = useMemo(() => (expanded.size || opened.size ? layoutRows(rows, lanes, null, { now, future, keep: kept }) : g), [rows, lanes, now, future, kept, expanded, opened, g])
   // The roots' fold-backs read the layout with the lanes' openings: a fold opened inside an opened lane is only there.
-  const baseRoots = useMemo(() => (opened.size && expanded.size ? layoutRows(rows, lanes, null, { now, future, expanded, keep }) : base), [rows, lanes, now, future, expanded, opened, keep, base])
+  const baseRoots = useMemo(() => (opened.size && expanded.size ? layoutRows(rows, lanes, null, { now, future, expanded, keep: kept }) : base), [rows, lanes, now, future, expanded, opened, kept, base])
   const back = useMemo(() => foldBacks(g, base, expanded, opened, baseRoots), [g, base, expanded, opened, baseRoots])
   useEffect(() => { layoutRef.current = g }, [g, layoutRef])
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
@@ -223,6 +230,7 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
       <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2 rounded-lg bg-hull/90 px-2.5 py-1.5 text-[11px] text-ink-dim ring-1 ring-line backdrop-blur">
         {fullGraph.button}
         {chip && <FilterChip {...chip} calls={calls} />}
+        <RetireBar choice={retire.choice} set={retire.set} counts={retireCounts} hidden={retiredOut.size} />
         <span className="num">{g.nodes.length} nodes{g.folded ? ` · ${g.folded} folded` : ''}{g.hidden ? ` · ${g.hidden} hidden` : ''}</span>
         {g.cantOpen && <span role="status" className="text-wait">could not open: the graph is at its cap; narrow it with the filters or the search</span>}
         <button type="button" aria-pressed={future} onClick={() => setFuture((f) => !f)} className={cn('rounded px-1.5 ring-1', future ? 'bg-think/15 text-think ring-think/40' : 'ring-line hover:text-ink')}

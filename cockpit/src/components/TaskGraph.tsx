@@ -2,7 +2,7 @@
 // layer-1 change with its card; and the same records as a graph (React Flow, as SessionGraph draws a session), opened
 // from the panel with its state in the address (`?taskgraph=1`, and `&task=<id>` for the one picked). It shows the
 // present: under the time machine it says so, and its acts are off. `task.changed` reads `task.list` again (rpc.ts).
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { AnimatePresence } from 'motion/react'
 import { ReactFlow, Background, Controls, Handle, Position, type Edge, type Node, type NodeProps } from '@xyflow/react'
@@ -10,26 +10,36 @@ import '@xyflow/react/dist/style.css'
 import { History, Lock, Network, X } from 'lucide-react'
 import type { ConfirmRequest, TaskRecord } from '@protocol'
 import { useTick } from '@/lib/hooks'
-import { cardOf, changeWords, claimWords, isClosed, layout, taskShort, taskTree } from '@/lib/taskgraph'
+import { cardOf, changeWords, claimWords, isClosed, layout, taskShort, taskTree, writeTaskGraph } from '@/lib/taskgraph'
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { Empty, Panel, Pill, StatePill } from './ui'
 import { ConfirmCard } from './ConfirmCard'
 import { FIT, useFullGraph } from './FullGraph'
 import { opsHref } from '@/ops/address'
+import { hiddenIds, recordItem, tally } from '@/ops/retire'
+import { RetireBar, useRetire } from '@/ops/RetireBar'
 
 /** The records as a tree, with a button that opens the graph. `past`: the time machine's moment, when it has one. */
 export function TaskTree({ records, confirms, past }: { records: TaskRecord[]; confirms: ConfirmRequest[]; past?: number }) {
   const now = useTick(15000)
   const [params, setParams] = useSearchParams()
   const open = params.get('taskgraph') === '1'
-  const rows = useMemo(() => taskTree(records), [records])
+  // Soft retire (theseus-99l9z): the tree leaves old records out, never the count in its heading or the records.
+  const retire = useRetire('taskgraph')
+  const { show, days } = retire.choice
+  const at = past ?? now
+  const out = useMemo(() => hiddenIds(records, (t) => t.id, (t) => t.parent, (t) => recordItem(t, at), show, at, days), [records, show, at, days])
+  const counts = useMemo(() => tally(records, (t) => recordItem(t, at), at, days), [records, at, days])
+  const rows = useMemo(() => taskTree(records).filter(({ t }) => !out.has(t.id)), [records, out])
   const openN = records.filter((t) => !isClosed(t)).length
-  const toggle = () => setParams((p) => { if (open) { p.delete('taskgraph'); p.delete('task') } else p.set('taskgraph', '1'); return p }, { replace: true })
+  // Opening fills the window, so the graph appears where the click was (it used to open in a panel further down).
+  const toggle = () => setParams((p) => writeTaskGraph(p, !open), { replace: !open })
   return (
     <Panel help="actions.taskgraph" title={<>Task graph · {openN} open{records.length ? ` of ${records.length}` : ''}</>} icon={<Network size={13} />} bodyClassName="max-h-[460px] overflow-auto p-2"
       actions={records.length ? <button onClick={toggle} className="flex items-center gap-1 text-[11px] text-live">{open ? <><X size={11} /> close the graph</> : <><Network size={11} /> open as a graph</>}</button> : null}>
       {past !== undefined && <div className="mb-2 flex items-center gap-1.5 text-[11px] text-wait"><History size={12} /> the task graph shows the present, not the log&rsquo;s moment; its acts are off</div>}
-      {!rows.length && <Empty>no task records yet</Empty>}
+      {records.length > 0 && <RetireBar choice={retire.choice} set={retire.set} counts={counts} hidden={out.size} className="mb-2 text-[11px]" />}
+      {!rows.length && <Empty>{records.length ? 'every record is retired: tick a box above to show them' : 'no task records yet'}</Empty>}
       {rows.map(({ t, depth }) => {
         const claim = claimWords(t, now)
         const change = changeWords(t)
@@ -94,10 +104,14 @@ export function TaskGraphView({ records, past }: { records: TaskRecord[]; past?:
     const edges: Edge[] = l.links.map((k) => ({ id: k.id, source: k.source, target: k.target, style: k.dep ? { stroke: '#6e6450', strokeDasharray: '4 4' } : { stroke: '#9c907a' } }))
     return { nodes, edges }
   }, [records, now, pick])
-  if (params.get('taskgraph') !== '1') return null
+  const box = useRef<HTMLDivElement>(null)
+  const opened = params.get('taskgraph') === '1'
+  // A deep link opens the panel below the page's others: bring it into view (the full-window graph is already).
+  useEffect(() => { if (opened && !fg.full) box.current?.scrollIntoView?.({ block: 'nearest' }) }, [opened]) // eslint-disable-line react-hooks/exhaustive-deps -- once per opening
+  if (!opened) return null
   const picked = records.find((t) => t.id === pick)
   return (
-    <Panel help="actions.taskgraph" title={<>Task graph · {records.length} tasks</>} icon={<Network size={13} />} className={fg.panel.className} dialog={fg.panel.dialog}
+    <div ref={box}><Panel help="actions.taskgraph" title={<>Task graph · {records.length} tasks</>} icon={<Network size={13} />} className={fg.panel.className} dialog={fg.panel.dialog}
       actions={<span className="flex items-center gap-3"><Link to={opsHref({ lens: 'graph', sel: pick })} className="text-[11px] text-live hover:underline" data-testid="open-in-ops">open in Operations</Link>{fg.button}</span>}
       bodyClassName={fg.full ? 'flex flex-col overflow-auto p-0' : 'p-0'}>
       {past !== undefined && <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-wait"><History size={12} /> the present, not the log&rsquo;s moment</div>}
@@ -116,6 +130,6 @@ export function TaskGraphView({ records, past }: { records: TaskRecord[]; past?:
           <div>from {picked.origin.session}{picked.session ? ` · its session ${picked.session}` : ''}</div>
         </div>
       )}
-    </Panel>
+    </Panel></div>
   )
 }
