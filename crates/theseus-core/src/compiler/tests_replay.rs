@@ -259,7 +259,13 @@ fn the_replays_grid() {
 
 /// The hunt's context at every call and each pass, for the shipped rule, on
 /// the owner's hunt and with a third of its results under 2,000 characters
-/// (which no pass clears), printed with `--nocapture --run-ignored all`.
+/// (which no pass clears), printed with `--nocapture --run-ignored all`. The
+/// context a pass leaves climbs through the hunt (59K at call 23, 189K at call
+/// 205): what a pass cannot clear (the model's answers, call ids, stubs) is
+/// the floor under the sawtooth, which is why the mean is 175K and not the
+/// ~120K the fix list expected from the keep and the trigger alone. Neither
+/// replay passes the percent line (the highest request is 316K of 434K), so
+/// the join fix's retry never runs in them.
 #[test]
 #[ignore = "prints the replay's series"]
 fn the_replays_series() {
