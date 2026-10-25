@@ -1120,6 +1120,8 @@ mod tests_forecast;
 #[cfg(test)]
 mod tests_horizon;
 #[cfg(test)]
+mod tests_step;
+#[cfg(test)]
 mod tests_system;
 
 pub(super) use seed::{read_system, read_warm, seed};
