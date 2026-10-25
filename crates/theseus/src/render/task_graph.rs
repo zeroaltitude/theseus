@@ -1,5 +1,5 @@
-//! The task graph in `theseus tasks` (M7 39a, theseus-ext.6): every task
-//! record as a tree, each line its id, title, state, owner, deps, and
+//! The plans and steps in `theseus tasks --graph` (M7 39a, theseus-ext.6):
+//! every record as a tree, each line its id, title, state, owner, deps, and
 //! version, a waiting proposal, a claim (39b), and the evidence count
 //! marked.
 
@@ -18,7 +18,7 @@ pub fn task_tree_lines_at(records: &[TaskRecord], now_ms: u64) -> Vec<String> {
     }
     let open = records.iter().filter(|t| !t.state.is_closed()).count();
     let mut out = vec![format!(
-        "task graph: {open} open, {} closed",
+        "plans and steps: {open} open, {} closed",
         records.len() - open
     )];
     let is_root = |t: &TaskRecord| {
@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(
             task_tree_lines(&records),
             [
-                "task graph: 3 open, 1 closed",
+                "plans and steps: 3 open, 1 closed",
                 "  tsk_harbour \"the tsk_harbour part\" [in_progress] v2",
                 "    tsk_harbour1 \"the tsk_harbour1 part\" [accepted] v1",
                 "    tsk_harbour2 \"the tsk_harbour2 part\" [accepted] v1",

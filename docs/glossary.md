@@ -1,14 +1,27 @@
 # Glossary
 
-The words Theseus uses, as the code and the docs use them today. It describes; it renames nothing. Where one word
-means several things, each meaning is listed with where it is used. Paths are from the repository root; "spec" is
-[the Ship of Theseus](spec/README.md); [cli.md](cli.md) lists the commands.
+The words Theseus uses, as the code and the docs use them today. Where one word means several things, each meaning is
+listed with where it is used. Paths are from the repository root; "spec" is [the Ship of Theseus](spec/README.md);
+[cli.md](cli.md) lists the commands.
+
+The owner's six nouns are *conversation*, *thread*, *plan*, *step*, *task* and *job*. Each entry opens with its one line,
+which every surface (the cockpit, the CLI, the terminal UI and these docs) says the same way. The entry then says
+where the code keeps it.
+
+**"Task" means only the running agent.** A record on the work board is a *plan* or a *step*, never a task. The
+names in the code and on the wire keep their old spelling and are not words a person reads: `task.record` (the store's
+`TASK` kind), `TaskRecord`, `task.list`'s `records`, `task.changed`, `task.split`, `task_create` and `task_close` (the
+model's tools), `WorkKind::Step`, `PlanItem` and every command (`theseus tasks`, `theseus task ...`).
 
 ## A
 
 **activity thread**: the Discord crate's name for a Theseus thread (see *thread*, first sense) when it makes a Discord
 thread for it: "one Discord thread per activity thread" (`crates/theseus-discord/src/runtime/guild_thread.rs`). The
 Discord thread is recorded in the Theseus thread's `surfaces` and run as a place of its own.
+
+**ask**: Anything waiting on your answer: an approval, a question, a budget, a failure to look at, a change to a step's goal. The Needs-you list holds the asks.
+In the code it is a confirm request, a question, a budget question or a failed row; `theseus answer` answers one and
+`theseus status` counts them.
 
 ## B
 
@@ -31,7 +44,8 @@ proposed from imported history that you keep, edit or decline (`theseus card`, `
 **cockpit**: the daemon's web UI, a Vite app served at `/` by `theseusd` (`cockpit/AGENTS.md`). Its build is not
 committed. A *private* place.
 
-**conversation**: a session of kind `conversation`, one of the two `SessionKind`s, beside `task`
+**conversation**: Where you talk with Theseus in one place (a DM, the CLI, a channel, the cockpit). It takes one turn at a time.
+In the code it is a session of kind `conversation`, one of the two `SessionKind`s, beside `task`
 (`crates/theseus-protocol/src/lib.rs`). A person talks in it; a task works for it. It is also a kind of execution.
 
 **conversation mode**: one of `ask`, `edits`, `plan`, `auto` (`SessionMode`, `crates/theseus-protocol/src/modes.rs`),
@@ -58,8 +72,9 @@ works (`docs/herdr.md`).
 **Jev**: the judge Theseus puts typed questions to inside the loop (which model a message needs, whether to recompile, rerank, and others); it never owns a safety guard. Spec §3.7;
 `crates/theseus-judge/` holds its client and the *packs*.
 
-**job**: a process the daemon runs for a session (`proc.run` and the like), detached, durable and cancellable, wrapped
-by `job-wrapper` (`crates/theseus-kernel/src/job.rs`). `theseus peek` and `attach` read one.
+**job**: A command run for a turn or a task, such as a build or a test run.
+In the code it is a process the daemon runs for a session (`proc.run` and the like), detached, durable and cancellable,
+wrapped by `job-wrapper` (`crates/theseus-kernel/src/job.rs`). `theseus peek` and `attach` read one.
 
 **judgment**: one typed question put to Jev, recorded with its probabilities, outcome and cost, in shadow before it
 acts. `theseus judge log` lists them.
@@ -107,16 +122,21 @@ the public tools only. `theseus places`.
 `crates/theseus-core/src/tools_defer/family.rs`), the kind of place a loaded tool set is kept for. `cli` covers the
 CLI, the terminal UI and the web UI. Not the same as the place class, or the *surface*.
 
-**plan item**: one step of a conversation's plan in `plan` mode (`PlanItem`, `crates/theseus-protocol/src/modes.rs`);
-its state is read from its task record. A project's steps are plan items too.
+**plan**: A piece of work broken into parts. It holds steps and smaller plans, shows *n of m* done, and folds open and shut.
+In the code it is a record on the work board (a `TaskRecord`) that has steps under it; `task.list`'s
+`records` carry it, and the plan of a conversation in `plan` mode is its steps (`PlanItem`,
+`crates/theseus-protocol/src/modes.rs`, `crates/theseus-core/src/task_graph/plan.rs`). *Plan* is also the name of
+that mode (see *conversation mode*); the gate's internal `Plan` type (what a call will do) is a different thing and is
+never shown.
 
 **posture**: what the gate does with a tool: `open`, `notify` or `approve`; the floor always asks. Spec §3.9;
 `theseus policy` shows each tool's.
 
 **profile**: a model profile (`[profiles.*]`); one is live, `theseus profile use NAME` switches it.
 
-**project**: long-term work with a goal, dated milestones and steps, all records on the task graph; a *slice* of it
-rides every attached conversation (`crates/theseus-core/src/project/`). `theseus project`.
+**project**: a long-running plan with a goal, dated milestones and a weekly review, a kind of plan, not a fourth
+container; its milestones and steps are records under it, and a *slice* of it rides every attached conversation
+(`crates/theseus-core/src/project/`). `theseus project`.
 
 ## R
 
@@ -138,6 +158,11 @@ execution is its durable record.
 preference or fact) and a scope (everywhere, a place, a session, or a surface). `theseus standing`
 (`crates/theseus-core/src/standing.rs`).
 
+**step**: One piece of work, checked off when done. When something is listed under it, it becomes a plan: same card, same history.
+In the code it is a record on the work board with no session (`TaskRecord`; `WorkKind::Step`), made by `task_create`
+without a brief or by approving a plan. `theseus task show` says of one that it is a step with no task, because no run
+works on it. A project's milestones and steps are steps too.
+
 **store format**: the one number, `MANIFEST_FORMAT` (`crates/theseus-store/src/store.rs`), that a step bumps when it
 changes a stored record. A build refuses a store newer than it knows.
 
@@ -149,19 +174,23 @@ into `terminal` or `cockpit`. A message node records a short code for it (`surfa
 
 ## T
 
-**task**: a session of kind `task`: a child that works on its own and reports back (`task.create`; spec §3.2a,
-`crates/theseus-core/src/task.rs`). Its budget is carved from its parent's. `theseus tasks`, `theseus task start`.
+**task**: An agent Theseus starts to carry out a step or a plan on its own, with its own budget and a fresh context. It reports back to where it came from.
+In the code it is a session of kind `task`: a child that works on its own and reports back (`task.create`; spec
+§3.2a, `crates/theseus-core/src/task.rs`). Its budget is carved from its parent's. `theseus tasks`,
+`theseus task start`.
 
 **task thread**: in Discord, the thread (or private channel) a task's place lives in, so the task's posts and steers go
 there (`crates/theseus-discord/src/runtime/task_channels.rs`). It is a task's place. It is not a Theseus thread.
 
-**thread**: three things. (1) A *Theseus thread*: a durable line of work bound to a virtual place `thread:<slug>`, with a
+**thread**: A named line of work with its own conversation. On the Graph it is a swimlane, and everything it started hangs in it.
+In the code, three things. (1) A *Theseus thread*: a durable line of work bound to a virtual place `thread:<slug>`, with a
 session of its own (`theseus thread`, `ask --thread SLUG`, `[threads]`;
 `crates/theseus-protocol/src/threads.rs`). (2) The Discord thread made for one: the Discord crate's *activity thread*.
 (3) A *task thread*: a task's Discord place (see above).
 
-**turn**: one run of the loop for a session: it ends when the model has no more tool calls to make. A turn is made of
-loops, each one provider request (spec §3.3a).
+**turn**: One run of the model in a conversation or a task, from a message to its reply. ("working" counts turns.)
+In the code it is one run of the loop for a session: it ends when the model has no more tool calls to make. A turn is
+made of loops, each one provider request (spec §3.3a).
 
 ## W
 
