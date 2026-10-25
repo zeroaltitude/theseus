@@ -67,6 +67,8 @@ use crate::vad::{Closed, Vad, VadSettings};
 mod flux_path;
 #[cfg(test)]
 mod tests_leaks;
+#[cfg(test)]
+mod tests_ticks;
 
 /// The engine's settings. [`Config::new`] gives the design's.
 #[derive(Clone, Debug)]
@@ -1844,15 +1846,12 @@ impl Engine {
             let end = last_speech.entry(u.speaker).or_default();
             *end = (*end).max(u.started + u.length);
         }
-        // A turn still waiting for its reply is superseded by this one.
-        if let Some(old) = self.turn.replace(Turn {
+        self.turn = Some(Turn {
             id,
             started: now,
             ack: Ack::Waiting,
             last_speech,
-        }) {
-            self.first_words.remove(&old.id);
-        }
+        });
         self.emit(Event::Turn { id, utterances });
     }
 
