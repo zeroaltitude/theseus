@@ -992,6 +992,11 @@ pub(crate) enum Act<'a> {
     /// sessions could hide the owner's conversations from the default view.
     /// `what` names it: `the retirement of ses_…`.
     Session { method: &'static str, what: &'a str },
+    /// The owner's dismissal of a session's hold notice (theseus-g00vv,
+    /// `policy.notice_seen`): a session's own act, so its refusal is the
+    /// session's row, as a trust's is (theseus-tx1vj). `what` names it:
+    /// `Dismissing the notice of session ses_…`.
+    Dismiss { session: &'a str, what: &'a str },
     /// A standing record's addition or revoke (theseus-a7vi): the owner's
     /// orders ride every prompt of their scope, so a job's process that wrote
     /// one would steer every session. `what` names it: `the revoke of std_…`.
@@ -1080,6 +1085,7 @@ impl Act<'_> {
             Act::Ladder { method, .. } => method,
             Act::Import { method, .. } => method,
             Act::Session { method, .. } => method,
+            Act::Dismiss { .. } => theseus_protocol::method::POLICY_NOTICE_SEEN,
             Act::Standing { method, .. } => method,
             Act::Routine { method, .. } => method,
             Act::Thread { method, .. } => method,

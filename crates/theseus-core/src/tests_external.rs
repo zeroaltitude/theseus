@@ -30,6 +30,7 @@ use crate::{Config, Core};
 
 mod notice;
 mod once;
+mod split;
 
 /// A stand-in model that answers each request from the request itself.
 struct Model {
@@ -130,9 +131,22 @@ fn core_mode(
     driver: bool,
     rule: (crate::external::Mode, Posture),
 ) -> Arc<Core> {
+    core_tuned(dir, port, script, driver, rule, |_| {})
+}
+
+/// [`core_mode`], with `tune` applied to the config before the core is built.
+fn core_tuned(
+    dir: &Path,
+    port: u16,
+    script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
+    driver: bool,
+    rule: (crate::external::Mode, Posture),
+    tune: impl FnOnce(&mut Config),
+) -> Arc<Core> {
     let root = dir.join("work");
     std::fs::create_dir_all(&root).unwrap();
-    let cfg = config(&root.canonicalize().unwrap(), dir, rule);
+    let mut cfg = config(&root.canonicalize().unwrap(), dir, rule);
+    tune(&mut cfg);
     let store = Store::open(&dir.join("store")).unwrap();
     let model = Arc::new(Model {
         script: Box::new(script),

@@ -39,8 +39,8 @@ impl Core {
         let what = format!("Dismissing the notice of session {session_id}");
         self.judge_act(
             who,
-            Act::Session {
-                method: theseus_protocol::method::POLICY_NOTICE_SEEN,
+            Act::Dismiss {
+                session: session_id,
                 what: &what,
             },
         )?;
