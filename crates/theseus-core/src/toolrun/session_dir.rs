@@ -15,6 +15,8 @@ use theseus_tools::ToolCtx;
 
 use super::{ToolRuntime, TurnCtx};
 
+pub mod read_window;
+
 /// A directory a client sent, checked: an absolute path, or why not.
 pub fn checked(dir: Option<&str>) -> Result<Option<String>, String> {
     match dir {
@@ -41,14 +43,16 @@ impl ToolRuntime {
     /// The context a call of this turn plans and runs with: the runtime's,
     /// in its session's directory.
     pub(crate) fn ctx_in(&self, tc: &TurnCtx<'_>) -> Cow<'_, ToolCtx> {
-        match tc.dir {
-            None => Cow::Borrowed(&self.ctx),
-            Some(d) => {
-                let mut ctx = self.ctx.clone();
-                ctx.cwd = self.cwd_for(Some(d));
-                Cow::Owned(ctx)
-            }
+        let mut ctx = Cow::Borrowed(&self.ctx);
+        if let Some(d) = tc.dir {
+            ctx.to_mut().cwd = self.cwd_for(Some(d));
         }
+        // The turn's narrowed read window, if it set one (theseus-tdkcn).
+        match read_window::get(tc.session_id) {
+            0 => {}
+            n => ctx.to_mut().default_read_lines = n,
+        }
+        ctx
     }
 
     /// The workspace roots, when `dir` is under none of them: what the CLI

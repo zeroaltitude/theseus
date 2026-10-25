@@ -30,6 +30,7 @@ use super::{Turn, TurnRunner};
 use crate::config::{Config, PackMode};
 use crate::judge::inbound::RouteWait;
 use crate::routing::Verdict;
+use crate::toolrun::session_dir::read_window;
 
 /// The size of what a prompt needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +51,7 @@ impl Tier {
 }
 
 /// What the turn read of its verdict when the budget was fixed.
+#[derive(Clone, Copy)]
 pub enum Seen<'v> {
     /// A verdict that acts.
     Verdict(&'v Verdict),
@@ -75,7 +77,14 @@ pub struct InjectionBudget {
     /// The multiple of the place's first-request budget admitted families may
     /// raise a request to.
     pub admit_ceiling: f64,
+    /// The verdict acts and its mode is `deep_coding` (theseus-tdkcn): the
+    /// request's tail carries [`CODING_HINT`] and a bare `fs.read` is narrower.
+    /// Not in the row.
+    pub coding: bool,
 }
+
+/// What a `deep_coding` turn's request carries in its tail (theseus-tdkcn).
+pub const CODING_HINT: &str = "[The harness: for this work, map the code before reading it: list a file's or crate's functions first (fs_grep for function signatures). Read in slices of 100-300 lines with offset and limit, not whole files. After each slice, write a line of what you checked and what you found, so your findings survive when old results are cleared. Keep going until the areas you were asked about are covered.]";
 
 /// The tier a verdict folds to, and why it is ordinary when it fell back.
 pub fn tier_of(seen: Seen<'_>, cfg: &Config) -> (Tier, Option<&'static str>) {
@@ -114,7 +123,17 @@ impl InjectionBudget {
             recall_tokens,
             recall_items,
             admit_ceiling,
+            coding: false,
         }
+    }
+
+    /// The budget a verdict (or its absence) gives: `of` its tier, and the
+    /// coding flag when an acting verdict's mode is `deep_coding`.
+    pub fn read(seen: Seen<'_>, cfg: &Config) -> Self {
+        let coding = matches!(seen, Seen::Verdict(v) if v.mode == "deep_coding");
+        let mut b = Self::of(tier_of(seen, cfg), cfg);
+        b.coding = coding && b.fallback.is_none();
+        b
     }
 
     /// The pack's tokens and items: small packs as ordinary, and its detour
@@ -182,11 +201,48 @@ impl TurnRunner {
             Peeked::Landed(None) if deciding => Seen::Missing,
             Peeked::Landed(None) => Seen::Off,
         };
-        let b = InjectionBudget::of(tier_of(seen, &self.cfg), &self.cfg);
+        let b = InjectionBudget::read(seen, &self.cfg);
         if fix || !matches!(peeked, Peeked::Pending) {
             t.route.injection = Some(b.clone());
+            Self::narrow_reads(t);
+        } else {
+            read_window::set(t.tc.session_id, 0);
         }
         b
+    }
+
+    /// A `deep_coding` turn's bare `fs.read` returns [`NARROW_LINES`] lines
+    /// (theseus-tdkcn); any other turn's budget clears the session's value.
+    fn narrow_reads(t: &Turn<'_>) {
+        let coding = t.route.injection.as_ref().is_some_and(|b| b.coding);
+        let lines = match coding {
+            true => read_window::NARROW_LINES,
+            false => 0,
+        };
+        read_window::set(t.tc.session_id, lines);
+    }
+
+    /// A `deep_coding` turn's hint, one tail block after the cached prefix,
+    /// counted in the estimate; once per request.
+    pub(super) fn coding_hint(t: &Turn<'_>, compiled: &mut crate::compiler::Compiled) {
+        if !t.route.injection.as_ref().is_some_and(|b| b.coding) {
+            return;
+        }
+        let has = compiled
+            .request
+            .messages
+            .last()
+            .and_then(|m| m["content"].as_array())
+            .is_some_and(|b| b.iter().any(|b| b["text"] == CODING_HINT));
+        if has {
+            return;
+        }
+        crate::task_graph::view::attach_text(&mut compiled.request, CODING_HINT);
+        let n = (CODING_HINT.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);
+        compiled.est_tokens += n;
+        compiled.estimate.tokens += n;
+        compiled.estimate.estimated += n;
+        compiled.estimate.upper += n + n * crate::compiler::MARGIN_PERCENT / 100;
     }
 
     /// The budget `record_route` fixes when nothing fixed one before (no pack
@@ -207,7 +263,8 @@ impl TurnRunner {
             (_, Some(Reason::NoVerdict | Reason::Unreachable)) => Seen::Missing,
             _ => Seen::Off,
         };
-        t.route.injection = Some(InjectionBudget::of(tier_of(seen, &self.cfg), &self.cfg));
+        t.route.injection = Some(InjectionBudget::read(seen, &self.cfg));
+        Self::narrow_reads(t);
     }
 }
 
@@ -273,6 +330,32 @@ mod tests {
             "its detour drops it"
         );
         assert_eq!(cfg.memory.session_recall_cap_tokens, 64_000);
+    }
+
+    /// Only an acting `deep_coding` verdict is a coding turn (theseus-tdkcn):
+    /// not `review` or `sophisticated`, not an unsure verdict, not a turn
+    /// routing does not decide.
+    #[test]
+    fn only_an_acting_deep_coding_verdict_is_a_coding_turn() {
+        let cfg = Config::example();
+        fn coding(s: Seen<'_>, cfg: &Config) -> bool {
+            InjectionBudget::read(s, cfg).coding
+        }
+        let coding = |s: Seen<'_>| coding(s, &cfg);
+        assert!(coding(Seen::Verdict(&v("deep_coding", 0.95))));
+        for mode in [
+            "review",
+            "sophisticated",
+            "routine_coding",
+            "chat",
+            "trivial",
+        ] {
+            assert!(!coding(Seen::Verdict(&v(mode, 0.95))), "{mode}");
+        }
+        assert!(!coding(Seen::Verdict(&v("deep_coding", 0.1))), "unsure");
+        for s in [Seen::Late, Seen::Missing, Seen::Off] {
+            assert!(!coding(s));
+        }
     }
 
     #[tokio::test]

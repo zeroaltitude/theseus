@@ -2192,6 +2192,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     says in one line. The sizes ride `Scene.budget_tokens`/`max_items`, so a live rerank's refill packs the same.
     The tier touches only the tail: no cached prefix byte moves (`tests_injection_tiers.rs`). Deep's keys at
     ordinary's numbers are the rollback.
+    **The narrow-read hint** (theseus-tdkcn; `turn/tier.rs`, `toolrun/session_dir/read_window.rs`): an acting `deep_coding`
+    verdict (`InjectionBudget.coding`; not `review`, `sophisticated`, an unsure or late verdict, or a turn routing does not
+    decide) puts `CODING_HINT` in the request's tail (`coding_hint`, beside the persona line: map with `fs_grep`, read
+    100-300 line slices, write down findings), and a bare `fs_read` returns 400 lines (`ToolCtx.default_read_lines`, set
+    per session at the turn's budget and cleared by any other turn's); the schema and the footer are unchanged.
+    Tests: `tests_coding_hint.rs`, `tests_narrow_read.rs` (theseus-tools).
     A trivial detour's request carries no recall (theseus-n7nc): while routing has the route to decide
     (`RouteState::deciding`) the row waits for it, and once it is known `recall_routed` drops a detour's node, its
     rides and its footer count, and the row says `detoured`. A quick detour's request carries it (theseus-pa1xx,

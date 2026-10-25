@@ -403,7 +403,13 @@ impl Tool for Read {
         let lines: Vec<&str> = text.lines().collect();
         let total = lines.len();
         let from = a.offset.unwrap_or(1).max(1);
-        let limit = a.limit.unwrap_or(DEFAULT_READ_LINES);
+        // A read that names neither offset nor limit takes the turn's own
+        // default window (theseus-tdkcn); the schema's "Default 2000" is unchanged.
+        let default = match a.offset.is_none() && ctx.default_read_lines > 0 {
+            true => ctx.default_read_lines,
+            false => DEFAULT_READ_LINES,
+        };
+        let limit = a.limit.unwrap_or(default);
         let mut out = String::new();
         let mut room = crate::fs_read_cap::Room::new(ctx.max_read_bytes);
         let mut last = from.saturating_sub(1);
