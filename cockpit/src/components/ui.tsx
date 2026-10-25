@@ -147,7 +147,7 @@ export function Segmented<T extends string>({ value, options, onChange }: { valu
       {options.map((o) => (
         <button
           key={o}
-          onClick={() => onChange(o)}
+          type="button" aria-pressed={o === value} onClick={() => onChange(o)}
           className={cn('num rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors', o === value ? 'bg-live/15 text-live shadow-[0_0_10px_-2px_rgba(34,211,238,0.5)]' : 'text-ink-faint hover:text-ink')}
         >
           {o}

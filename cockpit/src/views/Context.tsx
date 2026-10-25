@@ -14,14 +14,14 @@ import { CATEGORICAL } from '@/lib/viz'
 import { useMode } from '@/lib/mode'
 import { daylightColor } from '@/lib/daylight'
 import { useAsOf } from '@/lib/timemachine'
-import { Empty, Field, Panel, Pill } from '@/components/ui'
+import { Empty, Field, Panel, Pill, Segmented } from '@/components/ui'
 import { ChartPanel, StatTile, TipArea, TipBody, TipTarget } from '@/components/ChartPanel'
 import { useInPast } from '@/components/OntologyParts'
 import { AskIndex, TurnContext } from '@/components/ContextTurn'
 import { StandingRecords } from '@/components/StandingRecords'
 import { CardProposals } from '@/components/CardProposals'
 import {
-  PAGE, TABS, ancestors, count, filtersOf, monthBins, namedParams, ontologyPaths, paramsOf, sensitivityWords, tabOf, topicTree, veiled, when,
+  DATED_FLOOR, PAGE, RANGES, SCALES, TABS, ancestors, barHeight, count, filtersOf, monthSpan, namedParams, ontologyPaths, paramsOf, rangeOf, scaleOf, sensitivityWords, tabOf, timelineView, topicTree, veiled, when,
   type FilterKey, type Tab,
 } from '@/lib/explorer'
 
@@ -259,38 +259,72 @@ function TopicPanel({ topics, picked, pick }: { topics: ImportFacet[]; picked?: 
   )
 }
 
-/** The episodes a month by their span's start, a column a month, gaps as empty months; a click keeps that month. Its
- *  table is the same months. */
+/** The episodes a month by their span's start, dated months in a window (`?range=`) with long gaps as one mark, heights
+ *  linear or square-root (`?scale=`); the undated months are one chip; a click keeps that month. Its table is every month. */
 function Timeline({ months, picked, pick }: { months: ImportFacet[]; picked?: string; pick: (m: string | null) => void }) {
-  const bins = useMemo(() => monthBins(months), [months])
-  const max = Math.max(1, ...bins.map((b) => b.count))
+  const [params, setParams] = useSearchParams()
+  const range = rangeOf(params.get('range'))
+  const scale = scaleOf(params.get('scale'))
+  const keep = (k: string, v: string, dflt: string) => setParams((p) => { if (v === dflt) p.delete(k); else p.set(k, v); return p }, { replace: true })
+  const view = useMemo(() => timelineView(months, range), [months, range])
+  const rows = useMemo(() => [...months].filter((m) => monthSpan(m.value)).reverse(), [months])
+  const { max, columns } = view
   const day = useMode((s) => s.mode) === 'light'
   const accent = day ? daylightColor(CATEGORICAL.dark[0]) : CATEGORICAL.dark[0]
-  const total = bins.reduce((a, b) => a + b.count, 0)
+  const total = rows.reduce((a, b) => a + b.count, 0)
+  const [pa, pb] = picked ? picked.split('..') : []
+  const inPicked = (v: string) => !picked || (pb !== undefined ? v >= pa && v <= pb : v === picked)
+  const biggest = useMemo(() => new Set(columns.flatMap((c) => (c.kind === 'month' ? [c] : [])).sort((x, y) => y.count - x.count).slice(0, Math.min(3, Math.floor(columns.length / 8) || 1)).filter((c) => c.count > 0).map((c) => c.value)), [columns])
+  const undatedTip = view.undated.map((m) => `${m.value}: ${count(m.count)}`).join(', ')
+  const undatedOn = !!view.undatedPick && picked === view.undatedPick
+  const controls = (
+    <>
+      <Segmented value={range} options={RANGES} onChange={(v) => keep('range', v, '2y')} />
+      <Segmented value={scale} options={SCALES} onChange={(v) => keep('scale', v, 'sqrt')} />
+    </>
+  )
   return (
-    <ChartPanel id="asof" help="context.asof" title={<>as of · episodes a month{bins.length ? ` · ${bins[0].value} to ${bins[bins.length - 1].value}` : ''}</>} icon={<FileText size={13} />} height={132}
-      empty={bins.length ? undefined : 'no months'}
+    <ChartPanel id="asof" help="context.asof" title={<>as of · episodes a month{view.first ? ` · ${view.first} to ${view.last}` : ''}</>} icon={<FileText size={13} />} height={132}
+      actions={controls} empty={columns.length || view.undatedCount ? undefined : 'no months'}
       table={{
-        caption: 'imported episodes a month, by their span’s start', rows: [...bins].reverse(), rowKey: (b) => b.value,
-        columns: [{ key: 'm', label: 'month', cell: (b) => b.value }, { key: 'n', label: 'episodes', num: true, cell: (b) => count(b.count) }, { key: 's', label: 'share', num: true, cell: (b) => `${total ? ((b.count / total) * 100).toFixed(1) : '0'}%` }],
+        caption: 'imported episodes a month, by their span’s start', rows, rowKey: (b) => b.value,
+        columns: [{ key: 'm', label: 'month', cell: (b) => <>{b.value}{b.value < DATED_FLOOR && <span className="ml-1.5 text-ink-faint" title={`before ${DATED_FLOOR}: almost certainly a bad timestamp from an import`}>undated</span>}</> },
+          { key: 'n', label: 'episodes', num: true, cell: (b) => count(b.count) }, { key: 's', label: 'share', num: true, cell: (b) => `${total ? ((b.count / total) * 100).toFixed(1) : '0'}%` }],
       }}>
       <TipArea className="flex h-full flex-col">
-        <div className="flex min-h-0 flex-1 items-end gap-px" role="group" aria-label="episodes a month">
-          {bins.map((b) => {
-            const on = !picked || picked === b.value || (picked.includes('..') && b.value >= picked.split('..')[0] && b.value <= picked.split('..')[1])
-            return (
-              <TipTarget key={b.value} label={`${b.value}: ${b.count} episodes`} onClick={() => pick(picked === b.value ? null : b.value)}
-                className="viz-mark h-full min-w-[3px] flex-1 cursor-pointer"
-                tip={<TipBody head={b.value} rows={[{ value: count(b.count), label: 'episodes began this month', color: accent, mark: 'rect' }]} foot={picked === b.value ? 'click again to clear' : 'click to keep this month'} />}>
-                <span className="flex h-full w-full items-end">
-                  <span className="block w-full rounded-t-[2px]" style={{ height: `${b.count ? Math.max(3, (b.count / max) * 100) : 0}%`, background: accent, opacity: on ? 1 : 0.28 }} />
-                </span>
-              </TipTarget>
-            )
-          })}
-        </div>
-        <div className="num mt-1 flex justify-between text-[10px] text-ink-faint">
-          <span>{bins[0]?.value}</span><span>most: {count(max)} in a month</span><span>{bins[bins.length - 1]?.value}</span>
+        <div className="flex min-h-0 flex-1 items-end gap-2">
+          {view.undatedCount > 0 && view.undatedPick && (
+            <button type="button" onClick={() => pick(undatedOn ? null : view.undatedPick)} aria-pressed={undatedOn}
+              aria-label={`undated: ${count(view.undatedCount)} episodes before ${DATED_FLOOR} (${undatedTip})`}
+              title={`${undatedTip}. Before ${DATED_FLOOR}: almost certainly bad timestamps from an import. ${undatedOn ? 'Click again to clear.' : 'Click to keep them.'}`}
+              className={cn('num mb-4 shrink-0 self-end rounded-full px-2 py-0.5 text-[10.5px] text-ink-dim ring-1 ring-line hover:text-ink', undatedOn && 'bg-live/10 text-live')}>
+              undated · {count(view.undatedCount)} {view.undatedCount === 1 ? 'episode' : 'episodes'}
+            </button>
+          )}
+          <div className="flex h-full min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 items-end gap-px" role="group" aria-label="episodes a month">
+              {columns.map((c) => c.kind === 'gap' ? (
+                <TipTarget key={`gap-${c.from}`} label={`${c.from} to ${c.to}: no episodes`} className="h-full w-2 shrink-0"
+                  tip={<TipBody head={`${c.from} to ${c.to}`} rows={[{ value: String(c.months), label: 'months: no episodes', color: accent, mark: 'rect' }]} />}>
+                  <span className="mx-auto block h-full w-0 border-l border-dashed border-ink-faint/60" />
+                </TipTarget>
+              ) : (
+                <TipTarget key={c.value} label={`${c.value}: ${c.count} episodes`} onClick={() => pick(picked === c.value ? null : c.value)}
+                  className="viz-mark h-full min-w-[3px] flex-1 cursor-pointer"
+                  tip={<TipBody head={c.value} rows={[{ value: count(c.count), label: 'episodes began this month', color: accent, mark: 'rect' }]} foot={picked === c.value ? 'click again to clear' : 'click to keep this month'} />}>
+                  <span className="relative flex h-full w-full items-end">
+                    {biggest.has(c.value) && <span className="num pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[9.5px] text-ink-dim" style={{ bottom: `calc(${barHeight(c.count, max, scale)}% + 1px)` }}>{count(c.count)}</span>}
+                    <span className="block w-full rounded-t-[2px]" style={{ height: `${barHeight(c.count, max, scale)}%`, background: accent, opacity: inPicked(c.value) ? 1 : 0.28 }} />
+                  </span>
+                </TipTarget>
+              ))}
+            </div>
+            <div className="num mt-1 flex justify-between gap-2 text-[10px] text-ink-faint">
+              <span>{view.first}</span>
+              <span>most: {count(max)} in a month{view.earlier ? ` · ${count(view.earlier)} earlier than ${view.first}` : ''}</span>
+              <span>{view.last}</span>
+            </div>
+          </div>
         </div>
       </TipArea>
     </ChartPanel>
