@@ -31,8 +31,9 @@ fn ids(fake: &FakeDiscord) -> Vec<String> {
     m.buttons.into_iter().map(|b| b.custom_id).collect()
 }
 
-/// Both sites draw the same buttons: three Drops and a Halt on the create, and again on the edit
-/// of the same key (planted: wire one site only, and the other shows none).
+/// Both sites draw the same buttons: the create of a new key, and the edit of a key whose message
+/// had none (an edit leaves components it does not mention, so the edit must carry them itself).
+/// Planted: wire one site only, and its message shows none.
 #[tokio::test]
 async fn both_component_sites_draw_the_buttons() {
     let d = tempfile::tempdir().unwrap();
@@ -46,12 +47,17 @@ async fn both_component_sites_draw_the_buttons() {
     ];
     lane.write(&write("The night's note.", 3)).await.unwrap();
     assert_eq!(ids(&fake), want, "the create");
-    // The same key, other words: the message is edited, and the buttons are sent again.
-    lane.write(&write("The night's note, later.", 3))
-        .await
-        .unwrap();
+
+    let mut bare = write("A bare note.", 3);
+    bare.key = "self:act_two".into();
+    bare.buttons = Buttons::Keep;
+    lane.write(&bare).await.unwrap();
+    assert!(ids(&fake).is_empty(), "made without buttons");
+    let mut later = write("A bare note, later.", 3);
+    later.key = "self:act_two".into();
+    lane.write(&later).await.unwrap();
     let m = fake.messages(CHANNEL).pop().unwrap();
-    assert_eq!(m.content, "The night's note, later.");
+    assert_eq!(m.content, "A bare note, later.");
     assert_eq!(ids(&fake), want, "the edit");
 }
 
