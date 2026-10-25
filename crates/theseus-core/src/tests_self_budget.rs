@@ -70,6 +70,7 @@ pub(crate) fn make_task(
             session: parent.into(),
             principal: principal.into(),
             by_model: false,
+            ..Default::default()
         },
         state: TaskState::InProgress,
     }

@@ -117,6 +117,10 @@ struct Input {
     /// Tell the owner when it is done: its finish pings (theseus-j7cje).
     #[serde(default)]
     notify_done: bool,
+    /// Why the model starts it, when no one asked this turn (theseus-o1h3f.1);
+    /// a refusal names it (`task_self::REFUSAL`), so the schema declares it.
+    #[serde(default)]
+    because: Option<String>,
     /// Its expected length (theseus-bh3t.1).
     #[serde(default)]
     expect: Option<theseus_protocol::task_start::Expect>,
@@ -290,6 +294,7 @@ impl Tool for TaskCreate {
                     "type": "boolean",
                     "description": "Its report, done or failed, starts this conversation's next turn (default: false; a cancel wakes nothing)."
                 },
+                "because": {"type": "string", "maxLength": 160},
                 "notify_done": {
                     "type": "boolean",
                     "description": "Its finish notifies the owner, wherever they are (default: false)."
@@ -346,8 +351,8 @@ impl Tool for TaskCreate {
                 "acceptance": {"type": "array", "items": {"type": "string"}, "description": "How to know it is done, one line each, beside any `acceptance` pieces."},
                 "parent": {"type": "string", "description": "The task it goes under (tsk_…)."},
                 "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on (tsk_…)."},
-                "check_of": {"type": "string", "description": "Check this task (its id or its end): one this conversation started that has reported."},
-                "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."},
+                "check_of": {"type": "string", "description": "Check this task (id or the end of it): one that has reported."},
+                "profile": {"type": "string", "description": "A check's model: a profile's name (default: this conversation's). Only for `check_of`."},
                 "open": {"type": "boolean", "description": "Brief only, no arrangement; compiled without owner material; may leave Claude."},
                 "start_after": {"type": "string", "description": "Start this long from now: 2h, 1d (1 second to 365 days)."},
                 "kind": {"type": "string", "enum": ["item", "project", "milestone"], "description": "Without `brief`: `project` (`objective`, `milestones`, a weekly `review` or `none`, which waits for the owner's yes) or `milestone` (`parent` a project, `due`; the owner is reminded)."},
@@ -497,6 +502,7 @@ pub fn create<'a>(
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
     let Some(brief) = i.brief.as_deref() else {
+        let own = crate::task_self::Own::read(tc, correlation_id, i.because.as_deref())?;
         // A plan item (39a): a record, and no session.
         return crate::task_graph::tools::create_item(
             tc,
@@ -512,6 +518,7 @@ pub fn create<'a>(
                 parent: i.parent.as_deref(),
                 deps: &i.deps,
                 arrangement: i.arrangement.as_ref(),
+                own: Some(&own),
             },
             correlation_id,
         );
@@ -524,6 +531,7 @@ pub fn create<'a>(
     if parent.parent.is_some() || parent.kind == SessionKind::Task {
         return Err(DEPTH_REFUSAL.into());
     }
+    let own = crate::task_self::Own::read(tc, correlation_id, i.because.as_deref())?;
     if i.open && crate::google::private::session_on(tc.store, google, tc.session_id) {
         return Err(PRIVATE_OPEN_REFUSAL.into());
     }
@@ -587,7 +595,7 @@ pub fn create<'a>(
     let text = brief_text(&task_session, tc.session_id, brief);
     // Its record (39a), written with its session: its objective and
     // acceptance are the arrangement's pieces when they say them.
-    let graph = graph_record(tc, &i, &pieces, &title, &task_session)?;
+    let graph = graph_record(tc, &i, &own, &pieces, &title, &task_session)?;
     let created =
         crate::task_graph::tools::change(tc, &graph, None, json!({"session": task_session}));
     let created_row = crate::fact::task_graph::row_of(&tc.rec(), "created", &created)
@@ -899,6 +907,7 @@ pub fn create<'a>(
 fn graph_record(
     tc: &TurnCtx<'_>,
     i: &Input,
+    own: &crate::task_self::Own,
     pieces: &[crate::arrangement::Piece],
     title: &str,
     task_session: &str,
@@ -920,6 +929,15 @@ fn graph_record(
         .as_deref()
         .or(i.open.then_some(i.brief.as_deref()).flatten());
     let (objective, acceptance) = g::tools::from_pieces(pieces, objective, &i.acceptance, title);
+    let mut origin = g::TaskOrigin {
+        session: tc.session_id.into(),
+        principal: g::principal_of(tc.kernel, tc.execution_id),
+        // The owner's unless it started itself: its objective and
+        // acceptance are the arrangement's.
+        by_model: false,
+        ..Default::default()
+    };
+    own.apply(&mut origin);
     Ok(g::NewTask {
         id: g::of_session(task_session),
         title,
@@ -928,12 +946,7 @@ fn graph_record(
         parent,
         deps: i.deps.clone(),
         session: Some(task_session.into()),
-        origin: g::TaskOrigin {
-            session: tc.session_id.into(),
-            principal: g::principal_of(tc.kernel, tc.execution_id),
-            // The owner's: its objective and acceptance are the arrangement's.
-            by_model: false,
-        },
+        origin,
         state: g::TaskState::InProgress,
     }
     .build(theseus_protocol::now_unix_ms()))

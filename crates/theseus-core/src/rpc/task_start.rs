@@ -620,6 +620,7 @@ impl Core {
                 session: home_session.to_string(),
                 principal: crate::task_graph::principal_of(&self.kernel, home_exec),
                 by_model: false,
+                ..Default::default()
             },
             state: crate::task_graph::TaskState::InProgress,
         }

@@ -286,6 +286,7 @@ mod tests {
                 session: "ses_0000lagoon".into(),
                 principal: "operator".into(),
                 by_model: true,
+                ..Default::default()
             },
             ..TaskRecord::default()
         }

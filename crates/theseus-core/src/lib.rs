@@ -135,6 +135,7 @@ pub mod sweep;
 pub mod task;
 pub mod task_graph;
 mod task_home;
+pub mod task_self;
 pub mod task_start;
 pub mod telemetry;
 pub mod tender;
@@ -637,6 +638,8 @@ mod tests_task_report;
 mod tests_task_reports_of;
 #[cfg(test)]
 mod tests_task_search;
+#[cfg(test)]
+mod tests_task_self;
 #[cfg(test)]
 mod tests_task_start;
 #[cfg(test)]

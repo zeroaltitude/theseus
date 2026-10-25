@@ -820,6 +820,7 @@ fn split<'a>(
                     session: tc.session_id.into(),
                     principal: principal.clone(),
                     by_model: true,
+                    ..Default::default()
                 },
                 state: TaskState::Accepted,
             }
@@ -952,6 +953,8 @@ pub struct Item<'i> {
     pub parent: Option<&'i str>,
     pub deps: &'i [String],
     pub arrangement: Option<&'i crate::arrangement::Input>,
+    /// Who started it (theseus-o1h3f.1); none is the owner's.
+    pub own: Option<&'i crate::task_self::Own>,
 }
 
 /// The record a task's objective and acceptance take from its pieces, else
@@ -1051,10 +1054,15 @@ pub fn create_item<'a>(
         parent,
         deps: item.deps.to_vec(),
         session: None,
-        origin: TaskOrigin {
-            session: tc.session_id.into(),
-            principal: super::principal_of(tc.kernel, tc.execution_id),
-            by_model: true,
+        origin: {
+            let mut o = TaskOrigin {
+                session: tc.session_id.into(),
+                principal: super::principal_of(tc.kernel, tc.execution_id),
+                by_model: true,
+                ..Default::default()
+            };
+            item.own.inspect(|w| w.apply(&mut o));
+            o
         },
         state: TaskState::Accepted,
     }
