@@ -67,7 +67,9 @@ async fn sheets_429_backs_off_and_succeeds() {
     let r = rig(vec![]).await;
     r.g.check().await;
     let id = sheet_with(&r, json!([["tide", "height"]])).await;
-    tokio::time::pause();
+    // The clock runs: a paused one jumps ahead whenever the runtime waits on the
+    // loopback fake, so a connect the kernel has not finished yet reads as the
+    // client's 10 s connect timeout, and the write fails "did not reach Google".
     r.fake.fail_next(2, &Reply::throttled(Some(1)));
     let began = tokio::time::Instant::now();
     let out = made(
@@ -85,7 +87,6 @@ async fn sheets_429_backs_off_and_succeeds() {
     assert_eq!(out.meta["google_called"]["attempts"], 3, "{out:?}");
     // The fake saw the create's values, then the write three times; it landed once.
     assert_eq!(puts(&r).len(), 1 + 3);
-    tokio::time::resume();
     assert_eq!(
         read(&r, &id, "Sheet1!A1:B2")
             .await
