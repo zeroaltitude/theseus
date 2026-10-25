@@ -44,7 +44,7 @@ test('the editor opens with the file’s text and sends what it loaded', () => {
   assert.match(editor, /call<PersonaSoulReadResult>\('persona\.soul_read', \{ key: persona \}/)
   assert.ok(!/useState\(''\)/.test(editor), 'the soul text is never seeded empty')
   assert.ok(!/setText\(''\)/.test(editor), 'no empty box after a write')
-  assert.match(editor, /useState<string \| null>\(null\)/)
+  assert.match(editor, /const \[text, setText\] = useState<string \| null>\(null\)/)
   assert.match(editor, /readOnly=\{text === null\}/)
   assert.match(editor, /expect_digest: live\.digest/)
   assert.match(editor, /if \(out\) await load\(\)/)
