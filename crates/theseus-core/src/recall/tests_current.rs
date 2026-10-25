@@ -242,6 +242,34 @@ fn the_mark_rides_the_header_and_an_unmarked_one_is_untouched() {
     );
 }
 
+/// A date, and a timestamp, in a note's text is not a value of it
+/// (theseus-mo1vm join fix 2): the newest statement is dated, so an older
+/// restatement of its 21 days still holds the current value and is not
+/// marked, and a note that only names a day states nothing.
+#[test]
+fn a_date_or_a_timestamp_in_a_note_is_not_one_of_its_values() {
+    let n = vec![
+        cand("old", 1, T0, "example.test keeps 21 days of audit logs."),
+        cand(
+            "new",
+            2,
+            T0 + 30 * DAY,
+            "example.test audit logs: keep 21 days, confirmed 2026-09-04T08:00:00Z.",
+        ),
+        cand(
+            "dated",
+            3,
+            T0 + 60 * DAY,
+            "example.test audit logs were last pruned on 2026-03-02.",
+        ),
+    ];
+    // The restatement of the current value is not marked, and the dated
+    // note is not a statement, so it marks nothing.
+    assert!(current::marks(Q, &[], &n).is_empty());
+    // It is not ranked as one either: the newest statement leads.
+    assert_eq!(ids(&current::order(Q, &[], &n)), ["new", "old", "dated"]);
+}
+
 /// The probe's order for a current question is the ranker's.
 #[test]
 fn the_probe_orders_a_current_question_as_recall_does() {
