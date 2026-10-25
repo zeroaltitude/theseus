@@ -34,7 +34,7 @@ const OPEN = ['ses_r1', 'ses_w1', 'wak_d1', 'ses_c1']
 test('the Board, the Graph and the Threads lens name the same open work', () => {
   const { views, records } = fixture()
   const rows = boardRows({ views, tasks: [], sessions: [], records, now: NOW, past: false })
-  const boardOpen = rows.filter((r) => r.column !== 'done').map((r) => r.id).sort()
+  const boardOpen = rows.filter((r) => isOpen(r.bucket)).map((r) => r.id).sort()
   assert.deepEqual(boardOpen, [...OPEN].sort())
   const g = opsLayout(views, records, [{ key: 'harbour-survey', title: 'h', needs: 0 }], null, { now: NOW, future: true, expanded: new Set(['harbour-survey']) })
   const graphOpen = g.nodes.filter((n) => isOpen(bucketOfNode(n, NOW))).map((n) => n.id).sort()
