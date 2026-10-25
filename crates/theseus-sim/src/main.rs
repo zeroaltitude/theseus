@@ -43,6 +43,7 @@ mod history;
 mod jobs;
 mod kernel_sim;
 mod lifecycle;
+mod memsynth;
 mod perf;
 mod procfs;
 mod synth;
@@ -151,6 +152,16 @@ enum Cmd {
         /// (with a settled action for every tenth).
         #[arg(long, default_value_t = 0)]
         ledger_rows: u64,
+    },
+    /// A store of the owner's shape, of invented text, for the memory spike's
+    /// bench (theseus-xxac7): about 1.6 chunks a node.
+    SynthMemory {
+        #[arg(long)]
+        dir: PathBuf,
+        #[arg(long, default_value_t = 229_000)]
+        nodes: u64,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
     },
     /// A stand-in for Discord's REST API (theseus-q4v), for a scratch
     /// daemon's `[discord] rest_proxy`: it keeps messages, honors nonces, and
@@ -448,6 +459,11 @@ fn main() -> Result<()> {
         }
         Cmd::FakeMcp(args) => fake_mcp::run(args),
         Cmd::Discord { cmd } => discord_cli::run(cmd),
+        Cmd::SynthMemory { dir, nodes, seed } => {
+            let m = memsynth::generate(&dir, nodes, seed)?;
+            println!("{}", serde_json::to_string(&m).context("the summary")?);
+            Ok(())
+        }
         Cmd::SynthStore {
             dir,
             sessions,
