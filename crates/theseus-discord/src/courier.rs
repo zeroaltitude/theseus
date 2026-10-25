@@ -1489,6 +1489,12 @@ impl Lane {
                 format!("psoul:{}", a.correlation_id),
                 Buttons::PersonaSoul(crate::runtime::persona_soul::key_of(body)),
             ),
+            // The self notes: Drop for each started item, and Halt (theseus-o1h3f.7).
+            k @ ("self_digest" | "self_join") => (
+                body["text"].as_str().unwrap_or("").to_string(),
+                format!("self:{}", a.correlation_id),
+                Buttons::SelfNote(crate::runtime::self_note::items_of(k, body)),
+            ),
             // A live owner-card question (theseus-6f8t0).
             "card_question" => {
                 let (ask, id) = crate::runtime::card_question::card_of(body);
@@ -1769,6 +1775,7 @@ impl Lane {
             Buttons::Link(h, o) => crate::runtime::seal::link::buttons(h, o),
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
             Buttons::PersonaSoul(key) => crate::runtime::persona_soul::buttons(key),
+            Buttons::SelfNote(items) => crate::runtime::self_note::buttons(items),
             Buttons::Again(q) => crate::runtime::again_buttons(q),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
             Buttons::CardQuestion(ask, id) => crate::runtime::card_question::buttons(ask, id),
@@ -1846,6 +1853,7 @@ impl Lane {
             Buttons::Link(h, o) => Some(crate::runtime::seal::link::buttons(h, o)),
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
             Buttons::PersonaSoul(key) => Some(crate::runtime::persona_soul::buttons(key)),
+            Buttons::SelfNote(items) => Some(crate::runtime::self_note::buttons(items)),
             Buttons::Again(q) => Some(crate::runtime::again_buttons(q)),
             Buttons::Standing(mode, id, wide) => {
                 Some(crate::runtime::capture_buttons(mode, id, *wide))
@@ -2132,6 +2140,8 @@ pub(crate) fn mcp_note(body: &Value) -> String {
 mod tests_bound;
 #[cfg(test)]
 mod tests_catchup;
+#[cfg(test)]
+mod tests_self_note;
 #[cfg(test)]
 mod tests_v2;
 

@@ -95,6 +95,7 @@ pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod prompt;
 mod publish;
 pub(crate) mod route;
+pub(crate) mod self_note;
 mod self_word;
 mod show;
 mod slash;
