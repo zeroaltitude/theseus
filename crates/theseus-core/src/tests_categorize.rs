@@ -872,6 +872,62 @@ async fn a_new_topic_accept_makes_its_topic_and_a_reject_writes_its_label_alone(
     assert!(left.iter().all(|p| p.session_id != b && p.session_id != c));
 }
 
+/// A session judged every ten messages proposes the same topic each time:
+/// the proposals list it once (the newest), and a topic the owner rejected
+/// for the session is not proposed for it again, so one wrong proposal is
+/// one `judge.label`, not one for every repeat.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rejected_topic_is_not_proposed_again_for_the_session() {
+    let jev = FakeJev::start().unwrap();
+    harbor_at(&jev, "garden", 0.9);
+    let r = rig(Some(&jev), 40, |_| {});
+    let sid = session(&r.core, None);
+    let listed = |core: &Core| -> Vec<String> {
+        core.ontology_proposals(&OntologyProposalsParams::default())
+            .unwrap()
+            .proposals
+            .into_iter()
+            .filter(|p| p.session_id == sid)
+            .map(|p| p.judgment)
+            .collect()
+    };
+    moorings(&r.core, &sid, EVERY).await;
+    until_judged(&r.core.store, 1).await;
+    moorings(&r.core, &sid, EVERY).await;
+    let judged = until_judged(&r.core.store, 2).await;
+    assert_eq!(judged.len(), 2, "two judgments of the one session");
+    let newest = judged
+        .iter()
+        .max_by_key(|(rec, _)| rec.position)
+        .and_then(|(_, row)| row.data["id"].as_str())
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        listed(&r.core),
+        [newest.clone()],
+        "the same topic is listed once, by its newest judgment"
+    );
+
+    r.core
+        .ontology_proposal_reject(
+            &OntologyProposalRejectParams {
+                judgment: newest,
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap();
+    assert!(listed(&r.core).is_empty(), "the older repeat is not left");
+    moorings(&r.core, &sid, EVERY).await;
+    until_judged(&r.core.store, 3).await;
+    assert!(
+        listed(&r.core).is_empty(),
+        "a later judgment does not bring the rejected topic back"
+    );
+    let wrong = rows(&r.core.store, "judge.label").len();
+    assert_eq!(wrong, 1, "one rejection, one label");
+}
+
 /// An accept from someone other than the owner, or from a shared place, is
 /// refused through `judge_act` and writes neither a membership nor a label;
 /// the proposal stays.

@@ -56,6 +56,12 @@ pub const SCOPE: &str = "judge:categorize";
 /// The read's default limit.
 const LIMIT: u32 = 50;
 
+/// What a rejected topic is remembered by: the session and the topic's id,
+/// apart from a person's `<session>/<person>`.
+fn topic_key(session: &str, topic: &str) -> String {
+    format!("topic/{session}/{topic}")
+}
+
 /// A judgment's `topic` answer, as a proposal.
 pub(super) struct Proposed {
     judgment: Judgment,
@@ -258,6 +264,18 @@ impl Core {
                         ) {
                             labelled.insert(format!("{sid}/{who}"));
                         }
+                        // A topic rejected for a session (a `new_topic` names
+                        // nothing, so rejecting one rejects no topic).
+                        if let (true, "rejected", Some(sid), Some(topic)) = (
+                            row.data["pack"] == PACK,
+                            row.data["label"].as_str().unwrap_or(""),
+                            row.session_id.as_deref(),
+                            row.data["answer"].as_str(),
+                        ) {
+                            if topic != "new_topic" {
+                                labelled.insert(topic_key(sid, topic));
+                            }
+                        }
                         if let Some(j) = row.data["judgment"].as_str() {
                             // A gate's label answers one person of its judgment.
                             labelled.insert(match row.data["pack"] == seen::SEEN_PACK {
@@ -344,6 +362,16 @@ impl Core {
                 || (held && !shown.insert((pr.session.clone(), pr.choice.clone())))
             {
                 continue;
+            }
+            // A topic once a session, the newest, and none the owner
+            // rejected there: `categorize.v1` judges the same session every
+            // ten messages and proposes the topic again each time, and each
+            // repeat the owner had to reject was one more "wrong" label.
+            if pr.person.is_none() && !pr.new_topic() {
+                let key = topic_key(&pr.session, &pr.choice);
+                if labelled.contains(&key) || !shown.insert((key, String::new())) {
+                    continue;
+                }
             }
             let topic = pr.category(o).or_else(|| new_person_held(o, &pr));
             if let Some(t) = &topic {
