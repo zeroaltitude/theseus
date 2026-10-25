@@ -247,3 +247,24 @@ async fn profile_list_names_each_profiles_origin() {
         assert_eq!(origin("glm").as_deref(), Some(want), "{vouched:?}");
     }
 }
+
+/// `ProfileInfo.effort` is the effort the profile is configured at, so the
+/// cockpit can group `opus` and `opushi` as one model at two efforts before
+/// any turn has said what it ran at (theseus-yxkww); a profile with none
+/// configured says none.
+#[tokio::test]
+async fn profile_list_carries_each_profiles_configured_effort() {
+    let r = rig(None, 1, |_| {});
+    let list = r.core.profile_list();
+    let effort = |n: &str| {
+        list.profiles
+            .iter()
+            .find(|p| p.name == n)
+            .unwrap_or_else(|| panic!("no profile {n}"))
+            .effort
+            .clone()
+    };
+    assert_eq!(effort("opushi").as_deref(), Some("high"));
+    assert_eq!(effort("haiku").as_deref(), Some("low"));
+    assert_eq!(effort("sonnet"), None);
+}

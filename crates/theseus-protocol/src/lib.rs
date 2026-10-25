@@ -2071,6 +2071,11 @@ pub struct ProfileInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub cleared: Option<bool>,
+    /// The effort the profile is configured at (`low` to `max`); absent when it sets none and the model's
+    /// own default stands. The cockpit groups the profiles of one model by it (theseus-yxkww).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

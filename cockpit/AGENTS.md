@@ -110,7 +110,9 @@ build.
     **model menu** `m` and **mode menu** `M` (`ops/ModelMenu.tsx` over `ops/menus.ts`: "this turn only" is `turn.submit
     { profile }`, "from now on" is the sticky `session.profile` with a revert chip on the header and the toast's Undo; the
     daemon's `refused` is shown in its words and changes nothing), the **dock** (`ops/Dock.tsx`, `\` folds it, ␣ pauses while it
-    has focus: the streams of `narrative.watch` and the models strip), the **palette** (`ops/palette.ts`, `PaletteGroups.tsx`,
+    has focus: the streams of `narrative.watch` and the models strip: one row a model, `groupByModel` in `ops/models.ts`, its
+    effort a sub-line from the turns' `route.decided` rows or the profiles' configured efforts said so, its profiles under it,
+    theseus-yxkww), the **palette** (`ops/palette.ts`, `PaletteGroups.tsx`,
     `paletteStore.ts`: the page publishes a feed while mounted and the shell's ⌘K shows the verbs over a scope, one, all visible or
     the selection, ⇥ cycling, and every entity; the selection scope is ops-graph's, passed at the one `// ops-graph: the selection
     scope` line in `Ops.tsx`), the right-click menu (`ops/VerbMenu.tsx`), and sheets for the acts that need words (`ops/Sheet.tsx`:

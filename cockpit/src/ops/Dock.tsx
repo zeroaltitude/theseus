@@ -1,8 +1,10 @@
 // The dock (theseus-jid7t.6; `\` folds it): the live streams, `narrative.watch` over every session, newest first, and
 // the models strip. `␣` pauses the streams while the dock has focus (anywhere else `␣` is the selection's); "follow"
-// shows the selected session's lines alone. The strip lists every profile with its origin, the live flag, the sessions
-// on it and the headroom from the newest call's rate headers; a click filters the page by that model, ⌥-click makes
-// it the live profile (`profile.use`, which asks: it changes the daemon's default).
+// shows the selected session's lines alone. The strip lists each MODEL once (Sonnet 5.5, not `sonnet` and `sonnethi`)
+// with its origin, the sessions on it and the headroom from the newest call's rate headers, its effort as a sub-line
+// (the turns' real efforts, or the profiles' configured ones, said so; `ops/models.ts`), and its profiles under it; a
+// profile's click filters the page by it, ⌥-click makes it the live profile (`profile.use`, which asks: it changes the
+// daemon's default).
 import { useMemo } from 'react'
 import { Pause, Play, Radio } from 'lucide-react'
 import type { ProfileList, SessionInfo } from '@protocol'
@@ -12,6 +14,7 @@ import { useHistoryRows } from '@/lib/history'
 import { clock, cn } from '@/lib/format'
 import { Pill } from '@/components/ui'
 import { dockStream, modelsStrip, whoOf } from './live'
+import { groupByModel, routeEfforts } from './models'
 import { useOpsAct } from './act'
 
 export interface DockState { paused: boolean; follow: boolean }
@@ -29,7 +32,8 @@ export function Dock({ state, onState, onFocus, selected, sessions, activeModel,
   const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 0)
   const rows = useHistoryRows().rows
   const calls = useMemo(() => providerCalls(rows.filter((r) => r.kind === 'provider.call').slice(-400)), [rows])
-  const strip = useMemo(() => modelsStrip(pl?.profiles ?? [], sessions, calls), [pl, sessions, calls])
+  const efforts = useMemo(() => routeEfforts(rows), [rows])
+  const strip = useMemo(() => groupByModel(modelsStrip(pl?.profiles ?? [], sessions, calls), efforts), [pl, sessions, calls, efforts])
   return (
     <section aria-label="Dock" tabIndex={0} onFocus={() => onFocus(true)} onBlur={() => onFocus(false)} data-testid="dock"
       className="grid h-40 shrink-0 grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-px overflow-hidden rounded-xl border border-line bg-line outline-none focus-visible:border-gold">
@@ -58,16 +62,29 @@ export function Dock({ state, onState, onFocus, selected, sessions, activeModel,
         </header>
         <ul className="min-h-0 flex-1 overflow-auto px-2 py-1 text-[11.5px]" data-testid="models-strip">
           {strip.map((m) => (
-            <li key={m.name}>
-              <button onClick={(e) => { if (e.altKey) void act('live_profile', `live:${m.name}`, 'profile.use', { name: m.name }, `Make ${m.name} the live profile? It changes the daemon’s default for every new turn.`); else onModel(activeModel === m.name ? null : m.name) }}
-                title={`${m.model}: click filters by it${on('live_profile') ? ', ⌥-click makes it the live profile' : ''}`}
-                className={cn('flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left hover:bg-white/5', activeModel === m.name && 'bg-gold/10 ring-1 ring-gold/40')}>
-                <span className="num text-model">◇ {m.name}</span>
+            <li key={m.model} className="py-0.5" data-testid="models-group">
+              <div className="flex items-center gap-2 px-1.5" title={m.model}>
+                <span className="num text-model">◇ {m.label}</span>
                 <Pill tone={m.origin === 'us' ? 'ok' : m.origin === 'cn' ? 'wait' : 'idle'}>{m.origin}</Pill>
                 {m.live && <Pill tone="live">live</Pill>}
                 <span className="num ml-auto text-ink-faint">{m.sessions} on it</span>
                 {m.headroom && <span className="num text-ink-faint">{m.headroom}</span>}
-              </button>
+              </div>
+              {m.effort && <div className="num px-1.5 pl-5 text-[10.5px] text-ink-faint" data-testid="models-effort" title={m.effort.basis === 'usage' ? `effort of the last ${m.effort.turns} routed turns on this model` : 'no routed turn on this model read yet: the efforts its profiles are configured at'}>{m.effort.text}</div>}
+              <ul className="pl-3">
+                {m.profiles.map((p) => (
+                  <li key={p.name}>
+                    <button onClick={(e) => { if (e.altKey) void act('live_profile', `live:${p.name}`, 'profile.use', { name: p.name }, `Make ${p.name} the live profile? It changes the daemon’s default for every new turn.`); else onModel(activeModel === p.name ? null : p.name) }}
+                      title={`${m.model}: click filters by ${p.name}${on('live_profile') ? ', ⌥-click makes it the live profile' : ''}`}
+                      className={cn('flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left hover:bg-white/5', activeModel === p.name && 'bg-gold/10 ring-1 ring-gold/40')}>
+                      <span className="num text-ink-dim">{p.name}</span>
+                      {p.effort && <span className="num text-[10.5px] text-ink-faint">{p.effort}</span>}
+                      {p.live && <Pill tone="live">live</Pill>}
+                      <span className="num ml-auto text-ink-faint">{p.sessions} on it</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ul>
