@@ -17,6 +17,11 @@ use theseus_index::proto::{
 use theseus_index::vectors::VectorConfig;
 use theseus_index::{Config, OpenError};
 
+/// The spike's allocator (theseus-xxac7): the system's, but for the weights'
+/// mapped views, which it never frees.
+#[global_allocator]
+static ALLOC: theseus_index::spike_view::ViewAlloc = theseus_index::spike_view::ViewAlloc;
+
 #[derive(Parser)]
 #[command(
     name = "theseus-index",

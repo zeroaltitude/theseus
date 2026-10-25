@@ -31,11 +31,17 @@ pub mod model;
 pub mod priority;
 pub mod proto;
 pub mod server;
+pub mod spike_view;
 pub mod state;
 pub mod tender;
 pub mod vectors;
 pub mod weights;
 pub mod wordpiece;
+
+/// The tests' allocator: the spike's view of the weights needs it.
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: spike_view::ViewAlloc = spike_view::ViewAlloc;
 
 pub use tender::{Config, OpenError, Shared, Tender};
 
@@ -100,6 +106,8 @@ mod tests_priority;
 mod tests_query;
 #[cfg(test)]
 mod tests_status;
+#[cfg(test)]
+mod tests_view;
 #[cfg(test)]
 mod tests_weights;
 #[cfg(test)]

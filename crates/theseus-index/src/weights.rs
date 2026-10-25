@@ -85,6 +85,9 @@ pub fn sha256_file(path: &Path) -> io::Result<String> {
 /// theseus-agqn). A file that does not even read as a checkpoint is named by
 /// its hash too.
 pub fn read_safetensors(path: &Path, want: &str) -> Result<HashMap<String, Tensor>, LoadError> {
+    if crate::spike_view::enabled() {
+        return crate::spike_view::read_safetensors(path, want);
+    }
     let f = File::open(path).map_err(|e| LoadError::io(path, e))?;
     let sig = mapped::Sig::of(&f.metadata().map_err(|e| LoadError::io(path, e))?);
     let refused = |got: String| LoadError::Refused {

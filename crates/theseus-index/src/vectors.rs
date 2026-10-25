@@ -90,9 +90,11 @@ pub struct VectorConfig {
 impl VectorConfig {
     /// Nomic v1.5 from `weights_dir`, unloaded after ten idle minutes.
     pub fn new(weights_dir: Option<PathBuf>) -> Self {
+        let mut spec = ModelSpec::nomic_v1_5();
+        crate::spike_view::unpin(&mut spec, weights_dir.as_deref());
         Self {
             weights_dir,
-            spec: ModelSpec::nomic_v1_5(),
+            spec,
             idle_unload: Duration::from_secs(600),
             engine: embedder::engine_tag(),
             yield_bound: theseus_store::pressure::BOUND,
@@ -142,6 +144,8 @@ pub trait Texts {
 
 mod entries;
 mod heap;
+#[cfg(test)]
+mod spike;
 mod status;
 
 // ---------------------------------------------------------------------------
