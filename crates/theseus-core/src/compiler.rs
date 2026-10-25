@@ -49,6 +49,8 @@ pub mod place_digest;
 mod ring;
 pub mod session_block;
 #[cfg(test)]
+mod tests_clear;
+#[cfg(test)]
 mod tests_cold;
 #[cfg(test)]
 mod tests_kept;

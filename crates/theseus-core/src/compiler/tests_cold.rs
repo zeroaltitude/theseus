@@ -165,7 +165,9 @@ fn a_session_without_a_card_has_none() {
 fn a_cold_resume_of_a_long_thread_fits_its_working_tokens_with_its_stubs() {
     let mut nodes = thread(200, 12_000);
     let first = run(&nodes, None, &carded("CARD", None), None);
-    assert!(first.est_tokens > 300_000, "{}", first.est_tokens);
+    // The warm compile has cleared by tokens already (theseus-5lzox): about 60K of
+    // results whole and stubs for the rest, where the 20-exchange rule left 300K.
+    assert!(first.est_tokens > 80_000, "{}", first.est_tokens);
     nodes.push((
         nodes.len() as u64 + 1,
         Node::user("s", None, "cli", "question 200"),
@@ -197,7 +199,7 @@ fn a_cold_resume_of_a_long_thread_fits_its_working_tokens_with_its_stubs() {
         None,
     );
     assert!(!w.new_compilation, "{:?}", w.trigger);
-    assert!(w.est_tokens > 300_000);
+    assert!(w.est_tokens > 80_000);
 }
 
 /// A small thread resumed cold is rewritten too, to take the card as it
