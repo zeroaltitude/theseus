@@ -161,10 +161,12 @@ fn first_text(q: &ProviderRequest) -> String {
 /// turn ends with the model's answer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_single_instruction_reads_300_large_results_without_an_overage() {
-    // A window of 100,000 holds about 30 of these exchanges beside the
-    // catalog's definitions: the newest 20 stay whole under the clearing
-    // line, so passes come every dozen loops or so, and two compactions.
-    let r = rig(300, 2_500, 100_000, None);
+    // A window of 80,000 holds about 25 of these exchanges beside the
+    // catalog's definitions: a pass keeps the newest results within its
+    // token keep (theseus-5lzox: the window was 100,000 when the newest 20
+    // exchanges stayed whole), so passes come every dozen loops or so, and
+    // the stubs they leave fill the window for two compactions.
+    let r = rig(300, 2_500, 80_000, None);
     let (sid, result) = turn(&r.core, INSTRUCTION).await;
     let result = result.expect("the turn ends as its model ends it");
     assert!(result

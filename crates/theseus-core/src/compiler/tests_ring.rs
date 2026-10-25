@@ -117,7 +117,7 @@ pub(super) fn one_turn(n: usize, size: impl Fn(usize) -> usize) -> Vec<(u64, Nod
         .collect()
 }
 
-fn compile_in(
+pub(super) fn compile_in(
     nodes: &[(u64, Node)],
     current: Option<&Compilation>,
     window: Option<u64>,
@@ -277,10 +277,10 @@ fn a_two_message_session_rings_at_its_second_message_as_before() {
     closed(&c).unwrap();
 }
 
-/// Past the clearing line, results older than the newest 20 exchanges and
-/// longer than 2,000 characters become stubs, oldest first, until the
-/// estimate is under 35 %; newer and shorter ones stay whole. The pass is
-/// one recompile, its stubs kept by the next append.
+/// Past the clearing line, results older than the newest ones within
+/// `KEEP_TOKENS` (and within what `CLEAR_TO` % leaves room for) and longer
+/// than 2,000 characters become stubs, oldest first; newer and shorter ones
+/// stay whole. The pass is one recompile, its stubs kept by the next append.
 #[test]
 fn clearing_stubs_only_old_large_results_and_each_says_how_to_get_it_back() {
     // 40 exchanges: the even ones 6,000 characters, the odd ones 1,500.
@@ -303,25 +303,53 @@ fn clearing_stubs_only_old_large_results_and_each_says_how_to_get_it_back() {
         .collect();
     assert_eq!(cleared.len() as u64, pass.results);
     assert!(!cleared.is_empty());
-    // Which ones: only old (before the 20th newest answer) and large.
-    let answers: Vec<u64> = nodes
+    // Which ones, worked out again here: the tokens a result saves are its
+    // characters less the stub's 200, at the ratio the drops carry; the keep
+    // is the lower of `KEEP_TOKENS` and what `CLEAR_TO` % leaves beside the
+    // rest of the request; the newest results within it stay whole.
+    let drop = &c.budget.dropped[0];
+    let per_byte = drop.tokens as f64 / (6_003 - 200) as f64;
+    let tokens = |len: usize| (len.saturating_sub(200) as f64 * per_byte).ceil() as u64;
+    let results: Vec<(&str, usize)> = nodes
         .iter()
-        .filter(|(_, n)| matches!(n.body, Body::AssistantMessage { .. }))
-        .map(|(p, _)| *p)
+        .filter_map(|(_, n)| match &n.body {
+            Body::ToolResult { content, .. } => Some((n.id.as_str(), content.len())),
+            _ => None,
+        })
         .collect();
-    let line = answers[answers.len() - 20];
-    for (p, n) in &nodes {
-        if let Body::ToolResult { content, .. } = &n.body {
-            if cleared.contains(&n.id.as_str()) {
-                assert!(*p < line && content.len() > 2_000, "{p}");
-            }
+    let live: u64 = results.iter().map(|(_, len)| tokens(*len)).sum();
+    let overhead = pass.tokens_before - live;
+    let keep =
+        clearing::KEEP_TOKENS.min((budget * clearing::CLEAR_TO / 100).saturating_sub(overhead));
+    let (mut held, mut cutting, mut expected) = (0, false, Vec::new());
+    for (k, (id, len)) in results.iter().enumerate().rev() {
+        cutting = cutting || (k + 1 < results.len() && held + tokens(*len) > keep);
+        match (cutting, *len > 2_000) {
+            (true, true) => expected.push(*id),
+            (false, _) => held += tokens(*len),
+            _ => {}
         }
     }
-    // The stub says what it was and how to get it back; the rest renders.
+    expected.reverse();
+    assert_eq!(
+        cleared, expected,
+        "the oldest large results, the newest whole"
+    );
+    let kept_big = results
+        .iter()
+        .filter(|(id, len)| *len > 2_000 && !cleared.contains(id));
+    assert!(
+        kept_big.clone().count() >= 5,
+        "a keep of tokens, not of 20 exchanges"
+    );
+    assert!(kept_big.map(|(_, len)| tokens(*len)).sum::<u64>() <= keep + tokens(6_003));
+    // The stub says what it was and how to get it back, and what the model
+    // wrote after it; the rest renders.
     let text = serde_json::to_string(&c.request.messages).unwrap();
     assert!(text.contains(
         "[Result cleared to save context: fs_read src/f0.rs, lines 1-400 (6,003 characters). \
-         Read it again if you need it.]"
+         You read it, and your notes after it still stand; read again only the line range \
+         you need. After it you wrote: \\\"step 1\\\".]"
     ));
     assert!(text.contains("r1 xxx"), "a short old result stays");
     assert!(text.contains("r38 xxx"), "a recent large result stays");
@@ -349,15 +377,23 @@ fn clearing_stubs_only_old_large_results_and_each_says_how_to_get_it_back() {
     );
 }
 
-/// Under the clearing line, or with fewer than 20 exchanges, no pass.
+/// Under the token line, no pass; and the newest exchange's results are
+/// never cleared, however large.
 #[test]
 fn no_pass_under_the_line_or_without_old_results() {
     let nodes = one_turn(40, |_| 6_000);
     let c = compile_in(&nodes, None, None, None);
-    assert!(c.cleared.is_none(), "1M: under the line");
-    let few = one_turn(15, |_| 6_000);
+    assert!(c.cleared.is_none(), "1M: under the token line");
+    // One exchange of a huge result, the newest: nothing older to clear.
+    let mut few = one_turn(1, |_| 60_000);
+    few.pop();
     let c = compile_in(&few, None, Some(40_000), None);
-    assert!(c.cleared.is_none(), "nothing older than 20 exchanges");
+    assert!(
+        c.cleared.is_none(),
+        "the newest exchange's results stay whole"
+    );
+    let one = serde_json::to_string(&c.request.messages).unwrap();
+    assert!(!one.contains("Result cleared"));
 }
 
 /// A program's stub names its kept output when there is one, else how to

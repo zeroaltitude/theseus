@@ -49,11 +49,15 @@ pub mod place_digest;
 mod ring;
 pub mod session_block;
 #[cfg(test)]
+mod tests_clear;
+#[cfg(test)]
 mod tests_cold;
 #[cfg(test)]
 mod tests_kept;
 #[cfg(test)]
 mod tests_layers;
+#[cfg(test)]
+mod tests_replay;
 #[cfg(test)]
 pub(crate) mod tests_ring;
 #[cfg(test)]

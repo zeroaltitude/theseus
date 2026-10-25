@@ -116,13 +116,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (ffmpeg), OCR (tesseract), or `save`. In a shared place its result is outside text. Tests: `attach.rs`'s, and
     theseusd's `tests/files.rs`, which run the real converter, a turn per model, and `file.read` with a stand-in
     Deepgram.
-  - **One long instruction** (theseus-3ki0): `compiler/clearing.rs` and `compiler/ring.rs`. Past half the budget
-    (`clearing::CLEAR_AT`), a pass stubs results older than the newest 20 answers and over 2,000 characters, oldest
-    first, until 35 %: one recompile, the cleared results kept as its report's drops of tier `cleared` (no store
-    format: the report is stored already), which the render reads, so appends render the same stubs; a pass that
-    would save under half the gap between the lines does not run, so passes stay rare. Each pass is one
+  - **One long instruction** (theseus-3ki0): `compiler/clearing.rs` and `compiler/ring.rs`. A pass runs when the results not yet
+    cleared pass `clearing::CLEAR_AT_TOKENS` (150K tokens), or the estimate passes `clearing::CLEAR_AT` % of the budget
+    (a small window clears as before), and stubs every result over 2,000 characters except the newest ones within
+    `KEEP_TOKENS` (40K; and what `CLEAR_TO` % leaves beside the rest of the request), oldest first, the newest
+    exchange's always whole (theseus-5lzox; it replaced "the newest 20 answers", whose 270K sawtooth rewrote the cache
+    every dozen calls and cleared the first files read, which the model then read again). One recompile, the cleared
+    results kept as its report's drops of tier `cleared` (no store format: the report is stored already), which the
+    render reads, so appends render the same stubs; a pass that would leave the request above halfway from the line to
+    the keep does not run, so passes stay rare. Each pass is one
     `context.cleared` row (`fact::compaction::Cleared`, from the compile step). The stub names the call and how to
-    get the result back (a kept output's `full_ref` when there is one). The ring's range holding one user message
+    get the result back (a kept output's `full_ref` when there is one); an `fs_read`'s names the lines its result held
+    and the file's length (`clearing/remember.rs`, read from the result's own footer, never from the call's input), and
+    every stub ends with the first sentence of the model's text in the answer after the result (`remember::notes`, from
+    stored nodes at render time, so the bytes never change). `compiler/tests_replay.rs` replays a 207-call hunt
+    through the compiler (its `the_replays_grid` prints the trigger/keep grid). The ring's range holding one user message
     cuts inside its turn too: at an answer whose earlier calls all have their results before it (`ring::in_turn`),
     searched by halves; the instruction (the message and what precedes its first answer) is pinned in every
     candidate, and a summary renders after it (`compaction::summaries_first`, by its range's `first`; `hidden` and

@@ -222,6 +222,7 @@ pub(super) fn render(k: Kept1<'_>, prefix: &[&Node], tail: &[&Node], a: Args<'_>
     let new = &items[from..];
     let results = results_of(new.iter().map(|(n, _)| *n));
     let (replaced, open) = cut_answers(new.iter().map(|(n, _)| *n), None);
+    let notes = super::clearing::notes(new.iter().map(|(n, _)| *n), a.cleared, &replaced);
     let ctx = Ctx {
         results: &results,
         replaced: &replaced,
@@ -230,6 +231,7 @@ pub(super) fn render(k: Kept1<'_>, prefix: &[&Node], tail: &[&Node], a: Args<'_>
         media: a.media,
         sources: a.sources,
         cleared: a.cleared,
+        notes: &notes,
     };
     for (n, in_prefix) in new {
         st.item(n, *in_prefix, &ctx);
