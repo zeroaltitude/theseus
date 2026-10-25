@@ -2,6 +2,7 @@
 // span, an episode's labels in a line, the filters as `books.page` takes them from the address, and the bars' shares.
 // Pure, with no import but the protocol's types, so `node --test` runs its test (test/books.test.ts).
 import type { BookEpisode, BookFacet, BookInfo, BooksPageParams } from '@protocol'
+import { span } from './figures.ts'
 
 /** The books in the order every surface lists them, then the episodes the import gave no book. */
 export const BOOK_ORDER = ['diary', 'encyclopedia', 'cookbook', 'sop', 'casebook', 'register', 'dictionary', 'unsorted'] as const
@@ -55,8 +56,7 @@ export function spanWords(b: Pick<BookInfo, 'episodes' | 'first_ms' | 'last_ms'>
 export function episodeWhen(e: Pick<BookEpisode, 'start_ms' | 'end_ms'>): string {
   const start = new Date(e.start_ms).toISOString().slice(0, 16).replace('T', ' ')
   const mins = Math.max(0, Math.round((e.end_ms - e.start_ms) / 60_000))
-  const long = mins < 60 ? `${mins} min` : mins < 48 * 60 ? `${Math.round(mins / 6) / 10} h` : `${Math.round(mins / 144) / 10} d`
-  return `${start} UTC · ${long}`
+  return `${start} UTC · ${mins < 1 ? '<1m' : span(mins * 60_000)}`
 }
 
 /** A place as the facets name it: `dm`, or `dm:wren`. */

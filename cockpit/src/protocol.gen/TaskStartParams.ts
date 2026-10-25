@@ -39,10 +39,17 @@ start_at_ms?: number, start_after_ms?: number,
  */
 start_when?: string, 
 /**
- * Text the task should read verbatim (a message, a pasted log). It is
- * outside text: the task's session holds it as it holds web text.
+ * Text the task should read verbatim (a message, a pasted log). The
+ * task's session holds it as web text only when `outside_quotes` says it
+ * is not the owner's own.
  */
 quotes?: Array<string>, 
+/**
+ * The quotes are not the starter's own words: an email, another person's
+ * message (theseus-nfhaf). Without it a start by the owner's own hand
+ * marks nothing; with it the task's session holds them as outside text.
+ */
+outside_quotes?: boolean, 
 /**
  * An open task: its session starts from the brief alone and is compiled
  * in the open view; its data may go to a model of any origin once its

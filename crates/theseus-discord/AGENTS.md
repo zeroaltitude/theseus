@@ -245,7 +245,10 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     has none. A refusal is told to the presser alone and the card keeps waiting.
     **Starting tasks** (`tb:new` on the board, `/task name:new`, and the message command "Make this a task"): one modal (brief, budget $1/$2/$5/$10,
     report here or silently to the board; a message made a task brings its text as an editable `quote` field) whose submit is `task.start`
-    as the presser, homed in this place's session; `quotes` hold the new session as outside text. A shared place is told where to start it.
+    as the presser, homed in this place's session; `quotes` hold the new session as outside text **unless they are the owner's own words** — since
+    theseus-nfhaf the owner's own message marks nothing, and a mark the session inherits names the source it came from. The modal still labels that
+    field "The message (read as outside text)", which is now false for the owner's own message; the string is in no locked golden, but it is
+    Discord-visible, so correcting it is the owner's call and is deliberately left (theseus-nfhaf join fix 3). A shared place is told where to start it.
     **A reply that offers a task** (theseus-bh3t.5): the core's reply post carries `offer {brief}` when Jev found the owner's message to be
     work for later; in a private place the reply's last message gets `➕ Make this a task` (`tb:offer:<turn>`, on the sources' row,
     `Buttons::Sources`' third field), and the brief waits in `Tasks.offers` (the newest 64, kept in META `discord.offers`, so a restart keeps them). When the judge was slower than the reply, the core's `offer` post makes the lane edit the reply once to add the button (`courier/offer.rs`; nothing when the lane no longer holds the reply). The owner's press opens the same

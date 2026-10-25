@@ -1254,7 +1254,7 @@ fn working_cases() -> Vec<Case> {
                               "since_ms": past(4 * 60_000 + 5_000)}}),
             ),
             "working",
-            "job · 4 m",
+            "job · 4m",
         ),
         (
             task_view(

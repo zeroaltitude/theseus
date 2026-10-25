@@ -106,6 +106,7 @@ impl Core {
             .with_names(personas.keys().iter())
             .with_owners(self.runner.place_rule.owners(cfg))
             .with_names(self.people_house().iter())
+            .with_names(self.never_people().iter())
             .with_held(o)
     }
 }

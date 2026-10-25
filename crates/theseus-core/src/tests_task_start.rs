@@ -281,8 +281,10 @@ async fn the_start_time_takes_one_form_inside_the_bounds() {
     );
 }
 
-/// Quotes are outside text: the task's session holds them as web text is held,
-/// and they ride in its arrangement verbatim after the brief.
+/// Quotes that are not the owner's own words (an email a watch quoted, another
+/// person's message: `outside_quotes`) are outside text: the task's session
+/// holds them as web text is held, and they ride in its arrangement verbatim
+/// after the brief.
 #[tokio::test]
 async fn quotes_hold_the_tasks_session_as_external_text() {
     let r = counting();
@@ -296,6 +298,7 @@ async fn quotes_hold_the_tasks_session_as_external_text() {
         .task_start(
             &TaskStartParams {
                 quotes: vec![log.into(), "  ".into()],
+                outside_quotes: true,
                 ..start("Count the boats and read the log")
             },
             cli(),
@@ -324,6 +327,66 @@ async fn quotes_hold_the_tasks_session_as_external_text() {
     assert!(rows(&r.core, "session.external_read")
         .iter()
         .any(|row| row.session_id.as_deref() == Some(quoted.session_id.as_str())));
+}
+
+/// The owner's own quote marks nothing (theseus-nfhaf): the task's session
+/// holds no external text and no `session.external_read` row is written, but
+/// the quote still rides in the arrangement verbatim.
+#[tokio::test]
+async fn the_owners_own_quote_marks_nothing() {
+    let r = counting();
+    let log = "ferry 7 was ten minutes late";
+    let quoted = r
+        .core
+        .task_start(
+            &TaskStartParams {
+                quotes: vec![log.into()],
+                ..start("Count the boats and read the log")
+            },
+            cli(),
+        )
+        .unwrap();
+    assert!(crate::external::held(&r.core.store, &quoted.session_id)
+        .unwrap()
+        .is_none());
+    assert!(rows(&r.core, "session.external_read").is_empty());
+    // The bug's chain: the task reports, and nothing carries a mark to its parent.
+    let task = task_exec(&r.core, &quoted);
+    until("the task's report", || {
+        exec(&r.core, &task.id).state == ExecState::Complete
+    })
+    .await;
+    let home = r.core.home().unwrap();
+    assert!(crate::external::held(&r.core.store, &home.session_id)
+        .unwrap()
+        .is_none());
+    assert!(rows(&r.core, "session.external_read").is_empty());
+    let nodes = r.core.store.session_nodes(&quoted.session_id).unwrap();
+    assert!(nodes.iter().any(|(_, n)| matches!(
+        &n.body,
+        crate::node::Body::Arrangement { pieces, .. } if pieces[0].text.as_deref() == Some(log)
+    )));
+}
+
+/// An agent's start is not the owner's hand: its quotes mark as before.
+#[tokio::test]
+async fn an_agents_quote_still_marks() {
+    let r = counting();
+    let mut who = cli();
+    who.agent = Some("helper".into());
+    let quoted = r
+        .core
+        .task_start(
+            &TaskStartParams {
+                quotes: vec!["pasted by an agent".into()],
+                ..start("Count the boats")
+            },
+            who,
+        )
+        .unwrap();
+    assert!(crate::external::held(&r.core.store, &quoted.session_id)
+        .unwrap()
+        .is_some());
 }
 
 /// A session that holds external text passes it to the task it parents, as

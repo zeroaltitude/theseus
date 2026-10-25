@@ -37,6 +37,11 @@
 //!   first, written by the dream (theseus-olt3h; `consolidate/guidance.rs`),
 //!   under `[memory] synth_limit_usd_per_day`. On by default; off is its
 //!   rollback (theseus-23wd8): nothing is read, called or written.
+//! - `not_topics`: topic names Jev never proposes (theseus-648f8), as
+//!   `[people] not_people` names people never proposed. Matched on the
+//!   proposed topic's name, case and spacing ignored. The owner's `Never`
+//!   buttons add to the same set without touching this file (a stored
+//!   record, `rpc/never.rs`); this is the part kept in the config.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -64,6 +69,8 @@ pub struct OntologyConfig {
     pub sweep_usd_per_day: f64,
     #[serde(default = "default_dream_guidance")]
     pub dream_guidance: bool,
+    #[serde(default)]
+    pub not_topics: Vec<String>,
 }
 
 /// Which request carries `onto.v1`.
@@ -115,6 +122,7 @@ impl Default for OntologyConfig {
             sweep: default_sweep(),
             sweep_usd_per_day: default_sweep_usd_per_day(),
             dream_guidance: default_dream_guidance(),
+            not_topics: Vec::new(),
         }
     }
 }

@@ -20,10 +20,14 @@ use crate::approval::Answerer;
 use crate::fact;
 
 /// The methods `rpc_prefixed` routes to the ontology's arm.
-pub(super) const ROUTE: [&str; 3] = [
+pub(super) const ROUTE: [&str; 6] = [
     method::ONTOLOGY_UNDO,
     method::ONTOLOGY_KIND_ADD,
     method::ONTOLOGY_KIND_RETIRE,
+    // The nevers (theseus-648f8, `never.rs`).
+    method::ONTOLOGY_PROPOSAL_NEVER,
+    method::ONTOLOGY_NEVER_LIST,
+    method::ONTOLOGY_NEVER_UNDO,
 ];
 
 /// A closed word of the wire (`operator`, `chain`, `titles`) as its type.

@@ -100,3 +100,25 @@ fn the_dreams_guidance_is_a_key_that_is_on_by_default() {
         .unwrap();
     assert!(section.contains("\n# dream_guidance = true "), "{section}");
 }
+
+/// `not_topics` (theseus-648f8) ships empty, is read, and the template's
+/// `[ontology]` names it; a bad key beside it is still refused.
+#[test]
+fn not_topics_is_a_key_that_is_empty_by_default() {
+    let (cfg, _) = Config::parse(&doc("")).unwrap();
+    assert!(cfg.ontology.not_topics.is_empty());
+    let (cfg, _) = Config::parse(&doc(
+        "[ontology]\nnot_topics = [\"Small Talk\", \"status checks\"]\n",
+    ))
+    .unwrap();
+    assert_eq!(cfg.ontology.not_topics, ["Small Talk", "status checks"]);
+    assert!(!cfg.ontology.is_default());
+    let e = Config::parse(&doc("[ontology]\nnot_topic = []\n")).unwrap_err();
+    assert!(format!("{e:#}").contains("not_topic"), "{e:#}");
+    let section = Config::EXAMPLE_TOML
+        .split("# [ontology]\n")
+        .nth(1)
+        .and_then(|s| s.split("\n\n").next())
+        .unwrap();
+    assert!(section.contains("\n# not_topics = [] "), "{section}");
+}

@@ -54,6 +54,22 @@ fn why_it_asks(req: &ConfirmRequest, p: &PlainWords) -> String {
     } else {
         "the session"
     };
+    if let (Some("task.report"), Some(from)) = (x.via.as_deref(), x.from_session.as_deref()) {
+        // A mark that came in a child's report names that task (theseus-nfhaf).
+        let short: String = from
+            .chars()
+            .rev()
+            .take(6)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        return format!(
+            "{who} took in text that task `{short}` read ({}) at <t:{}:t>",
+            x.tool,
+            x.since_ms / 1000
+        );
+    }
     let read = match x.tool.as_str() {
         "task.start" => "quoted outside text",
         t if t.starts_with("http.") || t.starts_with("web.") => "read web text",

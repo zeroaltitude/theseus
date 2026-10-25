@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
-pub const BUILTIN_VERSION: &str = "2026-10-18.1";
+pub const BUILTIN_VERSION: &str = "2026-10-25.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -121,7 +121,15 @@ impl ModelOrigin {
 }
 
 /// Hosts of China-origin endpoints: the host or any subdomain of it.
-const CN_HOSTS: [&str; 3] = ["deepseek.com", "z.ai", "bigmodel.cn"];
+const CN_HOSTS: [&str; 7] = [
+    "deepseek.com",
+    "z.ai",
+    "bigmodel.cn",
+    "moonshot.ai",
+    "moonshot.cn",
+    "kimi.ai",
+    "kimi.com",
+];
 
 /// A model's origin, first match wins (theseus-a1wvq): a China-origin
 /// endpoint, whatever model id it is asked for (DeepSeek's Anthropic endpoint
@@ -143,6 +151,8 @@ pub fn origin_of(
     let id = model.to_ascii_lowercase();
     let family = id.rsplit('/').next().unwrap_or(&id);
     if id.contains("deepseek")
+        || id.contains("kimi")
+        || id.contains("moonshot")
         || family.starts_with("glm")
         || id.contains("z-ai")
         || id.contains("zai-org")
@@ -349,7 +359,7 @@ impl TokenRates {
             Self::CLAUDE_OLD
         } else if model.starts_with("glm-") {
             Self::GLM
-        } else if model.starts_with("deepseek-") {
+        } else if model.starts_with("deepseek-") || model.starts_with("kimi-") {
             // Unmeasured: Claude's densest rates over-estimate, the safe
             // side for the keel. A probe of DeepSeek's own count is owed.
             Self::CLAUDE
@@ -768,6 +778,57 @@ fn deepseek(input: f64, output: f64, cache_read: f64, vision: bool, served: &str
     }
 }
 
+/// A Kimi model on Moonshot AI's Anthropic-compatible endpoint
+/// (api.moonshot.ai/anthropic, vendor docs and a live probe, 2026-10-24).
+/// Prices are flat over the whole context; the 5-minute and 1-hour cache
+/// writes have their own, which the catalog keeps in its two write fields
+/// (the 1-hour one at twice the input price, as the vendor's pro row lists
+/// it). It always thinks, effort low/high/max is its one knob, caching is
+/// automatic, and the endpoint takes no document blocks, no URL images and
+/// no forced tool (`tool_choice` is auto, any or none).
+fn kimi(input: f64, output: f64, served: &str) -> CatalogEntry {
+    CatalogEntry {
+        provider: "moonshot".into(),
+        context_window: 1_048_576,
+        max_output_tokens: 131_072,
+        input_per_mtok: input,
+        output_per_mtok: output,
+        cache_read_per_mtok: 0.20,
+        cache_write_per_mtok: input,
+        cache_write_1h_per_mtok: 2.0 * input,
+        long_prompt: None,
+        caches: true,
+        thinking: ThinkingMode::Implicit,
+        effort: true,
+        per_message_effort: false,
+        refusal_fallbacks: false,
+        refusal_fallback_model: None,
+        cache_min_tokens: 0,
+        vision: true,
+        pdf: false,
+        tool_search: false,
+        source: format!("Moonshot AI Kimi API docs and a live probe, 2026-10-24; {served}"),
+        bytes_per_token: TokenRates::of("kimi-"),
+        origin: ModelOrigin::Cn,
+    }
+}
+
+/// Kimi's two rows, the model and its faster variant at double the price.
+fn kimi_rows(e: &mut BTreeMap<String, CatalogEntry>) {
+    e.insert(
+        "kimi-k3.1-pro".into(),
+        kimi(2.00, 10.00, "cache writes 2.00 (5m) and 4.00 (1h)"),
+    );
+    e.insert(
+        "kimi-k3.1-pro-highspeed".into(),
+        kimi(
+            4.00,
+            20.00,
+            "highspeed, double the price (its 1h write is assumed 8.00)",
+        ),
+    );
+}
+
 /// DeepSeek's two rows. `deepseek-flash` floats: DeepSeek-V4.1-Flash-1017
 /// since 2026-10-17.
 fn deepseek_rows(e: &mut BTreeMap<String, CatalogEntry>) {
@@ -795,7 +856,7 @@ impl Catalog {
     }
 
     /// `model` thinks whether asked or not: its row is [`ThinkingMode::Always`]
-    /// (Fable 5.x, Opus 5.5) or [`ThinkingMode::Implicit`] (GLM, DeepSeek),
+    /// (Fable 5.x, Opus 5.5) or [`ThinkingMode::Implicit`] (GLM, DeepSeek, Kimi),
     /// so [`thinking_off`] has nothing to send and a small cap is spent
     /// thinking first (theseus-ohiu8).
     pub fn thinks_unasked(&self, model: &str) -> bool {
@@ -932,6 +993,7 @@ impl Catalog {
             glm(1_048_576, 131_072, 0.37, 1.25, 0.075, 0.37),
         );
         deepseek_rows(&mut e);
+        kimi_rows(&mut e);
         Self {
             version: BUILTIN_VERSION.into(),
             entries: e,
@@ -1168,6 +1230,10 @@ mod tests {
             if e.provider == "anthropic" {
                 // The reference: 1.25 × input for 5 minutes, 2 × for an hour.
                 assert_eq!(e.cache_write_per_mtok, 1.25 * e.input_per_mtok, "{id}");
+                assert_eq!(e.cache_write_1h_per_mtok, 2.0 * e.input_per_mtok, "{id}");
+            } else if e.provider == "moonshot" {
+                // Moonshot prices a 1-hour write apart: 2 × input, writes at input.
+                assert_eq!(e.cache_write_per_mtok, e.input_per_mtok, "{id}");
                 assert_eq!(e.cache_write_1h_per_mtok, 2.0 * e.input_per_mtok, "{id}");
             } else {
                 assert_eq!(e.cache_write_1h_per_mtok, e.cache_write_per_mtok, "{id}");
@@ -1604,7 +1670,7 @@ mod tests {
         assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
         assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
         assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
-        assert_eq!(c.version, "2026-10-18.1");
+        assert_eq!(c.version, "2026-10-25.1");
         // Sonnet 5.5's cache read fell to $0.10 on Haiku 5.5's launch day.
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
@@ -1704,7 +1770,7 @@ mod tests {
         for (id, e) in &c.entries {
             let want = match e.provider.as_str() {
                 "anthropic" => ModelOrigin::Us,
-                "zai" | "deepseek" => ModelOrigin::Cn,
+                "zai" | "deepseek" | "moonshot" => ModelOrigin::Cn,
                 other => panic!("{id}: provider {other} has no origin rule"),
             };
             assert_eq!(e.origin, want, "{id}");
@@ -2065,3 +2131,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod tests_moonshot;

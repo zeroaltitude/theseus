@@ -364,6 +364,10 @@ pub struct Execution {
     /// takes a turn, which reads every report (`take_reports` clears both).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub report_wakes: Vec<ExecutionId>,
+    /// Set on a task opened as a helper of a fan-out call (theseus-z9mze): the
+    /// call's correlation id, which groups its helpers. See `helper_of`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub helper: Option<String>,
     /// A stop that landed while a turn held this execution (W1): that turn
     /// plans nothing more, and its end, or startup after a crash, parks the
     /// execution on input and clears this.
@@ -424,6 +428,17 @@ impl Execution {
         self.dismissed
             .filter(|d| self.state.is_failure() && d.turns == self.turns)
             .map(|d| d.at_ms)
+    }
+}
+
+impl Execution {
+    /// The fan-out call that opened this task as one of its helpers (its
+    /// correlation id, which groups a call's helpers), or none for any other
+    /// execution. A helper reads and reports: at its carve it ends with stop
+    /// reason `budget` instead of asking the budget question, which nobody
+    /// answers in a headless run (the turn's change, theseus-z9mze row C).
+    pub fn helper_of(&self) -> Option<&str> {
+        self.helper.as_deref()
     }
 }
 

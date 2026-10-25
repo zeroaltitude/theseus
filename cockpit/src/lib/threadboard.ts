@@ -10,6 +10,7 @@
 // - Warm is a last activity within five minutes, the provider cache's lifetime.
 import type { TaskRecord, ThreadGroup, WorkChanged, WorkView, WorkWatchResult } from '@protocol'
 import { openView } from '../ops/state.ts'
+import { span } from './figures.ts'
 
 export const WARM_MS = 5 * 60 * 1000
 
@@ -127,15 +128,6 @@ export const isWarm = (lastActiveMs: number, now: number): boolean => lastActive
 
 /** The thread's title, with a lock when it is sealed. */
 export const titleOf = (g: ThreadGroup): string => (g.sealed ? `🔒 ${g.title}` : g.title)
-
-/** A span in its largest unit: `40s`, `3m`, `2h`, `5d`. */
-export function span(ms: number): string {
-  const s = Math.floor(ms / 1000)
-  if (s < 60) return `${s}s`
-  if (s < 3600) return `${Math.floor(s / 60)}m`
-  if (s < 86_400) return `${Math.floor(s / 3600)}h`
-  return `${Math.floor(s / 86_400)}d`
-}
 
 /** Tokens as people say them: `900`, `41k`, `1.2M`. */
 export function tokensWords(t: number): string {

@@ -26,8 +26,23 @@ export function ms(n: number | null | undefined): string {
   if (s < 60) return `${s.toFixed(s < 10 ? 2 : 1)} s`
   const m = Math.floor(s / 60)
   if (m < 60) return `${m}m ${Math.floor(s % 60)}s`
+  return span(n)
+}
+
+/**
+ * A span of time as people say it, flooring each unit: `40s`, `12m`, `2h 46m` (`2h` when no minutes remain), `1d 21h`
+ * (`1d`), and from seven days only the days, `9d`. A negative or non-finite span reads as zero.
+ */
+export function span(ms: number): string {
+  const s = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m`
   const h = Math.floor(m / 60)
-  return `${h}h ${m % 60}m`
+  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`
+  const d = Math.floor(h / 24)
+  if (d < 7) return h % 24 ? `${d}d ${h % 24}h` : `${d}d`
+  return `${d}d`
 }
 
 export function us(n: number | null | undefined): string {
@@ -35,24 +50,27 @@ export function us(n: number | null | undefined): string {
 }
 
 export function uptime(secs: number): string {
-  const d = Math.floor(secs / 86400)
-  const h = Math.floor((secs % 86400) / 3600)
+  if (secs >= 86400) return span(secs * 1000)
+  const h = Math.floor(secs / 3600)
   const m = Math.floor((secs % 3600) / 60)
   const s = Math.floor(secs % 60)
-  if (d > 0) return `${d}d ${h}h ${m}m`
   if (h > 0) return `${h}h ${m}m ${s}s`
   if (m > 0) return `${m}m ${s}s`
   return `${s}s`
 }
 
+/** How long ago: `now` under five seconds, then `40s ago`, `12m ago`, `2h 46m ago`, `1d 21h ago`, `9d ago`. */
 export function ago(at: number | null | undefined, now = Date.now()): string {
   if (!at) return '—'
-  const d = Math.max(0, now - at) / 1000
-  if (d < 5) return 'now'
-  if (d < 60) return `${Math.floor(d)}s ago`
-  if (d < 3600) return `${Math.floor(d / 60)}m ago`
-  if (d < 86400) return `${Math.floor(d / 3600)}h ago`
-  return `${Math.floor(d / 86400)}d ago`
+  const d = Math.max(0, now - at)
+  return d < 5000 ? 'now' : `${span(d)} ago`
+}
+
+/** How long until: `in 40s`, `in 2h 46m`, `in 1d 21h`. A time that has come reads as overdue: `due 3m ago`, or `due now`. */
+export function until(at: number | null | undefined, now = Date.now()): string {
+  if (!at) return '—'
+  if (at > now) return `in ${span(at - now)}`
+  return now - at < 5000 ? 'due now' : `due ${span(now - at)} ago`
 }
 
 // One formatter per format, made once: building an Intl.DateTimeFormat costs far more than formatting with one (a
@@ -73,6 +91,27 @@ export function monthDay(at: number): string {
   if (!inRange(at)) return '—'
   monthDayFormat ??= new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' })
   return monthDayFormat.format(at)
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const two = (n: number): string => String(n).padStart(2, '0')
+
+/**
+ * A schedule-like time of day, in the viewer's zone, without seconds: `20:00` today, `tomorrow 08:00`, `yesterday 17:10`,
+ * `Mon 09:00` within six days either way, and `Oct 30 09:00` beyond that. Log-like sites that need seconds use `clock`.
+ */
+export function when(at: number | null | undefined, now = Date.now()): string {
+  if (!at || !inRange(at)) return '—'
+  const t = new Date(at)
+  const n = new Date(now)
+  const days = Math.round((new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime() - new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime()) / 86_400_000)
+  const hm = `${two(t.getHours())}:${two(t.getMinutes())}`
+  if (days === 0) return hm
+  if (days === 1) return `tomorrow ${hm}`
+  if (days === -1) return `yesterday ${hm}`
+  if (Math.abs(days) <= 6) return `${DAYS[t.getDay()]} ${hm}`
+  return `${MONTHS[t.getMonth()]} ${t.getDate()} ${hm}`
 }
 
 export function stamp(at: number | null | undefined): string {

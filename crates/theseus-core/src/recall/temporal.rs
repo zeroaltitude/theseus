@@ -3,25 +3,19 @@
 //! migration?", read from the turn's own words by a small deterministic
 //! reader, with no model call on the path (as `when` reads a span).
 //!
-//! - **What it reads**, as a [`Kind`]: `When` ("when did / was / is", "what
-//!   day / date / time did …"), `Duration` ("how long ago", "how long
-//!   since", "how many days between"), `Earliest` ("the first time", "the
-//!   earliest …", "when did we first …"), `Latest` ("the last time", "the
-//!   most recent …", "when did we last …"), and `Order` ("what came first",
-//!   "before / after <event>" in a question).
-//! - **What it leaves alone**: a time that is only the question's subject
-//!   ("what time zone do I use?", "what date format does it print?"), a
-//!   question about now ("what day is it?", "what time does the backup run
-//!   now?"), a present-tense "what time does …" (a value, not an event), "latest" as an adjective of a
-//!   thing ("the latest version"), and "before" / "after" a date (that is a
-//!   span, `when`'s).
-//! - **The subject** is the question without its temporal words
-//!   ([`subject`]): they match every dated note, so the index searches on
-//!   the event alone.
-//! - **The order** ([`order`]): among the subject's best matches, a note
-//!   that states the event (it carries a time expression, or it is the
-//!   change itself) goes before one that only mentions it, and each tier is
-//!   ordered by the kind: oldest first for `When` and `Earliest`, newest
+//! - **Reads**, as a [`Kind`]: `When`, `Duration` ("how long ago", "how many
+//!   days between"), `Earliest` ("the first time", "when did we first …"),
+//!   `Latest` ("the last time", "the most recent …"), `Order` ("what came
+//!   first", "before / after <event>").
+//! - **Leaves alone**: a time that is only the subject ("what time zone do I
+//!   use?"), a question about now ("what day is it?", "what time does the
+//!   backup run now?"; a value asked about now is `current.rs`'s), "latest"
+//!   as an adjective, and "before" / "after" a date (`when`'s span).
+//! - **The subject** ([`subject`]) is the question without its temporal
+//!   words, which match every dated note.
+//! - **The order** ([`order`]): a note that states the event (a time
+//!   expression, or the change itself) goes before one that only mentions it,
+//!   each tier by the kind: oldest first for `When` and `Earliest`, newest
 //!   first for `Latest`, both ends first for `Order` and `Duration`.
 
 use theseus_memory::{rerank, Asker, Candidate, MemoryScience, Pack, Params};
@@ -41,6 +35,8 @@ pub enum Kind {
     Latest,
     /// The first time, or the earliest.
     Earliest,
+    /// A value as it stands now (`current.rs`).
+    Current,
 }
 
 impl Kind {
@@ -51,12 +47,12 @@ impl Kind {
             Kind::Duration => "duration",
             Kind::Latest => "latest",
             Kind::Earliest => "earliest",
+            Kind::Current => "current",
         }
     }
 }
 
-/// How many of the best matches the order reaches over: the subject's
-/// matches. Past them the relevance order stands.
+/// How many of the best matches the order reaches over (the subject's).
 pub const SUBJECT_TOP: usize = 12;
 
 #[derive(Debug, Clone)]
@@ -87,11 +83,9 @@ fn tokens(text: &str) -> Vec<Tok> {
     out
 }
 
-/// What "when" takes to ask about an event; "when does the backup start"
-/// asks for a value as it stands, not for an event.
+/// What "when" takes to ask about an event ("when does it start" is a value).
 const AUX: [&str; 5] = ["did", "was", "were", "is", "had"];
-/// What "what day / date / time" takes to ask about the past: "what time
-/// does the backup run" asks for a value, as it is now.
+/// What "what day / date / time" takes to ask about the past.
 const PAST: [&str; 4] = ["did", "was", "were", "had"];
 /// Words that make a question about how things stand, not how they were.
 const CURRENT: [&str; 4] = ["now", "currently", "nowadays", "anymore"];
@@ -173,12 +167,11 @@ const DATE_WORDS: [&str; 23] = [
     "midnight",
 ];
 
-/// A question about time, read: its kind, and the byte ranges of its
-/// temporal words.
+/// A question about time, read: its kind and its temporal words' byte ranges.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asked {
     pub kind: Kind,
-    cut: Vec<(usize, usize)>,
+    pub(super) cut: Vec<(usize, usize)>,
 }
 
 fn is_date_word(w: &str) -> bool {
@@ -192,7 +185,6 @@ fn is_date_word(w: &str) -> bool {
             .contains(&w))
 }
 
-/// The reading of one text: what the phrases found so far say, and where.
 struct Reader<'a> {
     t: Vec<Tok>,
     text: &'a str,
@@ -330,9 +322,7 @@ impl Reader<'_> {
 /// The kind of question `text` asks about time, if it does.
 pub fn read(text: &str) -> Option<Asked> {
     let t = tokens(text);
-    if t.iter().any(|x| CURRENT.contains(&x.w.as_str())) {
-        return None;
-    }
+    let now = t.iter().any(|x| CURRENT.contains(&x.w.as_str()));
     let mut r = Reader {
         t,
         text,
@@ -354,7 +344,12 @@ pub fn read(text: &str) -> Option<Asked> {
     if r.kind().is_none() || r.t.iter().any(|x| x.w == "came" || x.w == "happened") {
         r.order();
     }
-    let kind = r.kind()?;
+    // An event with a `now` in it is left alone; no event may be a value.
+    let kind = match r.kind() {
+        Some(_) if now => return None,
+        Some(k) => k,
+        None => return super::current::read(text),
+    };
     let mut cut = r.cut;
     cut.sort_unstable();
     Some(Asked { kind, cut })
@@ -383,7 +378,7 @@ pub fn subject(text: &str) -> String {
     out
 }
 
-/// The question the turn's new messages ask about time, if one does.
+/// The question the turn's new messages ask about time, if any.
 pub fn of_turn(nodes: &crate::store::Transcript, turn_id: &str) -> Option<Asked> {
     let words: Vec<&str> = nodes
         .iter()
@@ -527,6 +522,7 @@ fn by_kind(kind: Kind, mut tier: Vec<&Candidate>) -> Vec<&Candidate> {
             tier.sort_by_key(|c| std::cmp::Reverse(c.time_ms));
             tier
         }
+        Kind::Current => tier,
         Kind::Order | Kind::Duration => {
             // Both ends, then the rest as the relevance had them.
             let mut ends: Vec<&Candidate> = Vec::new();
@@ -549,12 +545,16 @@ fn by_kind(kind: Kind, mut tier: Vec<&Candidate>) -> Vec<&Candidate> {
 /// recall's, under the science's own filters.
 pub fn pack(
     kind: Kind,
+    asked: &str,
     science: &dyn MemoryScience,
     asker: &Asker<'_>,
     candidates: &[Candidate],
     params: &Params,
 ) -> Pack {
     let eligible = rerank::eligible(science, asker, candidates, params);
-    let keys = order(kind, &eligible);
+    let keys = match kind {
+        Kind::Current => super::current::order(asked, asker.links, &eligible),
+        _ => order(kind, &eligible),
+    };
     rerank::repack(science, asker, candidates.to_vec(), params, keys)
 }

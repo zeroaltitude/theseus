@@ -20,7 +20,7 @@ use anyhow::{anyhow, bail, Result};
 use theseus_ontology::{Category, CategoryId, Ontology, Origin, Record};
 use theseus_protocol::{
     method, OntologyPersonMergeParams, OntologyPersonMerged, OntologyProposal,
-    OntologyProposalAcceptAllParams, OntologyProposalAcceptAllResult, OntologyProposalAcceptParams,
+    OntologyProposalAcceptAllParams, OntologyProposalAcceptAllResult,
     OntologyProposalRejectAllParams, OntologyProposalRejectAllResult,
 };
 
@@ -264,7 +264,7 @@ impl Core {
 
     /// The unanswered proposals listed now (the exclusions' aside), by
     /// judgment, and the ontology they were read over.
-    fn listed_now(
+    pub(super) fn listed_now(
         &self,
     ) -> Result<(
         Listed,
@@ -310,7 +310,7 @@ impl Core {
             },
         )?;
         let (mut by, o, not) = self.listed_now()?;
-        let mut out = OntologyProposalAcceptAllResult::default();
+        let mut out = super::proposals::Bulk::default();
         if !p.judgments.is_empty() {
             let mut picked = Vec::new();
             for j in &p.judgments {
@@ -330,9 +330,9 @@ impl Core {
                 });
             }
             for (l, pr) in picked {
-                self.accept_bulk(&l, pr, p.as_person.as_deref(), &who, &mut out);
+                out.take(&l, pr, p.as_person.as_deref());
             }
-            return Ok(out);
+            return self.finish_bulk(out, &who);
         }
         let listed: Vec<OntologyProposal> = by.values().map(|(l, _)| l.clone()).collect();
         let mut listed = listed;
@@ -346,12 +346,12 @@ impl Core {
                 .map_or("topic", |(k, _)| k);
             if p.kind.as_deref().is_none_or(|k| kind == k) {
                 if let Some((l, pr)) = by.remove(&t.judgment) {
-                    self.accept_bulk(&l, pr, None, &who, &mut out);
+                    out.take(&l, pr, None);
                 }
             }
         }
         if p.kind.as_deref().is_some_and(|k| k != PERSON) {
-            return Ok(out);
+            return self.finish_bulk(out, &who);
         }
         for row in rows {
             if !row.ambiguous.is_empty() {
@@ -374,40 +374,11 @@ impl Core {
             });
             for j in js {
                 if let Some((l, pr)) = by.remove(j) {
-                    self.accept_bulk(&l, pr, Some(&row.as_person), &who, &mut out);
+                    out.take(&l, pr, Some(&row.as_person));
                 }
             }
         }
-        Ok(out)
-    }
-
-    /// One proposal of a bulk yes, judged already.
-    fn accept_bulk(
-        &self,
-        l: &OntologyProposal,
-        pr: Proposed,
-        as_person: Option<&str>,
-        who: &Answerer,
-        out: &mut OntologyProposalAcceptAllResult,
-    ) {
-        // A new person's proposal names its person: it needs no name.
-        if l.new_topic || (l.topic.is_none() && l.person.is_none()) {
-            out.left.push(format!(
-                "{}: it proposes a new category, which needs a name: accept it alone",
-                l.judgment
-            ));
-            return;
-        }
-        let one = OntologyProposalAcceptParams {
-            judgment: l.judgment.clone(),
-            as_person: as_person.filter(|_| l.person.is_some()).map(str::to_string),
-            note: Some("accepted in bulk".into()),
-            ..Default::default()
-        };
-        match self.accept_open(pr, &one, who) {
-            Ok(_) => out.accepted.push(l.judgment.clone()),
-            Err(e) => out.left.push(format!("{}: {e:#}", l.judgment)),
-        }
+        self.finish_bulk(out, &who)
     }
 
     /// `ontology.proposal.reject_all` (theseus-fvyx): each named proposal
@@ -448,7 +419,7 @@ impl Core {
 }
 
 /// Why a named proposal was not taken.
-fn not_listed(j: &str) -> String {
+pub(super) fn not_listed(j: &str) -> String {
     format!(
         "{j}: not listed now: answered already, hidden by the exclusions, or no such proposal \
          (`theseus ontology proposals` lists them)"

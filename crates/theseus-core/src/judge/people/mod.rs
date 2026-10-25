@@ -63,6 +63,8 @@ mod tests_groups;
 #[cfg(test)]
 mod tests_handles;
 #[cfg(test)]
+mod tests_never;
+#[cfg(test)]
 mod tests_seen;
 #[cfg(test)]
 mod tests_sweep;
@@ -150,7 +152,18 @@ pub fn name_words(name: &str) -> impl Iterator<Item = &str> {
 /// The house's own names (theseus-0p1r): Theseus, its judge, the history it
 /// imports, its models' maker. The config's profiles and models are added
 /// by [`NotPeople::of`].
-pub const HOUSE: [&str; 5] = ["theseus", "jev", "openclaw", "claude", "assistant"];
+///
+/// The owner is never a candidate by the word "owner" either: a transcript's
+/// author line says it for them (theseus-648f8).
+pub const HOUSE: [&str; 7] = [
+    "theseus",
+    "jev",
+    "openclaw",
+    "claude",
+    "assistant",
+    "owner",
+    "the owner",
+];
 
 /// The words that make a name with a house's or an agent's name in it
 /// software ("Gull bot", "openclaw-control-ui").

@@ -7,6 +7,7 @@ import { Echart } from './Echart'
 import { HelpButton } from './Help'
 import type { EChartsOption } from '@/lib/chart'
 import type { Attention } from '@protocol'
+import { ShipsWheel } from '@/components/ShipsWheel'
 
 export function Panel({
   title, icon, actions, help, children, className, bodyClassName, dialog,
@@ -135,7 +136,7 @@ export function Btn({ children, onClick, tone = 'live', busy, title }: { childre
     <button onClick={onClick} disabled={busy} title={title}
       className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-[filter] hover:brightness-125 disabled:opacity-50"
       style={{ color: toneHex[tone], background: `${toneHex[tone]}14`, boxShadow: `inset 0 0 0 1px ${toneHex[tone]}40` }}>
-      {busy ? '…' : children}
+      {busy && <ShipsWheel />}{children}
     </button>
   )
 }
@@ -147,7 +148,7 @@ export function Segmented<T extends string>({ value, options, onChange }: { valu
       {options.map((o) => (
         <button
           key={o}
-          onClick={() => onChange(o)}
+          type="button" aria-pressed={o === value} onClick={() => onChange(o)}
           className={cn('num rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors', o === value ? 'bg-live/15 text-live shadow-[0_0_10px_-2px_rgba(34,211,238,0.5)]' : 'text-ink-faint hover:text-ink')}
         >
           {o}

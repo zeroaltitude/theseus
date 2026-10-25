@@ -132,10 +132,10 @@ impl Core {
         let hold = hold_of(
             &parent_rec,
             arrangement.as_ref(),
+            (p, &who),
             &home_session,
             &brief_node.id,
-        )
-        .map(|h| if p.open { crate::external::bare(h) } else { h });
+        );
         let (by, via) = (who.who(), who.via());
         let common = Common {
             title: &title,
@@ -148,8 +148,8 @@ impl Core {
         };
         let opening = Opening {
             reports_to: reports_to.clone(),
-            wake_parent: false,
             start_at_ms: start,
+            ..Default::default()
         };
         let draft = Draft {
             title: &title,
@@ -538,15 +538,19 @@ fn checked(p: &TaskStartParams) -> Result<&str, RpcFailure> {
 }
 
 /// The external-text hold the task's session starts with: its parent's, else
-/// the quotes'.
+/// the quotes', unless they are the owner's own words: the act passed as the
+/// owner's, no agent made it, and the start did not say `outside_quotes`
+/// (theseus-nfhaf). An open task keeps it bare.
 fn hold_of(
     parent_rec: &SessionRecord,
     arrangement: Option<&Node>,
+    (p, who): (&TaskStartParams, &Answerer),
     home_session: &str,
     brief_id: &str,
 ) -> Option<theseus_protocol::ExternalText> {
     let now = theseus_protocol::now_unix_ms();
-    match (&parent_rec.external, arrangement) {
+    let owners_hand = who.agent.is_none() && !p.outside_quotes;
+    let held = match (&parent_rec.external, arrangement) {
         (Some(h), _) => Some(crate::external::taken(
             h,
             home_session,
@@ -554,13 +558,14 @@ fn hold_of(
             brief_id,
             now,
         )),
-        (None, Some(a)) => {
+        (None, Some(a)) if !owners_hand => {
             let mut h = crate::external::read(&a.id, "task.start", "quoted text", None, now);
             h.via = Some(crate::external::VIA_QUOTE.into());
             Some(h)
         }
-        (None, None) => None,
-    }
+        (None, _) => None,
+    };
+    held.map(|h| if p.open { crate::external::bare(h) } else { h })
 }
 
 impl Core {

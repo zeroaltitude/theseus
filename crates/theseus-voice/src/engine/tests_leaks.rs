@@ -58,6 +58,8 @@ async fn a_turn_whose_reply_makes_no_audio_leaves_no_entry() {
     assert_eq!(leftover(listen, false, "").await, 0);
 }
 
+/// A turn whose reply is empty never gets audio, so its `first_words` entry
+/// is removed with the empty reply (`speakable`), not left behind.
 #[tokio::test(start_paused = true)]
 async fn an_eager_turn_superseded_by_the_whole_sentence_leaves_no_entry() {
     let (listen, _log): (StandInListen, ListenLog) = StandInListen::new();

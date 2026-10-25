@@ -297,7 +297,7 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 107] = [
+pub const OPERATORS: [(&str, &str); 109] = [
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
     (method::GOOGLE_AUTH_FINISH, "theseus google auth"),
     (method::GOOGLE_REVOKE, "theseus google revoke"),
@@ -328,6 +328,8 @@ pub const OPERATORS: [(&str, &str); 107] = [
     (method::AWS_CONFIRM_ALERTS, "theseus aws confirm-alerts"),
     (method::ONTOLOGY_CATEGORY_ADD, "theseus ontology topic add"),
     (method::ONTOLOGY_UNDO, "theseus ontology undo"),
+    (method::ONTOLOGY_PROPOSAL_NEVER, "theseus ontology never"),
+    (method::ONTOLOGY_NEVER_UNDO, "theseus ontology never --undo"),
     (method::ONTOLOGY_KIND_ADD, "theseus ontology kind add"),
     (method::ONTOLOGY_KIND_RETIRE, "theseus ontology kind retire"),
     (method::ONTOLOGY_GUIDANCE_SET, "theseus ontology guide"),
@@ -515,6 +517,8 @@ mod tests {
             method::ONTOLOGY_GUIDANCE_SET,
             method::ONTOLOGY_CATEGORY_ADD,
             method::ONTOLOGY_UNDO,
+            method::ONTOLOGY_PROPOSAL_NEVER,
+            method::ONTOLOGY_NEVER_UNDO,
             method::ONTOLOGY_KIND_ADD,
             method::ONTOLOGY_KIND_RETIRE,
             method::ONTOLOGY_MEMBERSHIP_SET,

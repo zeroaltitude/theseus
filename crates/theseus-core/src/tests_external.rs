@@ -767,7 +767,7 @@ async fn a_report_from_a_task_that_read_external_text_makes_its_parent_hold_it()
     );
     assert!(
         c.reason.contains(&format!(
-            "(http.fetch {url}, in task {}'s report, at ",
+            "(from task {}'s report, which read http.fetch {url}, at ",
             crate::task::short(&task)
         )),
         "{}",

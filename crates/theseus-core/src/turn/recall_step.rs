@@ -544,15 +544,8 @@ impl TurnRunner {
             let mut header =
                 render::item_header(&source, item.position, &place, chunk, session.as_ref());
             // A node a split moved is credited to the thread it moved to (theseus-q9b85).
-            let moved = self
-                .store
-                .get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(
-                    &item.node_id,
-                ))
-                .ok()
-                .flatten()
-                .flatten()
-                .and_then(|m| threads.as_ref().and_then(|th| th.other_title_of(&m.thread)));
+            let moved = self.moved_title(&item.node_id, threads.as_ref());
+            header = crate::recall::neighbour::with_note(header, item);
             if let Some(title) = moved.or_else(|| {
                 threads
                     .as_ref()
@@ -563,6 +556,7 @@ impl TurnRunner {
                     render::thread_mark(&title, &source, item.position)
                 );
             }
+            header = crate::recall::current::with_mark(header, item);
             if let Some(p) = persona.as_ref().filter(|p| p.is_own(&item.session_id)) {
                 header = format!(
                     "{} {header}",
@@ -617,6 +611,21 @@ impl TurnRunner {
             .unwrap_or_default();
         t.recall.rides = rides;
         t.recall.pending = Some(node);
+    }
+
+    /// The title of the thread a split moved `node_id` to, when it has one
+    /// (theseus-q9b85).
+    fn moved_title(
+        &self,
+        node_id: &str,
+        threads: Option<&crate::thread_recall::ThreadScene>,
+    ) -> Option<String> {
+        self.store
+            .get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(node_id))
+            .ok()
+            .flatten()
+            .flatten()
+            .and_then(|m| threads.and_then(|th| th.other_title_of(&m.thread)))
     }
 
     /// The asker's Google `private` mark when `items` hold a note of a

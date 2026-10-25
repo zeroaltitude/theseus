@@ -9,15 +9,30 @@
 //   paused    paused, queued, or waiting on a later time; a suspended record is here, open and recoverable
 //   rest      a conversation between exchanges: neither open nor ended, drawn at full opacity
 //   ended     done, cancelled, expired, or failed and dismissed: the only bucket drawn faded
+//   todo      a step listed and not started; used only when `OWNER_CALLS.todoApart` is on, else it is paused
 //
 // Pure: `npm test` runs it (test/ops-state.test.ts), and it imports only the protocol's types and other pure modules.
-import type { SessionInfo, TaskRecord, WorkView } from '@protocol'
+import type { SessionInfo, TaskInfo, TaskRecord, WorkView } from '@protocol'
 import { midnight } from '../lib/agenda.ts'
 
-export type StateBucket = 'needs' | 'working' | 'scheduled' | 'paused' | 'rest' | 'ended'
+export type StateBucket = 'needs' | 'working' | 'scheduled' | 'paused' | 'todo' | 'rest' | 'ended'
+
+/** The owner's open questions about the work set (theseus-odj0m), in one place. Each field is one question; answering
+ *  it is the one-line change of its field. The owner answered all of them with the recommendations (2026-10-24), so
+ *  `OWNER_CALLS`, the page's setting, is `RECOMMENDED`; a test of the answer it replaced passes that setting
+ *  explicitly. Nothing else in the cockpit may decide one of these.
+ *   needsPerCard      Q1: needs you counts pieces of work (a card with one or more asks counts once), not every ask
+ *   todoApart         Q2: a step listed and not started is `todo`, with no counter and no Board column, not paused·queued
+ *   agentsOnly        Q3: working counts agents only; a running job and a step being done are drawn working, not counted
+ *   hideRest          Q4: a counter click hides everything else, keeping each match's parents as faint context
+ *   scheduledLabel    Q8: the counter reads "scheduled today", not "still today"
+ *   stalledIsPaused   Q9: a step left doing whose agent has stopped is paused·queued, not working */
+export interface OwnerCalls { needsPerCard: boolean; todoApart: boolean; agentsOnly: boolean; hideRest: boolean; scheduledLabel: boolean; stalledIsPaused: boolean }
+export const OWNER_CALLS: OwnerCalls = { needsPerCard: true, todoApart: true, agentsOnly: true, hideRest: true, scheduledLabel: true, stalledIsPaused: true }
+export const RECOMMENDED: OwnerCalls = { needsPerCard: true, todoApart: true, agentsOnly: true, hideRest: true, scheduledLabel: true, stalledIsPaused: true }
 
 /** Open work: waiting counts. */
-export const isOpen = (b: StateBucket): boolean => b === 'needs' || b === 'working' || b === 'scheduled' || b === 'paused'
+export const isOpen = (b: StateBucket): boolean => b === 'needs' || b === 'working' || b === 'scheduled' || b === 'paused' || b === 'todo'
 export const isEnded = (b: StateBucket): boolean => b === 'ended'
 
 /** The one faded class, and the one treatment of a node the filters leave out: a dashed outline, never opacity. */
@@ -52,12 +67,13 @@ export function bucketOf(v: WorkView, now: number): StateBucket {
 }
 
 /** A task record's bucket, where the board holds no view of it. */
-export function bucketOfRecord(state: string): StateBucket {
+export function bucketOfRecord(state: string, calls: OwnerCalls = OWNER_CALLS): StateBucket {
   switch (state) {
     case 'waiting_human': case 'blocked': return 'needs'
     case 'in_progress': return 'working'
     case 'done': case 'failed': case 'abandoned': return 'ended'
-    default: return 'paused' // suspended, accepted, proposed: open, and recoverable
+    case 'accepted': case 'proposed': return calls.todoApart ? 'todo' : 'paused'
+    default: return 'paused' // suspended: open, and recoverable
   }
 }
 
@@ -91,7 +107,8 @@ export function bucketOfWork(v: WorkView, now: number, record?: Pick<TaskRecord,
 export const openView = (v: WorkView, record?: Pick<TaskRecord, 'state'>): boolean => isOpen(bucketOfWork(v, 0, record))
 
 /** A node of the Graph: its view's bucket (with its record), else its record's, else what a fold stands for. */
-export function bucketOfNode(n: { kind: string; state: string; view?: WorkView; record?: Pick<TaskRecord, 'state'> }, now: number): StateBucket {
+export function bucketOfNode(n: { kind: string; state: string; view?: WorkView; record?: Pick<TaskRecord, 'state'>; bucket?: StateBucket }, now: number): StateBucket {
+  if (n.bucket) return n.bucket // the row's own, from `bucketOfCard`
   if (n.view) return bucketOfWork(n.view, now, n.record)
   if (n.record) return bucketOfRecord(n.record.state)
   return n.kind === 'done' ? 'ended' : 'rest'
@@ -119,3 +136,64 @@ export const isRunning = (viewState: string | undefined, executionState?: string
 /** The view states that mean the work ended (a failure not yet dismissed still asks: that is `bucketOf`'s, not this). */
 export const ENDED_VIEW_STATES: readonly string[] = ['done', 'failed', 'cancelled', 'expired']
 export const isEndedState = (state: string | undefined): boolean => state !== undefined && ENDED_VIEW_STATES.includes(state)
+
+/** What a card's bucket is read from: the row's own parts, so the Board, the Graph and the counters ask one function. */
+export interface CardInput {
+  kind: string
+  view?: WorkView
+  /** A task's row of the Tasks page: its view and its `task.list` entry, either of which may be missing. */
+  task?: { section: string; paused: boolean; view?: WorkView; info?: TaskInfo }
+  record?: TaskRecord
+  /** The asks that wait on it (`queueOf`'s items mapped to this card). */
+  asks?: number
+  /** A step with no task of its own: is its carrier (the claim's holder, else the nearest task above, else the
+   *  conversation it came from) in flight? */
+  carrierInFlight?: boolean
+}
+
+/** A task row's bucket, from the Tasks page's row: the one path the Board once kept apart (`columnOfTask`). A failure
+ *  not yet dismissed still asks for someone: it needs you. */
+function bucketOfTask(r: NonNullable<CardInput['task']>, now: number): StateBucket {
+  if (r.section === 'needs' || r.view?.attention.level === 'needs_you') return 'needs'
+  if (r.section === 'done') return 'ended'
+  const starts = r.info?.starts_at_ms ?? (r.view?.state === 'queued' ? r.view.next_at_ms : undefined)
+  if (starts != null && starts > now) return starts < endOfDay(now) ? 'scheduled' : 'paused'
+  if (r.paused || r.view?.state === 'queued' || r.info?.state === 'queued') return 'paused'
+  // A task known only by its record: running is in flight; waiting says nothing of what on, so it is open and recoverable.
+  if (!r.view) return r.info?.state === 'waiting' ? 'paused' : 'working'
+  return bucketOf(r.view, now)
+}
+
+/** The one bucket of a card (theseus-odj0m), composing `bucketOf`, `bucketOfWork`, `bucketOfRecord` and the task path.
+ *  A card with an ask is `needs`. A record's rules:
+ *    waiting_human, blocked, or a proposal waiting      needs
+ *    in_progress with its own task                      the task's bucket
+ *    in_progress without a task, carrier in flight      working (counted or not: `agentsOnly`)
+ *    in_progress without a task, carrier not in flight  working; paused when `stalledIsPaused`
+ *    suspended                                          paused
+ *    accepted, proposed                                 paused; `todo` when `todoApart`
+ *    done, failed, abandoned                            ended */
+export function bucketOfCard(c: CardInput, now: number, calls: OwnerCalls = OWNER_CALLS): StateBucket {
+  if ((c.asks ?? 0) > 0 || c.kind === 'ask') return 'needs'
+  const rec = c.record
+  if (rec && (rec.state === 'waiting_human' || rec.state === 'blocked')) return 'needs'
+  if (c.task) {
+    const b = bucketOfTask(c.task, now)
+    // A suspended record whose execution ended is paused·queued: open and recoverable.
+    return b === 'ended' && rec?.state === 'suspended' ? 'paused' : b
+  }
+  if (c.view) return bucketOfWork(c.view, now, rec)
+  if (!rec) return 'rest'
+  if (rec.proposal) return 'needs'
+  if (rec.state === 'in_progress') return c.carrierInFlight === false && calls.stalledIsPaused ? 'paused' : 'working'
+  return bucketOfRecord(rec.state, calls)
+}
+
+/** Does a card of this bucket count under the working counter? A job and a step being done are drawn working but are
+ *  the agent's, not a second piece of work, when `agentsOnly`. */
+export function countedCard(c: { kind: string; carrierInFlight?: boolean }, calls: OwnerCalls = OWNER_CALLS): boolean {
+  if (!calls.agentsOnly) return true
+  if (c.kind === 'job') return false
+  // A step row has no task of its own (a task's record rides on the task's row).
+  return !(c.kind === 'step' && c.carrierInFlight === true)
+}
