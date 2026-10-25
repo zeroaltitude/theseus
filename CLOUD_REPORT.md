@@ -60,3 +60,6 @@ Nothing is sent to a model or routed; costs already recorded go into one more in
 
 ## Gate result (interim)
 `scripts/gate.sh` fails in its keel phase on history before my commits: five acks whose signatures do not verify on this VM, and old erosions (persona_cmd.rs tests, keel-guard.py) in the range from 2d1d8d6f. None of it is mine: `keel-guard.py --base 0fda4d57 --head HEAD --quiet` is clean. The door then reports "main's gate failed on this tree". I ran the later phases by hand: `cargo fmt --check`, `scripts/shape.sh`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run -p theseus-kernel -p theseus-core` (TZ=America/Phoenix). The kernel suite alone passed 265/265. The workspace results were still running when this was written; see the final line below if one was added.
+
+## Gate result (final)
+fmt --check clean; `scripts/shape.sh` ok; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo nextest run -p theseus-kernel -p theseus-core` (TZ=America/Phoenix): 4801 run, 4801 passed, 28 skipped. theseusd's money tests, the bench phases, the cockpit build and the full workspace suite were not run (the gate stops at its keel phase for the reasons above).
