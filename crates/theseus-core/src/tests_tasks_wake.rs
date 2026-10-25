@@ -167,14 +167,12 @@ async fn a_persons_ask_for_a_task_still_loads_it() {
     assert!(!hidden(&req, "task_create"));
 }
 
-/// The words: the tool's description and the refusal both carry the sentence.
+/// The words: the refusal carries the sentence. The tool's description does not: the owner's
+/// shape reads the channel's first request at 7,889 of 7,900 tokens, and the sentence costs 35.
 #[test]
-fn the_arrangements_words_accept_work_theseus_noticed() {
-    use theseus_tools::Tool;
+fn the_arrangements_refusal_accepts_work_theseus_noticed() {
     const S: &str =
         "For work you noticed yourself, quote the tool result or your own line that shows it.";
     assert!(crate::arrangement::REFUSAL.contains(S));
     assert!(crate::arrangement::REFUSAL.starts_with("Promotion needs an arrangement:"));
-    let said = crate::task::TaskCreate.description();
-    assert!(said.contains(S), "{said}");
 }
