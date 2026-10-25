@@ -258,7 +258,8 @@ impl Tool for TaskCreate {
          or a `design`. The task reads each quoted message whole and verbatim, after the brief, \
          with who said it and when. `trust` and `supersedes` mark testimony and replaced \
          messages. A quote that matches no message, or more than one, fails with the reason: \
-         quote again, longer or exactly. A short brief drawn from a long discussion with a \
+         quote again, longer or exactly. For work you noticed yourself, quote the tool result \
+         or your own line that shows it. A short brief drawn from a long discussion with a \
          single piece fails too: attach the design, or say `fidelity_ack: true` if the one \
          piece really is the whole work.\n\n\
          Every task is a record in the task graph, which you see each turn. Without `brief`, \
