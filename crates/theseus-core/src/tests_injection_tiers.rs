@@ -18,7 +18,7 @@ use crate::tests_route::{decided, mode, rig, turn, Rig};
 use crate::Config;
 
 /// Twenty notes of about 120 tokens each: more than any tier's items fit.
-fn notes() -> Vec<String> {
+pub(crate) fn notes() -> Vec<String> {
     (1..=20)
         .map(|i| {
             format!(
@@ -74,7 +74,12 @@ fn after_the_verdict(r: &Rig, jev: &FakeJev, sessions: Vec<String>) -> Ask {
 /// A rig whose recall is live in front of the model, its deep modes left on
 /// the session's own profile (so a tier is never a switch), and its index
 /// answering after the verdict (`landed`) or at once.
-fn tiered(jev: &FakeJev, n: usize, landed: bool, tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn tiered(
+    jev: &FakeJev,
+    n: usize,
+    landed: bool,
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
     let r = rig(Some(jev), n, |c| {
         c.memory.mode = crate::config::MemoryMode::Live;
         c.memory.recall_deadline_ms = 5_000;

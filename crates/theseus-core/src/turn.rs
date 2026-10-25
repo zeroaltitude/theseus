@@ -115,7 +115,7 @@ pub mod stdio_step;
 mod steer_step;
 mod stopping_step;
 mod surface_step;
-mod tier;
+pub(crate) mod tier;
 mod title_step;
 
 pub use request::TurnRequest;

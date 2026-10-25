@@ -82,6 +82,8 @@ impl TurnRunner {
         Self::standing_here(t, compiled);
         // Who answers this turn, one tail line (theseus-c1uz).
         Self::persona_line(t, compiled);
+        // A deep_coding turn's reading hint (theseus-tdkcn).
+        Self::coding_hint(t, compiled);
         // The place's other threads, for a turn that asks across them (theseus-98bz.9);
         // their cards are the owner's material, so an open request has none (theseus-rcb2u).
         if !open {
