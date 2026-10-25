@@ -6,10 +6,10 @@ import { Link } from 'react-router'
 import { Box, CircleStop, ExternalLink, Lock, MousePointerClick, OctagonX, Pause, Play } from 'lucide-react'
 import type { CalendarEvent, CalendarWindow, ConfirmRequest, JobStopResult, SessionInfo, SessionModeResult, TaskRecord, ThreadRow } from '@protocol'
 import { useRpc } from '@/lib/rpc'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { ConfirmCard } from '@/components/ConfirmCard'
 import { Pill, StatePill } from '@/components/ui'
-import { usd } from '@/lib/format'
+import { cn, usd } from '@/lib/format'
 import type { OpsRow } from './board'
 import { cardFacts } from './facts'
 import type { QueueItem } from './queue'
@@ -23,7 +23,8 @@ import { EventDetail } from './EventDetail'
 import { Facts, RecordBlock, Section, StandingBlock } from './InspectorSections'
 import { JoinPane } from './JoinPane'
 import { Live } from './Live'
-import { jobFacts, recordFacts, runningJob, taskFacts, type FactLine } from './sections'
+import { bodyOf, carriedWords, jobFacts, NONE_KEYS, NONE_WORDS, recordFacts, runningJob, stepView, taskFacts, type FactLine } from './sections'
+import type { Bucket } from './address'
 import { StickyChip } from './ModelMenu'
 import { RehomeSheet, RescheduleSheet } from './TaskSheets'
 import { targetOf, verbEntries } from './palette'
@@ -51,16 +52,35 @@ export type Selection =
   | { kind: 'mark'; key: string }
   // ops-timeline (theseus-jid7t.5): a calendar event, drawn redacted when the page is.
   | { kind: 'event'; ev: CalendarEvent; cal: CalendarWindow; redact: boolean }
-  | { kind: 'none' }
+  // `counts` and `onFilter` make the empty panel's counts links; both absent, only its words.
+  | { kind: 'none'; counts?: ReadonlyArray<{ b: Bucket; label: string; n: number }>; onFilter?: (b: Bucket) => void }
 
 export function Inspector({ sel, confirms, past, now, cx }: { sel: Selection; confirms: readonly ConfirmRequest[]; past: number | null; now: number; cx: InspectorCx }) {
   if (sel.kind === 'thread') return <ThreadJoin slug={sel.slug} cx={cx} />
   if (sel.kind === 'item') return <ItemWhole i={sel.item} past={past} />
-  if (sel.kind === 'row' && sel.row.kind === 'job') return <JobWhole r={sel.row} now={now} />
+  if (sel.kind === 'row' && bodyOf(sel.row) === 'job') return <JobWhole r={sel.row} now={now} />
+  if (sel.kind === 'row' && bodyOf(sel.row) === 'step') return <StepWhole r={sel.row} confirms={confirms.filter((c) => c.session_id === sel.row.sessionId)} past={past} now={now} cx={cx} />
   if (sel.kind === 'row') return <RowWhole r={sel.row} confirms={confirms.filter((c) => c.session_id === sel.row.sessionId)} past={past} now={now} cx={cx} />
   if (sel.kind === 'event') return <EventDetail ev={sel.ev} cal={sel.cal} redact={sel.redact} />
   if (sel.kind === 'mark') return <Hint>The selected mark’s panel, with its verbs, is under the week strip.</Hint>
-  return <Hint><MousePointerClick size={16} className="text-gold" /> Select a card, a thread or a queue item: its facts and verbs show here. <span className="kbd">?</span> lists the keys.</Hint>
+  return <NoneWhole sel={sel} />
+}
+
+/** Nothing selected: what to do, the counts (each sets its filter), and the keys. */
+function NoneWhole({ sel }: { sel: Extract<Selection, { kind: 'none' }> }) {
+  return (
+    <div className="flex flex-col gap-3 p-4 text-[12px] text-ink-faint" data-testid="inspector-none">
+      <p className="flex items-center gap-2"><MousePointerClick size={16} className="shrink-0 text-gold" />{NONE_WORDS}</p>
+      {sel.counts && sel.counts.length > 0 && (
+        <Section title="Now">
+          <ul className="flex flex-wrap gap-1.5">
+            {sel.counts.map((c) => <li key={c.b}><button type="button" onClick={() => sel.onFilter?.(c.b)} className="num rounded-full px-2 py-0.5 text-ink ring-1 ring-line hover:bg-white/[0.06]" title={`show only ${c.label}`}>{c.n} {c.label}</button></li>)}
+          </ul>
+        </Section>
+      )}
+      <Section title="Keys"><dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">{NONE_KEYS.map((k) => <Fragment key={k.keys}><dt><span className="kbd">{k.keys}</span></dt><dd>{k.words}</dd></Fragment>)}</dl></Section>
+    </div>
+  )
 }
 
 function ThreadJoin({ slug, cx }: { slug: string; cx: InspectorCx }) {
@@ -150,6 +170,36 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
       {sheet === 'rehome' && <RehomeSheet task={r.id} title={f.title} home={r.task?.info?.parent_session_id} onClose={() => setSheet(null)} />}
       {sheet === 'reschedule' && <RescheduleSheet task={r.id} title={f.title} startsAt={r.dueMs} onClose={() => setSheet(null)} />}
       {(r.kind === 'task' || r.kind === 'conversation') && <Sections r={r} cx={cx} now={now} />}
+    </div>
+  )
+}
+
+/** A step or a plan (a task record): its noun and state, where it hangs, what is in it, its words and history, and the
+ *  task that carries it. No verb is a record's own (the model's); the owner's act through the attached task. */
+function StepWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonly ConfirmRequest[]; past: number | null; now: number; cx: InspectorCx }) {
+  const v = stepView(r, cx.rows, past ?? now)
+  const rec = recordFacts(r.record ?? cx.records.find((t) => t.id === r.recordId), now)
+  const { on } = useOpsAct()
+  const select = cx.onParent // the page's `pick`: a plan's child, a breadcrumb or a dependency
+  return (
+    <div className="flex flex-col gap-2 p-2.5" data-testid="inspector-step">
+      <div className="flex items-center gap-1.5">
+        <Pill tone={r.bucket === 'needs' ? 'wait' : undefined}><span aria-hidden>{v.glyph}</span> {v.stateWord}</Pill>
+        <span className="num text-[10.5px] text-ink-faint">{v.noun} · {v.short}</span>
+      </div>
+      <div className="text-[14px] font-semibold text-ink">{r.title}</div>
+      {v.crumbs.length > 0 && <nav aria-label="where it hangs" className="flex flex-wrap items-center gap-1 text-[11.5px] text-ink-faint">{v.crumbs.map((c, i) => <Fragment key={`${c.id ?? c.title}${i}`}>{i > 0 && <span>›</span>}{c.id ? <button type="button" onClick={() => select(c.id!)} className="text-live hover:underline">{c.title}</button> : <span>{c.title}</span>}</Fragment>)}</nav>}
+      {v.progress && (
+        <Section title={`${v.progress.n} of ${v.progress.m} closed`}>
+          <ul className="flex flex-col gap-0.5 text-[12px]">{v.children.map((c) => <li key={c.id}><button type="button" onClick={() => select(c.id)} className={cn('flex w-full items-baseline gap-2 text-left hover:underline', c.closed ? 'text-ink-faint' : 'text-ink')}><span aria-hidden>{c.glyph}</span><span className="min-w-0 flex-1 truncate">{c.title}</span><span className="num text-[10.5px] text-ink-faint">{c.stateWord}</span></button></li>)}</ul>
+        </Section>
+      )}
+      {rec && <Section title="Record"><RecordBlock f={rec} /></Section>}
+      {r.record?.deps.length ? <Section title="Waits on"><ul className="flex flex-wrap gap-1.5 text-[11.5px]">{r.record.deps.map((d) => <li key={d}><button type="button" onClick={() => select(d)} className="num text-live hover:underline">{d}</button></li>)}</ul></Section> : null}
+      {v.history.length > 0 && <Section title="History" hint={v.ledger && <Link className="text-live" to={v.ledger}>its ledger rows</Link>}><Facts lines={v.history} /></Section>}
+      {!v.task && confirms.map((c) => <ConfirmCard key={c.correlation_id} c={c} here past={past ?? undefined} />)}
+      {v.task ? <RowWhole r={v.task} confirms={confirms.filter((c) => c.session_id === v.task!.sessionId)} past={past} now={now} cx={cx} />
+        : <Section title="Carried by"><div className="flex flex-wrap items-center gap-2 text-[12px] text-ink">{carriedWords(v)}{v.carrier?.id && cx.rows.find((x) => x.id === v.carrier!.id)?.sessionId && <ActBtn verb="join" on={on} tone="live" onClick={() => cx.onJoin(cx.rows.find((x) => x.id === v.carrier!.id)!.sessionId!)} title="i: talk to it in the Join pane">i · Join</ActBtn>}</div></Section>}
     </div>
   )
 }

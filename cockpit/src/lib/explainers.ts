@@ -46,7 +46,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- the Threads (theseus-5i8i)
   'threads.list': e(
     'Show each live thread as one group, with what is open under it and what waits on you.',
-    'A header is the thread: its title (a lock when the owner has sealed it), its state, whether its cache is warm or cold, how many things need you, then its last activity, context size and dollars today. Under it are its open tasks, questions and wakes; click one to open its session. A seal waiting on you is the red line. A paused thread keeps its count but leaves the board’s.',
+    'A header is the thread: its title (a lock when the owner has sealed it), its state, whether its cache is warm or cold, how many things need you, then its last activity, context size and dollars today. Under it are its open plans, steps, questions and wakes; click one to open its session. A seal waiting on you is the red line. A paused thread keeps its count but leaves the board’s.',
     'A thread that needs you is where to go first. A cold thread with a large context costs more to wake than a warm one, so a message there is worth batching.'),
   'threads.thread': e(
     'Say what one thread is, where it stands, and where it came from.',
@@ -61,9 +61,9 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Each line is one kind of thing and the names the thread holds. Nothing is guessed: these are the record’s own.',
     'The router and the context read the working set to decide what belongs to this thread; a missing repo here is a message sent to the wrong thread.'),
   'threads.work': e(
-    'List the thread’s open tasks, questions and wakes.',
-    'The mark is its attention: ● needs you, ◐ working, ○ ready. Click one to open its session.',
-    'A question here is waiting on you; a task that has failed stays until someone looks.'),
+    'List the thread’s open plans, steps, questions and wakes.',
+    'The mark is its attention: ● needs you, ◐ working, ○ ready. Click one to open its conversation.',
+    'A question here is waiting on you; a step or a task that has failed stays until someone looks.'),
   'threads.turns': e(
     'Show the last few messages of the thread’s session.',
     'Oldest first, newest last: what you said and what Theseus answered, with when.',
@@ -114,12 +114,12 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- the Fleet
   'fleet.list': e(
     'List every session or execution, so you can find one and open it.',
-    'One row per session (or per execution, with the switch above): its state, title, place, cost and last activity. Sort or filter at the top; click a row to open its deck. Executions show their queue, budget and a cancel.',
+    'One row per session (or per execution, with the switch above): its state, title, place (where it came from: the CLI, a direct message, a channel), cost and last activity. Sort or filter at the top; click a row to open its deck. Executions show their queue, budget and a cancel.',
     'This is where to find the session that is stuck, silent or spending. Cancelling an execution here stops a turn at once.'),
   'fleet.graph': e(
     'Show who started whom, and who reports to whom.',
-    'Each node is a session or a task; an arrow runs from the one that started the other. Click a node to open its session.',
-    'It shows why something is running: a task nobody remembers starting has a parent here. Follow the arrows up to the session that owns it.'),
+    'Each node is a conversation or a task (an agent Theseus started); an arrow runs from the one that started the other. Click a node to open its conversation.',
+    'It shows why something is running: a task nobody remembers starting has a parent here. Follow the arrows up to the conversation that owns it.'),
 
   // ---- Actions
   'actions.approvals': e(
@@ -147,29 +147,37 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'One tab per kind of place (the CLI, a direct message, a channel, a task, a headless run). Each family is loaded or deferred, with the reason (a default for the place, used in a share of its turns, or unused for days) and its use in the window: turns that used it, searches that found one of its tools, and misses, a call to a tool that was not loaded.',
     'Every request reads the tools it loads, so a family nobody uses costs tokens on every call. A miss is a deferred family someone needed: it is what moves a family into the loaded set.'),
   'actions.tasks': e(
-    'Show the tasks Theseus is tracking.',
-    'One row per task: its state, owner, claim and version, with a waiting change and its card where there is one.',
-    'A task that is claimed but stale is work nobody is doing. A waiting change needs your answer.'),
+    'Show the plans and steps Theseus is tracking.',
+    'One row per plan or step: its state, owner, claim and version, with a waiting change and its card where there is one.',
+    'A plan or step that is claimed but stale is work nobody is doing. A waiting change to its goal needs your answer.'),
   'ops.board': e(
     'Show every live piece of work by what it needs: your answer, its work, a pause or a queue, a time today, or its report.',
-    'Five columns: Needs you (the longest waiting first), Working, Paused·queued, Scheduled (deferred starts, wakes and routine runs due today) and Done (today, then older, fifty at a time). A card is a task, a conversation, a job or a wake, with its progress line, its place and the model it runs on. j and k move along a column, h and l across.',
+    'Five columns: Needs you (the longest waiting first), Working, Paused·queued, Scheduled (deferred starts, wakes and routine runs due today; its counter reads “scheduled today”) and Done (today, then older, fifty at a time). A card is a plan, a step, a task, a conversation, a job or a wake, with its progress line, its place (where it came from) and the model it runs on. A step not yet started is to do and has no column. j and k move along a column, h and l across.',
     'It is the one place that says whether a piece of work is still going. A task waiting on a long command is working, and a paused one is held until you resume it.'),
+  'ops.graph': e(
+    'Show how the work hangs together: which thread holds which plans and steps, and which task is carrying out which.',
+    'Each thread is a swimlane with its head card, and everything it started hangs in it; Home is the lane for work that belongs to no thread. A plan is a card with a fold and “n of m” done; a step is a card with a checkbox glyph; a task is a badge strip on the step or plan it carries out; a job is a pill. A colour says the state: needs you, working, to do, paused·queued, scheduled today, at rest or done.',
+    'It shows why something is running and what it is part of. A plan stuck at 2 of 5 points at the step that holds it, and a task nobody remembers starting sits on the card it belongs to.'),
+  'ops.words': e(
+    'Say what the page’s words mean: conversation, thread, plan, step, task and job.',
+    'A conversation is where you talk with Theseus in one place (a DM, the CLI, a channel, the cockpit), one turn at a time. A thread is a named line of work with its own conversation. A plan is work broken into parts, with steps and smaller plans in it. A step is one piece of work, checked off when done. A task is an agent Theseus starts to carry out a step or a plan on its own, with its own budget. A job is a command run for a turn or a task, such as a build or a test run.',
+    'A task is only ever the running agent: what is stored and shown as work to do is a plan or a step. Also: a turn is one run of the model from a message to its reply, an ask is anything waiting on your answer, and a wake is a time Theseus starts work by itself.'),
   'ops.queue': e(
     'List everything that waits on you, in one place, the longest waiting first.',
-    'Each card is one thing to answer: an approval, a budget, a task change, a question, a failure, a seal, a hold on external text, or a message waiting for its thread. Its glyph and word say which; the bar under its top says how much of its time is left. Tab moves to the next; Enter lays out the whole card; y, t, n, 1 to 6, r and d answer the one under the cursor.',
+    'Each card is one thing to answer: an approval, a budget, a change to a step’s goal, a question, a failure, a seal, a hold on external text, or a message waiting for its thread. Its glyph and word say which; the bar under its top says how much of its time is left. Tab moves to the next; Enter lays out the whole card; y, t, n, 1 to 6, r and d answer the one under the cursor.',
     'A question that waits holds its work. A new one slides in where its age puts it, so the cursor never jumps away from what you are reading.'),
   'ops.inspector': e(
     'Show the selection whole: its facts, its questions and its verbs.',
-    'A card shows every field the board has for it, its questions answered in place, and its verbs (pause, stop, cancel). A thread shows its goal, card, working set, open work and recent turns with its verbs. A queue item shows its full question.',
+    'A plan, step, task, job or conversation shows every field the Board has for it, its questions answered in place, and its verbs (pause, stop, cancel). A thread shows its goal, card, working set, open work and recent turns with its verbs. A queue item shows its full question.',
     'It is where you act on one thing without leaving the page: every verb is one call to the daemon, as the same act from any other surface.'),
   'tasks.new': e(
-    'Start a task from the page.',
-    'A brief, an optional title and budget, and the conversation it goes under (your Home when none is chosen). It opens the task at once, with no model turn, and scrolls to its row.',
-    'A task works on its own and reports back, so a long piece of work does not hold a conversation.'),
+    'Start a task from the page: an agent that carries out a piece of work on its own.',
+    'A brief, an optional title and budget, and the conversation it goes under (your Home when none is chosen). It starts the task at once, with no model turn, and scrolls to its row.',
+    'A task works on its own with its own budget and reports back to where it came from, so a long piece of work does not hold a conversation.'),
   'actions.taskgraph': e(
-    'Show the task records as a tree, and as a graph.',
-    'The tree nests tasks under the one that started them. The graph view draws the same records as nodes and arrows; click a node for its record. It shows the present only.',
-    'It makes a stuck chain visible: a task waiting on another shows as an arrow into the one that holds it.'),
+    'Show the plans and steps as a tree, and as a graph.',
+    'The tree nests each plan or step under the one it belongs to. The graph view draws the same plans and steps as nodes and arrows; click a node for its detail. It shows the present only.',
+    'It makes a stuck chain visible: a step waiting on another shows as an arrow into the one that holds it.'),
 
   // ---- Boundaries and Policy
   'bounds.latch': e(
@@ -284,18 +292,18 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Time the harness adds is time every turn pays. A tall column is a turn where Theseus itself, not the model, was the wait.'),
   'speed.commits': e(
     'Show how long writes to the record take.',
-    'A histogram: each column is a range of commit times in milliseconds (the last one is “500 and over”), its height how many commits fell in it. One fsync a frame.',
+    'A histogram: each column is a range of commit times in milliseconds (the last one is “500 and over”), its height how many commits fell in it. One fsync (a disk sync) a frame, as the panel’s heading says.',
     'Every write waits for the disk. A heavy right tail means a slow or busy disk, which slows every turn.'),
   'speed.benches': e(
     'Show whether each of the speed promises has held, run after run.',
-    'One small chart per bench (start, clean stop, crash and restart, binary swap, a plain turn, frames a plain turn): each run’s 95th percentile, with the gate’s limit and the README’s budget as lines; a failed run is a triangle.',
+    'One small chart per bench (start, clean stop, crash and restart, binary swap, a plain turn, frames a plain turn (its writes)): each run’s 95th percentile, with the gate’s limit and the README’s budget as lines; a failed run is a triangle.',
     'A run near or over its line means a change made something slower. The gate refuses it, so this shows how close to the edge each promise runs.'),
 
   // ---- Benchmarks
   'bench.yourwork': e(
     'Say which model your own turns need, measured on your own past work.',
-    'One row per model and effort your turns ran at: how many turns and what they cost, the turns you checked (you corrected their routing), and, once the nightly sampler has replayed some one rung down the routing table, how many a judge called the same or better, with the lowest match rate that holds at the stated confidence and the dollars moving the row down would have saved. The last line is the replays’ own cost against its day cap.',
-    'It is a yardstick, not a switch: nothing here moves routing. Read it before you cheapen a profile, and when a row is expensive and keeps matching a rung down, ask whether that work needs the dearer model.'),
+    'One row per model and effort your turns ran at: how many turns and what they cost, the turns you checked (you corrected their routing), and, once the nightly sampler has replayed some one level down the routing table, how many a judge called the same or better, with the lowest match rate that holds at the stated confidence and the dollars moving the row down would have saved. The last line is the replays’ own cost against its day cap.',
+    'It is a yardstick, not a switch: nothing here moves routing. Read it before you cheapen a profile, and when a row is expensive and keeps matching one level down, ask whether that work needs the dearer model.'),
   'bench.frontier': e(
     'Show where Theseus sits among the harnesses it was measured against.',
     'Each point is a harness in one run on one task set, on the two properties you pick (each with its better direction). The points joined by the line are the frontier: none beats them on both. Dimmed points are beaten. Click a point for its report.',
@@ -323,33 +331,33 @@ export const EXPLAINERS: Record<string, Explainer> = {
 
   // ---- Judgment
   'judgment.main': e(
-    'Show how Jev, the judge inside the loop, is doing, pack by pack.',
-    'One row per pack: its rung (shadow records but does not act) and version, its calls and cost, and the 50th and 95th-percentile time per class of work. Under the ontology pack’s row, one line counts its judgments, the ones that acted (filed a category or attached a project), the ones that only asked, and the writes you took back, with the undo rate over the acts.',
-    'A pack in shadow is being tested before it can act. Slow or costly judgments are paid for on every turn they run in.'),
+    'Show how Jev, the judge inside the loop, is doing, check by check.',
+    'One row per check (a named, versioned judgment such as loop.v1 or classify.v4): its level (shadow = Jev answers but nothing acts on it; live = Theseus acts on the answer) and version, its calls and cost, and the 50th and 95th-percentile time per class of work. Under the ontology check’s row, one line counts its judgments, the ones that acted (filed a category or attached a project), the ones that only asked, and the writes you took back, with the undo rate over the acts.',
+    'A check in shadow is being tested before it can act. Slow or costly judgments are paid for on every turn they run in.'),
   'judgment.log': e(
     'List the judgments Jev made, so you can find and read one.',
-    'One row per judgment: its pack, session, question and result, newest first. Filter by pack, session or time; “N of M+” says more matched than were counted.',
+    'One row per judgment: its check, conversation, question and result, newest first. Filter by check, conversation or time; “N of M+” says more matched than were counted.',
     'It is the record of Jev’s calls. Read the ones you disagree with and label them.'),
   'judgment.one': e(
     'Read one judgment whole: what was asked, and how sure Jev was.',
     'The judgment’s state as fields, and each answer as a probability bar; buttons let you label it right or wrong.',
     'Your labels teach the learning loop which calls were right. A confident wrong answer is the most useful to mark.'),
   'judgment.ladder': e(
-    'Show each pack’s mode, and move it up or back.',
-    'One row per pack with its mode, its rules and its rows. Buttons promote it a rung or roll it back.',
-    'Promotion is how a judgment goes from advising to acting. Roll back at once when a pack acts wrongly.'),
+    'See how far each of Jev’s checks is trusted (watching only, or acting), and move it up or back.',
+    'One row per check (e.g. loop.v1 decides when to nudge an unfinished turn; classify.v4 sorts each message). Its badge says its level: shadow = Jev answers but nothing acts on it; live = Theseus acts on the answer. The rules under it are its safety limits (e.g. how many labels a day). Promote moves it one level up; Roll back moves it down at once.',
+    'A check only starts steering Theseus once it has proved itself in shadow. If one starts making bad calls, roll it back immediately; its earlier level is restored.'),
   'judgment.corrections': e(
     'Show your corrections of how messages are routed to a model.',
     'One row per correction: the message it was made on and the profile you steered it to.',
     'Corrections steer similar messages next time. Remove one that is no longer right.'),
   'judgment.versions': e(
-    'Show the versions the learning loop wrote for each pack.',
-    'One lineage per pack; pick any two versions to see what differs. Buttons promote or reject one.',
+    'Show the versions the learning loop wrote for each check.',
+    'One lineage per check; pick any two versions to see what differs. Buttons promote or reject one.',
     'The loop proposes changes to its own judgment; none acts until you promote it.'),
   'judgment.learning': e(
     'Show what the learning loop found.',
-    'A report by date: what it labelled, learned and proposed. Pick a date for the report. The ontology pack’s block has a line of its own for that day: its judgments, acts, confirms and undos, and the undo rate per kind.',
-    'It is where to review the loop’s work before it changes how a pack judges.'),
+    'A report by date: what it labelled, learned and proposed. Pick a date for the report. The ontology check’s block has a line of its own for that day: its judgments, acts, confirms and undos, and the undo rate per kind.',
+    'It is where to review the loop’s work before it changes how a check judges.'),
   'judgment.notices': e(
     'Show the notices Jev sent after a call it was sure was risky.',
     'One row per notice: when, the tool, and the reasons with Jev’s probability; the session is a link. The pill says whether notices are on, paused or off.',
@@ -452,7 +460,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Kinds are the dimensions the ontology sorts sessions by. A kind’s rule and precedence decide which category wins when more than one fits.'),
   'ontology.categories': e(
     'Show the category tree, and how many sessions are in each category.',
-    'A tree: each category with its count of sessions, the origin that made it and, for a machine’s mint, its confidence; at a large import’s size it starts folded at the roots. The origin buttons keep what one origin made, with the rows above it dimmed so a match shows where it hangs; unknown is the categories the ledger has no row for. Click one to read or edit its guidance beside it. The selected category and the origins picked are kept in the address.',
+    'A tree: each category with its count of sessions, the origin that made it and, for a category a machine made, its confidence; at a large import’s size it starts folded at the roots. The origin buttons keep what one origin made, with the rows above it dimmed so a match shows where it hangs; unknown is the categories the ledger has no row for. Click one to read or edit its guidance beside it. The selected category and the origins picked are kept in the address.',
     'A session’s next compile takes guidance from the categories it is in. An overgrown tree, or a session in the wrong category, changes what it is told.'),
   'ontology.guidance': e(
     'Read, and change, the guidance a category gives to the sessions in it.',
@@ -477,11 +485,11 @@ export const EXPLAINERS: Record<string, Explainer> = {
   'ontology.growth': e(
     'Show how fast the ontology grows, and who is growing it.',
     'A column a day for 90 days, stacked by the origin that made the categories (you, the import, Jev, the sweep, the dream), a line for kinds added, and a ring on a day when a write made then was later taken back. The tip gives each day’s counts.',
-    'Jev, the sweep and the dream write here on their own. A chart that climbs with rings on it says the machines are minting what you then undo.'),
+    'Jev, the sweep and the dream write here on their own. A chart that climbs with rings on it says the machines are making categories you then undo.'),
   'ontology.minted': e(
-    'List what Jev, the sweep and the dream minted, with a way to take each back.',
-    'One row per category a machine made, newest first: its origin, its confidence, the session it filed, when, and the judgment that made it (a link). Undo sends ontology.undo for that write after showing you its words; a taken-back mint is struck through. A write that made several categories is undone whole.',
-    'An undo restores the earlier member lists and retires the mint, and is labelled wrong in the learning ledger, which is how the pack learns what you did not want.'),
+    'List what Jev, the sweep and the dream made, with a way to take each back.',
+    'One row per category a machine made, newest first: its origin, its confidence, the session it filed, when, and the judgment that made it (a link). Undo sends ontology.undo for that write after showing you its words; a taken-back category is struck through. A write that made several categories is undone whole.',
+    'An undo restores the earlier member lists and retires the category, and is labelled wrong in the learning ledger, which is how the check learns what you did not want.'),
   'ontology.people': e(
     'List the people Theseus knows, so a message can be traced to a person.',
     'One row per person with their handles (the names they use in each place). Search by handle; click a person for their page.',

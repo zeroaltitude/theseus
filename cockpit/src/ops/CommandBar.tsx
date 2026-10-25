@@ -74,6 +74,7 @@ export function CommandBar({ calls = OWNER_CALLS, counts, f, onFilter, lens, onL
           ))}
         </div>
         {lens === 'board' && <HelpButton id="ops.board" title="Board" />}
+        {lens === 'graph' && <><HelpButton id="ops.graph" title="Graph" /><HelpButton id="ops.words" title="Words" /></>}
         {(['thread', 'model', 'place', 'kind', 'state', 'project', 'ended', 'data'] as const).map((k) => (
           <Chip key={k} k={k} value={f[k]} choices={choices[k] ?? []} onPick={(v) => onFilter(k, v)} />
         ))}

@@ -17,6 +17,8 @@ import { AttentionPill, Empty, LiveDot, Meter, Panel, Pill, Segmented } from '@/
 import { ExecutionTable } from '@/components/ExecutionTable'
 import { StateBadge } from '@/components/SessionLife'
 import { FIT, useFullGraph, type Fitter } from '@/components/FullGraph'
+import { hiddenIds, sessionItem, tally } from '@/ops/retire'
+import { RetireBar, useRetire } from '@/ops/RetireBar'
 
 type Key = 'state' | 'title' | 'turns' | 'tools' | 'tokens' | 'out' | 'cache' | 'cost' | 'active'
 type Sort = { k: Key; desc: boolean }
@@ -78,6 +80,14 @@ export default function Fleet() {
   const setView = (v: 'sessions' | 'executions') => setParams((p) => { if (v === 'executions') p.set('view', v); else p.delete('view'); return p }, { replace: true })
   const titleOf = useMemo(() => { const m = new Map(sessions.map((s) => [s.session_id, s.title || s.label || short(s.session_id)])); return (sid: string) => m.get(sid) ?? short(sid) }, [sessions])
 
+  // Soft retire (theseus-99l9z): the table and the graph leave old sessions out, never the counters below or the set.
+  const retire = useRetire('fleet')
+  const { show, days } = retire.choice
+  const retiredOut = useMemo(() => hiddenIds(sessions, (s) => s.session_id, (s) => s.parent_session_id ?? undefined, sessionItem, show, now, days), [sessions, show, now, days])
+  const retireCounts = useMemo(() => tally(sessions, sessionItem, now, days), [sessions, now, days])
+  const drawn = useMemo(() => sessions.filter((s) => !retiredOut.has(s.session_id)), [sessions, retiredOut])
+  const graphDrawn = useMemo(() => (graphWorld?.sessions ?? sessions).filter((s) => !retiredOut.has(s.session_id)), [graphWorld, sessions, retiredOut])
+
   const states = useMemo(() => {
     const m = new Map<string, number>()
     for (const s of sessions) m.set(s.execution_state ?? 'idle', (m.get(s.execution_state ?? 'idle') ?? 0) + 1)
@@ -99,7 +109,7 @@ export default function Fleet() {
         case 'active': return s.last_active_ms ?? 0
       }
     }
-    return sessions
+    return drawn
       .filter((s) => !state || (s.execution_state ?? 'idle') === state)
       .filter((s) => !needle || `${s.title ?? ''} ${s.label ?? ''} ${s.session_id} ${s.model ?? ''}`.toLowerCase().includes(needle))
       .sort((a, b) => {
@@ -107,7 +117,7 @@ export default function Fleet() {
         const c = x < y ? -1 : x > y ? 1 : 0
         return sort.desc ? -c : c
       })
-  }, [sessions, q, state, sort])
+  }, [drawn, q, state, sort])
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -122,6 +132,7 @@ export default function Fleet() {
             <Pill tone={stateTone(s)}>{s} <span className="num font-semibold">{n}</span></Pill>
           </button>
         ))}
+        {view === 'sessions' && <RetireBar choice={retire.choice} set={retire.set} counts={retireCounts} hidden={retiredOut.size} className="text-[11.5px]" />}
         {world && <Pill tone="wait">as of {stamp(world.t)} · folded from the ledger</Pill>}
         <span className="num ml-auto text-[11px] text-ink-faint">{executions.length} executions · {usd(sessions.reduce((a, s) => a + (s.cost_usd ?? 0), 0))} across the fleet</span>
       </div>
@@ -173,7 +184,7 @@ export default function Fleet() {
         <Separator className="mx-1.5 w-1 rounded-full bg-transparent transition-colors hover:bg-live/30" />
         <RPanel defaultSize="38" minSize={320} className="min-h-0">
           <Panel help="fleet.graph" title="Graph · tasks and reports" icon={<Network size={13} />} actions={fg.button} className={fg.full ? fg.panel.className : 'h-full'} dialog={fg.panel.dialog} bodyClassName="min-h-0">
-            <FleetGraph sessions={graphWorld?.sessions ?? sessions} executions={graphWorld?.executions ?? executions} onOpen={(sid) => nav(`/session/${sid}`)} onInit={fg.onInit}
+            <FleetGraph sessions={graphDrawn} executions={graphWorld?.executions ?? executions} onOpen={(sid) => nav(`/session/${sid}`)} onInit={fg.onInit}
               layout={graphWorld ? { sessions: sl?.sessions ?? NO_SESSIONS, executions: el?.executions ?? NO_EXECUTIONS } : undefined} />
           </Panel>
         </RPanel>

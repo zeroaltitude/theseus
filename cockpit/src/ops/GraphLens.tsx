@@ -24,6 +24,8 @@ import type { DragDrop } from './DropLayer'
 import { dragOf, type DragItem } from './rehome'
 import { FilterChip, type FilterChipProps } from './FilterChip'
 import { OWNER_CALLS, type OwnerCalls } from './state'
+import { hiddenIds, rowItem, tally } from './retire'
+import { RetireBar, useRetire } from './RetireBar'
 
 const EDGE: Readonly<Record<GEdge['kind'], Partial<Edge>>> = {
   parent: { style: { stroke: '#9c907a', strokeWidth: 1.25 } },
@@ -76,22 +78,30 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
   const [future, setFuture] = useState(false)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set())
+  // The owner's plan folds (true open, false folded), kept here as `opened` is, never in the address.
+  const [folds, setFolds] = useState<ReadonlyMap<string, boolean>>(new Map())
   const [tidy, setTidy] = useState(0)
   // The last layout, which the next keeps every placed node of (sticky by id); "tidy" forgets it.
   const [memory] = useState(keeper)
   // Q4 A: a counter's click leaves everything but the kept cards and their context out of the drawing, each slot kept as
   // a hole so nothing moves; Q4 B (today's) only outlines the rest.
   const keep = useMemo(() => (calls.hideRest && shownIds ? new Set([...shownIds, ...(contextIds ?? [])]) : undefined), [calls.hideRest, shownIds, contextIds])
-  const g = useMemo(() => memory.lay(rows, lanes, { now, future, expanded, opened, keep }, tidy), [memory, rows, lanes, now, future, expanded, opened, keep, tidy])
+  // Soft retire (theseus-99l9z): old nodes are left out of the drawing like a counter's rest, never out of `rows`.
+  const retire = useRetire('graph')
+  const retiredOut = useMemo(() => hiddenIds(rows, (r) => r.id, (r) => r.parent, rowItem, retire.choice.show, now, retire.choice.days, [focus, ...picked].filter((x): x is string => !!x)), [rows, retire.choice, now, focus, picked])
+  const kept = useMemo(() => (retiredOut.size ? new Set([...(keep ?? rows.map((r) => r.id))].filter((id) => !retiredOut.has(id))) : keep), [keep, rows, retiredOut])
+  const retireCounts = useMemo(() => tally(rows, rowItem, now, retire.choice.days), [rows, now, retire.choice.days])
+  // `keep` is the counter filter's own set and it alone opens a folded plan (theseus-hl0r1 F3); `kept` is what is drawn.
+  const g = useMemo(() => memory.lay(rows, lanes, { now, future, expanded, opened, keep: kept, filter: keep, folds }, tidy), [memory, rows, lanes, now, future, expanded, opened, keep, kept, folds, tidy])
   // The layout without the openings, which says what each opening can fold back into (`foldBacks`).
-  const base = useMemo(() => (expanded.size || opened.size ? layoutRows(rows, lanes, null, { now, future, keep }) : g), [rows, lanes, now, future, keep, expanded, opened, g])
+  const base = useMemo(() => (expanded.size || opened.size ? layoutRows(rows, lanes, null, { now, future, keep: kept, filter: keep, folds }) : g), [rows, lanes, now, future, keep, kept, folds, expanded, opened, g])
   // The roots' fold-backs read the layout with the lanes' openings: a fold opened inside an opened lane is only there.
-  const baseRoots = useMemo(() => (opened.size && expanded.size ? layoutRows(rows, lanes, null, { now, future, expanded, keep }) : base), [rows, lanes, now, future, expanded, opened, keep, base])
+  const baseRoots = useMemo(() => (opened.size && expanded.size ? layoutRows(rows, lanes, null, { now, future, expanded, keep: kept, filter: keep, folds }) : base), [rows, lanes, now, future, expanded, opened, keep, kept, folds, base])
   const back = useMemo(() => foldBacks(g, base, expanded, opened, baseRoots), [g, base, expanded, opened, baseRoots])
   useEffect(() => { layoutRef.current = g }, [g, layoutRef])
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
   // `?sel=` names a node by its id, or a task by its record's (`tsk_…`, the task graph's link).
-  const at = focus ? g.nodes.find((n) => n.id === focus) ?? g.nodes.find((n) => n.record?.id === focus) : undefined
+  const at = focus ? g.nodes.find((n) => n.id === focus) ?? g.nodes.find((n) => n.record?.id === focus) ?? g.nodes.find((n) => n.head && n.lane === focus) : undefined
   const fid = at?.id ?? null
   const [moving, setMoving] = useState<{ id: string; x: number; y: number } | null>(null)
   const [hover, setHover] = useState<{ key: string; ok: boolean } | null>(null)
@@ -113,9 +123,10 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
       const key = n.kind === 'conversation' && row?.sessionId ? `conversation:${row.sessionId}` : n.kind === 'project' ? `project:${n.id}` : null
       const at = moving?.id === n.id ? { x: moving.x, y: moving.y } : { x: n.x, y: n.y }
       out.push({
-        id: n.id, type: typeOf(n.kind), position: at, ...(shownIds != null && !shownIds.has(n.id) && contextIds?.has(n.id) ? { domAttributes: { title: 'context' } } : {}), measured: sizes[n.id], selected: picked.has(n.id), draggable: n.kind === 'task' || n.kind === 'conversation', zIndex: moving?.id === n.id ? 10 : 1,
+        id: n.id, type: typeOf(n), position: at, ...(shownIds != null && !shownIds.has(n.id) && contextIds?.has(n.id) ? { domAttributes: { title: 'context' } } : {}), measured: sizes[n.id], selected: picked.has(n.id), draggable: n.kind === 'task' || n.kind === 'conversation', zIndex: moving?.id === n.id ? 10 : 1,
         data: {
-          n, row, now, redact, focused: fid === n.id, picked: picked.has(n.id), dim: shownIds != null && !shownIds.has(n.id) && n.kind !== 'done' && n.kind !== 'folded',
+          n, row, now, redact, focused: fid === n.id, laneMeta: n.head ? g.lanes.find((l) => l.key === n.lane) : undefined,
+          onPlan: n.open !== undefined ? () => setFolds((m) => new Map(m).set(n.id, !n.open)) : undefined, picked: picked.has(n.id), dim: shownIds != null && !shownIds.has(n.id) && n.kind !== 'done' && n.kind !== 'folded',
           hover: key && hover?.key === key ? (hover.ok ? 'ok' : 'no') : undefined,
           onFoldBack: back.roots.includes(n.id) ? () => setOpened((s) => { const t = new Set(s); t.delete(n.id); return t }) : undefined,
           onFold: n.kind === 'done' ? () => setExpanded((s) => new Set([...s, n.lane])) : n.kind === 'folded' ? () => setOpened((s) => new Set([...s, n.parent ?? n.id.slice(5)])) : undefined,
@@ -194,7 +205,7 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
         proOptions={{ hideAttribution: true }} multiSelectionKeyCode={null} selectionKeyCode="Shift" deleteKeyCode={null}
         onNodeClick={(e, n) => {
           if (n.type === 'lane') return
-          if (e.shiftKey || e.metaKey || e.ctrlKey) { if (byId.has(n.id)) onPick(n.id) } else onFocus(n.id) // only a node with a row is picked
+          if (e.shiftKey || e.metaKey || e.ctrlKey) { if (byId.has(n.id)) onPick(n.id) } else onFocus((n.data as NodeData).n?.head ? (n.data as NodeData).n.lane : n.id) // only a node with a row is picked; a thread's head selects the thread
         }}
         onNodeDoubleClick={(_, n) => { const sid = byId.get(n.id)?.sessionId; if (sid) onOpen(sid) }}
         onNodeContextMenu={(e, n) => { if (n.type === 'lane' || !byId.has(n.id)) return; e.preventDefault(); onContext(n.id, e.clientX, e.clientY) }}
@@ -223,6 +234,7 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
       <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2 rounded-lg bg-hull/90 px-2.5 py-1.5 text-[11px] text-ink-dim ring-1 ring-line backdrop-blur">
         {fullGraph.button}
         {chip && <FilterChip {...chip} calls={calls} />}
+        <RetireBar choice={retire.choice} set={retire.set} counts={retireCounts} hidden={retiredOut.size} />
         <span className="num">{g.nodes.length} nodes{g.folded ? ` · ${g.folded} folded` : ''}{g.hidden ? ` · ${g.hidden} hidden` : ''}</span>
         {g.cantOpen && <span role="status" className="text-wait">could not open: the graph is at its cap; narrow it with the filters or the search</span>}
         <button type="button" aria-pressed={future} onClick={() => setFuture((f) => !f)} className={cn('rounded px-1.5 ring-1', future ? 'bg-think/15 text-think ring-think/40' : 'ring-line hover:text-ink')}
@@ -250,6 +262,8 @@ function Legend() {
       <span className="flex items-center gap-1">{line('1 5', toneHex.think)} retries</span>
       <span className="flex items-center gap-1">{line(undefined, toneHex.live)} running</span>
       <span className="text-wait">● needs you</span>
+      <span title="a step: to do, doing, blocked, done">☐ ◐ ■ ☑ step</span>
+      <span title="a plan folds into its card; ▸ opens it">▸ plan n/m</span>
       <span>⇧-drag lasso · ⇧/⌘-click pick · right-click verbs</span>
     </div>
   )

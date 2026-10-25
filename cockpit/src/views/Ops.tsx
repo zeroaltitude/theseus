@@ -26,7 +26,7 @@ import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
 import { fullKey, parseFull, writeFull } from '@/lib/fullgraph'
 import { parseAddress, writeAddress, type Address, type Bucket, type FilterKey, type Lens } from '@/ops/address'
-import { alive, allCounters, boardRows, chipChoices, columnsOf, contextOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
+import { alive, allCounters, boardRows, chipChoices, columnsOf, contextOf, DATA_MARKS, DONE_PAGE, laneRows, shown, spendToday, type OpsRow } from '@/ops/board'
 import { answerOf, asksWord, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
 import { threadFacts } from '@/ops/facts'
@@ -39,7 +39,7 @@ import { useDragDrop } from '@/ops/DropLayer'
 import { useSelection } from '@/ops/useSelection'
 import type { DropTarget } from '@/ops/rehome'
 import type { RunResult } from '@/ops/selection'
-import { comingShows, DOCK_KEY, flip, INSPECTOR_KEY, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
+import { comingShows, DOCK_KEY, flip, idleSel, INSPECTOR_KEY, OPEN_SEL, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
 import { BoardLens } from '@/ops/BoardLens'
 import { ThreadsLens } from '@/ops/ThreadsLens'
 import { Queue } from '@/ops/Queue'
@@ -55,7 +55,7 @@ import { Toast } from '@/ops/Toast'
 import { VerbMenu } from '@/ops/VerbMenu'
 import { entitiesOf, targetOf } from '@/ops/palette'
 import { useOpsPalette } from '@/ops/paletteStore'
-import { lastTurnOf } from '@/ops/sections'
+import { lastTurnOf, noneCounts, rowFor } from '@/ops/sections'
 import { Sheet } from '@/ops/Sheet'
 import { SelfChangesCard } from '@/components/SelfChanges'
 import { useOpsAct } from '@/ops/act'
@@ -157,7 +157,7 @@ export default function Ops() {
   const dataOf = useCallback((sid: string | undefined) => sessions.find((x) => x.session_id === sid)?.data ?? undefined, [sessions])
   const laneMetas = useMemo((): LaneMeta[] => grouped.threads.map((t) => {
     const f = threadFacts(t, now)
-    return { key: t.group.slug, title: t.group.title, needs: t.needsYou, words: [f.warmth, f.details].filter(Boolean).join(' · '), sealed: f.sealed, data: dataOf(t.group.session_id) }
+    return { key: t.group.slug, title: t.group.title, needs: t.needsYou, words: [f.warmth, f.details].filter(Boolean).join(' · '), sealed: f.sealed, data: dataOf(t.group.session_id), head: t.head?.session_id ?? t.group.session_id }
   }), [grouped.threads, now, dataOf])
   const homes = useMemo((): DropTarget[] => [
     ...rows.flatMap((r): DropTarget[] => (r.kind === 'conversation' && r.sessionId && alive(r) && !r.session?.retired ? [{ kind: 'conversation', sessionId: r.sessionId, title: r.title, data: r.view?.data ?? r.session?.data ?? undefined }] : [])),
@@ -185,11 +185,16 @@ export default function Ops() {
 
   // What is selected, and where.
   const item: QueueItem | undefined = isItemKey(a.sel) ? queue.find((i) => i.key === a.sel) : a.do === 'answer' ? itemFor(queue, a.sel) : undefined
-  const row: OpsRow | undefined = item ? undefined : rows.find((r) => selects(r, a.sel))
-  const slug = a.lens === 'threads' && a.sel && !item ? a.sel : null
+  const row: OpsRow | undefined = item ? undefined : rowFor(rows, a.sel)
+  // A thread's head card on the Graph selects its lane, which is a thread, not a row (theseus-hl0r1 F4).
+  const laneSel = a.lens === 'graph' && laneMetas.some((l) => l.key === a.sel)
+  // The idle tab opened the panel with nothing selected; so does a Graph or Board selection nothing resolves
+  // (theseus-gnhnk F5), which would otherwise fall back to the idle tab.
+  const handOpen = a.sel === OPEN_SEL || ((a.lens === 'graph' || a.lens === 'board') && !!a.sel && !item && !row && !laneSel)
+  const slug = (a.lens === 'threads' || laneSel) && a.sel && !item && !handOpen ? a.sel : null
   const event = a.lens === 'timeline' && a.sel?.startsWith('ev:') ? findEvent(cal.calendars, a.sel.slice(3)) : null
-  const mark = a.lens === 'timeline' && !item ? tlr?.marks.find((m) => m.key === a.sel) : undefined
-  const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel ? { kind: 'mark', key: a.sel } : { kind: 'none' }
+  const mark = a.lens === 'timeline' && !item && !handOpen ? tlr?.marks.find((m) => m.key === a.sel) : undefined
+  const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel && !handOpen ? { kind: 'mark', key: a.sel } : { kind: 'none', counts: noneCounts(counts), onFilter: (b) => set({ f: { ...a.f, bucket: b } }) }
   const region: 'queue' | 'canvas' = item ? 'queue' : 'canvas'
   // The item a key answers: the queue's cursor, or the needs-you item of the row on the canvas.
   const focusItem = item ?? (row ? queue.find((i) => (row.view != null && i.view?.id === row.view.id) || (row.sessionId != null && i.sessionId === row.sessionId && i.kind !== 'hold')) : undefined)
@@ -199,7 +204,7 @@ export default function Ops() {
 
   // The regions, their folds kept in this browser, and the narrow-screen rules.
   const [iFold, setIFold] = usePref(INSPECTOR_KEY, parseFold)
-  const reg = regionsFor(width || 1440, qFold, iFold, selection.kind !== 'none')
+  const reg = regionsFor(width || 1440, qFold, iFold, selection.kind !== 'none', handOpen)
   const [keysOpen, setKeysOpen] = useState(false)
   const [newTask, setNewTask] = useState<{ home: string } | null>(null)
   // A menu carries the session it acts on: the Join pane's own, not the focused card's (ops-act J1).
@@ -431,10 +436,10 @@ export default function Ops() {
   const joined = a.join ?? null
   const lensView = (
     <div className="h-full min-h-0 min-w-0 flex-1">
-      {a.lens === 'board' && <BoardLens cols={cols} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now}
+      {a.lens === 'board' && <BoardLens cols={cols} rows={rows} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now}
         picked={picked} onPick={pickOne} drag={drag} titleOf={titleOf} />}
       {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} records={records} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
-        matches={(t) => shownSlugs.has(t.group.slug)} />}
+        matches={(t) => shownSlugs.has(t.group.slug)} rows={rows} kept={shownIds} context={contextIds} onSelect={pick} />}
       {a.lens === 'timeline' && (
         <div className="h-full overflow-y-auto pr-1">
           {world && <p className="mb-2 text-[11.5px] text-wait">The agenda shows the present: its marks are the daemon’s now, not the log’s moment.</p>}
@@ -493,7 +498,7 @@ export default function Ops() {
           </aside>
         )}
         {reg.inspector === 'folded' && <Tab side="right" label="Inspector" onClick={() => setIFold('open')} />}
-        {reg.inspector === 'idle' && <Tab side="right" label="Inspector · select a card" onClick={() => pick(queue[0]?.key ?? null)} />}
+        {reg.inspector === 'idle' && <Tab side="right" label="Inspector · select a card" onClick={() => pick(idleSel(queue[0]?.key))} />}
       </div>
       {dockFold === 'open' && <Dock state={dock} onState={setDock} onFocus={setDockFocus} selected={focusRow?.sessionId ?? null} sessions={sessions} activeModel={a.f.model} onModel={(m) => filter('model', m)} />}
       {dockFold === 'folded' && <button onClick={() => setDockFold('open')} title="the dock (\\)" className="self-start rounded-lg border border-line bg-hull/60 px-3 py-1 text-[11px] text-ink-faint hover:text-ink">Dock · live streams and models <span className="kbd">\\</span></button>}

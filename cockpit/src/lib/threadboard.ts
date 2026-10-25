@@ -9,7 +9,8 @@
 // - A done thread shows only while something under it is open.
 // - Warm is a last activity within five minutes, the provider cache's lifetime.
 import type { TaskRecord, ThreadGroup, WorkChanged, WorkView, WorkWatchResult } from '@protocol'
-import { openView } from '../ops/state.ts'
+import { openView, OWNER_CALLS, type OwnerCalls, type StateBucket } from '../ops/state.ts'
+import type { OpsRow } from '../ops/board.ts'
 import { span } from './figures.ts'
 
 export const WARM_MS = 5 * 60 * 1000
@@ -184,4 +185,138 @@ export function foldThreads(rows: Array<{ at_unix_ms: number; kind: string; data
     then.set(d.slug, { slug: d.slug, title: typeof d.title === 'string' ? d.title : then.get(d.slug)?.title ?? d.slug, state, at: r.at_unix_ms })
   }
   return [...then.values()].sort((a, b) => b.at - a.at || (a.slug < b.slug ? -1 : 1))
+}
+
+// ---- The Threads lens over the one work set (theseus-brcs4) ----------------------------------------------------------
+// `threadWork` reads the rows `boardRows` made (every card once, each with its bucket and whether it counts) and never
+// derives a second set: a thread lists its plans and steps, the tasks that carry them on the same line, and under a
+// counter's filter only the kept cards with their ancestors as context. The counters are `ops/board.ts`'s alone.
+
+const RANK: Record<StateBucket, number> = { needs: 0, working: 1, scheduled: 2, paused: 3, todo: 4, rest: 5, ended: 6 }
+const DONE_STATES = ['done', 'complete']
+const OPEN_WORDS: ReadonlyArray<[StateBucket, string]> = [['needs', 'need you'], ['working', 'working'], ['scheduled', 'scheduled'], ['paused', 'paused'], ['todo', 'to do']]
+
+/** A plan's progress over the leaf cards of its subtree (a step, or a task carrying a step; never a plan, a job, a wake
+ *  or an ask), each counted once however deep the nesting. `todo` is its own word while `todoApart` holds (Q2: a to-do
+ *  step is carried in its plan's n/m, on no counter); otherwise it reads as paused. Derived from rows, as the Graph's
+ *  plan card derives its own n/m; the two should fold onto one helper if they ever differ. */
+export interface PlanProgress { done: number; total: number; by: Partial<Record<StateBucket, number>>; words: string }
+
+export interface WorkLine {
+  row: OpsRow
+  depth: number
+  /** Drawn faintly: it is here only because a kept card sits under it (or beside it, a job). */
+  context: boolean
+  /** The attached task: the row itself when a task carries its record; absent on a step nobody has taken. */
+  task?: OpsRow
+  /** A step with no task of its own: who carries it, in words. */
+  carriedBy?: string
+  /** What the card asks of the owner: one a card (`needsPerCard`), else one an ask. */
+  needs: number
+  progress?: PlanProgress
+}
+
+export interface ThreadWork {
+  /** The thread's group; null is Home, the work that belongs to no thread. */
+  group: ThreadGroup | null
+  lines: WorkLine[]
+  /** The needs-you marks of the cards listed here that a counter counts. */
+  needs: number
+  /** The cards listed here that a filter keeps (every line, when none filters). */
+  kept: number
+}
+
+export interface WorkOpts {
+  /** The ids a counter's filter keeps (`shown()`), and the context it adds (`contextOf`); absent when nothing filters. */
+  kept?: ReadonlySet<string> | null
+  context?: ReadonlySet<string> | null
+  calls?: OwnerCalls
+}
+
+export function threadWork(rows: readonly OpsRow[], groups: readonly ThreadGroup[], opts: WorkOpts = {}): ThreadWork[] {
+  const calls = opts.calls ?? OWNER_CALLS
+  const kept = opts.kept ?? null
+  const ctx = opts.context ?? new Set<string>()
+  const named = new Map<string, OpsRow>()
+  for (const r of rows) for (const k of [r.id, r.view?.id, r.recordId, r.sessionId && r.kind !== 'job' ? r.sessionId : undefined, r.task?.info?.execution_id]) if (k && !named.has(k)) named.set(k, r)
+  // A plan's step hangs from its record's parent; any other card from the row's own (a task's view parent, a job's host).
+  const parentOf = (r: OpsRow): OpsRow | undefined => {
+    const p = (r.record?.parent ? named.get(r.record.parent) : undefined) ?? (r.parent ? named.get(r.parent) : undefined)
+    return p && p !== r ? p : undefined
+  }
+  const slugOf = new Map<string, string | null>()
+  const known = new Set(groups.map((g) => g.slug))
+  const threadOf = (r: OpsRow, depth = 0): string | null => {
+    if (slugOf.has(r.id)) return slugOf.get(r.id)!
+    let s: string | null = r.thread != null && known.has(r.thread) ? r.thread : null
+    if (s == null && r.thread == null && depth < 64) { const p = parentOf(r); if (p) s = threadOf(p, depth + 1) }
+    slugOf.set(r.id, s)
+    return s
+  }
+  const kids = new Map<string, OpsRow[]>()
+  const roots = new Map<string | null, OpsRow[]>()
+  // A `parent` cycle has no root, so neither member would be emitted and both would vanish from the lens, where the
+  // Graph still draws them: a row whose parent stands under itself is a root of its thread instead (theseus-brcs4 F4).
+  const ancestral = (p: OpsRow, r: OpsRow): boolean => { for (let up: OpsRow | undefined = p, i = 0; up && i < 64; i++, up = parentOf(up)) if (up === r) return true; return false }
+  for (const r of rows) {
+    const p = parentOf(r)
+    const t = threadOf(r)
+    const into = p && !ancestral(p, r) && threadOf(p) === t ? (kids.get(p.id) ?? kids.set(p.id, []).get(p.id)!) : (roots.get(t) ?? roots.set(t, []).get(t)!)
+    into.push(r)
+  }
+  const order = (a: OpsRow, b: OpsRow) => RANK[a.bucket] - RANK[b.bucket] || a.activityMs - b.activityMs || (a.id < b.id ? -1 : 1)
+  for (const l of kids.values()) l.sort(order)
+  for (const l of roots.values()) l.sort(order)
+
+  const leaves = (r: OpsRow, seen: Set<string>, depth = 0): void => {
+    if (depth > 64) return
+    for (const k of kids.get(r.id) ?? []) {
+      if (seen.has(k.id)) continue
+      seen.add(k.id)
+      leaves(k, seen, depth + 1)
+    }
+  }
+  const progressOf = (r: OpsRow): PlanProgress | undefined => {
+    const below = new Set<string>()
+    leaves(r, below)
+    const cards = [...below].map((id) => named.get(id)!).filter((c) => c.recordId != null && !c.plan)
+    if (cards.length === 0) return undefined
+    const by: Partial<Record<StateBucket, number>> = {}
+    let done = 0
+    let over = 0
+    for (const c of cards) {
+      const b: StateBucket = c.bucket === 'todo' && !calls.todoApart ? 'paused' : c.bucket
+      by[b] = (by[b] ?? 0) + 1
+      if (b === 'ended') { if (DONE_STATES.includes(c.state ?? '')) done += 1; else over += 1 }
+    }
+    const parts = OPEN_WORDS.filter(([b]) => (by[b] ?? 0) > 0).map(([b, w]) => `${by[b]} ${w}`)
+    if (done > 0) parts.push(`${done} done`)
+    if (over > 0) parts.push(`${over} ended`)
+    return { done, total: cards.length, by, words: parts.join(' · ') }
+  }
+
+  const carriedBy = (r: OpsRow): string => {
+    const c = r.carrier ? named.get(r.carrier) : undefined
+    return c ? `carried by ${c.title}` : 'nobody carries it'
+  }
+  const emit = (r: OpsRow, depth: number, parentKept: boolean): WorkLine[] => {
+    const isKept = kept == null || kept.has(r.id)
+    const below = (kids.get(r.id) ?? []).flatMap((k) => emit(k, depth + 1, isKept))
+    if (!(isKept || below.length > 0 || (ctx.has(r.id) && parentKept))) return []
+    const line: WorkLine = {
+      row: r, depth, context: !isKept, needs: r.bucket === 'needs' ? (calls.needsPerCard ? 1 : Math.max(r.asks, 1)) : 0,
+      ...(r.kind === 'task' && r.recordId ? { task: r } : {}),
+      ...(r.kind === 'step' && !r.plan ? { carriedBy: carriedBy(r) } : {}),
+      ...(r.plan ? { progress: progressOf(r) } : {}),
+    }
+    return [line, ...below]
+  }
+  const make = (group: ThreadGroup | null): ThreadWork => {
+    const lines = (roots.get(group?.slug ?? null) ?? []).flatMap((r) => emit(r, 0, false))
+    const mine = lines.filter((l) => !l.context)
+    return { group, lines, needs: mine.filter((l) => l.row.counted).reduce((n, l) => n + l.needs, 0), kept: mine.length }
+  }
+  const out = [...groups.map(make), make(null)]
+  // A filter lists a thread only when it holds a kept card; no filter lists every thread, and Home when it has work.
+  return out.filter((t) => (kept != null ? t.kept > 0 : t.group != null || t.lines.length > 0))
 }

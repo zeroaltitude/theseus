@@ -37,8 +37,8 @@ export interface OpsRow {
   /** Its work state (`WorkState`), or a task record's state when the board holds no view of it. */
   state?: string
   paused: boolean
-  /** A conversation at rest, from the time machine's sessions: a Graph anchor and a Threads header, never a Board row
-   *  nor a count. The builder gives it no column; nothing else tests this flag for a column or a count. */
+  /** A conversation at rest: a Graph anchor and a Threads header, never a Board row nor a count. The builder gives it
+   *  no column; nothing else tests this flag for a column or a count. */
   rest?: boolean
   view?: WorkView
   task?: TaskRow
@@ -80,10 +80,10 @@ export function modelOf(view: WorkView | undefined, session: SessionInfo | undef
   return view?.moved_to ?? session?.profile ?? session?.model ?? undefined
 }
 
-/** The column of a state bucket (`ops/state.ts`, the one model). A conversation at rest keeps the column it had, Done,
- *  where a view of one is held; answering zo72s is the one line `rest: null`, and no other code tests `rest` for a
- *  column or a count. A to-do step has no column. */
-export const COLUMN_OF: Readonly<Record<StateBucket, Column | null>> = { needs: 'needs', working: 'working', scheduled: 'scheduled', paused: 'paused', todo: null, rest: 'done', ended: 'done' }
+/** The column of a state bucket (`ops/state.ts`, the one model). A conversation at rest has no column, in the present
+ *  as in the time machine (theseus-zo72s, the owner: resting is not done): the Board skips it and no counter has it.
+ *  A to-do step has no column. */
+export const COLUMN_OF: Readonly<Record<StateBucket, Column | null>> = { needs: 'needs', working: 'working', scheduled: 'scheduled', paused: 'paused', todo: null, rest: null, ended: 'done' }
 
 export interface BoardInput {
   views: readonly WorkView[]
@@ -106,7 +106,7 @@ export interface BoardInput {
 /** Every card of the work, once: the one work set the counters, the Board, the Graph and the selection all read.
  *  Tasks, conversations, jobs, the wakes and routine runs, the plans and steps of the records, and the asks no card
  *  owns. Under the time machine the board holds no views: the rows are the tasks and sessions as they stood. In the
- *  present, a conversation at rest is a row (Done, as the Board always had it). */
+ *  present, a conversation at rest is a row too, flagged resting, on no column and in no count (theseus-zo72s). */
 export function boardRows({ views, tasks, sessions, lines = {}, records = [], queue = [], now, past = views.length === 0, calls = OWNER_CALLS }: BoardInput): OpsRow[] {
   const bySession = new Map(sessions.map((s) => [s.session_id, s]))
   const out: OpsRow[] = []
@@ -220,6 +220,7 @@ export function boardRows({ views, tasks, sessions, lines = {}, records = [], qu
     const timed = r.kind === 'wake' || r.kind === 'routine' || r.kind === 'watch'
     const onBoard = !timed || dueToday || r.asks > 0
     r.column = onBoard ? COLUMN_OF[r.bucket] : null
+    r.rest = r.bucket === 'rest' ? true : undefined
     // `agentsOnly` uncounts only what is drawn working: a card in Needs (a step with a goal-change ask, a failed job) stays counted.
     r.counted = r.column != null && (r.bucket !== 'working' || countedCard({ kind: r.kind, carrierInFlight }, calls))
     const v = r.view

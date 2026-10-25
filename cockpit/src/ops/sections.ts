@@ -3,7 +3,9 @@
 // `test/ops-sections.test.ts` runs them over invented fixtures.
 import type { NodeInfo, StandingInfo, TaskRecord, WorkForecast } from '@protocol'
 import { ago, clock, ms, short, usd } from '../lib/figures.ts'
-import { alive, type OpsRow } from './board.ts'
+import { alive, counterLabel, selects, type AllCounters, type OpsRow } from './board.ts'
+import type { Bucket } from './address.ts'
+import { bucketGlyph } from './state.ts'
 
 export interface FactLine { label: string; value: string; tone?: 'money' | 'wait' | 'fault' | 'ok' | 'think' | 'dim' }
 
@@ -94,3 +96,76 @@ export function lastTurnOf(rows: ReadonlyArray<{ kind: string; session_id?: stri
   }
   return undefined
 }
+
+/** Which body the inspector draws for a row: a job's, a step's or plan's record, else the card's whole. */
+export const bodyOf = (r: OpsRow): 'job' | 'step' | 'row' => (r.kind === 'job' ? 'job' : r.kind === 'step' ? 'step' : 'row')
+
+/** The state glyph of a bucket: the fallback when `bucketGlyph` has no opinion. */
+export const GLYPH: Readonly<Record<OpsRow['bucket'], string>> = { needs: '●', working: '◐', scheduled: '◷', paused: '⏸', todo: '○', rest: '·', ended: '✓' }
+
+export interface StepView {
+  noun: 'plan' | 'step'
+  glyph: string
+  stateWord: string
+  short: string
+  /** thread › plan › … above the row, nearest last; each a row the breadcrumb selects, or only words. */
+  crumbs: Array<{ id?: string; title: string }>
+  /** A plan's closed children against all of them. */
+  progress?: { n: number; m: number }
+  children: Array<{ id: string; title: string; glyph: string; stateWord: string; closed: boolean }>
+  /** Created, became a plan, closed. */
+  history: FactLine[]
+  /** The ledger rows of its record. */
+  ledger?: string
+  /** The row that carries it when it has no task of its own: its conversation (or the task above). */
+  carrier?: { id: string; title: string }
+  /** The task row attached to it, when there is one: its sections, verbs and Live are the task's. */
+  task?: OpsRow
+}
+
+const stateWords = (s: string | undefined): string => (s ?? 'unknown').replace(/_/g, ' ')
+
+/** A step's or plan's facts: noun, state, breadcrumb, its children as a checklist, history, and who carries it. */
+export function stepView(r: OpsRow, rows: readonly OpsRow[], now: number): StepView {
+  const rowOf = (id: string | undefined): OpsRow | undefined => (id ? rows.find((x) => selects(x, id)) : undefined)
+  const crumbs: StepView['crumbs'] = []
+  const seen = new Set<string>([r.id])
+  let up = rowOf(r.parent)
+  for (let i = 0; up && !seen.has(up.id) && i < 16; i++) { seen.add(up.id); crumbs.unshift({ id: up.id, title: up.title }); up = rowOf(up.parent) }
+  if (r.thread) crumbs.unshift({ title: r.thread })
+  const kids = rows.filter((c) => c.id !== r.id && (c.parent === r.id || (r.recordId != null && c.record?.parent === r.recordId)))
+  const closed = (c: OpsRow) => c.bucket === 'ended'
+  const rec = r.record
+  const history: FactLine[] = []
+  if (rec) history.push({ label: 'created', value: ago(rec.created_at_ms, now) })
+  const firstKid = Math.min(...kids.map((c) => c.record?.created_at_ms ?? Infinity))
+  if (r.plan && kids.length) history.push({ label: 'became a plan', value: Number.isFinite(firstKid) ? `its first sub-step was added ${ago(firstKid, now)}` : `${kids.length} sub-steps` })
+  if (r.bucket === 'ended') history.push({ label: 'closed', value: ago(r.endedMs ?? rec?.updated_at_ms ?? r.activityMs, now), tone: 'ok' })
+  const sid = r.sessionId ?? r.record?.session
+  const task = r.task ? r : sid ? rows.find((x) => x.kind === 'task' && x.sessionId === sid) : undefined
+  const carrier = r.carrier ? rowOf(r.carrier) : undefined
+  return {
+    noun: r.plan ? 'plan' : 'step', glyph: bucketGlyph(r.bucket, r.state ?? '') ?? GLYPH[r.bucket], stateWord: stateWords(r.state), short: r.short, crumbs,
+    progress: r.plan ? { n: kids.filter(closed).length, m: kids.length } : undefined,
+    children: kids.map((c) => ({ id: c.id, title: c.title, glyph: bucketGlyph(c.bucket, c.state ?? '') ?? GLYPH[c.bucket], stateWord: stateWords(c.state), closed: closed(c) })),
+    history, ledger: rec ? `/ledger?q=${rec.id}` : undefined, carrier: carrier ? { id: carrier.id, title: carrier.title } : undefined, task,
+  }
+}
+
+/** A taskless step is carried by a conversation: "carried by ‹title›". */
+export const carriedWords = (v: StepView): string => (v.carrier ? `carried by ${v.carrier.title}` : 'carried by no one yet')
+
+/** The empty inspector's words: what to do, the counts each a filter, and the keys. */
+export const NONE_WORDS = 'Nothing is selected. Click a card, or press j to take the first.'
+export const NONE_KEYS: ReadonlyArray<{ keys: string; words: string }> = [
+  { keys: 'j k', words: 'down and up the queue' }, { keys: 'h l', words: 'across the graph or board' }, { keys: 'esc ]', words: 'fold this panel' }, { keys: '?', words: 'every key' },
+]
+
+/** The empty inspector's counts, one a link that sets that filter: the bar's counters but the dollars. */
+export function noneCounts(c: AllCounters): Array<{ b: Bucket; label: string; n: number }> {
+  return (['needs', 'working', 'paused', 'still', 'done'] as const).map((b) => ({ b, label: counterLabel(b), n: c[b] }))
+}
+
+/** The row an address's `sel` (a graph node's id, a Board card's, a breadcrumb's) names, in the page's whole work set:
+ *  never a filtered one, so a card the counter hides is still selectable and clearing the filter drops nothing. */
+export const rowFor = (rows: readonly OpsRow[], sel: string | null): OpsRow | undefined => rows.find((r) => selects(r, sel))

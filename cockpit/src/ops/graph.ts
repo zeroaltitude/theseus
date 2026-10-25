@@ -16,6 +16,7 @@
 import type { DataMark, TaskInfo, TaskRecord, WorkView } from '@protocol'
 import { boardRows, type OpsRow } from './board.ts'
 import { queueOf } from './queue.ts'
+import { formsOf, type RowForm } from './forms.ts'
 import { isEndedState, type StateBucket } from './state.ts'
 
 export const COL_W = 288
@@ -57,6 +58,12 @@ export interface GNode {
   fresh: boolean
   /** Its row's bucket (`ops/state.ts`'s `bucketOfCard`): the one the counters count it by. Absent on a fold. */
   bucket?: StateBucket
+  /** Its form (`ops/forms.ts`): a plan's progress, a step's glyph, the badge of the task it carries. Absent on a fold. */
+  form?: RowForm
+  /** A plan: its children are drawn (open), or folded into it, one node toward the cap. */
+  open?: boolean
+  /** A thread's own conversation, drawn as its lane's head card. */
+  head?: boolean
 }
 
 export type EdgeKind = 'parent' | 'deps' | 'retry'
@@ -64,7 +71,7 @@ export type EdgeKind = 'parent' | 'deps' | 'retry'
 export interface GEdge { id: string; source: string; target: string; kind: EdgeKind; running: boolean }
 
 /** A lane's words, from the page (the Threads lens's `threadFacts`): the layout reads `key` and `needs` alone. */
-export interface LaneMeta { key: string; title: string; needs: number; words?: string; sealed?: boolean; data?: DataMark }
+export interface LaneMeta { key: string; title: string; needs: number; words?: string; sealed?: boolean; data?: DataMark; /** The thread's own conversation (its session), drawn as the lane's head card. */ head?: string }
 
 export interface GLane extends LaneMeta { y: number; height: number; rows: number }
 
@@ -97,6 +104,11 @@ export interface LayoutOpts {
   /** The ids a counter's click keeps and the context around them: every other node is left out of the drawing, its slot
    *  kept as a hole (so nothing moves), and a lane with none of them shrinks to its head. Absent, nothing is hidden. */
   keep?: ReadonlySet<string>
+  /** The owner's plan folds, by plan id (true open, false folded); a plan with none is open while it is open work and
+   *  folded once it ends. The counter filter's own set (`filter`) opens a folded plan that holds a kept card. */
+  folds?: ReadonlyMap<string, boolean>
+  /** The counter filter's own kept set: it, and only it, opens a folded plan that holds a kept card. */
+  filter?: ReadonlySet<string>
 }
 
 const ENDED_RECORD = new Set(['done', 'failed', 'abandoned'])
@@ -210,10 +222,28 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
   for (const it of items.values()) shown.set(it.id, { id: it.id, kind: it.kind, lane: laneOf.get(it.id)!, col: depthOf.get(it.id)!, parent: parentOf.get(it.id), it })
   const into = new Map<string, string>()
 
+  // Plans: an open plan shows its children, a folded one stands for them (one node toward the cap). What needs the owner
+  // is drawn anyway, and a filter opens a folded plan that holds a kept card.
+  const forms = formsOf(rows, now)
+  const kidsOf = new Map<string, string[]>()
+  for (const [c, p] of parentOf) kidsOf.set(p, [...(kidsOf.get(p) ?? []), c])
+  const under = (id: string): string[] => { const out: string[] = []; const seen = new Set([id]); const walk = (x: string) => { for (const k of kidsOf.get(x) ?? []) if (!seen.has(k)) { seen.add(k); out.push(k); walk(k) } }; walk(id); return out }
+  const planOpen = new Map<string, boolean>()
+  const plans = [...items.values()].filter((it) => forms.get(it.id)?.form === 'plan').sort((a, b) => depthOf.get(a.id)! - depthOf.get(b.id)! || (a.id < b.id ? -1 : 1))
+  for (const it of plans) {
+    const sub = under(it.id)
+    let open = opts.folds?.get(it.id) ?? it.bucket !== 'ended'
+    if (!open && opts.filter && sub.some((m) => opts.filter!.has(m))) open = true
+    planOpen.set(it.id, open)
+    if (open || !shown.has(it.id)) continue
+    for (const m of sub) if (shown.has(m) && !items.get(m)!.needs) { shown.delete(m); into.set(m, it.id) }
+  }
+
   // Ended work older than an hour, one "✓ N done" per lane.
   const old = new Map<string, string[]>()
   for (const it of items.values()) {
     if (!(it.kind === 'task' || it.kind === 'step' || it.kind === 'job') || !it.ended || it.needs) continue
+    if (into.has(it.id)) continue // already standing in its folded plan
     if ((it.endedMs ?? it.startedMs) > now - DONE_FOLD_MS) continue
     const l = laneOf.get(it.id)!
     if (expanded.has(l)) continue
@@ -326,6 +356,9 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
       title: it?.title ?? (n.kind === 'done' ? `✓ ${n.members!.length} done` : `+${n.members!.length} folded`), state: it?.state ?? (n.kind === 'done' ? 'done' : 'folded'),
       view: it?.view, record: it?.record, parent: n.parent && shown.has(n.parent) ? n.parent : undefined, needs: it?.needs ?? false, asks: asks.get(n.id) ?? 0,
       data: it?.data, startedMs: it?.startedMs ?? 0, members: n.members, fresh: prev != null && !placed[n.id], ...(it ? { bucket: it.bucket } : {}),
+      ...(it && forms.has(it.id) ? { form: forms.get(it.id) } : {}),
+      ...(planOpen.has(n.id) ? { open: planOpen.get(n.id) } : {}),
+      ...(it?.kind === 'conversation' && s.lane !== HOME && metas.get(s.lane)?.head === it.id ? { head: true } : {}),
     })
   }
   nodes.sort((a, b) => (a.id < b.id ? -1 : 1))

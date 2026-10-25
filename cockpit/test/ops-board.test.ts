@@ -17,7 +17,7 @@ test('the columns: needs you, working, paused·queued, scheduled, done today and
   assert.deepEqual(c.working.map((r) => r.id).sort(), ['act_j1', 'ses_t2', 'ses_tides'])
   assert.deepEqual(c.paused.map((r) => r.id), ['ses_t3'], 'a paused task')
   assert.deepEqual(c.scheduled.map((r) => r.id), ['wak_r1', 'ses_t6'], 'today’s wake, then the deferred start at 17:00; next week’s wake is not today’s')
-  assert.deepEqual(c.done.map((r) => r.id), ['ses_home', 'ses_t4'], 'a conversation at rest, and a task that reported an hour ago')
+  assert.deepEqual(c.done.map((r) => r.id), ['ses_t4'], 'a task that reported an hour ago; a conversation at rest is not done (theseus-zo72s)')
   assert.deepEqual(c.older.map((r) => r.id), ['ses_t7'], 'ended yesterday: paged under Done')
   const kinds = new Map(boardRows({ ...b, now: NOW }).map((r) => [r.id, r.kind]))
   assert.equal(kinds.get('act_j1'), 'job')
@@ -60,9 +60,9 @@ test('filters: each chip, the counters’ buckets, ended within', () => {
   assert.deepEqual(ids({ place: 'discord dm' }), ['ses_t1'])
   assert.deepEqual(ids({ bucket: 'needs' }), ['ses_t1', 'ses_t5'])
   assert.deepEqual(ids({ bucket: 'still' }), ['ses_t6', 'wak_r1'])
-  assert.deepEqual(ids({ bucket: 'done' }), ['ses_home', 'ses_t4'], 'done today only')
+  assert.deepEqual(ids({ bucket: 'done' }), ['ses_t4'], 'done today only; a resting conversation is not done')
   assert.deepEqual(ids({ bucket: 'spent' }, { ...cx, spentToday: new Set(['ses_t2']) }), ['ses_t2'])
-  assert.deepEqual(ids({ ended: '2h' }), ['ses_home', 'ses_t4'])
+  assert.deepEqual(ids({ ended: '2h' }), ['ses_t4'])
   assert.deepEqual(ids({ ended: 'soon' }), [], 'a span the chip does not know keeps nothing')
   assert.equal(spanMs('7d'), 7 * 24 * HOUR)
   assert.deepEqual(ids({ thread: 'tide-tables', kind: 'task' }), ['ses_t2'], 'chips combine')
@@ -100,7 +100,7 @@ test('a selection names a row by its session, view, execution or short id', () =
 test('the counters, and today’s spend from the model calls since midnight', () => {
   const b = board()
   const c = countersOf(boardRows({ ...b, now: NOW }), NOW, 1.5)
-  assert.deepEqual(c, { working: 2, paused: 1, still: 2, done: 2, spent: 1.5 })
+  assert.deepEqual(c, { working: 2, paused: 1, still: 2, done: 1, spent: 1.5 })
   const rows = [
     { kind: 'provider.call', at_unix_ms: NOW - 20 * HOUR, session_id: 'ses_y', data: { cost_usd: 9 } },
     { kind: 'provider.call', at_unix_ms: NOW - HOUR, session_id: 'ses_a', data: { cost_usd: 0.4 } },
@@ -157,6 +157,10 @@ test('WORKING is work in flight: a conversation at rest is no working row, in th
   assert.equal(countersOf(then, NOW, 0).done, 0, 'done counts ended work, not a conversation that went to rest')
   assert.equal(columnsOf(then, NOW).done.length + columnsOf(then, NOW).older.length, 0)
   assert.equal(then.length, 3, 'the rows stay for the Graph’s anchors')
+  // theseus-zo72s, the owner: resting is not done. The present, not only the time machine.
+  const home = boardRows({ ...board(), now: NOW }).find((r) => r.id === 'ses_home')!
+  assert.deepEqual([home.bucket, home.column, home.counted, home.rest], ['rest', null, false, true],
+    'a resting conversation view is flagged resting, on no column and in no count')
 })
 
 test('a running view and a view waiting on a job are working; a sleeping one with a time today is scheduled', () => {
@@ -232,7 +236,7 @@ test('countersOf reads the rows alone: a row not counted is no count, and all si
   assert.equal(countersOf(lone, NOW, 0).working, countersOf(rows, NOW, 0).working - 1, 'a counted working task, uncounted, is one fewer (the job is already not counted: Q3)')
   assert.equal(countersOf.length, 3, 'rows, now, dollars: no queue')
   const all = allCounters(rows, NOW, 2)
-  assert.deepEqual(all, { needs: 2, working: 2, paused: 1, still: 2, done: 2, spent: 2 }, 'no asks were given: Q1 A counts the two cards that need the owner, Q3 leaves the job out of working')
+  assert.deepEqual(all, { needs: 2, working: 2, paused: 1, still: 2, done: 1, spent: 2 }, 'no asks were given: Q1 A counts the two cards that need the owner, Q3 leaves the job out of working, and the resting conversation is not done')
 })
 
 test('a counter click keeps records too: the filter reads the one set, and its context is the parents of what it keeps', () => {
