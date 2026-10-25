@@ -74,6 +74,35 @@ fn the_self_build_view_binds_exactly_the_tree_and_its_target_read_write() {
     assert_eq!(jobs.limits.pids, 512);
 }
 
+/// The approve list names the whole state directory (`~/.theseus`), which
+/// also holds the gate's copy, the tree and the build tree. A mask over it
+/// would cover those binds and the gate would find no script (exit 127, every
+/// self branch red); the view hides what the directory holds that is secret
+/// by its own name instead.
+#[test]
+fn a_hidden_directory_that_holds_the_binds_is_not_masked_over_them() {
+    let cfg = crate::sandbox::SandboxConfig::default();
+    let sb = Sandbox::new(
+        &cfg,
+        &[PathBuf::from("/work")],
+        &[PathBuf::from("/state/store"), PathBuf::from("/state/spool")],
+        &[PathBuf::from("/state"), PathBuf::from("/home/op/.ssh")],
+    );
+    let gate = PathBuf::from("/state/self/gates/gate-abc.sh");
+    let ro = [gate.clone()];
+    let view = sb.self_build_view(&build(&ro, Path::new("/home/op")));
+    assert!(
+        !view.hidden.contains(&PathBuf::from("/state")),
+        "{:?}",
+        view.hidden
+    );
+    for kept in ["/state/store", "/state/spool", "/home/op/.ssh"] {
+        assert!(view.hidden.contains(&PathBuf::from(kept)), "{kept}");
+    }
+    // The model's own view keeps the whole directory hidden.
+    assert!(sb.job_view().hidden.contains(&PathBuf::from("/state")));
+}
+
 /// The command's environment is the one list: cargo told it is offline, no
 /// compiler wrapper, the build tree, and nothing of the daemon's own.
 #[test]
