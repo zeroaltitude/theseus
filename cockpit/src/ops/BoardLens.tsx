@@ -174,12 +174,12 @@ const SEGMENTS: ReadonlyArray<readonly [keyof Progress['counts'], string]> = [['
 export function PlanBar({ p }: { p: Progress }) {
   const m = Math.max(1, p.m)
   return (
-    <div className="mt-1.5" title={p.summary || 'nothing listed yet'}>
-      <div className="flex h-1.5 overflow-hidden rounded-full bg-white/5" role="img" aria-label={`${p.n} of ${p.m} done`}>
+    <div className="mt-1.5 flex items-center gap-1.5" title={p.summary || 'nothing listed yet'}>
+      <div className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-white/5" role="img" aria-label={`${p.n} of ${p.m} done`}>
         <div style={{ width: `${(p.n / m) * 100}%`, background: toneHex.ok }} />
         {SEGMENTS.map(([b, c]) => p.counts[b] > 0 && <div key={b} style={{ width: `${(p.counts[b] / m) * 100}%`, background: c, opacity: b === 'paused' ? 0.55 : 0.85 }} />)}
       </div>
-      <div className="num mt-0.5 flex text-[9.5px] text-ink-faint"><span className="text-ok">{p.n}/{p.m}</span></div>
+      <span className="num text-[9.5px] text-ok">{p.n}/{p.m}</span>
     </div>
   )
 }

@@ -193,7 +193,7 @@ function Plan({ data: d }: NodeProps<Node<NodeData>>) {
         <PlanBar p={p} />
         {!open && p.summary && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={p.summary}>{p.summary}</div>}
         {!open && p.needs > 0 && <div className="num mt-1 inline-block rounded-full bg-wait/15 px-2 text-[10.5px] text-wait">● {p.needs} needs you</div>}
-        {line && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
+        {line && !f.badge && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
         {f.badge ? <BadgeStrip b={f.badge} hide={!!d.redact && locked(n.data)} /> : <Spend d={d} />}
         {n.needs && <div className="num mt-1.5 rounded bg-wait/10 px-1.5 py-0.5 text-[10px] text-wait ring-1 ring-wait/30">needs you · {keysOf(d)}</div>}
         <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
