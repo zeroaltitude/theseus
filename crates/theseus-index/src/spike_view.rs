@@ -211,8 +211,7 @@ pub fn read_safetensors(path: &Path, want: &str) -> Result<HashMap<String, Tenso
             got,
         });
     }
-    Ok(tensors(v)
-        .map_err(|e| LoadError::Other(e.context(format!("reading {}", path.display()))))?)
+    tensors(v).map_err(|e| LoadError::Other(e.context(format!("reading {}", path.display()))))
 }
 
 fn tensors(v: &View) -> anyhow::Result<HashMap<String, Tensor>> {
