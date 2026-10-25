@@ -26,7 +26,7 @@ export function TaskTree({ records, confirms, past }: { records: TaskRecord[]; c
   const openN = records.filter((t) => !isClosed(t)).length
   const toggle = () => setParams((p) => { if (open) { p.delete('taskgraph'); p.delete('task') } else p.set('taskgraph', '1'); return p }, { replace: true })
   return (
-    <Panel help="actions.taskgraph" title={<>Task graph · {openN} open{records.length ? ` of ${records.length}` : ''}</>} icon={<Network size={13} />} bodyClassName="max-h-[460px] overflow-auto p-2"
+    <Panel help="actions.taskgraph" title={<>Plans and steps · {openN} open{records.length ? ` of ${records.length}` : ''}</>} icon={<Network size={13} />} bodyClassName="max-h-[460px] overflow-auto p-2"
       actions={records.length ? <button onClick={toggle} className="flex items-center gap-1 text-[11px] text-live">{open ? <><X size={11} /> close the graph</> : <><Network size={11} /> open as a graph</>}</button> : null}>
       {past !== undefined && <div className="mb-2 flex items-center gap-1.5 text-[11px] text-wait"><History size={12} /> the task graph shows the present, not the log&rsquo;s moment; its acts are off</div>}
       {!rows.length && <Empty>no task records yet</Empty>}
@@ -97,7 +97,7 @@ export function TaskGraphView({ records, past }: { records: TaskRecord[]; past?:
   if (params.get('taskgraph') !== '1') return null
   const picked = records.find((t) => t.id === pick)
   return (
-    <Panel help="actions.taskgraph" title={<>Task graph · {records.length} tasks</>} icon={<Network size={13} />} className={fg.panel.className} dialog={fg.panel.dialog}
+    <Panel help="actions.taskgraph" title={<>Plans and steps · {records.length} in all</>} icon={<Network size={13} />} className={fg.panel.className} dialog={fg.panel.dialog}
       actions={<span className="flex items-center gap-3"><Link to={opsHref({ lens: 'graph', sel: pick })} className="text-[11px] text-live hover:underline" data-testid="open-in-ops">open in Operations</Link>{fg.button}</span>}
       bodyClassName={fg.full ? 'flex flex-col overflow-auto p-0' : 'p-0'}>
       {past !== undefined && <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-wait"><History size={12} /> the present, not the log&rsquo;s moment</div>}
