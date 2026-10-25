@@ -94,11 +94,13 @@ def run_daemon(a):
     out = a.out or os.path.join(work, "rss.jsonl")
     rows = Rows(a.label, out)
     log = open(os.path.join(work, "fake-model.log"), "w")
-    model = subprocess.Popen([a.sim_bin, "fake-model"], stdout=subprocess.PIPE, stderr=log, text=True)
+    addr = "127.0.0.1:19448"
+    model = subprocess.Popen([a.sim_bin, "fake-model", "--addr", addr, "--rules",
+                              '[{"when": "active", "text": "Noted."}]'], stdout=log, stderr=log)
     procs = [model]
     try:
-        line = model.stdout.readline()  # "fake model on http://127.0.0.1:PORT" or similar
-        base = next((w for w in line.split() if w.startswith("http")), "")
+        time.sleep(1)
+        base = "http://" + addr
         weights = f'weights_dir = "{a.weights_dir}"' if a.weights_dir else ""
         cfg = os.path.join(work, "config.toml")
         open(cfg, "w").write(CONFIG.format(base=base, index=str(bool(a.index_enabled)).lower(), weights=weights))
