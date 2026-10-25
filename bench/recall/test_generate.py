@@ -414,6 +414,9 @@ class Clearing(unittest.TestCase):
     generator's own bounds are not the oracle."""
 
     SRC = (REPO / "crates/theseus-core/src/compiler/clearing.rs").read_text()
+    # The bench's plan overhead, and a small one (a build with few tools): the refusal check binds only where the
+    # system prompt and tools are small beside the window (the full of seed 7 at 2,100 would take the pass).
+    OVERHEADS = (PLAN, 2100)
 
     def const(self, name: str, absent: int | None = None) -> int:
         """A `pub const NAME: u64` of clearing.rs. `CLEAR_AT_TOKENS` is theseus-5lzox's: a tree without it (the
@@ -462,16 +465,18 @@ class Clearing(unittest.TestCase):
     def test_no_compile_before_the_crossing_exchange_reaches_the_clearing_line(self):
         for size in ("smoke", "full"):
             for seed in (7, 11, 12):
-                p = generate.build(seed, size, PLAN)
-                for m, peak, line, _, _ in self.oracle(p, PLAN):
-                    self.assertLessEqual(peak, line, (size, seed, m))
+                for overhead in self.OVERHEADS:
+                    p = generate.build(seed, size, overhead)
+                    for m, peak, line, _, _ in self.oracle(p, overhead):
+                        self.assertLessEqual(peak, line, (size, seed, overhead, m))
 
     def test_a_pass_keeping_only_the_crossing_exchange_is_refused(self):
         for size in ("smoke", "full"):
             for seed in (7, 11, 12):
-                p = generate.build(seed, size, PLAN)
-                for m, _, _, kept, refuse in self.oracle(p, PLAN):
-                    self.assertGreater(kept, refuse, (size, seed, m))
+                for overhead in self.OVERHEADS:
+                    p = generate.build(seed, size, overhead)
+                    for m, _, _, kept, refuse in self.oracle(p, overhead):
+                        self.assertGreater(kept, refuse, (size, seed, overhead, m))
 
 
     def test_the_generators_bounds_are_the_oracles(self):
