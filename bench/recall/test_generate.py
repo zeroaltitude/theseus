@@ -32,7 +32,7 @@ PLAN = 13640
 # The smoke's digest for seed 7: a change to the generator, its lists, or
 # SplitMix64 moves it. Pin the new one only for a change meant to make a new
 # progression, and say so in its commit.
-SMOKE_7 = "8d60136d336766a8"  # theseus-93lkm (the recall tail's cap reserved; 5b54c6e94b52c3ba before); theseus-tqa3: planned at 13,640, within the cushion of the daemon's 13,599 (a6a203b842f48d21 at 13,700)
+SMOKE_7 = "80414061f311a175"  # theseus-fqy4r (the crossing planned inside one exchange, clear of the pass; 8d60136d336766a8 before); theseus-93lkm (the recall tail's cap reserved; 5b54c6e94b52c3ba before); theseus-tqa3: planned at 13,640, within the cushion of the daemon's 13,599 (a6a203b842f48d21 at 13,700)
 
 
 class Rng(unittest.TestCase):
@@ -176,6 +176,9 @@ class Window(unittest.TestCase):
             self.assertLessEqual(b["fit"], budget, at)
             self.assertGreater(b["cross"], budget, at)
             self.assertIn(b["cross_at"], (m, m + 1), at)
+            # In one exchange, clear of the clearing pass (theseus-fqy4r).
+            self.assertLessEqual(b["peak"], b["clear_line"], at)
+            self.assertGreater(b["after"], b["refuse_line"], at)
             self.assertLessEqual(b["alone_limit"] * (1 + generate.ALONE_MARGIN), budget + 1, at)
             for x in b["alone"]:
                 self.assertLessEqual(x, b["alone_limit"], at)
@@ -205,7 +208,9 @@ class Window(unittest.TestCase):
         """theseus-dp3y: at an overhead of 13,599 the smoke of seed 7 planned
         a 44000 window whose written reads crossed at 28,895, under its
         budget of 28,904 (with the recall reserve of theseus-93lkm, the
-        smoke of seed 11 at 13,700 plans a 50000 window that misses): the
+        smoke of seed 11 at 13,700 plans a 50000 window that misses; with the
+        crossing planned inside one exchange, theseus-fqy4r, it plans 70000
+        and keeps 71000): the
         plan is in tokens and the logs in bytes. Each
         plan is now worked again from its written bytes, at its overhead and
         at OVERHEAD_CUSHION more and less, and the first that holds is kept."""
@@ -215,8 +220,9 @@ class Window(unittest.TestCase):
         # The first plan, written, is the one that missed.
         turns, marks = p.turns, p.marks()
         first = next(generate.plan_bulks(turns, marks, 13700))
-        self.assertEqual(first[0], 50000)
-        self.assertNotEqual((p.context_window, [len(b["logs"]) for b in generate.bounds_of(p)]), (50000, [1]))
+        self.assertEqual(first[0], 70000)
+        self.assertNotEqual((p.context_window, [len(b["logs"]) for b in generate.bounds_of(p)]), (70000, [3]))
+        self.assertEqual(p.context_window, 71000)
 
     def test_every_plan_holds_at_the_daemons_measure_of_2026_10_09(self):
         """theseus-cs8k: main's daemon measures 13,943 (a model tool joined
@@ -245,14 +251,18 @@ class Window(unittest.TestCase):
 
     def test_a_plan_holds_at_the_cushion_over_and_under_its_overhead(self):
         """theseus-tqa3: each check in `plan_misses` moves a plan. With no
-        cushion, the smoke of seed 11 at 13,679 keeps a 50000 window whose
-        reads fail to cross at an overhead 50 under (13,629): the plan is
-        now 51000. The smoke of seed 11 at 13,686 keeps 50000, which misses
-        50 over (13,736): it is now 51000 (theseus-93lkm moved the seed 8
-        case that was here). Each rejected plan misses at that
-        one overhead and holds at the other two."""
-        for seed, overhead, kept, rejected, at in ((11, 13679, 51000, 50000, 13629),
-                                                   (11, 13686, 51000, 50000, 13736)):
+        cushion, the smoke of seed 7 at 13,560 keeps a 73000 window whose
+        reads fail to cross, or to stay under the clearing line, at an
+        overhead 50 under (13,510): the plan is now 72000 (theseus-fqy4r
+        moved these cases: the ones that were here, seed 11 at 13,679 and
+        13,686 and their 50000 and 51000 windows, planned the crossing over
+        two exchanges). The smoke of seed 11 at 13,627 keeps 71000, which
+        misses 50 under (13,577), as 70000. Each rejected plan misses at that
+        one overhead and holds at the other two. No case where the plan alone
+        misses 50 over turned up across seeds 7, 8, 11 and 12 and every other
+        overhead from 13,528 to 14,000 (at 13,592 the plan misses at both)."""
+        for seed, overhead, kept, rejected, at in ((7, 13560, 73000, 72000, 13510),
+                                                   (11, 13627, 71000, 70000, 13577)):
             p = generate.build(seed, "smoke", overhead)
             self.assertEqual((p.context_window, generate.plan_misses(p)), (kept, []), (seed, overhead))
             with mock.patch.object(generate, "OVERHEAD_CUSHION", 0):
@@ -454,6 +464,29 @@ class Clearing(unittest.TestCase):
                 p = generate.build(seed, size, PLAN)
                 for m, _, _, kept, refuse in self.oracle(p, PLAN):
                     self.assertGreater(kept, refuse, (size, seed, m))
+
+
+    def test_the_generators_bounds_are_the_oracles(self):
+        for size in ("smoke", "full"):
+            p = generate.build(7, size, PLAN)
+            for b, (m, peak, line, kept, refuse) in zip(generate.bounds_of(p), self.oracle(p, PLAN)):
+                self.assertEqual((b["mark"], b["peak"], b["clear_line"], b["after"], b["refuse_line"]),
+                                 (m, peak, line, kept, refuse), size)
+
+    def test_a_plan_whose_pass_would_come_before_the_crossing_is_a_miss(self):
+        """A line a tenth as high puts a compile before the crossing past it."""
+        p = generate.build(7, "smoke", PLAN)
+        self.assertEqual(generate.plan_misses(p), [])
+        with mock.patch.object(generate, "CLEAR_AT", 5):
+            misses = generate.plan_misses(p)
+        self.assertTrue(misses and all("past the clearing line" in m for m in misses), misses)
+
+    def test_a_plan_whose_pass_would_be_taken_at_the_crossing_is_a_miss(self):
+        """A refusal line at the whole budget: a pass keeping only the crossing exchange would be taken."""
+        p = generate.build(7, "smoke", PLAN)
+        with mock.patch.object(generate, "CLEAR_TO", 150):
+            misses = generate.plan_misses(p)
+        self.assertTrue(misses and all("and is taken" in m for m in misses), misses)
 
 
 class Names(unittest.TestCase):
