@@ -2,12 +2,12 @@
 // the owner's writes: add (a persona with no soul awaits it, and the owner is asked once), a soul editor (`persona.soul`),
 // make default (the one Jev's `none` engages) and retire. Every write is a protocol method, confirmed first, and judged
 // by the core: only the owner, from a private place, writes a soul. A soul over the cap is refused with its count.
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Plus, UserRound } from 'lucide-react'
-import type { PersonaInfo, PersonaListResult, PersonaSoulParams } from '@protocol'
-import { addParams, personasOf, soulAsk, soulState, soulWords } from '@/lib/ontology'
+import type { PersonaInfo, PersonaListResult, PersonaSoulParams, PersonaSoulReadParams, PersonaSoulReadResult, PersonaSoulBackup } from '@protocol'
+import { addParams, bigShrink, byteCount, personasOf, refusalWords, SHRINK_WARNING, sizeWords, soulAsk, soulHead, soulState, soulWords } from '@/lib/ontology'
 import { cn } from '@/lib/format'
-import { useRpc } from '@/lib/rpc'
+import { call, useRpc } from '@/lib/rpc'
 import { Empty, Panel, Pill } from '@/components/ui'
 import { Act, Refused, useOntologyWrite } from '@/components/OntologyParts'
 
@@ -52,30 +52,104 @@ function PersonaRow({ p, cap, disabled, editing, toggle }: { p: PersonaInfo; cap
         <button type="button" disabled={disabled || busy} onClick={retire} className="text-[11px] text-ink-faint hover:text-fault disabled:opacity-50">retire</button>
       </div>
       {p.card && <div className="text-ink-faint">{p.card}</div>}
+      {!p.awaiting && <SoulHead persona={key} digest={p.files?.[0]?.digest} />}
       {editing && <SoulEditor key={key} persona={key} cap={cap} disabled={disabled} />}
       <Refused words={refused} />
     </li>
   )
 }
 
-/** A soul, replaced whole (`persona.soul`). The text starts empty: the file is the owner’s, and the daemon keeps the old one beside it. */
+/** The card's view of the current soul: its first lines, read from the file (`persona.soul_read`) whenever its digest moves. */
+function SoulHead({ persona, digest }: { persona: string; digest?: string }) {
+  const [head, setHead] = useState('')
+  useEffect(() => {
+    let live = true
+    const p: PersonaSoulReadParams = { key: persona }
+    call<PersonaSoulReadResult>('persona.soul_read', p).then((r) => { if (live) setHead(soulHead(r.text ?? '')) }, () => { if (live) setHead('') })
+    return () => { live = false }
+  }, [persona, digest])
+  return head ? <div className="whitespace-pre-wrap font-mono text-[11px] text-ink-faint">{head}</div> : null
+}
+
+/**
+ * A soul, edited whole (`persona.soul`), as the CLI does: the editor opens with the file’s text (`persona.soul_read`) and
+ * never an empty box that could be saved over it. It sends the digest it loaded, so a file written since is refused
+ * and nothing changes; the daemon keeps the replaced file as a backup, and “restore previous” loads one into the editor
+ * (the restore is the same write).
+ */
 function SoulEditor({ persona, cap, disabled }: { persona: string; cap: number; disabled: boolean }) {
   const { write, busy, refused } = useOntologyWrite()
-  const [text, setText] = useState('')
-  const save = async () => {
-    const p: PersonaSoulParams = { key: persona, text }
-    const out = await write(soulAsk(persona, cap), 'persona.soul', p)
-    if (out) setText('')
+  const [live, setLive] = useState<PersonaSoulReadResult | null>(null)
+  const [text, setText] = useState<string | null>(null)
+  const [base, setBase] = useState<string | null>(null)
+  const [from, setFrom] = useState<string | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [listing, setListing] = useState(false)
+  const show = useCallback((r: PersonaSoulReadResult) => {
+    setLive(r)
+    setText(r.text ?? '')
+    setBase(r.text ?? '')
+    setFrom(null)
+    setFailed(null)
+  }, [])
+  const load = () => call<PersonaSoulReadResult>('persona.soul_read', { key: persona } satisfies PersonaSoulReadParams).then(show, (e) => setFailed(refusalWords(e)))
+  useEffect(() => {
+    let open = true
+    call<PersonaSoulReadResult>('persona.soul_read', { key: persona } satisfies PersonaSoulReadParams).then((r) => { if (open) show(r) }, (e) => { if (open) setFailed(refusalWords(e)) })
+    return () => { open = false }
+  }, [persona, show])
+  const dirty = text !== null && base !== null && text !== base
+  const reload = () => { if (!dirty || window.confirm('Discard what you have typed and load the file again?')) void load() }
+  const pick = async (b: PersonaSoulBackup) => {
+    if (dirty && !window.confirm('Replace what you have typed with the backup? Your edit is not saved anywhere else.')) return
+    try {
+      const r = await call<PersonaSoulReadResult>('persona.soul_read', { key: persona, bak_ms: b.ms } satisfies PersonaSoulReadParams)
+      setText(r.text ?? '')
+      setBase(r.text ?? '')
+      setFrom(new Date(b.ms).toLocaleString())
+      setListing(false)
+    } catch (e) {
+      setFailed(refusalWords(e))
+    }
   }
+  const oldBytes = live?.bytes ?? 0
+  const newBytes = byteCount(text ?? '')
+  const save = async () => {
+    if (text === null || !live) return
+    const p: PersonaSoulParams = { key: persona, text, expect_digest: live.digest }
+    const out = await write(soulAsk(persona, cap, { oldBytes, newBytes, backup: from ?? undefined }), 'persona.soul', p)
+    if (out) await load()
+  }
+  const backups = live?.backups ?? []
   return (
     <div className="flex flex-col gap-2 pt-1">
-      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} disabled={disabled} aria-label={`soul of ${persona}`}
-        placeholder="Its voice, its temperament, what it cares about, what it is for, and an emoji. Keep it short." className={cn(field, 'font-mono')} />
+      <textarea value={text ?? ''} onChange={(e) => setText(e.target.value)} rows={12} disabled={disabled} readOnly={text === null} aria-label={`soul of ${persona}`}
+        placeholder={text === null ? 'loading the soul…' : 'Its voice, its temperament, what it cares about, what it is for, and an emoji. Keep it short.'} className={cn(field, 'font-mono')} />
+      {from && <div className="text-[11px] text-wait">from the backup of {from}: writing it replaces the file now, which is kept as a backup in turn</div>}
+      {failed && <div className="text-[11px] text-fault">could not read the soul: {failed}. Writing is off until it loads.</div>}
+      {text !== null && bigShrink(oldBytes, newBytes) && <div className="text-[11px] text-wait">{SHRINK_WARNING}</div>}
       <Refused words={refused} />
-      <div className="flex items-center gap-2">
-        <Act onClick={() => void save()} busy={busy} off={disabled || text.trim() === ''} title="persona.soul: confirmed first">Write soul</Act>
-        <span className="num text-[11px] text-ink-faint">about {Math.ceil(new TextEncoder().encode(text).length / 3).toLocaleString('en-US')} of {cap.toLocaleString('en-US')} tokens</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <Act onClick={() => void save()} busy={busy} off={disabled || text === null || failed !== null || text.trim() === ''} title="persona.soul: confirmed first">Write soul</Act>
+        <span className="num text-[11px] text-ink-faint">{sizeWords(newBytes)} of {cap.toLocaleString('en-US')} tokens{live && live.bytes > 0 ? ` · file now ${sizeWords(oldBytes)}` : ''}</span>
+        <span className="flex-1" />
+        <button type="button" onClick={reload} className="text-[11px] text-ink-faint hover:text-live">reload</button>
+        <button type="button" disabled={backups.length === 0} onClick={() => setListing(!listing)} className="text-[11px] text-ink-faint hover:text-live disabled:opacity-50">
+          restore previous{backups.length ? ` · ${backups.length}` : ''}
+        </button>
       </div>
+      {listing && (
+        <ul className="divide-y divide-line/50 rounded-md ring-1 ring-line">
+          {backups.map((b) => (
+            <li key={b.ms} className="flex items-center gap-2 px-2 py-1 text-[11px]">
+              <span className="num text-ink">{new Date(b.ms).toLocaleString()}</span>
+              <span className="num text-ink-faint">{b.bytes.toLocaleString('en-US')} B · about {b.tokens.toLocaleString('en-US')} tokens</span>
+              <span className="flex-1" />
+              <button type="button" onClick={() => void pick(b)} className="text-ink-faint hover:text-live">load into the editor</button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

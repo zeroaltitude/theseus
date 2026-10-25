@@ -210,6 +210,7 @@ impl Shared {
                 PersonaSoulParams {
                     key: key.clone(),
                     text,
+                    expect_digest: None,
                     author: Some(who.to_string()),
                     discord: origin_of(
                         i.author().map(|u| u.id.get()),

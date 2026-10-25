@@ -1,5 +1,5 @@
 //! The owner's persona writes (theseus-utfnl): `persona.add`, `.soul`, `.set`,
-//! `.retire`, `.default`. Each is judged as an ontology write is
+//! `.soul_read`, `.retire`, `.default`. Each is judged as an ontology write is
 //! (`Act::Ontology`: the owner, from a private place; refused inside a job by
 //! the CLI), before it reads anything; the work is `personas/write.rs`.
 
@@ -12,9 +12,10 @@ use super::confirms::Act;
 use super::server::{parse, reply, Conn, RpcFailure};
 use super::Core;
 
-pub(super) const OWN: [&str; 5] = [
+pub(super) const OWN: [&str; 6] = [
     method::PERSONA_ADD,
     method::PERSONA_SOUL,
+    method::PERSONA_SOUL_READ,
     method::PERSONA_SET,
     method::PERSONA_RETIRE,
     method::PERSONA_DEFAULT,
@@ -38,6 +39,11 @@ impl Core {
                 let p: theseus_protocol::PersonaSoulParams = parse(params)?;
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 blocking(move || core.persona_soul(&p, &who)).await?
+            }
+            method::PERSONA_SOUL_READ => {
+                let p: theseus_protocol::PersonaSoulReadParams = parse(params)?;
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                return reply(blocking(move || core.persona_soul_read(&p, &who)).await?);
             }
             method::PERSONA_SET => {
                 let p: theseus_protocol::PersonaSetParams = parse(params)?;

@@ -6,6 +6,12 @@ import type { DiscordOrigin } from "./DiscordOrigin";
  */
 export type PersonaSoulParams = { key: string, text: string, 
 /**
+ * The digest of the soul the writer loaded (`persona.soul_read`'s). When
+ * given and the file's digest now differs, the write is refused and
+ * nothing changes. Absent: the write replaces the file as it stands.
+ */
+expect_digest?: string, 
+/**
  * Who pressed, when the caller is a surface acting for a person (a
  * Discord press): the core judges the act as theirs, from where they
  * pressed.
