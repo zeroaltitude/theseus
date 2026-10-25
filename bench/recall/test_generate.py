@@ -563,8 +563,9 @@ class Budget(unittest.TestCase):
         full = generate.estimate(prog, "claude-sonnet-5-5")
         with mock.patch.dict(generate.PRICES, {"claude-sonnet-5-5": (2.0, 10.0, 0.0, 2.50)}):
             unread = generate.estimate(prog, "claude-sonnet-5-5")
-        self.assertEqual(round(full["usd_per_arm"] - unread["usd_per_arm"], 2),
-                         round(full["read_tokens"] * 0.20 / 1e6, 2))
+        # Each estimate is rounded to the cent, so their difference is within a cent of the reads' price.
+        self.assertAlmostEqual(full["usd_per_arm"] - unread["usd_per_arm"],
+                               full["read_tokens"] * 0.20 / 1e6, delta=0.0101)
 
     def test_the_long_prompt_tiers_are_the_catalogs(self):
         src = (REPO / "crates/theseus-core/src/catalog.rs").read_text()
