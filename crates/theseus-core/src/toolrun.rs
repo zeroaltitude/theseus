@@ -2340,10 +2340,8 @@ pub fn build_runtime(
             proc_timeout_secs: t.proc_timeout_secs,
             proc_timeout_max_secs: t.proc_timeout_max_secs,
             cores: Some(cpu.clone()),
-            secrets: None,
-            approved: false,
             umask: theseus_kernel::umask::operator(),
-            aws: None,
+            ..Default::default()
         },
         spool,
         scrubber,

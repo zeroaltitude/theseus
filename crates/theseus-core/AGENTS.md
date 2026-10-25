@@ -116,13 +116,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (ffmpeg), OCR (tesseract), or `save`. In a shared place its result is outside text. Tests: `attach.rs`'s, and
     theseusd's `tests/files.rs`, which run the real converter, a turn per model, and `file.read` with a stand-in
     Deepgram.
-  - **One long instruction** (theseus-3ki0): `compiler/clearing.rs` and `compiler/ring.rs`. Past half the budget
-    (`clearing::CLEAR_AT`), a pass stubs results older than the newest 20 answers and over 2,000 characters, oldest
-    first, until 35 %: one recompile, the cleared results kept as its report's drops of tier `cleared` (no store
-    format: the report is stored already), which the render reads, so appends render the same stubs; a pass that
-    would save under half the gap between the lines does not run, so passes stay rare. Each pass is one
+  - **One long instruction** (theseus-3ki0): `compiler/clearing.rs` and `compiler/ring.rs`. A pass runs when the results not yet
+    cleared pass `clearing::CLEAR_AT_TOKENS` (150K tokens), or the estimate passes `clearing::CLEAR_AT` % of the budget
+    (a small window clears as before), and stubs every result over 2,000 characters except the newest ones within
+    `KEEP_TOKENS` (40K; and what `CLEAR_TO` % leaves beside the rest of the request), oldest first, the newest
+    exchange's always whole (theseus-5lzox; it replaced "the newest 20 answers", whose 270K sawtooth rewrote the cache
+    every dozen calls and cleared the first files read, which the model then read again). One recompile, the cleared
+    results kept as its report's drops of tier `cleared` (no store format: the report is stored already), which the
+    render reads, so appends render the same stubs; a pass that would leave the request above halfway from the line to
+    the keep does not run, so passes stay rare, except past the percent line: there a refused pass is retried keeping only
+    the newest exchange whole and taken under the 20-exchange rule's own 42.5 % line (results of 2,000 characters or
+    fewer are never cleared yet count toward the guard, so without the retry a session of them climbed to the ring,
+    larger than the old rule left it). Each pass is one
     `context.cleared` row (`fact::compaction::Cleared`, from the compile step). The stub names the call and how to
-    get the result back (a kept output's `full_ref` when there is one). The ring's range holding one user message
+    get the result back (a kept output's `full_ref` when there is one); an `fs_read`'s names the lines its result held
+    and the file's length (`clearing/remember.rs`, read from the result's own footer, never from the call's input), and
+    every stub ends with the first sentence of the model's text in the answer after the result (`remember::notes`, from
+    stored nodes at render time, so the bytes never change). `compiler/tests_replay.rs` replays a 207-call hunt
+    through the compiler (its `the_replays_grid` prints the trigger/keep grid). The ring's range holding one user message
     cuts inside its turn too: at an answer whose earlier calls all have their results before it (`ring::in_turn`),
     searched by halves; the instruction (the message and what precedes its first answer) is pinned in every
     candidate, and a summary renders after it (`compaction::summaries_first`, by its range's `first`; `hidden` and
@@ -2223,6 +2234,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     says in one line. The sizes ride `Scene.budget_tokens`/`max_items`, so a live rerank's refill packs the same.
     The tier touches only the tail: no cached prefix byte moves (`tests_injection_tiers.rs`). Deep's keys at
     ordinary's numbers are the rollback.
+    **The narrow-read hint** (theseus-tdkcn; `turn/tier.rs`, `toolrun/session_dir/read_window.rs`): an acting `deep_coding`
+    verdict (`InjectionBudget.coding`; not `review`, `sophisticated`, an unsure or late verdict, or a turn routing does not
+    decide) puts `CODING_HINT` in the request's tail (`coding_hint`, beside the persona line: map with `fs_grep`, read
+    100-300 line slices, write down findings), and a bare `fs_read` returns 400 lines (`ToolCtx.default_read_lines`, set
+    per session at the turn's budget and cleared by any other turn's); the schema and the footer are unchanged.
+    Tests: `tests_coding_hint.rs`, `tests_narrow_read.rs` (theseus-tools).
     A trivial detour's request carries no recall (theseus-n7nc): while routing has the route to decide
     (`RouteState::deciding`) the row waits for it, and once it is known `recall_routed` drops a detour's node, its
     rides and its footer count, and the row says `detoured`. A quick detour's request carries it (theseus-pa1xx,
@@ -3036,11 +3053,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   with a command's error result failed (another tool's error counts for the checkpoint, not here), a loop with no
   command or with a command sent to the background is no check (`progress_step::Commands`, set as calls answer by
   `Checkpoints::answered`). Nothing fires while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
-  (3) loops; at `STEER_SHARE` (0.5) of the deadline or of the execution's spend limit spent by this turn, one steer note
-  (replan or narrow); at `STOP_SHARE` (0.85) of the deadline only (spend never stops a turn: the owner's notify rule), a
-  stop note asking for a report with no tool calls, and the next loop is the last (stop reason `progress_stop`, which the
-  nudge and the end note leave alone). Each is a harness node (`harness:progress`) and a `turn.progress` row (the shares,
-  `since_pass`, `failing`, the times and spend; `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
+  (3) loops; at `STEER_SHARE` (0.5) of the deadline, or of the execution's spend limit spent by this turn when the turn
+  has a deadline and the limit only notifies (`Signals.guarded` is `spend_limit_mode = "ask"`: a guarded turn ends at its
+  limit anyway, so spend alone steers nothing; the `turn.progress` row still reports the spend), one steer note that says
+  it is not a stop (with a failing check it also asks for the smallest step that can make it pass; theseus-ikr75). Reading
+  is progress until there is something to check (`State::end_loop`): until the turn's first answered `fs.write`, `fs.edit`
+  or `fs.patch`, a loop with no command adds nothing to `since_pass`; after it, a loop whose reads (`fs.read`, `fs.list`,
+  `fs.glob`, `fs.grep`) all answered and opened a key not seen before resets it like a passing
+  command (the seen keys are on `State`, bounded by `SEEN_MAX`; past the cap nothing is new, so a full set cannot reset the
+  count on every read). The key is tool, path and pattern, and for `fs.read` the slice's first line (a bare read is
+  `offset=1`, as it returns from line 1) and its pages: the narrow-read hint's slices of a long file are new ground at
+  each new start, and the same slice again is a re-read (theseus-tdkcn with theseus-ikr75). At `STOP_SHARE` (0.85) of the
+  deadline only (spend never stops a turn: the owner's notify rule), a stop note asking for a report with no tool calls,
+  and the next loop is the last (stop reason `progress_stop`, which the nudge and the end note leave alone). **The stop
+  counts apart from the steer** (`since_check`): it moves as it did before reading counted, one more for every loop that
+  was not a passing command, reset only by one, so a turn that only reads, or opens new files after its edit, is still
+  stopped at its deadline (the deadline's stop is the only thing that enforces it). Each is a harness node
+  (`harness:progress`) and a `turn.progress` row (the shares, `since_pass`, `since_check`, `failing`, the times and spend;
+  `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
   is at its ceiling), begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
   `Directory:` (`cpu/commands.rs`, `Cpus::of_commands`, read once per process): the tightest of the daemon's cgroup v2
   `cpu.max` (every ancestor's, rounded up), its `cpuset.cpus.effective`, and `available_parallelism`, with the host's

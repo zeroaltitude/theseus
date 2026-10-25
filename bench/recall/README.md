@@ -137,12 +137,19 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     turns before each mark fit at 15% over their estimate, a session with no mark fits whole, each read turn alone
     stays 10% under the budget with room for a 4,096-token summary beside it, and at 15% under their estimate the
     reads cross the budget: the mark's own, or, where one read can't do both (the smoke's short first session),
-    up to three more at the turn after the mark. One tool result shows at most 30,000 characters, and `fs_read`
-    numbers each line, so each log fits under that. A plan is in tokens and its logs are written in bytes, so each
-    plan, once written, is worked again from its bytes (`plan_misses`), at its overhead and at `OVERHEAD_CUSHION`
-    more and less, and one that misses by rounding gives way to the next: more reads in the same window, then the next
-    window. For seed 7, planned at 13,943, that is 56000 for the smoke (a budget of 37,904;
-    two logs of about 8,890 tokens, the second at turn 11) and 101000 for the full (80,904).
+    up to eight more, in one answer, at the turn after the mark. One tool result shows at most 30,000 characters, and `fs_read`
+    numbers each line, so each log fits under that. **The crossing is inside one exchange** (theseus-fqy4r):
+    since theseus-5lzox the compiler clears, at 50% of the budget (or 150,000 tokens), every result of more than
+    2,000 characters but the newest exchange's, so a first read is stubbed before a second arrives and a crossing
+    over two exchanges never comes. The plan keeps every compile before the crossing exchange under that line, at 15%
+    over the turns' estimate and with the recall notes beside them (which caps the mark's own log), and keeps a pass
+    that held only the crossing exchange refused (it would leave more than 42.5% of the budget); a refused pass is what
+    leaves the ring to make room, the compaction a mark exists to cause. A plan is in tokens and its logs are written
+    in bytes, so each plan, once written, is worked again from its bytes (`plan_misses`), at its overhead and at
+    `OVERHEAD_CUSHION` more and less, and one that misses by rounding gives way to the next: more reads in the same
+    window, then the next window. For seed 7, planned at 13,943, that is 74000 for the smoke (a budget of 53,904;
+    a log of about 5,230 tokens at turn 10 and two of about 10,420 at turn 11) and 183000 for the full (162,904;
+    each mark reads a log and then up to six more).
   - **The overhead is measured, never assumed** (theseus-cs8k). Every new tool definition moves the daemon's system
     prompt and tools, so no constant can stand for them. Before the progression is fixed, the driver starts a
     throwaway daemon of the run's own config (the same binaries, profile, memory arm and effort), has it take one
@@ -198,7 +205,7 @@ Theseus runs the bench profile (every tool open, roots at `/`), and Claude Code 
     smoke. The scratch `settings.json` sets the run model's `reserveTokens` (`compaction.modelOverrides`) to the
     model's window in Pi's catalog (`--pi-model-window`, 1,000,000 for Sonnet 5.5) less the threshold, and the
     threshold is the progression's window less what the plan's overhead holds beyond Pi's (`pi_threshold`). Seed 12's
-    smoke, planned at 13,943, has a window of 49,000; Pi measured at 2,475 gets 49,000 - (13,943 - 2,475) = 37,532. Pi then reads the same bytes as the other arms and crosses where the plan does.
+    smoke, planned at 13,943, has a window of 74,000; Pi measured at 2,475 gets 74,000 - (13,943 - 2,475) = 62,532. Pi then reads the same bytes as the other arms and crosses where the plan does.
     `keepRecentTokens`, what a compaction keeps unsummarized, is Pi's own 20,000 or a quarter of the threshold
     (`pi_keep_recent`), the context Pi holds when it compacts: when the whole context is within it, Pi 1.0.4 has
     nothing to summarize and skips the compaction. `run.json`'s `pi_compact` keeps the window, the model's window,

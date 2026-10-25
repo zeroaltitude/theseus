@@ -164,6 +164,14 @@ fn a_session_without_a_card_has_none() {
 #[test]
 fn a_cold_resume_of_a_long_thread_fits_its_working_tokens_with_its_stubs() {
     let mut nodes = thread(200, 12_000);
+    // Each person's message is long, so the warm thread is big whatever the
+    // clearing leaves of its results (theseus-5lzox: by tokens, not by 20
+    // exchanges, a warm pass takes the results down to its keep).
+    for (_, n) in nodes.iter_mut() {
+        if let Body::UserMessage { text, .. } = &mut n.body {
+            text.push_str(&" and the gauge on the north pier again".repeat(125));
+        }
+    }
     let first = run(&nodes, None, &carded("CARD", None), None);
     assert!(first.est_tokens > 300_000, "{}", first.est_tokens);
     nodes.push((

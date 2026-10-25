@@ -33,6 +33,8 @@ pub mod rx;
 #[cfg(test)]
 mod tests_binary;
 #[cfg(test)]
+mod tests_narrow_read;
+#[cfg(test)]
 mod tests_patch;
 #[cfg(test)]
 mod tests_read_cap;
@@ -266,7 +268,7 @@ impl AwsBinding {
 }
 
 /// What every toollet gets: where it may work and how much it may return.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ToolCtx {
     /// Canonical workspace roots. Relative paths resolve against `cwd`.
     pub roots: Vec<PathBuf>,
@@ -278,6 +280,9 @@ pub struct ToolCtx {
     pub cwd: PathBuf,
     /// Cap on bytes a read returns.
     pub max_read_bytes: usize,
+    /// Lines an `fs.read` with neither offset nor limit returns, when the turn
+    /// narrows them (theseus-tdkcn); 0: the tool's own default.
+    pub default_read_lines: usize,
     /// Cap on entries a listing, glob, or grep returns.
     pub max_entries: usize,
     /// Default and ceiling for `proc.run` timeouts.
@@ -311,6 +316,7 @@ impl ToolCtx {
             floor: Vec::new(),
             cwd: root,
             max_read_bytes: 256 * 1024,
+            default_read_lines: 0,
             max_entries: 500,
             proc_timeout_secs: 60,
             proc_timeout_max_secs: 3600,

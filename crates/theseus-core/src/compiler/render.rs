@@ -96,6 +96,8 @@ pub(super) struct Ctx<'a, 'n> {
     pub media: &'a Media<'a>,
     pub sources: &'a crate::recall::render::Sources,
     pub cleared: &'a HashSet<&'a str>,
+    /// What the model wrote after each cleared result, by its call's id.
+    pub notes: &'a HashMap<String, String>,
 }
 
 /// Each call's result among `nodes`: its last one that is not late.
@@ -135,6 +137,7 @@ pub fn render_messages(
     let all = || prefix.iter().chain(tail.iter()).copied();
     let results = results_of(all());
     let replaced = replaced_answers(all(), retrying);
+    let notes = clearing::notes(all(), cleared, &replaced);
     let ctx = Ctx {
         results: &results,
         replaced: &replaced,
@@ -143,6 +146,7 @@ pub fn render_messages(
         media,
         sources,
         cleared,
+        notes: &notes,
     };
     let mut st = State::default();
     let items = prefix
@@ -208,9 +212,12 @@ impl State {
                         .iter()
                         .map(|u| match ctx.results.get(u.id.as_str()) {
                             // An old result cleared to save context (theseus-3ki0).
-                            Some(r) if ctx.cleared.contains(r.id.as_str()) => {
-                                clearing::block(&u.name, &u.input, r)
-                            }
+                            Some(r) if ctx.cleared.contains(r.id.as_str()) => clearing::block(
+                                &u.name,
+                                &u.input,
+                                r,
+                                ctx.notes.get(u.id.as_str()).map(String::as_str),
+                            ),
                             Some(r) => tool_result_block(r, media, &mut self.spend),
                             None => {
                                 self.repairs.push(u.id.clone());

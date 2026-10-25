@@ -33,7 +33,9 @@ impl TurnProgress<'_> {
             "time_share": s.time,
             "spend_share": s.spend,
             "since_pass": s.since_pass,
+            "since_check": s.since_check,
             "failing": s.failing,
+            "guarded": s.guarded,
             "elapsed_ms": self.elapsed_ms,
             "deadline_ms": self.deadline_ms,
             "spent_usd": self.spent_usd,
@@ -56,14 +58,14 @@ impl Fact for TurnProgress<'_> {
     fn narrate(&self, say: &mut Say<'_>) {
         let what = match self.decision {
             "stop" => "to stop and report",
-            _ => "to replan or narrow",
+            _ => "that this is not a stop",
         };
         say.line(
             Model,
             format!(
                 "No check had passed in {} loops, with {} of the turn's time and {} of its spend \
                  limit used, so the harness told the model {what}.",
-                self.signals.since_pass,
+                self.signals.since_check,
                 share(self.signals.time),
                 share(self.signals.spend),
             ),

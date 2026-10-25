@@ -115,7 +115,7 @@ pub mod stdio_step;
 mod steer_step;
 mod stopping_step;
 mod surface_step;
-mod tier;
+pub(crate) mod tier;
 mod title_step;
 
 pub use request::TurnRequest;
@@ -2073,7 +2073,7 @@ impl TurnRunner {
             let fell = self.fall_back(t, &mut spec, fallback, (&resp, &node), said_before);
             run_model = self.advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             self.loops_noticed(t, i, run_model)?;
-            run_model = Self::progress(t, i, run_model)?;
+            run_model = self.progress(t, i, run_model)?;
             let ended = checkpoint_step::Ended {
                 compiled: &compiled,
                 resp: &resp,
@@ -3183,7 +3183,7 @@ impl TurnRunner {
         calls::trace_calls(&mut t.trace, &self.tools, uses, &batch.ran);
         let mut answered = 0;
         for r in batch.ran {
-            t.checkpoint.answered(&uses[r.index].name, &r.outcome);
+            t.checkpoint.answered(&uses[r.index], &r.outcome);
             match r.outcome {
                 CallOutcome::AwaitingConfirm { .. } => {}
                 CallOutcome::Background { correlation_id } => {

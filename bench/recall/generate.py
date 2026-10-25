@@ -150,6 +150,18 @@ ALONE_MARGIN = 0.10
 # reserve none (`recall_for`).
 RECALL_TOKENS = 12000
 BULK_MIN_TOKENS = 1000  # a bulk read is at least this long
+# The clearing rule's lines (theseus-core's compiler/clearing.rs, theseus-5lzox),
+# which `test_generate` reads from that file. A pass runs when a compile's
+# estimate passes `CLEAR_AT` % of the request budget or `CLEAR_AT_TOKENS`, and it
+# clears every result of more than 2,000 characters but the newest exchange's:
+# so a crossing spread over two exchanges never comes (the first read is cleared
+# before the second arrives), and one that is not alone in its exchange is
+# cleared too. A pass is refused when it cannot take the estimate under
+# `CLEAR_AT` + `CLEAR_TO` % halved of the budget, and a refused pass leaves the
+# ring to make room, which is the compaction a mark exists to cause.
+CLEAR_AT = 50
+CLEAR_TO = 35
+CLEAR_AT_TOKENS = 150_000
 
 CATALOG = Path(__file__).resolve().parents[2] / "crates/theseus-core/src/catalog.rs"
 # One `claude(window, max_output, input, output, cache read, cache write, ..)`
@@ -958,13 +970,18 @@ def second_text(paths: list[str]) -> str:
     return f"Now read {', '.join(paths[:-1])} and {paths[-1]} too: which of their steps took longest?"
 
 
-MORE_READS = 3  # the most logs the turn after a mark reads
+# The most logs the turn after a mark reads, all in one answer. They arrive in one request, which a
+# clearing pass never stubs; `bulk_path` names up to eight after the mark's own. The full's marks sit in
+# sessions of 120 turns, whose pre-mark requests must stay under the clearing line, so the reads that cross
+# the budget beside them are as many as one tool result's cap allows: eight (seed 12 needs all of them).
+MORE_READS = 8
 
 
 class Bulk:
     """A mark's plan: each log's result tokens, the mark's own first and the
-    turn after's (where the mark's own read can't cross the budget), and the
-    estimate of the session's turns before the mark."""
+    turn after's (where the mark's own read can't cross the budget: they
+    cross in that one answer, the mark's own staying under the clearing line),
+    and the estimate of the session's turns before the mark."""
 
     def __init__(self, reads: list[int], before: int):
         self.reads, self.before = reads, before
@@ -998,16 +1015,56 @@ def mark_turns(i: int, mark_text: str, n: int) -> list[tuple[int, int]]:
     return out
 
 
-def cross_bound(before: int, turns: list[tuple[int, int]], n: int, r: int, overhead: int) -> int:
-    """The upper bound at the last read's answer, the reads taken one at a
-    time (the slower crossing): everything before that read's result was
-    counted by the provider, and only that result is estimated."""
+def cross_bound(before: int, turns: list[tuple[int, int]], n: int, r: int, overhead: int, r1: int | None = None) -> int:
+    """The upper bound at the answer the reads cross at: everything before
+    that answer's results was counted by the provider, and the results of
+    that one answer (the mark's own, or with `n` more logs the turn after's,
+    which arrive in one request) are estimated. The mark's own log is `r1`
+    tokens (by default `r`, the turn after's logs)."""
+    r1 = r if r1 is None else r1
     u1, c1 = turns[0]
     counted = overhead + before + u1 + c1
     if n:
         u2, c2 = turns[1]
-        counted += result_tokens(r) + reply_tokens() + u2 + c2 + (n - 1) * result_tokens(r)
-    return tk.upper(counted, result_tokens(r))
+        counted += result_tokens(r1) + reply_tokens() + u2 + c2
+    return tk.upper(counted, n * result_tokens(r) if n else result_tokens(r1))
+
+
+def clear_line(budget: int) -> int:
+    """The estimate a compile may reach before a clearing pass runs
+    (`clearing.rs`, `clear`): it must not pass `CLEAR_AT` % of the budget or
+    `CLEAR_AT_TOKENS`."""
+    return min(budget * CLEAR_AT // 100, CLEAR_AT_TOKENS)
+
+
+def refusal_line(budget: int) -> int:
+    """What a pass must take the estimate under to be taken, past the percent
+    line, with only the newest exchange kept whole: `CLEAR_AT` + `CLEAR_TO`
+    % of the budget, halved."""
+    return budget * (CLEAR_AT + CLEAR_TO) // 200
+
+
+def peak_before(before: int, overhead: int, recall: int, turns: list[tuple[int, int]], n: int, r1: int) -> int:
+    """The largest estimate a compile makes before the exchange the reads
+    cross in: the turns before the mark (`before`, at the caller's margin),
+    the recall notes beside them, and with `n` more logs, the mark's read and
+    reply and the turn after's words and calls. A pass at any of these would
+    clear what the crossing counts on."""
+    u1, c1 = turns[0]
+    peak = overhead + recall + before + u1 + c1
+    if n:
+        u2, c2 = turns[1]
+        peak += result_tokens(r1) + reply_tokens() + u2 + c2
+    return peak
+
+
+def after_pass(turns: list[tuple[int, int]], n: int, r: int, overhead: int, r1: int | None = None) -> int:
+    """The estimate left if a pass kept only the crossing exchange whole: the
+    system prompt and tools and that exchange (the turn after the mark's, or
+    with no more logs the mark's own), at `MARGIN` under."""
+    u, c = turns[-1]
+    mine = n * result_tokens(r) if n else result_tokens(r if r1 is None else r1)
+    return int((overhead + u + c + mine) * (1 - MARGIN))
 
 
 def alone_limit(budget: int) -> int:
@@ -1044,14 +1101,25 @@ def plan_bulks(turns: list[Turn], marks: list[int], overhead: int):
       tools, stays `ALONE_MARGIN` under the budget at its upper bound, with
       room beside it for a compaction's summary (`alone_limit`);
     - at `MARGIN` under the turns' estimate, the reads cross the budget:
-      what came before counted, the last result at the bound. Where the
-      mark's one read can't do both (a short session before it, or a window
-      the longest session sets), the turn after the mark, which holds
-      nothing, reads up to `MORE_READS` more logs, and the crossing is
-      there, the mark's read counted whole by then.
+      what came before counted, the last answer's results at the bound. Where
+      the mark's one read can't do both (a short session before it, or a
+      window the longest session sets), the turn after the mark, which holds
+      nothing, reads up to `MORE_READS` more logs in one answer, and the
+      crossing is there, the mark's read counted whole by then;
+    - the crossing is in ONE exchange, clear of theseus-5lzox's pass: a pass
+      runs when a compile's estimate passes `CLEAR_AT` % of the budget (or
+      `CLEAR_AT_TOKENS`) and stubs every result of more than 2,000 characters
+      but the newest exchange's, so a crossing over two exchanges never comes
+      (the first read is cleared before the second arrives). So no compile
+      before the crossing exchange may reach the line, at `MARGIN` over the
+      turns' estimate and with the recall notes beside them (`peak_before`),
+      which caps the mark's own log; and a pass that kept only the crossing
+      exchange, at `MARGIN` under, must be refused (it leaves more than
+      `refusal_line`), which leaves the ring to make room: the compaction.
 
-    Every log is the same size, the middle of what its bounds allow, and a
-    tool result is capped at `RESULT_MAX_CHARS`."""
+    The turn after's logs are the same size, the middle of what the bounds
+    allow, and the mark's own is the middle of what keeps it under the clearing
+    line and still crosses; a tool result is capped at `RESULT_MAX_CHARS`."""
     cap = int(tk.RESULT_MAX_CHARS // PLAN_RATES[0]) - 1
     marks_in = []
     for i, m in enumerate(marks):
@@ -1071,18 +1139,38 @@ def plan_bulks(turns: list[Turn], marks: list[int], overhead: int):
         if any(f > budget for f in unmarked):
             continue
         options = []
+        line, refuse, limit = clear_line(budget), refusal_line(budget), alone_limit(budget) - 8
         for i, text, before, last, s in marks_in:
             if fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN)), overhead, recall_for(s)) > budget:
                 break
-            lo = int(before * (1 - MARGIN))
+            lo, hi = int(before * (1 - MARGIN)), int(before * (1 + MARGIN))
             fits = []
             for n in range(MORE_READS + 1):
                 rt = mark_turns(i, text, n)
+                # No compile before the crossing exchange may reach the clearing line: a pass
+                # there stubs the turns the crossing counts on (`peak_before`).
+                if peak_before(hi, overhead, recall_for(s), rt, n, BULK_MIN_TOKENS) > line:
+                    continue
                 # A few tokens' slack: the plan rounds each message, the census the whole.
-                top = min(cap, _largest(lambda r: max(_alone(rt, n, r, overhead)), alone_limit(budget) - 8))
-                need = max(BULK_MIN_TOKENS, _smallest(lambda r: cross_bound(lo, rt, n, r, overhead), budget + 1))
+                top = min(cap, _largest(lambda r: _alone(rt, n, r, overhead)[-1], limit))
+                if n:
+                    # The mark's own log stays under the line beside what came before; the
+                    # turn after's crosses alone, in its one exchange.
+                    r1_top = min(cap, _largest(lambda r: _alone(rt, n, 0, overhead, r)[0], limit),
+                                 _largest(lambda r: peak_before(hi, overhead, recall_for(s), rt, n, r), line))
+                    r1_need = max(BULK_MIN_TOKENS, _smallest(lambda r: cross_bound(lo, rt, n, top, overhead, r), budget + 1))
+                    if r1_need > r1_top:
+                        continue
+                    r1 = (r1_need + r1_top) // 2
+                else:
+                    r1 = None
+                need = max(BULK_MIN_TOKENS,
+                           _smallest(lambda r: cross_bound(lo, rt, n, r, overhead, r1), budget + 1),
+                           # and a pass kept to that exchange alone leaves the request refused
+                           _smallest(lambda r: after_pass(rt, n, r, overhead, r1), refuse + 1))
                 if need <= top:
-                    fits.append(Bulk([(need + top) // 2] * (n + 1), before))
+                    r = (need + top) // 2
+                    fits.append(Bulk([r] * (n + 1) if r1 is None else [r1] + [r] * n, before))
             if not fits:
                 break
             options.append(fits)
@@ -1091,12 +1179,14 @@ def plan_bulks(turns: list[Turn], marks: list[int], overhead: int):
                 yield window, list(plans)
 
 
-def _alone(rt: list[tuple[int, int]], n: int, r: int, overhead: int) -> list[int]:
+def _alone(rt: list[tuple[int, int]], n: int, r: int, overhead: int, r1: int | None = None) -> list[int]:
     """Each read turn's ring candidate at its answer: the system prompt and
-    tools, its user message, its calls and their results (`r` each),
-    estimated whole, at the upper bound. Past the budget, an overage."""
+    tools, its user message, its calls and their results (`r` each, the
+    mark's own `r1`), estimated whole, at the upper bound. Past the budget, an
+    overage."""
+    r1 = r if r1 is None else r1
     (u1, c1), *rest = rt
-    out = [tk.bound(overhead + u1 + c1 + result_tokens(r))]
+    out = [tk.bound(overhead + u1 + c1 + result_tokens(r1))]
     for u, c in rest:
         out.append(tk.bound(overhead + u + c + n * result_tokens(r)))
     return out
@@ -1170,8 +1260,11 @@ def bounds_of(prog: Progression, overhead: int | None = None) -> list[dict]:
     `MARGIN` over it (`fit`); each read turn's bound alone beside the
     system prompt and tools (`alone`, against `alone_limit`); and the bound
     at the last read's answer at `MARGIN` under the turns' estimate
-    (`cross`), the turn it falls in (`cross_at`). The system prompt and
-    tools are `overhead`, by default the one it was planned at."""
+    (`cross`), the turn it falls in (`cross_at`); and, for the clearing pass,
+    the largest estimate before the crossing exchange at `MARGIN` over
+    (`peak`, against `clear_line`) and what a pass keeping only that exchange
+    leaves at `MARGIN` under (`after`, against `refuse_line`). The system
+    prompt and tools are `overhead`, by default the one it was planned at."""
     overhead = planned_overhead(prog) if overhead is None else overhead
     budget = pg.request_budget(prog.context_window)
     out = []
@@ -1199,8 +1292,18 @@ def bounds_of(prog: Progression, overhead: int | None = None) -> list[dict]:
             counted += u + sum(calls) + sum(results)
             if k < len(pieces) - 1:
                 counted += reply_tokens()
-        cross = tk.upper(counted - results[-1], results[-1])
+        cross = tk.upper(counted - sum(pieces[-1][2]), sum(pieces[-1][2]))
+        # The clearing pass (theseus-5lzox) must not come before the crossing exchange, and must be
+        # refused in it: the largest estimate before it, at MARGIN more, and the estimate a pass that
+        # kept only that exchange would leave, at MARGIN less.
+        peak = overhead + recall_for(s) + int(before * (1 + MARGIN))
+        for u, calls, results in pieces[:-1]:
+            peak += u + sum(calls) + sum(results) + reply_tokens()
+        peak += pieces[-1][0] + sum(pieces[-1][1])
+        u, calls, results = pieces[-1]
+        after = int((overhead + u + sum(calls) + sum(results)) * (1 - MARGIN))
         out.append({
+            "peak": peak, "clear_line": clear_line(budget), "after": after, "refuse_line": refusal_line(budget),
             "mark": m, "budget": budget, "before": before,
             "fit": fit_bound(int(before * (1 + MARGIN)), int(last * (1 + MARGIN)), overhead, recall_for(s)),
             "logs": logs, "alone": alone, "alone_limit": alone_limit(budget),
@@ -1214,8 +1317,10 @@ def plan_misses(prog: Progression) -> list[str]:
     it was planned at, at `OVERHEAD_CUSHION` more and at that much less, the
     most the driver lets a daemon's differ from it: the turns before a mark, and a session with no
     mark, fit; each read turn alone stays under `alone_limit`; the reads
-    cross the budget at the mark or the turn after; and no log passes what
-    one tool result shows. None, when the plan holds."""
+    cross the budget at the mark or the turn after; no compile before the
+    crossing exchange reaches the clearing line, and a pass keeping only that
+    exchange is refused; and no log passes what one tool result shows. None,
+    when the plan holds."""
     planned = planned_overhead(prog)
     budget = pg.request_budget(prog.context_window)
     out = []
@@ -1229,6 +1334,12 @@ def plan_misses(prog: Progression) -> list[str]:
             for x in b["alone"]:
                 if x > b["alone_limit"]:
                     out.append(f"{at}: a read turn alone {x:,} passes {b['alone_limit']:,}")
+            if b["peak"] > b["clear_line"]:
+                out.append(f"{at}: a compile before the crossing reaches {b['peak']:,}, past the clearing line "
+                           f"{b['clear_line']:,}")
+            if b["after"] <= b["refuse_line"]:
+                out.append(f"{at}: a pass keeping only the crossing exchange leaves {b['after']:,}, "
+                           f"under {b['refuse_line']:,}, and is taken")
             for path, nbytes, _ in b["logs"]:
                 if nbytes > tk.RESULT_MAX_CHARS:
                     out.append(f"{at}: {path} is {nbytes:,} bytes, past one result's {tk.RESULT_MAX_CHARS:,}")

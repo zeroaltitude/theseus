@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use theseus_protocol::{SessionKind, TurnSubmitResult};
+use theseus_protocol::{SessionKind, TurnSubmitResult, Usage};
 
 use crate::bus::EventSink;
 use crate::ledger::LedgerRow;
@@ -34,6 +34,10 @@ struct Rig {
 }
 
 fn rig(script: impl FnOnce(&Path) -> Vec<Scripted>) -> Rig {
+    rig_with(script, |_| {})
+}
+
+fn rig_with(script: impl FnOnce(&Path) -> Vec<Scripted>, tune: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root: PathBuf = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -45,6 +49,7 @@ fn rig(script: impl FnOnce(&Path) -> Vec<Scripted>) -> Rig {
     cfg.policy.enforcement = Posture::Notify;
     cfg.policy.tools.remove("proc.run");
     cfg.judge.enabled = false;
+    tune(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script(&root)));
     let core = Core::build(Parts::for_tests(cfg, fake.clone(), store)).unwrap();
@@ -126,7 +131,7 @@ fn command(root: &Path, id: &str, code: u8) -> Scripted {
     Scripted::tools("Running the check.", &[(id, "proc_run", input)])
 }
 
-const STEER: &str = "Replan or narrow";
+const STEER: &str = "This is not a stop: if work is left, keep going";
 const STOP: &str = "Stop here: in your next answer make no tool calls";
 
 /// Failing loops past half the deadline: the steer once, in the request
@@ -351,4 +356,208 @@ async fn a_later_turn_of_the_session_does_not_inherit_its_deadline() {
             .count(),
         1
     );
+}
+
+/// A call billed about $0.47 on the template's live profile.
+fn billed(then: Scripted) -> Scripted {
+    Scripted::Billed {
+        usage: Usage {
+            input_tokens: 2_000,
+            output_tokens: 45_000,
+            ..Usage::default()
+        },
+        then: Box::new(then),
+    }
+}
+
+/// The 2026-10-24 shape (theseus-ikr75): the suite passes, one file is
+/// written, then six loops of reads of what was read, with the turn past half
+/// its $6 spend limit before they end.
+fn hunt(root: &Path) -> Vec<Scripted> {
+    let file = root.join("tides.txt").display().to_string();
+    let mut script = vec![
+        billed(command(root, "c1", 0)),
+        billed(Scripted::tools(
+            "Writing.",
+            &[("w1", "fs_write", json!({"path": file, "content": "high\n"}))],
+        )),
+    ];
+    for n in 1..=6 {
+        script.push(billed(Scripted::tools(
+            "Reading.",
+            &[(&format!("r{n}"), "fs_read", json!({ "path": file }))],
+        )));
+    }
+    script.push(Scripted::text("Found it, and fixed it."));
+    script
+}
+
+fn limit(c: &mut Config, mode: crate::config::SpendLimitMode) {
+    c.kernel.spend_limit_usd = 6.0;
+    c.kernel.spend_limit_mode = mode;
+}
+
+/// A guarded limit (`ask`) and no deadline: the turn is past half its spend
+/// with no check in six loops, and it is told nothing and goes on until the
+/// model ends it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn spend_alone_does_not_steer_a_guarded_turn_with_no_deadline() {
+    let r = rig_with(hunt, |c| limit(c, crate::config::SpendLimitMode::Ask));
+    let (sid, res) = r.turn(None).await;
+    assert!(res.loops >= 9, "{}", res.loops);
+    assert_eq!(res.stop_reason, "no_tool_calls");
+    for req in r.requests() {
+        let m = messages(&req);
+        assert!(!m.contains(STEER) && !m.contains("harness:progress"), "{m}");
+    }
+    assert!(r.rows(&sid).is_empty());
+    // The turn was past half its limit, so the silence is the rule's.
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    assert!(rec.cost_usd >= 3.0, "spent ${}", rec.cost_usd);
+}
+
+/// Its sibling: the same turn under a limit that only notifies, with a
+/// deadline at half its time, steers once, in the passing case's words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_same_turn_under_notify_with_a_deadline_is_steered_once() {
+    let r = rig_with(hunt, |c| limit(c, crate::config::SpendLimitMode::Notify));
+    // 600 s, 300 used: 50%.
+    let (sid, res) = r.turn(Some((600, 300))).await;
+    assert!(res.loops >= 9, "{}", res.loops);
+    assert_eq!(res.stop_reason, "no_tool_calls");
+    let reqs = r.requests();
+    let last = messages(reqs.last().unwrap());
+    assert_eq!(last.matches(STEER).count(), 1, "once a turn");
+    assert!(!last.contains("smallest step"), "its checks pass: {last}");
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "steer");
+}
+
+/// Spend past half under a limit that only notifies, but no deadline: told
+/// nothing either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn spend_alone_does_not_steer_a_turn_with_no_deadline_under_notify() {
+    let r = rig_with(hunt, |c| limit(c, crate::config::SpendLimitMode::Notify));
+    let (sid, res) = r.turn(None).await;
+    assert!(res.loops >= 9, "{}", res.loops);
+    for req in r.requests() {
+        assert!(!messages(&req).contains(STEER));
+    }
+    assert!(r.rows(&sid).is_empty());
+}
+
+/// The deadline's stop is the only thing that enforces a turn's deadline, and
+/// it counts loops with no passing check as the base did, reading or not
+/// (theseus-ikr75 join fix 1). A turn that only reads, past 0.85 of its
+/// deadline, is stopped after its third loop, as a turn with no check always
+/// was; its steer stays quiet at 60% (the test below).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_only_reads_is_still_stopped_at_its_deadline() {
+    let r = rig(|root| {
+        let mut script: Vec<Scripted> = (1..=6)
+            .map(|n| {
+                let file = root.join(format!("tides{n}.txt"));
+                std::fs::write(&file, "high\n").unwrap();
+                Scripted::tools(
+                    "Reading.",
+                    &[(
+                        &format!("r{n}"),
+                        "fs_read",
+                        json!({ "path": file.display().to_string() }),
+                    )],
+                )
+            })
+            .collect();
+        script.push(Scripted::text("Read it all."));
+        script
+    });
+    // 600 s, 540 used: 90%.
+    let (sid, res) = r.turn(Some((600, 540))).await;
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 4, "the stop's request is the last");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (4, PROGRESS_STOP));
+    assert!(messages(&reqs[3]).contains(STOP), "{}", messages(&reqs[3]));
+    assert!(
+        !messages(&reqs[2]).contains(STOP),
+        "not before the third loop"
+    );
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "stop");
+    // The steer's count held at 0 (reading is progress); the stop's did not.
+    assert_eq!(rows[0]["since_pass"], 0);
+    assert_eq!(rows[0]["since_check"], 3);
+    assert!(
+        messages(&reqs[3]).contains("no check has run in its last 3 loops"),
+        "{}",
+        messages(&reqs[3])
+    );
+}
+
+/// The same after the turn's first edit, where a read of a new file is
+/// progress for the steer: it is still no check, and the stop still fires.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_keeps_opening_new_files_after_an_edit_is_still_stopped() {
+    let r = rig(|root| {
+        let mut script = vec![Scripted::tools(
+            "Writing.",
+            &[(
+                "w1",
+                "fs_write",
+                json!({"path": root.join("notes.txt").display().to_string(), "content": "high\n"}),
+            )],
+        )];
+        for n in 1..=6 {
+            let file = root.join(format!("tides{n}.txt"));
+            std::fs::write(&file, "high\n").unwrap();
+            script.push(Scripted::tools(
+                "Reading.",
+                &[(
+                    &format!("r{n}"),
+                    "fs_read",
+                    json!({ "path": file.display().to_string() }),
+                )],
+            ));
+        }
+        script.push(Scripted::text("Read it all."));
+        script
+    });
+    // 600 s, 540 used: 90%.
+    let (sid, res) = r.turn(Some((600, 540))).await;
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 4, "the stop's request is the last");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (4, PROGRESS_STOP));
+    assert!(messages(&reqs[3]).contains(STOP), "{}", messages(&reqs[3]));
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "stop");
+    assert_eq!(rows[0]["since_pass"], 0);
+    assert_eq!(rows[0]["since_check"], 3);
+}
+
+/// Reading is progress until there is something to check: a turn that only
+/// reads, past half its deadline, is told nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_has_not_edited_yet_is_not_steered_for_reading() {
+    let r = rig(|root| {
+        let file = root.join("tides.txt").display().to_string();
+        let mut script: Vec<Scripted> = (1..=6)
+            .map(|n| {
+                Scripted::tools(
+                    "Reading.",
+                    &[(&format!("r{n}"), "fs_read", json!({ "path": file }))],
+                )
+            })
+            .collect();
+        script.push(Scripted::text("Read it all."));
+        script
+    });
+    // 600 s, 360 used: 60%.
+    let (sid, res) = r.turn(Some((600, 360))).await;
+    assert_eq!((res.loops, res.stop_reason.as_str()), (7, "no_tool_calls"));
+    for req in r.requests() {
+        assert!(!messages(&req).contains(STEER));
+    }
+    assert!(r.rows(&sid).is_empty());
 }

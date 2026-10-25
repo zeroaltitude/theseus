@@ -284,19 +284,24 @@ async fn a_restricted_summary_profile_in_a_private_session_falls_back() {
 async fn a_later_loop_compacts_over_this_turns_screened_results() {
     let open = tempfile::tempdir().unwrap();
     let root = open.path().to_string_lossy().into_owned();
-    // About 6,500 tokens a file, in short lines (a read cuts a long one).
-    let body: String = (0..350)
+    // Many short reads, each under the size a clearing pass stubs
+    // (`clearing::MIN_CHARS`), so only the ring and the summary make room
+    // (theseus-5lzox: a pass by tokens would clear a few big files instead).
+    let body: String = (0..20)
         .map(|i| format!("{i}: the keeper logged the tide and the wind before the lamp was lit.\n"))
         .collect();
     let mut script = Vec::new();
     for k in 0..16 {
-        let path = open.path().join(format!("log-{k:02}.txt"));
-        std::fs::write(&path, format!("log {k}\n{body}")).unwrap();
-        let path = path.to_string_lossy().into_owned();
-        script.push(Scripted::tools(
-            &format!("Reading log {k}."),
-            &[(&format!("f{k}"), "fs_read", json!({"path": path}))],
-        ));
+        let (mut texts, mut calls) = (Vec::new(), Vec::new());
+        for j in 0..8 {
+            let path = open.path().join(format!("log-{k:02}-{j}.txt"));
+            std::fs::write(&path, format!("log {k} {j}\n{body}")).unwrap();
+            texts.push((format!("f{k}_{j}"), path.to_string_lossy().into_owned()));
+        }
+        for (id, path) in &texts {
+            calls.push((id.as_str(), "fs_read", json!({"path": path})));
+        }
+        script.push(Scripted::tools(&format!("Reading logs {k}."), &calls));
     }
     script.push(Scripted::text("Every log agrees with the tide table."));
     let zai = Arc::new(FakeProvider::scripted(script));
