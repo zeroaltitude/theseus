@@ -27,6 +27,7 @@ instruction, and runs the task's tests for a reward. **Every benchmark run ends 
 | `harbor/test_*.py` | Their tests. |
 | `report/efficiency.py` | The efficiency report over jobs, one arm each: per-arm numbers, Pareto tables, and three SVG charts. |
 | `report/draft.py` | The report's drafting tool: a run's outputs (Harbor jobs, the bench history, the recall and async scorers' outputs) in; its data file, CSV, figures and skeleton out ("Every run gets its report"). |
+| `report/manifest.py` | The benchmark manifest (theseus-jda0z): `docs/benchmarks/index.json`, one row per measured arm of each dataset with a pass rate. `draft.py` appends a run's rows itself; `manifest.py build` rebuilds the file from every published dataset and says which it skipped and why. |
 | `report/charts.py` | The house charts: SVG from declarative specs, in the house palette, each in a light and a dark file, every mark with its hover text. The standard library only. |
 | `report/friction.py` | T4 (tool friction per arm) and T5 (cost and calls per solve), read from the trials' ATIF trajectories; `draft.py` prints both in every report. |
 | `report/parallel.py` | The parallel-calls report's generator (theseus-2wxa): bench/async's Layer 1 and Layer 2 runs in, `docs/benchmarks/<date>-asyncbench-parallel-calls.md` with its data, CSV and figures out (bench/async/README.md, "The parallel-calls run"). |
@@ -383,6 +384,12 @@ python3 bench/report/draft.py history --since <day> --branch main --date <day>  
 python3 bench/report/draft.py recall --scores <scores>/scores.json --date <day>    # bench/recall
 python3 bench/report/draft.py async --date <day> <jobs...>                         # bench/async
 ```
+
+Every drafted run also writes its rows into `docs/benchmarks/index.json`, the manifest the Benchmarks page reads for
+the newest measurement of each (benchmark, tier, arm) and its date (`report/manifest.py`; nothing extra to remember).
+A dataset with no pass rate (a speed bench, the recall bench) adds no row. After editing a data file by hand, run
+`python3 bench/report/manifest.py append docs/benchmarks/<report>.json`, and `... build` to rebuild the whole file;
+the file is sorted, so a rebuild with nothing new changes nothing.
 
 `--arm` takes a registry key from `report/charts.py` (`theseus`, `claude-code`, `theseus-batching`, `openclaw`, `pi`, ...):
 the same arm is the same colour in every report. Harbor writes each job under `-o` (`jobs/<job name>/`): its

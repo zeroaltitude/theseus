@@ -67,6 +67,7 @@ def _load(name: str, path: Path):
 charts = _load("bench_report_charts", HERE / "charts.py")
 stats = _load("stats_shim", HERE / "stats.py")
 friction = _load("bench_report_friction", HERE / "friction.py")
+manifest = _load("bench_report_manifest", HERE / "manifest.py")
 
 
 # ------------------------------------------------------------------ common
@@ -159,6 +160,10 @@ def write_outputs(out: Path, name: str, data: dict[str, Any], rows: list[dict[st
     jp = out / f"{name}.json"
     jp.write_text(json.dumps(_r(data), indent=1, ensure_ascii=False) + "\n")
     written.append(jp)
+    # The run's manifest rows, beside its data file (theseus-jda0z): a dataset with no pass rate adds none, and one
+    # that has them and cannot make a whole row raises, so no half row is written.
+    if manifest.append(jp, out / manifest.INDEX, log=lambda m: print(m, file=sys.stderr)):
+        written.append(out / manifest.INDEX)
     if rows:
         cp = out / f"{name}.csv"
         cols = list(rows[0].keys())

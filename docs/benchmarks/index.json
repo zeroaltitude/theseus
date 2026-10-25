@@ -1,0 +1,2090 @@
+{
+ "version": 1,
+ "about": "One row per measured arm of each published benchmark dataset in docs/benchmarks/, written by bench/report/manifest.py (draft.py appends a run's rows). A row with comparison or carried_from is not a new measurement. Sorted by date, report, variant.",
+ "runs": [
+  {
+   "report": "2026-10-07-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "aider",
+   "variant": "aider",
+   "harness": "Aider 0.86.2",
+   "model": "anthropic/claude-sonnet-5-5 (Codex CLI: openai/gpt-5.6-sol)",
+   "date": "2026-10-07",
+   "commit": "041eb8ed",
+   "dataset": "docs/benchmarks/2026-10-07-terminal-bench-harness-arms.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.2143,
+     "lo": 0.1021,
+     "hi": 0.3954,
+     "k": 6,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 0.4951
+    }
+   }
+  },
+  {
+   "report": "2026-10-07-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290",
+   "model": "anthropic/claude-sonnet-5-5 (Codex CLI: openai/gpt-5.6-sol)",
+   "date": "2026-10-07",
+   "commit": "041eb8ed",
+   "dataset": "docs/benchmarks/2026-10-07-terminal-bench-harness-arms.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8214,
+     "lo": 0.6441,
+     "hi": 0.9212,
+     "k": 23,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 5.9268
+    }
+   }
+  },
+  {
+   "report": "2026-10-07-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "codex",
+   "variant": "codex",
+   "harness": "Codex CLI 0.161.0",
+   "model": "anthropic/claude-sonnet-5-5 (Codex CLI: openai/gpt-5.6-sol)",
+   "date": "2026-10-07",
+   "commit": "041eb8ed",
+   "dataset": "docs/benchmarks/2026-10-07-terminal-bench-harness-arms.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8214,
+     "lo": 0.6441,
+     "hi": 0.9212,
+     "k": 23,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 12.5701
+    }
+   }
+  },
+  {
+   "report": "2026-10-07-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "openclaw",
+   "variant": "openclaw",
+   "harness": "OpenClaw 2026.9.8",
+   "model": "anthropic/claude-sonnet-5-5 (Codex CLI: openai/gpt-5.6-sol)",
+   "date": "2026-10-07",
+   "commit": "041eb8ed",
+   "dataset": "docs/benchmarks/2026-10-07-terminal-bench-harness-arms.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8214,
+     "lo": 0.6441,
+     "hi": 0.9212,
+     "k": 23,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 12.5586
+    }
+   }
+  },
+  {
+   "report": "2026-10-07-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "opencode",
+   "variant": "opencode",
+   "harness": "OpenCode 1.18.35",
+   "model": "anthropic/claude-sonnet-5-5 (Codex CLI: openai/gpt-5.6-sol)",
+   "date": "2026-10-07",
+   "commit": "041eb8ed",
+   "dataset": "docs/benchmarks/2026-10-07-terminal-bench-harness-arms.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8929,
+     "lo": 0.728,
+     "hi": 0.9629,
+     "k": 25,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 4.4638
+    }
+   }
+  },
+  {
+   "report": "2026-10-07-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "openhands",
+   "variant": "openhands",
+   "harness": "OpenHands 1.53.0",
+   "model": "anthropic/claude-sonnet-5-5 (Codex CLI: openai/gpt-5.6-sol)",
+   "date": "2026-10-07",
+   "commit": "041eb8ed",
+   "dataset": "docs/benchmarks/2026-10-07-terminal-bench-harness-arms.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8571,
+     "lo": 0.6851,
+     "hi": 0.943,
+     "k": 24,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 5.3037
+    }
+   }
+  },
+  {
+   "report": "2026-10-07-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi 1.0.4",
+   "model": "anthropic/claude-sonnet-5-5 (Codex CLI: openai/gpt-5.6-sol)",
+   "date": "2026-10-07",
+   "commit": "041eb8ed",
+   "dataset": "docs/benchmarks/2026-10-07-terminal-bench-harness-arms.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8929,
+     "lo": 0.728,
+     "hi": 0.9629,
+     "k": 25,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 4.2711
+    }
+   }
+  },
+  {
+   "report": "2026-10-07-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "theseus",
+   "variant": "theseus",
+   "harness": "Theseus",
+   "model": "anthropic/claude-sonnet-5-5 (Codex CLI: openai/gpt-5.6-sol)",
+   "date": "2026-10-07",
+   "commit": "041eb8ed",
+   "dataset": "docs/benchmarks/2026-10-07-terminal-bench-harness-arms.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7143,
+     "lo": 0.5294,
+     "hi": 0.8475,
+     "k": 20,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 10.177
+    }
+   }
+  },
+  {
+   "report": "2026-10-10-terminal-bench-theseus-rerun",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290",
+   "model": "anthropic/claude-sonnet-5-5 (the routed arm: Jev's pick of Sonnet, Opus, Fable or Haiku per message)",
+   "date": "2026-10-10",
+   "commit": "2fd1f65413c903c29c6e431daf03f82aa0347f70",
+   "dataset": "docs/benchmarks/2026-10-10-terminal-bench-theseus-rerun.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8214,
+     "lo": 0.6441,
+     "hi": 0.9212,
+     "k": 23,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 5.9268
+    }
+   },
+   "carried_from": "2026-10-07-terminal-bench-harness-arms"
+  },
+  {
+   "report": "2026-10-10-terminal-bench-theseus-rerun",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "opencode",
+   "variant": "opencode",
+   "harness": "OpenCode 1.18.35",
+   "model": "anthropic/claude-sonnet-5-5 (the routed arm: Jev's pick of Sonnet, Opus, Fable or Haiku per message)",
+   "date": "2026-10-10",
+   "commit": "2fd1f65413c903c29c6e431daf03f82aa0347f70",
+   "dataset": "docs/benchmarks/2026-10-10-terminal-bench-theseus-rerun.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8929,
+     "lo": 0.728,
+     "hi": 0.9629,
+     "k": 25,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 4.4638
+    }
+   },
+   "carried_from": "2026-10-07-terminal-bench-harness-arms"
+  },
+  {
+   "report": "2026-10-10-terminal-bench-theseus-rerun",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "openhands",
+   "variant": "openhands",
+   "harness": "OpenHands 1.53.0",
+   "model": "anthropic/claude-sonnet-5-5 (the routed arm: Jev's pick of Sonnet, Opus, Fable or Haiku per message)",
+   "date": "2026-10-10",
+   "commit": "2fd1f65413c903c29c6e431daf03f82aa0347f70",
+   "dataset": "docs/benchmarks/2026-10-10-terminal-bench-theseus-rerun.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8571,
+     "lo": 0.6851,
+     "hi": 0.943,
+     "k": 24,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 5.3037
+    }
+   },
+   "carried_from": "2026-10-07-terminal-bench-harness-arms"
+  },
+  {
+   "report": "2026-10-10-terminal-bench-theseus-rerun",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi 1.0.4",
+   "model": "anthropic/claude-sonnet-5-5 (the routed arm: Jev's pick of Sonnet, Opus, Fable or Haiku per message)",
+   "date": "2026-10-10",
+   "commit": "2fd1f65413c903c29c6e431daf03f82aa0347f70",
+   "dataset": "docs/benchmarks/2026-10-10-terminal-bench-theseus-rerun.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8929,
+     "lo": 0.728,
+     "hi": 0.9629,
+     "k": 25,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 4.2711
+    }
+   },
+   "carried_from": "2026-10-07-terminal-bench-harness-arms"
+  },
+  {
+   "report": "2026-10-10-terminal-bench-theseus-rerun",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "theseus",
+   "variant": "theseus",
+   "harness": "Theseus (fixed model)",
+   "model": "anthropic/claude-sonnet-5-5 (the routed arm: Jev's pick of Sonnet, Opus, Fable or Haiku per message)",
+   "date": "2026-10-10",
+   "commit": "2fd1f65413c903c29c6e431daf03f82aa0347f70",
+   "dataset": "docs/benchmarks/2026-10-10-terminal-bench-theseus-rerun.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7143,
+     "lo": 0.5294,
+     "hi": 0.8475,
+     "k": 20,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 5.86
+    }
+   },
+   "carried_from": "2026-10-07-terminal-bench-harness-arms"
+  },
+  {
+   "report": "2026-10-10-terminal-bench-theseus-rerun",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "theseus",
+   "variant": "theseus-adjusted",
+   "harness": "Theseus (fixed), the 4 host-hit trials run again",
+   "model": "anthropic/claude-sonnet-5-5 (the routed arm: Jev's pick of Sonnet, Opus, Fable or Haiku per message)",
+   "date": "2026-10-10",
+   "commit": "2fd1f65413c903c29c6e431daf03f82aa0347f70",
+   "dataset": "docs/benchmarks/2026-10-10-terminal-bench-theseus-rerun.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8571,
+     "lo": 0.6851,
+     "hi": 0.943,
+     "k": 24,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 5.8926
+    }
+   }
+  },
+  {
+   "report": "2026-10-10-terminal-bench-theseus-rerun",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "theseus",
+   "variant": "theseus-oct7",
+   "harness": "Theseus, Oct 7 (commands refused)",
+   "model": "anthropic/claude-sonnet-5-5 (the routed arm: Jev's pick of Sonnet, Opus, Fable or Haiku per message)",
+   "date": "2026-10-10",
+   "commit": "2fd1f65413c903c29c6e431daf03f82aa0347f70",
+   "dataset": "docs/benchmarks/2026-10-10-terminal-bench-theseus-rerun.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7143,
+     "lo": 0.5294,
+     "hi": 0.8475,
+     "k": 20,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 10.177
+    }
+   },
+   "carried_from": "2026-10-07-terminal-bench-harness-arms"
+  },
+  {
+   "report": "2026-10-10-terminal-bench-theseus-rerun",
+   "benchmark": "terminal-bench",
+   "tier": null,
+   "arm": "theseus",
+   "variant": "theseus-routed",
+   "harness": "Theseus as shipped (routed)",
+   "model": "anthropic/claude-sonnet-5-5 (the routed arm: Jev's pick of Sonnet, Opus, Fable or Haiku per message)",
+   "date": "2026-10-10",
+   "commit": "2fd1f65413c903c29c6e431daf03f82aa0347f70",
+   "dataset": "docs/benchmarks/2026-10-10-terminal-bench-theseus-rerun.json",
+   "trials": 28,
+   "tasks": 14,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.8929,
+     "lo": 0.728,
+     "hi": 0.9629,
+     "k": 25,
+     "n": 28
+    },
+    "usd_total": {
+     "value": 15.5459
+    }
+   }
+  },
+  {
+   "report": "2026-10-12-harbor-efficiency",
+   "benchmark": "harbor",
+   "tier": null,
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-12",
+   "commit": null,
+   "dataset": "docs/benchmarks/2026-10-12-harbor-efficiency.json",
+   "trials": 2,
+   "tasks": 1,
+   "metrics": {
+    "pass_rate": {
+     "value": 1.0,
+     "lo": 0.3424,
+     "hi": 1.0,
+     "k": 2,
+     "n": 2
+    },
+    "usd_per_trial": {
+     "value": 0.0443,
+     "lo": 0.0414,
+     "hi": 0.0472
+    },
+    "usd_total": {
+     "value": 0.0886
+    }
+   }
+  },
+  {
+   "report": "2026-10-12-harbor-efficiency",
+   "benchmark": "harbor",
+   "tier": null,
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-12",
+   "commit": null,
+   "dataset": "docs/benchmarks/2026-10-12-harbor-efficiency.json",
+   "trials": 2,
+   "tasks": 1,
+   "metrics": {
+    "pass_rate": {
+     "value": 1.0,
+     "lo": 0.3424,
+     "hi": 1.0,
+     "k": 2,
+     "n": 2
+    },
+    "usd_per_trial": {
+     "value": 0.0177,
+     "lo": 0.016,
+     "hi": 0.0194
+    },
+    "usd_total": {
+     "value": 0.0354
+    }
+   }
+  },
+  {
+   "report": "2026-10-12-harbor-efficiency",
+   "benchmark": "harbor",
+   "tier": null,
+   "arm": "theseus",
+   "variant": "theseus",
+   "harness": "Theseus",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-12",
+   "commit": null,
+   "dataset": "docs/benchmarks/2026-10-12-harbor-efficiency.json",
+   "trials": 2,
+   "tasks": 1,
+   "metrics": {
+    "pass_rate": {
+     "value": 1.0,
+     "lo": 0.3424,
+     "hi": 1.0,
+     "k": 2,
+     "n": 2
+    },
+    "usd_per_trial": {
+     "value": 0.051,
+     "lo": 0.0335,
+     "hi": 0.0686
+    },
+    "usd_total": {
+     "value": 0.1021
+    }
+   }
+  },
+  {
+   "report": "2026-10-13-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench@2.0",
+   "tier": null,
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-13",
+   "commit": "026dce3f",
+   "dataset": "docs/benchmarks/2026-10-13-terminal-bench-harness-arms.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7154,
+     "lo": 0.6585,
+     "hi": 0.7661,
+     "k": 191,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.1175,
+     "lo": 0.097,
+     "hi": 0.14
+    },
+    "usd_total": {
+     "value": 30.4319
+    }
+   }
+  },
+  {
+   "report": "2026-10-13-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench@2.0",
+   "tier": null,
+   "arm": "opencode",
+   "variant": "opencode",
+   "harness": "OpenCode 1.18.35",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-13",
+   "commit": "026dce3f",
+   "dataset": "docs/benchmarks/2026-10-13-terminal-bench-harness-arms.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7154,
+     "lo": 0.6585,
+     "hi": 0.7661,
+     "k": 191,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.0851,
+     "lo": 0.07,
+     "hi": 0.1026
+    },
+    "usd_total": {
+     "value": 22.2189
+    }
+   }
+  },
+  {
+   "report": "2026-10-13-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench@2.0",
+   "tier": null,
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi 1.0.4",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-13",
+   "commit": "026dce3f",
+   "dataset": "docs/benchmarks/2026-10-13-terminal-bench-harness-arms.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7116,
+     "lo": 0.6546,
+     "hi": 0.7626,
+     "k": 190,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.0745,
+     "lo": 0.0615,
+     "hi": 0.0896
+    },
+    "usd_total": {
+     "value": 19.2264
+    }
+   }
+  },
+  {
+   "report": "2026-10-13-terminal-bench-harness-arms",
+   "benchmark": "terminal-bench@2.0",
+   "tier": null,
+   "arm": "theseus",
+   "variant": "theseus",
+   "harness": "Theseus",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-13",
+   "commit": "026dce3f",
+   "dataset": "docs/benchmarks/2026-10-13-terminal-bench-harness-arms.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7453,
+     "lo": 0.6898,
+     "hi": 0.7938,
+     "k": 199,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.1232,
+     "lo": 0.1027,
+     "hi": 0.1461
+    },
+    "usd_total": {
+     "value": 32.1663
+    }
+   }
+  },
+  {
+   "report": "2026-10-13-terminal-bench-r0",
+   "benchmark": "terminal-bench@2.0",
+   "tier": null,
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-13",
+   "commit": "026dce3f",
+   "dataset": "docs/benchmarks/2026-10-13-terminal-bench-r0.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7154,
+     "lo": 0.6585,
+     "hi": 0.7661,
+     "k": 191,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.1175,
+     "lo": 0.097,
+     "hi": 0.14
+    },
+    "usd_total": {
+     "value": 30.4319
+    }
+   },
+   "carried_from": "2026-10-13-terminal-bench-harness-arms"
+  },
+  {
+   "report": "2026-10-13-terminal-bench-r0",
+   "benchmark": "terminal-bench@2.0",
+   "tier": null,
+   "arm": "theseus",
+   "variant": "theseus",
+   "harness": "Theseus",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-13",
+   "commit": "026dce3f",
+   "dataset": "docs/benchmarks/2026-10-13-terminal-bench-r0.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7453,
+     "lo": 0.6898,
+     "hi": 0.7938,
+     "k": 199,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.1232,
+     "lo": 0.1027,
+     "hi": 0.1461
+    },
+    "usd_total": {
+     "value": 32.1663
+    }
+   },
+   "carried_from": "2026-10-13-terminal-bench-harness-arms"
+  },
+  {
+   "report": "2026-10-13-terminal-bench-r1",
+   "benchmark": "terminal-bench@2.0",
+   "tier": null,
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-13",
+   "commit": "026dce3f",
+   "dataset": "docs/benchmarks/2026-10-13-terminal-bench-r1.json",
+   "trials": 445,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7191,
+     "lo": 0.6756,
+     "hi": 0.7588,
+     "k": 320,
+     "n": 445
+    },
+    "usd_per_trial": {
+     "value": 0.1189,
+     "lo": 0.1025,
+     "hi": 0.137
+    },
+    "usd_total": {
+     "value": 51.4806
+    }
+   }
+  },
+  {
+   "report": "2026-10-13-terminal-bench-r1",
+   "benchmark": "terminal-bench@2.0",
+   "tier": null,
+   "arm": "theseus",
+   "variant": "theseus",
+   "harness": "Theseus",
+   "model": "anthropic/claude-sonnet-5-5",
+   "date": "2026-10-13",
+   "commit": "026dce3f",
+   "dataset": "docs/benchmarks/2026-10-13-terminal-bench-r1.json",
+   "trials": 445,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7573,
+     "lo": 0.7154,
+     "hi": 0.7948,
+     "k": 337,
+     "n": 445
+    },
+    "usd_per_trial": {
+     "value": 0.1212,
+     "lo": 0.1055,
+     "hi": 0.138
+    },
+    "usd_total": {
+     "value": 52.7111
+    }
+   }
+  },
+  {
+   "report": "2026-10-18-terminal-bench-v1-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290",
+   "model": "claude-sonnet-5-5 (rivals); Jev-routed Anthropic profiles (Theseus)",
+   "date": "2026-10-18",
+   "commit": "351159fc8ee9160bbc7589f17d4ce790d5785cbc",
+   "dataset": "docs/benchmarks/2026-10-18-terminal-bench-v1-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7528089887640449,
+     "lo": 0.6977225502220129,
+     "hi": 0.8007237741240255,
+     "k": 201,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.1303888426966292,
+     "lo": 0.11136197752808989,
+     "hi": 0.15244978651685392
+    },
+    "usd_total": {
+     "value": 34.813821
+    },
+    "usd_per_solve": {
+     "value": 0.1732030895522388
+    },
+    "agent_s_median": {
+     "value": 55.84
+    }
+   }
+  },
+  {
+   "report": "2026-10-18-terminal-bench-v1-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "opencode",
+   "variant": "opencode",
+   "harness": "OpenCode 1.18.35",
+   "model": "claude-sonnet-5-5 (rivals); Jev-routed Anthropic profiles (Theseus)",
+   "date": "2026-10-18",
+   "commit": "351159fc8ee9160bbc7589f17d4ce790d5785cbc",
+   "dataset": "docs/benchmarks/2026-10-18-terminal-bench-v1-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7078651685393258,
+     "lo": 0.6506782905674032,
+     "hi": 0.7591553538948949,
+     "k": 189,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.11921161423220973,
+     "lo": 0.0992716254681648,
+     "hi": 0.14286752059925092
+    },
+    "usd_total": {
+     "value": 31.829501
+    },
+    "usd_per_solve": {
+     "value": 0.1684100582010582
+    },
+    "agent_s_median": {
+     "value": 59.655
+    }
+   }
+  },
+  {
+   "report": "2026-10-18-terminal-bench-v1-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi 1.0.4",
+   "model": "claude-sonnet-5-5 (rivals); Jev-routed Anthropic profiles (Theseus)",
+   "date": "2026-10-18",
+   "commit": "351159fc8ee9160bbc7589f17d4ce790d5785cbc",
+   "dataset": "docs/benchmarks/2026-10-18-terminal-bench-v1-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.704119850187266,
+     "lo": 0.6467875634447422,
+     "hi": 0.7556616910272445,
+     "k": 188,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.10569468539325842,
+     "lo": 0.08589423970037453,
+     "hi": 0.12899913857677903
+    },
+    "usd_total": {
+     "value": 28.220481
+    },
+    "usd_per_solve": {
+     "value": 0.15010894148936169
+    },
+    "agent_s_median": {
+     "value": 55.19
+    }
+   }
+  },
+  {
+   "report": "2026-10-18-terminal-bench-v1-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "theseus",
+   "variant": "theseus-routed",
+   "harness": "Theseus as shipped (routed)",
+   "model": "claude-sonnet-5-5 (rivals); Jev-routed Anthropic profiles (Theseus)",
+   "date": "2026-10-18",
+   "commit": "351159fc8ee9160bbc7589f17d4ce790d5785cbc",
+   "dataset": "docs/benchmarks/2026-10-18-terminal-bench-v1-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7303370786516854,
+     "lo": 0.6741159859446423,
+     "hi": 0.780023998459526,
+     "k": 195,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.09964080898876404,
+     "lo": 0.08234206367041198,
+     "hi": 0.11933708988764045
+    },
+    "usd_total": {
+     "value": 26.604096
+    },
+    "usd_per_solve": {
+     "value": 0.13643126153846152
+    },
+    "agent_s_median": {
+     "value": 50.4
+    }
+   }
+  },
+  {
+   "report": "2026-10-18-terminal-bench-v1-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290",
+   "model": "claude-sonnet-5-5 (rivals); Jev-routed Anthropic profiles (Theseus)",
+   "date": "2026-10-18",
+   "commit": "351159fc8ee9160bbc7589f17d4ce790d5785cbc",
+   "dataset": "docs/benchmarks/2026-10-18-terminal-bench-v1-max.json",
+   "trials": 90,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7555555555555555,
+     "lo": 0.6575143545381369,
+     "hi": 0.8326733660463373,
+     "k": 68,
+     "n": 90
+    },
+    "usd_per_trial": {
+     "value": 1.4525882,
+     "lo": 1.2567320777777777,
+     "hi": 1.671108488888889
+    },
+    "usd_total": {
+     "value": 130.732938
+    },
+    "usd_per_solve": {
+     "value": 1.9225432058823528
+    },
+    "agent_s_median": {
+     "value": 792.325
+    }
+   }
+  },
+  {
+   "report": "2026-10-18-terminal-bench-v1-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "opencode",
+   "variant": "opencode",
+   "harness": "OpenCode 1.18.35",
+   "model": "claude-sonnet-5-5 (rivals); Jev-routed Anthropic profiles (Theseus)",
+   "date": "2026-10-18",
+   "commit": "351159fc8ee9160bbc7589f17d4ce790d5785cbc",
+   "dataset": "docs/benchmarks/2026-10-18-terminal-bench-v1-max.json",
+   "trials": 90,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.32222222222222224,
+     "lo": 0.23466628727198596,
+     "hi": 0.42433355927794497,
+     "k": 29,
+     "n": 90
+    },
+    "usd_per_trial": {
+     "value": 1.4525361777777779,
+     "lo": 1.1502350888888888,
+     "hi": 1.7755539
+    },
+    "usd_total": {
+     "value": 130.728256
+    },
+    "usd_per_solve": {
+     "value": 4.507870896551724
+    },
+    "agent_s_median": {
+     "value": 389.065
+    }
+   }
+  },
+  {
+   "report": "2026-10-18-terminal-bench-v1-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi 1.0.4",
+   "model": "claude-sonnet-5-5 (rivals); Jev-routed Anthropic profiles (Theseus)",
+   "date": "2026-10-18",
+   "commit": "351159fc8ee9160bbc7589f17d4ce790d5785cbc",
+   "dataset": "docs/benchmarks/2026-10-18-terminal-bench-v1-max.json",
+   "trials": 90,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7111111111111111,
+     "lo": 0.6103576218490169,
+     "hi": 0.7945800603729402,
+     "k": 64,
+     "n": 90
+    },
+    "usd_per_trial": {
+     "value": 0.5328331555555555,
+     "lo": 0.3880186888888889,
+     "hi": 0.6972281333333333
+    },
+    "usd_total": {
+     "value": 47.954984
+    },
+    "usd_per_solve": {
+     "value": 0.749296625
+    },
+    "agent_s_median": {
+     "value": 214.905
+    }
+   }
+  },
+  {
+   "report": "2026-10-18-terminal-bench-v1-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "theseus",
+   "variant": "theseus-routed",
+   "harness": "Theseus as shipped (routed)",
+   "model": "claude-sonnet-5-5 (rivals); Jev-routed Anthropic profiles (Theseus)",
+   "date": "2026-10-18",
+   "commit": "351159fc8ee9160bbc7589f17d4ce790d5785cbc",
+   "dataset": "docs/benchmarks/2026-10-18-terminal-bench-v1-max.json",
+   "trials": 90,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.6777777777777778,
+     "lo": 0.5756664407220551,
+     "hi": 0.765333712728014,
+     "k": 61,
+     "n": 90
+    },
+    "usd_per_trial": {
+     "value": 0.24519364444444444,
+     "lo": 0.18738052222222223,
+     "hi": 0.31059403333333335
+    },
+    "usd_total": {
+     "value": 22.067428
+    },
+    "usd_per_solve": {
+     "value": 0.36176111475409833
+    },
+    "agent_s_median": {
+     "value": 96.25
+    }
+   }
+  },
+  {
+   "report": "2026-10-21-terminal-bench-rerun-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-21",
+   "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+   "dataset": "docs/benchmarks/2026-10-21-terminal-bench-rerun-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7528089887640449,
+     "lo": 0.6977225502220129,
+     "hi": 0.8007237741240255,
+     "k": 201,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.1303888426966292,
+     "lo": 0.11136197752808989,
+     "hi": 0.15244978651685392
+    },
+    "usd_total": {
+     "value": 34.813821
+    },
+    "usd_per_solve": {
+     "value": 0.1732030895522388
+    },
+    "agent_s_median": {
+     "value": 55.84
+    }
+   },
+   "comparison": true,
+   "carried_from": "2026-10-18-terminal-bench-v1-high"
+  },
+  {
+   "report": "2026-10-21-terminal-bench-rerun-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "opencode",
+   "variant": "opencode",
+   "harness": "OpenCode 1.18.35 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-21",
+   "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+   "dataset": "docs/benchmarks/2026-10-21-terminal-bench-rerun-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7078651685393258,
+     "lo": 0.6506782905674032,
+     "hi": 0.7591553538948949,
+     "k": 189,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.11921161423220973,
+     "lo": 0.0992716254681648,
+     "hi": 0.14286752059925092
+    },
+    "usd_total": {
+     "value": 31.829501
+    },
+    "usd_per_solve": {
+     "value": 0.1684100582010582
+    },
+    "agent_s_median": {
+     "value": 59.655
+    }
+   },
+   "comparison": true,
+   "carried_from": "2026-10-18-terminal-bench-v1-high"
+  },
+  {
+   "report": "2026-10-21-terminal-bench-rerun-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi 1.0.4 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-21",
+   "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+   "dataset": "docs/benchmarks/2026-10-21-terminal-bench-rerun-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.704119850187266,
+     "lo": 0.6467875634447422,
+     "hi": 0.7556616910272445,
+     "k": 188,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.10569468539325842,
+     "lo": 0.08589423970037453,
+     "hi": 0.12899913857677903
+    },
+    "usd_total": {
+     "value": 28.220481
+    },
+    "usd_per_solve": {
+     "value": 0.15010894148936169
+    },
+    "agent_s_median": {
+     "value": 55.19
+    }
+   },
+   "comparison": true,
+   "carried_from": "2026-10-18-terminal-bench-v1-high"
+  },
+  {
+   "report": "2026-10-21-terminal-bench-rerun-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "theseus",
+   "variant": "theseus-68",
+   "harness": "Theseus as shipped, 6918e3c1 (this run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-21",
+   "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+   "dataset": "docs/benchmarks/2026-10-21-terminal-bench-rerun-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7715355805243446,
+     "lo": 0.7175342241220829,
+     "hi": 0.817834050175514,
+     "k": 206,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.11963407116104868,
+     "lo": 0.09754984644194757,
+     "hi": 0.14538495505617977
+    },
+    "usd_total": {
+     "value": 31.942297
+    },
+    "usd_per_solve": {
+     "value": 0.1550596941747573
+    },
+    "agent_s_median": {
+     "value": 67.95
+    }
+   }
+  },
+  {
+   "report": "2026-10-21-terminal-bench-rerun-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "theseus",
+   "variant": "theseus-v1",
+   "harness": "Theseus as shipped, v1 351159fc",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-21",
+   "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+   "dataset": "docs/benchmarks/2026-10-21-terminal-bench-rerun-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7303370786516854,
+     "lo": 0.6741159859446423,
+     "hi": 0.780023998459526,
+     "k": 195,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.09964080898876404,
+     "lo": 0.08234206367041198,
+     "hi": 0.11933708988764045
+    },
+    "usd_total": {
+     "value": 26.604096
+    },
+    "usd_per_solve": {
+     "value": 0.13643126153846152
+    },
+    "agent_s_median": {
+     "value": 50.4
+    }
+   },
+   "comparison": true,
+   "carried_from": "2026-10-18-terminal-bench-v1-high"
+  },
+  {
+   "report": "2026-10-21-terminal-bench-rerun-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-21",
+   "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+   "dataset": "docs/benchmarks/2026-10-21-terminal-bench-rerun-max.json",
+   "trials": 90,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7555555555555555,
+     "lo": 0.6575143545381369,
+     "hi": 0.8326733660463373,
+     "k": 68,
+     "n": 90
+    },
+    "usd_per_trial": {
+     "value": 1.4525882,
+     "lo": 1.2567320777777777,
+     "hi": 1.671108488888889
+    },
+    "usd_total": {
+     "value": 130.732938
+    },
+    "usd_per_solve": {
+     "value": 1.9225432058823528
+    },
+    "agent_s_median": {
+     "value": 792.325
+    }
+   },
+   "comparison": true,
+   "carried_from": "2026-10-18-terminal-bench-v1-max"
+  },
+  {
+   "report": "2026-10-21-terminal-bench-rerun-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "opencode",
+   "variant": "opencode",
+   "harness": "OpenCode 1.18.35 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-21",
+   "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+   "dataset": "docs/benchmarks/2026-10-21-terminal-bench-rerun-max.json",
+   "trials": 90,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.32222222222222224,
+     "lo": 0.23466628727198596,
+     "hi": 0.42433355927794497,
+     "k": 29,
+     "n": 90
+    },
+    "usd_per_trial": {
+     "value": 1.4525361777777779,
+     "lo": 1.1502350888888888,
+     "hi": 1.7755539
+    },
+    "usd_total": {
+     "value": 130.728256
+    },
+    "usd_per_solve": {
+     "value": 4.507870896551724
+    },
+    "agent_s_median": {
+     "value": 389.065
+    }
+   },
+   "comparison": true,
+   "carried_from": "2026-10-18-terminal-bench-v1-max"
+  },
+  {
+   "report": "2026-10-21-terminal-bench-rerun-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi 1.0.4 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-21",
+   "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+   "dataset": "docs/benchmarks/2026-10-21-terminal-bench-rerun-max.json",
+   "trials": 90,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7111111111111111,
+     "lo": 0.6103576218490169,
+     "hi": 0.7945800603729402,
+     "k": 64,
+     "n": 90
+    },
+    "usd_per_trial": {
+     "value": 0.5328331555555555,
+     "lo": 0.3880186888888889,
+     "hi": 0.6972281333333333
+    },
+    "usd_total": {
+     "value": 47.954984
+    },
+    "usd_per_solve": {
+     "value": 0.749296625
+    },
+    "agent_s_median": {
+     "value": 214.905
+    }
+   },
+   "comparison": true,
+   "carried_from": "2026-10-18-terminal-bench-v1-max"
+  },
+  {
+   "report": "2026-10-21-terminal-bench-rerun-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "theseus",
+   "variant": "theseus-68",
+   "harness": "Theseus as shipped, 6918e3c1 (this run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-21",
+   "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+   "dataset": "docs/benchmarks/2026-10-21-terminal-bench-rerun-max.json",
+   "trials": 90,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7222222222222222,
+     "lo": 0.6220457832888489,
+     "hi": 0.8042044085237374,
+     "k": 65,
+     "n": 90
+    },
+    "usd_per_trial": {
+     "value": 0.23601227777777778,
+     "lo": 0.1798635888888889,
+     "hi": 0.3022006666666667
+    },
+    "usd_total": {
+     "value": 21.241105
+    },
+    "usd_per_solve": {
+     "value": 0.3267862307692308
+    },
+    "agent_s_median": {
+     "value": 156.0
+    }
+   }
+  },
+  {
+   "report": "2026-10-21-terminal-bench-rerun-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "theseus",
+   "variant": "theseus-v1",
+   "harness": "Theseus as shipped, v1 351159fc",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-21",
+   "commit": "6918e3c1e2a4683aced0f85b1ffb065ec11f905d",
+   "dataset": "docs/benchmarks/2026-10-21-terminal-bench-rerun-max.json",
+   "trials": 90,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.6777777777777778,
+     "lo": 0.5756664407220551,
+     "hi": 0.765333712728014,
+     "k": 61,
+     "n": 90
+    },
+    "usd_per_trial": {
+     "value": 0.24519364444444444,
+     "lo": 0.18738052222222223,
+     "hi": 0.31059403333333335
+    },
+    "usd_total": {
+     "value": 22.067428
+    },
+    "usd_per_solve": {
+     "value": 0.36176111475409833
+    },
+    "agent_s_median": {
+     "value": 96.25
+    }
+   },
+   "comparison": true,
+   "carried_from": "2026-10-18-terminal-bench-v1-max"
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-high-timeouts",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-high-timeouts.json",
+   "trials": 18,
+   "tasks": 6,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.3333333333333333,
+     "lo": 0.1627855436366286,
+     "hi": 0.5625093065574964,
+     "k": 6,
+     "n": 18
+    },
+    "usd_per_trial": {
+     "value": 0.2748115555555556,
+     "lo": 0.11399050000000001,
+     "hi": 0.4702613333333333
+    },
+    "usd_total": {
+     "value": 4.946608
+    },
+    "usd_per_solve": {
+     "value": 0.8244346666666668
+    },
+    "agent_s_median": {
+     "value": 792.125
+    }
+   },
+   "comparison": true
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-high-timeouts",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "opencode",
+   "variant": "opencode",
+   "harness": "OpenCode 1.18.35 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-high-timeouts.json",
+   "trials": 18,
+   "tasks": 6,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.1758845505823749,
+     "k": 0,
+     "n": 18
+    },
+    "usd_per_trial": {
+     "value": 0.3030047222222222,
+     "lo": 0.10926777777777777,
+     "hi": 0.5483755555555555
+    },
+    "usd_total": {
+     "value": 5.454085
+    },
+    "agent_s_median": {
+     "value": 699.78
+    }
+   },
+   "comparison": true
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-high-timeouts",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi 1.0.4 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-high-timeouts.json",
+   "trials": 18,
+   "tasks": 6,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.05555555555555555,
+     "lo": 0.009874935830924525,
+     "hi": 0.2575779980200754,
+     "k": 1,
+     "n": 18
+    },
+    "usd_per_trial": {
+     "value": 0.25534622222222225,
+     "lo": 0.0584485,
+     "hi": 0.48373577777777776
+    },
+    "usd_total": {
+     "value": 4.596232
+    },
+    "usd_per_solve": {
+     "value": 4.596232
+    },
+    "agent_s_median": {
+     "value": 1086.26
+    }
+   },
+   "comparison": true
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-high-timeouts",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "theseus",
+   "variant": "theseus-68",
+   "harness": "Theseus as shipped, 6918e3c1 (10-21 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-high-timeouts.json",
+   "trials": 18,
+   "tasks": 6,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.1758845505823749,
+     "k": 0,
+     "n": 18
+    },
+    "usd_per_trial": {
+     "value": 0.3073922777777778,
+     "lo": 0.0945785,
+     "hi": 0.5679517222222222
+    },
+    "usd_total": {
+     "value": 5.533061000000001
+    },
+    "agent_s_median": {
+     "value": 1059.115
+    }
+   },
+   "comparison": true
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-high-timeouts",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "theseus",
+   "variant": "theseus-rt",
+   "harness": "Theseus as shipped, fe56a164 (this run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-high-timeouts.json",
+   "trials": 18,
+   "tasks": 6,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.2222222222222222,
+     "lo": 0.09000781913382,
+     "hi": 0.4521502645230549,
+     "k": 4,
+     "n": 18
+    },
+    "usd_per_trial": {
+     "value": 0.3095253888888889,
+     "lo": 0.08888494444444445,
+     "hi": 0.577786
+    },
+    "usd_total": {
+     "value": 5.571457
+    },
+    "usd_per_solve": {
+     "value": 1.39286425
+    },
+    "agent_s_median": {
+     "value": 941.16
+    }
+   }
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-high-timeouts",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "theseus",
+   "variant": "theseus-v1",
+   "harness": "Theseus as shipped, v1 351159fc",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-high-timeouts.json",
+   "trials": 18,
+   "tasks": 6,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.2777777777777778,
+     "lo": 0.12499569146355474,
+     "hi": 0.5087307754619452,
+     "k": 5,
+     "n": 18
+    },
+    "usd_per_trial": {
+     "value": 0.1780115,
+     "lo": 0.05447955555555555,
+     "hi": 0.34929105555555556
+    },
+    "usd_total": {
+     "value": 3.204207
+    },
+    "usd_per_solve": {
+     "value": 0.6408414
+    },
+    "agent_s_median": {
+     "value": 1020.98
+    }
+   },
+   "comparison": true
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-max.json",
+   "trials": 81,
+   "tasks": 27,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7654320987654321,
+     "lo": 0.6624506582197044,
+     "hi": 0.8443761814438567,
+     "k": 62,
+     "n": 81
+    },
+    "usd_per_trial": {
+     "value": 1.4519326172839506,
+     "lo": 1.2356780864197532,
+     "hi": 1.685552987654321
+    },
+    "usd_total": {
+     "value": 117.60654199999998
+    },
+    "usd_per_solve": {
+     "value": 1.896879709677419
+    },
+    "agent_s_median": {
+     "value": 763.23
+    }
+   },
+   "comparison": true
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "opencode",
+   "variant": "opencode",
+   "harness": "OpenCode 1.18.35 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-max.json",
+   "trials": 81,
+   "tasks": 27,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.3333333333333333,
+     "lo": 0.24028620252704974,
+     "hi": 0.44147368884699306,
+     "k": 27,
+     "n": 81
+    },
+    "usd_per_trial": {
+     "value": 1.4970187777777777,
+     "lo": 1.1662640740740742,
+     "hi": 1.8665493703703704
+    },
+    "usd_total": {
+     "value": 121.25852099999997
+    },
+    "usd_per_solve": {
+     "value": 4.491056333333332
+    },
+    "agent_s_median": {
+     "value": 390.38
+    }
+   },
+   "comparison": true
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi 1.0.4 (v1 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-max.json",
+   "trials": 81,
+   "tasks": 27,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7160493827160493,
+     "lo": 0.6098194243380317,
+     "hi": 0.8027140498067273,
+     "k": 58,
+     "n": 81
+    },
+    "usd_per_trial": {
+     "value": 0.45482955555555554,
+     "lo": 0.31728706172839505,
+     "hi": 0.6122295061728394
+    },
+    "usd_total": {
+     "value": 36.84119399999999
+    },
+    "usd_per_solve": {
+     "value": 0.6351929999999998
+    },
+    "agent_s_median": {
+     "value": 200.25
+    }
+   },
+   "comparison": true
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "theseus",
+   "variant": "theseus-68",
+   "harness": "Theseus as shipped, 6918e3c1 (10-21 run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-max.json",
+   "trials": 81,
+   "tasks": 27,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7407407407407407,
+     "lo": 0.63595445945254,
+     "hi": 0.8237256974516202,
+     "k": 60,
+     "n": 81
+    },
+    "usd_per_trial": {
+     "value": 0.18362032098765432,
+     "lo": 0.14331007407407406,
+     "hi": 0.22606704938271605
+    },
+    "usd_total": {
+     "value": 14.873245999999996
+    },
+    "usd_per_solve": {
+     "value": 0.24788743333333327
+    },
+    "agent_s_median": {
+     "value": 105.99
+    }
+   },
+   "comparison": true
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "theseus",
+   "variant": "theseus-rt",
+   "harness": "Theseus as shipped, fe56a164 (this run)",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-max.json",
+   "trials": 81,
+   "tasks": 27,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7160493827160493,
+     "lo": 0.6098194243380317,
+     "hi": 0.8027140498067273,
+     "k": 58,
+     "n": 81
+    },
+    "usd_per_trial": {
+     "value": 0.33668895061728393,
+     "lo": 0.23580432098765433,
+     "hi": 0.4553779012345679
+    },
+    "usd_total": {
+     "value": 27.271804999999997
+    },
+    "usd_per_solve": {
+     "value": 0.4702035344827586
+    },
+    "agent_s_median": {
+     "value": 128.94
+    }
+   }
+  },
+  {
+   "report": "2026-10-23-terminal-bench-retest-max",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "theseus",
+   "variant": "theseus-v1",
+   "harness": "Theseus as shipped, v1 351159fc",
+   "model": "Jev-routed Anthropic profiles (Theseus); the v1 rivals on claude-sonnet-5-5",
+   "date": "2026-10-23",
+   "commit": "fe56a164c1fad289374f4e9fc26ae6953a1eb6db",
+   "dataset": "docs/benchmarks/2026-10-23-terminal-bench-retest-max.json",
+   "trials": 81,
+   "tasks": 27,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.691358024691358,
+     "lo": 0.5840174207223435,
+     "hi": 0.7813693706630146,
+     "k": 56,
+     "n": 81
+    },
+    "usd_per_trial": {
+     "value": 0.19093145679012347,
+     "lo": 0.14687685185185184,
+     "hi": 0.23663622222222222
+    },
+    "usd_total": {
+     "value": 15.465447999999997
+    },
+    "usd_per_solve": {
+     "value": 0.2761687142857142
+    },
+    "agent_s_median": {
+     "value": 82.01
+    }
+   },
+   "comparison": true
+  },
+  {
+   "report": "2026-10-25-terminal-bench-codex-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "claude-code",
+   "variant": "claude-code",
+   "harness": "Claude Code 2.1.290",
+   "model": null,
+   "date": "2026-10-25",
+   "commit": "b69236c1",
+   "dataset": "docs/benchmarks/2026-10-25-terminal-bench-codex-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7528089887640449,
+     "lo": 0.6977225502220129,
+     "hi": 0.8007237741240255,
+     "k": 201,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.1303888426966292,
+     "lo": 0.11136197752808989,
+     "hi": 0.15244978651685392
+    },
+    "usd_total": {
+     "value": 34.813821
+    },
+    "usd_per_solve": {
+     "value": 0.1732030895522388
+    },
+    "agent_s_median": {
+     "value": 55.84
+    }
+   },
+   "carried_from": "2026-10-18-terminal-bench-v1-high"
+  },
+  {
+   "report": "2026-10-25-terminal-bench-codex-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "codex",
+   "variant": "codex",
+   "harness": "Codex CLI 0.161.0 (GPT-6-Astra, high)",
+   "model": null,
+   "date": "2026-10-25",
+   "commit": "b69236c1",
+   "dataset": "docs/benchmarks/2026-10-25-terminal-bench-codex-high.json",
+   "trials": 31,
+   "tasks": 31,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7741935483870968,
+     "lo": 0.6018723994130262,
+     "hi": 0.8860500840550121,
+     "k": 24,
+     "n": 31
+    },
+    "usd_per_trial": {
+     "value": 2.4251696774193547,
+     "lo": 1.8738192258064517,
+     "hi": 3.0513318709677417
+    },
+    "usd_total": {
+     "value": 75.18026
+    },
+    "usd_per_solve": {
+     "value": 3.1325108333333334
+    },
+    "agent_s_median": {
+     "value": 236.95
+    }
+   }
+  },
+  {
+   "report": "2026-10-25-terminal-bench-codex-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "opencode",
+   "variant": "opencode",
+   "harness": "OpenCode 1.18.35",
+   "model": null,
+   "date": "2026-10-25",
+   "commit": "b69236c1",
+   "dataset": "docs/benchmarks/2026-10-25-terminal-bench-codex-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7078651685393258,
+     "lo": 0.6506782905674032,
+     "hi": 0.7591553538948949,
+     "k": 189,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.11921161423220973,
+     "lo": 0.0992716254681648,
+     "hi": 0.14286752059925092
+    },
+    "usd_total": {
+     "value": 31.829501
+    },
+    "usd_per_solve": {
+     "value": 0.1684100582010582
+    },
+    "agent_s_median": {
+     "value": 59.655
+    }
+   },
+   "carried_from": "2026-10-18-terminal-bench-v1-high"
+  },
+  {
+   "report": "2026-10-25-terminal-bench-codex-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "pi",
+   "variant": "pi",
+   "harness": "Pi 1.0.4",
+   "model": null,
+   "date": "2026-10-25",
+   "commit": "b69236c1",
+   "dataset": "docs/benchmarks/2026-10-25-terminal-bench-codex-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.704119850187266,
+     "lo": 0.6467875634447422,
+     "hi": 0.7556616910272445,
+     "k": 188,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.10569468539325842,
+     "lo": 0.08589423970037453,
+     "hi": 0.12899913857677903
+    },
+    "usd_total": {
+     "value": 28.220481
+    },
+    "usd_per_solve": {
+     "value": 0.15010894148936169
+    },
+    "agent_s_median": {
+     "value": 55.19
+    }
+   },
+   "carried_from": "2026-10-18-terminal-bench-v1-high"
+  },
+  {
+   "report": "2026-10-25-terminal-bench-codex-high",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "theseus",
+   "variant": "theseus-routed",
+   "harness": "Theseus as shipped (v1)",
+   "model": null,
+   "date": "2026-10-25",
+   "commit": "b69236c1",
+   "dataset": "docs/benchmarks/2026-10-25-terminal-bench-codex-high.json",
+   "trials": 267,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.7303370786516854,
+     "lo": 0.6741159859446423,
+     "hi": 0.780023998459526,
+     "k": 195,
+     "n": 267
+    },
+    "usd_per_trial": {
+     "value": 0.09964080898876404,
+     "lo": 0.08234206367041198,
+     "hi": 0.11933708988764045
+    },
+    "usd_total": {
+     "value": 26.604096
+    },
+    "usd_per_solve": {
+     "value": 0.13643126153846152
+    },
+    "agent_s_median": {
+     "value": 50.4
+    }
+   },
+   "carried_from": "2026-10-18-terminal-bench-v1-high"
+  }
+ ]
+}
