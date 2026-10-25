@@ -1201,6 +1201,10 @@ impl Core {
                     crate::data_gate::word(self.cfg.profile_origin(name, &self.catalog)).into(),
                 ),
                 cleared: Some(crate::data_mark::cleared(&self.cfg, &self.catalog, name)),
+                effort: p
+                    .effort
+                    .and_then(|e| serde_json::to_value(e).ok())
+                    .and_then(|v| v.as_str().map(str::to_owned)),
             })
             .collect();
         ProfileListResult {

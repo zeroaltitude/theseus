@@ -74,7 +74,7 @@ export function dockStream(lines: readonly NarrativeLine[], opts: { follow: stri
 export const whoOf = (l: NarrativeLine): string => (l.session_id ? short(l.session_id) : 'daemon')
 
 /** One row of the dock's models strip. */
-export interface ModelStrip { name: string; model: string; origin: string; live: boolean; sessions: number; headroom: string | null }
+export interface ModelStrip { name: string; model: string; origin: string; live: boolean; sessions: number; headroom: string | null; /** The effort the profile is configured at. */ effort: string | null }
 
 /** The Bridge's headroom, from a call's rate headers: the tightest of the requests and tokens left, as a share. */
 export function headroom(r: { requests_remaining?: number; requests_limit?: number; tokens_remaining?: number; tokens_limit?: number } | undefined): string | null {
@@ -87,10 +87,10 @@ export function headroom(r: { requests_remaining?: number; requests_limit?: numb
 
 /** The dock's strip: each profile with its origin, the live flag, the sessions on it (from `session.list`'s `profile`)
  *  and the headroom of the newest call that model made. `calls` come oldest first. */
-export function modelsStrip(profiles: ReadonlyArray<{ name: string; model: string; live: boolean; origin?: string }>, sessions: ReadonlyArray<{ profile?: string; retired?: unknown }>, calls: ReadonlyArray<{ model: string; rate?: Parameters<typeof headroom>[0] }>): ModelStrip[] {
+export function modelsStrip(profiles: ReadonlyArray<{ name: string; model: string; live: boolean; origin?: string; effort?: string | null }>, sessions: ReadonlyArray<{ profile?: string; retired?: unknown }>, calls: ReadonlyArray<{ model: string; rate?: Parameters<typeof headroom>[0] }>): ModelStrip[] {
   return profiles.map((p) => {
     let rate: Parameters<typeof headroom>[0]
     for (let i = calls.length - 1; i >= 0; i--) if (calls[i].model === p.model && calls[i].rate) { rate = calls[i].rate; break }
-    return { name: p.name, model: p.model, origin: p.origin ?? 'unknown', live: p.live, sessions: sessions.filter((s) => s.profile === p.name && !s.retired).length, headroom: headroom(rate) }
+    return { name: p.name, model: p.model, origin: p.origin ?? 'unknown', live: p.live, sessions: sessions.filter((s) => s.profile === p.name && !s.retired).length, headroom: headroom(rate), effort: p.effort ?? null }
   })
 }
