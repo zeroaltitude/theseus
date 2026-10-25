@@ -12,4 +12,17 @@ export type TaskOrigin = { session: string, principal: string,
  * waits: a task session `task.create` opened with a brief and its
  * arrangement, and every record written before this field.
  */
-by_model?: boolean, };
+by_model?: boolean, 
+/**
+ * The task started itself: its `task.create` ran in a turn with no
+ * owner input (a wake, a report, a continuation, a routine's run), or
+ * it is the self-improvement backlog's. The CLI, the TUI and the work
+ * view say so with `because`. Absent, the owner asked, and every record
+ * written before this field.
+ */
+self_started?: boolean, 
+/**
+ * The model's own one-line reason for starting it, in its words, at
+ * most `BECAUSE_MAX` characters. Only a self-started task has one.
+ */
+because?: string, };
