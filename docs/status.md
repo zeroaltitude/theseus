@@ -675,7 +675,7 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   theseus-dyukm, theseus-xzf71, theseus-0ly2a, theseus-wdzmj, theseus-yym79, theseus-1kr2g, theseus-hk0dk,
   theseus-axno0, theseus-capcs, theseus-s48k6, theseus-izyws, theseus-5iqf8, theseus-b09do, theseus-rmjqr,
   theseus-5mkz1, theseus-5pg8u). The recall bench's generator reads its prices from `catalog.rs` (`catalog_prices`);
-  Sonnet 5.5's cache reads are $0.10, so the seed-7 budget is $0.48 an arm for the smoke and $7.89 for the full run. The
+  Sonnet 5.5's cache reads are $0.20 (the catalog said $0.10 from 2026-10-17 to 2026-10-25, theseus-rko44), so the seed-7 budget is $0.60 an arm for the smoke and $16.97 for the full run, run again on 2026-10-25 from the plan's own token counts (the $0.48 and $7.89 this row first carried were at $0.10 and the full's earlier, smaller window). The
   chat now follows a thread-placed turn's answered question and its continuation (it watches the placed session), and
   the plain approval card says why it waits: the thread guard's question names both threads, other rules say their
   clause, and a thread session is asked by its thread's title. A message that asks for a task ('start two background

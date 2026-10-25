@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
-pub const BUILTIN_VERSION: &str = "2026-10-25.1";
+pub const BUILTIN_VERSION: &str = "2026-10-25.2";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -920,8 +920,10 @@ impl Catalog {
         e.insert(
             "claude-sonnet-5-5".into(),
             CatalogEntry {
-                source: "Anthropic Models API and pricing page, 2026-09-28; cache reads $0.10 \
-                         since Haiku 5.5's launch (Anthropic's Haiku 5.5 page, 2026-10-10)"
+                source: "Anthropic Models API and pricing page, 2026-09-28; cache reads $0.20, \
+                         the pricing page's 0.1x of input, as before the 2026-10-17 change to \
+                         $0.10 that undercounted them by half (the owner, 2026-10-25: \
+                         \"Do make the sonnet fix.\")"
                     .into(),
                 refusal_fallback_model: Some("claude-sonnet-5".into()),
                 // The live probe of 2026-10-17: a per-message change keeps the
@@ -929,7 +931,7 @@ impl Catalog {
                 // 400s of 2026-10-11 and 2026-10-21 were requests that carried
                 // a message without the beta (theseus-blzt6).
                 per_message_effort: true,
-                ..claude(m, 128_000, 2.0, 10.0, 0.10, 2.50, Adaptive, false, 512)
+                ..claude(m, 128_000, 2.0, 10.0, 0.20, 2.50, Adaptive, false, 512)
             },
         );
         e.insert(
@@ -1263,8 +1265,8 @@ mod tests {
             cache_creation_input_tokens: 1_000_000,
             ..Default::default()
         };
-        // Sonnet 5: 2 + 10 + 0.20 + 2.50; Sonnet 5.5's cache reads are $0.10.
-        for (id, usd) in [("claude-sonnet-5", 14.70), ("claude-sonnet-5-5", 14.60)] {
+        // Sonnet 5 and Sonnet 5.5 alike: 2 + 10 + 0.20 + 2.50.
+        for (id, usd) in [("claude-sonnet-5", 14.70), ("claude-sonnet-5-5", 14.70)] {
             let s = c.cost_usd(id, &u).unwrap();
             assert!((s - usd).abs() < 1e-9, "{id}: {s}");
         }
@@ -1531,7 +1533,7 @@ mod tests {
     }
 
     /// One call's reservation and settlement in micro-dollars, by hand from
-    /// the catalog (theseus-0sg). Sonnet 5.5: $2 in, $10 out, $0.10 cache
+    /// the catalog (theseus-0sg). Sonnet 5.5: $2 in, $10 out, $0.20 cache
     /// read, $2.50 cache write per million tokens, so a price per million
     /// tokens is micro-dollars per token.
     #[test]
@@ -1541,7 +1543,7 @@ mod tests {
         // estimate at $2: 1,280,000 + 88,000 µ$ = $1.368.
         assert_eq!(s55.reserve_micros(128_000, 44_000), 1_368_000);
         // Settle: 1,200 in at $2, 900 out at $10, 40,000 cache reads at
-        // $0.10, 3,000 cache writes at $2.50: 2,400 + 9,000 + 4,000 + 7,500.
+        // $0.20, 3,000 cache writes at $2.50: 2,400 + 9,000 + 8,000 + 7,500.
         let u = Usage {
             input_tokens: 1_200,
             output_tokens: 900,
@@ -1549,8 +1551,8 @@ mod tests {
             cache_creation_input_tokens: 3_000,
             ..Default::default()
         };
-        assert_eq!(s55.cost_micros(&u), 22_900);
-        assert!((s55.cost_usd(&u) - 0.0229).abs() < 1e-12);
+        assert_eq!(s55.cost_micros(&u), 26_900);
+        assert!((s55.cost_usd(&u) - 0.0269).abs() < 1e-12);
         // A cache read weighs a fiftieth of an output token, not the same.
         let reads = Usage {
             cache_read_input_tokens: 1_000_000,
@@ -1562,7 +1564,7 @@ mod tests {
         };
         assert_eq!(
             (s55.cost_micros(&reads), s55.cost_micros(&outs)),
-            (100_000, 10_000_000)
+            (200_000, 10_000_000)
         );
         // Fractions of a micro-dollar round up, once per call: 7 GLM-5.3
         // Flash cache reads at $0.03 are 0.21 µ$, so 1.
@@ -1670,11 +1672,11 @@ mod tests {
         assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
         assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
         assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
-        assert_eq!(c.version, "2026-10-25.1");
-        // Sonnet 5.5's cache read fell to $0.10 on Haiku 5.5's launch day.
+        assert_eq!(c.version, "2026-10-25.2");
+        // Sonnet 5.5's cache read is $0.20, as Sonnet 5's is.
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
-            0.10
+            0.20
         );
     }
 
@@ -1950,17 +1952,38 @@ mod tests {
         }
     }
 
-    /// Anthropic halved Sonnet 5.5's cache reads on Haiku 5.5's launch day
-    /// (its Haiku 5.5 page, read 2026-10-10); Sonnet 5's are unchanged.
+    /// Sonnet 5.5's cache reads are $0.20 a million, the pricing page's 0.1x
+    /// of its $2.00 input and Sonnet 5's price (theseus-rko44). From
+    /// 2026-10-17 the table said $0.10, so every reservation, settlement,
+    /// ledger cost and spend limit undercounted the cache-read share; the
+    /// owner decided on 2026-10-25 that it is $0.20.
     #[test]
-    fn sonnet_5_5_cache_reads_are_ten_cents() {
+    fn sonnet_5_5_cache_reads_are_twenty_cents() {
         let c = Catalog::builtin();
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
-            0.10
+            0.20
         );
         assert_eq!(c.get("claude-sonnet-5").unwrap().cache_read_per_mtok, 0.20);
-        assert!(c.get("claude-sonnet-5-5").unwrap().source.contains("$0.10"));
+        let source = &c.get("claude-sonnet-5-5").unwrap().source;
+        assert!(source.contains("cache reads $0.20"), "{source}");
+        assert!(!source.contains("since Haiku 5.5's launch"), "{source}");
+    }
+
+    /// The price against a worked bill (theseus-rko44): the 10-24 Bug Hunt's
+    /// Theseus run read 62.24M tokens from the cache, which is $12.45 at
+    /// $0.20 a million and $6.22 at $0.10, and a million cache reads cost the
+    /// same on Sonnet 5.5 as on Sonnet 5.
+    #[test]
+    fn a_bug_hunts_cache_reads_cost_twelve_dollars_forty_five() {
+        let c = Catalog::builtin();
+        let reads = Usage {
+            cache_read_input_tokens: 62_240_000,
+            ..Default::default()
+        };
+        let usd = c.cost_usd("claude-sonnet-5-5", &reads).unwrap();
+        assert!((usd - 12.448).abs() < 1e-9, "{usd}");
+        assert_eq!(usd, c.cost_usd("claude-sonnet-5", &reads).unwrap());
     }
 
     /// The long tier (theseus-3okf): at 100,000 prompt tokens every class

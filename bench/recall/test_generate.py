@@ -525,11 +525,11 @@ class Names(unittest.TestCase):
 class Budget(unittest.TestCase):
     def test_the_prices_are_the_catalogs(self):
         """The generator's table is theseus-core's built-in catalog, read:
-        Sonnet 5.5's cache reads are $0.10 (since Haiku 5.5's launch) and
-        Sonnet 5's $0.20, both in the catalog; a literal copy had them equal."""
+        Sonnet 5.5's cache reads are $0.20, as Sonnet 5's are (the owner,
+        2026-10-25; the catalog said $0.10 from 2026-10-17, theseus-rko44)."""
         src = (REPO / "crates/theseus-core/src/catalog.rs").read_text()
         self.assertEqual(generate.PRICES, generate.catalog_prices(src))
-        self.assertEqual(generate.PRICES["claude-sonnet-5-5"], (2.0, 10.0, 0.10, 2.50))
+        self.assertEqual(generate.PRICES["claude-sonnet-5-5"], (2.0, 10.0, 0.20, 2.50))
         self.assertEqual(generate.PRICES["claude-sonnet-5"], (2.0, 10.0, 0.20, 2.50))
         self.assertEqual(generate.PRICES["claude-haiku-4-5"], (1.0, 5.0, 0.10, 1.25))
 
@@ -558,13 +558,13 @@ class Budget(unittest.TestCase):
             "claude-ccc": (3.0, 5.0, 0.50, 1.25),
         })
 
-    def test_the_budget_prices_sonnet_5_5s_cache_reads_at_ten_cents(self):
+    def test_the_budget_prices_sonnet_5_5s_cache_reads_at_twenty_cents(self):
         prog = generate.build(7, "smoke", PLAN)
         full = generate.estimate(prog, "claude-sonnet-5-5")
         with mock.patch.dict(generate.PRICES, {"claude-sonnet-5-5": (2.0, 10.0, 0.0, 2.50)}):
             unread = generate.estimate(prog, "claude-sonnet-5-5")
         self.assertEqual(round(full["usd_per_arm"] - unread["usd_per_arm"], 2),
-                         round(full["read_tokens"] * 0.10 / 1e6, 2))
+                         round(full["read_tokens"] * 0.20 / 1e6, 2))
 
     def test_the_long_prompt_tiers_are_the_catalogs(self):
         src = (REPO / "crates/theseus-core/src/catalog.rs").read_text()
