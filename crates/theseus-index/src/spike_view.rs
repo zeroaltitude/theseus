@@ -164,6 +164,18 @@ fn map(path: &Path) -> Result<(mapped::Sig, &'static View), LoadError> {
     Ok((sig, v))
 }
 
+/// With `THESEUS_INDEX_VIEW_WEIGHTS=release`, the pages go back after every
+/// backfill batch, so a busy tender's resident set holds the weights only
+/// while a batch runs (the next batch faults them from the page cache).
+pub fn after_batch() {
+    static RELEASE: OnceLock<bool> = OnceLock::new();
+    if *RELEASE
+        .get_or_init(|| std::env::var("THESEUS_INDEX_VIEW_WEIGHTS").is_ok_and(|v| v == "release"))
+    {
+        release_pages();
+    }
+}
+
 /// Hand every mapped page back (the next use faults them from the page cache).
 pub fn release_pages() {
     let all = views().lock().unwrap_or_else(|e| e.into_inner());

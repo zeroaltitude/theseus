@@ -20,7 +20,7 @@ def arguments(d):
     d.add_argument("--out")
     d.add_argument("--in-place", action="store_true")
     d.add_argument("--weights-dir", help="the index's models; omit for BM25 and entities alone")
-    d.add_argument("--view-weights", action="store_true")
+    d.add_argument("--view-weights", nargs="?", const="1")
     d.add_argument("--unpinned", action="store_true")
     d.add_argument("--sessions", type=int, default=50, help="sessions opened, a turn in each")
     d.add_argument("--settle-secs", type=int, default=20)
@@ -105,7 +105,7 @@ def run_daemon(a):
         sock = os.path.join(work, "sock")
         env = dict(os.environ, ANTHROPIC_API_KEY="bench-not-a-key")
         if a.view_weights:
-            env["THESEUS_INDEX_VIEW_WEIGHTS"] = "1"
+            env["THESEUS_INDEX_VIEW_WEIGHTS"] = a.view_weights
         if a.unpinned:
             env["THESEUS_INDEX_SPIKE_UNPINNED"] = "1"
         dlog = open(os.path.join(work, "theseusd.log"), "w")

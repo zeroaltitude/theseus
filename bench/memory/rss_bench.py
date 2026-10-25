@@ -144,7 +144,7 @@ def tender(a):
     rows = Rows(a.label, out)
     env = dict(os.environ)
     if a.view_weights:
-        env["THESEUS_INDEX_VIEW_WEIGHTS"] = "1"
+        env["THESEUS_INDEX_VIEW_WEIGHTS"] = a.view_weights
     if a.unpinned:
         env["THESEUS_INDEX_SPIKE_UNPINNED"] = "1"
     cmd = [a.index_bin, "serve", "--store", store, "--index", index, "--threads", str(a.threads),
@@ -222,7 +222,7 @@ def main():
     t.add_argument("--out")
     t.add_argument("--in-place", action="store_true", help="serve the store where it is (a scratch store only)")
     t.add_argument("--keep", action="store_true", help="keep --work's state (a built index) from an earlier run")
-    t.add_argument("--view-weights", action="store_true", help="the spike's weights straight from the map")
+    t.add_argument("--view-weights", nargs="?", const="1", help="the spike's weights straight from the map ('release': pages back after each batch)")
     t.add_argument("--unpinned", action="store_true", help="the bench's seeded model: pin the files found")
     t.add_argument("--threads", type=int, default=4)
     t.add_argument("--searches", type=int, default=50)

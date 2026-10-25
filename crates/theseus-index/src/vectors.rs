@@ -1639,6 +1639,7 @@ impl Vectors {
             Next::Embed(emb) => {
                 drop(st);
                 self.embed_batch(&emb, texts);
+                crate::spike_view::after_batch();
                 Work::Did
             }
             Next::Unload(idle) => {
@@ -1646,6 +1647,7 @@ impl Vectors {
                 st.unloads += 1;
                 drop(st);
                 release_memory();
+                crate::spike_view::release_pages();
                 tracing::info!(?idle, "index: the embedding model unloaded, unused");
                 self.changed.notify_all();
                 Work::Did
