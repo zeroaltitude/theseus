@@ -563,6 +563,7 @@ impl TurnRunner {
                     render::thread_mark(&title, &source, item.position)
                 );
             }
+            header = crate::recall::current::with_mark(header, item);
             if let Some(p) = persona.as_ref().filter(|p| p.is_own(&item.session_id)) {
                 header = format!(
                     "{} {header}",
