@@ -3,8 +3,10 @@
 // files it shows; and every figure's SVG, light and dark, as an asset beside the page. The daemon serves them as it
 // serves the rest of the cockpit (its build is embedded in `theseusd`): no protocol method, no read of the daemon's,
 // nothing written. A new report shows after the next install.
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { reportName } from '@/lib/bench'
+import { readManifest } from '@/lib/benchindex'
 
 type Load = () => Promise<string>
 
@@ -47,4 +49,10 @@ export function useBenchFiles(names: readonly string[], ext: Ext) {
 /** A figure's URL in the build, from its path in a report (`img/<report>/<figure>.svg`). */
 export function figureUrl(path: string): string | undefined {
   return SVGS[`../../../docs/benchmarks/${path.replace(/^\.\//, '')}`]
+}
+
+/** The benchmark manifest, `docs/benchmarks/index.json` (theseus-jda0z): the JSON glob above embeds it as the report named `index`. */
+export function useBenchManifest() {
+  const file = useBenchFile('index', 'json')
+  return { loading: file.isPending, manifest: useMemo(() => readManifest(file.data), [file.data]) }
 }

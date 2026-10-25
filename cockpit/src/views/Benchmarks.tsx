@@ -14,7 +14,8 @@ import {
   axes, frontier, harness, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, TASK_SETS, unequal, UNEQUAL,
   type Note, type Placed, type Point, type Property, type TaskSet,
 } from '@/lib/bench'
-import { REPORTS, useBenchFile, useBenchFiles } from '@/lib/benchfiles'
+import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest } from '@/lib/benchfiles'
+import { sparkline, type Series } from '@/lib/benchindex'
 import type { EChartsOption } from '@/lib/chart'
 import { CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIP_FRAME, baseAxis, niceStep, usdTick, valueAxis } from '@/lib/viz'
 import { tip } from '@/lib/viztip'
@@ -113,6 +114,8 @@ export default function Benchmarks() {
 
       <YourWork />
 
+      <Newest />
+
       <ChartPanel<Point> help="bench.frontier"
         id="frontier" height={470}
         title={<span className="flex items-center gap-2">The frontier <span className="font-sans text-[11px] font-normal normal-case tracking-normal text-ink-faint">{set.label}</span></span>}
@@ -166,6 +169,75 @@ export default function Benchmarks() {
 }
 
 const plainArms = (s: string) => s.replace(/`/g, '')
+
+// ---------------------------------------------------------------- the newest measurements (theseus-jda0z)
+
+/** One line per (benchmark, tier, arm): its newest measured pass rate, as of its date and commit, from the manifest. A plain section: the run list below stays the record. */
+function Newest() {
+  const { loading, manifest } = useBenchManifest()
+  if (loading) return null
+  if (manifest.reason) {
+    return <section className="panel px-4 py-2.5 text-[12px] text-ink-faint" aria-label="the newest measurements">The newest measurements are not shown: {manifest.reason}.</section>
+  }
+  const groups = new Map<string, Series[]>()
+  for (const s of manifest.series) {
+    const name = `${s.benchmark}${s.tier ? `, ${s.tier} tier` : ''}`
+    groups.set(name, [...(groups.get(name) ?? []), s])
+  }
+  return (
+    <section className="panel px-4 py-3" aria-label="the newest measurements">
+      <h2 className="font-display text-[11px] font-bold uppercase tracking-[0.12em] text-gold/90">The newest measurement of each arm</h2>
+      <p className="mt-0.5 text-[11px] text-ink-faint">
+        from <span className="font-mono">docs/benchmarks/index.json</span>: a pass rate with its 95% interval, as of the run that measured it.
+        A run that only repeated an earlier run’s figures does not move a line.
+      </p>
+      <div className="mt-2 flex flex-col gap-2">
+        {[...groups].sort(([, a], [, b]) => latest(b).localeCompare(latest(a))).map(([name, ss]) => (
+          <table key={name} className="viz-table w-full text-[12px]">
+            <caption className="text-left text-[11px] font-semibold text-ink-dim">{name}</caption>
+            <thead className="sr-only"><tr><th scope="col">arm</th><th scope="col">pass rate</th><th scope="col">size</th><th scope="col">as of</th><th scope="col">history</th></tr></thead>
+            <tbody>{ss.map((s) => <NewestRow key={s.key} s={s} />)}</tbody>
+          </table>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+/** The date of a group's newest line: the freshest benchmark leads. */
+const latest = (ss: Series[]) => ss.reduce((d, s) => (s.newest.date > d ? s.newest.date : d), '')
+
+function NewestRow({ s }: { s: Series }) {
+  const n = s.newest, p = n.pass
+  const pc = (x: number) => `${(x * 100).toFixed(1)}%`
+  return (
+    <tr className="align-top">
+      <td className="!max-w-[34ch] !whitespace-normal text-ink">{n.harness.replace(/\s*\(this run\)$/, '')}</td>
+      <td className="num text-ink">{pc(p.value)} <span className="text-ink-faint">[{pc(p.lo)}, {pc(p.hi)}]</span></td>
+      <td className="num text-ink-dim">{p.n} trials{n.tasks ? `, ${n.tasks} tasks` : ''}</td>
+      <td className="text-ink-dim">
+        as of {n.date} · <span className="font-mono text-[11px]">{n.commit ? n.commit.slice(0, 8) : 'commit not stated'}</span>{' · '}
+        <Link to={`/benchmarks/${n.report}`} className="text-ink-faint underline decoration-line underline-offset-2 hover:text-live">its report</Link>
+      </td>
+      <td><Spark s={s} /></td>
+    </tr>
+  )
+}
+
+/** The arm's pass rate over the runs that measured it, oldest to newest: a line, the newest point marked. */
+function Spark({ s }: { s: Series }) {
+  const w = 72, h = 18, pad = 3
+  const pts = sparkline(s.history.map((r) => r.pass.value), w - 2 * pad, h - 2 * pad).map(([x, y]) => [x + pad, y + pad])
+  const words = `${s.history.length} run${s.history.length === 1 ? '' : 's'}: ${s.history.map((r) => `${r.date} ${(r.pass.value * 100).toFixed(1)}%`).join(', ')}`
+  const last = pts[pts.length - 1]
+  return (
+    <svg width={w} height={h} role="img" aria-label={words}>
+      <title>{words}</title>
+      {pts.length > 1 && <polyline points={pts.map((q) => q.join(',')).join(' ')} fill="none" stroke={OTHER} strokeWidth="1.5" />}
+      <circle cx={last[0]} cy={last[1]} r="2.5" fill={harnessColor(s.arm)} />
+    </svg>
+  )
+}
 
 // ---------------------------------------------------------------- the pickers
 
