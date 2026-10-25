@@ -19,13 +19,14 @@ import { ActBtn } from './ActBtn'
 
 export interface CounterValues { needs: number; working: number; paused: number; still: number; done: number; spent: number }
 
-const COUNTERS: ReadonlyArray<{ b: Bucket; label: string; key?: string; tone: Tone; glyph: string }> = [
-  { b: 'needs', label: 'needs you', key: 'b', tone: 'wait', glyph: '●' },
-  { b: 'working', label: 'working', key: 'w', tone: 'live', glyph: '◐' },
-  { b: 'paused', label: 'paused·queued', key: 'r', tone: 'idle', glyph: '⏸' },
-  { b: 'still', label: 'still today', tone: 'think', glyph: '◷' },
-  { b: 'done', label: 'done today', key: 'd', tone: 'ok', glyph: '✓' },
-  { b: 'spent', label: 'spent today', tone: 'money', glyph: '$' },
+// A counter's words are `counterLabel`'s alone (Q8 renames one), so this table holds none.
+const COUNTERS: ReadonlyArray<{ b: Bucket; key?: string; tone: Tone; glyph: string }> = [
+  { b: 'needs', key: 'b', tone: 'wait', glyph: '●' },
+  { b: 'working', key: 'w', tone: 'live', glyph: '◐' },
+  { b: 'paused', key: 'r', tone: 'idle', glyph: '⏸' },
+  { b: 'still', tone: 'think', glyph: '◷' },
+  { b: 'done', key: 'd', tone: 'ok', glyph: '✓' },
+  { b: 'spent', tone: 'money', glyph: '$' },
 ]
 
 const LENS_KEYS: Record<Lens, string> = { graph: 'g g', board: 'g b', timeline: 'g t', threads: 'g h' }

@@ -1,13 +1,15 @@
 // The Operations page's counters, Board and Graph read one work set (theseus-odj0m): every card once, with its bucket and
 // whether it counts. For each counter, the number it shows equals the counted cards a click on it keeps, the counted
-// nodes the Graph draws normally for that click, and the counted cards in the Board's column, under today's answers
-// to the owner's calls (`OWNER_CALLS`) and under the recommended ones (`RECOMMENDED`).
+// nodes the Graph draws normally for that click, and the counted cards in the Board's column, under the page's setting
+// (`OWNER_CALLS`, the owner's answers), the recommended ones (`RECOMMENDED`) and every question answered the other way
+// (`BEFORE`, the page as it was before the owner's call).
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import type { ConfirmRequest, ThreadAsk, WorkView } from '../src/protocol.gen/index.ts'
 import { allCounters, boardRows, columnsOf, contextOf, shown, type OpsRow } from '../src/ops/board.ts'
 import { layoutRows, type LaneMeta } from '../src/ops/graph.ts'
-import { queueOf } from '../src/ops/queue.ts'
+import { asksWord, queueOf } from '../src/ops/queue.ts'
 import { OWNER_CALLS, RECOMMENDED, type OwnerCalls } from '../src/ops/state.ts'
 import type { Bucket } from '../src/ops/address.ts'
 import { confirm, HOUR, MIN, NOW, record, view } from './ops-fixtures.ts'
@@ -44,7 +46,8 @@ function fixture() {
   return { views, records, queue }
 }
 
-const CALLS: ReadonlyArray<[string, OwnerCalls]> = [['the defaults', OWNER_CALLS], ['the recommended answers', RECOMMENDED]]
+const BEFORE: OwnerCalls = { needsPerCard: false, todoApart: false, agentsOnly: false, hideRest: false, scheduledLabel: false, stalledIsPaused: false }
+const CALLS: ReadonlyArray<[string, OwnerCalls]> = [['the answers before the owner’s call', BEFORE], ['the page’s setting', OWNER_CALLS], ['the recommended answers', RECOMMENDED]]
 const BUCKETS: readonly Bucket[] = ['needs', 'working', 'paused', 'still', 'done']
 const COLUMN = { needs: 'needs', working: 'working', paused: 'paused', still: 'scheduled', done: 'done' } as const
 const cx = { now: NOW, spentToday: new Set<string>(), records: [] }
@@ -89,13 +92,15 @@ test('every graph node is a row of the work set, and every record is a row or ri
   for (const t of records) assert.ok(rows.some((r) => r.recordId === t.id), `${t.id} is on a row`)
 })
 
-test('the needs counter under today’s answer is the Needs-you list’s length; under Q1 A it is the cards', () => {
+test('the needs counter under Q1 B is the Needs-you list’s length; under Q1 A, the page’s setting, it is the cards', () => {
   const { views, records, queue } = fixture()
-  const b = boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false })
+  const b = boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false, calls: BEFORE })
   assert.equal(queue.length, 3, 'two approvals on one task and a loose router ask')
-  assert.equal(allCounters(b, NOW, 0).needs, queue.length)
+  assert.equal(allCounters(b, NOW, 0, BEFORE).needs, queue.length)
   const a = boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false, calls: RECOMMENDED })
   assert.equal(allCounters(a, NOW, 0, RECOMMENDED).needs, 3, 'the task with two asks, the loose ask, and the blocked step')
+  const page = boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false })
+  assert.equal(allCounters(page, NOW, 0).needs, 3, 'the page, with no setting passed, counts cards')
   assert.equal(b.find((r) => r.id === 'ses_ak')!.asks, 2)
   assert.equal(b.find((r) => r.id === 'a:ask_1')!.kind, 'ask')
 })
@@ -130,7 +135,8 @@ test('Q1 A: a task with two asks is one needs card, and Q1 B counts both asks', 
   const count = (calls: OwnerCalls) => allCounters(boardRows({ views, tasks: [], sessions: [], queue, now: NOW, past: false, calls }), NOW, 0, calls).needs
   assert.equal(count({ ...RECOMMENDED, needsPerCard: false }), 2, 'Q1 B: one per ask')
   assert.equal(count(RECOMMENDED), 1, 'Q1 A: one per card, however many questions it holds')
-  assert.equal(count({ ...OWNER_CALLS, needsPerCard: true }), 1, 'the one switch alone makes it so')
+  assert.equal(count({ ...BEFORE, needsPerCard: true }), 1, 'the one switch alone makes it so')
+  assert.equal(count(OWNER_CALLS), 1, 'and the page’s setting is it')
 })
 
 test('Q3: agents only drops the job and the steps an agent is already doing from Working, and nothing else', () => {
@@ -151,4 +157,11 @@ test('Q3: agents only drops the job and the steps an agent is already doing from
   assert.deepEqual(counted(on), ['ses_hv', 'ses_tk'], 'the agents themselves, the running conversation and task, still count')
   const working = (rows: OpsRow[], calls: OwnerCalls) => allCounters(rows, NOW, 0, calls).working
   assert.equal(working(off, offCalls) - working(on, RECOMMENDED), dropped.length, 'the Working counter falls by exactly those')
+})
+
+test('Q1 A: the Needs-you list words its count as asks, so it never reads as the needs-you counter (design 3.4)', () => {
+  assert.deepEqual([0, 1, 5].map(asksWord), ['0 asks', '1 ask', '5 asks'])
+  const page = readFileSync(new URL('../src/views/Ops.tsx', import.meta.url), 'utf8')
+  assert.match(page, /title === 'Needs you' \? asksWord\(count\) : count/, 'the header of the list, side or page')
+  assert.match(page, /label=\{`Needs you · \$\{asksWord\(queue\.length\)\}`\}/, 'and its folded tab')
 })

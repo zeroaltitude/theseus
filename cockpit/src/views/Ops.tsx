@@ -27,7 +27,7 @@ import { cn, stamp } from '@/lib/format'
 import { fullKey, parseFull, writeFull } from '@/lib/fullgraph'
 import { parseAddress, writeAddress, type Address, type Bucket, type FilterKey, type Lens } from '@/ops/address'
 import { alive, allCounters, boardRows, chipChoices, columnsOf, contextOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
-import { answerOf, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
+import { answerOf, asksWord, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
 import { threadFacts } from '@/ops/facts'
 import { stepNode, viewsOf, type Graph, type LaneMeta } from '@/ops/graph'
@@ -143,9 +143,8 @@ export default function Ops() {
   // The Graph fades what the filters and the search leave out, so nothing moves.
   const shownIds = useMemo(() => (Object.keys(a.f).length || a.q ? new Set(vis.rows.map((r) => r.id)) : null), [a.f, a.q, vis.rows])
   const contextIds = useMemo(() => (shownIds ? contextOf(rows, shownIds) : null), [rows, shownIds])
-  // Every counter reads the rows alone. Under the default Q1 answer (B) needs you is the sum of the rows' asks, which
-  // is what `needs: queue.length` was: each queue item is an ask on a card or a row of its own (test/ops-notices.test.ts
-  // pins that text of this page).
+  // Every counter reads the rows alone: needs you is the cards that wait on the owner (Q1 A), where the Needs-you list's
+  // header counts its asks.
   const counts = useMemo(() => allCounters(rows, now, spend.usd), [rows, now, spend.usd])
   const grouped = useMemo(() => groupThreads(views, groups, records), [views, groups, records])
 
@@ -473,7 +472,7 @@ export default function Ops() {
             {queuePanel}
           </aside>
         )}
-        {reg.queue === 'folded' && <Tab side="left" label={`Needs you · ${queue.length}`} onClick={() => setQFold('open')} glow={queue.length > 0} />}
+        {reg.queue === 'folded' && <Tab side="left" label={`Needs you · ${asksWord(queue.length)}`} onClick={() => setQFold('open')} glow={queue.length > 0} />}
         {reg.queue === 'page' && <section aria-label="Needs you" className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-hull/60"><RegionHead title="Needs you" count={queue.length} glow={queue.length > 0} />{queuePanel}</section>}
         {reg.canvas && (
           <main aria-label={`${a.lens} lens`} className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
@@ -520,7 +519,7 @@ function RegionHead({ title, count, glow, onFold, fold }: { title: 'Needs you' |
     <header className="flex items-center gap-2 border-b border-line px-3 py-2">
       {title === 'Needs you' && <Inbox size={13} className={glow ? 'text-wait' : 'text-ink-faint'} />}
       <h2 className="font-display text-[11.5px] font-bold uppercase tracking-[0.08em] text-gold">{title}</h2>
-      {count !== undefined && <span className={cn('num rounded-full px-1.5 text-[11px]', glow ? 'bg-wait/15 text-wait' : 'text-ink-faint')}>{count}</span>}
+      {count !== undefined && <span className={cn('num rounded-full px-1.5 text-[11px]', glow ? 'bg-wait/15 text-wait' : 'text-ink-faint')}>{title === 'Needs you' ? asksWord(count) : count}</span>}
       <span className="ml-auto">{title === 'Needs you' ? <HelpButton id="ops.queue" title="Needs you" /> : <HelpButton id="ops.inspector" title="Inspector" />}</span>
       {onFold && <button onClick={onFold} title={`fold (${fold})`} aria-label={`fold the ${title.toLowerCase()}`} className="flex items-center gap-1 text-[10.5px] text-ink-faint hover:text-ink"><span className="kbd">{fold}</span><X size={11} /></button>}
     </header>

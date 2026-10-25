@@ -18,8 +18,8 @@ import { midnight } from '../lib/agenda.ts'
 export type StateBucket = 'needs' | 'working' | 'scheduled' | 'paused' | 'todo' | 'rest' | 'ended'
 
 /** The owner's open questions about the work set (theseus-odj0m), in one place. Each field is one question; answering
- *  it is the one-line change of its field. The defaults are the answers that keep the page as it was before the
- *  questions were asked; `RECOMMENDED` is each question's recommended answer, built and proved by tests that pass it
+ *  it is the one-line change of its field. The owner answered all of them with the recommendations (2026-10-24), so
+ *  `OWNER_CALLS`, the page's setting, is `RECOMMENDED`; a test of the answer it replaced passes that setting
  *  explicitly. Nothing else in the cockpit may decide one of these.
  *   needsPerCard      Q1: needs you counts pieces of work (a card with one or more asks counts once), not every ask
  *   todoApart         Q2: a step listed and not started is `todo`, with no counter and no Board column, not paused·queued
@@ -28,7 +28,7 @@ export type StateBucket = 'needs' | 'working' | 'scheduled' | 'paused' | 'todo' 
  *   scheduledLabel    Q8: the counter reads "scheduled today", not "still today"
  *   stalledIsPaused   Q9: a step left doing whose agent has stopped is paused·queued, not working */
 export interface OwnerCalls { needsPerCard: boolean; todoApart: boolean; agentsOnly: boolean; hideRest: boolean; scheduledLabel: boolean; stalledIsPaused: boolean }
-export const OWNER_CALLS: OwnerCalls = { needsPerCard: false, todoApart: false, agentsOnly: false, hideRest: false, scheduledLabel: false, stalledIsPaused: false }
+export const OWNER_CALLS: OwnerCalls = { needsPerCard: true, todoApart: true, agentsOnly: true, hideRest: true, scheduledLabel: true, stalledIsPaused: true }
 export const RECOMMENDED: OwnerCalls = { needsPerCard: true, todoApart: true, agentsOnly: true, hideRest: true, scheduledLabel: true, stalledIsPaused: true }
 
 /** Open work: waiting counts. */

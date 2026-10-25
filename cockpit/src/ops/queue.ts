@@ -137,6 +137,10 @@ export function askKeysOf(i: QueueItem): string[] {
   return keys.filter((k): k is string => !!k)
 }
 
+/** The Needs-you list's count in its own words: asks, not cards. The counter above it counts pieces of work (Q1 A), so
+ *  the two numbers never claim to be the same thing. */
+export const asksWord = (n: number): string => `${n} ${n === 1 ? 'ask' : 'asks'}`
+
 /** The cursor after the queue changed: on the item it was on while that item is there (a new item never moves it);
  *  when its item left, the one that took its place, else the last; none on an empty queue. */
 export function keepCursor(before: readonly string[], after: readonly QueueItem[], cursor: string | null): string | null {
