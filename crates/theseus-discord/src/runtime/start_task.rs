@@ -46,6 +46,13 @@ const REPORT: &str = "report";
 const EXPECT: &str = "expect";
 /// Discord's text input limit.
 const INPUT_MAX: usize = 4000;
+/// The modal id of a message by someone else: its quote is outside text
+/// (theseus-nfhaf), where `nt:` alone carries the presser's own words.
+pub(super) fn outside_id() -> String {
+    format!("{MODAL}{OUTSIDE}")
+}
+const OUTSIDE: &str = "!";
+
 /// A reply's offer button: this, then the turn.
 pub(super) const OFFER: &str = "tb:offer:";
 /// How many replies' briefs wait for their button's press.
@@ -216,6 +223,8 @@ pub(crate) struct Submit {
     pub(super) long: bool,
     /// The reply whose offer opened the modal (its turn).
     pub(super) offer: Option<String>,
+    /// The quote is another person's message (`nt:!`), not the presser's words.
+    pub(super) outside: bool,
 }
 
 impl Submit {
@@ -248,8 +257,9 @@ impl Submit {
             offer: m
                 .custom_id
                 .strip_prefix(MODAL)
-                .filter(|t| !t.is_empty())
+                .filter(|t| !t.is_empty() && *t != OUTSIDE)
                 .map(str::to_string),
+            outside: m.custom_id.strip_prefix(MODAL) == Some(OUTSIDE),
             ..Default::default()
         };
         m.components.iter().for_each(|c| walk(c, &mut s));
@@ -265,6 +275,7 @@ impl Submit {
             budget_usd: self
                 .budget
                 .filter(|b| BUDGETS.contains(&b.to_string().as_str())),
+            outside_quotes: self.outside,
             quotes: if quote.is_empty() {
                 vec![]
             } else {

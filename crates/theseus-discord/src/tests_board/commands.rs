@@ -23,6 +23,15 @@ pub(super) fn ana() -> Sender<'static> {
     }
 }
 
+/// Another person, whose message the owner makes a task of.
+fn ben() -> Sender<'static> {
+    Sender {
+        user: BEN,
+        name: "ben",
+        channel: None,
+    }
+}
+
 fn cy_in_lab() -> Sender<'static> {
     Sender {
         user: CY,
@@ -797,7 +806,7 @@ fn held(r: &Rig, session: &str) -> Option<theseus_protocol::ExternalText> {
 }
 
 #[tokio::test]
-async fn make_this_a_task_starts_one_whose_quote_holds_the_session_as_outside_text() {
+async fn make_this_a_task_on_the_owners_own_message_holds_nothing() {
     let r = survey_rig().await;
     let text = "the harbour log says the reef sensor died at noon";
     let iid = r
@@ -813,11 +822,57 @@ async fn make_this_a_task_starts_one_whose_quote_holds_the_session_as_outside_te
         .find(|c| c["component"]["custom_id"] == "quote")
         .expect("the message is offered as a quote");
     assert_eq!(quote["component"]["value"], text);
+    // The id the Discord path produced for the presser's own message.
+    assert_eq!(modal["custom_id"], "nt:");
     let sub = r
         .fake
         .submit_modal(
             &ana(),
             "nt:",
+            &[("brief", SURVEY), ("quote", text)],
+            &[("budget", &["2"]), ("report", &["home"])],
+            None,
+        )
+        .unwrap();
+    r.until("started", || said(&r, &sub).contains("Started"))
+        .await;
+    let session = started(&r, "Survey-north").unwrap_or_else(|| {
+        panic!(
+            "task.started_by_owner: {:?}",
+            r.ledger("task.started_by_owner")
+        )
+    });
+    assert!(
+        held(&r, &session).is_none(),
+        "the owner's own words mark nothing"
+    );
+}
+
+#[tokio::test]
+async fn make_this_a_task_on_another_persons_message_holds_the_session_as_outside_text() {
+    let r = survey_rig().await;
+    let text = "the harbour log says the reef sensor died at noon";
+    let iid = r
+        .fake
+        .message_command_by(&ana(), &ben(), "Make this a task", text)
+        .unwrap();
+    let rep = answered(&r, &iid).await;
+    let modal = rep.modal.expect("the same modal");
+    let quote = modal["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["component"]["custom_id"] == "quote")
+        .expect("the message is offered as a quote");
+    assert_eq!(quote["component"]["value"], text);
+    // The id the Discord path produced for another person's message: the
+    // `!` is what keeps the quote marking the task's session.
+    assert_eq!(modal["custom_id"], "nt:!");
+    let sub = r
+        .fake
+        .submit_modal(
+            &ana(),
+            "nt:!",
             &[("brief", SURVEY), ("quote", text)],
             &[("budget", &["2"]), ("report", &["home"])],
             None,

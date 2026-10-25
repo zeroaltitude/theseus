@@ -148,10 +148,23 @@ impl FakeDiscord {
         r
     }
 
-    /// A message command (right-click › Apps) on a message with `content`.
+    /// A message command (right-click › Apps) on a message with `content`,
+    /// written by the presser.
     pub fn message_command(
         &self,
         from: &Sender<'_>,
+        command: &str,
+        content: &str,
+    ) -> Result<String, String> {
+        self.message_command_by(from, from, command, content)
+    }
+
+    /// [`message_command`](Self::message_command) on a message that `author`
+    /// wrote, whoever presses.
+    pub fn message_command_by(
+        &self,
+        from: &Sender<'_>,
+        author: &Sender<'_>,
         command: &str,
         content: &str,
     ) -> Result<String, String> {
@@ -159,7 +172,7 @@ impl FakeDiscord {
         let data = json!({"id": "1000000000000000005", "name": command, "type": 3,
             "target_id": target,
             "resolved": {"messages": {target: {"id": target, "channel_id": "1", "content": content,
-                "author": fake_gateway::user_json(from.user, from.name, false),
+                "author": fake_gateway::user_json(author.user, author.name, false),
                 "timestamp": "2026-09-30T00:00:00.000000+00:00", "edited_timestamp": null,
                 "tts": false, "mention_everyone": false, "mentions": [], "mention_roles": [],
                 "attachments": [], "embeds": [], "pinned": false, "type": 0}}}});

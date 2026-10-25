@@ -149,6 +149,9 @@ fn a_task_started_for_later_sleeps_until_then() {
     assert_eq!(model.requests().len(), 1);
 }
 
+/// The test's CLI has no terminal, so the daemon takes it for an agent's
+/// process (`peer_proc`), not the owner's own hand: its quote marks
+/// (theseus-nfhaf). An owner at a terminal marks nothing (`tests_task_start`).
 #[test]
 fn a_quote_file_holds_the_tasks_session_as_external_text() {
     let model = FakeModel::start(|_| vec![]);
