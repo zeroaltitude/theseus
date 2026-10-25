@@ -208,3 +208,14 @@ test('the thread’s conversation is its lane’s head; a loose ask and a task w
   assert.ok(ask.needs)
   assert.equal(node(g, 'tsk_td1')!.form!.form, 'step')
 })
+
+test('the Board’s plan card: its direct children with their glyphs, and the same progress as the Graph', () => {
+  const rows = rowsOfFixture()
+  const f = formsOf(rows, NOW).get('ses_t2')!
+  assert.equal(f.form, 'plan')
+  assert.deepEqual(f.kids!.map((k) => [k.id, k.look.glyph]), [['tsk_s1', '◐'], ['tsk_s2', '☐'], ['tsk_s3', '☑'], ['tsk_sub', '☐']])
+  assert.deepEqual(f.progress, progressOf(rows, 'ses_t2'), 'the Board and the Graph read one progress')
+  const step = formsOf(rows, NOW).get('tsk_td1')!
+  assert.equal(step.form, 'step')
+  assert.equal(step.kids, undefined, 'a step has no children list')
+})
