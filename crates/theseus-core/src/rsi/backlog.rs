@@ -30,7 +30,7 @@
 //! allows, is not made (it would be the first spend outside a turn, and the
 //! budget's `reserve` is self-budget's).
 //!
-//! **Starting.** Up to `[self] backlog_starts` (unset: the pipeline's free build slots) top unmarked items a night
+//! **Starting.** Up to `[self] backlog_starts` top unmarked items a night
 //! move to running: a session whose execution's principal is the reserved
 //! `"self"` (so the budget counts it, and it holds no owner handle), a
 //! `self.backlog.started` row, and one line to the owner's DM. The first turn
@@ -514,14 +514,7 @@ impl Core {
         // While the pipeline runs, it starts the items (theseus-pw1q.16).
         let starts = match self.rsi.pipeline.runs() {
             true => 0,
-            false => {
-                let building = w
-                    .tasks
-                    .values()
-                    .filter(|t| t.state == TaskState::InProgress)
-                    .count();
-                cfg.night_starts(building)
-            }
+            false => cfg.backlog_starts as usize,
         };
         self.backlog_start(&mut w, starts, &mut night, None)?;
         self.backlog_mint_start(&mut w, &mut night)?;

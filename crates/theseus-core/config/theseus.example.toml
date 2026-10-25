@@ -1488,7 +1488,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [self]
 # mode = "off"                            # "off" or "act"
 # digest = "weekly"                       # "weekly" or "off"
-# backlog_starts = 1                      # top backlog items started a night (unset: the pipeline's free build slots; 0: file and rank only)
+# backlog_starts = 1                      # top backlog items started a night (0: file and rank only)
 # backlog_max_open = 20                   # open backlog items kept; the lowest-ranked past it are dropped
 # repo = "/home/me/projects/theseus"     # Theseus's own checkout, self branches cut from its
 #                                         # origin/main; unset: no self branches
