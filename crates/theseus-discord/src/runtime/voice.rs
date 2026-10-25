@@ -85,10 +85,12 @@ mod tests_tasks;
 use notes::Notes;
 
 /// Before every voice turn's input (theseus-rkvl): its reply is heard, not
-/// read.
-pub(crate) const FRAMING: &str = "[Voice call: they hear your reply, they don't read it. Answer \
-     in one to three short sentences of plain speech: no lists, tables, code, markdown or long \
-     numbers. If you were cut off, don't assume they heard the rest.]";
+/// read. Its length is the moment's (theseus-dgbcx): focused, brief for a
+/// quick back-and-forth, no sentence count.
+pub(crate) const FRAMING: &str = "[Voice call: they hear your reply, they don't read it. Be \
+     focused on what the moment needs, as long as the answer deserves and brief for a quick \
+     back-and-forth, in plain speech: no lists, tables, code, markdown or long numbers. If you \
+     were cut off, don't assume they heard the rest.]";
 
 /// Spoken when a voice turn fails (theseus-9zft): the place says why in
 /// text, so the call isn't left in silence.

@@ -438,6 +438,26 @@ async fn the_framing_line_leads_every_voice_turns_input() {
     assert!(FRAMING.chars().count() < 300);
 }
 
+/// The framing asks for a reply sized to the moment, not a sentence count
+/// (theseus-dgbcx), and keeps the rest of its rule.
+#[test]
+fn the_framing_sizes_the_reply_to_the_moment_and_caps_no_sentences() {
+    for gone in ["one to three", "short sentences"] {
+        assert!(!FRAMING.contains(gone), "{FRAMING}");
+    }
+    for kept in [
+        "they hear your reply, they don't read it",
+        "focused on what the moment needs",
+        "brief for a quick back-and-forth",
+        "plain speech",
+        "no lists, tables, code, markdown or long numbers",
+        "If you were cut off, don't assume they heard the rest.",
+    ] {
+        assert!(FRAMING.contains(kept), "{kept}: {FRAMING}");
+    }
+    assert!(!FRAMING.contains('\n'));
+}
+
 /// A voice turn that fails is said aloud: the engine gets the one sentence
 /// that says so, and the place says why in text.
 #[tokio::test]
