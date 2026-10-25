@@ -3005,8 +3005,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   with a command's error result failed (another tool's error counts for the checkpoint, not here), a loop with no
   command or with a command sent to the background is no check (`progress_step::Commands`, set as calls answer by
   `Checkpoints::answered`). Nothing fires while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
-  (3) loops; at `STEER_SHARE` (0.5) of the deadline or of the execution's spend limit spent by this turn, one steer note
-  (replan or narrow); at `STOP_SHARE` (0.85) of the deadline only (spend never stops a turn: the owner's notify rule), a
+  (3) loops; at `STEER_SHARE` (0.5) of the deadline, or of the execution's spend limit spent by this turn when the turn
+  has a deadline and the limit only notifies (`Signals.guarded` is `spend_limit_mode = "ask"`: a guarded turn ends at its
+  limit anyway, so spend alone steers nothing; the `turn.progress` row still reports the spend), one steer note that says
+  it is not a stop (with a failing check it also asks for the smallest step that can make it pass; theseus-ikr75). Reading
+  is progress until there is something to check (`State::end_loop`): until the turn's first answered `fs.write`, `fs.edit`
+  or `fs.patch`, a loop with no command adds nothing to `since_pass`; after it, a loop whose reads (`fs.read`, `fs.list`,
+  `fs.glob`, `fs.grep`) all answered and opened a key (tool, path, pattern) not seen before resets it like a passing
+  command (the seen keys are on `State`, bounded by `SEEN_MAX`); at `STOP_SHARE` (0.85) of the deadline only (spend never stops a turn: the owner's notify rule), a
   stop note asking for a report with no tool calls, and the next loop is the last (stop reason `progress_stop`, which the
   nudge and the end note leave alone). Each is a harness node (`harness:progress`) and a `turn.progress` row (the shares,
   `since_pass`, `failing`, the times and spend; `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs

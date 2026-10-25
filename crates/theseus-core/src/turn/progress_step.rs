@@ -8,13 +8,19 @@
 //! passing check. A loop whose commands (`proc.run`) answered in the loop,
 //! none with an error result, passed; one whose command failed failed (a
 //! failed read beside a passing command is a pass); a loop with no command,
-//! or with a command sent to the background, is no check. The rule:
+//! or with a command sent to the background, is no check. Reading is progress
+//! until there is something to check (theseus-ikr75): a turn that has not
+//! edited yet counts no unchecked loops, and after its first edit a loop that
+//! read a path the turn had not read before, every read answering, resets the
+//! count like a passing command. The rule:
 //!
 //! - **Nothing** while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
 //!   loops: work that passes is going well, however long it runs.
-//! - **A steer** (once a turn) at `STEER_SHARE` of the deadline or of the
-//!   spend limit: a harness note that says what was used and what has not
-//!   passed, and asks the model to replan or narrow.
+//! - **A steer** (once a turn) at `STEER_SHARE` of the deadline, or of the
+//!   spend limit when the turn has a deadline and its limit is a notice, not
+//!   a guard (a guarded turn ends at its limit anyway): a harness note that
+//!   says what was used and that it is not a stop. With a failing check it
+//!   asks for the smallest step that can make it pass.
 //! - **A stop** at `STOP_SHARE` of the deadline (time only: under the owner's
 //!   notify rule spend never stops a turn): a harness note that asks for a
 //!   report with no tool calls, and the next loop is the turn's last (its
@@ -33,6 +39,7 @@
 use super::clock_step::Deadline;
 use super::*;
 use crate::fact::progress::TurnProgress;
+use std::collections::HashSet;
 
 /// The notes' author on their nodes.
 pub const PROGRESS_AUTHOR: &str = "harness:progress";
@@ -63,6 +70,10 @@ pub struct Signals {
     pub since_pass: u32,
     /// Of those, the loops whose command failed.
     pub failing: u32,
+    /// The execution's spend limit is a guard (`spend_limit_mode = "ask"`):
+    /// the turn ends at it, so spend alone steers nothing. The spend is still
+    /// reported.
+    pub guarded: bool,
 }
 
 /// What the rule decides.
@@ -92,7 +103,10 @@ pub fn decide(s: &Signals, steered: bool) -> Verdict {
     if time >= STOP_SHARE {
         return Verdict::Stop;
     }
-    if !steered && (time >= STEER_SHARE || s.spend.unwrap_or(0.0) >= STEER_SHARE) {
+    // Spend steers a turn that has a deadline and a limit that only notifies.
+    let spend_steers = s.time.is_some() && !s.guarded;
+    let spend = s.spend.unwrap_or(0.0);
+    if !steered && (time >= STEER_SHARE || (spend_steers && spend >= STEER_SHARE)) {
         return Verdict::Steer;
     }
     Verdict::Nothing
@@ -108,16 +122,52 @@ pub(super) struct State {
     limit_micros: Option<u64>,
     since_pass: u32,
     failing: u32,
+    /// An edit call has answered without error in the turn.
+    edited: bool,
+    /// The paths the turn has read (keys, no contents), up to `SEEN_MAX`.
+    seen: HashSet<String>,
     steered: bool,
     /// The stop was said: the next loop is the last.
     last: bool,
 }
 
+impl State {
+    /// A loop ended: what its calls did moves the count of loops since a
+    /// passing check.
+    fn end_loop(&mut self, commands: Commands) {
+        let check = commands.check();
+        self.edited |= commands.edited;
+        let fresh = !commands.read_failed && commands.reads.iter().any(|k| !self.seen.contains(k));
+        for k in commands.reads {
+            if self.seen.len() < SEEN_MAX {
+                self.seen.insert(k);
+            }
+        }
+        match check {
+            Some(true) => (self.since_pass, self.failing) = (0, 0),
+            Some(false) => {
+                (self.since_pass, self.failing) = (self.since_pass + 1, self.failing + 1)
+            }
+            // Nothing to check before the first edit.
+            None if !self.edited => {}
+            // New ground, read without error, is progress.
+            None if fresh => (self.since_pass, self.failing) = (0, 0),
+            None => self.since_pass += 1,
+        }
+    }
+}
+
+/// The read keys a turn remembers: past them nothing new is coverage.
+const SEEN_MAX: usize = 4096;
+/// The tools that change a file, and the read-only ones that open a path.
+const EDITS: [&str; 3] = ["fs.write", "fs.edit", "fs.patch"];
+const READS: [&str; 4] = ["fs.read", "fs.list", "fs.glob", "fs.grep"];
+
 /// What a loop's commands did, set as their calls answer
 /// (`Checkpoints::answered`) and taken at the loop's end. Only commands: a
 /// failed read beside a passing command is a pass, and a command sent to the
 /// background is no check, whatever the turn's other jobs did.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct Commands {
     /// A command answered in the loop.
     answered: bool,
@@ -125,9 +175,39 @@ pub(super) struct Commands {
     failed: bool,
     /// A command went to the background.
     background: bool,
+    /// An edit call answered without error.
+    edited: bool,
+    /// A read-only call's result was an error.
+    read_failed: bool,
+    /// What the loop's answered reads opened.
+    reads: Vec<String>,
 }
 
 impl Commands {
+    /// A call `u` ended as `outcome`: `note`, and what it edited or opened.
+    pub(super) fn note_use(&mut self, u: &ToolUse, outcome: Option<bool>) {
+        self.note(&u.name, outcome);
+        let Some(error) = outcome else { return };
+        let is = |canon: &str| u.name == canon || u.name == theseus_tools::wire_name(canon);
+        if !error && EDITS.iter().any(|t| is(t)) {
+            self.edited = true;
+        }
+        if let Some(canon) = READS.iter().find(|t| is(t)) {
+            if error {
+                self.read_failed = true;
+                return;
+            }
+            let field = |k: &str| u.input.get(k).and_then(|v| v.as_str()).unwrap_or("");
+            let path = if field("path").is_empty() {
+                "."
+            } else {
+                field("path")
+            };
+            self.reads
+                .push(format!("{canon}:{path}:{}", field("pattern")));
+        }
+    }
+
     /// A call of `tool` ended as `outcome`: `Some(is_error)` when it answered,
     /// `None` when it went to the background.
     pub(super) fn note(&mut self, tool: &str, outcome: Option<bool>) {
@@ -142,7 +222,7 @@ impl Commands {
 
     /// The loop's check: `Some(passed)` when a command answered and none went
     /// to the background, else none.
-    fn check(self) -> Option<bool> {
+    fn check(&self) -> Option<bool> {
         (self.answered && !self.background).then_some(!self.failed)
     }
 }
@@ -164,6 +244,8 @@ fn with<R>(t: &mut Turn<'_>, f: impl FnOnce(&mut State) -> R) -> R {
             limit_micros,
             since_pass: 0,
             failing: 0,
+            edited: false,
+            seen: HashSet::new(),
             steered: false,
             last: false,
         });
@@ -189,22 +271,20 @@ fn is_command(name: &str) -> bool {
 impl TurnRunner {
     /// After loop `i`'s results, before the checkpoint takes the loop's
     /// failure: whether the turn goes on. `going_on` is the advancer's word.
-    pub(super) fn progress(t: &mut Turn<'_>, i: u32, going_on: bool) -> Result<bool> {
-        let check = std::mem::take(&mut t.checkpoint.commands).check();
+    pub(super) fn progress(&self, t: &mut Turn<'_>, i: u32, going_on: bool) -> Result<bool> {
+        let guarded = self.cfg.kernel.spend_limit_mode == crate::config::SpendLimitMode::Ask;
+        let commands = std::mem::take(&mut t.checkpoint.commands);
         let cost = t.cost;
         let now = Instant::now();
         let (signals, steered, last, deadline) = with(t, |s| {
-            match check {
-                Some(true) => (s.since_pass, s.failing) = (0, 0),
-                Some(false) => (s.since_pass, s.failing) = (s.since_pass + 1, s.failing + 1),
-                None => s.since_pass += 1,
-            }
+            s.end_loop(commands);
             let spend = s.limit_micros.zip(cost).map(|(l, c)| c * 1e6 / l as f64);
             let signals = Signals {
                 time: s.deadline.map(|d| d.used(now)),
                 spend,
                 since_pass: s.since_pass,
                 failing: s.failing,
+                guarded,
             };
             (signals, s.steered, s.last, s.deadline)
         });
@@ -294,9 +374,14 @@ fn note(verdict: Verdict, used: &str, s: &Signals) -> String {
              answer make no tool calls, and report what is done, what is not, and why. That \
              answer ends the turn.]"
         ),
+        _ if s.failing > 0 => format!(
+            "[The harness: this turn has used {used}, and {checks}. This is not a stop: if work \
+             is left, keep going. Say in a line what is left, then take the smallest step that \
+             can make the failing check pass.]"
+        ),
         _ => format!(
-            "[The harness: this turn has used {used}, and {checks}. Replan or narrow: say what \
-             is left and what has not passed, then take the smallest step that can pass.]"
+            "[The harness: this turn has used {used}, and {checks}. This is not a stop: if work \
+             is left, keep going. Say in a line what is left, then go on with the next item.]"
         ),
     }
 }
@@ -311,7 +396,14 @@ mod tests {
             spend,
             since_pass,
             failing,
+            guarded: false,
         }
+    }
+
+    /// The same under a guard (`spend_limit_mode = "ask"`).
+    fn guarded(mut sig: Signals) -> Signals {
+        sig.guarded = true;
+        sig
     }
 
     /// The table: time share × spend share × loops since a passing check ×
@@ -326,7 +418,17 @@ mod tests {
             // The steer at half the time, or half the spend.
             (s(Some(0.5), None, 3, 0), false, Steer),
             (s(Some(0.6), Some(0.1), 5, 5), false, Steer),
-            (s(None, Some(0.5), 4, 2), false, Steer),
+            (s(Some(0.1), Some(0.5), 4, 2), false, Steer),
+            (s(Some(0.3), Some(0.5), 3, 0), false, Steer),
+            // Spend alone steers neither a turn with no deadline nor a
+            // guarded one; the time share still does.
+            (s(None, Some(0.5), 4, 2), false, Nothing),
+            (s(None, Some(0.9), 40, 0), false, Nothing),
+            (guarded(s(Some(0.1), Some(0.7), 4, 2)), false, Nothing),
+            (guarded(s(Some(0.5), Some(0.1), 3, 0)), false, Steer),
+            (guarded(s(Some(0.6), Some(0.9), 3, 3)), false, Steer),
+            (guarded(s(Some(0.85), None, 3, 0)), false, Stop),
+            (guarded(s(Some(0.9), Some(0.1), 7, 7)), true, Stop),
             (s(Some(0.2), Some(0.7), 6, 1), false, Steer),
             // Once a turn.
             (s(Some(0.7), Some(0.7), 6, 6), true, Nothing),
@@ -336,6 +438,7 @@ mod tests {
             // Spend alone never stops.
             (s(None, Some(3.0), 30, 30), true, Nothing),
             (s(Some(0.1), Some(3.0), 30, 30), false, Steer),
+            (guarded(s(Some(0.1), Some(3.0), 30, 30)), false, Nothing),
             // A check passed in the last loops: nothing, at any share.
             (s(Some(0.99), Some(5.0), 0, 0), false, Nothing),
             (s(Some(0.9), Some(0.9), 1, 1), false, Nothing),
@@ -354,13 +457,25 @@ mod tests {
 
     #[test]
     fn the_notes_say_what_was_used_and_what_has_not_passed() {
+        // A failing check: not a stop, and the smallest step is about it.
         let sig = s(Some(0.6), None, 5, 3);
         assert_eq!(
             note(Verdict::Steer, "9 of its 15 minutes", &sig),
             "[The harness: this turn has used 9 of its 15 minutes, and no check has passed in \
-             its last 5 loops (3 failed). Replan or narrow: say what is left and what has not \
-             passed, then take the smallest step that can pass.]"
+             its last 5 loops (3 failed). This is not a stop: if work is left, keep going. Say \
+             in a line what is left, then take the smallest step that can make the failing \
+             check pass.]"
         );
+        // Checks that pass, or none run: not a stop, and no smallest step.
+        let sig = s(Some(0.6), None, 5, 0);
+        let passing = note(Verdict::Steer, "9 of its 15 minutes", &sig);
+        assert_eq!(
+            passing,
+            "[The harness: this turn has used 9 of its 15 minutes, and no check has run in its \
+             last 5 loops. This is not a stop: if work is left, keep going. Say in a line what \
+             is left, then go on with the next item.]"
+        );
+        assert!(passing.contains("This is not a stop") && !passing.contains("smallest step"));
         let sig = s(Some(0.9), None, 8, 0);
         assert!(note(Verdict::Stop, "13 of its 15 minutes", &sig).contains(
             "no check has run in its last 8 loops. Stop here: in your next answer make no \
@@ -401,5 +516,69 @@ mod tests {
         // ended in the same loop left the turn's count unchanged.
         assert_eq!(loop_of(&[("proc_run", None)]), None);
         assert_eq!(loop_of(&[("proc_run", done), ("proc_run", None)]), None);
+    }
+
+    /// Reading is progress until there is something to check (theseus-ikr75).
+    #[test]
+    fn reading_is_progress_until_there_is_something_to_check() {
+        use serde_json::json;
+        let call = |tool: &str, path: &str| ToolUse {
+            id: "t".into(),
+            name: tool.into(),
+            input: json!({ "path": path, "pattern": "x" }),
+        };
+        let loop_of = |calls: &[(&str, &str, bool)]| {
+            let mut c = Commands::default();
+            for (tool, path, error) in calls {
+                c.note_use(&call(tool, path), Some(*error));
+            }
+            c
+        };
+        let mut st = State {
+            deadline: None,
+            shown: None,
+            limit_micros: None,
+            since_pass: 0,
+            failing: 0,
+            edited: false,
+            seen: HashSet::new(),
+            steered: false,
+            last: false,
+        };
+        // Before any edit, reads count nothing, new ground or not.
+        for _ in 0..6 {
+            st.end_loop(loop_of(&[("fs_read", "a.rs", false)]));
+        }
+        assert_eq!(st.since_pass, 0);
+        // A failed edit is no edit; an answered one is.
+        let c = loop_of(&[("fs_edit", "a.rs", true)]);
+        assert!(!c.edited);
+        st.end_loop(c);
+        assert_eq!((st.edited, st.since_pass), (false, 0));
+        st.end_loop(loop_of(&[("fs_edit", "a.rs", false)]));
+        assert_eq!(
+            (st.edited, st.since_pass),
+            (true, 1),
+            "the edit's own loop is unchecked"
+        );
+        // Re-reading what was read is not coverage; a new path is.
+        st.end_loop(loop_of(&[("fs_read", "a.rs", false)]));
+        assert_eq!(st.since_pass, 2);
+        st.end_loop(loop_of(&[("fs_read", "b.rs", false)]));
+        assert_eq!(st.since_pass, 0);
+        // A new path beside a read that failed is not coverage either.
+        st.end_loop(loop_of(&[
+            ("fs_read", "c.rs", false),
+            ("fs_read", "gone.rs", true),
+        ]));
+        assert_eq!(st.since_pass, 1);
+        // The same path searched for something else is new ground.
+        st.end_loop(loop_of(&[("fs_grep", "b.rs", false)]));
+        assert_eq!(st.since_pass, 0);
+        // A failed command is a failed check, whatever was read.
+        let mut c = loop_of(&[("fs_read", "d.rs", false)]);
+        c.note("proc_run", Some(true));
+        st.end_loop(c);
+        assert_eq!((st.since_pass, st.failing), (1, 1));
     }
 }

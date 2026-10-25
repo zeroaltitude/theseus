@@ -86,7 +86,11 @@ pub(super) struct Checkpoints {
 impl Checkpoints {
     /// A call of `tool` ended as `outcome`: any tool's error marks the loop
     /// failed for the checkpoint, and a command's result is the loop's check.
-    pub(super) fn answered(&mut self, tool: &str, outcome: &crate::toolrun::CallOutcome) {
+    pub(super) fn answered(
+        &mut self,
+        tool: &crate::provider::ToolUse,
+        outcome: &crate::toolrun::CallOutcome,
+    ) {
         use crate::toolrun::CallOutcome::{AwaitingConfirm, Background, Done};
         let result = match outcome {
             Done { status } => Some(status.is_error()),
@@ -94,7 +98,7 @@ impl Checkpoints {
             AwaitingConfirm { .. } => return,
         };
         self.failed |= result.unwrap_or(false);
-        self.commands.note(tool, result);
+        self.commands.note_use(tool, result);
     }
 
     /// The profile a task runs on when a checkpoint has moved it off its
