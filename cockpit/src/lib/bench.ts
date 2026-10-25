@@ -354,9 +354,13 @@ export const EFFORT: Record<string, Note> = {
   'claude-code': { text: 'on each turn, its level not recorded (2.1.290, checked later, sends medium)', report: TB2, quote: '2.1.288\'s init events say per-turn effort was active' },
 }
 
+/** Every task set's id. A set added to `TASK_SETS` needs its id here, and then its `DEFAULT_AXES`, or `tsc -b` fails. */
+export const SET_IDS = ['tb2', 'fixgit', 'worth', 'async', 'arms'] as const
+export type SetId = (typeof SET_IDS)[number]
+
 /** A task set: one report's per-trial table, the trials of it that ran the same tasks, and how its rows read. */
 export interface TaskSet {
-  id: string; label: string; short: string; report: string
+  id: SetId; label: string; short: string; report: string
   /** What the task set is, in a line. */
   about: string
   /** The trials of the table in this set. */
@@ -569,6 +573,11 @@ export const PROPERTIES: readonly Property[] = [
     read: (r) => num(r.wait_tax_calls), about: 'Model calls made only to wait on running work.' },
 ]
 export const property = (id: string): Property | undefined => PROPERTIES.find((p) => p.id === id)
+
+/** Each task set's axes when the address names none: the question its report asked first. */
+export const DEFAULT_AXES: Record<SetId, [string, string]> = {
+  tb2: ['usd', 'pass'], fixgit: ['rss', 'usd'], worth: ['usd', 'agent-s'], async: ['respond-s', 'usd'], arms: ['usd', 'pass'],
+}
 
 // ---------------------------------------------------------------- points
 

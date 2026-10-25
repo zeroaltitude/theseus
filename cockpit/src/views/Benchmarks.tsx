@@ -11,8 +11,8 @@ import { useEffect, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ArrowLeftRight, FlaskConical, ListOrdered, Trophy } from 'lucide-react'
 import {
-  axes, frontier, harness, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, TASK_SETS, unequal, UNEQUAL,
-  type Note, type Placed, type Point, type Property, type TaskSet,
+  axes, DEFAULT_AXES, frontier, harness, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, TASK_SETS, unequal, UNEQUAL,
+  type Note, type Placed, type Point, type Property, type SetId, type TaskSet,
 } from '@/lib/bench'
 import { REPORTS, useBenchFile, useBenchFiles } from '@/lib/benchfiles'
 import type { EChartsOption } from '@/lib/chart'
@@ -27,11 +27,6 @@ import { Panel } from '@/components/ui'
 import { YourWork } from '@/components/YourWork'
 
 const C = CHROME.dark
-
-/** Each task set's axes when the address names none: the question its report asked first. */
-const DEFAULT_AXES: Record<string, [string, string]> = {
-  tb2: ['usd', 'pass'], fixgit: ['rss', 'usd'], worth: ['usd', 'agent-s'], async: ['respond-s', 'usd'],
-}
 
 /** A harness's colour: its slot in the house palette, or the de-emphasis gray for one with none (Pi, Codex CLI, Aider, OpenCode, OpenHands). */
 function harnessColor(key: string): string {
@@ -77,7 +72,7 @@ export default function Benchmarks() {
   const asked = pickAxis('y', DEFAULT_AXES[set.id][1])
   const py = asked !== px ? asked : property(DEFAULT_AXES[set.id][1]) !== px ? property(DEFAULT_AXES[set.id][1])! : usable.find((p) => p !== px) ?? asked
   // A task set keeps the axes picked when it measured both of them, else it opens on its own.
-  const pickSet = (id: string) => setParams((p) => {
+  const pickSet = (id: SetId) => setParams((p) => {
     const next = all?.get(id) ?? []
     const ok = (k: 'x' | 'y') => { const v = p.get(k); return !v || axes(next).usable.some((u) => u.id === v) }
     p.set('set', id)
@@ -169,7 +164,7 @@ const plainArms = (s: string) => s.replace(/`/g, '')
 
 // ---------------------------------------------------------------- the pickers
 
-function SetPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+function SetPicker({ value, onChange }: { value: SetId; onChange: (id: SetId) => void }) {
   return (
     <div className="flex flex-wrap items-center rounded-md bg-black/30 p-0.5 ring-1 ring-line" role="tablist" aria-label="task set">
       {TASK_SETS.map((s) => (
