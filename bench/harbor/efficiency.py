@@ -1058,6 +1058,81 @@ def opencode_wall(events: list[dict[str, Any]]) -> float | None:
     return round((max(times) - min(times)) / 1000, 3) if len(times) > 1 else None
 
 
+# OpenCode's data directory as the arm's run leaves it under the trial's logs
+# (XDG_DATA_HOME is `agent/opencode/xdg-data`): every session of the run is a
+# row of this database, the helpers' (`parent_id` children) beside the root's.
+OPENCODE_DB = Path("opencode") / "xdg-data" / "opencode" / "opencode.db"
+
+# The root sessions and every descendant of one, to any depth.
+_OPENCODE_TREE = """
+WITH RECURSIVE tree(id) AS (
+    SELECT id FROM session WHERE parent_id IS NULL
+    UNION
+    SELECT s.id FROM session s JOIN tree t ON s.parent_id = t.id
+)
+SELECT id, model, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write
+FROM session WHERE id IN (SELECT id FROM tree)
+"""
+
+
+def opencode_db_spend(logs: Path) -> dict[str, Any] | None:
+    """OpenCode's spend from its `opencode.db`, the root session and every
+    `parent_id` descendant, recursively: a run's helpers (`@general`) are
+    sessions of their own that `run --format=json` does not stream, and in the
+    10-24 Bug Hunt they were 90% of OpenCode's bill. Tokens and dollars are the
+    session rows' (reasoning billed as output), a model call each assistant
+    message and a tool call each tool part. None when there is no database or
+    it cannot be read, so the stream's spend stands."""
+    import shutil
+    import sqlite3
+    import tempfile
+
+    src = logs / OPENCODE_DB
+    if not src.is_file():
+        return None
+    # A copy, with its write-ahead log: opening a live WAL database read-only
+    # still writes its -shm, and the trial's files are the record.
+    with tempfile.TemporaryDirectory() as tmp:
+        for suffix in ("", "-wal", "-shm"):
+            if (src.parent / (src.name + suffix)).is_file():
+                shutil.copy2(src.parent / (src.name + suffix), Path(tmp) / (src.name + suffix))
+        try:
+            db = sqlite3.connect(str(Path(tmp) / src.name))
+            try:
+                sessions = db.execute(_OPENCODE_TREE).fetchall()
+                ids = [s[0] for s in sessions]
+                marks = ",".join("?" * len(ids))
+                calls = db.execute("SELECT count(*) FROM message WHERE session_id IN (" + marks + ") AND "
+                                   "json_extract(data, '$.role') = 'assistant'", ids).fetchone()[0] if ids else 0
+                tools = db.execute("SELECT count(*) FROM part WHERE session_id IN (" + marks + ") AND "
+                                   "json_extract(data, '$.type') = 'tool'", ids).fetchone()[0] if ids else 0
+            finally:
+                db.close()
+        except sqlite3.Error:
+            return None
+    if not sessions:
+        return None
+    by_model: dict[str, dict[str, Any]] = {}
+    costs: list[float | None] = []
+    for _id, model, cost, tin, tout, treason, tread, twrite in sessions:
+        try:
+            name = (json.loads(model) or {}).get("id") if model else None
+        except (json.JSONDecodeError, AttributeError):
+            name = None
+        m = _model(by_model, name or "claude-sonnet-5-5")
+        m.update(_add(m, {"input": int(tin or 0), "cache_read": int(tread or 0), "cache_write": int(twrite or 0),
+                          "output": int(tout or 0) + int(treason or 0)}))
+        m["cost_usd"] = None if cost is None or m["cost_usd"] is None else round(m["cost_usd"] + float(cost), 6)
+        costs.append(None if cost is None else float(cost))
+    for m in by_model.values():
+        m["calls"] = 0
+    # The calls of a database with several models are not split between them.
+    next(iter(by_model.values()))["calls"] = int(calls)
+    spend = _spend(by_model, _priced(costs), "db", int(calls), int(tools))
+    spend["sessions"] = len(sessions)
+    return spend
+
+
 def opencode_record(logs: Path) -> dict[str, Any]:
     try:
         stream = (logs / "opencode.txt").read_text(encoding="utf-8", errors="replace")
@@ -1065,6 +1140,13 @@ def opencode_record(logs: Path) -> dict[str, Any]:
         stream = None
     events = read_jsonl_text(stream)
     spend = opencode_spend(events)
+    # The database holds every session of the run, the stream only the root's:
+    # whenever it covers at least the stream's calls it is the spend. Everything
+    # downstream (the controller's spend stop reads `cost_usd`, the budget guard
+    # `list_cost_usd`) then holds the helpers' dollars too.
+    db = opencode_db_spend(logs)
+    if db is not None and (db["model_calls"] or 0) >= (spend["model_calls"] or 0):
+        spend = db
     if spend["spend_from"] is None:
         traj = _trajectory(logs)
         if traj:

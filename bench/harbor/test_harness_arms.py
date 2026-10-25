@@ -69,6 +69,33 @@ AIDER_ANALYTICS = [
 ]
 
 
+
+def opencode_db(logs: Path, sessions: list[tuple[str, str | None, float, int]]) -> None:
+    """An `opencode.db` as OpenCode 1.18 writes it, trimmed to what the record reads: a row a session
+    (id, parent, dollars, cache-read tokens; one input, 1,000 output and 500 reasoning tokens each) and
+    two assistant messages and a tool part a session."""
+    import sqlite3
+
+    path = logs / ef.OPENCODE_DB
+    path.parent.mkdir(parents=True)
+    db = sqlite3.connect(path)
+    db.executescript(
+        "CREATE TABLE session (id text PRIMARY KEY, parent_id text, model text, cost real, tokens_input integer,"
+        " tokens_output integer, tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer);"
+        "CREATE TABLE message (id text PRIMARY KEY, session_id text, data text);"
+        "CREATE TABLE part (id text PRIMARY KEY, session_id text, data text);")
+    model = json.dumps({"id": "claude-sonnet-5-5", "providerID": "anthropic", "variant": "high"})
+    for sid, parent, cost, cache_read in sessions:
+        db.execute("INSERT INTO session VALUES (?,?,?,?,1,1000,500,?,100)", (sid, parent, model, cost, cache_read))
+        for n in range(2):
+            db.execute("INSERT INTO message VALUES (?,?,?)", (f"{sid}-m{n}", sid, json.dumps({"role": "assistant"})))
+        db.execute("INSERT INTO message VALUES (?,?,?)", (f"{sid}-u", sid, json.dumps({"role": "user"})))
+        db.execute("INSERT INTO part VALUES (?,?,?)", (f"{sid}-t", sid, json.dumps({"type": "tool"})))
+        db.execute("INSERT INTO part VALUES (?,?,?)", (f"{sid}-s", sid, json.dumps({"type": "step-finish"})))
+    db.commit()
+    db.close()
+
+
 class Records(unittest.TestCase):
     def test_every_new_arm_has_its_harness_names(self):
         for arm in ("codex", "aider", "opencode", "openhands", "openclaw"):
@@ -109,6 +136,54 @@ class Records(unittest.TestCase):
         events = ef.read_jsonl_text(OPENCODE)
         del events[2]["part"]["cost"]
         self.assertIsNone(ef.opencode_spend(events)["cost_usd"])
+
+    def test_opencode_db_sums_the_root_and_every_descendant(self):
+        # The 10-24 Bug Hunt's defect: a root of $2.10 and helpers of $19.57 were recorded as $2.10.
+        with tempfile.TemporaryDirectory() as d:
+            logs = Path(d)
+            opencode_db(logs, [("ses_root", None, 2.0, 1_000_000), ("ses_a", "ses_root", 3.0, 2_000_000),
+                               ("ses_b", "ses_root", 4.0, 3_000_000),
+                               ("ses_a1", "ses_a", 5.0, 4_000_000)])  # a helper's own helper
+            sp = ef.opencode_db_spend(logs)
+            self.assertEqual((sp["spend_from"], sp["sessions"]), ("db", 4))
+            self.assertAlmostEqual(sp["cost_usd"], 14.0)
+            self.assertEqual(sp["tokens"], {"input": 4, "cache_read": 10_000_000, "cache_write": 400, "output": 6000})
+            self.assertEqual((sp["model_calls"], sp["tool_calls"]), (8, 4))
+            self.assertAlmostEqual(sp["by_model"]["claude-sonnet-5-5"]["cost_usd"], 14.0)
+
+    def test_opencode_db_leaves_the_stream_when_there_is_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(ef.opencode_db_spend(Path(d)))
+            (Path(d) / ef.OPENCODE_DB).parent.mkdir(parents=True)
+            (Path(d) / ef.OPENCODE_DB).write_text("not a database")
+            self.assertIsNone(ef.opencode_db_spend(Path(d)))
+
+    def test_opencodes_record_holds_its_helpers_dollars_for_the_spend_stop_and_the_budget_guard(self):
+        # The stream is the root session alone (two calls, $0.0139); the database also holds two helpers.
+        with tempfile.TemporaryDirectory() as d:
+            logs = Path(d)
+            (logs / "opencode.txt").write_text(OPENCODE)
+            opencode_db(logs, [("ses_root", None, 0.0139, 2000), ("ses_a", "ses_root", 20.0, 40_000_000),
+                               ("ses_b", "ses_root", 5.0, 10_000_000)])
+            rec = ef.opencode_record(logs)
+            self.assertEqual(rec["spend_from"], "db")
+            # `cost_usd` is what a controller's spend stop reads from efficiency.json.
+            self.assertAlmostEqual(rec["cost_usd"], 25.0139)
+            # (3 x 2 + 4,500 x 10 + 300 x 2.5 + 50,002,000 x 0.2), a million.
+            self.assertAlmostEqual(rec["list_cost_usd"], 10.046156, places=6)
+            # The budget guard holds the list price: the root alone passed no cap of $2.00, the run did.
+            self.assertTrue(ef.limits(rec, 2.0, 200, False)["over_budget"])
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "opencode.txt").write_text(OPENCODE)
+            opencode_db(Path(d), [("ses_root", None, 0.0139, 2000)])
+            self.assertFalse(ef.limits(ef.opencode_record(Path(d)), 2.0, 200, False)["over_budget"])
+
+    def test_opencodes_record_keeps_the_stream_when_the_database_has_fewer_calls(self):
+        with tempfile.TemporaryDirectory() as d:
+            logs = Path(d)
+            (logs / "opencode.txt").write_text(OPENCODE)
+            opencode_db(logs, [])  # a database that holds no session
+            self.assertEqual(ef.opencode_record(logs)["spend_from"], "stream")
 
     def test_aider_reads_its_token_lines_and_the_exact_counts(self):
         calls = ef.aider_calls(AIDER)
@@ -415,6 +490,21 @@ class Arms(unittest.TestCase):
         self.assertEqual((rec["limits"]["enforced"], rec["limits"]["over_budget"]), (False, False))
         self.assertAlmostEqual(ctx.cost_usd, 0.0139)
         self.assertEqual(ctx.n_input_tokens, 15 + 2000 + 2300)
+
+    def test_opencodes_helpers_dollars_replace_harbors_root_only_price_in_the_context(self):
+        (self.logs / "opencode.txt").write_text(OPENCODE)
+        (self.logs / "version.txt").write_text("1.18.35\n")
+        opencode_db(self.logs, [("ses_root", None, 0.0139, 2000), ("ses_a", "ses_root", 6.0, 20_000_000)])
+        a = self.make(opencode_agent.MeasuredOpenCode, SONNET)
+        ctx = AgentContext()
+        ctx.cost_usd = 0.0139  # Harbor's own conversion of the stream: the root session alone
+
+        with mock.patch.object(OpenCode, "populate_context_post_run", lambda self_, c: None):
+            a.populate_context_post_run(ctx)
+        # What `result.json` and a controller's spend count read.
+        self.assertAlmostEqual(ctx.cost_usd, 6.0139)
+        self.assertEqual(ctx.n_cache_tokens, 20_002_000)
+        self.assertEqual(json.loads((self.logs / ef.RECORD).read_text())["spend_from"], "db")
 
     def test_a_broken_record_never_fails_the_trial(self):
         a = self.make(codex_agent.MeasuredCodex, codex_agent.NATIVE_MODEL)

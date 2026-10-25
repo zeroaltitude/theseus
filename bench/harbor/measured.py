@@ -80,6 +80,12 @@ class MeasuredArm:
     # value medium is in that harness's words.
     EFFORT_OPTION: str | None = None
     EFFORT_VALUE: str = measure.EFFORT
+    # True where Harbor's own conversion of the harness's log prices only part
+    # of the run (OpenCode's: the root session, not its helpers): a record
+    # read from the harness's database (`spend_from == "db"`) then replaces
+    # Harbor's dollars and counters in the context, which is where a result's
+    # `agent_result.cost_usd` comes from.
+    RECORD_SUPERSEDES_HARBORS: bool = False
 
     def __init__(self, *args: Any, version: str | None = None, max_budget_usd: Any = None,
                  max_turns: Any = None, **kwargs: Any):
@@ -172,9 +178,11 @@ class MeasuredArm:
                                       self.caps_enforced())
             ef.write(logs, rec)
             t = rec.get("tokens") or {}
-            if getattr(context, "cost_usd", None) is None and rec.get("cost_usd") is not None:
-                # Harbor's own left the trial unpriced: its counters as the
-                # other arms' hold them, the cache write in the input.
+            supersedes = self.RECORD_SUPERSEDES_HARBORS and rec.get("spend_from") == "db"
+            if (getattr(context, "cost_usd", None) is None or supersedes) and rec.get("cost_usd") is not None:
+                # Harbor's own left the trial unpriced, or priced a part of it:
+                # its counters as the other arms' hold them, the cache write
+                # in the input.
                 context.n_input_tokens = t.get("input", 0) + t.get("cache_read", 0) + t.get("cache_write", 0)
                 context.n_cache_tokens = t.get("cache_read", 0)
                 context.n_output_tokens = t.get("output", 0)
