@@ -90,7 +90,7 @@ export const Card = memo(function Card({ r, now, focused, onFocus, onContext, as
       onContextMenu={(e) => { if (onContext) { e.preventDefault(); onFocus(r.id); onContext(r.id, e.clientX, e.clientY) } }}
       data-drop={r.kind === 'conversation' && r.sessionId ? `conversation:${r.sessionId}` : undefined}
       draggable={r.kind === 'task' || r.kind === 'conversation'} onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); onDrag(r.id) }}
-      className={cn('cursor-pointer rounded-lg border-l-2 bg-deck/70 px-2.5 py-2 ring-1 ring-transparent transition-shadow hover:ring-line', LOOK[r.column].edge,
+      className={cn('cursor-pointer rounded-lg border-l-2 bg-deck/70 px-2.5 py-2 ring-1 ring-transparent transition-shadow hover:ring-line', LOOK[r.column ?? 'paused'].edge,
         r.column === 'needs' && 'bg-wait/[0.05] shadow-[0_0_14px_-4px_var(--color-wait)]',
         picked && 'bg-gold/[0.06] ring-gold/50',
         focused && 'ring-gold shadow-[0_0_16px_-2px_rgb(214_165_72_/_0.55)]')}>

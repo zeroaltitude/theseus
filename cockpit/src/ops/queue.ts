@@ -128,6 +128,15 @@ export function queueOf(q: QueueInput): QueueItem[] {
   return out.sort((a, b) => a.since - b.since || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
 }
 
+/** The ids a card may be named by that an item belongs to, most specific first: what the item is about (its question's
+ *  parent, its failed execution, its proposed record, its approval's execution or task), then its session, which a
+ *  seal names as its thread's head. The Board's one work set maps each item to the first card these name (theseus-odj0m);
+ *  an item no card is named by is a row of its own. */
+export function askKeysOf(i: QueueItem): string[] {
+  const keys = [i.view?.parent, i.proposal?.record.id, i.confirm?.task?.task_id, i.sessionId, i.view?.id, i.confirm?.execution_id, i.execution?.execution_id]
+  return keys.filter((k): k is string => !!k)
+}
+
 /** The cursor after the queue changed: on the item it was on while that item is there (a new item never moves it);
  *  when its item left, the one that took its place, else the last; none on an empty queue. */
 export function keepCursor(before: readonly string[], after: readonly QueueItem[], cursor: string | null): string | null {

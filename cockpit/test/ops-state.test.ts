@@ -97,3 +97,43 @@ test('a ready conversation rests on the Graph as on the Board, and a running rou
   assert.deepEqual(viewsOf(rows).map((v) => bucketOf(v, NOW)), ['rest'], 'the time machine’s resting conversation is not working')
   assert.equal(bucketOf(view('rtn_1', 'routine', 'running', { next_at_ms: NOW + HOUR }), NOW), 'working', 'a routine firing is work in flight')
 })
+
+// ---- the one bucket of a card (theseus-odj0m) ----
+
+import { bucketOfCard, OWNER_CALLS, RECOMMENDED, type OwnerCalls } from '../src/ops/state.ts'
+
+test('bucketOfCard over every row of the record table, under today’s answers and under the recommended ones', () => {
+  const rec = (state: string, over = {}) => record('tsk_x', { state, ...over } as never)
+  const at = (calls: OwnerCalls, c: Parameters<typeof bucketOfCard>[0]) => bucketOfCard(c, NOW, calls)
+  const table: Array<[string, Parameters<typeof bucketOfCard>[0], string, string]> = [
+    // [row, card, today's bucket, the recommended bucket]
+    ['waiting_human', { kind: 'step', record: rec('waiting_human') }, 'needs', 'needs'],
+    ['blocked', { kind: 'step', record: rec('blocked') }, 'needs', 'needs'],
+    ['a proposal waiting', { kind: 'step', record: rec('proposed', { proposal: { card: 'act_p', at_ms: NOW } }) }, 'needs', 'needs'],
+    ['in_progress, its own task running', { kind: 'task', view: view('exe_a', 'task', 'running'), record: rec('in_progress', { session: 'ses_a' }) }, 'working', 'working'],
+    ['in_progress, no task, carrier in flight', { kind: 'step', record: rec('in_progress'), carrierInFlight: true }, 'working', 'working'],
+    ['in_progress, no task, carrier stopped', { kind: 'step', record: rec('in_progress'), carrierInFlight: false }, 'working', 'paused'],
+    ['suspended', { kind: 'step', record: rec('suspended') }, 'paused', 'paused'],
+    ['accepted', { kind: 'step', record: rec('accepted') }, 'paused', 'todo'],
+    ['proposed', { kind: 'step', record: rec('proposed') }, 'paused', 'todo'],
+    ['done', { kind: 'step', record: rec('done') }, 'ended', 'ended'],
+    ['failed', { kind: 'step', record: rec('failed') }, 'ended', 'ended'],
+    ['abandoned', { kind: 'step', record: rec('abandoned') }, 'ended', 'ended'],
+    ['any card with an ask', { kind: 'step', record: rec('done'), asks: 1 }, 'needs', 'needs'],
+  ]
+  for (const [row, card, today, recommended] of table) {
+    assert.equal(at(OWNER_CALLS, card), today, `${row}, today`)
+    assert.equal(at(RECOMMENDED, card), recommended, `${row}, recommended`)
+  }
+})
+
+test('bucketOfCard has one path for a task: a failure not dismissed needs you, a suspended record whose execution ended is paused', () => {
+  const task = (state: string, over = {}) => ({ kind: 'task', task: { section: state === 'failed' ? 'needs' : 'working', paused: false, view: view('exe_a', 'task', state as never, over, state === 'failed' ? 'needs_you' : undefined) } })
+  assert.equal(bucketOfCard(task('failed'), NOW), 'needs')
+  const ended = { kind: 'task', task: { section: 'done', paused: false, view: view('exe_b', 'task', 'cancelled') }, record: record('tsk_b', { state: 'suspended' }) }
+  assert.equal(bucketOfCard(ended, NOW), 'paused')
+  assert.equal(bucketOfCard({ ...ended, record: undefined }, NOW), 'ended')
+  const later = { kind: 'task', task: { section: 'working', paused: false, info: { starts_at_ms: NOW + 30 * HOUR, state: 'queued' } as never } }
+  assert.equal(bucketOfCard(later, NOW), 'paused')
+  assert.equal(bucketOfCard({ kind: 'task', task: { section: 'working', paused: false, info: { starts_at_ms: NOW + HOUR, state: 'queued' } as never } }, NOW), 'scheduled')
+})
