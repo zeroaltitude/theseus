@@ -105,8 +105,10 @@ export interface LayoutOpts {
    *  kept as a hole (so nothing moves), and a lane with none of them shrinks to its head. Absent, nothing is hidden. */
   keep?: ReadonlySet<string>
   /** The owner's plan folds, by plan id (true open, false folded); a plan with none is open while it is open work and
-   *  folded once it ends. A counter's filter opens a folded plan that holds a kept card. */
+   *  folded once it ends. The counter filter's own set (`filter`) opens a folded plan that holds a kept card. */
   folds?: ReadonlyMap<string, boolean>
+  /** The counter filter's own kept set: it, and only it, opens a folded plan that holds a kept card. */
+  filter?: ReadonlySet<string>
 }
 
 const ENDED_RECORD = new Set(['done', 'failed', 'abandoned'])
@@ -231,7 +233,7 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
   for (const it of plans) {
     const sub = under(it.id)
     let open = opts.folds?.get(it.id) ?? it.bucket !== 'ended'
-    if (!open && opts.keep && sub.some((m) => opts.keep!.has(m))) open = true
+    if (!open && opts.filter && sub.some((m) => opts.filter!.has(m))) open = true
     planOpen.set(it.id, open)
     if (open || !shown.has(it.id)) continue
     for (const m of sub) if (shown.has(m) && !items.get(m)!.needs) { shown.delete(m); into.set(m, it.id) }

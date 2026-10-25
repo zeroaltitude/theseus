@@ -188,7 +188,7 @@ test('the counter filter through the forms: a collapsed plan holding a kept card
   const full = layoutRows(rows, lanes, null, { now: NOW, folds })
   assert.ok(!node(full, 'tsk_n1'), 'collapsed without a filter')
   const keep = new Set(['tsk_n1', 'tsk_sub', 'ses_t2', 'ses_home'])
-  const kept = layoutRows(rows, lanes, full, { now: NOW, folds, keep })
+  const kept = layoutRows(rows, lanes, full, { now: NOW, folds, keep, filter: keep })
   assert.ok(node(kept, 'tsk_n1'), 'the plan holding a kept card opens for the filter')
   assert.equal(node(kept, 'tsk_sub')!.open, true)
   assert.equal(node(kept, 'ses_t2')!.open, true)
@@ -197,6 +197,10 @@ test('the counter filter through the forms: a collapsed plan holding a kept card
   const empty = kept.lanes.find((l) => l.key === 'tide-tables')!
   assert.equal(empty.rows, 0, 'a lane with no kept card shrinks to its head')
   assert.equal(empty.height, 18)
+  // theseus-hl0r1 F3: retiring something narrows what is drawn (`keep`), and must not unfold the owner's plan. Only
+  // the counter's own set (`filter`) does that, so a drawn set with no filter leaves a folded plan folded.
+  const retired = layoutRows(rows, lanes, null, { now: NOW, folds: new Map([['tsk_sub', false]]), keep: new Set(rows.map((r) => r.id)) })
+  assert.equal(node(retired, 'tsk_sub')!.open, false, 'retiring something does not unfold the owner\u2019s plan')
 })
 
 test('the thread’s conversation is its lane’s head; a loose ask and a task with no record keep their forms', () => {

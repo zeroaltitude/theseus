@@ -1,5 +1,6 @@
 // The task graph (M7 39b): the records as a tree and as a graph's layout, a claim and a waiting change in words. Pure,
 // so `npm test` runs it; the panel and the graph are `src/components/TaskGraph.tsx`.
+import { writeFull } from './fullgraph.ts'
 import type { ConfirmRequest, TaskChange, TaskRecord } from '@protocol'
 import { span } from './figures.ts'
 
@@ -91,4 +92,15 @@ export function layout(records: TaskRecord[], w = 260, h = 84): { nodes: Laid[];
     for (const d of t.deps) if (ids.has(d)) links.push({ id: `${t.id}~${d}`, source: t.id, target: d, dep: true })
   }
   return { nodes, links }
+}
+
+/** The address with the task graph opened or closed (theseus-99l9z). Opening it fills the window (`?graph=full`, the
+ *  shared helper's) so it appears where the button was clicked, not in a panel further down the page; `?taskgraph=1`
+ *  alone still opens it, in that panel, as a deep link. Closing drops `task` and the full-window state with it. */
+export function writeTaskGraph(params: URLSearchParams, open: boolean): URLSearchParams {
+  const next = new URLSearchParams(params)
+  if (open) { next.set('taskgraph', '1'); return writeFull(next, true) }
+  next.delete('taskgraph')
+  next.delete('task')
+  return writeFull(next, false)
 }
