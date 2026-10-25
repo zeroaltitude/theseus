@@ -169,6 +169,24 @@ fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
 
 /// What one ledger row shows, if it shows a problem.
 pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
+    of_row_in(pos, row, false)
+}
+
+/// Whether a session is a task's: its turns are the agent's own work (many
+/// loops of tool calls, minutes long by design), not a chat turn.
+fn is_task_session(store: &Store, session: &str) -> bool {
+    store
+        .get_session::<crate::session::SessionRecord>(session)
+        .ok()
+        .flatten()
+        .is_some_and(|r| r.task.is_some())
+}
+
+/// [`of_row`], told whether the row is a task session's turn. A task's turn
+/// is not held to the chat turn budget: the backlog's own fix tasks run for
+/// minutes on their model, and counting them as slow turns files a fix task
+/// for the slowness of the fix tasks, night after night.
+fn of_row_in(pos: u64, row: &LedgerRow, task: bool) -> Option<Obs> {
     let d = &row.data;
     let kind = row.kind.as_str();
     let mut o = obs(kind, pos, row);
@@ -232,7 +250,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             (o.person, o.work) = (true, 3);
         }
         "judge.report" => return of_report(o, d),
-        "turn.ended" => return of_slow(o, d),
+        "turn.ended" => return of_slow(o, d, task),
         "loop.cap_reached" => {
             o.key = "loop.cap_reached".into();
             o.title = "Turns reach their loop cap".into();
@@ -345,12 +363,13 @@ fn is_wrong(label: &Value) -> bool {
     }
 }
 
-/// A turn that ran past its budget, or whose first token did.
-fn of_slow(mut o: Obs, d: &Value) -> Option<Obs> {
+/// A turn that ran past its budget, or whose first token did. A task's turn
+/// has no wall-time budget (its first token still does).
+fn of_slow(mut o: Obs, d: &Value, task: bool) -> Option<Obs> {
     let elapsed = d["elapsed_ms"].as_u64()?;
     let first = d["first_token_ms"].as_u64().unwrap_or(0);
     let model = word(&d["model"]);
-    if elapsed > TURN_BUDGET_MS {
+    if elapsed > TURN_BUDGET_MS && !task {
         o.key = format!("turn.slow:{model}");
         o.title = format!("Turns on {model} run past {} s", TURN_BUDGET_MS / 1000);
         o.note = format!(
@@ -423,7 +442,12 @@ pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Ob
             if row.at_unix_ms <= since_ms || row.at_unix_ms > until_ms {
                 continue;
             }
-            if let Some(o) = of_row(r.position, &row) {
+            let task = row.kind == "turn.ended"
+                && row
+                    .session_id
+                    .as_deref()
+                    .is_some_and(|s| is_task_session(store, s));
+            if let Some(o) = of_row_in(r.position, &row, task) {
                 out.push(o);
             }
         }
@@ -573,5 +597,45 @@ mod tests {
         ] {
             assert_eq!(plain_title(kept), kept);
         }
+    }
+
+    /// A task's long turn is its work, not a slow turn: the night's read
+    /// files `turn.slow` for a chat turn past the budget and not for the
+    /// backlog's own fix tasks, which would otherwise file themselves.
+    #[test]
+    fn a_task_sessions_long_turn_is_not_a_slow_turn() {
+        use crate::session::{SessionRecord, TaskOf};
+        use theseus_protocol::SessionKind;
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(&d.path().join("store")).unwrap();
+        let chat = SessionRecord::new(SessionKind::Conversation, None);
+        let mut task = SessionRecord::new(SessionKind::Task, None);
+        task.task = Some(TaskOf {
+            parent_session: chat.session_id.clone(),
+            parent_execution: "exe_none".into(),
+            by: "call_none".into(),
+            target: None,
+            arrangement: None,
+            check: None,
+            notify_done: false,
+        });
+        for s in [&chat, &task] {
+            store.put_session(&s.session_id, s).unwrap();
+        }
+        let now = theseus_protocol::now_unix_ms();
+        for (s, at) in [(&chat, now - 2_000), (&task, now - 1_000)] {
+            let mut r = LedgerRow::named(
+                "turn.ended",
+                Some(&s.session_id),
+                None,
+                json!({"elapsed_ms": 600_000, "first_token_ms": 500, "model": "claudesonnet55"}),
+            );
+            r.at_unix_ms = at;
+            store.append_ledger(&r).unwrap();
+        }
+        let got = from_ledger(&store, now - 10_000, now).unwrap();
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].key, "turn.slow:claudesonnet55");
+        assert_eq!(got[0].at_ms, now - 2_000);
     }
 }
