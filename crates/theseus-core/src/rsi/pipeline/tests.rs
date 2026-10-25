@@ -78,7 +78,7 @@ pub(super) fn rig_with(slots: u32, day_usd: f64) -> Rig {
     cfg.server.disk_warn_mb = 0;
     cfg.self_improve.mode = SelfMode::Act;
     cfg.self_improve.repo = Some(f.place.repo.to_string_lossy().into_owned());
-    cfg.self_improve.backlog_starts = 0;
+    cfg.self_improve.backlog_starts = Some(0);
     cfg.self_improve.pipeline_builds = slots;
     cfg.self_improve.budget.day_usd = day_usd;
     let core = Core::build(crate::rpc::Parts::for_tests(
@@ -154,7 +154,7 @@ impl Rig {
     }
 
     /// A green branch for `item`, as self-pr's row says one.
-    fn built(&self, item: &str, n: u32) -> (String, String) {
+    pub(super) fn built(&self, item: &str, n: u32) -> (String, String) {
         let branch = format!("self/20261015-{}-{n}", crate::rsi::tree::slug(item));
         let head = format!("{n:0>40}");
         self.core.rec(None).record(&SelfBranchBuilt {
@@ -179,6 +179,11 @@ impl Rig {
     /// A rejecting review, written as self-join writes one: its row, and the
     /// item back to proposed with the reasons in its evidence.
     fn reject(&self, item: &str, branch: &str, head: &str) {
+        self.reject_with(item, branch, head, "the test passes without the fix");
+    }
+
+    /// [`Self::reject`] with the review's own finding.
+    pub(super) fn reject_with(&self, item: &str, branch: &str, head: &str, finding: &str) {
         let fact = SelfReviewVerdict {
             item: item.into(),
             branch: branch.into(),
@@ -187,7 +192,7 @@ impl Rig {
             model: "claude-fable-5-1".into(),
             verdict: "reject".into(),
             planted_revert: "failed".into(),
-            reasons: vec!["the test passes without the fix".into()],
+            reasons: vec![finding.into()],
             cost_usd: 0.5,
         };
         let mut t = crate::task_graph::get(&self.core.store, item)
@@ -199,7 +204,7 @@ impl Rig {
         t.evidence.push(TaskEvidence {
             node: None,
             identity: format!("review:{branch}@{}", &head[..12]),
-            note: Some("rejected by fable: the test passes without the fix".into()),
+            note: Some(format!("rejected by fable: {finding}")),
             by: "self-join".into(),
             at_ms: theseus_protocol::now_unix_ms(),
         });
@@ -213,7 +218,7 @@ impl Rig {
             .unwrap();
     }
 
-    fn view(&self) -> theseus_protocol::rsi::SelfPipelineResult {
+    pub(super) fn view(&self) -> theseus_protocol::rsi::SelfPipelineResult {
         self.core
             .self_pipeline(&SelfPipelineParams { week: true })
             .unwrap()
@@ -330,7 +335,8 @@ async fn the_budgets_day_line_stops_new_starts_and_says_so() {
 }
 
 /// A rejected review sends its item back to ready once, with the findings
-/// in its next build; a second rejection parks it for the owner.
+/// in its next build; a second rejection drops it with a notice (it used
+/// to park it for the owner).
 #[tokio::test]
 async fn a_rejected_review_returns_once_then_parks_for_the_owner() {
     let r = rig_with(1, 30.0);
@@ -364,15 +370,12 @@ async fn a_rejected_review_returns_once_then_parks_for_the_owner() {
     r.reject(&item, &branch, &head);
     let t = r.tick().await;
     assert!(!t.started.contains(&item), "{t:?}");
-    assert_eq!(r.state(&item), TaskState::WaitingHuman);
+    // Dropped with a notice, never parked for the owner (theseus-o1h3f.6).
+    assert_eq!(r.state(&item), TaskState::Failed);
     assert_eq!(r.rows("self.pipeline.parked").len(), 1);
     assert_eq!(r.rows("self.pipeline.returned").len(), 1);
     let v = r.view();
-    let held = v.held.iter().find(|h| h.item == item).unwrap();
-    assert!(
-        held.why.as_deref().unwrap().contains("rejected twice"),
-        "{held:?}"
-    );
+    assert!(!v.held.iter().any(|h| h.item == item), "{:?}", v.held);
     assert!(!v.ready.iter().any(|h| h.item == item));
 }
 

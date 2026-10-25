@@ -60,6 +60,8 @@ mod tender;
 #[cfg(test)]
 pub(crate) mod tests;
 #[cfg(test)]
+mod tests_notify;
+#[cfg(test)]
 mod tests_sealed;
 
 use std::sync::Arc;
@@ -235,8 +237,10 @@ fn seen(store: &crate::store::Store) -> Result<Option<Seen>> {
                 verdict: s(d, "verdict"),
             }),
             "self.joined" => out.joined.push(s(d, "branch")),
-            // A head held at the keel, with no key, red on its merge or in
-            // conflict with main waits for the owner: never tried again.
+            // A head held at the keel, with no key or red on its merge waits
+            // for the owner: never tried again. A conflict with main is held
+            // the same (this head is never joined) but the item is built
+            // again from the new main (theseus-o1h3f.6).
             "self.join.stopped" if d["numbers"]["held"] == true => {
                 out.keel.push((s(d, "branch"), s(d, "head")));
             }
