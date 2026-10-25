@@ -156,7 +156,7 @@ test('the Actions panel\'s "open as a graph" puts the graph where the click was,
   const closed = writeTaskGraph(new URLSearchParams('taskgraph=1&graph=full&task=t1&x=1'), false)
   assert.equal(closed.toString(), 'x=1')
   const panel = readFileSync(new URL('../src/components/TaskGraph.tsx', import.meta.url), 'utf8')
-  assert.match(panel, /writeTaskGraph\(p, !open\)/, 'the button opens it in view, not by the parameter alone')
+  assert.match(panel, /writeTaskGraph\(p, !open\)/, 'the button opens the graph in view; the parameter alone renders nothing in that panel (the bug)')
   assert.match(panel, /params\.get\('taskgraph'\) === '1'/, 'the deep link still opens the graph')
   assert.match(panel, /scrollIntoView/, 'a deep link scrolls it into view')
   assert.match(panel, /help="actions\.taskgraph"/)
