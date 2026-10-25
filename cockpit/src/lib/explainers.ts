@@ -152,7 +152,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'A plan or step that is claimed but stale is work nobody is doing. A waiting change to its goal needs your answer.'),
   'ops.board': e(
     'Show every live piece of work by what it needs: your answer, its work, a pause or a queue, a time today, or its report.',
-    'Five columns: Needs you (the longest waiting first), Working, Paused·queued, Scheduled (deferred starts, wakes and routine runs due today; its counter reads “scheduled today”) and Done (today, then older, fifty at a time). A card is a plan, a step, a task, a conversation, a job or a wake, with its progress line, where it runs and the model it runs on. A step not yet started is to do and has no column. j and k move along a column, h and l across.',
+    'Five columns: Needs you (the longest waiting first), Working, Paused·queued, Scheduled (deferred starts, wakes and routine runs due today; its counter reads “scheduled today”) and Done (today, then older, fifty at a time). A card is a plan, a step, a task, a conversation, a job or a wake, with its progress line, its place (where it came from) and the model it runs on. A step not yet started is to do and has no column. j and k move along a column, h and l across.',
     'It is the one place that says whether a piece of work is still going. A task waiting on a long command is working, and a paused one is held until you resume it.'),
   'ops.graph': e(
     'Show how the work hangs together: which thread holds which plans and steps, and which task is carrying out which.',
@@ -292,18 +292,18 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Time the harness adds is time every turn pays. A tall column is a turn where Theseus itself, not the model, was the wait.'),
   'speed.commits': e(
     'Show how long writes to the record take.',
-    'A histogram: each column is a range of commit times in milliseconds (the last one is “500 and over”), its height how many commits fell in it. One disk sync per write.',
+    'A histogram: each column is a range of commit times in milliseconds (the last one is “500 and over”), its height how many commits fell in it. One fsync (a disk sync) a frame, as the panel’s heading says.',
     'Every write waits for the disk. A heavy right tail means a slow or busy disk, which slows every turn.'),
   'speed.benches': e(
     'Show whether each of the speed promises has held, run after run.',
-    'One small chart per bench (start, clean stop, crash and restart, binary swap, a plain turn, and the writes a plain turn makes): each run’s 95th percentile, with the gate’s limit and the README’s budget as lines; a failed run is a triangle.',
+    'One small chart per bench (start, clean stop, crash and restart, binary swap, a plain turn, frames a plain turn (its writes)): each run’s 95th percentile, with the gate’s limit and the README’s budget as lines; a failed run is a triangle.',
     'A run near or over its line means a change made something slower. The gate refuses it, so this shows how close to the edge each promise runs.'),
 
   // ---- Benchmarks
   'bench.yourwork': e(
     'Say which model your own turns need, measured on your own past work.',
-    'One row per model and effort your turns ran at: how many turns and what they cost, the turns you checked (you corrected their routing), and, once the nightly sampler has replayed some one step down the routing table, how many a judge called the same or better, with the lowest match rate that holds at the stated confidence and the dollars moving the row down would have saved. The last line is the replays’ own cost against its day cap.',
-    'It is a yardstick, not a switch: nothing here moves routing. Read it before you cheapen a profile, and when a row is expensive and keeps matching one step down, ask whether that work needs the dearer model.'),
+    'One row per model and effort your turns ran at: how many turns and what they cost, the turns you checked (you corrected their routing), and, once the nightly sampler has replayed some one level down the routing table, how many a judge called the same or better, with the lowest match rate that holds at the stated confidence and the dollars moving the row down would have saved. The last line is the replays’ own cost against its day cap.',
+    'It is a yardstick, not a switch: nothing here moves routing. Read it before you cheapen a profile, and when a row is expensive and keeps matching one level down, ask whether that work needs the dearer model.'),
   'bench.frontier': e(
     'Show where Theseus sits among the harnesses it was measured against.',
     'Each point is a harness in one run on one task set, on the two properties you pick (each with its better direction). The points joined by the line are the frontier: none beats them on both. Dimmed points are beaten. Click a point for its report.',
