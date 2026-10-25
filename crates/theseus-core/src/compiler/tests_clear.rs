@@ -217,3 +217,158 @@ fn a_reads_stub_names_the_lines_its_result_held_and_the_note_is_cut_on_a_word() 
     assert_eq!(two.as_deref(), Some("Read it."));
     assert!(clearing::remember::note_of(&[json!({"type": "tool_use", "id": "x"})]).is_none());
 }
+
+/// A session for the percent line's guard: `large` reads of about 10K tokens
+/// each (the oldest), then results of 1,900 characters (never cleared) that
+/// sum to about `small` tokens, after a first message sized so that the
+/// request, before any pass, is `target` tokens by the estimator's own count
+/// (the estimator charges each call's ids and framing, so the sizes alone
+/// would miss). With the nodes, the large reads' ids.
+fn mixed_session(target: u64, large: usize, small: u64) -> (Vec<(u64, Stub)>, Vec<String>) {
+    let pb = per_byte();
+    let build = |lead: u64| {
+        let mut nodes: Vec<(u64, Stub)> = Vec::new();
+        let mut ids = Vec::new();
+        let mut push = |n: Node| nodes.push((nodes.len() as u64 + 1, n.into()));
+        push(Node::user(
+            "s",
+            None,
+            "web",
+            &"word ".repeat((lead as f64 / pb) as usize / 5 + 1),
+        ));
+        for k in 0..large {
+            let id = format!("L{k}");
+            let text = format!("Read large file {k} and found nothing wrong there.");
+            push(text_answer(
+                &text,
+                vec![read_call(&id, &format!("src/l{k}.rs"))],
+            ));
+            let r = result(&id, &read_of(10_000, pb, 400, k as u64));
+            ids.push(r.id.clone());
+            push(r);
+        }
+        for k in 0..(small as f64 / (1_900.0 * pb)).round() as usize {
+            let id = format!("S{k}");
+            push(text_answer(
+                "Checked a short file.",
+                vec![read_call(&id, &format!("src/s{k}.rs"))],
+            ));
+            push(result(&id, &format!("{k:>6}\t{}", "y".repeat(1_890))));
+        }
+        (nodes, ids)
+    };
+    // The request before a pass: the estimate of a compile that made none,
+    // else the pass's own `tokens_before`.
+    let before = |nodes: &[(u64, Stub)]| {
+        let c = compile_nodes(nodes, None, 1_000_000);
+        c.cleared.map_or(c.est_tokens, |p| p.tokens_before)
+    };
+    let without = before(&build(0).0);
+    build(target.saturating_sub(without))
+}
+
+/// The ids of the results a compilation cleared, in order.
+fn cleared_ids(c: &Compiled) -> Vec<String> {
+    c.budget
+        .dropped
+        .iter()
+        .filter(|d| d.tier == "cleared")
+        .map(|d| d.node_id.clone().unwrap())
+        .collect()
+}
+
+/// Past the percent line the new rule never leaves a request larger than the
+/// 20-exchange rule did (theseus-5lzox join fix 1). A 1M window holds a
+/// request of 480K tokens (past its 50 % line, 434K): 14 old reads of 10K, 160K
+/// tokens of results under 2,000 characters, which no pass clears but which the
+/// token rule's guard counts, and the rest first message and framing. The old
+/// rule cleared the 14 reads and ended under its 42.5 % line (369K). The token
+/// rule alone wants the pass to end about 95K above the request's other
+/// content, which the small results alone pass, so it refuses, and the request
+/// climbs to the ring at 100 %: the 868K failure the rule exists to remove.
+/// Past the percent line a refused pass is tried again keeping only the newest
+/// exchange whole, and taken under the old rule's line.
+#[test]
+fn past_the_percent_line_small_results_do_not_stop_the_pass_the_old_rule_made() {
+    let (nodes, large) = mixed_session(480_000, 14, 160_000);
+    let c = compile_nodes(&nodes, None, 1_000_000);
+    let budget = 1_000_000 - 128_000 - 4_096;
+    assert!(
+        c.cleared.is_some() || c.est_tokens > budget * 50 / 100,
+        "setup: the session must pass the percent line ({} of {})",
+        c.est_tokens,
+        budget * 50 / 100
+    );
+    let pass = c.cleared.unwrap_or_else(|| {
+        panic!(
+            "no pass at {} tokens, past the percent line {}: the request would climb to the ring",
+            c.est_tokens,
+            budget * 50 / 100
+        )
+    });
+    assert!(pass.tokens_before > budget * 50 / 100, "{pass:?}");
+    assert!(
+        pass.tokens_after <= budget * (clearing::CLEAR_AT + clearing::CLEAR_TO) / 200,
+        "{pass:?}: ends under the old rule's line"
+    );
+    assert_eq!(cleared_ids(&c), large, "the old reads, and no small result");
+    let text = serde_json::to_string(&c.request.messages).unwrap();
+    assert_eq!(text.matches("Result cleared to save context").count(), 14);
+    closed(&c).unwrap();
+}
+
+/// The retry is for the percent line only: under it the old rule did not
+/// clear, so a refused token pass stays refused and is not taken at keep 0
+/// (which would clear what the keep exists to hold).
+#[test]
+fn under_the_percent_line_a_refused_token_pass_is_not_retried_at_keep_zero() {
+    let (nodes, _) = mixed_session(390_000, 10, 160_000);
+    let c = compile_nodes(&nodes, None, 1_000_000);
+    let budget = 1_000_000 - 128_000 - 4_096;
+    assert!(
+        c.est_tokens > 150_000 && c.est_tokens < budget * 50 / 100,
+        "setup: past the token line, under the percent line ({})",
+        c.est_tokens
+    );
+    assert!(c.cleared.is_none(), "{:?}", c.cleared);
+}
+
+/// The newest exchange's results stay whole however large, and the older ones
+/// are cleared (theseus-5lzox join fix 2): a pass over six reads of 25K tokens
+/// and a newest read of 60K, over the 40K keep. The floor is `pass`'s own
+/// (`*p < last_answer`), which the no-pass test never reaches: it has no older
+/// result, so `any_old` stops it first.
+#[test]
+fn a_newest_result_over_the_keep_stays_whole_and_the_older_ones_clear() {
+    let pb = per_byte();
+    let mut nodes: Vec<(u64, Stub)> =
+        vec![(1, Node::user("s", None, "web", "find the bugs").into())];
+    let (mut older, mut newest) = (Vec::new(), String::new());
+    for k in 0..7 {
+        let (id, tokens) = (format!("c{k}"), if k < 6 { 25_000 } else { 60_000 });
+        let p = nodes.len() as u64;
+        let text = format!("Checked file {k} and found nothing wrong there.");
+        nodes.push((
+            p + 1,
+            text_answer(&text, vec![read_call(&id, &format!("src/f{k}.rs"))]).into(),
+        ));
+        let r = result(&id, &read_of(tokens, pb, 400, k as u64));
+        match k < 6 {
+            true => older.push(r.id.clone()),
+            false => newest = r.id.clone(),
+        }
+        nodes.push((p + 2, r.into()));
+    }
+    let c = compile_nodes(&nodes, None, 1_000_000);
+    let pass = c.cleared.expect("a pass at the token line");
+    assert!(pass.tokens_after < pass.tokens_before, "{pass:?}");
+    let ids = cleared_ids(&c);
+    assert!(
+        !ids.contains(&newest),
+        "the newest exchange's result was cleared: {ids:?}"
+    );
+    assert_eq!(ids, older, "the six older reads, oldest first");
+    let text = serde_json::to_string(&c.request.messages).unwrap();
+    assert_eq!(text.matches("Result cleared to save context").count(), 6);
+    closed(&c).unwrap();
+}
