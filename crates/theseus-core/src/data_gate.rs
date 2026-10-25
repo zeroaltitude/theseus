@@ -330,6 +330,47 @@ mod tests {
         assert_eq!(sent.requests().len(), 1, "an unrestricted model is sent it");
     }
 
+    /// Kimi is gated exactly as GLM is (theseus-rgbtz): by its host and by its
+    /// name, a restricted model is sent nothing without a pass for the
+    /// request's digest, a pass lifts no sensitive name, and a Claude id
+    /// asked of the Moonshot host is gated the same way.
+    #[tokio::test]
+    async fn kimi_is_gated_exactly_as_glm_is() {
+        let cases = [
+            ("https://api.z.ai/api/anthropic", "glm-5.3"),
+            ("https://api.moonshot.ai/anthropic", "kimi-k3.1-pro"),
+            (
+                "https://api.moonshot.ai/anthropic",
+                "kimi-k3.1-pro-highspeed",
+            ),
+            ("https://api.moonshot.ai/anthropic", "claude-sonnet-5-5"),
+            // The name alone, behind a host that vouches `us`.
+            ("https://proxy.example.com", "kimi-k3.1-pro"),
+            ("https://proxy.example.com", "acme/kimi-k4"),
+        ];
+        for (base, model) in cases {
+            let mut named = request(model, "Draft the Examplecorp's budget\nmemo.");
+            let mut plain = request(model, "Draft a budget memo.");
+            let (mut g, sent) = gated(base, &["Examplecorp"]);
+            g.vouched = Some(ModelOrigin::Us);
+            assert_eq!(
+                send(&g, &plain).await,
+                Err("data_gate".into()),
+                "{model}: no pass"
+            );
+            named.data_pass = Some(crate::data::DataPass::for_test(&named.digest()));
+            assert_eq!(
+                send(&g, &named).await,
+                Err("data_gate".into()),
+                "{model}: a name"
+            );
+            assert!(sent.requests().is_empty(), "{model}: nothing was sent");
+            plain.data_pass = Some(crate::data::DataPass::for_test(&plain.digest()));
+            assert_eq!(send(&g, &plain).await, Ok(()), "{model}: open work");
+            assert_eq!(sent.requests().len(), 1, "{model}");
+        }
+    }
+
     /// A model of EU origin is not on the allowlist (theseus-xs5ah): a
     /// provider the operator vouches `eu` for is refused a named request with
     /// nothing sent, though the China-origin block alone would pass it; a
