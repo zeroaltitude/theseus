@@ -117,6 +117,10 @@ impl Rig {
 
     /// `run`, with `ro` bound read-only beside it, as the door binds main's
     /// copy of the gate script for a self build's gate.
+    ///
+    /// One job to a rig: the correlation id is fixed, so a second call reads
+    /// the first job's completion back out of the spool at once. A test that
+    /// wants two commands puts both in one script.
     fn run_ro(&self, argv: &[&str], ro: Vec<PathBuf>) -> Value {
         let log = self.path("job.log");
         let job = Job {
@@ -324,23 +328,25 @@ fn a_jailed_gate_script_runs_though_its_directory_is_approve_listed() {
     let gates = "repo/state/self/gates";
     let r = Rig::approving(None, &[gates]);
     let gate = r.path(gates).join("gate-abc.sh");
+    // One script, one job: it reads its own bytes, then asks the floor for
+    // the sealed set's item and the store's data, which must still be gone.
     std::fs::write(
         &gate,
-        "set -eu\nprintf 'gate ran, %s bytes of me\\n' \"$(wc -c < \"$0\")\" > gate.out\n",
+        format!(
+            "set -eu\n\
+             printf 'gate ran, %s bytes of me\\n' \"$(wc -c < \"$0\")\" > gate.out\n\
+             for f in {repo}/sealed/item {repo}/state/store/data; do\n\
+               if cat \"$f\" 2>/dev/null; then echo \"READ $f\"; else echo \"gone $f\"; fi\n\
+             done > floor.out\n",
+            repo = r.path("repo").display()
+        ),
     )
     .unwrap();
     std::fs::set_permissions(&gate, std::fs::Permissions::from_mode(0o600)).unwrap();
-    std::fs::set_permissions(
-        r.path(gates),
-        std::fs::Permissions::from_mode(0o700),
-    )
-    .unwrap();
+    std::fs::set_permissions(r.path(gates), std::fs::Permissions::from_mode(0o700)).unwrap();
     // The door's own path for it, as the view will bind it.
     let gate = gate.canonicalize().unwrap();
-    let d = r.run_ro(
-        &["bash", &gate.to_string_lossy()],
-        vec![gate.clone()],
-    );
+    let d = r.run_ro(&["bash", &gate.to_string_lossy()], vec![gate.clone()]);
     assert_ne!(
         d["exit_code"], 127,
         "the gate script was bound and still not visible, as in cr481: {d}"
@@ -351,17 +357,7 @@ fn a_jailed_gate_script_runs_though_its_directory_is_approve_listed() {
     // It read its own text through the bind, not an empty file.
     let bytes = std::fs::metadata(&gate).unwrap().len();
     assert!(out.contains(&format!("{bytes} bytes")), "{out}");
-    // The floor is masked still, with the script's directory un-masked: the
-    // sealed set and the store are not there to be read.
-    let probe = format!(
-        "for f in {}/sealed/item {}/state/store/data; do \
-           if cat \"$f\" 2>/dev/null; then echo \"READ $f\"; else echo \"gone $f\"; fi; \
-         done > floor.out",
-        r.path("repo").display(),
-        r.path("repo").display()
-    );
-    let d = r.run_ro(&["sh", "-c", &probe], vec![gate]);
-    assert_eq!(d["exit_code"], 0, "{d}");
+    // And the floor is masked still, with the script's directory un-masked.
     let floor = r.read("tree/floor.out");
     assert_eq!(floor.matches("gone ").count(), 2, "{floor}");
     assert!(!floor.contains("SECRET"), "{floor}");
