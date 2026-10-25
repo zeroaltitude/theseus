@@ -94,6 +94,15 @@ fn turns(r: &Rig, sid: &str) -> u32 {
         .turns as u32
 }
 
+/// Wait for the session's books to show `n` turns. A turn's reply is posted
+/// to the place before the turn ends, and the turn counts itself into the
+/// session record in its last frame, so a reply seen in Discord does not yet
+/// mean a turn booked.
+async fn booked(r: &Rig, sid: &str, n: u32) {
+    r.until("the turn booked in its session", || turns(r, sid) == n)
+        .await;
+}
+
 /// `/thread <sub>` typed by `user` in `channel` (a Discord thread under
 /// `parent` when that is given), and the words the binding answered it with.
 async fn slash(
@@ -195,6 +204,7 @@ async fn a_private_channel_runs_a_thread_and_a_shared_one_refuses() {
     assert!(!reply.content.contains("-# →"), "{}", reply.content);
     assert!(!reply.silent(), "chat messages ping as ever: {reply:?}");
     let sid = session_of(&r, "tides").expect("the thread's session");
+    booked(&r, &sid, 1).await;
     assert_eq!(turns(&r, &sid), 1);
     assert_eq!(r.core.outbox.target(&sid).as_deref(), Some(lab.as_str()));
 
@@ -256,6 +266,7 @@ async fn a_discord_thread_under_a_private_channel_binds_and_one_under_a_shared_o
     })
     .await;
     let sid = session_of(&r, "tides").unwrap();
+    booked(&r, &sid, 1).await;
     assert_eq!(turns(&r, &sid), 1);
 }
 
@@ -644,7 +655,9 @@ async fn the_config_binds_a_channel_when_its_thread_exists() {
     r.say((ANA, "ana"), Some(LAB), "hello");
     r.until("the reply", || holding(&r, LAB, "via the config").is_some())
         .await;
-    assert_eq!(turns(&r, &session_of(&r, "tides").unwrap()), 1);
+    let sid = session_of(&r, "tides").unwrap();
+    booked(&r, &sid, 1).await;
+    assert_eq!(turns(&r, &sid), 1);
 }
 
 /// A thread's tasks post their board where the thread is shown: the task's
