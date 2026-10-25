@@ -2,9 +2,11 @@
 // conversations, jobs, and what is due today; the filters, the search's "n of m", the counters and the model chip.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { boardRows, chipChoices, columnsOf, countersOf, matchesFilters, modelOf, projectOf, selects, shown, spanMs, spendToday } from '../src/ops/board.ts'
+import { allCounters, boardRows, chipChoices, chipWords, columnsOf, COLUMN_OF, contextOf, counterLabel, countersOf, matchesFilters, modelOf, projectOf, selects, shown, spanMs, spendToday } from '../src/ops/board.ts'
 import { cardFacts } from '../src/ops/facts.ts'
-import { board, HOUR, info, MIN, NOW, record, session, view } from './ops-fixtures.ts'
+import { queueOf } from '../src/ops/queue.ts'
+import { RECOMMENDED } from '../src/ops/state.ts'
+import { board, confirm, HOUR, info, MIN, NOW, record, session, view } from './ops-fixtures.ts'
 
 const cx = { now: NOW, spentToday: new Set<string>(), records: [] }
 
@@ -166,4 +168,81 @@ test('a running view and a view waiting on a job are working; a sleeping one wit
   assert.equal(countersOf(rows, NOW, 0).working, 2)
   assert.equal(rows.find((r) => r.id === 'ses_s')!.column, 'scheduled')
   assert.equal(countersOf(rows, NOW, 0).still, 1)
+})
+
+// ---- the one work set (theseus-odj0m) ----
+
+test('a record that is not a task’s own is a step row; a plan is one some record names as parent, derived and never stored', () => {
+  const tk = [record('tsk_a', { title: 'Plan the dig' }), record('tsk_p', { kind: 'project', title: 'Harbour wall' })]
+  const before = boardRows({ views: [], tasks: [], sessions: [], records: tk, now: NOW })
+  assert.deepEqual(before.map((r) => [r.id, r.kind, r.plan]), [['tsk_a', 'step', false], ['tsk_p', 'step', true]], 'a project is always a plan')
+  const after = boardRows({ views: [], tasks: [], sessions: [], records: [...tk, record('tsk_c', { parent: 'tsk_a' })], now: NOW })
+  assert.equal(after.find((r) => r.id === 'tsk_a')!.plan, true, 'it gains a child, it is a plan')
+  assert.deepEqual(after.map((r) => r.id).sort(), ['tsk_a', 'tsk_c', 'tsk_p'], 'and keeps its id')
+  assert.equal(after.find((r) => r.id === 'tsk_c')!.parent, 'tsk_a')
+})
+
+test('a task’s own record rides on its row: the row keeps its session id and adds the record’s', () => {
+  const b = board()
+  const rows = boardRows({ ...b, records: [record('tsk_t2', { session: 'ses_t2', title: 'Tabulate' }), record('tsk_kid', { parent: 'tsk_t2' })], now: NOW })
+  const t2 = rows.find((r) => r.id === 'ses_t2')!
+  assert.equal(t2.recordId, 'tsk_t2')
+  assert.equal(t2.plan, true, 'a task that carries a plan')
+  assert.ok(!rows.some((r) => r.id === 'tsk_t2'), 'no second card for it')
+  assert.ok(selects(t2, 'tsk_t2') && selects(t2, 'ses_t2'), 'the selection names it by either')
+  assert.equal(rows.find((r) => r.id === 'tsk_kid')!.carrier, 'ses_t2', 'a taskless step is carried by the nearest task above it')
+})
+
+test('an ask maps to its card: two asks on one task are one needs card with asks 2; a loose ask is a row of its own', () => {
+  const b = board()
+  const q = queueOf({ confirms: [confirm('act_c1', { session_id: 'ses_t2' }), confirm('act_c2', { session_id: 'ses_t2', tool: 'fs.delete' })], views: b.views })
+  const loose = queueOf({ confirms: [], views: [], asks: [{ ask: { ask_id: 'ask_9', session_id: 'ses_nowhere', question: 'Which tide?', options: [], message: 'm', expires_ms: NOW + HOUR } as never, heard_ms: NOW }] })
+  const rows = boardRows({ ...b, queue: [...q.filter((i) => i.confirm), ...loose], now: NOW })
+  const t2 = rows.find((r) => r.id === 'ses_t2')!
+  assert.equal(t2.asks, 2)
+  assert.equal(t2.bucket, 'needs', 'a card with an ask needs you, whatever it was doing')
+  assert.equal(t2.column, 'needs')
+  const ask = rows.find((r) => r.id === 'a:ask_9')!
+  assert.deepEqual([ask.kind, ask.bucket, ask.column, ask.counted, ask.asks, ask.thread], ['ask', 'needs', 'needs', true, 1, undefined], 'no thread: it is in Home')
+  assert.equal(rows.filter((r) => r.kind === 'ask').length, 1)
+})
+
+test('a seal maps to its thread’s head, and a failure to its card', () => {
+  const b = board()
+  const q = queueOf({ confirms: [], views: b.views, groups: [{ slug: 'tide-tables', title: 'Tide tables', state: 'active', session_id: 'ses_tides', last_active_ms: NOW, context_tokens: 1, today_usd: 0, seal_pending: 'it read a private chart' } as never] })
+  const rows = boardRows({ ...b, queue: q, now: NOW })
+  assert.equal(rows.find((r) => r.id === 'ses_tides')!.asks, 1, 'the seal is an ask on the head conversation')
+  assert.equal(rows.find((r) => r.id === 'ses_t5')!.asks, 1, 'a failure not dismissed is an ask on its task')
+})
+
+test('COLUMN_OF null: a row with no column is on no Board column and no counter', () => {
+  assert.equal(COLUMN_OF.todo, null)
+  const rows = boardRows({ views: [], tasks: [], sessions: [], records: [record('tsk_td', { state: 'accepted' })], now: NOW, calls: RECOMMENDED })
+  assert.deepEqual([rows[0].bucket, rows[0].column, rows[0].counted], ['todo', null, false])
+  const c = columnsOf(rows, NOW)
+  assert.equal([c.needs, c.working, c.paused, c.scheduled, c.done, c.older].flat().length, 0)
+  assert.deepEqual(countersOf(rows, NOW, 0), { working: 0, paused: 0, still: 0, done: 0, spent: 0 })
+  const today = boardRows({ views: [], tasks: [], sessions: [], records: [record('tsk_td', { state: 'accepted' })], now: NOW })
+  assert.deepEqual([today[0].bucket, today[0].column], ['paused', 'paused'], 'by default a listed step is paused·queued')
+})
+
+test('countersOf reads the rows alone: a row not counted is no count, and all six counters come from the same rows', () => {
+  const rows = boardRows({ ...board(), now: NOW })
+  const lone = rows.map((r) => (r.id === 'act_j1' ? { ...r, counted: false } : r))
+  assert.equal(countersOf(lone, NOW, 0).working, countersOf(rows, NOW, 0).working - 1)
+  assert.equal(countersOf.length, 3, 'rows, now, dollars: no queue')
+  const all = allCounters(rows, NOW, 2)
+  assert.deepEqual(all, { needs: 0, working: 3, paused: 1, still: 2, done: 2, spent: 2 }, 'no asks were given: today’s answer counts asks')
+})
+
+test('a counter click keeps records too: the filter reads the one set, and its context is the parents of what it keeps', () => {
+  const records = [record('tsk_pl', { state: 'in_progress', origin: { session: 'ses_t2' } as never }), record('tsk_st', { state: 'suspended', parent: 'tsk_pl', origin: { session: 'ses_t2' } as never })]
+  const rows = boardRows({ ...board(), records, now: NOW })
+  const kept = shown(rows, { bucket: 'paused' }, '', cx).rows.map((r) => r.id).sort()
+  assert.deepEqual(kept, ['ses_t3', 'tsk_st'], 'a paused task and a suspended step')
+  const ctx = contextOf(rows, new Set(kept))
+  assert.deepEqual([...ctx].sort(), ['ses_t2', 'tsk_pl'], 'its plan, and the task the plan hangs from')
+  assert.equal(chipWords('paused', 4), 'paused·queued · 4')
+  assert.equal(chipWords('still', 2, RECOMMENDED), 'scheduled today · 2')
+  assert.equal(counterLabel('still'), 'still today', 'the label stays until the owner answers Q8')
 })

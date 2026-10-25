@@ -14,8 +14,9 @@
 // - Edges: a view's parent (solid; it flows while the child runs), a record's deps (dashed, with an arrow: "waits
 //   on"), and `retry_of` (dotted).
 import type { DataMark, TaskInfo, TaskRecord, WorkView } from '@protocol'
-import type { OpsRow } from './board.ts'
-import { bucketOfWork, isEndedState } from './state.ts'
+import { boardRows, type OpsRow } from './board.ts'
+import { queueOf } from './queue.ts'
+import { isEndedState, type StateBucket } from './state.ts'
 
 export const COL_W = 288
 export const ROW_H = 140
@@ -27,7 +28,7 @@ export const NODE_CAP = 400
 export const DONE_FOLD_MS = 3_600_000
 export const HOME = 'home'
 
-export type GKind = 'conversation' | 'task' | 'step' | 'job' | 'wake' | 'routine' | 'watch' | 'project' | 'done' | 'folded'
+export type GKind = 'conversation' | 'task' | 'step' | 'job' | 'wake' | 'routine' | 'watch' | 'project' | 'ask' | 'done' | 'folded'
 
 export interface GNode {
   /** What the address and the selection name it by: a conversation's or task's session (`ses_`), else its own id. */
@@ -54,6 +55,8 @@ export interface GNode {
   members?: string[]
   /** New since the last layout: it fades in. */
   fresh: boolean
+  /** Its row's bucket (`ops/state.ts`'s `bucketOfCard`): the one the counters count it by. Absent on a fold. */
+  bucket?: StateBucket
 }
 
 export type EdgeKind = 'parent' | 'deps' | 'retry'
@@ -76,6 +79,8 @@ export interface Graph {
   order: readonly string[]
   /** How many nodes the cap folded away. */
   folded: number
+  /** How many nodes `LayoutOpts.keep` left out of the drawing. */
+  hidden: number
   /** An opening was asked for and the cap could not hold it: the layout folded it back. */
   cantOpen?: boolean
 }
@@ -89,6 +94,9 @@ export interface LayoutOpts {
   /** Fold roots the owner opened (`+N folded`): their subtrees are never chosen to fold, unless the cap cannot hold. */
   opened?: ReadonlySet<string>
   cap?: number
+  /** The ids a counter's click keeps and the context around them: every other node is left out of the drawing, its slot
+   *  kept as a hole (so nothing moves), and a lane with none of them shrinks to its head. Absent, nothing is hidden. */
+  keep?: ReadonlySet<string>
 }
 
 const ENDED_RECORD = new Set(['done', 'failed', 'abandoned'])
@@ -109,56 +117,64 @@ interface Item {
   view?: WorkView
   record?: TaskRecord
   retryOf?: string
+  bucket: StateBucket
+  asks: number
 }
 
 /** A view's node id: a conversation or a task by its session, as the board's rows; anything else by its own id. */
 export const nodeIdOf = (v: Pick<WorkView, 'id' | 'kind' | 'session_id'>): string =>
   (v.kind === 'conversation' || v.kind === 'task') && v.session_id ? v.session_id : v.id
 
+/** The graph of views and records, laid out through the board's rows (`boardRows`): the form the tests of the layout
+ *  take. The page lays out `layoutRows` of the one work set. */
 export function opsLayout(views: readonly WorkView[], records: readonly TaskRecord[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph {
-  return layout(views, records, lanes, prev, opts)
+  const queue = queueOf({ confirms: [], views }).filter((i) => i.kind === 'question')
+  return layout(boardRows({ views, tasks: [], sessions: [], records, queue, now: opts.now, past: false }), lanes, prev, opts)
 }
 
-function layout(views: readonly WorkView[], records: readonly TaskRecord[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph {
+/** Every node is a row of the work set, and every row a node (a wake, a routine, a watch and a project only under
+ *  "+ future"; an ask no card owns is a node of its own). */
+export const layoutRows = (rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph => layout(rows, lanes, prev, opts)
+
+function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph | null, opts: LayoutOpts): Graph {
   // A layout that placed nothing (the page before its first read) holds no order to keep.
   if (prev && prev.nodes.length === 0) prev = null
   const { now, future = false, expanded = new Set<string>(), opened = new Set<string>(), cap = NODE_CAP } = opts
   const items = new Map<string, Item>()
   const alias = new Map<string, string>()
   const asks = new Map<string, number>()
-  const bySession = new Map<string, string>()
 
-  for (const v of views) {
-    if (v.kind === 'question') { if (v.parent) asks.set(v.parent, (asks.get(v.parent) ?? 0) + 1); continue }
-    if (v.kind === 'system' || (FUTURE.has(v.kind) && !future)) continue
-    const id = nodeIdOf(v)
-    alias.set(v.id, id)
-    if (v.session_id && (v.kind === 'conversation' || v.kind === 'task')) bySession.set(v.session_id, id)
-    items.set(id, {
-      id, kind: v.kind as GKind, title: v.title || v.attention.label || id, state: v.paused ? 'paused' : v.state, parentRef: v.parent, thread: v.thread,
-      startedMs: v.started_at_ms || v.state_since_ms, endedMs: v.ended_at_ms ?? (isEndedState(v.state) ? v.state_since_ms : undefined),
-      ended: isEndedState(v.state), needs: v.attention.level === 'needs_you' && !v.dismissed, data: v.data, view: v, retryOf: v.retry_of,
-    })
-  }
-  for (const t of records) {
-    // A record whose task runs in its own session is that task's node; a step is a node of its own.
-    const same = (t.session && bySession.get(t.session)) || (items.has(t.id) ? t.id : undefined)
-    if (same) {
-      alias.set(t.id, same)
-      const it = items.get(same)!
-      it.record ??= t
-      // A suspended record whose execution ended is open and recoverable: drawn paused, never folded as done.
-      if (it.view && it.ended && t.state === 'suspended' && bucketOfWork(it.view, now, t) !== 'ended') { it.ended = false; it.state = 'suspended' }
+  for (const r of rows) {
+    const v = r.view ?? pastView(r)
+    const rec = r.record
+    for (const k of [r.id, v?.id, r.recordId, r.task?.info?.execution_id]) if (k) alias.set(k, r.id)
+    if (r.kind === 'ask') {
+      items.set(r.id, { id: r.id, kind: 'ask', title: r.title, state: 'needs_you', thread: r.thread, startedMs: r.activityMs, ended: false, needs: true, bucket: r.bucket, asks: 1 })
       continue
     }
-    const project = t.kind === 'project' || t.kind === 'milestone'
+    if (v) {
+      if (v.kind === 'question' || v.kind === 'system' || (FUTURE.has(v.kind) && !future)) continue
+      const it: Item = {
+        id: r.id, kind: v.kind as GKind, title: v.title || v.attention.label || r.id, state: v.paused ? 'paused' : v.state, parentRef: r.parent, thread: v.thread,
+        startedMs: v.started_at_ms || v.state_since_ms, endedMs: v.ended_at_ms ?? (isEndedState(v.state) ? v.state_since_ms : undefined),
+        ended: isEndedState(v.state), needs: (v.attention.level === 'needs_you' && !v.dismissed) || r.bucket === 'needs', data: v.data, view: v, retryOf: v.retry_of, record: rec,
+        bucket: r.bucket, asks: r.asks,
+      }
+      // A suspended record whose execution ended is open and recoverable: drawn paused, never folded as done.
+      if (it.ended && rec?.state === 'suspended' && r.bucket !== 'ended') { it.ended = false; it.state = 'suspended' }
+      items.set(r.id, it)
+      continue
+    }
+    if (!rec) continue
+    const project = rec.kind === 'project' || rec.kind === 'milestone'
     if (project && !future) continue
-    items.set(t.id, {
-      id: t.id, kind: project ? 'project' : 'step', title: t.title, state: t.state, parentRef: project ? undefined : t.parent ?? bySession.get(t.origin.session),
-      startedMs: t.created_at_ms, endedMs: ENDED_RECORD.has(t.state) ? t.updated_at_ms : undefined, ended: ENDED_RECORD.has(t.state), needs: !!t.proposal, record: t,
+    items.set(r.id, {
+      id: r.id, kind: project ? 'project' : 'step', title: rec.title, state: rec.state, parentRef: r.parent,
+      startedMs: rec.created_at_ms, endedMs: ENDED_RECORD.has(rec.state) ? rec.updated_at_ms : undefined, ended: ENDED_RECORD.has(rec.state), needs: r.bucket === 'needs', record: rec,
+      bucket: r.bucket, asks: r.asks,
     })
   }
-  for (const [k, n] of asks) { const id = alias.get(k); if (id && items.has(id)) asks.set(id, n) }
+  for (const it of items.values()) if (it.asks) asks.set(it.id, it.asks)
 
   // The tree: each item's parent by node id, its lane, its depth.
   const parentOf = new Map<string, string>()
@@ -266,6 +282,12 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
   fresh.sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : 1))
   for (const f of fresh) take(f.id, f.lane, f.col, (used.get(cell(f.lane, f.col)) ?? -1) + 1)
 
+  // A node `keep` leaves out keeps its slot but is not drawn; a fold stays when any of its members does.
+  const hidden = new Set<string>()
+  if (opts.keep) for (const n of shown.values()) if (!opts.keep.has(n.id) && !n.members?.some((m) => opts.keep!.has(m))) hidden.add(n.id)
+  const seenRow = new Map<string, number>()
+  for (const [id, sl] of Object.entries(slots)) if (!hidden.has(id)) seenRow.set(sl.lane, Math.max(seenRow.get(sl.lane) ?? 0, sl.row + 1))
+
   // The lanes: the last layout's order, then the new ones, needs-you first and home last. A band keeps its rows and
   // a spare one; it grows only when its rows are used up.
   const metas = new Map<string, LaneMeta>([...lanes.map((l) => [l.key, l] as const), [HOME, lanes.find((l) => l.key === HOME) ?? { key: HOME, title: 'Home · no thread', needs: 0 }]])
@@ -285,8 +307,9 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
     const was = prev?.bands[k]
     const rows = was !== undefined && n <= was ? was : n + 1
     bands[k] = rows
-    const height = LANE_HEAD + rows * ROW_H
-    out.push({ ...metas.get(k)!, y, height, rows })
+    const drawn = opts.keep ? seenRow.get(k) ?? 0 : rows
+    const height = LANE_HEAD + drawn * ROW_H
+    out.push({ ...metas.get(k)!, y, height, rows: drawn })
     y += height + LANE_GAP
   }
   const top = new Map(out.map((l) => [l.key, l.y]))
@@ -294,6 +317,7 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
   const nodes: GNode[] = []
   let cols = 1
   for (const n of shown.values()) {
+    if (hidden.has(n.id)) continue
     const s = slots[n.id]
     cols = Math.max(cols, s.col + 1)
     const it = n.it
@@ -301,7 +325,7 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
       id: n.id, kind: n.kind, lane: s.lane, col: s.col, row: s.row, x: GUTTER + s.col * COL_W, y: top.get(s.lane)! + LANE_HEAD + s.row * ROW_H,
       title: it?.title ?? (n.kind === 'done' ? `✓ ${n.members!.length} done` : `+${n.members!.length} folded`), state: it?.state ?? (n.kind === 'done' ? 'done' : 'folded'),
       view: it?.view, record: it?.record, parent: n.parent && shown.has(n.parent) ? n.parent : undefined, needs: it?.needs ?? false, asks: asks.get(n.id) ?? 0,
-      data: it?.data, startedMs: it?.startedMs ?? 0, members: n.members, fresh: prev != null && !placed[n.id],
+      data: it?.data, startedMs: it?.startedMs ?? 0, members: n.members, fresh: prev != null && !placed[n.id], ...(it ? { bucket: it.bucket } : {}),
     })
   }
   nodes.sort((a, b) => (a.id < b.id ? -1 : 1))
@@ -311,7 +335,7 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
   const edge = (from: string | undefined, to: string | undefined, kind: EdgeKind, running = false) => {
     const s = from && at(from)
     const t = to && at(to)
-    if (!s || !t || s === t) return
+    if (!s || !t || s === t || hidden.has(s) || hidden.has(t)) return
     const id = `${kind}:${s}>${t}`
     const had = edges.get(id)
     edges.set(id, { id, source: s, target: t, kind, running: running || (had?.running ?? false) })
@@ -322,7 +346,7 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
     for (const d of it.record?.deps ?? []) edge(it.id, d, 'deps')
     if (it.retryOf) edge(it.id, it.retryOf, 'retry')
   }
-  return { nodes, edges: [...edges.values()].sort((a, b) => (a.id < b.id ? -1 : 1)), lanes: out, width: GUTTER + cols * COL_W, slots, bands, order, folded, ...(cantOpen ? { cantOpen } : {}) }
+  return { nodes, edges: [...edges.values()].sort((a, b) => (a.id < b.id ? -1 : 1)), lanes: out, width: GUTTER + cols * COL_W, slots, bands, order, folded, hidden: hidden.size, ...(cantOpen ? { cantOpen } : {}) }
 }
 
 /** A task's kernel state as a work state, for the time machine's graph, which has the tasks but no views. */
@@ -355,13 +379,13 @@ function pastView(r: OpsRow): WorkView | undefined {
 
 /** The lens's memory of its last layout: each call lays out over the last one (sticky by id), and a new `epoch` (the
  *  lens's "tidy") forgets it, so that layout is fresh. */
-export function keeper(): { lay: (views: readonly WorkView[], records: readonly TaskRecord[], lanes: readonly LaneMeta[], opts: LayoutOpts, epoch: number) => Graph } {
+export function keeper(): { lay: (rows: readonly OpsRow[], lanes: readonly LaneMeta[], opts: LayoutOpts, epoch: number) => Graph } {
   let prev: Graph | null = null
   let at = 0
   return {
-    lay: (views, records, lanes, opts, epoch) => {
+    lay: (rows, lanes, opts, epoch) => {
       if (epoch !== at) { prev = null; at = epoch }
-      prev = opsLayout(views, records, lanes, prev, opts)
+      prev = layoutRows(rows, lanes, prev, opts)
       return prev
     },
   }

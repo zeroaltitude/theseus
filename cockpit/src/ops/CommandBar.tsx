@@ -12,6 +12,8 @@ import { toneHex, type Tone } from '@/lib/taxonomy'
 import { Segmented } from '@/components/ui'
 import { HelpButton } from '@/components/Help'
 import { LENSES, type Bucket, type Filters, type FilterKey, type Lens } from './address'
+import { counterLabel } from './board'
+import { OWNER_CALLS, type OwnerCalls } from './state'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
 
@@ -32,7 +34,9 @@ const LENS_KEYS: Record<Lens, string> = { graph: 'g g', board: 'g b', timeline: 
 const SAMPLES = 60
 const EVERY_MS = 60_000
 
-export function CommandBar({ counts, f, onFilter, lens, onLens, choices, q, onQ, n, of, onNew, searchRef, timeline }: {
+export function CommandBar({ calls = OWNER_CALLS, counts, f, onFilter, lens, onLens, choices, q, onQ, n, of, onNew, searchRef, timeline }: {
+  /** The owner's open calls: Q8 renames "still today". */
+  calls?: OwnerCalls
   counts: CounterValues; f: Filters; onFilter: (k: FilterKey, v: string | null) => void; lens: Lens; onLens: (l: Lens) => void
   choices: Partial<Record<FilterKey, string[]>>; q: string; onQ: (q: string) => void; n: number; of: number; onNew: () => void
   searchRef: RefObject<HTMLInputElement | null>
@@ -49,7 +53,7 @@ export function CommandBar({ counts, f, onFilter, lens, onLens, choices, q, onQ,
     <div className="flex flex-col gap-2" data-testid="ops-bar">
       <div className="flex flex-wrap items-stretch gap-2">
         {COUNTERS.map((c) => (
-          <Counter key={c.b} c={c} value={counts[c.b]} series={hist[c.b]} active={f.bucket === c.b} onClick={() => onFilter('bucket', f.bucket === c.b ? null : c.b)} />
+          <Counter key={c.b} c={c} label={counterLabel(c.b, calls)} value={counts[c.b]} series={hist[c.b]} active={f.bucket === c.b} onClick={() => onFilter('bucket', f.bucket === c.b ? null : c.b)} />
         ))}
         {lens === 'timeline' && timeline && <TimelineCounters {...timeline} />}
         <span className="ml-auto flex items-center gap-2">
@@ -57,7 +61,7 @@ export function CommandBar({ counts, f, onFilter, lens, onLens, choices, q, onQ,
           <ActBtn verb="new_task" on={on} onClick={onNew} title="N: a new task, its home the conversation under the cursor"><Plus size={12} /> New task</ActBtn>
         </span>
       </div>
-      {table && <CounterTable hist={hist} />}
+      {table && <CounterTable hist={hist} calls={calls} />}
       <div className="flex flex-wrap items-center gap-2">
         <div role="tablist" aria-label="Lens" className="flex items-center rounded-lg bg-black/30 p-0.5 ring-1 ring-line">
           {LENSES.map((l) => (
@@ -84,7 +88,7 @@ export function CommandBar({ counts, f, onFilter, lens, onLens, choices, q, onQ,
   )
 }
 
-function Counter({ c, value, series, active, onClick }: { c: (typeof COUNTERS)[number]; value: number; series: number[]; active: boolean; onClick: () => void }) {
+function Counter({ c, label, value, series, active, onClick }: { c: (typeof COUNTERS)[number]; label: string; value: number; series: number[]; active: boolean; onClick: () => void }) {
   // The needs-you counter pulses once when it rises; Calm stills it (index.css).
   const was = useRef(value)
   const [pulse, setPulse] = useState(0)
@@ -92,12 +96,12 @@ function Counter({ c, value, series, active, onClick }: { c: (typeof COUNTERS)[n
   const glow = c.b === 'needs' && value > 0
   const pts = sparkPoints(series.length > 1 ? series : [value, value], 64, 16)
   return (
-    <button key={pulse} onClick={onClick} aria-pressed={active} title={`${c.label}${c.key ? ` (${c.key})` : ''}: a click shows only these`}
+    <button key={pulse} onClick={onClick} aria-pressed={active} title={`${label}${c.key ? ` (${c.key})` : ''}: ${value} on the Board and the Graph. A click shows only these, with their parents as context; click again, × or Esc to clear`}
       className={cn('flex min-w-[118px] flex-col gap-0.5 rounded-lg bg-hull/70 px-2.5 py-1.5 text-left ring-1 transition-shadow',
         active ? 'ring-gold shadow-[0_0_14px_-3px_rgb(214_165_72_/_0.6)]' : 'ring-line hover:ring-line-strong',
         glow && !active && 'ring-wait/60 shadow-[0_0_16px_-4px_var(--color-wait)]', pulse > 0 && 'ops-pulse-once')}>
       <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
-        <span style={{ color: toneHex[c.tone] }} aria-hidden>{c.glyph}</span>{c.label}{c.key && <span className="kbd ml-auto !text-[9.5px]">{c.key}</span>}
+        <span style={{ color: toneHex[c.tone] }} aria-hidden>{c.glyph}</span>{label}{c.key && <span className="kbd ml-auto !text-[9.5px]">{c.key}</span>}
       </span>
       <span className="flex items-end gap-2">
         <span className="num text-[18px] font-semibold leading-none" style={{ color: c.b === 'needs' && value === 0 ? undefined : toneHex[c.tone] }}>{c.b === 'spent' ? usd(value) : value}</span>
@@ -122,7 +126,7 @@ function TimelineCounters({ meetings, clashes }: { meetings: number; clashes: nu
 }
 
 /** The sparklines' numbers: each counter every ten minutes over the last hour, as sampled. */
-function CounterTable({ hist }: { hist: Record<Bucket, number[]> }) {
+function CounterTable({ hist, calls }: { hist: Record<Bucket, number[]>; calls: OwnerCalls }) {
   const at = [-60, -50, -40, -30, -20, -10, 0]
   const pick = (s: number[], m: number) => s.length ? s[Math.max(0, s.length - 1 + m)] : undefined
   return (
@@ -131,7 +135,7 @@ function CounterTable({ hist }: { hist: Record<Bucket, number[]> }) {
       <tbody>
         {COUNTERS.map((c) => (
           <tr key={c.b} className="border-t border-line/50">
-            <td className="px-2 text-ink-dim">{c.glyph} {c.label}</td>
+            <td className="px-2 text-ink-dim">{c.glyph} {counterLabel(c.b, calls)}</td>
             {at.map((m) => { const v = pick(hist[c.b], m); return <td key={m} className="px-2 text-right text-ink">{v === undefined || hist[c.b].length - 1 + m < 0 ? '—' : c.b === 'spent' ? usd(v) : v}</td> })}
           </tr>
         ))}
