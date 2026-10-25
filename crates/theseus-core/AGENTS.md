@@ -124,7 +124,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     every dozen calls and cleared the first files read, which the model then read again). One recompile, the cleared
     results kept as its report's drops of tier `cleared` (no store format: the report is stored already), which the
     render reads, so appends render the same stubs; a pass that would leave the request above halfway from the line to
-    the keep does not run, so passes stay rare. Each pass is one
+    the keep does not run, so passes stay rare, except past the percent line: there a refused pass is retried keeping only
+    the newest exchange whole and taken under the 20-exchange rule's own 42.5 % line (results of 2,000 characters or
+    fewer are never cleared yet count toward the guard, so without the retry a session of them climbed to the ring,
+    larger than the old rule left it). Each pass is one
     `context.cleared` row (`fact::compaction::Cleared`, from the compile step). The stub names the call and how to
     get the result back (a kept output's `full_ref` when there is one); an `fs_read`'s names the lines its result held
     and the file's length (`clearing/remember.rs`, read from the result's own footer, never from the call's input), and

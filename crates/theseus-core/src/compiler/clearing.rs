@@ -15,7 +15,11 @@
 //! cannot take the estimate halfway back from the line to the keep does not
 //! run (`clear`'s doc says the formula): the newest exchange alone holds too
 //! much, the next loop would pass the line again, and the ring makes room
-//! instead. The stub names the call, what part of a file it read, what the
+//! instead. Past the percent line, where the 20-exchange rule cleared, a pass
+//! the guard refuses is tried again keeping only the newest exchange whole and
+//! taken when it ends under that rule's own line (`CLEAR_AT` + `CLEAR_TO`, halved):
+//! results under `MIN_CHARS` are never cleared, and without the retry a session
+//! of them would climb to the ring where the old rule made room. The stub names the call, what part of a file it read, what the
 //! model wrote after it, and how to get the result back: the kept output's
 //! file when there is one (`remember.rs`).
 
@@ -112,8 +116,10 @@ pub(super) struct Made {
 /// and `CLEAR_AT` % of the budget, the keep the lower of `KEEP_TOKENS` and
 /// what leaves `CLEAR_TO` % less `overhead`, and the pass must leave the
 /// estimate at most `(line + overhead + keep) / 2`. Where the newest
-/// exchange alone holds more, there is no pass and the ring makes room. The
-/// same nodes as a new compilation (trigger `why`), the results it clears and
+/// exchange alone holds more, there is no pass and the ring makes room; but
+/// past the percent line a refused pass is tried again at keep 0 (only the
+/// newest exchange whole) and taken at the old rule's midpoint, so a request
+/// is never larger than the 20-exchange rule left it. The same nodes as a new compilation (trigger `why`), the results it clears and
 /// those cleared before as its report's drops. Reads stub fields first, and
 /// decodes only when the estimate passes the token line.
 pub(super) fn clear(
@@ -145,10 +151,27 @@ pub(super) fn clear(
     let overhead = est.tokens.saturating_sub(live);
     let line = (overhead + at_tokens).min(at.budget * CLEAR_AT / 100);
     let keep = keep_tokens.min((at.budget * CLEAR_TO / 100).saturating_sub(overhead));
-    let (new, chars) = pass(&shown, &already, keep, per_byte);
-    let saved: u64 = new.iter().map(|d| d.tokens).sum();
-    if new.is_empty() || est.tokens.saturating_sub(saved) > (line + overhead + keep) / 2 {
-        return None;
+    let ends = |new: &[BudgetDrop]| {
+        est.tokens
+            .saturating_sub(new.iter().map(|d| d.tokens).sum::<u64>())
+    };
+    let (mut new, mut chars) = pass(&shown, &already, keep, per_byte);
+    if new.is_empty() || ends(&new) > (line + overhead + keep) / 2 {
+        // Past the percent line the 20-exchange rule cleared, so a refusal
+        // here must not leave the request larger than it ended there: small
+        // results, which no pass clears, count in `live` and hold the guard
+        // below what any pass can reach. Keep only the newest exchange whole
+        // and take the pass under the old rule's own line. Everything the
+        // old rule cleared is cleared by this one, so it passes when the old
+        // pass did. Under the percent line the old rule did nothing, and a
+        // refused pass stays refused.
+        if !by_percent {
+            return None;
+        }
+        (new, chars) = pass(&shown, &already, 0, per_byte);
+        if new.is_empty() || ends(&new) > at.budget * (CLEAR_AT + CLEAR_TO) / 200 {
+            return None;
+        }
     }
     let includes: Vec<String> = shown.iter().map(|(_, n)| n.id.clone()).collect();
     let why = match at.new {
