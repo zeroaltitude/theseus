@@ -28,18 +28,20 @@ export function TaskTree({ records, confirms, past }: { records: TaskRecord[]; c
   const retire = useRetire('taskgraph')
   const { show, days } = retire.choice
   const at = past ?? now
-  const out = useMemo(() => hiddenIds(records, (t) => t.id, (t) => t.parent, (t) => recordItem(t, at), show, at, days), [records, show, at, days])
+  // A `?task=` deep link's own record is kept whatever the choice hides, as the Graph lens keeps its focus (F7).
+  const linked = params.get('task')
+  const out = useMemo(() => hiddenIds(records, (t) => t.id, (t) => t.parent, (t) => recordItem(t, at), show, at, days, [linked].filter((x): x is string => !!x)), [records, show, at, days, linked])
   const counts = useMemo(() => tally(records, (t) => recordItem(t, at), at, days), [records, at, days])
   const rows = useMemo(() => taskTree(records).filter(({ t }) => !out.has(t.id)), [records, out])
   const openN = records.filter((t) => !isClosed(t)).length
   // Opening fills the window, so the graph appears where the click was (it used to open in a panel further down).
-  const toggle = () => setParams((p) => writeTaskGraph(p, !open), { replace: !open })
+  const toggle = () => setParams((p) => writeTaskGraph(p, !open), { replace: open })
   return (
     <Panel help="actions.taskgraph" title={<>Plans and steps · {openN} open{records.length ? ` of ${records.length}` : ''}</>} icon={<Network size={13} />} bodyClassName="max-h-[460px] overflow-auto p-2"
       actions={records.length ? <button onClick={toggle} className="flex items-center gap-1 text-[11px] text-live">{open ? <><X size={11} /> close the graph</> : <><Network size={11} /> open as a graph</>}</button> : null}>
-      {past !== undefined && <div className="mb-2 flex items-center gap-1.5 text-[11px] text-wait"><History size={12} /> the task graph shows the present, not the log&rsquo;s moment; its acts are off</div>}
+      {past !== undefined && <div className="mb-2 flex items-center gap-1.5 text-[11px] text-wait"><History size={12} /> the plans and steps show the present, not the log&rsquo;s moment; its acts are off</div>}
       {records.length > 0 && <RetireBar choice={retire.choice} set={retire.set} counts={counts} hidden={out.size} className="mb-2 text-[11px]" />}
-      {!rows.length && <Empty>{records.length ? 'every record is retired: tick a box above to show them' : 'no task records yet'}</Empty>}
+      {!rows.length && <Empty>{records.length ? 'every record is retired: tick a box above to show them' : 'no plans or steps yet'}</Empty>}
       {rows.map(({ t, depth }) => {
         const claim = claimWords(t, now)
         const change = changeWords(t)
@@ -97,7 +99,7 @@ export function TaskGraphView({ records, past }: { records: TaskRecord[]; past?:
   const now = useTick(15000)
   const [params, setParams] = useSearchParams()
   const pick = params.get('task')
-  const fg = useFullGraph('Task graph')
+  const fg = useFullGraph('Plans and steps')
   const { nodes, edges } = useMemo(() => {
     const l = layout(records)
     const nodes: Node<TData>[] = l.nodes.map((n) => ({ id: n.id, type: 't', position: { x: n.x, y: n.y }, data: { t: n.t, now }, selected: n.id === pick }))
@@ -107,7 +109,7 @@ export function TaskGraphView({ records, past }: { records: TaskRecord[]; past?:
   const box = useRef<HTMLDivElement>(null)
   const opened = params.get('taskgraph') === '1'
   // A deep link opens the panel below the page's others: bring it into view (the full-window graph is already).
-  useEffect(() => { if (opened && !fg.full) box.current?.scrollIntoView?.({ block: 'nearest' }) }, [opened]) // eslint-disable-line react-hooks/exhaustive-deps -- once per opening
+  useEffect(() => { if (opened && !fg.full) box.current?.scrollIntoView?.({ block: 'nearest' }) }, [opened, fg.full])
   if (!opened) return null
   const picked = records.find((t) => t.id === pick)
   return (

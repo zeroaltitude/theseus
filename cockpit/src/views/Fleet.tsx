@@ -132,7 +132,7 @@ export default function Fleet() {
             <Pill tone={stateTone(s)}>{s} <span className="num font-semibold">{n}</span></Pill>
           </button>
         ))}
-        <RetireBar choice={retire.choice} set={retire.set} counts={retireCounts} hidden={retiredOut.size} className="text-[11.5px]" />
+        {view === 'sessions' && <RetireBar choice={retire.choice} set={retire.set} counts={retireCounts} hidden={retiredOut.size} className="text-[11.5px]" />}
         {world && <Pill tone="wait">as of {stamp(world.t)} · folded from the ledger</Pill>}
         <span className="num ml-auto text-[11px] text-ink-faint">{executions.length} executions · {usd(sessions.reduce((a, s) => a + (s.cost_usd ?? 0), 0))} across the fleet</span>
       </div>

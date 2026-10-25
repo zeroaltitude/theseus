@@ -12,7 +12,7 @@
 //   retired   the session's own `retired` flag (a live one is never retired: it reads live above)
 //   -         touched within the cutoff (`days`, 7 by default) and not one of the above: shown
 //   rest      `bucket === 'rest'` older than the cutoff: a conversation between exchanges. Its own class, NOT ended
-//             (the owner: "resting is not done -- stale and done is def different")
+//             (the owner: "resting is not done -- i mean, stale and done is def differnt")
 //   -         scheduled for a time still ahead: shown, it is waiting with work
 //   idle      open and quiet: scheduled, paused or to-do, untouched past the cutoff but within `STALE_FACTOR` cutoffs
 //   stale     the same, untouched for more than `STALE_FACTOR` cutoffs

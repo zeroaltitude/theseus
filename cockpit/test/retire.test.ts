@@ -119,7 +119,7 @@ test('nothing is deleted and no counter moves: the hidden chip counts exactly wh
   // The views hand the counters the whole set: the lens filters its drawing, never `rows`.
   const lens = readFileSync(new URL('../src/ops/GraphLens.tsx', import.meta.url), 'utf8')
   assert.match(lens, /keep: kept/, 'the layout is told what to leave out')
-  assert.ok(!/rows\.filter|rows=\{/.test(lens.split('retiredOut')[1] ?? ''), 'rows are not filtered')
+  assert.ok(!/rows\.filter|rows=\{/.test(lens.split('const retire = useRetire')[1] ?? ''), 'rows are not filtered')
 })
 
 class Mem implements Store {
