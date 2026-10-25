@@ -234,3 +234,78 @@ export function shortIds(line: string): string {
 export function namedParams(ids: string[]): ImportSessionsParams {
   return { ids: [...new Set(ids)].sort(), limit: 500, summaries: false, erased: true }
 }
+
+/** The first month the chart draws. Episodes stamped earlier (epoch 0, 1973) are bad timestamps from an import, not
+ *  history: they are counted in the undated chip and the table, never drawn as bars (theseus-11cvd). */
+export const DATED_FLOOR = '2000-01'
+/** A run of empty months longer than this is drawn as one gap mark. */
+export const GAP_MONTHS = 6
+export const RANGES = ['2y', '5y', 'all'] as const
+export type Range = (typeof RANGES)[number]
+export const SCALES = ['linear', 'sqrt'] as const
+export type Scale = (typeof SCALES)[number]
+
+const monthIndex = (key: string): number => { const [y, m] = key.split('-').map(Number); return y * 12 + m - 1 }
+const monthKey = (i: number): string => `${String(Math.floor(i / 12)).padStart(4, '0')}-${String((i % 12) + 1).padStart(2, '0')}`
+
+/** The address's range (`?range=`), `2y` when it names none it knows. */
+export function rangeOf(v: string | null): Range { return (RANGES as readonly string[]).includes(v ?? '') ? (v as Range) : '2y' }
+/** The address's height scale (`?scale=`), `sqrt` when it names none it knows. */
+export function scaleOf(v: string | null): Scale { return (SCALES as readonly string[]).includes(v ?? '') ? (v as Scale) : 'sqrt' }
+
+/** A bar's height in percent of the tallest: a month with episodes is never under 3 %. */
+export function barHeight(count: number, max: number, scale: Scale): number {
+  if (count <= 0 || max <= 0) return 0
+  const f = scale === 'sqrt' ? Math.sqrt(count / max) : count / max
+  return Math.max(3, f * 100)
+}
+
+export type Column =
+  | { kind: 'month'; value: string; count: number }
+  | { kind: 'gap'; from: string; to: string; months: number }
+
+export interface TimelineView {
+  /** The months before the floor, with their episodes. */
+  undated: ImportFacet[]
+  undatedCount: number
+  /** The range `first..last` that keeps the undated months, null with none. */
+  undatedPick: string | null
+  columns: Column[]
+  /** The most episodes in one drawn month. */
+  max: number
+  /** Episodes in dated months before the window. */
+  earlier: number
+  first: string | null
+  last: string | null
+}
+
+/** The chart's columns: the dated months in the window (the last 24, 60, or all from the first dated month), long
+ *  runs of empty months as one gap mark, and the undated months apart. Every episode is in `undated`, the columns, or
+ *  `earlier`. */
+export function timelineView(months: ImportFacet[], range: Range): TimelineView {
+  const keyed = months.filter((m) => monthSpan(m.value))
+  const undated = keyed.filter((m) => m.value < DATED_FLOOR)
+  const dated = keyed.filter((m) => m.value >= DATED_FLOOR)
+  const undatedCount = undated.reduce((a, m) => a + m.count, 0)
+  const undatedPick = undated.length ? `${undated[0].value}..${monthKey(monthIndex(DATED_FLOOR) - 1)}` : null
+  if (!dated.length) return { undated, undatedCount, undatedPick, columns: [], max: 0, earlier: 0, first: null, last: null }
+  const last = monthIndex(dated[dated.length - 1].value)
+  const firstDated = monthIndex(dated[0].value)
+  const span = range === '2y' ? 24 : range === '5y' ? 60 : Infinity
+  const start = Math.max(firstDated, last - (span - 1))
+  const have = new Map(dated.map((m) => [m.value, m.count]))
+  const columns: Column[] = []
+  let max = 0
+  for (let i = start; i <= last; i++) {
+    const n = have.get(monthKey(i)) ?? 0
+    if (n > 0) { columns.push({ kind: 'month', value: monthKey(i), count: n }); max = Math.max(max, n); continue }
+    let j = i
+    while (j + 1 <= last && !have.get(monthKey(j + 1))) j++
+    const run = j - i + 1
+    if (run > GAP_MONTHS) columns.push({ kind: 'gap', from: monthKey(i), to: monthKey(j), months: run })
+    else for (let k = i; k <= j; k++) columns.push({ kind: 'month', value: monthKey(k), count: 0 })
+    i = j
+  }
+  const earlier = dated.filter((m) => monthIndex(m.value) < start).reduce((a, m) => a + m.count, 0)
+  return { undated, undatedCount, undatedPick, columns, max, earlier, first: monthKey(start), last: monthKey(last) }
+}

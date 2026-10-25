@@ -514,8 +514,8 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'It shows what the past is about, and where much of it is unsorted.'),
   'context.asof': e(
     'Show when the imported episodes happened.',
-    'Across is months; each column’s height is the number of episodes that began that month. Click a month to filter the list to it.',
-    'A gap is a period the import did not cover, so recall has nothing from then.'),
+    'Across is months; each column’s height is the episodes that began that month, on a square-root scale so small months stay visible (linear is in the header). 2y, 5y and all set the window. A dashed line is a long run of empty months. Episodes dated before 2000 are almost certainly bad import timestamps: they are counted in the undated chip and the table, not drawn. Click a month to filter the list to it.',
+    'A gap is a period the import did not cover, so recall has nothing from then. The undated chip keeps the oldest episodes findable: click it to list them.'),
   'context.episode': e(
     'Read one imported episode: where it came from, what it says and how it was labelled.',
     'Its provenance, its summary and its messages, a page at a time. Personal or partner-confidential text is veiled until you open it.',

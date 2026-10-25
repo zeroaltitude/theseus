@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
-  BLOCKS, PAGE, anatomy, anatomyNote, hasBytes, ancestors, contextHref, filtersOf, monthBins, monthSpan, monthsSpan, namedParams, ontologyPaths, paramsOf, tabOf, thenWords,
+  BLOCKS, DATED_FLOOR, PAGE, anatomy, barHeight, rangeOf, scaleOf, timelineView, anatomyNote, hasBytes, ancestors, contextHref, filtersOf, monthBins, monthSpan, monthsSpan, namedParams, ontologyPaths, paramsOf, tabOf, thenWords,
   shortIds, topicTree, veiled, when,
 } from '../src/lib/explorer.ts'
 
@@ -125,4 +125,45 @@ test('a detour’s parts table has no bytes column and says its parts are token 
     anatomyNote(compiled),
     'Every part is counted from its bytes at the model’s figures, the conversation as the turn’s request less the parts above. The turn’s last loop itself estimated 1,234 tokens, part of it the provider’s own count.',
   )
+})
+
+const owners = [facet('1970-01', 5), facet('1973-11', 5), facet('2006-07', 323), facet('2026-08', 900), facet('2026-09', 4100), facet('2026-10', 19778)]
+
+test('the owner’s shape: old months are undated, the window ends at the newest month, no bar before the floor', () => {
+  const v = timelineView(owners, '2y')
+  assert.equal(v.undatedCount, 10)
+  assert.deepEqual(v.undated.map((m) => m.value), ['1970-01', '1973-11'])
+  assert.equal(v.undatedPick, '1970-01..1999-12')
+  assert.equal(v.last, '2026-10')
+  assert.equal(v.first, '2024-11')
+  assert.equal(v.earlier, 323)
+  const drawn = v.columns.flatMap((c) => (c.kind === 'month' ? [c.value] : []))
+  assert.ok(drawn.every((m) => m >= DATED_FLOOR))
+  const all = timelineView(owners, 'all')
+  assert.equal(all.columns[0].kind === 'month' && all.columns[0].value, '2006-07')
+  assert.equal(all.earlier, 0)
+  assert.ok(timelineView(owners, '5y').columns.length <= 60)
+  assert.ok(all.columns.length <= 60)
+  const sum = (v2: typeof v) => v2.undatedCount + v2.earlier + v2.columns.reduce((a, c) => a + (c.kind === 'month' ? c.count : 0), 0)
+  assert.equal(sum(v), 5 + 5 + 323 + 900 + 4100 + 19778)
+})
+
+test('a long gap is one mark, a short one stays empty months', () => {
+  const v = timelineView([facet('2020-01', 2), facet('2023-06', 3), facet('2023-10', 1)], 'all')
+  const gaps = v.columns.filter((c) => c.kind === 'gap')
+  assert.equal(gaps.length, 1)
+  assert.deepEqual(gaps[0], { kind: 'gap', from: '2020-02', to: '2023-05', months: 40 })
+  const empties = v.columns.filter((c) => c.kind === 'month' && c.count === 0)
+  assert.equal(empties.length, 3)
+})
+
+test('sqrt heights show a small month beside a huge one; linear leaves it tiny; the default is sqrt', () => {
+  assert.ok(barHeight(323, 19778, 'sqrt') > 10)
+  assert.ok(barHeight(323, 19778, 'linear') < 3.01)
+  assert.equal(barHeight(0, 10, 'sqrt'), 0)
+  assert.equal(barHeight(1, 1e9, 'linear'), 3)
+  assert.equal(scaleOf(null), 'sqrt')
+  assert.ok(barHeight(323, 19778, scaleOf(null)) > 10)
+  assert.equal(rangeOf('zzz'), '2y')
+  assert.equal(rangeOf('5y'), '5y')
 })
