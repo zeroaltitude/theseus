@@ -3,7 +3,7 @@
 // it imports only the protocol's types and other pure modules.
 import type { ConfirmRequest, ThreadRow } from '@protocol'
 import { progressLine } from '../lib/progressLine.ts'
-import { ago, clock, ms, usd } from '../lib/figures.ts'
+import { ago, until, usd, when } from '../lib/figures.ts'
 import { boardNeeds, details, historyLinks, isWarm, workingSetLines, type GroupedThread } from '../lib/threadboard.ts'
 import { alive, type OpsRow } from './board.ts'
 import { isEndedState } from './state.ts'
@@ -78,8 +78,13 @@ export function cardFacts(r: OpsRow, now: number): CardFacts {
     stop: isTask && living ? 'Stop' : undefined,
     approvals: r.column === 'needs' && !done,
     question: r.column === 'needs' && q ? `${q.prompt}${q.choices?.length ? ` · ${q.choices.join(' · ')}` : ''}` : undefined,
-    due: r.dueMs != null ? `due ${clock(r.dueMs)}${r.dueMs > now ? `, in ${ms(r.dueMs - now)}` : ''}` : undefined,
+    due: r.dueMs != null ? `due ${when(r.dueMs, now)}${r.dueMs > now ? `, ${until(r.dueMs, now)}` : ''}` : undefined,
   }
+}
+
+/** A Coming up row's two times: when it is (`20:00`, `tomorrow 08:00`) and how far off (`in 2h 46m`). */
+export function comingTimes(at: number | null | undefined, now: number): { at: string; rel: string } {
+  return { at: when(at, now), rel: until(at ?? now, now) }
 }
 
 /** A thread in the list: every field of the Threads page's group header. */

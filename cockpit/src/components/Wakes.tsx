@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router'
 import type { WakeInfo } from '@protocol'
 import { useAct } from '@/components/ConfirmCard'
 import { Btn, Empty, StatePill } from '@/components/ui'
-import { clock, ms, short } from '@/lib/format'
+import { clock, short, span } from '@/lib/format'
 import { wakeFacts } from '@/lib/agenda'
 
 export function Wakes({ wakes, now }: { wakes: readonly WakeInfo[]; now: number }) {
@@ -17,7 +17,7 @@ export function Wakes({ wakes, now }: { wakes: readonly WakeInfo[]; now: number 
   return (
     <div className="flex flex-col gap-1.5" data-testid="wakes">
       {wakes.map((w) => {
-        const f = wakeFacts(w, now, ms, clock, short)
+        const f = wakeFacts(w, now, span, clock, short)
         return (
           <div key={f.wake_id} className="flex items-center gap-2 rounded-lg px-3 py-2 ring-1 ring-line">
             <Hourglass size={14} className="text-live" />

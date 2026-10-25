@@ -1,6 +1,7 @@
 // The task graph (M7 39b): the records as a tree and as a graph's layout, a claim and a waiting change in words. Pure,
 // so `npm test` runs it; the panel and the graph are `src/components/TaskGraph.tsx`.
 import type { ConfirmRequest, TaskChange, TaskRecord } from '@protocol'
+import { span } from './figures.ts'
 
 /** A task as people name it: the last six characters of its id. */
 export function taskShort(id: string): string {
@@ -39,8 +40,8 @@ export function taskTree(records: TaskRecord[]): TreeRow[] {
 export function claimWords(t: TaskRecord, now: number): string | null {
   const c = t.claim
   if (!c || c.until_ms <= now) return null
-  const left = Math.max(0, Math.floor((c.until_ms - now) / 60000))
-  return `claimed by session ${taskShort(c.session)} · ${left < 1 ? 'under a minute' : `${left}m`} left`
+  const left = c.until_ms - now
+  return `claimed by session ${taskShort(c.session)} · ${left < 60_000 ? 'under a minute' : span(left)} left`
 }
 
 const CLOSED = new Set(['done', 'failed', 'abandoned'])

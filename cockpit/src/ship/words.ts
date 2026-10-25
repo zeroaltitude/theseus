@@ -15,6 +15,8 @@
 //   gold coin     = a turn's cost, flying to "Spent today"; violet spark = a turn that recalled memory
 //   the swell     = the work now: a slow roll when nothing runs, rising with tokens a minute and running turns
 
+import { ms as fmtMs } from '../lib/figures.ts'
+
 /** Every shape the chart draws: what it is (`word`, as the key says it), its bare noun (as a card's head says it), and how
  *  the chart draws it (`sea`). */
 export const SHAPES = {
@@ -174,14 +176,12 @@ export function keelTags(lights: readonly { vessel: number; kind: string; author
   return out
 }
 
-/** A duration for people: "340 ms", "4.4 s", "3 m 12 s", "2 h 5 m". */
+/** A duration for people: "340 ms", "4.4 s", then the shared formatter's "3m 12s", "2h 5m", "1d 21h". */
 export function span(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '—'
   if (ms < 1000) return `${Math.round(ms)} ms`
   if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`
-  const m = Math.floor(ms / 60_000)
-  if (m < 60) return `${m} m ${Math.floor((ms % 60_000) / 1000)} s`
-  return `${Math.floor(m / 60)} h ${m % 60} m`
+  return fmtMs(ms)
 }
 
 interface BenchLike { n: number; models: number; calls: number; failed: number; cost: number; running: boolean; waiting: boolean }

@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router'
 import { Bell, ExternalLink, Lock, MessageCircle, NotebookPen, Video } from 'lucide-react'
 import type { CalendarEvent, CalendarWindow, ProfileListResult, SessionProfileResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
+import { when } from '@/lib/format'
 import { toneHex } from '@/lib/taxonomy'
 import { askCalls, eventFacts, eventVerbPayload, PRIVACY_NOTE, profileRefusal, redactEvent, US_ONLY_WORDS, type EventVerb } from './calendar'
 import { profileChoices } from './newtask'
@@ -43,7 +44,7 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
     if (p.kind !== 'call') { setSaid({ ok: false, text: p.kind === 'none' ? p.why : 'nothing to do' }); return }
     const r = await send('event_remind', p.method, p.params)
     void settle()
-    setSaid(r.ok ? { ok: true, text: `a reminder is set for ${new Date(p.params.when).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` } : { ok: false, text: r.words })
+    setSaid(r.ok ? { ok: true, text: `a reminder is set for ${when(Date.parse(p.params.when), Date.now())}` } : { ok: false, text: r.words })
   }
   const ask = async () => {
     const p = pay('ask')

@@ -9,7 +9,7 @@
 // today. Pure: `npm test` runs it.
 import type { ActionInfo, ConfirmRequest, LedgerEntry } from '@protocol'
 import type { Light, ShipModel, Vessel } from './model.ts'
-import { ago, ms, short, usd } from '../lib/figures.ts'
+import { ago, ms, short, span, usd } from '../lib/figures.ts'
 import { isStoppingFailure } from './flares.ts'
 
 export const HOUR_MS = 3_600_000
@@ -150,16 +150,8 @@ export interface WatchInput {
 
 // ---------------------------------------------------------------- words
 
-/** A span of time as the plates say it: seconds under a minute, then minutes, hours and minutes, days and hours. */
-export function span(t: number): string {
-  const s = Math.max(0, Math.floor(t / 1000))
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ${String(m % 60).padStart(2, '0')}m`
-  return `${Math.floor(h / 24)}d ${h % 24}h`
-}
+/** A span of time as the plates say it: the shared formatter's (`span` in lib/figures.ts), re-exported for the digest. */
+export { span }
 
 /** Dollars, with a tiny limit kept legible ($0.00001, not $0.0000). */
 export function dollars(n: number): string {
