@@ -42,7 +42,7 @@ Chosen: **fullscreen** through `useFullGraph`'s `?graph=full`. Why: `Actions.tsx
 No existing expectation moved.
 
 ## 8. Gate
-See the end of this file.
+See the section after 13.
 
 ## 9. Keel
 `python3 scripts/keel-guard.py --base 0fda4d57 --head HEAD --quiet`: no output, exit 0. Keel findings expected: none.
@@ -61,3 +61,11 @@ Files: new `ops/retire.ts`, `ops/RetireBar.tsx`, `test/retire.test.ts`; edited `
 
 ## 13. Data floor
 Nothing new is sent to a model or routed anywhere; the change reads data the page already holds.
+
+## Gate result
+`TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 scripts/gate.sh` as given **failed in `door`** at once: origin/main (`2d1d8d6f`) has moved past my base, so main's keel guard, judging base..tree, reports 5 "erosions" (persona_cmd.rs tests, keel-guard.py files, and unverifiable acks) that are main's own later commits, none in my diff. My own `keel-guard.py --base 0fda4d57 --head HEAD --quiet` is clean (exit 0). I did not merge main.
+I then ran the tree's own gate with `THESEUS_GATE_DOOR=judge THESEUS_KEEL_BASE=0fda4d57` (debug info off, the VM disk is small). It passed keel, keel tests, fmt, shape, recall tests, features, clippy, clippy-probe, **cockpit (lint, tests, build)**, test build, reader rule. The suite phase failed on:
+- the known L1 cases: theseus-sandbox `bench spawn_100` and 19 contract tests, and 13 theseusd `sandbox` tests (root daemon, no job cgroup, theseus-pv6i);
+- `theseus-core tests_m3::parallel::a_calls_time_is_its_own_run_not_its_wait_for_the_turn` and `theseus-discord tests_walk1b::a_dm_under_notify_starts_two_tasks_and_both_are_seen` (101 s): timing under load; each passed alone on rerun (1.3 s and 1.4 s).
+`protocol_types` (generated TypeScript) passed inside the suite and `git status` is clean after it. `cargo deny --offline check`: advisories, bans, licenses and sources ok. Benches were skipped (`THESEUS_GATE_NO_BENCH=1`); no Rust file changed. The cockpit's own `npm test` count is the one in section 7: 799 of 799.
+Note: an earlier full build filled this VM's disk; I deleted `target/` and rebuilt without debug info. No source was lost.
