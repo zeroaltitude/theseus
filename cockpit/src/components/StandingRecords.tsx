@@ -9,6 +9,7 @@ import { call, useRpc } from '@/lib/rpc'
 import { when } from '@/lib/explorer'
 import { Empty, Field, Panel, Pill } from '@/components/ui'
 import { groupsOf, lapses, revokeQuestion, scopeWords, tallyWords } from '@/lib/standing'
+import { ShipsWheel } from '@/components/ShipsWheel'
 
 export function StandingRecords() {
   const [now] = useState(Date.now)
@@ -57,7 +58,7 @@ function Revoke({ r }: { r: StandingInfo }) {
   }
   return (
     <button onClick={revoke} disabled={busy} className="rounded px-1.5 py-0.5 text-[10.5px] text-fault ring-1 ring-fault/30 hover:bg-fault/10 disabled:opacity-50">
-      {busy ? '…' : 'Revoke'}
+      {busy ? <ShipsWheel label="revoking" /> : 'Revoke'}
     </button>
   )
 }

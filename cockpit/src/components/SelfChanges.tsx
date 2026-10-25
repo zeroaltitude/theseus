@@ -14,6 +14,7 @@ import { call, useRpc } from '@/lib/rpc'
 import { ago } from '@/lib/format'
 import { Empty, Field, Panel, Pill } from '@/components/ui'
 import { kindWords, numbersLine, revertableMerge, revertedAlready, stateWords, switchLine } from '@/lib/selfchanges'
+import { ShipsWheel } from '@/components/ShipsWheel'
 
 export function SelfChangesCard({ now }: { now: number }) {
   const { data } = useRpc<SelfLogResult>('self.log', { limit: 12 }, 5000)
@@ -62,7 +63,7 @@ function Halt() {
   }
   return (
     <button onClick={halt} disabled={busy} className="rounded px-1.5 py-0.5 text-[10.5px] text-fault ring-1 ring-fault/30 hover:bg-fault/10 disabled:opacity-50">
-      {busy ? '…' : 'Halt'}
+      {busy ? <ShipsWheel label="halting" /> : 'Halt'}
     </button>
   )
 }
@@ -78,7 +79,7 @@ function Revert({ merge }: { merge: string }) {
   }
   return (
     <button onClick={revert} disabled={busy} className="mt-1 rounded px-1.5 py-0.5 text-[10.5px] text-fault ring-1 ring-fault/30 hover:bg-fault/10 disabled:opacity-50">
-      {busy ? 'reverting…' : 'Revert'}
+      {busy ? <><ShipsWheel label="reverting" /> reverting</> : 'Revert'}
     </button>
   )
 }

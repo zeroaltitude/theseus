@@ -36,12 +36,15 @@ use std::collections::{BTreeMap, HashSet};
 
 use anyhow::{anyhow, bail, Result};
 use theseus_judge::{Answer, Judgment, Outcome};
-use theseus_ontology::{Category, CategoryId, MemberList, Membership, Ontology, Origin, Record};
+use theseus_ontology::{Category, CategoryId, Ontology, Origin};
 use theseus_protocol::{
     method, OntologyProposal, OntologyProposalAcceptParams, OntologyProposalAnswered,
     OntologyProposalRejectParams, OntologyProposalsParams, OntologyProposalsResult,
 };
-use theseus_store::{kinds, NewRecord, Store as _};
+use theseus_store::{kinds, Store as _};
+
+mod accept;
+pub(super) use accept::Bulk;
 
 use super::confirms::Act;
 use super::Core;
@@ -437,108 +440,6 @@ impl Core {
         self.accept_open(pr, p, &who)
     }
 
-    /// An unanswered proposal accepted, as `ontology.proposal.accept` takes
-    /// it once judged: `accept_all` judges once and calls this for each.
-    pub(super) fn accept_open(
-        &self,
-        pr: Proposed,
-        p: &OntologyProposalAcceptParams,
-        who: &Answerer,
-    ) -> Result<OntologyProposalAnswered> {
-        let sid = pr.session.as_str();
-        if self
-            .store
-            .get_session::<crate::session::SessionRecord>(sid)?
-            .is_none()
-        {
-            bail!("the session {sid} is gone");
-        }
-        let o = self.runner.ontology.snapshot(&self.store)?;
-        let (who_s, via) = (who.who(), who.via());
-        let (id, made) = topic_of(&o, &pr, p, who)?;
-        let mut members = o
-            .member_list(sid, id.kind())
-            .map(|l| l.members.clone())
-            .unwrap_or_default();
-        let joins = !members.iter().any(|m| m.category == id);
-        if joins {
-            members.push(Membership::operator(
-                id.clone(),
-                theseus_protocol::now_unix_ms(),
-            ));
-        }
-        let list = MemberList {
-            session: sid.to_string(),
-            kind: id.kind().to_string(),
-            members,
-        };
-        let topic = id.to_string();
-        let label_id = format!("lbl_{}", uuid::Uuid::now_v7().simple());
-        let pack = pr.judgment.pack.clone();
-        let label = fact::judge::ProposalLabel {
-            id: &label_id,
-            judgment: &pr.judgment.id,
-            pack: &pack,
-            question: pr.question(),
-            label: "accepted",
-            answer: &pr.choice,
-            topic: Some(&topic),
-            who: &who_s,
-            via: &via,
-            note: p.note.as_deref(),
-        };
-        let set = made.as_ref().map(|category| fact::ontology::CategorySet {
-            category,
-            origin: Origin::Operator.name(),
-            who: &who_s,
-            via: &via,
-            undo: None,
-        });
-        let member = fact::ontology::MembershipSet {
-            list: &list,
-            who: &who_s,
-            via: &via,
-            undo: None,
-        };
-        let label_row = || -> Result<NewRecord> {
-            let mut r = fact::row(&label, Some(sid), None)?;
-            r.key = Some(label_id.clone());
-            Ok(r.scoped(pr.scope()))
-        };
-        let mut records: Vec<Record> = made.iter().cloned().map(Record::Category).collect();
-        if joins {
-            records.push(Record::Members(list.clone()));
-        }
-        let o = match records.is_empty() {
-            true => {
-                self.store.append(&[label_row()?])?;
-                o
-            }
-            false => self
-                .runner
-                .ontology
-                .write(&self.store, records, Origin::Operator, |_| {
-                    let mut rows = Vec::new();
-                    if let Some(s) = &set {
-                        rows.push(fact::row(s, None, None)?);
-                    }
-                    if joins {
-                        rows.push(fact::row(&member, Some(sid), None)?);
-                    }
-                    rows.push(label_row()?);
-                    Ok(rows)
-                })?,
-        };
-        if let Some(s) = &set {
-            self.rec(None).announce(s);
-        }
-        if joins {
-            self.rec(Some(sid)).announce(&member);
-        }
-        self.rec(Some(sid)).announce(&label);
-        Ok(answered(&o, &pr, label_id, "accepted", Some(topic)))
-    }
-
     /// `ontology.proposal.reject`: the judgment's label, and nothing else.
     pub fn ontology_proposal_reject(
         &self,
@@ -593,7 +494,7 @@ impl Core {
 /// The topic an accept joins, and the topic it makes: the proposal's own;
 /// or, for `new_topic`, the one `topic` names, made now (with
 /// `description`) when no topic has that name.
-fn topic_of(
+pub(super) fn topic_of(
     o: &Ontology,
     pr: &Proposed,
     p: &OntologyProposalAcceptParams,
@@ -816,7 +717,7 @@ fn new_person(o: &Ontology, d: &Decided, name: &str, who: &Answerer) -> Result<C
     })
 }
 
-fn answered(
+pub(super) fn answered(
     o: &Ontology,
     pr: &Proposed,
     label_id: String,

@@ -7,6 +7,7 @@ import { Echart } from './Echart'
 import { HelpButton } from './Help'
 import type { EChartsOption } from '@/lib/chart'
 import type { Attention } from '@protocol'
+import { ShipsWheel } from '@/components/ShipsWheel'
 
 export function Panel({
   title, icon, actions, help, children, className, bodyClassName, dialog,
@@ -135,7 +136,7 @@ export function Btn({ children, onClick, tone = 'live', busy, title }: { childre
     <button onClick={onClick} disabled={busy} title={title}
       className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-[filter] hover:brightness-125 disabled:opacity-50"
       style={{ color: toneHex[tone], background: `${toneHex[tone]}14`, boxShadow: `inset 0 0 0 1px ${toneHex[tone]}40` }}>
-      {busy ? '…' : children}
+      {busy && <ShipsWheel />}{children}
     </button>
   )
 }
