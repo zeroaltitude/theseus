@@ -627,8 +627,6 @@ mod tests_task_close;
 #[cfg(test)]
 mod tests_task_graph;
 #[cfg(test)]
-mod tests_task_self;
-#[cfg(test)]
 mod tests_task_join;
 #[cfg(test)]
 mod tests_task_layers;
@@ -638,6 +636,8 @@ mod tests_task_report;
 mod tests_task_reports_of;
 #[cfg(test)]
 mod tests_task_search;
+#[cfg(test)]
+mod tests_task_self;
 #[cfg(test)]
 mod tests_task_start;
 #[cfg(test)]

@@ -11,8 +11,8 @@ use theseus_protocol::tasks::{TaskRecord, BECAUSE_MAX};
 use crate::node::ResultStatus;
 use crate::provider::Scripted;
 use crate::task_self::Own;
-use crate::tests_tasks::{answers_a_call, arranged, first_user, parent_session, rig, Rig, ASK};
 use crate::tests_task_graph::{results, until};
+use crate::tests_tasks::{answers_a_call, arranged, first_user, parent_session, rig, Rig, ASK};
 
 /// A parent that starts one task whose report wakes it, and then, in that
 /// wake's turn (no one wrote in it), makes `wake_call`. A turn that opens with
@@ -81,7 +81,10 @@ async fn a_task_the_owner_asked_for_carries_no_new_key() {
     assert!(t.origin.because.is_none());
     assert!(t.origin.by_model, "a plan item is the model's, as before");
     let bytes = serde_json::to_string(&t.origin).unwrap();
-    assert!(!bytes.contains("self_started") && !bytes.contains("because"), "{bytes}");
+    assert!(
+        !bytes.contains("self_started") && !bytes.contains("because"),
+        "{bytes}"
+    );
 }
 
 /// A `because` the owner's turn gives is not kept: the task is the owner's.
@@ -128,7 +131,10 @@ async fn a_self_started_call_without_a_reason_is_refused_and_opens_nothing() {
     let last = results(&r.core, &parent, "task.create").pop().unwrap();
     assert_eq!(last.0, ResultStatus::Error);
     assert!(last.1.contains("`because`"), "{}", last.1);
-    assert!(titled(&r, "Re-chart the shoal").is_none(), "no task is created");
+    assert!(
+        titled(&r, "Re-chart the shoal").is_none(),
+        "no task is created"
+    );
 }
 
 /// The cap, as it is enforced: a reason over 160 characters is refused with

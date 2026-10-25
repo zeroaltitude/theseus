@@ -118,6 +118,8 @@ struct Input {
     #[serde(default)]
     notify_done: bool,
     /// Why the model starts it, when no one asked this turn (theseus-o1h3f.1).
+    /// Not in the tool's schema: the first request's channel budget has no
+    /// room for it, and a refusal names it (`task_self::REFUSAL`).
     #[serde(default)]
     because: Option<String>,
     /// Its expected length (theseus-bh3t.1).
@@ -292,10 +294,6 @@ impl Tool for TaskCreate {
                 "wake_parent": {
                     "type": "boolean",
                     "description": "Its report, done or failed, starts this conversation's next turn (default: false; a cancel wakes nothing)."
-                },
-                "because": {
-                    "type": "string",
-                    "description": "One line, up to 160 characters, of why you start it. Required when no one asked this turn (a wake, a report, a continuation)."
                 },
                 "notify_done": {
                     "type": "boolean",
@@ -503,8 +501,8 @@ pub fn create<'a>(
     (forecasts, google): (&crate::forecast::Book, &crate::config::GoogleConfig),
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
-    let own = crate::task_self::Own::read(tc, i.because.as_deref())?;
     let Some(brief) = i.brief.as_deref() else {
+        let own = crate::task_self::Own::read(tc, correlation_id, i.because.as_deref())?;
         // A plan item (39a): a record, and no session.
         return crate::task_graph::tools::create_item(
             tc,
@@ -533,6 +531,7 @@ pub fn create<'a>(
     if parent.parent.is_some() || parent.kind == SessionKind::Task {
         return Err(DEPTH_REFUSAL.into());
     }
+    let own = crate::task_self::Own::read(tc, correlation_id, i.because.as_deref())?;
     if i.open && crate::google::private::session_on(tc.store, google, tc.session_id) {
         return Err(PRIVATE_OPEN_REFUSAL.into());
     }
