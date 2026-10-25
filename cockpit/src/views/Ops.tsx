@@ -26,7 +26,7 @@ import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
 import { fullKey, parseFull, writeFull } from '@/lib/fullgraph'
 import { parseAddress, writeAddress, type Address, type Bucket, type FilterKey, type Lens } from '@/ops/address'
-import { alive, allCounters, boardRows, chipChoices, columnsOf, contextOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
+import { alive, allCounters, boardRows, chipChoices, columnsOf, contextOf, DATA_MARKS, DONE_PAGE, laneRows, shown, spendToday, type OpsRow } from '@/ops/board'
 import { answerOf, asksWord, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
 import { threadFacts } from '@/ops/facts'
@@ -39,7 +39,7 @@ import { useDragDrop } from '@/ops/DropLayer'
 import { useSelection } from '@/ops/useSelection'
 import type { DropTarget } from '@/ops/rehome'
 import type { RunResult } from '@/ops/selection'
-import { comingShows, DOCK_KEY, flip, INSPECTOR_KEY, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
+import { comingShows, DOCK_KEY, flip, idleSel, INSPECTOR_KEY, OPEN_SEL, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
 import { BoardLens } from '@/ops/BoardLens'
 import { ThreadsLens } from '@/ops/ThreadsLens'
 import { Queue } from '@/ops/Queue'
@@ -55,7 +55,7 @@ import { Toast } from '@/ops/Toast'
 import { VerbMenu } from '@/ops/VerbMenu'
 import { entitiesOf, targetOf } from '@/ops/palette'
 import { useOpsPalette } from '@/ops/paletteStore'
-import { lastTurnOf } from '@/ops/sections'
+import { lastTurnOf, noneCounts, rowFor } from '@/ops/sections'
 import { Sheet } from '@/ops/Sheet'
 import { SelfChangesCard } from '@/components/SelfChanges'
 import { useOpsAct } from '@/ops/act'
@@ -185,11 +185,12 @@ export default function Ops() {
 
   // What is selected, and where.
   const item: QueueItem | undefined = isItemKey(a.sel) ? queue.find((i) => i.key === a.sel) : a.do === 'answer' ? itemFor(queue, a.sel) : undefined
-  const row: OpsRow | undefined = item ? undefined : rows.find((r) => selects(r, a.sel))
-  const slug = a.lens === 'threads' && a.sel && !item ? a.sel : null
+  const row: OpsRow | undefined = item ? undefined : rowFor(rows, a.sel)
+  const handOpen = a.sel === OPEN_SEL // the idle tab opened the panel with nothing selected
+  const slug = a.lens === 'threads' && a.sel && !item && !handOpen ? a.sel : null
   const event = a.lens === 'timeline' && a.sel?.startsWith('ev:') ? findEvent(cal.calendars, a.sel.slice(3)) : null
-  const mark = a.lens === 'timeline' && !item ? tlr?.marks.find((m) => m.key === a.sel) : undefined
-  const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel ? { kind: 'mark', key: a.sel } : { kind: 'none' }
+  const mark = a.lens === 'timeline' && !item && !handOpen ? tlr?.marks.find((m) => m.key === a.sel) : undefined
+  const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel && !handOpen ? { kind: 'mark', key: a.sel } : { kind: 'none', counts: noneCounts(counts), onFilter: (b) => set({ f: { ...a.f, bucket: b } }) }
   const region: 'queue' | 'canvas' = item ? 'queue' : 'canvas'
   // The item a key answers: the queue's cursor, or the needs-you item of the row on the canvas.
   const focusItem = item ?? (row ? queue.find((i) => (row.view != null && i.view?.id === row.view.id) || (row.sessionId != null && i.sessionId === row.sessionId && i.kind !== 'hold')) : undefined)
@@ -199,7 +200,7 @@ export default function Ops() {
 
   // The regions, their folds kept in this browser, and the narrow-screen rules.
   const [iFold, setIFold] = usePref(INSPECTOR_KEY, parseFold)
-  const reg = regionsFor(width || 1440, qFold, iFold, selection.kind !== 'none')
+  const reg = regionsFor(width || 1440, qFold, iFold, selection.kind !== 'none', handOpen)
   const [keysOpen, setKeysOpen] = useState(false)
   const [newTask, setNewTask] = useState<{ home: string } | null>(null)
   // A menu carries the session it acts on: the Join pane's own, not the focused card's (ops-act J1).
@@ -493,7 +494,7 @@ export default function Ops() {
           </aside>
         )}
         {reg.inspector === 'folded' && <Tab side="right" label="Inspector" onClick={() => setIFold('open')} />}
-        {reg.inspector === 'idle' && <Tab side="right" label="Inspector · select a card" onClick={() => pick(queue[0]?.key ?? null)} />}
+        {reg.inspector === 'idle' && <Tab side="right" label="Inspector · select a card" onClick={() => pick(idleSel(queue[0]?.key))} />}
       </div>
       {dockFold === 'open' && <Dock state={dock} onState={setDock} onFocus={setDockFocus} selected={focusRow?.sessionId ?? null} sessions={sessions} activeModel={a.f.model} onModel={(m) => filter('model', m)} />}
       {dockFold === 'folded' && <button onClick={() => setDockFold('open')} title="the dock (\\)" className="self-start rounded-lg border border-line bg-hull/60 px-3 py-1 text-[11px] text-ink-faint hover:text-ink">Dock · live streams and models <span className="kbd">\\</span></button>}
