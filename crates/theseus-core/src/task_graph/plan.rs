@@ -94,6 +94,7 @@ pub fn create<'a>(
                 session: tc.session_id.into(),
                 principal: principal.clone(),
                 by_model: true,
+                ..Default::default()
             },
             state: TaskState::Accepted,
         }

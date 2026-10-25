@@ -71,6 +71,7 @@ fn step(id: &str, session: &str, state: TaskState) -> theseus_protocol::tasks::T
             session: session.into(),
             principal: "agent".into(),
             by_model: true,
+            ..Default::default()
         },
         state,
     }

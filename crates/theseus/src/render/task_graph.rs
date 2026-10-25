@@ -82,6 +82,9 @@ pub fn tree_line_at(t: &TaskRecord, now_ms: u64) -> String {
     if !t.evidence.is_empty() {
         s.push_str(&format!(" · {} evidence", t.evidence.len()));
     }
+    if let Some(line) = t.origin.self_line() {
+        s.push_str(&format!(" · {line}"));
+    }
     if t.proposal.is_some() {
         s.push_str(" · a change waits for the operator");
     }
@@ -159,6 +162,21 @@ mod tests {
                 "      accept: theseus answer act_0000reef accept",
                 "      decline: theseus answer act_0000reef decline",
             ]
+        );
+    }
+
+    /// A task that started itself says so and why, on its line; the owner's
+    /// renders as it always did (theseus-o1h3f.1).
+    #[test]
+    fn a_self_started_task_says_why() {
+        let mut t = task("tsk_buoy", None, TaskState::Accepted, 1);
+        let before = tree_line_at(&t, 0);
+        assert_eq!(before, "tsk_buoy \"the tsk_buoy part\" [accepted] v1");
+        t.origin.self_started = true;
+        t.origin.because = Some("the nightly check found a stale mooring".into());
+        assert_eq!(
+            tree_line_at(&t, 0),
+            format!("{before} · ◇ self: the nightly check found a stale mooring")
         );
     }
 

@@ -42,6 +42,7 @@ async fn a_checks_view_shows_the_checked_task_by_title_and_state() {
             session: sid.clone(),
             principal: "operator".into(),
             by_model: true,
+            ..Default::default()
         },
         state: TaskState::Accepted,
     }
