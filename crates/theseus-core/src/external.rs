@@ -347,13 +347,14 @@ pub fn source_at(h: &ExternalText, now_ms: u64) -> String {
     source_said(h, &format!("{} on {date}, {ago}", then.hm()))
 }
 
-/// What the first source was, plainly: a quote a start handed in that was not
-/// the owner's own words (theseus-nfhaf: an email a watch quoted, another
-/// person's message), else the tool and what it read.
+/// What the first source was, plainly: a quote handed in with a task's brief
+/// (theseus-nfhaf: an email a watch quoted, another person's message, or a
+/// mark an earlier build made of the owner's own paste, which the record
+/// cannot tell apart), else the tool and what it read.
 fn first_said(h: &ExternalText) -> String {
     match (h.tool.as_str(), h.url.as_str()) {
         ("task.start", "quoted text") => {
-            "a quote that was not the owner's own words (an email or another person's message)"
+            "a quote handed in with a task's brief (an email, another person's message, or an older record of the owner's own paste)"
                 .into()
         }
         _ => h.what().trim_end().to_string(),
