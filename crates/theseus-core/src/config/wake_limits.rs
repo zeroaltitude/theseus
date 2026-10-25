@@ -1,6 +1,6 @@
 //! How far ahead and how many wakes (theseus-8ux6x): `[kernel]
 //! max_wake_ahead_days` (365, the old 30-day constant's replacement, which a
-//! deferred task's start reads too), `max_wakes` (5 check-ins a conversation),
+//! deferred task's start reads too), `max_wakes` (20 check-ins a conversation),
 //! `max_reminders` (100 over the daemon), and `max_watches`
 //! (20, declared for its row); the routines' cap moved to `[routines]`. The kernel reads them as
 //! `KernelConfig::wakes`.
@@ -12,7 +12,7 @@ pub(super) fn default_max_ahead_days() -> u64 {
     365
 }
 pub(super) fn default_max_wakes() -> usize {
-    5
+    20
 }
 pub(super) fn default_max_reminders() -> usize {
     100

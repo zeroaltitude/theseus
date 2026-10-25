@@ -12,7 +12,7 @@
 //!   13:05): check the build`, with how late it ran when it ran late. It is
 //!   an ordinary turn: it spends from the session's limit, under its
 //!   authority, and its reply posts where the session posts.
-//! - **Few.** At most `[kernel] max_wakes` (5) check-ins per session; a
+//! - **Few.** At most `[kernel] max_wakes` (20) check-ins per session; a
 //!   reminder counts against the daemon's `max_reminders` instead.
 //! - **In a task** (37b, theseus-7kg). A task may set one-shot wakes: a turn
 //!   of it that would wait on input with a wake pending parks on the wake,
@@ -304,7 +304,7 @@ impl Tool for WakeAt {
          of yours. Write the note as the instruction you will want then. It \
          fires once. Messages that come before it are answered as usual, and it still fires \
          later; if a turn is running at its time, it runs when that turn ends. A session holds \
-         at most 5 pending wakes. To repeat it, give `every` (`30m`, `2h`, `1d`, `1w`): it then \
+         at most 20 pending wakes. To repeat it, give `every` (`30m`, `2h`, `1d`, `1w`): it then \
          runs at each occurrence, from `at` or `after` (or one `every` from now), in the \
          daemon's time zone, so a daily wake keeps its clock time; `days` limits a daily one \
          to weekdays (`[\"mon\", \"fri\"]`), and `until` (RFC 3339) ends it. A series counts \

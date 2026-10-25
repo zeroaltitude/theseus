@@ -1382,3 +1382,30 @@ fn a_profiles_origin_reads_its_provider_its_model_and_the_catalog() {
     assert_eq!(o("vouched"), ModelOrigin::Us);
     assert_eq!(o("nonesuch"), ModelOrigin::Unknown);
 }
+
+/// `max_wakes` is 20 in the default, the template and the kernel's limits; an
+/// explicit value wins, and 0 is floored at 1 (theseus-o1h3f.8).
+#[test]
+fn max_wakes_defaults_to_twenty_everywhere() {
+    let (t, w) = Config::parse(Config::EXAMPLE_TOML).unwrap();
+    assert!(w.is_empty(), "{w:?}");
+    assert_eq!(t.kernel.max_wakes, 20);
+    assert_eq!(t.kernel.to_kernel_config().wakes.max_wakes, 20);
+    assert!(
+        Config::EXAMPLE_TOML.contains("\nmax_wakes = 20 "),
+        "the template names the default"
+    );
+    let with = |n: u32| {
+        let doc =
+            format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[kernel]\nmax_wakes = {n}\n");
+        Config::parse(&doc)
+            .unwrap()
+            .0
+            .kernel
+            .to_kernel_config()
+            .wakes
+            .max_wakes
+    };
+    assert_eq!(with(3), 3);
+    assert_eq!(with(0), 1);
+}

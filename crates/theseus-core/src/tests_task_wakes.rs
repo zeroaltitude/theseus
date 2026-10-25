@@ -189,6 +189,7 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.policy.enforcement = Posture::Notify;
+    cfg.kernel.max_wakes = 5; // these tests script the five-wake cap (the default is 20)
     cfg
 }
 
