@@ -94,6 +94,20 @@ after the 31 heaviest tasks (run first), so every comparison is on those 31 task
   3 of 3.
 - **`torch-pipeline-parallelism` passed with its grader finishing**, so its grader timeouts on EC2 were not inherent.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/omnibus/codex-31-dark.svg">
+  <img alt="Codex CLI against the v1 arms on the 31 heaviest Terminal-Bench tasks at high effort (Codex 1 trial a task, the others 3). On the 31 heaviest tasks, does Codex CLI on GPT-6-Astra solve more than the v1 arms?" src="img/omnibus/codex-31.svg" width="720">
+</picture>
+
+*Figure 2. On the 31 heaviest tasks, does Codex CLI on GPT-6-Astra solve more than the v1 arms? Codex CLI solved 24 of 31 (77.4%) on one trial a task; on the same 31 tasks Theseus at v1 solved 64.5%, Claude Code 67.7% and Pi 62.4% over three trials a task. Codex's interval overlaps all three, so read it as ahead, not shown.*
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/omnibus/codex-31-frontier-dark.svg">
+  <img alt="Pass rate against dollars per trial on the 31 heaviest Terminal-Bench tasks at high effort (Codex 1 trial a task, the others 3). What does Codex CLI's extra solve rate cost per trial on the 31 heaviest tasks?" src="img/omnibus/codex-31-frontier.svg" width="720">
+</picture>
+
+*Figure 3. What does Codex CLI's extra solve rate cost per trial on the 31 heaviest tasks? Codex CLI's 77.4% costs $2.43 a trial; the v1 arms solved 62% to 68% at $0.20 to $0.25, roughly a tenth of the price.*
+
 ## After v1: the Terminal-Bench retest (2026-10-23)
 
 Only Theseus was run, on `fe56a164`, to answer two questions the 10-21 rerun left. First, does MAX reach `xhigh` and
@@ -123,7 +137,7 @@ hard tasks; all comparisons are on the same tasks.
   <img alt="After v1: Theseus's Terminal-Bench solve rate on the Oct 21 rerun and the Oct 23 retest, against its v1 run. Did the patch work after v1 move Theseus's Terminal-Bench solve rate, and did the retest's extra effort help?" src="img/omnibus/after-v1.svg" width="720">
 </picture>
 
-*Figure 2. Did the patch work after v1 move Theseus's Terminal-Bench solve rate, and did the retest's extra effort help? The Oct 21 rerun solved 77.2% of all 89 tasks at high effort (v1 73.0%) and 72.2% of the hard 30 (v1 67.8%); the Oct 23 retest, with effort applied below the model-switch line, solved 71.6% of 27 hard tasks against 74.1% for the rerun's build, and 4 of 18 of the HIGH timeouts against 0 of 18.*
+*Figure 4. Did the patch work after v1 move Theseus's Terminal-Bench solve rate, and did the retest's extra effort help? The Oct 21 rerun solved 77.2% of all 89 tasks at high effort (v1 73.0%) and 72.2% of the hard 30 (v1 67.8%); the Oct 23 retest, with effort applied below the model-switch line, solved 71.6% of 27 hard tasks against 74.1% for the rerun's build, and 4 of 18 of the HIGH timeouts against 0 of 18.*
 
 ## After v1: the Terminal-Bench rerun (2026-10-21)
 
@@ -172,7 +186,7 @@ The [gate bench](2026-10-18-gate-bench-v1.md) holds every lifecycle budget, side
   <img alt="v1 and the rerun after it: Theseus as shipped and the top three harnesses, all 89 Terminal-Bench tasks at high effort (Oct 18, Oct 21). At the v1 freeze and after the Oct 21 rerun, which harness solves the most for the least?" src="img/omnibus/frontier-v1-high.svg" width="720">
 </picture>
 
-*Figure 3. At the v1 freeze and after the Oct 21 rerun, which harness solves the most for the least? At v1 Claude Code solves the most (75.3%) and Theseus as shipped the most per dollar (73.0% at $0.100 a trial); paired by task the two are level. The Oct 21 rerun lifts Theseus to 77.2% at $0.120 a trial, the highest solve rate of the five, at a lower cost a trial than Claude Code's.*
+*Figure 5. At the v1 freeze and after the Oct 21 rerun, which harness solves the most for the least? At v1 Claude Code solves the most (75.3%) and Theseus as shipped the most per dollar (73.0% at $0.100 a trial); paired by task the two are level. The Oct 21 rerun lifts Theseus to 77.2% at $0.120 a trial, the highest solve rate of the five, at a lower cost a trial than Claude Code's.*
 
 ## How to read this page
 
@@ -211,7 +225,7 @@ All 89 tasks, the same model (Claude Sonnet 5.5) and the same limits ($2.00 and 
   <img alt="Terminal-Bench 2.0, all 89 tasks, the same model in every arm: Oct 4 and the stopping point. How often does Theseus solve a real terminal task, against the other harnesses?" src="img/omnibus/tb-full.svg" width="720">
 </picture>
 
-*Figure 4. How often does Theseus solve a real terminal task, against the other harnesses? Oct 4's gap (71.9% against 81.5%) is gone: at the stopping point Theseus solved 74.5% at three attempts and 75.7% at five, Claude Code 71.5% and 71.9%, Pi and OpenCode about 71%.*
+*Figure 6. How often does Theseus solve a real terminal task, against the other harnesses? Oct 4's gap (71.9% against 81.5%) is gone: at the stopping point Theseus solved 74.5% at three attempts and 75.7% at five, Claude Code 71.5% and 71.9%, Pi and OpenCode about 71%.*
 
 **The stopping point ([R0](2026-10-13-terminal-bench-r0.md), [R1](2026-10-13-terminal-bench-r1.md), Oct 13).** Every
 arm at medium effort, versions pinned, on four EC2 hosts with each task's jobs on one host. At three attempts Theseus
@@ -249,7 +263,7 @@ Pi 1.0.4 and OpenCode 1.18.35 ran R0's 89 tasks × 3 beside Theseus and Claude C
   <img alt="Four harnesses on all 89 Terminal-Bench tasks: trials solved against dollars (Oct 13). On the whole benchmark, which harness solves the most for the least?" src="img/omnibus/frontier-89.svg" width="720">
 </picture>
 
-*Figure 5. On the whole benchmark, which harness solves the most for the least? Theseus solves the most and Pi costs the least; Claude Code is off the front, since OpenCode solves as many trials for less.*
+*Figure 7. On the whole benchmark, which harness solves the most for the least? Theseus solves the most and Pi costs the least; Claude Code is off the front, since OpenCode solves as many trials for less.*
 
 - **The four solve about the same share:** Theseus 74.5%, Claude Code and OpenCode 71.5%, Pi 71.2%; every interval
   overlaps. Over Pi and OpenCode, all of Theseus's lead is one feature: on four security-flavoured tasks Sonnet 5.5
@@ -273,7 +287,7 @@ Claude Sonnet 5.5 at medium effort; Codex CLI speaks only OpenAI's API, so it ra
   <img alt="Eight harnesses on the same 14 Terminal-Bench tasks: trials solved against dollars and tokens. Which harnesses solve the most for the least, and where does Theseus sit?" src="img/omnibus/frontier.svg" width="720">
 </picture>
 
-*Figure 6. Which harnesses solve the most for the least, and where does Theseus sit? Pi and OpenCode solve the most (89%), at $0.15 to $0.16 a trial; Theseus's 71% at $0.36 is off the frontier, in a run where none of its shell commands could start.*
+*Figure 8. Which harnesses solve the most for the least, and where does Theseus sit? Pi and OpenCode solve the most (89%), at $0.15 to $0.16 a trial; Theseus's 71% at $0.36 is off the frontier, in a run where none of its shell commands could start.*
 
 **Rerun with its commands working (Oct 10, Oct 13).** On the same 14 tasks, Theseus on one model solved 20 of 28 as recorded and 24 with four host-hit trials run again, at $0.21 a trial; as shipped, with Jev routing coding to Opus at high effort, 25 at $0.56 ([the rerun's report](2026-10-10-terminal-bench-theseus-rerun.md)). On Oct 13 the same 14 tasks went 38 of 42 at $0.16 on one model (Pi 38, OpenCode 37, Claude Code 34). The figure above keeps Oct 7's point as it was measured.
 
@@ -282,7 +296,7 @@ Claude Sonnet 5.5 at medium effort; Codex CLI speaks only OpenAI's API, so it ra
   <img alt="Each task, each harness: how many of its two attempts solved it. Where does each harness win and lose, task by task?" src="img/omnibus/task-strip.svg" width="720">
 </picture>
 
-*Figure 7. Where does each harness win and lose, task by task? Most tasks fall to nearly every harness; Aider misses most, and every harness misses install-windows-3.11 at least once. Theseus's Oct 7 column was earned without a working shell, and even so the two tasks the output-cap fix targeted went from 0 of 4 trials to 4 of 4.*
+*Figure 9. Where does each harness win and lose, task by task? Most tasks fall to nearly every harness; Aider misses most, and every harness misses install-windows-3.11 at least once. Theseus's Oct 7 column was earned without a working shell, and even so the two tasks the output-cap fix targeted went from 0 of 4 trials to 4 of 4.*
 
 - **The field is close.** Pi and OpenCode solved 25 of 28 (89.3%), OpenHands 24, Claude Code, OpenClaw and Codex CLI
   23 each. Their intervals overlap almost entirely. Aider solved 6: under this runner it edits files but does not run
@@ -315,7 +329,7 @@ whether retrieval or the model is to blame.
   <img alt="Memory: what the exams, the retrieval probes and the recall smokes measured, in date order (Sep 30 to Oct 12). Does Theseus remember, and is the gap its retrieval or the model?" src="img/omnibus/memory.svg" width="720">
 </picture>
 
-*Figure 8. Does Theseus remember, and is the gap its retrieval or the model? Recall lifts a cheap model from 30% to 73% at the stopping point (15% to 67% on Oct 4); shown the right notes it passes 100%, so the gap is retrieval.*
+*Figure 10. Does Theseus remember, and is the gap its retrieval or the model? Recall lifts a cheap model from 30% to 73% at the stopping point (15% to 67% on Oct 4); shown the right notes it passes 100%, so the gap is retrieval.*
 
 - **Memory has a lot to give ([memory exam v1, Sep 30](2026-09-30-memory-exam-headroom.md)).** On 40 synthetic tasks
   that each need something from an earlier session, a cheap model (GLM-5.3 Flash) passed 26% with no memory and 100%
@@ -374,7 +388,7 @@ binary within 200.
   <img alt="FAST: each budgeted phase against its limit. How much of each speed budget does Theseus use?" src="img/omnibus/speed-budgets.svg" width="720">
 </picture>
 
-*Figure 9. How much of each speed budget does Theseus use? Every phase's median uses a sixth to a half of its limit, on the debug gate and on the release build; only single stalled runs ever crossed one.*
+*Figure 11. How much of each speed budget does Theseus use? Every phase's median uses a sixth to a half of its limit, on the debug gate and on the release build; only single stalled runs ever crossed one.*
 
 - **The release build at the stopping point ([gate benches, Oct 12](2026-10-12-gate-bench-stop-point.md)).** Every
   lifecycle budget holds at both store sizes: a cold start 18.1 ms of 50 (18.3 at 10,000 sessions), a clean stop with
@@ -436,7 +450,7 @@ binary within 200.
   <img alt="What the runs cost in model calls, and what a solved task cost. What does benchmarking Theseus cost, and what does Theseus cost a solved task?" src="img/omnibus/cost.svg" width="720">
 </picture>
 
-*Figure 10. What does benchmarking Theseus cost, and what does Theseus cost a solved task? About $934 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10; on Oct 21 Theseus at high effort cost $0.155.*
+*Figure 12. What does benchmarking Theseus cost, and what does Theseus cost a solved task? About $1,009 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10; on Oct 21 Theseus at high effort cost $0.155. Codex CLI's Oct 25 run adds $75.18 for 31 tasks at one trial each, at GPT-6-Astra's list price.*
 
 - **The retest (Oct 23).** Theseus only: about $33.3 of model calls (MAX $27.27, HIGH timeouts $5.57, and $0.41
   for two trials stopped for spend), and about $12 for two EC2 hosts and 76.7 GB of NAT data.
@@ -467,7 +481,7 @@ binary within 200.
   <img alt="What each harness costs to run, apart from the model: every trial of the Oct 7 run. How heavy is Theseus itself, beside the other harnesses?" src="img/omnibus/harness-weight.svg" width="720">
 </picture>
 
-*Figure 11. How heavy is Theseus itself, beside the other harnesses? The lightest by every measure: 36.5 MiB, 17 ms a tool call, under a second to set up.*
+*Figure 13. How heavy is Theseus itself, beside the other harnesses? The lightest by every measure: 36.5 MiB, 17 ms a tool call, under a second to set up.*
 
 - **The harness itself is light.** Measured inside each task's container, Theseus held 36.5 MiB at its peak, the
   others 125 to 1,380 MiB. It spent 17 ms of CPU per tool call, the others 140 to 4,923 ms. It installed and started
@@ -487,7 +501,7 @@ measurement that judged it.
   <img alt="What the runs changed: the same measurement before and after each fix. What did acting on a benchmark's finding buy?" src="img/omnibus/fixes.svg" width="720">
 </picture>
 
-*Figure 12. What did acting on a benchmark's finding buy? Eighteen measured speed-ups, 1.2 to 2,700 times, each from a finding a run made.*
+*Figure 14. What did acting on a benchmark's finding buy? Eighteen measured speed-ups, 1.2 to 2,700 times, each from a finding a run made.*
 
 | Run | What it found | What changed | What it bought |
 |---|---|---|---|

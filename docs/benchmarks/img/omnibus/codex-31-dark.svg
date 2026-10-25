@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="371" viewBox="0 0 720 371" role="img" aria-labelledby="t-codex-31 t-codex-31-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-codex-31">Codex CLI against the v1 arms on the 31 heaviest Terminal-Bench tasks at high effort (Codex 1 trial a task, the others 3)</title>
+<desc id="t-codex-31-d">On the 31 heaviest tasks, does Codex CLI on GPT-6-Astra solve more than the v1 arms?</desc>
+<rect width="720" height="371" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Codex CLI against the v1 arms on the 31 heaviest Terminal-Bench tasks at high</text>
+<text x="18.0" y="52.0" font-size="15" fill="#ffffff" font-weight="600">effort (Codex 1 trial a task, the others 3)</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#898781"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">Codex CLI 0.161.0 (GPT-6-Astra)</text>
+<circle cx="267.7" cy="70.0" r="5" fill="#3987e5"/>
+<text x="282.7" y="74.0" font-size="12" fill="#c3c2b7">Theseus</text>
+<circle cx="358.1" cy="70.0" r="5" fill="#d95926"/>
+<text x="373.1" y="74.0" font-size="12" fill="#c3c2b7">Claude Code</text>
+<circle cx="475.9" cy="70.0" r="5" fill="#d55181"/>
+<text x="490.9" y="74.0" font-size="12" fill="#c3c2b7">Pi</text>
+<line x1="234.7" y1="92.0" x2="234.7" y2="262.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="300.6" y1="92.0" x2="300.6" y2="262.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="366.5" y1="92.0" x2="366.5" y2="262.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="432.5" y1="92.0" x2="432.5" y2="262.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="498.4" y1="92.0" x2="498.4" y2="262.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="564.3" y1="92.0" x2="564.3" y2="262.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="18.0" y="109.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">Codex CLI · the 31 heaviest tasks × 1 (Oct 25)</text>
+<text x="18.0" y="165.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">The v1 arms · the same 31 tasks × 3 (Oct 18)</text>
+<text x="220.7" y="136.0" font-size="12" fill="#ffffff" text-anchor="end">Codex CLI 0.161.0 (GPT-6-Astra)</text>
+<g><title>Codex CLI 0.161.0 (GPT-6-Astra): 77.4%  [60.2%, 88.6%] (24 of 31)</title>
+<line x1="433.1" y1="132.0" x2="526.8" y2="132.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="433.1" y1="127.0" x2="433.1" y2="137.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="526.8" y1="127.0" x2="526.8" y2="137.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="489.9" cy="132.0" r="12" fill="transparent"/>
+<circle cx="489.9" cy="132.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="136.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">77.4%  [60.2%, 88.6%]</text>
+<text x="220.7" y="192.0" font-size="12" fill="#ffffff" text-anchor="end">Theseus at v1</text>
+<g><title>Theseus at v1: 64.5%  [54.4%, 73.5%] (60 of 93)</title>
+<line x1="414.0" y1="188.0" x2="476.9" y2="188.0" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<line x1="414.0" y1="183.0" x2="414.0" y2="193.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="476.9" y1="183.0" x2="476.9" y2="193.0" stroke="#3987e5" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="447.4" cy="188.0" r="12" fill="transparent"/>
+<circle cx="447.4" cy="188.0" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="192.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">64.5%  [54.4%, 73.5%]</text>
+<text x="220.7" y="220.0" font-size="12" fill="#ffffff" text-anchor="end">Claude Code (v1 run)</text>
+<g><title>Claude Code (v1 run): 67.7%  [57.7%, 76.4%] (63 of 93)</title>
+<line x1="424.9" y1="216.0" x2="486.5" y2="216.0" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<line x1="424.9" y1="211.0" x2="424.9" y2="221.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="486.5" y1="211.0" x2="486.5" y2="221.0" stroke="#d95926" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="458.0" cy="216.0" r="12" fill="transparent"/>
+<circle cx="458.0" cy="216.0" r="5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="220.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">67.7%  [57.7%, 76.4%]</text>
+<text x="220.7" y="248.0" font-size="12" fill="#ffffff" text-anchor="end">Pi</text>
+<g><title>Pi: 62.4%  [52.2%, 71.5%] (58 of 93)</title>
+<line x1="406.8" y1="244.0" x2="470.5" y2="244.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="406.8" y1="239.0" x2="406.8" y2="249.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="470.5" y1="239.0" x2="470.5" y2="249.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="440.3" cy="244.0" r="12" fill="transparent"/>
+<circle cx="440.3" cy="244.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="248.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">62.4%  [52.2%, 71.5%]</text>
+<line x1="234.7" y1="262.0" x2="564.3" y2="262.0" stroke="#383835" stroke-width="1"/>
+<text x="234.7" y="278.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="300.6" y="278.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="366.5" y="278.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="432.5" y="278.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="498.4" y="278.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="564.3" y="278.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="399.5" y="296.0" font-size="12" fill="#c3c2b7" text-anchor="middle">share of trials solved (Wilson 95%)</text>
+<text x="18.0" y="318.0" font-size="11" fill="#c3c2b7">Codex ran 1 trial a task, so its interval rests on 31 trials; the v1 arms ran 3 a task, and the same 31 tasks give 93 trials each.</text>
+<text x="18.0" y="333.0" font-size="11" fill="#c3c2b7">The 31 are the heaviest of the 89, run first, and a $75 spend line stopped the run, so this is not the 89-task rate. OpenCode</text>
+<text x="18.0" y="348.0" font-size="11" fill="#c3c2b7">(61.3%) is in the report and the page's table.</text>
+</svg>
