@@ -1,0 +1,801 @@
+{
+ "report": "2026-10-25-terminal-bench-codex-high",
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-25",
+ "tier": "high",
+ "arms": [
+  "other",
+  "theseus",
+  "claude-code",
+  "pi"
+ ],
+ "summary": {
+  "codex": {
+   "trials": 31,
+   "solved": 24,
+   "rate": 0.7741935483870968,
+   "wilson": [
+    0.6018723994130262,
+    0.8860500840550121
+   ],
+   "tasks": 31,
+   "usd_total": 75.18026,
+   "usd_trial": 2.4251696774193547,
+   "usd_trial_ci": [
+    1.8738192258064517,
+    3.0513318709677417
+   ],
+   "usd_solve": 3.1325108333333334,
+   "agent_s_median": 236.95,
+   "agent_min_total": 166.1616666666667,
+   "agent_min_trial_mean": 5.3600537634408605,
+   "model_calls_mean": 25.733333333333334,
+   "endings": {
+    "agent": 30,
+    "timeout": 0,
+    "grader timeout (infra)": 0,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 1,
+    "error": 0
+   },
+   "exceptions": {
+    "AgentSafetyRefusalError": 1
+   },
+   "label": "Codex CLI 0.161.0 (GPT-6-Astra, high)"
+  },
+  "theseus-routed": {
+   "trials": 267,
+   "solved": 195,
+   "rate": 0.7303370786516854,
+   "wilson": [
+    0.6741159859446423,
+    0.780023998459526
+   ],
+   "tasks": 89,
+   "usd_total": 26.604096,
+   "usd_trial": 0.09964080898876404,
+   "usd_trial_ci": [
+    0.08234206367041198,
+    0.11933708988764045
+   ],
+   "usd_solve": 0.13643126153846152,
+   "agent_s_median": 50.4,
+   "agent_min_total": 945.2475,
+   "agent_min_trial_mean": 3.6496042471042474,
+   "model_calls_mean": 8.631782945736434,
+   "endings": {
+    "agent": 246,
+    "timeout": 6,
+    "grader timeout (infra)": 6,
+    "setup timeout (infra)": 2,
+    "refusal / provider": 0,
+    "error": 7
+   },
+   "exceptions": {
+    "AgentTimeoutError": 6,
+    "VerifierTimeoutError": 6,
+    "RuntimeError": 1,
+    "AgentSetupTimeoutError": 2,
+    "NonZeroAgentExitCodeError": 6
+   },
+   "label": "Theseus as shipped (v1)"
+  },
+  "claude-code": {
+   "trials": 267,
+   "solved": 201,
+   "rate": 0.7528089887640449,
+   "wilson": [
+    0.6977225502220129,
+    0.8007237741240255
+   ],
+   "tasks": 89,
+   "usd_total": 34.813821,
+   "usd_trial": 0.1303888426966292,
+   "usd_trial_ci": [
+    0.11136197752808989,
+    0.15244978651685392
+   ],
+   "usd_solve": 0.1732030895522388,
+   "agent_s_median": 55.84,
+   "agent_min_total": 1017.103,
+   "agent_min_trial_mean": 3.896946360153257,
+   "model_calls_mean": 8.206896551724139,
+   "endings": {
+    "agent": 244,
+    "timeout": 6,
+    "grader timeout (infra)": 6,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 11
+   },
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 8,
+    "AgentTimeoutError": 6,
+    "VerifierTimeoutError": 6,
+    "RuntimeError": 3
+   },
+   "label": "Claude Code 2.1.290"
+  },
+  "opencode": {
+   "trials": 267,
+   "solved": 189,
+   "rate": 0.7078651685393258,
+   "wilson": [
+    0.6506782905674032,
+    0.7591553538948949
+   ],
+   "tasks": 89,
+   "usd_total": 31.829501,
+   "usd_trial": 0.11921161423220973,
+   "usd_trial_ci": [
+    0.0992716254681648,
+    0.14286752059925092
+   ],
+   "usd_solve": 0.1684100582010582,
+   "agent_s_median": 59.655,
+   "agent_min_total": 1098.706,
+   "agent_min_trial_mean": 4.225792307692307,
+   "model_calls_mean": 7.703846153846154,
+   "endings": {
+    "agent": 228,
+    "timeout": 6,
+    "grader timeout (infra)": 6,
+    "setup timeout (infra)": 1,
+    "refusal / provider": 9,
+    "error": 17
+   },
+   "exceptions": {
+    "AgentSafetyRefusalError": 9,
+    "RuntimeError": 3,
+    "NonZeroAgentExitCodeError": 14,
+    "VerifierTimeoutError": 6,
+    "AgentTimeoutError": 6,
+    "AgentSetupTimeoutError": 1
+   },
+   "label": "OpenCode 1.18.35"
+  },
+  "pi": {
+   "trials": 267,
+   "solved": 188,
+   "rate": 0.704119850187266,
+   "wilson": [
+    0.6467875634447422,
+    0.7556616910272445
+   ],
+   "tasks": 89,
+   "usd_total": 28.220481,
+   "usd_trial": 0.10569468539325842,
+   "usd_trial_ci": [
+    0.08589423970037453,
+    0.12899913857677903
+   ],
+   "usd_solve": 0.15010894148936169,
+   "agent_s_median": 55.19,
+   "agent_min_total": 999.3271666666666,
+   "agent_min_trial_mean": 3.828839719029374,
+   "model_calls_mean": 7.705426356589148,
+   "endings": {
+    "agent": 245,
+    "timeout": 7,
+    "grader timeout (infra)": 4,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 11
+   },
+   "exceptions": {
+    "AgentTimeoutError": 7,
+    "VerifierTimeoutError": 4,
+    "RuntimeError": 1,
+    "NonZeroAgentExitCodeError": 10
+   },
+   "label": "Pi 1.0.4"
+  }
+ },
+ "same_tasks": {
+  "theseus-routed": {
+   "trials": 93,
+   "solved": 60,
+   "rate": 0.6451612903225806,
+   "wilson": [
+    0.5439330656324219,
+    0.7348727368326344
+   ],
+   "tasks": 31,
+   "usd_total": 18.833278,
+   "usd_trial": 0.20250836559139784,
+   "usd_trial_ci": [
+    0.1618746129032258,
+    0.25003090322580646
+   ],
+   "usd_solve": 0.3138879666666667,
+   "agent_s_median": 310.44,
+   "agent_min_total": 814.3921666666666,
+   "agent_min_trial_mean": 8.94936446886447,
+   "model_calls_mean": 12.444444444444445,
+   "endings": {
+    "agent": 78,
+    "timeout": 6,
+    "grader timeout (infra)": 6,
+    "setup timeout (infra)": 2,
+    "refusal / provider": 0,
+    "error": 1
+   },
+   "exceptions": {},
+   "label": "Theseus as shipped (v1)"
+  },
+  "claude-code": {
+   "trials": 93,
+   "solved": 63,
+   "rate": 0.6774193548387096,
+   "wilson": [
+    0.5770106827427646,
+    0.7637519647145263
+   ],
+   "tasks": 31,
+   "usd_total": 23.589692,
+   "usd_trial": 0.25365260215053764,
+   "usd_trial_ci": [
+    0.2081657741935484,
+    0.30647724731182796
+   ],
+   "usd_solve": 0.3744395555555555,
+   "agent_s_median": 360.12,
+   "agent_min_total": 898.7925,
+   "agent_min_trial_mean": 9.664435483870967,
+   "model_calls_mean": 13.13978494623656,
+   "endings": {
+    "agent": 76,
+    "timeout": 6,
+    "grader timeout (infra)": 6,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 5
+   },
+   "exceptions": {},
+   "label": "Claude Code 2.1.290"
+  },
+  "opencode": {
+   "trials": 93,
+   "solved": 57,
+   "rate": 0.6129032258064516,
+   "wilson": [
+    0.5113079516226957,
+    0.7055410058501259
+   ],
+   "tasks": 31,
+   "usd_total": 21.413384999999998,
+   "usd_trial": 0.23025145161290322,
+   "usd_trial_ci": [
+    0.1804115053763441,
+    0.288979376344086
+   ],
+   "usd_solve": 0.3756734210526316,
+   "agent_s_median": 275.33,
+   "agent_min_total": 955.213,
+   "agent_min_trial_mean": 10.38275,
+   "model_calls_mean": 11.673913043478262,
+   "endings": {
+    "agent": 69,
+    "timeout": 6,
+    "grader timeout (infra)": 6,
+    "setup timeout (infra)": 1,
+    "refusal / provider": 3,
+    "error": 8
+   },
+   "exceptions": {},
+   "label": "OpenCode 1.18.35"
+  },
+  "pi": {
+   "trials": 93,
+   "solved": 58,
+   "rate": 0.6236559139784946,
+   "wilson": [
+    0.5221342705133758,
+    0.715366968623524
+   ],
+   "tasks": 31,
+   "usd_total": 19.893085,
+   "usd_trial": 0.21390413978494624,
+   "usd_trial_ci": [
+    0.1650056129032258,
+    0.2680055161290323
+   ],
+   "usd_solve": 0.342984224137931,
+   "agent_s_median": 252.96,
+   "agent_min_total": 866.1031666666667,
+   "agent_min_trial_mean": 9.312937275985663,
+   "model_calls_mean": 12.133333333333333,
+   "endings": {
+    "agent": 77,
+    "timeout": 7,
+    "grader timeout (infra)": 4,
+    "setup timeout (infra)": 0,
+    "refusal / provider": 0,
+    "error": 5
+   },
+   "exceptions": {},
+   "label": "Pi 1.0.4"
+  }
+ },
+ "paired": {
+  "theseus-routed": {
+   "tasks": 31,
+   "gap": 0.12903225806451615,
+   "ci": [
+    -0.021505376344086006,
+    0.2795698924731183
+   ],
+   "better": 9,
+   "worse": 3,
+   "sign_p": 0.14599609375
+  },
+  "claude-code": {
+   "tasks": 31,
+   "gap": 0.09677419354838711,
+   "ci": [
+    -0.05376344086021504,
+    0.24731182795698925
+   ],
+   "better": 10,
+   "worse": 3,
+   "sign_p": 0.09228515625
+  },
+  "opencode": {
+   "tasks": 31,
+   "gap": 0.16129032258064518,
+   "ci": [
+    0.043010752688172046,
+    0.3010752688172043
+   ],
+   "better": 8,
+   "worse": 1,
+   "sign_p": 0.0390625
+  },
+  "pi": {
+   "tasks": 31,
+   "gap": 0.15053763440860216,
+   "ci": [
+    0.021505376344086023,
+    0.3010752688172043
+   ],
+   "better": 8,
+   "worse": 1,
+   "sign_p": 0.0390625
+  }
+ },
+ "per_task": [
+  {
+   "task": "adaptive-rejection-sampler",
+   "codex": 1,
+   "theseus-routed": "0/3",
+   "claude-code": "0/3",
+   "opencode": "2/3",
+   "pi": "0/3"
+  },
+  {
+   "task": "break-filter-js-from-html",
+   "codex": 0,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "0/3",
+   "pi": "0/3"
+  },
+  {
+   "task": "build-cython-ext",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "caffe-cifar-10",
+   "codex": 0,
+   "theseus-routed": "0/3",
+   "claude-code": "0/3",
+   "opencode": "0/3",
+   "pi": "0/3"
+  },
+  {
+   "task": "compile-compcert",
+   "codex": 1,
+   "theseus-routed": "2/3",
+   "claude-code": "1/3",
+   "opencode": "0/3",
+   "pi": "1/3"
+  },
+  {
+   "task": "feal-linear-cryptanalysis",
+   "codex": 1,
+   "theseus-routed": "2/3",
+   "claude-code": "2/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "filter-js-from-html",
+   "codex": 0,
+   "theseus-routed": "0/3",
+   "claude-code": "0/3",
+   "opencode": "0/3",
+   "pi": "0/3"
+  },
+  {
+   "task": "fix-ocaml-gc",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "1/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "gcode-to-text",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "2/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "gpt2-codegolf",
+   "codex": 1,
+   "theseus-routed": "2/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "install-windows-3.11",
+   "codex": 0,
+   "theseus-routed": "1/3",
+   "claude-code": "1/3",
+   "opencode": "0/3",
+   "pi": "0/3"
+  },
+  {
+   "task": "llm-inference-batching-scheduler",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "mailman",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "make-doom-for-mips",
+   "codex": 0,
+   "theseus-routed": "0/3",
+   "claude-code": "0/3",
+   "opencode": "0/3",
+   "pi": "0/3"
+  },
+  {
+   "task": "make-mips-interpreter",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "2/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "mcmc-sampling-stan",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "mteb-leaderboard",
+   "codex": 1,
+   "theseus-routed": "0/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "2/3"
+  },
+  {
+   "task": "path-tracing",
+   "codex": 1,
+   "theseus-routed": "1/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "path-tracing-reverse",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "protein-assembly",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "pytorch-model-recovery",
+   "codex": 1,
+   "theseus-routed": "1/3",
+   "claude-code": "3/3",
+   "opencode": "1/3",
+   "pi": "0/3"
+  },
+  {
+   "task": "query-optimize",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "2/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "regex-chess",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "1/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "rstan-to-pystan",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "2/3",
+   "opencode": "3/3",
+   "pi": "2/3"
+  },
+  {
+   "task": "sam-cell-seg",
+   "codex": 0,
+   "theseus-routed": "0/3",
+   "claude-code": "0/3",
+   "opencode": "0/3",
+   "pi": "0/3"
+  },
+  {
+   "task": "schemelike-metacircular-eval",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "2/3",
+   "opencode": "1/3",
+   "pi": "2/3"
+  },
+  {
+   "task": "torch-pipeline-parallelism",
+   "codex": 1,
+   "theseus-routed": "0/3",
+   "claude-code": "0/3",
+   "opencode": "0/3",
+   "pi": "0/3"
+  },
+  {
+   "task": "torch-tensor-parallelism",
+   "codex": 0,
+   "theseus-routed": "2/3",
+   "claude-code": "3/3",
+   "opencode": "2/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "train-fasttext",
+   "codex": 1,
+   "theseus-routed": "1/3",
+   "claude-code": "2/3",
+   "opencode": "0/3",
+   "pi": "0/3"
+  },
+  {
+   "task": "tune-mjcf",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  },
+  {
+   "task": "winning-avg-corewars",
+   "codex": 1,
+   "theseus-routed": "3/3",
+   "claude-code": "3/3",
+   "opencode": "3/3",
+   "pi": "3/3"
+  }
+ ],
+ "figures": [
+  {
+   "name": "pass-rates-codex",
+   "form": "intervals",
+   "title": "Pass rate by arm on the tasks Codex ran, HIGH tier, with 95% Wilson intervals",
+   "question": "Where does Codex CLI on GPT-6-Astra land against the v1 arms?",
+   "note": "Codex: 1 trial a task (2026-10-25, local); the v1 arms: 3 trials a task (2026-10-18, EC2), same tasks.",
+   "x": {
+    "label": "trials passed",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "label": "Codex CLI 0.161.0 (GPT-6-Astra, high)",
+     "arm": "other",
+     "value": 0.7742,
+     "lo": 0.6019,
+     "hi": 0.8861,
+     "tip": "24 of 31"
+    },
+    {
+     "label": "Theseus as shipped (v1)",
+     "arm": "theseus",
+     "value": 0.6452,
+     "lo": 0.5439,
+     "hi": 0.7349,
+     "tip": "60 of 93"
+    },
+    {
+     "label": "Claude Code 2.1.290",
+     "arm": "claude-code",
+     "value": 0.6774,
+     "lo": 0.577,
+     "hi": 0.7638,
+     "tip": "63 of 93"
+    },
+    {
+     "label": "Pi 1.0.4",
+     "arm": "pi",
+     "value": 0.6237,
+     "lo": 0.5221,
+     "hi": 0.7154,
+     "tip": "58 of 93"
+    }
+   ],
+   "legend_labels": {
+    "other": "Codex CLI 0.161.0 (GPT-6-Astra, high)",
+    "theseus": "Theseus as shipped (v1)"
+   }
+  },
+  {
+   "name": "pareto-dollars-codex",
+   "form": "scatter",
+   "front": "min-x-max-y",
+   "title": "Pass rate against dollars per trial, on the tasks Codex ran",
+   "question": "What does Codex's pass rate cost against the v1 arms'?",
+   "x": {
+    "label": "mean dollars per trial (95% CI)",
+    "format": "usd",
+    "min": 0.0
+   },
+   "y": {
+    "label": "trials passed (95% Wilson)",
+    "format": "pct",
+    "min": 0.47,
+    "max": 0.94
+   },
+   "points": [
+    {
+     "arm": "other",
+     "label": "Codex CLI 0.161.0 (GPT-6-Astra, high)",
+     "x": 2.4252,
+     "xlo": 1.8738,
+     "xhi": 3.0513,
+     "y": 0.7742,
+     "ylo": 0.6019,
+     "yhi": 0.8861
+    },
+    {
+     "arm": "theseus",
+     "label": "Theseus as shipped (v1)",
+     "x": 0.2025,
+     "xlo": 0.1619,
+     "xhi": 0.25,
+     "y": 0.6452,
+     "ylo": 0.5439,
+     "yhi": 0.7349
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code 2.1.290",
+     "x": 0.2537,
+     "xlo": 0.2082,
+     "xhi": 0.3065,
+     "y": 0.6774,
+     "ylo": 0.577,
+     "yhi": 0.7638
+    },
+    {
+     "arm": "pi",
+     "label": "Pi 1.0.4",
+     "x": 0.2139,
+     "xlo": 0.165,
+     "xhi": 0.268,
+     "y": 0.6237,
+     "ylo": 0.5221,
+     "yhi": 0.7154
+    }
+   ],
+   "legend_labels": {
+    "other": "Codex CLI 0.161.0 (GPT-6-Astra, high)",
+    "theseus": "Theseus as shipped (v1)"
+   }
+  }
+ ],
+ "unrun": [
+  "extract-moves-from-video",
+  "reshard-c4-data",
+  "dna-assembly",
+  "overfull-hbox",
+  "largest-eigenval",
+  "circuit-fibsqrt",
+  "cobol-modernization",
+  "write-compressor",
+  "portfolio-optimization",
+  "video-processing",
+  "raman-fitting",
+  "pytorch-model-cli",
+  "count-dataset-tokens",
+  "configure-git-webserver",
+  "sqlite-with-gcov",
+  "mteb-retrieve",
+  "hf-model-inference",
+  "build-pov-ray",
+  "financial-document-processor",
+  "crack-7z-hash",
+  "sanitize-git-repo",
+  "build-pmars",
+  "model-extraction-relu-logits",
+  "large-scale-text-editing",
+  "custom-memory-heap-crash",
+  "feal-differential-cryptanalysis",
+  "dna-insert",
+  "chess-best-move",
+  "headless-terminal",
+  "git-multibranch",
+  "pypi-server",
+  "vulnerable-secret",
+  "merge-diff-arc-agi-task",
+  "password-recovery",
+  "nginx-request-logging",
+  "sparql-university",
+  "polyglot-rust-c",
+  "bn-fit-modify",
+  "distribution-search",
+  "kv-store-grpc",
+  "cancel-async-tasks",
+  "regex-log",
+  "polyglot-c-py",
+  "extract-elf",
+  "sqlite-db-truncate",
+  "multi-source-data-merger",
+  "fix-git",
+  "log-summary-date-ranges",
+  "fix-code-vulnerability",
+  "constraints-scheduling",
+  "db-wal-recovery",
+  "openssl-selfsigned-cert",
+  "modernize-scientific-stack",
+  "git-leak-recovery",
+  "code-from-image",
+  "prove-plus-comm",
+  "qemu-alpine-ssh",
+  "qemu-startup"
+ ],
+ "run": {
+  "started": "2026-10-25T02:00:09-07:00",
+  "ended": "2026-10-25T03:33:14-07:00",
+  "ended_by": "spend line ($75)",
+  "host": "WSL2, 16 vCPU, 23 GB",
+  "parallel_trials": 4,
+  "code_commit": "b69236c1"
+ }
+}

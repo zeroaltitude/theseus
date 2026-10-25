@@ -74,6 +74,26 @@ calls of every run cost $367.
 This page is the overview. It is updated as runs land, and each run keeps its own full report, linked from every
 section below and listed at the end.
 
+## After v1: Codex CLI on Terminal-Bench (2026-10-25)
+
+Codex CLI 0.161.0 was added at the HIGH tier on the best model its key can use, GPT-6-Astra at high effort, one trial
+a task, on the owner's WSL machine. The other arms were not rerun: their v1 trials stand. A $75 spend line stopped it
+after the 31 heaviest tasks (run first), so every comparison is on those 31 tasks.
+
+| Benchmark | Codex CLI (GPT-6-Astra) | Theseus at v1 | Claude Code (v1 run) | OpenCode (v1 run) | Pi (v1 run) | Report |
+|---|---|---|---|---|---|---|
+| Terminal-Bench 2.0, HIGH, the 31 heaviest tasks (Codex × 1, v1 arms × 3), solved | **77.4%** [60.2, 88.6] | 64.5% [54.4, 73.5] | 67.7% [57.7, 76.4] | 61.3% | 62.4% | [Codex HIGH](2026-10-25-terminal-bench-codex-high.md) |
+| ... dollars a solved task | $3.133 | **$0.314** | $0.374 | $0.376 | $0.343 | |
+| ... agent seconds a trial (median) | **237** | 310 | 360 | 275 | 253 | |
+
+- **Ahead on score, paired:** +12.9 points against Theseus (95% −2.2 to +28.0; 9 tasks better, 3 worse) and +9.7
+  against Claude Code, both crossing zero. Against OpenCode (+16.1) and Pi (+15.1) the gap is clear of zero.
+- **Ten times the price:** $2.43 a trial against Theseus's $0.20, mostly GPT-6-Astra's list price. Codex has no spend
+  cap, and 16 of its 31 trials passed the $2 the rivals carried.
+- **One refusal:** OpenAI's safeguard refused `break-filter-js-from-html` on the first turn, a task Theseus solved
+  3 of 3.
+- **`torch-pipeline-parallelism` passed with its grader finishing**, so its grader timeouts on EC2 were not inherent.
+
 ## After v1: the Terminal-Bench retest (2026-10-23)
 
 Only Theseus was run, on `fe56a164`, to answer two questions the 10-21 rerun left. First, does MAX reach `xhigh` and
@@ -535,6 +555,7 @@ measurement that judged it.
 | Real tasks | [Terminal-Bench 2.0 rerun, MAX tier: the 30 hard tasks, Theseus at 6918e3c1 free to choose `max`](2026-10-21-terminal-bench-rerun-max.md) | Oct 21 |
 | Real tasks | [Terminal-Bench 2.0 retest, MAX tier: the hard tasks at fe56a164, with effort free to apply below the model-switch line](2026-10-23-terminal-bench-retest-max.md) | Oct 23 |
 | Real tasks | [Terminal-Bench 2.0 retest, HIGH tier: the six tasks that timed out on 10-21, at fe56a164 under a heavy-task cap](2026-10-23-terminal-bench-retest-high-timeouts.md) | Oct 23 |
+| Real tasks | [Terminal-Bench 2.0, HIGH tier: Codex CLI on GPT-6-Astra against the v1 arms, on the 31 heaviest tasks](2026-10-25-terminal-bench-codex-high.md) | Oct 25 |
 | Memory | [Memory exam: how much does a cheap model gain from being shown its past?](2026-09-30-memory-exam-headroom.md) | Sep 30 |
 | Memory | [Memory exam v2: items built so that retrieval is hard](2026-09-30-memory-exam-v2.md) | Sep 30 |
 | Memory | [Retrieval: which engine embeds for the index, candle or tract?](2026-10-01-retrieval-embedding-engines.md) | Oct 1 |
