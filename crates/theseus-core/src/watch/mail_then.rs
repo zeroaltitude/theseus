@@ -121,6 +121,8 @@ impl Core {
             title: Some(format!("Mail: {}", e.spec.title.trim())),
             home: Some(session),
             quotes: quote.into_iter().collect(),
+            // An email is an outside person's text, whoever set the watch.
+            outside_quotes: true,
             ..Default::default()
         };
         // The owner chose this when they set the watch (`Act::Watch`, from a

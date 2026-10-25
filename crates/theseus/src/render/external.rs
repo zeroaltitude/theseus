@@ -27,11 +27,17 @@ pub fn line(held: &[ExternalTextInfo], mode: &str) -> Option<String> {
                 "{name} since {} ({}{})",
                 held_since(&i.since_local, &i.held),
                 held_what(&i.held),
-                match i.held.via.as_deref() {
-                    Some("task.create") => ", from the session that started it",
-                    Some("task.report") => ", from a task's report",
-                    Some("job") => ", from the session whose job reached it",
-                    _ => "",
+                match (i.held.via.as_deref(), i.held.from_session.as_deref()) {
+                    (Some("task.create"), _) => ", from the session that started it".to_string(),
+                    (Some("task.report"), Some(t)) => {
+                        format!(
+                            ", from task {}'s report",
+                            short_id(t).trim_start_matches('…')
+                        )
+                    }
+                    (Some("task.report"), None) => ", from a task's report".to_string(),
+                    (Some("job"), _) => ", from the session whose job reached it".to_string(),
+                    _ => String::new(),
                 }
             )
         })

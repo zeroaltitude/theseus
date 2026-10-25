@@ -57,7 +57,9 @@ pub(super) enum What {
     Share(String, Option<Guest>),
     Quiet(Option<String>),
     Answer(Option<String>),
-    NewTask(Option<String>),
+    /// The message made a task: its text, and whether the presser wrote it
+    /// themselves (theseus-nfhaf: only then is it their own words).
+    NewTask(Option<(String, bool)>),
     NewTaskSubmit(start_task::Submit),
 }
 
@@ -250,13 +252,18 @@ impl Shared {
                 }
                 "quiet" => send(What::Quiet(opt(c, "for"))),
                 "answer" => send(What::Answer(opt(c, "question"))),
-                MAKE_TASK => send(What::NewTask(Some(
-                    c.resolved
-                        .as_ref()
-                        .and_then(|r| r.messages.values().next())
-                        .map(|m| m.content.clone())
-                        .unwrap_or_default(),
-                ))),
+                MAKE_TASK => {
+                    let message = c.resolved.as_ref().and_then(|r| r.messages.values().next());
+                    // Their own words only when the message's author is the
+                    // presser; a missing author reads as another person's.
+                    let own = message
+                        .zip(i.author())
+                        .is_some_and(|(m, u)| m.author.id == u.id);
+                    send(What::NewTask(Some((
+                        message.map(|m| m.content.clone()).unwrap_or_default(),
+                        own,
+                    ))))
+                }
                 _ => false,
             },
             Some(InteractionData::ModalSubmit(m)) if m.custom_id.starts_with(start_task::MODAL) => {
@@ -420,8 +427,11 @@ impl Place {
             What::Quiet(arg) => self.quiet(&i, arg.as_deref().unwrap_or("1h")).await,
             What::Answer(q) => s.answer_view(&i, q.as_deref()).await,
             What::NewTask(quote) => {
-                s.respond_modal(&i, &start_task::modal(quote.as_deref(), None))
-                    .await;
+                let mut m = start_task::modal(quote.as_ref().map(|(q, _)| q.as_str()), None);
+                if quote.is_some_and(|(_, own)| !own) {
+                    m["data"]["custom_id"] = start_task::outside_id().into();
+                }
+                s.respond_modal(&i, &m).await;
             }
             What::NewTaskSubmit(sub) => self.start_task(&i, &who, sub).await,
         }
