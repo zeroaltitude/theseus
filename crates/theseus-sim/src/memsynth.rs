@@ -91,13 +91,14 @@ fn text(rng: &mut Rng, vocab: &[String], k: u64, words: usize) -> String {
     s
 }
 
-/// The words of node `k`'s text: 70 % short (one chunk), 20 % of two or three
-/// chunks, 10 % of three to five, for about 1.6 chunks a node.
+/// The words of a node's text: 75 % short (one chunk), 15 % of 250 to 500
+/// words (two or three chunks: the index's token estimate is about two a
+/// word), 10 % of 600 to 1,000 (four or five), for about 1.6 chunks a node.
 fn length(rng: &mut Rng) -> usize {
-    match rng.below(10) {
-        0..=6 => 30 + rng.below(90) as usize,
-        7 | 8 => 600 + rng.below(500) as usize,
-        _ => 1_200 + rng.below(1_300) as usize,
+    match rng.below(20) {
+        0..=14 => 30 + rng.below(90) as usize,
+        15..=17 => 250 + rng.below(250) as usize,
+        _ => 600 + rng.below(400) as usize,
     }
 }
 

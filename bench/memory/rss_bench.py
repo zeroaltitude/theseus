@@ -175,16 +175,29 @@ def tender(a):
                 lat.append(search(a.index_bin, sock, q)[0])
             rows.add("tender", "search_burst", p.pid, peak, n=len(lat), p50_ms=int(pct(lat, .5)),
                      p95_ms=int(pct(lat, .95)))
+            v = vector_status(status(a.index_bin, sock))
+            rows.add("tender", "before_backlog", p.pid, peak, pending=v.get("pending"), vectors=v.get("vectors"),
+                     model=v.get("model"))
             if a.backlog_secs:
-                # An embedding backlog (texts left without vectors): let the thread run.
+                # An embedding backlog (texts left without vectors): let the thread run until it is
+                # drained (or the time is up), and keep the peak.
                 peak.rss = peak.anon = 0.0
-                time.sleep(a.backlog_secs)
-                v = vector_status(status(a.index_bin, sock))
-                rows.add("tender", "backlog_running", p.pid, peak, backlog=json.dumps(v.get("backlog")))
+                t1 = time.time()
+                while time.time() - t1 < a.backlog_secs:
+                    v = vector_status(status(a.index_bin, sock))
+                    if not v.get("pending"):
+                        break
+                    time.sleep(2)
+                bf = v.get("backfill") or {}
+                rows.add("tender", "backlog_end", p.pid, peak, pending=v.get("pending"),
+                         texts=bf.get("texts"), batches=bf.get("batches"), wall_ms=bf.get("wall_ms"),
+                         secs=int(time.time() - t1))
             # Idle: the model unloads after idle_unload_secs without use.
             time.sleep(a.idle_unload_secs + a.unload_slack)
             peak.rss = peak.anon = 0.0
-            rows.add("tender", "after_idle_unload", p.pid, peak)
+            v = vector_status(status(a.index_bin, sock))
+            rows.add("tender", "after_idle_unload", p.pid, peak, model=v.get("model"), loads=v.get("loads"),
+                     unloads=v.get("unloads"))
             ms, _ = search(a.index_bin, sock, queries(1, 99)[0])
             rows.add("tender", "first_search_after_unload", p.pid, peak, ms=int(ms))
     finally:
