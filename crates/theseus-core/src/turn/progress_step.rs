@@ -150,7 +150,7 @@ pub(super) struct State {
     /// The turn's jobs that ran when a loop last touched one (their
     /// correlation ids): one gone from it has just ended.
     running: HashSet<String>,
-    /// The turn edited a file or ran a command (theseus-eb4o4, theseus-rqu7j).
+    /// The turn edited a file or ran a command (theseus-rqu7j).
     worked: bool,
     /// The turn was sent back once for a doubt its closing message named
     /// (theseus-rqu7j).
@@ -430,10 +430,16 @@ pub(super) fn tell(
     Ok(())
 }
 
-/// Whether the turn edited a file or ran a command: the hint and the doubt
-/// gate (theseus-eb4o4, theseus-rqu7j) ask nothing of a turn that did neither.
+/// Whether the turn edited a file or ran a command: the doubt gate
+/// (theseus-rqu7j) asks nothing of a turn that did neither.
 pub(super) fn worked(t: &Turn<'_>) -> bool {
     t.checkpoint.progress.as_ref().is_some_and(|s| s.worked)
+}
+
+/// Whether the turn wrote or edited a file with a file tool: it built
+/// something, which is what the deliverable hint (theseus-eb4o4) is for.
+pub(super) fn edited(t: &Turn<'_>) -> bool {
+    t.checkpoint.progress.as_ref().is_some_and(|s| s.edited)
 }
 
 /// A turn that worked and has not been sent back for a doubt yet, with less

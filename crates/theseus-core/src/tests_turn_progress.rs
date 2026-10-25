@@ -688,10 +688,10 @@ fn write(root: &Path, id: &str) -> Scripted {
 }
 
 /// The deliverable's hint rides the request's tail from the loop after the
-/// turn's first edit or command (theseus-eb4o4), and a turn that did neither
-/// never carries it.
+/// turn's first file edit (theseus-eb4o4), and a turn that wrote none never
+/// carries it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_working_turn_is_told_to_call_its_deliverable_as_the_task_spells_it() {
+async fn a_turn_that_wrote_a_file_is_told_to_call_it_as_the_task_spells_it() {
     let r = rig(|root| {
         vec![
             write(root, "w1"),
@@ -706,10 +706,22 @@ async fn a_working_turn_is_told_to_call_its_deliverable_as_the_task_spells_it() 
     for req in &reqs[1..] {
         assert_eq!(messages(req).matches(HINT).count(), 1, "once a request");
     }
-    // A chat turn that only answers carries none.
+    // A chat turn that only answers carries none, and neither does one that
+    // only ran commands: the tails of such turns are what they were.
     let r = rig(|_| vec![Scripted::text("Hello.")]);
     r.turn(None).await;
     assert!(!messages(&r.requests()[0]).contains(HINT));
+    let r = rig(|root| {
+        vec![
+            command(root, "c1", 0),
+            command(root, "c2", 0),
+            Scripted::text("Done."),
+        ]
+    });
+    r.turn(None).await;
+    for req in r.requests() {
+        assert!(!messages(&req).contains(HINT));
+    }
 }
 
 /// A closing message that names a doubt, early in the turn, sends it back

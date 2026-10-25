@@ -4,11 +4,12 @@
 //! voice, which the model reads as it reads the progress check's.
 //!
 //! - **The deliverable, called as the task spells it** (eb4o4): from the loop
-//!   after its first edit or command, the request's tail carries
+//!   after its first file edit, the request's tail carries
 //!   [`DELIVERABLE_HINT`], the way a `deep_coding` turn carries its reading
 //!   hint (`tier.rs`): after the cached prefix, so no byte of it moves and no
-//!   other session's request changes. A turn that never worked (a question, a
-//!   lookup) never carries it.
+//!   other session's request changes. A turn that wrote no file (a question, a
+//!   lookup, a run of commands) never carries it, so the tails the DM task
+//!   flow's golden and the cache tests read stay as they were.
 //! - **A doubt the closing message names** (rqu7j): a turn that would end with
 //!   a message saying something was not checked, run or verified, with less
 //!   than [`CLOSE_OUT_SHARE`] of its time and of its spend used, goes on once,
@@ -104,9 +105,10 @@ pub fn names_a_gap(said: &str) -> bool {
 }
 
 impl TurnRunner {
-    /// The working turn's tail hint (theseus-eb4o4), once per request.
+    /// The tail hint of a turn that has written a file (theseus-eb4o4), once
+    /// per request.
     pub(super) fn deliverable_hint(t: &Turn<'_>, compiled: &mut crate::compiler::Compiled) {
-        if progress::worked(t) {
+        if progress::edited(t) {
             Self::attach_hint(compiled, DELIVERABLE_HINT);
         }
     }
