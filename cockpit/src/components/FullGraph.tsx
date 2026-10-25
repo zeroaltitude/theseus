@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { Maximize2, Minimize2 } from 'lucide-react'
-import { fullKey, parseFull, scheduleRefit, writeFull, type RefitClock } from '@/lib/fullgraph'
+import { fullKey, gChord, parseFull, scheduleRefit, writeFull, type RefitClock } from '@/lib/fullgraph'
 
 /** What this module asks of the graph's instance, whatever its node type. */
 export interface Fitter { fitView: (o?: { padding?: number }) => Promise<boolean> }
@@ -23,8 +23,11 @@ export function useFullGraph(name: string): { full: boolean; panel: { className:
   const set = useCallback((on: boolean) => setParams((p) => writeFull(p, on), { replace: !on }), [setParams])
 
   useEffect(() => {
+    let g = 0 // when the last plain `g` was pressed: an `f` inside its window is `g f`, the shell's jump to the Fleet
     const k = (e: KeyboardEvent) => {
-      const a = fullKey(e, full)
+      const step = gChord(g, e, Date.now())
+      g = step.at
+      const a = fullKey(e, full, step.afterG)
       if (!a) return
       if (e.key === 'Escape') e.stopPropagation()
       set(a === 'enter')

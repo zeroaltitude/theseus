@@ -1,7 +1,7 @@
 // The full-window graph's address and keys (theseus-uu3b2).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { FULL_PARAM, REFIT_RETRY_MS, fullKey, parseFull, scheduleRefit, writeFull } from '../src/lib/fullgraph.ts'
+import { FULL_PARAM, G_CHORD_MS, REFIT_RETRY_MS, fullKey, gChord, parseFull, scheduleRefit, writeFull } from '../src/lib/fullgraph.ts'
 
 test('Esc leaves full screen and an unrelated key does not', () => {
   assert.equal(fullKey({ key: 'Escape' }, true), 'leave')
@@ -10,6 +10,27 @@ test('Esc leaves full screen and an unrelated key does not', () => {
   assert.equal(fullKey({ key: 'f' }, false), 'enter')
   assert.equal(fullKey({ key: 'f' }, true), 'leave')
   assert.equal(fullKey({ key: 'f', ctrlKey: true }, false), null)
+})
+
+test('an f right after g is the shell\u2019s jump to the Fleet and never fills the window (theseus-ka0lv)', () => {
+  assert.equal(fullKey({ key: 'f' }, false, true), null, 'g f from the Ops page does not enter full screen')
+  assert.equal(fullKey({ key: 'f' }, true, true), null, 'nor leave it')
+  assert.equal(fullKey({ key: 'f' }, false, false), 'enter', 'a lone f still fills the window')
+  assert.equal(fullKey({ key: 'Escape' }, true, true), 'leave', 'Esc leaves even right after a g')
+})
+
+test('the g window: an f within G_CHORD_MS of a g is a chord, a later or a second one is not (theseus-ka0lv)', () => {
+  let s = gChord(0, { key: 'g' }, 1000)
+  assert.equal(s.afterG, false)
+  assert.equal(gChord(s.at, { key: 'f' }, 1000 + G_CHORD_MS - 1).afterG, true, 'inside the window')
+  assert.equal(gChord(s.at, { key: 'f' }, 1000 + G_CHORD_MS).afterG, false, 'the window has closed')
+  const after = gChord(s.at, { key: 'f' }, 1100)
+  assert.equal(after.at, 0, 'any key closes the window')
+  assert.equal(gChord(after.at, { key: 'f' }, 1200).afterG, false, 'the chord is spent')
+  s = gChord(0, { key: 'g', ctrlKey: true }, 1000)
+  assert.equal(s.at, 0, 'a modified g starts nothing')
+  s = gChord(0, { key: 'g', target: { tagName: 'INPUT' } }, 1000)
+  assert.equal(s.at, 0, 'a g typed in a field starts nothing')
 })
 
 test('the address round-trips', () => {
@@ -81,4 +102,11 @@ test('on the Ops page f is a key of the table and the address keeps the graph pa
   assert.ok(!(OWN_KEYS as readonly string[]).includes(FULL_PARAM))
   const kept = writeAddress({ ...parseAddress(''), lens: 'timeline' }, new URLSearchParams('graph=full&lens=graph'))
   assert.equal(kept.get('graph'), 'full')
+})
+
+test('the hook feeds the g window to fullKey, so g f never pushes ?graph=full (theseus-ka0lv)', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../src/components/FullGraph.tsx', import.meta.url), 'utf8')
+  assert.match(src, /gChord\(g, e, Date\.now\(\)\)/)
+  assert.match(src, /fullKey\(e, full, step\.afterG\)/)
 })

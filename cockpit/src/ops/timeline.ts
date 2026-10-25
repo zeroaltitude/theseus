@@ -48,8 +48,9 @@ const shift = (at: number, days: number) => { const d = new Date(at); return new
 // ---------------------------------------------------------------- layer 1: the events
 
 /** A timed event's block on a day: from `top` to `bottom` (0 to 1 of the day's 24 rows), its lane among the events it
- *  overlaps. */
-export interface Block { key: string; ev: CalendarEvent; cal: CalendarWindow; day: number; top: number; bottom: number; lane: number; lanes: number }
+ *  overlaps. `continues`: the event began on an earlier day, so `top` 0 is the day's edge, not a start (an event that
+ *  starts exactly at 00:00 does not continue). */
+export interface Block { key: string; ev: CalendarEvent; cal: CalendarWindow; day: number; top: number; bottom: number; lane: number; lanes: number; continues: boolean }
 
 /** An all-day event on a day of the band above the hours, its row among that day's all-day events. */
 export interface AllDay { key: string; ev: CalendarEvent; cal: CalendarWindow; day: number; row: number }
@@ -70,7 +71,7 @@ export function eventLayout(events: readonly CalEvent[], w: Window): { blocks: B
       if (ev.all_day) { allDay.push({ key: ev.key, ev, cal, day: d.index, row: 0 }); continue }
       const top = ev.start_ms <= d.start_ms ? 0 : wallHour(ev.start_ms) / 24
       const bottom = ev.end_ms >= d.end_ms ? 1 : Math.max(wallHour(ev.end_ms) / 24, top)
-      perDay[d.index].push({ key: ev.key, ev, cal, day: d.index, top, bottom: Math.min(1, Math.max(bottom, top + MIN_BLOCK)), lane: 0, lanes: 1 })
+      perDay[d.index].push({ key: ev.key, ev, cal, day: d.index, top, bottom: Math.min(1, Math.max(bottom, top + MIN_BLOCK)), lane: 0, lanes: 1, continues: ev.start_ms < d.start_ms })
     }
   }
   for (const day of perDay) {
@@ -291,8 +292,8 @@ export const DEFAULT_HOUR = 8
 
 /** The wall-clock hours (fractional) at which a meeting starts or a one-off mark sits on any day shown: what the first
  *  view of an unfolded day looks for. A series' tick or a watch's window does not count (as in `nightFold`). */
-export function openHours(w: Window, marks: readonly Mark[], blocks: readonly Pick<Block, 'top'>[]): number[] {
-  const out = blocks.map((b) => b.top * 24)
+export function openHours(w: Window, marks: readonly Mark[], blocks: readonly (Pick<Block, 'top'> & { continues?: boolean })[]): number[] {
+  const out = blocks.filter((b) => !b.continues).map((b) => b.top * 24)
   for (const m of marks) if (m.at_ms >= w.from_ms && m.at_ms < w.to_ms && m.kind !== 'watch' && opens(m)) out.push(wallHour(m.at_ms))
   return out
 }
