@@ -8,6 +8,7 @@
 // connection may answer, and only after a review sheet; a floor approval is listed as asking one by one, never sent.
 import type { OpsRow } from './board.ts'
 import { alive } from './board.ts'
+import { isEndedState, isRunning } from './state.ts'
 import { answerOf, type QueueItem } from './queue.ts'
 
 export type Selection = ReadonlySet<string>
@@ -67,7 +68,7 @@ export const floorApproval = (i: QueueItem): boolean => i.kind === 'approval' &&
 
 const declinable = (i: QueueItem): boolean => (i.kind === 'approval' || i.kind === 'budget' || i.kind === 'change') && !!i.confirm && i.confirm.may_answer !== false
 
-const living = (r: OpsRow) => alive(r) && !(r.view && ['done', 'failed', 'cancelled', 'expired'].includes(r.view.state))
+const living = (r: OpsRow) => alive(r) && !(r.view && isEndedState(r.view.state))
 
 /** The queue's items a selected row owns: its approvals, budget asks, changes and questions. */
 export function itemsOf(rows: readonly OpsRow[], queue: readonly QueueItem[]): QueueItem[] {
@@ -88,7 +89,7 @@ export function bulkVerbs(rows: readonly OpsRow[], queue: readonly QueueItem[]):
   const pausable = rows.filter((r) => r.kind === 'task' && living(r) && r.column !== 'needs' && r.column !== 'scheduled')
   const offers: Record<BulkVerb, BulkItem[]> = {
     pause: pausable.map((r) => one(r, r.paused ? 'resume' : 'pause', `${r.paused ? 'resume' : 'pause'} ${r.title}`, r.paused ? 'task.resume' : 'task.pause', { task: r.id })),
-    stop: rows.filter((r) => r.kind === 'conversation' && (r.view?.state === 'running' || r.view?.state === 'waiting') && (r.view?.id ?? r.session?.execution_id))
+    stop: rows.filter((r) => r.kind === 'conversation' && isRunning(r.view?.state) && (r.view?.id ?? r.session?.execution_id))
       .map((r) => one(r, 'stop', `stop the turn of ${r.title}`, 'execution.stop', { execution_id: r.view?.id ?? r.session?.execution_id })),
     cancel: rows.flatMap((r) => (r.kind === 'task' && living(r) ? [one(r, 'cancel', `cancel ${r.title}`, 'task.cancel', { task: r.id })]
       : r.kind === 'wake' && living(r) ? [one(r, 'cancel', `cancel the wake ${r.title}`, 'wake.cancel', { wake: r.id })] : [])),

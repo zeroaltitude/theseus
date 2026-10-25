@@ -6,6 +6,7 @@ import { progressLine } from '../lib/progressLine.ts'
 import { ago, clock, ms, usd } from '../lib/figures.ts'
 import { boardNeeds, details, historyLinks, isWarm, workingSetLines, type GroupedThread } from '../lib/threadboard.ts'
 import { alive, type OpsRow } from './board.ts'
+import { isEndedState } from './state.ts'
 import type { QueueItem } from './queue.ts'
 
 /** A board card: every field of the Tasks page's card (`TaskCard`), and the model chip. A field the row has no data
@@ -50,7 +51,7 @@ export interface CardFacts {
 export function cardFacts(r: OpsRow, now: number): CardFacts {
   const v = r.view
   // Ended: in Done, or a failure still asking for someone (it shows under Needs you).
-  const done = r.column === 'done' || (v != null && ['done', 'failed', 'cancelled', 'expired'].includes(v.state))
+  const done = r.column === 'done' || (v != null && isEndedState(v.state))
   const living = alive(r) && !done
   const info = r.task?.info
   const cost = v?.cost ?? (info ? { spent_usd: info.spent_usd, limit_usd: info.limit_usd } : undefined)

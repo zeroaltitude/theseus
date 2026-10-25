@@ -27,6 +27,7 @@ import { jobFacts, recordFacts, runningJob, taskFacts, type FactLine } from './s
 import { StickyChip } from './ModelMenu'
 import { RehomeSheet, RescheduleSheet } from './TaskSheets'
 import { targetOf, verbEntries } from './palette'
+import { isRunning } from './state'
 import { useRunEntry } from './useRunEntry'
 
 /** What the inspector needs of the page beyond the selection. */
@@ -105,7 +106,7 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
   const f = cardFacts(r, past ?? now)
   const lifeEntries = verbEntries([targetOf(r)], { profiles: [], prices: new Map() }).filter((e) => ['recompile:transcript', 'recompile:fresh', 'retire', 'reopen'].includes(e.id) && !e.grey)
   const info = r.task?.info
-  const running = r.view?.state === 'running' || r.view?.state === 'waiting' || r.session?.execution_state === 'running'
+  const running = isRunning(r.view?.state, r.session?.execution_state)
   // `execution.stop` is a conversation's; a task is stopped by `task.cancel`.
   const exe = r.kind === 'conversation' ? r.view?.id ?? r.session?.execution_id : undefined
   return (

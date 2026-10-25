@@ -3,7 +3,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { dismissAll, holdsOf, noticeFacts, pastNotices, seenCall, trustCall, TRUST_WORDS } from '../src/ops/notices.ts'
+import { dismissAll, dismissReport, holdsOf, noticeFacts, noticeHint, pastNotices, seenCall, seenHolds, trustCall, TRUST_WORDS } from '../src/ops/notices.ts'
 import { HOUR, NOW, session } from './ops-fixtures.ts'
 
 const hold = (since: number, over: object = {}) => ({ since_ms: since, tool: 'http.fetch', url: 'https://example.test/tides', node_id: 'nod_9', ...over })
@@ -67,4 +67,35 @@ test('the page counts holds that wait, never notices; the strip is mounted in th
   assert.match(page, /needs: queue\.length/)
   assert.match(page, /<Notices notices=\{notices\}/)
   assert.match(src('Queue.tsx'), /\{notices\}/)
+})
+
+test('Dismiss all counts the refusals and says why; a clean run has no line (theseus-jo84p)', () => {
+  assert.deepEqual(dismissReport([{ ok: true, words: 'done' }, { ok: true, words: 'done' }]), { done: 2, refused: 0, line: null })
+  const r = dismissReport([{ ok: true, words: 'done' }, { ok: false, words: 'its hold waits for you' }, { ok: false, words: 'its hold waits for you' }, { ok: false, words: 'no such session' }])
+  assert.equal(r.done, 1)
+  assert.equal(r.refused, 3)
+  assert.equal(r.line, '3 of 4 not dismissed: its hold waits for you · no such session', 'each reason once')
+  assert.equal(dismissReport([]).line, null)
+})
+
+test('Dismiss all keeps its button busy while it runs and shows the refusals (theseus-jo84p)', () => {
+  const s = src('Notices.tsx')
+  assert.match(s, /setSweeping\(true\)/)
+  assert.match(s, /finally \{ setSweeping\(false\); settle\(\) \}/)
+  assert.match(s, /busy=\{busy === 'notice:all' \|\| sweeping\}/)
+  assert.match(s, /dismissReport\(results\)/)
+  assert.match(s, /results\.push\(await send\('mark', c\.method, c\.params\)\)/)
+})
+
+test('the Bridge hint counts the seen holds apart: N notices (M seen) (theseus-jo84p)', () => {
+  const listed = [{ session_id: 'ses_a' }, { session_id: 'ses_b' }, { session_id: 'ses_c' }]
+  const sessions = [session('ses_a', { external_told: true }), session('ses_b'), session('ses_c', { external_told: true }), session('ses_x', { external_told: true })]
+  assert.equal(seenHolds(listed, sessions), 2, 'only listed holds count; a session not listed does not')
+  assert.equal(seenHolds(listed, []), 0)
+  assert.equal(noticeHint(3, 2), '3 notices (2 seen): nothing waits on them')
+  assert.equal(noticeHint(1, 1), '1 notice (1 seen): nothing waits on it')
+  assert.equal(noticeHint(2, 0), '2 notices: nothing waits on them', 'none seen: the old words')
+  const bridge = readFileSync(new URL('../src/views/Bridge.tsx', import.meta.url), 'utf8')
+  assert.match(bridge, /noticeHint\(heldNotices, heldSeen\)/)
+  assert.match(bridge, /seenHolds\(h!?\.external_text/)
 })

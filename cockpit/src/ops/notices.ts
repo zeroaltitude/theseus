@@ -87,3 +87,22 @@ export function dismissAll(notices: readonly Hold[]): { label: string; ask: stri
     calls: ids.map((session_id) => seenCall({ session_id })),
   }
 }
+
+/** What "Dismiss all" did, from its calls' outcomes: how many were marked, how many the daemon refused (a hold that began
+ *  to wait between the read and the click), and the strip's line for the refusals, `null` when there were none. */
+export function dismissReport(results: readonly { ok: boolean; words: string }[]): { done: number; refused: number; line: string | null } {
+  const bad = results.filter((r) => !r.ok)
+  const why = [...new Set(bad.map((r) => r.words))]
+  return { done: results.length - bad.length, refused: bad.length, line: bad.length ? `${bad.length} of ${results.length} not dismissed: ${why.join(' · ')}` : null }
+}
+
+/** How many of the listed holds (health lists told ones too) the owner has already seen, by the sessions' `external_told`. */
+export function seenHolds(listed: readonly { session_id: string }[], sessions: readonly Pick<SessionInfo, 'session_id' | 'external_told'>[]): number {
+  const told = new Set(sessions.filter((s) => s.external_told === true).map((s) => s.session_id))
+  return listed.filter((h) => told.has(h.session_id)).length
+}
+
+/** The Bridge tile's hint for the holds that wait on nothing: `N notices (M seen): nothing waits on them`. */
+export function noticeHint(total: number, seen: number): string {
+  return `${total} notice${total === 1 ? '' : 's'}${seen > 0 ? ` (${seen} seen)` : ''}: nothing waits on ${total === 1 ? 'it' : 'them'}`
+}

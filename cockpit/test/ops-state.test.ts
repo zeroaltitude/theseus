@@ -5,11 +5,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { WorkView } from '../src/protocol.gen/index.ts'
-import { bucketOf, bucketOfNode, bucketOfRecord, bucketOfSession, isEnded, isOpen, look, FADED, FILTERED_OUT, bucketGlyph } from '../src/ops/state.ts'
+import { bucketOf, bucketOfNode, bucketOfRecord, bucketOfSession, isEnded, isEndedState, isOpen, isRunning, look, FADED, FILTERED_OUT, bucketGlyph } from '../src/ops/state.ts'
 import { boardRows, countersOf, shown } from '../src/ops/board.ts'
+import { targetOf } from '../src/ops/palette.ts'
+import { bulkVerbs } from '../src/ops/selection.ts'
 import { nodeIdOf, opsLayout, viewsOf } from '../src/ops/graph.ts'
 import { groupThreads } from '../src/lib/threadboard.ts'
-import { group, HOUR, MIN, NOW, record, session, view } from './ops-fixtures.ts'
+import { group, HOUR, info, MIN, NOW, record, session, view } from './ops-fixtures.ts'
 
 const T = { thread: 'harbour-survey' }
 const doing = (what: string) => ({ what, label: what, since_ms: NOW, turn: 1, loop_index: 0 }) as WorkView['doing']
@@ -96,4 +98,40 @@ test('a ready conversation rests on the Graph as on the Board, and a running rou
   const rows = boardRows({ views: [], tasks: [], sessions: [session('ses_q', { execution_state: 'waiting', attention: { level: 'ready', label: 'ready', since_ms: NOW } })], now: NOW, past: true })
   assert.deepEqual(viewsOf(rows).map((v) => bucketOf(v, NOW)), ['rest'], 'the time machine’s resting conversation is not working')
   assert.equal(bucketOf(view('rtn_1', 'routine', 'running', { next_at_ms: NOW + HOUR }), NOW), 'working', 'a routine firing is work in flight')
+})
+
+test('waiting is open work but no turn to stop: one predicate for Stop, in the palette, the Inspector and the bulk bar (theseus-jo84p)', () => {
+  assert.equal(isRunning('running'), true)
+  assert.equal(isRunning('waiting'), false, 'a view waiting on a job, a child or a time has no turn to stop')
+  assert.equal(isRunning(undefined, 'running'), true, 'a session whose execution runs, when no view is held')
+  assert.equal(isRunning('waiting', 'waiting'), false)
+  assert.equal(isRunning(undefined), false)
+  const views = [view('exe_c1', 'conversation', 'running', { session_id: 'ses_c1' }), view('exe_c2', 'conversation', 'waiting', { session_id: 'ses_c2', doing: doing('job') })]
+  const rows = boardRows({ views, tasks: [], sessions: [], now: NOW, past: false })
+  const [run, wait] = [rows.find((r) => r.id === 'ses_c1')!, rows.find((r) => r.id === 'ses_c2')!]
+  assert.equal(targetOf(run).running, true)
+  assert.equal(targetOf(wait).running, false, 'the palette offers no Stop for a waiting conversation')
+  const stop = (r: typeof run) => bulkVerbs([r], []).find((o) => o.verb === 'stop')!.items.length
+  assert.equal(stop(run), 1)
+  assert.equal(stop(wait), 0, 'bulk Stop skips a waiting conversation')
+  const inspector = readFileSync(new URL('../src/ops/Inspector.tsx', import.meta.url), 'utf8')
+  assert.match(inspector, /const running = isRunning\(r\.view\?\.state, r\.session\?\.execution_state\)/)
+  const infoOnly = boardRows({ views: [], tasks: [info(5, 'waiting')], sessions: [], now: NOW, past: false })[0]
+  assert.equal(targetOf(infoOnly).running, false, 'an info-only task waiting is not running either')
+})
+
+test('a task known only by its record, waiting, is not called working; running still is (theseus-jo84p)', () => {
+  const col = (state: string) => boardRows({ views: [], tasks: [info(6, state)], sessions: [], now: NOW, past: false })[0].column
+  assert.equal(col('running'), 'working')
+  assert.notEqual(col('waiting'), 'working', 'nothing says it is in flight')
+  assert.equal(col('waiting'), 'paused', 'open and recoverable')
+})
+
+test('the ended view states are named once (theseus-jo84p)', () => {
+  for (const s of ['done', 'failed', 'cancelled', 'expired']) assert.equal(isEndedState(s), true, s)
+  for (const s of ['running', 'waiting', 'queued', 'needs_you', 'ready', undefined]) assert.equal(isEndedState(s), false, String(s))
+  for (const f of ['graph.ts', 'rehome.ts', 'selection.ts', 'facts.ts', 'GraphNode.tsx']) {
+    const t = readFileSync(new URL(`../src/ops/${f}`, import.meta.url), 'utf8')
+    assert.ok(!/'done', 'failed', 'cancelled', 'expired'/.test(t) && !/ENDED_VIEW = /.test(t), `${f} repeats the ended list`)
+  }
 })

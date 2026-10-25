@@ -10,24 +10,34 @@ import { ago, short } from '@/lib/format'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
 import { NOTICE_LOOK } from './facts'
-import { dismissAll, noticeFacts, seenCall, trustCall, type Hold } from './notices'
+import { dismissAll, dismissReport, noticeFacts, seenCall, trustCall, type Hold } from './notices'
 
 export function Notices({ notices, now, readOnly = false, redact = false }: { notices: readonly Hold[]; now: number; readOnly?: boolean; redact?: boolean }) {
   const { busy, act, send, settle, on } = useOpsAct()
   const [open, setOpen] = useState<string | null>(null)
+  const [sweeping, setSweeping] = useState(false)
+  const [refused, setRefused] = useState<string | null>(null)
   if (!notices.length) return null
   const all = dismissAll(notices)
+  // One call per session; a refusal (a hold that began to wait between the read and the click) is counted and shown, never
+  // dropped, and the button stays busy until the last call is back.
   const dismissEvery = async () => {
     if (!window.confirm(all.ask)) return
-    for (const c of all.calls) await send('mark', c.method, c.params)
-    settle()
+    setSweeping(true)
+    setRefused(null)
+    try {
+      const results: Array<{ ok: boolean; words: string }> = []
+      for (const c of all.calls) results.push(await send('mark', c.method, c.params))
+      setRefused(dismissReport(results).line)
+    } finally { setSweeping(false); settle() }
   }
   return (
     <section className="shrink-0 rounded-lg bg-white/[0.02] ring-1 ring-line" aria-label="Notices" data-testid="ops-notices">
       <h3 className="flex items-center gap-1.5 px-2.5 pt-2 font-display text-[10.5px] font-bold uppercase tracking-[0.08em] text-ink-dim" title="sessions that read external text; under notify nothing waits on it, so these are not counted as needing you">
         <BellRing size={11} /> Notices · {notices.length}
-        {!readOnly && <span className="ml-auto"><ActBtn verb="mark" on={on} tone="idle" busy={busy === 'notice:all'} onClick={() => void dismissEvery()} title="mark every notice seen: they leave this strip, the holds stay">{all.label}</ActBtn></span>}
+        {!readOnly && <span className="ml-auto"><ActBtn verb="mark" on={on} tone="idle" busy={busy === 'notice:all' || sweeping} onClick={() => void dismissEvery()} title="mark every notice seen: they leave this strip, the holds stay">{all.label}</ActBtn></span>}
       </h3>
+      {refused && <p role="status" data-testid="ops-notices-refused" className="px-2.5 pt-1 text-[11px] text-fault">⊘ {refused}</p>}
       <div className="flex flex-col p-1">
         {notices.map((h) => {
           const f = noticeFacts(h, redact)

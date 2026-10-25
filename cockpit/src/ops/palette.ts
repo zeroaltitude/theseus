@@ -6,6 +6,7 @@ import type { DataMark, ProfileInfo, TaskRecord } from '@protocol'
 import type { OpsRow } from './board.ts'
 import { verbsFor, type WatchRow } from '../lib/agenda.ts'
 import { greyOf } from './floor.ts'
+import { isRunning } from './state.ts'
 import { costHint } from './menus.ts'
 import type { Price } from '../lib/money.ts'
 import { verbById, type Kind, type Posture } from './verbs.ts'
@@ -39,7 +40,7 @@ export function targetOf(r: OpsRow): OpsTarget {
   const state = r.view?.state ?? r.state ?? ''
   return {
     id: r.id, kind, title: r.title, sessionId: r.sessionId, profile: r.model, data: r.data, paused: r.paused,
-    running: state === 'running' || state === 'waiting' || r.session?.execution_state === 'running',
+    running: isRunning(state, r.session?.execution_state),
     retired: !!r.session?.retired,
     failed: state === 'failed' || r.task?.info?.state === 'failed', ended: r.column === 'done',
     executionId: r.kind === 'conversation' ? r.view?.id ?? r.session?.execution_id : undefined,
