@@ -73,6 +73,10 @@ struct Args {
     objective: Option<String>,
     #[serde(default)]
     budget_usd: Option<f64>,
+    /// Why the model fans out, when no one asked this turn (theseus-o1h3f.1):
+    /// each helper is a task started by the turn, and carries it.
+    #[serde(default)]
+    because: Option<String>,
     #[serde(default = "yes")]
     wait: bool,
     #[serde(default)]
@@ -115,6 +119,7 @@ impl Tool for TaskFanOut {
                     "paths": {"type": "array", "items": {"type": "string"}}
                 }}},
             "objective": {"type": "string", "description": "the shared goal (default: this turn's message)"},
+            "because": {"type": "string", "maxLength": 160, "description": "one line, why you start them, when no one asked this turn (a wake, a report)"},
             "budget_usd": {"type": "number", "exclusiveMinimum": 0,
                 "description": "the total for all helpers, split equally (default: half of what this session has left)"},
             "wait": {"type": "boolean", "description": "wait for them here (default true)"},
@@ -460,7 +465,13 @@ fn open_all(core: &Core, tc: &TurnCtx<'_>, call_id: &str, a: &Args) -> Result<Op
     for (n, h) in a.helpers.iter().enumerate() {
         let n = n + 1;
         let brief = wrapped(h);
-        let input = task::helper_input(&brief, &h.title, a.objective.as_deref(), &node, each)?;
+        let input = task::helper_input(
+            &brief,
+            &h.title,
+            a.objective.as_deref(),
+            (&node, a.because.as_deref()),
+            each,
+        )?;
         let open_id = format!("{call_id}h{n}");
         let done = task::create(
             tc,

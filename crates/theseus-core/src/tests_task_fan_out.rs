@@ -735,3 +735,108 @@ async fn a_crash_after_the_helpers_opened_leaves_one_set_and_the_wait_finds_it()
         out.0.text
     );
 }
+
+/// A fan-out a turn makes by itself (a wake, a report) says why, as a task it
+/// starts does (theseus-o1h3f.1): without `because` it is refused in the words
+/// that name it and opens nothing; with it, each helper is a self-started task
+/// carrying the reason.
+#[tokio::test]
+async fn a_fan_out_a_wake_makes_says_why_and_each_helper_carries_it() {
+    let because: Call = Arc::new(Mutex::new(Value::Null));
+    let seen = because.clone();
+    let r = rig(
+        move |req| {
+            let first = first_user(req);
+            if first.contains("CHILD:") {
+                return Scripted::text("Surveyed.");
+            }
+            if first.contains("AREA:") {
+                return Scripted::text("ok");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Done.");
+            }
+            let text = serde_json::to_string(&req.messages).unwrap();
+            if text.contains("[Report from task") {
+                let mut call = json!({"helpers": helpers(2), "budget_usd": 6.0, "wait": false});
+                if let Some(b) = seen.lock().unwrap().as_str() {
+                    call["because"] = json!(b);
+                }
+                return Scripted::tools("Following up.", &[("f_wake", "task_fan_out", call)]);
+            }
+            Scripted::tools(
+                "Starting.",
+                &[(
+                    "t_task",
+                    "task_create",
+                    json!({"brief": "CHILD: survey", "budget_usd": 1.5, "wake_parent": true,
+                           "arrangement": crate::tests_tasks::arranged()}),
+                )],
+            )
+        },
+        |_| {},
+    );
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    until("the wake's refusal", || {
+        nodes_of(&r.core, &parent).iter().any(
+            |n| matches!(&n.body, Body::ToolResult { tool_use_id, .. } if tool_use_id == "f_wake"),
+        )
+    })
+    .await;
+    let (text, _) = result_of(&r.core, &parent, "f_wake");
+    assert!(text.contains("`because`"), "{text}");
+    assert_eq!(tasks_of(&r.core, &parent).len(), 1, "only the survey");
+
+    // The same turn with a reason opens the helpers, each marked.
+    *because.lock().unwrap() = json!("the survey named two areas it missed");
+    let r2 = rig(
+        {
+            let seen = because.clone();
+            move |req| {
+                let first = first_user(req);
+                if first.contains("CHILD:") || first.contains("AREA:") {
+                    return Scripted::text("ok");
+                }
+                if answers_a_call(req) {
+                    return Scripted::text("Done.");
+                }
+                let text = serde_json::to_string(&req.messages).unwrap();
+                if text.contains("[Report from task") {
+                    let call = json!({"helpers": helpers(2), "budget_usd": 6.0, "wait": false,
+                                      "because": seen.lock().unwrap().as_str()});
+                    return Scripted::tools("Following up.", &[("f_wake", "task_fan_out", call)]);
+                }
+                Scripted::tools(
+                    "Starting.",
+                    &[(
+                        "t_task",
+                        "task_create",
+                        json!({"brief": "CHILD: survey", "budget_usd": 1.5, "wake_parent": true,
+                               "arrangement": crate::tests_tasks::arranged()}),
+                    )],
+                )
+            }
+        },
+        |_| {},
+    );
+    let p2 = parent_session(&r2.core);
+    turn(&r2.core, &p2, ASK).await;
+    until("both helpers are recorded", || {
+        tasks_of(&r2.core, &p2).len() == 3
+    })
+    .await;
+    let marked: Vec<_> = crate::task_graph::all(&r2.core.store)
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.title.starts_with("area "))
+        .collect();
+    assert_eq!(marked.len(), 2);
+    for t in marked {
+        assert!(t.origin.self_started && t.origin.by_model, "{:?}", t.origin);
+        assert_eq!(
+            t.origin.because.as_deref(),
+            Some("the survey named two areas it missed")
+        );
+    }
+}

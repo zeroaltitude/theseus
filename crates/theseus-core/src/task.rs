@@ -526,7 +526,7 @@ pub fn create<'a>(
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
     let Some(brief) = i.brief.as_deref() else {
-        let own = crate::task_self::Own::read(tc, correlation_id, i.because.as_deref())?;
+        let own = crate::task_self::Own::read(tc, call_id, i.because.as_deref())?;
         // A plan item (39a): a record, and no session.
         return crate::task_graph::tools::create_item(
             tc,
@@ -555,7 +555,7 @@ pub fn create<'a>(
     if parent.parent.is_some() || parent.kind == SessionKind::Task {
         return Err(DEPTH_REFUSAL.into());
     }
-    let own = crate::task_self::Own::read(tc, correlation_id, i.because.as_deref())?;
+    let own = crate::task_self::Own::read(tc, call_id, i.because.as_deref())?;
     if i.open && crate::google::private::session_on(tc.store, google, tc.session_id) {
         return Err(PRIVATE_OPEN_REFUSAL.into());
     }
@@ -935,7 +935,7 @@ pub(crate) fn helper_input(
     brief: &str,
     title: &str,
     objective: Option<&str>,
-    node: &str,
+    (node, because): (&str, Option<&str>),
     budget_usd: f64,
 ) -> Result<Value, String> {
     let mut v = json!({"brief": brief, "title": title, "budget_usd": budget_usd,
@@ -943,6 +943,9 @@ pub(crate) fn helper_input(
         "fidelity_ack": true});
     if let Some(o) = objective {
         v["objective"] = json!(o);
+    }
+    if let Some(b) = because {
+        v["because"] = json!(b);
     }
     input_of(&v)?;
     Ok(v)
