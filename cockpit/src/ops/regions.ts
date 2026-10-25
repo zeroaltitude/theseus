@@ -25,13 +25,22 @@ export interface Regions {
   canvas: boolean
 }
 
-/** Where each region goes at `width` px, with the folds as kept and whether anything is selected. */
-export function regionsFor(width: number, queue: Fold, inspector: Fold, selected: boolean): Regions {
-  if (width < NARROW_PX) return { queue: 'page', inspector: selected ? 'over' : 'none', canvas: false }
+/** The address's `sel` for an inspector the owner opened by hand with nothing selected. It names no card; `Esc` clears
+ *  it as it clears any selection, and a link to it reopens the empty panel. */
+export const OPEN_SEL = '~'
+
+/** What the idle tab's click selects: the first ask in Needs you, else nothing, with the panel open all the same. */
+export const idleSel = (firstAsk: string | undefined): string => firstAsk ?? OPEN_SEL
+
+/** Where each region goes at `width` px, with the folds as kept, whether anything is selected, and whether the owner
+ *  opened the inspector by hand (the idle tab) with nothing selected: it then shows its empty state. */
+export function regionsFor(width: number, queue: Fold, inspector: Fold, selected: boolean, byHand = false): Regions {
+  const shows = selected || byHand
+  if (width < NARROW_PX) return { queue: 'page', inspector: shows ? 'over' : 'none', canvas: false }
   const q = queue === 'folded' ? 'folded' : 'side'
   if (inspector === 'folded') return { queue: q, inspector: 'folded', canvas: true }
-  if (width < WIDE_PX) return { queue: q, inspector: selected ? 'over' : 'none', canvas: true }
-  return { queue: q, inspector: selected ? 'side' : 'idle', canvas: true }
+  if (width < WIDE_PX) return { queue: q, inspector: shows ? 'over' : 'none', canvas: true }
+  return { queue: q, inspector: shows ? 'side' : 'idle', canvas: true }
 }
 
 /** Whether Coming up (the queue's foot) is on screen at `width` with the queue as kept: the queue region is not a tab.
