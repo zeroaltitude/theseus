@@ -12,7 +12,7 @@ import { useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
 import { verdictWords } from '@/lib/verdict'
 import { checkLine } from '@/lib/check'
-import { ago, cn, ms, short, stamp, usd, clock } from '@/lib/format'
+import { ago, cn, ms, short, stamp, until, usd, clock } from '@/lib/format'
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { Btn, Empty, Panel, Pill, StatePill } from '@/components/ui'
 import { ConfirmCard, useAct } from '@/components/ConfirmCard'
@@ -221,7 +221,7 @@ const LifecycleRow = memo(function LifecycleRow({ a, now, nav }: { a: ActionInfo
           </div>
         ))}
       </div>
-      {!a.settled_at_ms && <div className={cn('num mt-1 text-[10.5px]', overdue ? 'text-fault' : 'text-wait')}>deadline {a.deadline_at_ms > now ? `in ${ms(a.deadline_at_ms - now)}` : `${ms(now - a.deadline_at_ms)} ago`}</div>}
+      {!a.settled_at_ms && <div className={cn('num mt-1 text-[10.5px]', overdue ? 'text-fault' : 'text-wait')}>deadline {a.deadline_at_ms > now ? until(a.deadline_at_ms, now) : ago(a.deadline_at_ms, now)}</div>}
       {a.reserved_usd > 0 && <div className="num mt-0.5 text-[10.5px] text-money">{a.settled_at_ms ? 'reserved' : 'holds'} {usd(a.reserved_usd)}</div>}
     </div>
   )

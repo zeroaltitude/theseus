@@ -3,6 +3,7 @@
 // must not look as if the store were shipped off the machine.
 import type { AwsDurabilityStatus } from '@protocol'
 import type { Tone } from './taxonomy'
+import { span } from './figures.ts'
 
 export type DurabilityView = {
   /** The state in words, for the pill. */
@@ -29,7 +30,7 @@ const STATE: Record<string, [string, Tone]> = {
 
 const n = (x: number) => x.toLocaleString('en-US')
 const plural = (x: number, one: string) => `${n(x)} ${one}${x === 1 ? '' : 's'}`
-const mins = (ms: number) => `${Math.floor(Math.max(0, ms) / 60_000)} min`
+const mins = (ms: number) => span(ms)
 const secs = (ms: number) => {
   const s = Math.floor(Math.max(0, ms) / 1000)
   return s < 120 ? `${s} s` : `${Math.floor(s / 60)} min`

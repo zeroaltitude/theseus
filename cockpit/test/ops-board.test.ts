@@ -136,7 +136,7 @@ test('a card shows every field of the Tasks page’s card, by state', () => {
   const working = cardFacts(rows.get('ses_tides')!, NOW)
   assert.equal(working.doing, 'thinking')
   assert.equal(working.pause, undefined, 'a conversation has no task pause')
-  assert.match(cardFacts(rows.get('wak_r1')!, NOW).due ?? '', /^due \d\d:\d\d:\d\d, in 2h 0m$/)
+  assert.match(cardFacts(rows.get('wak_r1')!, NOW).due ?? '', /^due \d\d:\d\d, in 2h$/)
 })
 
 test('a view the board lacks a session for still shows', () => {

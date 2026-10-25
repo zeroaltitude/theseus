@@ -13,7 +13,7 @@ import { ConfirmCard } from '@/components/ConfirmCard'
 import { changeWords } from '@/lib/taskgraph'
 import { answerOf, grantKey, type Answer, type QueueItem } from './queue'
 import type { ComingEvent } from './calendar'
-import { ITEM_LOOK, itemFacts } from './facts'
+import { comingTimes, ITEM_LOOK, itemFacts } from './facts'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
 import type { ButtonAct, Verb } from './keys'
@@ -141,16 +141,16 @@ function ComingUp({ views, events, now }: { views: readonly WorkView[]; events: 
       {rows.map((r) => 'v' in r && r.v ? (
         <Link key={r.key} to={r.v.session_id ? `/session/${r.v.session_id}` : '#'} className="flex items-baseline gap-2 rounded px-1 py-0.5 text-[11.5px] hover:bg-white/5">
           <span className="w-3 text-think" aria-hidden>{r.v.kind === 'task' ? '▷' : MARK[r.v.purpose ?? r.v.kind] ?? '●'}</span>
-          <span className="num shrink-0 text-ink-dim">{clock(r.v.next_at_ms)}</span>
+          <span className="num shrink-0 text-ink-dim">{comingTimes(r.v.next_at_ms, now).at}</span>
           <span className="min-w-0 truncate text-ink">{r.v.title || r.v.kind}</span>
-          <span className="num ml-auto shrink-0 text-[10px] text-ink-faint">in {Math.max(1, Math.round(((r.v.next_at_ms ?? now) - now) / 60_000))}m</span>
+          <span className="num ml-auto shrink-0 text-[10px] text-ink-faint">{comingTimes(r.v.next_at_ms, now).rel}</span>
         </Link>
       ) : 'e' in r && r.e ? (
         <div key={r.key} className="flex items-baseline gap-2 px-1 py-0.5 text-[11.5px]" data-event={r.e.sensitive ? 'sensitive' : 'open'}>
           <span className="inline-block h-2 w-3 shrink-0 rounded-[2px]" style={{ background: r.e.color }} aria-hidden />
-          <span className="num shrink-0 text-ink-dim">{clock(r.e.at_ms)}</span>
+          <span className="num shrink-0 text-ink-dim">{comingTimes(r.e.at_ms, now).at}</span>
           <span className="min-w-0 truncate text-ink-dim">{r.e.line}</span>
-          <span className="num ml-auto shrink-0 text-[10px] text-ink-faint">in {Math.max(1, Math.round((r.e.at_ms - now) / 60_000))}m</span>
+          <span className="num ml-auto shrink-0 text-[10px] text-ink-faint">{comingTimes(r.e.at_ms, now).rel}</span>
         </div>
       ) : null)}
     </section>

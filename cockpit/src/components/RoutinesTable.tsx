@@ -8,7 +8,7 @@ import { ChevronDown, ChevronRight, Pause, Play, Repeat, X } from 'lucide-react'
 import type { RunRow } from '@protocol'
 import { useAct } from '@/components/ConfirmCard'
 import { Btn, Empty, Pill } from '@/components/ui'
-import { ago, clock, ms, short, usd } from '@/lib/format'
+import { ago, clock, ms, short, until, usd, when } from '@/lib/format'
 import { toneHex } from '@/lib/taxonomy'
 import { costSeries, lastRuns, outcomeOf, routineVerbs, runTally, sparkPoints, type RoutineRow } from '@/lib/agenda'
 import type { WorkView } from '@protocol'
@@ -82,7 +82,7 @@ export function RoutinesTable({ rows, views, runs, now }: { rows: readonly Routi
                 <td className="px-1"><button onClick={() => setOpen(isOpen ? null : r.id)} aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} the last runs of ${r.title}`} className="text-ink-faint hover:text-ink">{isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</button></td>
                 <td className="px-2 py-1.5"><span className="text-ink">{r.title}</span> {r.paused && <Pill tone="wait">paused</Pill>} <span className="num text-[10.5px] text-ink-faint">{short(r.session_id)}</span></td>
                 <td className="num px-2 py-1.5 text-ink-dim"><Repeat size={11} className="mr-1 inline" />{r.schedule}</td>
-                <td className="num px-2 py-1.5 text-ink-dim" title={r.next_ms ? clock(r.next_ms) : undefined}>{r.paused ? 'held' : r.next_ms ? `${clock(r.next_ms)} · in ${ms(r.next_ms - now)}` : '—'}</td>
+                <td className="num px-2 py-1.5 text-ink-dim" title={r.next_ms ? clock(r.next_ms) : undefined}>{r.paused ? 'held' : r.next_ms ? `${when(r.next_ms, now)} · ${until(r.next_ms, now)}` : '—'}</td>
                 <td className="px-2 py-1.5">
                   {r.last ? <><Outcome outcome={r.last.outcome} /> <span className="num text-ink-faint">· {ms(r.last.duration_ms)} · {usd(r.last.cost_usd, 3)} · {ago(r.last.at_ms, now)}</span>{r.last.line && <div className="max-w-[320px] truncate text-[11px] text-ink-faint" title={r.last.line}>{r.last.line}</div>}</> : <span className="text-ink-faint">never run</span>}
                 </td>

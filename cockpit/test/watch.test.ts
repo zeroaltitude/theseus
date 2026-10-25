@@ -262,7 +262,7 @@ test("the time machine's moment: nothing after it is read", () => {
 })
 
 test('the words: spans, dollars, commands, paths, and the median', () => {
-  assert.deepEqual([0, 999, 42_000, 60_000, 15 * MIN + 59_000, HOUR_MS + 5 * MIN, 26 * HOUR_MS].map(span), ['0s', '0s', '42s', '1m', '15m', '1h 05m', '1d 2h'])
+  assert.deepEqual([0, 999, 42_000, 60_000, 15 * MIN + 59_000, HOUR_MS + 5 * MIN, 26 * HOUR_MS].map(span), ['0s', '0s', '42s', '1m', '15m', '1h 5m', '1d 2h'])
   assert.deepEqual([0, 0.00001, 0.0042, 0.85, 12.5].map(dollars), ['$0.00', '$0.00001', '$0.0042', '$0.850', '$12.50'])
   assert.equal(argvWords(['sh', '-c', 'sleep 1; echo the berths are clear']), 'sleep 1; echo the berths are clear')
   assert.equal(argvWords(['/bin/bash', '-lc', 'cargo test']), 'cargo test')
@@ -444,7 +444,7 @@ test('the calls the Ship reads: the newest, and every one not settled however ol
   assert.deepEqual(mergeActions(undefined, unsettled)!.map((a) => a.correlation_id), ['act_c', 'act_b', 'act_old'])
   // The six-hour job works on the watch only from the unsettled read.
   const model = fleet([{ id: 'ses_b', title: 'Dredging run' }])
-  assert.deepEqual(watchOf(at({ model, actions: both })).working.lines.map((l) => [l.id, l.figure]), [['job:act_c', '1m'], ['job:act_old', '6h 00m']])
+  assert.deepEqual(watchOf(at({ model, actions: both })).working.lines.map((l) => [l.id, l.figure]), [['job:act_c', '1m'], ['job:act_old', '6h']])
   assert.equal(watchOf(at({ model, actions: newest })).working.jobs, 1)
 })
 

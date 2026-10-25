@@ -33,9 +33,9 @@ test('a span and an episode\'s time are said in UTC', () => {
   assert.equal(spanWords({ episodes: 0 }), 'empty')
   assert.equal(spanWords({ episodes: 2, first_ms: Date.UTC(2024, 2, 1), last_ms: Date.UTC(2026, 8, 30, 23) }), '2024-03-01 to 2026-09-30')
   assert.equal(spanWords({ episodes: 1, first_ms: Date.UTC(2025, 0, 1), last_ms: Date.UTC(2025, 0, 1, 5) }), '2025-01-01')
-  assert.equal(episodeWhen(ep()), '2026-01-02 09:00 UTC · 40 min')
-  assert.equal(episodeWhen(ep({ end_ms: Date.UTC(2026, 0, 2, 12) })), '2026-01-02 09:00 UTC · 3 h')
-  assert.equal(episodeWhen(ep({ end_ms: Date.UTC(2026, 0, 5, 9) })), '2026-01-02 09:00 UTC · 3 d')
+  assert.equal(episodeWhen(ep()), '2026-01-02 09:00 UTC · 40m')
+  assert.equal(episodeWhen(ep({ end_ms: Date.UTC(2026, 0, 2, 12) })), '2026-01-02 09:00 UTC · 3h')
+  assert.equal(episodeWhen(ep({ end_ms: Date.UTC(2026, 0, 5, 9) })), '2026-01-02 09:00 UTC · 3d')
 })
 
 test('an episode\'s labels in a line, and which sensitivities stay private', () => {
