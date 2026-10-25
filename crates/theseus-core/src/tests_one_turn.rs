@@ -166,7 +166,9 @@ async fn a_single_instruction_reads_300_large_results_without_an_overage() {
     // token keep (theseus-5lzox: the window was 100,000 when the newest 20
     // exchanges stayed whole), so passes come every dozen loops or so, and
     // the stubs they leave fill the window for two compactions.
-    let r = rig(300, 2_500, 80_000, None);
+    // 80,000 until the three p3h rows joined the catalog together (theseus-z9mze.2, .3, theseus-o1h3f.1: 80,000
+    // to 81,000 clear 30 passes or more; 82,000 to 86,000 hold, 87,000 and up do not: a sweep at their join).
+    let r = rig(300, 2_500, 82_000, None);
     let (sid, result) = turn(&r.core, INSTRUCTION).await;
     let result = result.expect("the turn ends as its model ends it");
     assert!(result
