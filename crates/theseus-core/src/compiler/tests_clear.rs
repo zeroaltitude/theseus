@@ -103,7 +103,7 @@ fn per_byte() -> f64 {
 
 /// A long session of 12-25K-token reads on a 1M window clears at about
 /// 150K tokens of results, not at 50 % of the budget (about 430K), each
-/// pass leaves about 60K of results, and the appends between passes render
+/// pass leaves about 40K of results, and the appends between passes render
 /// the same prefix byte for byte (the cache holds).
 #[test]
 fn a_long_session_clears_at_the_token_line_and_keeps_its_prefix_between_passes() {

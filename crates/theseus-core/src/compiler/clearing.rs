@@ -45,14 +45,31 @@ pub const CLEAR_TO: u64 = 35;
 /// cache seven times a trial, a third of its cost.
 pub const CLEAR_AT_TOKENS: u64 = 150_000;
 /// The newest results kept whole, in tokens. With the trigger above, a pass
-/// leaves about 60K of results, so its rewrite is small and the model keeps
+/// leaves about 40K of results, so its rewrite is small and the model keeps
 /// what it read last, not what it read first (the hunt re-read 66 % of its
-/// lines after the old rule cleared its opening files).
-pub const KEEP_TOKENS: u64 = 60_000;
+/// lines after the old rule cleared its opening files). Chosen from the
+/// replay's grid (`tests_replay.rs`): the cheapest cell of the owner's ranges
+/// within 5 %, the lower mean context winning the tie.
+pub const KEEP_TOKENS: u64 = 40_000;
 /// A result this long or shorter stays whole.
 pub const MIN_CHARS: usize = 2_000;
 /// The drops' tier and reason.
 pub const TIER: &str = "cleared";
+
+/// The trigger and the keep in tokens: the constants, but a test may try
+/// others on its own thread (the replay's grid).
+fn rule() -> (u64, u64) {
+    #[cfg(test)]
+    if let Some(r) = TRIED.get() {
+        return r;
+    }
+    (CLEAR_AT_TOKENS, KEEP_TOKENS)
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static TRIED: std::cell::Cell<Option<(u64, u64)>> = const { std::cell::Cell::new(None) };
+}
 
 /// What a pass did, for its `context.cleared` row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,8 +122,9 @@ pub(super) fn clear(
     (c, request, est): (&Compilation, &ProviderRequest, &Estimate),
     make: &super::ring::Make<'_>,
 ) -> Option<Made> {
+    let (at_tokens, keep_tokens) = rule();
     let by_percent = est.tokens > at.budget * CLEAR_AT / 100;
-    if !(by_percent || est.tokens > CLEAR_AT_TOKENS) || !any_old(input.nodes) {
+    if !(by_percent || est.tokens > at_tokens) || !any_old(input.nodes) {
         return None;
     }
     let (prefix, tail) = situation::selected(c, input.nodes);
@@ -121,12 +139,12 @@ pub(super) fn clear(
     let already = of(c);
     let per_byte = est.tokens as f64 / request.json_bytes().max(1) as f64;
     let live = live_tokens(&shown, &already, per_byte);
-    if !by_percent && live <= CLEAR_AT_TOKENS {
+    if !by_percent && live <= at_tokens {
         return None;
     }
     let overhead = est.tokens.saturating_sub(live);
-    let line = (overhead + CLEAR_AT_TOKENS).min(at.budget * CLEAR_AT / 100);
-    let keep = KEEP_TOKENS.min((at.budget * CLEAR_TO / 100).saturating_sub(overhead));
+    let line = (overhead + at_tokens).min(at.budget * CLEAR_AT / 100);
+    let keep = keep_tokens.min((at.budget * CLEAR_TO / 100).saturating_sub(overhead));
     let (new, chars) = pass(&shown, &already, keep, per_byte);
     let saved: u64 = new.iter().map(|d| d.tokens).sum();
     if new.is_empty() || est.tokens.saturating_sub(saved) > (line + overhead + keep) / 2 {
