@@ -3077,6 +3077,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   online count when a limit applies (`CPUs available to commands: 2 (cgroup quota; the host shows 32).`); an unreadable
   file is no limit. Commands run as the daemon's children, so its cgroup is theirs. Tests: `tests_turn_progress.rs`,
   `turn::progress_step::tests`, `turn::clock_step::tests`, `cpu::commands::tests`.
+- **A running build is progress; the deliverable hint; the doubt** (theseus-duzha, theseus-eb4o4, theseus-rqu7j; the
+  first on `turn/progress_step.rs`, the others on `turn/close_out_step.rs`). **Held loops** (duzha): a loop that is no
+  check and sent a command to the background, or waited on or read a job (`job.wait`, `job.read`, answered without
+  error) while a job of the execution ran (`TurnRunner::running_jobs`, the kernel's outstanding calls, read only for such
+  a loop) or had ended since the last such loop (`State::running`), leaves **both** counts, `since_pass` and
+  `since_check`, where they were: a 40-minute build that the turn waits on must not be steered at half the deadline or
+  stopped at 0.85 (the stop reads `since_check`). A passing or failing command, a read of new ground, and the pre-edit rule
+  keep their precedence; a loop with no job call counts as before, so the steer and the stop still fire on a turn that
+  makes no progress. The second loop that reads a job that ended counts again. **The deliverable hint** (eb4o4):
+  from the loop after the turn's first answered file edit, one tail block (`close_out_step::DELIVERABLE_HINT`, through
+  `Self::attach_hint`, which `coding_hint` also uses) says to call what was built once, the way the task spells it; a turn
+  that wrote no file, or only ran commands, carries none (the DM task flow's golden and the keep-warm tests read such
+  tails). **The doubt** (rqu7j): at a would-end whose closing message `names_a_gap` (a phrase list over its lowercased
+  text), in a turn that edited or ran a command, with under `CLOSE_OUT_SHARE` (0.4) of its time and of its spend used,
+  once, outside a shared place and a strict loop cap, with no job of the turn running, one harness node
+  (`DOUBT_TEXT`) and one more loop, after the stop nudge and the end note (it does not yield to them); a `turn.progress`
+  row with decision `doubt`. It builds and installs nothing. Tests: `tests_turn_progress.rs`, `tests_end_note.rs`,
+  `turn::progress_step::tests`, `turn::close_out_step::tests`.
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):
   `turn/budget_step.rs`. With `[kernel] spend_limit_mode = "notify"` (the default) a provider call past the
   session's limit goes out (`Kernel::overdraws`, theseus-kernel's `overdraw.rs`), and the loop whose call took the
