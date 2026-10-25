@@ -150,6 +150,17 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// Whether a settled job's row says its command ran to an end of its own: an
+/// exit code, a signal, the deadline's kill or a stop (the kernel stamps them
+/// from the wrapper's report). A row without them (a spawn that failed, a
+/// wrapper that died) says nothing of the command.
+fn command_ended(d: &Value) -> bool {
+    d["exit_code"].is_number()
+        || d["signal"].is_number()
+        || d["timed_out"].as_bool() == Some(true)
+        || d["stopped"].as_bool() == Some(true)
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -174,7 +185,14 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     let mut o = obs(kind, pos, row);
     match kind {
         "action.failed" => {
+            // A job whose command ran and ended badly (a non-zero exit, a
+            // signal, its deadline, a stop) is the command's failure, a test
+            // or a search that found nothing, not the harness's: nothing in
+            // the tree to fix. A wrapper that could not run it still shows.
             let p = word(&d["producer"]);
+            if p == "wrapper" && command_ended(d) {
+                return None;
+            }
             o.key = format!("action.failed:{p}");
             o.title = calls_failing(&p);
             o.note = format!(
@@ -541,6 +559,36 @@ mod tests {
             data,
         };
         of_row(7, &row).unwrap().title
+    }
+
+    /// A job's command that exits non-zero, runs past its deadline or is
+    /// stopped is the command's failure, not a cause in the harness; a wrapper
+    /// that never ran it, and other producers' failures, still are.
+    #[test]
+    fn a_failed_command_is_not_a_harness_cause() {
+        let row = |data: Value| LedgerRow {
+            at_unix_ms: 1,
+            kind: "action.failed".into(),
+            session_id: None,
+            turn_id: None,
+            data,
+        };
+        for ended in [
+            json!({"exit_code": 1}),
+            json!({"exit_code": null, "signal": 9}),
+            json!({"timed_out": true}),
+            json!({"stopped": true}),
+        ] {
+            let mut d = json!({"producer": "wrapper:4242", "duration_ms": 7});
+            d.as_object_mut()
+                .unwrap()
+                .extend(ended.as_object().unwrap().clone());
+            assert!(of_row(7, &row(d.clone())).is_none(), "{d}");
+        }
+        let spawn = row(json!({"producer": "wrapper:4242", "duration_ms": 7}));
+        assert_eq!(of_row(7, &spawn).unwrap().key, "action.failed:wrapper");
+        let inproc = row(json!({"producer": "inproc:fs.read", "exit_code": 1}));
+        assert_eq!(of_row(7, &inproc).unwrap().key, "action.failed:inproc");
     }
 
     /// A backlog item's title is in plain words, and an item filed under the

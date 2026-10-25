@@ -2450,6 +2450,21 @@ impl Kernel {
             (false, Outcome::Failed) => LedgerKind::ActionFailed,
         };
         let mut data = json!({"correlation_id": a.correlation_id, "execution_id": e.id, "outcome": c.outcome, "producer": c.producer, "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "execution_state": exec_state, "cost_usd": c.cost_micros.map(micros_to_usd)});
+        // How a job's command ended, when it did: its exit, a signal, the
+        // deadline's kill or a stop. The row says it so a reader can tell the
+        // command's own failure from the wrapper's.
+        if let Some(d) = c.detail.as_ref() {
+            for k in ["exit_code", "signal"] {
+                if d[k].is_number() {
+                    data[k] = d[k].clone();
+                }
+            }
+            for k in ["timed_out", "stopped"] {
+                if d[k].as_bool() == Some(true) {
+                    data[k] = d[k].clone();
+                }
+            }
+        }
         if book {
             crate::earlier::booked_row(&mut data, &a);
         }

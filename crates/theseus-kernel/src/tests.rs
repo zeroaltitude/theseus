@@ -844,6 +844,31 @@ fn unknown_then_genuine_success_resolves_and_budget_moves_held_to_spent() {
 }
 
 #[test]
+fn a_failed_jobs_row_says_how_its_command_ended() {
+    let w = world();
+    let (s, _, g) = running(&w);
+    let a = dispatched(&w, &g, "proc.run", 0);
+    let mut c = completion(&a.correlation_id, Outcome::Failed, None);
+    c.producer = "wrapper:4242".into();
+    c.detail = Some(
+        json!({"exit_code": 2, "signal": null, "timed_out": false, "stopped": true, "note": "x"}),
+    );
+    w.kernel.accept_completion(&c).unwrap();
+    let failed = rows(&w, &s, "action.failed");
+    let d = &failed.last().unwrap();
+    assert_eq!(d["exit_code"], 2, "{d}");
+    assert_eq!(d["stopped"], true, "{d}");
+    assert!(
+        d.get("signal").is_none() && d.get("timed_out").is_none(),
+        "{d}"
+    );
+    assert!(
+        d.get("note").is_none(),
+        "only how it ended, never its words: {d}"
+    );
+}
+
+#[test]
 fn overdue_action_with_spooled_evidence_settles_from_the_reconciler() {
     let w = world();
     let (_, e, g) = running(&w);
