@@ -897,6 +897,55 @@ mod tests {
         assert_eq!(both.iter().filter(|p| **p == aws).count(), 1, "{both:?}");
     }
 
+    /// The two tests above read the view a job gets. A self build's view is
+    /// the only one that drops anything from that list — a directory that
+    /// holds its own binds (theseus-cr481) — so the same promise is made of
+    /// it here, where it is weakest: a self build *binds* `~/.cargo` as an
+    /// overlay, and cargo's token sits inside it. A mask is dropped only when
+    /// a bind lies **below** it, never when a bind lies above it, so the
+    /// token stays hidden under a bound directory, `~/.aws` and the floor
+    /// with it.
+    #[test]
+    fn credentials_stay_hidden_in_a_self_build_view_that_binds_their_directory() {
+        let real = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
+        let home = crate::config::expand("~");
+        let home = Path::new(&home);
+        // The floor, the sealed set among it, and the approve list as the
+        // operator's own config has it: the state dir's subdirectories, not
+        // the state dir itself.
+        let state = home.join(".theseus");
+        let sealed = PathBuf::from("/srv/theseus-sealed");
+        let floor = [state.join("store"), state.join("spool"), sealed.clone()];
+        let approve = [real("~/.aws"), real("~/.ssh"), state.join("self/gates")];
+        let sb = Sandbox::new(&SandboxConfig::default(), &[], &floor, &approve);
+        let (tree, target) = (state.join("self/trees/t"), state.join("self/target/t"));
+        let gate = state.join("self/gates/gate-abc.sh");
+        let ro = [gate.clone()];
+        let view = sb.self_build_view(&SelfBuild {
+            tree: &tree,
+            target: &target,
+            repo: Path::new("/repo"),
+            ro: &ro,
+            home,
+        });
+        // `~/.cargo` is bound as an overlay ...
+        assert!(view.workspace.contains(&home.join(".cargo")));
+        // ... and every credential inside it is hidden still, by name.
+        for f in CREDENTIALS {
+            assert!(view.hidden.contains(&real(f)), "{f}: {:?}", view.hidden);
+        }
+        // The floor, the sealed set and the rest of the approve list, by name.
+        for keep in floor.iter().chain(&approve[..2]) {
+            assert!(view.hidden.contains(keep), "{}", keep.display());
+        }
+        assert!(view.hidden.contains(&sealed), "the sealed set");
+        // The one mask dropped is the directory that holds the gate script.
+        assert!(!view.hidden.contains(&state.join("self/gates")));
+        assert!(view.ro_paths.contains(&gate), "the gate is bound");
+        // Nothing writable beyond the tree and its build tree.
+        assert_eq!(view.rw, [tree, target]);
+    }
+
     #[test]
     fn the_settings_are_checked() {
         let bad = |cfg: SandboxConfig| cfg.validate().unwrap_err().to_string();
