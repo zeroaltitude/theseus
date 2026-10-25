@@ -519,6 +519,11 @@ pub struct RecallItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub retention: Option<RecallRetention>,
+    /// Words naming the subject of an item about another subject of the
+    /// question's kind (theseus-96cyh); in memory only, for the header.
+    #[serde(skip)]
+    #[cfg_attr(test, ts(skip))]
+    pub neighbour: Option<String>,
 }
 
 /// A candidate dropped, and why: `place`, `in_context`, `untrusted`,

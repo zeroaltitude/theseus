@@ -34,6 +34,7 @@ pub mod adjacency;
 pub mod cite;
 pub mod evidence;
 pub mod labels;
+pub mod neighbour;
 pub mod outcomes;
 pub mod relevance;
 pub mod render;
@@ -861,6 +862,7 @@ impl Memory {
         };
         let kept = ranks.clone();
         fill(&mut m, pack, &mut ranks, texts);
+        neighbour::apply(&mut m.admitted, &neighbour::marks(&candidates));
         self.retention_items(&*scene.science, &mut m, &retention, asker.now_ms);
         m.timings.pack_ms = ms(t0.elapsed());
         m.timings.total_ms = ms(begun.started.elapsed());
@@ -892,10 +894,12 @@ impl Memory {
             threads: lens.as_ref(),
         };
         let params = self.params_of(m, scene.max_items);
+        let marks = neighbour::marks(&candidates);
         let pack =
             theseus_memory::rerank::repack(&*scene.science, &asker, candidates, &params, order);
         m.drops.clear();
         fill(m, pack, &mut ranks, true);
+        neighbour::apply(&mut m.admitted, &marks);
         self.retention_items(&*scene.science, m, &retention, asker.now_ms);
     }
 
@@ -1024,6 +1028,7 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
                 tokens: a.tokens,
                 text: texts.then_some(a.excerpt),
                 retention: None,
+                neighbour: None,
             }
         })
         .collect();
