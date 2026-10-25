@@ -517,6 +517,13 @@ html.calm .ops-flow .react-flow__edge-path, html.calm .ops-fade-in { animation: 
 html:not(.stirred) .live-sweep, html:not(.stirred) .animate-ping, html:not(.stirred) .animate-pulse-soft { animation: none !important; }
 html:not(.stirred) .animate-ping { display: none; }
 
+/* The ship's wheel (theseus-6o8q8), the one busy indicator: it turns while work is in flight, whether or not the daemon
+   is stirring, and holds still, drawn, under Calm and reduced motion. */
+@keyframes ships-wheel-turn { to { transform: rotate(360deg); } }
+.ships-wheel { animation: ships-wheel-turn 2.4s linear infinite; transform-origin: 50% 50%; }
+html.calm .ships-wheel { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .ships-wheel { animation: none !important; } }
+
 /* Calm: no decorative motion anywhere (the operator's choice, or the system's reduced motion). */
 html.calm .live-sweep, html.calm .animate-ping, html.calm .animate-pulse-soft, html.calm .plank-new { animation: none !important; }
 html.calm .animate-ping { display: none; }

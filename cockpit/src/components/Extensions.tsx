@@ -13,6 +13,7 @@ import { ago } from '@/lib/format'
 import { stateTone } from '@/lib/taxonomy'
 import { Empty, Field, Panel, Pill } from '@/components/ui'
 import { handsWords, networkWords, proposalsNotLoaded, shortDigest, usageWords } from '@/lib/extensions'
+import { ShipsWheel } from '@/components/ShipsWheel'
 
 export function ExtensionsCard({ now }: { now: number }) {
   const { data } = useRpc<ExtendListResult>('extend.list', { usage: true }, 5000)
@@ -85,7 +86,7 @@ function Revoke({ name }: { name: string }) {
   }
   return (
     <button onClick={revoke} disabled={busy} className="rounded px-1.5 py-0.5 text-[10.5px] text-fault ring-1 ring-fault/30 hover:bg-fault/10 disabled:opacity-50">
-      {busy ? '…' : 'Revoke'}
+      {busy ? <ShipsWheel label="revoking" /> : 'Revoke'}
     </button>
   )
 }

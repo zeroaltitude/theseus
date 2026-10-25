@@ -24,6 +24,7 @@ import { RpcConsole } from '@/components/RpcConsole'
 import { Empty, Field, Panel, Pill, StatePill } from '@/components/ui'
 import { ceilingWords } from '@/lib/ceiling'
 import { importedWords, syncWords } from '@/lib/sessionwords'
+import { ShipsWheel } from '@/components/ShipsWheel'
 
 export default function Systems() {
   const { data: h, dataUpdatedAt } = useRpc<Health>('health', undefined, 2000)
@@ -281,7 +282,7 @@ function MakeLive({ name, model }: { name: string; model: string }) {
   }
   return (
     <button onClick={use} disabled={busy} className="rounded px-1.5 py-0.5 text-[10.5px] text-live opacity-0 ring-1 ring-live/30 hover:bg-live/10 group-hover:opacity-100 disabled:opacity-50">
-      {busy ? '…' : 'make live'}
+      {busy ? <ShipsWheel label="making live" /> : 'make live'}
     </button>
   )
 }
