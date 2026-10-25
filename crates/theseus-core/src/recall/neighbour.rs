@@ -2,8 +2,9 @@
 //! whose chunk is about another subject of the kind the question asked
 //! about (another host, path or crate than the one it names) says whose it
 //! is in its header, so the model cannot read the neighbour's value as the
-//! asked one. Abstention probes of the recall bench were answered with a
-//! near note's value in 28 of 60 runs.
+//! asked one. One run of the recall bench answered 28 of 60 abstention probes
+//! with a near note's value; this note cannot reach those probes, whose
+//! questions name no entity, and its effect is not measured.
 //!
 //! The rule is the subject bar's (`theseus_memory::Floor::other_subject`):
 //! the question's entities that some hit holds (`asked`), a chunk holding
