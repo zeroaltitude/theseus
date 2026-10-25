@@ -587,7 +587,49 @@ export function addParams(f: { key: string; name: string; emoji: string; card: s
   return p
 }
 
-/** What the confirm says before a soul is written: the persona, the cap, and that the file is replaced (and kept). */
-export function soulAsk(key: string, cap: number): string {
-  return `Write the soul of ${key}? The file is replaced and the old one kept beside it. A soul over ${cap.toLocaleString('en-US')} tokens is refused. It goes live at the next compile.`
+/** A soul is about this many bytes a token: the cockpit's one estimate, as the editor's counter has it. */
+const BYTES_PER_TOKEN = 3
+/** A write under `SHRINK_FRACTION` of an old file over `SHRINK_MIN_OLD` bytes is a big shrink. */
+export const SHRINK_MIN_OLD = 200
+export const SHRINK_FRACTION = 0.5
+
+export function byteCount(text: string): number {
+  return new TextEncoder().encode(text).length
+}
+
+/** `1,128 B (about 376 tokens)`. */
+export function sizeWords(bytes: number): string {
+  return `${bytes.toLocaleString('en-US')} B (about ${Math.ceil(bytes / BYTES_PER_TOKEN).toLocaleString('en-US')} tokens)`
+}
+
+/** Most of the file would be gone: the new text is under half the old one, and the old one is over 200 bytes. */
+export function bigShrink(oldBytes: number, newBytes: number): boolean {
+  return oldBytes > SHRINK_MIN_OLD && newBytes < oldBytes * SHRINK_FRACTION
+}
+
+export const SHRINK_WARNING = 'Warning: this is under half the size of the file now, so most of its text will be gone from the persona. The old file is kept as a backup, and “restore previous” brings it back.'
+
+export interface SoulSizes {
+  oldBytes: number
+  newBytes: number
+  /** The text came from the backup of this time (a restore). */
+  backup?: string
+}
+
+/** What the confirm says before a soul is written: the persona, the cap, and that the file is replaced (and kept); with the sizes, old to new, and the shrink warning. */
+export function soulAsk(key: string, cap: number, sizes?: SoulSizes): string {
+  const head = `Write the soul of ${key}?`
+  const body = `The file is replaced and the old one kept beside it. A soul over ${cap.toLocaleString('en-US')} tokens is refused. It goes live at the next compile.`
+  if (!sizes) return `${head} ${body}`
+  const lines = [`${head} ${sizeWords(sizes.oldBytes)} -> ${sizeWords(sizes.newBytes)}.`]
+  if (sizes.backup) lines.push(`The text is from the backup of ${sizes.backup}.`)
+  if (bigShrink(sizes.oldBytes, sizes.newBytes)) lines.push(SHRINK_WARNING)
+  lines.push(body)
+  return lines.join('\n')
+}
+
+/** The card's view of a soul: its first 3 non-empty lines, cut at about 240 characters with an ellipsis. Empty text gives nothing. */
+export function soulHead(text: string, lines = 3, max = 240): string {
+  const head = text.split('\n').map((l) => l.trim()).filter((l) => l !== '').slice(0, lines).join('\n')
+  return head.length > max ? `${head.slice(0, max).trimEnd()}…` : head
 }

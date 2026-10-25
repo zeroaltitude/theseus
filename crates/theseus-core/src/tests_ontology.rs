@@ -573,3 +573,7 @@ async fn the_snapshot_rebuilt_after_a_restart_equals_the_one_kept_in_memory() {
 #[cfg(test)]
 #[path = "tests_persona_write.rs"]
 mod persona_write;
+
+#[cfg(test)]
+#[path = "tests_persona_soul_read.rs"]
+mod persona_soul_read;

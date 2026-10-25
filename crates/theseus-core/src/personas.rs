@@ -20,6 +20,7 @@ use crate::context_files::{ContextEntry, ContextFileEntry, ContextReaders};
 pub mod migrate;
 pub mod note;
 pub mod soul;
+pub mod soul_read;
 pub mod write;
 
 /// The kind's name, and a category's id for a key.

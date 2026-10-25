@@ -29,8 +29,20 @@ fn set(field: &mut Option<String>, v: &Option<String>) {
     }
 }
 
+/// A write that names the digest it loaded (`expect_digest`) is refused,
+/// before anything is written, when the file now differs.
+fn stale_check(key: &str, spelled: Option<&str>, expect: &str) -> Result<()> {
+    let now = spelled
+        .and_then(|s| std::fs::read_to_string(crate::config::expand(s)).ok())
+        .map(|t| crate::persona::digest(&t));
+    if now.as_deref() != Some(expect) {
+        bail!("the soul of {key} changed since you opened it: reload it and edit again. Nothing was written.");
+    }
+    Ok(())
+}
+
 impl Core {
-    fn persona_category(&self, key: &str) -> Result<Category> {
+    pub(super) fn persona_category(&self, key: &str) -> Result<Category> {
         let o = self.runner.ontology.snapshot(&self.store)?;
         match o.category(&id_of(key)?) {
             Some(c) => Ok(c.clone()),
@@ -167,6 +179,9 @@ impl Core {
             bail!("persona {key:?} is retired");
         }
         let card = c.persona.get_or_insert_with(PersonaCard::default);
+        if let Some(expect) = p.expect_digest.as_deref() {
+            stale_check(key, card.soul.as_deref(), expect)?;
+        }
         let plan = self.plan_soul(key, &p.text, card.soul.as_deref())?;
         card.soul = Some(plan.spelled.clone());
         card.soul_digest = Some(plan.digest.clone());
