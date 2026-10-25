@@ -54,6 +54,9 @@ pub(super) struct Stats {
     pub read: u64,
     pub write: u64,
     pub dollars: f64,
+    /// Each call's estimate, and each pass's call, tokens before and after.
+    pub series: Vec<u64>,
+    pub pass_log: Vec<(usize, u64, u64)>,
 }
 
 fn per_byte(bytes: usize) -> f64 {
@@ -121,6 +124,12 @@ pub(super) fn replay(window: u64) -> Stats {
 
 /// The hunt with reads of `lo` to `lo + span` tokens.
 pub(super) fn replay_sized(window: u64, lo: u64, span: u64) -> Stats {
+    replay_with(window, lo, span, 0)
+}
+
+/// The hunt with reads of `lo` to `lo + span` tokens, `small_pct` percent of
+/// its calls returning a result of 1,500 characters (never cleared).
+pub(super) fn replay_with(window: u64, lo: u64, span: u64, small_pct: u64) -> Stats {
     let pb = per_byte(200_000);
     let system_bytes = ((SYSTEM as f64 / pb) as usize).saturating_sub(300);
     let mut rng = Rng(7);
@@ -148,6 +157,10 @@ pub(super) fn replay_sized(window: u64, lo: u64, span: u64) -> Stats {
             (_, true) => (sys, est.saturating_sub(sys)),
             _ => (prev, est.saturating_sub(prev)),
         };
+        stats.series.push(est);
+        if let Some(p) = c.cleared {
+            stats.pass_log.push((k, p.tokens_before, p.tokens_after));
+        }
         if c.cleared.is_some() {
             stats.passes += 1;
             stats.rewrite += write;
@@ -173,7 +186,14 @@ pub(super) fn replay_sized(window: u64, lo: u64, span: u64) -> Stats {
         for _ in 0..n_calls {
             id += 1;
             let tid = format!("c{id}");
-            if rng.next(100) < 90 {
+            if small_pct > 0 && rng.next(100) < small_pct {
+                blocks.push(call(
+                    &tid,
+                    "fs_read",
+                    json!({"path": format!("crates/x/src/s{id}.rs")}),
+                ));
+                results.push(result(&tid, &format!("{id:>6}\t{}", "y".repeat(1_490))));
+            } else if rng.next(100) < 90 {
                 let f = if opened < FILES {
                     opened += 1;
                     opened - 1
@@ -233,6 +253,31 @@ fn the_replays_grid() {
                 &format!("trigger {}K keep {}K", at / 1000, keep / 1000),
                 &tried(at, keep),
             );
+        }
+    }
+}
+
+/// The hunt's context at every call and each pass, for the shipped rule, on
+/// the owner's hunt and with a third of its results under 2,000 characters
+/// (which no pass clears), printed with `--nocapture --run-ignored all`.
+#[test]
+#[ignore = "prints the replay's series"]
+fn the_replays_series() {
+    for (row, s) in [
+        ("hunt", replay(1_000_000)),
+        ("hunt, 30% small", replay_with(1_000_000, 2_000, 6_000, 30)),
+    ] {
+        print(row, &s);
+        let means: Vec<u64> = s
+            .series
+            .chunks(52)
+            .map(|c| c.iter().sum::<u64>() / c.len() as u64)
+            .collect();
+        let floor = s.series[100..].iter().min().copied().unwrap_or(0);
+        let over = s.series.iter().filter(|&&e| e > 434_000).count();
+        println!("  mean per 52 calls {means:?}; lowest after call 100: {floor}; calls over 434K: {over}");
+        for (k, before, after) in &s.pass_log {
+            println!("  pass at call {k}: {before} -> {after}");
         }
     }
 }
