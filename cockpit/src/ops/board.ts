@@ -71,7 +71,9 @@ function columnOfTask(r: TaskRow, now: number): Column {
   const starts = r.info?.starts_at_ms ?? (r.view?.state === 'queued' ? r.view.next_at_ms : undefined)
   if (starts != null && starts > now) return starts < endOfDay(now) ? 'scheduled' : 'paused'
   if (r.paused || r.view?.state === 'queued' || r.info?.state === 'queued') return 'paused'
-  return r.view ? COLUMN_OF[bucketOf(r.view, now)] : 'working'
+  // A task known only by its record: running is in flight; waiting says nothing of what on, so it is open and recoverable.
+  if (!r.view) return r.info?.state === 'waiting' ? 'paused' : 'working'
+  return COLUMN_OF[bucketOf(r.view, now)]
 }
 
 export interface BoardInput {

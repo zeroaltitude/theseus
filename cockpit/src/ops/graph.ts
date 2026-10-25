@@ -15,7 +15,7 @@
 //   on"), and `retry_of` (dotted).
 import type { DataMark, TaskInfo, TaskRecord, WorkView } from '@protocol'
 import type { OpsRow } from './board.ts'
-import { bucketOfWork } from './state.ts'
+import { bucketOfWork, isEndedState } from './state.ts'
 
 export const COL_W = 288
 export const ROW_H = 140
@@ -91,7 +91,6 @@ export interface LayoutOpts {
   cap?: number
 }
 
-const ENDED_VIEW = new Set(['done', 'failed', 'cancelled', 'expired'])
 const ENDED_RECORD = new Set(['done', 'failed', 'abandoned'])
 const FUTURE: ReadonlySet<string> = new Set(['wake', 'routine', 'watch', 'project'])
 
@@ -137,8 +136,8 @@ function layout(views: readonly WorkView[], records: readonly TaskRecord[], lane
     if (v.session_id && (v.kind === 'conversation' || v.kind === 'task')) bySession.set(v.session_id, id)
     items.set(id, {
       id, kind: v.kind as GKind, title: v.title || v.attention.label || id, state: v.paused ? 'paused' : v.state, parentRef: v.parent, thread: v.thread,
-      startedMs: v.started_at_ms || v.state_since_ms, endedMs: v.ended_at_ms ?? (ENDED_VIEW.has(v.state) ? v.state_since_ms : undefined),
-      ended: ENDED_VIEW.has(v.state), needs: v.attention.level === 'needs_you' && !v.dismissed, data: v.data, view: v, retryOf: v.retry_of,
+      startedMs: v.started_at_ms || v.state_since_ms, endedMs: v.ended_at_ms ?? (isEndedState(v.state) ? v.state_since_ms : undefined),
+      ended: isEndedState(v.state), needs: v.attention.level === 'needs_you' && !v.dismissed, data: v.data, view: v, retryOf: v.retry_of,
     })
   }
   for (const t of records) {

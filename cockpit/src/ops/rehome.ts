@@ -11,6 +11,7 @@
 import type { DataMark } from '@protocol'
 import { PAST_WORDS } from './keys.ts'
 import { alive, type OpsRow } from './board.ts'
+import { isEndedState } from './state.ts'
 
 /** What is dragged: a board row or a graph node, as much as the rules read. */
 export interface DragItem {
@@ -78,7 +79,7 @@ export function dragOf(r: OpsRow, titleOf: (sessionId: string) => string): DragI
   const home = r.task?.info?.parent_session_id
   return {
     id: r.id, kind: r.kind, title: r.title, sessionId: r.sessionId, data: r.view?.data ?? r.session?.data ?? undefined,
-    ended: r.kind === 'task' && (!alive(r) || (r.view != null && ['done', 'failed', 'cancelled', 'expired'].includes(r.view.state))),
+    ended: r.kind === 'task' && (!alive(r) || (r.view != null && isEndedState(r.view.state))),
     home, homeTitle: home ? titleOf(home) : undefined,
   }
 }

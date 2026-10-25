@@ -246,6 +246,19 @@ test('the first view centres on now when today is shown, else the first meeting 
   })
 })
 
+test('a meeting that began on an earlier day does not hold the week open at 00:00; one that starts at midnight does (theseus-ka0lv)', () => {
+  withZone('America/Phoenix', () => {
+    const w = weekWindow(local(2026, 10, 19, 8))
+    const over = eventLayout(calEvents([cal('personal.cal.example.test', { events: [ev('late', local(2026, 10, 21, 23), local(2026, 10, 22, 1)), ev('nine', local(2026, 10, 24, 9), local(2026, 10, 24, 10))] })]), w).blocks
+    assert.deepEqual(over.filter((b) => b.key === 'late').map((b) => b.continues), [false, true], 'the second day of an overnight event continues')
+    assert.deepEqual(openHours(w, [], over).sort((a, b) => a - b), [9, 23], 'only starts count: 23:00 and 09:00')
+    assert.equal(centerHour(null, openHours(w, [], over)), 9)
+    const midnight = eventLayout(calEvents([cal('personal.cal.example.test', { events: [ev('zero', local(2026, 10, 22), local(2026, 10, 22, 1)), ev('long', local(2026, 10, 21, 20), local(2026, 10, 22, 6))] })]), w).blocks
+    assert.deepEqual(midnight.filter((b) => b.key === 'zero').map((b) => b.continues), [false], 'starting exactly at 00:00 is a start, not a continuation')
+    assert.deepEqual(openHours(w, [], midnight).sort((a, b) => a - b), [0, 20], 'the meeting at 00:00 opens 00:00; the long one only its 20:00 start')
+  })
+})
+
 test('the scroll puts an hour in the middle of the box, inside the content (item 8)', () => {
   assert.equal(scrollFor(800, 400, 24 * 44), 600)
   assert.equal(scrollFor(100, 400, 24 * 44), 0, 'near the top: no negative scroll')

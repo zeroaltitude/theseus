@@ -111,3 +111,11 @@ export function bucketGlyph(b: StateBucket, state: string): string | undefined {
   if (b !== 'paused') return undefined
   return state === 'paused' || state === 'suspended' ? '⏸' : '◷'
 }
+
+/** A view's state is a turn in flight, the only thing `execution.stop` ends. `waiting` is open work (WORKING) but not a
+ *  turn to stop: it sleeps, or waits on a job or a child. `executionState` is the session's own, when no view is held. */
+export const isRunning = (viewState: string | undefined, executionState?: string): boolean => viewState === 'running' || executionState === 'running'
+
+/** The view states that mean the work ended (a failure not yet dismissed still asks: that is `bucketOf`'s, not this). */
+export const ENDED_VIEW_STATES: readonly string[] = ['done', 'failed', 'cancelled', 'expired']
+export const isEndedState = (state: string | undefined): boolean => state !== undefined && ENDED_VIEW_STATES.includes(state)

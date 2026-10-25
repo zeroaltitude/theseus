@@ -12,7 +12,7 @@ import { taskShort } from '@/lib/taskgraph'
 import { stateTone, toneHex } from '@/lib/taxonomy'
 import { clock, cn, usd } from '@/lib/format'
 import type { OpsRow } from './board'
-import { bucketGlyph, bucketOfNode, bucketTone, FADED, FILTERED_OUT, look } from './state'
+import { bucketGlyph, bucketOfNode, bucketTone, FADED, FILTERED_OUT, isEndedState, look } from './state'
 import { masked, NODE_W, shownTitle, type GLane, type GNode } from './graph'
 
 export interface NodeData extends Record<string, unknown> {
@@ -74,7 +74,7 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
   const conv = n.kind === 'conversation'
   const v = n.view
   const cost = v?.cost ?? (row?.task?.info ? { spent_usd: row.task.info.spent_usd, limit_usd: row.task.info.limit_usd } : undefined)
-  const line = v && !masked(n, !!d.redact) && !['done', 'failed', 'cancelled', 'expired'].includes(v.state) ? progressLine(v, now) : undefined
+  const line = v && !masked(n, !!d.redact) && !isEndedState(v.state) ? progressLine(v, now) : undefined
   const title = shownTitle(n, !!d.redact)
   const shortId = n.kind === 'step' ? taskShort(n.id) : row?.short ?? n.id.slice(-6)
   return (

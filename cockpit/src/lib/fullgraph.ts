@@ -21,13 +21,29 @@ export interface KeyLike { key: string; ctrlKey?: boolean; metaKey?: boolean; al
 
 const TYPING = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
 
-/** What a key does to the graph: Escape leaves full screen (even from a field); `f` fills the window, not while typing
- *  and not with a modifier; anything else nothing. */
-export function fullKey(e: KeyLike, full: boolean): 'enter' | 'leave' | null {
+/** How long after a `g` the next key is part of its chord: the shell's `g` then a letter (the `GO` table) and the Ops
+ *  page's own sequences use the same window. */
+export const G_CHORD_MS = 900
+
+/** One step of the g-window over a keydown: `at` is when the open window began (0 when none), the result says whether
+ *  this key is inside it and where the window stands after it. A plain `g` opens it, any other key closes it. */
+export function gChord(at: number, e: KeyLike, now: number): { afterG: boolean; at: number } {
+  const afterG = at > 0 && now - at < G_CHORD_MS
+  const t = e.target as { tagName?: string; isContentEditable?: boolean } | null | undefined
+  const typing = !!t && (TYPING.has((t.tagName ?? '').toUpperCase()) || !!t.isContentEditable)
+  const opens = e.key === 'g' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey
+  return { afterG, at: opens ? now : 0 }
+}
+
+/** What a key does to the graph: Escape leaves full screen (even from a field); `f` fills the window, not while typing,
+ *  not with a modifier, and not right after a `g` (`afterG`: `g f` is the shell's jump to the Fleet, which must not
+ *  also push `?graph=full` first); anything else nothing. */
+export function fullKey(e: KeyLike, full: boolean, afterG = false): 'enter' | 'leave' | null {
   if (e.key === 'Escape') return full ? 'leave' : null
   if (e.key !== 'f' || e.ctrlKey || e.metaKey || e.altKey) return null
   const t = e.target as { tagName?: string; isContentEditable?: boolean } | null | undefined
   if (t && (TYPING.has((t.tagName ?? '').toUpperCase()) || t.isContentEditable)) return null
+  if (afterG) return null
   return full ? 'leave' : 'enter'
 }
 
