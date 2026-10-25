@@ -74,6 +74,134 @@ fn the_self_build_view_binds_exactly_the_tree_and_its_target_read_write() {
     assert_eq!(jobs.limits.pids, 512);
 }
 
+/// The approve list names the whole state directory (`~/.theseus`), which
+/// also holds the gate's copy, the tree and the build tree. A mask over it
+/// would cover those binds and the gate would find no script (exit 127, every
+/// self branch red); the view hides what the directory holds that is secret
+/// by its own name instead.
+#[test]
+fn a_hidden_directory_that_holds_the_binds_is_not_masked_over_them() {
+    let cfg = crate::sandbox::SandboxConfig::default();
+    let sb = Sandbox::new(
+        &cfg,
+        &[PathBuf::from("/work")],
+        &[PathBuf::from("/state/store"), PathBuf::from("/state/spool")],
+        &[PathBuf::from("/state"), PathBuf::from("/home/op/.ssh")],
+    );
+    let gate = PathBuf::from("/state/self/gates/gate-abc.sh");
+    let ro = [gate];
+    let view = sb.self_build_view(&build(&ro, Path::new("/home/op")));
+    assert!(
+        !view.hidden.contains(&PathBuf::from("/state")),
+        "{:?}",
+        view.hidden
+    );
+    for kept in ["/state/store", "/state/spool", "/home/op/.ssh"] {
+        assert!(view.hidden.contains(&PathBuf::from(kept)), "{kept}");
+    }
+    // The model's own view keeps the whole directory hidden.
+    assert!(sb.job_view().hidden.contains(&PathBuf::from("/state")));
+}
+
+/// The security review of the fix above (theseus-cr481), against the approve
+/// list the operator's config actually carries: not the whole state directory
+/// but its subdirectories one by one, `self/gates` among them — and
+/// `self/trees` and `self/target` deliberately off it. So exactly one mask
+/// covers a bind, and the set the self build loses must be exactly that one.
+/// Every other floor and approve path is named here, the sealed sets with
+/// them, so a later widening of the filter fails this test by name.
+#[test]
+fn a_self_builds_view_drops_the_one_mask_over_a_bind_and_no_other() {
+    let p = PathBuf::from;
+    // The floor: the store, the spool, the bindings, the vault's token, and
+    // the sealed holdout sets (`rsi::sealed::Guard::paths`).
+    let floor = [
+        p("/state/store"),
+        p("/state/spool"),
+        p("/state/bindings.toml"),
+        p("/home/op/.config/op"),
+        p("/srv/theseus-sealed"),
+        p("/srv/theseus-sealed/behaviour"),
+    ];
+    // The approve list, in the shape the operator's config has it.
+    let approve = [
+        p("/state/self/gates"),
+        p("/state/1password-service-token"),
+        p("/state/config.last-good.toml"),
+        p("/state/durability"),
+        p("/state/index"),
+        p("/state/learning"),
+        p("/state/mcp-server-key"),
+        p("/state/outputs"),
+        p("/state/persona"),
+        p("/state/personas"),
+        p("/state/projects"),
+        p("/state/theseus.sock"),
+        p("/home/op/.ssh"),
+        p("/home/op/.gnupg"),
+        p("/home/op/.aws"),
+    ];
+    // The tree and the build tree are off the approve list on purpose, so no
+    // mask ever covered them: the gate script's directory was the only one.
+    for off in ["/state/self/trees", "/state/self/target"] {
+        assert!(!approve.contains(&p(off)), "{off} is on the approve list");
+    }
+    let sb = Sandbox::new(
+        &crate::sandbox::SandboxConfig::default(),
+        &[p("/work")],
+        &floor,
+        &approve,
+    );
+    let gate = p("/state/self/gates/gate-abc.sh");
+    let ro = [gate.clone()];
+    let view = sb.self_build_view(&build(&ro, Path::new("/home/op")));
+    // The whole of it: the self build's view loses the gate's directory and
+    // nothing else at all.
+    let base = sb.job_view().hidden;
+    let dropped: Vec<&PathBuf> = base.iter().filter(|h| !view.hidden.contains(h)).collect();
+    assert_eq!(dropped, [&p("/state/self/gates")], "{base:?}");
+    // And each of them said by name, the sealed sets among them.
+    for kept in floor.iter().chain(&approve[1..]) {
+        assert!(view.hidden.contains(kept), "{}", kept.display());
+    }
+    // The bind the mask was covering is there, and reachable.
+    assert!(view.ro_paths.contains(&gate));
+    // Nothing writable was gained: the tree and its build tree, as before.
+    assert_eq!(
+        view.rw,
+        [p("/state/self/trees/t"), p("/state/self/target/t")]
+    );
+}
+
+/// The filter is narrow in the two ways a mask could be lost by accident: a
+/// mask equal to a bind is kept (only a bind *below* a mask drops it), and
+/// the prefix is matched by whole path components, so a directory whose name
+/// merely starts with a masked one never unmasks it.
+#[test]
+fn only_a_bind_below_a_mask_drops_it_and_the_prefix_is_component_wise() {
+    let p = PathBuf::from;
+    let sb = Sandbox::new(
+        &crate::sandbox::SandboxConfig::default(),
+        &[p("/work")],
+        &[
+            // Equal to a bind: the repo is a workspace overlay in the view.
+            p("/repo"),
+            // One component short of the gate's directory.
+            p("/state/self/gate"),
+            // One component short of the tree.
+            p("/state/self/tree"),
+        ],
+        &[],
+    );
+    let ro = [p("/state/self/gates/gate-abc.sh")];
+    let view = sb.self_build_view(&build(&ro, Path::new("/home/op")));
+    for kept in ["/repo", "/state/self/gate", "/state/self/tree"] {
+        assert!(view.hidden.contains(&p(kept)), "{kept}: {:?}", view.hidden);
+    }
+    // An ordinary job's view is untouched by any of this.
+    assert_eq!(sb.job_view().hidden, view.hidden);
+}
+
 /// The command's environment is the one list: cargo told it is offline, no
 /// compiler wrapper, the build tree, and nothing of the daemon's own.
 #[test]

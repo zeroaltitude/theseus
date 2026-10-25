@@ -50,6 +50,13 @@ impl Rig {
 
     /// `new`, with the tree a checkout of the caller's (`tree/` otherwise).
     fn on(checkout: Option<&Path>) -> Self {
+        Self::approving(checkout, &[])
+    }
+
+    /// `on`, with `approve` joined to the approve list the config carries, as
+    /// relative paths under the rig's directory: no L1 view shows an
+    /// approve-listed path, whatever binds it (theseus-cr481).
+    fn approving(checkout: Option<&Path>, approve: &[&str]) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let p = |s: &str| dir.path().join(s);
         let repo = p("repo");
@@ -66,6 +73,14 @@ impl Rig {
         }
         let mut cfg = theseus_core::Config::example();
         cfg.self_improve.sealed.dir = Some(p("repo/sealed").to_string_lossy().into_owned());
+        // Made before the sandbox, so the approve list's canonical path and
+        // the bind the test passes are the same path under a temp directory.
+        for a in approve {
+            std::fs::create_dir_all(p(a)).unwrap();
+        }
+        cfg.tools
+            .approve_paths
+            .extend(approve.iter().map(|a| p(a).to_string_lossy().into_owned()));
         let sandbox = theseus_core::toolrun::sandbox_for(&cfg, &repo.join("state"));
         let tree = Tree {
             slug: "t".into(),
@@ -95,10 +110,20 @@ impl Rig {
     /// `argv` as the gate runs its commands: in the self-build view, with the
     /// self-build environment, by the real wrapper. The job's completion.
     fn run(&self, argv: &[&str]) -> Value {
+        self.run_ro(argv, Vec::new())
+    }
+
+    /// `run`, with `ro` bound read-only beside it, as the door binds main's
+    /// copy of the gate script for a self build's gate.
+    ///
+    /// One job to a rig: the correlation id is fixed, so a second call reads
+    /// the first job's completion back out of the spool at once. A test that
+    /// wants two commands puts both in one script.
+    fn run_ro(&self, argv: &[&str], ro: Vec<PathBuf>) -> Value {
         let log = self.path("job.log");
         let job = Job {
             tree: &self.tree,
-            ro: Vec::new(),
+            ro,
             argv: argv.iter().map(OsString::from).collect(),
             env: Vec::new(),
             log: &log,
@@ -276,6 +301,64 @@ fn a_new_crate_fails_offline() {
         theseus_core::sandbox::supply_chain(&log).is_some(),
         "the supply-chain reason is missing from cargo's words: {log}"
     );
+}
+
+/// theseus-cr481, end to end, in a real jail: the gate script the door
+/// writes out of main lives in the state dir's `self/gates`, which the
+/// approve list names, so no L1 view shows it — and the self build's view
+/// binds that very file read-only for the gate to run. Until the fix the
+/// mask covered the bind, `bash` found no script, and the job exited 127 in
+/// 0 s: that is how all 69 self branches died from 2026-10-20 05:28 on.
+///
+/// Here the real wrapper runs a real script in a real L1 sandbox. It is
+/// written with the permissions the host has (0600 in a 0700 directory), so
+/// a pass also rules out the hypothesis first recorded on the row — that the
+/// read-only bind lost to the file's own mode. The script reads its own
+/// bytes through `$0`, which proves the bind is readable and not merely
+/// present, and writes into the tree, which proves it ran.
+#[test]
+fn a_jailed_gate_script_runs_though_its_directory_is_approve_listed() {
+    if refused_as_root() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+
+    let gates = "repo/state/self/gates";
+    let r = Rig::approving(None, &[gates]);
+    let gate = r.path(gates).join("gate-abc.sh");
+    // One script, one job: it reads its own bytes, then asks the floor for
+    // the sealed set's item and the store's data, which must still be gone.
+    std::fs::write(
+        &gate,
+        format!(
+            "set -eu\n\
+             printf 'gate ran, %s bytes of me\\n' \"$(wc -c < \"$0\")\" > gate.out\n\
+             for f in {repo}/sealed/item {repo}/state/store/data; do\n\
+               if cat \"$f\" 2>/dev/null; then echo \"READ $f\"; else echo \"gone $f\"; fi\n\
+             done > floor.out\n",
+            repo = r.path("repo").display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&gate, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::set_permissions(r.path(gates), std::fs::Permissions::from_mode(0o700)).unwrap();
+    // The door's own path for it, as the view will bind it.
+    let gate = gate.canonicalize().unwrap();
+    let d = r.run_ro(&["bash", &gate.to_string_lossy()], vec![gate.clone()]);
+    assert_ne!(
+        d["exit_code"], 127,
+        "the gate script was bound and still not visible, as in cr481: {d}"
+    );
+    assert_eq!(d["exit_code"], 0, "{d}\n{}", r.read("job.log"));
+    let out = r.read("tree/gate.out");
+    assert!(out.starts_with("gate ran, "), "the gate did not run: {out}");
+    // It read its own text through the bind, not an empty file.
+    let bytes = std::fs::metadata(&gate).unwrap().len();
+    assert!(out.contains(&format!("{bytes} bytes")), "{out}");
+    // And the floor is masked still, with the script's directory un-masked.
+    let floor = r.read("tree/floor.out");
+    assert_eq!(floor.matches("gone ").count(), 2, "{floor}");
+    assert!(!floor.contains("SECRET"), "{floor}");
 }
 
 /// The gate of a tiny crate: `cargo test` of two files passes in the view,
