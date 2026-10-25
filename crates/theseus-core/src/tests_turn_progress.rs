@@ -671,3 +671,99 @@ async fn a_turn_with_no_build_and_no_progress_is_still_steered_and_stopped() {
         assert_eq!(res.stop_reason == PROGRESS_STOP, decision == "stop");
     }
 }
+
+const HINT: &str = "call what you built once, the way the task spells it";
+const DOUBT: &str = "your last message names something it did not check or run";
+
+/// A file written, as loop `id`'s one call.
+fn write(root: &Path, id: &str) -> Scripted {
+    Scripted::tools(
+        "Writing.",
+        &[(
+            id,
+            "fs_write",
+            json!({"path": root.join("tool.py").display().to_string(), "content": "x\n"}),
+        )],
+    )
+}
+
+/// The deliverable's hint rides the request's tail from the loop after the
+/// turn's first edit or command (theseus-eb4o4), and a turn that did neither
+/// never carries it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_working_turn_is_told_to_call_its_deliverable_as_the_task_spells_it() {
+    let r = rig(|root| vec![write(root, "w1"), command(root, "c1", 0), Scripted::text("Done.")]);
+    let (_, res) = r.turn(None).await;
+    assert_eq!(res.loops, 3);
+    let reqs = r.requests();
+    assert!(!messages(&reqs[0]).contains(HINT), "no work yet");
+    for req in &reqs[1..] {
+        assert_eq!(messages(req).matches(HINT).count(), 1, "once a request");
+    }
+    // A chat turn that only answers carries none.
+    let r = rig(|_| vec![Scripted::text("Hello.")]);
+    r.turn(None).await;
+    assert!(!messages(&r.requests()[0]).contains(HINT));
+}
+
+/// A closing message that names a doubt, early in the turn, sends it back
+/// once (theseus-rqu7j); the second such message ends it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_doubt_the_closing_message_names_sends_an_early_turn_back_once() {
+    let r = rig(|root| {
+        vec![
+            write(root, "w1"),
+            Scripted::text("Wrote tool.py, but the sandbox has no torch, so I never ran it."),
+            Scripted::text("Still not run: torch is missing."),
+            Scripted::text("Never reached."),
+        ]
+    });
+    // 600 s, 120 used: 20%.
+    let (sid, res) = r.turn(Some((600, 120))).await;
+    assert_eq!((res.loops, res.stop_reason.as_str()), (3, "no_tool_calls"));
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 3);
+    assert!(!messages(&reqs[1]).contains(DOUBT));
+    assert_eq!(messages(&reqs[2]).matches(DOUBT).count(), 1);
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "doubt");
+    assert_eq!(rows[0]["loop"], 1);
+    assert!(rows[0]["time_share"].as_f64().unwrap() < 0.4);
+}
+
+/// And not when the gate is shut: past 40% of the time, past 40% of the
+/// spend, a clean closing message, or a turn that did no work.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_doubt_does_not_send_a_turn_back_past_the_share_or_without_work() {
+    let doubt = "I did not check the date.";
+    // 600 s, 300 used: 50%.
+    let r = rig(|root| vec![write(root, "w1"), Scripted::text(doubt), Scripted::text("x")]);
+    let (sid, res) = r.turn(Some((600, 300))).await;
+    assert_eq!(res.loops, 2, "past 40% of the time");
+    assert!(r.rows(&sid).is_empty());
+    // Under the time share, over the spend share ($0.47 of $1).
+    let r = rig_with(
+        |root| vec![billed(write(root, "w1")), Scripted::text(doubt), Scripted::text("x")],
+        |c| {
+            c.kernel.spend_limit_usd = 1.0;
+            c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Notify;
+        },
+    );
+    let (sid, res) = r.turn(Some((600, 60))).await;
+    assert_eq!(res.loops, 2, "past 40% of the spend");
+    assert!(r.rows(&sid).is_empty());
+    // A message that names nothing.
+    let r = rig(|root| vec![write(root, "w1"), Scripted::text("Done; the check passes.")]);
+    let (sid, res) = r.turn(Some((600, 60))).await;
+    assert_eq!(res.loops, 2);
+    assert!(r.rows(&sid).is_empty());
+    // A turn that edited nothing and ran nothing.
+    let r = rig(|_| vec![Scripted::text(doubt), Scripted::text("x")]);
+    let (sid, res) = r.turn(Some((600, 60))).await;
+    assert_eq!(res.loops, 1);
+    assert!(r.rows(&sid).is_empty());
+    for req in r.requests() {
+        assert!(!messages(&req).contains(DOUBT));
+    }
+}

@@ -150,14 +150,32 @@ pub(super) struct State {
     /// The turn's jobs that ran when a loop last touched one (their
     /// correlation ids): one gone from it has just ended.
     running: HashSet<String>,
+    /// The turn edited a file or ran a command (theseus-eb4o4, theseus-rqu7j).
+    worked: bool,
+    /// The turn was sent back once for a doubt its closing message named
+    /// (theseus-rqu7j).
+    doubted: bool,
 }
 
 impl State {
+    /// What the rule reads now: the turn's `cost` so far and the clock.
+    fn signals(&self, cost: Option<f64>, now: Instant, guarded: bool) -> Signals {
+        Signals {
+            time: self.deadline.map(|d| d.used(now)),
+            spend: self.limit_micros.zip(cost).map(|(l, c)| c * 1e6 / l as f64),
+            since_pass: self.since_pass,
+            since_check: self.since_check,
+            failing: self.failing,
+            guarded,
+        }
+    }
+
     /// A loop ended: what its calls did moves the count of loops since a
     /// passing check. `live` is the turn's running jobs, read only for a
     /// loop that touched a job (`Commands::touches_jobs`).
     fn end_loop(&mut self, commands: Commands, live: Option<HashSet<String>>) {
         let check = commands.check();
+        self.worked |= commands.edited || commands.answered || commands.background;
         // A job running, or one that ended since the last loop that touched
         // one, makes a loop that waited on it or started it progress.
         let held = check.is_none()
@@ -315,6 +333,8 @@ fn with<R>(t: &mut Turn<'_>, f: impl FnOnce(&mut State) -> R) -> R {
             steered: false,
             last: false,
             running: HashSet::new(),
+            worked: false,
+            doubted: false,
         });
     }
     f(t.checkpoint.progress.as_mut().expect("begun above"))
@@ -350,16 +370,7 @@ impl TurnRunner {
             .flatten();
         let (signals, steered, last, deadline) = with(t, |s| {
             s.end_loop(commands, live);
-            let spend = s.limit_micros.zip(cost).map(|(l, c)| c * 1e6 / l as f64);
-            let signals = Signals {
-                time: s.deadline.map(|d| d.used(now)),
-                spend,
-                since_pass: s.since_pass,
-                since_check: s.since_check,
-                failing: s.failing,
-                guarded,
-            };
-            (signals, s.steered, s.last, s.deadline)
+            (s.signals(cost, now, guarded), s.steered, s.last, s.deadline)
         });
         if last || !going_on {
             if last && (going_on || t.stop_reason == "no_tool_calls") {
@@ -381,27 +392,67 @@ impl TurnRunner {
         });
         let used = used_words(&signals, deadline, now, cost, limit);
         let text = note(verdict, &used, &signals);
-        t.record(&TurnProgress {
-            decision: verdict.word(),
-            loop_index: i,
-            signals: &signals,
-            elapsed_ms: deadline.map(|d| now.saturating_duration_since(d.from).as_millis() as u64),
-            deadline_ms: deadline
-                .map(|d| d.at.saturating_duration_since(d.from).as_millis() as u64),
-            spent_usd: cost,
-            limit_usd: limit.map(micros_to_usd),
-        });
-        let node = Node::relayed(
-            t.tc.session_id,
-            Some(t.tc.turn_id),
-            crate::node::Origin::Harness,
-            PROGRESS_AUTHOR,
-            &text,
-        );
-        t.tc.store.append(&[node.record()?])?;
-        t.tc.node_written(&node);
+        tell(t, verdict.word(), i, (&signals, deadline), &text)?;
         Ok(true)
     }
+}
+
+/// A decision the turn's progress made at loop `i`: its `turn.progress` row,
+/// with the numbers that fired it, and the harness node `text` after the
+/// loop's results.
+pub(super) fn tell(
+    t: &mut Turn<'_>,
+    decision: &'static str,
+    i: u32,
+    (signals, deadline): (&Signals, Option<Deadline>),
+    text: &str,
+) -> Result<()> {
+    let limit = with(t, |s| s.limit_micros);
+    let (cost, now) = (t.cost, Instant::now());
+    t.record(&TurnProgress {
+        decision,
+        loop_index: i,
+        signals,
+        elapsed_ms: deadline.map(|d| now.saturating_duration_since(d.from).as_millis() as u64),
+        deadline_ms: deadline.map(|d| d.at.saturating_duration_since(d.from).as_millis() as u64),
+        spent_usd: cost,
+        limit_usd: limit.map(micros_to_usd),
+    });
+    let node = Node::relayed(
+        t.tc.session_id,
+        Some(t.tc.turn_id),
+        crate::node::Origin::Harness,
+        PROGRESS_AUTHOR,
+        text,
+    );
+    t.tc.store.append(&[node.record()?])?;
+    t.tc.node_written(&node);
+    Ok(())
+}
+
+/// Whether the turn edited a file or ran a command: the hint and the doubt
+/// gate (theseus-eb4o4, theseus-rqu7j) ask nothing of a turn that did neither.
+pub(super) fn worked(t: &Turn<'_>) -> bool {
+    t.checkpoint.progress.as_ref().is_some_and(|s| s.worked)
+}
+
+/// A turn that worked and has not been sent back for a doubt yet, with less
+/// than `share` of its time and of its spend used (a share it has no measure
+/// of counts as none used): the numbers to tell it with, and the turn is
+/// marked sent back, so it is once.
+pub(super) fn doubtful(
+    t: &mut Turn<'_>,
+    guarded: bool,
+    share: f64,
+) -> Option<(Signals, Option<Deadline>)> {
+    let (cost, now) = (t.cost, Instant::now());
+    with(t, |s| {
+        let signals = s.signals(cost, now, guarded);
+        let under = |x: Option<f64>| x.unwrap_or(0.0) < share;
+        let go = s.worked && !s.doubted && under(signals.time) && under(signals.spend);
+        s.doubted |= go;
+        go.then_some((signals, s.deadline))
+    })
 }
 
 /// What the turn has used, in words: its minutes, its spend, or both, each
@@ -639,6 +690,8 @@ mod tests {
             steered: false,
             last: false,
             running: HashSet::new(),
+            worked: false,
+            doubted: false,
         };
         // Before any edit, reads count nothing, new ground or not.
         for _ in 0..6 {
@@ -691,6 +744,8 @@ mod tests {
             steered: false,
             last: false,
             running: HashSet::new(),
+            worked: false,
+            doubted: false,
         }
     }
 
@@ -869,7 +924,9 @@ mod tests {
         c.job_touched = true;
         st.end_loop(c, live(&["c1"]));
         assert_eq!(counts(&st), (0, 4, 0));
-        // A job call with nothing running and nothing just ended.
+        // The job ended since: that wait is held once, the next is not.
+        st.end_loop(answered("job_wait"), live(&[]));
+        assert_eq!(counts(&st), (0, 4, 0));
         st.end_loop(answered("job_wait"), live(&[]));
         assert_eq!(counts(&st), (1, 5, 0));
         // A job call that failed (an unknown job) touches none.

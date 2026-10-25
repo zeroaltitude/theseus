@@ -27,7 +27,7 @@ pub const END_NOTE_AUTHOR: &str = "harness:end_note";
 pub(super) struct Held {
     execution_id: String,
     /// The note sent, and the turn's tool calls before it.
-    sent: Option<(EndNote, u32)>,
+    pub(super) sent: Option<(EndNote, u32)>,
 }
 
 impl Held {
