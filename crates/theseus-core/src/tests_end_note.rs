@@ -131,6 +131,40 @@ fn at(root: &Path, rel: &str) -> String {
     root.join(rel).display().to_string()
 }
 
+/// The end note and the doubt are two continuations, not one
+/// (theseus-rqu7j): a turn the end note sent on, whose next closing message
+/// names something it never ran, is sent back once more for that, and a third
+/// such message ends it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_the_end_note_continued_is_still_sent_back_once_for_a_doubt() {
+    let r = rig(
+        |root| {
+            vec![
+                write(&at(root, "src/main.rs"), "fn main() {}"),
+                run_in(&at(root, "src"), "echo built > main"),
+                Scripted::text("Done: src/main.rs, which I never ran."),
+                Scripted::text("Still, I never ran it."),
+                Scripted::text("It is done, and I never ran it."),
+                Scripted::text("A sixth answer no turn asks for."),
+            ]
+        },
+        |_| {},
+    );
+    let sid = r.session(None);
+    let res = r.turn(&sid, "Write src/main.rs.").await;
+    let reqs = r.fake.requests();
+    assert_eq!(
+        reqs.len(),
+        5,
+        "the end note's call, the doubt's, and no more"
+    );
+    assert_eq!((res.loops, res.stop_reason.as_str()), (5, "no_tool_calls"));
+    let said = |i: usize| serde_json::to_string(&reqs[i].messages).unwrap();
+    assert!(said(3).contains("this turn would end here"));
+    assert!(!said(3).contains("names something it did not check"));
+    assert!(said(4).contains("names something it did not check or run"));
+}
+
 /// A turn writes `src/main.rs`, compiles beside it, and stops: it is told
 /// once what lies beside its edits, goes on once, and a second stop ends it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -19,9 +19,12 @@
 //!   already carries both shares.
 //!
 //! The doubt is never asked in a shared place, at a strict loop cap, while a
-//! job of the turn runs (`may_continue`), in a turn the stop nudge or the end
-//! note already continued, in a turn that has not worked, and never twice in
-//! one turn. A doubt past the share is the model's to keep: a turn near its
+//! job of the turn runs (`may_continue`), in a turn that has not worked, and
+//! never twice in one turn. It follows the stop nudge and the end note rather
+//! than yielding to them: a message that names a doubt after the end note's
+//! loop is the one this rule is for (the first live trial ended so, with the
+//! end note's `__pycache__` loop spent and its unrun file named in the last
+//! message). A doubt past the share is the model's to keep: a turn near its
 //! end is not sent back to work.
 
 use super::progress_step as progress;
@@ -108,11 +111,11 @@ impl TurnRunner {
         }
     }
 
-    /// After the stop nudge and the end note declined: true when the turn
-    /// goes on once more, told its closing message named a doubt. `i` is the
-    /// loop's index.
+    /// After the stop nudge and the end note declined this loop: true when
+    /// the turn goes on once more, told its closing message named a doubt.
+    /// `i` is the loop's index.
     pub(super) fn doubt_note(&self, t: &mut Turn<'_>, i: u32) -> Result<bool> {
-        if t.stop_reason != "no_tool_calls" || t.nudge.sent() || t.end_note.sent.is_some() {
+        if t.stop_reason != "no_tool_calls" {
             return Ok(false);
         }
         if !t.last.as_ref().is_some_and(|r| names_a_gap(&r.text)) || !self.may_continue(t)? {
