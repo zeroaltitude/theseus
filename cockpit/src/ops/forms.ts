@@ -38,6 +38,9 @@ export function stepWordOf(bucket: StateBucket, state?: string): StepWord {
 /** A tone token: a state tone, or `ink-dim` for the quiet ones. Never a faded look. */
 export type StepTone = 'wait' | 'live' | 'ok' | 'fault' | 'ink-dim'
 
+/** A tone token's CSS colour (the page's tokens follow the mode). */
+export const toneVar = (t: StepTone): string => `var(--color-${t})`
+
 export interface StepLook { word: StepWord; glyph: string; tone: StepTone; faded: boolean }
 
 /** A step's look: its glyph and its colour (`bucketTone`, else the word's own). A to-do step is ink-dim and not faded:
