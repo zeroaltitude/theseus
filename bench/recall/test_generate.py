@@ -415,8 +415,13 @@ class Clearing(unittest.TestCase):
 
     SRC = (REPO / "crates/theseus-core/src/compiler/clearing.rs").read_text()
 
-    def const(self, name: str) -> int:
+    def const(self, name: str, absent: int | None = None) -> int:
+        """A `pub const NAME: u64` of clearing.rs. `CLEAR_AT_TOKENS` is theseus-5lzox's: a tree without it (the
+        20-exchange rule, main before that row) has no token line, and its `absent` stands (the recall bench's tests
+        must hold with and without that row)."""
         m = re.search(r"pub const " + name + r": u64 = ([\d_]+);", self.SRC)
+        if m is None and absent is not None:
+            return absent
         self.assertIsNotNone(m, name)
         return int(m.group(1).replace("_", ""))
 
@@ -426,7 +431,7 @@ class Clearing(unittest.TestCase):
         is refused over."""
         rates, margin = generate.PLAN_RATES, 0.15
         budget = pg.request_budget(p.context_window)
-        line = min(budget * self.const("CLEAR_AT") // 100, self.const("CLEAR_AT_TOKENS"))
+        line = min(budget * self.const("CLEAR_AT") // 100, self.const("CLEAR_AT_TOKENS", 10**12))
         refuse = budget * (self.const("CLEAR_AT") + self.const("CLEAR_TO")) // 200
         reply = tk.Census(messages=1, blocks=1, text=generate.REPLY_BYTES).tokens(rates)
         for i, m in enumerate(p.marks()):
@@ -448,8 +453,11 @@ class Clearing(unittest.TestCase):
             yield m, peak, line, kept, refuse
 
     def test_the_clearing_lines_are_the_rust_sources(self):
-        self.assertEqual((generate.CLEAR_AT, generate.CLEAR_TO, generate.CLEAR_AT_TOKENS),
-                         (self.const("CLEAR_AT"), self.const("CLEAR_TO"), self.const("CLEAR_AT_TOKENS")))
+        self.assertEqual((generate.CLEAR_AT, generate.CLEAR_TO), (self.const("CLEAR_AT"), self.const("CLEAR_TO")))
+        # Where the tree has the token line, the generator's is it; where it has none, the generator's stays
+        # above any window the bench plans (its percent line is the lower), so it never binds.
+        if "CLEAR_AT_TOKENS" in self.SRC:
+            self.assertEqual(generate.CLEAR_AT_TOKENS, self.const("CLEAR_AT_TOKENS"))
 
     def test_no_compile_before_the_crossing_exchange_reaches_the_clearing_line(self):
         for size in ("smoke", "full"):
