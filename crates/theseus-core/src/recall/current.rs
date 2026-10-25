@@ -12,7 +12,7 @@
 //!   ago) is left to it, and so is "what are we doing now?" and "what day is it
 //!   now?", which ask for no value of a subject.
 //! - **The order** ([`order`]): among the hits, the statements of the
-//!   subject's value (they share most of the question's content words and
+//!   subject's value (they share half of the question's content words and
 //!   carry a number) go first, newest first: by a `supersedes` edge between
 //!   two of them where there is one, else by time. The rest keep their order
 //!   after them.
@@ -218,12 +218,10 @@ struct Statement<'a> {
 }
 
 /// The hits that state a value of the question's subject: most of its
-/// content words (and at least two, or its only one) and a number.
+/// content words (half of them, rounded up) and a number.
 fn statements<'a>(question: &str, kept: &'a [Candidate]) -> Vec<Statement<'a>> {
     let subject = subject_words(question);
-    let need = (subject.len() * 3)
-        .div_ceil(5)
-        .clamp(1, 2.max(subject.len()));
+    let need = subject.len().div_ceil(2).max(1);
     kept.iter()
         .filter_map(|c| {
             let have: BTreeSet<String> =

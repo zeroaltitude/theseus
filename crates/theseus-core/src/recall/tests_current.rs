@@ -26,6 +26,7 @@ fn a_value_asked_about_now_reads_as_current() {
         "What does the lighthouse bot's status line say now?",
         "Where do the scratch workers keep their state now?",
         "How much memory does the example.test indexer get currently?",
+        "What's the per-session token cap now?",
     ] {
         assert_eq!(kind(q), Some(Kind::Current), "{q}");
     }
@@ -41,6 +42,8 @@ fn a_now_that_asks_for_no_value_or_for_an_event_reads_as_before() {
         "When did we pick it, and what is it now?",
         "When did we first set the example.test quota, now that it changed?",
         "Can you restart the relay now?",
+        "How often does the reconciler's heartbeat run now?",
+        "What time does the nightly archive run now?",
         "How many days of audit logs do we keep?",
     ] {
         assert_eq!(kind(q), None, "{q}");
@@ -125,7 +128,7 @@ fn notes() -> Vec<Candidate> {
             "other",
             4,
             T0 + 90 * DAY,
-            "The example.test relay has 7 workers for audit tasks.",
+            "The example.test relay has 7 workers.",
         ),
         cand(
             "b1",
