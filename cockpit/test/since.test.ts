@@ -100,7 +100,7 @@ test('the look this browser keeps: a gap of five minutes ends a look, and the ne
 
 test('since you last looked: sessions and tasks started and finished, what went wrong, the questions, and the spend', () => {
   const s = sinceOf(at({}))
-  assert.equal(s.value, '3h 00m')
+  assert.equal(s.value, '3h')
   assert.equal(s.away, 3 * HOUR)
   assert.equal(s.quiet, false)
   assert.deepEqual(s.sessions, { started: 1, worked: 2, turns: 3 })
@@ -114,8 +114,8 @@ test('since you last looked: sessions and tasks started and finished, what went 
   // A line of each kind, the newest of each: what went wrong, a question you never saw, a task that ended; then the
   // next of each, and what started (the plate shows three).
   assert.deepEqual(s.lines.map((l) => [l.tag, l.text, l.detail, l.flag, l.figure]), [
-    ['fs.read', 'cannot read …/harbour/lighthouse-log.txt: No such file or directory (os error 2)', undefined, undefined, '2h ago'],
-    ['fs.write', 'create …/harbour/departures.md (38 bytes)', 'expired after 15m · Good morning', 'expired', '2h 00m'],
+    ['fs.read', 'cannot read …/harbour/lighthouse-log.txt: No such file or directory (os error 2)', undefined, undefined, '2h 30m ago'],
+    ['fs.write', 'create …/harbour/departures.md (38 bytes)', 'expired after 15m · Good morning', 'expired', '2h'],
     ['task', 'Count every gull', 'failed: its budget ran out', undefined, '30m'],
   ])
   assert.deepEqual(s.lines[0].to, { session: 'ses_dm', node: 'trs_read' })
@@ -143,13 +143,13 @@ test('since you last looked: sessions and tasks started and finished, what went 
 test("the stretch is the time away: nothing from this look, nor (the time machine, a replay) after the moment", () => {
   // Back an hour ago: what happened in the last hour, you saw (q3's question is not counted); the lines say how long ago.
   const back = sinceOf(at({ until: NOW - HOUR }))
-  assert.deepEqual([back.value, back.away], ['2h 00m', 2 * HOUR])
+  assert.deepEqual([back.value, back.away], ['2h', 2 * HOUR])
   assert.deepEqual(back.questions, { came: 2, went: 3, missed: 2, waiting: 0 })
   assert.deepEqual(back.tasks, { started: 1, ended: 1, failed: 0 })
-  assert.equal(back.lines[0].figure, '2h ago')
+  assert.equal(back.lines[0].figure, '2h 30m ago')
   assert.equal(back.link.to, `/ledger?from=${SINCE}&to=${NOW - HOUR}`)
   const mid = sinceOf(at({ now: SINCE + 50 * MIN }))
-  assert.equal(mid.value, '3h 00m')
+  assert.equal(mid.value, '3h')
   assert.deepEqual(mid.sessions, { started: 1, worked: 1, turns: 1 })
   assert.deepEqual(mid.tasks, { started: 1, ended: 0, failed: 0 })
   assert.equal(mid.failures, 1)

@@ -40,8 +40,8 @@ test('counts, spans, and a turn line read as people say them', () => {
   assert.equal(count(2, 'model call'), '2 model calls')
   assert.equal(span(340), '340 ms')
   assert.equal(span(4400), '4.4 s')
-  assert.equal(span(192_000), '3 m 12 s')
-  assert.equal(span(7_500_000), '2 h 5 m')
+  assert.equal(span(192_000), '3m 12s')
+  assert.equal(span(7_500_000), '2h 5m')
   assert.equal(span(-1), '—')
   const usd = (n: number) => `$${n.toFixed(4)}`
   assert.equal(benchLine({ models: 2, calls: 3, failed: 1, cost: 0.0004 }, usd), '2 model calls · 3 tool calls, 1 failed · $0.0004')

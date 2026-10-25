@@ -4,9 +4,9 @@ import type { Mark } from './agenda'
 
 /** What a mark is, in a line: the hover and the tooltip. */
 export function markLine(m: Mark): string {
-  const when = clock(m.at_ms)
+  const when = clock(m.at_ms).slice(0, 5)
   const what = m.kind === 'past' ? `${m.outcome === 'ok' ? '✓' : m.outcome === 'failed' ? '✗' : m.outcome === 'running' ? 'running' : 'skipped'} ${when}${m.duration_ms != null ? ` · ${ms(m.duration_ms)}` : ''}${m.cost_usd != null ? ` · ${usd(m.cost_usd, 3)}` : ''}`
-    : m.kind === 'watch' ? `watch until ${m.end_ms ? clock(m.end_ms) : 'it is met'}`
+    : m.kind === 'watch' ? `watch until ${m.end_ms ? clock(m.end_ms).slice(0, 5) : 'it is met'}`
     : m.kind === 'milestone' ? `milestone ${when}` : m.kind === 'start' ? `starts ${when}` : m.kind === 'run' ? `run ${m.occurrence ?? ''} ${when}` : `${m.kind === 'check' ? 'check-in' : 'reminder'} ${when}`
   return `${m.title} · ${what}${m.line ? `\n${m.line}` : ''}`
 }

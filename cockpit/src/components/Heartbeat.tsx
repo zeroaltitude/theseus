@@ -39,6 +39,7 @@ import type { Tone } from '@/lib/taxonomy'
 import { LiveDot } from './ui'
 import { DiskAttention } from './DiskSpool'
 import { PlankStrip } from './brass'
+import { ShipsWheel } from '@/components/ShipsWheel'
 
 /** A word in its lamp's tone: a state that is well reads in the ink, the rest in their tone. */
 const WORD: Record<string, string> = { ok: 'text-ink-dim', live: 'text-ink-dim', wait: 'text-wait', fault: 'text-fault', idle: 'text-ink-faint' }
@@ -383,7 +384,7 @@ function PauseRefresh() {
         {paused ? <><Play size={12} /> paused</> : <Pause size={12} />}
       </button>
       <button onClick={refresh} title="Refresh: read everything on screen again now" className="rounded-md p-1 text-ink-faint ring-1 ring-line hover:text-ink">
-        <RefreshCw size={12} className={cn(reading && 'animate-spin')} />
+        {reading ? <ShipsWheel label="reading" /> : <RefreshCw size={12} />}
       </button>
     </div>
   )

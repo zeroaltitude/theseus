@@ -216,6 +216,8 @@ mod scratch;
 #[cfg(test)]
 pub(crate) mod test_support;
 #[cfg(test)]
+mod tests_accept_batch;
+#[cfg(test)]
 mod tests_activation;
 #[cfg(test)]
 mod tests_activation_arm;
@@ -407,6 +409,8 @@ mod tests_memory_arm;
 mod tests_memory_lookup;
 #[cfg(test)]
 mod tests_money;
+#[cfg(test)]
+mod tests_never;
 #[cfg(test)]
 mod tests_notices;
 #[cfg(test)]

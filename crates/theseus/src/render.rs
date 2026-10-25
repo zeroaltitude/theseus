@@ -1337,22 +1337,9 @@ fn id_tail(id: &str) -> &str {
     id.get(id.len().saturating_sub(6)..).unwrap_or(id)
 }
 
-/// `in 9m`, `in 2h`, or `due 3m ago` (a wake waiting for its busy session).
+/// `in 2h 46m`, or `due 3m ago` (a wake waiting for its busy session): the shared rule, theseus-hnm37.
 pub fn until_due(due_ms: u64, now_ms: u64) -> String {
-    let words = |ms: u64| {
-        let s = ms / 1000;
-        match s {
-            0..=59 => format!("{s}s"),
-            60..=3599 => format!("{}m", s / 60),
-            3600..=86_399 => format!("{}h", s / 3600),
-            _ => format!("{}d", s / 86_400),
-        }
-    };
-    if due_ms >= now_ms {
-        format!("in {}", words(due_ms - now_ms))
-    } else {
-        format!("due {} ago", words(now_ms - due_ms))
-    }
+    theseus_protocol::human_time::until(due_ms, now_ms)
 }
 
 /// Where a node went, as `theseus reach` prints it (theseus-n4m, step 12a):

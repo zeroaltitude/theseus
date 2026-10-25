@@ -7,6 +7,8 @@ import type { OntologyListParams, OntologyListResult } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { useAsOf } from '@/lib/timemachine'
 import { refusalWords } from '@/lib/ontology'
+import { advance, begin, type Filing } from '@/lib/filing'
+import { ShipsWheel } from '@/components/ShipsWheel'
 
 /** `ontology.list`, the present: one session's memberships when `sessionId` is given, every interpreted one otherwise,
  *  or none with `treeOnly` (the kinds and the tree, each category counting its sessions: an import's tens of thousands
@@ -20,18 +22,24 @@ export function useOntology(sessionId?: string, treeOnly = false) {
 export const useInPast = () => useAsOf((s) => s.t !== null)
 
 /** A write, confirmed first with `ask` (which carries the text being sent); a refusal's words are shown. `writeEach`
- *  sends several calls in order under one confirm (a proposed person's rows, theseus-fvyx), stopping at a refusal. */
+ *  sends several calls in order under one confirm (a proposed person's rows, theseus-fvyx), stopping at a refusal. `weights` is how many
+ *  proposals each call files (one each by default): `progress` counts them as the calls return, and is null at rest. */
 export function useOntologyWrite() {
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
-  const writeEach = async <T,>(ask: string, calls: readonly (readonly [string, unknown])[]): Promise<T[] | null> => {
+  const [progress, setProgress] = useState<Filing>(null)
+  const writeEach = async <T,>(ask: string, calls: readonly (readonly [string, unknown])[], weights?: readonly number[]): Promise<T[] | null> => {
     if (!window.confirm(ask)) return null
     setBusy(true)
     setRefused(null)
+    setProgress(begin(calls.reduce((a, _, i) => a + (weights?.[i] ?? 1), 0)))
     const outs: T[] = []
     try {
-      for (const [method, params] of calls) outs.push(await call<T>(method, params))
+      for (const [i, [method, params]] of calls.entries()) {
+        outs.push(await call<T>(method, params))
+        setProgress((f) => advance(f, weights?.[i] ?? 1))
+      }
       return outs
     } catch (e) {
       setRefused(refusalWords(e))
@@ -41,12 +49,13 @@ export function useOntologyWrite() {
       await qc.invalidateQueries({ queryKey: ['ontology.proposals'] })
       await qc.invalidateQueries({ queryKey: ['persona.list'] })
       await qc.invalidateQueries({ queryKey: ['compilation.list'] })
+      setProgress(null)
       setBusy(false)
     }
   }
   const write = async <T,>(ask: string, method: string, params: unknown): Promise<T | null> =>
     (await writeEach<T>(ask, [[method, params]]))?.[0] ?? null
-  return { write, writeEach, busy, refused, clear: () => setRefused(null) }
+  return { write, writeEach, busy, progress, refused, clear: () => setRefused(null) }
 }
 
 /** The shown refusal: the daemon's words, as it said them. */
@@ -60,7 +69,7 @@ export function Act({ children, onClick, busy, off, title }: { children: ReactNo
   return (
     <button type="button" onClick={onClick} disabled={busy || off} title={off ? 'return to LIVE in the ship’s log to change it' : title}
       className="inline-flex items-center gap-1.5 rounded-md bg-live/10 px-2.5 py-1.5 text-[12px] font-medium text-live ring-1 ring-inset ring-live/40 transition-[filter] hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-50">
-      {busy ? '…' : children}
+      {busy && <ShipsWheel />}{children}
     </button>
   )
 }

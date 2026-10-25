@@ -142,18 +142,18 @@ fn durability_lines(
     };
     let shipped = match (d.shipped_to_position, d.last_shipped_unix_ms) {
         (n, Some(t)) => format!(
-            "shipped to position {}, {} min ago",
+            "shipped to position {}, {}",
             thousands(n),
-            now_ms.saturating_sub(t) / 60_000
+            theseus_protocol::human_time::ago(now_ms, t)
         ),
         (0, None) => "nothing shipped yet".to_string(),
         (n, None) => format!("shipped to position {} (before this start)", thousands(n)),
     };
     let lag = match d.oldest_unshipped_unix_ms {
         Some(t) => format!(
-            "lag {}: the oldest record not yet shipped was written {} min ago",
+            "lag {}: the oldest record not yet shipped was written {}",
             seconds(d.lag_ms),
-            now_ms.saturating_sub(t) / 60_000
+            theseus_protocol::human_time::ago(now_ms, t)
         ),
         None => "nothing unshipped".to_string(),
     };
@@ -429,7 +429,7 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "aws: 111122223333 durability caught_up · shipped to position 1,234, 3 min ago \
+                "aws: 111122223333 durability caught_up · shipped to position 1,234, 3m ago \
                  · nothing unshipped",
                 "aws: 111122223333 durability since the start: 2 segments, 1 tail, 0 blobs, \
                  1,500 rows, 2,097,152 bytes · to s3://theseus-111122223333-us-west-2/\
@@ -453,8 +453,8 @@ mod tests {
         assert_eq!(
             lines[0],
             "aws: 111122223333 durability waiting for the WAL's sync: position 1240 is \
-             written, not yet synced · shipped to position 1,234, 3 min ago · lag 2 min: the \
-             oldest record not yet shipped was written 2 min ago"
+             written, not yet synced · shipped to position 1,234, 3m ago · lag 2 min: the \
+             oldest record not yet shipped was written 2m ago"
         );
         assert!(!lines[0].contains("WARNING"), "{lines:?}");
         let mut a = tended("waiting", Some("for the start to settle"));

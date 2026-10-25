@@ -1640,8 +1640,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     bare first name inside the one other person, proposed or held, whose name holds that word (`first_names`;
     with two or more it is its own row, `ambiguous`); `min_confidence` and `limit` over rows. A row's answer is
     `ontology.proposal.accept_all` with its `judgments` and `as_person` (an accept's `as_person`: a new person's
-    proposal joins that person, or declares it by that name) or `ontology.proposal.reject_all`; both judge once
-    and answer each proposal through the single path (`accept_open`, `reject_open`), one scan. The bulk yes takes
+    proposal joins that person, or declares it by that name) or `ontology.proposal.reject_all`; both judge once,
+    one scan. `accept_all` plans all its accepts and writes one frame (`finish_bulk`, `rpc/proposals/accept.rs`);
+    `reject_all` still answers each proposal through `reject_open`. The bulk yes takes
     people a row at a time (a row's best at the confidence), leaving an ambiguous first name with why. Tests:
     `judge/people/tests_groups.rs` (the owner's store's shape: 1,550-odd proposals under 298 names).
   - **The learning ledger** (step 25c, `learning/`): labels (`labels.rs`: what a label says of a Noul, a Choice,

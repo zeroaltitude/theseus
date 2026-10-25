@@ -106,3 +106,23 @@ export const rowBulkable = (g: OntologyPersonProposals) => !(g.ambiguous?.length
 export function selectRows(rows: readonly OntologyPersonProposals[], min = 0): string[] {
   return rows.filter((g) => rowBulkable(g) && g.confidence_max >= min).map((g) => g.key)
 }
+
+/** The `accept_all` calls that answer these picks, as few as the method allows: one call takes one `as_person`, so the
+ *  topics and any row with none go in one, and each row that names its person has its own. The daemon lists every
+ *  person row with an `as_person`, so in practice each picked person row is its own call (one judge_act and one
+ *  ledger scan each, one frame each) and only the topics share one. The number of proposals each files rides along,
+ *  for the panel's progress. */
+export function acceptCalls(rows: readonly OntologyPersonProposals[], topics: readonly string[]): { params: OntologyProposalAcceptAllParams; n: number }[] {
+  const plain = rows.filter((g) => !g.as_person)
+  const judgments = [...topics, ...plain.flatMap((g) => g.judgments)]
+  return [
+    ...(judgments.length ? [{ params: { min_confidence: 0, judgments }, n: judgments.length }] : []),
+    ...rows.filter((g) => g.as_person).map((g) => ({ params: rowAccept(g), n: g.judgments.length })),
+  ]
+}
+
+/** The one `reject_all` that answers these rows and the picked topics. */
+export function rejectCalls(rows: readonly OntologyPersonProposals[], topics: readonly string[] = []): { params: OntologyProposalRejectAllParams; n: number }[] {
+  const judgments = [...topics, ...rows.flatMap((g) => g.judgments)]
+  return judgments.length ? [{ params: { judgments }, n: judgments.length }] : []
+}

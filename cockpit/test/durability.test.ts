@@ -23,7 +23,7 @@ test('caught up is good, and says what it shipped, when, and where', () => {
   assert.equal(v.tone, 'ok')
   assert.equal(v.label, 'caught up')
   assert.equal(v.error, undefined)
-  assert.equal(v.shipped, 'to position 1,234, 3 min ago')
+  assert.equal(v.shipped, 'to position 1,234, 3m ago')
   assert.equal(v.lag, 'nothing unshipped')
   assert.equal(v.counts, '2 segments, 1 tail, 0 blobs, 1,500 rows, 2,097,152 bytes')
   assert.equal(v.where, 's3://theseus-111122223333-us-west-2/durability/theseus-lab/ and the table theseus-durability')
@@ -36,7 +36,7 @@ test('waiting and shipping are neutral; a waiting tender says why, and its lag',
   const v = durabilityView(w, NOW)
   assert.equal(v.tone, 'idle')
   assert.equal(v.error, 'for the WAL\'s sync: position 1240 is written, not yet synced')
-  assert.equal(v.lag, '2 min: the oldest record not yet shipped was written 2 min ago')
+  assert.equal(v.lag, '2 min: the oldest record not yet shipped was written 2m ago')
   assert.equal(durabilityView(d('shipping'), NOW).tone, 'idle')
   const fresh = d('waiting', 'for the start to settle')
   fresh.shipped_to_position = 0

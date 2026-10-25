@@ -11,11 +11,14 @@ import type {
 } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import {
-  bulkable, handlesLine, peopleOf, proposalKind, proposalWhat, rowAccept, rowAsk, rowBulkable, rowMeta, rowReject, selectAll, selectRows,
+  bulkable, handlesLine, peopleOf, proposalKind, proposalWhat, acceptCalls, rejectCalls, rowAsk, rowBulkable, rowMeta, selectAll, selectRows,
 } from '@/lib/people'
 import { cn } from '@/lib/format'
 import { Empty, Panel } from '@/components/ui'
 import { Act, Refused, useOntologyWrite } from '@/components/OntologyParts'
+import { filingWords, pickOff } from '@/lib/filing'
+import { ShipsWheel } from '@/components/ShipsWheel'
+import { BulkActions, NeversList, PersonNever, TopicActions } from '@/components/ProposalActions'
 
 const field = 'rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40 disabled:opacity-50'
 
@@ -122,7 +125,7 @@ export function AddPerson({ disabled }: { disabled: boolean }) {
  *  name: `theseus ontology accept` takes it. */
 export function ProposalsPanel({ disabled }: { disabled: boolean }) {
   const { data } = useRpc<OntologyProposalsResult>('ontology.proposals', { limit: 500, by_person: true }, 15_000)
-  const { writeEach, busy, refused } = useOntologyWrite()
+  const { writeEach, busy, progress, refused } = useOntologyWrite()
   const [kind, setKind] = useState<string | null>(null)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [rows, setRows] = useState<Set<string>>(new Set())
@@ -137,14 +140,13 @@ export function ProposalsPanel({ disabled }: { disabled: boolean }) {
       ...(topics.length ? [`${proposals(topics.length)} of topics`] : []),
       ...gs.map((g) => `${g.name} (${proposals(g.judgments.length)}${g.first_names?.length ? `, with ${g.first_names.join(', ')}` : ''})`),
     ].join('; ')
-    const calls: [string, unknown][] = [
-      ...(topics.length ? [['ontology.proposal.accept_all', { min_confidence: 0, judgments: topics }] as [string, unknown]] : []),
-      ...gs.map((g): [string, unknown] => accept ? ['ontology.proposal.accept_all', rowAccept(g)] : ['ontology.proposal.reject_all', rowReject(g)]),
-    ]
+    const batches = accept ? acceptCalls(gs, topics) : rejectCalls(gs, topics)
+    const method = accept ? 'ontology.proposal.accept_all' : 'ontology.proposal.reject_all'
+    const calls = batches.map((b): [string, unknown] => [method, b.params])
     const ask = accept
       ? `Accept ${what}?\n\nEach session joins what Jev proposed (yours, operator), at its next recompile; a person’s first names join that person.`
       : `Reject ${what}?\n\n${proposals(n)} labelled rejected; nothing else changes.`
-    const out = await writeEach(ask, calls)
+    const out = await writeEach(ask, calls, batches.map((b) => b.n))
     if (out) { setPicked(new Set()); setRows(new Set()) }
   }
   const total = (data?.proposals.length ?? 0) + (data?.people ?? []).reduce((a, g) => a + g.judgments.length, 0)
@@ -157,16 +159,18 @@ export function ProposalsPanel({ disabled }: { disabled: boolean }) {
           {([null, 'topic', 'person'] as const).map((k) => (
             <button key={k ?? 'all'} type="button" onClick={() => setKind(k)} className={cn('rounded px-1.5 py-0.5', kind === k ? 'bg-live/15 text-live' : 'text-ink-faint hover:text-ink')}>{k ?? 'all'}</button>
           ))}
-          <button type="button" className="ml-auto text-ink-faint hover:text-live" onClick={() => { setPicked(new Set(selectAll(ps.filter((p) => !p.person), kind))); setRows(new Set(selectRows(people))) }}>select all</button>
+          <button type="button" disabled={pickOff(progress)} className="ml-auto text-ink-faint hover:text-live disabled:opacity-40" onClick={() => { setPicked(new Set(selectAll(ps.filter((p) => !p.person), kind))); setRows(new Set(selectRows(people))) }}>select all</button>
           <Act onClick={() => void answer(chosen, [...picked], true)} busy={busy} off={disabled || count === 0} title="ontology.proposal.accept_all: confirmed first"><Check size={12} /> Accept {count || ''}</Act>
+          <BulkActions topics={ps.filter((p) => picked.has(p.judgment))} people={chosen} onDone={() => { setPicked(new Set()); setRows(new Set()) }} disabled={disabled} busy={busy} writeEach={writeEach} />
         </div>
         <Refused words={refused} />
+        {progress && <div className="flex items-center gap-1.5 text-[11.5px] text-live"><ShipsWheel size="md" label={filingWords(progress)} />{filingWords(progress)}</div>}
         {ps.length === 0 && people.length === 0 ? <Empty>no unanswered proposals{kind ? ` of ${kind}s` : ''}</Empty> : (
           <div className="max-h-96 overflow-y-auto"><table className="w-full">
             <tbody>
               {people.map((g) => (
                 <tr key={g.key} className="border-t border-line/50">
-                  <td className="py-1 pr-1 align-top"><input type="checkbox" aria-label={`pick ${g.name}`} disabled={!rowBulkable(g)} checked={rows.has(g.key)} onChange={() => flip(setRows, g.key)} /></td>
+                  <td className="py-1 pr-1 align-top"><input type="checkbox" aria-label={`pick ${g.name}`} disabled={pickOff(progress, !rowBulkable(g))} checked={rows.has(g.key)} onChange={() => flip(setRows, g.key)} /></td>
                   <td className="text-ink">
                     {g.name}{g.role_line && <span className="text-ink-dim">: {g.role_line}</span>}
                     {rowAsk(g) && <div className={cn('text-[10.5px]', g.ambiguous?.length ? 'text-wait' : 'text-live')}>{rowAsk(g)}</div>}
@@ -175,19 +179,22 @@ export function ProposalsPanel({ disabled }: { disabled: boolean }) {
                   <td className="whitespace-nowrap px-1 text-right align-top">
                     <button type="button" disabled={disabled || busy} onClick={() => void answer([g], [], true)} aria-label={`accept ${g.name}`} title="ontology.proposal.accept_all: every proposal of this person, confirmed first" className="px-1 text-ink-faint hover:text-live disabled:opacity-40"><Check size={12} /></button>
                     <button type="button" disabled={disabled || busy} onClick={() => void answer([g], [], false)} aria-label={`reject ${g.name}`} title="ontology.proposal.reject_all: every proposal of this person, confirmed first" className="px-1 text-ink-faint hover:text-fault disabled:opacity-40"><X size={12} /></button>
+                    <PersonNever g={g} disabled={disabled} busy={busy} writeEach={writeEach} />
                   </td>
                 </tr>
               ))}
               {ps.map((p) => (
                 <tr key={p.judgment} className="border-t border-line/50">
-                  <td className="py-1 pr-1"><input type="checkbox" aria-label={`pick ${p.judgment}`} disabled={!bulkable(p)} checked={picked.has(p.judgment)} onChange={() => flip(setPicked, p.judgment)} /></td>
-                  <td className="text-ink">{p.new_topic ? <span className="text-wait">a new topic</span> : proposalWhat(p)}<div className="num text-[10px] text-ink-faint">{proposalKind(p)} · {p.session_title ?? p.session_id}</div></td>
+                  <td className="py-1 pr-1"><input type="checkbox" aria-label={`pick ${p.judgment}`} disabled={pickOff(progress, !bulkable(p))} checked={picked.has(p.judgment)} onChange={() => flip(setPicked, p.judgment)} /></td>
+                  <td className="text-ink">{p.new_topic ? <span className="text-wait">a new topic (unnamed)</span> : proposalWhat(p)}<div className="num text-[10px] text-ink-faint">{proposalKind(p)} · {p.session_title ?? p.session_id}</div></td>
                   <td className="num px-1 text-right text-ink-dim">{p.confidence.toFixed(2)} <span className="text-ink-faint">{p.band}</span></td>
+                  <TopicActions p={p} disabled={disabled} busy={busy} writeEach={writeEach} />
                 </tr>
               ))}
             </tbody>
           </table></div>
         )}
+        <NeversList disabled={disabled} busy={busy} writeEach={writeEach} />
       </div>
     </Panel>
   )
