@@ -35,6 +35,9 @@ pub struct JobWaits {
     /// Each settle a job's end can be: what a `job.wait` wakes on
     /// (theseus-n8gk). It takes nothing; it looks at its job again.
     settles: Notify,
+    /// Each time a task ends: what a `task.wait` wakes on (theseus-z9mze.2).
+    /// It takes nothing either; it reads its tasks' executions again.
+    tasks: Notify,
     /// A person's messages queued behind a running turn, which its waits
     /// yield to (theseus-qu1lc). The terminals share it.
     pub steers: Arc<Steers>,
@@ -78,6 +81,18 @@ impl JobWaits {
     /// reconciler's wakes call it too.
     pub fn settled(&self) {
         self.settles.notify_waiters();
+        self.tasks.notify_waiters();
+    }
+
+    /// A task ended (its turn's last frame, a cancel): every `task.wait` looks
+    /// at its tasks again. A word missed costs a `LOOK`, not the wait.
+    pub fn task_settled(&self) {
+        self.tasks.notify_waiters();
+    }
+
+    /// What a `task.wait` waits on: the next `task_settled`, once enabled.
+    pub fn on_task_settle(&self) -> tokio::sync::futures::Notified<'_> {
+        self.tasks.notified()
     }
 
     /// What a `job.wait` waits on: the next `settled`, once enabled.

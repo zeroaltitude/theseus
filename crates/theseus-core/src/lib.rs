@@ -137,6 +137,7 @@ pub mod task_graph;
 mod task_home;
 pub mod task_self;
 pub mod task_start;
+pub mod task_wait;
 pub mod telemetry;
 pub mod tender;
 pub mod term;
@@ -642,6 +643,8 @@ mod tests_task_search;
 mod tests_task_self;
 #[cfg(test)]
 mod tests_task_start;
+#[cfg(test)]
+mod tests_task_wait;
 #[cfg(test)]
 mod tests_task_wakes;
 #[cfg(test)]

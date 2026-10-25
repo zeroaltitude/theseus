@@ -61,8 +61,12 @@ use crate::toolrun::TurnCtx;
 
 /// The one `task.*` verb needed now.
 pub const CREATE: &str = "task.create";
+/// `task.wait` (theseus-z9mze.2): the turn's wait on its tasks (`task_wait.rs`).
+pub const WAIT: &str = "task.wait";
+/// The family both are named by.
+pub const FAMILY: &str = "task";
 /// The tools this module adds, for the template's `[policy.tools]` list.
-pub const NAMES: [&str; 1] = [CREATE];
+pub const NAMES: [&str; 2] = [CREATE, WAIT];
 /// A task's budget when the call names none: this share of what the parent
 /// has left.
 pub const DEFAULT_SHARE: (u64, u64) = (1, 4);

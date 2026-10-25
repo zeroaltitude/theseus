@@ -314,6 +314,7 @@ impl ToolRuntime {
                     Err(e) => fail(e),
                 }
             }
+            crate::task::WAIT => crate::task_wait::run(core, tc, input),
             other => fail(format!("{other} is not a job tool")),
         }
     }

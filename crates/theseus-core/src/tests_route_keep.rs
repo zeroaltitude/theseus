@@ -52,7 +52,9 @@ use crate::tests_route::{mode, rig, turn};
 /// catalog (theseus-lyxy: deferred in the `plan` family, so no request sends them, but this rig's
 /// catalog counts them whole; billed at 39,400 no window held from 45,400 to 46,600; billed at
 /// 40,200, 45,800 and 46,200 hold, 45,400 and 46,600 do not: a sweep at its join).
-const WINDOW: u64 = 46_000;
+/// And 46,000 before `task_wait` joined the catalog (theseus-z9mze.2: billed as it is here, 45,400 to
+/// 46,100 and 46,600 and up do not hold; 46,200 to 46,500 hold: a sweep at its join).
+const WINDOW: u64 = 46_300;
 const OUTPUT: u32 = 1_000;
 
 /// The input the first answer is billed at, past the request budget (38,600

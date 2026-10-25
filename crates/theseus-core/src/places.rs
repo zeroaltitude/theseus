@@ -476,7 +476,7 @@ pub fn owner_in_private(
 pub fn public_tool(name: &str) -> bool {
     matches!(name, "web.search" | "http.fetch" | "tools.find")
         || name == "wake.at"
-        || name.starts_with("task.")
+        || (name.starts_with("task.") && !crate::task_wait::helper_tool(name))
 }
 
 /// The tools that read or write files: a shared place gets them only under
@@ -930,6 +930,10 @@ mod tests {
             "wake.cancel",
             "wake.move",
             "watch",
+            // The wait on a conversation's tasks, and the fan-out, are for the
+            // owner's own sessions (theseus-z9mze.2): not a shared place's.
+            "task.wait",
+            "task.fan_out",
         ] {
             assert!(!offered(PlaceClass::Shared, name, &[]), "{name}");
             assert!(offered(PlaceClass::Private, name, &[]), "{name}");

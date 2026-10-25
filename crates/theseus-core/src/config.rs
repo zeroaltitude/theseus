@@ -84,6 +84,7 @@ pub use google::{GoogleConfig, GoogleCredentialNames};
 pub use google_calendars::{primary_spec, CalendarEntry, CalendarSpec, CalendarTable};
 pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
 pub use limits::{
+    default_fan_in_chars, default_fan_out_max_wait_secs, default_fan_out_wait_secs,
     default_job_wait_beat_secs, default_job_wait_max_secs, default_job_wait_status,
     default_parallel_reads, default_parallel_runs, default_parallel_writes, DailyCeilingMode,
     MaxLoopsMode, SpendLimitMode,
@@ -457,6 +458,15 @@ pub struct ToolsConfig {
     /// At each beat, one status line to the session's place (theseus-5d204).
     #[serde(default = "default_job_wait_status")]
     pub job_wait_status: bool,
+    /// What `task_wait` waits when the call names no time (theseus-z9mze.2).
+    #[serde(default = "default_fan_out_wait_secs")]
+    pub fan_out_wait_secs: u64,
+    /// The longest one `task_wait` waits, however long the model asks.
+    #[serde(default = "default_fan_out_max_wait_secs")]
+    pub fan_out_max_wait_secs: u64,
+    /// The most characters of reports one wait brings into the turn at once.
+    #[serde(default = "default_fan_in_chars")]
+    pub fan_in_chars: usize,
     #[serde(default = "default_parallel_runs")]
     pub parallel_runs: usize,
     #[serde(default = "default_parallel_reads")]
@@ -574,6 +584,9 @@ impl Default for ToolsConfig {
             job_wait_max_secs: default_job_wait_max_secs(),
             job_wait_beat_secs: default_job_wait_beat_secs(),
             job_wait_status: default_job_wait_status(),
+            fan_out_wait_secs: default_fan_out_wait_secs(),
+            fan_out_max_wait_secs: default_fan_out_max_wait_secs(),
+            fan_in_chars: default_fan_in_chars(),
             parallel_runs: default_parallel_runs(),
             parallel_reads: default_parallel_reads(),
             parallel_writes: default_parallel_writes(),

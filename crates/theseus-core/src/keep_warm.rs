@@ -85,10 +85,30 @@ pub struct KeepWarm {
     /// A turn's last request while its response's `job_wait` runs
     /// (`keep_warm_wait`), by session.
     pub(crate) waits: Mutex<HashMap<String, Arc<crate::keep_warm_wait::Stash>>>,
+    /// The tokens and the window of each session's last request that called a
+    /// task wait: the room a fan-in has before the clearing line
+    /// (`keep_warm_wait::stash_for_wait`, `task_wait`).
+    rooms: Mutex<HashMap<String, (u64, u64)>>,
     /// The model and effort each session's last request carried (`sent`).
     sent: Mutex<HashMap<String, Sent>>,
     /// Where `theseus.keep_warm.reads` counts, once telemetry exports.
     pub telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
+}
+
+impl KeepWarm {
+    /// Record the size of `session`'s request, and the window it fits.
+    pub(crate) fn set_room(&self, session: &str, tokens: u64, limit: u64) {
+        self.rooms
+            .lock()
+            .unwrap()
+            .insert(session.to_string(), (tokens, limit));
+    }
+
+    /// The tokens and the window of `session`'s last request that called a
+    /// task wait, when it did.
+    pub(crate) fn room(&self, session: &str) -> Option<(u64, u64)> {
+        self.rooms.lock().unwrap().get(session).copied()
+    }
 }
 
 /// A session's last request: its model, its effort, and the sticky hold that
