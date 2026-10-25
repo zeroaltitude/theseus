@@ -39,6 +39,9 @@ api_base = "{base}"
 [profiles.bench]
 provider = "anthropic"
 model = "claude-sonnet-5-5"
+
+[providers.anthropic]
+api_key_secret = "anthropic_api_key"
 api_base = "{base}"
 
 [secrets]
@@ -63,14 +66,15 @@ def rpc(sock_path, method, params=None, timeout=120):
     s.settimeout(timeout)
     s.connect(sock_path)
     s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}) + "\n").encode())
-    buf = b""
-    while b"\n" not in buf:
-        c = s.recv(1 << 16)
-        if not c:
+    f = s.makefile("rb")
+    while True:
+        line = f.readline()
+        if not line:
+            raise RuntimeError(f"{method}: the socket closed")
+        r = json.loads(line)
+        if r.get("id") == 1:
             break
-        buf += c
     s.close()
-    r = json.loads(buf.split(b"\n")[0])
     if "error" in r:
         raise RuntimeError(f"{method}: {r['error']}")
     return r["result"]
@@ -95,8 +99,9 @@ def run_daemon(a):
     rows = Rows(a.label, out)
     log = open(os.path.join(work, "fake-model.log"), "w")
     addr = "127.0.0.1:19448"
-    model = subprocess.Popen([a.sim_bin, "fake-model", "--addr", addr, "--rules",
-                              '[{"when": "active", "text": "Noted."}]'], stdout=log, stderr=log)
+    rules = os.path.join(work, "rules.json")
+    open(rules, "w").write('[{"when": "active", "text": "Noted."}]')
+    model = subprocess.Popen([a.sim_bin, "fake-model", "--addr", addr, "--rules", rules], stdout=log, stderr=log)
     procs = [model]
     try:
         time.sleep(1)
