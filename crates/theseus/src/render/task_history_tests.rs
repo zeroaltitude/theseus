@@ -215,13 +215,14 @@ fn show_of_an_ended_task_has_the_whole_report_and_no_stop_command() {
 }
 
 #[test]
-fn show_of_a_plan_item_is_refused_in_words() {
+fn show_of_a_step_with_no_task_is_refused_in_words() {
     let r = TaskListResult {
         tasks: vec![],
         records: vec![record("tsk_step001", "Scrape", TaskState::Done, None)],
         details: vec![],
     };
-    assert!(show(&r).unwrap_err().to_string().contains("plan item"));
+    let said = show(&r).unwrap_err().to_string();
+    assert_eq!(said, "that is a step with no task: it has no run to show");
 }
 
 fn route_row(position: u64, data: serde_json::Value) -> LedgerEntry {

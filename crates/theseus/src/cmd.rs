@@ -1378,7 +1378,7 @@ pub async fn tasks(conn: &mut Conn, json: bool, session: Option<String>) -> Resu
                 println!("{c}");
             }
         }
-        // The task graph (39a): every record, as a tree.
+        // The plans and steps (39a): every record, as a tree.
         for line in render::task_tree_lines(&l.records) {
             println!("{line}");
         }

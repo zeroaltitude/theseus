@@ -4,8 +4,8 @@
 //! footer of counts. `--watch` keeps the connection and prints a line for
 //! each task event (started, asks, reported, failed) and each notice the
 //! policy makes that is not one of those, driven by the push, and tells the
-//! daemon a person is looking (`interactive`). `--graph` is the task graph
-//! and `--json` the task list, as before. `theseus work` is an alias of
+//! daemon a person is looking (`interactive`). `--graph` is every plan and
+//! step as a tree and `--json` the task list, as before. `theseus work` is an alias of
 //! `tasks --watch` (theseus-6kgp8); `board.rs` adds what the work board showed to the tree: threads, the
 //! job ids `peek` and `attach` take, and the daemon's own work.
 
@@ -33,7 +33,7 @@ pub struct TasksArgs {
     /// Only this session's tasks (the tasks it started).
     #[arg(long, short)]
     pub session: Option<String>,
-    /// The task graph (every record as a tree) and each task's pieces, as `tasks` printed
+    /// Every plan and step as a tree, and each task's pieces, as `tasks` printed
     /// before the tree.
     #[arg(long)]
     pub graph: bool,

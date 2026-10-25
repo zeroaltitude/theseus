@@ -209,7 +209,7 @@ pub fn show(r: &TaskListResult) -> Result<Vec<String>> {
 /// `show`, with the task's model lines (`model_lines`) after where it reports.
 pub fn show_with(r: &TaskListResult, models: &[String]) -> Result<Vec<String>> {
     let (Some(t), Some(rec)) = (r.tasks.first(), r.records.first()) else {
-        bail!("that is a plan item, not a task with a session: it has no run to show");
+        bail!("that is a step with no task: it has no run to show");
     };
     let d = detail(r, t);
     let held = d.is_some_and(|d| d.paused);

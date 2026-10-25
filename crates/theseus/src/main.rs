@@ -489,7 +489,7 @@ enum Cmd {
     /// Tasks (work.watch), one line each under its conversation: a mark, its short id, its title,
     /// how long it has run and what it is doing; under one that asks, the command that answers it;
     /// a footer of counts. `--watch` keeps it current: a line for each task that starts, asks,
-    /// reports or fails. `--graph` is the task graph and each task's state and spend as before;
+    /// reports or fails. `--graph` is every plan and step as a tree and each task's state and spend as before;
     /// `--json` the same list as data.
     #[command(display_order = 7, subcommand_precedence_over_arg = true)]
     Tasks {
