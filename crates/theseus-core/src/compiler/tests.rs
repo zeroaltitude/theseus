@@ -1310,3 +1310,44 @@ fn implicit_thinking_sends_no_thinking_field() {
         assert!(c.request.betas.is_empty(), "{model}: {:?}", c.request.betas);
     }
 }
+
+/// A response that calls a tool of ours and the tool search together can stop
+/// at our call with the search unanswered (`stop_reason: tool_use`, no
+/// `tool_search_tool_result`). Replayed, Anthropic answers every later request
+/// with a 400 (`messages.1: … srvtoolu_… was found without a corresponding
+/// tool_search_tool_result block`), so the turn and its retry fail. The render
+/// leaves the open server call out; an answered one stays.
+#[test]
+fn a_server_call_the_provider_never_answered_is_not_replayed() {
+    let sp = spec("claude-opus-5", "You are Theseus.");
+    let search = |id: &str| {
+        json!({"type": "server_tool_use", "id": id, "name": "tool_search_tool_bm25",
+               "input": {"query": "ask the owner"}})
+    };
+    let found = |id: &str| {
+        json!({"type": "tool_search_tool_result", "tool_use_id": id,
+               "content": {"type": "tool_search_tool_search_result", "tool_references": []}})
+    };
+    let call = json!({"type": "tool_use", "id": "t1", "name": "fs_read", "input": {"path": "/x"}});
+    let nodes = vec![
+        (1, Node::user("s", None, "web", "go")),
+        (2, assistant(vec![call.clone(), search("srvtoolu_open")])),
+        (3, result("t1", "X", ResultStatus::Ok, false)),
+        (
+            4,
+            assistant(vec![
+                search("srvtoolu_done"),
+                found("srvtoolu_done"),
+                call.clone(),
+            ]),
+        ),
+        (5, result("t1", "X", ResultStatus::Ok, false)),
+    ];
+    let c = run(&nodes, None, &sp, 5);
+    let sent = serde_json::to_string(&c.request.messages).unwrap();
+    assert!(!sent.contains("srvtoolu_open"), "{sent}");
+    assert!(sent.contains("srvtoolu_done"), "{sent}");
+    // The answer keeps its tool call, and the call's result still follows it.
+    assert_eq!(c.request.messages[1]["content"], json!([call]));
+    assert_eq!(c.request.messages[2]["content"][0]["tool_use_id"], "t1");
+}
