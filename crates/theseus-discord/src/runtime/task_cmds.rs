@@ -427,10 +427,7 @@ impl Place {
             What::Quiet(arg) => self.quiet(&i, arg.as_deref().unwrap_or("1h")).await,
             What::Answer(q) => s.answer_view(&i, q.as_deref()).await,
             What::NewTask(quote) => {
-                let mut m = start_task::modal(quote.as_ref().map(|(q, _)| q.as_str()), None);
-                if quote.is_some_and(|(_, own)| !own) {
-                    m["data"]["custom_id"] = start_task::outside_id().into();
-                }
+                let m = start_task::modal(quote.as_ref().map(|(q, own)| (q.as_str(), *own)), None);
                 s.respond_modal(&i, &m).await;
             }
             What::NewTaskSubmit(sub) => self.start_task(&i, &who, sub).await,
