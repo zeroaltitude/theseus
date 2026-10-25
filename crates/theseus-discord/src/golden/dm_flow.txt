@@ -10,7 +10,7 @@
 START: run this as a background task, please
 --- 3 bot []
 Started.
--# sonnet · claude-sonnet-5-5 · 2 loops · 1 tool call · $0.0577 total ($0.0577 this reply) · <dur> · [inspect](<http://localhost:7433/session/<ses>/turn/<turn>>)
+-# sonnet · claude-sonnet-5-5 · 2 loops · 1 tool call · $0.0579 total ($0.0579 this reply) · <dur> · [inspect](<http://localhost:7433/session/<ses>/turn/<turn>>)
 --- 4 bot []
 (a reply)
 Starting.
