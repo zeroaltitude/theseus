@@ -89,7 +89,7 @@ fn a_hidden_directory_that_holds_the_binds_is_not_masked_over_them() {
         &[PathBuf::from("/state"), PathBuf::from("/home/op/.ssh")],
     );
     let gate = PathBuf::from("/state/self/gates/gate-abc.sh");
-    let ro = [gate.clone()];
+    let ro = [gate];
     let view = sb.self_build_view(&build(&ro, Path::new("/home/op")));
     assert!(
         !view.hidden.contains(&PathBuf::from("/state")),
