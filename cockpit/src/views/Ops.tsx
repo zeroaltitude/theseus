@@ -444,7 +444,7 @@ export default function Ops() {
         </div>
       )}
       {a.lens === 'graph' && <GraphLens views={world ? graphViews : views} records={records} rows={rows} lanes={laneMetas} now={now} focus={row?.id ?? a.sel} picked={picked}
-        shownIds={shownIds} contextIds={contextIds} chip={a.f.bucket ? { bucket: a.f.bucket as Bucket, n: counts[a.f.bucket as Bucket], onClear: () => filter('bucket', null) } : null} onFocus={pick} onPick={pickOne} onLasso={(ids) => pickAll([...picked, ...ids])}
+        shownIds={shownIds} contextIds={contextIds} filterKey={JSON.stringify(a.f) + a.q} chip={a.f.bucket ? { bucket: a.f.bucket as Bucket, n: counts[a.f.bucket as Bucket], onClear: () => filter('bucket', null) } : null} onFocus={pick} onPick={pickOne} onLasso={(ids) => pickAll([...picked, ...ids])}
         onOpen={(sid) => nav(`/session/${sid}`)} onContext={(id, x, y) => setCtxMenu({ id, x, y })} redact={a.redact} layoutRef={graphRef} drag={drag} titleOf={titleOf} />}
     </div>
   )

@@ -49,6 +49,8 @@ export interface GraphLensProps {
   /** The counter being filtered by, as a chip on the toolbar. */
   chip?: FilterChipProps | null
   calls?: OwnerCalls
+  /** What the filters and the search are now (the address's): the view fits to the kept cards once each time it changes. */
+  filterKey?: string
   onFocus: (id: string) => void
   onPick: (id: string) => void
   onLasso: (ids: string[]) => void
@@ -67,7 +69,7 @@ export function GraphLens(p: GraphLensProps) {
   return <ReactFlowProvider><Canvas {...p} /></ReactFlowProvider>
 }
 
-function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, chip = null, calls = OWNER_CALLS, onFocus, onPick, onLasso, onOpen, onContext, redact, layoutRef, drag, titleOf }: GraphLensProps) {
+function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, chip = null, calls = OWNER_CALLS, filterKey = '', onFocus, onPick, onLasso, onOpen, onContext, redact, layoutRef, drag, titleOf }: GraphLensProps) {
   const rf = useReactFlow()
   const fullGraph = useFullGraph('Graph')
   const calm = useCalm((s) => s.calm)
@@ -143,6 +145,17 @@ function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, 
     if (fit >= READABLE) requestAnimationFrame(() => { void rf.fitView(FIT_LANES) })
     else void rf.setViewport({ x: 16, y: 56, zoom: READABLE })
   }, [g, focus, rf])
+
+  // Q4 A: the view fits to the kept cards once per filter change (a live change of the rows does not move it).
+  const fittedTo = useRef('')
+  useEffect(() => {
+    if (!keep || !shownIds || fittedTo.current === filterKey) return
+    const kept = g.nodes.filter((n) => shownIds.has(n.id)).map((n) => ({ id: n.id }))
+    if (!kept.length) return
+    fittedTo.current = filterKey
+    requestAnimationFrame(() => { void rf.fitView({ ...FIT_LANES, nodes: kept }) })
+  }, [keep, shownIds, filterKey, g, rf])
+  useEffect(() => { if (!keep) fittedTo.current = '' }, [keep])
 
   // `?sel=` pans to its node, once each time it changes.
   const panned = useRef<string | null>(null)
