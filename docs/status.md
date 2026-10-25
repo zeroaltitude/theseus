@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-23 10:18 MST. Version 1.0.1 (v1 patch1); the design document is at v0.91._
+_Updated 2026-10-24 18:41 MST. Version 1.0.2 (v1 patch2); the design document is at v0.91._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -18,6 +18,91 @@ This page changes with every step that lands. The [README](../README.md) stays t
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and
 for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
+
+## v1 patch2
+
+**v1 patch2 (version 1.0.2)** is tagged `release-1.0.2`: the second fix release after v1, every row of its bundle joined
+and installed. The tagged build is the `release` profile (fat LTO). What it changed (most rows' own entries are under
+"Recently landed"):
+
+- **Flux is the default listener** (theseus-v774k): a voice call hears through Deepgram Flux, whose own model decides
+  where a turn ends, in place of Nova-3 and the pause rules. Aura-2 stays the voice and voice notes stay on Nova-3; a
+  call whose Flux socket never opens falls back to Nova-3 and says so once.
+- **Live learning** (theseus-6f8t0): when a private conversation the owner is alone in pauses, one cheap call reads the
+  owner's own lines and keeps what should hold from now on as private, unconfirmed notes (`theseus card observed`).
+  Each night the card turns them into questions (Add, Pattern, Stale), answered Keep, Edit, Not this or End it, and up
+  to 3 a day reach the owner's DM as cards. Nothing becomes a record without the owner's answer.
+- **The Operations page** (theseus-jid7t.1 to .6): the cockpit's Agenda grows into `/ops`, one place to see and act on
+  every task, session and model. It has a needs-you queue, a command bar, and Board, Threads, Graph and Timeline lenses
+  (the Timeline with the owner's calendars; sensitive calendars are marked and masked under redact). Pick many and act
+  on them at once, drag to rehome or reschedule with Undo, and use the inspector, the Join composer, the model and mode
+  menus and the New task sheet. **Its tidy-up** after the owner's walkthrough (theseus-g00vv): one state model, so the
+  queue, the Board, the Graph and Threads agree on what waits, works, rests or is done; a hold on outside text that
+  waits on nothing is a notice; collapse, fullscreen, scrolling and the Timeline's hours work.
+- **Personas in the ontology** (theseus-utfnl, theseus-8n4yj): a `persona:<key>` category per persona, its soul in a
+  small file capped at 2,000 tokens, Jev's per-message persona choice over them (with `none`); `[personas]` is retired.
+  In a shared place where the default persona is not allowed, none engages the built-in one.
+- **The soul editor keeps the soul** (theseus-lky63): the cockpit's editor opens with the persona's current soul and
+  writes the whole file, warns before a write that shrinks it, refuses a write over a newer one, and can put the
+  previous soul back.
+- **Root-owned binaries** (theseus-qbi30): the binaries the user service runs are owned by root, so a job running as
+  the owner's user can no longer replace the daemon, and the Systems page's "jobs can write it" alarm clears.
+- **The send path at 29.6 ms** (theseus-nsp9l.4): a new compilation's request no longer waits on its system blocks'
+  blob syncs (three fsyncs of about 7 ms each). A typed prompt leaves as a request in 29.6 ms, from 52.5, inside its
+  30 ms target.
+- **Routing, effort and long turns** (theseus-f9qa8, theseus-ujzuh, theseus-u5a37, theseus-goq94, theseus-2uy56,
+  theseus-yct32, theseus-rmjqr, theseus-5mkz1, theseus-5pg8u, theseus-3v37h): route.v8 reads open-source work's public
+  signs; Jev's effort can reach `max` on hard work, an `xhigh` needs a sure answer, and a sticky effort ends early on a
+  sure later verdict. A turn can carry a deadline: it is told the time and the CPUs it really has, replans at half its
+  time and stops to report at 0.85. A call past the provider's 600 s timeout is retried once instead of ending the turn.
+- **Calls cut at their cap** (theseus-2c6iz, theseus-1iqg0, theseus-kf4pf, theseus-opypg, theseus-j06y6, theseus-yym79,
+  theseus-o6ifc, theseus-ohiu8, theseus-wdzmj, theseus-7q9wt): the compaction summary, the judge audit, the pack writer,
+  the small forced-tool calls and the exam reviewer turn thinking off where they can and say plainly when an answer was
+  cut; a tool is forced only where thinking is off; the learning writer asks for low effort; dream guidance lets a
+  category whose model always thinks wait instead of asking again every night.
+- **Threads, the chat and Discord** (theseus-n6mkd, theseus-7nx13, theseus-nde5n, theseus-zcn80, theseus-gg78p,
+  theseus-hk0dk, theseus-axno0, theseus-capcs, theseus-s48k6, theseus-002ie, theseus-nxnqc): a thread is named by the
+  turn's own words, so another thread's notes stay out of a turn; title hits count as naming; the chat follows a
+  thread-placed turn's answered question; the approval card says why it waits; a message asking for tasks starts
+  tasks; a needs-you card prints its held clause once; and the DM task flow's golden test no longer flakes under load.
+- **The owner card and the ontology** (theseus-ly75u, theseus-0ly2a, theseus-f61px, theseus-7e7hc, theseus-3ys6k): the
+  card no longer reads an assistant's setup notes as facts about the owner or one task's instructions as a lasting
+  preference, and a kept record can say where it holds; a kept kind-name answer is dropped once its cluster changes.
+- **Operations follow-ups** (theseus-i08xr, theseus-n17am, theseus-uy015, theseus-dyukm, theseus-xzf71, theseus-5iqf8,
+  theseus-b09do, theseus-vhtuv, theseus-afvat, theseus-bglzl, theseus-arblf, theseus-gbmz1, theseus-izyws): shell verbs
+  (`theseus task rehome`, `task reschedule`, `sessions model`), `job.stop` only from a trusted channel, a bounded
+  calendar cache, the Graph's keys and folds under its cap, and `drive.read` answering a file over 1 MB with its
+  metadata.
+- **Benches, tests and the public tree** (theseus-zeyr3, theseus-1j7ib, theseus-it4ta, theseus-nbgi4, theseus-q2npl,
+  theseus-jkd9q, theseus-cuv2o, theseus-y8kux, theseus-1kr2g): the recall bench prices from the catalog; the memory
+  exam runs with routing off and stops if another model answers; the old organisation names are gone from fixtures and
+  tests; the keel guard reads a value's shape and a guard that holds braces; one response's fanned-out programs run at
+  once again.
+
+Its numbers ([the omnibus](benchmarks/omnibus.md)). No coding benchmark has run on a 1.0.2 build yet; the latest are
+the runs after v1, now in the omnibus's figures (Figure 2, the frontier and the cost figure):
+
+- **Coding, HIGH** ([the 10-21 rerun](benchmarks/2026-10-21-terminal-bench-rerun-high.md)): 77.2% [71.8, 81.8] on the
+  89 tasks × 3, against v1's 73.0% and Claude Code's 75.3%, at $0.155 a solve.
+- **Coding, MAX** ([the 10-23 retest](benchmarks/2026-10-23-terminal-bench-retest-max.md)): 71.6% [61.0, 80.3] on 27 of
+  the hard 30 × 3, against Claude Code's 76.5% on the same tasks, at $0.470 a solve. The six HIGH tasks that timed out
+  on 10-21 solved 4 of 18 ([the retest](benchmarks/2026-10-23-terminal-bench-retest-high-timeouts.md)).
+- **Speed** (an A/B on the build machine, 10-23): the send path 29.6 ms with the fix against 52.5 ms without it, level
+  with the stopping point's 29.4 ms.
+- **All the model calls of every run** now come to about $934.
+
+Known limits carried to v1 patch3: the owner's live checks of Flux, live learning and the Operations page are still to
+come; Flux does not yet fall back to Nova-3 when its listener cannot be built (theseus-zlmom); two owner-card writes can
+still race, so an answer can be reverted (theseus-kxb8d), and the DM's Edit button reads a proposal without the expiry
+write (theseus-5pypl); on the Operations page, a resting conversation still counts as done (an owner call,
+theseus-zo72s), an event begun on an earlier day opens the Timeline at 00:00 (theseus-ka0lv), and Dismiss all reports
+its refusals and disables itself (theseus-jo84p); some daemon tests are owed (theseus-tx1vj, theseus-x1x7s); live checks
+of the task tools run on a scratch daemon only (theseus-xiaq4); the bench adapter's deadline ignores Harbor's timeout
+multiplier (theseus-hxukw); the daemon's first idle minute reads high because of the fresh binary's page cache, which
+the bench should leave out (theseus-nsp9l.5, theseus-d4yx2); the daemon binary is still over its 60 MB budget; and at
+top effort on the hard tasks Theseus still trails Claude Code.
+
+Next is **v1 patch3** (tag `release-1.0.3`).
 
 ## v1 patch1
 

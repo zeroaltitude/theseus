@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 1.0.1" src="https://img.shields.io/badge/version-1.0.1-d6a548?style=flat-square">
+  <img alt="Version 1.0.2" src="https://img.shields.io/badge/version-1.0.2-d6a548?style=flat-square">
   <img alt="Rust 1.98 or later" src="https://img.shields.io/badge/rust-1.98%2B-13314d?style=flat-square">
   <img alt="Runs on Linux" src="https://img.shields.io/badge/runs%20on-Linux-13314d?style=flat-square">
   <img alt="License: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-13314d?style=flat-square">
@@ -259,7 +259,7 @@ These hold whatever the model does:
 
 ## Where it stands
 
-Theseus is at v1 patch1 (version 1.0.1), runs on Linux, and has one daily user. Its weak spots are measured and published
+Theseus is at v1 patch2 (version 1.0.2), runs on Linux, and has one daily user. Its weak spots are measured and published
 alongside its wins: [the benchmarks](docs/benchmarks/omnibus.md) say where it loses, and
 **[the status page](docs/status.md)** says what works today and what comes next, including what is still rough in
 Jev's routing, the compiled context, voice, threads, personas and earned autonomy. That page changes with every step;

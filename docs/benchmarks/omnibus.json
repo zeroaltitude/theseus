@@ -160,16 +160,27 @@
   {
    "name": "frontier-v1-high",
    "form": "scatter",
-   "title": "v1: Theseus as shipped and the top three harnesses, all 89 Terminal-Bench tasks at high effort (Oct 18)",
-   "question": "At the v1 freeze, which harness solves the most for the least?",
-   "answer": "Claude Code solves the most (75.3%) and Theseus as shipped the most per dollar (73.0% at $0.100 a trial); paired by task the two are level, and OpenCode and Pi follow.",
+   "title": "v1 and the rerun after it: Theseus as shipped and the top three harnesses, all 89 Terminal-Bench tasks at high effort (Oct 18, Oct 21)",
+   "question": "At the v1 freeze and after the Oct 21 rerun, which harness solves the most for the least?",
+   "answer": "At v1 Claude Code solves the most (75.3%) and Theseus as shipped the most per dollar (73.0% at $0.100 a trial); paired by task the two are level. The Oct 21 rerun lifts Theseus to 77.2% at $0.120 a trial, the highest solve rate of the five, at a lower cost a trial than Claude Code's.",
    "sources": [
-    "2026-10-18-terminal-bench-v1-high.md"
+    "2026-10-18-terminal-bench-v1-high.md",
+    "2026-10-21-terminal-bench-rerun-high.md"
    ],
    "points": [
     {
      "arm": "theseus",
-     "label": "Theseus as shipped (routed)",
+     "label": "Theseus as shipped, 6918e3c1 (Oct 21)",
+     "x": 0.1196,
+     "xlo": 0.0975,
+     "xhi": 0.1454,
+     "y": 0.7715,
+     "ylo": 0.7175,
+     "yhi": 0.8178
+    },
+    {
+     "arm": "oracle",
+     "label": "Theseus at v1 (351159fc)",
      "x": 0.0996,
      "xlo": 0.0823,
      "xhi": 0.1193,
@@ -217,9 +228,158 @@
     "label": "trials passed (95% Wilson)",
     "format": "pct",
     "min": 0.6,
-    "max": 0.85
+    "max": 0.87
    },
    "rows": []
+  },
+  {
+   "name": "after-v1",
+   "form": "intervals",
+   "title": "After v1: Theseus's Terminal-Bench solve rate on the Oct 21 rerun and the Oct 23 retest, against its v1 run",
+   "question": "Did the patch work after v1 move Theseus's Terminal-Bench solve rate, and did the retest's extra effort help?",
+   "answer": "The Oct 21 rerun solved 77.2% of all 89 tasks at high effort (v1 73.0%) and 72.2% of the hard 30 (v1 67.8%); the Oct 23 retest, with effort applied below the model-switch line, solved 71.6% of 27 hard tasks against 74.1% for the rerun's build, and 4 of 18 of the HIGH timeouts against 0 of 18.",
+   "sources": [
+    "2026-10-18-terminal-bench-v1-high.md",
+    "2026-10-18-terminal-bench-v1-max.md",
+    "2026-10-21-terminal-bench-rerun-high.md",
+    "2026-10-21-terminal-bench-rerun-max.md",
+    "2026-10-23-terminal-bench-retest-max.md",
+    "2026-10-23-terminal-bench-retest-high-timeouts.md"
+   ],
+   "x": {
+    "label": "share of trials solved (Wilson 95%)",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "label": "Theseus 6918e3c1",
+     "arm": "theseus",
+     "value": 0.7715355805243446,
+     "lo": 0.7175352774595357,
+     "hi": 0.8178332759050905,
+     "group": "HIGH effort · all 89 tasks × 3 (Oct 21)",
+     "tip": "206 of 267"
+    },
+    {
+     "label": "Theseus at v1",
+     "arm": "oracle",
+     "value": 0.7303370786516854,
+     "lo": 0.674117067199885,
+     "hi": 0.7800231539301085,
+     "group": "HIGH effort · all 89 tasks × 3 (Oct 21)",
+     "tip": "195 of 267"
+    },
+    {
+     "label": "Claude Code (v1 run)",
+     "arm": "claude-code",
+     "value": 0.7528089887640449,
+     "lo": 0.6977236175685039,
+     "hi": 0.8007229665985619,
+     "group": "HIGH effort · all 89 tasks × 3 (Oct 21)",
+     "tip": "201 of 267"
+    },
+    {
+     "label": "Theseus 6918e3c1",
+     "arm": "theseus",
+     "value": 0.7222222222222222,
+     "lo": 0.6220477250293879,
+     "hi": 0.8042031080531336,
+     "group": "MAX · the hard 30 × 3 (Oct 21)",
+     "tip": "65 of 90"
+    },
+    {
+     "label": "Theseus at v1",
+     "arm": "oracle",
+     "value": 0.6777777777777778,
+     "lo": 0.5756683783279567,
+     "hi": 0.7653322881380605,
+     "group": "MAX · the hard 30 × 3 (Oct 21)",
+     "tip": "61 of 90"
+    },
+    {
+     "label": "Claude Code (v1 run)",
+     "arm": "claude-code",
+     "value": 0.7555555555555555,
+     "lo": 0.6575162887069911,
+     "hi": 0.8326721693379086,
+     "group": "MAX · the hard 30 × 3 (Oct 21)",
+     "tip": "68 of 90"
+    },
+    {
+     "label": "Theseus fe56a164",
+     "arm": "theseus",
+     "value": 0.7160493827160493,
+     "lo": 0.609821476977911,
+     "hi": 0.802712683637712,
+     "group": "MAX · 27 of the hard 30 × 3 (Oct 23)",
+     "tip": "58 of 81"
+    },
+    {
+     "label": "Theseus 6918e3c1",
+     "arm": "oracle",
+     "value": 0.7407407407407407,
+     "lo": 0.6359565111747224,
+     "hi": 0.8237244106541145,
+     "group": "MAX · 27 of the hard 30 × 3 (Oct 23)",
+     "tip": "60 of 81"
+    },
+    {
+     "label": "Theseus at v1",
+     "arm": "oracle",
+     "value": 0.691358024691358,
+     "lo": 0.5840194691734772,
+     "hi": 0.7813679302289316,
+     "group": "MAX · 27 of the hard 30 × 3 (Oct 23)",
+     "tip": "56 of 81"
+    },
+    {
+     "label": "Claude Code (v1 run)",
+     "arm": "claude-code",
+     "value": 0.7654320987654321,
+     "lo": 0.6624527035476533,
+     "hi": 0.8443749794943978,
+     "group": "MAX · 27 of the hard 30 × 3 (Oct 23)",
+     "tip": "62 of 81"
+    },
+    {
+     "label": "Theseus fe56a164",
+     "arm": "theseus",
+     "value": 0.2222222222222222,
+     "lo": 0.09000928108601694,
+     "hi": 0.45214584316212625,
+     "group": "HIGH · the 6 tasks that timed out on Oct 21, × 3 (Oct 23)",
+     "tip": "4 of 18"
+    },
+    {
+     "label": "Theseus 6918e3c1",
+     "arm": "oracle",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.17587922364665765,
+     "group": "HIGH · the 6 tasks that timed out on Oct 21, × 3 (Oct 23)",
+     "tip": "0 of 18"
+    },
+    {
+     "label": "Theseus at v1",
+     "arm": "oracle",
+     "value": 0.2777777777777778,
+     "lo": 0.12499753379553993,
+     "hi": 0.5087265656029746,
+     "group": "HIGH · the 6 tasks that timed out on Oct 21, × 3 (Oct 23)",
+     "tip": "5 of 18"
+    },
+    {
+     "label": "Claude Code (v1 run)",
+     "arm": "claude-code",
+     "value": 0.3333333333333333,
+     "lo": 0.1627877475083369,
+     "hi": 0.5625053270405489,
+     "group": "HIGH · the 6 tasks that timed out on Oct 21, × 3 (Oct 23)",
+     "tip": "6 of 18"
+    }
+   ]
   },
   {
    "name": "frontier-89",
@@ -1352,12 +1512,13 @@
    "form": "cost-dots",
    "title": "What the runs cost in model calls, and what a solved task cost",
    "question": "What does benchmarking Theseus cost, and what does Theseus cost a solved task?",
-   "answer": "About $367 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10.",
+   "answer": "About $934 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10; on Oct 21 Theseus at high effort cost $0.155.",
    "sources": [
     "2026-10-04-terminal-bench-first-full-run.md",
     "2026-10-07-terminal-bench-harness-arms.md",
     "2026-10-13-terminal-bench-r0.md",
-    "2026-10-13-terminal-bench-harness-arms.md"
+    "2026-10-13-terminal-bench-harness-arms.md",
+    "2026-10-21-terminal-bench-rerun-high.md"
    ],
    "rows": [
     {
@@ -1521,9 +1682,39 @@
      "run": "v1: TB MAX, four harnesses, the hard 30 at top effort",
      "usd": 331.48,
      "source": "2026-10-18-terminal-bench-v1-max.md"
+    },
+    {
+     "date": "Oct 21",
+     "run": "rerun: TB HIGH, Theseus only, 89 x 3",
+     "usd": 31.94,
+     "source": "2026-10-21-terminal-bench-rerun-high.md"
+    },
+    {
+     "date": "Oct 21",
+     "run": "rerun: TB MAX, Theseus only, the hard 30",
+     "usd": 21.24,
+     "source": "2026-10-21-terminal-bench-rerun-max.md"
+    },
+    {
+     "date": "Oct 23",
+     "run": "retest: TB MAX, Theseus only, 27 hard tasks",
+     "usd": 27.27,
+     "source": "2026-10-23-terminal-bench-retest-max.md"
+    },
+    {
+     "date": "Oct 23",
+     "run": "retest: TB HIGH timeouts, Theseus only, 6 tasks",
+     "usd": 5.57,
+     "source": "2026-10-23-terminal-bench-retest-high-timeouts.md"
+    },
+    {
+     "date": "Oct 23",
+     "run": "retest: two trials stopped for spend",
+     "usd": 0.41,
+     "source": "2026-10-23-terminal-bench-retest-max.md"
     }
    ]
   }
  ],
- "total_usd": 847.7141
+ "total_usd": 934.1441
 }
