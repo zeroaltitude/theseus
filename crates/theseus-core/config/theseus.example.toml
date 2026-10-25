@@ -525,6 +525,9 @@ proc_sync_secs = 60                     # a turn waits this long for proc.run, t
 job_wait_max_secs = 1800                # the longest one job_wait waits (at least proc_sync_secs, at most 3600); it still returns at once when the job ends or a message arrives
 job_wait_beat_secs = 600               # a job_wait on a job that has printed nothing for this long returns with what it saw (0 is off; at most 3600; one past job_wait_max_secs never fires); a job that prints keeps its wait
 job_wait_status = true                  # at each beat, one status line to the session's place (no model call)
+fan_out_wait_secs = 900                 # what task_wait waits when the call names no time; it returns at once when its tasks have ended, a message arrives, or the turn is stopped
+fan_out_max_wait_secs = 1800            # the longest one task_wait waits, however long the model asks
+fan_in_chars = 36000                    # the most characters of task reports one task_wait writes into the turn (about 9K tokens); the room before the clearing line caps it lower
 parallel_runs = 16                      # the most programs of one response that run at once, each its own job (the rest wait for a slot); one response's programs run together unless they share a terminal, an MCP server, a file name in their argvs, or an operand (a service, container, host, port, directory)
 parallel_reads = 32                     # the most reads of one response that run at once (the rest wait for a slot, the results in order)
 parallel_writes = 16                    # the most writes, to different paths, of one response that run at once
@@ -742,6 +745,8 @@ window_days = 7                         # the window the approvals are counted i
 # "task.split" = "notify"
 # "task.close" = "notify"
 # "task.claim" = "notify"
+# waiting in this turn for the tasks you started (theseus-z9mze.2): a read of their reports, which the next turn would read
+# "task.wait" = "notify"
 # a wake into this conversation later (DD8): inherits enforcement, so each one
 # set is a notice with its time; its turn spends from this session's limit
 # "wake.at" = "notify"

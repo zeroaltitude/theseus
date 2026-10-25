@@ -113,10 +113,36 @@ pub(super) fn deadline_of(session: &str, arrived: Instant) -> Option<Deadline> {
 /// The deadline of the turn that arrived at `arrived`, taken: the entry goes,
 /// read and removed under one lock.
 pub(super) fn take_deadline(session: &str, arrived: Instant) -> Option<Deadline> {
-    let mut map = DEADLINES.lock().unwrap_or_else(PoisonError::into_inner);
-    map.as_mut()?
-        .remove(&(session.to_string(), arrived))
-        .filter(|d| d.at > Instant::now())
+    let taken = {
+        let mut map = DEADLINES.lock().unwrap_or_else(PoisonError::into_inner);
+        map.as_mut().and_then(|m| {
+            m.remove(&(session.to_string(), arrived))
+                .filter(|d| d.at > Instant::now())
+        })
+    };
+    in_force_set(session, taken);
+    taken
+}
+
+/// The deadline of each session's running turn, as that turn took it (none:
+/// the turn has no deadline). A tool that runs in its own task reads it
+/// (`in_force`): `task.wait` keeps back the time its turn needs to finish.
+static IN_FORCE: Mutex<Option<HashMap<String, Deadline>>> = Mutex::new(None);
+
+fn in_force_set(session: &str, deadline: Option<Deadline>) {
+    let mut map = IN_FORCE.lock().unwrap_or_else(PoisonError::into_inner);
+    let map = map.get_or_insert_with(HashMap::new);
+    match deadline {
+        Some(d) => map.insert(session.to_string(), d),
+        None => map.remove(session),
+    };
+}
+
+/// How long `session`'s running turn has left, when it has a deadline.
+pub fn left_in_force(session: &str) -> Option<Duration> {
+    let map = IN_FORCE.lock().unwrap_or_else(PoisonError::into_inner);
+    let d = map.as_ref()?.get(session)?;
+    Some(d.at.saturating_duration_since(Instant::now()))
 }
 
 impl TurnRunner {
