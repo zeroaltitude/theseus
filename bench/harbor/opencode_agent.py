@@ -8,7 +8,12 @@ with `measured.MeasuredArm`: OpenCode pinned at `PINNED_VERSION`, its model
 variant `medium` (OpenCode 1.18.35's catalog gives Claude Sonnet 5.5 the
 variants low to max, each adaptive thinking at that effort), the sampler
 around its run, and the record from its own stream (`efficiency.opencode_record`:
-each `step_finish` a call, with its tokens and the dollars OpenCode priced).
+each `step_finish` a call, with its tokens and the dollars OpenCode priced) and
+from `opencode.db`: the stream carries the root session alone, the database also
+the `@general` helpers it started (`parent_id` children, to any depth), whose
+tokens and dollars the record adds, in `cost_usd` (the controller's spend stop),
+`list_cost_usd` and `limits` (the budget guard), and in the context Harbor's
+result takes its cost from.
 
 **Its catalog is pinned too.** OpenCode refreshes its model catalog (prices,
 variants) from models.dev unless `OPENCODE_DISABLE_MODELS_FETCH` is set, so
@@ -37,6 +42,9 @@ class MeasuredOpenCode(MeasuredArm, OpenCode):
     options_model = with_caps(OpenCode.options_model)
     PINNED_VERSION = PINNED_VERSION
     EFFORT_OPTION = "variant"
+    # Harbor prices the root session of the stream; the helpers' sessions are in
+    # opencode.db, and the record sums them (efficiency.opencode_db_spend).
+    RECORD_SUPERSEDES_HARBORS = True
 
     def rewrite(self, command, env):
         if RUN.search(command):
