@@ -264,7 +264,7 @@ impl Core {
 
     /// The unanswered proposals listed now (the exclusions' aside), by
     /// judgment, and the ontology they were read over.
-    fn listed_now(
+    pub(super) fn listed_now(
         &self,
     ) -> Result<(
         Listed,
@@ -419,7 +419,7 @@ impl Core {
 }
 
 /// Why a named proposal was not taken.
-fn not_listed(j: &str) -> String {
+pub(super) fn not_listed(j: &str) -> String {
     format!(
         "{j}: not listed now: answered already, hidden by the exclusions, or no such proposal \
          (`theseus ontology proposals` lists them)"

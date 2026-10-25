@@ -51,6 +51,7 @@ mod reply_data;
 pub mod rerank;
 mod seal;
 pub mod sink;
+pub mod small_talk;
 pub mod spend;
 pub mod stop;
 #[cfg(test)]

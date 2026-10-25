@@ -633,3 +633,89 @@ pub struct OntologyKindResult {
     pub kind: OntologyKind,
     pub retired: bool,
 }
+
+/// `ontology.proposal.never` (theseus-648f8): the owner's "never propose
+/// this". Each named proposal is rejected (as `ontology.proposal.reject_all`
+/// takes it) and what it proposes is kept as a never: a topic's name, a
+/// person's name, or, for a new topic that has no name yet, its session
+/// (never propose a new topic for it). The record is the store's, not the
+/// config's; `ontology.never.undo` takes one back.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalNeverParams {
+    pub judgments: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// One never the owner kept.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyNever {
+    /// What `ontology.never.undo` names (`topic:<name>`, `person:<name>`,
+    /// `session:<id>`, the name folded).
+    pub key: String,
+    /// `topic`, `person` or `session`.
+    pub kind: String,
+    /// The name as the owner saw it (a session's: its id).
+    pub name: String,
+    pub who: String,
+    pub at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyProposalNeverResult {
+    /// The proposals rejected.
+    pub rejected: Vec<String>,
+    /// The nevers this call kept (one a name, however many proposals).
+    pub nevers: Vec<OntologyNever>,
+    /// Named proposals left unanswered, each with why.
+    pub left: Vec<String>,
+}
+
+/// `ontology.never.list`: the nevers in force, newest first (the config's
+/// `not_topics` and `not_people` are listed in `config`, not undoable here).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyNeverListParams {}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyNeverListResult {
+    pub nevers: Vec<OntologyNever>,
+    /// The config's `[ontology] not_topics`, as written.
+    pub config_topics: Vec<String>,
+    /// The config's `[people] not_people`, as written.
+    pub config_people: Vec<String>,
+}
+
+/// `ontology.never.undo`: take a never back (nothing is lost: the record
+/// stays, marked undone).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyNeverUndoParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyNeverUndoResult {
+    pub undone: OntologyNever,
+}

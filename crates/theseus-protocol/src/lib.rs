@@ -287,7 +287,7 @@ pub mod method {
         INITIATIVE_RATE = "initiative.rate", INITIATIVE_WEEK = "initiative.week", // a thumbs up or down on what Theseus said first; the week (theseus-slvl.9)
         VOICE_SHOW = "voice.show", VOICE_AUDITION = "voice.audition", STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke", STANDING_PROPOSALS = "standing.proposals", STANDING_KEEP = "standing.keep", STANDING_DISMISS = "standing.dismiss", STANDING_ANSWER = "standing.answer",
         ONTOLOGY_UNDO = "ontology.undo", ONTOLOGY_KIND_ADD = "ontology.kind.add", ONTOLOGY_KIND_RETIRE = "ontology.kind.retire", JUDGE_LATENCY = "judge.latency", // Jev's writes taken back, the kinds table's two writes (theseus-xzxqv), and a point's latency by day
-        ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all",
+        ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all", ONTOLOGY_PROPOSAL_NEVER = "ontology.proposal.never", ONTOLOGY_NEVER_LIST = "ontology.never.list", ONTOLOGY_NEVER_UNDO = "ontology.never.undo",
         /// How often a task's forecast held (theseus-zz752, `forecast::ForecastCalibrationParams`). A read.
         FORECAST_CALIBRATION = "forecast.calibration",
         /// Tasks (DD7): the child sessions conversations started, with state and spend.

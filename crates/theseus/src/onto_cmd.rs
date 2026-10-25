@@ -10,6 +10,8 @@ use theseus_client::Conn;
 use theseus_protocol::judge::{JudgeLatencyParams, JudgeLatencyResult};
 use theseus_protocol::{
     method, OntologyKindAddParams, OntologyKindResult, OntologyKindRetireParams,
+    OntologyNeverListParams, OntologyNeverListResult, OntologyNeverUndoParams,
+    OntologyNeverUndoResult, OntologyProposalNeverParams, OntologyProposalNeverResult,
     OntologyUndoParams, OntologyUndoResult,
 };
 
@@ -164,6 +166,93 @@ pub async fn latency(conn: &mut Conn, json: bool, a: LatencyArgs) -> Result<()> 
         }
         if r.days.is_empty() {
             println!("  none: no judgment of this point is recorded since then.");
+        }
+        Ok(())
+    })
+}
+
+/// `theseus ontology never`.
+#[derive(Args, Debug)]
+pub struct NeverArgs {
+    /// Proposals (their judgment ids, `theseus ontology proposals`) never to propose again.
+    #[arg(conflicts_with_all = ["list", "undo"])]
+    pub judgments: Vec<String>,
+    /// The nevers in force, and the config's `not_topics` and `not_people`.
+    #[arg(long, conflicts_with = "undo")]
+    pub list: bool,
+    /// Take a never back, by its key from --list (`topic:harbor`, `person:sable thorn`).
+    #[arg(long, value_name = "KEY")]
+    pub undo: Option<String>,
+    #[arg(long)]
+    pub note: Option<String>,
+}
+
+/// `theseus ontology never [JUDGMENT...] [--list] [--undo KEY]`.
+pub async fn never(conn: &mut Conn, json: bool, a: NeverArgs) -> Result<()> {
+    if let Some(key) = a.undo {
+        let v = conn
+            .request(
+                method::ONTOLOGY_NEVER_UNDO,
+                OntologyNeverUndoParams {
+                    key,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        return output(json, v, |r: OntologyNeverUndoResult| {
+            println!(
+                "Undone: {} {:?} may be proposed again.",
+                r.undone.kind, r.undone.name
+            );
+            Ok(())
+        });
+    }
+    if a.list || a.judgments.is_empty() {
+        let v = conn
+            .request(method::ONTOLOGY_NEVER_LIST, OntologyNeverListParams {})
+            .await?;
+        return output(json, v, |r: OntologyNeverListResult| {
+            for n in &r.nevers {
+                println!("{}  (by {})", n.key, n.who);
+            }
+            if r.nevers.is_empty() {
+                println!("No nevers kept in the store.");
+            }
+            for t in &r.config_topics {
+                println!("config not_topics: {t}");
+            }
+            for t in &r.config_people {
+                println!("config not_people: {t}");
+            }
+            Ok(())
+        });
+    }
+    let v = conn
+        .request(
+            method::ONTOLOGY_PROPOSAL_NEVER,
+            OntologyProposalNeverParams {
+                judgments: a.judgments,
+                note: a.note,
+                ..Default::default()
+            },
+        )
+        .await?;
+    output(json, v, |r: OntologyProposalNeverResult| {
+        println!(
+            "{} rejected; never proposed again: {}.",
+            r.rejected.len(),
+            match r.nevers.is_empty() {
+                true => "nothing new".to_string(),
+                false => r
+                    .nevers
+                    .iter()
+                    .map(|n| n.key.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            }
+        );
+        for l in &r.left {
+            println!("  left: {l}");
         }
         Ok(())
     })

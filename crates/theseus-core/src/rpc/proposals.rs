@@ -197,6 +197,18 @@ impl Proposed {
         }
     }
 
+    /// Whether a topic proposal is one never proposed: a new topic for a
+    /// session that has none, or the topic by its name or its id.
+    fn never_by(&self, o: &Ontology, never: &super::never::NeverSet) -> bool {
+        if self.new_topic() {
+            return never.new_topic_in(&self.session);
+        }
+        let name = self
+            .category(o)
+            .and_then(|t| o.category(&t).map(|c| c.name.clone()));
+        never.topic(name.as_deref().unwrap_or(&self.choice), &self.choice)
+    }
+
     fn new_topic(&self) -> bool {
         self.person.is_none() && self.choice == "new_topic"
     }
@@ -332,11 +344,18 @@ impl Core {
         let mut out = Vec::new();
         let mut hidden = 0u32;
         let mut shown: HashSet<(String, String)> = HashSet::new();
+        let never = self.never_set();
         for pr in proposed.into_iter().rev() {
             if labelled.contains(&pr.id()) || session.is_some_and(|s| s != pr.session) {
                 continue;
             }
             if pr.person.as_ref().is_some_and(|d| excluded(o, not, d)) {
+                hidden += 1;
+                continue;
+            }
+            // A topic or a new topic the owner (or the config) said never
+            // to (theseus-648f8): hidden, and counted.
+            if pr.person.is_none() && pr.never_by(o, &never) {
                 hidden += 1;
                 continue;
             }
@@ -466,6 +485,18 @@ impl Core {
         note: Option<&str>,
         who: &Answerer,
     ) -> Result<OntologyProposalAnswered> {
+        self.reject_with(pr, note, who, None)
+    }
+
+    /// A rejection with one more record in its frame: `ontology.proposal.
+    /// never`'s never, written with the label that answers its proposal.
+    pub(super) fn reject_with(
+        &self,
+        pr: Proposed,
+        note: Option<&str>,
+        who: &Answerer,
+        beside: Option<NewRecord>,
+    ) -> Result<OntologyProposalAnswered> {
         let sid = pr.session.as_str();
         let (who_s, via) = (who.who(), who.via());
         let label_id = format!("lbl_{}", uuid::Uuid::now_v7().simple());
@@ -484,7 +515,9 @@ impl Core {
         };
         let mut row = fact::row(&label, Some(sid), None)?;
         row.key = Some(label_id.clone());
-        self.store.append(&[row.scoped(pr.scope())])?;
+        let mut frame: Vec<NewRecord> = beside.into_iter().collect();
+        frame.push(row.scoped(pr.scope()));
+        self.store.append(&frame)?;
         self.rec(Some(sid)).announce(&label);
         let o = self.runner.ontology.snapshot(&self.store)?;
         Ok(answered(&o, &pr, label_id, "rejected", None))

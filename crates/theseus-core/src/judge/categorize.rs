@@ -70,6 +70,9 @@ pub const MEMBERSHIPS: usize = 5;
 pub const RECENT: usize = 10;
 /// A session's mark: its last judgment, at META `judge.categorize.<session>`.
 pub const MARK_PREFIX: &str = "judge.categorize.";
+/// The in-memory key of the mark a skipped small-talk window moves
+/// (`skip_small_talk`); never a judgment's id, so no sink frame writes it.
+const SKIP_PREFIX: &str = "skip.small_talk.";
 /// Option ids the pack keeps for itself: a topic named so is not offered.
 const RESERVED: [&str; 2] = ["new_topic", "none"];
 
@@ -323,6 +326,9 @@ impl JudgeService {
         let (after, read) = nodes_after(&self.store, sid, mark.as_ref().map_or(0, |m| m.through))?;
         self.categorize.read.fetch_add(read, Ordering::Relaxed);
         let trigger = due(&after, mark.as_ref())?;
+        if self.skip_small_talk(sid, &after) {
+            return None;
+        }
         let o = match core.runner.ontology.held() {
             Some(o) => o,
             None => core.runner.ontology.snapshot(&self.store).ok()?,
@@ -351,7 +357,18 @@ impl JudgeService {
             .flatten()
             .and_then(|s| s.title)
             .unwrap_or_default();
-        let (input, left_out) = input(&title, &nodes, &o, sid);
+        let (mut input, left_out) = input(&title, &nodes, &o, sid);
+        // A topic the owner said never to is not offered (theseus-648f8).
+        let never = core.never_set();
+        if !never.is_empty() {
+            input.candidates.retain(|c| {
+                let name = o
+                    .categories()
+                    .find(|k| k.id.local() == c.id)
+                    .map_or(c.id.as_str(), |k| k.name.as_str());
+                !never.topic(name, &c.id)
+            });
+        }
         let candidates = input.candidates.len();
         let scrub = ScrubWith(self.scrubber.clone());
         let state = theseus_judge::prepare(&pack, &Input::Categorize(input), &scrub).ok()?;
@@ -387,6 +404,51 @@ impl JudgeService {
             at_ms: theseus_protocol::now_unix_ms(),
         };
         Some((Prepared { built, ask, need }, moved))
+    }
+
+    /// Whether the human messages since the mark are all small talk or
+    /// status checks (`small_talk`): then nothing is judged, and the mark
+    /// moves past them in memory, so the next exchange end does not find the
+    /// same trigger again (theseus-648f8). The mark is the same kind a
+    /// judgment moves, under a key of its own that no sink frame writes, so a
+    /// restart reads the messages once more and skips them once more.
+    fn skip_small_talk(&self, sid: &str, after: &[(u64, Node)]) -> bool {
+        let humans: Vec<(u64, &Node)> = after
+            .iter()
+            .filter(|(_, n)| is_human(n))
+            .map(|(p, n)| (*p, n))
+            .collect();
+        let texts = humans.iter().filter_map(|(_, n)| match &n.body {
+            Body::UserMessage { text, .. } => Some(text.as_str()),
+            _ => None,
+        });
+        if !super::small_talk::all_small_talk(texts) {
+            return false;
+        }
+        let Some((through, last)) = humans.last() else {
+            return false;
+        };
+        let key = format!("{SKIP_PREFIX}{sid}");
+        let moved = Mark {
+            judgment: key.clone(),
+            through: *through,
+            through_ms: last.created_at_ms,
+            at_ms: theseus_protocol::now_unix_ms(),
+        };
+        self.categorize
+            .unwritten
+            .lock()
+            .unwrap()
+            .insert(key, (sid.to_string(), moved));
+        true
+    }
+
+    /// Whether a small-talk window of the session was skipped and its mark
+    /// moved (what the tests wait for).
+    #[cfg(test)]
+    pub(crate) fn small_talk_skipped(&self, sid: &str) -> bool {
+        let key = format!("{SKIP_PREFIX}{sid}");
+        self.categorize.unwritten.lock().unwrap().contains_key(&key)
     }
 
     /// A session's mark: the newest moved and not yet written, else the
