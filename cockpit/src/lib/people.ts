@@ -121,8 +121,8 @@ export function acceptCalls(rows: readonly OntologyPersonProposals[], topics: re
   ]
 }
 
-/** The one `reject_all` that answers these rows. */
-export function rejectCalls(rows: readonly OntologyPersonProposals[]): { params: OntologyProposalRejectAllParams; n: number }[] {
-  const judgments = rows.flatMap((g) => g.judgments)
+/** The one `reject_all` that answers these rows and the picked topics. */
+export function rejectCalls(rows: readonly OntologyPersonProposals[], topics: readonly string[] = []): { params: OntologyProposalRejectAllParams; n: number }[] {
+  const judgments = [...topics, ...rows.flatMap((g) => g.judgments)]
   return judgments.length ? [{ params: { judgments }, n: judgments.length }] : []
 }

@@ -140,7 +140,7 @@ export function ProposalsPanel({ disabled }: { disabled: boolean }) {
       ...(topics.length ? [`${proposals(topics.length)} of topics`] : []),
       ...gs.map((g) => `${g.name} (${proposals(g.judgments.length)}${g.first_names?.length ? `, with ${g.first_names.join(', ')}` : ''})`),
     ].join('; ')
-    const batches = accept ? acceptCalls(gs, topics) : rejectCalls(gs)
+    const batches = accept ? acceptCalls(gs, topics) : rejectCalls(gs, topics)
     const method = accept ? 'ontology.proposal.accept_all' : 'ontology.proposal.reject_all'
     const calls = batches.map((b): [string, unknown] => [method, b.params])
     const ask = accept

@@ -41,7 +41,7 @@ use theseus_protocol::{
     method, OntologyProposal, OntologyProposalAcceptParams, OntologyProposalAnswered,
     OntologyProposalRejectParams, OntologyProposalsParams, OntologyProposalsResult,
 };
-use theseus_store::{kinds, Store as _};
+use theseus_store::{kinds, NewRecord, Store as _};
 
 mod accept;
 pub(super) use accept::Bulk;
