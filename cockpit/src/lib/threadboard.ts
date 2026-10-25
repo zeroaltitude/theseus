@@ -255,10 +255,13 @@ export function threadWork(rows: readonly OpsRow[], groups: readonly ThreadGroup
   }
   const kids = new Map<string, OpsRow[]>()
   const roots = new Map<string | null, OpsRow[]>()
+  // A `parent` cycle has no root, so neither member would be emitted and both would vanish from the lens, where the
+  // Graph still draws them: a row whose parent stands under itself is a root of its thread instead (theseus-brcs4 F4).
+  const ancestral = (p: OpsRow, r: OpsRow): boolean => { for (let up: OpsRow | undefined = p, i = 0; up && i < 64; i++, up = parentOf(up)) if (up === r) return true; return false }
   for (const r of rows) {
     const p = parentOf(r)
     const t = threadOf(r)
-    const into = p && threadOf(p) === t ? (kids.get(p.id) ?? kids.set(p.id, []).get(p.id)!) : (roots.get(t) ?? roots.set(t, []).get(t)!)
+    const into = p && !ancestral(p, r) && threadOf(p) === t ? (kids.get(p.id) ?? kids.set(p.id, []).get(p.id)!) : (roots.get(t) ?? roots.set(t, []).get(t)!)
     into.push(r)
   }
   const order = (a: OpsRow, b: OpsRow) => RANK[a.bucket] - RANK[b.bucket] || a.activityMs - b.activityMs || (a.id < b.id ? -1 : 1)

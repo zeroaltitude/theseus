@@ -198,6 +198,8 @@ test('the Graph’s follow-ups are wired: keys, the palette scope, the verb menu
   // n17am 4: the node and lane titles are drawn through shownTitle.
   const node = src('ops/GraphNode.tsx')
   assert.ok(!/title=\{n\.title\}|⚙ \{n\.title\}|>\{n\.title\}<\/div>|\{lane\.title\}/.test(node.replace(/\/\/.*$/gm, "")), "a title is drawn bare")
+  // theseus-brcs4 F1: the Threads lens draws the page's one work set, with the filter's kept and context sets.
+  assert.match(page, /rows=\{rows\} kept=\{shownIds\} context=\{contextIds\} onSelect=\{pick\}/)
   // theseus-hl0r1 F4: a thread head's click writes its lane's slug, and the Graph lens resolves it to the thread.
   assert.match(page, /a\.lens === 'graph' && laneMetas\.some/)
   // theseus-hl0r1 F2: `tone` can be a CSS var() or an rgb(), so an alpha is never concatenated onto it

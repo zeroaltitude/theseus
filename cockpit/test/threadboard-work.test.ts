@@ -148,3 +148,19 @@ test('the filter: a thread is listed only when it holds a kept card, with its an
   assert.deepEqual(idsOf(needs[0]), ['ses_hv', 'tsk_plan', 'tsk_s2', 'tsk_s4'], 'a kept step is never drawn without the plans it sits under')
   assert.deepEqual(needs[0].lines.map((l) => l.context), [true, true, true, false])
 })
+
+test('a parent cycle is listed, once each, instead of vanishing from the lens (theseus-brcs4 F4)', () => {
+  const o = { origin: { session: 'ses_hv' } as never }
+  const views: WorkView[] = [view('exe_hv', 'conversation', 'running', { session_id: 'ses_hv', thread: 'harbour-survey' })]
+  const records = [
+    record('tsk_c1', { title: 'Hoist the first', state: 'in_progress', parent: 'tsk_c2', ...o }),
+    record('tsk_c2', { title: 'Hoist the second', state: 'in_progress', parent: 'tsk_c1', ...o }),
+  ]
+  const rows = boardRows({ views, tasks: [], sessions: [], records, now: NOW, past: false })
+  const groups = [group('harbour-survey')]
+  const lines = threadWork(rows, groups).flatMap((t) => t.lines)
+  assert.equal(lines.length, rows.length, 'no row is dropped: the Graph draws every item whatever its tree')
+  const ids = lines.map((l) => l.row.id)
+  assert.deepEqual([...new Set(ids)].sort(), [...ids].sort(), 'and none is listed twice')
+  for (const id of ['tsk_c1', 'tsk_c2']) assert.ok(ids.includes(id), `${id} is listed`)
+})

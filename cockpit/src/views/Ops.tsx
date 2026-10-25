@@ -439,7 +439,7 @@ export default function Ops() {
       {a.lens === 'board' && <BoardLens cols={cols} rows={rows} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now}
         picked={picked} onPick={pickOne} drag={drag} titleOf={titleOf} />}
       {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} records={records} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
-        matches={(t) => shownSlugs.has(t.group.slug)} />}
+        matches={(t) => shownSlugs.has(t.group.slug)} rows={rows} kept={shownIds} context={contextIds} onSelect={pick} />}
       {a.lens === 'timeline' && (
         <div className="h-full overflow-y-auto pr-1">
           {world && <p className="mb-2 text-[11.5px] text-wait">The agenda shows the present: its marks are the daemon’s now, not the log’s moment.</p>}

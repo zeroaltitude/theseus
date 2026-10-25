@@ -118,7 +118,7 @@ function Home({ w, onSelect }: { w: ThreadWork; onSelect?: (id: string) => void 
 
 /** A thread's cards: plans and steps nested, a card's task on its own line, a plan's n of m and its open children. */
 function Lines({ w, onSelect }: { w: ThreadWork; onSelect?: (id: string) => void }) {
-  if (w.lines.length === 0) return <div className="px-1 text-[12px] text-ink-faint">Nothing here.</div>
+  if (w.lines.length === 0) return <div className="px-1 text-[12px] text-ink-faint">Nothing open.</div>
   return <>{w.lines.map((l) => <Line key={l.row.id} l={l} onSelect={onSelect} />)}</>
 }
 
