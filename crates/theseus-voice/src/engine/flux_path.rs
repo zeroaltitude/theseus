@@ -48,7 +48,7 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 use super::{at_tick, Engine, Event, Failure, Pending, Sound, Transcribed};
-use crate::audio::{duration_of, rms, Audio, FRAME_SAMPLES};
+use crate::audio::{duration_of, rms, Audio, FRAME, FRAME_SAMPLES};
 use crate::deepgram::PROVIDER;
 use crate::heard::Overlap;
 use crate::io::Speaker;
@@ -60,7 +60,12 @@ pub(super) const RING: Duration = Duration::from_secs(30);
 
 /// A turn the listener has not ended after this long is given up on: 90 s.
 const TURN_MAX: Duration = Duration::from_secs(90);
-const TURN_MAX_TICKS: u64 = TURN_MAX.as_millis() as u64 / 20;
+const TURN_MAX_TICKS: u64 = ticks_in(TURN_MAX);
+
+/// `length` in whole ticks, rounded down.
+pub(super) const fn ticks_in(length: Duration) -> u64 {
+    length.as_millis() as u64 / FRAME.as_millis() as u64
+}
 
 /// Audio kept before a turn begins, which a `Start` arrives after: 1 s.
 const PRE_ROLL: Duration = Duration::from_secs(1);
@@ -134,7 +139,7 @@ struct Eager {
 impl Flux {
     pub(super) fn new(listen: Box<dyn Listen>, model: String, eager: bool) -> Self {
         Self {
-            silence_ticks: listen.silence().as_millis() as u64 / 20,
+            silence_ticks: ticks_in(listen.silence()),
             listen,
             eager,
             model,
@@ -657,7 +662,7 @@ impl Engine {
         };
         // The ring holds the pre-roll and the turn: its first tick is that
         // much before now.
-        let first = tick.saturating_sub(duration_of(samples.len()).as_millis() as u64 / 20);
+        let first = tick.saturating_sub(ticks_in(duration_of(samples.len())));
         let first = first.min(start);
         self.talk_frames.remove(&speaker);
         self.transcribe(speaker, first, tick, Audio::new(samples), opening);

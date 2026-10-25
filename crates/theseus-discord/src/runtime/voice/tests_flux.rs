@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use theseus_core::config::Config;
-use theseus_voice::{Event, Listen, Listened, Speaker, Spoken, TurnId};
+use theseus_core::voice::{SpeechCall, SpeechKind};
+use theseus_voice::{Event, Listen, Listened, Speaker, Spoken, TurnId, Usage};
 use tokio::sync::mpsc;
 
 use super::tests::{heard, spending, LOUNGE, OWNER};
@@ -152,6 +153,56 @@ async fn a_flux_utterance_is_booked_at_fluxs_price() {
         (t["model"].as_str(), t["cost_usd"].as_f64()),
         (Some("flux-general-en"), Some(0.0077))
     );
+}
+
+/// Audio a streaming listener was sent past its last end of turn comes as
+/// `Event::Streamed`, and is booked all the same: one `speech.transcribed`
+/// row, marked trailing, with the speaker, no latency, and the usage's price.
+#[tokio::test]
+async fn trailing_flux_audio_is_booked_as_a_trailing_row() {
+    let d = tempfile::tempdir().unwrap();
+    let (core, p, sid) = spending(d.path(), 100.0).await;
+    let (tx, events) = mpsc::unbounded_channel();
+    let usage = Usage {
+        provider: "deepgram".into(),
+        model: "flux-general-en".into(),
+        audio: Duration::from_secs(30),
+        chars: 0,
+    };
+    let price = SpeechCall {
+        kind: SpeechKind::Transcribed,
+        provider: &usage.provider,
+        model: &usage.model,
+        audio: usage.audio,
+        chars: usage.chars,
+        latency: Duration::ZERO,
+        detail: serde_json::Value::Null,
+    }
+    .cost()
+    .expect("flux has a price");
+    let expected = theseus_kernel::micros_to_usd(price);
+    assert!(expected > 0.0);
+    tx.send(Event::Streamed {
+        speaker: Speaker(OWNER),
+        usage,
+    })
+    .unwrap();
+    drop(tx);
+    pump(Arc::clone(&p.shared), 1, lounge(&p.key), events).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while rows(&core, &sid, "speech.transcribed").is_empty() {
+        assert!(std::time::Instant::now() < deadline, "the booking came");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let all = rows(&core, &sid, "speech.transcribed");
+    assert_eq!(all.len(), 1, "{all:?}");
+    let t = &all[0];
+    assert_eq!(t["trailing"], serde_json::json!(true), "{t}");
+    assert_eq!(t["speaker"], serde_json::json!(OWNER.to_string()), "{t}");
+    assert_eq!(t["latency_ms"], serde_json::json!(0), "{t}");
+    assert_eq!(t["seconds"], serde_json::json!(30.0), "{t}");
+    assert_eq!(t["model"].as_str(), Some("flux-general-en"), "{t}");
+    assert_eq!(t["cost_usd"].as_f64(), Some(expected), "{t}");
 }
 
 /// The time to the stop is in the barge-in's row; a barge-in the pause rules

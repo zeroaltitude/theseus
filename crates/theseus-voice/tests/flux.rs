@@ -9,7 +9,7 @@ use std::time::Duration;
 use theseus_voice::{
     Audio, Command, Config, CutWhy, Engine, Event, Failure, HeardAs, ListenLog, Listened, Played,
     Speaker, Speech, SpeechFuture, StandInListen, StandInSpeech, Synthesis, Transcript, TurnId,
-    Usage, Utterance, WavIo,
+    Usage, Utterance, WavIo, FRAME,
 };
 use tokio::time::{sleep, Instant};
 
@@ -19,9 +19,9 @@ fn ms(n: u64) -> Duration {
     Duration::from_millis(n)
 }
 
-/// Tick `n`'s time: 20 ms each.
+/// The tick a time falls in: `FRAME` each.
 fn tick_at(ms: u64) -> u64 {
-    ms / 20
+    ms / FRAME.as_millis() as u64
 }
 
 /// The stand-in, with a voice in place of its tones: noise in syllables, so

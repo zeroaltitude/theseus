@@ -2150,6 +2150,36 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     to against the note's own day (`; "yesterday" = Mon 2026-03-16`, `stamp::header_time_in`, which never reads the
     clock); headers written before this one keep their UTC bytes. Tests: `recall/tests_time.rs`,
     `tests_recall_time.rs`, `recall::render::tests`; the exam's `probe --temporal` applies the same reader and order.
+  - **The subject beside a same-kind value** (theseus-96cyh; `recall/neighbour.rs`): a recalled chunk about another
+    subject of the type the question asked after (another host, path or crate than the one it names) says whose it is,
+    `about host db-stage.example.test, not the asked host db-prod.example.test`, so the model cannot read the
+    neighbour's value as the asked one. The rule is the subject bar's (`theseus_memory::Floor::other_subject`), but
+    computed in core from the candidates alone, so it holds with the floor and the bar off (both default 0.0): the
+    asked entities are those the question named that some candidate holds (`marks`), and a chunk holding none of them
+    and one of an asked one's type gets the note (`note`). `apply` puts it on `RecallItem.neighbour` at both of
+    recall's fill sites; `turn/recall_step.rs::hold_node` appends it to the end of the item's rendered header
+    (`with_note`) *before* the handle, thread and persona marks, so it is frozen in the Recall node's header and every
+    later request, a compaction's recall section included, reads the same bytes. An asked subject's chunk, and any
+    chunk of a question that named no entity, keeps its header byte for byte. The field is `serde(skip)` and `ts(skip)`:
+    in memory only, never on the wire or in the store (no format change; `memory.search` clients never see it). No
+    config key switches it off. Tests: `recall::neighbour::tests` (the rule), `tests_recall_neighbour.rs` (the header
+    on the node, whole-core).
+  - **Current-value questions** (theseus-mo1vm; `recall/current.rs`, `recall/tests_current.rs`): a "now / currently /
+    still" question that asks for a value ("how many days of X do we keep now?", "which port is Y on now?", "do we
+    still keep 30 days?") is `temporal::Kind::Current`; `temporal::read` hands a question it reads no event in to
+    `current::read`, and a "now" question that is an event, or asks for no value ("what are we doing now?", "what day
+    is it now?", "what time does the backup run now?"), is read as before. Notes about such a subject repeat every
+    value it had, so the pack goes by `current::order`: the hits that state the subject's value (half the
+    question's content words, rounded up, and a number) first, newest first (a `supersedes` link among them wins over time; the
+    exam's probe has none), the rest after in relevance order. An older statement whose values do not include the
+    newest's carries `, superseded: older than the <day> statement` at the end of its frozen header
+    (`RecallItem.superseded`, `#[serde(skip)]`, set by `current::mark` after `fill` and read by `hold_node`'s
+    `current::with_mark`); nothing else changes, so a pack with no such question renders byte for byte as before. A
+    live rerank (`refill`) keeps the marks: it reads them off the manifest's items before the repack
+    (`current::marked`) and sets them again on the same keys after the fill (`current::apply`), as it does the
+    neighbour note; a statement first admitted by Jev's order goes unmarked. A date or a timestamp in a note's text
+    (`2026-03-02`, `2026-03-02T08:00:00Z`) is not a value of it, nor any part of one (`current::values` skips the
+    whole run). Tests: `recall/tests_current.rs`, `tests_recall_current.rs` (the marks through a live rerank).
   - **`memory.lookup`, the model's own read of memory** (theseus-w9qv; `memory_lookup.rs`, `memory_lookup/read.rs`):
     words through recall's pipeline, a span or a book or a topic through the import catalog, and since theseus-8c8s
     `session` (one session's messages in order, paged, tool calls and outside text left out and counted; with words, a

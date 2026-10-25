@@ -337,6 +337,7 @@ impl Kernel {
                     reports_to: run.reports_to,
                     wake_parent: false,
                     start_at_ms: None,
+                    helper: None,
                 },
             },
             |_| Ok(records),

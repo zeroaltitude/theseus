@@ -494,7 +494,11 @@ mod tests_reach;
 #[cfg(test)]
 mod tests_recall;
 #[cfg(test)]
+mod tests_recall_current;
+#[cfg(test)]
 mod tests_recall_deadline;
+#[cfg(test)]
+mod tests_recall_neighbour;
 #[cfg(test)]
 mod tests_recall_node;
 #[cfg(test)]
@@ -627,6 +631,8 @@ mod tests_task_join;
 mod tests_task_layers;
 #[cfg(test)]
 mod tests_task_report;
+#[cfg(test)]
+mod tests_task_reports_of;
 #[cfg(test)]
 mod tests_task_search;
 #[cfg(test)]

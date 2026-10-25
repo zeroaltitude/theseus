@@ -1777,6 +1777,30 @@ mod tests {
         assert_eq!(out.usage.output_tokens, 1);
     }
 
+    /// A Kimi stream (theseus-rgbtz): usage with the vendor's extra fields,
+    /// a thinking block with its signature kept, and a `refusal` stop.
+    #[test]
+    fn a_kimi_stream_keeps_its_usage_thinking_signature_and_refusal() {
+        let (out, _, err) = run(&[
+            r#"data: {"type":"message_start","message":{"model":"kimi-k3.1-pro","usage":{"input_tokens":50,"cache_read_input_tokens":900,"cache_creation_input_tokens":100,"cache_creation":{"ephemeral_5m_input_tokens":40,"ephemeral_1h_input_tokens":60},"service_tier":"standard","inference_geo":"global"}}}"#,
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hm"}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-abc"}}"#,
+            r#"data: {"type":"content_block_stop","index":0}"#,
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"refusal"},"usage":{"output_tokens":30,"output_tokens_details":{"thinking_tokens":25}}}"#,
+            r#"data: {"type":"message_stop"}"#,
+        ]);
+        assert!(err.is_none());
+        assert_eq!(out.stop_reason.as_deref(), Some("refusal"));
+        assert_eq!(out.usage.input_tokens, 50);
+        assert_eq!(out.usage.output_tokens, 30);
+        assert_eq!(out.usage.cache_read_input_tokens, 900);
+        assert_eq!(out.usage.cache_creation_input_tokens, 100);
+        assert_eq!(out.usage.cache_creation_1h_input_tokens, 60);
+        assert_eq!(out.content[0]["signature"], "sig-abc");
+        assert_eq!(out.content[0]["thinking"], "hm");
+    }
+
     #[test]
     fn assembles_tool_use_input_from_partial_json() {
         let (out, _, err) = run(&[
