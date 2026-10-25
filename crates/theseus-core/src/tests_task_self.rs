@@ -137,6 +137,20 @@ async fn a_self_started_call_without_a_reason_is_refused_and_opens_nothing() {
     );
 }
 
+/// The refusal asks for `because`, so the declared schema, which closes itself
+/// to other properties, must let the model send it: a model that honours the
+/// schema could otherwise never start a task on its own.
+#[test]
+fn the_schema_declares_the_because_the_refusal_asks_for() {
+    use theseus_tools::Tool;
+    let schema = crate::task::TaskCreate.input_schema();
+    assert_eq!(
+        schema["properties"]["because"]["type"], "string",
+        "{schema}"
+    );
+    assert_eq!(schema["additionalProperties"], false);
+}
+
 /// The cap, as it is enforced: a reason over 160 characters is refused with
 /// the limit named; one of 160 is kept whole.
 #[test]
