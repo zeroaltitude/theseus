@@ -26,12 +26,12 @@
 ## 3. The jargon sweep
 | word | at base | now |
 |---|---|---|
-| pack | 12 | 0 |
+| pack | 15 (counting "packs") | 0 |
 | rung | 4 | 0 |
 | task record, task graph, plan item | 0 as owner-facing text (the old nouns were "task", "tasks", "task records") | 0 |
 | still today | 0 | 0 |
-| mint / minted | 6 | 0 (the help id `ontology.minted` stays; it is a key, not text) |
-| frame / frames | 2 | 0 |
+| mint / minted | 5 | 0 (the help id `ontology.minted` stays; it is a key, not text) |
+| frame / frames | 3 | 0 |
 | lens | 0 | 0 (no entry uses it) |
 
 - Kept, with a gloss: **shadow** (the badge says it; glossed as "Jev answers but nothing acts on it"), **place** (a real column and chip; glossed once in `fleet.list`), **live** (glossed).
