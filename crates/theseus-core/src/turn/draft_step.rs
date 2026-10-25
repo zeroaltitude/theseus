@@ -236,6 +236,7 @@ impl TurnRunner {
             reports_to: d.draft.target.clone(),
             wake_parent: false,
             start_at_ms: None,
+            helper: None,
         };
         let hold = session_hold(tc)?;
         let opened = tc

@@ -2,6 +2,7 @@
 //! its parent's, its end reported once, and the races the family's lock
 //! (`lock_family`) closes.
 
+use serde_json::json;
 use theseus_store::{kinds, NewRecord};
 
 use crate::kernel::*;
@@ -892,4 +893,203 @@ fn a_task_tree_lists_each_task_after_its_own_tasks() {
     // A task's own tree is below it alone.
     assert_eq!(ids(w.kernel.task_tree(&first.id).unwrap()).len(), 2);
     assert!(w.kernel.task_tree(&second.id).unwrap().is_empty());
+}
+
+// ------------------------------------------------ reports taken by name (theseus-z9mze)
+
+/// A parent with a turn, and `n` tasks its calls opened (the first with
+/// `wake_parent` when `wake` is true), none ended yet.
+fn with_tasks(w: &World, n: usize, wake: bool) -> (Execution, TurnGuard, Vec<Execution>) {
+    let (_, parent, g) = running(w);
+    let tasks = (0..n)
+        .map(|i| {
+            w.kernel
+                .open_task(&g, &new_id("act"), 10_000, None, wake && i == 0, |_| {
+                    Ok(vec![])
+                })
+                .unwrap()
+                .task
+        })
+        .collect();
+    (parent, g, tasks)
+}
+
+fn names(ts: &[&Execution]) -> Vec<String> {
+    ts.iter().map(|t| t.id.clone()).collect()
+}
+
+/// The parent takes the reports of two of three ended tasks by name: one
+/// frame holds its record, the records built from them, and one
+/// `task.reports_read` row that says it was a wait. The third stays for the
+/// next turn's `take_reports`, which returns it alone.
+#[test]
+fn take_reports_of_takes_the_named_reports_in_one_frame() {
+    let w = world();
+    let (parent, g, ts) = with_tasks(&w, 3, false);
+    for t in &ts {
+        finish(&w, &t.id);
+    }
+    assert_eq!(
+        exec(&w, &parent.id).reports,
+        names(&[&ts[0], &ts[1], &ts[2]])
+    );
+    let frames = w.kernel.store().stats().unwrap().frames_appended;
+    let mut built = Vec::new();
+    let taken = w
+        .kernel
+        .take_reports_of(&g, &[ts[2].id.clone(), ts[0].id.clone()], |ids| {
+            built.extend(ids.iter().cloned());
+            Ok(vec![NewRecord::json(
+                kinds::META,
+                Some("probe.report"),
+                &"written",
+            )?])
+        })
+        .unwrap();
+    assert_eq!(
+        w.kernel.store().stats().unwrap().frames_appended,
+        frames + 1,
+        "one frame"
+    );
+    assert_eq!(taken.ids, names(&[&ts[0], &ts[2]]), "oldest first");
+    assert_eq!(built, taken.ids);
+    assert!(w
+        .kernel
+        .store()
+        .latest_by_key(kinds::META, "probe.report")
+        .unwrap()
+        .is_some());
+    let read = rows(&w, &parent.session_id, "task.reports_read");
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0]["via"], "wait");
+    assert_eq!(read[0]["tasks"], json!(taken.ids));
+    assert_eq!(exec(&w, &parent.id).reports, vec![ts[1].id.clone()]);
+    let next = w.kernel.take_reports(&g, |_| Ok(vec![])).unwrap();
+    assert_eq!(next.ids, vec![ts[1].id.clone()], "the rest, once");
+    let read = rows(&w, &parent.session_id, "task.reports_read");
+    assert!(
+        read[1].get("via").is_none(),
+        "a turn's own read is as before"
+    );
+    assert!(w
+        .kernel
+        .take_reports(&g, |_| panic!("none left"))
+        .unwrap()
+        .ids
+        .is_empty());
+}
+
+/// A named task still running is not taken and not an error; when none of the
+/// named has ended nothing is written.
+#[test]
+fn take_reports_of_leaves_a_running_task_and_writes_nothing_when_none_ended() {
+    let w = world();
+    let (parent, g, ts) = with_tasks(&w, 2, false);
+    let all = [ts[0].id.clone(), ts[1].id.clone()];
+    let before = w.kernel.store().last_position();
+    let none = w
+        .kernel
+        .take_reports_of(&g, &all, |_| panic!("nothing to build"))
+        .unwrap();
+    assert!(none.ids.is_empty());
+    assert_eq!(
+        w.kernel.store().last_position(),
+        before,
+        "no report: no frame"
+    );
+    finish(&w, &ts[0].id);
+    // The other ended task is not named, and the one named has not ended.
+    let before = w.kernel.store().last_position();
+    let none = w
+        .kernel
+        .take_reports_of(&g, &[ts[1].id.clone()], |_| panic!("nothing to build"))
+        .unwrap();
+    assert!(none.ids.is_empty());
+    assert_eq!(w.kernel.store().last_position(), before);
+    assert_eq!(exec(&w, &parent.id).reports, vec![ts[0].id.clone()]);
+    // Named together, the ended one comes and the running one is missing.
+    let some = w.kernel.take_reports_of(&g, &all, |_| Ok(vec![])).unwrap();
+    assert_eq!(some.ids, vec![ts[0].id.clone()]);
+    assert!(exec(&w, &parent.id).reports.is_empty());
+}
+
+/// A taken report's wake goes with it, so the parent is not queued for a turn
+/// with nothing to read; the wake of a report not named stays, with its turn.
+#[test]
+fn take_reports_of_drops_the_wakes_of_what_it_takes_and_keeps_the_rest() {
+    let w = world();
+    let (parent, g, ts) = with_tasks(&w, 2, true);
+    // Only the first asked for a turn; the second is a plain report.
+    finish(&w, &ts[0].id);
+    finish(&w, &ts[1].id);
+    assert_eq!(exec(&w, &parent.id).report_wakes, vec![ts[0].id.clone()]);
+    let plain = w
+        .kernel
+        .take_reports_of(&g, &[ts[1].id.clone()], |_| Ok(vec![]))
+        .unwrap();
+    assert!(plain.woke.is_empty());
+    assert_eq!(
+        exec(&w, &parent.id).report_wakes,
+        vec![ts[0].id.clone()],
+        "the wake of a report not named stays"
+    );
+    let waker = w
+        .kernel
+        .take_reports_of(&g, &[ts[0].id.clone()], |_| Ok(vec![]))
+        .unwrap();
+    assert_eq!(waker.woke, vec![ts[0].id.clone()]);
+    let p = exec(&w, &parent.id);
+    assert!(p.reports.is_empty() && p.report_wakes.is_empty());
+    let read = rows(&w, &parent.session_id, "task.reports_read");
+    assert_eq!(read[1]["woke"], json!([ts[0].id.clone()]));
+    // Nothing is left to wake the parent: it parks as usual.
+    let p = w
+        .kernel
+        .end_turn(g, TurnEnd::Wait { wake: Wake::Input })
+        .unwrap();
+    assert_eq!(p.state, ExecState::Waiting);
+}
+
+/// The helper mark is stored on the task by the carve, read back after the
+/// kernel reopens over the store, and a plain task writes no such key.
+#[test]
+fn a_helper_mark_is_stored_and_a_plain_task_writes_none() {
+    let w = world();
+    let (_, parent, g) = running(&w);
+    let open = |helper: Option<String>| {
+        let how = crate::tasks::Opening {
+            reports_to: None,
+            wake_parent: false,
+            start_at_ms: None,
+            helper,
+        };
+        w.kernel
+            .open_task_at(&g, &new_id("act"), 10_000, how, |_| Ok(vec![]))
+            .unwrap()
+            .task
+    };
+    let helper = open(Some("act-fan".into()));
+    let plain = open(None);
+    assert_eq!(helper.helper_of(), Some("act-fan"));
+    assert_eq!(plain.helper_of(), None);
+    assert_eq!(exec(&w, &helper.id).helper_of(), Some("act-fan"));
+    let key = |e: &Execution| {
+        serde_json::to_value(e)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("helper")
+    };
+    assert!(key(&exec(&w, &helper.id)));
+    assert!(!key(&exec(&w, &plain.id)), "no new key on a plain task");
+    assert!(!key(&exec(&w, &parent.id)));
+    drop(g);
+    let (w, _) = crash(w, KernelConfig::default());
+    assert_eq!(exec(&w, &helper.id).helper_of(), Some("act-fan"));
+    assert_eq!(exec(&w, &plain.id).helper_of(), None);
+    // A record written before the field reads as not a helper.
+    let mut old = serde_json::to_value(&plain).unwrap();
+    old.as_object_mut().unwrap().remove("helper");
+    let old: Execution = serde_json::from_value(old).unwrap();
+    assert_eq!(old.helper_of(), None);
 }

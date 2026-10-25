@@ -71,6 +71,9 @@ pub struct Opening {
     pub wake_parent: bool,
     /// Asleep until then: `Waiting{DueAt}`, queued by the due scan.
     pub start_at_ms: Option<u64>,
+    /// The fan-out call (its correlation id) that opened this task as one of
+    /// its helpers: see `Execution::helper_of`. None for every other task.
+    pub helper: Option<String>,
 }
 
 /// What `take_reports` took.
@@ -110,6 +113,7 @@ impl Kernel {
             reports_to,
             wake_parent,
             start_at_ms: None,
+            helper: None,
         };
         self.open_task_at(guard, correlation_id, want_micros, how, extra)
     }
@@ -172,6 +176,7 @@ impl Kernel {
             reports_to,
             wake_parent,
             start_at_ms,
+            helper,
         } = how;
         let (task_id, session_id) = task_ids(correlation_id);
         let _w = self.lock(&[parent_id, &task_id]);
@@ -226,6 +231,7 @@ impl Kernel {
                     reports_to,
                     wake_parent,
                     start_at_ms,
+                    helper,
                 },
             },
             extra,
@@ -288,6 +294,41 @@ impl Kernel {
         guard: &TurnGuard,
         extra: impl FnOnce(&[ExecutionId]) -> Result<Vec<NewRecord>>,
     ) -> Result<TakenReports> {
+        self.take_reports_where(guard, |_| true, None, extra)
+    }
+
+    /// `take_reports` for the named tasks only (the in-turn wait, theseus-z9mze):
+    /// the reports among `ids` that are on the parent's `reports`, oldest
+    /// first, in one frame with the records `extra` builds from them and a
+    /// `task.reports_read` row whose detail adds `"via": "wait"`. A named task
+    /// that has not ended is not taken and not an error: `TakenReports::ids`
+    /// says which were taken, and the caller tells the running ones by what is
+    /// missing. When none of them has ended, nothing is written. Every other
+    /// report stays for the parent's next turn, and a taken one is never
+    /// delivered again.
+    ///
+    /// The taken tasks leave `report_wakes` too: the turn that takes them is
+    /// reading them now, so a wake kept for them would queue the parent for a
+    /// turn with nothing to read. A wake of a task not named stays, and with
+    /// it the parent's next turn.
+    pub fn take_reports_of(
+        &self,
+        guard: &TurnGuard,
+        ids: &[ExecutionId],
+        extra: impl FnOnce(&[ExecutionId]) -> Result<Vec<NewRecord>>,
+    ) -> Result<TakenReports> {
+        self.take_reports_where(guard, |id| ids.contains(id), Some("wait"), extra)
+    }
+
+    /// What `take_reports` and `take_reports_of` share: the reports `wanted`
+    /// takes, with their wakes, in one frame. `via` names the way in the row.
+    fn take_reports_where(
+        &self,
+        guard: &TurnGuard,
+        wanted: impl Fn(&ExecutionId) -> bool,
+        via: Option<&str>,
+        extra: impl FnOnce(&[ExecutionId]) -> Result<Vec<NewRecord>>,
+    ) -> Result<TakenReports> {
         let _w = self.lock(&[&guard.execution_id]);
         let mut e = self
             .execution(&guard.execution_id)?
@@ -295,16 +336,26 @@ impl Kernel {
         if e.reports.is_empty() && e.report_wakes.is_empty() {
             return Ok(TakenReports::default());
         }
-        let ids = std::mem::take(&mut e.reports);
-        let woke = std::mem::take(&mut e.report_wakes);
+        let (ids, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut e.reports)
+            .into_iter()
+            .partition(|id| wanted(id));
+        if via.is_some() && ids.is_empty() {
+            return Ok(TakenReports::default());
+        }
+        let (woke, kept_wakes): (Vec<_>, Vec<_>) = std::mem::take(&mut e.report_wakes)
+            .into_iter()
+            .partition(|id| wanted(id));
+        e.reports = kept;
+        e.report_wakes = kept_wakes;
         e.updated_at_ms = self.now_ms();
         let mut frame = vec![exec_record(&e)?];
         frame.extend(extra(&ids)?);
-        frame.push(self.ledger(
-            LedgerKind::TaskReportsRead,
-            Some(&e.session_id),
-            json!({"execution_id": e.id, "tasks": ids, "woke": woke, "turn": guard.turn}),
-        )?);
+        let mut detail =
+            json!({"execution_id": e.id, "tasks": ids, "woke": woke, "turn": guard.turn});
+        if let Some(via) = via {
+            detail["via"] = json!(via);
+        }
+        frame.push(self.ledger(LedgerKind::TaskReportsRead, Some(&e.session_id), detail)?);
         self.commit(&frame)?;
         Ok(TakenReports { ids, woke })
     }
@@ -461,6 +512,7 @@ impl Kernel {
                     reports_to,
                     wake_parent,
                     start_at_ms,
+                    helper,
                 },
         } = c;
         let now = self.now_ms();
@@ -489,6 +541,7 @@ impl Kernel {
             wakes: vec![],
             wake_parent,
             report_wakes: vec![],
+            helper,
             stopped: None,
             turns: 0,
             interrupted: 0,
