@@ -553,6 +553,7 @@ impl TurnRunner {
                 .flatten()
                 .flatten()
                 .and_then(|m| threads.as_ref().and_then(|th| th.other_title_of(&m.thread)));
+            header = crate::recall::neighbour::with_note(header, item);
             if let Some(title) = moved.or_else(|| {
                 threads
                     .as_ref()
