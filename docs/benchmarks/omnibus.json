@@ -382,6 +382,126 @@
    ]
   },
   {
+   "name": "codex-89",
+   "form": "intervals",
+   "title": "Codex CLI against the v1 arms on all 89 Terminal-Bench tasks at high effort (Codex 1 trial a task, the others 3)",
+   "question": "On all 89 tasks, does Codex CLI on GPT-6-Astra solve more than the v1 arms?",
+   "answer": "Codex CLI solved 76 of 89 (85.4%) on one trial a task; on the same 89 tasks Theseus at v1 solved 73.0%, Claude Code 75.3% and Pi 70.4% over three trials a task. Codex's interval overlaps Theseus's and Claude Code's and clears Pi's; the paired comparison on the same tasks clears zero against every arm.",
+   "sources": [
+    "2026-10-25-terminal-bench-codex-high.md",
+    "2026-10-18-terminal-bench-v1-high.md"
+   ],
+   "x": {
+    "label": "share of trials solved (Wilson 95%)",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "label": "Codex CLI 0.161.0 (GPT-6-Astra)",
+     "arm": "other",
+     "value": 0.8539325842696629,
+     "lo": 0.7659688971390856,
+     "hi": 0.9126062243581742,
+     "group": "Codex CLI · all 89 tasks × 1 (Oct 25)",
+     "tip": "76 of 89"
+    },
+    {
+     "label": "Theseus at v1",
+     "arm": "theseus",
+     "value": 0.7303370786516854,
+     "lo": 0.6741159859446423,
+     "hi": 0.780023998459526,
+     "group": "The v1 arms · the same 89 tasks × 3 (Oct 18)",
+     "tip": "195 of 267"
+    },
+    {
+     "label": "Claude Code (v1 run)",
+     "arm": "claude-code",
+     "value": 0.7528089887640449,
+     "lo": 0.6977225502220129,
+     "hi": 0.8007237741240255,
+     "group": "The v1 arms · the same 89 tasks × 3 (Oct 18)",
+     "tip": "201 of 267"
+    },
+    {
+     "label": "Pi",
+     "arm": "pi",
+     "value": 0.704119850187266,
+     "lo": 0.6467875634447422,
+     "hi": 0.7556616910272445,
+     "group": "The v1 arms · the same 89 tasks × 3 (Oct 18)",
+     "tip": "188 of 267"
+    }
+   ]
+  },
+  {
+   "name": "codex-89-frontier",
+   "form": "scatter",
+   "title": "Pass rate against dollars per trial on all 89 Terminal-Bench tasks at high effort (Codex 1 trial a task, the others 3)",
+   "question": "What does Codex CLI's extra solve rate cost per trial on all 89 tasks?",
+   "answer": "Codex CLI's 85.4% costs $1.31 a trial; the v1 arms solved 70% to 75% at $0.10 to $0.13, a tenth to a thirteenth of the price.",
+   "sources": [
+    "2026-10-25-terminal-bench-codex-high.md",
+    "2026-10-18-terminal-bench-v1-high.md"
+   ],
+   "points": [
+    {
+     "arm": "other",
+     "label": "Codex CLI 0.161.0 (GPT-6-Astra)",
+     "x": 1.311,
+     "xlo": 1.0404,
+     "xhi": 1.6223,
+     "y": 0.8539,
+     "ylo": 0.766,
+     "yhi": 0.9126
+    },
+    {
+     "arm": "theseus",
+     "label": "Theseus at v1",
+     "x": 0.0996,
+     "xlo": 0.0823,
+     "xhi": 0.1193,
+     "y": 0.7303,
+     "ylo": 0.6741,
+     "yhi": 0.78
+    },
+    {
+     "arm": "claude-code",
+     "label": "Claude Code (v1 run)",
+     "x": 0.1304,
+     "xlo": 0.1114,
+     "xhi": 0.1524,
+     "y": 0.7528,
+     "ylo": 0.6977,
+     "yhi": 0.8007
+    },
+    {
+     "arm": "pi",
+     "label": "Pi",
+     "x": 0.1057,
+     "xlo": 0.0859,
+     "xhi": 0.129,
+     "y": 0.7041,
+     "ylo": 0.6468,
+     "yhi": 0.7557
+    }
+   ],
+   "x": {
+    "label": "mean dollars per trial (95% CI)",
+    "format": "usd",
+    "min": 0.0
+   },
+   "y": {
+    "label": "trials passed (95% Wilson)",
+    "format": "pct",
+    "min": 0.6,
+    "max": 0.96
+   },
+   "rows": []
+  },
+  {
    "name": "frontier-89",
    "form": "scatter",
    "title": "Four harnesses on all 89 Terminal-Bench tasks: trials solved against dollars (Oct 13)",
@@ -1512,13 +1632,14 @@
    "form": "cost-dots",
    "title": "What the runs cost in model calls, and what a solved task cost",
    "question": "What does benchmarking Theseus cost, and what does Theseus cost a solved task?",
-   "answer": "About $934 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10; on Oct 21 Theseus at high effort cost $0.155.",
+   "answer": "About $1,051 of model calls in all; on Oct 13 Theseus cost $0.16 a solved trial, as Claude Code did, Pi $0.10; on Oct 21 Theseus at high effort cost $0.155. Codex CLI's Oct 25 run adds $116.68 for all 89 tasks at one trial each, at GPT-6-Astra's list price.",
    "sources": [
     "2026-10-04-terminal-bench-first-full-run.md",
     "2026-10-07-terminal-bench-harness-arms.md",
     "2026-10-13-terminal-bench-r0.md",
     "2026-10-13-terminal-bench-harness-arms.md",
-    "2026-10-21-terminal-bench-rerun-high.md"
+    "2026-10-21-terminal-bench-rerun-high.md",
+    "2026-10-25-terminal-bench-codex-high.md"
    ],
    "rows": [
     {
@@ -1712,9 +1833,15 @@
      "run": "retest: two trials stopped for spend",
      "usd": 0.41,
      "source": "2026-10-23-terminal-bench-retest-max.md"
+    },
+    {
+     "date": "Oct 25",
+     "run": "Codex CLI: TB HIGH, all 89 tasks × 1",
+     "usd": 116.68,
+     "source": "2026-10-25-terminal-bench-codex-high.md"
     }
    ]
   }
  ],
- "total_usd": 934.1441
+ "total_usd": 1050.8241
 }
