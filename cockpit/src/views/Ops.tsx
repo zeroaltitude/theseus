@@ -25,9 +25,9 @@ import { reportLineOf } from '@/lib/taskboard'
 import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
 import { fullKey, parseFull, writeFull } from '@/lib/fullgraph'
-import { parseAddress, writeAddress, type Address, type FilterKey, type Lens } from '@/ops/address'
-import { alive, boardRows, chipChoices, columnsOf, countersOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
-import { answerOf, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
+import { parseAddress, writeAddress, type Address, type Bucket, type FilterKey, type Lens } from '@/ops/address'
+import { alive, allCounters, boardRows, chipChoices, columnsOf, contextOf, DATA_MARKS, DONE_PAGE, laneRows, selects, shown, spendToday, type OpsRow } from '@/ops/board'
+import { answerOf, asksWord, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
 import { threadFacts } from '@/ops/facts'
 import { stepNode, viewsOf, type Graph, type LaneMeta } from '@/ops/graph'
@@ -120,15 +120,6 @@ export default function Ops() {
   const read = useQueries({ queries: ended.map((r) => ({ queryKey: ['task.report', r.id], staleTime: Infinity, queryFn: async () => reportLineOf((await call<{ nodes: { kind: string; text?: string }[] }>('session.history', { session_id: r.id, n: 3 })).nodes) ?? null })) })
   const lines = useMemo(() => Object.fromEntries(ended.flatMap((r, i) => (read[i]?.data ? [[r.id, read[i].data as string]] : []))), [ended, read])
 
-  const rows = useMemo(() => boardRows({ views, tasks, sessions, records, lines, now, past: !!world }), [views, tasks, sessions, records, lines, now, world])
-  const graphViews = useMemo(() => (world ? viewsOf(rows) : []), [world, rows])
-  const spend = useMemo(() => spendToday(history.rows, now), [history.rows, now])
-  const cx = useMemo(() => ({ now, spentToday: spend.sessions, records }), [now, spend.sessions, records])
-  const vis = useMemo(() => shown(rows, a.f, a.q, cx), [rows, a.f, a.q, cx])
-  const [older, setOlder] = useState(DONE_PAGE)
-  const cols = useMemo(() => columnsOf(vis.rows, now), [vis.rows, now])
-  // The Graph fades what the filters and the search leave out, so nothing moves.
-  const shownIds = useMemo(() => (Object.keys(a.f).length || a.q ? new Set(vis.rows.map((r) => r.id)) : null), [a.f, a.q, vis.rows])
   // External text (ops/notices.ts): a hold that makes a call wait is an item of the queue; one that does not is a notice,
   // never counted. The time machine's holds are notices, read-only: the fold knows the hold, not the mode of the day.
   const held = useMemo(() => holdsOf(world ? [] : sessions), [world, sessions])
@@ -140,7 +131,21 @@ export default function Ops() {
   const queue = useMemo(() => queueOf({
     confirms, views, records: world ? [] : records, groups: world ? [] : groups, holds, asks: world ? [] : asks, executions: world?.executions, past: !!world, titleOf,
   }), [confirms, views, records, groups, holds, asks, world, titleOf])
-  const counts = useMemo(() => ({ needs: queue.length, ...countersOf(rows, now, spend.usd) }), [queue.length, rows, now, spend.usd])
+  // The one work set (ops/board.ts): every card once, with its asks mapped to it. The counters, the Board, the Graph,
+  // the selection and the filters all read these rows and no others.
+  const rows = useMemo(() => boardRows({ views, tasks, sessions, records, lines, queue, now, past: !!world }), [views, tasks, sessions, records, lines, queue, now, world])
+  const graphViews = useMemo(() => (world ? viewsOf(rows) : []), [world, rows]) // ops-parity pins the page's GraphLens props
+  const spend = useMemo(() => spendToday(history.rows, now), [history.rows, now])
+  const cx = useMemo(() => ({ now, spentToday: spend.sessions, records }), [now, spend.sessions, records])
+  const vis = useMemo(() => shown(rows, a.f, a.q, cx), [rows, a.f, a.q, cx])
+  const [older, setOlder] = useState(DONE_PAGE)
+  const cols = useMemo(() => columnsOf(vis.rows, now), [vis.rows, now])
+  // The Graph fades what the filters and the search leave out, so nothing moves.
+  const shownIds = useMemo(() => (Object.keys(a.f).length || a.q ? new Set(vis.rows.map((r) => r.id)) : null), [a.f, a.q, vis.rows])
+  const contextIds = useMemo(() => (shownIds ? contextOf(rows, shownIds) : null), [rows, shownIds])
+  // Every counter reads the rows alone: needs you is the cards that wait on the owner (Q1 A), where the Needs-you list's
+  // header counts its asks.
+  const counts = useMemo(() => allCounters(rows, now, spend.usd), [rows, now, spend.usd])
   const grouped = useMemo(() => groupThreads(views, groups, records), [views, groups, records])
 
   // The selection (ops-graph): in memory, shared by the Graph and the Board, the bulk bar and the palette.
@@ -438,7 +443,7 @@ export default function Ops() {
         </div>
       )}
       {a.lens === 'graph' && <GraphLens views={world ? graphViews : views} records={records} rows={rows} lanes={laneMetas} now={now} focus={row?.id ?? a.sel} picked={picked}
-        shownIds={shownIds} onFocus={pick} onPick={pickOne} onLasso={(ids) => pickAll([...picked, ...ids])}
+        shownIds={shownIds} contextIds={contextIds} filterKey={JSON.stringify(a.f) + a.q} chip={a.f.bucket ? { bucket: a.f.bucket as Bucket, n: counts[a.f.bucket as Bucket], onClear: () => filter('bucket', null) } : null} onFocus={pick} onPick={pickOne} onLasso={(ids) => pickAll([...picked, ...ids])}
         onOpen={(sid) => nav(`/session/${sid}`)} onContext={(id, x, y) => setCtxMenu({ id, x, y })} redact={a.redact} layoutRef={graphRef} drag={drag} titleOf={titleOf} />}
     </div>
   )
@@ -467,7 +472,7 @@ export default function Ops() {
             {queuePanel}
           </aside>
         )}
-        {reg.queue === 'folded' && <Tab side="left" label={`Needs you · ${queue.length}`} onClick={() => setQFold('open')} glow={queue.length > 0} />}
+        {reg.queue === 'folded' && <Tab side="left" label={`Needs you · ${asksWord(queue.length)}`} onClick={() => setQFold('open')} glow={queue.length > 0} />}
         {reg.queue === 'page' && <section aria-label="Needs you" className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-hull/60"><RegionHead title="Needs you" count={queue.length} glow={queue.length > 0} />{queuePanel}</section>}
         {reg.canvas && (
           <main aria-label={`${a.lens} lens`} className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
@@ -514,7 +519,7 @@ function RegionHead({ title, count, glow, onFold, fold }: { title: 'Needs you' |
     <header className="flex items-center gap-2 border-b border-line px-3 py-2">
       {title === 'Needs you' && <Inbox size={13} className={glow ? 'text-wait' : 'text-ink-faint'} />}
       <h2 className="font-display text-[11.5px] font-bold uppercase tracking-[0.08em] text-gold">{title}</h2>
-      {count !== undefined && <span className={cn('num rounded-full px-1.5 text-[11px]', glow ? 'bg-wait/15 text-wait' : 'text-ink-faint')}>{count}</span>}
+      {count !== undefined && <span className={cn('num rounded-full px-1.5 text-[11px]', glow ? 'bg-wait/15 text-wait' : 'text-ink-faint')}>{title === 'Needs you' ? asksWord(count) : count}</span>}
       <span className="ml-auto">{title === 'Needs you' ? <HelpButton id="ops.queue" title="Needs you" /> : <HelpButton id="ops.inspector" title="Inspector" />}</span>
       {onFold && <button onClick={onFold} title={`fold (${fold})`} aria-label={`fold the ${title.toLowerCase()}`} className="flex items-center gap-1 text-[10.5px] text-ink-faint hover:text-ink"><span className="kbd">{fold}</span><X size={11} /></button>}
     </header>

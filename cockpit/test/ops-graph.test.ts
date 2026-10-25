@@ -344,3 +344,43 @@ test('GraphLens folds an opening back by deleting it from a copy of its set (ite
   assert.match(s, /foldBacks\(/)
   assert.match(s, /foldBacks\(g, base, expanded, opened, baseRoots\)/, 'the roots read the layout with the lanes opened (join fix F1)')
 })
+
+// ---- the graph is laid out from the work set (theseus-odj0m) ----
+
+import { contextOf, shown } from '../src/ops/board.ts'
+import { layoutRows } from '../src/ops/graph.ts'
+
+test('the filter keeps records: a counter click keeps a matching step drawn normally, its parents as context', () => {
+  // The plan is carried by a task in flight (ses_t2): a plan nobody works is paused·queued itself (Q9) and would be kept.
+  const records = [record('tsk_pl', { state: 'in_progress', title: 'Survey', origin: { session: 'ses_t2' } as never }), record('tsk_su', { state: 'suspended', parent: 'tsk_pl', title: 'Paint' })]
+  const rows = boardRows({ ...board(), records, now: NOW })
+  const kept = new Set(shown(rows, { bucket: 'paused' }, '', { now: NOW, spentToday: new Set(), records }).rows.map((r) => r.id))
+  assert.ok(kept.has('tsk_su'), 'the step is kept (shownIds is built from the one set)')
+  const g = layoutRows(rows, LANES, null, { now: NOW })
+  const ctx = contextOf(rows, kept)
+  assert.ok(node(g, 'tsk_su') && kept.has('tsk_su') && !ctx.has('tsk_su'), 'drawn normally, not outlined')
+  assert.ok(ctx.has('tsk_pl') && !kept.has('tsk_pl'), 'its plan is context: outlined, not counted')
+})
+
+test('Q4 A: the rest of the graph is left out, every slot kept as a hole, and a lane with no kept card shrinks to its head', () => {
+  const rows = boardRows({ ...board(), now: NOW })
+  const full = layoutRows(rows, LANES, null, { now: NOW })
+  const kept = new Set(['ses_t2'])
+  const keep = new Set([...kept, ...contextOf(rows, kept)])
+  const cut = layoutRows(rows, LANES, full, { now: NOW, keep })
+  assert.ok(cut.nodes.every((n) => keep.has(n.id)) && cut.nodes.length > 0 && cut.hidden === full.nodes.length - cut.nodes.length)
+  for (const n of cut.nodes) assert.deepEqual(cut.slots[n.id], full.slots[n.id], `${n.id} keeps its slot`)
+  assert.deepEqual(cut.slots, full.slots, 'every slot is kept, hidden ones too')
+  assert.deepEqual(cut.bands, full.bands, 'so the layout the next change keeps is the full one')
+  const emptied = cut.lanes.find((l) => l.key === 'harbour-survey')!
+  assert.equal(emptied.height, 18, 'a lane with no kept card is its head')
+  assert.ok(cut.edges.every((e) => keep.has(e.source) && keep.has(e.target)))
+  const again = layoutRows(rows, LANES, cut, { now: NOW })
+  assert.equal(again.hidden, 0)
+  assert.deepEqual(where(again), where(full), 'the filter cleared, nothing moved')
+})
+
+test('a filter chip reads the counter’s words and number', async () => {
+  const { chipWords } = await import('../src/ops/board.ts')
+  assert.equal(chipWords('paused', 4), 'paused·queued · 4')
+})

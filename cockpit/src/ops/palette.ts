@@ -36,7 +36,7 @@ export interface OpsTarget {
 }
 
 export function targetOf(r: OpsRow): OpsTarget {
-  const kind: Kind = r.kind === 'conversation' ? 'conversation' : r.kind === 'task' ? 'task' : r.kind === 'job' ? 'job' : r.kind === 'wake' ? 'wake' : 'routine'
+  const kind: Kind = r.kind === 'conversation' ? 'conversation' : r.kind === 'task' ? 'task' : r.kind === 'job' ? 'job' : r.kind === 'wake' ? 'wake' : r.kind === 'watch' ? 'watch' : r.kind === 'step' ? 'project' : r.kind === 'ask' ? 'question' : 'routine'
   const state = r.view?.state ?? r.state ?? ''
   return {
     id: r.id, kind, title: r.title, sessionId: r.sessionId, profile: r.model, data: r.data, paused: r.paused,
@@ -174,6 +174,7 @@ export function watchEntity(w: WatchRow): Entity {
 export function entitiesOf(rows: readonly OpsRow[], threads: ReadonlyArray<{ slug: string; title: string }>, records: readonly TaskRecord[], profiles: readonly ProfileInfo[], watches: readonly WatchRow[] = []): Entity[] {
   const out: Entity[] = []
   for (const r of rows) {
+    if (r.kind === 'step' || r.kind === 'ask') continue // a step or an ask is no entity the palette goes to
     const kind = r.kind === 'conversation' ? 'session' : r.kind
     out.push({ id: r.id, kind, label: r.title, hint: `${kind} · ${r.state ?? r.column}${r.data && r.data !== 'open' ? ` · ${r.data}` : ''}`, go: { sel: r.id } })
   }

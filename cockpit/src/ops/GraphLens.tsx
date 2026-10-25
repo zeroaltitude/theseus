@@ -8,7 +8,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, MarkerType, useReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useCalm } from '@/lib/calm'
-import type { TaskRecord, WorkView } from '@protocol'
 import { toneHex } from '@/lib/taxonomy'
 import { cn } from '@/lib/format'
 import { FIT, useFullGraph } from '@/components/FullGraph'
@@ -18,11 +17,13 @@ const FIT_LANES = { ...FIT, padding: 0.05 }
 /** The least zoom a first view takes: a node's title still reads. */
 const READABLE = 0.62
 import type { OpsRow } from './board'
-import { foldBacks, keeper, opsLayout, NODE_W, type Graph, type GEdge, type LaneMeta } from './graph'
+import { foldBacks, keeper, layoutRows, NODE_W, type Graph, type GEdge, type LaneMeta } from './graph'
 import { NODE_TYPES, typeOf, type LaneData, type NodeData } from './GraphNode'
 import type { Selection } from './selection'
 import type { DragDrop } from './DropLayer'
 import { dragOf, type DragItem } from './rehome'
+import { FilterChip, type FilterChipProps } from './FilterChip'
+import { OWNER_CALLS, type OwnerCalls } from './state'
 
 const EDGE: Readonly<Record<GEdge['kind'], Partial<Edge>>> = {
   parent: { style: { stroke: '#9c907a', strokeWidth: 1.25 } },
@@ -31,15 +32,25 @@ const EDGE: Readonly<Record<GEdge['kind'], Partial<Edge>>> = {
 }
 
 export interface GraphLensProps {
-  views: readonly WorkView[]
-  records: readonly TaskRecord[]
+  /** Unused: the rows are the graph's whole input (theseus-odj0m). The page still passes them, which `ops-parity` pins. */
+  views?: readonly unknown[]
+  records?: readonly unknown[]
+  /** The one work set (`boardRows`): every node of the graph is one of these. */
   rows: readonly OpsRow[]
   lanes: readonly LaneMeta[]
   now: number
   focus: string | null
   picked: Selection
-  /** The ids the filters and the search keep: the rest are drawn faint. */
+  /** The ids the filters and the search keep: drawn normally. The context around them is outlined, "context" on hover;
+   *  the rest are outlined too, or left out when `calls.hideRest`. */
   shownIds: ReadonlySet<string> | null
+  /** Each kept card's ancestors up to the thread's head, and the jobs and carried steps of kept cards (`contextOf`). */
+  contextIds?: ReadonlySet<string> | null
+  /** The counter being filtered by, as a chip on the toolbar. */
+  chip?: FilterChipProps | null
+  calls?: OwnerCalls
+  /** What the filters and the search are now (the address's): the view fits to the kept cards once each time it changes. */
+  filterKey?: string
   onFocus: (id: string) => void
   onPick: (id: string) => void
   onLasso: (ids: string[]) => void
@@ -58,7 +69,7 @@ export function GraphLens(p: GraphLensProps) {
   return <ReactFlowProvider><Canvas {...p} /></ReactFlowProvider>
 }
 
-function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onFocus, onPick, onLasso, onOpen, onContext, redact, layoutRef, drag, titleOf }: GraphLensProps) {
+function Canvas({ rows, lanes, now, focus, picked, shownIds, contextIds = null, chip = null, calls = OWNER_CALLS, filterKey = '', onFocus, onPick, onLasso, onOpen, onContext, redact, layoutRef, drag, titleOf }: GraphLensProps) {
   const rf = useReactFlow()
   const fullGraph = useFullGraph('Graph')
   const calm = useCalm((s) => s.calm)
@@ -68,11 +79,14 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
   const [tidy, setTidy] = useState(0)
   // The last layout, which the next keeps every placed node of (sticky by id); "tidy" forgets it.
   const [memory] = useState(keeper)
-  const g = useMemo(() => memory.lay(views, records, lanes, { now, future, expanded, opened }, tidy), [memory, views, records, lanes, now, future, expanded, opened, tidy])
+  // Q4 A: a counter's click leaves everything but the kept cards and their context out of the drawing, each slot kept as
+  // a hole so nothing moves; Q4 B (today's) only outlines the rest.
+  const keep = useMemo(() => (calls.hideRest && shownIds ? new Set([...shownIds, ...(contextIds ?? [])]) : undefined), [calls.hideRest, shownIds, contextIds])
+  const g = useMemo(() => memory.lay(rows, lanes, { now, future, expanded, opened, keep }, tidy), [memory, rows, lanes, now, future, expanded, opened, keep, tidy])
   // The layout without the openings, which says what each opening can fold back into (`foldBacks`).
-  const base = useMemo(() => (expanded.size || opened.size ? opsLayout(views, records, lanes, null, { now, future }) : g), [views, records, lanes, now, future, expanded, opened, g])
+  const base = useMemo(() => (expanded.size || opened.size ? layoutRows(rows, lanes, null, { now, future, keep }) : g), [rows, lanes, now, future, keep, expanded, opened, g])
   // The roots' fold-backs read the layout with the lanes' openings: a fold opened inside an opened lane is only there.
-  const baseRoots = useMemo(() => (opened.size && expanded.size ? opsLayout(views, records, lanes, null, { now, future, expanded }) : base), [views, records, lanes, now, future, expanded, opened, base])
+  const baseRoots = useMemo(() => (opened.size && expanded.size ? layoutRows(rows, lanes, null, { now, future, expanded, keep }) : base), [rows, lanes, now, future, expanded, opened, keep, base])
   const back = useMemo(() => foldBacks(g, base, expanded, opened, baseRoots), [g, base, expanded, opened, baseRoots])
   useEffect(() => { layoutRef.current = g }, [g, layoutRef])
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
@@ -99,7 +113,7 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
       const key = n.kind === 'conversation' && row?.sessionId ? `conversation:${row.sessionId}` : n.kind === 'project' ? `project:${n.id}` : null
       const at = moving?.id === n.id ? { x: moving.x, y: moving.y } : { x: n.x, y: n.y }
       out.push({
-        id: n.id, type: typeOf(n.kind), position: at, measured: sizes[n.id], selected: picked.has(n.id), draggable: n.kind === 'task' || n.kind === 'conversation', zIndex: moving?.id === n.id ? 10 : 1,
+        id: n.id, type: typeOf(n.kind), position: at, ...(shownIds != null && !shownIds.has(n.id) && contextIds?.has(n.id) ? { domAttributes: { title: 'context' } } : {}), measured: sizes[n.id], selected: picked.has(n.id), draggable: n.kind === 'task' || n.kind === 'conversation', zIndex: moving?.id === n.id ? 10 : 1,
         data: {
           n, row, now, redact, focused: fid === n.id, picked: picked.has(n.id), dim: shownIds != null && !shownIds.has(n.id) && n.kind !== 'done' && n.kind !== 'folded',
           hover: key && hover?.key === key ? (hover.ok ? 'ok' : 'no') : undefined,
@@ -109,7 +123,7 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
       })
     }
     return out
-  }, [g, back, byId, now, fid, picked, shownIds, moving, hover, sizes, redact])
+  }, [g, back, byId, now, fid, picked, shownIds, contextIds, moving, hover, sizes, redact])
 
   const edges = useMemo(() => g.edges.map((e): Edge => ({
     id: e.id, source: e.source, target: e.target, ...EDGE[e.kind],
@@ -131,6 +145,17 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
     if (fit >= READABLE) requestAnimationFrame(() => { void rf.fitView(FIT_LANES) })
     else void rf.setViewport({ x: 16, y: 56, zoom: READABLE })
   }, [g, focus, rf])
+
+  // Q4 A: the view fits to the kept cards once per filter change (a live change of the rows does not move it).
+  const fittedTo = useRef('')
+  useEffect(() => {
+    if (!keep || !shownIds || fittedTo.current === filterKey) return
+    const kept = g.nodes.filter((n) => shownIds.has(n.id)).map((n) => ({ id: n.id }))
+    if (!kept.length) return
+    fittedTo.current = filterKey
+    requestAnimationFrame(() => { void rf.fitView({ ...FIT_LANES, nodes: kept }) })
+  }, [keep, shownIds, filterKey, g, rf])
+  useEffect(() => { if (!keep) fittedTo.current = '' }, [keep])
 
   // `?sel=` pans to its node, once each time it changes.
   const panned = useRef<string | null>(null)
@@ -197,7 +222,8 @@ function Canvas({ views, records, rows, lanes, now, focus, picked, shownIds, onF
       </ReactFlow>
       <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2 rounded-lg bg-hull/90 px-2.5 py-1.5 text-[11px] text-ink-dim ring-1 ring-line backdrop-blur">
         {fullGraph.button}
-        <span className="num">{g.nodes.length} nodes{g.folded ? ` · ${g.folded} folded` : ''}</span>
+        {chip && <FilterChip {...chip} calls={calls} />}
+        <span className="num">{g.nodes.length} nodes{g.folded ? ` · ${g.folded} folded` : ''}{g.hidden ? ` · ${g.hidden} hidden` : ''}</span>
         {g.cantOpen && <span role="status" className="text-wait">could not open: the graph is at its cap; narrow it with the filters or the search</span>}
         <button type="button" aria-pressed={future} onClick={() => setFuture((f) => !f)} className={cn('rounded px-1.5 ring-1', future ? 'bg-think/15 text-think ring-think/40' : 'ring-line hover:text-ink')}
           title="wakes, routines, watches and projects (a project takes a dropped task or conversation)">+ future</button>
