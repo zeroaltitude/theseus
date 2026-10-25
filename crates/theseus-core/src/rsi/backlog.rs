@@ -259,7 +259,6 @@ impl Work {
                 by_model: true,
                 self_started: true,
                 because: Some(c.title.chars().take(BECAUSE_MAX).collect()),
-                ..Default::default()
             },
             state: if keel.is_some() {
                 TaskState::WaitingHuman
@@ -548,7 +547,6 @@ impl Core {
                         by_model: true,
                         self_started: true,
                         because: Some("holds the problems found in its own record".into()),
-                        ..Default::default()
                     },
                     state: TaskState::Accepted,
                 }
