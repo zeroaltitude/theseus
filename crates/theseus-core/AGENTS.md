@@ -423,7 +423,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`turn/persona_step.rs` `alert_over_cap`), flagged in `theseus census` and health. **Only the owner writes a soul**:
   `persona.add|soul|set|retire|default` are `Act::Ontology` acts (`judge_persona`: the owner, from a private place; the CLI
   refuses them in a job), and `soul::Plan::write` (checked first by `plan_soul` and the ontology, then atomic, 0600 in a 0700 directory, the replaced file kept as
-  `.<ms>.bak`, a `persona.soul` row) is reached only from them. `persona.import` writes a category (origin import). A
+  `.<ms>.bak`, a `persona.soul` row) is reached only from them. **Reading a soul** (theseus-lky63; `personas/soul_read.rs`, `persona.soul_read`, judged as the writes are; no store format): the file's text, digest and its `<file>.<ms>.bak` backups (newest first, 20), or one listed backup by `bak_ms`; `persona.soul`'s optional `expect_digest` refuses a write when the file changed since it was read. The cockpit's editor loads the file and writes it whole, as the CLI does. Tests: `tests_persona_soul_read.rs`, `cockpit/test/personas.test.ts`. `persona.import` writes a category (origin import). A
   persona added without a soul draws one `persona_soul` post to the owner's DM (`personas/note.rs`; Discord's
   `runtime/persona_soul.rs`: Write its soul is a modal, Decline retires it, each `persona.soul` or `persona.retire` as the
   presser). Nothing binds a persona to a place but the bindings file's `persona =`. Tests: `tests_personas.rs`,
