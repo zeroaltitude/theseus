@@ -586,6 +586,7 @@ impl TurnRunner {
             reports_to: d.target.clone(),
             wake_parent: false,
             start_at_ms: None,
+            helper: None,
         };
         let claim = Claim {
             task: sid.clone(),

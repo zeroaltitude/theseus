@@ -148,8 +148,8 @@ impl Core {
         };
         let opening = Opening {
             reports_to: reports_to.clone(),
-            wake_parent: false,
             start_at_ms: start,
+            ..Default::default()
         };
         let draft = Draft {
             title: &title,

@@ -203,6 +203,7 @@ impl TurnRunner {
             reports_to: None,
             wake_parent: false,
             start_at_ms: None,
+            helper: None,
         };
         let now = theseus_protocol::now_unix_ms();
         let mut staged = d.clone();

@@ -620,6 +620,7 @@ mod tests {
             wakes: vec![],
             wake_parent: false,
             report_wakes: vec![],
+            helper: None,
             stopped: None,
             turns: 3,
             interrupted: 0,

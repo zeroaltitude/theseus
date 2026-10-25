@@ -19,6 +19,7 @@ pub(crate) fn asleep(w: &World, want: Micros, in_ms: u64) -> (Execution, Executi
         reports_to: Some("discord:dm:1".into()),
         wake_parent: false,
         start_at_ms: Some(at),
+        helper: None,
     };
     let t = w
         .kernel

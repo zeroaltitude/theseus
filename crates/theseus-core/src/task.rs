@@ -603,6 +603,7 @@ pub fn create<'a>(
         reports_to: target.clone(),
         wake_parent: i.wake_parent,
         start_at_ms: start,
+        helper: None,
     };
     let opened = tc
         .kernel

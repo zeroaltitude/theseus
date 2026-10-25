@@ -264,6 +264,7 @@ fn new_task(
         wakes: vec![],
         wake_parent: failed.wake_parent,
         report_wakes: vec![],
+        helper: None,
         stopped: None,
         turns: 0,
         interrupted: 0,
