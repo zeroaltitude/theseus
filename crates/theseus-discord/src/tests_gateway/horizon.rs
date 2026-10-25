@@ -438,7 +438,7 @@ async fn a_met_watch_posts_once_and_pings() {
 
 /// The met watch's post is a reminder's kind, not a notice's: a place that
 /// silences notices still hears it (the core's `purpose: watch.met`).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_met_watch_pings_where_notices_are_silent() {
     let m = model(false);
     let r = Rig::start_tweaked(
