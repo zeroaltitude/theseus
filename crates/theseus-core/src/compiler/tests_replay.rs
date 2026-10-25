@@ -288,6 +288,28 @@ fn the_replays_series() {
     }
 }
 
+/// Triggers and keeps below the owner's ranges (trigger 120-200K, keep
+/// 40-80K), to see what the replay's mean would take: the trigger is the
+/// context a pass lets build above the floor, so a mean near 120K needs a
+/// trigger well under 150K, at the price of more passes (each one a cache
+/// rewrite). Printed with `--nocapture --run-ignored all`.
+#[test]
+#[ignore = "prints cells below the owner's ranges"]
+fn the_replays_low_grid() {
+    for (at, keep) in [
+        (100_000, 20_000),
+        (80_000, 20_000),
+        (60_000, 20_000),
+        (60_000, 10_000),
+        (40_000, 10_000),
+    ] {
+        print(
+            &format!("trigger {}K keep {}K", at / 1000, keep / 1000),
+            &tried(at, keep),
+        );
+    }
+}
+
 /// The hunt's shape through the compiler: a pass at the token line, a small
 /// rewrite each, a mean context well under what the 20-exchange rule held.
 /// The same script at the 20-exchange rule (b69236c1): 9 passes, mean
