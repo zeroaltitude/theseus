@@ -900,11 +900,16 @@ impl Memory {
         };
         let params = self.params_of(m, scene.max_items);
         let marks = neighbour::marks(&candidates);
+        // The superseded marks (a current-value question's) were set by the
+        // recall on the items it admitted; the refill rebuilds the items, so
+        // they are read now and set again, as the neighbour note is.
+        let superseded = current::marked(&m.admitted);
         let pack =
             theseus_memory::rerank::repack(&*scene.science, &asker, candidates, &params, order);
         m.drops.clear();
         fill(m, pack, &mut ranks, true);
         neighbour::apply(&mut m.admitted, &marks);
+        current::apply(&mut m.admitted, &superseded);
         self.retention_items(&*scene.science, m, &retention, asker.now_ms);
     }
 

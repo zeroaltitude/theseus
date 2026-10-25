@@ -191,7 +191,17 @@ fn values(text: &str) -> BTreeSet<String> {
         }
     };
     let chars: Vec<char> = text.chars().collect();
+    // Inside a date or a timestamp (`2026-03-02`, `2026-03-02T08:00:00Z`):
+    // none of its parts is a value, so its digits, `-`, `T`, `:` and `.`
+    // are skipped to its end and nothing of it is flushed.
+    let mut dated = false;
     for (i, c) in chars.iter().enumerate() {
+        if dated {
+            if c.is_ascii_digit() || matches!(c, '-' | 'T' | ':' | '.') {
+                continue;
+            }
+            dated = false;
+        }
         let part = c.is_ascii_digit()
             || (matches!(c, ':' | '.' | ',')
                 && !cur.is_empty()
@@ -200,9 +210,9 @@ fn values(text: &str) -> BTreeSet<String> {
             cur.push(*c);
         } else if *c == '-' && !cur.is_empty() && chars.get(i + 1).is_some_and(char::is_ascii_digit)
         {
-            // 2026-03-02: a date, not a value.
+            // 2026-03-02: a date, not a value, nor any part of one.
             cur.clear();
-            flush(&mut cur, &mut out);
+            dated = true;
         } else {
             flush(&mut cur, &mut out);
         }
@@ -329,7 +339,17 @@ pub fn mark_for(
     }
 }
 
-fn apply(items: &mut [RecallItem], marks: &HashMap<String, String>) {
+/// The marks `items` carry, by key: what a live rerank's `refill` reads
+/// before it rebuilds the items, to [`apply`] again after.
+pub fn marked(items: &[RecallItem]) -> HashMap<String, String> {
+    items
+        .iter()
+        .filter_map(|i| Some((format!("{}#{}", i.node_id, i.chunk), i.superseded.clone()?)))
+        .collect()
+}
+
+/// Set `marks` on the items whose keys they name, and clear the rest.
+pub fn apply(items: &mut [RecallItem], marks: &HashMap<String, String>) {
     for i in items {
         i.superseded = marks.get(&format!("{}#{}", i.node_id, i.chunk)).cloned();
     }

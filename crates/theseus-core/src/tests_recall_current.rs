@@ -102,9 +102,7 @@ async fn a_live_rerank_keeps_the_superseded_marks_of_a_current_question() {
     let old = said_at(c, OLD, MARCH_12);
     let new = said_at(c, NEW, MARCH_12 + 30 * DAY);
     let here = session(c, None, &[]);
-    c.runner
-        .memory
-        .set_ask(index_with_times(c, vec![old, new]));
+    c.runner.memory.set_ask(index_with_times(c, vec![old, new]));
     turn(
         c,
         &here,
