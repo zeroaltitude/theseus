@@ -1382,7 +1382,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   L1, then its L0 half (`install::script`) only copies the binaries and restarts the daemon. `self.propose_change`
   refuses only when L1 cannot run on this host (`Board::l1_unavailable`: health's refusal, else `Sandbox::self_test`),
   sealed set or not. Tests: `rsi/tests_jail.rs`, `tests_pr.rs`, `tests_sandbox.rs`'s `no_model_input_reaches_rw`, and
-  theseusd's `tests/self_build.rs` (real L1; an ordinary user runs them).
+  theseusd's `tests/self_build.rs` (real L1; an ordinary user runs them) and `tests/jail_stop.rs` (`harness = false`: a libtest binary cannot be the init `Jail::run_blocking` starts as `/proc/self/exe`; it proves a stopped job names its phase).
   **Graduation** (theseus-pw1q.13; `extend/usage.rs`, `rsi/backlog/graduate.rs`, `fact/rsi_graduate.rs`): `Core::extension_usage`
   counts an extension's calls, failures (an error result, a timeout, a crash, an unknown outcome) and p50/p95 from the
   ledger's `action.*` rows by kind (producer `async:mcp:ext-<name>/<tool>`); no counter on the call path. `extend.list
