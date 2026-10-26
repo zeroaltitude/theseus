@@ -356,6 +356,37 @@ async fn a_label_names_what_raised_it_and_a_second_raise_keeps_the_first() {
     assert_eq!(rows(&r, "content.labelled").len(), 1, "no second row");
 }
 
+/// What the core does once a label is written: it is told once per label
+/// really raised, with the session and the label, and not again for a second
+/// raise of a flag already on the session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_label_raised_is_told_once() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    yes(&jev, "secret", 0.95);
+    let r = rig(&jev, |_| {});
+    let sid = session(&r);
+    let told: std::sync::Arc<std::sync::Mutex<Vec<(String, Flag, Option<String>)>>> =
+        Default::default();
+    let sink = told.clone();
+    let svc = &r.core.runner.judge;
+    svc.label_told(move |session, label| {
+        sink.lock()
+            .unwrap()
+            .push((session.to_string(), label.flag, label.node.clone()));
+    });
+    svc.ask_content(&sid, vec![item("n1", ItemKind::ToolResult, "first")]);
+    until(&r, "content.judged", 1).await;
+    svc.ask_content(&sid, vec![item("n2", ItemKind::ToolResult, "second")]);
+    until(&r, "content.judged", 2).await;
+    let told = told.lock().unwrap().clone();
+    assert_eq!(
+        told,
+        [(sid, Flag::Secret, Some("n1".to_string()))],
+        "once, for the first raise"
+    );
+}
+
 /// A long item is asked in pieces in the same decision point, and its answer is
 /// the union of its pieces': a secret in the last piece raises. One past the
 /// bound is read as far as the bound, and the row says it was cut.

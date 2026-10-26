@@ -51,7 +51,7 @@ confirm = 0.60
 no_match = "no"
 options = [
   { id = "yes", means = "An organisation's internal or non-public plans, customers, partners, pricing, contracts, code, data or decisions; trade secrets; work not yet announced; anything under embargo or an unfixed vulnerability; or anything the state lists as private." },
-  { id = "no", means = "Public or general matter: published documentation, open-source code, public web pages, general knowledge, a self-contained technical exercise or a brief for one, or the assistant's own working notes about such matter. Material whose owner the item does not show is not confidential for that reason alone." },
+  { id = "no", means = "Public or general matter: published documentation, open-source code, public web pages, general knowledge, a self-contained technical exercise, or the assistant's own working notes about such matter. Material whose owner the item does not show is not confidential for that reason alone." },
 ]
 
 [questions.injection]

@@ -129,6 +129,9 @@ struct Slot {
     notify: Arc<Notify>,
 }
 
+/// A label told, as the core takes it: the session and the label.
+type Told = Box<dyn Fn(&str, &Label) + Send + Sync>;
+
 /// The service's state for this point.
 #[derive(Default)]
 pub(crate) struct Point {
@@ -136,6 +139,9 @@ pub(crate) struct Point {
     /// `[content] enabled = false`: nothing is asked.
     off: AtomicBool,
     slots: Mutex<HashMap<String, Slot>>,
+    /// What the core does with a label once it is written: tell the operator's
+    /// surfaces (`Core::tell_label`). Set by the core as it is built.
+    told: OnceLock<Told>,
     /// `[content] max_pieces`: the most pieces one item is read in.
     max_pieces: std::sync::atomic::AtomicUsize,
     /// Decision points asked, for a test that counts them.
@@ -201,6 +207,13 @@ impl JudgeService {
         let _ = self.content.names.set(names);
         self.content.off.store(!enabled, Ordering::Relaxed);
         self.content.max_pieces.store(max_pieces, Ordering::Relaxed);
+    }
+
+    /// What to do once a label is written and told in the narrative: the core
+    /// hands over `Core::tell_label` (the `session.labelled` event and the one
+    /// Discord message), set once as it is built.
+    pub fn label_told(&self, told: impl Fn(&str, &Label) + Send + Sync + 'static) {
+        let _ = self.content.told.set(Box::new(told));
     }
 
     /// Queue `items` for judgment and return: nothing waits here. The items are
@@ -354,10 +367,13 @@ impl JudgeService {
         through: Option<&str>,
         base: &Option<String>,
     ) {
+        // The labels this write really added (`raise` is false for one already
+        // on the session), as `(landing, label)`.
+        let mut fresh: Vec<(usize, &Label)> = Vec::new();
         let written = self.store.update_session(session, |rec| {
             let mut flags = take_flags(rec);
             let mut rows = Vec::new();
-            for l in landings {
+            for (at, l) in landings.iter().enumerate() {
                 let it = &l.item;
                 match l.unjudged {
                     Some(why) => rows.push(crate::fact::row(
@@ -387,6 +403,7 @@ impl JudgeService {
                 }
                 for label in &l.raised {
                     if flags.raise(label.clone()) {
+                        fresh.push((at, label));
                         rows.push(crate::fact::row(
                             &ContentLabelled {
                                 flag: label.flag,
@@ -415,21 +432,32 @@ impl JudgeService {
             Ok(None) => tracing::debug!(session, "judge: a session's content was not written; it is gone"),
             Err(e) => tracing::warn!(error = %format!("{e:#}"), "judge: a session's content labels were not written"),
         }
-        // What was raised is told after it is written, in the session's own words.
-        for l in landings {
-            for label in &l.raised {
-                self.announce(
-                    Some(session),
-                    None,
-                    &ContentLabelled {
-                        flag: label.flag,
-                        node: &l.item.node,
-                        kind: l.item.kind,
-                        source: &l.item.source,
-                        confidence: label.confidence,
-                        band: label.band,
-                    },
-                );
+        if !matches!(written, Ok(Some(_))) {
+            return;
+        }
+        // What was raised is told after it is written, in the session's own words,
+        // and to the operator's surfaces.
+        for (at, label) in fresh {
+            let l = &landings[at];
+            self.announce(
+                Some(session),
+                None,
+                &ContentLabelled {
+                    flag: label.flag,
+                    node: &l.item.node,
+                    kind: l.item.kind,
+                    source: &l.item.source,
+                    confidence: label.confidence,
+                    band: label.band,
+                },
+            );
+            // TODO(theseus-9ymz0, cf-surfaces): `Core::tell_label(session, &label)`
+            // (`rpc/content.rs`, lane cf-core) publishes `session.labelled` and posts the
+            // one approved Discord message with its Remove button. The service holds no
+            // core, so the core hands it that call here, once, when it is built:
+            // `judge.label_told(|session, label| core.tell_label(session, label))`.
+            if let Some(told) = self.content.told.get() {
+                told(session, label);
             }
         }
     }
