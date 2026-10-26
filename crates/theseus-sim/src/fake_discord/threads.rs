@@ -574,3 +574,108 @@ impl FakeDiscord {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    use super::*;
+
+    fn thread(id: u64) -> FakeThread {
+        FakeThread {
+            id,
+            parent: 1,
+            guild: DEFAULT_GUILD,
+            name: "post".into(),
+            archived: false,
+            locked: false,
+            forum: true,
+            kind: 0,
+            auto_archive: 0,
+            names: vec!["post".into()],
+            tags: vec![],
+            tag_sets: vec![vec![]],
+            tag_times: vec![now_ms()],
+        }
+    }
+
+    /// A message the bot's reply create would push into `channel`: one hold
+    /// of the state, as `create` takes.
+    fn push_reply(fake: &FakeDiscord, channel: &str) {
+        let mut st = fake.state.lock().unwrap();
+        st.next_id += 1;
+        let m = Msg {
+            id: st.next_id.to_string(),
+            channel: channel.to_string(),
+            content: "Started both.".into(),
+            nonce: None,
+            components: 0,
+            reply_to: None,
+            edits: 0,
+            created_ms: now_ms(),
+            allowed_mentions: Value::Null,
+            mentions: vec![],
+            author: BOT_ID.to_string(),
+            hook: None,
+            versions: vec!["Started both.".into()],
+            buttons: vec![],
+            components_json: json!([]),
+            pinned: false,
+            flags: 0,
+        };
+        st.messages.push(m);
+    }
+
+    /// A forum post's first message is pushed whole (theseus-g8bxk). It was
+    /// pushed, and then "the last message" was read back to be given the
+    /// post's id, flag and card, so a create that landed between the two
+    /// steps (a reply in the owner's DM, say) was given them instead: the DM
+    /// then held a V2 message with the reply's words and a task's card, in
+    /// 1 to 7 runs in 100 of the task home's test, more as notices added
+    /// creates. Creates are pushed from two threads while 3,000 posts are
+    /// made; no DM message may change, and each post keeps its own message.
+    #[test]
+    fn a_post_made_beside_other_creates_never_takes_their_message() {
+        const DM: &str = "7";
+        let fake = FakeDiscord::start();
+        let stop = Arc::new(AtomicBool::new(false));
+        let pushers: Vec<_> = (0..2)
+            .map(|_| {
+                let (fake, stop) = (fake.clone(), stop.clone());
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        push_reply(&fake, DM);
+                    }
+                })
+            })
+            .collect();
+        let card = json!([{"type": 17, "components": [{"type": 10, "content": "the card"}]}]);
+        let body = json!({"flags": IS_COMPONENTS_V2, "components": card});
+        let posts: Vec<u64> = (0..3000).map(|_| fake.next_big()).collect();
+        for id in &posts {
+            fake.starter_message(&thread(*id), &body).unwrap();
+        }
+        stop.store(true, Ordering::Relaxed);
+        for p in pushers {
+            p.join().unwrap();
+        }
+        let dm = fake.messages(7);
+        assert!(!dm.is_empty());
+        for m in &dm {
+            assert!(
+                m.flags == 0
+                    && m.components_json == json!([])
+                    && !posts.iter().any(|p| m.id == p.to_string()),
+                "a DM message was taken for a post's: {m:#?}"
+            );
+        }
+        for id in &posts {
+            let own = fake.messages(*id);
+            assert!(
+                own.len() == 1 && own[0].id == id.to_string() && own[0].flags == IS_COMPONENTS_V2,
+                "post {id}: {own:#?}"
+            );
+        }
+    }
+}
