@@ -87,7 +87,7 @@ class Tasks(unittest.TestCase):
 
     def test_the_summary_is_the_first_sentence_cut_to_200(self):
         doc = json.loads(tasks.build(self.t))
-        self.assertEqual(doc["tasks"]["alpha-task"]["summary"], "# Heading Write a parser for the invented format.")
+        self.assertEqual(doc["tasks"]["alpha-task"]["summary"], "Write a parser for the invented format.")
         s = doc["tasks"]["beta-task"]["summary"]
         self.assertEqual(len(s), 200)
         self.assertTrue(s.endswith("…"))

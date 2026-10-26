@@ -48,8 +48,10 @@ def _title(task_id: str) -> str:
 
 
 def first_sentence(text: str, limit: int = SUMMARY_MAX) -> str:
-    """The first sentence of an instruction, whitespace collapsed, cut to `limit` characters (an ellipsis counts)."""
-    flat = " ".join(text.split())
+    """The first sentence of an instruction, whitespace collapsed, cut to `limit` characters (an ellipsis counts).
+    A heading line (`# Title`) is not a sentence and is skipped."""
+    body = "\n".join(line for line in text.splitlines() if not re.match(r"\s*#{1,6}\s", line))
+    flat = " ".join(body.split())
     m = re.search(r"[.!?](?=\s|$)", flat)
     out = flat[: m.end()] if m else flat
     return out if len(out) <= limit else out[: limit - 1].rstrip() + "…"

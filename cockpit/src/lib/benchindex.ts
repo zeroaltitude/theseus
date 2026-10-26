@@ -109,7 +109,8 @@ export function sparkline(values: readonly number[], w: number, h: number): [num
 
 /** Which of an arm's measurements speaks for it on a card. THE OWNER'S OPEN QUESTION lives here, in this one constant:
  *  - `'newest'`: the arm's newest row, whatever it measured. Theseus's newest is a 10-23 retest of 6 tasks (22.2% on
- *    18 trials), which then sits above the rivals' 75.3% on 267 trials over 89 tasks.
+ *    18 trials), which the card ranks by rate (`benchcards.ts`), so it sits at the bottom, 55 points under Theseus's
+ *    77.2% over 89 tasks, not above the rivals' 75.3% on 267 trials.
  *  - `'newest-comparable'`: the newest row whose task count equals the group's largest, else the newest.
  *  Either way every row prints its trials and tasks, and a short row carries a chip. Do not change this without the
  *  owner's answer; changing it is this one line. */
