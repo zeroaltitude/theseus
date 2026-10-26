@@ -16,6 +16,7 @@ fn task(id: &str, origin: &str, parent: Option<&str>, state: TaskState) -> TaskR
             session: origin.into(),
             principal: "operator".into(),
             by_model: false,
+            ..Default::default()
         },
         state,
     }

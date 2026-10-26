@@ -304,6 +304,7 @@ async fn the_task_view_and_slice_never_reach_a_restricted_request() {
             session: s.clone(),
             principal: "agent".into(),
             by_model: true,
+            ..Default::default()
         },
         state: theseus_protocol::tasks::TaskState::Accepted,
     }

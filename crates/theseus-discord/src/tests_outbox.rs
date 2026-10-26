@@ -1416,6 +1416,7 @@ async fn a_change_from_an_unwatched_session_reaches_its_homes_board() {
             session: sid.clone(),
             principal: "operator".into(),
             by_model: true,
+            ..Default::default()
         },
         state: TaskState::Accepted,
     }

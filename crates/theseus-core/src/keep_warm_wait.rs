@@ -103,6 +103,18 @@ impl crate::keep_warm::KeepWarm {
     }
 }
 
+/// Whether the request asks the provider to cache: the top-level breakpoint, or
+/// the one the task view moved into the last block of the last message
+/// (`task_graph::view::attach_text`), which every conversation with a task has.
+fn caches(request: &crate::provider::ProviderRequest) -> bool {
+    request.cache_control.is_some()
+        || request
+            .messages
+            .last()
+            .and_then(|m| m["content"].as_array())
+            .is_some_and(|c| c.iter().any(|b| b.get("cache_control").is_some()))
+}
+
 impl TurnRunner {
     /// A response is about to run its calls: keep the request it answered when
     /// a call is a `job_wait` and a read could be due before the wait ends. The
@@ -117,14 +129,22 @@ impl TurnRunner {
         spec: &RequestSpec,
         target: &Target,
     ) {
-        let waits = uses
-            .iter()
-            .any(|u| u.name == theseus_tools::wire_name(theseus_tools::jobs::WAIT));
         let tokens = compiled.estimate.tokens;
-        if !waits
-            || compiled.request.cache_control.is_none()
-            || tokens < self.cfg.cache.keep_warm_min_tokens
-        {
+        // A task wait's fan-in is bounded by the room this request leaves
+        // before the clearing line: recorded before the early returns below,
+        // since a small or uncached conversation has a room too.
+        let task_wait = uses
+            .iter()
+            .any(|u| crate::task_wait::is_task_wait_wire(&u.name));
+        if task_wait {
+            self.keep_warm
+                .set_room(tc.session_id, tokens, compiled.budget.limit_tokens);
+        }
+        let waits = task_wait
+            || uses
+                .iter()
+                .any(|u| u.name == theseus_tools::wire_name(theseus_tools::jobs::WAIT));
+        if !waits || !caches(&compiled.request) || tokens < self.cfg.cache.keep_warm_min_tokens {
             return;
         }
         let ttl = spec.conversation_ttl.min(spec.cache_ttl);

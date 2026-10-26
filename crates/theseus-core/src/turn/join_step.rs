@@ -69,6 +69,17 @@ impl TurnRunner {
                     },
                 }
             }
+            // A helper that reached its carve ends and reports (theseus-z9mze.3).
+            TurnEnd::Wait { wake: Wake::Input }
+                if is_task
+                    && stop == "budget"
+                    && helper_step::is_helper_exec(kernel, execution_id) =>
+            {
+                *again = false;
+                TurnEnd::Complete {
+                    reason: crate::task_wait::BUDGET_REASON.into(),
+                }
+            }
             TurnEnd::Wait { wake: Wake::Input } if is_task => {
                 // A turn the hold stopped (`paused_at`) whose hold was let go
                 // before here goes on, as a loop cap's does.

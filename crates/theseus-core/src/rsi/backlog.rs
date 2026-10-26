@@ -61,6 +61,7 @@ pub(crate) use start::{NoTree, Settled};
 pub use word::BadItem;
 
 use std::collections::BTreeMap;
+use theseus_protocol::tasks::BECAUSE_MAX;
 
 use anyhow::Result;
 use theseus_protocol::tasks::{TaskEvidence, TaskOrigin, TaskRecord, TaskState};
@@ -256,6 +257,8 @@ impl Work {
                 session: "self:backlog".into(),
                 principal: PRINCIPAL.into(),
                 by_model: true,
+                self_started: true,
+                because: Some(c.title.chars().take(BECAUSE_MAX).collect()),
             },
             state: if keel.is_some() {
                 TaskState::WaitingHuman
@@ -542,6 +545,8 @@ impl Core {
                         session: "self:backlog".into(),
                         principal: PRINCIPAL.into(),
                         by_model: true,
+                        self_started: true,
+                        because: Some("holds the problems found in its own record".into()),
                     },
                     state: TaskState::Accepted,
                 }

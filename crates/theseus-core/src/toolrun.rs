@@ -1522,7 +1522,7 @@ impl ToolRuntime {
         // task's lock (39a).
         let mut edit = crate::task_graph::tools::Done::default();
         let done = match tool.name() {
-            crate::task::CREATE => crate::task::create(
+            crate::task::CREATE => crate::task::create_call(
                 tc,
                 &call.input,
                 correlation_id,
@@ -1729,7 +1729,9 @@ impl ToolRuntime {
                 // Part of a thread, a thread of its own (theseus-vt9k).
                 crate::thread_split::FAMILY => crate::thread_split::run(tc, correlation_id, &input),
                 // A job's handle needs its session (theseus-n8gk).
-                theseus_tools::jobs::FAMILY => self.run_job_tool(tc, tool.name(), &input),
+                f if Self::core_run(f) => {
+                    self.run_job_tool(tc, tool.name(), &input, correlation_id)
+                }
                 _ => t.run_async_with_media(&input, &ctx),
             };
             let mut task = tokio::spawn(run);
@@ -2237,7 +2239,7 @@ pub fn build_runtime(
         }
         // Task sessions (DD7), wakes (DD8), proposed extensions (M7 43a),
         // and glides (38b): the harness runs them.
-        r.register(Arc::new(crate::task::TaskCreate));
+        crate::task_wait::register(&mut r);
         r.register(Arc::new(crate::task_graph::tools::TaskUpdate));
         r.register(Arc::new(crate::task_graph::tools::TaskSplit));
         r.register(Arc::new(crate::task_graph::tools::TaskClose));

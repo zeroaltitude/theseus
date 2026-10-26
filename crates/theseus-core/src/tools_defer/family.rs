@@ -18,6 +18,8 @@ pub const TOOLS: &str = "tools";
 /// The family of the task tools: deferred in a DM, loaded for a message that asks for a task
 /// (`want::asks_for_task`, theseus-gg78p).
 pub const TASKS: &str = "tasks";
+/// The family of `task_wait` and `task_fan_out`.
+pub const HELPERS: &str = "helpers";
 
 /// The families, with the line that says what each holds. An MCP server's
 /// tools are the family `mcp:<server>`, outside this table.
@@ -38,6 +40,15 @@ pub const FAMILIES: &[(&str, &str)] = &[
     (
         TASKS,
         "tasks and sub-sessions, and the task graph; background work with a budget is task_create",
+    ),
+    // `task_wait` and `task_fan_out` (theseus-z9mze.2, .3) are a family of their
+    // own, which no place loads and a request to start a task does not: the
+    // tasks family loads whole on that cue, and these tools add to the owner's
+    // locked DM task flow's request (and the shared channel's, which is at its
+    // budget). A search finds them, and a later row (theseus-z9mze.4) gives them a cue.
+    (
+        HELPERS,
+        "wait in this turn for the tasks you started and read their reports; start helpers that each read one area at once",
     ),
     (
         "reminders",
@@ -126,6 +137,7 @@ pub fn of_wire(wire: &str) -> String {
         "memory_lookup" => "memory",
         "proc_run" => "commands",
         "owner_ask" => "ask",
+        "task_wait" | "task_fan_out" => HELPERS,
         _ => match wire.split('_').next().unwrap_or("") {
             "fs" | "git" | "text" => "files",
             "job" => "commands",
@@ -316,6 +328,8 @@ mod tests {
             ("web_search", "web"),
             ("memory_lookup", "memory"),
             ("task_create", "tasks"),
+            ("task_wait", "helpers"),
+            ("task_fan_out", "helpers"),
             ("wake_at", "reminders"),
             ("wake_move", "reminders"),
             ("wake_cancel", "reminders"),

@@ -115,7 +115,33 @@ pub struct TaskOrigin {
     /// arrangement, and every record written before this field.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub by_model: bool,
+    /// The task started itself: its `task.create` ran in a turn with no
+    /// owner input (a wake, a report, a continuation, a routine's run), or
+    /// it is the self-improvement backlog's. The CLI, the TUI and the work
+    /// view say so with `because`. Absent, the owner asked, and every record
+    /// written before this field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub self_started: bool,
+    /// The model's own one-line reason for starting it, in its words, at
+    /// most `BECAUSE_MAX` characters. Only a self-started task has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub because: Option<String>,
 }
+
+impl TaskOrigin {
+    /// The one line a surface shows of a task that started itself,
+    /// `◇ self: <because>`; none for the owner's.
+    pub fn self_line(&self) -> Option<String> {
+        self.self_started.then(|| match self.because.as_deref() {
+            Some(b) => format!("◇ self: {b}"),
+            None => "◇ self".to_string(),
+        })
+    }
+}
+
+/// The longest `because` a self-started task keeps, in characters.
+pub const BECAUSE_MAX: usize = 160;
 
 /// One entry of a task's evidence (layer 3): a node and its identity (a
 /// commit, a job id, a snapshot id). Nothing removes one.

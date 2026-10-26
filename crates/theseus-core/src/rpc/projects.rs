@@ -131,6 +131,7 @@ impl Core {
             session: home.session_id.clone(),
             principal: "operator".into(),
             by_model: false,
+            ..Default::default()
         };
         let now = self.kernel.now_ms();
         let records = project::create::records(

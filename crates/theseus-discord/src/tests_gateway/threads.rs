@@ -691,6 +691,7 @@ async fn a_threads_task_board_lands_in_its_discord_thread() {
             session: sid,
             principal: "operator".into(),
             by_model: true,
+            ..Default::default()
         },
         state: TaskState::Accepted,
     }

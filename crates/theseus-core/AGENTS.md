@@ -888,6 +888,32 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   of a 5-minute entry, or `[cache] keep_warm_every_minutes` of an hour's, beside its other events, so a settle, a message or a
   stop ends it and a read in flight is dropped unbooked. The stash dies with the turn (`KeepWarm::turn_ended`). Tests:
   `tests_wait_cost.rs` (paused clock, `Gated` launcher holding the job; the measure prints with `--nocapture`).
+  **`task.wait` is the turn's wait on its own tasks** (theseus-z9mze.2; `task_wait.rs`, an async tool run through `run_job_tool`'s
+  dispatch, family `task`): it holds the turn until the tasks it names have ended, then writes each ended task's report as
+  the relayed harness node `read_reports` writes (`task:<short>`, never a `Kind::ToolResult`, so clearing cannot stub a
+  delivered finding), taken with `Kernel::take_reports_in_turn` so the next turn writes none again, and returns a short
+  index (at most `INDEX_MAX_CHARS`). Ended by a task's end (`JobWaits::task_settled`, fired by `settled()` and at a session's
+  end, with the one-second look as the backstop), a person's message, a stop, or the timeout (`clamp_timeout`: 30 s to `[tools]
+  fan_out_max_wait_secs`, and less `max(60 s, 15 %)` of the turn's deadline); a task still running is told in a note and stays
+  on the parent's `reports`. It lends its admission slot after `LEND_AFTER` (helper turns are `Class::Task`), keeps the cache
+  warm as `job_wait` does (`stash_for_wait` also accepts the breakpoint the task view moves into the last block), and bounds the
+  fan-in: `report_chars` each, `[tools] fan_in_chars` and half the room before the clearing line in all (`KeepWarm::room`,
+  recorded by `stash_for_wait`), the rest of a cut report kept in the session's outputs. `task_fan_out` calls `wait_on_tasks`.
+  Tests: `tests_task_wait.rs`. `task_wait` and `task_fan_out` are the family `helpers` (`tools_defer/family.rs`), which no place
+  loads and no cue names yet, so they add nothing to the owner's DM task flow's request, and a shared place is not offered them
+  (`places::public_tool`).
+  **`task.fan_out` starts helpers that read one area each** (theseus-z9mze.3; `task_fan_out.rs`, `turn/helper_step.rs`): each is a
+  task opened through `task::create` (the path `task.create` runs, given the helper's id and its group) as `exe_Xh<i>`, grouped by `Opening::helper`, its objective the
+  turn's own operator message (quoted by id), its brief wrapped with one report-format line. **No count cap, by the owner's word**
+  ("very very lightweight on any limits to theseus tasking ... notify, work, and allow feedback"; "All recs!" on the cap question):
+  helpers past the free slots queue; a call is refused only for the floor (`[tools] helper_floor_usd`, never under twice the
+  worst case one call reserves at `helper_max_output_tokens`), depth, or a bad input. The total is `budget_usd` or half of what the
+  session has left (half of the greater of that and its limit under a notify limit), split equally. A helper's tools are the
+  reader set (`reads`: class `Read`, less the task, job, channel, term and plan tools; `helper_spec` narrows the request,
+  `helper_refusal` refuses a call outside it); its calls' output is capped at `helper_max_output_tokens` (`helper_target`); at 75 %
+  of its carve it is told once to report (`helper_step::helper_note`); at its carve under a limit that asks it ends with the
+  reason `budget` and no question (`helper_step::at_carve`, `join_step::task_end`). Under the default, a limit that notifies,
+  a carve is a notice and nothing ends a helper until the kernel's hard stop. Tests: `tests_task_fan_out.rs`.
   **A silent job's wait returns at a beat** (theseus-53ujg.6; `[tools] job_wait_beat_secs`, 600, 0 off, else at
   most 3600 and tied to neither `proc_sync_secs` nor the cap, since the bench profile's 900 s foreground wait keeps it; `toolrun/jobs_tools/wait_facts.rs`): a job whose spool output file has not
   grown for that long in this wait (each look stats it; growth restarts the window) returns the wait early, with

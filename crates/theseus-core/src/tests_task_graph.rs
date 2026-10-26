@@ -700,6 +700,7 @@ async fn a_failure_closes_a_task_failed_and_a_cancel_suspends_it() {
             session: s,
             principal: "operator".into(),
             by_model: false,
+            ..Default::default()
         },
         state: TaskState::InProgress,
     }

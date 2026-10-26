@@ -122,7 +122,7 @@ impl Touch {
         };
         Self {
             class,
-            alone,
+            alone: alone || crate::task_wait::alone(tool.name()),
             keys,
             ops,
         }

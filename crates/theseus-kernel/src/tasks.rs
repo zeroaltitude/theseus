@@ -294,7 +294,7 @@ impl Kernel {
         guard: &TurnGuard,
         extra: impl FnOnce(&[ExecutionId]) -> Result<Vec<NewRecord>>,
     ) -> Result<TakenReports> {
-        self.take_reports_where(guard, |_| true, None, extra)
+        self.take_reports_where((&guard.execution_id, guard.turn), |_| true, None, extra)
     }
 
     /// `take_reports` for the named tasks only (the in-turn wait, theseus-z9mze):
@@ -317,22 +317,41 @@ impl Kernel {
         ids: &[ExecutionId],
         extra: impl FnOnce(&[ExecutionId]) -> Result<Vec<NewRecord>>,
     ) -> Result<TakenReports> {
-        self.take_reports_where(guard, |id| ids.contains(id), Some("wait"), extra)
+        self.take_reports_in_turn(&guard.execution_id, guard.turn, ids, extra)
+    }
+
+    /// `take_reports_of` for a caller that cannot hold the turn's guard: a
+    /// tool that waits in its own task (`task.wait`) names the turn it runs in
+    /// by its execution and number instead. The turn is still running, as the
+    /// guard's is, so the frame and its locks are the same.
+    pub fn take_reports_in_turn(
+        &self,
+        execution_id: &ExecutionId,
+        turn: u64,
+        ids: &[ExecutionId],
+        extra: impl FnOnce(&[ExecutionId]) -> Result<Vec<NewRecord>>,
+    ) -> Result<TakenReports> {
+        self.take_reports_where(
+            (execution_id, turn),
+            |id| ids.contains(id),
+            Some("wait"),
+            extra,
+        )
     }
 
     /// What `take_reports` and `take_reports_of` share: the reports `wanted`
     /// takes, with their wakes, in one frame. `via` names the way in the row.
     fn take_reports_where(
         &self,
-        guard: &TurnGuard,
+        (execution_id, turn): (&ExecutionId, u64),
         wanted: impl Fn(&ExecutionId) -> bool,
         via: Option<&str>,
         extra: impl FnOnce(&[ExecutionId]) -> Result<Vec<NewRecord>>,
     ) -> Result<TakenReports> {
-        let _w = self.lock(&[&guard.execution_id]);
+        let _w = self.lock(&[execution_id]);
         let mut e = self
-            .execution(&guard.execution_id)?
-            .ok_or_else(|| KernelError::UnknownExecution(guard.execution_id.clone()))?;
+            .execution(execution_id)?
+            .ok_or_else(|| KernelError::UnknownExecution(execution_id.clone()))?;
         if e.reports.is_empty() && e.report_wakes.is_empty() {
             return Ok(TakenReports::default());
         }
@@ -350,8 +369,7 @@ impl Kernel {
         e.updated_at_ms = self.now_ms();
         let mut frame = vec![exec_record(&e)?];
         frame.extend(extra(&ids)?);
-        let mut detail =
-            json!({"execution_id": e.id, "tasks": ids, "woke": woke, "turn": guard.turn});
+        let mut detail = json!({"execution_id": e.id, "tasks": ids, "woke": woke, "turn": turn});
         if let Some(via) = via {
             detail["via"] = json!(via);
         }

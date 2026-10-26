@@ -46,7 +46,10 @@ use crate::{Config, Core};
 /// tokens past the summary's room once theseus-ggqf's terminal words joined
 /// (the join's review). 48,000 leaves room; at 44,000 the override test's
 /// probe and its glm turn ring at different turns.
-const WINDOW: u64 = 48_000;
+/// And 48,000 until `task_fan_out` joined the catalog (theseus-z9mze.3): its definition grows the tools
+/// block by about 500 tokens. 48,250 and up hold (to 52,000, the sweep's end) for this suite, and 48,500 and up for the
+/// others in this family of tests; 49,000 is the middle of the near end of that band.
+const WINDOW: u64 = 49_000;
 /// The window of the session-summary rig (`session_rig`): its override test's
 /// probe and its glm turn must ring at the same turn, which holds in a band
 /// that moves with the tools block. 48,000 was in it until `routine.create`
@@ -736,8 +739,16 @@ async fn the_newest_exchange_past_the_window_fails_with_context_overage() {
     assert_eq!(te.class, OVERAGE_CLASS);
     let message = format!("{:#}", te.source);
     for part in [
-        "the newest exchange alone does not fit claude-sonnet-5-5's window of 48,000",
-        "upper bound) against the 41,904 the window leaves",
+        &format!(
+            "the newest exchange alone does not fit claude-sonnet-5-5's window of {},{:03}",
+            WINDOW / 1000,
+            WINDOW % 1000
+        ),
+        &format!(
+            "upper bound) against the {},{:03} the window leaves",
+            (WINDOW - 6_096) / 1000,
+            (WINDOW - 6_096) % 1000
+        ),
         "Nothing was sent.",
     ] {
         assert!(message.contains(part), "{part:?} in {message}");
