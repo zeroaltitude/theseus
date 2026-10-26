@@ -202,7 +202,7 @@ async fn a_stuck_queue_fails_its_waiter_with_words_that_say_so() {
     let _b = adm.try_take(Class::Wake).unwrap();
     let waiter = {
         let adm = adm.clone();
-        tokio::spawn(async move { adm.take(Class::Person, false).await })
+        tokio::spawn(async move { adm.take(Class::Wake, false).await })
     };
     settle().await;
     tokio::time::advance(STUCK - Duration::from_secs(1)).await;
@@ -215,7 +215,7 @@ async fn a_stuck_queue_fails_its_waiter_with_words_that_say_so() {
         words.starts_with("admission is stuck: no turn was admitted for 600 s"),
         "{words}"
     );
-    assert!(words.contains("person turn"), "{words}");
+    assert!(words.contains("wake turn"), "{words}");
     assert!(words.contains("2 of 2 slots held"), "{words}");
     assert_eq!(adm.load(), (2, 0), "the failed waiter left the queue");
 }
