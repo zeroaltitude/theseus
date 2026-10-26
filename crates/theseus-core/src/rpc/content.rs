@@ -16,7 +16,9 @@
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;
-use theseus_protocol::{error_code, ContentUnlabelParams, LabelView, UnlabelResult};
+use theseus_protocol::{
+    error_code, ContentUnlabelParams, Event, LabelRaised, LabelView, Message, UnlabelResult,
+};
 use theseus_store::{kinds, NewRecord};
 
 use super::confirms::Act;
@@ -91,11 +93,12 @@ pub(crate) fn label_notice(l: &Label, mode: InjectionMode) -> String {
 }
 
 impl Core {
-    /// Tell the operator a label was raised, once: a `content_label` post in
-    /// the session's place, which the Discord binding renders with its one
-    /// Remove button (`content:remove:<session>:<flag>`). Nothing when the
-    /// session has no place (a CLI session, a task with no thread): the label
-    /// shows on every other surface. The caller is whatever raised the label,
+    /// Tell the operator a label was raised, once: `session.labelled` to the
+    /// session's watchers, and a `content_label` post in the session's place,
+    /// which the Discord binding renders with its one Remove button
+    /// (`content:remove:<session>:<flag>`). No post when the session has no
+    /// place (a CLI session, a task with no thread): the label shows on every
+    /// other surface. The caller is whatever raised the label,
     /// and calls this only when `ContentFlags::raise` returned true, so a
     /// second raise of a flag says nothing.
     pub fn tell_label(&self, session_id: &str, l: &Label) -> Result<bool> {
@@ -103,6 +106,14 @@ impl Core {
             .store
             .get_session::<SessionRecord>(session_id)?
             .ok_or_else(|| anyhow!("no session is named {session_id}"))?;
+        self.bus.publish(
+            session_id,
+            &Message::from(Event::SessionLabelled(LabelRaised {
+                session_id: session_id.into(),
+                label: label_view(l),
+            })),
+            None,
+        );
         let body = json!({
             "kind": "content_label",
             "session_id": session_id,

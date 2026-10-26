@@ -1,46 +1,42 @@
-//! Content flags' facts (theseus-9ymz0): each item judged, each label raised,
-//! each label the operator removed, and each item that could not be judged.
-//! The rule is `content.rs`; the ask is `judge/content.rs`; the removal is
+//! The content flags' facts (theseus-9ymz0): an item judged, a label it raised,
+//! a label the operator removed, and an item that could not be judged. The rule
+//! is `content.rs`; the ask is `judge/content.rs`; the removal is
 //! `rpc/content.rs`.
 //!
 //! `content.judged` is written for every item judged, whether or not anything
 //! was raised, so the bench and `inspect` see every ask. The other three are
 //! the things that matter in it.
 
-use serde::Serialize;
 use serde_json::{json, Value};
-use theseus_judge::band::Band;
 use theseus_protocol::NarrativePart::Session;
-use theseus_protocol::{notify, Event, LabelRaised, LedgerKind, UnlabelResult};
+use theseus_protocol::{notify, Event, LedgerKind, UnlabelResult};
 
 use super::{Fact, Say};
-use crate::content::{Flag, ItemKind, Label};
+use crate::content::{Flag, ItemKind};
 
-/// What the pack answered to one question about one item.
-#[derive(Debug, Clone, Serialize)]
-pub struct Answered<'a> {
-    pub flag: Flag,
-    /// The option chosen: `yes` or `no`, or the pack's no-match word.
-    pub choice: &'a str,
+/// One question's answer, as the row keeps it.
+#[derive(Clone)]
+pub struct AnswerRow {
+    pub question: &'static str,
+    pub choice: String,
     pub confidence: f64,
-    /// Where the answer fell, when it had a band.
-    pub band: Option<Band>,
+    pub band: theseus_judge::band::Band,
 }
 
-/// `content.judged`: one item was judged, and what each question said. A
-/// long item is one row, with `pieces` counting the asks it took and
-/// `truncated` saying whether the bound on them cut it short.
+/// `content.judged`: one item judged, whether or not anything was raised, so the
+/// bench and `inspect` see every ask.
 pub struct ContentJudged<'a> {
-    /// The node whose content was judged.
     pub node: &'a str,
     pub kind: ItemKind,
     pub source: &'a str,
-    pub answers: &'a [Answered<'a>],
-    /// What the asks cost, in millionths of a dollar.
-    pub cost_micros: u64,
+    /// How many pieces the item was asked in.
     pub pieces: u32,
-    /// The item ran past `[content] max_pieces` and was read only that far
-    /// (`content::split`): the bound is in the row, not silent.
+    /// Each question's answer, the union of the pieces': for a question asked of
+    /// several pieces, the one that raised, else the first.
+    pub answers: Vec<AnswerRow>,
+    pub cost_micros: Option<u64>,
+    /// The item was longer than `[content] max_pieces` pieces, and what is
+    /// past them was not read (`content::split`).
     pub truncated: bool,
 }
 
@@ -48,48 +44,50 @@ impl Fact for ContentJudged<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ContentJudged);
 
     fn row(&self) -> Value {
+        let answers: Vec<Value> = self
+            .answers
+            .iter()
+            .map(|a| {
+                json!({"question": a.question, "choice": a.choice,
+                       "confidence": a.confidence, "band": a.band})
+            })
+            .collect();
         json!({"node": self.node, "kind": self.kind, "source": self.source,
-               "answers": self.answers, "cost_micros": self.cost_micros,
-               "pieces": self.pieces, "truncated": self.truncated})
+               "pieces": self.pieces, "truncated": self.truncated, "answers": answers,
+               "cost_micros": self.cost_micros})
     }
 }
 
-/// `content.labelled`: a label was raised on the session. Written only when
-/// the flag was not on it already (`ContentFlags::raise`), so a second raise
-/// of the same flag writes nothing. Its notification, `session.labelled`, goes
-/// to the session's watchers.
+/// `content.labelled`: one label raised on a session.
 pub struct ContentLabelled<'a> {
-    pub session: &'a str,
-    pub label: &'a Label,
+    pub flag: Flag,
+    pub node: &'a str,
+    pub kind: ItemKind,
+    pub source: &'a str,
+    pub confidence: f64,
+    pub band: theseus_judge::band::Band,
 }
 
 impl Fact for ContentLabelled<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ContentLabelled);
-    const METHOD: Option<&'static str> = Some(notify::SESSION_LABELLED);
 
     fn row(&self) -> Value {
-        let l = self.label;
-        json!({"flag": l.flag, "node": l.node, "kind": l.kind, "source": l.source,
-               "confidence": l.confidence, "band": l.band})
-    }
-
-    fn event(&self) -> Option<Event> {
-        Some(Event::SessionLabelled(LabelRaised {
-            session_id: self.session.into(),
-            label: crate::rpc::content::label_view(self.label),
-        }))
+        json!({"flag": self.flag, "node": self.node, "kind": self.kind, "source": self.source,
+               "confidence": self.confidence, "band": self.band})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
-        let l = self.label;
+        let effect = match self.flag {
+            Flag::Injection => "writes, programs and sends are refused until the operator clears it",
+            _ => "China-origin models are off for this session",
+        };
         say.line(
             Session,
             format!(
-                "Content: {} ({}) raised {}: {}.",
-                l.kind.as_str(),
-                l.source,
-                l.flag.as_str(),
-                l.flag.means()
+                "Content: {} ({} from {}), so {effect}.",
+                self.flag.means(),
+                self.kind.as_str(),
+                self.source
             ),
         );
     }
@@ -129,15 +127,14 @@ impl Fact for ContentRemoved<'_> {
     }
 }
 
-/// `content.unjudged`: an item could not be judged (Jev failed, the
-/// reservation was refused, the state would not build). Nothing is raised and
-/// `judged_through` does not advance, so a session that needs the verdict (a
-/// request to a model of restricted origin) goes to Claude instead.
+/// `content.unjudged`: an item that could not be judged. Nothing is raised, and
+/// the session's `judged_through` does not advance past it.
 pub struct ContentUnjudged<'a> {
     pub node: &'a str,
     pub kind: ItemKind,
     pub source: &'a str,
-    /// Why, in the ask's own words.
+    /// `refused` (the day's budget), `failed` (the call), `unbuilt` (the state
+    /// or the client would not build).
     pub why: &'a str,
 }
 
@@ -147,37 +144,13 @@ impl Fact for ContentUnjudged<'_> {
     fn row(&self) -> Value {
         json!({"node": self.node, "kind": self.kind, "source": self.source, "why": self.why})
     }
-
-    fn narrate(&self, say: &mut Say<'_>) {
-        say.line(
-            Session,
-            format!(
-                "Content: {} ({}) could not be judged ({}); this session stays off models of \
-                 restricted origin until it is.",
-                self.kind.as_str(),
-                self.source,
-                self.why
-            ),
-        );
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use theseus_judge::band::Band;
     use theseus_protocol::LabelView;
-
-    fn label() -> Label {
-        Label {
-            flag: Flag::Confidential,
-            node: Some("n7".into()),
-            kind: ItemKind::ToolResult,
-            source: "fs.read /srv/notes/plan.md".into(),
-            confidence: 0.71,
-            band: Band::Confirm,
-            at_ms: 5,
-        }
-    }
 
     fn result() -> UnlabelResult {
         UnlabelResult {
@@ -226,50 +199,54 @@ mod tests {
     }
 
     /// `content.judged` carries each question's choice, confidence and band,
-    /// the cost and the pieces, and is a row whether or not anything was raised.
+    /// the cost, the pieces and whether the bound cut the item short, and is a
+    /// row whether or not anything was raised.
     #[test]
     fn a_judged_row_names_every_answer() {
-        let answers = [
-            Answered {
-                flag: Flag::Injection,
-                choice: "no",
-                confidence: 0.97,
-                band: None,
-            },
-            Answered {
-                flag: Flag::Secret,
-                choice: "yes",
-                confidence: 0.64,
-                band: Some(Band::Confirm),
-            },
-        ];
         let f = ContentJudged {
             node: "n7",
             kind: ItemKind::FetchedPage,
             source: "http.fetch example.invalid/x",
-            answers: &answers,
-            cost_micros: 1200,
             pieces: 3,
+            answers: vec![
+                AnswerRow {
+                    question: "injection",
+                    choice: "no".into(),
+                    confidence: 0.97,
+                    band: Band::Act,
+                },
+                AnswerRow {
+                    question: "secret",
+                    choice: "yes".into(),
+                    confidence: 0.64,
+                    band: Band::Confirm,
+                },
+            ],
+            cost_micros: Some(1200),
             truncated: true,
         };
         assert_eq!(
             f.row(),
             json!({"node": "n7", "kind": "fetched_page", "source": "http.fetch example.invalid/x",
+                   "pieces": 3, "truncated": true,
                    "answers": [
-                       {"flag": "injection", "choice": "no", "confidence": 0.97, "band": null},
-                       {"flag": "secret", "choice": "yes", "confidence": 0.64, "band": "confirm"},
+                       {"question": "injection", "choice": "no", "confidence": 0.97, "band": "act"},
+                       {"question": "secret", "choice": "yes", "confidence": 0.64, "band": "confirm"},
                    ],
-                   "cost_micros": 1200, "pieces": 3, "truncated": true})
+                   "cost_micros": 1200})
         );
     }
 
     /// `content.labelled` is the label as it was raised.
     #[test]
     fn a_labelled_row_is_the_label() {
-        let l = label();
         let f = ContentLabelled {
-            session: "ses_1",
-            label: &l,
+            flag: Flag::Confidential,
+            node: "n7",
+            kind: ItemKind::ToolResult,
+            source: "fs.read /srv/notes/plan.md",
+            confidence: 0.71,
+            band: Band::Confirm,
         };
         assert_eq!(
             f.row(),

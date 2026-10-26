@@ -228,6 +228,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `ontology.rs` also holds `ontology.undo` and `ontology.kind.add|retire` (theseus-xzxqv), and `judge.rs` `judge.latency`'s params and
   result (the batch's p50 and p95 by day); `TurnSubmitResult.filed` is Jev's `filed:` footer line.
 - `ts.rs`: the TypeScript export.
+- `content.rs` (theseus-9ymz0): `LabelView` (a session's label as `SessionInfo.labels` carries it), `ContentUnlabelParams` and `UnlabelResult`
+  (`content.unlabel`, and the params of `session.unlabelled`) and `LabelRaised` (`session.labelled`). The words are the core's: the flags `injection`,
+  `secret`, `confidential`, `personal`.
 
 ## The CLI's spellings and the wire (theseus-rwpbg.10)
 

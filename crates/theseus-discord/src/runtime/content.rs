@@ -119,15 +119,11 @@ impl Shared {
             .await;
         match r {
             Ok(_) => {
-                let text = i.message.as_ref().map(|m| m.content.clone());
-                let mut update = self
-                    .interact
-                    .interaction(i.application_id)
-                    .update_response(&i.token)
-                    .components(Some(&[]));
-                let settled = text.as_deref().map(|t| settled(t, who));
-                if let Some(s) = &settled {
-                    update = update.content(Some(s));
+                let text = i.message.as_ref().map(|m| settled(&m.content, who));
+                let client = self.interact.interaction(i.application_id);
+                let mut update = client.update_response(&i.token).components(Some(&[]));
+                if let Some(t) = &text {
+                    update = update.content(Some(t));
                 }
                 if let Err(e) = update.await {
                     self.board.error("content label", None, e);
