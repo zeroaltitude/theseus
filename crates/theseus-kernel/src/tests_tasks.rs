@@ -3,6 +3,7 @@
 //! (`lock_family`) closes.
 
 use serde_json::json;
+use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord};
 
 use crate::kernel::*;
@@ -207,6 +208,162 @@ fn a_tasks_spend_counts_against_its_parent_and_it_stops_at_its_carve() {
     let q = w.kernel.ask_budget(&tg, 26_001).unwrap();
     assert_eq!(q.session_id, task.session_id, "the task asks, as usual");
     drop(tg);
+}
+
+/// A task below a task: a tree deeper than the bound allows today, written
+/// directly as `carve_task` would write it (the task's record, and the
+/// parent's carve for it), so that the carry up the chain can be held before
+/// `theseus-tecj5` raises the bound and makes such trees ordinary. `under` is
+/// the new task's parent, and `template` any task's record, for the fields a
+/// tree does not vary.
+fn deeper_task(w: &World, under: &Execution, template: &Execution, limit: Micros) -> Execution {
+    let mut parent = exec(w, &under.id);
+    let (id, session_id) = task_ids(&new_id("act"));
+    let child = Execution {
+        id: id.clone(),
+        session_id,
+        kind: SessionKind::Task,
+        state: ExecState::Queued,
+        parent: Some(parent.id.clone()),
+        budget: Budget {
+            pinned: true,
+            ..Budget::new(limit)
+        },
+        ..template.clone()
+    };
+    parent.budget.reserved_micros = parent.budget.reserved_micros.saturating_add(limit);
+    parent.budget.reservations.insert(carve_key(&id), limit);
+    w.kernel
+        .commit(&[exec_record(&parent).unwrap(), exec_record(&child).unwrap()])
+        .unwrap();
+    child
+}
+
+/// theseus-deaqt: a **grandchild's** settled spend is the conversation's
+/// spend too, not only its own parent task's, and every carve above it
+/// shrinks to what the execution under it can still spend. `carry_to_parent`
+/// used to stop at one level, so the conversation's `spent_micros` — what its
+/// own spend-limit notice reads — never learned a grandchild's cost.
+#[test]
+fn a_grandchilds_spend_reaches_the_conversation() {
+    let w = world();
+    let (conv, _g, task, _) = with_task(&w, 30_000);
+    let grand = deeper_task(&w, &task, &task, 10_000);
+    let frames = w.kernel.store().stats().unwrap().frames_appended;
+    w.kernel
+        .book_spend(&grand.id, 4_000, LedgerKind::SpeechTranscribed, json!({}))
+        .unwrap();
+    assert_eq!(
+        w.kernel.store().stats().unwrap().frames_appended,
+        frames + 1,
+        "the whole chain in one frame"
+    );
+    assert_eq!(exec(&w, &grand.id).budget.spent_micros, 4_000);
+    assert_eq!(
+        exec(&w, &task.id).budget.spent_micros,
+        4_000,
+        "the task between them"
+    );
+    assert_eq!(
+        exec(&w, &conv.id).budget.spent_micros,
+        4_000,
+        "the conversation, whose spend-limit notice reads this"
+    );
+    assert_eq!(
+        carved(&w, &task.id, &grand.id),
+        Some(6_000),
+        "the task's carve for its own task shrinks"
+    );
+    assert_eq!(
+        carved(&w, &conv.id, &task.id),
+        Some(26_000),
+        "and so does the conversation's carve for the task"
+    );
+    let conv_now = exec(&w, &conv.id);
+    assert_eq!(conv_now.budget.reserved_micros, 26_000);
+    assert_eq!(conv_now.budget.available(), 70_000);
+}
+
+/// theseus-deaqt: a tree of three levels below a conversation. What the
+/// conversation has spent is the sum of what settled anywhere below it,
+/// whichever level settled it, and each carve is what the execution under it
+/// can still spend (the invariant kernel-sim checks).
+#[test]
+fn a_deep_trees_conversation_spend_is_the_sum_of_what_settled_below_it() {
+    let w = world();
+    let (conv, _g, t1, _) = with_task(&w, 60_000);
+    let t2 = deeper_task(&w, &t1, &t1, 40_000);
+    let t3 = deeper_task(&w, &t2, &t1, 20_000);
+    for (e, cost) in [(&t3, 1_500u64), (&t2, 2_500), (&t1, 500)] {
+        w.kernel
+            .book_spend(&e.id, cost, LedgerKind::SpeechTranscribed, json!({}))
+            .unwrap();
+    }
+    assert_eq!(exec(&w, &t3.id).budget.spent_micros, 1_500);
+    assert_eq!(exec(&w, &t2.id).budget.spent_micros, 1_500 + 2_500);
+    assert_eq!(exec(&w, &t1.id).budget.spent_micros, 1_500 + 2_500 + 500);
+    assert_eq!(
+        exec(&w, &conv.id).budget.spent_micros,
+        4_500,
+        "the conversation's spend is the whole tree's"
+    );
+    assert_eq!(carved(&w, &t2.id, &t3.id), Some(20_000 - 1_500));
+    assert_eq!(carved(&w, &t1.id, &t2.id), Some(40_000 - 4_000));
+    assert_eq!(carved(&w, &conv.id, &t1.id), Some(60_000 - 4_500));
+}
+
+/// theseus-deaqt, the other half: a task's END is a one-level carry too. An
+/// ended task can still spend only what it has in flight or unknown, and a
+/// task of its own that ends takes its carve out of that — so the execution
+/// above it must stop holding it carved, and the one above that. Found by the
+/// sim's own carve invariant (`kernel-sim --seed 1 --seeds 20 --steps 300`,
+/// seed 4 step 152) once the depth bound allows a grandchild: the
+/// conversation held a carve for a task that had ended and could spend
+/// nothing.
+#[test]
+fn an_ended_tasks_release_of_its_own_tasks_carve_reaches_the_conversation() {
+    let w = world();
+    let (conv, _g, t1, _) = with_task(&w, 60_000);
+    let t2 = deeper_task(&w, &t1, &t1, 40_000);
+    // t1 ends while t2 still holds its carve, so what t1 can still spend is
+    // exactly that carve, and the conversation keeps it reserved.
+    let g1 = w.kernel.admit(&t1.id).unwrap();
+    let ended = w
+        .kernel
+        .end_turn(
+            g1,
+            TurnEnd::Complete {
+                reason: "reported".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(ended.state, ExecState::Complete);
+    assert_eq!(ended.budget.reserved_micros, 40_000, "t2's carve");
+    assert_eq!(
+        carved(&w, &conv.id, &t1.id),
+        Some(40_000),
+        "what the ended task can still spend is its own task's carve"
+    );
+    // Now t2 ends. Its carve leaves t1, so t1 can spend nothing at all, and
+    // the conversation must let go of it in the same frame.
+    let g2 = w.kernel.admit(&t2.id).unwrap();
+    w.kernel
+        .end_turn(
+            g2,
+            TurnEnd::Complete {
+                reason: "reported".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(carved(&w, &t1.id, &t2.id), None, "t1 released t2's carve");
+    assert_eq!(
+        carved(&w, &conv.id, &t1.id),
+        None,
+        "and the conversation released t1's"
+    );
+    let c = exec(&w, &conv.id);
+    assert_eq!(c.budget.reserved_micros, 0);
+    assert_eq!(c.budget.available(), 100_000);
 }
 
 /// A task that ends releases its carve, but for what it still has in flight,
@@ -657,10 +814,13 @@ fn a_tasks_settle_and_its_parents_own_reservation_never_lose_each_other() {
     let (parent, g, task, _) = with_task(&w, 30_000);
     let tg = w.kernel.admit(&task.id).unwrap();
     let a = dispatched(&w, &tg, "provider.messages", 10_000);
+    // The settle's first read of the parent is `lock_family`'s walk up the
+    // family, before the lock (an execution's `parent` never changes, so that
+    // read is sound); its second is the carry's, under the lock.
     let r = race(
         &w.kernel,
         &p,
-        (kinds::EXECUTION, &parent.id, 1),
+        (kinds::EXECUTION, &parent.id, 2),
         |k| {
             k.accept_completion(&completion(
                 &a.correlation_id,
