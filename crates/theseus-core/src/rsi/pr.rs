@@ -371,6 +371,13 @@ pub async fn propose(
         diff: (0, 0, 0),
     };
     let said = attempt(&core, &place, tc, &mut a).await;
+    super::infra::watch(
+        &core,
+        &place,
+        &a.tree.branch,
+        super::infra::of_attempt(a.verdict, a.gate.as_ref()),
+        a.gate.as_ref().and_then(|g| g.exit),
+    );
     built(tc, &a);
     said
 }

@@ -44,6 +44,7 @@ pub mod capacity;
 pub(crate) mod digest;
 pub mod evidence;
 pub mod exams;
+pub mod infra;
 pub mod jail;
 pub mod join;
 mod log;

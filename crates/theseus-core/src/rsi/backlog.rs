@@ -507,7 +507,13 @@ impl Core {
             now: now_ms,
             st,
         };
-        Self::backlog_file(&mut w, &cands, &mut night);
+        // An item whose newest build never had a gate run is unjudged: its
+        // cause is not filed again as though the code had failed (theseus-otkwu).
+        let unjudged = match super::join::rows_of(&self.store, &["self.branch.built"])? {
+            Some(rows) => super::infra::unjudged_items(&rows),
+            None => Default::default(),
+        };
+        Self::backlog_file(&mut w, &cands, &unjudged, &mut night);
         w.rank(cfg.backlog_max_open as usize, "night", &mut night);
         self.backlog_write(&mut w)?;
         if gate(&self.self_ctx()) != Gate::Allowed {
@@ -527,7 +533,12 @@ impl Core {
     }
 
     /// Phase one: the night's candidates onto the backlog.
-    fn backlog_file(w: &mut Work, cands: &[Candidate], night: &mut Night) {
+    fn backlog_file(
+        w: &mut Work,
+        cands: &[Candidate],
+        unjudged: &std::collections::HashSet<String>,
+        night: &mut Night,
+    ) {
         if w.st.parent.is_none() && !cands.is_empty() {
             let id = task_graph::id_from(&crate::new_id("x"));
             w.parent = Some(
@@ -556,6 +567,16 @@ impl Core {
         }
         for c in cands {
             if w.st.is_dropped(&c.key) {
+                night.kept_out += 1;
+                continue;
+            }
+            // A closed item of this cause whose build was never judged: its
+            // cause waits for a person (`self retry`), not for a fresh patch.
+            if w.st.items.iter().any(|(id, m)| {
+                m.cause == c.key
+                    && unjudged.contains(id)
+                    && w.tasks.get(id).is_some_and(|t| t.state.is_closed())
+            }) {
                 night.kept_out += 1;
                 continue;
             }

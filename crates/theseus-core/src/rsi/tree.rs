@@ -72,6 +72,11 @@ impl Notify {
     pub fn new(f: impl Fn(String) + Send + Sync + 'static) -> Self {
         Self(Arc::new(f))
     }
+
+    /// Send one notice.
+    pub(crate) fn send(&self, text: String) {
+        (self.0)(text);
+    }
 }
 
 impl std::fmt::Debug for Notify {
