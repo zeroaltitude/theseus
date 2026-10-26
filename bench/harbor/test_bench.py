@@ -1153,7 +1153,7 @@ class Providers(unittest.TestCase):
 
     def test_no_key_material_in_a_rendered_profile(self):
         # The hole stays a hole: only variable names, never a value.
-        env = {k: "sk-test-sentinel-value" for k in
+        env = {k: "not-a-key-sentinel" for k in
                ("ANTHROPIC_API_KEY", *(p["key_env"] for p in tb.PROVIDERS.values()))}
         with unittest.mock.patch.dict(os.environ, env), \
                 unittest.mock.patch.dict(tb.PROVIDERS, self.FAKE):
