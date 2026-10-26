@@ -15,6 +15,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [m7-surface.md](m7-surface.md): M7, the surface: the MCP client and server, recurring wakes, bindings, the task graph, the web UI, self-extension, and voice. Roadmap steps 36 to 39 and 41 to 45.
 - [threads.md](threads.md): the threads lane's rules and decisions: the router's order, the directory rule, the ask's `new` offer, the bench's clock, deferred tools past the budget and the `raised` field, the families call, and the home claim beside a split.
 - [self-gates-inventory.md](self-gates-inventory.md): every gate, wait and stop on Theseus's own work, one row each, and which can become notify-then-work without losing a money backstop (theseus-nmod9). States as of install #91; the money and AWS lines and the keel list are all marked keep.
+- [onto-sweep-pace.md](onto-sweep-pace.md): why the onto sweep's wait between questions hung a chain test on a loaded host, the two loaded arms and the asymmetry between them, the gdb stack that named `pressure::quiet` rather than a deadlock, and the four sibling sites that keep the same latent shape (theseus-75t4q).
 
 And one review:
 
