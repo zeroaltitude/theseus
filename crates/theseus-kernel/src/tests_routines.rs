@@ -266,3 +266,84 @@ fn a_restart_across_occurrences_passes_two_over_for_one_catch_up_to_say() {
         (Some(2), Some(true))
     );
 }
+
+/// theseus-rrqmr: a routine's fire goes through the task depth bound. A
+/// routine's series can be set on any execution that has not ended
+/// (`create_wake` asks nothing about its kind), a task included; firing it
+/// there opens nothing and refuses with `TaskDepth`, and the fire writes
+/// nothing at all. Before the fix `routines.rs` called `carve_task` with no
+/// depth argument, so the fire carved a task under a task — a chain the
+/// depth bound could say nothing about.
+#[test]
+fn a_routine_fired_in_a_task_refuses_at_the_depth_bound() {
+    let w = world_with(cfg());
+    let (_, _parent, g) = running(&w);
+    let task = w
+        .kernel
+        .open_task(&g, &new_id("act"), 10 * RUN, None, false, |_| Ok(vec![]))
+        .unwrap()
+        .task;
+    let first = w.kernel.now_ms() + MIN;
+    w.kernel
+        .create_wake(
+            &task.id,
+            None,
+            NewWake {
+                due_at_ms: first,
+                note: "a routine where no routine belongs".into(),
+                repeat: Some(Repeat {
+                    every: Every::parse("1m").unwrap(),
+                    first_ms: first,
+                    days: vec![],
+                    until_ms: None,
+                    cron: None,
+                }),
+                purpose: Purpose::Routine,
+                run: WakeRun::Task(TaskRun {
+                    brief: "summarize".into(),
+                    limit_micros: RUN,
+                    tools: vec![],
+                }),
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap();
+    w.clock.advance(MIN);
+    let at = w.kernel.store().last_position();
+    let err = w
+        .kernel
+        .fire_routines(&task.id, |_, _| Ok(run(false)))
+        .unwrap_err();
+    assert!(
+        matches!(
+            err.downcast_ref::<KernelError>(),
+            Some(KernelError::TaskDepth { .. })
+        ),
+        "{err:#}"
+    );
+    assert_eq!(
+        w.kernel.store().last_position(),
+        at,
+        "a refused fire writes nothing"
+    );
+    assert!(
+        w.kernel.tasks(Some(&task.id)).unwrap().is_empty(),
+        "and opens nothing"
+    );
+    // `run_routine_now` is the same bound: a person asking changes nothing.
+    let wake = exec(&w, &task.id).wakes[0].id.clone();
+    let err = w
+        .kernel
+        .run_routine_now(&task.id, &wake, |_, _| Ok(run(false)))
+        .unwrap_err();
+    assert!(
+        matches!(
+            err.downcast_ref::<KernelError>(),
+            Some(KernelError::TaskDepth { .. })
+        ),
+        "{err:#}"
+    );
+    assert_eq!(w.kernel.store().last_position(), at);
+    drop(g);
+}
