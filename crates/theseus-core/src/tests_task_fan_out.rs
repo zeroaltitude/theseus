@@ -828,6 +828,19 @@ async fn a_crash_after_the_helpers_opened_leaves_one_set_and_the_wait_finds_it()
     );
 }
 
+/// The objective each helper quotes is the report that started this turn, not
+/// the earlier exchange's operator message (the stack review's N6).
+fn the_objective_is_the_report_that_started_the_turn(core: &Core, parent: &str) {
+    for t in tasks_of(core, parent)
+        .iter()
+        .filter(|t| t.helper_of().is_some())
+    {
+        let text = briefs(core, t);
+        assert!(text.contains("[Report from task"), "{text}");
+        assert!(!text.contains(crate::tests_tasks::QUOTE), "{text}");
+    }
+}
+
 /// A fan-out a turn makes by itself (a wake, a report) says why, as a task it
 /// starts does (theseus-o1h3f.1): without `because` it is refused in the words
 /// that name it and opens nothing; with it, each helper is a self-started task
@@ -931,14 +944,5 @@ async fn a_fan_out_a_wake_makes_says_why_and_each_helper_carries_it() {
             Some("the survey named two areas it missed")
         );
     }
-    // The objective each helper quotes is the report that started this turn,
-    // not the earlier exchange's operator message (the stack review's N6).
-    for t in tasks_of(&r2.core, &p2)
-        .iter()
-        .filter(|t| t.helper_of().is_some())
-    {
-        let text = briefs(&r2.core, t);
-        assert!(text.contains("[Report from task"), "{text}");
-        assert!(!text.contains(crate::tests_tasks::QUOTE), "{text}");
-    }
+    the_objective_is_the_report_that_started_the_turn(&r2.core, &p2);
 }
