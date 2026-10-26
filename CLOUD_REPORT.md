@@ -54,4 +54,4 @@ Add `framing`, `model`, `model_note`, `provider`, `routing`, `k`, `task_set`, `s
 `python3 bench/report/manifest.py build --dir /tmp/m` over a copy of `docs/benchmarks/`; every old key of every row should equal the committed `index.json`'s, with the 9 new keys added.
 
 ## Gate
-See the section below.
+`CARGO_INCREMENTAL=0 TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 scripts/gate.sh`, run on the code commit `8a5533c7`: **FAILED in `test build`, not a test failure.** Phases before it passed: door, keel, keel tests, fmt, shape, recall tests, features, clippy, clippy-probe, cockpit. The test build died linking theseusd's `judge` test (`ld terminated with signal 7 [Bus error]`) with the volume at 100% (this VM's disk allowance, ~10 GB left after clearing `target/debug/incremental` twice). The suite and the later `machine_checks` phases did not run, so the gate is **not** green here. This commit changes only Python under `bench/report/`, which no Rust phase builds or reads; the `bench/` suites above are its gate. The maintainer should run the full gate on the owner's machine.
