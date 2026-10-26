@@ -1094,5 +1094,76 @@ class ListPrices(unittest.TestCase):
         self.assertNotEqual(ef.LIST_PRICES["claude-opus-5"], ef.LIST_PRICES["claude-opus-5-5"])
 
 
+class Providers(unittest.TestCase):
+    """A provider carried from `-m` into the profile (theseus-fhwo7). The
+    providers here are stand-ins: no real key, and no real provider's
+    variable, is named in a test."""
+
+    FAKE = {"fakeprov": {"api_base": "https://fake.invalid/anthropic",
+                         "secret": "fakeprov_api_key", "key_env": "FAKEPROV_PLACEHOLDER_VAR"}}
+
+    def render(self, name):
+        provider, model = tb.split_model(name)
+        values = tb.settings(model, "/app", spend_limit_usd=3.75, day_ceiling_usd=7.5,
+                             provider=provider)
+        return tb.profile(tb.PROFILE.read_text(), values)
+
+    def test_a_fake_provider_lands_in_the_profile(self):
+        with unittest.mock.patch.dict(tb.PROVIDERS, self.FAKE):
+            self.assertEqual(tb.split_model("fakeprov/fake-model-1"), ("fakeprov", "fake-model-1"))
+            cfg = tomllib.loads(self.render("fakeprov/fake-model-1"))
+            self.assertEqual(tb.key_env("fakeprov"), "FAKEPROV_PLACEHOLDER_VAR")
+        self.assertEqual(cfg["model"]["provider"], "fakeprov")
+        self.assertEqual(cfg["model"]["model"], "fake-model-1")
+        self.assertEqual(cfg["profiles"]["bench"]["provider"], "fakeprov")
+        self.assertEqual(cfg["profiles"]["bench"]["model"], "fake-model-1")
+        block = cfg["providers"]["fakeprov"]
+        self.assertEqual(block["api_base"], "https://fake.invalid/anthropic")
+        self.assertEqual(block["api_key_secret"], "fakeprov_api_key")
+        self.assertEqual(block["kind"], "anthropic_messages")
+        self.assertEqual(cfg["model"]["api_key_secret"], "fakeprov_api_key")
+        self.assertEqual(cfg["secrets"]["fakeprov_api_key"], "env:FAKEPROV_PLACEHOLDER_VAR")
+
+    def test_an_unknown_provider_raises_naming_the_supported(self):
+        with self.assertRaises(ValueError) as ctx:
+            tb.split_model("zia/glm-5.3")
+        for known in ("anthropic", *tb.PROVIDERS):
+            self.assertIn(known, str(ctx.exception))
+
+    def test_the_catalogs_provider_spellings(self):
+        self.assertEqual(set(tb.PROVIDERS), {"zai", "moonshot", "deepseek"})
+        for p in tb.PROVIDERS.values():
+            self.assertTrue(p["api_base"].startswith("https://"))
+            self.assertRegex(p["key_env"], r"^[A-Z][A-Z0-9_]*_API_KEY$")
+
+    def test_the_anthropic_profile_is_byte_unchanged(self):
+        # Hashed from the profile as it rendered before the provider plumbing
+        # (a regression guard: it passed on the base, as it should).
+        import hashlib
+
+        want = "189d8e65a1675e7bcc5c205fa497b61bca4ab8952b601bc2cddc5c67ca40376b"
+        for name in ("anthropic/claude-sonnet-5-5", "claude-sonnet-5-5", None):
+            self.assertEqual(hashlib.sha256(self.render(name).encode()).hexdigest(), want, name)
+        self.assertNotIn("[providers", self.render(None))
+
+    def test_the_routed_arm_refuses_another_provider(self):
+        with unittest.mock.patch.dict(tb.PROVIDERS, self.FAKE):
+            with self.assertRaises(ValueError):
+                tb.settings("fake-model-1", "/app", provider="fakeprov", routed=True)
+
+    def test_no_key_material_in_a_rendered_profile(self):
+        # The hole stays a hole: only variable names, never a value.
+        env = {k: "sk-test-sentinel-value" for k in
+               ("ANTHROPIC_API_KEY", *(p["key_env"] for p in tb.PROVIDERS.values()))}
+        with unittest.mock.patch.dict(os.environ, env), \
+                unittest.mock.patch.dict(tb.PROVIDERS, self.FAKE):
+            for name in ("anthropic/claude-sonnet-5-5", "fakeprov/fake-model-1", "zai/glm-5.3"):
+                text = self.render(name)
+                self.assertNotIn("sentinel", text, name)
+                cfg = tomllib.loads(text)
+                for ref in cfg["secrets"].values():
+                    self.assertRegex(ref, r"^env:[A-Z][A-Z0-9_]*$", name)
+
+
 if __name__ == "__main__":
     unittest.main()
