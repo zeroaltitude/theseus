@@ -706,13 +706,20 @@ pub(super) fn wait_notice_for_test(slug: &str, log: &str) -> String {
     wait_notice(slug, Duration::from_secs(1800), log)
 }
 
-/// The phase a gate log was last in: its last `gate: ` line.
-fn last_phase(log: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(log).ok()?;
-    text.lines()
-        .rev()
-        .find(|l| l.starts_with("gate: "))
-        .map(|l| l.chars().take(200).collect())
+/// The phase a gate log was last in, as a stop says it: its last `gate: `
+/// line, or that the log has none yet. The stop at L0 and the stop in a
+/// daemon's jail say it the same way.
+pub(super) fn phase_note(log: &Path) -> String {
+    let last = std::fs::read_to_string(log).ok().and_then(|text| {
+        text.lines()
+            .rev()
+            .find(|l| l.starts_with("gate: "))
+            .map(|l| l.chars().take(200).collect::<String>())
+    });
+    last.map_or_else(
+        || "no `gate: ` line in its log yet".to_string(),
+        |l| format!("`{l}`"),
+    )
 }
 
 /// `bash <script>` in the tree at nice 19 (and the idle IO class where
@@ -768,13 +775,10 @@ pub(super) async fn run_niced(
                 unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
             }
             let _ = child.wait().await;
-            let phase = last_phase(log).map_or_else(
-                || "no `gate: ` line in its log yet".to_string(),
-                |l| format!("`{l}`"),
-            );
             bail!(
-                "the gate ran past {} minutes and was stopped; its log's last phase line: {phase}",
-                limit.as_secs() / 60
+                "the gate ran past {} minutes and was stopped; its log's last phase line: {}",
+                limit.as_secs() / 60,
+                phase_note(log)
             )
         }
     }

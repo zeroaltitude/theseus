@@ -362,6 +362,41 @@ fn a_jailed_gate_script_runs_though_its_directory_is_approve_listed() {
     assert!(!floor.contains("SECRET"), "{floor}");
 }
 
+/// A job stopped at its limit in a daemon's jail names the phase its log was
+/// last in (theseus-vv4km; theseus-ccik8 did it for the L0 stop only, and a
+/// daemon never takes that one); a log with no phase line says so.
+#[test]
+fn a_stopped_jailed_job_names_its_phase() {
+    if refused_as_root() {
+        return;
+    }
+    let r = Rig::new();
+    for (i, (body, want)) in [
+        (
+            "echo 'gate: phase suite'; exec sleep 60",
+            "gate: phase suite",
+        ),
+        ("exec sleep 60", "no `gate: ` line"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let log = r.path(&format!("stopped-{i}.log"));
+        let job = Job {
+            tree: &r.tree,
+            ro: Vec::new(),
+            argv: ["sh", "-c", body].map(OsString::from).to_vec(),
+            env: Vec::new(),
+            log: &log,
+            limit: Duration::from_secs(3),
+        };
+        let e = r.jail.run_blocking(&r.place, &job).unwrap_err();
+        let said = format!("{e:#}");
+        assert!(said.contains("was stopped"), "{said}");
+        assert!(said.contains(want), "{said}");
+    }
+}
+
 /// The gate of a tiny crate: `cargo test` of two files passes in the view,
 /// with the target dir the tree's own.
 #[test]
