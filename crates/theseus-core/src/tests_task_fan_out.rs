@@ -255,6 +255,38 @@ async fn the_budget_splits_equally_and_the_floor_refuses_a_carve_that_cannot_aff
     assert!(tasks_of(&r4.core, &p4).is_empty());
 }
 
+/// A `budget_usd` the model names is bounded by what the session can carve. The
+/// owner (z9mze Q1): helpers share half of what is left, the parent keeps half.
+/// An asked total far over the session's limit once passed the floor check at a
+/// huge per-helper figure and carved several times the whole limit (the stack
+/// review's F2), so the helpers together may never carve more than the session
+/// has.
+#[tokio::test]
+async fn an_asked_budget_over_the_session_carves_no_more_than_the_session_has() {
+    let call: Call = Arc::new(Mutex::new(
+        json!({"helpers": helpers(3), "budget_usd": 600.0, "wait": false}),
+    ));
+    let r = fan_rig(
+        call,
+        |_| Scripted::text("ok"),
+        |c| c.kernel.spend_limit_usd = 8.0,
+    );
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let carved: u64 = tasks_of(&r.core, &parent)
+        .iter()
+        .map(|t| t.budget.limit_micros)
+        .sum();
+    assert!(
+        !tasks_of(&r.core, &parent).is_empty(),
+        "an over-asked budget is clamped, not refused"
+    );
+    assert!(
+        carved <= 8_000_000,
+        "three helpers carved {carved} micro-dollars against a session limit of $8"
+    );
+}
+
 /// There is no cap on the count. The owner (2026-10-24): "very very lightweight
 /// on any limits to theseus tasking itself ... notify, work, and allow
 /// feedback", and "All recs!" to the cap question: no per-turn child cap
