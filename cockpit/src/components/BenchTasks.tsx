@@ -4,10 +4,10 @@
 import { ListChecks } from 'lucide-react'
 import { Drawer, Section } from './CallInspector'
 import { Panel } from './ui'
-import { usdWords, wallWords, type TaskRow } from '@/lib/benchtasks'
+import { usdWords, wallWords, type Catalogue, type TaskInfo, type TaskRow } from '@/lib/benchtasks'
 
-export function BenchTasks({ rows, label, selected, onSelect }: {
-  rows: TaskRow[]; label: string; selected: string | null; onSelect: (task: string | null) => void
+export function BenchTasks({ rows, label, selected, onSelect, catalogue }: {
+  rows: TaskRow[]; label: string; catalogue?: Catalogue; selected: string | null; onSelect: (task: string | null) => void
 }) {
   const row = rows.find((r) => r.task === selected)
   return (
@@ -42,16 +42,17 @@ export function BenchTasks({ rows, label, selected, onSelect }: {
           </table>
         </div>
       </Panel>
-      {row && <TaskDrawer row={row} onClose={() => onSelect(null)} />}
+      {row && <TaskDrawer row={row} info={catalogue?.tasks.get(row.task)} onClose={() => onSelect(null)} />}
     </>
   )
 }
 
-function TaskDrawer({ row, onClose }: { row: TaskRow; onClose: () => void }) {
+function TaskDrawer({ row, info, onClose }: { row: TaskRow; info?: TaskInfo; onClose: () => void }) {
   const a = row.assessment
   return (
     <Drawer onClose={onClose} head={<span className="font-mono text-[13px] text-ink">{row.task}</span>}>
       <div className="min-h-0 flex-1 overflow-auto px-4 py-3 text-[12px]">
+        {info && <Description info={info} />}
         <Section title="Where Theseus stands">
           <p className="text-ink"><b className="font-semibold">{a.word}</b></p>
           <p className="mt-0.5 text-ink-dim">{a.counts}{row.best ? ` (compared with ${a.against})` : ''}</p>
@@ -68,5 +69,30 @@ function TaskDrawer({ row, onClose }: { row: TaskRow; onClose: () => void }) {
         </Section>
       </div>
     </Drawer>
+  )
+}
+
+/** What the task is, from the catalogue; nothing at all when the catalogue holds no facts for it. */
+function Description({ info }: { info: TaskInfo }) {
+  const facts = [
+    info.difficulty && `difficulty: ${info.difficulty}`, info.category && `category: ${info.category}`,
+    info.expertMin !== undefined && `an expert: ${info.expertMin} min`, info.juniorMin !== undefined && `a junior: ${info.juniorMin} min`,
+    info.timeoutS !== undefined && `timeout: ${info.timeoutS} s`,
+  ].filter((x): x is string => !!x)
+  if (!facts.length && !info.summary && !info.tags?.length) return null
+  return (
+    <Section title="What the task is">
+      {facts.length > 0 && <p className="text-ink-dim">{facts.join(' · ')}</p>}
+      {info.tags && info.tags.length > 0 && <p className="mt-0.5 text-[11px] text-ink-faint">{info.tags.join(', ')}</p>}
+      {info.summary && (
+        <blockquote className="mt-1.5 border-l-2 border-line pl-2 text-ink-dim">
+          {info.summary}
+          <footer className="mt-0.5 text-[11px] text-ink-faint">
+            an excerpt of the upstream task’s instruction{info.source && <>, <a href={info.source} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-live">the task upstream</a></>}
+          </footer>
+        </blockquote>
+      )}
+      {!info.summary && info.source && <a href={info.source} target="_blank" rel="noreferrer" className="text-[11px] underline hover:text-live">the task upstream</a>}
+    </Section>
   )
 }

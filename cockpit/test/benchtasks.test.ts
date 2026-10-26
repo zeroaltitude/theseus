@@ -50,3 +50,21 @@ test('the real v1-high table: 89 rows, counts that sum to each arm’s trials', 
     assert.ok(Object.values(WORDS).includes(r.assessment.word as never))
   }
 })
+
+test('the catalogue is read like the manifest: an untrusted file gives no descriptions and a reason', async () => {
+  const { readCatalogue } = await import('../src/lib/benchtasks.ts')
+  for (const bad of [null, '', '{', '[]', '{"version":2,"tasks":{}}', '{"version":1}']) {
+    const c = readCatalogue(bad)
+    assert.equal(c.tasks.size, 0)
+    assert.ok(c.reason)
+  }
+  const ok = readCatalogue(JSON.stringify({ version: 1, suite: 's', tasks: {
+    a: { title: 'a task', difficulty: 'hard', tags: ['x'], expert_min: 5, summary: 'Do it.', source: 'javascript:alert(1)' },
+    b: { difficulty: 7, tags: [1] }, c: 'nope' } }))
+  assert.equal(ok.reason, null)
+  assert.deepEqual([...ok.tasks.keys()], ['a', 'b'])
+  assert.equal(ok.tasks.get('a')!.expertMin, 5)
+  assert.equal(ok.tasks.get('a')!.source, undefined)
+  assert.equal(ok.tasks.get('b')!.difficulty, undefined)
+  assert.equal(ok.tasks.get('b')!.tags, undefined)
+})

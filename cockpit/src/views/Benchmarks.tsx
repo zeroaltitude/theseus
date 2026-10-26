@@ -14,7 +14,7 @@ import {
   axes, axesOf, axisName, inverted, family, frontier, harness, showsName, theseusOf, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, unequal, UNEQUAL,
   type Note, type Placed, type Point, type Property, type TaskSet,
 } from '@/lib/bench'
-import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets } from '@/lib/benchfiles'
+import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets, useTaskCatalogue } from '@/lib/benchfiles'
 import { LEAD, sparkline, type Series } from '@/lib/benchindex'
 import { BenchTasks } from '@/components/BenchTasks'
 import { taskRows } from '@/lib/benchtasks'
@@ -90,6 +90,7 @@ export default function Benchmarks() {
   const unit = useMemo(() => cloudUnit(ps), [ps])
   // The task table (`?tasks=on`) and its drawer (`?task=<id>`): per-task points, counted within this set's one report.
   const tasksOn = params.get('tasks') === 'on' || !!params.get('task')
+  const catalogue = useTaskCatalogue()
   const taskTable = useMemo(() => {
     const [c, j, m] = [csv.data, json.data, md.data]
     return tasksOn && c && j && m && ps.length ? taskRows(points(set, c.get(set.report) ?? '', j.get(set.report), m.get(set.report), set.report.slice(0, 10), 'task')) : []
@@ -158,7 +159,7 @@ export default function Benchmarks() {
         </div>
       </ChartPanel>
 
-      {tasksOn && taskTable.length > 0 && <BenchTasks rows={taskTable} label={set.label} selected={params.get('task')} onSelect={(t) => put('task', t)} />}
+      {tasksOn && taskTable.length > 0 && <BenchTasks catalogue={catalogue} rows={taskTable} label={set.label} selected={params.get('task')} onSelect={(t) => put('task', t)} />}
 
       <Conditions set={set} />
 

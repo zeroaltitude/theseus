@@ -74,3 +74,44 @@ export function everyAssessment(): Assessment[] {
   return [[undefined, s(1, 3)], [s(1, 1), s(1, 3)], [s(0, 3), s(0, 3)], [s(2, 3), s(0, 3)], [s(2, 3), s(2, 3)], [s(3, 3), s(2, 3)], [s(1, 3), s(2, 3)]]
     .map(([a, b]) => assess(a, b))
 }
+
+// ---------------------------------------------------------------- the task catalogue (theseus-hbh4m)
+
+/** What the catalogue (`docs/benchmarks/tasks.json`, `bench/report/tasks.py`) says of one task. Every field is optional. */
+export interface TaskInfo {
+  title?: string; difficulty?: string; category?: string; tags?: string[]; expertMin?: number; juniorMin?: number
+  timeoutS?: number; cpus?: number | string; memory?: string
+  /** Upstream's prose: an excerpt, shown as one and attributed. */
+  summary?: string
+  /** Where the task lives upstream; written only from an explicit base, linked only when present. */
+  source?: string
+}
+export type Catalogue = { tasks: Map<string, TaskInfo>; suite: string | null; reason: string | null }
+
+const NONE = (reason: string): Catalogue => ({ tasks: new Map(), suite: null, reason })
+const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
+const nbr = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+
+/** Read the catalogue's text the way the manifest is read: a file it cannot trust gives no descriptions and the reason,
+ *  never a throw. A field of the wrong type is left out; the rest of its task stays. */
+export function readCatalogue(text: string | null | undefined): Catalogue {
+  if (!text) return NONE('the build embeds no task catalogue')
+  let doc: unknown
+  try { doc = JSON.parse(text) } catch { return NONE('the task catalogue is not valid JSON') }
+  if (!obj(doc)) return NONE('the task catalogue is not an object')
+  if (doc.version !== 1) return NONE(`the task catalogue is version ${String(doc.version)}; this build reads version 1`)
+  if (!obj(doc.tasks)) return NONE('the task catalogue has no `tasks` table')
+  const tasks = new Map<string, TaskInfo>()
+  for (const [id, raw] of Object.entries(doc.tasks)) {
+    if (!obj(raw)) continue
+    const tags = Array.isArray(raw.tags) && raw.tags.every((t) => typeof t === 'string') ? (raw.tags as string[]) : undefined
+    const source = str(raw.source)
+    tasks.set(id, {
+      title: str(raw.title), difficulty: str(raw.difficulty), category: str(raw.category), tags, expertMin: nbr(raw.expert_min),
+      juniorMin: nbr(raw.junior_min), timeoutS: nbr(raw.timeout_s), cpus: nbr(raw.cpus) ?? str(raw.cpus), memory: str(raw.memory),
+      summary: str(raw.summary)?.slice(0, 200), source: source && /^https?:\/\//.test(source) ? source : undefined,
+    })
+  }
+  return { tasks, suite: str(doc.suite) ?? null, reason: null }
+}

@@ -7,6 +7,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { allSets, reportName, TASK_SETS } from '@/lib/bench'
 import { readManifest } from '@/lib/benchindex'
+import { readCatalogue } from '@/lib/benchtasks'
 
 type Load = () => Promise<string>
 
@@ -71,4 +72,10 @@ export function useBenchSets() {
     }))),
   })
   return { sets: q.data ?? TASK_SETS, loading: q.isPending }
+}
+
+/** The task catalogue, `docs/benchmarks/tasks.json` (theseus-hbh4m): written locally by `bench/report/tasks.py`, so a build may not hold it; then there are no descriptions and the page is whole without them. */
+export function useTaskCatalogue() {
+  const file = useBenchFile('tasks', 'json')
+  return useMemo(() => readCatalogue(file.data), [file.data])
 }
