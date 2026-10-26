@@ -542,8 +542,9 @@ mod tests {
         assert!(merged.has(Flag::Confidential), "the stored label survives");
         assert_eq!(
             merged.judged_through.as_deref(),
-            None,
-            "the turn read nothing, so its judged_through is stale and dropped"
+            Some("n5"),
+            "the turn never saw n5, so its claim to have judged through n7 would skip what \
+             came between: the stored mark stands and the turn's is dropped"
         );
         // One that read the stored state: its advance is taken.
         let read: ContentFlags = serde_json::from_value(serde_json::to_value(&*stored).unwrap())
