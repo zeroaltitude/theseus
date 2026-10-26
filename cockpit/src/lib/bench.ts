@@ -15,6 +15,9 @@ import { usd } from './figures.ts'
 /** A report's files, as the build embeds them: its name (`2026-10-04-terminal-bench-first-full-run`) and texts. */
 export interface ReportFiles { name: string; md?: string; json?: string; csv?: string }
 
+/** Where a report's markdown lives on GitHub (public, default branch `main`): the one base every "on GitHub" link takes. */
+export const GITHUB_DOCS = 'https://github.com/zeroaltitude/theseus/blob/main/docs/benchmarks/'
+
 /** The suites a report's name can start with after its date (`docs/benchmarks/README.md`, "Its name"). */
 export const SUITES = ['terminal-bench', 'swe-bench', 'harbor', 'gate-bench', 'memory-exam', 'retrieval', 'recall', 'async', 'context'] as const
 

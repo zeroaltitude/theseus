@@ -16,6 +16,8 @@ import {
 } from '@/lib/bench'
 import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets } from '@/lib/benchfiles'
 import { sparkline, type Series } from '@/lib/benchindex'
+import { BenchIndex } from '@/components/BenchIndex'
+import { cardsOf } from '@/lib/benchcards'
 import { cloudCaption, cloudDrawn, cloudTip, cloudUnit } from '@/lib/benchcloud'
 import type { EChartsOption } from '@/lib/chart'
 import { CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIP_FRAME, baseAxis, niceStep, usdTick, valueAxis } from '@/lib/viz'
@@ -116,6 +118,8 @@ export default function Benchmarks() {
 
       <YourWork />
 
+      <Cards list={list} />
+
       <Newest />
 
       <ChartPanel<Point> help="bench.frontier"
@@ -174,6 +178,14 @@ export default function Benchmarks() {
       </Panel>
     </div>
   )
+}
+
+/** The browse cards over the manifest and the reports (`lib/benchcards.ts`). */
+function Cards({ list }: { list: ReturnType<typeof runs> }) {
+  const { loading, manifest } = useBenchManifest()
+  const cards = useMemo(() => cardsOf(manifest, list, REPORTS), [manifest, list])
+  if (loading) return null
+  return <BenchIndex cards={cards} reason={manifest.reason} />
 }
 
 const plainArms = (s: string) => s.replace(/`/g, '')
