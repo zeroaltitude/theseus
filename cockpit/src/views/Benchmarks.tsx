@@ -11,10 +11,10 @@ import { useEffect, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ArrowLeftRight, FlaskConical, ListOrdered, Trophy } from 'lucide-react'
 import {
-  axes, DEFAULT_AXES, frontier, harness, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, TASK_SETS, unequal, UNEQUAL,
-  type Note, type Placed, type Point, type Property, type SetId, type TaskSet,
+  axes, axesOf, axisName, inverted, family, frontier, harness, showsName, theseusOf, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, unequal, UNEQUAL,
+  type Note, type Placed, type Point, type Property, type TaskSet,
 } from '@/lib/bench'
-import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest } from '@/lib/benchfiles'
+import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets } from '@/lib/benchfiles'
 import { sparkline, type Series } from '@/lib/benchindex'
 import type { EChartsOption } from '@/lib/chart'
 import { CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIP_FRAME, baseAxis, niceStep, usdTick, valueAxis } from '@/lib/viz'
@@ -40,9 +40,6 @@ function pointName(p: Point, many: boolean): string {
   return many ? `${harness(p.harness).name}, ${p.runLabel}` : harness(p.harness).name
 }
 
-const arrow = (p: Property, axis: 'x' | 'y') =>
-  axis === 'x' ? (p.better === 'lower' ? '← better' : 'better →') : (p.better === 'lower' ? '↓ better' : '↑ better')
-
 export default function Benchmarks() {
   const nav = useNavigate()
   const [params, setParams] = useSearchParams()
@@ -55,25 +52,26 @@ export default function Benchmarks() {
   const extra = useBenchFiles(unindexed, 'md')
   const list = useMemo(() => runs(REPORTS, index, new Map([...(extra.data ?? new Map<string, string>())].map(([n, md]) => [n, reportTitle(md) ?? n]))), [index, extra.data])
 
-  // The task sets' files: four reports' tables, data files and words.
-  const setReports = useMemo(() => [...new Set(TASK_SETS.map((s) => s.report))], [])
+  const { sets: SETS, loading: setsLoading } = useBenchSets()
+  // The task sets' files: the reports' tables, data files and words.
+  const setReports = useMemo(() => [...new Set(SETS.map((s) => s.report))], [SETS])
   const csv = useBenchFiles(setReports, 'csv'), json = useBenchFiles(setReports, 'json'), md = useBenchFiles(setReports, 'md')
   const all = useMemo(() => {
     const [c, j, m] = [csv.data, json.data, md.data]
-    if (!c || !j || !m) return null
-    return new Map(TASK_SETS.map((s) => [s.id, points(s, c.get(s.report) ?? '', j.get(s.report), m.get(s.report), s.report.slice(0, 10))]))
-  }, [csv.data, json.data, md.data])
+    if (!c || !j || !m || setsLoading) return null
+    return new Map(SETS.map((s) => [s.id, points(s, c.get(s.report) ?? '', j.get(s.report), m.get(s.report), s.report.slice(0, 10))]))
+  }, [csv.data, json.data, md.data, SETS, setsLoading])
 
-  const set = TASK_SETS.find((s) => s.id === params.get('set')) ?? TASK_SETS[0]
+  const set = SETS.find((s) => s.id === params.get('set')) ?? SETS[0]
   const ps = useMemo(() => all?.get(set.id) ?? [], [all, set.id])
   const { usable, one } = useMemo(() => axes(ps), [ps])
   // The axes in the address when this task set measured them, else its own; never one property on both.
   const pickAxis = (k: 'x' | 'y', d: string) => usable.find((p) => p.id === params.get(k)) ?? property(d)!
-  const px = pickAxis('x', DEFAULT_AXES[set.id][0])
-  const asked = pickAxis('y', DEFAULT_AXES[set.id][1])
-  const py = asked !== px ? asked : property(DEFAULT_AXES[set.id][1]) !== px ? property(DEFAULT_AXES[set.id][1])! : usable.find((p) => p !== px) ?? asked
+  const px = pickAxis('x', axesOf(set)[0])
+  const asked = pickAxis('y', axesOf(set)[1])
+  const py = asked !== px ? asked : property(axesOf(set)[1]) !== px ? property(axesOf(set)[1])! : usable.find((p) => p !== px) ?? asked
   // A task set keeps the axes picked when it measured both of them, else it opens on its own.
-  const pickSet = (id: SetId) => setParams((p) => {
+  const pickSet = (id: string) => setParams((p) => {
     const next = all?.get(id) ?? []
     const ok = (k: 'x' | 'y') => { const v = p.get(k); return !v || axes(next).usable.some((u) => u.id === v) }
     p.set('set', id)
@@ -117,7 +115,7 @@ export default function Benchmarks() {
         icon={<Trophy size={14} />}
         empty={!all ? 'Reading the runs…' : ps.length < 2 ? 'This task set has fewer than two points.' : undefined}
         table={frontierTable(ps, placed, px, py, usable, set)}
-        actions={<SetPicker value={set.id} onChange={pickSet} />}>
+        actions={<SetPicker sets={SETS} value={set.id} onChange={pickSet} />}>
         <div className="flex h-full flex-col">
           <AxisRow px={px} py={py} usable={usable} one={one}
             onX={(id) => put('x', id)} onY={(id) => put('y', id)} onSwap={() => setParams((p) => { p.set('x', py.id); p.set('y', px.id); return p }, { replace: true })} />
@@ -126,7 +124,7 @@ export default function Benchmarks() {
             <FrontierChart placed={placed} px={px} py={py} many={new Set(ps.map((p) => p.run)).size > 1}
               onPick={(p) => nav(`/benchmarks/${p.report}`)} />
           </div>
-          <Key placed={placed} />
+          <Key placed={placed} px={px} py={py} />
         </div>
       </ChartPanel>
 
@@ -236,10 +234,10 @@ function Spark({ s }: { s: Series }) {
 
 // ---------------------------------------------------------------- the pickers
 
-function SetPicker({ value, onChange }: { value: SetId; onChange: (id: SetId) => void }) {
+function SetPicker({ sets, value, onChange }: { sets: readonly TaskSet[]; value: string; onChange: (id: string) => void }) {
   return (
     <div className="flex flex-wrap items-center rounded-md bg-black/30 p-0.5 ring-1 ring-line" role="tablist" aria-label="task set">
-      {TASK_SETS.map((s) => (
+      {sets.map((s) => (
         <button key={s.id} type="button" role="tab" aria-selected={s.id === value} title={s.label} onClick={() => onChange(s.id)}
           className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors', s.id === value ? 'bg-live/15 text-live shadow-[0_0_10px_-2px_rgba(34,211,238,0.5)]' : 'text-ink-faint hover:text-ink')}>
           {s.short}
@@ -280,7 +278,7 @@ function AxisRow({ px, py, usable, one, onX, onY, onSwap }: {
 // ---------------------------------------------------------------- where Theseus sits, in words
 
 function Verdict({ placed, ps, px, py, many }: { placed: Placed[]; ps: Point[]; px: Property; py: Property; many: boolean }) {
-  const theseus = placed.filter((p) => p.point.harness === 'theseus')
+  const theseus = theseusOf(placed)
   const missing = ps.length - placed.length
   let words: React.ReactNode
   if (!placed.length) words = 'No point measured both of these.'
@@ -298,7 +296,7 @@ function Verdict({ placed, ps, px, py, many }: { placed: Placed[]; ps: Point[]; 
       ? <>Theseus is <b className="font-semibold text-ink">on the frontier</b>{theseus.length === 2 ? ' in both of its points' : theseus.length > 2 ? ` in all ${theseus.length} of its points` : ''}: no harness measured here beats it on both {py.short} and {px.short}.</>
       : on.length
         ? <>Theseus is on the frontier in {on.length} of its {theseus.length} points; {who(off!.point)} is dominated by {whos(off!.dominators)}.</>
-        : <>Theseus is <b className="font-semibold text-ink">behind the frontier</b> here: {who(theseus[0].point)} is dominated by {whos(theseus[0].dominators)}, each as good or better on both {py.short} and {px.short}.</>
+        : <>Theseus is <b className="font-semibold text-ink">behind the frontier</b> here: {theseus.length > 1 ? `none of its ${theseus.length} points is on it; the nearest, ` : ''}{who(theseus[0].point)} is dominated by {whos(theseus[0].dominators)}, each as good or better on both {py.short} and {px.short}.</>
   }
   return (
     <div className="px-2 pb-1 text-[12px] text-ink-dim">
@@ -321,10 +319,10 @@ function FrontierChart({ placed, px, py, many, onPick }: {
   const option = useMemo<EChartsOption>(() => {
     const vaxis = valueAxis(), axis = baseAxis()
     const xlog = logFor(placed.map((p) => p.x)), ylog = logFor(placed.map((p) => p.y))
-    const keys = [...new Set(placed.map((p) => p.point.harness))]
+    const keys = [...new Set(placed.map((p) => family(p.point.harness)))]
     const item = (p: Placed) => {
       const color = harnessColor(p.point.harness)
-      const showName = p.frontier || harness(p.point.harness).slot === null
+      const showName = showsName(p)
       return {
         value: [p.x, p.y], id: p.point.id, name: pointName(p.point, many),
         symbol: unequal(p.point) ? 'diamond' : 'circle',
@@ -350,7 +348,6 @@ function FrontierChart({ placed, px, py, many, onPick }: {
         { value: [p.x, iy.lo, p.x, iy.hi, iy.kind === 'range' ? op * 0.6 : op], itemStyle: { color: harnessColor(p.point.harness) } },
       ].filter((w) => w.value[0] !== w.value[2] || w.value[1] !== w.value[3])
     })
-    const line = staircase(placed, px, py)
     // Each axis spans its points and their whiskers, with air on both sides and ends at clean steps, so no mark sits
     // on the frame and no tick reads 89.1%.
     const extent = (vals: number[], pr: Property, log: boolean): { min?: number; max?: number; interval?: number } => {
@@ -370,7 +367,9 @@ function FrontierChart({ placed, px, py, many, onPick }: {
     const xe = extent(span('x', px), px, xlog), ye = extent(span('y', py), py, ylog)
     // Ticks at the axis's own step: dollars with the decimals the step needs, so $0.08 and $0.10 read alike.
     const fmt = (p: Property, e: { interval?: number }) => (p.unit === 'usd' && e.interval ? usdTick(e.interval) : (v: number) => p.format(v))
-    const name = (p: Property, a: 'x' | 'y', log: boolean) => `${p.label}${log ? ' (log scale)' : ''}   ${arrow(p, a)}`
+    const ext = (e: { min?: number; max?: number }): [number, number] | undefined => (e.min !== undefined && e.max !== undefined ? [e.min, e.max] : undefined)
+    const [ex, ey] = [ext(xe), ext(ye)]
+    const { line, legs } = staircase(placed, px, py, ex && ey ? { x: ex, y: ey } : undefined)
     return {
       grid: { left: 64, right: 150, top: 18, bottom: 46, containLabel: false },
       tooltip: {
@@ -382,18 +381,20 @@ function FrontierChart({ placed, px, py, many, onPick }: {
         },
       },
       xAxis: {
-        ...vaxis, type: xlog ? 'log' : 'value', ...xe, name: name(px, 'x', xlog), nameLocation: 'middle', nameGap: 28,
+        ...vaxis, type: xlog ? 'log' : 'value', ...xe, inverse: inverted(px), name: axisName(px, 'x', xlog), nameLocation: 'middle', nameGap: 28,
         nameTextStyle: { color: C.secondary, fontSize: 11, fontFamily: FONTS.sans },
         axisLine: axis.axisLine, splitLine: { show: false }, axisLabel: { ...vaxis.axisLabel, formatter: fmt(px, xe), hideOverlap: true },
       },
       yAxis: {
-        ...vaxis, type: ylog ? 'log' : 'value', ...ye, name: name(py, 'y', ylog), nameLocation: 'middle', nameGap: 50,
+        ...vaxis, type: ylog ? 'log' : 'value', ...ye, inverse: inverted(py), name: axisName(py, 'y', ylog), nameLocation: 'middle', nameGap: 50,
         nameTextStyle: { color: C.secondary, fontSize: 11, fontFamily: FONTS.sans },
         axisLabel: { ...vaxis.axisLabel, formatter: fmt(py, ye) },
       },
       series: [
         // The frontier: its points joined, keeping to the better side, in the ink (not a series colour: it is no arm's).
         { type: 'line', name: 'the frontier', data: line, symbol: 'none', silent: true, z: 1, lineStyle: { color: C.secondary, width: 1.5 }, animationDurationUpdate: 350 },
+        // Its legs to the frame, dashed and fainter: where the frontier's points say a harness would be beaten, not measured.
+        ...legs.map((leg, i) => ({ type: 'line' as const, name: `the frontier's leg ${i + 1}`, data: leg, symbol: 'none', silent: true, z: 1, lineStyle: { color: C.secondary, width: 1.5, type: 'dashed' as const, opacity: 0.6 } })),
         ...(whiskers.length ? [{
           type: 'custom' as const, name: '95% intervals', silent: true, z: 2,
           data: whiskers,
@@ -406,7 +407,7 @@ function FrontierChart({ placed, px, py, many, onPick }: {
         ...keys.map((k) => ({
           type: 'scatter' as const, name: harness(k).name, z: 3, silent: true,
           itemStyle: { color: harnessColor(k) },
-          data: placed.filter((p) => p.point.harness === k).map(item),
+          data: placed.filter((p) => family(p.point.harness) === k).map(item),
           labelLayout: { hideOverlap: false, moveOverlap: 'shiftY' as const },
         })),
         // The hit targets: 24 px round every point, so a point is easy to find with the pointer and to click.
@@ -443,7 +444,7 @@ function pointTip(p: Placed, px: Property, py: Property, many: boolean): HTMLEle
   ]
   // The point's who, when and how, a line each, after the numbers: they wrap, where a row's label would be cut.
   const lines = [
-    `${harness(pt.harness).name} ${pt.version?.text ?? '(its build not stated)'} · ${pt.model ?? 'model not stated'}`,
+    `${harness(pt.harness).name}${family(pt.harness) !== pt.harness ? ` (${pt.harness})` : ''} ${pt.version?.text ?? '(its build not stated)'} · ${pt.model ?? 'model not stated'}`,
     `effort: ${pt.effort?.text ?? 'not recorded'}`,
     `${pt.runLabel}, ${pt.date}`,
     ...pt.tags.map((t) => `${UNEQUAL.includes(t.kind) ? '◆ ' : ''}${t.text}`),
@@ -461,10 +462,10 @@ function pointTip(p: Placed, px: Property, py: Property, many: boolean): HTMLEle
 }
 
 /** The chart's key: the harnesses' colours, then what a shape, a hollow point and the line mean. */
-function Key({ placed }: { placed: Placed[] }) {
+function Key({ placed, px, py }: { placed: Placed[]; px: Property; py: Property }) {
   const day = useMode((s) => s.mode) === 'light'
   const ink = day ? daylightColor(C.secondary) : C.secondary
-  const keys = [...new Set(placed.map((p) => p.point.harness))]
+  const keys = [...new Set(placed.map((p) => family(p.point.harness)))]
   return (
     <ul className="flex flex-wrap items-center gap-x-3.5 gap-y-1 px-2 pt-1 text-[11px] text-ink-dim" aria-label="legend">
       {keys.map((k) => (
@@ -473,6 +474,12 @@ function Key({ placed }: { placed: Placed[] }) {
       <li className="flex items-center gap-1.5">
         <svg width="14" height="2" aria-hidden><rect width="14" height="2" rx="1" fill={ink} /></svg>the frontier
       </li>
+      <li className="flex items-center gap-1.5">
+        <svg width="14" height="2" aria-hidden><path d="M0 1 H14" stroke={ink} strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" /></svg>its legs to the frame (where the frontier’s points beat a harness: not measured)
+      </li>
+      {[px, py].filter(inverted).map((p) => (
+        <li key={p.id} className="text-ink-faint">{p.short}: lower is better, so lower is {p === px ? 'to the right' : 'up'}</li>
+      ))}
       <li className="flex items-center gap-1.5">
         <svg width="10" height="10" aria-hidden><circle cx="5" cy="5" r="3.5" fill="none" stroke={ink} strokeWidth="2" opacity="0.6" /></svg>dominated (dimmed)
       </li>

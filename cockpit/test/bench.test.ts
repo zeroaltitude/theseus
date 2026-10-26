@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import {
-  answerFirst, atAGlance, axes, sections, figureTable, frontier, linkTo, modelOf, parseCsv, points, property, readIndex,
+  allSets, answerFirst, atAGlance, axes, axesOf, FALLBACK_AXES, harness, setsFrom, sections, figureTable, frontier, linkTo, modelOf, parseCsv, points, property, readIndex,
   readerMarkdown, reportName, runs, selectMedian, staircase, TASK_SETS, unequal, wilson, interval, median, EFFORT, type Point, type Property,
 } from '../src/lib/bench.ts'
 
@@ -199,19 +199,19 @@ test('the frontier: a point is dominated when another is as good on both axes an
   assert.equal(on('worse').dominatedBy?.id, 'cheap')
   assert.deepEqual(on('worse').dominators.map((p) => p.id), ['cheap', 'mid', 'tie']) // not 'dear': dearer, so no better on both
   // The line keeps to the better side: across at the old pass rate, then up.
-  assert.deepEqual(staircase(placed, ax('a', 'lower'), ax('b', 'higher')), [[1, 0.5], [2, 0.5], [2, 0.7], [3, 0.7], [3, 0.9]])
+  assert.deepEqual(staircase(placed, ax('a', 'lower'), ax('b', 'higher')).line, [[1, 0.5], [2, 0.5], [2, 0.7], [3, 0.7], [3, 0.9]])
   // Both lower (cost against time): the slower cheap point and the quicker dear one.
   const both = frontier([pt('p', 1, 9), pt('q', 5, 2), pt('r', 6, 9)], ax('a', 'lower'), ax('b', 'lower'))
   assert.deepEqual(both.map((p) => p.frontier), [true, true, false])
-  assert.deepEqual(staircase(both, ax('a', 'lower'), ax('b', 'lower')), [[1, 9], [5, 9], [5, 2]])
+  assert.deepEqual(staircase(both, ax('a', 'lower'), ax('b', 'lower')).line, [[1, 9], [5, 9], [5, 2]])
   // Both higher: up the left, then across.
   const hi = frontier([pt('p', 1, 9), pt('q', 5, 2), pt('r', 0.5, 1)], ax('a', 'higher'), ax('b', 'higher'))
   assert.deepEqual(hi.map((p) => p.frontier), [true, true, false])
-  assert.deepEqual(staircase(hi, ax('a', 'higher'), ax('b', 'higher')), [[1, 9], [1, 2], [5, 2]])
+  assert.deepEqual(staircase(hi, ax('a', 'higher'), ax('b', 'higher')).line, [[1, 9], [1, 2], [5, 2]])
   // Higher x, lower y.
   const mixed = frontier([pt('p', 1, 1), pt('q', 5, 4), pt('r', 4, 6)], ax('a', 'higher'), ax('b', 'lower'))
   assert.deepEqual(mixed.map((p) => p.frontier), [true, true, false])
-  assert.deepEqual(staircase(mixed, ax('a', 'higher'), ax('b', 'lower')), [[1, 1], [1, 4], [5, 4]])
+  assert.deepEqual(staircase(mixed, ax('a', 'higher'), ax('b', 'lower')).line, [[1, 1], [1, 4], [5, 4]])
   // A point missing either property is not placed.
   const missing = pt('m', 1, 1); delete (missing.values as Record<string, unknown>).b
   assert.equal(frontier([missing, pt('p', 1, 1)], ax('a', 'lower'), ax('b', 'lower')).length, 1)
@@ -241,4 +241,63 @@ test('the Wilson interval', () => {
   assert.ok(Math.abs(w.lo - 0.648985) < 1e-5 && Math.abs(w.hi - 0.77996) < 1e-5)
   assert.deepEqual(wilson(0, 0), { lo: 0, hi: 1 })
   assert.ok(wilson(1, 1).lo > 0.2 && wilson(1, 1).hi === 1)
+})
+
+// ---- task sets made by a dataset's own `ui` block (theseus-tyv41)
+
+const datasets = () => files.filter((f) => f.endsWith('.json')).map((f) => ({ report: f.slice(0, -5), raw: JSON.parse(read(f)) as Record<string, unknown> }))
+const generated = () => setsFrom(datasets().map((d) => ({ report: d.report, ui: d.raw.ui })))
+
+test('the datasets with a ui block make the two 2026-10-18 Terminal-Bench sets, ahead of the built-ins', () => {
+  const gen = generated()
+  assert.deepEqual(gen.map((s) => s.id), ['tb-v1-high', 'tb-v1-max'])
+  assert.deepEqual(gen.map((s) => s.report), ['2026-10-18-terminal-bench-v1-high', '2026-10-18-terminal-bench-v1-max'])
+  assert.deepEqual(allSets(datasets().map((d) => ({ report: d.report, ui: d.raw.ui }))).map((s) => s.id), ['tb-v1-high', 'tb-v1-max', ...TASK_SETS.map((s) => s.id)])
+  // The codex-only dataset has one arm and no block: it is not a set.
+  assert.ok(!gen.some((s) => s.report.includes('codex')))
+})
+
+test('v1-high: four points, Theseus 267 trials over 89 tasks, each pass rate the dataset’s own', () => {
+  const set = generated().find((s) => s.id === 'tb-v1-high')!
+  const ps = points(set, read(`${set.report}.csv`), read(`${set.report}.json`), read(`${set.report}.md`), set.report.slice(0, 10))
+  assert.equal(ps.length, 4)
+  const t = at(ps, 'theseus-routed')
+  assert.equal(t.n, 267)
+  assert.equal(t.tasks, 89)
+  const summary = JSON.parse(read(`${set.report}.json`)).summary as Record<string, { rate: number; trials: number }>
+  for (const p of ps) {
+    assert.equal(p.values.pass.v, summary[p.harness].rate, p.harness)
+    assert.equal(p.n, summary[p.harness].trials, p.harness)
+  }
+  // A tip names Theseus whichever key the table gives it.
+  assert.equal(harness(t.harness).name, 'Theseus')
+})
+
+test('every generated set opens on two axes its points measured, and every quote is in its report’s words', () => {
+  for (const set of generated()) {
+    const ps = points(set, read(`${set.report}.csv`), read(`${set.report}.json`), read(`${set.report}.md`), set.report.slice(0, 10))
+    const usable = axes(ps).usable.map((p) => p.id)
+    assert.ok(set.axes, `${set.id} names its own default_axes`)
+    assert.deepEqual(axesOf(set), set.axes)
+    for (const id of axesOf(set)) assert.ok(usable.includes(id), `${set.id}: ${id}`)
+    const md = squash(read(`${set.report}.md`))
+    const notes = [
+      ...set.conditions, ...Object.values(set.versions).flatMap((r) => Object.values(r)),
+      ...Object.values(set.notes).flatMap((r) => Object.values(r).flat()), ...Object.values(set.effort ?? {}),
+    ]
+    assert.ok(notes.length >= 8, `${set.id} has notes`)
+    for (const n of notes) {
+      assert.equal(n.report, set.report)
+      assert.ok(md.includes(squash(n.quote)), `${set.id}: "${n.quote}" is not in ${set.report}.md`)
+    }
+  }
+})
+
+test('a ui block without usable axes opens on the explicit fallback; a malformed block makes no set', () => {
+  const ui = { set_id: 'x-1', label: 'L', short: 'S', about: 'A', conditions: [], versions: {}, notes: {}, effort: {} }
+  const [set] = setsFrom([{ report: 'r', ui }, { report: 'q', ui: { set_id: 'bad' } }, { report: 'p' }, { report: 'o', ui: { ...ui, set_id: 'tb2' } }])
+  assert.equal(set.id, 'x-1')
+  assert.deepEqual(axesOf(set), FALLBACK_AXES)
+  assert.deepEqual(axesOf(setsFrom([{ report: 'r', ui: { ...ui, default_axes: ['usd', 'nope'] } }])[0]), FALLBACK_AXES)
+  assert.deepEqual(axesOf(TASK_SETS.find((s) => s.id === 'fixgit')!), ['rss', 'usd'])
 })

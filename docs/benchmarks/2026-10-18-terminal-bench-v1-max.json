@@ -3822,5 +3822,74 @@
     "usd_solve": 0.749296625
    }
   }
+ },
+ "ui": {
+  "set_id": "tb-v1-max",
+  "label": "Terminal-Bench 2.0 at the v1 freeze, MAX tier: the 30 hard tasks × 3, every harness at its top effort",
+  "short": "v1 · max · 30 hard tasks",
+  "about": "The v1 freeze, MAX tier: the 30 hard tasks, three attempts an arm, every harness at its top effort, regardless of cost.",
+  "default_axes": [
+   "usd",
+   "pass"
+  ],
+  "conditions": [
+   {
+    "text": "Each harness's top effort differs in name: Claude Code and OpenCode at max, Pi at xhigh, Theseus free to choose up to max.",
+    "quote": "Claude Code at `max`, OpenCode at `max`, and Pi at `xhigh`"
+   },
+   {
+    "text": "The caps were $5 and 300 turns a trial, and OpenCode's did not hold: its harness does not stop at the cap.",
+    "quote": "its harness does not stop at the cap"
+   },
+   {
+    "text": "Only the 30 hard tasks ran, where effort can matter.",
+    "quote": "through Harbor 0.23, its 30 hard tasks"
+   }
+  ],
+  "versions": {
+   "theseus-routed": {
+    "*": {
+     "text": "the frozen v1 build, 351159fc",
+     "quote": "`TheseusRouted`, `351159fc`"
+    }
+   },
+   "claude-code": {
+    "*": {
+     "text": "2.1.290",
+     "quote": "Claude Code 2.1.290"
+    }
+   },
+   "opencode": {
+    "*": {
+     "text": "1.18.35",
+     "quote": "OpenCode 1.18.35"
+    }
+   },
+   "pi": {
+    "*": {
+     "text": "1.0.4",
+     "quote": "Pi 1.0.4"
+    }
+   }
+  },
+  "notes": {},
+  "effort": {
+   "theseus-routed": {
+    "text": "chosen per message by Jev, bounds low to max",
+    "quote": "Theseus ran as shipped, with Jev free to choose up to `max`."
+   },
+   "claude-code": {
+    "text": "max",
+    "quote": "(`reasoning_effort` max)"
+   },
+   "opencode": {
+    "text": "max",
+    "quote": "(`variant` max)"
+   },
+   "pi": {
+    "text": "xhigh",
+    "quote": "(`thinking` xhigh)"
+   }
+  }
  }
 }
