@@ -11,7 +11,8 @@ use theseus_judge::fake::{FakeJev, FakeMode, Scripted as Jev};
 use super::content::{ContentItem, PACK};
 use crate::content::{ContentFlags, Flag, ItemKind};
 use crate::node::{Body, Node, ResultStatus};
-use crate::session::{SessionKind, SessionRecord};
+use crate::session::SessionRecord;
+use theseus_protocol::SessionKind;
 use crate::tests_judge::{kinds, rig_with, texts, Rig};
 
 fn no(jev: &FakeJev) {
