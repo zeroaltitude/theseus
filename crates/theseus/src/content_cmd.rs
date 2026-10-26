@@ -14,11 +14,10 @@
 use anyhow::{anyhow, bail, Result};
 use clap::{Args, Subcommand};
 use serde_json::{json, Value};
-use theseus_client::Conn;
+use theseus_client::{render, Conn};
 use theseus_protocol::{method, ContentUnlabelParams, LabelView, SessionListResult, UnlabelResult};
 
 use crate::cmd::output;
-use crate::render;
 
 /// The flags' words, as the daemon takes them.
 const FLAGS: [&str; 4] = ["injection", "secret", "confidential", "personal"];
