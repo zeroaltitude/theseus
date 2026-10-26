@@ -436,8 +436,7 @@ impl Core {
     /// One line to the owner's DM (the digest's path) when the night filed,
     /// started, trimmed or holds something for the owner.
     pub(super) fn backlog_tell(&self, w: &Work, night: &Night) {
-        let quiet = night.filed.is_empty() && night.started.is_empty() && night.trimmed.is_empty();
-        if quiet || !self.runner.place_rule.owner_dm_bound() {
+        if night.said_nothing() || !self.runner.place_rule.owner_dm_bound() {
             return;
         }
         let text = night_text(night, |id| Item {
@@ -502,6 +501,16 @@ impl Core {
     }
 }
 
+impl Night {
+    /// Whether the night did nothing the owner is told of.
+    pub(crate) fn said_nothing(&self) -> bool {
+        self.filed.is_empty()
+            && self.started.is_empty()
+            && self.trimmed.is_empty()
+            && self.kept_out == 0
+    }
+}
+
 /// One item of a night's note: its title, how often its cause showed, and
 /// since when.
 pub(crate) struct Item {
@@ -548,6 +557,12 @@ pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
     for id in &night.trimmed {
         body.push_str(&format!("- dropped for size: {}\n", line(id)));
     }
+    if night.kept_out > 0 {
+        body.push_str(&format!(
+            "- {} kept out: dropped by you, or an item whose build never ran; `theseus self backlog --all` lists them, `theseus self retry <item>` puts one back\n",
+            night.kept_out
+        ));
+    }
     body.push_str("Reorder or drop with `theseus self move <item> <rank>` / `theseus self drop <item>`; `theseus self backlog` lists it.");
     let mut counts = vec![];
     for (n, what) in [
@@ -558,6 +573,9 @@ pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
         if n > 0 {
             counts.push(format!("{n} {what}"));
         }
+    }
+    if counts.is_empty() {
+        counts.push(format!("{} kept out", night.kept_out));
     }
     let waiting = night
         .filed
