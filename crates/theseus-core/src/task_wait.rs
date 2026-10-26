@@ -181,7 +181,7 @@ pub(crate) fn is_task_wait_wire(name: &str) -> bool {
 impl crate::toolrun::ToolRuntime {
     /// Whether an async tool of this family runs through the core: the jobs' and
     /// the tasks'.
-    pub(crate) fn core_run(family: &str) -> bool {
+    pub(crate) fn core(family: &str) -> bool {
         family == theseus_tools::jobs::FAMILY || family == task::FAMILY
     }
 }
@@ -352,19 +352,57 @@ impl TurnRef {
     }
 }
 
-/// Gives the waiter back its slot if the wait is dropped before it took it.
+/// Gives the waiter back its slot if the wait is dropped before it took it,
+/// and, when the wait was a fan-out's, cancels that call's helpers if the wait
+/// is dropped before it ended: a stop of the turn stops the helpers the call
+/// opened (the owner, z9mze Q3: "/stop cancels waiting helpers"), and no
+/// others, so a plain `task.wait` leaves its tasks running.
 struct Lent {
     core: Arc<Core>,
     exec: String,
     lent: bool,
+    /// The fan-out call's id and the helpers it opened, when the wait is one's.
+    fan_out: Option<(String, Vec<String>)>,
+    /// The wait ran to its end: a timeout leaves the helpers running.
+    ended: bool,
 }
 
 impl Drop for Lent {
     fn drop(&mut self) {
-        if self.lent {
-            let (core, exec) = (self.core.clone(), self.exec.clone());
-            if let Ok(rt) = tokio::runtime::Handle::try_current() {
-                rt.spawn(async move { core.tools.admission.retake(&exec).await });
+        let helpers = match (&self.fan_out, self.ended) {
+            (Some((call, ids)), false) => Some((call.clone(), ids.clone())),
+            _ => None,
+        };
+        if !self.lent && helpers.is_none() {
+            return;
+        }
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let (core, exec, lent) = (self.core.clone(), self.exec.clone(), self.lent);
+        rt.spawn(async move {
+            if lent {
+                core.tools.admission.retake(&exec).await;
+            }
+            for (call, ids) in helpers {
+                cancel_helpers(&core, &call, &ids).await;
+            }
+        });
+    }
+}
+
+/// Cancel the helpers of fan-out call `call` among `ids` that have not ended.
+async fn cancel_helpers(core: &Core, call: &str, ids: &[String]) {
+    for id in ids {
+        let mine = core
+            .kernel
+            .execution(id)
+            .ok()
+            .flatten()
+            .is_some_and(|e| !e.state.is_terminal() && e.helper_of() == Some(call));
+        if mine {
+            if let Err(e) = core.cancel_execution(id, "stop").await {
+                tracing::warn!(error = %format!("{e:#}"), task = %id, "a stopped fan-out's helper was not cancelled");
             }
         }
     }
@@ -390,8 +428,11 @@ pub(crate) async fn wait_on_tasks(
         core: core.clone(),
         exec: ask.turn.execution_id.clone(),
         lent: false,
+        fan_out: ask.fan_out.clone().map(|call| (call, ask.tasks.clone())),
+        ended: false,
     };
     let mut interrupted = false;
+    let mut tried = false;
     loop {
         let settled = rt.job_waits.on_task_settle();
         tokio::pin!(settled);
@@ -410,16 +451,15 @@ pub(crate) async fn wait_on_tasks(
         }
         // The slot is lent once the wait has outlasted a turn's quick look.
         let lend_in = LEND_AFTER.saturating_sub(t0.elapsed());
-        if !lent.lent && lend_in.is_zero() {
-            lent.lent = rt.admission.lend(&ask.turn.execution_id) || lent.lent;
-            if !lent.lent {
-                // Nothing to lend (a turn the queue does not hold): never mind.
-                lent.lent = false;
-            }
+        if !tried && lend_in.is_zero() {
+            // Nothing to lend (a turn the queue does not hold): never mind, and
+            // do not ask again.
+            tried = true;
+            lent.lent = rt.admission.lend(&ask.turn.execution_id);
         }
         let due = warmth.as_ref().and_then(|w| w.due_before(until));
         let nap = left.min(crate::toolrun::waits::LOOK);
-        let nap = if lent.lent {
+        let nap = if tried {
             nap
         } else {
             nap.min(lend_in.max(Duration::from_millis(1)))
@@ -443,6 +483,7 @@ pub(crate) async fn wait_on_tasks(
             }
         }
     }
+    lent.ended = true;
     if lent.lent {
         rt.admission.retake(&ask.turn.execution_id).await;
         lent.lent = false;

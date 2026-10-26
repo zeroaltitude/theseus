@@ -1729,9 +1729,7 @@ impl ToolRuntime {
                 // Part of a thread, a thread of its own (theseus-vt9k).
                 crate::thread_split::FAMILY => crate::thread_split::run(tc, correlation_id, &input),
                 // A job's handle needs its session (theseus-n8gk).
-                f if Self::core_run(f) => {
-                    self.run_job_tool(tc, tool.name(), &input, correlation_id)
-                }
+                f if Self::core(f) => self.run_job_tool(tc, tool.name(), &input, correlation_id),
                 _ => t.run_async_with_media(&input, &ctx),
             };
             let mut task = tokio::spawn(run);
