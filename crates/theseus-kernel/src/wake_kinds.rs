@@ -150,7 +150,7 @@ impl Default for WakeLimits {
     fn default() -> Self {
         Self {
             max_ahead_ms: 365 * 86_400_000,
-            max_wakes: 5,
+            max_wakes: 20,
             max_reminders: 100,
             max_routines: 50,
             max_watches: 20,

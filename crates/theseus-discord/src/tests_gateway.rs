@@ -961,6 +961,7 @@ mod persona_soul;
 mod remind;
 mod reply;
 mod seal;
+mod self_note;
 mod self_word;
 mod standing;
 mod thread_ask;

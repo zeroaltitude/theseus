@@ -54,6 +54,16 @@ fn self_families() -> Vec<(&'static str, String)> {
     let keel = joining::keel_card("self/b", "tsk_1", "sealed", "- sealed: x\n", "1 file");
     let merge_keel = joining::merge_keel_card("self/b", "tsk_1", "/state/self/gates/b.log");
     let unsigned = joining::unsigned_card("self/b", "tsk_1");
+    let conflict = joining::conflict_card("self/b", "tsk_1", "it conflicts with main in same.txt");
+    let conflict_dropped =
+        joining::conflict_dropped_card("self/b", "tsk_1", "it conflicts with main in same.txt");
+    let rejected_twice =
+        crate::rsi::pipeline::rejected_twice_text(&crate::rsi::pipeline::queues::Entry {
+            item: "tsk_1".into(),
+            title: "Trim the sails".into(),
+            findings: vec!["a".into(), "b".into()],
+            ..Default::default()
+        });
     let pr_keel = crate::rsi::pr::keel_text("self/b", "tsk_1", "/state/self/reports/b.md");
     let j = crate::rsi::revert::attribute::Joined {
         merge: "4a1c9e0b77aa55".into(),
@@ -76,6 +86,9 @@ fn self_families() -> Vec<(&'static str, String)> {
         ("self-join keel card", keel),
         ("self-join merge keel card", merge_keel),
         ("self-join unsigned card", unsigned),
+        ("self-join conflict card", conflict),
+        ("self-join conflict dropped card", conflict_dropped),
+        ("self-pipeline rejected twice", rejected_twice),
         ("keel stop", pr_keel),
         ("revert held", revert_held),
         ("reverted", reverted),

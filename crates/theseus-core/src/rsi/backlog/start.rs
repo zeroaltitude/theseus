@@ -448,6 +448,15 @@ impl Core {
             count: w.st.items.get(id).map_or(0, |m| m.count),
             since_ms: w.tasks.get(id).map_or(0, |t| t.created_at_ms),
         });
+        self.stage_self_digest(&text);
+    }
+
+    /// One `self_digest` post to the owner's DM; a failure is logged, never
+    /// raised (the night's and the pipeline's tick's lines share it).
+    pub(crate) fn stage_self_digest(&self, text: &str) {
+        if !self.runner.place_rule.owner_dm_bound() {
+            return;
+        }
         let written = (|| -> Result<()> {
             let (a, frame) = self
                 .outbox
@@ -457,8 +466,39 @@ impl Core {
             Ok(())
         })();
         if let Err(e) = written {
-            tracing::warn!(error = %format!("{e:#}"), "self backlog: the night's notice was not written");
+            tracing::warn!(error = %format!("{e:#}"), "self backlog: the owner's note was not written");
         }
+    }
+
+    /// A pipeline tick that started builds tells the owner in one line, in
+    /// the night's own words ([`night_text`]); a tick that started nothing
+    /// says nothing. `started` is `(item, title)`, in order.
+    pub(crate) fn pipeline_tell(&self, started: &[(String, String)]) {
+        if started.is_empty() || !self.runner.place_rule.owner_dm_bound() {
+            return;
+        }
+        let night = Night {
+            started: started
+                .iter()
+                .map(|(item, title)| Started {
+                    item: item.clone(),
+                    title: title.clone(),
+                    session_id: String::new(),
+                    objective: String::new(),
+                    mint: None,
+                })
+                .collect(),
+            ..Night::default()
+        };
+        let text = night_text(&night, |id| Item {
+            title: started
+                .iter()
+                .find(|(i, _)| i == id)
+                .map_or_else(|| id.to_string(), |(_, t)| t.clone()),
+            count: 0,
+            since_ms: 0,
+        });
+        self.stage_self_digest(&text);
     }
 }
 

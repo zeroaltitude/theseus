@@ -118,6 +118,22 @@ pub(crate) fn rig(
     script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
     tweak: impl FnOnce(&mut Config),
 ) -> Rig {
+    rig_defer(script, tweak, false)
+}
+
+/// [`rig`], its tools deferred as a daemon's are (`tests_defer`).
+pub(crate) fn rig_deferring(
+    script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
+    rig_defer(script, tweak, true)
+}
+
+fn rig_defer(
+    script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
+    tweak: impl FnOnce(&mut Config),
+    deferring: bool,
+) -> Rig {
     let dir = crate::scratch::tempdir();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -132,7 +148,10 @@ pub(crate) fn rig(
         entered: tx,
         gate: tokio::sync::Semaphore::new(0),
     });
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    let wanted = cfg.tools.defer.enabled;
+    let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    parts.cfg.tools.defer.enabled = deferring && wanted;
+    let core = Core::build(parts).unwrap();
     // The driver takes every task's turns, as the daemon's does.
     tokio::spawn(crate::harness::drive(core.clone()));
     Rig {

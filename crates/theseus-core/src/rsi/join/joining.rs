@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use serde_json::{json, Value};
+use theseus_protocol::tasks::{TaskEvidence, TaskState};
 
 use super::{blocking, git, keel, lock, lock_dir, refused, Run, TRIES};
 use crate::fact::rsi_join::SelfJoined;
@@ -239,12 +240,12 @@ impl Run<'_> {
             let base = git::main_of(&p, &r)?;
             let on_main = p.git(&p.repo, &["merge-base", "--is-ancestor", &h, &base])?;
             if on_main.status.success() {
-                return Ok(Err(
-                    "its head is on main already: there is nothing to join".to_string()
-                ));
+                return Ok(Err(Refused::Held(
+                    "its head is on main already: there is nothing to join".to_string(),
+                )));
             }
             if let Err(why) = git::dry_run(&p, &base, &h)? {
-                return Ok(Err(why));
+                return Ok(Err(Refused::Conflict(why)));
             }
             let t = git::detached(&p, "join", &b, &base)?;
             match git::merge(&p, &t, &h, &m) {
@@ -258,11 +259,87 @@ impl Run<'_> {
         .await?;
         match merged {
             Ok(m) => Ok(Some(m)),
-            Err(why) => {
+            Err(Refused::Held(why)) => {
                 self.hold("merge", &why, Value::Null);
                 Ok(None)
             }
+            Err(Refused::Conflict(why)) => {
+                self.conflicted(&why).await?;
+                Ok(None)
+            }
         }
+    }
+
+    /// The branch conflicts with main: the item goes back to `proposed` and
+    /// the next build cuts a fresh branch from the new main (theseus-o1h3f.6;
+    /// it used to wait for the owner and was never tried again). This head is
+    /// held so no pass joins it again, but the held row says `conflict`, so
+    /// the pipeline does not show it as the owner's. A third conflict of one
+    /// item drops it instead, with the command back (the bound on a loop).
+    async fn conflicted(&mut self, why: &str) -> Result<()> {
+        let item = self.b.item.clone();
+        let prior = crate::task_graph::get(&self.core.store, &item)?.map_or(0, |t| {
+            t.evidence
+                .iter()
+                .rev()
+                .take_while(|e| e.identity != "retried:owner")
+                .filter(|e| e.identity.starts_with(CONFLICT))
+                .count()
+        });
+        let identity = format!(
+            "{CONFLICT}{}@{}",
+            self.b.branch,
+            &self.b.head[..self.b.head.len().min(12)]
+        );
+        let dropped = prior + 1 >= MAX_CONFLICTS;
+        let text = if dropped {
+            conflict_dropped_card(&self.b.branch, &item, why)
+        } else {
+            conflict_card(&self.b.branch, &item, why)
+        };
+        if let Some(mut task) = crate::task_graph::get(&self.core.store, &item)? {
+            let now = theseus_protocol::now_unix_ms();
+            task.state = if dropped {
+                TaskState::Failed
+            } else {
+                TaskState::Proposed
+            };
+            task.session = None;
+            task.version += 1;
+            task.updated_at_ms = now;
+            task.evidence.push(TaskEvidence {
+                node: None,
+                identity,
+                note: Some(why.to_string()),
+                by: "self-join".into(),
+                at_ms: now,
+            });
+            self.core
+                .store
+                .append(&[crate::task_graph::record(&task)?])?;
+        }
+        // The next build must cut a fresh branch from the new main (design
+        // item 29): close this tree, so `self_tree_open` opens a new one off
+        // origin/main instead of finding this one.
+        let (p, c) = (self.place.clone(), item.clone());
+        if let Err(e) = blocking(move || {
+            if let Some(t) = tree::find(&p, &c) {
+                tree::close(&p, &t)?;
+            }
+            Ok(())
+        })
+        .await
+        {
+            tracing::warn!(error = %format!("{e:#}"),
+                "self-join: the conflicted tree was not closed");
+        }
+        self.card(text);
+        self.stop(
+            "merge",
+            why,
+            json!({"held": true, "conflict": true, "dropped": dropped}),
+        );
+        Ok(())
     }
 
     /// Main's gate on the merge, with the benches: its run when green.
@@ -358,5 +435,46 @@ pub(crate) fn unsigned_card(branch: &str, item: &str) -> String {
         &format!("Set a signing key to join self branch {branch}"),
         &format!("it passed its review and main's gate ({item}), but [self] repo names no user.signingkey"),
         "Without one, an unsigned merge never reaches main. Set one for the repo, or join it by hand.",
+    )
+}
+
+/// The evidence identity of a join that conflicted with main.
+const CONFLICT: &str = "conflict:";
+
+/// Conflicts one item may have before it is dropped, not rebuilt again.
+const MAX_CONFLICTS: usize = 3;
+
+/// Why the merge did not go ahead.
+enum Refused {
+    /// The head is held for the owner (it is on main already).
+    Held(String),
+    /// The head conflicts with main: the item is built again.
+    Conflict(String),
+}
+
+/// The owner's note for a branch that conflicted with main.
+pub(crate) fn conflict_card(branch: &str, item: &str, why: &str) -> String {
+    crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        &format!("Self branch {branch} conflicted with main"),
+        &format!("its join found a conflict ({item})"),
+        &format!(
+            "{why}. The item is back on the backlog: its next build cuts a fresh branch from \
+             the new main. Nothing waits for you."
+        ),
+    )
+}
+
+/// The owner's note for an item that conflicted with main too often.
+pub(crate) fn conflict_dropped_card(branch: &str, item: &str, why: &str) -> String {
+    let cmd = theseus_protocol::rsi::retry_command(item);
+    crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        &format!("Self branch {branch} conflicted with main again"),
+        &format!("its join found a conflict {MAX_CONFLICTS} times ({item})"),
+        &format!(
+            "{why}. The item was dropped, not rebuilt again; nothing waits for you. Bring it \
+             back with `{cmd}`."
+        ),
     )
 }

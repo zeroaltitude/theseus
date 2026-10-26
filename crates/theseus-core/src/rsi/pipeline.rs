@@ -23,8 +23,8 @@
 //!   │            (stays ready)                     ▼            ──► returned to READY with
 //!   │                                          JOINING                the findings
 //!   └── reject once ◄──────────────────────── (queued)          reject, the second time
-//!                                                  │            ──► parked: the owner's view
-//!                       the join lock, one at a time │                (waiting_human)
+//!                                                  │            ──► dropped with a notice
+//!                       the join lock, one at a time │                (failed; `theseus self retry`)
 //!                                                  ▼
 //!                                   JOINED (self.joined): its trees deleted (cleared)
 //!                                   or HELD at the keel, the gate, the signature: the owner's
@@ -38,8 +38,9 @@
 //! says why (`theseus self pipeline`, and a `self.pipeline.held` row when the
 //! reason changes). A start is the [`Builder`]'s: [`Local`] (self-pr's
 //! sandboxed tree, through the backlog's own start: a `"self"` session and
-//! its first turn) is the only one. While the pipeline runs, the night files
-//! and ranks and starts nothing itself.
+//! its first turn) is the only one. A tick that started at least one build
+//! stages one `self_digest` line in the night's words. While the pipeline runs,
+//! the night files and ranks and starts nothing itself.
 //!
 //! **Reviews and joins** are self-join's: [`Core::self_join_pass`] reviews
 //! each green branch once per head and joins at most one a pass, under
@@ -49,8 +50,8 @@
 //! keeps a self-join off the owner's own joins. A rejected review puts its
 //! item back to proposed (self-join does, with the reasons in its evidence):
 //! the first time the pipeline says so (`returned`) and builds it again, the
-//! reviewer's findings in its first turn; the second time it parks it for
-//! the owner (`waiting_human`, `parked`).
+//! reviewer's findings in its first turn; the second time it drops it with a
+//! notice carrying both findings and the retry command (`failed`).
 //!
 //! **The owner's words act at once**: a drop stops its build and deletes its
 //! trees, a move reorders ready, and a halt stops every build in flight at
@@ -69,10 +70,12 @@
 //! written once: the META record `self.pipeline` keeps the keys of what was
 //! said, with the tick's task records and rows in one frame.
 
-mod queues;
+pub(crate) mod queues;
 mod tender;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_notify;
 #[cfg(test)]
 mod tests_trees;
 mod view;
@@ -268,6 +271,8 @@ struct Write {
     frame: Vec<NewRecord>,
     said: Vec<Transition>,
     dirty: bool,
+    /// Notes to the owner, staged once the tick's frame is written.
+    told: Vec<String>,
 }
 
 impl Write {
@@ -284,6 +289,28 @@ impl Write {
         self.dirty = true;
         Ok(())
     }
+}
+
+/// The note to the owner for an item two reviews rejected: both findings
+/// and the command back. Nothing waits for an answer.
+pub(crate) fn rejected_twice_text(e: &Entry) -> String {
+    use crate::owner_note::{note, Kind};
+    let mut body = format!("Two independent reviews rejected {}:\n", e.title);
+    for (i, f) in e.findings.iter().enumerate() {
+        let f: String = f.chars().take(300).collect();
+        body.push_str(&format!("- review {}: {f}\n", i + 1));
+    }
+    body.push_str(&format!(
+        "It left the pipeline (item {}); nothing waits for you. Bring it back with `{}`.",
+        e.item,
+        theseus_protocol::rsi::retry_command(&e.item)
+    ));
+    note(
+        Kind::Fyi,
+        "Self-improvement: an item was dropped after two rejections",
+        "the pipeline's reviews",
+        &body,
+    )
 }
 
 fn evidence(identity: String, note: String, now: u64) -> TaskEvidence {
@@ -342,11 +369,31 @@ impl Core {
             frame: vec![],
             said: vec![],
             dirty: false,
+            told: vec![],
         };
         self.pipeline_moves(&place, &q, &mut w, &mut tick).await?;
         tick.said.extend(self.pipeline_write(&mut w)?);
+        for text in std::mem::take(&mut w.told) {
+            self.stage_self_digest(&text);
+        }
         tick.join_due = !q.reviewing.is_empty() || !q.joining.is_empty();
-        self.pipeline_starts(seams, &place, &q, &mut w, &mut tick)?;
+        let started = self.pipeline_starts(seams, &place, &q, &mut w, &mut tick);
+        // One line a tick, naming every build it started, even when a later
+        // start was held or failed (theseus-o1h3f.6).
+        let told: Vec<(String, String)> = tick
+            .started
+            .iter()
+            .map(|i| {
+                let title = q
+                    .ready
+                    .iter()
+                    .find(|e| &e.item == i)
+                    .map(|e| e.title.clone());
+                (i.clone(), title.unwrap_or_else(|| i.clone()))
+            })
+            .collect();
+        self.pipeline_tell(&told);
+        started?;
         Ok(tick)
     }
 
@@ -394,24 +441,32 @@ impl Core {
             let Some(mut t) = crate::task_graph::get(&self.store, &e.item)? else {
                 continue;
             };
-            t.state = TaskState::WaitingHuman;
+            // Dropped, never parked (theseus-o1h3f.6): failed, with both
+            // reviews' findings in its evidence, and the owner's retry
+            // brings it back. Nothing waits for a word.
+            t.state = TaskState::Failed;
             t.version += 1;
             t.updated_at_ms = now;
             t.evidence.push(evidence(
-                "parked:rejected-twice".into(),
-                "two reviews rejected it: it waits for the owner's word".into(),
+                "dropped:rejected-twice".into(),
+                format!(
+                    "two independent reviews rejected it: {}",
+                    e.findings.join(" | ")
+                ),
                 now,
             ));
             w.task(&t)?;
             let m = Moved::new(
                 &e.item,
-                format!("{} left the pipeline for the owner", e.item),
+                format!("{} was dropped after two rejections", e.item),
             )
             .with("rejections", e.rejections)
+            .with("findings", e.findings.clone())
             .why("an independent review rejected it twice")
             .numbers(json!({"rejections": e.rejections}))
-            .undo(format!("theseus self move {} 1", e.item));
+            .undo(theseus_protocol::rsi::retry_command(&e.item));
             w.say(key, Transition::Parked(Parked(m)))?;
+            w.told.push(rejected_twice_text(e));
         }
         for e in &q.ready {
             let (Some(branch), Some(head)) = (&e.branch, &e.head) else {
@@ -629,6 +684,7 @@ impl Core {
             frame: vec![],
             said: vec![],
             dirty: false,
+            told: vec![],
         };
         let now = theseus_protocol::now_unix_ms();
         for e in &q.building {

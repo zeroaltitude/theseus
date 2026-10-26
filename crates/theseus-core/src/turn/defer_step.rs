@@ -22,13 +22,15 @@ use crate::tools_defer::{self, scan, Deferral, Mechanism, PlaceKind};
 
 /// What a turn's message says about its tools: its text, the families Jev judged relevant to it,
 /// whether the request is a trivial detour's (a bare one), and the prompt tier's admission
-/// ceiling (`admit_ceiling` without one).
+/// ceiling (`admit_ceiling` without one), and whether the turn has no input of a person's, so
+/// the work it sees is work Theseus noticed itself (theseus-o1h3f.3).
 #[derive(Default, Clone, Copy)]
 struct Said<'a> {
     ask: &'a str,
     jev: &'a [(String, f64)],
     bare: bool,
     ceiling: Option<f64>,
+    noticed: bool,
 }
 
 impl TurnRunner {
@@ -65,6 +67,10 @@ impl TurnRunner {
             jev,
             bare,
             ceiling: t.route.injection.as_ref().map(|b| b.admit_ceiling),
+            // The turn's own read of "no input" (`Turn::continuation`: the wake, the task
+            // report, the routine's run), never the session's kind: a task session's typed
+            // turn is a person's.
+            noticed: t.continuation,
         };
         spec.defer = self.deferral_in(t.tc.session_id, kind, (&*spec, counted), said);
     }
@@ -144,6 +150,7 @@ impl TurnRunner {
             jev,
             bare,
             ceiling,
+            noticed,
         }: Said<'_>,
     ) -> Option<Deferral> {
         let cfg = &self.cfg.tools.defer;
@@ -208,6 +215,29 @@ impl TurnRunner {
             extra.insert(tools_defer::family::TASKS.to_string());
             loaded = offer(&extra, &fit);
         }
+        // A turn with no person's input loads the tasks too: no budget was promised to a person
+        // there, and the model cannot start work it noticed from a tool it cannot see
+        // (theseus-o1h3f.3). Not held to the place's ceiling: the ceiling is the owner's promise about
+        // what a person's turn costs, and 13,290 tokens of tasks alone would break it.
+        if noticed
+            && !bare
+            && known.contains(tools_defer::family::TASKS)
+            && !loaded.contains(tools_defer::family::TASKS)
+        {
+            // It rides past the place's budget by exactly its own size, as an admitted family does
+            // (`fit.rs`): the learned families stay held to the budget plus that raise, so admitting
+            // the tasks evicts none of them.
+            let whole = fit.total(&loaded) + fit.tokens(tools_defer::family::TASKS);
+            fit.raised = fit.raised.max(whole.saturating_sub(fit.budget));
+            extra.insert(tools_defer::family::TASKS.to_string());
+            loaded = offer(&extra, &fit);
+        }
+        // An append keeps the families its compilation recorded, so the family joins as a find's
+        // does (`Deferral::over`): the request changes once, where the wake's turn is.
+        let added: BTreeSet<String> = (noticed && loaded.contains(tools_defer::family::TASKS))
+            .then(|| tools_defer::family::TASKS.to_string())
+            .into_iter()
+            .collect();
         let mut raised = None;
         if mechanism == Mechanism::Find {
             // A family the message names, or Jev judged relevant, is held to the whole request, as
@@ -226,11 +256,19 @@ impl TurnRunner {
                 };
             }
         }
+        // The converse of `added`: a person's turn drops a family only the loosening loaded, so the
+        // append's tools differ from the compilation's and it recompiles without it. Read after the
+        // message's own admissions, so a family this turn loads is never dropped.
+        let dropped: BTreeSet<String> = (!noticed && !loaded.contains(tools_defer::family::TASKS))
+            .then(|| tools_defer::family::TASKS.to_string())
+            .into_iter()
+            .collect();
         Some(Deferral {
             mechanism,
             loaded,
             resolved: false,
-            added: BTreeSet::new(),
+            added,
+            dropped,
             raised,
             bare,
         })

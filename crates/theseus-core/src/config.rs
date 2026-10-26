@@ -852,7 +852,7 @@ pub struct KernelSection {
     /// days (theseus-8ux6x): 365.
     #[serde(default = "wake_limits::default_max_ahead_days")]
     pub max_wake_ahead_days: u64,
-    /// Check-ins one conversation may hold at once (`wake.at`): 5.
+    /// Check-ins one conversation may hold at once (`wake.at`): 20.
     #[serde(default = "wake_limits::default_max_wakes")]
     pub max_wakes: usize,
     /// Reminders the daemon may hold at once, over every conversation: 100.

@@ -151,6 +151,7 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.policy.enforcement = Posture::Notify;
     // These tests are about a hold that asks.
     cfg.policy.external_text = Some(crate::external::Mode::Ask);
+    cfg.kernel.max_wakes = 5; // these tests script the five-wake cap (the default is 20)
     cfg
 }
 

@@ -262,6 +262,21 @@ pub fn log_lines(r: &SelfLogResult) -> Vec<String> {
 mod tests {
     use super::*;
 
+    /// The way back a notice quotes is a verb the CLI has (theseus-o1h3f.6):
+    /// the string parses as `self retry <item>`.
+    #[test]
+    fn the_command_a_dropped_items_notice_quotes_is_the_retry_verb() {
+        use clap::Parser;
+        let line = theseus_protocol::rsi::retry_command("tsk_sails");
+        let cli = crate::Cli::try_parse_from(line.split_whitespace()).unwrap();
+        match cli.cmd {
+            crate::Cmd::SelfImprove {
+                cmd: SelfCmd::Retry { item },
+            } => assert_eq!(item, "tsk_sails"),
+            other => panic!("`{line}` is not self retry: {other:?}"),
+        }
+    }
+
     #[test]
     fn an_age_reads_minutes_hours_days_and_weeks() {
         assert_eq!(age_ms("30m").unwrap(), 1_800_000);

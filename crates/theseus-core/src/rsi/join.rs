@@ -29,8 +29,10 @@
 //!    signature (no `user.signingkey` in `[self] repo`: the owner's card, and
 //!    nothing is pushed), the push of main, never forced; main moved before
 //!    the push redoes the dry run, the merge and the gate, at most
-//!    [`TRIES`] times. The lock is released with its `done:` line. One
-//!    `self.joined` row.
+//!    [`TRIES`] times. A dry run that conflicts with main returns the item to
+//!    the backlog with a notice (its tree closed, so the next build cuts a
+//!    fresh branch from the new main) and drops it at the third conflict. The
+//!    lock is released with its `done:` line. One `self.joined` row.
 //!    **The sealed check** ([`sealing`], theseus-pw1q.21.7) runs on each try's
 //!    merge between main's gate and the signature, when the branch's diff
 //!    touches a behaviour path (`sealed::hold::BEHAVIOUR`) or `[self.sealed]
@@ -59,6 +61,8 @@ mod sealing;
 mod tender;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod tests_notify;
 #[cfg(test)]
 mod tests_sealed;
 
@@ -235,8 +239,10 @@ fn seen(store: &crate::store::Store) -> Result<Option<Seen>> {
                 verdict: s(d, "verdict"),
             }),
             "self.joined" => out.joined.push(s(d, "branch")),
-            // A head held at the keel, with no key, red on its merge or in
-            // conflict with main waits for the owner: never tried again.
+            // A head held at the keel, with no key or red on its merge waits
+            // for the owner: never tried again. A conflict with main is held
+            // the same (this head is never joined) but the item is built
+            // again from the new main (theseus-o1h3f.6).
             "self.join.stopped" if d["numbers"]["held"] == true => {
                 out.keel.push((s(d, "branch"), s(d, "head")));
             }

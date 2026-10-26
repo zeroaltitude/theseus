@@ -98,7 +98,7 @@ impl Tests for Scripts {
     }
 }
 
-fn git(dir: &Path, args: &[&str]) -> String {
+pub(super) fn git(dir: &Path, args: &[&str]) -> String {
     let o = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -304,11 +304,11 @@ impl Rig {
             .collect()
     }
 
-    fn upstream_main(&self) -> String {
+    pub(super) fn upstream_main(&self) -> String {
         git(&self.f.upstream, &["rev-parse", "refs/heads/main"])
     }
 
-    fn posts(&self) -> Vec<String> {
+    pub(super) fn posts(&self) -> Vec<String> {
         crate::tests_day_ceiling::posts(&self.core, "self_join")
             .iter()
             .map(|b| b["text"].as_str().unwrap_or("").to_string())

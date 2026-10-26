@@ -12,6 +12,14 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The command that brings a dropped backlog item back: `theseus self retry`
+/// queues a failed item again (the CLI's `SelfCmd::Retry`, whose test parses
+/// this string). Every notice that offers the way back quotes it
+/// (theseus-o1h3f.6).
+pub fn retry_command(item: &str) -> String {
+    format!("theseus self retry {item}")
+}
+
 /// A `self.*` row a later step writes: its kind's name, its own fields, and
 /// what it records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
