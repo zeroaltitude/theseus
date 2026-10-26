@@ -279,7 +279,10 @@ async fn a_task_sessions_driver_turn_is_offered_the_tasks() {
 #[tokio::test]
 async fn a_task_sessions_typed_turn_is_a_persons() {
     use crate::tests_tasks as tt;
-    let r = task_rig(Some("2s"));
+    // 60s, not 2s: the rig runs on a real clock, so a loaded host can wake the task before the
+    // person's message arrives and the turn under test stops being the session's first
+    // (the join-fix review's finding 5).
+    let r = task_rig(Some("60s"));
     let parent = tt::parent_session(&r.core);
     tt::turn(&r.core, &parent, tt::ASK).await;
     // The task is asleep until it is due, so a person's message is its session's first turn.
