@@ -24,7 +24,7 @@ use anyhow::{bail, Context, Result};
 use theseus_kernel::job::L1;
 use theseus_kernel::probe_run::{self, Logged};
 
-use super::tree::{Place, Tree};
+use super::tree::{phase_note, Place, Tree};
 use crate::sandbox::Sandbox;
 use crate::sandbox::{self_build_env, SelfBuild};
 
@@ -105,8 +105,9 @@ impl Jail {
         } = probe_run::run_logged(&view, &argv, &j.tree.dir, env, log, ms);
         if timed_out {
             bail!(
-                "the build ran past {} minutes and was stopped",
-                j.limit.as_secs() / 60
+                "the build ran past {} minutes and was stopped; its log's last phase line: {}",
+                j.limit.as_secs() / 60,
+                phase_note(j.log)
             );
         }
         match (code, failed) {
