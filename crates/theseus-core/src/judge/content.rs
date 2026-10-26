@@ -427,10 +427,14 @@ impl JudgeService {
             put_flags(rec, flags);
             Ok(rows)
         });
-        match written {
+        match &written {
             Ok(Some(_)) => {}
-            Ok(None) => tracing::debug!(session, "judge: a session's content was not written; it is gone"),
-            Err(e) => tracing::warn!(error = %format!("{e:#}"), "judge: a session's content labels were not written"),
+            Ok(None) => {
+                tracing::debug!(session, "judge: a session's content was not written; it is gone");
+            }
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "judge: a session's content labels were not written");
+            }
         }
         if !matches!(written, Ok(Some(_))) {
             return;
