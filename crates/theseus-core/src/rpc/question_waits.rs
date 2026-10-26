@@ -62,16 +62,6 @@ pub(crate) fn waited_words(ms: u64) -> String {
 }
 
 impl Core {
-    /// Whether `session_id` was retired, by hand or by a successor. A session
-    /// that cannot be read is not: its question is told about as before.
-    pub(crate) fn session_retired(&self, session_id: &str) -> bool {
-        self.store
-            .get_session::<crate::session::SessionRecord>(session_id)
-            .ok()
-            .flatten()
-            .is_some_and(|r| r.retired.is_some())
-    }
-
     /// `question_waits`, or a minute from now when it could not be told.
     pub(crate) fn question_waits_or_soon(&self, a: &Action, ttl_ms: u64, now: u64) -> u64 {
         self.question_waits(a, ttl_ms, now).unwrap_or_else(|e| {
