@@ -3090,7 +3090,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `Self::attach_hint`, which `coding_hint` also uses) says to call what was built once, the way the task spells it; a turn
   that wrote no file, or only ran commands, carries none (the DM task flow's golden and the keep-warm tests read such
   tails). **The doubt** (rqu7j): at a would-end whose closing message `names_a_gap` (a phrase list over its lowercased
-  text), in a turn that edited or ran a command, with under `CLOSE_OUT_SHARE` (0.4) of its time and of its spend used,
+  text, cut on 764 earlier closing messages: it matches 21% of the solved ones and 49% of the failed), in a turn that edited or ran a command, with under `CLOSE_OUT_SHARE` (0.4) of its time and of its spend used,
   once, outside a shared place and a strict loop cap, with no job of the turn running, one harness node
   (`DOUBT_TEXT`) and one more loop, after the stop nudge and the end note (it does not yield to them); a `turn.progress`
   row with decision `doubt`. It builds and installs nothing. Tests: `tests_turn_progress.rs`, `tests_end_note.rs`,

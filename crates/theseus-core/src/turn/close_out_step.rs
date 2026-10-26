@@ -42,60 +42,63 @@ pub const DELIVERABLE_HINT: &str = "[The harness: before you report this work do
 pub const DOUBT_TEXT: &str = "[The harness: your last message names something it did not check or run. Check it now if you can, then finish; if you cannot, say why.]";
 
 /// What a closing message says when it names a gap in its own checking, as a
-/// turn's own words have it (lowercase, straight quotes): an assumption, an
-/// artifact never run, a result not verified, a margin the message calls
-/// thin. Blunt on purpose: a message this matches that names nothing costs
-/// one loop in which the model says it is done; one it misses ends as it did
-/// before.
+/// turn's own words have it (lowercase, straight quotes): a file never run,
+/// a result not verified, a score the message calls optimistic or thin. The
+/// list was cut on 764 closing messages of the routed arm's trials in the
+/// v1, 10-21 and 10-23 Terminal-Bench runs: the plain words of doubt that
+/// ended most solved trials too ("assumed", "assuming", "isn't installed",
+/// "caveat", "didn't run") are left out. It matches 21% of the solved
+/// endings and 49% of the failed ones; on the report's three tasks, 12 of 12
+/// failed `train-fasttext` endings, 5 of 5 `mteb-leaderboard` and 16 of 17
+/// `torch-pipeline-parallelism`. Blunt on purpose: a message this matches
+/// that names nothing costs one loop in which the model says it is done; one
+/// it misses ends as it did before.
 const GAPS: &[&str] = &[
-    "not checked",
-    "unchecked",
-    "didn't check",
-    "did not check",
-    "haven't checked",
-    "have not checked",
-    "not verified",
-    "unverified",
-    "didn't verify",
-    "did not verify",
-    "couldn't verify",
-    "could not verify",
-    "can't verify",
-    "cannot verify",
-    "unable to verify",
-    "not tested",
-    "untested",
-    "didn't test",
-    "did not test",
-    "couldn't test",
-    "could not test",
-    "haven't tested",
-    "have not tested",
-    "never ran",
-    "never run",
-    "not run",
-    "didn't run",
-    "did not run",
-    "couldn't run",
-    "could not run",
-    "can't run",
-    "cannot run",
     "haven't run",
     "have not run",
+    "haven't tested",
+    "have not tested",
+    "haven't checked",
+    "have not checked",
+    "untested",
+    "unverified",
+    "not verified",
+    "didn't test",
+    "couldn't test",
+    "couldn't verify",
+    "could not verify",
+    "cannot verify",
+    "can't verify",
+    "can't run",
+    "cannot run",
     "unable to run",
-    "no torch",
-    "not installed",
-    "isn't installed",
-    "assumed",
-    "i assume",
-    "assuming",
-    "margin is thin",
-    "thin margin",
+    "unable to verify",
+    "never run",
+    "never ran",
+    "haven't tried",
+    "have not tried",
+    "before relying",
+    "before you rely",
+    "could land",
+    "may land",
+    "private set",
+    "private test set",
+    "optimistic",
     "within noise",
     "within the noise",
+    "margin is thin",
+    "thin margin",
     "not confirmed",
     "unconfirmed",
-    "could not confirm",
+    "no torch",
+    "not installed",
+    "can't guarantee",
+    "cannot guarantee",
+    "less sure",
+    "just below",
+    "did not check",
+    "didn't check",
+    "not checked",
 ];
 
 /// Whether `said` names a gap in its own checking.
@@ -145,14 +148,18 @@ mod tests {
             "The leaderboard figure is from memory; I did not check the date.",
             "Public score 0.626, and the margin is thin, so the private set may differ.",
             "It builds. I couldn\u{2019}t verify it against the grader.",
-            "Assumed the cell masks are 8-bit.",
             "The test suite is untested on Windows.",
+            "It scores 0.6263, only about 0.6 points over the target. The private set may land a little either way.",
+            "I would trust it, but I haven't tried a bigger variant.",
+            "Please confirm it on the leaderboard before you rely on it.",
         ] {
             assert!(names_a_gap(said), "{said}");
         }
         for said in [
             "Done: the parser reads the tide tables and the check passes.",
             "All 41 tests pass, and I ran the program with --csv_path and --rgb_path.",
+            "Assumed the cell masks are 8-bit, and the grader's own check agrees.",
+            "I installed it; the caveat is only that the build took a while.",
             "",
         ] {
             assert!(!names_a_gap(said), "{said}");
