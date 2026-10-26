@@ -122,16 +122,11 @@ async fn woken(place: Option<&str>) -> (Vec<String>, ProviderRequest) {
 async fn a_turn_with_no_input_is_offered_the_task_tools() {
     // A placeless (CLI) session's wake is a reminder the driver posts, not a turn, so the
     // CLI is not driven here: the read is the same `Turn::continuation` in either place.
-    for (name, place) in [("dm", Some(DM))] {
-        let (loaded, req) = woken(place).await;
-        let tokens = req.census().tokens(crate::catalog::TokenRates::CLAUDE);
-        eprintln!("TABLE {name} wake: {loaded:?} {tokens}");
-        assert!(!hidden(&req, "task_create"), "{name}");
-        assert!(
-            req.tools.iter().any(|t| t["name"] == "task_create"),
-            "{name}"
-        );
-    }
+    let (loaded, req) = woken(Some(DM)).await;
+    let tokens = req.census().tokens(crate::catalog::TokenRates::CLAUDE);
+    eprintln!("TABLE dm wake: {loaded:?} {tokens}");
+    assert!(offered(&req, "task_create"), "present, and not deferred");
+    assert!(req.tools.iter().any(|t| t["name"] == "task_create"));
 }
 
 /// The safety property: a person's turn that does not ask for a task is as it was, by family and
