@@ -21,7 +21,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   stop read under the frame's lock, the wake nested so its failure takes back only itself. A failed turn's retry is
   the driver's (theseus-ljr), but not a `--stdio` daemon's: its run parks the turn on input for its one client
   (`turn/stdio_step.rs`, set by theseusd before serving, theseus-zqxv); `[model.retries]` can make a transient
-  failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; a call cut at its whole-call bound is retried once a turn at most; the bench profile's, since a
+  failure's call again inside its turn instead (`turn/retry_step.rs`, 2 by default; a call cut at its whole-call bound is retried once a turn at most; the bench profile's, since a
   headless run ends with its turn: theseus-7gir.21). Provider timeouts: `total_secs` bounds a call until its stream
   begins; a live stream (events within `stream_idle_secs`) goes on to `Timeouts::whole_call`, `LIVE_STREAM_TOTALS` (3) times
   it, and the model call's kernel action deadline is the same (theseus-5pg8u). Once the stop has begun (`Outbox::stopping`), the driver begins

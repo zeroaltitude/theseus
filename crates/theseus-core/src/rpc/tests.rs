@@ -1075,7 +1075,10 @@ async fn a_turn_that_fails_after_its_first_loop_keeps_that_loops_books() {
             chunk: usize::MAX,
             ..FakeProvider::scripted(vec![first, second])
         };
-        let core = Core::build(Parts::for_tests(Config::example(), Arc::new(fake), store)).unwrap();
+        let mut cfg = Config::example();
+        // The failure is the turn's own: no retry inside it.
+        cfg.model.retries.transient = 0;
+        let core = Core::build(Parts::for_tests(cfg, Arc::new(fake), store)).unwrap();
         let limit = None;
         let mut rec = SessionRecord::new(SessionKind::Conversation, None);
         let authority = Authority {

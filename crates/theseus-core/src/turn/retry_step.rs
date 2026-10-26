@@ -1,11 +1,11 @@
 //! A transient failure's retry inside its turn (`[model.retries]`,
 //! theseus-7gir.21). A call that fails with a class that passes with time is
 //! made again by the loop's next call, after a backoff that doubles each time,
-//! at most `transient` times in the turn. With none (the default), the turn
-//! fails, and the session's driver retries it later with its own backoff
-//! (theseus-ljr): an operator's daemon keeps that. A headless run (`theseus
-//! --spawn theseusd ask`) ends with its turn, so it gets no later retry, and
-//! the bench profile sets `transient`.
+//! at most `transient` times in the turn (2 by default). Past them, or with
+//! none (`transient = 0`), the turn fails, and the session's driver retries it
+//! later with its own backoff (theseus-ljr). A headless run (`theseus --spawn
+//! theseusd ask`) ends with its turn, so it gets no later retry, and the bench
+//! profile sets `transient`.
 //!
 //! A call cut at its whole-call bound (`ProviderError::Timeout { phase: Total
 //! }`: a stream that was alive, cut at `Timeouts::whole_call`) is retried at

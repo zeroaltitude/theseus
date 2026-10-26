@@ -1200,9 +1200,10 @@ pub struct ModelConfig {
 
 /// `[model.retries]` (theseus-7gir.21): a call that fails with a class that
 /// passes with time is made again inside its turn, after a backoff that
-/// doubles each time, at most `transient` times. 0, the default: none; the
-/// turn fails and the session's driver retries it later (theseus-ljr), as an
-/// operator's daemon does. For a headless run, which ends with its turn.
+/// doubles each time, at most `transient` times. 2, the default: a 429 or a
+/// 503 is made again inside its turn, where the model can still answer it. 0:
+/// none; the turn fails and the session's driver retries it later
+/// (theseus-ljr). A headless run ends with its turn, so it has no later retry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Retries {
@@ -1230,7 +1231,7 @@ fn default_backoff_max_ms() -> u64 {
 impl Default for Retries {
     fn default() -> Self {
         Self {
-            transient: 0,
+            transient: 2,
             backoff_ms: default_backoff_ms(),
             backoff_max_ms: default_backoff_max_ms(),
             refusal: true,

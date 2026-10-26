@@ -38,7 +38,8 @@ fn config(root: &Path, state: &Path) -> Config {
 }
 
 fn rig(script: Vec<Scripted>) -> Rig {
-    rig_with(script, |_| {})
+    // The driver's retries are under test here: none inside the turn.
+    rig_with(script, |c| c.model.retries.transient = 0)
 }
 
 fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
@@ -321,6 +322,30 @@ async fn a_transient_failure_is_retried_inside_its_turn_as_the_config_allows() {
     let sid = bound_session(&r.core);
     turn(&r.core, &sid, "say done").await.expect_err("it fails");
     assert_eq!(r.fake.requests.lock().unwrap().len(), 1);
+}
+
+/// With no `[model.retries]` set, a 503 twice and then the answer finishes
+/// inside its turn: the default is two in-turn retries (the owner, 2026-10-25
+/// 14:16: "provider timeout? change models and retry"), where it was none
+/// and the first 503 failed the turn to the driver.
+#[tokio::test]
+async fn a_503_twice_then_an_answer_finishes_on_the_default_retries() {
+    let server = || {
+        Scripted::Fail(ProviderError::Server {
+            status: 503,
+            message: "service unavailable".into(),
+        })
+    };
+    let r = rig_with(vec![server(), server(), Scripted::text("Done.")], |c| {
+        // Only the waits are short; `transient` is the default's.
+        c.model.retries.backoff_ms = 5;
+        c.model.retries.backoff_max_ms = 5;
+    });
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, "say done").await.expect("it answers");
+    assert_eq!(res.output, "Done.");
+    assert_eq!(r.fake.requests().len(), 3, "two retries and the answer");
+    assert!(thens(&r.core).is_empty(), "no turn failed");
 }
 
 /// Who retries a transient failure (theseus-zqxv). The socket daemon's

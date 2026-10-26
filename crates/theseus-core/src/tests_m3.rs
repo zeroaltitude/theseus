@@ -2971,12 +2971,16 @@ async fn a_two_loop_tool_turn_is_narrated_part_by_part() {
 #[tokio::test]
 async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
     use crate::provider::ProviderError;
-    let r = rig(vec![
-        Scripted::tools("", &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))]),
-        Scripted::Fail(ProviderError::Overloaded {
-            message: "busy".into(),
-        }),
-    ]);
+    let r = rig_with(
+        vec![
+            Scripted::tools("", &[("t1", "text_diff", json!({"a": "x\n", "b": "y\n"}))]),
+            Scripted::Fail(ProviderError::Overloaded {
+                message: "busy".into(),
+            }),
+        ],
+        // The failure is the turn's own: no retry inside it.
+        |c| c.model.retries.transient = 0,
+    );
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
     let (live, _) = r.core.live_profile();
@@ -3558,6 +3562,8 @@ async fn a_reset_that_cannot_free_what_is_held_unknown_asks_once_and_does_not_lo
         |c| {
             c.kernel.spend_limit_usd = 2.0;
             c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Ask;
+            // The cut call fails its turn: no retry inside it.
+            c.model.retries.transient = 0;
         },
     );
     let (sid, mut rx) = watched_session(&r);
@@ -7840,11 +7846,13 @@ async fn a_card_whose_question_closed_silently_is_settled_by_the_reconcile() {
 /// posts when it parks (theseus-ljr, `tests_failures`).
 #[tokio::test]
 async fn a_failed_turn_posts_its_failure_to_its_place() {
-    let r = rig(vec![Scripted::Fail(
-        crate::provider::ProviderError::Overloaded {
+    let r = rig_with(
+        vec![Scripted::Fail(crate::provider::ProviderError::Overloaded {
             message: "no such thing".into(),
-        },
-    )]);
+        })],
+        // The failure is the turn's own: no retry inside it.
+        |c| c.model.retries.transient = 0,
+    );
     let sid = bound(&r.core, "dm:42");
     let rec = r
         .core
