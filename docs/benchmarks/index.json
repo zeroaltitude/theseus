@@ -26,7 +26,17 @@
     "usd_total": {
      "value": 0.4951
     }
-   }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model"
   },
   {
    "report": "2026-10-07-terminal-bench-harness-arms",
@@ -52,7 +62,17 @@
     "usd_total": {
      "value": 5.9268
     }
-   }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model"
   },
   {
    "report": "2026-10-07-terminal-bench-harness-arms",
@@ -78,7 +98,17 @@
     "usd_total": {
      "value": 12.5701
     }
-   }
+   },
+   "arm_model": "openai/gpt-5.6-sol",
+   "provider": "openai",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model"
   },
   {
    "report": "2026-10-07-terminal-bench-harness-arms",
@@ -104,7 +134,17 @@
     "usd_total": {
      "value": 12.5586
     }
-   }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model"
   },
   {
    "report": "2026-10-07-terminal-bench-harness-arms",
@@ -130,7 +170,17 @@
     "usd_total": {
      "value": 4.4638
     }
-   }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model"
   },
   {
    "report": "2026-10-07-terminal-bench-harness-arms",
@@ -156,7 +206,17 @@
     "usd_total": {
      "value": 5.3037
     }
-   }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model"
   },
   {
    "report": "2026-10-07-terminal-bench-harness-arms",
@@ -182,7 +242,17 @@
     "usd_total": {
      "value": 4.2711
     }
-   }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model"
   },
   {
    "report": "2026-10-07-terminal-bench-harness-arms",
@@ -208,7 +278,17 @@
     "usd_total": {
      "value": 10.177
     }
-   }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model"
   },
   {
    "report": "2026-10-10-terminal-bench-theseus-rerun",
@@ -235,6 +315,16 @@
      "value": 5.9268
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "carried_from": "2026-10-07-terminal-bench-harness-arms"
   },
   {
@@ -262,6 +352,16 @@
      "value": 4.4638
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "carried_from": "2026-10-07-terminal-bench-harness-arms"
   },
   {
@@ -289,6 +389,16 @@
      "value": 5.3037
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "carried_from": "2026-10-07-terminal-bench-harness-arms"
   },
   {
@@ -316,6 +426,16 @@
      "value": 4.2711
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "carried_from": "2026-10-07-terminal-bench-harness-arms"
   },
   {
@@ -343,6 +463,16 @@
      "value": 5.86
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "carried_from": "2026-10-07-terminal-bench-harness-arms"
   },
   {
@@ -369,7 +499,17 @@
     "usd_total": {
      "value": 5.8926
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-10-terminal-bench-theseus-rerun",
@@ -396,6 +536,16 @@
      "value": 10.177
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "carried_from": "2026-10-07-terminal-bench-harness-arms"
   },
   {
@@ -422,7 +572,17 @@
     "usd_total": {
      "value": 15.5459
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": "routed",
+   "effort": [
+    "medium"
+   ],
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "routed"
   },
   {
    "report": "2026-10-12-harbor-efficiency",
@@ -453,7 +613,15 @@
     "usd_total": {
      "value": 0.0886
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-12-harbor-efficiency",
@@ -484,7 +652,15 @@
     "usd_total": {
      "value": 0.0354
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-12-harbor-efficiency",
@@ -515,7 +691,15 @@
     "usd_total": {
      "value": 0.1021
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 2,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-13-terminal-bench-harness-arms",
@@ -546,7 +730,15 @@
     "usd_total": {
      "value": 30.4319
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-13-terminal-bench-harness-arms",
@@ -577,7 +769,15 @@
     "usd_total": {
      "value": 22.2189
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-13-terminal-bench-harness-arms",
@@ -608,7 +808,15 @@
     "usd_total": {
      "value": 19.2264
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-13-terminal-bench-harness-arms",
@@ -639,7 +847,15 @@
     "usd_total": {
      "value": 32.1663
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-13-terminal-bench-r0",
@@ -671,6 +887,14 @@
      "value": 30.4319
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "carried_from": "2026-10-13-terminal-bench-harness-arms"
   },
   {
@@ -703,6 +927,14 @@
      "value": 32.1663
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "carried_from": "2026-10-13-terminal-bench-harness-arms"
   },
   {
@@ -734,7 +966,15 @@
     "usd_total": {
      "value": 51.4806
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 5,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-13-terminal-bench-r1",
@@ -765,7 +1005,15 @@
     "usd_total": {
      "value": 52.7111
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 5,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-18-terminal-bench-v1-high",
@@ -802,7 +1050,17 @@
     "agent_s_median": {
      "value": 55.84
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "high"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-18-terminal-bench-v1-high",
@@ -839,7 +1097,17 @@
     "agent_s_median": {
      "value": 59.655
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "high"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-18-terminal-bench-v1-high",
@@ -876,7 +1144,17 @@
     "agent_s_median": {
      "value": 55.19
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "high"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-18-terminal-bench-v1-high",
@@ -913,7 +1191,17 @@
     "agent_s_median": {
      "value": 50.4
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": "routed",
+   "effort": [
+    "medium"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "routed"
   },
   {
    "report": "2026-10-18-terminal-bench-v1-max",
@@ -950,7 +1238,17 @@
     "agent_s_median": {
      "value": 792.325
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "max"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-18-terminal-bench-v1-max",
@@ -987,7 +1285,17 @@
     "agent_s_median": {
      "value": 389.065
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "max"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-18-terminal-bench-v1-max",
@@ -1024,7 +1332,17 @@
     "agent_s_median": {
      "value": 214.905
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "xhigh"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-18-terminal-bench-v1-max",
@@ -1061,7 +1379,17 @@
     "agent_s_median": {
      "value": 96.25
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": "routed",
+   "effort": [
+    "medium"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "routed"
   },
   {
    "report": "2026-10-21-terminal-bench-rerun-high",
@@ -1099,6 +1427,16 @@
      "value": 55.84
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "high"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true,
    "carried_from": "2026-10-18-terminal-bench-v1-high"
   },
@@ -1138,6 +1476,16 @@
      "value": 59.655
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "high"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true,
    "carried_from": "2026-10-18-terminal-bench-v1-high"
   },
@@ -1177,6 +1525,16 @@
      "value": 55.19
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "high"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true,
    "carried_from": "2026-10-18-terminal-bench-v1-high"
   },
@@ -1215,7 +1573,17 @@
     "agent_s_median": {
      "value": 67.95
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-21-terminal-bench-rerun-high",
@@ -1253,6 +1621,16 @@
      "value": 50.4
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true,
    "carried_from": "2026-10-18-terminal-bench-v1-high"
   },
@@ -1292,6 +1670,16 @@
      "value": 792.325
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "max"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true,
    "carried_from": "2026-10-18-terminal-bench-v1-max"
   },
@@ -1331,6 +1719,16 @@
      "value": 389.065
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "max"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true,
    "carried_from": "2026-10-18-terminal-bench-v1-max"
   },
@@ -1370,6 +1768,16 @@
      "value": 214.905
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "xhigh"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true,
    "carried_from": "2026-10-18-terminal-bench-v1-max"
   },
@@ -1408,7 +1816,17 @@
     "agent_s_median": {
      "value": 156.0
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-21-terminal-bench-rerun-max",
@@ -1446,6 +1864,16 @@
      "value": 96.25
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true,
    "carried_from": "2026-10-18-terminal-bench-v1-max"
   },
@@ -1485,6 +1913,16 @@
      "value": 792.125
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "high"
+   ],
+   "k": null,
+   "task_set": "subset:6",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true
   },
   {
@@ -1520,6 +1958,16 @@
      "value": 699.78
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "high"
+   ],
+   "k": null,
+   "task_set": "subset:6",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true
   },
   {
@@ -1558,6 +2006,16 @@
      "value": 1086.26
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "high"
+   ],
+   "k": null,
+   "task_set": "subset:6",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true
   },
   {
@@ -1593,6 +2051,16 @@
      "value": 1059.115
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": null,
+   "task_set": "subset:6",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true
   },
   {
@@ -1630,7 +2098,17 @@
     "agent_s_median": {
      "value": 941.16
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": null,
+   "task_set": "subset:6",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-23-terminal-bench-retest-high-timeouts",
@@ -1668,6 +2146,16 @@
      "value": 1020.98
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": null,
+   "task_set": "subset:6",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true
   },
   {
@@ -1706,6 +2194,16 @@
      "value": 763.23
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "max"
+   ],
+   "k": null,
+   "task_set": "subset:27",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true
   },
   {
@@ -1744,6 +2242,16 @@
      "value": 390.38
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "max"
+   ],
+   "k": null,
+   "task_set": "subset:27",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true
   },
   {
@@ -1782,6 +2290,16 @@
      "value": 200.25
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "xhigh"
+   ],
+   "k": null,
+   "task_set": "subset:27",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true
   },
   {
@@ -1820,6 +2338,16 @@
      "value": 105.99
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": null,
+   "task_set": "subset:27",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true
   },
   {
@@ -1857,7 +2385,17 @@
     "agent_s_median": {
      "value": 128.94
     }
-   }
+   },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": null,
+   "task_set": "subset:27",
+   "subset_of": null,
+   "framing": "harness"
   },
   {
    "report": "2026-10-23-terminal-bench-retest-max",
@@ -1895,6 +2433,16 @@
      "value": 82.01
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": [
+    "medium"
+   ],
+   "k": null,
+   "task_set": "subset:27",
+   "subset_of": null,
+   "framing": "harness",
    "comparison": true
   },
   {
@@ -1933,6 +2481,14 @@
      "value": 55.84
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model",
    "carried_from": "2026-10-18-terminal-bench-v1-high"
   },
   {
@@ -1970,7 +2526,15 @@
     "agent_s_median": {
      "value": 73.5
     }
-   }
+   },
+   "arm_model": "GPT-6-Astra",
+   "provider": "openai",
+   "routing": "pinned",
+   "effort": null,
+   "k": 1,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model"
   },
   {
    "report": "2026-10-25-terminal-bench-codex-high",
@@ -2008,6 +2572,14 @@
      "value": 59.655
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model",
    "carried_from": "2026-10-18-terminal-bench-v1-high"
   },
   {
@@ -2046,6 +2618,14 @@
      "value": 55.19
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": null,
+   "effort": null,
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "model",
    "carried_from": "2026-10-18-terminal-bench-v1-high"
   },
   {
@@ -2084,6 +2664,14 @@
      "value": 50.4
     }
    },
+   "arm_model": null,
+   "provider": null,
+   "routing": "routed",
+   "effort": null,
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "routed",
    "carried_from": "2026-10-18-terminal-bench-v1-high"
   }
  ]

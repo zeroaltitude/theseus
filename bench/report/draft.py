@@ -318,6 +318,13 @@ def overlaps(trials: list[dict[str, Any]]) -> None:
             1 for o in trials if o is not t and o.get("window") and o["window"][0] < w[1] and w[0] < o["window"][1])
 
 
+def models_of(trials: list[dict[str, Any]]) -> str | list[str] | None:
+    """The models an arm's trials called (their records' `by_model`, the unnamed `unknown` left out): the one name
+    for a pinned arm, a sorted list for a routed one, None when no record names a model (theseus-uhc2d)."""
+    names = {m for t in trials for m in (t["record"].get("by_model") or {}) if m and m != "unknown"}
+    return None if not names else next(iter(names)) if len(names) == 1 else sorted(names)
+
+
 def harbor(args: argparse.Namespace) -> int:
     eff = _load("efficiency_report", HERE / "efficiency.py")
     labels = dict(x.split("=", 1) for x in args.label or [])
@@ -357,7 +364,8 @@ def harbor(args: argparse.Namespace) -> int:
         ends = Counter(trial_ending(t) for t in ts)
         s = eff.summarize(k, ts)
         summary[k] = {
-            "label": label_of(k, labels), "trials": len(ts), "tasks": len(by_task[k]),
+            "label": label_of(k, labels), "model": models_of(ts), "provider": manifest.provider_of(models_of(ts)),
+            "trials": len(ts), "tasks": len(by_task[k]),
             "pass": rate(solved, len(ts)),
             "solved_every_attempt": sum(1 for x in by_task[k] if all(t["solved"] for t in by_task[k][x])),
             "solved_any_attempt": sum(1 for x in by_task[k] if any(t["solved"] for t in by_task[k][x])),

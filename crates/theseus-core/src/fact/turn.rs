@@ -1169,7 +1169,8 @@ pub struct FellBack<'a> {
     pub to: &'a str,
     pub category: Option<&'a str>,
     pub loop_index: Option<u32>,
-    pub refused: &'a str,
+    /// The refused answer's id; none for a timeout's fallback.
+    pub refused: Option<&'a str>,
 }
 
 impl Fact for FellBack<'_> {

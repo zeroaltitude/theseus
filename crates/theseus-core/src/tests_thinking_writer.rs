@@ -40,7 +40,7 @@ fn spec(model: &str, fallback: Option<&str>) -> RequestSpec {
         effort_refused: vec![],
         thinking_display: ThinkingDisplay::Summarized,
         refusal_fallbacks: true,
-        fallback: fallback.map(|m| (m.to_string(), "cyber".to_string())),
+        fallback: fallback.map(|m| (m.to_string(), Some("cyber".to_string()))),
         first_party: true,
         cache_ttl: CacheTtl::FiveMinutes,
         conversation_ttl: CacheTtl::FiveMinutes,

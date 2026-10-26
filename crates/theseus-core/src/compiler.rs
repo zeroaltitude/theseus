@@ -226,8 +226,9 @@ pub struct RequestSpec {
     pub thinking_display: ThinkingDisplay,
     pub refusal_fallbacks: bool,
     /// A refusal's fallback for the rest of the turn (theseus-7gir.18): the
-    /// model its requests name, and the refused answer they leave out.
-    pub fallback: Option<(String, String)>,
+    /// model its requests name, and the refused answer they leave out (none
+    /// for a fallback a timeout made: nothing was answered to leave out).
+    pub fallback: Option<(String, Option<String>)>,
     /// The provider is Anthropic's own API (server-side fallbacks exist only there).
     pub first_party: bool,
     /// The profile's cache TTL, on the system blocks' breakpoints.
@@ -943,9 +944,9 @@ fn render_kept(
     let prefix = compaction::summaries_first(prefix, c.recall_id.as_deref());
     let tail: Vec<&Node> = tail.into_iter().map(|(_, n)| n).collect();
     let entry = catalog.get(&spec.model);
-    let fallback = spec.fallback.as_ref().map(|(m, r)| (&m[..], &r[..]));
+    let fallback = spec.fallback.as_ref().map(|(m, r)| (&m[..], r.as_deref()));
     let media = media_of(spec, catalog, blobs, hidden);
-    let (retrying, cleared) = (retrying.or(fallback.map(|f| f.1)), clearing::of(c));
+    let (retrying, cleared) = (retrying.or(fallback.and_then(|f| f.1)), clearing::of(c));
     let strip = c.manifest.strip_thinking;
     let mut rendered = match held {
         Some((kept, session, view)) => kept::render(

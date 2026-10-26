@@ -253,12 +253,22 @@ fn compile_with_kept(
     force: Option<Recompile>,
     kept: Option<&kept::Kept>,
 ) -> Compiled {
+    compile_on(&spec(), nodes, current, (window, force), kept)
+}
+
+fn compile_on(
+    spec: &RequestSpec,
+    nodes: &[(u64, crate::stub::Stub)],
+    current: Option<&Compilation>,
+    (window, force): (u64, Option<Recompile>),
+    kept: Option<&kept::Kept>,
+) -> Compiled {
     compile(CompileInput {
         session_id: "s",
         current,
         nodes,
         last_position: nodes.last().map_or(0, |(p, _)| *p),
-        spec: &spec(),
+        spec,
         catalog: &Catalog::builtin(),
         force,
         window_override: Some(window),
@@ -339,5 +349,55 @@ fn appends_take_up_the_kept_render() {
         (hits, misses),
         (299, 1),
         "every append after the first took up the kept render"
+    );
+}
+
+/// A fallback a timeout made leaves nothing out, so the requests naming it
+/// still take up the kept render: only a refused answer to leave out
+/// (`RequestSpec::fallback`'s id) puts the render aside (theseus-3cf5c).
+#[test]
+fn a_timeout_fallback_keeps_the_kept_render() {
+    let on = |refused: Option<&str>| {
+        let kept = kept::Kept::new(64 << 20);
+        let spec = RequestSpec {
+            fallback: Some(("claude-sonnet-5".into(), refused.map(str::to_string))),
+            ..spec()
+        };
+        let mut s = Session {
+            nodes: vec![],
+            turn: 0,
+            calls: 0,
+            owed: None,
+        };
+        let mut current: Option<Compilation> = None;
+        for _ in 0..20 {
+            s.apply(&Step::Said(40, true));
+            s.apply(&Step::Calls(vec![200], false));
+            s.apply(&Step::Done(60));
+            let nodes: Vec<(u64, crate::stub::Stub)> = s
+                .nodes
+                .iter()
+                .map(|(p, n)| (*p, n.clone().into()))
+                .collect();
+            let c = compile_on(
+                &spec,
+                &nodes,
+                current.as_ref(),
+                (1_000_000, None),
+                Some(&kept),
+            );
+            current = Some(c.compilation);
+        }
+        kept.counts()
+    };
+    assert_eq!(
+        on(None),
+        (19, 1),
+        "no refused answer: the render is taken up"
+    );
+    assert_eq!(
+        on(Some("msg_refused")),
+        (0, 0),
+        "a refused answer sets it aside"
     );
 }

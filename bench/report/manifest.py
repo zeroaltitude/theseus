@@ -36,6 +36,28 @@ ABOUT = ("One row per measured arm of each published benchmark dataset in docs/b
          "bench/report/manifest.py (draft.py appends a run's rows). A row with comparison or carried_from is not a "
          "new measurement. Sorted by date, report, variant.")
 
+# What a row says about the model, the routing, the attempts and the tasks of its arm (theseus-uhc2d). Every one is
+# additive and always present: an unknown value is `null`, never an absent key, so a reader tests one way.
+#
+#   model       the dataset's prose `model` line, exactly as it always was (the cockpit reads it as the reference line
+#               a label's "(Model, effort)" is compared with: never redefine it).
+#   arm_model   the arm's own model(s): a string for a pinned arm, a sorted list for a routed one, from the summary
+#               entry's `model`; else the model its label names in "(Model, effort)"; else null.
+#   provider    `anthropic`, `openai`, ... from the entry's `provider`, else read off a single model's name; else null.
+#   routing     `routed` | `pinned` | `n/a` (the entry's `routing`, else from its models and its arm key); else null.
+#   effort      the efforts the arm asked for, a list of strings (the entry's `effort`); null when unrecorded.
+#   k           attempts per task, an integer, ONLY when the arm ran the whole task set and trials divide into it
+#               evenly (or the entry states it); null otherwise. It is NOT `metrics.pass_rate.k` (solved trials).
+#   task_set    `full` | `subset:<n>`; `subset_of` names the report whose task set it cuts (null if unstated).
+#   framing     what the dataset's contrast is. `harness`: every arm with a known model ran the same one, so only the
+#               harness varies (benchframing.ts `A`); `model`: the arms' models differ (`B`); `routed`: this row is an
+#               arm that picked its own models (`T`). A dataset's own `framing` wins; with fewer than two known models
+#               the default is `harness`. An arm whose label names a model that no other source in the dataset names is
+#               `model` too (the cockpit's labelModel rule). `kind` is the bench family (`harbor`, `harness`), not a framing: never read.
+FRAMINGS = ("harness", "model", "routed")
+ROUTINGS = ("routed", "pinned", "n/a")
+PROVIDERS = (("anthropic", ("claude",)), ("openai", ("gpt", "o1", "o3", "o4", "codex")))
+
 # Summary keys a dataset may carry its money and time under, by shape (the name in the row, the key, the interval).
 USD_TOTAL = ("usd_total", "cost_usd", "dollars")
 
@@ -90,6 +112,87 @@ def _metrics(entry: dict[str, Any]) -> dict[str, Any] | None:
     return m
 
 
+def _bare(model: str) -> str:
+    return model.rsplit("/", 1)[-1]
+
+
+def label_model(label: Any) -> str | None:
+    """The model in a label's parenthesis, when it has the form "(Model, effort)": "Codex CLI 0.161.0 (GPT-6-Astra, high)" -> "GPT-6-Astra".
+    The same rule as `labelModel` in cockpit/src/lib/bench.ts."""
+    m = re.search(r"\(([^(),]+),[^()]*\)\s*$", label) if isinstance(label, str) else None
+    return m.group(1).strip() if m else None
+
+
+def _squash(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def same_model(a: str, b: str) -> bool:
+    """Whether two spellings name one model ("anthropic/claude-sonnet-5-5" and "Claude Sonnet 5.5"); cockpit `sameModel`."""
+    x, y = _squash(a), _squash(b)
+    return bool(x) and bool(y) and (x in y or y in x)
+
+
+def _models(entry: dict[str, Any]) -> str | list[str] | None:
+    """The arm's own model: a string, a sorted list of two or more, or None when the entry names none."""
+    m = entry.get("model")
+    if isinstance(m, str) and m:
+        return m
+    if isinstance(m, list) and m and all(isinstance(x, str) and x for x in m):
+        return m[0] if len(set(m)) == 1 else sorted(set(m))
+    return None
+
+
+def provider_of(model: str | list[str] | None) -> str | None:
+    """The provider one model name belongs to (`anthropic/x` names it; `claude-*` and `gpt-*` imply it); None if unsure. A gateway prefix (`openrouter/`, `zai/`) is not a provider."""
+    names = [model] if isinstance(model, str) else model or []
+    found = set()
+    for n in names:
+        head = n.split("/", 1)[0] if "/" in n else None
+        if head in {p for p, _ in PROVIDERS}:
+            found.add(head)
+            continue
+        found.add(next((p for p, pre in PROVIDERS if _bare(n).lower().startswith(pre)), None))
+    return found.pop() if len(found) == 1 else None
+
+
+def _task_sets(data: dict[str, Any], found: list) -> dict[str, tuple[str, int | None]]:
+    """Per variant: ("full" | "subset:<n>", tasks). A dataset with a `scope` ran a cut of its suite; an arm that
+    ran fewer tasks than its dataset's widest arm ran a cut too. Anything else is the whole set."""
+    counts = {k: e.get("tasks") if _num(e.get("tasks")) else None for k, e, _ in found}
+    widest = max((n for n in counts.values() if n), default=None)
+    scoped = isinstance(data.get("scope"), dict)
+    out = {}
+    for k, n in counts.items():
+        cut = n is not None and (scoped or (widest is not None and n < widest))
+        out[k] = (f"subset:{int(n)}" if cut else "full", n)
+    return out
+
+
+def _framing(data: dict[str, Any], found: list) -> str:
+    if data.get("framing") in FRAMINGS:
+        return data["framing"]
+    pinned = {_bare(m) for _, e, _ in found if isinstance(m := _models(e), str)}
+    if len(pinned) > 1:
+        return "model"
+    # An arm whose label names a model that nothing else in the dataset names ran its own: with no reference at all
+    # the model varies, as the cockpit reads it (theseus-uhc2d join fix 2).
+    known = list(pinned) + ([data["model"]] if isinstance(data.get("model"), str) else [])
+    for _, e, _ in found:
+        named = label_model(e.get("label"))
+        if named and not any(same_model(k, named) for k in known):
+            return "model"
+    return "harness"
+
+
+def _routing(variant: str, entry: dict[str, Any], model: str | list[str] | None) -> str | None:
+    if entry.get("routing") in ROUTINGS:
+        return entry["routing"]
+    if isinstance(model, list) or "routed" in variant:
+        return "routed"
+    return "pinned" if isinstance(model, str) else None
+
+
 def rows_of(data: Any, name: str) -> tuple[list[dict[str, Any]], str | None]:
     """A dataset's rows, or ([], why it has none). Raises ManifestError for one that has a pass rate but no whole row."""
     if not isinstance(data, dict):
@@ -113,8 +216,20 @@ def rows_of(data: Any, name: str) -> tuple[list[dict[str, Any]], str | None]:
     commit = data.get("commit") or run.get("code_commit")
     # A report that marks its own arms "(this run)" ran only those; the rest are the comparison it drew against.
     marked = any("(this run)" in str(e.get("label", "")) for _, e, _ in found)
+    sets = _task_sets(data, found)
+    framing = _framing(data, found)
     out = []
     for variant, entry, metrics in found:
+        own = _models(entry)
+        if own is None:
+            own = label_model(entry.get("label"))
+        task_set, n_tasks = sets[variant]
+        trials = entry.get("trials") if _num(entry.get("trials")) else metrics["pass_rate"]["n"]
+        k = entry.get("k") if isinstance(entry.get("k"), int) and not isinstance(entry.get("k"), bool) else None
+        if k is None and task_set == "full" and n_tasks and trials and trials % n_tasks == 0:
+            k = int(trials // n_tasks)
+        routing = _routing(variant, entry, own)
+        effort = entry.get("effort")
         row: dict[str, Any] = {
             "report": report, "benchmark": data["suite"], "tier": data.get("tier"),
             "arm": family(variant), "variant": variant,
@@ -124,6 +239,13 @@ def rows_of(data: Any, name: str) -> tuple[list[dict[str, Any]], str | None]:
             "trials": entry.get("trials") if _num(entry.get("trials")) else metrics["pass_rate"]["n"],
             "tasks": entry.get("tasks") if _num(entry.get("tasks")) else None,
             "metrics": metrics,
+            "arm_model": own,
+            "provider": entry.get("provider") or provider_of(own),
+            "routing": routing,
+            "effort": ([effort] if isinstance(effort, str) else effort) if isinstance(effort, (str, list)) else None,
+            "k": k, "task_set": task_set,
+            "subset_of": (data.get("subset_of") if task_set != "full" else None),
+            "framing": "routed" if routing == "routed" else framing,
         }
         if marked and "(this run)" not in str(entry.get("label", "")):
             row["comparison"] = True

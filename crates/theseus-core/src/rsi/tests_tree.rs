@@ -504,3 +504,107 @@ async fn a_stopped_gate_names_its_phase() {
 fn the_gate_limit_is_still_two_hours() {
     assert_eq!(tree::GATE_LIMIT, std::time::Duration::from_secs(2 * 3600));
 }
+
+/// Advance the upstream's main behind the repo's back: a commit that rewrites
+/// `scripts/gate.sh` to `gate`, pushed from a scratch clone. The commit.
+fn move_main(f: &Fixture, gate: &str) -> String {
+    let root = f.upstream.parent().unwrap();
+    let work = root.join(format!("mover-{}", gate.len()));
+    git(
+        root,
+        &[
+            "clone",
+            "-q",
+            f.upstream.to_str().unwrap(),
+            work.to_str().unwrap(),
+        ],
+    );
+    std::fs::write(work.join("scripts/gate.sh"), gate).unwrap();
+    git(&work, &["add", "-A"]);
+    git(&work, &["commit", "-q", "-m", "main moves"]);
+    git(&work, &["push", "-q", "origin", "HEAD:main"]);
+    git(&work, &["rev-parse", "HEAD"])
+}
+
+const NEWER_GATE: &str = "#!/bin/bash\necho 'gate: ok (newer)'\nexit 0\n";
+
+/// The door sees main move: a tree cut after the upstream advanced is cut
+/// from the moved main, not from the frozen ref (theseus-g5wxc).
+#[test]
+fn a_moved_main_is_visible_to_the_next_cut() {
+    let f = fixture();
+    let moved = move_main(&f, NEWER_GATE);
+    let t = tree::open(&f.place, "after the move", NOW).unwrap();
+    assert_eq!(git(&t.dir, &["rev-parse", "HEAD"]), moved);
+    assert_eq!(
+        git(&f.place.repo, &["rev-parse", "origin/main"]),
+        moved,
+        "the repo's view of main advanced"
+    );
+}
+
+/// The gate blob follows main: the script the door writes out for the next
+/// cut is main's new one, by blob and by content (theseus-g5wxc).
+#[tokio::test]
+async fn the_gate_blob_follows_main() {
+    let f = fixture();
+    let old_blob = git(&f.place.repo, &["rev-parse", "origin/main:scripts/gate.sh"]);
+    move_main(&f, NEWER_GATE);
+    let want = git(&f.upstream, &["rev-parse", "main:scripts/gate.sh"]);
+    assert_ne!(want, old_blob);
+    let t = tree::open(&f.place, "new gate", NOW).unwrap();
+    let run = tree::gate(&f.place, &t).await.unwrap();
+    assert_eq!(run.blob, want, "judged by the old gate blob");
+    let log = std::fs::read_to_string(&run.log).unwrap();
+    assert!(log.contains("gate: ok (newer)"), "{log}");
+}
+
+/// A remote that cannot be reached does not fail the door: the tree is cut
+/// from the base the repo has (theseus-g5wxc).
+#[test]
+fn a_failed_fetch_does_not_fail_the_door() {
+    let f = fixture();
+    let before = git(&f.place.repo, &["rev-parse", "origin/main"]);
+    let gone = f.upstream.with_extension("gone");
+    std::fs::rename(&f.upstream, &gone).unwrap();
+    let t = tree::open(&f.place, "no network", NOW).expect("the door goes on");
+    assert_eq!(git(&t.dir, &["rev-parse", "HEAD"]), before);
+}
+
+/// A fetch that fails is told to the owner, who would otherwise never learn the
+/// tree was cut from a stale base (the second theseus-51sfw shape).
+#[test]
+fn a_failed_fetch_tells_the_owner_and_a_good_one_says_nothing() {
+    let f = fixture();
+    let (place, told) = listening(&f.place);
+    tree::open(&place, "reachable", NOW).unwrap();
+    assert!(
+        told.lock().unwrap().is_empty(),
+        "a fetch that works is not news"
+    );
+    let g = fixture();
+    let (place, told) = listening(&g.place);
+    std::fs::rename(&g.upstream, g.upstream.with_extension("gone")).unwrap();
+    tree::open(&place, "unreachable", NOW).expect("the door goes on");
+    let said = told.lock().unwrap().clone();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("could not reach origin") && said[0].contains("may be behind main"),
+        "{said:?}"
+    );
+}
+
+/// One fetch a pass, not one an item: a second cut straight after the first
+/// does not fetch again (the self backlog's night opens several in a loop).
+#[test]
+fn a_pass_fetches_once_not_once_an_item() {
+    let f = fixture();
+    let first = tree::open(&f.place, "first", NOW).unwrap();
+    move_main(&f, NEWER_GATE);
+    let second = tree::open(&f.place, "second", NOW).unwrap();
+    assert_eq!(
+        git(&second.dir, &["rev-parse", "HEAD"]),
+        git(&first.dir, &["rev-parse", "HEAD"]),
+        "the second cut of a pass reused the pass's fetch"
+    );
+}

@@ -50,7 +50,7 @@ pub(super) fn guess(at: &At<'_, '_>, seq: &[&Stub], cuts: &[usize], target: u64)
     let retrying = input
         .overflowed
         .and_then(|o| o.retrying.as_deref())
-        .or(spec.fallback.as_ref().map(|f| f.1.as_str()));
+        .or(spec.fallback.as_ref().and_then(|f| f.1.as_deref()));
     let cleared: HashSet<&str> = clearing::drops(r.carried)
         .filter_map(|d| d.node_id.as_deref())
         .collect();

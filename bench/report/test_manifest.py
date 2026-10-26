@@ -168,6 +168,141 @@ class Append(Fixture):
         self.assertFalse(index.exists(), "nothing written for a half row")
 
 
+def with_models(data, **models):
+    """Name each arm's own model (a string, or a list for a routed arm) the way draft.py now writes it."""
+    for key, m in models.items():
+        data["summary"][key]["model"] = m
+    return data
+
+
+class Framing(Fixture):
+    """theseus-uhc2d: the manifest says which model each arm ran, how it was routed, how often it tried each task, and
+    which tasks it ran. Every key is always present; unknown is null. `harness`/`model`/`routed` are benchframing.ts's A/B/T."""
+
+    def rows(self, name, data):
+        self.put(name, data)
+        doc, _ = self.build()
+        return {r["variant"]: r for r in doc["runs"] if r["report"] == name}
+
+    def test_arms_that_ran_different_models_get_different_models_and_a_model_framing(self):
+        d = with_models(flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (6, 9), "beta": (3, 9)}),
+                        alpha="anthropic/claude-sonnet-5-5", beta="openai/gpt-x")
+        r = self.rows("2026-03-01-a", d)
+        self.assertEqual((r["alpha"]["arm_model"], r["beta"]["arm_model"]), ("anthropic/claude-sonnet-5-5", "openai/gpt-x"))
+        self.assertEqual((r["alpha"]["model"], r["beta"]["model"]), ("model-x", "model-x"),
+                         "`model` stays the dataset's prose line: the cockpit reads it as the reference (join fix 1)")
+        self.assertEqual((r["alpha"]["provider"], r["beta"]["provider"]), ("anthropic", "openai"))
+        self.assertEqual((r["alpha"]["framing"], r["beta"]["framing"]), ("model", "model"))
+        self.assertEqual((r["alpha"]["routing"], r["beta"]["routing"]), ("pinned", "pinned"))
+
+    def test_one_model_across_the_arms_is_a_harness_framing_and_a_routed_arm_is_its_own(self):
+        d = with_models(flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (6, 9), "beta": (3, 9), "theseus_routed": (4, 9)}),
+                        alpha="claude-sonnet-5-5", beta="anthropic/claude-sonnet-5-5",
+                        theseus_routed=["claude-haiku-5-5", "claude-sonnet-5-5"])
+        r = self.rows("2026-03-01-a", d)
+        self.assertEqual((r["alpha"]["framing"], r["beta"]["framing"]), ("harness", "harness"))
+        self.assertEqual(r["theseus_routed"]["framing"], "routed")
+        self.assertEqual(r["theseus_routed"]["routing"], "routed")
+        self.assertEqual(r["theseus_routed"]["arm_model"], ["claude-haiku-5-5", "claude-sonnet-5-5"])
+
+    def test_the_newest_dataset_has_no_kind_and_no_per_arm_model_and_still_makes_rows(self):
+        data = flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (3, 3)})
+        del data["model"]
+        self.assertNotIn("kind", data)
+        r = self.rows("2026-03-01-a", data)["alpha"]
+        self.assertEqual((r["framing"], r["model"], r["arm_model"], r["provider"], r["routing"], r["effort"]),
+                         ("harness", None, None, None, None, None))
+
+    def test_an_arm_whose_label_names_a_model_nothing_else_names_is_a_model_framing(self):
+        """join fix 2: the 10-25 codex dataset names GPT-6-Astra only in a label, and no model for its peers."""
+        data = flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (6, 9), "beta": (3, 9)})
+        del data["model"]
+        data["summary"]["alpha"]["label"] = "Alpha CLI 1.0 (GPT-6-Astra, high)"
+        data["summary"]["beta"]["label"] = "Beta 2.0"
+        r = self.rows("2026-03-01-a", data)
+        self.assertEqual((r["alpha"]["framing"], r["beta"]["framing"]), ("model", "model"))
+        self.assertEqual((r["alpha"]["arm_model"], r["alpha"]["provider"], r["alpha"]["model"]), ("GPT-6-Astra", "openai", None))
+        self.assertEqual((r["beta"]["arm_model"], r["beta"]["provider"]), (None, None))
+        data["model"] = "openai/gpt-6-astra"   # a reference the label agrees with: only the harness varies
+        r = self.rows("2026-03-01-a", data)
+        self.assertEqual((r["alpha"]["framing"], r["beta"]["framing"]), ("harness", "harness"))
+
+    def test_the_published_codex_comparison_is_a_model_framing(self):
+        name = "2026-10-25-terminal-bench-codex-high"
+        data = json.loads((DOCS / f"{name}.json").read_text())
+        rows, _ = manifest.rows_of(data, name)
+        by = {r["variant"]: r for r in rows}
+        self.assertEqual((by["codex"]["framing"], by["codex"]["provider"], by["codex"]["k"]), ("model", "openai", 1))
+        self.assertEqual(by["claude-code"]["k"], 3)
+        self.assertEqual(by["theseus-routed"]["framing"], "routed")
+
+    def test_a_gateway_prefix_is_not_a_provider(self):
+        self.assertEqual(manifest.provider_of("openrouter/deepseek/deepseek-v4-pro"), None)
+        self.assertEqual(manifest.provider_of("zai/glm-5.3"), None)
+        self.assertEqual(manifest.provider_of("openrouter/anthropic/claude-sonnet-5-5"), "anthropic")
+        self.assertEqual(manifest.provider_of("openai/gpt-x"), "openai")
+
+    def test_an_arm_that_ran_no_tasks_does_not_break_the_build(self):
+        data = flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (0, 3)})
+        data["summary"]["alpha"]["tasks"] = 0
+        self.assertEqual(self.rows("2026-03-01-a", data)["alpha"]["task_set"], "full")
+
+    def test_k_is_never_trials_over_tasks_for_an_arm_that_ran_a_subset(self):
+        data = flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (6, 9), "beta": (6, 9)})  # 3 tasks each, k=3
+        data["summary"]["beta"]["tasks"] = 2          # beta ran 2 of the 3: 9 trials over 2 tasks is no k
+        r = self.rows("2026-03-01-a", data)
+        self.assertEqual((r["alpha"]["task_set"], r["alpha"]["k"]), ("full", 3))
+        self.assertEqual((r["beta"]["task_set"], r["beta"]["k"]), ("subset:2", None))
+        data["summary"]["alpha"]["k"] = 3             # a stated k is kept; an uneven division is not guessed at
+        data["summary"]["beta"]["tasks"] = 3
+        data["summary"]["beta"]["trials"] = 8
+        r = self.rows("2026-03-01-a", data)
+        self.assertEqual((r["alpha"]["k"], r["beta"]["k"]), (3, None))
+
+    def test_a_retest_with_a_scope_is_a_subset_and_not_the_full_run(self):
+        full = flat("2026-03-01-full", "2026-03-01", "high", {"alpha": (6, 9)})
+        cut = flat("2026-03-02-cut", "2026-03-02", "high", {"alpha": (2, 3)}, subset_of="2026-03-01-full",
+                   scope={"planned": 1, "finished": 1, "tasks": ["t1"], "left_out": {}})
+        cut["summary"]["alpha"]["tasks"] = 1
+        self.put("2026-03-01-full", full)
+        self.put("2026-03-02-cut", cut)
+        doc, _ = self.build()
+        d = {r["report"]: r for r in doc["runs"]}
+        self.assertEqual((d["2026-03-01-full"]["task_set"], d["2026-03-01-full"]["subset_of"]), ("full", None))
+        self.assertEqual((d["2026-03-02-cut"]["task_set"], d["2026-03-02-cut"]["subset_of"], d["2026-03-02-cut"]["k"]),
+                         ("subset:1", "2026-03-01-full", None))
+
+    def test_the_omnibus_is_still_skipped(self):
+        self.put("omnibus", {"report": "omnibus", "kind": "omnibus", "summary": flat("x", "2026-03-02", "high", {"a": (1, 3)})["summary"]})
+        doc, log = self.build()
+        self.assertEqual(doc["runs"], [])
+        self.assertIn("omnibus", "\n".join(log))
+
+    def test_the_vocabulary_maps_onto_the_cockpits_framings(self):
+        """benchframing.ts: A = same model, harness varies; B = model varies; T = Theseus routes over every model."""
+        self.assertEqual(dict(zip(manifest.FRAMINGS, "ABT")), {"harness": "A", "model": "B", "routed": "T"})
+
+
+DOCS = HERE.parent.parent / "docs" / "benchmarks"
+OLD = ("2026-10-13-terminal-bench-harness-arms", "2026-10-21-terminal-bench-rerun-high", "2026-10-23-terminal-bench-retest-max")
+
+
+class Published(unittest.TestCase):
+    def test_a_published_datasets_rows_keep_every_key_they_had_and_gain_only_new_ones(self):
+        """The regression guard: the keys rows_of wrote before theseus-uhc2d, with their values."""
+        before = {"report", "benchmark", "tier", "arm", "variant", "harness", "model", "date", "commit", "dataset", "trials",
+                  "tasks", "metrics"}
+        added = {"arm_model", "provider", "routing", "effort", "k", "task_set", "subset_of", "framing"}
+        for name in OLD:
+            data = json.loads((DOCS / f"{name}.json").read_text())
+            rows, _ = manifest.rows_of(data, name)
+            self.assertTrue(rows, name)
+            for r in rows:
+                self.assertEqual(set(r) - {"comparison"}, before | added, name)
+                self.assertEqual(r["model"], data["model"], "no per-arm model in a published dataset: the prose stays")
+                self.assertEqual(r["trials"], data["summary"][r["variant"]]["trials"])
+
+
 class DraftHook(unittest.TestCase):
     def test_a_drafted_run_writes_its_manifest_row(self):
         import contextlib
