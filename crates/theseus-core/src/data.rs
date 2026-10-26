@@ -12,10 +12,22 @@
 //! only when `screen` passes it, and a result it fails ends the run there, never
 //! the session. The result is the one part of an open request that no person
 //! wrote and Jev never judged, so only the file tools under the open roots, a
-//! search and a fetch of a public address may pass, and only a result the
-//! scrubber found nothing in. A program's result never passes (it can read any
-//! path the daemon's user can); a sandboxed program run is a later row. The
-//! turn's side is `turn/screen_step.rs`.
+//! program under them, a search and a fetch of a public address may pass, and
+//! only a result holding neither a scrubbed secret nor one of `[privacy]
+//! sensitive_names`.
+//!
+//! **A program's result is screened by what it holds** (theseus-ouqru; the
+//! owner, 2026-10-26: "Command output should not gate china models at all.
+//! Thats a bugfix before a new benchmark run."). Until then every
+//! command-running tool's result was refused by its kind alone, which ended an
+//! open run at the turn's first command and so refused a restricted model
+//! mid-loop, after its spend. A program's result now takes the same content
+//! screen as any other text, with its own call's reach read on top: it ran in
+//! a directory under the open roots and named no path outside them. What that
+//! reach cannot see is written out at [`reach_bounded`], and the keel half does
+//! not move: a program result holding a secret, a sensitive name, or a path
+//! outside the open roots is still unscreened and still refuses the clearance.
+//! The turn's side is `turn/screen_step.rs`.
 //!
 //! A session's data state (theseus-a1wvq.5, `SessionRecord.data`): whether
 //! it was opened, its open run, and its taint. An open task opens one
@@ -289,12 +301,17 @@ fn refused(run: &OpenRun, c: &Carried) -> Option<DataWhy> {
 /// Why a tool's result did not pass the screen (`screen`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unscreened {
-    /// A program's output: it can print any file the daemon's user reads.
+    /// A program run whose reach the screen cannot bound (theseus-ouqru):
+    /// a call with no command to read (a job tool's, a terminal's), or one
+    /// whose command holds an expansion this screen does not resolve. Not
+    /// "it is a program": that was the kind test this row removed.
     Program,
     /// A tool the screen does not list.
     Tool,
     /// The scrubber found a secret in it.
     Secret,
+    /// It holds one of `[privacy] sensitive_names` (theseus-ouqru).
+    Name,
     /// A path outside the open roots, or a private address.
     Outside,
 }
@@ -305,53 +322,74 @@ impl Unscreened {
             Unscreened::Program => "program",
             Unscreened::Tool => "tool",
             Unscreened::Secret => "secret",
+            Unscreened::Name => "name",
             Unscreened::Outside => "outside",
         }
     }
 }
 
-/// Whether one tool result may join an open request's run: `plan` is the call's
-/// own plan (none when it does not plan), `redactions` the result node's
-/// `meta.redactions`, and `open` the request's reach. In order: a program
-/// fails; only the file tools (`places::files_tool`), `web.search` and
-/// `http.fetch` are listed, every other tool's result fails (a task list names
-/// the owner's other work, `tools.find` the owner's tools); a scrubbed secret
-/// fails; and, checked again here after the gate, a file tool must name a
-/// resource and every one canonical within an open root, and a fetch must name
-/// a public URL and, when the result names one (`meta.final_url`), end at one:
-/// a redirect may lead into the owner's network (theseus-lm38z).
-pub fn screen(
-    tool: &str,
-    plan: Option<&theseus_protocol::Plan>,
-    redactions: u64,
-    final_url: Option<&str>,
-    open: &crate::open_view::Open,
-) -> Result<(), Unscreened> {
-    use theseus_tools::paths;
-    if crate::open_view::runs_tool(tool) {
-        return Err(Unscreened::Program);
-    }
-    let file = crate::places::files_tool(tool);
-    if !(file || matches!(tool, "web.search" | "http.fetch")) {
+/// What [`screen`] reads of one tool result. A struct, as `Check` is, because
+/// the content screen of theseus-ouqru added the result's own text and the
+/// sensitive names to what the kind test alone needed.
+pub struct Screening<'a> {
+    /// The call's canonical tool name.
+    pub tool: &'a str,
+    /// The call's own plan, none when it does not plan.
+    pub plan: Option<&'a theseus_protocol::Plan>,
+    /// The result node's `meta.redactions`: what the scrubber withheld.
+    pub redactions: u64,
+    /// The result node's `meta.final_url`, where a fetch ended.
+    pub final_url: Option<&'a str>,
+    /// The result's content as the model will see it: scrubbed and capped,
+    /// so screening it screens exactly what would be sent (theseus-ouqru).
+    pub content: &'a str,
+    /// `[privacy] sensitive_names`, which no result may carry to a model
+    /// outside the owner's trust.
+    pub names: &'a theseus_judge::names::Names,
+    /// The request's reach.
+    pub open: &'a crate::open_view::Open,
+}
+
+/// Whether one tool result may join an open request's run. In order: only the
+/// file tools (`places::files_tool`), the command-running tools
+/// (`open_view::runs_tool`), `web.search` and `http.fetch` are listed, every
+/// other tool's result fails (a task list names the owner's other work,
+/// `tools.find` the owner's tools); a scrubbed secret fails; one of `[privacy]
+/// sensitive_names` in the content fails (theseus-ouqru, every tool alike);
+/// and then, each checked again here after the gate, a file tool must name a
+/// resource and every one canonical within an open root, a program's reach
+/// must be bounded to the open roots ([`reach_bounded`]), and a fetch must
+/// name a public URL and, when the result names one (`meta.final_url`), end at
+/// one: a redirect may lead into the owner's network (theseus-lm38z).
+pub fn screen(s: &Screening<'_>) -> Result<(), Unscreened> {
+    let file = crate::places::files_tool(s.tool);
+    let program = crate::open_view::runs_tool(s.tool);
+    if !(file || program || matches!(s.tool, "web.search" | "http.fetch")) {
         return Err(Unscreened::Tool);
     }
-    if redactions > 0 {
+    // The content screen, every listed tool alike: what the model would read.
+    if s.redactions > 0 {
         return Err(Unscreened::Secret);
     }
-    let inside = |r: &theseus_protocol::Resource| {
-        let p = paths::canonical_best_effort(&r.path);
-        open.roots.iter().any(|root| paths::within(&p, root))
-    };
-    let outside = match (file, tool) {
+    if !s.names.hits(s.content).is_empty() {
+        return Err(Unscreened::Name);
+    }
+    if program {
+        return reach_bounded(s.plan, s.open);
+    }
+    let inside = |r: &theseus_protocol::Resource| within_open(&r.path, s.open);
+    let outside = match (file, s.tool) {
         (true, _) => {
-            !plan.is_some_and(|p| !p.resources.is_empty() && p.resources.iter().all(inside))
+            !(s.plan).is_some_and(|p| !p.resources.is_empty() && p.resources.iter().all(inside))
         }
         (_, "http.fetch") => {
             let not_public = |u: &str| {
                 reqwest::Url::parse(u).is_err() || crate::web::net::private_url(u).is_some()
             };
-            plan.and_then(|p| p.url.as_deref()).is_none_or(not_public)
-                || final_url.is_some_and(not_public)
+            (s.plan)
+                .and_then(|p| p.url.as_deref())
+                .is_none_or(not_public)
+                || s.final_url.is_some_and(not_public)
         }
         _ => false,
     };
@@ -359,6 +397,88 @@ pub fn screen(
         true => Err(Unscreened::Outside),
         false => Ok(()),
     }
+}
+
+/// Whether `p`, made canonical, is under an open root.
+fn within_open(p: &std::path::Path, open: &crate::open_view::Open) -> bool {
+    use theseus_tools::paths;
+    let p = paths::canonical_best_effort(p);
+    open.roots.iter().any(|root| paths::within(&p, root))
+}
+
+/// Whether a program call's reach is bounded to the open roots
+/// (theseus-ouqru). It is when the call plans a working directory, every one
+/// it plans is under an open root, it holds a command to read, and no path
+/// that command names resolves outside the open roots — the command's paths
+/// read exactly as the policy floor reads them (`policy::command_paths`), so
+/// one rule judges a command's reach in both places.
+///
+/// **What this cannot see, stated rather than pretended away.** A program runs
+/// as the daemon's user and may read any path that user can, so no reading of
+/// its command line proves what it read. Three classes pass this check and are
+/// bounded only by the policy gate, which holds a read outside `[policy] roots`
+/// for the operator, and by the content screen above:
+///
+/// - a path named inside a program the command carries, past the words
+///   `command_paths` splits (it undoes no quoting);
+/// - a path read by code the command runs — a script in the tree, a build, a
+///   test — which no reading of a command line can reach.
+///
+/// A path the command computes rather than names does not pass: a word that is
+/// or holds a shell expansion ([`unresolved`]) is one this screen cannot
+/// resolve, and the result is refused. Nor does a call with no command to read
+/// (a job tool's, a terminal's): its reach is its own job's, which this screen
+/// does not follow.
+fn reach_bounded(
+    plan: Option<&theseus_protocol::Plan>,
+    open: &crate::open_view::Open,
+) -> Result<(), Unscreened> {
+    // No command to read comes first: that is not a reach outside the roots,
+    // it is a call this screen cannot judge at all.
+    let one = plan.and_then(|p| p.argv.as_ref()).map(std::slice::from_ref);
+    let Some(argvs) = plan.and_then(|p| p.steps.as_deref()).or(one) else {
+        return Err(Unscreened::Program);
+    };
+    let dirs: Vec<&std::path::Path> = plan
+        .into_iter()
+        .flat_map(|p| &p.resources)
+        .filter(|r| r.access == theseus_protocol::Access::Exec)
+        .map(|r| r.path.as_path())
+        .collect();
+    let (Some(cwd), true) = (dirs.first(), dirs.iter().all(|p| within_open(p, open))) else {
+        return Err(Unscreened::Outside);
+    };
+    for argv in argvs {
+        let (words, paths) = crate::policy::command_paths(argv, cwd);
+        if words.iter().any(|w| unresolved(w)) {
+            return Err(Unscreened::Program);
+        }
+        if paths.iter().any(|p| !within_open(p, open)) {
+            return Err(Unscreened::Outside);
+        }
+    }
+    Ok(())
+}
+
+/// Whether a command's word holds a shell expansion whose value this screen
+/// cannot know, and so whose reach it cannot judge. Three shapes count: a
+/// substitution or a braced expansion, which may stand for anything (`$(cat
+/// list)`, `${HOME}/x`, a backtick); a word that is a bare parameter, which
+/// may hold a whole path (`$PRIVATE`); and a path-shaped word holding a `$`
+/// (`$HOME/private/notes`).
+///
+/// A `$` anywhere else does not count. `command` is split on whitespace
+/// (`policy::command_paths`), so a program a command carries arrives in
+/// pieces: `awk '{print $1}'` becomes `awk`, `'{print` and `$1}'`, which name
+/// no path and reach nothing. `$1}'` is not a bare parameter (`1` is no
+/// identifier) and is not path-shaped, so the awk line screens.
+fn unresolved(word: &str) -> bool {
+    let bare = word.strip_prefix('$').is_some_and(|v| {
+        v.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    });
+    let shaped = word.contains('$') && (word.contains('/') || word.starts_with('~'));
+    bare || shaped || ["$(", "${", "`"].iter().any(|m| word.contains(m))
 }
 
 // ------------------------------------------------------------ the session's state

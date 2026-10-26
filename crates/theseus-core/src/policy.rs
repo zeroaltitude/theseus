@@ -286,6 +286,45 @@ fn path_args(argv: &[String], cwd: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
+/// A command's words and the paths they name, resolved against `cwd`, for the
+/// data screen's reach check (theseus-ouqru). The paths are [`path_args`]'s,
+/// so the screen and the floor resolve a path argument by one rule; the words
+/// are every word the command runs, which the screen reads for an expansion it
+/// cannot resolve.
+///
+/// A line run in bash arrives as `bash -c <line>`
+/// (`theseus_tools::proc::shell_argv`): one argv word holding the whole line,
+/// which `path_args` would judge as a single path under `cwd`. So an inline
+/// program's text is split on whitespace and its pieces stand in its place —
+/// a best effort that undoes no quoting, which is why the screen refuses an
+/// expansion outright rather than trying to resolve one. The line itself is
+/// never a word of its own: it holds whatever its program holds, and judging
+/// it whole would read `awk '{print $1}' src/x` as both an expansion and a
+/// path when its pieces are neither.
+pub(crate) fn command_paths(argv: &[String], cwd: &Path) -> (Vec<String>, Vec<PathBuf>) {
+    const INLINE: [&str; 5] = ["-c", "-e", "-lc", "-ec", "--command"];
+    // `path_args` skips a command's program, so the pieces go behind one.
+    let mut split = vec![argv.first().cloned().unwrap_or_default()];
+    let mut words: Vec<String> = Vec::new();
+    let mut carried = false;
+    for (i, a) in argv.iter().enumerate() {
+        if std::mem::take(&mut carried) {
+            let pieces = a.split_whitespace().map(str::to_string);
+            words.extend(pieces.clone());
+            split.extend(pieces);
+            continue;
+        }
+        carried = INLINE.contains(&a.as_str()) && i + 1 < argv.len();
+        words.push(a.clone());
+    }
+    let paths = [path_args(argv, cwd), path_args(&split, cwd)]
+        .concat()
+        .into_iter()
+        .map(|(_, p)| p)
+        .collect();
+    (words, paths)
+}
+
 pub(crate) fn prefix_match(argv: &[String], prefix: &[String]) -> bool {
     !prefix.is_empty() && argv.len() >= prefix.len() && argv.iter().zip(prefix).all(|(a, p)| a == p)
 }

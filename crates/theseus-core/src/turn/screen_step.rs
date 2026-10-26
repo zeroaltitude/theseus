@@ -31,6 +31,7 @@ impl TurnRunner {
             return;
         };
         let turn = t.tc.turn_id;
+        let names = self.cfg.privacy.names();
         let mut failed = None;
         for (_, n) in nodes
             .iter()
@@ -40,7 +41,10 @@ impl TurnRunner {
             let (
                 Kind::ToolResult,
                 Body::ToolResult {
-                    tool_use_id, meta, ..
+                    tool_use_id,
+                    content,
+                    meta,
+                    ..
                 },
             ) = (n.kind, &n.body)
             else {
@@ -58,7 +62,15 @@ impl TurnRunner {
                         .tool_by_wire(&u.name)
                         .map_or(Err(data::Unscreened::Tool), |tool| {
                             let plan = tool.plan(&u.input, &self.tools.ctx_in(&t.tc)).ok();
-                            data::screen(tool.name(), plan.as_ref(), redactions, final_url, open)
+                            data::screen(&data::Screening {
+                                tool: tool.name(),
+                                plan: plan.as_ref(),
+                                redactions,
+                                final_url,
+                                content,
+                                names: &names,
+                                open,
+                            })
                         })
                 }
             };

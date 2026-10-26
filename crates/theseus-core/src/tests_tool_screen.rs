@@ -55,9 +55,22 @@ fn rig_tools(
     claude: Option<Vec<Scripted>>,
     tools: Vec<Arc<dyn theseus_tools::Tool>>,
 ) -> Shown {
+    rig_named(jev, open, zai, claude, tools, &[])
+}
+
+/// [`rig_tools`], with `[privacy] sensitive_names` (theseus-ouqru).
+fn rig_named(
+    jev: &theseus_judge::fake::FakeJev,
+    open: tempfile::TempDir,
+    zai: Vec<Scripted>,
+    claude: Option<Vec<Scripted>>,
+    tools: Vec<Arc<dyn theseus_tools::Tool>>,
+    names: &[&str],
+) -> Shown {
     let notes = tempfile::tempdir().unwrap();
     std::fs::write(notes.path().join("notes.md"), "the vault code is 4417\n").unwrap();
     let root = open.path().to_string_lossy().into_owned();
+    let sensitive: Vec<String> = names.iter().map(|n| (*n).to_string()).collect();
     let (zai, claude_fake) = (
         Arc::new(FakeProvider::scripted(zai)),
         claude.map(|c| Arc::new(FakeProvider::scripted(c))),
@@ -71,6 +84,7 @@ fn rig_tools(
             cfg.routing.data.open_paths = vec![root.clone()];
             cfg.tools.projects_dir = Some(root.clone());
             cfg.tools.cwd = Some(root.clone());
+            cfg.privacy.sensitive_names = sensitive;
         },
         move |p| {
             p.toollets = tools;
@@ -339,6 +353,29 @@ fn fetch(url: &str) -> Plan {
     }
 }
 
+/// No sensitive name configured, for the screens that do not test one.
+fn unnamed() -> theseus_judge::names::Names {
+    theseus_judge::names::Names::default()
+}
+
+/// `data::screen` over one result, with no name configured and no content.
+fn screen_of(
+    tool: &str,
+    plan: Option<&Plan>,
+    redactions: u64,
+    open: &'static Open,
+) -> Result<(), Unscreened> {
+    data::screen(&data::Screening {
+        tool,
+        plan,
+        redactions,
+        final_url: None,
+        content: "",
+        names: &unnamed(),
+        open,
+    })
+}
+
 /// `screen`, one assertion per word and the passes.
 #[test]
 fn screen_matrix() {
@@ -354,9 +391,8 @@ fn screen_matrix() {
         root.path(),
     );
     let linked = root.path().join("link").join("b.txt");
-    let screen = |tool: &str, plan: Option<&Plan>, redactions: u64| {
-        data::screen(tool, plan, redactions, None, open)
-    };
+    let screen =
+        |tool: &str, plan: Option<&Plan>, redactions: u64| screen_of(tool, plan, redactions, open);
     assert_eq!(screen("fs.read", Some(&plan(&[&inside])), 0), Ok(()));
     assert_eq!(
         screen("fs.read", Some(&plan(&[&beyond])), 0),
@@ -385,7 +421,14 @@ fn screen_matrix() {
     );
     assert_eq!(screen("http.fetch", None, 0), Err(Unscreened::Outside));
     assert_eq!(screen("web.search", None, 0), Ok(()));
-    for tool in ["proc.run", "job.output", "term.send"] {
+    // theseus-ouqru: a program is no longer refused by its kind. It passes
+    // when its own call ran under the open roots and named nothing outside
+    // them, and a job tool or a terminal, with no command to read, does not.
+    assert_eq!(
+        screen("proc.run", Some(&run(&inside, &["cat", "a.txt"])), 0),
+        Ok(())
+    );
+    for tool in ["job.output", "term.send"] {
         assert_eq!(
             screen(tool, Some(&plan(&[&inside])), 0),
             Err(Unscreened::Program),
@@ -403,10 +446,194 @@ fn screen_matrix() {
         (Unscreened::Program, "program"),
         (Unscreened::Tool, "tool"),
         (Unscreened::Secret, "secret"),
+        (Unscreened::Name, "name"),
         (Unscreened::Outside, "outside"),
     ] {
         assert_eq!(w.as_str(), s);
     }
+}
+
+/// A `proc.run` plan as the tool builds one: the working directory its only
+/// resource, `Access::Exec`, with the argv it runs.
+fn run(cwd: &Path, argv: &[&str]) -> Plan {
+    Plan {
+        resources: vec![Resource {
+            path: cwd.to_path_buf(),
+            access: Access::Exec,
+        }],
+        argv: Some(argv.iter().map(|a| (*a).to_string()).collect()),
+        summary: "a run".into(),
+        ..Default::default()
+    }
+}
+
+/// theseus-ouqru, the reach check unit by unit: what a program call may name
+/// and still screen, and what refuses. A command that names only paths under
+/// the open roots passes; one that names a path outside them is `outside`;
+/// one whose path this screen cannot resolve, and one with no command to
+/// read, are `program`. The shell form (`bash -c <line>`) is read word by
+/// word, so a path in the line is judged as an argv's would be.
+#[test]
+fn a_programs_reach_is_read_from_its_command() {
+    let root = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let cwd = root.path();
+    let beyond = elsewhere.path().join("notes.txt");
+    std::fs::write(&beyond, "the owner's notes\n").unwrap();
+    std::fs::create_dir_all(cwd.join("src")).unwrap();
+    let open = Open::of(vec![theseus_tools::paths::canonical_best_effort(cwd)], cwd);
+    let far = beyond.to_string_lossy().into_owned();
+    let screen = |argv: &[&str]| screen_of("proc.run", Some(&run(cwd, argv)), 0, open);
+    let line = |l: &str| screen_of("proc.run", Some(&run(cwd, &["bash", "-c", l])), 0, open);
+    // Open work: no path at all, a relative path under the roots, a redirect.
+    for argv in [
+        vec!["cargo", "test", "-p", "theseus-core"],
+        vec!["git", "status", "--short"],
+        vec!["ls", "src/"],
+        vec!["cat", "./src/../src"],
+    ] {
+        assert_eq!(screen(&argv), Ok(()), "{argv:?}");
+    }
+    for l in [
+        "cargo build 2>&1 | tail -20",
+        "cd src && cargo test",
+        "awk '{print $1}' src/x",
+    ] {
+        assert_eq!(line(l), Ok(()), "{l}");
+    }
+    // A path outside the open roots, named either way, and `..` out of them.
+    assert_eq!(screen(&["cat", &far]), Err(Unscreened::Outside));
+    assert_eq!(line(&format!("cat {far}")), Err(Unscreened::Outside));
+    assert_eq!(screen(&["ls", "/etc"]), Err(Unscreened::Outside));
+    assert_eq!(
+        line("cat ../../../etc/passwd"),
+        Err(Unscreened::Outside),
+        "a relative escape resolves outside"
+    );
+    // A path this screen cannot resolve is refused, not guessed at.
+    for l in [
+        "cat $HOME/private/notes",
+        "cat ${HOME}/private/notes",
+        "cat $(cat list)/x",
+        "cat `cat list`/x",
+    ] {
+        assert_eq!(line(l), Err(Unscreened::Program), "{l}");
+    }
+    assert_eq!(screen(&["cat", "$PRIVATE"]), Err(Unscreened::Program));
+    // A working directory outside the open roots, and a call with no command.
+    let out = run(elsewhere.path(), &["ls"]);
+    assert_eq!(
+        screen_of("proc.run", Some(&out), 0, open),
+        Err(Unscreened::Outside)
+    );
+    // A command with no working directory of its own: nothing bounds where it
+    // ran, so it is outside, not unreadable.
+    let no_dir = Plan {
+        argv: Some(vec!["ls".into()]),
+        ..plan(&[cwd])
+    };
+    assert_eq!(
+        screen_of("proc.run", Some(&no_dir), 0, open),
+        Err(Unscreened::Outside),
+        "no working directory planned"
+    );
+    // A call with no command at all, and no plan at all: unreadable.
+    assert_eq!(
+        screen_of("proc.run", Some(&plan(&[cwd])), 0, open),
+        Err(Unscreened::Program),
+        "no command to read"
+    );
+    assert_eq!(
+        screen_of("proc.run", None, 0, open),
+        Err(Unscreened::Program)
+    );
+    // Every step of a batch is read, and one naming an outside path refuses.
+    let steps = |ss: &[&[&str]]| Plan {
+        resources: vec![Resource {
+            path: cwd.to_path_buf(),
+            access: Access::Exec,
+        }],
+        steps: Some(
+            ss.iter()
+                .map(|s| s.iter().map(|a| (*a).to_string()).collect())
+                .collect(),
+        ),
+        summary: "a batch".into(),
+        ..Default::default()
+    };
+    assert_eq!(
+        screen_of(
+            "proc.run",
+            Some(&steps(&[&["cargo", "fmt"], &["ls", "src/"]])),
+            0,
+            open
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        screen_of(
+            "proc.run",
+            Some(&steps(&[&["cargo", "fmt"], &["cat", &far]])),
+            0,
+            open
+        ),
+        Err(Unscreened::Outside),
+        "a later step's reach counts"
+    );
+}
+
+/// theseus-ouqru: a sensitive name in a result's content fails the screen,
+/// whatever tool returned it, and the content screened is the one the model
+/// would read. Matching is `[privacy]`'s: case-insensitive, whole words.
+#[test]
+fn a_sensitive_name_in_a_results_content_fails_the_screen() {
+    let root = tempfile::tempdir().unwrap();
+    let inside = root.path().join("a.txt");
+    std::fs::write(&inside, "a").unwrap();
+    let open = Open::of(
+        vec![theseus_tools::paths::canonical_best_effort(root.path())],
+        root.path(),
+    );
+    let names = theseus_judge::names::Names::new(&["Examplecorp".to_string(), "Acme".to_string()]);
+    let screen = |tool: &str, plan: Option<&Plan>, content: &str| {
+        data::screen(&data::Screening {
+            tool,
+            plan,
+            redactions: 0,
+            final_url: None,
+            content,
+            names: &names,
+            open,
+        })
+    };
+    let program = run(root.path(), &["git", "log", "--oneline", "-1"]);
+    assert_eq!(
+        screen("proc.run", Some(&program), "9fa1 fix the quay\n"),
+        Ok(())
+    );
+    for held in [
+        "9fa1 Examplecorp: fix the quay\n",
+        "9fa1 acme loads the frame\n",
+        "a line\nand ACME on the next\n",
+    ] {
+        assert_eq!(
+            screen("proc.run", Some(&program), held),
+            Err(Unscreened::Name),
+            "{held:?}"
+        );
+    }
+    // Every listed tool alike, not programs only.
+    assert_eq!(
+        screen("fs.read", Some(&plan(&[&inside])), "notes on acme"),
+        Err(Unscreened::Name)
+    );
+    assert_eq!(
+        screen("web.search", None, "a page about Examplecorp"),
+        Err(Unscreened::Name)
+    );
+    // A name the list does not hold, and a word that only contains one.
+    assert_eq!(screen("web.search", None, "a page about hats"), Ok(()));
+    assert_eq!(screen("web.search", None, "examplecorpinc ships"), Ok(()));
 }
 
 /// theseus-lm38z: a fetch of a public URL that redirects into the owner's
@@ -420,7 +647,17 @@ fn a_fetch_that_redirects_into_the_owners_network_fails_the_screen() {
         root.path(),
     );
     let plan = fetch("https://example.com/page");
-    let screen = |end: Option<&str>| data::screen("http.fetch", Some(&plan), 0, end, open);
+    let screen = |end: Option<&str>| {
+        data::screen(&data::Screening {
+            tool: "http.fetch",
+            plan: Some(&plan),
+            redactions: 0,
+            final_url: end,
+            content: "",
+            names: &unnamed(),
+            open,
+        })
+    };
     assert_eq!(screen(None), Ok(()));
     assert_eq!(screen(Some("https://example.com/other")), Ok(()));
     for private in [
@@ -535,4 +772,204 @@ async fn a_turns_fetch_that_redirected_into_the_owners_network_is_not_screened_o
     );
     let taint = rec.data.unwrap().taint.expect("the task is tainted");
     assert_eq!(taint.node.as_deref(), Some(id.as_str()));
+}
+
+// ------------------------------------------------------ theseus-ouqru, live in a turn
+
+/// The `session.data` `screened` rows of `sid`: the word and the node of each
+/// result that failed the screen.
+fn screened(core: &Core, sid: &str) -> Vec<(String, String)> {
+    crate::tests_judge::kinds(&core.store, "session.data")
+        .into_iter()
+        .filter(|r| r.session_id.as_deref() == Some(sid) && r.data["row"] == "screened")
+        .map(|r| {
+            (
+                r.data["word"].as_str().unwrap_or_default().to_string(),
+                r.data["node"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect()
+}
+
+/// A `proc_run` call of one line in bash, as the model writes one.
+fn command_of(line: &str) -> Scripted {
+    Scripted::tools("Running.", &[("p1", "proc_run", json!({"command": line}))])
+}
+
+/// **theseus-ouqru, the key test, red before the fix.** An open task on
+/// `dsflash` runs a command under `open_paths` whose output holds nothing
+/// private: the result passes the screen, so loop 1 goes to `dsflash` too,
+/// carries the command's output under a pass for its own digest, nothing
+/// reaches the chokepoint, no taint is written, and the stored run reaches
+/// the turn's last node. Before the fix the result was refused by its kind
+/// (`Unscreened::Program`) and loop 1 left `dsflash` with `data_gate`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_clean_program_result_extends_the_run() {
+    let jev = task_jev();
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "quay.txt", "The quay has nine bollards.\n");
+    let s = rig(
+        &jev,
+        dir,
+        vec![
+            Scripted::tools(
+                "Running.",
+                &[("p1", "proc_run", json!({"argv": ["cat", "quay.txt"]}))],
+            ),
+            Scripted::text("Nine."),
+        ],
+        None,
+    );
+    let (sid, rec) = run_task(&s, OPEN_A, "dsflash").await;
+    let rs = results(&s.r.core, &sid);
+    assert_eq!(rs.len(), 1, "{rs:?}");
+    assert_eq!(rs[0].1, "proc.run");
+    let sent = s.zai.requests();
+    assert_eq!(sent.len(), 2, "both loops stayed on dsflash");
+    assert!(
+        text(&sent[1]).contains("nine bollards"),
+        "the command's output rode loop 1: {}",
+        text(&sent[1])
+    );
+    assert_eq!(blocked(&s.r.core), 0, "each request carried its pass");
+    assert!(decided(&s.r.core.store)
+        .iter()
+        .all(|d| d["reason"] != "data_gate"));
+    assert!(screened(&s.r.core, &sid).is_empty(), "nothing failed");
+    let d = rec.data.unwrap();
+    assert!(d.taint.is_none() && tainted(&s.r.core, &sid).is_empty());
+    let nodes = s.r.core.store.transcript(&sid).unwrap();
+    let last = nodes.last().unwrap().1.id.clone();
+    assert_eq!(d.run.as_ref().map(|r| r.through.clone()), Some(last));
+}
+
+/// theseus-ouqru: the mid-trial failure, as a test. A loop of commands —
+/// the shape of a bench trial, which is agentic software work and so runs
+/// them — stays on the restricted model the whole way: three loops, three
+/// requests to `dsflash`, each command's output riding the next, no refusal
+/// at the chokepoint and no move to the `[model]` default.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_loop_of_commands_stays_on_a_restricted_model() {
+    let jev = task_jev();
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "first.txt", "nine bollards\n");
+    write(dir.path(), "second.txt", "four lamps\n");
+    let s = rig(
+        &jev,
+        dir,
+        vec![
+            command_of("cat first.txt"),
+            Scripted::tools(
+                "And again.",
+                &[("p2", "proc_run", json!({"argv": ["cat", "second.txt"]}))],
+            ),
+            Scripted::text("Nine and four."),
+        ],
+        None,
+    );
+    let (sid, rec) = run_task(&s, OPEN_A, "dsflash").await;
+    let sent = s.zai.requests();
+    assert_eq!(
+        sent.len(),
+        3,
+        "every loop stayed: {:?}",
+        screened(&s.r.core, &sid)
+    );
+    assert!(
+        text(&sent[1]).contains("nine bollards"),
+        "{}",
+        text(&sent[1])
+    );
+    let third = text(&sent[2]);
+    for held in ["nine bollards", "four lamps"] {
+        assert!(
+            third.contains(held),
+            "{held:?} missing from loop 2: {third}"
+        );
+    }
+    assert_eq!(blocked(&s.r.core), 0);
+    assert!(decided(&s.r.core.store)
+        .iter()
+        .all(|d| d["reason"] != "data_gate"));
+    assert!(screened(&s.r.core, &sid).is_empty());
+    let d = rec.data.unwrap();
+    assert!(d.taint.is_none());
+    let nodes = s.r.core.store.transcript(&sid).unwrap();
+    assert_eq!(
+        d.run.map(|r| r.through),
+        Some(nodes.last().unwrap().1.id.clone())
+    );
+}
+
+/// theseus-ouqru, the keel half: the content screen still refuses a program
+/// result that holds something private. Three commands, each under the open
+/// roots and each judged by what it holds or what it named: a secret the
+/// scrubber withheld (`secret`), a `[privacy] sensitive_names` name in the
+/// output (`name`), and the content of a read outside the open roots —
+/// a private read, which the gate does not hold and only this screen catches
+/// (`outside`). In every case loop 1 leaves `dsflash` with `data_gate`,
+/// nothing reaches the chokepoint, and the task is tainted at that node.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_private_program_result_still_refuses_the_clearance() {
+    let name = "acme";
+    for (what, word) in [
+        ("secret", "secret"),
+        ("name", "name"),
+        ("read", "outside"),
+        ("expansion", "program"),
+    ] {
+        let jev = task_jev();
+        let dir = tempfile::tempdir().unwrap();
+        let far = tempfile::tempdir().unwrap();
+        let private = write(far.path(), "notes.md", "the hedge is nine feet high\n");
+        write(dir.path(), "held.txt", &format!("token {}\n", secret()));
+        write(
+            dir.path(),
+            "named.txt",
+            &format!("{name} loads the frame\n"),
+        );
+        let script = match what {
+            "secret" => command_of("cat held.txt"),
+            "name" => command_of("cat named.txt"),
+            "read" => command_of(&format!("cat {private}")),
+            _ => command_of("cat $HOME/notes.md"),
+        };
+        let s = rig_named(
+            &jev,
+            dir,
+            vec![script, Scripted::text("Done.")],
+            None,
+            vec![],
+            &["Examplecorp", name],
+        );
+        let (sid, rec) = run_task(&s, OPEN_A, "dsflash").await;
+        let rs = results(&s.r.core, &sid);
+        assert_eq!(rs.len(), 1, "{what}: {rs:?}");
+        let (id, tool, _) = &rs[0];
+        assert_eq!(tool, "proc.run", "{what}");
+        assert_eq!(
+            screened(&s.r.core, &sid),
+            vec![(word.to_string(), id.clone())],
+            "{what}"
+        );
+        assert_eq!(s.zai.requests().len(), 1, "{what}: loop 0 alone");
+        let routed = decided(&s.r.core.store);
+        assert_eq!(routed.last().unwrap()["reason"], "data_gate", "{what}");
+        assert_eq!(blocked(&s.r.core), 0, "{what}: nothing was sent");
+        let d = rec.data.unwrap();
+        assert_eq!(
+            d.taint.as_ref().and_then(|t| t.node.clone()),
+            Some(id.clone()),
+            "{what}"
+        );
+        assert!(d.run.is_none(), "{what}: the run stops short of the result");
+        // The private line itself never reached the restricted model.
+        let held = match what {
+            "secret" => secret(),
+            "name" => name.to_string(),
+            _ => "nine feet high".to_string(),
+        };
+        let sent = text(&s.zai.requests()[0]);
+        assert!(!sent.contains(&held), "{what}: {sent}");
+    }
 }
