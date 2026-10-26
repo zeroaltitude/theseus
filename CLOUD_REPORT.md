@@ -92,3 +92,19 @@ should pass in well under a minute. At base, the first fails 3 times in 10 on th
 The VM's allowance ran out twice during gate runs (a first run's link died `Bus error`, a second
 `No space left`). I removed `target/debug/incremental` and stale old-hash outputs in `target/debug/deps`,
 and ran the gate with `CARGO_INCREMENTAL=0`.
+
+## The gate (`TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 CARGO_INCREMENTAL=0 THESEUS_KEEL_BASE=78fcfb6d scripts/gate.sh`)
+
+Door, keel, fmt, shape, features, clippy, cockpit, test build and the reader rule passed.
+**Suite: 8626 tests run, 8592 passed (1 slow), 34 failed, 56 skipped.** All 34 are the known L1
+failures of a root VM: 20 `theseus-sandbox::contract` cases (`clause_01` .. `clause_12`, `egress_18b_*`,
+`exit_status_and_signals`, `scratch_is_reported_and_discarded`, `sigterm_is_forwarded_to_the_command`,
+`a_job_that_cannot_start_says_why`), `theseus-sandbox::bench spawn_100`, and 13 `theseusd::sandbox`
+cases (`a_cancel_of_an_l1_job...`, `l1_argv_routes_a_call_to_l1`, ...). No other test failed. Both
+`a_chain_asked_over_two_nights_clusters` (0.333 s) and `a_chain_clusters_on_a_busy_machine` (0.310 s)
+passed inside the 8,626-test run, on a VM at the same time under full test-thread contention.
+The later phases: `protocol types` checked by hand (`cockpit/src/protocol.gen` unchanged, git clean);
+the benches are skipped by `THESEUS_GATE_NO_BENCH=1`. The gate's door re-ran main's copy over this
+tree and reported the same suite failure (that is the L1 set, not mine).
+Two earlier gate runs died on this VM's disk allowance (linker bus error, then `No space left`), and
+a third was broken by my deleting `target/debug/incremental` under a running build; none was a test result.
