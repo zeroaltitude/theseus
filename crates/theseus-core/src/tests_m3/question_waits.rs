@@ -178,6 +178,9 @@ async fn a_retired_sessions_held_question_ends_and_frees_its_reservation() {
         held.budget.reserved_micros, 5_000,
         "the reservation is held"
     );
+    // The turn that planned the call already paid for its model call: what
+    // the release must not add to is that figure, not zero.
+    let spent_before = held.budget.spent_micros;
     r.core
         .retire_session(&sid, &crate::approval::Answerer::from("cli"))
         .unwrap();
@@ -197,7 +200,10 @@ async fn a_retired_sessions_held_question_ends_and_frees_its_reservation() {
     let e = r.core.kernel.execution(&a.execution_id).unwrap().unwrap();
     assert_eq!(e.budget.reserved_micros, 0, "{:?}", e.budget);
     assert!(e.budget.reservations.is_empty(), "{:?}", e.budget);
-    assert_eq!(e.budget.spent_micros, 0, "released, not spent");
+    assert_eq!(
+        e.budget.spent_micros, spent_before,
+        "released, not spent: the release adds nothing to what the turn spent"
+    );
     assert_eq!(e.budget.held_unknown_micros, 0, "released, not held");
     assert_eq!(ledgered(&r, "action.expired").len(), 1);
     assert!(waiting(&r).is_empty(), "an ended question is not noticed");
