@@ -656,3 +656,5 @@ fn an_item_filed_under_the_old_words_lists_in_plain_ones() {
     let old = listed(&c).into_iter().find(|i| i.id == item.id).unwrap();
     assert_eq!(old.title, "Turns failing with timeout");
 }
+
+mod infra;
