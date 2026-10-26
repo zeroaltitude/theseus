@@ -123,7 +123,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   due scan that finds notices finds routines (no new timer). `routines.rs`: `fire_routines` takes every due, unpaused task
   wake of an execution under its lock and, in one frame, puts the series back (numbered past the occurrences passed over),
   then applies the core's `RoutinePlan`: a `Run` opens the task with `open_task`'s records (`tasks::carve_task`, shared with
-  `open_task_at`: the carve in the routine's reservations, the task queued) and a `wake.fired` row, a `Skip { why }` writes
+  `open_task_at`: the carve in the routine's reservations, the task queued; the task depth bound is checked inside
+  `carve_task`, so a fire honours it like any other open — theseus-rrqmr, where it did not) and a `wake.fired` row, a `Skip { why }` writes
   `wake.skipped` and nothing else; `reset_month` is a `budget.reset { why: "month" }` row in the same frame, and the
   routine's own `reports` are cleared each fire, since nobody reads them there. `run_routine_now` opens one run from the wake
   without touching the series, paused or not. `reschedule_routine` changes the schedule, brief, per-run limit and month in one
@@ -139,7 +140,7 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   produces.
 - **Several transitions in one frame are a transaction, never a new combined transition** (`Kernel::frame`):
   `kernel.frame(&[ids], |k| { k.bind_confirm(..)?; k.wake(..)?; Ok(()) })`. It locks the executions named and
-  their parents first, in id order. The transitions called on `k` stage their records and read what was staged,
+  every execution above each of them first, in id order. The transitions called on `k` stage their records and read what was staged,
   and `k.stage` adds the caller's own (a node, a row). `Ok` commits one frame, observed once; `Err` writes nothing.
   A `frame` inside one joins it, and its failure takes back only its own part. The `_with` family, `admit_input`,
   `plan_and_dispatch`, and `authorize_and_dispatch` are such compositions.
@@ -149,8 +150,13 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   execution it did not name. Nor take a lock while the thread holds any other: `lock_all` panics ("a lock taken
   while this thread holds another", theseus-oqxw), so a frame's closure that calls the kernel itself on an
   execution the frame did not name fails at once instead of deadlocking out of id order. Compose in a transaction
-  instead, as `mark_unknown` does. Several executions: `Kernel::lock`, in id order, in one call; a task and its
-  parent: `lock_family`. Readers that write nothing take no lock.
+  instead, as `mark_unknown` does. Several executions: `Kernel::lock`, in id order, in one call; a task and
+  **every execution above it**, up to the conversation: `lock_family` (theseus-deaqt, since what a task settles
+  is the spend of each of them; `Kernel::family` reads the chain, whose `parent` is never changed).
+  `Kernel::frame` takes that same whole family for each id it is given. Readers that write nothing take no lock.
+  **A chain of any length is safe because it is one `lock_all` call with sorted ids: a thread waits only for an
+  id greater than every id it holds, and a second call while one is held panics instead of waiting. So: name
+  every execution you may write in the one call — never a lock inside a lock.**
   A transition's commit waits for the store's writer on the thread that holds its locks, and a wait for a lock
   another thread holds runs in `theseus_store::blocking`: neither holds a runtime worker (theseus-vni9). A lock
   is its thread's, so `ExecLock` is `!Send` (Review 2's R7), and a build-time check beside it fails the build if
