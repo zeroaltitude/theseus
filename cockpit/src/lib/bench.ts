@@ -15,6 +15,9 @@ import { usd } from './figures.ts'
 /** A report's files, as the build embeds them: its name (`2026-10-04-terminal-bench-first-full-run`) and texts. */
 export interface ReportFiles { name: string; md?: string; json?: string; csv?: string }
 
+/** Where a report's markdown lives on GitHub (public, default branch `main`): the one base every "on GitHub" link takes. */
+export const GITHUB_DOCS = 'https://github.com/zeroaltitude/theseus/blob/main/docs/benchmarks/'
+
 /** The suites a report's name can start with after its date (`docs/benchmarks/README.md`, "Its name"). */
 export const SUITES = ['terminal-bench', 'swe-bench', 'harbor', 'gate-bench', 'memory-exam', 'retrieval', 'recall', 'async', 'context'] as const
 
@@ -665,9 +668,18 @@ export const unequal = (p: Point): boolean => p.tags.some((t) => UNEQUAL.include
 
 export interface Point {
   id: string; set: string; harness: string; run: string; runLabel: string; report: string
+  /** Set on a finer point (`points(…, 'task' | 'trial')`): the task it is the attempts of. An arm's point has none. */
+  task?: string
   /** The first trial's start where the table has one, else the report's date. */
   date: string
   model?: string
+  /** What the dataset says this arm ran where it differs from the set's reference (`refModel`): the table's own `model`
+   *  column, else the model in its label's parenthesis ("Codex CLI 0.161.0 (GPT-6-Astra, high)"). Framing reads it. */
+  armModel?: string
+  /** The set's reference model: the table's commonest `model` cell, else the report's words (`model`). */
+  refModel?: string
+  /** The dataset marks the arm as running its own native model (`arms[].native_model`). */
+  native?: boolean
   /** The harness's build or version: the report's words (with their phrase), or the table's own cell. */
   version?: { text: string; note?: Note }
   effort?: Note
@@ -793,16 +805,50 @@ function pick<T>(byHarness: Record<string, Record<string, T>>, h: string, run: s
 /** A small sample: under ten trials a point is a size, not a ranking. */
 export const SMALL = 10
 
+/** A dataset's words on what each arm ran: per arm key, its model (the table's `model` column where it differs from the
+ *  commonest, else the label's parenthesis when it has the form "(Model, effort)"), and the set's reference. */
+function armInfo(json: string | undefined, rows: readonly Record<string, string>[], set: TaskSet, arms: readonly string[]) {
+  let doc: { arms?: unknown; summary?: Record<string, { label?: string }> } = {}
+  try { doc = json ? JSON.parse(json) : {} } catch { /* a dataset that is not JSON says nothing */ }
+  const native = new Set((Array.isArray(doc.arms) ? doc.arms : []).filter((a): a is { key: string; native_model: boolean } => !!a && typeof a === 'object' && (a as { native_model?: unknown }).native_model === true).map((a) => a.key))
+  const count = (xs: string[]) => { const m = new Map<string, number>(); for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1); return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] }
+  const ref = count(rows.map((r) => r.model ?? '').filter(Boolean))
+  // The report's words stand in for the reference where the table has no model column.
+  const byArm = new Map<string, string[]>()
+  for (const r of rows) if (r.model) { const h = set.arm(r, arms); byArm.set(h, [...(byArm.get(h) ?? []), r.model]) }
+  return (h: string): { armModel?: string; refModel?: string; native?: boolean } => {
+    const own = byArm.has(h) ? count(byArm.get(h)!) : undefined
+    const fromLabel = own === undefined ? labelModel(doc.summary?.[h]?.label) : undefined
+    const armModel = own && ref && !sameModel(own, ref) ? own : fromLabel && !(ref && sameModel(fromLabel, ref)) ? fromLabel : undefined
+    return { ...(armModel ? { armModel } : {}), ...(ref ? { refModel: ref } : {}), ...(native.has(h) ? { native: true } : {}) }
+  }
+}
+
+/** The model in a label's parenthesis, when it has the form "(Model, effort)": "Codex CLI 0.161.0 (GPT-6-Astra, high)" → "GPT-6-Astra". */
+export function labelModel(label: string | undefined): string | undefined {
+  const m = /\(([^(),]+),[^()]*\)\s*$/.exec(label ?? '')
+  return m ? m[1].trim() : undefined
+}
+
+const squashModel = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+/** Whether two spellings name one model ("anthropic/claude-sonnet-5-5" and "Claude Sonnet 5.5"). */
+export const sameModel = (a: string, b: string): boolean => { const [x, y] = [squashModel(a), squashModel(b)]; return !!x && !!y && (x.includes(y) || y.includes(x)) }
+
+/** The unit a point folds: an arm in a run (the claim a Pareto comparison makes), or, behind it, one task of that arm
+ *  (the attempts at that task), or one trial. Only the group key differs; the fold is the same. */
+export type Unit = 'arm' | 'task' | 'trial'
+
 /** A task set's points: its table's trials grouped by harness and run, each property folded, each point's tags. */
-export function points(set: TaskSet, csv: string, json: string | undefined, md: string | undefined, date: string): Point[] {
+export function points(set: TaskSet, csv: string, json: string | undefined, md: string | undefined, date: string, by: Unit = 'arm'): Point[] {
   const arms = json ? ((JSON.parse(json) as { arms?: { key: string }[] }).arms ?? []).map((a) => a.key) : []
   const rows = parseCsv(csv).filter(set.keep)
   const model = md ? modelOf(md) : undefined
+  const info = armInfo(json, rows, set, arms)
   const allTasks = new Set(rows.map((r) => r.task).filter(Boolean))
   const groups = new Map<string, { h: string; run: { id: string; label: string }; trials: Record<string, string>[] }>()
-  for (const r of rows) {
+  for (const [i, r] of rows.entries()) {
     const h = set.arm(r, arms), run = set.run(r)
-    const id = `${set.id}:${run.id}:${h}`
+    const id = `${set.id}:${run.id}:${h}${by === 'task' ? `:${r.task ?? ''}` : by === 'trial' ? `:#${i}` : ''}`
     const g = groups.get(id) ?? groups.set(id, { h, run, trials: [] }).get(id)!
     g.trials.push(r)
   }
@@ -812,6 +858,14 @@ export function points(set: TaskSet, csv: string, json: string | undefined, md: 
     for (const p of PROPERTIES) { const v = fold(p, g.trials); if (v) values[p.id] = v }
     const tasks = new Set(g.trials.map((r) => r.task).filter(Boolean))
     const tags: Tag[] = []
+    if (by !== 'arm') {
+      // A finer point is a size, not a claim: it carries no tags (an arm's own are said on the arm).
+      out.push({
+        id, set: set.id, harness: g.h, run: g.run.id, runLabel: g.run.label, report: set.runReport?.[g.run.id] ?? set.report,
+        task: g.trials[0].task ?? '', date: date, model, ...info(g.h), n: g.trials.length, tasks: tasks.size, values, tags,
+      })
+      continue
+    }
     if (g.trials.length < SMALL) tags.push({ kind: 'sample', text: `a small sample: ${g.trials.length} trial${g.trials.length === 1 ? '' : 's'}` })
     const ex = g.trials.filter((r) => (r.harbor_exception ?? r.exception ?? '') !== '')
     if (ex.length) {
@@ -831,7 +885,7 @@ export function points(set: TaskSet, csv: string, json: string | undefined, md: 
     const started = g.trials.map((r) => r.started).filter(Boolean).sort()[0]
     out.push({
       id, set: set.id, harness: g.h, run: g.run.id, runLabel: g.run.label, report: set.runReport?.[g.run.id] ?? set.report,
-      date: started ?? date, model, version, effort: set.effort?.[g.h] ?? EFFORT[g.h],
+      date: started ?? date, model, ...info(g.h), version, effort: set.effort?.[g.h] ?? EFFORT[g.h],
       n: g.trials.length, tasks: tasks.size, values, tags,
     })
   }

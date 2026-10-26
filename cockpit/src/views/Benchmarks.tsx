@@ -14,8 +14,14 @@ import {
   axes, axesOf, axisName, inverted, family, frontier, harness, showsName, theseusOf, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, unequal, UNEQUAL,
   type Note, type Placed, type Point, type Property, type TaskSet,
 } from '@/lib/bench'
-import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets } from '@/lib/benchfiles'
-import { sparkline, type Series } from '@/lib/benchindex'
+import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets, useTaskCatalogue } from '@/lib/benchfiles'
+import { LEAD, sparkline, type Series } from '@/lib/benchindex'
+import { byFraming, FRAMING_WORDS, FRAMINGS, framingOf, modelLabel, plannedArms } from '@/lib/benchframing'
+import { BenchTasks } from '@/components/BenchTasks'
+import { taskRows } from '@/lib/benchtasks'
+import { BenchIndex } from '@/components/BenchIndex'
+import { cardsOf } from '@/lib/benchcards'
+import { cloudCaption, cloudDrawn, cloudTip, cloudUnit } from '@/lib/benchcloud'
 import type { EChartsOption } from '@/lib/chart'
 import { CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIP_FRAME, baseAxis, niceStep, usdTick, valueAxis } from '@/lib/viz'
 import { tip } from '@/lib/viztip'
@@ -37,7 +43,9 @@ function harnessColor(key: string): string {
 
 /** A point's name on the chart: its harness, and its run where the set holds several. */
 function pointName(p: Point, many: boolean): string {
-  return many ? `${harness(p.harness).name}, ${p.runLabel}` : harness(p.harness).name
+  // A framing-B point says its model ("Codex CLI, GPT-6-Astra"): it is not the model its peers ran.
+  const name = [harness(p.harness).name, modelLabel(p)].filter(Boolean).join(', ')
+  return many ? `${name}, ${p.runLabel}` : name
 }
 
 export default function Benchmarks() {
@@ -79,6 +87,21 @@ export default function Benchmarks() {
     return p
   }, { replace: true })
   const placed = useMemo(() => frontier(ps, px, py), [ps, px, py])
+  // The finer unit behind the arm points: counted always (the caption states the fold), drawn only at ?cloud=on. The
+  // frontier and the verdict above are worked out from the arm points and never see these.
+  const cloudOn = params.get('cloud') === 'on'
+  const unit = useMemo(() => cloudUnit(ps), [ps])
+  // The task table (`?tasks=on`) and its drawer (`?task=<id>`): per-task points, counted within this set's one report.
+  const tasksOn = params.get('tasks') === 'on' || !!params.get('task')
+  const catalogue = useTaskCatalogue()
+  const taskTable = useMemo(() => {
+    const [c, j, m] = [csv.data, json.data, md.data]
+    return tasksOn && c && j && m && ps.length ? taskRows(points(set, c.get(set.report) ?? '', j.get(set.report), m.get(set.report), set.report.slice(0, 10), 'task')) : []
+  }, [tasksOn, csv.data, json.data, md.data, set, ps.length])
+  const cloud = useMemo(() => {
+    const [c, j, m] = [csv.data, json.data, md.data]
+    return c && j && m && ps.length ? points(set, c.get(set.report) ?? '', j.get(set.report), m.get(set.report), set.report.slice(0, 10), unit) : []
+  }, [csv.data, json.data, md.data, set, ps.length, unit])
   // Every property's intervals for this task set, worked out while the page is idle, so a pick of any axis draws at
   // once (a bootstrap of 178 trials is tens of milliseconds; each value's is kept once worked out).
   useEffect(() => {
@@ -107,6 +130,8 @@ export default function Benchmarks() {
 
       <YourWork />
 
+      <Cards list={list} />
+
       <Newest />
 
       <ChartPanel<Point> help="bench.frontier"
@@ -120,13 +145,24 @@ export default function Benchmarks() {
           <AxisRow px={px} py={py} usable={usable} one={one}
             onX={(id) => put('x', id)} onY={(id) => put('y', id)} onSwap={() => setParams((p) => { p.set('x', py.id); p.set('y', px.id); return p }, { replace: true })} />
           <Verdict placed={placed} ps={ps} px={px} py={py} many={new Set(ps.map((p) => p.run)).size > 1} />
+          <div className="flex flex-wrap items-center gap-x-3 px-2 pb-1 text-[11px] text-ink-faint">
+            <span>{cloudCaption(ps, cloud, unit)}</span>
+            <label className="flex items-center gap-1.5 text-ink-dim">
+              <input type="checkbox" checked={cloudOn} onChange={(e) => put('cloud', e.target.checked ? 'on' : null)} />show them
+            </label>
+            <button type="button" className="underline decoration-line underline-offset-2 hover:text-live" onClick={() => put('tasks', tasksOn ? null : 'on')}>
+              {tasksOn ? 'hide every test' : 'every test'}
+            </button>
+          </div>
           <div className="min-h-0 flex-1">
-            <FrontierChart placed={placed} px={px} py={py} many={new Set(ps.map((p) => p.run)).size > 1}
+            <FrontierChart placed={placed} px={px} py={py} many={new Set(ps.map((p) => p.run)).size > 1} cloud={cloudOn ? cloud : []}
               onPick={(p) => nav(`/benchmarks/${p.report}`)} />
           </div>
           <Key placed={placed} px={px} py={py} />
         </div>
       </ChartPanel>
+
+      {tasksOn && taskTable.length > 0 && <BenchTasks catalogue={catalogue} rows={taskTable} label={set.label} selected={params.get('task')} onSelect={(t) => put('task', t)} />}
 
       <Conditions set={set} />
 
@@ -159,6 +195,17 @@ export default function Benchmarks() {
       </Panel>
     </div>
   )
+}
+
+/** The browse cards over the manifest and the reports (`lib/benchcards.ts`). */
+function Cards({ list }: { list: ReturnType<typeof runs> }) {
+  const { loading, manifest } = useBenchManifest()
+  const { sets } = useBenchSets()
+  const cards = useMemo(() => cardsOf(manifest, list, REPORTS, LEAD, sets), [manifest, list, sets])
+  const arms = useBenchFile('arms', 'json')
+  const planned = useMemo(() => plannedArms(arms.data), [arms.data])
+  if (loading) return null
+  return <BenchIndex cards={cards} reason={manifest.reason} planned={planned} />
 }
 
 const plainArms = (s: string) => s.replace(/`/g, '')
@@ -313,8 +360,8 @@ function logFor(vals: number[]): boolean {
   return vals.length > 1 && vals.every((v) => v > 0) && Math.max(...vals) / Math.min(...vals) >= 30
 }
 
-function FrontierChart({ placed, px, py, many, onPick }: {
-  placed: Placed[]; px: Property; py: Property; many: boolean; onPick: (p: Point) => void
+function FrontierChart({ placed, px, py, many, cloud, onPick }: {
+  placed: Placed[]; px: Property; py: Property; many: boolean; cloud: Point[]; onPick: (p: Point) => void
 }) {
   const option = useMemo<EChartsOption>(() => {
     const vaxis = valueAxis(), axis = baseAxis()
@@ -360,10 +407,12 @@ function FrontierChart({ placed, px, py, many, onPick }: {
       if (pr.fold === 'rate') { lo = Math.max(0, lo); hi = Math.min(1, hi) } else if (Math.min(...vals) >= 0) lo = Math.max(0, lo)
       return { min: +lo.toPrecision(12), max: +hi.toPrecision(12), interval: step }
     }
-    const span = (axis: 'x' | 'y', pr: Property) => placed.flatMap((p) => {
+    const dots = cloudDrawn(cloud, px.id, py.id, xlog, ylog)
+    // The cloud is data the reader asked to see, so the frame holds it too (a clipped dot would be a hidden one).
+    const span = (axis: 'x' | 'y', pr: Property) => [...placed.flatMap((p) => {
       const i = interval(pr, p.point.values[pr.id])
       return [i.lo, i.hi, axis === 'x' ? p.x : p.y]
-    })
+    }), ...dots.map((d) => (axis === 'x' ? d.x : d.y))]
     const xe = extent(span('x', px), px, xlog), ye = extent(span('y', py), py, ylog)
     // Ticks at the axis's own step: dollars with the decimals the step needs, so $0.08 and $0.10 read alike.
     const fmt = (p: Property, e: { interval?: number }) => (p.unit === 'usd' && e.interval ? usdTick(e.interval) : (v: number) => p.format(v))
@@ -375,7 +424,12 @@ function FrontierChart({ placed, px, py, many, onPick }: {
       tooltip: {
         ...TIP_FRAME, trigger: 'item',
         formatter: (raw: unknown) => {
-          const prm = raw as { data?: { id?: string } }
+          const prm = raw as { data?: { id?: string; cloud?: number } }
+          if (prm.data?.cloud !== undefined) {
+            const c = cloudTip(dots[prm.data.cloud].p, px.id, py.id), el = tip(c.title, [])
+            for (const l of c.lines) { const d = document.createElement('div'); d.style.fontSize = '11px'; d.textContent = l; el.append(d) }
+            return el
+          }
           const p = placed.find((x) => x.point.id === prm.data?.id)
           return p ? pointTip(p, px, py, many) : ''
         },
@@ -395,6 +449,11 @@ function FrontierChart({ placed, px, py, many, onPick }: {
         { type: 'line', name: 'the frontier', data: line, symbol: 'none', silent: true, z: 1, lineStyle: { color: C.secondary, width: 1.5 }, animationDurationUpdate: 350 },
         // Its legs to the frame, dashed and fainter: where the frontier's points say a harness would be beaten, not measured.
         ...legs.map((leg, i) => ({ type: 'line' as const, name: `the frontier's leg ${i + 1}`, data: leg, symbol: 'none', silent: true, z: 1, lineStyle: { color: C.secondary, width: 1.5, type: 'dashed' as const, opacity: 0.6 } })),
+        // The data behind the arm points: faint, in the arm's colour, no labels, a tip only.
+        ...(dots.length ? [{
+          type: 'scatter' as const, name: 'behind the points', z: 1.5, symbolSize: 4, silent: false, cursor: 'default',
+          data: dots.map((d, i) => ({ value: [d.x, d.y], cloud: i, itemStyle: { color: harnessColor(d.p.harness), opacity: 0.3 } })),
+        }] : []),
         ...(whiskers.length ? [{
           type: 'custom' as const, name: '95% intervals', silent: true, z: 2,
           data: whiskers,
@@ -415,7 +474,7 @@ function FrontierChart({ placed, px, py, many, onPick }: {
           data: placed.map((p) => ({ value: [p.x, p.y], id: p.point.id })) },
       ],
     } as EChartsOption
-  }, [placed, px, py, many])
+  }, [placed, px, py, many, cloud])
   return <Echart option={option} onClick={(raw) => {
     const id = (raw as { data?: { id?: string } }).data?.id
     const p = placed.find((x) => x.point.id === id)
@@ -466,10 +525,21 @@ function Key({ placed, px, py }: { placed: Placed[]; px: Property; py: Property 
   const day = useMode((s) => s.mode) === 'light'
   const ink = day ? daylightColor(C.secondary) : C.secondary
   const keys = [...new Set(placed.map((p) => family(p.point.harness)))]
+  // The legend in framing blocks (derived from the data): the controlled comparison first, then Theseus over every model, then the model-varying arms.
+  const blocks = byFraming(keys, (k) => framingOf(placed.find((p) => family(p.point.harness) === k)!.point))
   return (
     <ul className="flex flex-wrap items-center gap-x-3.5 gap-y-1 px-2 pt-1 text-[11px] text-ink-dim" aria-label="legend">
-      {keys.map((k) => (
-        <li key={k} className="flex items-center gap-1.5"><Swatch color={harnessColor(k)} mark="dot" />{harness(k).name}{harness(k).slot === null ? ' (other: no slot of its own)' : ''}</li>
+      {blocks.map((b) => (
+        <li key={b.framing} className="flex basis-full flex-wrap items-center gap-x-3.5 gap-y-1" aria-label={b.words}>
+          {blocks.length > 1 && (
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+              {b.words}{b.items.length === 1 ? ' · one arm measured so far' : ''}
+            </span>
+          )}
+          {b.items.map((k) => (
+            <span key={k} className="flex items-center gap-1.5"><Swatch color={harnessColor(k)} mark="dot" />{harness(k).name}{harness(k).slot === null ? ' (other: no slot of its own)' : ''}</span>
+          ))}
+        </li>
       ))}
       <li className="flex items-center gap-1.5">
         <svg width="14" height="2" aria-hidden><rect width="14" height="2" rx="1" fill={ink} /></svg>the frontier
@@ -527,6 +597,7 @@ function frontierTable(ps: Point[], placed: Placed[], px: Property, py: Property
   const columns: Column<Point>[] = [
     { key: 'point', label: 'point', cell: (p) => <Link to={`/benchmarks/${p.report}`} className="text-ink hover:text-live">{pointName(p, many)}</Link> },
     { key: 'place', label: `on ${py.short} × ${px.short}`, cell: (p) => { const q = at.get(p.id); return !q ? 'not drawn: it lacks one of the two' : q.frontier ? 'on the frontier' : `dominated by ${q.dominators.map((d) => pointName(d, many)).join(', ')}` } },
+    { key: 'framing', label: 'compared as', cell: (p) => FRAMING_WORDS[framingOf(p)] },
     { key: 'version', label: 'version', cell: (p) => p.version?.text ?? 'not stated' },
     { key: 'model', label: 'model', cell: (p) => p.model ?? '—' },
     { key: 'effort', label: 'effort', cell: (p) => p.effort?.text ?? 'not recorded', title: (p) => p.effort?.text },
@@ -535,5 +606,5 @@ function frontierTable(ps: Point[], placed: Placed[], px: Property, py: Property
     ...props.map((pr) => ({ key: pr.id, label: pr.short, num: true, cell: (p: Point) => cell(p, pr), title: () => `${pr.label}: ${pr.about}` })),
     { key: 'tags', label: 'its own conditions', cell: (p) => p.tags.map((t) => `${UNEQUAL.includes(t.kind) ? '◆ ' : ''}${t.text}`).join('; ') || '—', title: (p) => p.tags.map((t) => t.text).join('; ') },
   ]
-  return { caption: `every point of ${set.label}, every property it measured`, rows: ps, rowKey: (p: Point) => p.id, columns }
+  return { caption: `every point of ${set.label}, every property it measured`, rows: [...ps].sort((a, b) => FRAMINGS.indexOf(framingOf(a)) - FRAMINGS.indexOf(framingOf(b))), rowKey: (p: Point) => p.id, columns }
 }
