@@ -157,7 +157,27 @@ impl Board {
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone(),
             jail: self.jail(),
+            notify: self.notify(),
         }
+    }
+
+    /// The gate's inform notices go to the operator's DM through the core's
+    /// outbox, quietly (a badge and the digest, never a ping).
+    fn notify(&self) -> Option<tree::Notify> {
+        let core = self.core.get()?.clone();
+        Some(tree::Notify::new(move |text| {
+            let Some(core) = core.upgrade() else { return };
+            let sent = (|| -> anyhow::Result<()> {
+                let body = json!({"kind": "notice", "text": text, "quiet": true});
+                let (post, frame) = core.outbox.stage_to_operator(None, body)?;
+                core.store.append(&frame)?;
+                core.outbox.posted(&post);
+                Ok(())
+            })();
+            if let Err(e) = sent {
+                tracing::warn!(error = %format!("{e:#}"), "self build: the may-build notice was not posted");
+            }
+        }))
     }
 }
 
