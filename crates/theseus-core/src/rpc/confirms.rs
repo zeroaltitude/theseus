@@ -580,6 +580,20 @@ impl Core {
             // A call's question is told about and held, never declined
             // (theseus-v2dnc): the next notice is a life later.
             if super::question_waits::held_past_life(a) {
+                // Unless its session was retired (theseus-x29x3): no one is
+                // left to answer it, so it ends here, by the decline that
+                // also releases a reservation it holds.
+                if self.session_retired(&a.session_id) {
+                    let why = "its session was retired".to_string();
+                    match self.decline_expired(a, ttl, &why) {
+                        Ok(()) => expired += 1,
+                        Err(e) => {
+                            tracing::warn!(error = %format!("{e:#}"), correlation_id = %a.correlation_id, "a retired session's question could not end");
+                            next = next.min(now + 60_000);
+                        }
+                    }
+                    continue;
+                }
                 next = next.min(self.question_waits_or_soon(a, ttl, now));
                 continue;
             }
