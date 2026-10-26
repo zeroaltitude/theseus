@@ -8,6 +8,7 @@ use theseus_store::NewRecord;
 use crate::kernel::*;
 use crate::tests::*;
 use crate::types::*;
+use crate::wake_kinds::WakeLimits;
 use crate::wakes::{wake_id, MAX_PENDING};
 
 fn exec(w: &World, id: &str) -> Execution {
@@ -319,7 +320,11 @@ fn the_cap_is_enforced_and_a_call_sets_its_wake_once() {
         err.downcast_ref::<KernelError>(),
         Some(KernelError::TooManyWakes { max }) if *max == MAX_PENDING
     ));
-    assert!(err.to_string().contains("5 pending wakes"), "{err}");
+    assert!(
+        err.to_string()
+            .contains(&format!("{MAX_PENDING} pending wakes")),
+        "{err}"
+    );
     assert_eq!(w.kernel.store().last_position(), before);
     let again = w
         .kernel
@@ -718,4 +723,31 @@ fn a_take_lists_what_is_still_pending_from_the_same_read() {
     assert!(pending.iter().any(|p| p.id == late.wake.id));
     let back = pending.iter().find(|p| p.note == "the series").unwrap();
     assert_eq!(back.occurrence, 2, "the next occurrence's number");
+}
+
+/// A conversation holds twenty check-ins by default (theseus-o1h3f.8); the
+/// twenty-first is refused with the usual error and writes nothing.
+#[test]
+fn twenty_check_ins_are_held_and_the_twenty_first_is_refused() {
+    assert_eq!(MAX_PENDING, 20);
+    assert_eq!(WakeLimits::default().max_wakes, 20);
+    let w = world();
+    let (_, _, g) = running(&w);
+    let now = w.kernel.now_ms();
+    for i in 0..20u64 {
+        w.kernel
+            .set_wake(&g, &new_id("act"), now + 60_000 + i, "n", None, None)
+            .unwrap();
+    }
+    let before = w.kernel.store().last_position();
+    let err = w
+        .kernel
+        .set_wake(&g, &new_id("act"), now + 1_000, "twenty-first", None, None)
+        .unwrap_err();
+    assert!(matches!(
+        err.downcast_ref::<KernelError>(),
+        Some(KernelError::TooManyWakes { max: 20 })
+    ));
+    assert!(err.to_string().contains("20 pending wakes"), "{err}");
+    assert_eq!(w.kernel.store().last_position(), before);
 }

@@ -48,7 +48,7 @@ use crate::types::*;
 use crate::wake_kinds::{NewWake, Purpose};
 
 /// The most wakes one execution may hold at once.
-pub const MAX_PENDING: usize = 5;
+pub const MAX_PENDING: usize = 20;
 
 /// A wake's id, from the id of the call that sets it: `act_X` gives `wak_X`.
 pub fn wake_id(correlation_id: &str) -> String {
