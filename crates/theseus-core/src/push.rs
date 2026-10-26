@@ -69,8 +69,10 @@ pub fn waiting_on(w: &Wake) -> WaitingOn {
 
 /// A question waiting for the operator, in brief: its action, and for a tool
 /// call the gate's decision on its node, which holds the reason and the
-/// floor. A tool call's question holds `confirm_ttl_ms` from its plan, as
-/// `confirm.list` says; a budget question holds until it is answered.
+/// floor. A question that expires (an `owner_ask`, an extension's ack, a
+/// pack's promotion) says `confirm_ttl_ms` from its plan, as `confirm.list`
+/// does; a budget question and a call's, which is held past that life and
+/// never expires (theseus-v2dnc), hold until they are answered and say none.
 pub fn pending_of(
     a: &Action,
     decision: Option<&GateDecision>,
@@ -78,8 +80,7 @@ pub fn pending_of(
     confirm_ttl_ms: u64,
 ) -> PendingConfirm {
     let budget = a.tool == BUDGET_TOOL;
-    // A budget question holds until it is answered.
-    let holds = budget;
+    let holds = budget || crate::rpc::held_past_life(a);
     PendingConfirm {
         correlation_id: a.correlation_id.clone(),
         tool: a
@@ -666,7 +667,9 @@ mod tests {
     }
 
     /// A task parked on a tool call's question: its view says so, with the
-    /// gate's reason, the expiry `confirm.list` gives, and its parent.
+    /// gate's reason, the expiry `confirm.list` gives (none for a call's
+    /// question, which is held, never expired; an `owner_ask`'s is its plan's
+    /// time and the TTL), and its parent.
     #[test]
     fn a_task_parked_on_a_question_needs_you_with_the_gates_reason() {
         let e = execution(
@@ -681,7 +684,9 @@ mod tests {
             ..Default::default()
         };
         let p = pending_of(&action("proc.run"), Some(&decision), None, 300_000);
-        assert_eq!(p.expires_at_ms, 301_000);
+        assert_eq!(p.expires_at_ms, 0, "a held call says no deadline");
+        let ask = pending_of(&action(crate::ask::OWNER_ASK), None, None, 300_000);
+        assert_eq!(ask.expires_at_ms, 301_000, "an ask still expires");
         let v = view(&e, vec![p], Some("ses_parent".into()), 48, 9);
         assert_eq!(v.attention.level, theseus_protocol::Level::NeedsYou);
         assert_eq!(
