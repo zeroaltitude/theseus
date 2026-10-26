@@ -287,6 +287,66 @@ async fn an_asked_budget_over_the_session_carves_no_more_than_the_session_has() 
     );
 }
 
+/// A stop cancels the helpers a fan-out is waiting on, and only a fan-out's
+/// wait does: the owner (z9mze Q3) "/stop cancels waiting helpers". A turn's
+/// stop aborts the wait's future; the helpers the call opened end `Cancelled`,
+/// while a plain `task.wait` of the same tasks leaves them running (the owner
+/// started those separately). The stack review's F3.
+#[tokio::test]
+async fn a_stop_cancels_the_helpers_of_a_fan_out_wait_and_not_a_plain_waits_tasks() {
+    let call: Call = Arc::new(Mutex::new(
+        json!({"helpers": helpers(2), "budget_usd": 6.0, "wait": false}),
+    ));
+    let r = fan_rig(call, |_| Scripted::text("ok"), |_| {});
+    // Each helper holds at the model's gate, so none ends by itself.
+    *r.model.hold.lock().unwrap() = Some("AREA:".into());
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let tasks = tasks_of(&r.core, &parent);
+    assert_eq!(tasks.len(), 2);
+    let group = tasks[0].helper_of().expect("a helper").to_string();
+    let ids: Vec<String> = tasks.iter().map(|t| t.id.clone()).collect();
+    let waiting = |fan_out: Option<String>| {
+        let ask = WaitAsk {
+            tasks: ids.clone(),
+            timeout: std::time::Duration::from_secs(600),
+            report_chars: 6000,
+            fan_out,
+            turn: TurnRef::for_exec(&r.core, &parent_exec(&r.core, &parent)),
+        };
+        tokio::spawn(crate::task_wait::wait_on_tasks(
+            r.core.clone(),
+            parent.clone(),
+            ask,
+        ))
+    };
+
+    // A plain wait is stopped: the tasks run on.
+    let plain = waiting(None);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    plain.abort();
+    let _ = plain.await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    for id in &ids {
+        assert!(
+            !exec(&r.core, id).state.is_terminal(),
+            "a plain wait's stop leaves its tasks running: {:?}",
+            exec(&r.core, id)
+        );
+    }
+
+    // The fan-out's wait is stopped: its helpers are cancelled.
+    let fan = waiting(Some(group));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    fan.abort();
+    let _ = fan.await;
+    until("the helpers are cancelled", || {
+        ids.iter()
+            .all(|id| exec(&r.core, id).state == ExecState::Cancelled)
+    })
+    .await;
+}
+
 /// There is no cap on the count. The owner (2026-10-24): "very very lightweight
 /// on any limits to theseus tasking itself ... notify, work, and allow
 /// feedback", and "All recs!" to the cap question: no per-turn child cap
