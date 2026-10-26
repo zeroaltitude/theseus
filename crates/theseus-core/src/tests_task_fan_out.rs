@@ -961,7 +961,13 @@ fn a_fan_out_quotes_the_turns_own_message_and_a_turn_with_none_is_refused() {
     let user = |turn: &str, text: &str| Node::user("ses_n6", Some(turn), "owner", text);
     let report = |turn: &str| {
         let author = "task:ab12";
-        Node::relayed("ses_n6", Some(turn), Origin::Harness, author, "[Report from task ab12]")
+        Node::relayed(
+            "ses_n6",
+            Some(turn),
+            Origin::Harness,
+            author,
+            "[Report from task ab12]",
+        )
     };
     let transcript = |nodes: Vec<Node>| -> Vec<(u64, Stub)> {
         let at = |(i, n): (usize, Node)| (i as u64, Stub::from(n));
@@ -975,7 +981,10 @@ fn a_fan_out_quotes_the_turns_own_message_and_a_turn_with_none_is_refused() {
     assert!(refused.contains("task_create"), "{refused}");
     // A report started the turn: it is the objective, not the earlier ask.
     let woken = report("trn_2");
-    assert_eq!(pick(vec![earlier.clone(), woken.clone()]), Ok(woken.id.clone()));
+    assert_eq!(
+        pick(vec![earlier.clone(), woken.clone()]),
+        Ok(woken.id.clone())
+    );
     // Both in one turn: the operator's wins over the report beside it.
     let asked = user("trn_2", "fan it out");
     let both = pick(vec![earlier, asked.clone(), woken]);

@@ -846,7 +846,9 @@ async fn running_notes_share_the_fan_in_bound_and_those_past_it_arrive_as_pointe
         .await
         .expect("a wait that times out still answers");
     assert!(
-        out.0.text.starts_with("0 of 4 tasks reported, 4 still running"),
+        out.0
+            .text
+            .starts_with("0 of 4 tasks reported, 4 still running"),
         "{}",
         out.0.text
     );
@@ -886,7 +888,10 @@ async fn a_wait_that_outlived_its_turn_brings_in_no_report_and_writes_no_node() 
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
     let child = tasks_of(&r.core, &parent).remove(0);
-    until("the child ended", || exec(&r.core, &child.id).state.is_terminal()).await;
+    until("the child ended", || {
+        exec(&r.core, &child.id).state.is_terminal()
+    })
+    .await;
     let before = parent_exec(&r.core, &parent);
     assert_eq!(before.reports, vec![child.id.clone()], "its report waits");
     // The turn this wait names is not the one the execution is running.
@@ -932,7 +937,10 @@ async fn a_wait_with_no_slot_to_lend_asks_once_and_does_not_spin() {
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
     let ask = WaitAsk {
-        tasks: tasks_of(&r.core, &parent).iter().map(|t| t.id.clone()).collect(),
+        tasks: tasks_of(&r.core, &parent)
+            .iter()
+            .map(|t| t.id.clone())
+            .collect(),
         timeout: crate::turn::admission::LEND_AFTER + Duration::from_secs(1),
         report_chars: 6000,
         fan_out: None,
@@ -999,10 +1007,13 @@ async fn a_turns_end_leaves_no_deadline_in_force_and_no_room_recorded() {
     let parent = parent_session(&r.core);
     let (core, p) = (r.core.clone(), parent.clone());
     let run = tokio::spawn(async move { turn_with_deadline(&core, &p, ASK, 3_600).await });
-    until("the deadline and the room are in force while it waits", || {
-        r.core.runner.keep_warm.room(&parent).is_some()
-            && crate::turn::clock_step::left_in_force(&parent).is_some()
-    })
+    until(
+        "the deadline and the room are in force while it waits",
+        || {
+            r.core.runner.keep_warm.room(&parent).is_some()
+                && crate::turn::clock_step::left_in_force(&parent).is_some()
+        },
+    )
     .await;
     r.model.gate.add_permits(1);
     run.await.unwrap();

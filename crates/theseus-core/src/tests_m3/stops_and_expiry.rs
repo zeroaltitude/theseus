@@ -129,7 +129,10 @@ async fn a_question_nobody_answers_expires_at_the_time_its_card_gives() {
     assert_eq!(listed.len(), 1);
     // The list says no deadline for a held question (theseus-lrc3m); the
     // time its card gives, and its first notice, is its plan's plus the TTL.
-    assert_eq!(listed[0].expires_at_ms, 0, "a held question lists no expiry");
+    assert_eq!(
+        listed[0].expires_at_ms, 0,
+        "a held question lists no expiry"
+    );
     let a = r.core.kernel.action(&corr).unwrap().unwrap();
     let ttl = r.core.kernel.config().confirm_ttl_ms;
     let due = listed[0].requested_at_ms + ttl;

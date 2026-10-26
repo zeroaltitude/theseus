@@ -75,12 +75,11 @@ impl Core {
                 // held past its life, never expired (theseus-v2dnc), so it
                 // is carded however long it has waited: the daemon may have
                 // been down, or the DM unbound, through its first life.
-                let expires = match a.tool == theseus_kernel::BUDGET_TOOL
-                    || crate::rpc::held_past_life(a)
-                {
-                    true => u64::MAX,
-                    false => crate::ask::expiry_of(a, ttl),
-                };
+                let expires =
+                    match a.tool == theseus_kernel::BUDGET_TOOL || crate::rpc::held_past_life(a) {
+                        true => u64::MAX,
+                        false => crate::ask::expiry_of(a, ttl),
+                    };
                 (now >= a.planned_at_ms.saturating_add(wait)
                     || self.outbox.prompted.has(&a.session_id))
                     && now < expires
