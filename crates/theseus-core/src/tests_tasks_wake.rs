@@ -298,9 +298,9 @@ async fn a_task_sessions_typed_turn_is_a_persons() {
 }
 
 const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"];
-const DM_PERSON_TOKENS: u64 = 9869;
+const DM_PERSON_TOKENS: u64 = 9908;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
-const CLI_PERSON_TOKENS: u64 = 7585;
+const CLI_PERSON_TOKENS: u64 = 7624;
 
 /// A person's message that asks for a task still loads the family by the ask.
 #[tokio::test]
