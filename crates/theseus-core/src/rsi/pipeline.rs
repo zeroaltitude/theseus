@@ -69,7 +69,7 @@
 //! written once: the META record `self.pipeline` keeps the keys of what was
 //! said, with the tick's task records and rows in one frame.
 
-mod queues;
+pub(crate) mod queues;
 mod tender;
 #[cfg(test)]
 mod tests;
@@ -292,7 +292,7 @@ impl Write {
 
 /// The note to the owner for an item two reviews rejected: both findings
 /// and the command back. Nothing waits for an answer.
-fn rejected_twice_text(e: &Entry) -> String {
+pub(crate) fn rejected_twice_text(e: &Entry) -> String {
     use crate::owner_note::{note, Kind};
     let mut body = format!("Two independent reviews rejected {}:\n", e.title);
     for (i, f) in e.findings.iter().enumerate() {

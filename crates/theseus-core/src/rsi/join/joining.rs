@@ -451,7 +451,7 @@ enum Refused {
 }
 
 /// The owner's note for a branch that conflicted with main.
-fn conflict_card(branch: &str, item: &str, why: &str) -> String {
+pub(crate) fn conflict_card(branch: &str, item: &str, why: &str) -> String {
     crate::owner_note::note(
         crate::owner_note::Kind::Fyi,
         &format!("Self branch {branch} conflicted with main"),
@@ -464,7 +464,7 @@ fn conflict_card(branch: &str, item: &str, why: &str) -> String {
 }
 
 /// The owner's note for an item that conflicted with main too often.
-fn conflict_dropped_card(branch: &str, item: &str, why: &str) -> String {
+pub(crate) fn conflict_dropped_card(branch: &str, item: &str, why: &str) -> String {
     let cmd = theseus_protocol::rsi::retry_command(item);
     crate::owner_note::note(
         crate::owner_note::Kind::Fyi,
