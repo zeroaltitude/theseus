@@ -359,7 +359,28 @@ async fn an_expired_card_offers_ask_again_and_the_owners_press_asks_it() {
     r.until("the card", || !dm(&r, "Needs you").is_empty())
         .await;
     let card = dm(&r, "Needs you").remove(0);
-    assert_eq!(r.core.expire_questions(at + 20 * 60_000), 1);
+    // A call's question is held, not expired (theseus-v2dnc); what is asked
+    // again is one an older build expired, made here as that build made it.
+    assert_eq!(r.core.expire_questions(at + 20 * 60_000), 0, "held");
+    let exec = r
+        .core
+        .kernel
+        .action(&corr[0])
+        .unwrap()
+        .unwrap()
+        .execution_id;
+    r.core
+        .kernel
+        .frame(&[&exec], |k| {
+            k.decline_action(&corr[0], "expiry", "nobody answered within 15 minutes")?;
+            let _ = k.frame(&[&exec], |k| k.wake(&exec, "expired"));
+            Ok(())
+        })
+        .unwrap();
+    r.core
+        .outbox
+        .closed(&corr[0], theseus_core::outbox::Closed::new("expired", None))
+        .unwrap();
     r.until("the card expires with its button", || {
         dm(&r, "Needs you")
             .first()

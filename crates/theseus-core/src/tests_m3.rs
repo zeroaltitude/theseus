@@ -1639,6 +1639,8 @@ mod earned;
 /// Scoped grants (theseus-drjs).
 mod grants;
 mod modes;
+/// A question that waits past its life is noticed, not declined (theseus-v2dnc).
+mod question_waits;
 /// A `/stop` before a turn's admission, and a question's expiry (theseus-hmwv,
 /// theseus-830).
 mod stops_and_expiry;
