@@ -282,10 +282,17 @@ impl Core {
             } else {
                 vec![]
             };
-            out.extend(
-                asks.into_iter()
-                    .filter_map(|a| self.confirm_request(a, &rec, &nodes)),
-            );
+            out.extend(asks.into_iter().filter_map(|a| {
+                let mut req = self.confirm_request(a, &rec, &nodes)?;
+                // A call's question never expires, it is held past its life
+                // (theseus-v2dnc), so the list says no deadline, as a budget
+                // question's does. Only here: `confirm_request` also feeds
+                // the Discord card, whose footer reads the time.
+                if super::question_waits::held_past_life(a) {
+                    req.expires_at_ms = 0;
+                }
+                Some(req)
+            }));
         }
         Ok(out)
     }
