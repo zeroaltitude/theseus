@@ -144,6 +144,41 @@ async fn the_third_conflict_drops_the_item_with_the_way_back() {
     );
 }
 
+/// The way back the dropped card offers buys a rebuild: the owner's retry resets the count, so an
+/// item that was dropped at its third conflict is sent back to build at its next one, not dropped
+/// again without a build.
+#[tokio::test]
+async fn a_retry_resets_the_conflict_count() {
+    let r = rig(SelfMode::Act);
+    item(&r, "tsk_sails", 3);
+    let mut t = crate::task_graph::get(&r.core.store, "tsk_sails")
+        .unwrap()
+        .unwrap();
+    t.version += 1;
+    t.evidence.push(TaskEvidence {
+        node: None,
+        identity: "retried:owner".into(),
+        note: None,
+        by: "owner".into(),
+        at_ms: 2,
+    });
+    r.core
+        .store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
+    r.seed("tsk_sails", &conflicting(), SONNET);
+    main_moves(&r);
+    r.core.self_join_pass(&r.seams()).await.unwrap();
+    let t = crate::task_graph::get(&r.core.store, "tsk_sails")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        t.state,
+        TaskState::Proposed,
+        "the first conflict since the retry is a rebuild, not a drop"
+    );
+}
+
 /// The keel is unchanged: a ceiling's file posts the owner's card, the head
 /// waits (held, not a conflict), and the item is not sent back to build.
 #[tokio::test]

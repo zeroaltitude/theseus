@@ -281,6 +281,8 @@ impl Run<'_> {
         let prior = crate::task_graph::get(&self.core.store, &item)?.map_or(0, |t| {
             t.evidence
                 .iter()
+                .rev()
+                .take_while(|e| e.identity != "retried:owner")
                 .filter(|e| e.identity.starts_with(CONFLICT))
                 .count()
         });
