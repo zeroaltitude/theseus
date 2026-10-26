@@ -16,6 +16,7 @@ pub mod clock;
 pub mod cron;
 pub mod day_ceiling;
 mod earlier;
+mod failure;
 pub mod gate;
 pub mod gone;
 mod held;

@@ -181,6 +181,20 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
                 "action {} failed after {} ms",
                 d["correlation_id"], d["duration_ms"]
             );
+            // A job's own non-zero exit is its command's answer, not a fault
+            // of ours. Timeouts, signals, stops and jobs that never started
+            // are, and each is its own cause; a row from before the ledger
+            // named the failure keeps the old key. The pid in a producer
+            // (`wrapper:<pid>`) never splits a cause: `word` stops at `:`.
+            if let Some(f) = d["failure"].as_str() {
+                if f == "exit" {
+                    return None;
+                }
+                let f = word(&d["failure"]);
+                o.key = format!("action.failed:{p}:{f}");
+                o.title = format!("{}: {f}", o.title);
+                o.note = format!("{} ({f})", o.note);
+            }
             o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
             o.task_failed = true;
         }
@@ -573,5 +587,47 @@ mod tests {
         ] {
             assert_eq!(plain_title(kept), kept);
         }
+    }
+
+    fn failed_row(pid: u32, failure: Option<&str>) -> LedgerRow {
+        let mut data = json!({
+            "correlation_id": "act_1", "producer": format!("wrapper:{pid}"),
+            "duration_ms": 5, "outcome": "failed",
+        });
+        if let Some(f) = failure {
+            data["failure"] = json!(f);
+        }
+        LedgerRow {
+            at_unix_ms: 1,
+            kind: "action.failed".into(),
+            session_id: None,
+            turn_id: None,
+            data,
+        }
+    }
+
+    /// A command's own non-zero exit is no cause (theseus-wrapper).
+    #[test]
+    fn a_jobs_own_non_zero_exit_is_not_a_cause() {
+        assert!(of_row(1, &failed_row(10, Some("exit"))).is_none());
+    }
+
+    /// Timeouts and jobs that never started are their own causes, and the
+    /// wrapper's pid never splits one.
+    #[test]
+    fn a_job_that_timed_out_or_never_started_is_its_own_cause_whatever_the_pid() {
+        let key = |pid, f| of_row(1, &failed_row(pid, Some(f))).unwrap().key;
+        assert_eq!(key(10, "timeout"), "action.failed:wrapper:timeout");
+        assert_eq!(key(99, "timeout"), key(10, "timeout"));
+        assert_eq!(key(10, "spawn"), "action.failed:wrapper:spawn");
+        assert_ne!(key(10, "spawn"), key(10, "timeout"));
+    }
+
+    /// A row from before the ledger named failures keeps the old key.
+    #[test]
+    fn a_failed_row_without_a_failure_keeps_the_old_key() {
+        let o = of_row(1, &failed_row(10, None)).unwrap();
+        assert_eq!(o.key, "action.failed:wrapper");
+        assert_eq!(o.title, "Wrapper tool calls failing");
     }
 }

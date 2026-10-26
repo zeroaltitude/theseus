@@ -2453,6 +2453,13 @@ impl Kernel {
         if book {
             crate::earlier::booked_row(&mut data, &a);
         }
+        // How a job failed, so the nightly read can tell a command's own
+        // non-zero exit from a timeout, a signal or a job that never started.
+        if c.outcome == Outcome::Failed {
+            if let Some(f) = crate::failure::classify(c.detail.as_ref()) {
+                data["failure"] = json!(f);
+            }
+        }
         frame.push(self.ledger(kind, Some(&a.session_id), data)?);
         // Every queue writes its row, in its frame (theseus-2xep).
         if queued {
