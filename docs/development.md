@@ -410,7 +410,7 @@ is what was tested. The measurements behind both choices are in `scripts/AGENTS.
 | A plain turn | 4 frames | `tests_m3::a_plain_turn_stays_within_its_frame_budget` and the turn bench |
 | First request: a CLI or task session | 8,000 tokens | `tests_first_request` and the gate |
 | First request: the owner's DM | 15,000 tokens | `tests_first_request` and the gate |
-| First request: a shared channel | 7,900 tokens | `tests_first_request` and the gate |
+| First request: a shared channel | 8,900 tokens | `tests_first_request` and the gate |
 | First request: headless | 8,600 tokens | `tests_first_request` and the gate |
 | Binary growth per build | 1 MB | the size check |
 
