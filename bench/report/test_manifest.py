@@ -188,11 +188,12 @@ class Framing(Fixture):
         d = with_models(flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (6, 9), "beta": (3, 9)}),
                         alpha="anthropic/claude-sonnet-5-5", beta="openai/gpt-x")
         r = self.rows("2026-03-01-a", d)
-        self.assertEqual((r["alpha"]["model"], r["beta"]["model"]), ("anthropic/claude-sonnet-5-5", "openai/gpt-x"))
+        self.assertEqual((r["alpha"]["arm_model"], r["beta"]["arm_model"]), ("anthropic/claude-sonnet-5-5", "openai/gpt-x"))
+        self.assertEqual((r["alpha"]["model"], r["beta"]["model"]), ("model-x", "model-x"),
+                         "`model` stays the dataset's prose line: the cockpit reads it as the reference (join fix 1)")
         self.assertEqual((r["alpha"]["provider"], r["beta"]["provider"]), ("anthropic", "openai"))
         self.assertEqual((r["alpha"]["framing"], r["beta"]["framing"]), ("model", "model"))
         self.assertEqual((r["alpha"]["routing"], r["beta"]["routing"]), ("pinned", "pinned"))
-        self.assertEqual(r["alpha"]["model_note"], "model-x", "the dataset's prose string is kept, as a note")
 
     def test_one_model_across_the_arms_is_a_harness_framing_and_a_routed_arm_is_its_own(self):
         d = with_models(flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (6, 9), "beta": (3, 9), "theseus_routed": (4, 9)}),
@@ -202,15 +203,49 @@ class Framing(Fixture):
         self.assertEqual((r["alpha"]["framing"], r["beta"]["framing"]), ("harness", "harness"))
         self.assertEqual(r["theseus_routed"]["framing"], "routed")
         self.assertEqual(r["theseus_routed"]["routing"], "routed")
-        self.assertEqual(r["theseus_routed"]["model"], ["claude-haiku-5-5", "claude-sonnet-5-5"])
+        self.assertEqual(r["theseus_routed"]["arm_model"], ["claude-haiku-5-5", "claude-sonnet-5-5"])
 
     def test_the_newest_dataset_has_no_kind_and_no_per_arm_model_and_still_makes_rows(self):
         data = flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (3, 3)})
         del data["model"]
         self.assertNotIn("kind", data)
         r = self.rows("2026-03-01-a", data)["alpha"]
-        self.assertEqual((r["framing"], r["model"], r["model_note"], r["provider"], r["routing"], r["effort"]),
+        self.assertEqual((r["framing"], r["model"], r["arm_model"], r["provider"], r["routing"], r["effort"]),
                          ("harness", None, None, None, None, None))
+
+    def test_an_arm_whose_label_names_a_model_nothing_else_names_is_a_model_framing(self):
+        """join fix 2: the 10-25 codex dataset names GPT-6-Astra only in a label, and no model for its peers."""
+        data = flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (6, 9), "beta": (3, 9)})
+        del data["model"]
+        data["summary"]["alpha"]["label"] = "Alpha CLI 1.0 (GPT-6-Astra, high)"
+        data["summary"]["beta"]["label"] = "Beta 2.0"
+        r = self.rows("2026-03-01-a", data)
+        self.assertEqual((r["alpha"]["framing"], r["beta"]["framing"]), ("model", "model"))
+        self.assertEqual((r["alpha"]["arm_model"], r["alpha"]["provider"], r["alpha"]["model"]), ("GPT-6-Astra", "openai", None))
+        self.assertEqual((r["beta"]["arm_model"], r["beta"]["provider"]), (None, None))
+        data["model"] = "openai/gpt-6-astra"   # a reference the label agrees with: only the harness varies
+        r = self.rows("2026-03-01-a", data)
+        self.assertEqual((r["alpha"]["framing"], r["beta"]["framing"]), ("harness", "harness"))
+
+    def test_the_published_codex_comparison_is_a_model_framing(self):
+        name = "2026-10-25-terminal-bench-codex-high"
+        data = json.loads((DOCS / f"{name}.json").read_text())
+        rows, _ = manifest.rows_of(data, name)
+        by = {r["variant"]: r for r in rows}
+        self.assertEqual((by["codex"]["framing"], by["codex"]["provider"], by["codex"]["k"]), ("model", "openai", 1))
+        self.assertEqual(by["claude-code"]["k"], 3)
+        self.assertEqual(by["theseus-routed"]["framing"], "routed")
+
+    def test_a_gateway_prefix_is_not_a_provider(self):
+        self.assertEqual(manifest.provider_of("openrouter/deepseek/deepseek-v4-pro"), None)
+        self.assertEqual(manifest.provider_of("zai/glm-5.3"), None)
+        self.assertEqual(manifest.provider_of("openrouter/anthropic/claude-sonnet-5-5"), "anthropic")
+        self.assertEqual(manifest.provider_of("openai/gpt-x"), "openai")
+
+    def test_an_arm_that_ran_no_tasks_does_not_break_the_build(self):
+        data = flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (0, 3)})
+        data["summary"]["alpha"]["tasks"] = 0
+        self.assertEqual(self.rows("2026-03-01-a", data)["alpha"]["task_set"], "full")
 
     def test_k_is_never_trials_over_tasks_for_an_arm_that_ran_a_subset(self):
         data = flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (6, 9), "beta": (6, 9)})  # 3 tasks each, k=3
@@ -257,7 +292,7 @@ class Published(unittest.TestCase):
         """The regression guard: the keys rows_of wrote before theseus-uhc2d, with their values."""
         before = {"report", "benchmark", "tier", "arm", "variant", "harness", "model", "date", "commit", "dataset", "trials",
                   "tasks", "metrics"}
-        added = {"model_note", "provider", "routing", "effort", "k", "task_set", "subset_of", "framing"}
+        added = {"arm_model", "provider", "routing", "effort", "k", "task_set", "subset_of", "framing"}
         for name in OLD:
             data = json.loads((DOCS / f"{name}.json").read_text())
             rows, _ = manifest.rows_of(data, name)
