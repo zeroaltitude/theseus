@@ -76,3 +76,48 @@ async fn a_quick_detour_keeps_its_tools() {
         assert!(names.contains(&kept.to_string()), "{kept} in {names:?}");
     }
 }
+
+/// route.v9's two detours (theseus-gezlj): a `run_tool`
+/// turn keeps its place's tools, the command tool among them, though its message
+/// names none; a `commentary` one carries `tools_find` alone, as a trivial one
+/// does, and its row says so. The fake Jev answers from the acting pack's own
+/// options, so this proof runs once route.v9 acts: until then the acting pack has
+/// neither kind to answer, and the test says so and ends.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_run_tool_detour_keeps_its_tools_and_a_commentary_one_carries_tools_find() {
+    let acting = theseus_judge::pack::by_name(crate::judge::inbound::ROUTE_PACK).unwrap();
+    let names = |kind: &str| {
+        acting
+            .question("mode")
+            .is_some_and(|q| q.options.iter().any(|o| o.id == kind))
+    };
+    if !(names("run_tool") && names("commentary")) {
+        eprintln!(
+            "skipped: the acting pack ({}) names no run_tool or commentary yet",
+            acting.name()
+        );
+        return;
+    }
+    for (kind, message, bare) in [
+        ("run_tool", "Run slow.sh census 3 and give me its last line.", false),
+        ("commentary", "Harnesses writing harnesses, it all fits.", true),
+    ] {
+        let jev = FakeJev::start().unwrap();
+        mode(&jev, kind, 0.95);
+        let (r, haiku) = rig_haiku(&jev, 1, |_| {});
+        let res = turn(&r.core, None, message, None).await;
+        assert_eq!(res.route.as_ref().unwrap().reason, "detour", "{kind}");
+        assert_eq!(res.profile, "haiku", "{kind}");
+        let names = offered(&haiku.requests()[0]);
+        match bare {
+            true => assert_eq!(names, ["tools_find"], "{kind}"),
+            false => {
+                for kept in ["fs_read", "proc_run", "tools_find"] {
+                    assert!(names.contains(&kept.to_string()), "{kind}: {kept} in {names:?}");
+                }
+            }
+        }
+        let row = rows(&r.core, "context.detoured").pop().expect("a detour");
+        assert_eq!(row["kind"], kind);
+    }
+}

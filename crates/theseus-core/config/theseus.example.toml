@@ -1740,8 +1740,8 @@ max_switches = 2                        # moves per task, up or down
 # Each task class's profiles, in order: the first usable wins. Empty: the session's own. A
 # class's switch_confidence is its own bar; unset, it is the one above, except trivial's,
 # 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.
-# A verdict that comes after the wait applies to the next message alone, and a trivial
-# or quick one to none. A profile a class names that this config lacks is passed over. A
+# A verdict that comes after the wait applies to the next message alone, and a detour's (trivial,
+# quick, run_tool, commentary) to none. A profile a class names that this config lacks is passed over. A
 # session Jev moved up from its own profile goes back to it after two verdicts in a row
 # whose class is its own profile or cheaper (chat, routine_coding); you moving it is yours.
 # [routing.classes.trivial]
@@ -1752,6 +1752,15 @@ max_switches = 2                        # moves per task, up or down
 # cn_after = "haiku"
 # switch_confidence = 0.4
 # [routing.classes.quick]                 # a quick question a short, direct answer settles
+# profiles = ["haiku"]
+# route.v9's two kinds (not the acting pack yet; the tables are read the day it is): both are
+# detours, so a command run or a remark never moves the session's profile. A run_tool turn
+# carries the place's real tools; a commentary one carries tools_find alone, as trivial does.
+# No China-origin model is named for either: a run_tool turn reads tool output, which waits on
+# the content screen (theseus-ouqru).
+# [routing.classes.run_tool]              # a command, script or tool to run, its result reported
+# profiles = ["haiku"]
+# [routing.classes.commentary]            # a remark or aside that asks for nothing
 # profiles = ["haiku"]
 # [routing.classes.chat]                  # conversation building on the work: the session's own
 # profiles = []

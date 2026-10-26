@@ -1897,6 +1897,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     dataset, a fork of public code, a public licence) and says an unshown owner is none; `private` is v7's word for
     word, and no code rule reads the wording. The verdict table that holds the floor is `tests_data_verdict.rs`;
     `reply_data.v1` still asks v7's words of a reply (its own version when it moves).
+    **route.v9** (theseus-gezlj, the owner's labels of 2026-10-26) is embedded and replayable, **not the acting pack**
+    (`ROUTE_PACK` stays route.v8 until he adopts it): v8 but for the `mode` question's two new kinds, `run_tool` (a
+    command, script or tool to run and its result reported) and `commentary` (a remark that asks for nothing), both
+    listed before the kinds that swallowed their turns, and `reply_effort`'s `leave` in place of `unclear`. Both kinds are
+    detours (`config::routing::DETOURS`): a command run or a remark never moves the session's profile. A `run_tool`
+    detour carries the place's real tools; a `commentary` one carries `tools_find` alone, as `trivial` does
+    (`BARE_DETOURS`, `is_bare_detour`). Their `[routing.classes.*]` tables default to `haiku` and take the section's 0.6
+    bar. `leave` is read as `unclear` was (the profile's own effort stands) and the row says `leave`
+    (`routing::effort::EffortReason::Leave`). No China-origin model is named for either class: a `run_tool` turn reads
+    tool output, which waits on theseus-ouqru's content screen. The end-to-end proof,
+    `tests_trivial_tools::a_run_tool_detour_keeps_its_tools_and_a_commentary_one_carries_tools_find`, names kinds the
+    acting pack must answer, so it ends with a skip line until v9 acts.
   - **The restricted-origin floor** (theseus-a1wvq.3; `data.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/data_floor.rs`,
     `fact/data.rs`): no request reaches a model of restricted origin (`cn` or `unknown`, `catalog::origin_of`) without a
     `data::DataPass` minted for that one request (it holds the request's digest; not `Clone`, a copied `ProviderRequest`

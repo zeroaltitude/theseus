@@ -112,7 +112,7 @@ pub struct ContextDetoured {
     /// What it ran on: the routed profile and its model.
     pub profile: String,
     pub model: String,
-    /// `trivial` or `quick`.
+    /// `trivial`, `quick`, `run_tool` or `commentary`.
     pub kind: String,
     /// The place class its turn speaks in (`private`, `shared`).
     pub class: String,

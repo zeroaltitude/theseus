@@ -873,13 +873,58 @@ mod tests {
         assert_eq!((d.profile.as_str(), d.switch), ("sonnet", true));
     }
 
+    /// route.v9's two kinds (theseus-gezlj): a `run_tool` and a `commentary`
+    /// message each detour to `haiku` for their turn alone, holding nothing, at
+    /// any estimate, so a command run never moves the session's profile nor
+    /// leaves its cache cold; each takes the section's 0.6 bar (the owner's
+    /// words set no other). A config without Haiku runs them on the session's
+    /// own profile, as `quick` does.
+    #[test]
+    fn run_tool_and_commentary_detour_to_haiku_and_hold_nothing() {
+        let cfg = RoutingConfig::default();
+        let ps = seven();
+        for m in ["run_tool", "commentary"] {
+            let d = decide(&cfg, &ps, &ask(&verdict(m, 0.9), "sonnet", 200_000));
+            assert_eq!(
+                d,
+                Decision {
+                    profile: "haiku".into(),
+                    reason: Reason::Detour,
+                    detour: true,
+                    switch: false,
+                    hold: HoldNext::Keep
+                },
+                "{m}"
+            );
+            let d = decide(&cfg, &ps, &ask(&verdict(m, 0.5), "sonnet", 10));
+            assert_eq!((d.reason, d.detour), (Reason::Unsure, false), "{m}: 0.6");
+            let d = decide(&cfg, &five(), &ask(&verdict(m, 0.9), "sonnet", 10));
+            assert_eq!(
+                (d.profile.as_str(), d.reason, d.detour, d.switch),
+                ("sonnet", Reason::Fallback, false, false),
+                "{m}: without Haiku"
+            );
+        }
+        // A class table of its own takes its own bar and list.
+        let mut own = RoutingConfig::default();
+        own.classes.run_tool.switch_confidence = Some(0.3);
+        own.classes.run_tool.profiles = vec!["haikuhi".into()];
+        let d = decide(&own, &ps, &ask(&verdict("run_tool", 0.35), "sonnet", 10));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.detour),
+            ("haikuhi", Reason::Detour, true)
+        );
+    }
+
     /// A late verdict carries to the next message, but a detour's never
     /// does: its detour is its own message's alone (theseus-6n5j; `quick`
-    /// since theseus-3okf).
+    /// since theseus-3okf; `run_tool` and `commentary` since theseus-gezlj).
     #[test]
     fn a_late_detour_verdict_never_carries() {
         assert!(!carries(&verdict("trivial", 0.99)));
         assert!(!carries(&verdict("quick", 0.99)));
+        assert!(!carries(&verdict("run_tool", 0.99)));
+        assert!(!carries(&verdict("commentary", 0.99)));
         for m in [
             "chat",
             "sophisticated",

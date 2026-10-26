@@ -12,7 +12,7 @@ export type ContextDetoured = { session_id: string, turn_id: string, loop: numbe
  */
 profile: string, model: string, 
 /**
- * `trivial` or `quick`.
+ * `trivial`, `quick`, `run_tool` or `commentary`.
  */
 kind: string, 
 /**
