@@ -644,7 +644,11 @@ impl DayCeiling {
             .len()
     }
 
-    /// The owner resumed `execution`: its window starts empty.
+    /// The owner resumed `execution`: its window starts empty. Only this
+    /// execution's: spend its descendants put in it goes with it (so a fan-out
+    /// already settled does not stop it again), and resuming a descendant
+    /// never empties an ancestor's window, which would loosen the aggregate
+    /// line (theseus-o1h3f.5).
     pub fn burn_clear(&self, execution: &str) {
         self.burn
             .lock()
@@ -803,9 +807,21 @@ impl Kernel {
         let mut seen = vec![execution_id.to_string()];
         let mut at = execution_id.to_string();
         while seen.len() <= BURN_ANCESTORS {
-            let Some(up) = self.execution(&at).ok().flatten().and_then(|e| e.parent) else {
-                break;
+            // An unreadable execution and a parentless one both end the walk,
+            // but only one of them is a surprise: say so rather than treating
+            // a read error as the top of the tree.
+            let up = match self.execution(&at) {
+                Ok(e) => e.and_then(|e| e.parent),
+                Err(err) => {
+                    tracing::warn!(
+                        execution = %at,
+                        %err,
+                        "burn ancestors: execution unreadable, window under-recorded"
+                    );
+                    break;
+                }
             };
+            let Some(up) = up else { break };
             if seen.contains(&up) {
                 break;
             }
@@ -827,8 +843,14 @@ impl Kernel {
                 } => {
                     let cost = self.ceiling.settle(now, &id, reserved, actual);
                     self.ceiling.burn_record(now, &execution_id, cost);
-                    for up in self.burn_ancestors(&execution_id) {
-                        self.ceiling.burn_record(now, &up, cost);
+                    // A settle that cost nothing (a cancel, a stop before the
+                    // first call) records nothing anywhere -- `burn_record`
+                    // returns early at zero -- so the walk's store reads
+                    // cannot be used. Do not take them.
+                    if cost > 0 {
+                        for up in self.burn_ancestors(&execution_id) {
+                            self.ceiling.burn_record(now, &up, cost);
+                        }
                     }
                 }
                 Effect::Book(cost) => self.ceiling.book(now, cost),

@@ -345,6 +345,7 @@ fn no_wake_up_is_lost_when_releases_race_arrivals() {
             assert_eq!(lost, 0, "seed {seed}: a turn waited with a slot free");
             assert!(peak.load(Ordering::SeqCst) <= 3, "the ceiling held");
             assert_eq!(adm.load(), (0, 0), "seed {seed}: the queue ends empty");
+            assert_eq!(adm.tasks_held(), 0, "seed {seed}: the task count leaked");
             assert!(
                 adm.admitted() >= 400,
                 "seed {seed}: every turn, and each retake"
@@ -384,6 +385,14 @@ async fn a_task_turn_never_takes_the_last_slot() {
     settle().await;
     assert_eq!(order.lock().unwrap().len(), 4, "a task slot freed");
     assert!(adm.try_take(Class::Task).is_none());
+    // The task count is the rule's own counter: drain every holder and say it
+    // is back to zero, rather than inferring it from `load`.
+    for h in handles {
+        drop(h.await.unwrap());
+    }
+    settle().await;
+    assert_eq!(adm.load(), (0, 0), "the queue ends empty");
+    assert_eq!(adm.tasks_held(), 0, "the task count leaked");
 }
 
 #[tokio::test(start_paused = true)]

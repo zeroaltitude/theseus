@@ -12,7 +12,9 @@
 //!
 //! Two rules keep a person's message from waiting behind a fan-out of task
 //! turns. Task turns hold at most `ceiling - 1` slots ([`Admission::task_limit`]),
-//! so one slot is always free of them; a task waiter the limit declines stays
+//! so one slot is free of them, except in the window between a lend and its
+//! retake, where the retake's exemption can briefly take the count to the
+//! ceiling; a task waiter the limit declines stays
 //! at its queue's head and the free slot still counts as the queue moving. And
 //! a waiting task turn ages to the wakes' rank and no higher ([`Class::aged`]),
 //! so it never ranks with a person's input. Both lower a limit; neither raises
@@ -53,7 +55,9 @@ use super::{turn_error, TurnRunner};
 /// wakes, however many wakes arrive after. Thirty seconds is a few
 /// turns' length at the ceiling: long enough that a person's message rarely
 /// queues behind an aged task, short enough that a run of wakes holds no
-/// task back for long.
+/// task back for long. A task turn's rank stops at the wakes', so a sustained
+/// run of a person's turns can hold one back until the stuck window; a run of
+/// wakes cannot, since an aged task outranks every wake that arrives after it.
 pub const AGE_STEP: Duration = Duration::from_secs(30);
 
 /// A turn waiting on a foreground job lends its slot once it has waited
@@ -379,6 +383,13 @@ impl Admission {
     fn waits_with_a_slot_free(&self) -> bool {
         let s = self.state.lock().unwrap();
         s.admissible_waiter(self.task_limit()) && s.in_use < self.ceiling
+    }
+
+    /// Task-class slots held right now: the row's riskiest counter, read so a
+    /// test can say it leaked rather than infer it from `load`.
+    #[cfg(test)]
+    fn tasks_held(&self) -> u32 {
+        self.state.lock().unwrap().tasks
     }
 
     /// Turns admitted since the start: a grant, a free slot taken, a retake.

@@ -100,10 +100,11 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   (`Reached.since` says so; under notify the ceiling is never sticky, only the runaway line). A settle's change is an
   `Effect`, applied after its frame (`day_after`; inside a transaction at its commit, and a failed transaction lets its
   holds go, `tx.rs`); a provider settle also fills the execution's burn ring (`burn_record`, ten minutes,
-  `KernelConfig::burn_line_micros`), and a provider plan whose execution has reached the line is refused with
+  `KernelConfig::burn_line_micros`) and each of its ancestors' (`burn_ancestors`, at most 8 steps,
+  theseus-o1h3f.5), so a fan-out's helpers reach their parent's line together, and a provider plan whose execution has reached the line is refused with
   `KernelError::BurnRate` (`overdraw.rs::burn_stopped`); an approved budget question that carries `args.call.brake`
   (`reset_budget`) resumes it, spend kept and window empty. Only `PROVIDER_TOOL` counts: an AWS hand and a task's carve
-  never, and a task's carry to its parent adds nothing. The core holds its own calls with `hold_call`/`Hold` (or by
+  never, and a task's carry to its parent adds nothing **to the day's total**. The core holds its own calls with `hold_call`/`Hold` (or by
   amount, `settle_part`), books late costs (`book`), and seeds the day at the start (`seed`: spend, the refusal's time,
   the warned level). `budget_question.rs` is the budget question, moved out of kernel.rs whole. Tests:
   `tests_day_ceiling.rs` (stop), `tests_runaway.rs` (notify, the runaway line, the brake).
