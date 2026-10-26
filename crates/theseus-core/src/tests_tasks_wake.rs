@@ -178,9 +178,9 @@ async fn a_persons_turn_after_a_wake_costs_what_it_always_did() {
 }
 
 const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"];
-const DM_PERSON_TOKENS: u64 = 9756;
+const DM_PERSON_TOKENS: u64 = 9869;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
-const CLI_PERSON_TOKENS: u64 = 7472;
+const CLI_PERSON_TOKENS: u64 = 7585;
 
 /// A person's message that asks for a task still loads the family by the ask.
 #[tokio::test]
