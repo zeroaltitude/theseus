@@ -58,9 +58,9 @@ export function useBenchManifest() {
   return { loading: file.isPending, manifest: useMemo(() => readManifest(file.data), [file.data]) }
 }
 
-/** The task sets the page offers (theseus-tyv41): the datasets' own `ui` blocks, then the built-ins. Importing only
- *  the `ui` key of each dataset fails the build for a dataset with none, so every dataset is read (lazily, once) and
- *  its block taken; until they are read the built-ins stand alone. */
+/** The task sets the page offers (theseus-tyv41): the datasets' own `ui` blocks, then the built-ins. The blocks come from
+ *  the manifest's `dataset_ui` (theseus-2w02d); a dataset it does not list is read in full (lazily, once) and its block
+ *  taken. Until they are read the built-ins stand alone. */
 export function useBenchSets() {
   // Newest first, because a dataset's name opens with its date and `allSets` promises that order — and the page
   // opens on the first set it is offered. Ascending left the default pinned to the oldest generated set for good.
