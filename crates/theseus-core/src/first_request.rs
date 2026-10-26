@@ -26,7 +26,9 @@ pub const CLI_TASK_TOKENS: u64 = 8_000;
 pub const DM_TOKENS: u64 = 15_000;
 /// A shared channel's and a headless run's: today's figure (2026-10-15, the
 /// default config) and a tenth over, to the hundred; never above the DM's.
-pub const CHANNEL_TOKENS: u64 = 7_900;
+/// The channel's rose from 7_900 to 8_000 on 2026-10-25 (theseus-dgbcx), so the
+/// owner's longer Spoken-aloud line fits.
+pub const CHANNEL_TOKENS: u64 = 8_000;
 pub const HEADLESS_TOKENS: u64 = 8_600;
 
 /// The budget of a kind of place: its census name (`cli`, `dm`, `channel`,

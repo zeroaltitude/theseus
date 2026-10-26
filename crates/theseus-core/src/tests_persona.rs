@@ -223,6 +223,33 @@ async fn with_no_persona_the_header_carries_the_built_in_default() {
     assert_eq!(crate::turn::PERSONA, DEFAULT_TEXT);
 }
 
+/// The built-in persona sizes a spoken reply to the moment, not to a sentence
+/// count (theseus-dgbcx): the owner's line, and no "one to three" cap.
+#[test]
+fn the_built_in_persona_sizes_spoken_replies_to_the_moment() {
+    let voice = DEFAULT_TEXT
+        .lines()
+        .find(|l| l.starts_with("Voice."))
+        .expect("a Voice paragraph");
+    assert!(
+        voice.contains(
+            "Spoken aloud: focused on what the moment needs, as long as the answer deserves; \
+             plain sentences that sound right said out loud (no lists, tables or code), brief \
+             for a quick back-and-forth."
+        ),
+        "{voice}"
+    );
+    assert!(!voice.contains("one to three short sentences"), "{voice}");
+    for kept in [
+        "Terminal: terse, code first.",
+        "A direct message: conversational.",
+        "A shared channel: neutral.",
+        "MCP: plain.",
+    ] {
+        assert!(voice.contains(kept), "{kept}");
+    }
+}
+
 /// An owner's persona file replaces the default whole: the header holds none
 /// of it, the file's words are in the context block under their header.
 #[tokio::test]
