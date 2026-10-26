@@ -64,6 +64,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the model acted) is `harness_lines`' `Files:` line and rides `turn.ended`'s row; a turn's maps drop with it
   (`end_note_step::Held`). A command running beside another in one directory may be credited with the other's files.
   Tests: `tests_end_note.rs`, `beside::tests`, `tests_stop_nudge.rs`.
+  **Task turns leave a slot free** (theseus-o1h3f.4; `turn/admission.rs`): task-class turns hold at most `ceiling - 1`
+  slots (`Admission::task_limit`; a ceiling of 1 keeps its one for tasks), so a person's message always finds one.
+  A task waiter the limit declines stays at its queue's head, the free slot still counts as the queue moving
+  (`hand_on` sets `moved`), and a newcomer that may take the slot passes it. A retake after a lend is never refused
+  by the limit (it held a slot). A waiting task turn ages to the wakes' rank and no higher, never to a person's.
+  The rule lowers a limit; the ceiling (8), the stuck window and `AGE_STEP` are unchanged. Tests:
+  `turn/tests_admission.rs`.
 - **The steer** (theseus-qu1lc; `[kernel] steer_queued`, on by default): a person's typed input that finds its session's
   turn running does not wait for the turn to end. The running turn opens a `Steer` for its session
   (`toolrun/waits/steer.rs`, held in `JobWaits::steers`, which the terminals share; `turn.rs` opens it once admitted and

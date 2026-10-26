@@ -77,7 +77,7 @@ async fn a_typed_turn_is_admitted_before_queued_task_turns() {
 async fn turns_of_one_class_are_admitted_in_their_arrival_order() {
     let adm = Admission::new(3, STUCK);
     let order = Arc::new(Mutex::new(Vec::new()));
-    let held: Vec<Slot> = (0..3).map(|_| adm.try_take(Class::Task).unwrap()).collect();
+    let held: Vec<Slot> = (0..3).map(|_| adm.try_take(Class::Wake).unwrap()).collect();
     let mut handles = std::collections::VecDeque::new();
     for i in 0..200 {
         let class = [Class::Task, Class::Wake][i % 2];
@@ -138,7 +138,8 @@ async fn a_task_turn_waiting_past_the_step_is_admitted_ahead_of_new_wakes() {
     drop(task.await.unwrap());
     settle().await;
     drop(wake.await.unwrap());
-    // Two steps: it ranks with a person's input, and passes a new one.
+    // Two steps: a task still ranks with the wakes only, so a new person's
+    // input goes first (the rule that a task never ranks with a person).
     let held = adm.try_take(Class::Wake).unwrap();
     let task = queue_one(&adm, Class::Task, "older task".into(), &order);
     settle().await;
@@ -147,10 +148,10 @@ async fn a_task_turn_waiting_past_the_step_is_admitted_ahead_of_new_wakes() {
     settle().await;
     drop(held);
     settle().await;
-    assert_eq!(order.lock().unwrap()[2], "older task");
-    drop(task.await.unwrap());
-    settle().await;
+    assert_eq!(order.lock().unwrap()[2], "new typed");
     drop(typed.await.unwrap());
+    settle().await;
+    drop(task.await.unwrap());
     // A fresh task behind a fresh wake: no aging, the wake first.
     let held = adm.try_take(Class::Wake).unwrap();
     let task = queue_one(&adm, Class::Task, "fresh task".into(), &order);
@@ -197,8 +198,8 @@ async fn a_wait_past_the_window_while_the_queue_moves_does_not_fail() {
 #[tokio::test(start_paused = true)]
 async fn a_stuck_queue_fails_its_waiter_with_words_that_say_so() {
     let adm = Admission::new(2, STUCK);
-    let _a = adm.try_take(Class::Task).unwrap();
-    let _b = adm.try_take(Class::Task).unwrap();
+    let _a = adm.try_take(Class::Wake).unwrap();
+    let _b = adm.try_take(Class::Wake).unwrap();
     let waiter = {
         let adm = adm.clone();
         tokio::spawn(async move { adm.take(Class::Person, false).await })
@@ -350,4 +351,161 @@ fn no_wake_up_is_lost_when_releases_race_arrivals() {
             );
         });
     }
+}
+
+/// Wait for `fut` for a second of the paused clock; a hang is a failure.
+async fn within<T>(what: &str, fut: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(1), fut)
+        .await
+        .unwrap_or_else(|_| panic!("{what} never returned"))
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_turn_never_takes_the_last_slot() {
+    let adm = Admission::new(4, STUCK);
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let mut handles = Vec::new();
+    for i in 0..4 {
+        handles.push(queue_one(&adm, Class::Task, format!("task {i}"), &order));
+        settle().await;
+    }
+    assert_eq!(order.lock().unwrap().len(), 3, "three tasks, not four");
+    assert_eq!(adm.load(), (3, 1), "the fourth waits with a slot free");
+    let person = within("a person's turn", adm.take(Class::Person, false))
+        .await
+        .expect("granted at once");
+    assert_eq!(adm.load(), (4, 1));
+    // A task ending frees a task slot: the waiting fourth is admitted.
+    drop(person);
+    settle().await;
+    assert_eq!(order.lock().unwrap().len(), 3, "still at its limit");
+    let first = handles.remove(0).await.unwrap();
+    drop(first);
+    settle().await;
+    assert_eq!(order.lock().unwrap().len(), 4, "a task slot freed");
+    assert!(adm.try_take(Class::Task).is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_free_slot_nobody_may_take_is_still_the_queue_moving() {
+    let stuck = Duration::from_millis(200);
+    let adm = Admission::new(2, stuck);
+    let holder = adm.try_take(Class::Task).unwrap();
+    let person = adm.try_take(Class::Person).unwrap();
+    let waiter = {
+        let adm = adm.clone();
+        tokio::spawn(async move { adm.take(Class::Task, false).await })
+    };
+    settle().await;
+    tokio::time::advance(Duration::from_millis(150)).await;
+    drop(person); // hand_on finds only a declined task: the queue moved
+    settle().await;
+    tokio::time::advance(Duration::from_millis(150)).await;
+    settle().await;
+    assert!(
+        !waiter.is_finished(),
+        "300 ms in, but the queue moved at 150"
+    );
+    assert_eq!(adm.load(), (1, 1));
+    drop(holder);
+    settle().await;
+    let slot = within("the waiter", waiter)
+        .await
+        .unwrap()
+        .expect("admitted");
+    assert_eq!(slot.class(), Class::Task);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_retake_is_not_blocked_by_the_task_limit() {
+    let adm = Admission::new(2, STUCK);
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let mut a = adm.try_take(Class::Task).unwrap();
+    a.bind("exe_a");
+    assert!(
+        adm.try_take(Class::Task).is_none(),
+        "limit is 1 at ceiling 2"
+    );
+    assert!(adm.lend("exe_a"));
+    // While A lends, B takes the task slot and a third task waits.
+    let b = adm.take(Class::Task, false).await.unwrap();
+    let third = queue_one(&adm, Class::Task, "third".into(), &order);
+    settle().await;
+    assert_eq!(adm.load(), (1, 1));
+    // A comes back: it held a slot, so the limit does not refuse it.
+    within("the retake", adm.retake("exe_a")).await;
+    assert_eq!(
+        adm.load(),
+        (2, 1),
+        "the retake holds, the fresh waiter waits"
+    );
+    assert!(
+        order.lock().unwrap().is_empty(),
+        "the fresh waiter did not jump"
+    );
+    drop(b);
+    drop(a);
+    settle().await;
+    assert_eq!(*order.lock().unwrap(), ["third"]);
+    drop(third.await.unwrap());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_turn_ages_to_the_wakes_rank_and_no_higher() {
+    let step = Duration::from_millis(100);
+    let adm = Admission::with_step(1, STUCK, step);
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let held = adm.try_take(Class::Wake).unwrap();
+    let old = queue_one(&adm, Class::Task, "old task".into(), &order);
+    settle().await;
+    tokio::time::advance(step * 3).await;
+    let fresh_task = queue_one(&adm, Class::Task, "fresh task".into(), &order);
+    let person = queue_one(&adm, Class::Person, "person".into(), &order);
+    settle().await;
+    drop(held);
+    settle().await;
+    assert_eq!(
+        *order.lock().unwrap(),
+        ["person"],
+        "an aged task is not a person"
+    );
+    drop(person.await.unwrap());
+    settle().await;
+    assert_eq!(
+        order.lock().unwrap()[1],
+        "old task",
+        "aging still serves the oldest task first"
+    );
+    drop(old.await.unwrap());
+    settle().await;
+    drop(fresh_task.await.unwrap());
+    // A wake still ages to a person's rank, ahead of a newer person.
+    let held = adm.try_take(Class::Wake).unwrap();
+    let wake = queue_one(&adm, Class::Wake, "old wake".into(), &order);
+    settle().await;
+    tokio::time::advance(step * 2).await;
+    let person = queue_one(&adm, Class::Person, "new person".into(), &order);
+    settle().await;
+    drop(held);
+    settle().await;
+    assert_eq!(order.lock().unwrap()[3], "old wake");
+    drop(wake.await.unwrap());
+    settle().await;
+    drop(person.await.unwrap());
+}
+
+#[test]
+fn the_rule_lowers_a_limit_and_never_raises_the_ceiling() {
+    // The slot rule lowers what task turns may hold; it never raises the
+    // ceiling. A failing test is not a reason to raise either one.
+    assert_eq!(Admission::new(8, STUCK).ceiling(), 8);
+    assert_eq!(Admission::new(8, STUCK).task_limit(), 7);
+    assert_eq!(
+        Admission::new(1, STUCK).task_limit(),
+        1,
+        "ceiling 1 still runs tasks"
+    );
+    let cfg = crate::config::KernelSection::default();
+    assert_eq!(cfg.admission_ceiling, 8, "no default moved");
+    assert_eq!(cfg.admission_stuck_secs, 600);
 }
