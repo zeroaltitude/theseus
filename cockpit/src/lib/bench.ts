@@ -827,20 +827,40 @@ export function frontier(ps: readonly Point[], px: Property, py: Property): Plac
   })
 }
 
-/** The frontier's line: its points from the left, a step between each two that keeps to the better side, so the
- *  region under the line is what the frontier's points beat. */
-export function staircase(ps: readonly Placed[], px: Property, py: Property): [number, number][] {
-  const f = ps.filter((p) => p.frontier).sort((a, b) => a.x - b.x || (py.better === 'higher' ? b.y - a.y : a.y - b.y))
-  const out: [number, number][] = []
-  // Left to right: where lower x is better, the line runs across at the last point's y to the next point's x, then to
-  // it; where higher x is better, it moves to the next point's y first, then across.
+/** The frontier drawn: the line, and two dashed legs that carry it to the frame. */
+export interface Staircase {
+  /** The conservative attainment boundary: between two frontier points the corner takes the worse x and the worse y of
+   *  the two, so it lies inside the set the frontier attains (the dominated region's edge). Measured data only. */
+  line: [number, number][]
+  /** Extrapolation, drawn apart so it never reads as measurement: from the first point along x's worse direction to the
+   *  extent, and from the last along y's worse direction to the extent. Empty without an extent. */
+  legs: [[number, number], [number, number]][]
+}
+
+/** The frontier's line: its points by x, a step between each two that keeps to the worse corner (worked in oriented
+ *  space, `u = sx·x` and `w = sy·y`, where bigger is better on both axes, so one rule serves every better direction). */
+export function staircase(ps: readonly Placed[], px: Property, py: Property, extent?: { x: [number, number]; y: [number, number] }): Staircase {
+  const sx = px.better === 'higher' ? 1 : -1, sy = py.better === 'higher' ? 1 : -1
+  const f = ps.filter((p) => p.frontier).sort((a, b) => a.x - b.x || sy * (b.y - a.y))
+  const line: [number, number][] = []
   f.forEach((p, i) => {
     if (i > 0) {
       const prev = f[i - 1]
-      out.push(px.better === 'lower' ? [p.x, prev.y] : [prev.x, p.y])
+      const u = Math.min(sx * prev.x, sx * p.x), w = Math.min(sy * prev.y, sy * p.y)
+      line.push([sx * u, sy * w])
     }
-    out.push([p.x, p.y])
+    line.push([p.x, p.y])
   })
   // Two points at one place (a tie) and a step of no length draw nothing: one vertex each.
-  return out.filter((v, i) => i === 0 || v[0] !== out[i - 1][0] || v[1] !== out[i - 1][1])
+  const out = line.filter((v, i) => i === 0 || v[0] !== line[i - 1][0] || v[1] !== line[i - 1][1])
+  if (!extent || !f.length) return { line: out, legs: [] }
+  const worse = (e: [number, number], better: Better) => (better === 'lower' ? Math.max(...e) : Math.min(...e))
+  const first = f[0], last = f[f.length - 1]
+  return { line: out, legs: [[[first.x, first.y], [worse(extent.x, px.better), first.y]], [[last.x, last.y], [last.x, worse(extent.y, py.better)]]] }
 }
+
+/** An axis's name: the property, its scale, and where better lies. The axes of lower-is-better properties run
+ *  backwards (see `inverted`), so better is always right and always up. */
+export const axisName = (p: Property, axis: 'x' | 'y', log: boolean): string => `${p.label}${log ? ' (log scale)' : ''}   ${axis === 'x' ? 'better →' : 'better ↑'}`
+/** Whether a property's axis runs backwards, so that its better end is at the right or the top. */
+export const inverted = (p: Property): boolean => p.better === 'lower'

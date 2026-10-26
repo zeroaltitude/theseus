@@ -11,7 +11,7 @@ import { useEffect, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ArrowLeftRight, FlaskConical, ListOrdered, Trophy } from 'lucide-react'
 import {
-  axes, DEFAULT_AXES, family, frontier, harness, showsName, theseusOf, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, TASK_SETS, unequal, UNEQUAL,
+  axes, axisName, DEFAULT_AXES, inverted, family, frontier, harness, showsName, theseusOf, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, TASK_SETS, unequal, UNEQUAL,
   type Note, type Placed, type Point, type Property, type SetId, type TaskSet,
 } from '@/lib/bench'
 import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest } from '@/lib/benchfiles'
@@ -39,9 +39,6 @@ function harnessColor(key: string): string {
 function pointName(p: Point, many: boolean): string {
   return many ? `${harness(p.harness).name}, ${p.runLabel}` : harness(p.harness).name
 }
-
-const arrow = (p: Property, axis: 'x' | 'y') =>
-  axis === 'x' ? (p.better === 'lower' ? '← better' : 'better →') : (p.better === 'lower' ? '↓ better' : '↑ better')
 
 export default function Benchmarks() {
   const nav = useNavigate()
@@ -126,7 +123,7 @@ export default function Benchmarks() {
             <FrontierChart placed={placed} px={px} py={py} many={new Set(ps.map((p) => p.run)).size > 1}
               onPick={(p) => nav(`/benchmarks/${p.report}`)} />
           </div>
-          <Key placed={placed} />
+          <Key placed={placed} px={px} py={py} />
         </div>
       </ChartPanel>
 
@@ -350,7 +347,6 @@ function FrontierChart({ placed, px, py, many, onPick }: {
         { value: [p.x, iy.lo, p.x, iy.hi, iy.kind === 'range' ? op * 0.6 : op], itemStyle: { color: harnessColor(p.point.harness) } },
       ].filter((w) => w.value[0] !== w.value[2] || w.value[1] !== w.value[3])
     })
-    const line = staircase(placed, px, py)
     // Each axis spans its points and their whiskers, with air on both sides and ends at clean steps, so no mark sits
     // on the frame and no tick reads 89.1%.
     const extent = (vals: number[], pr: Property, log: boolean): { min?: number; max?: number; interval?: number } => {
@@ -370,7 +366,9 @@ function FrontierChart({ placed, px, py, many, onPick }: {
     const xe = extent(span('x', px), px, xlog), ye = extent(span('y', py), py, ylog)
     // Ticks at the axis's own step: dollars with the decimals the step needs, so $0.08 and $0.10 read alike.
     const fmt = (p: Property, e: { interval?: number }) => (p.unit === 'usd' && e.interval ? usdTick(e.interval) : (v: number) => p.format(v))
-    const name = (p: Property, a: 'x' | 'y', log: boolean) => `${p.label}${log ? ' (log scale)' : ''}   ${arrow(p, a)}`
+    const ext = (e: { min?: number; max?: number }): [number, number] | undefined => (e.min !== undefined && e.max !== undefined ? [e.min, e.max] : undefined)
+    const [ex, ey] = [ext(xe), ext(ye)]
+    const { line, legs } = staircase(placed, px, py, ex && ey ? { x: ex, y: ey } : undefined)
     return {
       grid: { left: 64, right: 150, top: 18, bottom: 46, containLabel: false },
       tooltip: {
@@ -382,18 +380,20 @@ function FrontierChart({ placed, px, py, many, onPick }: {
         },
       },
       xAxis: {
-        ...vaxis, type: xlog ? 'log' : 'value', ...xe, name: name(px, 'x', xlog), nameLocation: 'middle', nameGap: 28,
+        ...vaxis, type: xlog ? 'log' : 'value', ...xe, inverse: inverted(px), name: axisName(px, 'x', xlog), nameLocation: 'middle', nameGap: 28,
         nameTextStyle: { color: C.secondary, fontSize: 11, fontFamily: FONTS.sans },
         axisLine: axis.axisLine, splitLine: { show: false }, axisLabel: { ...vaxis.axisLabel, formatter: fmt(px, xe), hideOverlap: true },
       },
       yAxis: {
-        ...vaxis, type: ylog ? 'log' : 'value', ...ye, name: name(py, 'y', ylog), nameLocation: 'middle', nameGap: 50,
+        ...vaxis, type: ylog ? 'log' : 'value', ...ye, inverse: inverted(py), name: axisName(py, 'y', ylog), nameLocation: 'middle', nameGap: 50,
         nameTextStyle: { color: C.secondary, fontSize: 11, fontFamily: FONTS.sans },
         axisLabel: { ...vaxis.axisLabel, formatter: fmt(py, ye) },
       },
       series: [
         // The frontier: its points joined, keeping to the better side, in the ink (not a series colour: it is no arm's).
         { type: 'line', name: 'the frontier', data: line, symbol: 'none', silent: true, z: 1, lineStyle: { color: C.secondary, width: 1.5 }, animationDurationUpdate: 350 },
+        // Its legs to the frame, dashed and fainter: where the frontier's points say a harness would be beaten, not measured.
+        ...legs.map((leg, i) => ({ type: 'line' as const, name: `the frontier's leg ${i + 1}`, data: leg, symbol: 'none', silent: true, z: 1, lineStyle: { color: C.secondary, width: 1.5, type: 'dashed' as const, opacity: 0.6 } })),
         ...(whiskers.length ? [{
           type: 'custom' as const, name: '95% intervals', silent: true, z: 2,
           data: whiskers,
@@ -461,7 +461,7 @@ function pointTip(p: Placed, px: Property, py: Property, many: boolean): HTMLEle
 }
 
 /** The chart's key: the harnesses' colours, then what a shape, a hollow point and the line mean. */
-function Key({ placed }: { placed: Placed[] }) {
+function Key({ placed, px, py }: { placed: Placed[]; px: Property; py: Property }) {
   const day = useMode((s) => s.mode) === 'light'
   const ink = day ? daylightColor(C.secondary) : C.secondary
   const keys = [...new Set(placed.map((p) => family(p.point.harness)))]
@@ -473,6 +473,12 @@ function Key({ placed }: { placed: Placed[] }) {
       <li className="flex items-center gap-1.5">
         <svg width="14" height="2" aria-hidden><rect width="14" height="2" rx="1" fill={ink} /></svg>the frontier
       </li>
+      <li className="flex items-center gap-1.5">
+        <svg width="14" height="2" aria-hidden><path d="M0 1 H14" stroke={ink} strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" /></svg>its legs to the frame (where the frontier’s points beat a harness: not measured)
+      </li>
+      {[px, py].filter(inverted).map((p) => (
+        <li key={p.id} className="text-ink-faint">{p.short}: lower is better, so lower is {p === px ? 'to the right' : 'up'}</li>
+      ))}
       <li className="flex items-center gap-1.5">
         <svg width="10" height="10" aria-hidden><circle cx="5" cy="5" r="3.5" fill="none" stroke={ink} strokeWidth="2" opacity="0.6" /></svg>dominated (dimmed)
       </li>

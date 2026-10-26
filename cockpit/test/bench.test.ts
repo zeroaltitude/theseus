@@ -199,19 +199,19 @@ test('the frontier: a point is dominated when another is as good on both axes an
   assert.equal(on('worse').dominatedBy?.id, 'cheap')
   assert.deepEqual(on('worse').dominators.map((p) => p.id), ['cheap', 'mid', 'tie']) // not 'dear': dearer, so no better on both
   // The line keeps to the better side: across at the old pass rate, then up.
-  assert.deepEqual(staircase(placed, ax('a', 'lower'), ax('b', 'higher')), [[1, 0.5], [2, 0.5], [2, 0.7], [3, 0.7], [3, 0.9]])
+  assert.deepEqual(staircase(placed, ax('a', 'lower'), ax('b', 'higher')).line, [[1, 0.5], [2, 0.5], [2, 0.7], [3, 0.7], [3, 0.9]])
   // Both lower (cost against time): the slower cheap point and the quicker dear one.
   const both = frontier([pt('p', 1, 9), pt('q', 5, 2), pt('r', 6, 9)], ax('a', 'lower'), ax('b', 'lower'))
   assert.deepEqual(both.map((p) => p.frontier), [true, true, false])
-  assert.deepEqual(staircase(both, ax('a', 'lower'), ax('b', 'lower')), [[1, 9], [5, 9], [5, 2]])
+  assert.deepEqual(staircase(both, ax('a', 'lower'), ax('b', 'lower')).line, [[1, 9], [5, 9], [5, 2]])
   // Both higher: up the left, then across.
   const hi = frontier([pt('p', 1, 9), pt('q', 5, 2), pt('r', 0.5, 1)], ax('a', 'higher'), ax('b', 'higher'))
   assert.deepEqual(hi.map((p) => p.frontier), [true, true, false])
-  assert.deepEqual(staircase(hi, ax('a', 'higher'), ax('b', 'higher')), [[1, 9], [1, 2], [5, 2]])
+  assert.deepEqual(staircase(hi, ax('a', 'higher'), ax('b', 'higher')).line, [[1, 9], [1, 2], [5, 2]])
   // Higher x, lower y.
   const mixed = frontier([pt('p', 1, 1), pt('q', 5, 4), pt('r', 4, 6)], ax('a', 'higher'), ax('b', 'lower'))
   assert.deepEqual(mixed.map((p) => p.frontier), [true, true, false])
-  assert.deepEqual(staircase(mixed, ax('a', 'higher'), ax('b', 'lower')), [[1, 1], [1, 4], [5, 4]])
+  assert.deepEqual(staircase(mixed, ax('a', 'higher'), ax('b', 'lower')).line, [[1, 1], [1, 4], [5, 4]])
   // A point missing either property is not placed.
   const missing = pt('m', 1, 1); delete (missing.values as Record<string, unknown>).b
   assert.equal(frontier([missing, pt('p', 1, 1)], ax('a', 'lower'), ax('b', 'lower')).length, 1)
