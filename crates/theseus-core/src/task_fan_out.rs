@@ -309,19 +309,26 @@ fn wrapped(h: &HelperArg) -> String {
 }
 
 /// The message of this turn that asked for the work, the objective each helper
-/// quotes by id.
+/// quotes by id: the operator's, or, in a turn a wake or a report started, the
+/// message that started it. Never an earlier exchange's.
 fn input_node(tc: &TurnCtx<'_>) -> Result<String, String> {
     let nodes = tc
         .store
         .transcript(tc.session_id)
         .map_err(|e| format!("Not started: {e:#}"))?;
-    nodes
+    let here: Vec<_> = nodes
         .iter()
+        .filter(|(_, n)| {
+            n.turn_id.as_deref() == Some(tc.turn_id) && matches!(n.body, Body::UserMessage { .. })
+        })
+        .collect();
+    here.iter()
         .rev()
-        .find(|(_, n)| matches!(n.body, Body::UserMessage { .. }) && n.origin == Origin::Operator)
+        .find(|(_, n)| n.origin == Origin::Operator)
+        .or(here.last())
         .map(|(_, n)| n.id.clone())
         .ok_or_else(|| {
-            "Not started: no message of this conversation asked for this work; start the helpers \
+            "Not started: no message of this turn asked for this work; start the helpers \
              with task_create and an arrangement instead."
                 .into()
         })
