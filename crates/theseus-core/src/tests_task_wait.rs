@@ -947,3 +947,73 @@ async fn a_wait_with_no_slot_to_lend_asks_once_and_does_not_spin() {
         crate::turn::admission::LEND_AFTER + Duration::from_secs(1)
     );
 }
+
+/// One turn of `sid` with a deadline of `secs`, set the way `turn.submit` sets
+/// it: the turn takes it at its first loop and it is in force while the turn
+/// runs.
+async fn turn_with_deadline(
+    core: &Arc<Core>,
+    sid: &str,
+    input: &str,
+    secs: u64,
+) -> theseus_protocol::TurnSubmitResult {
+    let rec: crate::session::SessionRecord = core.store.get_session(sid).unwrap().unwrap();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    let arrived = Instant::now();
+    crate::turn::clock_step::set_deadline(sid, arrived, Some(secs));
+    core.runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            surface: None,
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink: crate::bus::EventSink::new(core.bus.clone(), sid, None),
+            author: "test".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: Some(arrived),
+            reply_to: None,
+            answer_at: None,
+        })
+        .await
+        .unwrap()
+}
+
+/// A turn's end leaves nothing of its wait behind (the stack review's N10): the
+/// deadline it had in force is dropped, so a later wait of the session never
+/// clamps to it, and the room its wait recorded is forgotten, so the session's
+/// entry does not outlive its turn. Both are set while the turn waits and gone
+/// once it has ended.
+#[tokio::test]
+async fn a_turns_end_leaves_no_deadline_in_force_and_no_room_recorded() {
+    let wait: WaitCall = Arc::new(Mutex::new(json!({})));
+    let r = waiting_rig(
+        &["CHILD: one"],
+        wait,
+        |_| Scripted::text("a.rs:1 — f — bug — fix"),
+        |_| {},
+    );
+    *r.model.hold.lock().unwrap() = Some("CHILD: one".into());
+    let parent = parent_session(&r.core);
+    let (core, p) = (r.core.clone(), parent.clone());
+    let run = tokio::spawn(async move { turn_with_deadline(&core, &p, ASK, 3_600).await });
+    until("the deadline and the room are in force while it waits", || {
+        r.core.runner.keep_warm.room(&parent).is_some()
+            && crate::turn::clock_step::left_in_force(&parent).is_some()
+    })
+    .await;
+    r.model.gate.add_permits(1);
+    run.await.unwrap();
+    assert_eq!(
+        r.core.runner.keep_warm.room(&parent),
+        None,
+        "the turn's end forgets the room its wait recorded"
+    );
+    assert_eq!(
+        crate::turn::clock_step::left_in_force(&parent),
+        None,
+        "the turn's end drops the deadline it had in force"
+    );
+}
