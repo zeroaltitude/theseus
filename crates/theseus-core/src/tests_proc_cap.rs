@@ -122,6 +122,8 @@ async fn a_clamped_ask_is_told_in_the_result_and_the_description() {
 #[tokio::test]
 async fn an_unstated_ask_gets_the_maximum() {
     let r = rig(vec![]);
+    // The default itself, and the template that restates it, agree.
+    assert_eq!(crate::config::ToolsConfig::default().proc_timeout_secs, 3600);
     assert_eq!(Config::example().tools.proc_timeout_secs, 3600);
     let tool = r.core.tools.registry.get("proc.run").unwrap();
     let ms = r
