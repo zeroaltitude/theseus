@@ -73,11 +73,24 @@ ARMS: dict[str, dict[str, tuple[str, ...]]] = {
 # catalog.rs, `Catalog::builtin`), so the as-shipped arm's dollars are on the
 # same table as every other arm's. Haiku 5.5's are its base tier: the catalog
 # bills 5 times these above a 100,000-token prompt, which this table does not.
+# The GLM, Kimi and DeepSeek rows are the catalog's too (theseus-01n2l): a
+# China-origin arm is costed on the same table as the rest. A cache write is
+# the input price for Kimi and DeepSeek (the catalog's 5-minute write; Kimi's
+# 1-hour write at twice that is not here). DeepSeek's are its PEAK rates:
+# the catalog notes off-peak is half, this table has no time of day, and peak
+# is the conservative direction for a reservation and keeps one authority, so
+# a trial run off-peak is costed at up to twice what it was billed.
+# `claude-sonnet-5` and `claude-opus-5` are not the `-5-5` models above.
 LIST_PRICES: dict[str, dict[str, float]] = {
     "claude-sonnet-5-5": {"input": 2.0, "cache_read": 0.2, "cache_write": 2.5, "output": 10.0},
     "claude-opus-5-5": {"input": 4.0, "cache_read": 0.2, "cache_write": 5.0, "output": 20.0},
     "claude-fable-5-1": {"input": 10.0, "cache_read": 0.25, "cache_write": 12.5, "output": 50.0},
     "claude-haiku-5-5": {"input": 0.1, "cache_read": 0.01, "cache_write": 0.125, "output": 0.5},
+    "claude-sonnet-5": {"input": 2.0, "cache_read": 0.2, "cache_write": 2.5, "output": 10.0},
+    "claude-opus-5": {"input": 5.0, "cache_read": 0.5, "cache_write": 6.25, "output": 25.0},
+    "glm-5.3": {"input": 1.4, "cache_read": 0.26, "cache_write": 1.4, "output": 4.4},
+    "kimi-k3.1-pro": {"input": 2.0, "cache_read": 0.2, "cache_write": 2.0, "output": 10.0},
+    "deepseek-v4-pro": {"input": 1.32, "cache_read": 0.044, "cache_write": 1.32, "output": 3.96},
     "gpt-6.1-sol": {"input": 2.0, "cache_read": 0.1, "cache_write": 2.5, "output": 10.0},
     "gpt-5.6-sol": {"input": 4.0, "cache_read": 0.4, "cache_write": 5.0, "output": 20.0},
     "gpt-6-astra": {"input": 10.0, "cache_read": 1.0, "cache_write": 12.5, "output": 50.0},

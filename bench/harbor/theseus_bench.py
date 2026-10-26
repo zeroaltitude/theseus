@@ -87,6 +87,41 @@ DAY_CEILING_MODE = "stop"
 DAY_CEILING_ENV = "THESEUS_BENCH_DAY_CEILING"
 
 
+# The providers the adapter has a `[providers.*]` shape for (theseus-fhwo7),
+# spelled as the model catalog spells them (crates/theseus-core/src/catalog.rs).
+# `key_env` is the variable the human who runs the arm sets; its name is data
+# here and its value is never read into a file, a profile or a record. The
+# daemon reaches it as `env:<key_env>` through the provider's `[secrets]` entry.
+# Anthropic is the profile's own `[model]` and needs no block.
+ANTHROPIC_PROVIDER = "anthropic"
+PROVIDERS: dict[str, dict[str, str]] = {
+    "zai": {"api_base": "https://api.z.ai/api/anthropic", "secret": "zai_api_key",
+            "key_env": "ZAI_API_KEY"},
+    "moonshot": {"api_base": "https://api.moonshot.ai/anthropic", "secret": "moonshot_api_key",
+                 "key_env": "MOONSHOT_API_KEY"},
+    "deepseek": {"api_base": "https://api.deepseek.com/anthropic", "secret": "deepseek_api_key",
+                 "key_env": "DEEPSEEK_API_KEY"},
+}
+
+
+def split_model(name: str | None) -> tuple[str, str]:
+    """`-m`'s `provider/model` as (provider, model); a bare model, or none,
+    is Anthropic's (the default, `claude-sonnet-5-5`). A provider the adapter
+    has no shape for raises, naming the ones it has."""
+    provider, _, model = (name or f"{ANTHROPIC_PROVIDER}/claude-sonnet-5-5").rpartition("/")
+    provider = provider or ANTHROPIC_PROVIDER
+    if provider != ANTHROPIC_PROVIDER and provider not in PROVIDERS:
+        raise ValueError(
+            f"the bench profile has no provider {provider!r} (from {name}): it runs "
+            f"{', '.join([ANTHROPIC_PROVIDER, *PROVIDERS])}")
+    return provider, model
+
+
+def key_env(provider: str) -> str:
+    """The environment variable that holds `provider`'s key."""
+    return "ANTHROPIC_API_KEY" if provider == ANTHROPIC_PROVIDER else PROVIDERS[provider]["key_env"]
+
+
 def reservation_usd(model: str) -> float:
     """One maximum reservation at `model`: its output cap at its output
     price plus `RESERVE_INPUT_TOKENS` at its input price (the bench's list
@@ -208,13 +243,16 @@ def settings(
     day_ceiling_usd: float | None = None,
     effort_bounds: str | list[str] | None = None,
     end_note: bool = True,
+    provider: str = ANTHROPIC_PROVIDER,
 ) -> dict[tuple[str, str], Any]:
     """The `(table, key)` values a trial sets in the profile: the lines it
     marks "set by the adapter", and the optional system text and API base.
     The day ceiling is `day_ceiling_usd`, else `day_ceiling`'s. `effort_bounds`
     (a plan's, `plan.effort_bounds`) caps the efforts Jev may ask for.
     `end_note` false writes `[model] end_note = false`; true leaves the
-    daemon's default (on)."""
+    daemon's default (on). A `provider` other than Anthropic (`PROVIDERS`)
+    is carried into `[model]` and `[profiles.bench]`, with its `[providers.<name>]`
+    block and a `[secrets]` entry naming its key's variable as `env:<NAME>`."""
     s: dict[tuple[str, str], Any] = {
         ("model", "model"): model,
         ("profiles.bench", "model"): model,
@@ -228,6 +266,17 @@ def settings(
         ("tools", "projects_dir"): workdir,
         ("tools", "proc_sync_secs"): proc_sync_secs,
     }
+    if provider != ANTHROPIC_PROVIDER:
+        if routed:
+            raise ValueError("the routed arm's profiles are Anthropic's: no other provider")
+        p = PROVIDERS[provider]
+        s[("model", "provider")] = provider
+        s[("profiles.bench", "provider")] = provider
+        s[("model", "api_key_secret")] = p["secret"]
+        s[(f"providers.{provider}", "api_base")] = p["api_base"]
+        s[(f"providers.{provider}", "api_key_secret")] = p["secret"]
+        s[(f"providers.{provider}", "kind")] = "anthropic_messages"
+        s[("secrets", p["secret"])] = f"env:{p['key_env']}"
     if system:
         s[("profiles.bench", "system")] = system
     if api_base:
