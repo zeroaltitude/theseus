@@ -286,3 +286,52 @@ fn the_backlog_night_says_each_item_in_plain_words() {
         .unwrap()
         .starts_with("Reorder or drop with `theseus self move"));
 }
+
+/// A night that only kept candidates out (the owner's drops, or an item whose
+/// build was never judged) still tells the owner, and names the way back.
+#[test]
+fn a_night_that_only_kept_things_out_says_so_and_names_the_way_back() {
+    let night = crate::rsi::backlog::Night {
+        kept_out: 2,
+        ..Default::default()
+    };
+    assert!(!night.said_nothing(), "a keep-out-only night is not silent");
+    let text =
+        crate::rsi::backlog::start::night_text(&night, |id| crate::rsi::backlog::start::Item {
+            title: id.to_string(),
+            count: 0,
+            since_ms: 0,
+        });
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[0], "ℹ️ FYI · Self-improvement backlog: 2 kept out",
+        "{text}"
+    );
+    assert!(text.contains("2 kept out"), "{text}");
+    assert!(text.contains("`theseus self backlog --all`"), "{text}");
+    assert!(text.contains("`theseus self retry <item>`"), "{text}");
+    assert!(
+        lines.last().unwrap().starts_with("Reorder or drop with"),
+        "the commands stay last: {text}"
+    );
+}
+
+/// The kept-out line is for a night that kept something out: the default
+/// night's words (what the pipeline's and the join's suites compare against)
+/// do not carry it.
+#[test]
+fn a_night_that_kept_nothing_out_says_nothing_of_it() {
+    let night = crate::rsi::backlog::Night {
+        filed: vec!["tsk_a".into()],
+        ..Default::default()
+    };
+    assert!(!night.said_nothing());
+    let text =
+        crate::rsi::backlog::start::night_text(&night, |id| crate::rsi::backlog::start::Item {
+            title: id.to_string(),
+            count: 0,
+            since_ms: 0,
+        });
+    assert!(!text.contains("kept out"), "{text}");
+    assert!(!text.contains("self retry"), "{text}");
+}

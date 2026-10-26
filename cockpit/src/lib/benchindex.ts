@@ -104,3 +104,25 @@ export function sparkline(values: readonly number[], w: number, h: number): [num
     hi === lo ? h / 2 : h - ((v - lo) / (hi - lo)) * h,
   ])
 }
+
+// ---------------------------------------------------------------- which row leads an arm
+
+/** Which of an arm's measurements speaks for it on a card. THE OWNER'S OPEN QUESTION lives here, in this one constant:
+ *  - `'newest'`: the arm's newest row, whatever it measured. Theseus's newest is a 10-23 retest of 6 tasks (22.2% on
+ *    18 trials), which the card ranks by rate (`benchcards.ts`), so it sits at the bottom, 55 points under Theseus's
+ *    77.2% over 89 tasks, not above the rivals' 75.3% on 267 trials.
+ *  - `'newest-comparable'`: the newest row whose task count equals the group's largest, else the newest.
+ *  Either way every row prints its trials and tasks, and a short row carries a chip. Do not change this without the
+ *  owner's answer; changing it is this one line. */
+export type LeadRule = 'newest' | 'newest-comparable'
+export const LEAD: LeadRule = 'newest-comparable'
+
+/** The most tasks any measurement in a group (the series of one benchmark and tier) covered. */
+export const groupTasks = (group: readonly Series[]): number => Math.max(0, ...group.flatMap((s) => s.history.map((r) => r.tasks ?? 0)))
+
+/** The row that speaks for a series under a rule; `largest` is the group's `groupTasks`. */
+export function leadRow(s: Series, rule: LeadRule, largest: number = groupTasks([s])): IndexRow {
+  if (rule === 'newest') return s.newest
+  for (let i = s.history.length - 1; i >= 0; i--) if ((s.history[i].tasks ?? 0) === largest) return s.history[i]
+  return s.newest
+}

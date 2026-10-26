@@ -1002,6 +1002,9 @@ impl Core {
         core.tools.lookup.attach(&core);
         core.tools.thread_read.attach(&core);
         core.tools.jobs.attach(&core);
+        core.tools
+            .admission
+            .set_notice(crate::turn::admission::notice_to_operator(&core));
         core.runner.threads.attach(&core);
         core.runner.judge.attach(&core);
         // The judge's sink writes between turns, as the pass does.

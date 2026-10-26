@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::{Admission, Class, Slot, AGE_STEP};
+use super::{Admission, Class, Notice, Slot, AGE_STEP};
 
 const STUCK: Duration = Duration::from_secs(600);
 
@@ -202,7 +202,7 @@ async fn a_stuck_queue_fails_its_waiter_with_words_that_say_so() {
     let _b = adm.try_take(Class::Wake).unwrap();
     let waiter = {
         let adm = adm.clone();
-        tokio::spawn(async move { adm.take(Class::Person, false).await })
+        tokio::spawn(async move { adm.take(Class::Wake, false).await })
     };
     settle().await;
     tokio::time::advance(STUCK - Duration::from_secs(1)).await;
@@ -215,7 +215,7 @@ async fn a_stuck_queue_fails_its_waiter_with_words_that_say_so() {
         words.starts_with("admission is stuck: no turn was admitted for 600 s"),
         "{words}"
     );
-    assert!(words.contains("person turn"), "{words}");
+    assert!(words.contains("wake turn"), "{words}");
     assert!(words.contains("2 of 2 slots held"), "{words}");
     assert_eq!(adm.load(), (2, 0), "the failed waiter left the queue");
 }
@@ -517,4 +517,243 @@ fn the_rule_lowers_a_limit_and_never_raises_the_ceiling() {
     let cfg = crate::config::KernelSection::default();
     assert_eq!(cfg.admission_ceiling, 8, "no default moved");
     assert_eq!(cfg.admission_stuck_secs, 600);
+}
+
+/// A sink that keeps what it is told.
+fn told(adm: &Arc<Admission>) -> Arc<Mutex<Vec<String>>> {
+    let notes = Arc::new(Mutex::new(Vec::new()));
+    let sink = notes.clone();
+    adm.set_notice(Notice::new(move |text| sink.lock().unwrap().push(text)));
+    notes
+}
+
+/// A ceiling-1 queue whose one slot is held, by `exe_held`, for good.
+fn held_for_good(adm: &Arc<Admission>) -> Slot {
+    let mut held = adm.try_take(Class::Wake).expect("a free slot");
+    held.bind("exe_held");
+    held
+}
+
+fn wait_as(
+    adm: &Arc<Admission>,
+    class: Class,
+) -> tokio::task::JoinHandle<Result<Slot, super::Stuck>> {
+    let adm = adm.clone();
+    tokio::spawn(async move { adm.take(class, false).await })
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_person_waits_past_the_window_and_one_notice_names_the_holder() {
+    let adm = Admission::new(1, STUCK);
+    let notes = told(&adm);
+    let _held = held_for_good(&adm);
+    let waiter = wait_as(&adm, Class::Person);
+    settle().await;
+    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+    settle().await;
+    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+    settle().await;
+    assert!(!waiter.is_finished(), "a person's wait is not failed");
+    assert_eq!(adm.load(), (1, 1), "the waiter is still queued");
+    let notes = notes.lock().unwrap();
+    assert_eq!(notes.len(), 1, "one notice: {notes:?}");
+    assert!(notes[0].contains("exe_held for 601 s"), "{}", notes[0]);
+    assert!(notes[0].contains("1 of 1 slots held"), "{}", notes[0]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_waiter_still_fails_on_the_window() {
+    let adm = Admission::new(1, STUCK);
+    let notes = told(&adm);
+    let _held = held_for_good(&adm);
+    let waiter = wait_as(&adm, Class::Task);
+    settle().await;
+    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+    let stuck = waiter.await.unwrap().expect_err("a queue that never moved");
+    assert_eq!(
+        stuck,
+        super::Stuck {
+            window_s: 600,
+            class: "task",
+            in_use: 1,
+            ceiling: 1,
+            waiting: 0,
+        }
+    );
+    assert_eq!(adm.load(), (1, 0), "the failed waiter left the queue");
+    assert!(
+        notes.lock().unwrap().is_empty(),
+        "a task's failure is told by its error"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stuck_episode_is_told_once_however_long_it_lasts() {
+    let adm = Admission::new(1, STUCK);
+    let notes = told(&adm);
+    let _held = held_for_good(&adm);
+    let waiter = wait_as(&adm, Class::Person);
+    settle().await;
+    for _ in 0..4 {
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+        settle().await;
+    }
+    assert!(!waiter.is_finished());
+    let notes = notes.lock().unwrap();
+    assert_eq!(
+        notes.len(),
+        1,
+        "past 3 windows, still one notice: {notes:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_person_who_kept_waiting_is_admitted_when_the_holder_ends() {
+    let adm = Admission::new(1, STUCK);
+    let notes = told(&adm);
+    let held = held_for_good(&adm);
+    let waiter = wait_as(&adm, Class::Person);
+    settle().await;
+    tokio::time::advance(STUCK * 2 + Duration::from_secs(5)).await;
+    settle().await;
+    assert!(!waiter.is_finished());
+    assert_eq!(notes.lock().unwrap().len(), 1);
+    drop(held);
+    let slot = within("the person's grant", waiter)
+        .await
+        .unwrap()
+        .expect("admitted once a slot came");
+    assert_eq!(slot.class(), Class::Person);
+    assert_eq!(adm.load(), (1, 0));
+    // The queue moved, so the episode is over: a new one is told afresh.
+    let mut again = slot;
+    again.bind("exe_again");
+    let waiter = wait_as(&adm, Class::Person);
+    settle().await;
+    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+    settle().await;
+    assert!(!waiter.is_finished());
+    let notes = notes.lock().unwrap();
+    assert_eq!(notes.len(), 2, "a later episode is told again: {notes:?}");
+    assert!(notes[1].contains("exe_again"), "{}", notes[1]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_person_with_no_notice_sink_simply_keeps_waiting() {
+    let adm = Admission::new(1, STUCK);
+    let held = held_for_good(&adm);
+    let waiter = wait_as(&adm, Class::Person);
+    settle().await;
+    tokio::time::advance(STUCK * 3).await;
+    settle().await;
+    assert!(!waiter.is_finished());
+    drop(held);
+    within("the person's grant", waiter)
+        .await
+        .unwrap()
+        .expect("admitted");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_persons_continue_path_sweeps_the_waiters_that_went_away() {
+    let adm = Admission::new(1, STUCK);
+    let _held = held_for_good(&adm);
+    let gone = wait_as(&adm, Class::Person);
+    settle().await;
+    gone.abort();
+    settle().await;
+    assert_eq!(adm.load(), (1, 1), "the departed waiter's entry stays");
+    let person = wait_as(&adm, Class::Person);
+    settle().await;
+    assert_eq!(adm.load(), (1, 2));
+    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+    settle().await;
+    assert!(!person.is_finished(), "the person keeps waiting");
+    assert_eq!(
+        adm.load(),
+        (1, 1),
+        "the window's pass clears the entry of the waiter that went away"
+    );
+}
+
+/// The runner's own admission of an input's turn, which waits for the same
+/// execution's previous turn to end: `Admission::take` never fails a person,
+/// and this wait must not either (it is the next typed message's wait behind
+/// the person's own turn). Wakes and tasks still fail on the window.
+mod behind_its_own_turn {
+    use super::*;
+    use crate::provider::FakeProvider;
+    use crate::store::Store;
+    use crate::{Config, Core};
+    use theseus_protocol::SessionKind;
+
+    fn core() -> (Arc<Core>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let core = Core::build(crate::rpc::Parts::for_tests(
+            cfg,
+            Arc::new(FakeProvider::scripted(vec![])),
+            store,
+        ))
+        .unwrap();
+        (core, dir)
+    }
+
+    /// An admit of `exec` in `class` with a wait, on a task of its own.
+    fn admit_as(
+        core: &Arc<Core>,
+        exec: &str,
+        class: Class,
+    ) -> tokio::task::JoinHandle<Result<(), String>> {
+        let (core, exec) = (core.clone(), exec.to_string());
+        tokio::spawn(async move {
+            let mut frames = 0;
+            match core
+                .runner
+                .admit(&exec, std::time::Instant::now(), true, class, &mut frames)
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("{e:#}")),
+            }
+        })
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_persons_next_message_waits_for_its_own_turn_past_the_window() {
+        let (core, _dir) = core();
+        let e = core
+            .kernel
+            .open_execution(
+                "ses_behind",
+                SessionKind::Conversation,
+                theseus_kernel::Authority {
+                    principal: "test".into(),
+                    delegated_by: None,
+                    ceilings: Default::default(),
+                },
+                None,
+                None,
+            )
+            .unwrap();
+        // The execution's turn is held and never ends.
+        let _turn = core.kernel.admit_input(&e.id).unwrap();
+        let person = admit_as(&core, &e.id, Class::Person);
+        let wake = admit_as(&core, &e.id, Class::Wake);
+        settle().await;
+        tokio::time::advance(STUCK * 2 + Duration::from_secs(1)).await;
+        settle().await;
+        let failed = within("the wake's failure", wake).await.unwrap();
+        assert!(
+            failed.is_err_and(|e| e.contains("did not end in 600 s")),
+            "a wake's wait fails on the window"
+        );
+        assert!(
+            !person.is_finished(),
+            "a person's wait behind their own turn is not failed"
+        );
+        person.abort();
+    }
 }

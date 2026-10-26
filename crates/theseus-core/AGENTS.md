@@ -14,8 +14,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   person's typed input, then a conversation's wakes and continuations, then a task session's turns), first come first
   served inside one, a class higher for each `AGE_STEP` (30 s) waited; a slot given back goes to exactly the next turn,
   and the kernel counts no ceiling for a queued turn (`Kernel::admit_queued`, `admit_input_queued`). A foreground job's
-  wait lends its slot after `LEND_AFTER` (2 s; `toolrun/job.rs`) and retakes one at its class's head; a wait fails
-  only when no turn was admitted for `[kernel] admission_stuck_secs` (600), class `admission_stuck`. The queue is
+  wait lends its slot after `LEND_AFTER` (2 s; `toolrun/job.rs`) and retakes one at its class's head; a wake's or
+  task's wait fails when no turn was admitted for `[kernel] admission_stuck_secs` (600), class `admission_stuck`; a person's
+  never does (in the queue, or behind their own execution's previous turn): it waits another window. In the queue,
+  one notice an episode names the holders (`Admission::set_notice`, ended by the queue's next movement); behind its
+  own previous turn it waits silently, ended by that turn ending (`/stop` included). The queue is
   `ToolRuntime::admission`. Tests: `turn/tests_admission.rs`, `tests_m3/admission.rs`. A turn's end and a late
   result's wake are one frame (`turn/end_step.rs`, theseus-6qwr): the
   stop read under the frame's lock, the wake nested so its failure takes back only itself. A failed turn's retry is
@@ -1335,7 +1338,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   pipeline's next start held as `tree`, with the reason. A mint's start is its own and opens no tree. `word.rs`:
   `self.backlog`, `self.drop`, `self.move` and `self.retry` (a failed item is proposed again, its session cleared, an
   evidence row "retried by the owner"; any other state is refused with words), the owner's by `Act::SelfBacklog`
-  (`owner_anywhere`). The index dates a
+  (`owner_anywhere`). A cause whose newest closed item's build never ran (`infra::unjudged_items`: the gate never started)
+  is not filed again either: it is kept out like a dropped one until the owner's `self retry`, and a night that only
+  kept candidates out still tells the owner, with `theseus self backlog --all` and `theseus self retry <item>`. The index dates a
   ledger row by its frame's write time: a test seeds rows, then runs the night at a clock read after the seeding.
   Tests: `rpc/tests_self_backlog.rs`.
   **The branch builder** (theseus-pw1q.8, seam S6; `rsi/tree.rs`, `rsi/pr.rs`, `toolrun/self_pr.rs`, `fact/rsi_pr.rs`):
@@ -1357,6 +1362,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   report (`<state>/self/reports/<branch, / as ->.md`, 0444, ending `<!-- REPORT COMPLETE -->`), pushes a green branch
   when `[self] remote` is set and closes the tree. Each attempt is one `self.branch.built` row; a keel finding posts
   a `self_keel` card to the owner's DM and marks the item (`<trees>/<slug>.keel`) so it is never retried around.
+  **A gate that never started halts the builds** (`rsi/infra.rs`, theseus-otkwu): the second infrastructure failure in a
+  row (`gate: failed`, a `red` at exit 127 or at 0 seconds) halts self builds and tells the owner in the DM, who releases it
+  with `theseus self resume` or "resume self"; the code of such an attempt was never tested, so it is marked neither red
+  nor filed as a cause. A gate cut off by a signal or the OOM killer after it ran for a while still reads as **red**, not
+  infrastructure: it errs on the safe side.
   `self.branches` lists them (`theseus self branches`). Tests: `rsi/tests_tree.rs` (a throwaway repo and a stand-in
   gate), `rsi/tests_pr.rs` (through the core). **Every self-code run is in L1** (theseus-pw1q.21.1; `rsi/jail.rs`,
   `sandbox/self_build.rs`): the branch's gate, the planted revert's test runs, the merge gate with its benches,
