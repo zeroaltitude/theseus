@@ -12,7 +12,8 @@
 //!   head; **joining**: those whose review passed;
 //! - **held**: out of the pipeline, the owner's: parked or keel-marked
 //!   items (`waiting_human`), and branches a join stopped and holds;
-//! - and the moves a tick makes: proposed items rejected twice (`parking`),
+//! - and the moves a tick makes: proposed items rejected twice (`parking`: dropped with a notice,
+//!   theseus-o1h3f.6),
 //!   builds whose turn ended with no green branch (`ended`), dropped items
 //!   with a live build or trees (`dropped`), and joined ones (`joined`);
 //! - and `closed`: failed or done items whose trees are still on disk, with
@@ -48,6 +49,8 @@ pub(crate) struct Entry {
     pub since_ms: Option<u64>,
     pub rejections: u32,
     pub why: Option<String>,
+    /// Every rejecting review's note since the last retry, oldest first.
+    pub findings: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -92,19 +95,26 @@ fn execution(t: &TaskRecord) -> Option<String> {
         .filter(|e| !e.is_empty())
 }
 
-/// The reviews that rejected it, and the last one's note.
-fn rejections(t: &TaskRecord) -> (u32, Option<String>, Option<(String, String)>) {
+/// The reviews that rejected it since the owner last retried it, their
+/// notes, and the last one's branch and head.
+fn rejections(t: &TaskRecord) -> (u32, Vec<String>, Option<(String, String)>) {
     let rejected: Vec<_> = t
         .evidence
         .iter()
+        .rev()
+        .take_while(|e| e.identity != "retried:owner")
         .filter(|e| e.identity.starts_with("review:"))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
         .collect();
     let last = rejected.last();
     let at = last.and_then(|e| {
         let (b, h) = e.identity.strip_prefix("review:")?.rsplit_once('@')?;
         Some((b.to_string(), h.to_string()))
     });
-    (rejected.len() as u32, last.and_then(|e| e.note.clone()), at)
+    let notes = rejected.iter().filter_map(|e| e.note.clone()).collect();
+    (rejected.len() as u32, notes, at)
 }
 
 fn entry(t: &TaskRecord) -> Entry {
@@ -160,7 +170,11 @@ impl Seen {
                     verdicts.insert((s(d, "branch"), s(d, "head")), (s(d, "verdict"), why));
                 }
                 "self.joined" => joined.push(s(d, "branch")),
-                "self.join.stopped" if d["numbers"]["held"] == true => {
+                // A conflict with main is no one's hold: the item is built
+                // again (theseus-o1h3f.6).
+                "self.join.stopped"
+                    if d["numbers"]["held"] == true && d["numbers"]["conflict"] != true =>
+                {
                     stopped.insert((s(d, "branch"), s(d, "head")), s(d, "why"));
                 }
                 _ => {}
@@ -296,10 +310,11 @@ impl Core {
             if t.state != TaskState::Proposed {
                 continue;
             }
-            let (n, why, at) = rejections(t);
+            let (n, findings, at) = rejections(t);
             let mut e = entry(t);
             e.rejections = n;
-            e.why = why;
+            e.why = findings.last().cloned();
+            e.findings = findings;
             if let Some((b, h)) = at {
                 // The rejected head as the row has it whole.
                 let whole = greens
