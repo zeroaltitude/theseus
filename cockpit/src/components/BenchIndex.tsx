@@ -2,12 +2,13 @@
 // A measured benchmark shows who is on top with its trials and tasks; every other suite shows its newest report and
 // says there is no comparable headline metric yet. The cards are `lib/benchcards.ts`.
 import { Link } from 'react-router'
-import type { Card } from '@/lib/benchcards'
+import type { ArmLine, Card } from '@/lib/benchcards'
+import { byFraming } from '@/lib/benchframing'
 import { cn } from '@/lib/format'
 
 const pc = (x: number) => `${(x * 100).toFixed(1)}%`
 
-export function BenchIndex({ cards, reason }: { cards: Card[]; reason: string | null }) {
+export function BenchIndex({ cards, reason, planned = [] }: { cards: Card[]; reason: string | null; planned?: string[] }) {
   return (
     <section className="panel px-4 py-3" aria-label="the benchmarks">
       <h2 className="font-display text-[11px] font-bold uppercase tracking-[0.12em] text-gold/90">The benchmarks</h2>
@@ -15,15 +16,28 @@ export function BenchIndex({ cards, reason }: { cards: Card[]; reason: string | 
         one card each, newest first. A pass rate appears only where the manifest holds one with its interval; every other suite says so.
         {reason && <> The manifest is not shown: {reason}.</>}
       </p>
-      <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-2 grid items-start gap-2 md:grid-cols-2 xl:grid-cols-3">
         {cards.map((c) => <CardView key={c.id} c={c} />)}
       </div>
+      {planned.length > 0 && <p className="mt-2 text-[11px] text-ink-faint">not yet measured: {planned.join(', ')}</p>}
     </section>
   )
 }
 
 function CardView({ c }: { c: Card }) {
   const top = c.lines[0]
+  // Theseus is named first in the lead whatever its place (it is always labelled); the arm on top follows when it is another.
+  const mine = c.lines.find((l) => l.theseus)
+  const lead = (l: ArmLine) => (
+    <>
+      <b className="font-semibold text-ink">{l.name}</b> {pc(l.row.pass.value)}{' '}
+      <span className="text-ink-faint">[{pc(l.row.pass.lo)}, {pc(l.row.pass.hi)}]</span>, {l.row.trials} trials{l.row.tasks ? `, ${l.row.tasks} tasks` : ''}
+      {/* OWNER CALL: whether Theseus-general is the as-shipped arm or a line beside the Claude-routed series is open; this chip describes it and chooses nothing. */}
+      {l.framing === 'T' && <Chip>all models, its own choice</Chip>}
+      {l.chip && <Chip>{l.chip}</Chip>}
+    </>
+  )
+  const blocks = byFraming(c.lines, (l) => l.framing)
   return (
     <article className={cn('rounded-md bg-white/[0.03] px-3 py-2 ring-1', c.kind === 'pinned' ? 'ring-gold/50' : 'ring-line')} aria-label={c.title}>
       <h3 className="text-[13px] font-semibold text-ink">
@@ -33,24 +47,22 @@ function CardView({ c }: { c: Card }) {
       <div className="text-[11px] text-ink-faint">
         {c.asOf ? <>as of {c.asOf}</> : null}{c.arms !== null && <> · {c.arms} arm{c.arms === 1 ? '' : 's'}</>}
       </div>
-      {top && (
-        <p className="mt-1 text-[12px] text-ink-dim">
-          on top: <b className="font-semibold text-ink">{top.name}</b> {pc(top.row.pass.value)}{' '}
-          <span className="text-ink-faint">[{pc(top.row.pass.lo)}, {pc(top.row.pass.hi)}]</span>, {top.row.trials} trials{top.row.tasks ? `, ${top.row.tasks} tasks` : ''}
-          {top.chip && <Chip>{top.chip}</Chip>}
-        </p>
-      )}
-      {c.lines.length > 1 && (
-        <ul className="mt-1 space-y-px text-[11px] text-ink-dim" aria-label="every arm">
-          {c.lines.map((l) => (
-            <li key={l.arm}>
-              <span className={l.theseus ? 'text-ink' : undefined}>{l.name}</span> {pc(l.row.pass.value)}
-              <span className="text-ink-faint"> · {l.row.trials} trials{l.row.tasks ? `, ${l.row.tasks} tasks` : ''} · {l.row.date}</span>
-              {l.chip && <Chip>{l.chip}</Chip>}
-            </li>
-          ))}
-        </ul>
-      )}
+      {mine && <p className="mt-1 text-[12px] text-ink-dim">{lead(mine)}</p>}
+      {top && top !== mine && <p className={cn('text-[12px] text-ink-dim', mine ? 'mt-0.5' : 'mt-1')}>on top: {lead(top)}</p>}
+      {c.lines.length > 1 && blocks.map((b) => (
+        <div key={b.framing} className="mt-1">
+          {blocks.length > 1 && <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{b.words}{b.items.length === 1 ? ' · one arm measured so far' : ''}</div>}
+          <ul className="space-y-px text-[11px] text-ink-dim" aria-label={b.words}>
+            {b.items.map((l) => (
+              <li key={l.arm}>
+                <span className={l.theseus ? 'text-ink' : undefined}>{l.name}</span> {pc(l.row.pass.value)}
+                <span className="text-ink-faint"> · {l.row.trials} trials{l.row.tasks ? `, ${l.row.tasks} tasks` : ''} · {l.row.date}</span>
+                {l.chip && <Chip>{l.chip}</Chip>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
       {c.noMetric && <p className="mt-1 text-[12px] text-ink-dim">{c.noMetric}</p>}
       {c.headline && <p className="mt-0.5 text-[11px] text-ink-faint">newest report: {c.headline}</p>}
       {c.newer && (

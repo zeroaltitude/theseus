@@ -16,6 +16,7 @@ import {
 } from '@/lib/bench'
 import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets, useTaskCatalogue } from '@/lib/benchfiles'
 import { LEAD, sparkline, type Series } from '@/lib/benchindex'
+import { byFraming, FRAMING_WORDS, FRAMINGS, framingOf, modelLabel, plannedArms } from '@/lib/benchframing'
 import { BenchTasks } from '@/components/BenchTasks'
 import { taskRows } from '@/lib/benchtasks'
 import { BenchIndex } from '@/components/BenchIndex'
@@ -42,7 +43,9 @@ function harnessColor(key: string): string {
 
 /** A point's name on the chart: its harness, and its run where the set holds several. */
 function pointName(p: Point, many: boolean): string {
-  return many ? `${harness(p.harness).name}, ${p.runLabel}` : harness(p.harness).name
+  // A framing-B point says its model ("Codex CLI, GPT-6-Astra"): it is not the model its peers ran.
+  const name = [harness(p.harness).name, modelLabel(p)].filter(Boolean).join(', ')
+  return many ? `${name}, ${p.runLabel}` : name
 }
 
 export default function Benchmarks() {
@@ -199,8 +202,10 @@ function Cards({ list }: { list: ReturnType<typeof runs> }) {
   const { loading, manifest } = useBenchManifest()
   const { sets } = useBenchSets()
   const cards = useMemo(() => cardsOf(manifest, list, REPORTS, LEAD, sets), [manifest, list, sets])
+  const arms = useBenchFile('arms', 'json')
+  const planned = useMemo(() => plannedArms(arms.data), [arms.data])
   if (loading) return null
-  return <BenchIndex cards={cards} reason={manifest.reason} />
+  return <BenchIndex cards={cards} reason={manifest.reason} planned={planned} />
 }
 
 const plainArms = (s: string) => s.replace(/`/g, '')
@@ -520,10 +525,21 @@ function Key({ placed, px, py }: { placed: Placed[]; px: Property; py: Property 
   const day = useMode((s) => s.mode) === 'light'
   const ink = day ? daylightColor(C.secondary) : C.secondary
   const keys = [...new Set(placed.map((p) => family(p.point.harness)))]
+  // The legend in framing blocks (derived from the data): the controlled comparison first, then Theseus over every model, then the model-varying arms.
+  const blocks = byFraming(keys, (k) => framingOf(placed.find((p) => family(p.point.harness) === k)!.point))
   return (
     <ul className="flex flex-wrap items-center gap-x-3.5 gap-y-1 px-2 pt-1 text-[11px] text-ink-dim" aria-label="legend">
-      {keys.map((k) => (
-        <li key={k} className="flex items-center gap-1.5"><Swatch color={harnessColor(k)} mark="dot" />{harness(k).name}{harness(k).slot === null ? ' (other: no slot of its own)' : ''}</li>
+      {blocks.map((b) => (
+        <li key={b.framing} className="flex basis-full flex-wrap items-center gap-x-3.5 gap-y-1" aria-label={b.words}>
+          {blocks.length > 1 && (
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+              {b.words}{b.items.length === 1 ? ' · one arm measured so far' : ''}
+            </span>
+          )}
+          {b.items.map((k) => (
+            <span key={k} className="flex items-center gap-1.5"><Swatch color={harnessColor(k)} mark="dot" />{harness(k).name}{harness(k).slot === null ? ' (other: no slot of its own)' : ''}</span>
+          ))}
+        </li>
       ))}
       <li className="flex items-center gap-1.5">
         <svg width="14" height="2" aria-hidden><rect width="14" height="2" rx="1" fill={ink} /></svg>the frontier
@@ -581,6 +597,7 @@ function frontierTable(ps: Point[], placed: Placed[], px: Property, py: Property
   const columns: Column<Point>[] = [
     { key: 'point', label: 'point', cell: (p) => <Link to={`/benchmarks/${p.report}`} className="text-ink hover:text-live">{pointName(p, many)}</Link> },
     { key: 'place', label: `on ${py.short} × ${px.short}`, cell: (p) => { const q = at.get(p.id); return !q ? 'not drawn: it lacks one of the two' : q.frontier ? 'on the frontier' : `dominated by ${q.dominators.map((d) => pointName(d, many)).join(', ')}` } },
+    { key: 'framing', label: 'compared as', cell: (p) => FRAMING_WORDS[framingOf(p)] },
     { key: 'version', label: 'version', cell: (p) => p.version?.text ?? 'not stated' },
     { key: 'model', label: 'model', cell: (p) => p.model ?? '—' },
     { key: 'effort', label: 'effort', cell: (p) => p.effort?.text ?? 'not recorded', title: (p) => p.effort?.text },
@@ -589,5 +606,5 @@ function frontierTable(ps: Point[], placed: Placed[], px: Property, py: Property
     ...props.map((pr) => ({ key: pr.id, label: pr.short, num: true, cell: (p: Point) => cell(p, pr), title: () => `${pr.label}: ${pr.about}` })),
     { key: 'tags', label: 'its own conditions', cell: (p) => p.tags.map((t) => `${UNEQUAL.includes(t.kind) ? '◆ ' : ''}${t.text}`).join('; ') || '—', title: (p) => p.tags.map((t) => t.text).join('; ') },
   ]
-  return { caption: `every point of ${set.label}, every property it measured`, rows: ps, rowKey: (p: Point) => p.id, columns }
+  return { caption: `every point of ${set.label}, every property it measured`, rows: [...ps].sort((a, b) => FRAMINGS.indexOf(framingOf(a)) - FRAMINGS.indexOf(framingOf(b))), rowKey: (p: Point) => p.id, columns }
 }

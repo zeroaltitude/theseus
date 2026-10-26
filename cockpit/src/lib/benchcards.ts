@@ -3,6 +3,7 @@
 // and the README's index, with the words "no comparable headline metric yet" and never a number of its own. The page
 // must not imply Theseus is measured on Terminal-Bench alone.
 import { GITHUB_DOCS, type Run } from './bench.ts'
+import { framingOfRow, type Framing } from './benchframing.ts'
 import { groupTasks, LEAD, leadRow, type IndexRow, type LeadRule, type Manifest, type Series } from './benchindex.ts'
 
 export const NO_METRIC = 'no comparable headline metric yet'
@@ -11,7 +12,7 @@ export const NO_METRIC = 'no comparable headline metric yet'
 export const OMNIBUS = 'omnibus'
 
 /** One arm's line on a card: the row that speaks for it, and a chip when it covers fewer tasks than its group's most. */
-export interface ArmLine { arm: string; name: string; row: IndexRow; chip: string | null; theseus: boolean }
+export interface ArmLine { arm: string; name: string; row: IndexRow; chip: string | null; theseus: boolean; framing: Framing }
 
 export interface Card {
   id: string
@@ -82,7 +83,7 @@ export function cardsOf(manifest: Manifest, list: readonly Run[], reports: reado
     const largest = groupTasks(group)
     const lines = group.map((s) => {
       const row = leadRow(s, rule, largest)
-      return { arm: s.arm, name: row.harness.replace(/\s*\(this run\)$/, ''), row, chip: taskChip(row, largest), theseus: s.arm === 'theseus' }
+      return { arm: s.arm, name: row.harness.replace(/\s*\(this run\)$/, ''), row, chip: taskChip(row, largest), theseus: s.arm === 'theseus', framing: framingOfRow(row) }
     }).sort((a, b) => b.row.pass.value - a.row.pass.value)
     const first = group[0]
     const asOf = group.reduce((d, s) => (s.newest.date > d ? s.newest.date : d), '')
