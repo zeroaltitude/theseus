@@ -168,7 +168,9 @@ async fn a_single_instruction_reads_300_large_results_without_an_overage() {
     // the stubs they leave fill the window for two compactions.
     // 80,000 until the three p3h rows joined the catalog together (theseus-z9mze.2, .3, theseus-o1h3f.1: 80,000
     // to 81,000 clear 30 passes or more; 82,000 to 86,000 hold, 87,000 and up do not: a sweep at their join).
-    let r = rig(300, 2_500, 82_000, None);
+    // 82,000 until the persona's "Act, then tell" sentence joined the prefix (theseus-dfoug: +39 tokens; 81,000
+    // and 82,000 clear 30 passes or more; 83,000 to 86,000 hold, 87,000 does not: a sweep at its join).
+    let r = rig(300, 2_500, 84_000, None);
     let (sid, result) = turn(&r.core, INSTRUCTION).await;
     let result = result.expect("the turn ends as its model ends it");
     assert!(result

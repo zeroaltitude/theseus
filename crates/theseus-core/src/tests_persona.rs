@@ -250,6 +250,33 @@ fn the_built_in_persona_sizes_spoken_replies_to_the_moment() {
     }
 }
 
+/// The built-in persona acts, then tells (theseus-dfoug): one sentence ends its
+/// `Values.` paragraph, and nothing else of the persona moved. With the sentence
+/// taken off, the paragraph is the one before it byte for byte, and the first
+/// paragraph and `Voice.` are the base's.
+#[test]
+fn the_built_in_persona_acts_then_tells_and_nothing_else_moved() {
+    const SENTENCE: &str =
+        " Act, then tell: anything reversible and within your permissions, do it and \
+                            report; ask only for what is genuinely the owner's.";
+    let paragraphs: Vec<&str> = DEFAULT_TEXT.trim_end().split("\n\n").collect();
+    assert_eq!(paragraphs.len(), 3, "{paragraphs:?}");
+    assert!(paragraphs[0].starts_with("You are Theseus, a durable agent:"));
+    assert!(paragraphs[1].starts_with("Voice. Terminal: terse, code first."));
+    assert!(paragraphs[2].starts_with("Values. "));
+    assert!(paragraphs[2].ends_with(SENTENCE), "{}", paragraphs[2]);
+    assert_eq!(
+        paragraphs[2].strip_suffix(SENTENCE),
+        Some(
+            "Values. Candour first: take a clear position, give the evidence, say how sure you \
+             are. No flattery. Keep a hypothesis apart from a conclusion. Lead with what you \
+             found or did. A promise to act later is scheduled in the same turn."
+        )
+    );
+    assert!(paragraphs[1].ends_with("A shared channel: neutral. MCP: plain."));
+    assert_eq!(DEFAULT_TEXT.matches("Act, then tell").count(), 1);
+}
+
 /// An owner's persona file replaces the default whole: the header holds none
 /// of it, the file's words are in the context block under their header.
 #[tokio::test]
