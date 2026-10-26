@@ -403,8 +403,19 @@ impl Kernel {
 
     /// A task ended in the frame being built: the parent's carve keeps only
     /// what the task still has in flight or unknown, and the task joins the
-    /// parent's `reports`, with a `task.ended` row. The caller holds both
-    /// locks (`lock_family`). Nothing for an execution with no parent.
+    /// parent's `reports`, with a `task.ended` row. The caller holds the whole
+    /// family's locks (`lock_family`). Nothing for an execution with no parent.
+    ///
+    /// **And the release goes up the chain** (theseus-deaqt). A parent that is
+    /// itself a task, and has ended, can still spend only what it has in
+    /// flight or unknown — and this task's carve was part of that — so
+    /// releasing it changes what the execution above the parent must keep
+    /// carved for the parent, and that one in turn. At depth one the parent is
+    /// a conversation and there is nothing above it. Without this, a tree of
+    /// three levels left the conversation holding a carve for a task that had
+    /// ended and could spend nothing, which is the same one-level bug
+    /// `carry_to_parent` had: kernel-sim's carve invariant catches it in a few
+    /// hundred steps once the bound allows a grandchild.
     ///
     /// A task opened with `wake_parent` that did not end by a cancel also
     /// asks for the parent's next turn (W1): it joins `report_wakes`, with a
@@ -451,6 +462,13 @@ impl Kernel {
         }
         parent.updated_at_ms = now;
         frame.push(exec_record(&parent)?);
+        // The release changed what the PARENT can still spend, when the
+        // parent is itself a task that has ended: its `still` is what it has
+        // in flight or unknown, and this task's carve was part of that. So
+        // the change goes up the chain as a settle's does (theseus-deaqt;
+        // `carry_to_parent` with no spend of its own, the carve alone). At
+        // depth one the parent is a conversation and this does nothing.
+        self.carry_to_parent(&parent, parent.budget.spent_micros, frame)?;
         frame.push(self.ledger(
             LedgerKind::TaskEnded,
             Some(&parent.session_id),

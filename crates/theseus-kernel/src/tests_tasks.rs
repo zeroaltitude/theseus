@@ -312,6 +312,60 @@ fn a_deep_trees_conversation_spend_is_the_sum_of_what_settled_below_it() {
     assert_eq!(carved(&w, &conv.id, &t1.id), Some(60_000 - 4_500));
 }
 
+/// theseus-deaqt, the other half: a task's END is a one-level carry too. An
+/// ended task can still spend only what it has in flight or unknown, and a
+/// task of its own that ends takes its carve out of that — so the execution
+/// above it must stop holding it carved, and the one above that. Found by the
+/// sim's own carve invariant (`kernel-sim --seed 1 --seeds 20 --steps 300`,
+/// seed 4 step 152) once the depth bound allows a grandchild: the
+/// conversation held a carve for a task that had ended and could spend
+/// nothing.
+#[test]
+fn an_ended_tasks_release_of_its_own_tasks_carve_reaches_the_conversation() {
+    let w = world();
+    let (conv, _g, t1, _) = with_task(&w, 60_000);
+    let t2 = deeper_task(&w, &t1, &t1, 40_000);
+    // t1 ends while t2 still holds its carve, so what t1 can still spend is
+    // exactly that carve, and the conversation keeps it reserved.
+    let g1 = w.kernel.admit(&t1.id).unwrap();
+    let ended = w
+        .kernel
+        .end_turn(
+            g1,
+            TurnEnd::Complete {
+                reason: "reported".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(ended.state, ExecState::Complete);
+    assert_eq!(ended.budget.reserved_micros, 40_000, "t2's carve");
+    assert_eq!(
+        carved(&w, &conv.id, &t1.id),
+        Some(40_000),
+        "what the ended task can still spend is its own task's carve"
+    );
+    // Now t2 ends. Its carve leaves t1, so t1 can spend nothing at all, and
+    // the conversation must let go of it in the same frame.
+    let g2 = w.kernel.admit(&t2.id).unwrap();
+    w.kernel
+        .end_turn(
+            g2,
+            TurnEnd::Complete {
+                reason: "reported".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(carved(&w, &t1.id, &t2.id), None, "t1 released t2's carve");
+    assert_eq!(
+        carved(&w, &conv.id, &t1.id),
+        None,
+        "and the conversation released t1's"
+    );
+    let c = exec(&w, &conv.id);
+    assert_eq!(c.budget.reserved_micros, 0);
+    assert_eq!(c.budget.available(), 100_000);
+}
+
 /// A task that ends releases its carve, but for what it still has in flight,
 /// which its settle then spends or releases; it joins the parent's reports,
 /// which the parent's next turn takes once, in one frame.
