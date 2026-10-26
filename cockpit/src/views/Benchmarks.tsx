@@ -11,7 +11,7 @@ import { useEffect, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ArrowLeftRight, FlaskConical, ListOrdered, Trophy } from 'lucide-react'
 import {
-  axes, DEFAULT_AXES, frontier, harness, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, TASK_SETS, unequal, UNEQUAL,
+  axes, DEFAULT_AXES, family, frontier, harness, showsName, theseusOf, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, TASK_SETS, unequal, UNEQUAL,
   type Note, type Placed, type Point, type Property, type SetId, type TaskSet,
 } from '@/lib/bench'
 import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest } from '@/lib/benchfiles'
@@ -280,7 +280,7 @@ function AxisRow({ px, py, usable, one, onX, onY, onSwap }: {
 // ---------------------------------------------------------------- where Theseus sits, in words
 
 function Verdict({ placed, ps, px, py, many }: { placed: Placed[]; ps: Point[]; px: Property; py: Property; many: boolean }) {
-  const theseus = placed.filter((p) => p.point.harness === 'theseus')
+  const theseus = theseusOf(placed)
   const missing = ps.length - placed.length
   let words: React.ReactNode
   if (!placed.length) words = 'No point measured both of these.'
@@ -298,7 +298,7 @@ function Verdict({ placed, ps, px, py, many }: { placed: Placed[]; ps: Point[]; 
       ? <>Theseus is <b className="font-semibold text-ink">on the frontier</b>{theseus.length === 2 ? ' in both of its points' : theseus.length > 2 ? ` in all ${theseus.length} of its points` : ''}: no harness measured here beats it on both {py.short} and {px.short}.</>
       : on.length
         ? <>Theseus is on the frontier in {on.length} of its {theseus.length} points; {who(off!.point)} is dominated by {whos(off!.dominators)}.</>
-        : <>Theseus is <b className="font-semibold text-ink">behind the frontier</b> here: {who(theseus[0].point)} is dominated by {whos(theseus[0].dominators)}, each as good or better on both {py.short} and {px.short}.</>
+        : <>Theseus is <b className="font-semibold text-ink">behind the frontier</b> here: {theseus.length > 1 ? `none of its ${theseus.length} points is on it; the nearest, ` : ''}{who(theseus[0].point)} is dominated by {whos(theseus[0].dominators)}, each as good or better on both {py.short} and {px.short}.</>
   }
   return (
     <div className="px-2 pb-1 text-[12px] text-ink-dim">
@@ -321,10 +321,10 @@ function FrontierChart({ placed, px, py, many, onPick }: {
   const option = useMemo<EChartsOption>(() => {
     const vaxis = valueAxis(), axis = baseAxis()
     const xlog = logFor(placed.map((p) => p.x)), ylog = logFor(placed.map((p) => p.y))
-    const keys = [...new Set(placed.map((p) => p.point.harness))]
+    const keys = [...new Set(placed.map((p) => family(p.point.harness)))]
     const item = (p: Placed) => {
       const color = harnessColor(p.point.harness)
-      const showName = p.frontier || harness(p.point.harness).slot === null
+      const showName = showsName(p)
       return {
         value: [p.x, p.y], id: p.point.id, name: pointName(p.point, many),
         symbol: unequal(p.point) ? 'diamond' : 'circle',
@@ -406,7 +406,7 @@ function FrontierChart({ placed, px, py, many, onPick }: {
         ...keys.map((k) => ({
           type: 'scatter' as const, name: harness(k).name, z: 3, silent: true,
           itemStyle: { color: harnessColor(k) },
-          data: placed.filter((p) => p.point.harness === k).map(item),
+          data: placed.filter((p) => family(p.point.harness) === k).map(item),
           labelLayout: { hideOverlap: false, moveOverlap: 'shiftY' as const },
         })),
         // The hit targets: 24 px round every point, so a point is easy to find with the pointer and to click.
@@ -443,7 +443,7 @@ function pointTip(p: Placed, px: Property, py: Property, many: boolean): HTMLEle
   ]
   // The point's who, when and how, a line each, after the numbers: they wrap, where a row's label would be cut.
   const lines = [
-    `${harness(pt.harness).name} ${pt.version?.text ?? '(its build not stated)'} · ${pt.model ?? 'model not stated'}`,
+    `${harness(pt.harness).name}${family(pt.harness) !== pt.harness ? ` (${pt.harness})` : ''} ${pt.version?.text ?? '(its build not stated)'} · ${pt.model ?? 'model not stated'}`,
     `effort: ${pt.effort?.text ?? 'not recorded'}`,
     `${pt.runLabel}, ${pt.date}`,
     ...pt.tags.map((t) => `${UNEQUAL.includes(t.kind) ? '◆ ' : ''}${t.text}`),
@@ -464,7 +464,7 @@ function pointTip(p: Placed, px: Property, py: Property, many: boolean): HTMLEle
 function Key({ placed }: { placed: Placed[] }) {
   const day = useMode((s) => s.mode) === 'light'
   const ink = day ? daylightColor(C.secondary) : C.secondary
-  const keys = [...new Set(placed.map((p) => p.point.harness))]
+  const keys = [...new Set(placed.map((p) => family(p.point.harness)))]
   return (
     <ul className="flex flex-wrap items-center gap-x-3.5 gap-y-1 px-2 pt-1 text-[11px] text-ink-dim" aria-label="legend">
       {keys.map((k) => (

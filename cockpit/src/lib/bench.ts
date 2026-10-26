@@ -336,7 +336,27 @@ export const HARNESSES: readonly Harness[] = [
   { key: 'opencode', name: 'OpenCode', slot: null },
   { key: 'openhands', name: 'OpenHands', slot: null },
 ]
-export const harness = (key: string): Harness => HARNESSES.find((h) => h.key === key) ?? { key, name: key, slot: null }
+
+/** The arm a summary key belongs to: Theseus's variants (`theseus-routed`, `theseus-68`) are one arm; the rest are
+ *  their own. Mirrors `family()` in `bench/report/manifest.py`; `test/bench.test.ts` holds the two to the same answers. */
+export function family(key: string): string {
+  return key === 'theseus' || key.startsWith('theseus-') ? 'theseus' : key
+}
+
+/** A key's arm: its name and palette slot come from its family (so `theseus-routed` is Theseus, slot 0), except that a
+ *  key `HARNESSES` lists itself (`theseus-batching`, the paragraph ablation) is its own arm. The raw `key` is kept, so a
+ *  tip can still say which variant a point was. */
+export const harness = (key: string): Harness => {
+  const own = HARNESSES.find((h) => h.key === key) ?? HARNESSES.find((h) => h.key === family(key))
+  return own ? { ...own, key } : { key, name: key, slot: null }
+}
+
+/** The placed points that are Theseus's, under any of its keys (the Verdict's subject). */
+export const theseusOf = (placed: readonly Placed[]): Placed[] => placed.filter((p) => family(p.point.harness) === 'theseus')
+
+/** Whether a point's name is drawn on the chart: the frontier's, any arm with no palette slot (it is told by name, not
+ *  colour), and Theseus's whether or not it is dominated. A dominated name is drawn in the muted ink by the view. */
+export const showsName = (p: Placed): boolean => p.frontier || harness(p.point.harness).slot === null || family(p.point.harness) === 'theseus'
 
 /** A note from a report's words: what it says, and the exact phrase of the report it rests on (held by a test). */
 export interface Note { text: string; report: string; quote: string }
@@ -765,7 +785,7 @@ export function points(set: TaskSet, csv: string, json: string | undefined, md: 
     })
   }
   // Harness by harness in the palette's order, a harness's runs by date.
-  const rank = (h: string) => { const i = HARNESSES.findIndex((x) => x.key === h); return i < 0 ? HARNESSES.length : i }
+  const rank = (h: string) => { const i = HARNESSES.findIndex((x) => x.key === (HARNESSES.some((y) => y.key === h) ? h : family(h))); return i < 0 ? HARNESSES.length : i }
   return out.sort((a, b) => rank(a.harness) - rank(b.harness) || a.date.localeCompare(b.date))
 }
 
