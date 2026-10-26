@@ -65,7 +65,10 @@ mod tests {
     async fn a_test_never_waits_out_a_busy_machine() {
         if std::env::var_os(INNER).is_some() {
             println!("PACE-INNER started");
-            assert!(theseus_store::pressure::busy().is_some(), "the fake pressure files say busy");
+            assert!(
+                theseus_store::pressure::busy().is_some(),
+                "the fake pressure files say busy"
+            );
             let control = theseus_store::pressure::quiet(LOOK_EVERY).await;
             assert!(control >= LOOK_EVERY, "the real wait waited {control:?}");
             assert_eq!(quiet().await, Duration::ZERO, "a test's wait is none");
@@ -109,7 +112,10 @@ mod tests {
     #[test]
     fn no_async_caller_in_core_waits_on_the_raw_pressure() {
         let mut hits = Vec::new();
-        raw_waits(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut hits);
+        raw_waits(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut hits,
+        );
         assert!(
             hits.is_empty(),
             "call `crate::pace::pace` or `crate::pace::quiet`, not the store's wait:\n{}",
