@@ -18,8 +18,6 @@ use theseus_store::{kinds, Page};
 use crate::ledger::LedgerRow;
 use crate::store::Store;
 
-/// A turn over this long missed its budget (ms).
-pub const TURN_BUDGET_MS: u64 = 120_000;
 /// A first token later than this missed its budget (ms).
 pub const FIRST_TOKEN_BUDGET_MS: u64 = 10_000;
 /// Evidence kept on a task from one night, per cause.
@@ -38,7 +36,6 @@ const KINDS: &[&str] = &[
     "judge.label",
     "judge.report",
     "turn.ended",
-    "loop.cap_reached",
     "budget.over_limit",
     "approval.refused",
     "secrets.failed",
@@ -245,12 +242,6 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
         }
         "judge.report" => return of_report(o, d),
         "turn.ended" => return of_slow(o, d),
-        "loop.cap_reached" => {
-            o.key = "loop.cap_reached".into();
-            o.title = "Turns reach their loop cap".into();
-            o.note = format!("{} loops of {}", d["loops"], d["max_loops"]);
-            o.work = 3;
-        }
         "budget.over_limit" => {
             let m = word(&d["model"]);
             o.key = format!("budget.over_limit:{m}");
@@ -357,19 +348,14 @@ fn is_wrong(label: &Value) -> bool {
     }
 }
 
-/// A turn that ran past its budget, or whose first token did.
+/// A turn whose first token came late. A long turn is work, not a defect
+/// (the owner, 2026-10-25), so its length files nothing.
 fn of_slow(mut o: Obs, d: &Value) -> Option<Obs> {
-    let elapsed = d["elapsed_ms"].as_u64()?;
+    // A row without `elapsed_ms` is not a finished turn's record.
+    d["elapsed_ms"].as_u64()?;
     let first = d["first_token_ms"].as_u64().unwrap_or(0);
     let model = word(&d["model"]);
-    if elapsed > TURN_BUDGET_MS {
-        o.key = format!("turn.slow:{model}");
-        o.title = format!("Turns on {model} run past {} s", TURN_BUDGET_MS / 1000);
-        o.note = format!(
-            "{elapsed} ms, {} ms over the turn budget",
-            elapsed - TURN_BUDGET_MS
-        );
-    } else if first > FIRST_TOKEN_BUDGET_MS {
+    if first > FIRST_TOKEN_BUDGET_MS {
         o.key = format!("turn.first_token:{model}");
         o.title = format!("First tokens from {model} come late");
         o.note = format!(
@@ -618,5 +604,57 @@ mod tests {
         real.data["provider"] = json!("anthropic");
         let o = of_row(2, &real).expect("a real provider error");
         assert_eq!(o.key, "provider.error:overloaded:anthropic");
+    }
+
+    fn ended(data: Value) -> LedgerRow {
+        LedgerRow::named("turn.ended", None, None, data)
+    }
+
+    /// A long turn is work, not a defect (the owner, 2026-10-25): its first
+    /// token is what is judged, and a slow one is no longer masked by the
+    /// turn's length.
+    #[test]
+    fn a_long_turn_with_a_late_first_token_files_the_first_token() {
+        let row =
+            ended(json!({"elapsed_ms": 400_000, "first_token_ms": 20_000, "model": "quill9"}));
+        let o = of_row(1, &row).expect("a late first token");
+        assert_eq!(o.key, "turn.first_token:quill9");
+        assert!(o.note.contains("20000 ms"), "{}", o.note);
+    }
+
+    #[test]
+    fn a_long_turn_with_a_fast_first_token_files_nothing() {
+        let row = ended(json!({"elapsed_ms": 400_000, "first_token_ms": 500, "model": "quill9"}));
+        assert_eq!(of_row(1, &row), None);
+    }
+
+    /// A short turn with a slow first token files as it always did.
+    #[test]
+    fn a_short_turn_with_a_late_first_token_still_files_it() {
+        let row = ended(json!({"elapsed_ms": 15_000, "first_token_ms": 20_000, "model": "quill9"}));
+        let o = of_row(1, &row).expect("a late first token");
+        assert_eq!(o.key, "turn.first_token:quill9");
+        assert_eq!(o.work, 3);
+    }
+
+    /// Reaching the loop cap is normal for long work (`on_max_loops` is
+    /// `notify`), so its notice files no cause; old rows still arrive.
+    #[test]
+    fn a_loop_cap_notice_files_no_cause() {
+        let row = LedgerRow::named(
+            "loop.cap_reached",
+            None,
+            None,
+            json!({"loops": 40, "max_loops": 40}),
+        );
+        assert_eq!(of_row(1, &row), None);
+    }
+
+    /// A `turn.ended` row with no `elapsed_ms` is not a finished turn's
+    /// record: it files nothing, even with a late first token.
+    #[test]
+    fn a_turn_ended_row_without_elapsed_files_nothing() {
+        let row = ended(json!({"first_token_ms": 20_000, "model": "quill9"}));
+        assert_eq!(of_row(1, &row), None);
     }
 }
