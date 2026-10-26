@@ -814,6 +814,7 @@ impl Lane {
     }
 
     /// A post's writes, by its kind.
+    #[expect(clippy::too_many_lines, reason = "shape budget: a post kind is one arm; split it")]
     async fn plan(&mut self, a: &Action) -> Result<Plan, SendErr> {
         let body = body_of(a).clone();
         let corr = &a.correlation_id;
