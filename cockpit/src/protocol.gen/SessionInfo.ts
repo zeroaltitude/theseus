@@ -91,7 +91,7 @@ started_on?: string, data?: DataMark,
  * The content labels it carries (theseus-9ymz0), in the flags' order. Empty
  * when it carries none, and from a daemon before them.
  */
-labels: Array<LabelView>, 
+labels?: Array<LabelView>, 
 /**
  * With `session.list`'s `with_text`: the words of its first user
  * message and of its last message, cut short; and `prompts`, the head
