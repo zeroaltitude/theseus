@@ -274,7 +274,8 @@ fn a_run_past_its_window_is_stopped_by_its_handle_and_nothing_is_left() {
     let sid = r.turn(None, "Run the long one");
     let still = r.last_result();
     assert!(
-        still.starts_with("Still running as job j1 after 1 s (timeout 600 s)."),
+        // 3600 s is the default a call that names no `timeout_secs` gets, since theseus-spntl.
+        still.starts_with("Still running as job j1 after 1 s (timeout 3600 s)."),
         "{still}"
     );
     let (shell, child) = r.wait("the tree's pids", || {

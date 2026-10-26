@@ -49,6 +49,9 @@ impl Rig {
             .parse()
             .unwrap();
         table(&mut t, "model").insert("api_base".into(), model.base.clone().into());
+        // Every test in this file reads the DRIVER's retry, so the turn's own is off. The default
+        // became 2 with theseus-3cf5c, and an in-turn retry swallows the refusal these tests want.
+        table(table(&mut t, "model"), "retries").insert("transient".into(), 0.into());
         for (_, p) in table(&mut t, "providers").iter_mut() {
             p.as_table_mut()
                 .unwrap()
