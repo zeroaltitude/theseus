@@ -1188,6 +1188,7 @@ impl TurnRunner {
                     arrived,
                     !continuation,
                     class,
+                    !continuation && req.sink.owner,
                     &mut admission_frames,
                 )
                 .await?

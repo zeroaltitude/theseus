@@ -676,10 +676,87 @@ async fn a_persons_continue_path_sweeps_the_waiters_that_went_away() {
     );
 }
 
+/// The typed-input meaning steering and the never-failed wait share
+/// (theseus-fzaep): a conversation's person, or the owner's input into a task.
+#[test]
+fn only_a_persons_typed_input_or_the_owners_into_a_task_is_typed() {
+    for (class, owner, typed) in [
+        (Class::Person, false, true),
+        (Class::Person, true, true),
+        (Class::Task, true, true),
+        (Class::Task, false, false),
+        (Class::Wake, false, false),
+        (Class::Wake, true, false),
+    ] {
+        assert_eq!(class.is_typed(owner), typed, "{class:?}, owner {owner}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_owners_input_into_a_task_waits_past_the_window_and_one_notice_names_the_holder() {
+    let adm = Admission::new(1, STUCK);
+    let notes = told(&adm);
+    let _held = held_for_good(&adm);
+    let waiter = wait_typed(&adm, Class::Task, true);
+    settle().await;
+    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+    settle().await;
+    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+    settle().await;
+    assert!(
+        !waiter.is_finished(),
+        "the owner's typed input into a task is never failed at `take`'s window"
+    );
+    assert_eq!(adm.load(), (1, 1), "the waiter is still queued");
+    let notes = notes.lock().unwrap();
+    assert_eq!(notes.len(), 1, "one notice: {notes:?}");
+    assert!(notes[0].contains("exe_held for 601 s"), "{}", notes[0]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_owners_input_into_a_task_is_admitted_as_a_task_when_the_holder_ends() {
+    let adm = Admission::new(1, STUCK);
+    let held = held_for_good(&adm);
+    let waiter = wait_typed(&adm, Class::Task, true);
+    settle().await;
+    tokio::time::advance(STUCK * 2 + Duration::from_secs(5)).await;
+    settle().await;
+    assert!(!waiter.is_finished());
+    drop(held);
+    let slot = within("the owner's grant", waiter)
+        .await
+        .unwrap()
+        .expect("admitted once a slot came");
+    assert_eq!(slot.class(), Class::Task, "it queues and counts as a task");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_turn_that_is_not_the_owners_input_still_fails_on_the_window() {
+    let adm = Admission::new(1, STUCK);
+    let _held = held_for_good(&adm);
+    let waiter = wait_typed(&adm, Class::Task, false);
+    settle().await;
+    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+    let stuck = waiter.await.unwrap().expect_err("a queue that never moved");
+    assert_eq!(stuck.class, "task");
+    assert_eq!(adm.load(), (1, 0), "the failed waiter left the queue");
+}
+
+fn wait_typed(
+    adm: &Arc<Admission>,
+    class: Class,
+    typed: bool,
+) -> tokio::task::JoinHandle<Result<Slot, super::Stuck>> {
+    let adm = adm.clone();
+    tokio::spawn(async move { adm.take_as(class, false, typed).await })
+}
+
 /// The runner's own admission of an input's turn, which waits for the same
 /// execution's previous turn to end: `Admission::take` never fails a person,
 /// and this wait must not either (it is the next typed message's wait behind
-/// the person's own turn). Wakes and tasks still fail on the window.
+/// the person's own turn). The owner's typed input into a task is a person's
+/// too (theseus-fzaep); any other task turn, and a wake, still fails on the
+/// window.
 mod behind_its_own_turn {
     use super::*;
     use crate::provider::FakeProvider;
@@ -701,34 +778,17 @@ mod behind_its_own_turn {
         (core, dir)
     }
 
-    /// An admit of `exec` in `class` with a wait, on a task of its own.
-    fn admit_as(
+    /// An execution of `kind` whose turn is held and never ends.
+    fn held_execution(
         core: &Arc<Core>,
-        exec: &str,
-        class: Class,
-    ) -> tokio::task::JoinHandle<Result<(), String>> {
-        let (core, exec) = (core.clone(), exec.to_string());
-        tokio::spawn(async move {
-            let mut frames = 0;
-            match core
-                .runner
-                .admit(&exec, std::time::Instant::now(), true, class, &mut frames)
-                .await
-            {
-                Ok(_) => Ok(()),
-                Err(e) => Err(format!("{e:#}")),
-            }
-        })
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_persons_next_message_waits_for_its_own_turn_past_the_window() {
-        let (core, _dir) = core();
+        session: &str,
+        kind: SessionKind,
+    ) -> (String, theseus_kernel::TurnGuard) {
         let e = core
             .kernel
             .open_execution(
-                "ses_behind",
-                SessionKind::Conversation,
+                session,
+                kind,
                 theseus_kernel::Authority {
                     principal: "test".into(),
                     delegated_by: None,
@@ -738,16 +798,56 @@ mod behind_its_own_turn {
                 None,
             )
             .unwrap();
-        // The execution's turn is held and never ends.
-        let _turn = core.kernel.admit_input(&e.id).unwrap();
-        let person = admit_as(&core, &e.id, Class::Person);
-        let wake = admit_as(&core, &e.id, Class::Wake);
+        let turn = core.kernel.admit_input(&e.id).unwrap();
+        (e.id, turn)
+    }
+
+    /// An admit of `exec` in `class` with a wait (`owner`: the owner's input),
+    /// on a task of its own.
+    fn admit_as(
+        core: &Arc<Core>,
+        exec: &str,
+        class: Class,
+        owner: bool,
+    ) -> tokio::task::JoinHandle<Result<(), String>> {
+        let (core, exec) = (core.clone(), exec.to_string());
+        tokio::spawn(async move {
+            let mut frames = 0;
+            match core
+                .runner
+                .admit(
+                    &exec,
+                    std::time::Instant::now(),
+                    true,
+                    class,
+                    owner,
+                    &mut frames,
+                )
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("{e:#}")),
+            }
+        })
+    }
+
+    const WORDS: &str = "did not end in 600 s";
+
+    #[tokio::test(start_paused = true)]
+    async fn a_persons_next_message_waits_for_its_own_turn_past_the_window() {
+        let (core, _dir) = core();
+        let (exec, _turn) = held_execution(&core, "ses_behind", SessionKind::Conversation);
+        let person = admit_as(&core, &exec, Class::Person, false);
+        // A unit guard on the predicate, not coverage of the wake surface:
+        // `turn.rs` is the one caller, and it never asks for a wait in the
+        // wake class.
+        let wake = admit_as(&core, &exec, Class::Wake, false);
         settle().await;
         tokio::time::advance(STUCK * 2 + Duration::from_secs(1)).await;
         settle().await;
         let failed = within("the wake's failure", wake).await.unwrap();
         assert!(
-            failed.is_err_and(|e| e.contains("did not end in 600 s")),
+            failed.is_err_and(|e| e.contains(WORDS)),
             "a wake's wait fails on the window"
         );
         assert!(
@@ -755,5 +855,86 @@ mod behind_its_own_turn {
             "a person's wait behind their own turn is not failed"
         );
         person.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_owners_message_into_a_task_waits_for_the_tasks_running_turn_past_the_window() {
+        let (core, _dir) = core();
+        let (exec, _turn) = held_execution(&core, "ses_task_owner", SessionKind::Task);
+        let owner = admit_as(&core, &exec, Class::Task, true);
+        settle().await;
+        tokio::time::advance(STUCK * 2 + Duration::from_secs(1)).await;
+        settle().await;
+        assert!(
+            !owner.is_finished(),
+            "the owner's typed message into a task is not failed (it was: {WORDS:?})"
+        );
+        owner.abort();
+    }
+
+    /// Every slot held by turns that never end, on an execution of its own
+    /// that is free: the wait is for a slot (`Admission::take`'s window), not
+    /// for the execution's turn.
+    fn all_slots_held(core: &Arc<Core>) -> Vec<Slot> {
+        let adm = &core.runner.tools.admission;
+        let mut held = Vec::new();
+        while let Some(mut slot) = adm.try_take(Class::Wake) {
+            slot.bind(&format!("exe_held_{}", held.len()));
+            held.push(slot);
+        }
+        assert!(!held.is_empty());
+        held
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_owners_message_into_a_task_never_reaches_the_slot_queues_stuck_error() {
+        let (core, _dir) = core();
+        let _held = all_slots_held(&core);
+        let e = core
+            .kernel
+            .open_execution(
+                "ses_task_slots",
+                SessionKind::Task,
+                theseus_kernel::Authority {
+                    principal: "test".into(),
+                    delegated_by: None,
+                    ceilings: Default::default(),
+                },
+                None,
+                None,
+            )
+            .unwrap();
+        let owner = admit_as(&core, &e.id, Class::Task, true);
+        let other = admit_as(&core, &e.id, Class::Task, false);
+        settle().await;
+        tokio::time::advance(STUCK * 2 + Duration::from_secs(1)).await;
+        settle().await;
+        let failed = within("the other task turn's failure", other)
+            .await
+            .unwrap();
+        assert!(
+            failed.is_err_and(|e| e.contains("admission is stuck: no turn was admitted")),
+            "a task turn that is not the owner's input fails at the slot queue's window"
+        );
+        assert!(
+            !owner.is_finished(),
+            "the owner's message waits for a slot and never takes `Err(Stuck)`"
+        );
+        owner.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_task_turn_that_is_not_the_owners_input_still_fails_on_the_window() {
+        let (core, _dir) = core();
+        let (exec, _turn) = held_execution(&core, "ses_task_other", SessionKind::Task);
+        let other = admit_as(&core, &exec, Class::Task, false);
+        settle().await;
+        tokio::time::advance(STUCK * 2 + Duration::from_secs(1)).await;
+        settle().await;
+        let failed = within("the task turn's failure", other).await.unwrap();
+        assert!(
+            failed.is_err_and(|e| e.contains(WORDS)),
+            "a task turn that is not the owner's typed input keeps today's bound"
+        );
     }
 }
