@@ -1300,6 +1300,7 @@ pub(crate) mod tests {
             "name_it.v1",
             "recall_cross.v1",
             "families.v1",
+            "content.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(

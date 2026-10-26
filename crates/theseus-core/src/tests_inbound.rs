@@ -92,6 +92,10 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
     c.judge
         .packs
         .insert(crate::judge::rerank::RERANK_PACK.into(), off());
+    // content.v1 (theseus-9ymz0) judges every item a session takes in: `judge::tests_content` is its own.
+    c.judge
+        .packs
+        .insert(crate::judge::content::PACK.into(), off());
     // onto.v1 (theseus-xzxqv) rides this batch when it is on; `tests_onto` is its own.
     c.judge
         .packs
