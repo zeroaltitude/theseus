@@ -574,7 +574,7 @@ pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
             counts.push(format!("{n} {what}"));
         }
     }
-    if counts.is_empty() {
+    if counts.is_empty() && night.kept_out > 0 {
         counts.push(format!("{} kept out", night.kept_out));
     }
     let waiting = night
