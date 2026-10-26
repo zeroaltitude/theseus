@@ -1,87 +1,82 @@
-# CLOUD REPORT: theseus-otkwu (a gate that never started is no verdict)
+# CLOUD REPORT: theseus-1q2ho, the weekly self-improvement digest must be honest
 
-**Store format: NOT bumped (stays 51).** "Two in a row" is read from existing `self.branch.built` rows
-(`gate`, `numbers.exit`, `numbers.gate_secs`); no stored record gained a field.
+**Base: `961044a8` (tip of `cloud/20261026-p3n-halt-on-infra`), NOT `main`.** Merge `halt-on-infra` first. Branch
+`cloud/20261026-p3p-digest-honesty`. This report overwrote the sibling's `CLOUD_REPORT.md`; the maintainer drops this
+commit at the join. Store format and kernel SCHEMA untouched (no protocol type, no stored record changed; no TS regen).
 
-Branch `cloud/20261026-p3n-halt-on-infra`, base `92e3dbed`. Commits: start `a6ba3d71`, work `9258338a`.
+## Found
+- `rsi/digest.rs:226` (base) printed `rows.len()` as "N changes": a count of ledger rows.
+- **Confirmed: "2000" was `MAX_ROWS` saturating.** `log::read(.., limit = MAX_ROWS)` (`rsi/log.rs:77-122`) returns
+  early with `more = true` once `out.len() == limit`; the digest printed that page size as the week's output and then
+  repeated it in the `more` line. A budget-heavy week always saturates.
+- `SelfLogRow` carries no `gate` (only `what`/`numbers`), so the log's rows cannot be classified by `infra.rs`. The
+  digest now also reads the raw `self.branch.built` / `self.joined` ledger rows (`join::rows_of`, uncapped, few rows;
+  filtered to the week), which keeps the outcomes exact whatever the page cap.
 
-## What I found
-- At the base the gate's outcome is recorded in `pr.rs` `fn built` (`gate_secs`/`exit`, now ~:577). `a.gate` is an
-  `Option`, so "no gate" was already representable. Prompt line numbers: pr.rs:570 -> 570 before my edit (577 after);
-  pr.rs ~:540 verdict text -> `fn said` ~:534-544; joining.rs:208 and install.rs:251 matched exactly.
-  Measured sizes at base: pr.rs 712, backlog.rs 583, read.rs 660, self_build.rs 433. Now: 719 / 604 / 660 / 433.
-- **backlog/read.rs does not read `self.branch.built` at all** (its `KINDS` has no such kind), so there was no
-  "observation from a branch row" to suppress. The real re-filing engine is in `backlog.rs` `backlog_file`: a build
-  that ends with no green branch closes (fails) its item, and the cause is observed again next night; since only an
-  *open* item of a cause absorbs new evidence, a **fresh item is filed**. The guard therefore went in
-  `backlog_file`, and `read.rs` is untouched.
-- **Revert path:** `rsi/revert/*` reads joined merges and post-install signals, never `self.branch.built`; an
-  infrastructure failure at build time cannot trigger a revert. (`revert/doing.rs` records `gate_secs` as a string
-  for a revert's own gate.) No finding to fix.
-- Other "gate did not start" shape found: `attempt()` returns `verdict "failed"` when `tree::gate` errs
-  ("The gate did not run"); its row has `gate_secs: null, exit: null`. Counted as infrastructure.
+## Changed (commit `3d814095`; start commit `727dc2db`)
+- New `rsi/digest/outcomes.rs` (`Outcomes`): built / green / red / infrastructure / joined, and the rendered lead.
+- `rsi/digest.rs`: `digest_text(rows, outcomes, capped, since, until, state)` (signature gained two args; only tests
+  called it); `self_digest` reads outcomes uncapped; wording renamed (ledger rows / log entries, never "changes").
+- Tests: new `rsi/digest/tests_digest.rs` (7 tests), `rpc/tests_self.rs` (one new test; the old `"3 changes: ..."`
+  assertion in `the_digest_lists_a_seeded_week` was *rewritten* to the new wording, not deleted; two `digest_text`
+  callers updated for the new args).
 
-## What I changed (9258338a)
-- New `crates/theseus-core/src/rsi/infra.rs`: pure classifier `judge` -> `Outcome {Green, Red, Infrastructure}` via
-  `of_attempt` (finished attempt) and `of_row` (ledger row); `streak`, `unjudged_items`; `watch` (halt) and `tell`.
-- `pr.rs`: one call to `infra::watch` before `built(..)` (+7 lines). `mod.rs`: `pub mod infra;`.
-  `tree.rs`: `Notify::send` (4 lines; the sink field was private to `tree`).
-- `backlog.rs`: `backlog_night` reads the history once and passes the unjudged set to `backlog_file`, which skips
-  (counted in `kept_out`) a cause that has a *closed* item whose newest attempt was infrastructure.
-- `"empty"` still short-circuits `built` first and is untouched; infrastructure is distinct: the attempt is recorded.
+## infra.rs used (read, not changed)
+`crate::rsi::infra::{of_row(d: &Value) -> Option<Outcome>, Outcome::{Green, Red, Infrastructure}}`. `of_attempt`,
+`unjudged_items`, `HALT_AFTER` were not needed: the digest reads finished rows, and counts per week, not per item.
+No parallel classifier.
 
-**JOIN SEAM:** the telling is one call in one function: `crates/theseus-core/src/rsi/infra.rs:189` `tell(notify, run)`
-(text built there), reached from `watch` (`:140`). It sends through `Place.notify` (#88's `Notify` sink, `Board::notify`
-in pr.rs); `None` means no notice. No new config key.
+## Table: number -> counted at base -> counts now
+| Number | Base | Now |
+|---|---|---|
+| headline "N changes" (`digest.rs:226`) | `rows.len()`: ledger rows of the page, capped at 2,000 | removed as a headline |
+| "Branches built" (new, `outcomes.rs`) | none | exact count of `self.branch.built` rows in the week |
+| "with a gate verdict" | none | built rows `of_row` classes green/red/infra (halted/empty excluded) |
+| "Judged / green / red / pass rate" | none | green+red per `infra::of_row`; no rate when judged = 0 |
+| "N of N gates never started" | none | infra rows; WARNING with no pass rate when all are infra; "not counted red" otherwise |
+| "Joined" | none (only the Joins list, capped) | exact count of `self.joined` rows |
+| "Cost" (`digest.rs`, `cost_of` sum) | sum over the page | same sum; prefixed "at least" when the read was capped |
+| "Ledger rows read (bookkeeping, not work done)" | the "changes" line | per-kind counts over the page; "at least" when capped |
+| "Log entries, newest first" / "and N more" | "Every change, newest first" | renamed; "at least" on the more-count when capped |
+| `SelfDigestResult.rows` | `rows.len()` | unchanged (rows read; the field name is the protocol's) |
+| the `more` footer | "Read the first 2000 changes" | says the counts are a floor |
 
-**Halt mechanism reused:** `Core::self_halt` (`rsi/switch.rs`, the `halt self` kill switch). It is idempotent, so a
-third failure while halted changes nothing and tells nothing (the telling is gated on `changed`). The notice names
-no person or host; it says the gate did not start, the two branches and exit codes, that a person is needed, and
-`theseus self resume`.
-
-## Boundary decisions
-- `green` is green even at exit 0 / 0 s (the gate said so). `keel` is judged (guard ran), however fast.
-- `red` + exit 127 -> infrastructure whatever the seconds (a command the gate needs is missing).
-- `red` + 0 s (or no seconds) -> infrastructure. `red` + no exit but real seconds (e.g. the 2 h cut-off) -> red: it ran.
-- `halted`/`empty`/unknown -> no outcome: neither counts nor resets.
-- **A real red (or green, or keel) resets the run.** A gate that ran proves the plumbing works, so the earlier
-  failure was not a standing fault; "two in a row" stays a statement about consecutive attempts. Owner may prefer
-  "two within N hours"; that would need a time window, not a store change.
+## Posts
+`POST_CHARS = 1_800` (`digest.rs:36`). The outcomes block is ~350 chars at the top; `outcomes_come_before_bookkeeping_and_fit_one_post`
+asserts the posted text (900 pairs of rows, capped) keeps "2 of 2 gates never started" and "Joined" and stays within
+the cap plus the post's own head. `crates/theseus-discord` is untouched (`git diff 961044a8 -- crates/theseus-discord` is empty),
+so `golden/dm_flow.txt` is byte-identical.
 
 ## Proof
-`cargo nextest list -p theseus-core -E 'test(/rsi::infra::/) | test(/rsi::tests_pr::infra::/) | test(/tests_self_backlog::infra::/)'`
-selects 13: `rsi::infra::tests::*` (6), `rsi::tests_pr::infra::*` (5: one_infrastructure_failure_does_not_halt,
-two_in_a_row_halt_and_tell_the_owner_once, a_real_red_between_two_resets_the_run, an_attempt_halted_between_phases_neither_counts_nor_resets,
-a_judged_attempt_never_halts), `rpc::tests_self_backlog::infra::*` (2). Run: 13 passed.
-Planted reverts (each restored + `touch`ed, `git status` clean after):
-- infra arm -> red: 8 failed (halt, resets, streak, classifier, unjudged, and `an_item_whose_gate_never_started_is_not_filed_again`).
-- `HALT_AFTER = 1`: 3 failed (`one_infrastructure_failure_does_not_halt`, `two_in_a_row...`, `a_real_red_between_two_resets_the_run`).
-- backlog guard removed: 1 failed (`an_item_whose_gate_never_started_is_not_filed_again`).
-Red-first caveat: I wrote tests and code together and did not run the tests against the unmodified base; the planted
-reverts are the red evidence (the base lacks `rsi::infra` entirely, so these cannot compile there).
-The regression guard (`an_item_whose_gate_ran_red_is_filed_again_as_it_always_was`) passes under every revert.
-I did **not** extend `crates/theseusd/tests/self_build.rs`; the halt/notice tests are core-level (`tests_pr/infra.rs`,
-real kill switch, counting sink). That test file is a gap if the maintainer wants a daemon-level one.
-
-## Live check for the maintainer
-On a scratch daemon with `[self] mode="act"` and a repo whose `scripts/gate.sh` is `exit 127`: run two
-`self.propose_change` attempts; expect `theseus self` to show halted, one quiet notice in the owner DM, and a
-`self.halted` row; a third call is refused by the halt. Then `theseus self resume`.
-
-## Open / uncertain
-- The no-re-file guard is per-item and **durable**: the cause stays unfiled until the owner retries the item
-  (`theseus self retry`), since the item is closed and can never be judged on its own. That is a deliberate
-  trade-off the owner should hear; it is counted in the night's `kept_out`.
-- `watch` runs before the attempt's own row is written; if the index is still being built it does nothing.
+- Filter check: `cargo nextest list -p theseus-core -E 'test(tests_digest) | test(bookkeeping_beyond)'` listed 8:
+  `rpc::tests_self::a_week_of_bookkeeping_beyond_the_page_cap_is_a_floor_and_no_work` and 7 in
+  `rsi::digest::tests_digest::` (a_capped_read_is_a_floor_and_never_exact, a_join_is_counted_from_its_own_row,
+  a_row_outside_the_week_is_not_this_weeks_outcome, a_week_of_bookkeeping_reports_no_work,
+  an_unjudged_branch_is_not_counted_red, gates_that_never_started_are_flagged_and_give_no_pass_rate,
+  outcomes_come_before_bookkeeping_and_fit_one_post).
+- `-E 'test(digest)'`: 68/68 pass. `-E 'test(rsi::) | test(tests_self) | test(owner_note)'`: 407/407 pass.
+- Planted revert 1 (old `rows.len()` "changes" headline put back): FAIL a_week_of_bookkeeping_reports_no_work,
+  the_digest_lists_a_seeded_week, a_week_of_bookkeeping_beyond_the_page_cap_is_a_floor_and_no_work. Restored, touched, clean.
+- Planted revert 2 (infrastructure counted as red): FAIL an_unjudged_branch_is_not_counted_red,
+  gates_that_never_started_are_flagged_and_give_no_pass_rate, outcomes_come_before_bookkeeping_and_fit_one_post. Restored, touched.
+- **Red on the base, not run literally:** the new tests cannot compile against the base's `digest_text`, so the base's
+  failure is the planted revert 1, which is the base's behaviour. The base text for a bookkeeping week was
+  `N changes: ...` (e.g. a 2,100-row week printed "2000 changes: 2000 self.budget.settled").
+- clippy `-p theseus-core --all-targets -D warnings`: clean. `cargo fmt`: applied.
 
 ## Gate
-`TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 scripts/gate.sh` FAILED in the door/keel phase, on findings **not in my
-diff** (persona_cmd.rs tests, tests_m3/ask/due.rs, tests_gateway/cards.rs, first_request.rs, keel-guard.py): the
-guard's range base was a different commit (`2d1d8d6f07`; origin/main has moved to `78fcfb6d`), so main's changes
-read as erosions; the old Keel acks also fail signature verification here (`%G? is E`). My own range raises none.
-Later phases run by hand: `cargo fmt --all -- --check` OK; `scripts/shape.sh` OK; `cargo clippy --workspace
---all-targets -D warnings` OK; theseus-core `rsi::`, `tests_self*`, `tests_registry`: 410 passed. Not run: the full suite,
-lifecycle benches, deny, cockpit, `cargo test -p theseusd`.
-Keel guard output for my commit: the 8 findings above, none in files I touched.
-Doc to update at review: the spec's Part III item for this row; `crates/theseus-core/AGENTS.md` self-improvement
-paragraph (the halt after two infrastructure failures; the backlog's unjudged guard).
+- **Baseline on the unmodified base: FAILED in the door/keel phase at 17 s**, before any build. The keel guard refuses
+  every owner ack here ("its signature does not verify (%G? is E)": no signing key on this VM) and reports 8
+  inherited erosions in earlier commits (persona_cmd.rs tests removed; due.rs and cards.rs assertions weakened;
+  first_request.rs CHANNEL_TOKENS 7,900 -> 8,900; keel-guard.py and test_keel_guard.py edited). None is in a file I touched.
+- After my change: the keel guard prints the **identical 8 findings** (no new one); the full gate cannot pass its
+  door here for the same reason. I ran the later checks by hand: fmt, clippy, and the 407 related core tests. I did not
+  run the whole suite or the discord crate's tests. The maintainer should run the gate on the owner's machine.
+- Keel guard output after commit: same eight lines as above, none new.
+
+## Left open
+- `OWNER CALL:` the digest names unjudged attempts by count only; per-item naming (`unjudged_items`) was left out.
+- The Discord DM post shows the new lead as is; a live look at one real week's text is for the maintainer
+  (`theseus self digest` on a scratch daemon over a copy of the store).
+- Docs to update at review: spec Part III item for the digest and `docs/status.md` (wording "changes" -> outcomes).
+- Prompt line citations at this base: `digest.rs:226`, `:221-225`, `:229`, `:232-244`, `:249`, `:56-59`, `MAX_ROWS :29`, `LISTED :30` all matched as described.
