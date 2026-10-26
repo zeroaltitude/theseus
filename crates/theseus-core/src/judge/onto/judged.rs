@@ -60,6 +60,7 @@ use theseus_ontology::{CategoryId, Ontology, Origin, Step};
 use super::sweep::Swept;
 use crate::config::PackMode;
 use crate::judge::{spend, JudgeService, ScrubWith};
+use crate::pace::pace;
 use crate::places::PlaceClass;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
@@ -408,23 +409,6 @@ impl Core {
             }
         }
     }
-}
-
-/// The wait between two questions of one run: while the machine is busy, up
-/// to [`theseus_store::pressure::BOUND`] a question (the sweep is background
-/// work, theseus-63tfk). A test never waits: the host's pressure is no input
-/// of its own (a run asks up to 20 pairs, and 19 waits of 10 s on a loaded
-/// host passed nextest's 120 s kill: theseus-75t4q).
-///
-/// The skip and the wait are held in different places. The **skip** is held by
-/// `tests_onto_names::a_chain_clusters_on_a_busy_machine`, which fakes the
-/// pressure. The **wait** is held in `theseus-store`: its async loop by
-/// `pressure`'s own `a_chunk_waits_while_busy_and_goes_when_quiet_within_the_bound`
-/// (a paused clock over `quiet_with`), and its real `/proc/pressure` reading by
-/// `tests/pressure.rs` over `quiet_blocking`.
-pub(super) async fn pace() {
-    #[cfg(not(test))]
-    theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
 }
 
 /// A split Jev answered for: the parent, the two names and the sessions it

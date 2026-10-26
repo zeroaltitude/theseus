@@ -314,7 +314,7 @@ async fn a_chain_asked_over_two_nights_clusters() {
 
 /// The chain test on a machine that says it is busy (theseus-75t4q): the sweep
 /// waits out the host's CPU or IO pressure between two questions
-/// (`judged::pace`), up to 10 s each, and the test asks 20 pairs on its first
+/// (`pace::pace`), up to 10 s each, and the test asks 20 pairs on its first
 /// night: 190 s on a loaded host, past nextest's 120 s kill, 1 run in 4 on the
 /// owner's machine. The test runs again in namespaces with fake pressure files
 /// saying IO is busy (as `tests_activation_pace` does), so the host's own

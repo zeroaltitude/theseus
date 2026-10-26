@@ -46,6 +46,7 @@ use crate::judge::spend;
 use crate::learning::tender::{due, tend};
 use crate::ledger::LedgerRow;
 use crate::node::Node;
+use crate::pace::pace;
 use crate::places::PlaceClass;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
@@ -214,7 +215,7 @@ impl Core {
         for (i, d) in plan.into_iter().enumerate() {
             let left = out.due - i as u64;
             if i > 0 {
-                theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                pace().await;
             }
             if self.outbox.stopping() {
                 out.stopped = Some(format!("the daemon is stopping, {left} sessions left"));

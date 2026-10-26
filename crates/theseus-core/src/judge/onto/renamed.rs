@@ -32,8 +32,9 @@ use theseus_judge::Input;
 use theseus_ontology::sweep::fold;
 use theseus_ontology::{CategoryId, Ontology};
 
-use super::judged::{acts, named, noul, pace, Asked, Run, KIND_PACK, NAME_PACK};
+use super::judged::{acts, named, noul, Asked, Run, KIND_PACK, NAME_PACK};
 use super::mint::{self, Hints};
+use crate::pace::pace;
 use crate::rpc::Core;
 
 /// The categories one run asks to rename at most.

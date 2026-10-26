@@ -6,7 +6,7 @@ stack. The raw 20-run tables stay in that row's review evidence; what is durable
 ## The mechanism
 
 The onto sweep waits between two questions of one run, so that background work yields while the machine is busy:
-`judged.rs`'s `pace()` calls `theseus_store::pressure::quiet(BOUND)`, which looks at `/proc/pressure` every
+`pace()` (first in `judged.rs`, now in `pace.rs`) calls `theseus_store::pressure::quiet(BOUND)`, which looks at `/proc/pressure` every
 `LOOK_EVERY` and sleeps on tokio's timer until the machine is quiet or the bound is spent.
 
 **That wait was no input of a test.** A run asks up to 20 pairs, so on a loaded host it could spend 19 waits of
@@ -43,8 +43,18 @@ tokio workers parked; one in `epoll_wait` with a 949 ms timeout (a tokio timer);
 That is a task asleep in `tokio::time::sleep(1 s)` in a loop — i.e. `theseus_store::pressure::quiet` — and not a
 deadlock. The 949 ms timer is the tell.
 
-## The latent shape elsewhere
+## The same shape elsewhere (theseus-qc5r6)
 
-The same un-paced call shape survives at four sibling sites, none of which any test drives hard enough to hang
-today: `judge/people/backfill.rs:158`, `judge/people/sweep.rs:217`, and `rpc/mod.rs:1221` and `:1271` (the last
-two accumulate `quiet`'s returned duration and so need a returning variant). Tracked as a follow-up row.
+Four sibling sites kept the un-paced call and the same latent hang, none of which any test drove hard enough to
+hang: `judge/people/backfill.rs` and `judge/people/sweep.rs`, which only wait, and the index's terms and shape
+stretches in `rpc/mod.rs`, which add up how long they yielded and report it as `yielded_ms`. They now go through
+`pace.rs`: `pace()` for the first two, and `quiet()`, the same skip returning the `Duration` (zero in a test),
+for the last two, so no async caller in `theseus-core` reaches the store's wait directly.
+
+What holds what: the **sites** go through `pace.rs` by `pace::tests::no_async_caller_in_core_waits_on_the_raw_pressure`,
+which reads the crate's sources; the **skip** by `pace::tests::a_test_never_waits_out_a_busy_machine` (fake
+pressure, a control that the real wait does wait there) and, for the onto sweep end to end, by
+`tests_onto_names::a_chain_clusters_on_a_busy_machine`; the **wait** is in `theseus-store`, its async loop by
+`pressure`'s `a_chunk_waits_while_busy_and_goes_when_quiet_within_the_bound` and its real `/proc/pressure` reading by
+`tests/pressure.rs`. A daemon's own tests link `theseus-core` built without `cfg(test)`, so they wait as in
+production.
