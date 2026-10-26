@@ -557,6 +557,7 @@ events! {
     PolicyUntightened(TightenResult) = notify::POLICY_UNTIGHTENED,
     SessionTrusted(TrustResult) = notify::SESSION_TRUSTED,
     SessionUnlabelled(crate::content::UnlabelResult) = notify::SESSION_UNLABELLED,
+    SessionLabelled(crate::content::LabelRaised) = notify::SESSION_LABELLED,
     NarrativeLine(NarrativeLine) = notify::NARRATIVE_LINE,
     /// An execution's view, after a frame changed it (theseus-in3).
     ExecutionChanged(ExecutionView) = notify::EXECUTION_CHANGED,
@@ -610,6 +611,7 @@ impl Event {
             Event::PolicyNotified(e) => Some(&e.session_id),
             Event::SessionTrusted(e) => Some(&e.session_id),
             Event::SessionUnlabelled(e) => Some(&e.session_id),
+            Event::SessionLabelled(e) => Some(&e.session_id),
             Event::NarrativeLine(e) => e.session_id.as_deref(),
             Event::ExecutionChanged(e) => Some(&e.session_id),
             Event::JudgeScored(e) => Some(&e.session_id),
@@ -667,6 +669,7 @@ impl Event {
             | Event::PolicyUntightened(_)
             | Event::SessionTrusted(_)
             | Event::SessionUnlabelled(_)
+            | Event::SessionLabelled(_)
             | Event::ExecutionChanged(_)
             | Event::TaskChanged(_)
             | Event::WakeNoticed(_)

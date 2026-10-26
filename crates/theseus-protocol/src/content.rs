@@ -71,3 +71,12 @@ pub struct UnlabelResult {
     /// The label it removed.
     pub label: LabelView,
 }
+
+/// A label was raised on a session: the params of `session.labelled`, to the
+/// session's watchers.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LabelRaised {
+    pub session_id: String,
+    pub label: LabelView,
+}

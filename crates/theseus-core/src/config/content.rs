@@ -10,6 +10,11 @@
 //!   for an item's verdict before it goes to Claude instead. A Claude turn
 //!   never waits, whatever this says. Zero means it never waits, so an
 //!   unjudged item sends that one request to Claude at once.
+//! - `max_pieces`: the bound on how many pieces one long item is split into
+//!   (`content::split`). A job's output may be 64 MiB, and an unbounded split
+//!   of one runaway program's output would be thousands of concurrent calls
+//!   for a single item. Past the bound the item is read from the start and its
+//!   row says `truncated`.
 //! - `enabled`: the whole mechanism, on by default. Off, nothing is asked, no
 //!   label is ever raised, and no session is frozen — but **a model of
 //!   restricted origin is then refused every request**, because nothing has
@@ -29,6 +34,8 @@ pub struct ContentConfig {
     pub injection: InjectionMode,
     #[serde(default = "default_wait_ms")]
     pub wait_ms: u64,
+    #[serde(default = "default_max_pieces")]
+    pub max_pieces: usize,
 }
 
 fn on() -> bool {
@@ -43,12 +50,20 @@ fn default_wait_ms() -> u64 {
     4_000
 }
 
+/// Six pieces of the pack's 3,000-token cap is about 72 KB of one item read in
+/// full, which covers every ordinary file, page and result. Past it the item is
+/// read from the start and its row says `truncated`.
+fn default_max_pieces() -> usize {
+    6
+}
+
 impl Default for ContentConfig {
     fn default() -> Self {
         Self {
             enabled: on(),
             injection: InjectionMode::default(),
             wait_ms: default_wait_ms(),
+            max_pieces: default_max_pieces(),
         }
     }
 }
@@ -71,6 +86,7 @@ mod tests {
         assert!(d.enabled);
         assert_eq!(d.injection, InjectionMode::Refuse);
         assert_eq!(d.wait_ms, 4_000);
+        assert_eq!(d.max_pieces, 6);
         assert!(d.is_default());
         let c: ContentConfig = toml::from_str("").unwrap();
         assert_eq!(c, d, "an empty table is the default");
@@ -85,6 +101,8 @@ mod tests {
         assert_eq!(c.wait_ms, 0, "zero means a cn request never waits");
         let c: ContentConfig = toml::from_str("enabled = false").unwrap();
         assert!(!c.enabled);
+        let c: ContentConfig = toml::from_str("max_pieces = 2").unwrap();
+        assert_eq!(c.max_pieces, 2);
 
         let e = toml::from_str::<ContentConfig>("inject = \"notify\"")
             .unwrap_err()

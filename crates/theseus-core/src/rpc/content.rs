@@ -23,7 +23,7 @@ use super::confirms::Act;
 use super::server::{Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal};
-use crate::content::{Flag, Label};
+use crate::content::{Flag, InjectionMode, ItemKind, Label};
 use crate::fact::{self, content::ContentRemoved};
 use crate::session::SessionRecord;
 
@@ -45,7 +45,78 @@ pub(crate) fn label_view(l: &Label) -> LabelView {
     }
 }
 
+/// What entered the session, as the operator is told of it: `a tool result
+/// from `http.fetch https://example.com/x``.
+fn what_raised(l: &Label) -> String {
+    let what = match l.kind {
+        ItemKind::OperatorMessage => "your message",
+        ItemKind::ToolResult => "a tool result",
+        ItemKind::FetchedPage => "a fetched page",
+        ItemKind::SearchResult => "a search result",
+        ItemKind::TaskBrief => "a task brief",
+        ItemKind::TaskReport => "a task report",
+    };
+    format!("{what} from `{}`", l.source)
+}
+
+/// The one message in the session's place when a label is raised (design
+/// §6.3). `injection` says the session is holding, and what stops until the
+/// operator clears it (under `notify` it says nothing stops); the three that
+/// disqualify a model of restricted origin say so, with no urgency, since
+/// nothing else is blocked.
+pub(crate) fn label_notice(l: &Label, mode: InjectionMode) -> String {
+    let what = what_raised(l);
+    match (l.flag, mode) {
+        (Flag::Injection, InjectionMode::Refuse) => format!(
+            "⚑ **injection** — this session is holding: {what} tried to steer me, so writes, \
+             programs and sends are refused until you clear it."
+        ),
+        (Flag::Injection, InjectionMode::Notify) => format!(
+            "⚑ **injection** — {what} tried to steer me. Nothing is refused here \
+             (`[content] injection = \"notify\"`); you can clear the flag."
+        ),
+        (Flag::Secret, _) => format!(
+            "⚑ **secret** — China-origin models are off for this session: {what} showed the \
+             value of a credential."
+        ),
+        (Flag::Confidential, _) => format!(
+            "⚑ **confidential** — China-origin models are off for this session: {what} showed \
+             an organisation's non-public matter."
+        ),
+        (Flag::Personal, _) => format!(
+            "⚑ **personal** — China-origin models are off for this session: {what} showed a \
+             person's private information."
+        ),
+    }
+}
+
 impl Core {
+    /// Tell the operator a label was raised, once: a `content_label` post in
+    /// the session's place, which the Discord binding renders with its one
+    /// Remove button (`content:remove:<session>:<flag>`). Nothing when the
+    /// session has no place (a CLI session, a task with no thread): the label
+    /// shows on every other surface. The caller is whatever raised the label,
+    /// and calls this only when `ContentFlags::raise` returned true, so a
+    /// second raise of a flag says nothing.
+    pub fn tell_label(&self, session_id: &str, l: &Label) -> Result<bool> {
+        let rec = self
+            .store
+            .get_session::<SessionRecord>(session_id)?
+            .ok_or_else(|| anyhow!("no session is named {session_id}"))?;
+        let body = json!({
+            "kind": "content_label",
+            "session_id": session_id,
+            "flag": l.flag.as_str(),
+            "text": label_notice(l, self.cfg.content.injection),
+        });
+        let post = self.outbox.post_for(
+            session_id,
+            rec.execution_id.as_deref().unwrap_or(""),
+            body,
+        )?;
+        Ok(post.is_some())
+    }
+
     /// `content.unlabel`: the session no longer carries `flag`. An unknown
     /// session, a word that is not a flag, and a flag the session does not
     /// carry are each an error, and nothing is written.
@@ -168,4 +239,54 @@ fn removed(
         NewRecord::json(kinds::SESSION, Some(session_id), &rec)?,
     ];
     Ok(Some((r, frame)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use theseus_judge::band::Band;
+
+    fn label(flag: Flag, kind: ItemKind) -> Label {
+        Label {
+            flag,
+            node: Some("n1".into()),
+            kind,
+            source: "http.fetch https://example.com/x".into(),
+            confidence: 0.9,
+            band: Band::Act,
+            at_ms: 1,
+        }
+    }
+
+    /// The message the owner approved the shape of (design §6.3): the flag in
+    /// bold, what it does, what raised it and from where.
+    #[test]
+    fn the_notice_says_what_the_flag_does_and_what_raised_it() {
+        let inj = label_notice(
+            &label(Flag::Injection, ItemKind::ToolResult),
+            InjectionMode::Refuse,
+        );
+        assert_eq!(
+            inj,
+            "⚑ **injection** — this session is holding: a tool result from `http.fetch \
+             https://example.com/x` tried to steer me, so writes, programs and sends are refused \
+             until you clear it."
+        );
+        let sec = label_notice(
+            &label(Flag::Secret, ItemKind::OperatorMessage),
+            InjectionMode::Refuse,
+        );
+        assert!(sec.starts_with("⚑ **secret** — China-origin models are off for this session"));
+        assert!(sec.contains("your message from `http.fetch"), "{sec}");
+        for f in [Flag::Confidential, Flag::Personal] {
+            let t = label_notice(&label(f, ItemKind::FetchedPage), InjectionMode::Refuse);
+            assert!(t.contains(&format!("**{}**", f.as_str())), "{t}");
+            assert!(!t.contains("refused"), "nothing is blocked: {t}");
+        }
+        let n = label_notice(
+            &label(Flag::Injection, ItemKind::SearchResult),
+            InjectionMode::Notify,
+        );
+        assert!(n.contains("Nothing is refused here"), "{n}");
+    }
 }

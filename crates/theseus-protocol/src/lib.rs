@@ -22,7 +22,7 @@ pub mod census;
 pub mod check;
 pub mod cite;
 pub mod content;
-pub use content::{ContentUnlabelParams, LabelView, UnlabelResult};
+pub use content::{ContentUnlabelParams, LabelRaised, LabelView, UnlabelResult};
 pub mod context;
 mod cost;
 pub mod cred;
@@ -483,6 +483,9 @@ pub mod notify {
         /// The operator removed a content label from a session (theseus-9ymz0), to the session's watchers. The params are
         /// an `UnlabelResult`.
         SESSION_UNLABELLED = "session.unlabelled",
+        /// A content label was raised on a session (theseus-9ymz0), to the session's watchers. The params are a
+        /// `LabelRaised`.
+        SESSION_LABELLED = "session.labelled",
         /// One line of the narrative, to every `narrative.watch` subscriber.
         /// Unlike the others it is not a ledger row: the narrative is never stored.
         NARRATIVE_LINE = "narrative.line",

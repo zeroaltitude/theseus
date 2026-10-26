@@ -11,7 +11,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use theseus_judge::band::Band;
 use theseus_protocol::NarrativePart::Session;
-use theseus_protocol::{notify, Event, LedgerKind, UnlabelResult};
+use theseus_protocol::{notify, Event, LabelRaised, LedgerKind, UnlabelResult};
 
 use super::{Fact, Say};
 use crate::content::{Flag, ItemKind, Label};
@@ -28,7 +28,8 @@ pub struct Answered<'a> {
 }
 
 /// `content.judged`: one item was judged, and what each question said. A
-/// long item is one row, with `pieces` counting the asks it took.
+/// long item is one row, with `pieces` counting the asks it took and
+/// `truncated` saying whether the bound on them cut it short.
 pub struct ContentJudged<'a> {
     /// The node whose content was judged.
     pub node: &'a str,
@@ -38,6 +39,9 @@ pub struct ContentJudged<'a> {
     /// What the asks cost, in millionths of a dollar.
     pub cost_micros: u64,
     pub pieces: u32,
+    /// The item ran past `[content] max_pieces` and was read only that far
+    /// (`content::split`): the bound is in the row, not silent.
+    pub truncated: bool,
 }
 
 impl Fact for ContentJudged<'_> {
@@ -46,24 +50,34 @@ impl Fact for ContentJudged<'_> {
     fn row(&self) -> Value {
         json!({"node": self.node, "kind": self.kind, "source": self.source,
                "answers": self.answers, "cost_micros": self.cost_micros,
-               "pieces": self.pieces})
+               "pieces": self.pieces, "truncated": self.truncated})
     }
 }
 
 /// `content.labelled`: a label was raised on the session. Written only when
 /// the flag was not on it already (`ContentFlags::raise`), so a second raise
-/// of the same flag writes nothing.
+/// of the same flag writes nothing. Its notification, `session.labelled`, goes
+/// to the session's watchers.
 pub struct ContentLabelled<'a> {
+    pub session: &'a str,
     pub label: &'a Label,
 }
 
 impl Fact for ContentLabelled<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ContentLabelled);
+    const METHOD: Option<&'static str> = Some(notify::SESSION_LABELLED);
 
     fn row(&self) -> Value {
         let l = self.label;
         json!({"flag": l.flag, "node": l.node, "kind": l.kind, "source": l.source,
                "confidence": l.confidence, "band": l.band})
+    }
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::SessionLabelled(LabelRaised {
+            session_id: self.session.into(),
+            label: crate::rpc::content::label_view(self.label),
+        }))
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
@@ -236,6 +250,7 @@ mod tests {
             answers: &answers,
             cost_micros: 1200,
             pieces: 3,
+            truncated: true,
         };
         assert_eq!(
             f.row(),
@@ -244,7 +259,7 @@ mod tests {
                        {"flag": "injection", "choice": "no", "confidence": 0.97, "band": null},
                        {"flag": "secret", "choice": "yes", "confidence": 0.64, "band": "confirm"},
                    ],
-                   "cost_micros": 1200, "pieces": 3})
+                   "cost_micros": 1200, "pieces": 3, "truncated": true})
         );
     }
 
@@ -252,7 +267,10 @@ mod tests {
     #[test]
     fn a_labelled_row_is_the_label() {
         let l = label();
-        let f = ContentLabelled { label: &l };
+        let f = ContentLabelled {
+            session: "ses_1",
+            label: &l,
+        };
         assert_eq!(
             f.row(),
             json!({"flag": "confidential", "node": "n7", "kind": "tool_result",

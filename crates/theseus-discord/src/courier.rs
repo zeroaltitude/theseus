@@ -837,6 +837,26 @@ impl Lane {
                 })
             }
             "failed" => self.failed_post(&body, corr).await,
+            // A content label was raised on the session (theseus-9ymz0): the one
+            // message the locked DM flow gains, in the session's place.
+            "content_label" => {
+                let channel = self.place_channel().await?;
+                let mut w = text(
+                    body["text"].as_str().unwrap_or("").to_string(),
+                    format!("content:{corr}"),
+                    channel,
+                    None,
+                    Event::Note,
+                );
+                w.buttons = Buttons::ContentRemove(
+                    body["session_id"].as_str().unwrap_or("").to_string(),
+                    body["flag"].as_str().unwrap_or("").to_string(),
+                );
+                Ok(Plan {
+                    writes: vec![w],
+                    extra: json!({}),
+                })
+            }
             "report" => self.report_post(&body, corr).await,
             "offer" => Ok(self.offer_post(&body)),
             // A hands group's one line (step 40 part 2): under its group's
@@ -1776,6 +1796,7 @@ impl Lane {
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
             Buttons::PersonaSoul(key) => crate::runtime::persona_soul::buttons(key),
             Buttons::SelfNote(items) => crate::runtime::self_note::buttons(items),
+            Buttons::ContentRemove(s, f) => crate::runtime::content::buttons(s, f),
             Buttons::Again(q) => crate::runtime::again_buttons(q),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
             Buttons::CardQuestion(ask, id) => crate::runtime::card_question::buttons(ask, id),
@@ -1854,6 +1875,7 @@ impl Lane {
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
             Buttons::PersonaSoul(key) => Some(crate::runtime::persona_soul::buttons(key)),
             Buttons::SelfNote(items) => Some(crate::runtime::self_note::buttons(items)),
+            Buttons::ContentRemove(s, f) => Some(crate::runtime::content::buttons(s, f)),
             Buttons::Again(q) => Some(crate::runtime::again_buttons(q)),
             Buttons::Standing(mode, id, wide) => {
                 Some(crate::runtime::capture_buttons(mode, id, *wide))
