@@ -1923,14 +1923,25 @@ mod tests {
             )
             .is_err());
         // Identical strings are a no-op answered by `run`, not invalid input.
-        let same = json!({"path": "dup.txt", "old_string": "y", "new_string": "y", "replace_all": true});
-        assert!(Edit.plan(&same, &c).is_ok(), "an identical edit is not invalid input");
+        let same =
+            json!({"path": "dup.txt", "old_string": "y", "new_string": "y", "replace_all": true});
+        assert!(
+            Edit.plan(&same, &c).is_ok(),
+            "an identical edit is not invalid input"
+        );
         let out = Edit.run(&same, &c).unwrap();
         assert!(out.text.starts_with("No change made"), "{}", out.text);
         assert_eq!(out.meta["replacements"], 0);
-        assert_eq!(fs::read_to_string(d.path().join("dup.txt")).unwrap(), "y y y");
+        assert_eq!(
+            fs::read_to_string(d.path().join("dup.txt")).unwrap(),
+            "y y y"
+        );
         let gone = json!({"path": "dup.txt", "old_string": "q", "new_string": "q"});
-        assert!(Edit.run(&gone, &c).unwrap_err().message.contains("not found"));
+        assert!(Edit
+            .run(&gone, &c)
+            .unwrap_err()
+            .message
+            .contains("not found"));
         assert!(
             Read.plan(&json!({"path": "a", "bogus": 1}), &c).is_err(),
             "unknown fields are rejected"
