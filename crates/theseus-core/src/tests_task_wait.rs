@@ -777,3 +777,91 @@ mod warm {
         );
     }
 }
+
+/// An assistant message's body, with the text `said`.
+fn said(text: &str) -> Body {
+    Body::AssistantMessage {
+        blocks: vec![json!({"type": "text", "text": text})],
+        model: "claude-sonnet-5-5".into(),
+        provider: "anthropic".into(),
+        stop_reason: Some("end_turn".into()),
+        usage: theseus_protocol::Usage::default(),
+        cost_usd: None,
+        catalog_version: None,
+        request_id: None,
+        correlation_id: None,
+        compilation_id: None,
+        request_digest: None,
+        effort: None,
+    }
+}
+
+/// The running notes draw from the same fan-in bound as the reports (the stack
+/// review's N5), through a real wait: four tasks that have each said some 1,500
+/// characters and not ended, in a fan-in of 2,500. The room holds two notes at
+/// the least a text keeps; the other two arrive as a pointer to the task's
+/// session, so the notes together stay inside the bound. Before, every note
+/// took `report_chars` whatever the bound said.
+#[tokio::test]
+async fn running_notes_share_the_fan_in_bound_and_those_past_it_arrive_as_pointers() {
+    let mut r = rig(
+        |req| {
+            if first_user(req).contains("CHILD:") {
+                return Scripted::text("held at the gate, never answered");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started.");
+            }
+            starts(&["CHILD: a", "CHILD: b", "CHILD: c", "CHILD: d"])
+        },
+        |c| c.tools.fan_in_chars = 2_500,
+    );
+    *r.model.hold.lock().unwrap() = Some("CHILD:".into());
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let tasks = tasks_of(&r.core, &parent);
+    assert_eq!(tasks.len(), 4);
+    // Each task is past its compile and held in its model call, so what is
+    // written into its session now is read by nothing that checks it.
+    for _ in 0..4 {
+        let entered = tokio::time::timeout(Duration::from_secs(20), r.entered.recv()).await;
+        assert!(entered.is_ok(), "a task never reached its model call");
+    }
+    let text: String = (0..30)
+        .map(|i| format!("src/m{i}.rs:{i} — f{i} — the problem {i} — the fix {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for t in &tasks {
+        let message = Node::assistant(&t.session_id, "trn_said", 0, said(&text));
+        r.core.store.append(&[message.record().unwrap()]).unwrap();
+    }
+    let ask = WaitAsk {
+        tasks: tasks.iter().map(|t| t.id.clone()).collect(),
+        timeout: Duration::from_secs(1),
+        report_chars: 6000,
+        fan_out: None,
+        turn: TurnRef::for_exec(&r.core, &parent_exec(&r.core, &parent)),
+    };
+    let out = crate::task_wait::wait_on_tasks(r.core.clone(), parent.clone(), ask)
+        .await
+        .expect("a wait that times out still answers");
+    assert!(
+        out.0.text.starts_with("0 of 4 tasks reported, 4 still running"),
+        "{}",
+        out.0.text
+    );
+    assert_eq!(out.0.meta["fan_in"]["chars"], 2_500);
+    let notes: Vec<String> = reports_in(&r.core, &parent).iter().map(text_of).collect();
+    assert_eq!(notes.len(), 4, "{notes:?}");
+    let pointers = notes
+        .iter()
+        .filter(|n| n.contains("the room for notes is used; read them in task"))
+        .count();
+    let inline = notes.iter().filter(|n| n.contains("the problem")).count();
+    assert_eq!((inline, pointers), (2, 2), "two fit the room: {notes:?}");
+    let chars: usize = notes.iter().map(|n| n.chars().count()).sum();
+    assert!(
+        chars < 2_500 + 4 * 120,
+        "the notes took {chars} characters of a 2,500 bound"
+    );
+}
