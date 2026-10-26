@@ -1906,7 +1906,7 @@
    "harness": "Claude Code 2.1.290",
    "model": null,
    "date": "2026-10-25",
-   "commit": "b69236c1",
+   "commit": "b69236c1 and 0fda4d57 (bench/harbor byte-identical between them)",
    "dataset": "docs/benchmarks/2026-10-25-terminal-bench-codex-high.json",
    "trials": 267,
    "tasks": 89,
@@ -1944,31 +1944,31 @@
    "harness": "Codex CLI 0.161.0 (GPT-6-Astra, high)",
    "model": null,
    "date": "2026-10-25",
-   "commit": "b69236c1",
+   "commit": "b69236c1 and 0fda4d57 (bench/harbor byte-identical between them)",
    "dataset": "docs/benchmarks/2026-10-25-terminal-bench-codex-high.json",
-   "trials": 31,
-   "tasks": 31,
+   "trials": 89,
+   "tasks": 89,
    "metrics": {
     "pass_rate": {
-     "value": 0.7741935483870968,
-     "lo": 0.6018723994130262,
-     "hi": 0.8860500840550121,
-     "k": 24,
-     "n": 31
+     "value": 0.8539325842696629,
+     "lo": 0.7659688971390856,
+     "hi": 0.9126062243581742,
+     "k": 76,
+     "n": 89
     },
     "usd_per_trial": {
-     "value": 2.4251696774193547,
-     "lo": 1.8738192258064517,
-     "hi": 3.0513318709677417
+     "value": 1.311039808988764,
+     "lo": 1.040408415730337,
+     "hi": 1.6223386516853933
     },
     "usd_total": {
-     "value": 75.18026
+     "value": 116.682543
     },
     "usd_per_solve": {
-     "value": 3.1325108333333334
+     "value": 1.5352966184210526
     },
     "agent_s_median": {
-     "value": 236.95
+     "value": 73.5
     }
    }
   },
@@ -1981,7 +1981,7 @@
    "harness": "OpenCode 1.18.35",
    "model": null,
    "date": "2026-10-25",
-   "commit": "b69236c1",
+   "commit": "b69236c1 and 0fda4d57 (bench/harbor byte-identical between them)",
    "dataset": "docs/benchmarks/2026-10-25-terminal-bench-codex-high.json",
    "trials": 267,
    "tasks": 89,
@@ -2019,7 +2019,7 @@
    "harness": "Pi 1.0.4",
    "model": null,
    "date": "2026-10-25",
-   "commit": "b69236c1",
+   "commit": "b69236c1 and 0fda4d57 (bench/harbor byte-identical between them)",
    "dataset": "docs/benchmarks/2026-10-25-terminal-bench-codex-high.json",
    "trials": 267,
    "tasks": 89,
@@ -2057,7 +2057,7 @@
    "harness": "Theseus as shipped (v1)",
    "model": null,
    "date": "2026-10-25",
-   "commit": "b69236c1",
+   "commit": "b69236c1 and 0fda4d57 (bench/harbor byte-identical between them)",
    "dataset": "docs/benchmarks/2026-10-25-terminal-bench-codex-high.json",
    "trials": 267,
    "tasks": 89,
