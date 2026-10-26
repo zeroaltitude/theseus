@@ -217,6 +217,88 @@ async fn a_wake_turn_loads_the_tasks_and_evicts_no_learned_family() {
     );
 }
 
+/// A task rig whose parent starts a task named `CHILD` (asleep for `start_after`, when given),
+/// and whose child answers at once; its tools are deferred as a daemon's are.
+fn task_rig(start_after: Option<&str>) -> crate::tests_tasks::Rig {
+    use crate::tests_tasks as tt;
+    let after = start_after.map(str::to_string);
+    tt::rig_deferring(
+        move |req| {
+            if tt::first_user(req).contains("CHILD") {
+                return Scripted::text("Drafted it.");
+            }
+            if tt::answers_a_call(req) {
+                return Scripted::text("Started.");
+            }
+            if tt::last_user(req).starts_with("START") {
+                let mut input = json!({"brief": "CHILD: draft the release notes",
+                                       "budget_usd": 1.5, "arrangement": tt::arranged()});
+                if let Some(a) = &after {
+                    input["start_after"] = json!(a);
+                }
+                return Scripted::tools("Starting.", &[("t_task", "task_create", input)]);
+            }
+            Scripted::text("ok")
+        },
+        |_| {},
+    )
+}
+
+/// The requests the model got from the task's own session.
+fn childs(r: &crate::tests_tasks::Rig) -> Vec<ProviderRequest> {
+    let all = r.model.requests.lock().unwrap();
+    all.iter()
+        .filter(|q| crate::tests_tasks::first_user(q).contains("CHILD"))
+        .cloned()
+        .collect()
+}
+
+fn names(q: &ProviderRequest) -> Vec<Value> {
+    q.tools.iter().map(|t| t["name"].clone()).collect()
+}
+
+/// The class, not the session kind (1/2): the turn the driver runs in a task's session has no
+/// person's input, so it is offered the tasks.
+#[tokio::test]
+async fn a_task_sessions_driver_turn_is_offered_the_tasks() {
+    use crate::tests_tasks as tt;
+    let r = task_rig(None);
+    let parent = tt::parent_session(&r.core);
+    tt::turn(&r.core, &parent, tt::ASK).await;
+    let task = tt::only_task(&r.core, &parent);
+    tt::until("the child's report", || {
+        tt::exec(&r.core, &task.id).state == theseus_kernel::ExecState::Complete
+    })
+    .await;
+    let driver = childs(&r).into_iter().next().expect("the driver's turn");
+    assert!(
+        offered(&driver, "task_create"),
+        "a driver-run turn is offered the tasks: {:?}",
+        names(&driver)
+    );
+}
+
+/// The class, not the session kind (2/2): a person's typed turn in a task's session is a person's
+/// and is offered no more than it was. A read of the session's kind (`tc.task`) would give this
+/// turn and the driver's the same answer.
+#[tokio::test]
+async fn a_task_sessions_typed_turn_is_a_persons() {
+    use crate::tests_tasks as tt;
+    let r = task_rig(Some("2s"));
+    let parent = tt::parent_session(&r.core);
+    tt::turn(&r.core, &parent, tt::ASK).await;
+    // The task is asleep until it is due, so a person's message is its session's first turn.
+    let task = tt::only_task(&r.core, &parent);
+    assert!(childs(&r).is_empty(), "no turn before it is due");
+    tt::turn(&r.core, &task.session_id, "CHILD: and the changelog too").await;
+    let typed = childs(&r).pop().expect("the typed turn ran");
+    assert!(
+        !offered(&typed, "task_create"),
+        "a typed turn is not offered the tasks: {:?}",
+        names(&typed)
+    );
+}
+
 const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"];
 const DM_PERSON_TOKENS: u64 = 9869;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
