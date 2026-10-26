@@ -253,9 +253,8 @@ impl Tool for TaskCreate {
          reaches the person at once, and you read it at this conversation's next turn. With \
          `wake_parent: true`, the report starts that turn by itself, so you can review the result \
          and start the next task of a chain; leave it off for work the person will ask about. A \
-         task may start tasks of its own, down to `[kernel] task_depth` levels (10); each \
-         child's brief names the root goal and the chain above it, and a brief that repeats an \
-         ancestor's is refused as a cycle. For work on a day that needs judgment, give `start_after` or \
+         task may start tasks too. \
+         For work on a day that needs judgment, give `start_after` or \
          `start_at`: the task sleeps, its budget is carved now, and it starts then; a reminder \
          to the owner is a `wake_at` instead.\n\n\
          Every task needs an `arrangement`: quote the messages of this conversation that define \

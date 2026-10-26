@@ -309,6 +309,11 @@ fn cfg(p: &SimParams, spend_limit_micros: Micros) -> KernelConfig {
         // The day ceiling's default: far above what a run spends.
         daily_ceiling_micros: theseus_kernel::day_ceiling::DEFAULT_CEILING_MICROS,
         spend_hard_multiple: theseus_kernel::default_hard_multiple(),
+        // One level of tasks, so a task's open is refused within a short run.
+        // At 2 the carve invariant fails: a grandchild's spend and release reach
+        // its parent but not the conversation above it (`carry_to_parent` is
+        // one level; theseus-tecj5's report has the seed).
+        task_depth_limit: 1,
         // The stop mode, no burn-rate line: the run's spends are small.
         ..KernelConfig::default()
     }
