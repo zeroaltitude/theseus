@@ -1013,6 +1013,32 @@ fn take_reports_of_leaves_a_running_task_and_writes_nothing_when_none_ended() {
     assert!(exec(&w, &parent.id).reports.is_empty());
 }
 
+/// A wait names its turn by number, so a number that is not the execution's
+/// running turn's takes nothing and writes nothing (the stack review's N7): a
+/// wait that outlived its turn cannot bind nodes to a finished one.
+#[test]
+fn take_reports_in_turn_refuses_a_turn_that_is_not_the_running_one() {
+    let w = world();
+    let (parent, g, ts) = with_tasks(&w, 1, false);
+    finish(&w, &ts[0].id);
+    let before = w.kernel.store().last_position();
+    for stale in [g.turn - 1, g.turn + 1] {
+        let refused = w
+            .kernel
+            .take_reports_in_turn(&parent.id, stale, &[ts[0].id.clone()], |_| {
+                panic!("nothing to build")
+            });
+        assert!(refused.is_err(), "turn {stale} is not the running turn");
+    }
+    assert_eq!(w.kernel.store().last_position(), before, "nothing written");
+    assert_eq!(exec(&w, &parent.id).reports, vec![ts[0].id.clone()]);
+    let taken = w
+        .kernel
+        .take_reports_in_turn(&parent.id, g.turn, &[ts[0].id.clone()], |_| Ok(vec![]))
+        .unwrap();
+    assert_eq!(taken.ids, vec![ts[0].id.clone()]);
+}
+
 /// A taken report's wake goes with it, so the parent is not queued for a turn
 /// with nothing to read; the wake of a report not named stays, with its turn.
 #[test]

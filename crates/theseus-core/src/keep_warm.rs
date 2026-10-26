@@ -182,6 +182,7 @@ impl KeepWarm {
     /// person wrote in is held; the tender is woken for the next due read.
     pub fn turn_ended(&self, session_id: &str) {
         self.waits.lock().unwrap().remove(session_id);
+        self.rooms.lock().unwrap().remove(session_id);
         if let Some(k) = self.sessions.lock().unwrap().get_mut(session_id) {
             k.call_at = Instant::now();
             self.wake.notify_one();

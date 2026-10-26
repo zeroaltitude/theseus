@@ -1338,6 +1338,7 @@ impl TurnRunner {
             self.draft_ended(&failure_sink.session_id).await;
         }
         self.keep_warm.turn_ended(&failure_sink.session_id);
+        clock_step::turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {
             self.judge.after_turn(res, task_of.is_some());
             self.pass.after_turn(res);

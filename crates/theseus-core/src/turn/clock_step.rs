@@ -138,6 +138,12 @@ fn in_force_set(session: &str, deadline: Option<Deadline>) {
     };
 }
 
+/// `session`'s turn ended: its deadline is no longer in force, so a later wait
+/// of the session never clamps to a stale one.
+pub(super) fn turn_ended(session: &str) {
+    in_force_set(session, None);
+}
+
 /// How long `session`'s running turn has left, when it has a deadline.
 pub fn left_in_force(session: &str) -> Option<Duration> {
     let map = IN_FORCE.lock().unwrap_or_else(PoisonError::into_inner);
@@ -241,6 +247,18 @@ mod tests {
         assert_eq!(take_deadline("ses_clock_c", later), None);
         assert!(take_deadline("ses_clock_c", now).is_some());
         assert_eq!(take_deadline("ses_clock_c", now), None, "taken");
+    }
+
+    /// A turn's end clears the deadline in force, so a later wait of the session
+    /// never clamps to it (the stack review's N10).
+    #[test]
+    fn a_turns_end_clears_the_deadline_in_force() {
+        let now = Instant::now();
+        set_deadline("ses_clock_e", now, Some(600));
+        assert!(take_deadline("ses_clock_e", now).is_some());
+        assert!(left_in_force("ses_clock_e").is_some());
+        turn_ended("ses_clock_e");
+        assert_eq!(left_in_force("ses_clock_e"), None);
     }
 
     #[test]

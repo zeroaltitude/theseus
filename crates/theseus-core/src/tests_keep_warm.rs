@@ -566,3 +566,14 @@ async fn a_restricted_target_is_never_kept_warm() {
     assert!(matches!(out, Outcome::Read { .. }), "{out:?}");
     assert_eq!(reads(&fake).len(), 1);
 }
+
+/// A turn's end drops the room it recorded for a task wait, so a session's
+/// entry does not outlive its turn (the stack review's N10).
+#[test]
+fn a_turns_end_forgets_the_room_a_wait_recorded() {
+    let k = crate::keep_warm::KeepWarm::default();
+    k.set_room("ses_room", 40_000, 200_000);
+    assert_eq!(k.room("ses_room"), Some((40_000, 200_000)));
+    k.turn_ended("ses_room");
+    assert_eq!(k.room("ses_room"), None);
+}

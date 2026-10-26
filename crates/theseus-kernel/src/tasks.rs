@@ -352,6 +352,15 @@ impl Kernel {
         let mut e = self
             .execution(execution_id)?
             .ok_or_else(|| KernelError::UnknownExecution(execution_id.clone()))?;
+        // A wait names its turn by number, not by guard: it takes nothing for
+        // a turn that is no longer this execution's running one.
+        if via.is_some() && e.turns != turn {
+            return Err(KernelError::NoTurn {
+                id: e.id.clone(),
+                state: e.state.as_str(),
+            }
+            .into());
+        }
         if e.reports.is_empty() && e.report_wakes.is_empty() {
             return Ok(TakenReports::default());
         }
