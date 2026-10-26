@@ -9,6 +9,10 @@
 
 pub(crate) mod notice;
 pub use notice::NOTICE_KEY;
+pub(crate) mod outcomes;
+pub use outcomes::Outcomes;
+#[cfg(test)]
+mod tests_digest;
 #[cfg(test)]
 mod tests_notice;
 
@@ -25,7 +29,7 @@ use crate::rpc::Core;
 /// A week.
 pub const WEEK_MS: u64 = 7 * 86_400_000;
 
-/// The most rows a digest reads, and the most changes it lists one by one.
+/// The most ledger rows a digest reads, and the most log entries it lists one by one.
 const MAX_ROWS: usize = 2_000;
 const LISTED: usize = 40;
 
@@ -51,11 +55,17 @@ impl Core {
         let (since, until) = week_of(p.until_ms.unwrap_or_else(theseus_protocol::now_unix_ms));
         let (rows, more, building) =
             super::log::read(&self.store, Some(since), Some(until), MAX_ROWS)?;
-        let mut text = digest_text(&rows, since, until, &self.self_state());
+        // The outcomes are read whole, not from the capped page above.
+        let outcomes =
+            match super::join::rows_of(&self.store, &["self.branch.built", "self.joined"])? {
+                Some(all) => Outcomes::of_rows(&all, since, until),
+                None => Outcomes::default(),
+            };
+        let mut text = digest_text(&rows, &outcomes, more, since, until, &self.self_state());
         if more {
             text.push_str(&format!(
-                "\n(Read the first {MAX_ROWS} changes of the week: `theseus self log` pages \
-                 the rest.)"
+                "\n(Read the newest {MAX_ROWS} ledger rows of the week; there are more, so every \
+                 count of rows above is a floor. `theseus self log` pages the rest.)"
             ));
         }
         if building {
@@ -199,8 +209,18 @@ pub fn line(r: &SelfLogRow) -> String {
     l
 }
 
-/// The week's text from its rows, newest first.
-pub fn digest_text(rows: &[SelfLogRow], since: u64, until: u64, state: &SelfState) -> String {
+/// The week's text: the outcomes first (exact, from their own rows), then
+/// the ledger rows read, which are bookkeeping and are called what they are.
+/// `capped` is whether the read stopped at [`MAX_ROWS`]: every count of rows
+/// is then a floor, and says so.
+pub fn digest_text(
+    rows: &[SelfLogRow],
+    outcomes: &Outcomes,
+    capped: bool,
+    since: u64,
+    until: u64,
+    state: &SelfState,
+) -> String {
     let mut out = format!(
         "What Theseus changed about itself this week ({} to {})\n",
         date(since),
@@ -214,19 +234,13 @@ pub fn digest_text(rows: &[SelfLogRow], since: u64, until: u64, state: &SelfStat
         },
         if state.halted { "halted" } else { "running" }
     ));
-    if rows.is_empty() {
+    if rows.is_empty() && outcomes.is_empty() {
         out.push_str("Nothing changed.\n");
         return out;
     }
-    let mut counts: BTreeMap<&str, u64> = BTreeMap::new();
-    for r in rows {
-        *counts.entry(r.kind.as_str()).or_default() += 1;
-    }
-    let counts: Vec<String> = counts.iter().map(|(k, n)| format!("{n} {k}")).collect();
-    out.push_str(&format!("{} changes: {}.\n", rows.len(), counts.join(", ")));
     // From 0.0: an empty f64 sum is -0.0, which prints "$-0.00".
     let cost: f64 = rows.iter().map(cost_of).fold(0.0, |a, c| a + c);
-    out.push_str(&format!("Cost: ${cost:.2}.\n"));
+    out.push_str(&outcomes.lines(cost, capped));
     for (title, kinds) in [
         (
             "Joins",
@@ -246,14 +260,27 @@ pub fn digest_text(rows: &[SelfLogRow], since: u64, until: u64, state: &SelfStat
             }
         }
     }
-    out.push_str("Every change, newest first:\n");
+    // Bookkeeping, below the outcomes: ledger rows are not work done.
+    let mut counts: BTreeMap<&str, u64> = BTreeMap::new();
+    for r in rows {
+        *counts.entry(r.kind.as_str()).or_default() += 1;
+    }
+    let counts: Vec<String> = counts.iter().map(|(k, n)| format!("{n} {k}")).collect();
+    let floor = if capped { "at least " } else { "" };
+    out.push_str(&format!(
+        "Ledger rows read (bookkeeping, not work done): {floor}{}: {}.\n",
+        rows.len(),
+        counts.join(", ")
+    ));
+    out.push_str("Log entries, newest first:\n");
     for r in rows.iter().take(LISTED) {
         out.push_str(&line(r));
         out.push('\n');
     }
     if rows.len() > LISTED {
         out.push_str(&format!(
-            "and {} more: `theseus self log --since 7d`.\n",
+            "and {}{} more: `theseus self log --since 7d`.\n",
+            if capped { "at least " } else { "" },
             rows.len() - LISTED
         ));
     }
