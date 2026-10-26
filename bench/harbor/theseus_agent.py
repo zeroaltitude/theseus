@@ -5,7 +5,8 @@
 
 with this directory on PYTHONPATH, THESEUS_BENCH_BIN_DIR naming a directory
 that holds static `theseus` and `theseusd` (`bench/build.sh`), and the model's
-key in ANTHROPIC_API_KEY. bench/README.md has the rest.
+key in its provider's variable (ANTHROPIC_API_KEY; `tb.PROVIDERS` names the
+others', which a human sets). bench/README.md has the rest.
 
 - **install** first adds the packages Harbor's Claude Code installer adds
   (`SYSTEM_PACKAGES`: curl, bash, nodejs, npm, procps), then uploads the two
@@ -15,8 +16,10 @@ key in ANTHROPIC_API_KEY. bench/README.md has the rest.
   trial's model, limits, and working directory, then runs one
   `theseus --spawn theseusd --json ask` (theseus-n88g.2): one turn, every
   loop until the model ends it, and a clean stop of its daemon. The key
-  reaches the daemon only as ANTHROPIC_API_KEY in the exec's environment,
-  which the profile names as `env:ANTHROPIC_API_KEY` (theseus-n88g.1).
+  reaches the daemon only as its provider's variable in the exec's environment
+  (ANTHROPIC_API_KEY for Anthropic, `tb.PROVIDERS[...]["key_env"]` for a `-m
+  <provider>/<model>` of another), which the profile names as `env:<NAME>`
+  (theseus-n88g.1, theseus-fhwo7). An unknown provider raises.
   `ask`'s exit code says how the turn ended; one that the model did not end
   is raised as the matching error below, so Harbor's results say why, and
   the verifier still runs.
@@ -186,9 +189,8 @@ class Theseus(BaseInstalledAgent):
     async def run(
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
     ) -> None:
-        provider, _, model = (self.model_name or "anthropic/claude-sonnet-5-5").rpartition("/")
-        if provider not in ("", "anthropic"):
-            raise ValueError(f"the bench profile runs Anthropic models, not {self.model_name}")
+        provider, model = tb.split_model(self.model_name)
+        anthropic = provider == tb.ANTHROPIC_PROVIDER
         workdir = (await environment.exec(command="pwd")).stdout.strip() or "/app"
         access = self.model_connection
         system_file = os.environ.get("THESEUS_BENCH_SYSTEM_FILE")
@@ -204,7 +206,8 @@ class Theseus(BaseInstalledAgent):
             ),
             proc_sync_secs=int(os.environ.get("THESEUS_BENCH_PROC_SYNC", "900")),
             system=Path(system_file).read_text().strip() if system_file else None,
-            api_base=access.configured_base_url,
+            api_base=access.configured_base_url if anthropic else None,
+            provider=provider,
             routed=self.routed,
             effort_bounds=self.effort_bounds,
             end_note=self.end_note,
@@ -219,7 +222,7 @@ class Theseus(BaseInstalledAgent):
             environment, content=config, remote_path=CONFIG, filename="theseus.toml"
         )
         env = {
-            "ANTHROPIC_API_KEY": access.api_key or "",
+            tb.key_env(provider): (access.api_key if anthropic else os.environ.get(tb.key_env(provider))) or "",
             "THESEUS_CONFIG": CONFIG,
             "THESEUS_STATE_DIR": STATE,
             "THESEUS_LOG": "info",
