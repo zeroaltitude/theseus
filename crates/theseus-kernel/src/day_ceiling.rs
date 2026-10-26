@@ -40,8 +40,11 @@
 //!   rows of today (`seed`, read by the core), so it never resets the day.
 //! - **Only model spend counts**: a provider call's reservation (never an AWS
 //!   hand's), and what the core books for its own calls. A task's cost is its
-//!   own call's, counted once: carrying it to its parent's budget adds
-//!   nothing here.
+//!   own call's, counted once in the day's total: carrying it to its
+//!   parent's budget adds nothing to `spent`. The burn window is the other
+//!   count (theseus-o1h3f.5): a settled cost fills the window of its
+//!   execution and of each ancestor, so a fan-out's helpers, each a window
+//!   of their own, still reach their parent's line together.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -68,6 +71,10 @@ pub const DEFAULT_BURN_MICROS: Micros = 200 * MICROS_PER_USD;
 
 /// The burn-rate window: ten minutes.
 pub const BURN_WINDOW_MS: u64 = 10 * 60 * 1000;
+
+/// How many executions above one its settled cost reaches in their burn
+/// windows: far more than the depth tasks allow (one), a bound for a cycle.
+const BURN_ANCESTORS: usize = 8;
 
 /// The counter. Shared by every view of a kernel.
 pub struct DayCeiling {
@@ -621,6 +628,22 @@ impl DayCeiling {
         (spent >= line).then_some(BurnStop { spent, line })
     }
 
+    /// How many settles `execution`'s ring holds (a test's view).
+    #[cfg(test)]
+    pub(crate) fn burn_len(&self, execution: &str) -> usize {
+        let m = self.burn.lock().unwrap_or_else(PoisonError::into_inner);
+        m.get(execution).map_or(0, VecDeque::len)
+    }
+
+    /// How many executions have a ring (a test's view).
+    #[cfg(test)]
+    pub(crate) fn burn_rings(&self) -> usize {
+        self.burn
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
+    }
+
     /// The owner resumed `execution`: its window starts empty.
     pub fn burn_clear(&self, execution: &str) {
         self.burn
@@ -769,6 +792,29 @@ impl Kernel {
         }
     }
 
+    /// The executions above `execution_id`, nearest first, whose burn window
+    /// its settled cost also fills (theseus-o1h3f.5): a helper's spend is
+    /// its parent's, and so on up to the conversation. Plain store reads,
+    /// which take no execution's lock (an execution's parent never changes),
+    /// so this is sound under the locks a transaction's commit still holds.
+    /// At most [`BURN_ANCESTORS`] steps and never one execution twice, so a
+    /// corrupt store's cycle ends.
+    fn burn_ancestors(&self, execution_id: &str) -> Vec<String> {
+        let mut seen = vec![execution_id.to_string()];
+        let mut at = execution_id.to_string();
+        while seen.len() <= BURN_ANCESTORS {
+            let Some(up) = self.execution(&at).ok().flatten().and_then(|e| e.parent) else {
+                break;
+            };
+            if seen.contains(&up) {
+                break;
+            }
+            seen.push(up.clone());
+            at = up;
+        }
+        seen.split_off(1)
+    }
+
     pub(crate) fn apply_day(&self, effects: impl IntoIterator<Item = Effect>) {
         let now = self.now_ms();
         for e in effects {
@@ -781,6 +827,9 @@ impl Kernel {
                 } => {
                     let cost = self.ceiling.settle(now, &id, reserved, actual);
                     self.ceiling.burn_record(now, &execution_id, cost);
+                    for up in self.burn_ancestors(&execution_id) {
+                        self.ceiling.burn_record(now, &up, cost);
+                    }
                 }
                 Effect::Book(cost) => self.ceiling.book(now, cost),
             }
