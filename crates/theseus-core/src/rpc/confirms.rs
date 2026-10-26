@@ -572,9 +572,15 @@ impl Core {
                 next = next.min(due);
                 continue;
             }
-            // Past a routine run's deadline the run ends blocked instead,
-            // naming the tool: the tick cancels it (`routines_tick`).
+            // Past a routine run's deadline the call is dropped with a notice
+            // and the run goes on, or returns to its schedule (`routines_tick`).
             if self.queue_if_routine(a) {
+                continue;
+            }
+            // A call's question is told about and held, never declined
+            // (theseus-v2dnc): the next notice is a life later.
+            if super::question_waits::held_past_life(a) {
+                next = next.min(self.question_waits_or_soon(a, ttl, now));
                 continue;
             }
             match self.expire_question(a, ttl) {
@@ -609,12 +615,19 @@ impl Core {
             self.answer_promotion(a, false, Some(&why), EXPIRY, EXPIRY)?;
             return Ok(());
         }
+        let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
+        self.decline_expired(a, ttl_ms, &why)
+    }
+
+    /// A call declined by expiry with `why` (the model reads `Not run: <why>,
+    /// so the request expired`): the frame, the wake, the announce and the
+    /// card's settle. A routine's run uses it to drop a call outside its grant.
+    pub(super) fn decline_expired(&self, a: &Action, ttl_ms: u64, why: &str) -> Result<()> {
         let fact = fact::answer::QuestionExpired {
             action: a,
             waited_ms: ttl_ms,
         };
         let row = fact::row(&fact, Some(&a.session_id), None)?;
-        let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
         // An expired layer-1 change clears its proposal in this frame, as a
         // decline does, under the task's lock (theseus-ext.10).
         let task_lock = crate::task_graph::tools::lock_for_answer(&self.store, a);
@@ -627,7 +640,7 @@ impl Core {
             if let Some((records, _)) = &cleared {
                 k.stage(records)?;
             }
-            k.decline_action(&a.correlation_id, EXPIRY, &why)?;
+            k.decline_action(&a.correlation_id, EXPIRY, why)?;
             k.stage(std::slice::from_ref(&row))?;
             // The wake is its own part, as an answer's: one that cannot
             // happen (the execution ended) takes back nothing else.

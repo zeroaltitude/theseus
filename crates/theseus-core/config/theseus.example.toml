@@ -79,12 +79,13 @@ total_secs = 600                        # a call before its stream begins; a liv
 
 # A call that fails with a class that passes with time (timeout, network,
 # rate_limited, overloaded, server, stream, truncated) can be made again
-# inside its turn instead, after a wait that doubles each time. Leave it at 0
-# here: the driver's retry, with its notice, serves a daemon you talk to. A
+# inside its turn, after a wait that doubles each time: a 429 or a 503 is asked
+# again before the turn gives up. Set it to 0 to leave every retry to the
+# driver, whose retry, with its notice, serves a daemon you talk to. A
 # headless run (`theseus --spawn theseusd ask`) ends with its turn, so it
 # gets no later retry; the bench profile sets it.
 [model.retries]
-transient = 0                           # retries inside a turn; 0: none
+transient = 2                           # retries inside a turn; 0: none
 backoff_ms = 2000                       # the wait before the first one
 backoff_max_ms = 30000                  # the longest one wait
 # A request the model refuses is made once more on its catalog entry's
@@ -492,7 +493,7 @@ daily_notice_step_usd = 200.0           # under notify, one warning at the ceili
 runaway_usd_per_10min = 200.0           # a session whose settled spend in ten minutes reaches this pauses and asks you to resume (0: never)
 heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue actions, spool drain
 default_deadline_secs = 600             # deadline for an action whose tool declares none
-confirm_ttl_secs = 900                  # how long a call waits for your answer: then it expires, not run, and its card says so; and how long an approval stays valid
+confirm_ttl_secs = 900                  # how long a call waits for your answer before you are told, quietly, and again each further span: it stays pending, never cancelled
 min_repeat_minutes = 5                  # the shortest span a repeating wake (wake.at with `every`) may take; at least 1
 task_lease_minutes = 30                 # a task claim's lease (task.claim): the holder's edits renew it, and past it the task is free; at least 1
 max_wake_ahead_days = 365               # the furthest ahead a wake, a reminder or a deferred task may be set; at least 1
@@ -533,7 +534,7 @@ fan_in_chars = 36000                    # the most characters of task reports on
 parallel_runs = 16                      # the most programs of one response that run at once, each its own job (the rest wait for a slot); one response's programs run together unless they share a terminal, an MCP server, a file name in their argvs, or an operand (a service, container, host, port, directory)
 parallel_reads = 32                     # the most reads of one response that run at once (the rest wait for a slot, the results in order)
 parallel_writes = 16                    # the most writes, to different paths, of one response that run at once
-proc_timeout_secs = 600                 # default proc.run timeout
+proc_timeout_secs = 3600                # default proc.run timeout, when a call names none
 proc_timeout_max_secs = 3600            # ceiling a call may ask for
 proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME", "RUSTUP_HOME"]  # the ONLY variables a job sees
 job_output_max_bytes = 67108864         # a job's raw output file keeps at most this much (64 MiB); past it the job runs on, and its result says how much was dropped
@@ -1307,7 +1308,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # default_run_usd = 0.50                  # the most one run may spend, when a routine names none
 # default_month_usd = 10                  # a routine's month, reset on the 1st (local), when it names none
 # max_routines = 50                       # live routines at once
-# run_deadline_secs = 900                 # how long a run's question outside its grant waits before the run ends blocked
+# run_deadline_secs = 900                 # how long a run's question outside its grant waits before the call is dropped and the run goes on without it
 
 # ---------------------------------------------------------------- watches
 # Waiting on the world with no model (theseus-f2r2b): `theseus watch-for add "PR 123

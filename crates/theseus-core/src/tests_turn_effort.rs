@@ -198,7 +198,10 @@ async fn a_400_on_the_messages_asks_again_without_them_and_remembers() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
     effort(&jev, "low", 0.95);
-    let r = rig(Some(&jev), 0, |c| c.model.live = "fable".into());
+    let r = rig(Some(&jev), 0, |c| {
+        c.model.live = "fable".into();
+        c.cache.keep_warm_min_tokens = 30_000;
+    });
     {
         let mut s = r.claude.script.lock().unwrap();
         s.push_back(Scripted::Fail(crate::provider::ProviderError::InvalidRequest {

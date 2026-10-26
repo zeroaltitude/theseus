@@ -544,7 +544,7 @@ fn default_proc_sync_secs() -> u64 {
     60
 }
 fn default_proc_timeout_secs() -> u64 {
-    600
+    3600
 }
 fn default_proc_timeout_max_secs() -> u64 {
     3600
@@ -835,8 +835,9 @@ pub struct KernelSection {
     /// Deadline for an action whose tool declares none.
     #[serde(default = "default_deadline_secs")]
     pub default_deadline_secs: u64,
-    /// How long a call's question waits for an answer before it expires,
-    /// not run (theseus-830), and how long an approval stays valid.
+    /// How long a call's question waits before the owner is told, once, and
+    /// again each further life: it stays pending, never expired (theseus-v2dnc).
+    /// A proposed extension's ack and a pack's promotion still expire.
     #[serde(default = "default_confirm_ttl_secs")]
     pub confirm_ttl_secs: u64,
     /// The shortest span a repeating wake may take, in minutes (37a): a
@@ -1200,9 +1201,10 @@ pub struct ModelConfig {
 
 /// `[model.retries]` (theseus-7gir.21): a call that fails with a class that
 /// passes with time is made again inside its turn, after a backoff that
-/// doubles each time, at most `transient` times. 0, the default: none; the
-/// turn fails and the session's driver retries it later (theseus-ljr), as an
-/// operator's daemon does. For a headless run, which ends with its turn.
+/// doubles each time, at most `transient` times. 2, the default: a 429 or a
+/// 503 is made again inside its turn, where the model can still answer it. 0:
+/// none; the turn fails and the session's driver retries it later
+/// (theseus-ljr). A headless run ends with its turn, so it has no later retry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Retries {
@@ -1230,7 +1232,7 @@ fn default_backoff_max_ms() -> u64 {
 impl Default for Retries {
     fn default() -> Self {
         Self {
-            transient: 0,
+            transient: 2,
             backoff_ms: default_backoff_ms(),
             backoff_max_ms: default_backoff_max_ms(),
             refusal: true,

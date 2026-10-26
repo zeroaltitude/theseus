@@ -21,7 +21,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   stop read under the frame's lock, the wake nested so its failure takes back only itself. A failed turn's retry is
   the driver's (theseus-ljr), but not a `--stdio` daemon's: its run parks the turn on input for its one client
   (`turn/stdio_step.rs`, set by theseusd before serving, theseus-zqxv); `[model.retries]` can make a transient
-  failure's call again inside its turn instead (`turn/retry_step.rs`, none by default; a call cut at its whole-call bound is retried once a turn at most; the bench profile's, since a
+  failure's call again inside its turn instead (`turn/retry_step.rs`, 2 by default; a call cut at its whole-call bound is retried once a turn at most; the bench profile's, since a
   headless run ends with its turn: theseus-7gir.21). Provider timeouts: `total_secs` bounds a call until its stream
   begins; a live stream (events within `stream_idle_secs`) goes on to `Timeouts::whole_call`, `LIVE_STREAM_TOTALS` (3) times
   it, and the model call's kernel action deadline is the same (theseus-5pg8u). Once the stop has begun (`Outbox::stopping`), the driver begins
@@ -704,7 +704,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `guess` and the `thread.routed` row counts it (`timed_out`). **The misroute guard** (`toolrun/misroute.rs`, armed by
   `arm_guard` for a placement below the act bar only): the session's first write or `proc.run` outside the thread's
   working-set roots (a relative one read under the session's directory, `cwd_for`, the one the working set grew it in)
-  is held through the Approve posture, once; a `proc.run` from a directory above the roots (the session's directory)
+  goes on once at the notify posture with a one-line notice (path, thread, the next likeliest thread, `Undo: files.restore <path>`; a stricter decision is kept; theseus-g85jy); a `proc.run` from a directory above the roots (the session's directory)
   decides nothing, and the next write or program does. **Recovery** (`rpc/thread_move.rs`): `/move`, `theseus thread
   move`, or "that was for …" writes a redirect note in the wrong thread, re-submits the message once to the right
   one, and writes a correction (a `wrong thread` label on the `thread` question, and `Steer::Thread` in the correction
@@ -1343,7 +1343,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `<state>/self/trees/<slug>`, branch `self/<date>-<slug>`, build tree `<state>/self/target/<slug>`), `gate` (main's
   `scripts/gate.sh` blob copied to `<state>/self/gates/` and run with `THESEUS_GATE_ROOT`, so the tree's own copy judges
   nothing; nice 19 and `ionice -c 3`, `THESEUS_GATE_NO_BENCH=1`, no compiler wrapper, no `THESEUS_*`; main's
-  `scripts/may-build.sh` asked first when main has one), `push` (`refs/heads/self/*` only, never forced, after the
+  `scripts/may-build.sh` asked first when main has one, and waited on for as long as it says no, one quiet FYI notice
+  to the owner every 30 minutes carrying the rule's last line — `MAY_BUILD_WAIT` is that notice's interval, not a
+  deadline, and neither a stop nor a halt lands until the wait ends, `theseus-rexxp`; a gate stopped at `GATE_LIMIT`
+  names the phase it was in, which at L0 is its log's last `gate: ` line), `push` (`refs/heads/self/*` only, never forced, after the
   daemon's scrubber over every added line and message, and main's `scripts/scrub.sh` when there is one), `close`.
   `self.propose_change { item, issue, why }` is registered only under `[self] mode = "act"`, runs only for an
   execution whose principal is `"self"`, and asks `rsi::gate` between phases: the first call opens the tree (which

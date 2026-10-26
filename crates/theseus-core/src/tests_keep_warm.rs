@@ -242,7 +242,7 @@ async fn none_for_a_task_a_shared_place_or_a_small_prefix() {
         assert!(matches!(got, Outcome::Forgotten(_)), "{sid}: {got:?}");
     }
     let mut c = one_hour(24);
-    c.cache.keep_warm_min_tokens = 20_000;
+    c.cache.keep_warm_min_tokens = 30_000;
     let dir2 = tempfile::tempdir().unwrap();
     let (small, fake2) = build(dir2.path(), c);
     let sid = session(&small, SessionKind::Conversation, None);

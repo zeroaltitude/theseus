@@ -336,7 +336,27 @@ export const HARNESSES: readonly Harness[] = [
   { key: 'opencode', name: 'OpenCode', slot: null },
   { key: 'openhands', name: 'OpenHands', slot: null },
 ]
-export const harness = (key: string): Harness => HARNESSES.find((h) => h.key === key) ?? { key, name: key, slot: null }
+
+/** The arm a summary key belongs to: Theseus's variants (`theseus-routed`, `theseus-68`) are one arm; the rest are
+ *  their own. Mirrors `family()` in `bench/report/manifest.py`; `test/bench.test.ts` holds the two to the same answers. */
+export function family(key: string): string {
+  return key === 'theseus' || key.startsWith('theseus-') ? 'theseus' : key
+}
+
+/** A key's arm: its name and palette slot come from its family (so `theseus-routed` is Theseus, slot 0), except that a
+ *  key `HARNESSES` lists itself (`theseus-batching`, the paragraph ablation) is its own arm. The raw `key` is kept, so a
+ *  tip can still say which variant a point was. */
+export const harness = (key: string): Harness => {
+  const own = HARNESSES.find((h) => h.key === key) ?? HARNESSES.find((h) => h.key === family(key))
+  return own ? { ...own, key } : { key, name: key, slot: null }
+}
+
+/** The placed points that are Theseus's, under any of its keys (the Verdict's subject). */
+export const theseusOf = (placed: readonly Placed[]): Placed[] => placed.filter((p) => family(p.point.harness) === 'theseus')
+
+/** Whether a point's name is drawn on the chart: the frontier's, any arm with no palette slot (it is told by name, not
+ *  colour), and Theseus's whether or not it is dominated. A dominated name is drawn in the muted ink by the view. */
+export const showsName = (p: Placed): boolean => p.frontier || harness(p.point.harness).slot === null || family(p.point.harness) === 'theseus'
 
 /** A note from a report's words: what it says, and the exact phrase of the report it rests on (held by a test). */
 export interface Note { text: string; report: string; quote: string }
@@ -360,7 +380,7 @@ export type SetId = (typeof SET_IDS)[number]
 
 /** A task set: one report's per-trial table, the trials of it that ran the same tasks, and how its rows read. */
 export interface TaskSet {
-  id: SetId; label: string; short: string; report: string
+  id: string; label: string; short: string; report: string
   /** What the task set is, in a line. */
   about: string
   /** The trials of the table in this set. */
@@ -378,11 +398,14 @@ export interface TaskSet {
   notes: Record<string, Record<string, Note[]>>
   /** Each harness's effort in this set's runs, where it is not `EFFORT`'s (the first full run's). */
   effort?: Record<string, Note>
+  /** The axes it opens on, for a set a dataset's `ui` block made; the built-ins' are `DEFAULT_AXES`. */
+  axes?: [string, string]
 }
 
 const ABLATION: Note = { text: 'a prompt ablation, never shipped', report: TB2, quote: 'B is reported here once, as an ablation, and was never shipped.' }
 const EFFORT_DIFFERS: Note = { text: 'Effort: Theseus sent none (the API’s default is high); Claude Code ran per-turn effort at a level not recorded.', report: TB2, quote: 'And the arms may not have thought at the same effort' }
 
+/** The five hand-written task sets; a dataset's own `ui` block makes the rest (`setsFrom`). */
 export const TASK_SETS: readonly TaskSet[] = [
   {
     id: 'tb2', label: 'Terminal-Bench 2.0, all 89 tasks × 2 attempts', short: 'Terminal-Bench 2.0 · 89 tasks', report: TB2,
@@ -509,6 +532,44 @@ export const TASK_SETS: readonly TaskSet[] = [
   },
 ]
 
+// ---------------------------------------------------------------- task sets from a dataset's own `ui` block (theseus-tyv41)
+
+/** A dataset (`docs/benchmarks/<report>.json`) may carry a top-level `ui` block: `{ set_id, label, short, about,
+ *  default_axes: [x, y], conditions: [{text, quote}], versions: {arm: {run: {text, quote}}}, notes, effort }`. A new
+ *  run then reaches the page with no UI change: capture writes the dataset, and the set appears. A block that is not
+ *  one (no string `set_id`, `label`, `short` or `about`, or a set id a built-in holds) makes no set. The dataset's
+ *  table is `<report>.csv`, read as the built-ins' are: a point is an arm, its `arm` column the key. */
+export function setsFrom(datasets: readonly { report: string; ui?: unknown }[]): TaskSet[] {
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+  const str = (v: unknown): v is string => typeof v === 'string' && v !== ''
+  const out: TaskSet[] = []
+  for (const { report, ui } of datasets) {
+    if (!isObj(ui) || !str(ui.set_id) || !str(ui.label) || !str(ui.short) || !str(ui.about)) continue
+    const id = ui.set_id
+    if (TASK_SETS.some((t) => t.id === id) || out.some((t) => t.id === id)) continue
+    const note = (v: unknown): Note | undefined => (isObj(v) && str(v.text) && str(v.quote) ? { text: v.text, report, quote: v.quote } : undefined)
+    const notes = (v: unknown): Note[] => (Array.isArray(v) ? v.map(note).filter((n): n is Note => !!n) : [])
+    const byArm = <T,>(v: unknown, one: (x: unknown) => T | undefined): Record<string, Record<string, T>> =>
+      Object.fromEntries(Object.entries(isObj(v) ? v : {}).map(([arm, runs]) => [arm, Object.fromEntries(Object.entries(isObj(runs) ? runs : {})
+        .map(([run, x]) => [run, one(x)] as const).filter((e): e is [string, T] => e[1] !== undefined))]))
+    const axes = Array.isArray(ui.default_axes) && ui.default_axes.length === 2 && ui.default_axes.every((a) => typeof a === 'string' && !!property(a))
+      && ui.default_axes[0] !== ui.default_axes[1] ? [ui.default_axes[0], ui.default_axes[1]] as [string, string] : undefined
+    out.push({
+      id, label: ui.label, short: ui.short, about: ui.about, report,
+      keep: () => true, arm: (r) => r.arm, run: () => ({ id, label: ui.short as string }),
+      conditions: (Array.isArray(ui.conditions) ? ui.conditions : []).map(note).filter((n): n is Note => !!n),
+      versions: byArm(ui.versions, note) as Record<string, Record<string, Note>>,
+      notes: byArm(ui.notes, notes) as Record<string, Record<string, Note[]>>,
+      effort: Object.fromEntries(Object.entries(isObj(ui.effort) ? ui.effort : {}).map(([a, n]) => [a, note(n)] as const).filter((e): e is [string, Note] => !!e[1])),
+      axes,
+    })
+  }
+  return out
+}
+
+/** The sets a page offers, newest runs first: those datasets made, then the five built-ins. */
+export const allSets = (datasets: readonly { report: string; ui?: unknown }[]): TaskSet[] => [...setsFrom(datasets), ...TASK_SETS]
+
 // ---------------------------------------------------------------- properties
 
 export type Better = 'higher' | 'lower'
@@ -577,6 +638,16 @@ export const property = (id: string): Property | undefined => PROPERTIES.find((p
 /** Each task set's axes when the address names none: the question its report asked first. */
 export const DEFAULT_AXES: Record<SetId, [string, string]> = {
   tb2: ['usd', 'pass'], fixgit: ['rss', 'usd'], worth: ['usd', 'agent-s'], async: ['respond-s', 'usd'], arms: ['usd', 'pass'],
+}
+
+/** What a generated set opens on when its `ui` block names no usable axes: the question every harness table answers. */
+export const FALLBACK_AXES: [string, string] = ['usd', 'pass']
+
+/** A set's opening axes: a generated set's own (`ui.default_axes`), else a built-in's exhaustive `DEFAULT_AXES` row
+ *  (so a built-in without one is still a build error), else the explicit `FALLBACK_AXES`. */
+export function axesOf(set: TaskSet): [string, string] {
+  if (set.axes) return set.axes
+  return (SET_IDS as readonly string[]).includes(set.id) ? DEFAULT_AXES[set.id as SetId] : FALLBACK_AXES
 }
 
 // ---------------------------------------------------------------- points
@@ -765,7 +836,7 @@ export function points(set: TaskSet, csv: string, json: string | undefined, md: 
     })
   }
   // Harness by harness in the palette's order, a harness's runs by date.
-  const rank = (h: string) => { const i = HARNESSES.findIndex((x) => x.key === h); return i < 0 ? HARNESSES.length : i }
+  const rank = (h: string) => { const i = HARNESSES.findIndex((x) => x.key === (HARNESSES.some((y) => y.key === h) ? h : family(h))); return i < 0 ? HARNESSES.length : i }
   return out.sort((a, b) => rank(a.harness) - rank(b.harness) || a.date.localeCompare(b.date))
 }
 
@@ -807,20 +878,44 @@ export function frontier(ps: readonly Point[], px: Property, py: Property): Plac
   })
 }
 
-/** The frontier's line: its points from the left, a step between each two that keeps to the better side, so the
- *  region under the line is what the frontier's points beat. */
-export function staircase(ps: readonly Placed[], px: Property, py: Property): [number, number][] {
-  const f = ps.filter((p) => p.frontier).sort((a, b) => a.x - b.x || (py.better === 'higher' ? b.y - a.y : a.y - b.y))
-  const out: [number, number][] = []
-  // Left to right: where lower x is better, the line runs across at the last point's y to the next point's x, then to
-  // it; where higher x is better, it moves to the next point's y first, then across.
+/** The frontier drawn: the line, and two dashed legs that carry it to the frame. */
+export interface Staircase {
+  /** The conservative attainment boundary: between two frontier points the corner takes the worse x and the worse y of
+   *  the two, so it lies inside the set the frontier attains (the dominated region's edge). Measured data only. */
+  line: [number, number][]
+  /** Extrapolation, drawn apart so it never reads as measurement: from the first point along x's worse direction to the
+   *  extent, and from the last along y's worse direction to the extent. Empty without an extent. */
+  legs: [[number, number], [number, number]][]
+}
+
+/** The frontier's line: its points by x, a step between each two that keeps to the worse corner (worked in oriented
+ *  space, `u = sx·x` and `w = sy·y`, where bigger is better on both axes, so one rule serves every better direction). */
+export function staircase(ps: readonly Placed[], px: Property, py: Property, extent?: { x: [number, number]; y: [number, number] }): Staircase {
+  const sx = px.better === 'higher' ? 1 : -1, sy = py.better === 'higher' ? 1 : -1
+  const f = ps.filter((p) => p.frontier).sort((a, b) => a.x - b.x || sy * (b.y - a.y))
+  const line: [number, number][] = []
   f.forEach((p, i) => {
     if (i > 0) {
       const prev = f[i - 1]
-      out.push(px.better === 'lower' ? [p.x, prev.y] : [prev.x, p.y])
+      const u = Math.min(sx * prev.x, sx * p.x), w = Math.min(sy * prev.y, sy * p.y)
+      line.push([sx * u, sy * w])
     }
-    out.push([p.x, p.y])
+    line.push([p.x, p.y])
   })
   // Two points at one place (a tie) and a step of no length draw nothing: one vertex each.
-  return out.filter((v, i) => i === 0 || v[0] !== out[i - 1][0] || v[1] !== out[i - 1][1])
+  const out = line.filter((v, i) => i === 0 || v[0] !== line[i - 1][0] || v[1] !== line[i - 1][1])
+  if (!extent || !f.length) return { line: out, legs: [] }
+  const worse = (e: [number, number], better: Better) => (better === 'lower' ? Math.max(...e) : Math.min(...e))
+  // `f` is sorted by RAW ascending x, so which end holds the best x depends on the direction. Each leg must leave the
+  // end it extends or it is drawn back over the measured line: the leg along x runs toward worse x, so it leaves the
+  // best-y end; the leg along y runs toward worse y, so it leaves the best-x end.
+  const lo = f[0], hi = f[f.length - 1]
+  const bestX = px.better === 'lower' ? lo : hi, bestY = px.better === 'lower' ? hi : lo
+  return { line: out, legs: [[[bestY.x, bestY.y], [worse(extent.x, px.better), bestY.y]], [[bestX.x, bestX.y], [bestX.x, worse(extent.y, py.better)]]] }
 }
+
+/** An axis's name: the property, its scale, and where better lies. The axes of lower-is-better properties run
+ *  backwards (see `inverted`), so better is always right and always up. */
+export const axisName = (p: Property, axis: 'x' | 'y', log: boolean): string => `${p.label}${log ? ' (log scale)' : ''}   ${axis === 'x' ? 'better →' : 'better ↑'}`
+/** Whether a property's axis runs backwards, so that its better end is at the right or the top. */
+export const inverted = (p: Property): boolean => p.better === 'lower'

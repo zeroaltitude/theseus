@@ -8,7 +8,9 @@
 //!   month, when it names none (10).
 //! - `max_routines`: the most live routines the daemon holds (50).
 //! - `run_deadline_secs`: how long a question a routine's run asks outside its
-//!   grant may wait (900); past it the run ends blocked, naming the tool.
+//!   grant may wait (900); past it the call is dropped with a notice and the
+//!   run goes on without the tool (asked again, the run returns to its
+//!   schedule), never blocked (theseus-v2dnc).
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};

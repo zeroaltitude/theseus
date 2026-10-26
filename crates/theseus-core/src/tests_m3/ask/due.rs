@@ -102,7 +102,28 @@ async fn an_expired_approval_offers_ask_again_and_its_next_question_is_carded_at
     );
     let t0 = r.core.kernel.action(&corr).unwrap().unwrap().planned_at_ms;
     assert_eq!(r.core.escalate_questions(t0 + 61_000), 1);
-    assert_eq!(r.core.expire_questions(t0 + 20 * 60_000), 1);
+    // A call's question no longer expires (theseus-v2dnc): it is held. What
+    // can still be asked again is a question an older build expired, so one is
+    // made as that build made it: declined by expiry, its execution woken, its
+    // card settled `expired`.
+    assert_eq!(r.core.expire_questions(t0 + 20 * 60_000), 0, "held");
+    assert!(r
+        .core
+        .kernel
+        .action(&corr)
+        .unwrap()
+        .unwrap()
+        .awaits_confirm());
+    r.core
+        .kernel
+        .frame(&[&exec], |k| {
+            k.decline_action(&corr, "expiry", "nobody answered within 15 minutes")?;
+            let _ = k.frame(&[&exec], |k| k.wake(&exec, "expired"));
+            Ok(())
+        })
+        .unwrap();
+    r.core
+        .card_closed(&corr, crate::outbox::Closed::new("expired", None));
     let settle = settle_of(&r, &corr).expect("the card settles");
     assert_eq!(settle["closed"]["how"], "expired", "{settle}");
     assert_eq!(

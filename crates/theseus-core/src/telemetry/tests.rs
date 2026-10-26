@@ -1978,6 +1978,7 @@ fn core_with(script: Vec<crate::provider::Scripted>, endpoint: &str) -> CoreRig 
     c.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     c.tools.roots = vec![];
     c.policy.enforcement = crate::policy::Posture::Approve;
+    c.model.retries.transient = 0; // a failed call fails its turn: no retry inside it
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(crate::provider::FakeProvider::scripted(script));
     let core = crate::Core::build(crate::rpc::Parts {

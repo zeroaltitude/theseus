@@ -11957,5 +11957,74 @@
    "usd_trial": 0.17618807777777779,
    "usd_solve": 0.247764484375
   }
+ },
+ "ui": {
+  "set_id": "tb-v1-high",
+  "label": "Terminal-Bench 2.0 at the v1 freeze, HIGH tier: all 89 tasks × 3, every harness at high effort",
+  "short": "v1 · high · 89 tasks",
+  "about": "The v1 freeze, HIGH tier: Theseus as shipped (Jev routing each message's model and effort, capped at high) against Claude Code, OpenCode and Pi at high effort, on every task, three attempts an arm.",
+  "default_axes": [
+   "usd",
+   "pass"
+  ],
+  "conditions": [
+   {
+    "text": "Effort is not one setting: Theseus's Jev picked each message's effort within bounds of low to high, while each rival was set to high.",
+    "quote": "effort bounds `low` to `high`"
+   },
+   {
+    "text": "The caps are of different kinds: the rivals ran at $2 and 200 turns a trial; Theseus ran with a $20 spend limit that reserves each call's price first.",
+    "quote": "a $20 spend limit (reservations) and a 60 s command wait"
+   },
+   {
+    "text": "Theseus's Jev routed across Anthropic profiles; the three rivals ran Claude Sonnet 5.5 alone.",
+    "quote": "the three rivals on Claude Sonnet 5.5"
+   }
+  ],
+  "versions": {
+   "theseus-routed": {
+    "*": {
+     "text": "the frozen v1 build, 351159fc",
+     "quote": "the frozen build `351159fc`"
+    }
+   },
+   "claude-code": {
+    "*": {
+     "text": "2.1.290",
+     "quote": "Claude Code 2.1.290"
+    }
+   },
+   "opencode": {
+    "*": {
+     "text": "1.18.35",
+     "quote": "OpenCode 1.18.35"
+    }
+   },
+   "pi": {
+    "*": {
+     "text": "1.0.4",
+     "quote": "Pi 1.0.4"
+    }
+   }
+  },
+  "notes": {},
+  "effort": {
+   "theseus-routed": {
+    "text": "chosen per message by Jev, bounds low to high",
+    "quote": "effort bounds `low` to `high`"
+   },
+   "claude-code": {
+    "text": "high",
+    "quote": "(`reasoning_effort` high)"
+   },
+   "opencode": {
+    "text": "high",
+    "quote": "(`variant` high)"
+   },
+   "pi": {
+    "text": "high",
+    "quote": "(`thinking` high)"
+   }
+  }
  }
 }

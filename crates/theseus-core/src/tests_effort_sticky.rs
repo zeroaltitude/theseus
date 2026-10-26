@@ -229,7 +229,10 @@ async fn a_sticky_hold_of_a_held_high_answer_keeps_its_bar() {
 /// A short conversation has little cache to lose: Jev's change applies.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sticky_effort_applies_under_the_prefix_floor() {
-    let (_r, reqs, rows, _) = talk(&["medium", "high"], |_| {}).await;
+    let (_r, reqs, rows, _) = talk(&["medium", "high"], |c| {
+        c.cache.keep_warm_min_tokens = 30_000
+    })
+    .await;
     assert_eq!(top(&reqs[1]).as_deref(), Some("high"));
     assert_eq!(rows[1]["effort_reason"], "applied");
     assert!(rows[1].get("effort_sent").is_none());

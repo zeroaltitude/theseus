@@ -247,6 +247,34 @@ fn notices(core: &Core) -> Vec<(String, String, Vec<String>)> {
         .collect()
 }
 
+/// The quiet notices a dropped question left, by purpose.
+fn dropped(core: &Core, purpose: &str) -> Vec<Value> {
+    core.kernel
+        .outbox_actions()
+        .unwrap()
+        .into_iter()
+        .filter(|a| crate::outbox::kind_of(a) == "notice")
+        .map(|a| crate::outbox::body_of(&a).clone())
+        .filter(|b| b["purpose"] == purpose)
+        .collect()
+}
+
+/// A model that asks for the same ungranted edit again after it was dropped.
+fn stubborn(port: u16, note: String) -> Script {
+    let first = digest(port, note.clone());
+    Box::new(move |req| match results(req) {
+        0..=1 => first(req),
+        _ => Scripted::tools(
+            "",
+            &[(
+                "e1",
+                "fs_edit",
+                json!({"path": note, "old_string": "06:12", "new_string": "06:13"}),
+            )],
+        ),
+    })
+}
+
 async fn make(core: &Arc<Core>, extra: Value) -> Result<Value, String> {
     let mut p = json!({"title": "Tide check", "schedule": "every 1m",
                        "brief": "Read the tide page and keep a note."});
@@ -389,10 +417,11 @@ async fn without_a_grant_the_same_call_asks_and_so_does_any_other_session() {
     assert_eq!(asked[0].tool, "fs.write", "{asked:?}");
 }
 
-/// A call outside the grant asks once, and with nobody there the run ends
-/// `blocked` at the run's deadline, naming the tool, in one Interrupt with its
-/// answers; never a silent expiry. "Add to grant" through `work.answer`
-/// grants it, and the next run completes.
+/// A call outside the grant asks once, and with nobody there by the run's
+/// deadline the call is dropped with a notice naming the tool, and the run
+/// goes on without it (theseus-v2dnc; it ended `blocked` before). Nothing is
+/// told as an Interrupt, and the run's streak stays 0. Adding the tool to the
+/// grant through `routine.update` lets the next run complete.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ungranted_tool_asks_once_and_the_run_ends_blocked_naming_it() {
     let r = rig(1).await;
@@ -401,76 +430,59 @@ async fn an_ungranted_tool_asks_once_and_the_run_ends_blocked_naming_it() {
     rpc(&r.core, "routine.run_now", json!({"id": id}))
         .await
         .unwrap();
-    until("the run to end blocked", 30, || {
-        notices(&r.core).iter().any(|n| n.0 == "routine_blocked")
+    until("the dropped call's notice", 30, || {
+        !dropped(&r.core, "routine_question_dropped").is_empty()
+    })
+    .await;
+    until("the run to end", 30, || {
+        r.core
+            .kernel
+            .tasks(None)
+            .unwrap()
+            .iter()
+            .any(|t| t.state.is_terminal())
     })
     .await;
     let listed = runs(&r.core, &id).await;
-    assert_eq!(listed[0]["state"], "blocked", "{listed:?}");
-    assert_eq!(listed[0]["blocked"]["tool"], "fs.edit");
-    assert_eq!(
-        listed[0]["blocked"]["reason"],
-        "fs.edit needs approval (not in its grant)"
-    );
-    // It asked once, and nobody was silently expired.
+    assert_eq!(listed[0]["state"], "complete", "{listed:?}");
+    assert_eq!(listed[0]["blocked"], Value::Null, "{listed:?}");
+    // It asked once; the call was dropped, and the model went on without it.
     assert_eq!(rows(&r.core, "tool.confirm_requested").len(), 1);
-    assert!(rows(&r.core, "question.expired").is_empty());
-    let n = notices(&r.core);
-    assert_eq!(n.len(), 1, "{n:?}");
+    assert_eq!(rows(&r.core, "action.expired").len(), 1);
+    assert_eq!(rows(&r.core, "action.expired")[0]["tool"], "fs.edit");
     assert_eq!(
-        n[0].1,
-        "⚠️ Alert · Tide check blocked: fs.edit needs approval (not in its grant)\n\
-         its latest scheduled run did not finish"
+        rows(&r.core, "action.declined").len(),
+        1,
+        "only the dropped call"
     );
-    assert_eq!(n[0].2, ["add_to_grant", "run_now", "pause", "details"]);
-    // The run's own cancel report is not posted: the routine tells it.
-    let reports = r
-        .core
-        .kernel
-        .outbox_actions()
-        .unwrap()
-        .into_iter()
-        .filter(|a| crate::outbox::kind_of(a) == "report")
-        .count();
-    assert_eq!(reports, 0);
-    assert_eq!(info(&r.core, &id).await["streak"], 1);
+    let d = dropped(&r.core, "routine_question_dropped");
+    assert_eq!(d.len(), 1, "{d:?}");
+    let text = d[0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("Tide check") && text.contains("fs.edit"),
+        "{text}"
+    );
+    assert_eq!(d[0]["quiet"], true, "inform: never a ping");
+    assert!(
+        std::fs::read_to_string(r.note()).is_ok_and(|t| !t.contains("06:13")),
+        "the edit did not run"
+    );
+    // Not told as a blocked run: no Interrupt, no streak.
+    assert!(notices(&r.core).is_empty(), "{:?}", notices(&r.core));
+    assert_eq!(info(&r.core, &id).await["streak"].as_u64().unwrap_or(0), 0);
 
-    // Add to grant: the question is the routine's notice (its wake).
-    let wake = {
-        let spec = r
-            .core
-            .runner
-            .tools
-            .routines
-            .find(&r.core.store, &id)
-            .unwrap();
-        spec.wake_id.clone()
-    };
-    let answer = rpc(
+    // Adding the tool to the grant lets the next run through.
+    rpc(
         &r.core,
-        "work.answer",
-        json!({"question_id": wake, "option": "add_to_grant"}),
+        "routine.update",
+        json!({"id": id, "add_grant": ["fs.edit"]}),
     )
     .await
     .unwrap();
-    assert_eq!(answer["option"], "add_to_grant");
     assert_eq!(
         info(&r.core, &id).await["grant"],
         json!(["fs.write", "fs.edit"])
     );
-    // Details are words.
-    let details = rpc(
-        &r.core,
-        "work.answer",
-        json!({"question_id": wake, "option": "details"}),
-    )
-    .await
-    .unwrap();
-    assert!(
-        details["detail"].as_str().unwrap().contains("blocked"),
-        "{details}"
-    );
-
     rpc(&r.core, "routine.run_now", json!({"id": id}))
         .await
         .unwrap();
@@ -490,8 +502,44 @@ async fn an_ungranted_tool_asks_once_and_the_run_ends_blocked_naming_it() {
     })
     .await;
     assert_eq!(runs(&r.core, &id).await[0]["state"], "complete");
-    assert_eq!(notices(&r.core).len(), 1, "a good run tells nothing new");
+    assert_eq!(notices(&r.core).len(), 0, "a good run tells nothing new");
     let _ = r.port;
+}
+
+/// Where the run cannot go on without the tool (it asks for it again and
+/// nobody answers that either), it returns to its schedule: cancelled, not
+/// blocked, with a notice, no Interrupt, and no streak (theseus-v2dnc).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_that_cannot_go_on_without_a_dropped_tool_returns_to_its_schedule() {
+    let r = rig_with(stubborn, 1).await;
+    let made = make(&r.core, json!({"grant": ["fs.write"]})).await.unwrap();
+    let id = made["id"].as_str().unwrap().to_string();
+    rpc(&r.core, "routine.run_now", json!({"id": id}))
+        .await
+        .unwrap();
+    until("the run's return to its schedule", 30, || {
+        !dropped(&r.core, "routine_rescheduled").is_empty()
+    })
+    .await;
+    until("its end", 30, || {
+        r.core
+            .kernel
+            .tasks(None)
+            .unwrap()
+            .iter()
+            .any(|t| t.state.is_terminal())
+    })
+    .await;
+    let n = dropped(&r.core, "routine_rescheduled");
+    assert_eq!(n.len(), 1, "{n:?}");
+    assert!(n[0]["text"].as_str().unwrap().contains("fs.edit"), "{n:?}");
+    assert_eq!(dropped(&r.core, "routine_question_dropped").len(), 1);
+    // Never told as blocked.
+    assert!(notices(&r.core).is_empty(), "{:?}", notices(&r.core));
+    assert_eq!(info(&r.core, &id).await["streak"].as_u64().unwrap_or(0), 0);
+    let listed = runs(&r.core, &id).await;
+    assert_ne!(listed[0]["state"], "blocked", "{listed:?}");
+    assert!(listed[0]["blocked"].is_null(), "{listed:?}");
 }
 
 /// A grant that names a tool no grant may, a tool that is not there, or a
