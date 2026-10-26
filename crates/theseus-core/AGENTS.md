@@ -695,7 +695,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `guess` and the `thread.routed` row counts it (`timed_out`). **The misroute guard** (`toolrun/misroute.rs`, armed by
   `arm_guard` for a placement below the act bar only): the session's first write or `proc.run` outside the thread's
   working-set roots (a relative one read under the session's directory, `cwd_for`, the one the working set grew it in)
-  is held through the Approve posture, once; a `proc.run` from a directory above the roots (the session's directory)
+  goes on once at the notify posture with a one-line notice (path, thread, the next likeliest thread, `Undo: files.restore <path>`; a stricter decision is kept; theseus-g85jy); a `proc.run` from a directory above the roots (the session's directory)
   decides nothing, and the next write or program does. **Recovery** (`rpc/thread_move.rs`): `/move`, `theseus thread
   move`, or "that was for …" writes a redirect note in the wrong thread, re-submits the message once to the right
   one, and writes a correction (a `wrong thread` label on the `thread` question, and `Steer::Thread` in the correction
