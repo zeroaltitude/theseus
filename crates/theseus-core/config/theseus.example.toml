@@ -79,12 +79,13 @@ total_secs = 600                        # a call before its stream begins; a liv
 
 # A call that fails with a class that passes with time (timeout, network,
 # rate_limited, overloaded, server, stream, truncated) can be made again
-# inside its turn instead, after a wait that doubles each time. Leave it at 0
-# here: the driver's retry, with its notice, serves a daemon you talk to. A
+# inside its turn, after a wait that doubles each time: a 429 or a 503 is asked
+# again before the turn gives up. Set it to 0 to leave every retry to the
+# driver, whose retry, with its notice, serves a daemon you talk to. A
 # headless run (`theseus --spawn theseusd ask`) ends with its turn, so it
 # gets no later retry; the bench profile sets it.
 [model.retries]
-transient = 0                           # retries inside a turn; 0: none
+transient = 2                           # retries inside a turn; 0: none
 backoff_ms = 2000                       # the wait before the first one
 backoff_max_ms = 30000                  # the longest one wait
 # A request the model refuses is made once more on its catalog entry's

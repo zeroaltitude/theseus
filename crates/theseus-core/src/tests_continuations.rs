@@ -42,6 +42,8 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.tools.proc_sync_secs = 1;
+    // A failed turn is the driver's to retry: none inside the turn.
+    cfg.model.retries.transient = 0;
     cfg.policy.tools.insert("proc.run".into(), Posture::Open);
     // `zai` is only the second provider here: its `glm` profile runs an
     // unrestricted model (theseus-a1wvq.3); thinking stays with the

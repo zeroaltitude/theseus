@@ -32,6 +32,8 @@ fn build(dir: &Path, model: Arc<FakeProvider>) -> Arc<Core> {
     cfg.tools.roots = vec![];
     cfg.memory.mode = MemoryMode::Canary;
     cfg.memory.canary_fraction = 1.0;
+    // The call fails its turn, and the retry is the next turn's.
+    cfg.model.retries.transient = 0;
     let store = Store::open(&dir.join("store")).unwrap();
     Core::build(crate::rpc::Parts::for_tests(cfg, model, store)).unwrap()
 }
