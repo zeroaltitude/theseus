@@ -5,7 +5,7 @@ NOTICES
   Inform Reported 📋 CHILD-B: do the B part reported: cancelled by test
   Inform Reported 📋 CHILD-C: do the C part reported: reported
   Inform Woke ⏰ START: run this as a background task, please; and plan it · the tide turns
-  Interrupt Asked ● CHILD-C: do the C part asks: fs.write <work>/c.txt? · expires #:#
+  Interrupt Asked ● CHILD-C: do the C part asks: fs.write <work>/c.txt?
   Quiet Answered ✓ approved by operator: CHILD-C: do the C part
 TREE
   Conversation Ready START: run this as a background task, please; and plan it steps #/# below needs_you # working # done # failed #
