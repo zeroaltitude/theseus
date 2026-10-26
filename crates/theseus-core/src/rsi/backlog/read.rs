@@ -200,7 +200,19 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             (o.person, o.work) = (true, 2);
         }
         "provider.error" => {
+            // A call the daemon's stop kept from being sent is no provider's
+            // answer: nothing was sent, and the run retries at the next start.
+            // Health and the metrics already leave it out of their counts.
+            if d["class"].as_str() == Some(crate::provider::STOPPING_CLASS) {
+                return None;
+            }
             let (c, p) = (word(&d["class"]), word(&d["provider"]));
+            // The floor under the sensitive names refusing a request is the
+            // privacy policy working, with nothing sent: the provider never
+            // failed, so there is no fault of its to file.
+            if c == crate::data_gate::DATA_GATE_CLASS {
+                return None;
+            }
             o.key = format!("provider.error:{c}:{p}");
             o.title = errors_from(&p, &c);
             o.note = format!(
@@ -573,5 +585,38 @@ mod tests {
         ] {
             assert_eq!(plain_title(kept), kept);
         }
+    }
+
+    fn provider_error(class: &str) -> LedgerRow {
+        LedgerRow::named(
+            "provider.error",
+            None,
+            None,
+            json!({"class": class, "provider": "zai", "elapsed_ms": 0, "message": "refused"}),
+        )
+    }
+
+    /// The floor under the sensitive names refusing a request to a restricted
+    /// model is the privacy policy working, with nothing sent: it files no
+    /// cause (`provider.error:data_gate:zai`, "zai answers data_gate"), while
+    /// a real provider failure on the same provider still does.
+    #[test]
+    fn a_data_gate_refusal_is_no_providers_fault() {
+        assert_eq!(of_row(1, &provider_error("data_gate")), None);
+        let real = of_row(2, &provider_error("overloaded")).expect("a real failure");
+        assert_eq!(real.key, "provider.error:overloaded:zai");
+    }
+
+    /// A call the daemon's stop kept back is no provider's error: it files
+    /// no cause, where a real answer of the same provider does.
+    #[test]
+    fn a_call_the_stop_kept_back_is_no_cause() {
+        let mut stopped = provider_error("stopping");
+        stopped.data["provider"] = json!("anthropic");
+        assert!(of_row(1, &stopped).is_none());
+        let mut real = provider_error("overloaded");
+        real.data["provider"] = json!("anthropic");
+        let o = of_row(2, &real).expect("a real provider error");
+        assert_eq!(o.key, "provider.error:overloaded:anthropic");
     }
 }

@@ -184,6 +184,56 @@ fn appending_keeps_every_earlier_byte_and_tool_results_follow_their_call() {
     assert!(c3.repairs.is_empty());
 }
 
+/// A request that ends in tool results, mid-way through a tool loop, carries
+/// the effort-only message its turn's first answer recorded, so it must carry
+/// the beta that allows it too. Without the beta Anthropic answers a 400
+/// (`messages.N.output_config: Extra inputs are not permitted`) to every call
+/// after the first of a turn that ran at another level.
+#[test]
+fn a_request_ending_in_tool_results_carries_the_per_message_effort_beta() {
+    let mut sp = spec("claude-fable-5-1", "You are Theseus.");
+    sp.turn_effort = Some(Effort::Low);
+    let answer = Node::assistant(
+        "s",
+        "t",
+        0,
+        Body::AssistantMessage {
+            blocks: vec![
+                json!({"type": "text", "text": "Reading."}),
+                json!({"type": "tool_use", "id": "t1", "name": "fs_read", "input": {"path": "/x"}}),
+            ],
+            model: "claude-fable-5-1".into(),
+            provider: "anthropic".into(),
+            stop_reason: None,
+            usage: Usage::default(),
+            cost_usd: None,
+            catalog_version: None,
+            request_id: None,
+            correlation_id: None,
+            compilation_id: None,
+            request_digest: None,
+            effort: Some(Effort::Low),
+        },
+    );
+    let nodes = vec![
+        (1, Node::user("s", None, "web", "read /x")),
+        (2, answer),
+        (3, result("t1", "X", ResultStatus::Ok, false)),
+    ];
+    let c = run(&nodes, None, &sp, 3);
+    let msgs = &c.request.messages;
+    assert_eq!(msgs.last().unwrap()["content"][0]["type"], "tool_result");
+    assert!(
+        msgs.iter().any(|m| m["role"] == "system"),
+        "the recorded effort renders before its turn: {msgs:?}"
+    );
+    assert!(
+        c.request.betas.iter().any(|b| b == BETA_TURN_EFFORT),
+        "a message that carries output_config needs its beta: {:?}",
+        c.request.betas
+    );
+}
+
 #[test]
 fn a_system_or_model_change_recompiles_and_strips_the_prefixs_thinking() {
     let sp = spec("claude-opus-5", "A");
@@ -1309,4 +1359,45 @@ fn implicit_thinking_sends_no_thinking_field() {
         assert!(c.request.thinking.is_none(), "{model}");
         assert!(c.request.betas.is_empty(), "{model}: {:?}", c.request.betas);
     }
+}
+
+/// A response that calls a tool of ours and the tool search together can stop
+/// at our call with the search unanswered (`stop_reason: tool_use`, no
+/// `tool_search_tool_result`). Replayed, Anthropic answers every later request
+/// with a 400 (`messages.1: … srvtoolu_… was found without a corresponding
+/// tool_search_tool_result block`), so the turn and its retry fail. The render
+/// leaves the open server call out; an answered one stays.
+#[test]
+fn a_server_call_the_provider_never_answered_is_not_replayed() {
+    let sp = spec("claude-opus-5", "You are Theseus.");
+    let search = |id: &str| {
+        json!({"type": "server_tool_use", "id": id, "name": "tool_search_tool_bm25",
+               "input": {"query": "ask the owner"}})
+    };
+    let found = |id: &str| {
+        json!({"type": "tool_search_tool_result", "tool_use_id": id,
+               "content": {"type": "tool_search_tool_search_result", "tool_references": []}})
+    };
+    let call = json!({"type": "tool_use", "id": "t1", "name": "fs_read", "input": {"path": "/x"}});
+    let nodes = vec![
+        (1, Node::user("s", None, "web", "go")),
+        (2, assistant(vec![call.clone(), search("srvtoolu_open")])),
+        (3, result("t1", "X", ResultStatus::Ok, false)),
+        (
+            4,
+            assistant(vec![
+                search("srvtoolu_done"),
+                found("srvtoolu_done"),
+                call.clone(),
+            ]),
+        ),
+        (5, result("t1", "X", ResultStatus::Ok, false)),
+    ];
+    let c = run(&nodes, None, &sp, 5);
+    let sent = serde_json::to_string(&c.request.messages).unwrap();
+    assert!(!sent.contains("srvtoolu_open"), "{sent}");
+    assert!(sent.contains("srvtoolu_done"), "{sent}");
+    // The answer keeps its tool call, and the call's result still follows it.
+    assert_eq!(c.request.messages[1]["content"], json!([call]));
+    assert_eq!(c.request.messages[2]["content"][0]["tool_use_id"], "t1");
 }
