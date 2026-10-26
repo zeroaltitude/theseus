@@ -19,11 +19,15 @@ export type Framing = 'A' | 'B' | 'T'
 export const FRAMINGS: readonly Framing[] = ['A', 'T', 'B']
 export const FRAMING_WORDS: Record<Framing, string> = { A: 'Same model, harness varies', T: 'Theseus: all models, its own choice', B: 'Model varies' }
 
-/** Whether a key names a routed Theseus: the dataset's own word for it (`theseus-routed`). */
-const routed = (key: string) => family(key) === 'theseus' && /routed/.test(key)
+/** Whether a Theseus key names a routed one: the dataset's own word for it in the key (`theseus-routed`), or, for a
+ *  versioned key (`theseus-68`), the dataset's model line saying Theseus itself is Jev-routed. A model line that only
+ *  describes the routed arm as the thing compared against ("the routed arm: Jev's pick…") does not make a fixed-model
+ *  or refused-commands variant routed. The one test the legend (`framingOf`) and the card (`framingOfRow`) share. */
+const routed = (key: string, modelLine?: string | null) =>
+  family(key) === 'theseus' && (/routed/.test(key) || (key !== 'theseus' && /Jev-routed/.test(modelLine ?? '')))
 
 export function framingOf(p: Point, reference: string | undefined = p.refModel ?? p.model): Framing {
-  if (routed(p.harness)) return 'T'
+  if (routed(p.harness, p.model)) return 'T'
   if (p.tags.some((t) => t.kind === 'other-model') || p.native) return 'B'
   // An arm model the dataset states that its peers' reference does not match, or one stated where no reference is known.
   return p.armModel && !(reference && sameModel(p.armModel, reference)) ? 'B' : 'A'
@@ -31,9 +35,8 @@ export function framingOf(p: Point, reference: string | undefined = p.refModel ?
 
 /** The same decision for a manifest row (the browse cards), from its arm, variant and label. */
 export function framingOfRow(r: IndexRow): Framing {
-  // A manifest row names no routing of its own: the variant says it, or the dataset's model line says the Theseus arm routed
-  // and its label does not call it fixed.
-  if (r.arm === 'theseus' && (routed(r.variant) || (/routed/.test(r.model ?? '') && !/fixed/i.test(`${r.harness} ${r.variant}`)))) return 'T'
+  // A manifest row names no routing of its own: the variant says it, or the dataset's model line says Theseus was routed.
+  if (r.arm === 'theseus' && routed(r.variant, r.model)) return 'T'
   const m = labelModel(r.harness)
   if (m && !sameModel(r.model ?? '', m)) return 'B'
   // A dataset that names a harness's own model in the model line: "anthropic/… (Codex CLI: openai/…)".

@@ -63,3 +63,22 @@ test('a manifest row is framed the same way, and a planned arm never gets a valu
   const names = cardsOf(m, [], []).flatMap((c) => c.lines.map((l) => l.name)).join(' ')
   assert.ok(!names.includes('Invented'))
 })
+
+test('the card frames each Theseus variant as its report says it ran: routed is T, the fixed model and the refused-commands rerun are not', () => {
+  const m = readManifest(read('index.json'))
+  const row = (report: string, variant: string) =>
+    m.rows.find((r) => r.report === report && r.arm === 'theseus' && r.variant === variant)!
+  const ten = '2026-10-10-terminal-bench-theseus-rerun'
+  assert.equal(framingOfRow(row(ten, 'theseus-routed')), 'T')
+  assert.equal(framingOfRow(row(ten, 'theseus')), 'A')
+  // Its model line talks of "the routed arm" as a thing to compare against; this arm is not that.
+  assert.equal(framingOfRow(row(ten, 'theseus-oct7')), 'A')
+  // The 10-21 reruns' manifest variants are version names (their model line says Theseus is Jev-routed); the legend's
+  // key for the same report is `theseus-routed`. Both say T.
+  for (const report of ['2026-10-21-terminal-bench-rerun-high', '2026-10-21-terminal-bench-rerun-max']) {
+    for (const v of ['theseus-68', 'theseus-v1']) assert.equal(framingOfRow(row(report, v)), 'T', `${report} ${v}`)
+  }
+  const ui = { set_id: 'rerun', label: 'x', short: 'x', about: 'x' }
+  const legend = frames(of('2026-10-21-terminal-bench-rerun-high', gen('2026-10-21-terminal-bench-rerun-high', ui)))
+  assert.equal(legend['theseus-routed'], 'T')
+})
