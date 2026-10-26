@@ -3,9 +3,14 @@
 //! and a turn might then write into the wrong working set. So the thread's
 //! session is armed when the turn is placed, and the turn's **first write or
 //! program** is looked at once: when a path it names is outside every root of
-//! the thread's working set, that one call waits for the owner, at the
-//! approve posture, with the question "This edits ~/projects/x, which isn't
-//! in the pr round thread. Go on, or move to the security fix?". A program
+//! the thread's working set, that one call goes on at the notify posture
+//! and tells the owner in one line (`Held::notice`): the path, the thread,
+//! the next likeliest thread, and `Undo: files.restore <path>` (the owner,
+//! 2026-10-25: notify, then write). A call a stricter rule already holds
+//! still waits: the guard raises a floor and lowers nothing. `Held::why`,
+//! the question "This edits ~/projects/x, which isn't in the pr round
+//! thread. Go on, or move to the security fix?", is what a call already at
+//! the approve posture shows. A program
 //! run from a directory above the roots (the session's directory) decides
 //! nothing, and the next write or program does: a misplaced turn that only
 //! runs programs there goes unasked, its first write is held. The guard then
@@ -57,6 +62,22 @@ impl Held {
             self.verb,
             self.path,
             the(&self.thread)
+        )
+    }
+
+    /// The one line a call that went on tells the owner: what it did, the
+    /// thread it was placed in, the next likeliest one, and the undo.
+    pub fn notice(&self) -> String {
+        let next = match &self.alt {
+            Some(alt) => format!("The next likeliest was {}.", the(alt)),
+            None => "There was no second candidate.".to_string(),
+        };
+        format!(
+            "This {} {}, which isn't in {} thread, where the router only guessed it belonged. Went on. {next} Undo: files.restore {}",
+            self.verb,
+            self.path,
+            the(&self.thread),
+            self.path
         )
     }
 }
@@ -198,9 +219,9 @@ impl Guards {
 }
 
 impl ToolRuntime {
-    /// The gate's decision for a planned call, no looser than the guard's
-    /// question when the turn was placed on a guess and this is its first
-    /// write or program outside the thread's roots. Nothing for a session the
+    /// The gate's decision for a planned call, no looser than a notice when
+    /// the turn was placed on a guess and this is its first write or program
+    /// outside the thread's roots; a decision already stricter is kept. Nothing for a session the
     /// guard has not armed (one lookup in a map that is empty but for a turn
     /// placed on a guess).
     pub(super) fn misroute_hold(
@@ -218,13 +239,33 @@ impl ToolRuntime {
             tool: tool.name(),
             path: &held.path,
         });
-        d.at_least(
-            Posture::Approve,
-            &held.why(),
+        floor(d, &held, tool.name(), &plan.summary)
+    }
+}
+
+/// `d` raised to a notice that the call went on. A decision already at the
+/// approve posture, for its own reason, is kept as it is; one already at
+/// notify (the usual enforcement) keeps its fields and says both reasons, so
+/// the guard's line is never lost to the posture it found.
+fn floor(d: Decision, held: &Held, tool: &str, summary: &str) -> Decision {
+    if d.posture != Posture::Notify {
+        return d.at_least(
+            Posture::Notify,
+            &held.notice(),
             "the thread misroute guard",
-            tool.name(),
-            &plan.summary,
-        )
+            tool,
+            summary,
+        );
+    }
+    let rule = format!("{tool} — notify ({}; also: {})", held.notice(), d.reason);
+    Decision {
+        notify: Some(crate::policy::Notice {
+            kind: "notify".into(),
+            setting: "the thread misroute guard".into(),
+            rule: rule.clone(),
+        }),
+        reason: rule,
+        ..d
     }
 }
 
@@ -297,6 +338,81 @@ mod tests {
             held.why()
         );
         assert!(held.why().ends_with("Go on, or move it?"));
+    }
+
+    fn held(alt: Option<&str>) -> Held {
+        Held {
+            path: "/work/vault/src/a.rs".into(),
+            verb: "edits",
+            thread: "pr round".into(),
+            alt: alt.map(str::to_string),
+        }
+    }
+
+    fn open() -> Decision {
+        Decision::new(Posture::Open, "fs_write — open".to_string())
+    }
+
+    /// The held call goes on: a notice is staged, nothing waits.
+    #[test]
+    fn the_first_write_outside_the_roots_runs_with_a_notice() {
+        let d = floor(open(), &held(Some("security fix")), "fs_write", "x");
+        assert_eq!(d.posture, Posture::Notify, "it runs");
+        let n = d.notify.expect("a notice is staged");
+        assert_eq!(n.kind, "notify");
+        assert_eq!(n.setting, "the thread misroute guard");
+    }
+
+    /// The notice names the path and tool, the thread, the next likeliest
+    /// thread, and the undo.
+    #[test]
+    fn the_notice_names_the_path_the_thread_the_alternative_and_the_undo() {
+        let d = floor(open(), &held(Some("security fix")), "fs_write", "x");
+        let rule = d.notify.unwrap().rule;
+        assert!(rule.contains("fs_write"), "{rule}");
+        assert!(rule.contains("/work/vault/src/a.rs"), "{rule}");
+        assert!(rule.contains("the pr round thread"), "{rule}");
+        assert!(rule.contains("the security fix"), "{rule}");
+        assert!(
+            rule.contains("Undo: files.restore /work/vault/src/a.rs"),
+            "{rule}"
+        );
+    }
+
+    /// With no second candidate the notice says so and invents none.
+    #[test]
+    fn a_notice_with_no_alternative_says_so() {
+        let d = floor(open(), &held(None), "fs_write", "x");
+        let rule = d.notify.unwrap().rule;
+        assert!(rule.contains("the pr round thread"), "{rule}");
+        assert!(rule.contains("no second candidate"), "{rule}");
+        assert!(rule.contains("Undo: files.restore"), "{rule}");
+        assert!(!rule.contains("likeliest"), "{rule}");
+    }
+
+    /// A call the policy already notifies of still carries the guard's line.
+    #[test]
+    fn a_decision_already_at_notify_still_tells_the_guards_line() {
+        let d = Decision::new(
+            Posture::Notify,
+            "fs.write — notify (enforcement = notify)".to_string(),
+        );
+        let d = floor(d, &held(Some("security fix")), "fs.write", "x");
+        assert_eq!(d.posture, Posture::Notify);
+        let rule = d.notify.unwrap().rule;
+        assert!(rule.contains("Undo: files.restore"), "{rule}");
+        assert!(rule.contains("enforcement = notify"), "{rule}");
+    }
+
+    /// The guard raises a floor and lowers nothing: a call already at the
+    /// approve posture still asks, with its own reason and no notice.
+    #[test]
+    fn a_decision_already_at_approve_still_asks() {
+        let asked = Decision::new(Posture::Approve, "rm is on the approve list".to_string());
+        let d = floor(asked, &held(Some("security fix")), "proc_run", "x");
+        assert_eq!(d.posture, Posture::Approve);
+        assert_eq!(d.reason, "rm is on the approve list");
+        assert!(d.notify.is_none());
     }
 
     /// The card knows the guard's question by its shape, so its words and the

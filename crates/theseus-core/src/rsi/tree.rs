@@ -37,6 +37,9 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -55,6 +58,26 @@ pub struct Place {
     /// L1, where the branch's code runs: always in a daemon, none in a test
     /// that stands in for the gate.
     pub jail: Option<Jail>,
+    /// Where the gate's inform notices go (a wait for may-build that has
+    /// lasted a window). None in a test's place: no notice, never an error.
+    pub notify: Option<Notify>,
+}
+
+/// A sink for one inform notice: its text in, a post to the operator out.
+/// The daemon's is built from the core's outbox (`pr.rs`, `Board::place`).
+#[derive(Clone)]
+pub struct Notify(Arc<dyn Fn(String) + Send + Sync>);
+
+impl Notify {
+    pub fn new(f: impl Fn(String) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+}
+
+impl std::fmt::Debug for Notify {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Notify")
+    }
 }
 
 /// An open tree: its slug, its branch, where it is, and its build tree.
@@ -100,8 +123,11 @@ pub struct GateRun {
 /// The longest gate run before it is stopped: a cold build of the whole
 /// workspace at nice 19 beside busy neighbours took about 22 minutes.
 pub const GATE_LIMIT: Duration = Duration::from_secs(2 * 3600);
-/// How long the gate waits for main's may-build rule to say yes, and how
-/// often it asks.
+/// How often the operator is told that the gate is still waiting for main's
+/// may-build rule to say yes. It is a notice interval, not a deadline: the
+/// wait ends when the rule says yes, never on a clock (the owner, 2026-10-25
+/// 13:58: "i want there to be precious few hard gates /anywhere/ in
+/// theseus").
 pub const MAY_BUILD_WAIT: Duration = Duration::from_secs(30 * 60);
 const MAY_BUILD_EVERY: Duration = Duration::from_secs(60);
 /// How the gate says the keel stopped it (gate.sh's `phase` names).
@@ -522,28 +548,126 @@ async fn jailed(
         .map_err(|e| e.context("the gate did not run in L1, and a self build never runs at L0"))
 }
 
-/// Wait until main's may-build rule says yes, asking every minute, for at
-/// most [`MAY_BUILD_WAIT`].
+/// What the wait for may-build measures time with: the real clock, or a
+/// simulated one a test advances by its sleeps, so 90 minutes take no time.
+#[derive(Clone)]
+pub(super) enum Clock {
+    Real(Instant),
+    #[cfg(test)]
+    Simulated(Arc<AtomicU64>),
+}
+
+impl Clock {
+    /// A clock only its sleeps advance (a test's 90 minutes take no time).
+    #[cfg(test)]
+    pub(super) fn simulated() -> Self {
+        Clock::Simulated(Arc::new(AtomicU64::new(0)))
+    }
+
+    fn elapsed(&self) -> Duration {
+        match self {
+            Clock::Real(t0) => t0.elapsed(),
+            #[cfg(test)]
+            Clock::Simulated(ms) => Duration::from_millis(ms.load(Ordering::SeqCst)),
+        }
+    }
+
+    async fn sleep(&self, every: Duration) {
+        match self {
+            Clock::Real(_) => tokio::time::sleep(every).await,
+            #[cfg(test)]
+            Clock::Simulated(ms) => {
+                ms.fetch_add(every.as_millis() as u64, Ordering::SeqCst);
+                tokio::task::yield_now().await;
+            }
+        }
+    }
+}
+
+/// Wait until main's may-build rule says yes, asking every minute and for as
+/// long as it says no: its no is the machine busy (the owner gaming, trees
+/// compiling, a disk low), and the right answer to that is to wait, never to
+/// drop the item. Each [`MAY_BUILD_WAIT`] waited, one inform notice carries
+/// the rule's last words. `/stop` drops the future and with it the child.
 async fn may_build(p: &Place, tree: &Tree, script: &Path) -> Result<()> {
-    let until = Instant::now() + MAY_BUILD_WAIT;
+    may_build_paced(
+        p,
+        tree,
+        script,
+        MAY_BUILD_EVERY,
+        MAY_BUILD_WAIT,
+        Clock::Real(Instant::now()),
+    )
+    .await
+}
+
+pub(super) async fn may_build_paced(
+    p: &Place,
+    tree: &Tree,
+    script: &Path,
+    every: Duration,
+    notice_every: Duration,
+    clock: Clock,
+) -> Result<()> {
+    std::fs::create_dir_all(p.gates())?;
     let log = p.gates().join("may-build.log");
+    let mut told = 0u32;
     loop {
         if run_niced(p, tree, script, &log, Duration::from_secs(120), false).await? == Some(0) {
             return Ok(());
         }
-        if Instant::now() >= until {
-            bail!(
-                "main's may-build rule did not say yes in {} minutes",
-                MAY_BUILD_WAIT.as_secs() / 60
-            );
+        let waited = clock.elapsed();
+        if waited >= notice_every * (told + 1) {
+            told += 1;
+            if let Some(n) = &p.notify {
+                let reason = std::fs::read_to_string(&log).unwrap_or_default();
+                let (n, text) = (n.clone(), wait_notice(&tree.slug, waited, &reason));
+                // The sink writes a frame: the disk, not a runtime worker.
+                let _ = tokio::task::spawn_blocking(move || (n.0)(text)).await;
+            }
         }
-        tokio::time::sleep(MAY_BUILD_EVERY).await;
+        clock.sleep(every).await;
     }
+}
+
+/// The inform notice for a wait: the item, how long, and the rule's own last
+/// line (cut to 200 characters), or a plain statement that it gave none.
+fn wait_notice(slug: &str, waited: Duration, rule_log: &str) -> String {
+    let reason = rule_log
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(|l| l.chars().take(200).collect::<String>());
+    let said = match reason {
+        Some(r) => format!("main's may-build rule says: {r}"),
+        None => "main's may-build rule gave no reason".to_string(),
+    };
+    crate::owner_note::note(
+        crate::owner_note::Kind::Fyi,
+        "A self build is waiting for the machine",
+        &format!("{slug} has waited {} minutes", waited.as_secs() / 60),
+        &format!("{said}. The item stays alive and builds when the rule says yes."),
+    )
+}
+
+#[cfg(test)]
+pub(super) fn wait_notice_for_test(slug: &str, log: &str) -> String {
+    wait_notice(slug, Duration::from_secs(1800), log)
+}
+
+/// The phase a gate log was last in: its last `gate: ` line.
+fn last_phase(log: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(log).ok()?;
+    text.lines()
+        .rev()
+        .find(|l| l.starts_with("gate: "))
+        .map(|l| l.chars().take(200).collect())
 }
 
 /// `bash <script>` in the tree at nice 19 (and the idle IO class where
 /// `ionice` is), its output to `log`, stopped past `limit`. Its exit code.
-async fn run_niced(
+pub(super) async fn run_niced(
     p: &Place,
     tree: &Tree,
     script: &Path,
@@ -594,8 +718,12 @@ async fn run_niced(
                 unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
             }
             let _ = child.wait().await;
+            let phase = last_phase(log).map_or_else(
+                || "no `gate: ` line in its log yet".to_string(),
+                |l| format!("`{l}`"),
+            );
             bail!(
-                "the gate ran past {} minutes and was stopped",
+                "the gate ran past {} minutes and was stopped; its log's last phase line: {phase}",
                 limit.as_secs() / 60
             )
         }

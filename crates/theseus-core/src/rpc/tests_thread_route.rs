@@ -882,16 +882,17 @@ async fn a_write_outside_the_threads_roots_is_held_only_below_the_act_bar() {
     // Likely (0.75): visible tag, so the guard is armed.
     thread_answer(&jev, "pr-round", 0.75);
     let held = submit(c, &dm, "does the migration need a flag").await;
-    assert!(held.awaiting_confirm.is_some(), "the write waits: {held:?}");
-    let asks = c.confirm_list().unwrap();
-    assert_eq!(asks.len(), 1);
-    let why = asks[0].reason.clone();
+    assert!(held.awaiting_confirm.is_none(), "the write runs: {held:?}");
+    let told = rows(c, "tool.notified");
+    assert_eq!(told.len(), 1);
+    let why = told[0].data["rule"].as_str().unwrap().to_string();
     assert!(
         why.contains("isn't in the pr round thread")
-            && why.contains("Go on, or move to the security fix?"),
+            && why.contains("the security fix")
+            && why.contains("Undo: files.restore"),
         "{why}"
     );
-    assert!(!theirs.join("notes.txt").exists(), "nothing was written");
+    assert!(theirs.join("notes.txt").exists(), "the write went on");
     assert_eq!(rows(c, "thread.misroute_held").len(), 1);
     assert_eq!(
         rows(c, "thread.misroute_held")[0].data["thread"],
@@ -970,8 +971,8 @@ async fn a_guess_placed_write_outside_its_relative_roots_is_still_held() {
     let dm = home(c, None);
     thread_answer(&jev, "pr-round", 0.75);
     let held = submit(c, &dm, "does the migration need a flag").await;
-    assert!(held.awaiting_confirm.is_some(), "{held:?}");
-    assert!(!theirs.join("notes.txt").exists());
+    assert!(held.awaiting_confirm.is_none(), "{held:?}");
+    assert!(theirs.join("notes.txt").exists());
     assert_eq!(rows(c, "thread.misroute_held").len(), 1);
 }
 
@@ -1016,8 +1017,12 @@ async fn a_guess_placed_program_from_the_session_directory_is_not_held() {
         let res = submit(c, &dm, "does the migration need a flag").await;
         let held = rows(c, "thread.misroute_held");
         assert_eq!(held.len(), held_rows, "{target}: {res:?}");
-        assert_eq!(res.awaiting_confirm.is_some(), held_rows == 1, "{target}");
-        assert_eq!(file.exists(), held_rows == 0, "{target}");
+        assert_eq!(
+            res.awaiting_confirm.is_none(),
+            held_rows <= 1,
+            "{target}: the write runs"
+        );
+        assert_eq!(file.exists(), held_rows <= 1, "{target}: the write went on");
         if let Some(h) = held.first() {
             assert!(h.data["path"]
                 .as_str()
