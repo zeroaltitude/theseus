@@ -589,6 +589,12 @@ impl Admission {
                 // receiver open, and waits another window. One notice an
                 // episode, which the queue's next movement ends.
                 let now = Instant::now();
+                // The failure path below is the only other sweep, and a
+                // person's wait no longer reaches it: clear the waiters
+                // whose turn went away.
+                for q in &mut s.queues {
+                    q.retain(|w| !w.tx.is_closed());
+                }
                 let told = (s.told != Some(s.moved)).then(|| {
                     s.told = Some(s.moved);
                     self.stuck_notice(&s, now)
@@ -752,7 +758,10 @@ impl TurnRunner {
                         return Ok(None);
                     }
                     let window = self.cfg.kernel.admission_stuck();
-                    if tokio::time::timeout(window, ended).await.is_err() {
+                    // A person's wait is never failed (`take`'s rule): their
+                    // next typed message waits for their own previous turn.
+                    if tokio::time::timeout(window, ended).await.is_err() && class != Class::Person
+                    {
                         return Err(turn_error(
                             "admission_stuck",
                             "",

@@ -653,3 +653,107 @@ async fn a_person_with_no_notice_sink_simply_keeps_waiting() {
         .unwrap()
         .expect("admitted");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_persons_continue_path_sweeps_the_waiters_that_went_away() {
+    let adm = Admission::new(1, STUCK);
+    let _held = held_for_good(&adm);
+    let gone = wait_as(&adm, Class::Person);
+    settle().await;
+    gone.abort();
+    settle().await;
+    assert_eq!(adm.load(), (1, 1), "the departed waiter's entry stays");
+    let person = wait_as(&adm, Class::Person);
+    settle().await;
+    assert_eq!(adm.load(), (1, 2));
+    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+    settle().await;
+    assert!(!person.is_finished(), "the person keeps waiting");
+    assert_eq!(
+        adm.load(),
+        (1, 1),
+        "the window's pass clears the entry of the waiter that went away"
+    );
+}
+
+/// The runner's own admission of an input's turn, which waits for the same
+/// execution's previous turn to end: `Admission::take` never fails a person,
+/// and this wait must not either (it is the next typed message's wait behind
+/// the person's own turn). Wakes and tasks still fail on the window.
+mod behind_its_own_turn {
+    use super::*;
+    use crate::provider::FakeProvider;
+    use crate::store::Store;
+    use crate::{Config, Core};
+    use theseus_protocol::SessionKind;
+
+    fn core() -> (Arc<Core>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let core = Core::build(crate::rpc::Parts::for_tests(
+            cfg,
+            Arc::new(FakeProvider::scripted(vec![])),
+            store,
+        ))
+        .unwrap();
+        (core, dir)
+    }
+
+    /// An admit of `exec` in `class` with a wait, on a task of its own.
+    fn admit_as(
+        core: &Arc<Core>,
+        exec: &str,
+        class: Class,
+    ) -> tokio::task::JoinHandle<Result<(), String>> {
+        let (core, exec) = (core.clone(), exec.to_string());
+        tokio::spawn(async move {
+            let mut frames = 0;
+            match core
+                .runner
+                .admit(&exec, std::time::Instant::now(), true, class, &mut frames)
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("{e:#}")),
+            }
+        })
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_persons_next_message_waits_for_its_own_turn_past_the_window() {
+        let (core, _dir) = core();
+        let e = core
+            .kernel
+            .open_execution(
+                "ses_behind",
+                SessionKind::Conversation,
+                theseus_kernel::Authority {
+                    principal: "test".into(),
+                    delegated_by: None,
+                    ceilings: Default::default(),
+                },
+                None,
+                None,
+            )
+            .unwrap();
+        // The execution's turn is held and never ends.
+        let _turn = core.kernel.admit_input(&e.id).unwrap();
+        let person = admit_as(&core, &e.id, Class::Person);
+        let wake = admit_as(&core, &e.id, Class::Wake);
+        settle().await;
+        tokio::time::advance(STUCK * 2 + Duration::from_secs(1)).await;
+        settle().await;
+        let failed = within("the wake's failure", wake).await.unwrap();
+        assert!(
+            failed.is_err_and(|e| e.contains("did not end in 600 s")),
+            "a wake's wait fails on the window"
+        );
+        assert!(
+            !person.is_finished(),
+            "a person's wait behind their own turn is not failed"
+        );
+        person.abort();
+    }
+}
