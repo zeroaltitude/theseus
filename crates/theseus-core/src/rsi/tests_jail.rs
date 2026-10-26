@@ -235,6 +235,7 @@ fn a_jails_job_gets_its_view_and_its_variables() {
             OsString::from("/dev/null"),
         )],
         jail: None,
+        notify: None,
     };
     let tree = Tree {
         slug: "t".into(),

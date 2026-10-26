@@ -65,11 +65,19 @@ pub(crate) fn fixture() -> Fixture {
 }
 
 pub(super) fn fixture_with(gate: &str) -> Fixture {
+    fixture_full(gate, None)
+}
+
+/// `fixture_with`, and main's `scripts/may-build.sh` when one is given.
+pub(super) fn fixture_full(gate: &str, may: Option<&str>) -> Fixture {
     let dir = crate::scratch::tempdir();
     let root = dir.path().canonicalize().unwrap();
     let seed = root.join("seed");
     std::fs::create_dir_all(seed.join("scripts")).unwrap();
     std::fs::write(seed.join("scripts/gate.sh"), gate).unwrap();
+    if let Some(m) = may {
+        std::fs::write(seed.join("scripts/may-build.sh"), m).unwrap();
+    }
     std::fs::write(seed.join("README.md"), "the ship\n").unwrap();
     std::fs::write(seed.join(".gitignore"), "target\n").unwrap();
     git(&seed, &["init", "-q", "-b", "main"]);
@@ -89,6 +97,7 @@ pub(super) fn fixture_with(gate: &str) -> Fixture {
             state,
             env: hermetic(),
             jail: None,
+            notify: None,
         },
         upstream,
         _dir: dir,
@@ -372,4 +381,126 @@ fn a_push_that_touches_the_exams_is_refused() {
     assert!(matches!(r, Err(Refused::Exams(_))), "{r:?}");
     let up = git(&f.upstream, &["for-each-ref", "--format=%(refname)"]);
     assert_eq!(up, "refs/heads/main");
+}
+
+/// A stand-in may-build rule that says no `no` times, with a reason on its
+/// last line, then yes. Its counter lives beside the fixture, not in the tree.
+fn may_script(counter: &Path, no: u32) -> String {
+    format!(
+        "#!/bin/bash\nn=$(cat {c} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {c}\n\
+         if [ $n -le {no} ]; then echo 'checking'; echo 'three trees compiling (round '$n')'; exit 1; fi\n\
+         exit 0\n",
+        c = counter.display()
+    )
+}
+
+type Told = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
+fn listening(p: &Place) -> (Place, Told) {
+    let told: Told = Told::default();
+    let sink = told.clone();
+    let mut p = p.clone();
+    p.notify = Some(tree::Notify::new(move |t| sink.lock().unwrap().push(t)));
+    (p, told)
+}
+
+/// Run `may_build_paced` for `no` refusals on a simulated clock.
+async fn waited(no: u32, sink: bool) -> (anyhow::Result<()>, Vec<String>) {
+    let f = fixture_full(GATE, Some("#!/bin/bash\n"));
+    let counter = f.place.state.join("count");
+    let (mut place, told) = listening(&f.place);
+    if !sink {
+        place.notify = None;
+    }
+    let t = tree::open(&place, "wait item", NOW).unwrap();
+    let script = f.place.state.join("may.sh");
+    std::fs::write(&script, may_script(&counter, no)).unwrap();
+    let r = tree::may_build_paced(
+        &place,
+        &t,
+        &script,
+        std::time::Duration::from_secs(60),
+        tree::MAY_BUILD_WAIT,
+        tree::Clock::simulated(),
+    )
+    .await;
+    let told = told.lock().unwrap().clone();
+    (r, told)
+}
+
+/// A no from the rule for 90 minutes is a wait, not a failure: the item is
+/// told twice (at 30 and 60 minutes, never once a minute) and the gate then
+/// starts (the owner, 2026-10-25 13:58: "i want there to be precious few hard
+/// gates /anywhere/ in theseus").
+#[tokio::test]
+async fn a_long_no_from_may_build_is_a_wait_with_one_notice_a_window() {
+    let (r, told) = waited(90, true).await;
+    r.expect("the wait must not fail the item");
+    assert_eq!(told.len(), 2, "{told:#?}");
+}
+
+/// The notice carries the rule's last words, the item and the wait.
+#[tokio::test]
+async fn the_wait_notice_carries_the_rules_reason() {
+    let (r, told) = waited(40, true).await;
+    r.unwrap();
+    assert_eq!(told.len(), 1, "{told:#?}");
+    assert!(
+        told[0].contains("three trees compiling (round"),
+        "{}",
+        told[0]
+    );
+    assert!(told[0].contains("wait-item"), "{}", told[0]);
+    assert!(told[0].contains("waited 30 minutes"), "{}", told[0]);
+    assert!(
+        !told[0].contains("checking"),
+        "only the last line: {}",
+        told[0]
+    );
+    let none = super::tree::wait_notice_for_test("t", "");
+    assert!(none.contains("gave no reason"), "{none}");
+}
+
+/// A place with no sink still waits and still gates.
+#[tokio::test]
+async fn a_place_with_no_sink_still_waits_without_error() {
+    let (r, told) = waited(40, false).await;
+    r.unwrap();
+    assert!(told.is_empty());
+}
+
+/// A gate stopped at its limit names the phase its log was last in; a log
+/// with no phase line says so.
+#[tokio::test]
+async fn a_stopped_gate_names_its_phase() {
+    let f = fixture();
+    let t = tree::open(&f.place, "slow", NOW).unwrap();
+    let log = f.place.state.join("slow.log");
+    for (body, want) in [
+        (
+            "echo 'gate: phase suite'; exec sleep 30",
+            "gate: phase suite",
+        ),
+        ("exec sleep 30", "no `gate: ` line"),
+    ] {
+        let script = f.place.state.join("slow.sh");
+        std::fs::write(&script, format!("#!/bin/bash\n{body}\n")).unwrap();
+        let e = tree::run_niced(
+            &f.place,
+            &t,
+            &script,
+            &log,
+            std::time::Duration::from_millis(700),
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert!(format!("{e:#}").contains(want), "{e:#}");
+    }
+}
+
+/// The two-hour backstop is generous and stays where it is.
+#[test]
+fn the_gate_limit_is_still_two_hours() {
+    assert_eq!(tree::GATE_LIMIT, std::time::Duration::from_secs(2 * 3600));
 }

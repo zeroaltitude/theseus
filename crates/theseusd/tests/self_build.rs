@@ -93,6 +93,7 @@ impl Rig {
             state: p("state"),
             env: Vec::new(),
             jail: None,
+            notify: None,
         };
         Self {
             spool: theseus_kernel::Spool::open(&p("spool")).unwrap(),
