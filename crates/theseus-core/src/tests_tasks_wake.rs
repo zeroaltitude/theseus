@@ -150,6 +150,33 @@ async fn a_persons_turn_loads_what_it_always_did() {
     assert_eq!(cli_tokens, CLI_PERSON_TOKENS);
 }
 
+/// The same safety property one turn later: a person's turn after a wake turn is a person's turn
+/// again. The wake's recompile recorded the tasks family; the next appended turn must drop it, so
+/// it recompiles without it (`Deferral::dropped`) and carries what a person's turn always did.
+#[tokio::test]
+async fn a_persons_turn_after_a_wake_costs_what_it_always_did() {
+    let r = rig_deferring(|_| {}, waking);
+    let sid = session(&r.core, Some(DM));
+    run(&r.core, &sid, Some("WAKE me")).await;
+    r.until("the wake's turn", 30, |r| r.requests().len() >= 3)
+        .await;
+    let wake = r.requests().pop().unwrap();
+    assert!(
+        !hidden(&wake, "task_create"),
+        "the wake's turn has the tasks"
+    );
+    run(&r.core, &sid, Some("hello")).await;
+    let (loaded, _, req) = first(&r);
+    eprintln!("TABLE dm person after a wake: {loaded:?}");
+    assert!(hidden(&req, "task_create"));
+    assert_eq!(loaded, DM_PERSON, "{loaded:?}");
+    // The whole request also holds the earlier turns' messages, so its token count is not
+    // `DM_PERSON_TOKENS`; the tools are what the wake could have left behind, and they must be
+    // exactly a first person turn's.
+    let (_, _, fresh) = table(Some(DM), Some("hello")).await;
+    assert_eq!(req.tools, fresh.tools);
+}
+
 const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"];
 const DM_PERSON_TOKENS: u64 = 9756;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];

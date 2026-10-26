@@ -101,6 +101,11 @@ pub struct Deferral {
     /// of the turn carries the found tools, and the new compilation records
     /// them for the turns after.
     pub added: BTreeSet<String>,
+    /// Families the fresh choice does not load that a compilation recorded because a turn with
+    /// no person's input loaded them (theseus-o1h3f.3). An append drops them, so the tools
+    /// differ from that compilation's and the compile recompiles without them: a person's turn
+    /// after a wake costs what a person's turn has always cost.
+    pub dropped: BTreeSet<String>,
     /// The families admitted past the place's budget for this turn's message
     /// (theseus-xlri5), when any were: the fresh choice's alone, so an append
     /// over a recorded set raises nothing.
@@ -118,6 +123,7 @@ impl Deferral {
         Deferral {
             loaded: recorded
                 .iter()
+                .filter(|f| !self.dropped.contains(*f))
                 .cloned()
                 .chain(self.added.iter().cloned())
                 .collect(),

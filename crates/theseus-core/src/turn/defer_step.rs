@@ -251,11 +251,19 @@ impl TurnRunner {
                 };
             }
         }
+        // The converse of `added`: a person's turn drops a family only the loosening loaded, so the
+        // append's tools differ from the compilation's and it recompiles without it. Read after the
+        // message's own admissions, so a family this turn loads is never dropped.
+        let dropped: BTreeSet<String> = (!noticed && !loaded.contains(tools_defer::family::TASKS))
+            .then(|| tools_defer::family::TASKS.to_string())
+            .into_iter()
+            .collect();
         Some(Deferral {
             mechanism,
             loaded,
             resolved: false,
             added,
+            dropped,
             raised,
             bare,
         })

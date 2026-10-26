@@ -223,6 +223,7 @@ mod tests {
             loaded: [name.to_string()].into(),
             resolved: false,
             added: Default::default(),
+            dropped: Default::default(),
             raised: None,
             bare: false,
         };
