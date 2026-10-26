@@ -11,10 +11,10 @@ import { useEffect, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ArrowLeftRight, FlaskConical, ListOrdered, Trophy } from 'lucide-react'
 import {
-  axes, axisName, DEFAULT_AXES, inverted, family, frontier, harness, showsName, theseusOf, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, TASK_SETS, unequal, UNEQUAL,
-  type Note, type Placed, type Point, type Property, type SetId, type TaskSet,
+  axes, axesOf, axisName, inverted, family, frontier, harness, showsName, theseusOf, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, unequal, UNEQUAL,
+  type Note, type Placed, type Point, type Property, type TaskSet,
 } from '@/lib/bench'
-import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest } from '@/lib/benchfiles'
+import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets } from '@/lib/benchfiles'
 import { sparkline, type Series } from '@/lib/benchindex'
 import type { EChartsOption } from '@/lib/chart'
 import { CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIP_FRAME, baseAxis, niceStep, usdTick, valueAxis } from '@/lib/viz'
@@ -52,25 +52,26 @@ export default function Benchmarks() {
   const extra = useBenchFiles(unindexed, 'md')
   const list = useMemo(() => runs(REPORTS, index, new Map([...(extra.data ?? new Map<string, string>())].map(([n, md]) => [n, reportTitle(md) ?? n]))), [index, extra.data])
 
-  // The task sets' files: four reports' tables, data files and words.
-  const setReports = useMemo(() => [...new Set(TASK_SETS.map((s) => s.report))], [])
+  const { sets: SETS, loading: setsLoading } = useBenchSets()
+  // The task sets' files: the reports' tables, data files and words.
+  const setReports = useMemo(() => [...new Set(SETS.map((s) => s.report))], [SETS])
   const csv = useBenchFiles(setReports, 'csv'), json = useBenchFiles(setReports, 'json'), md = useBenchFiles(setReports, 'md')
   const all = useMemo(() => {
     const [c, j, m] = [csv.data, json.data, md.data]
-    if (!c || !j || !m) return null
-    return new Map(TASK_SETS.map((s) => [s.id, points(s, c.get(s.report) ?? '', j.get(s.report), m.get(s.report), s.report.slice(0, 10))]))
-  }, [csv.data, json.data, md.data])
+    if (!c || !j || !m || setsLoading) return null
+    return new Map(SETS.map((s) => [s.id, points(s, c.get(s.report) ?? '', j.get(s.report), m.get(s.report), s.report.slice(0, 10))]))
+  }, [csv.data, json.data, md.data, SETS, setsLoading])
 
-  const set = TASK_SETS.find((s) => s.id === params.get('set')) ?? TASK_SETS[0]
+  const set = SETS.find((s) => s.id === params.get('set')) ?? SETS[0]
   const ps = useMemo(() => all?.get(set.id) ?? [], [all, set.id])
   const { usable, one } = useMemo(() => axes(ps), [ps])
   // The axes in the address when this task set measured them, else its own; never one property on both.
   const pickAxis = (k: 'x' | 'y', d: string) => usable.find((p) => p.id === params.get(k)) ?? property(d)!
-  const px = pickAxis('x', DEFAULT_AXES[set.id][0])
-  const asked = pickAxis('y', DEFAULT_AXES[set.id][1])
-  const py = asked !== px ? asked : property(DEFAULT_AXES[set.id][1]) !== px ? property(DEFAULT_AXES[set.id][1])! : usable.find((p) => p !== px) ?? asked
+  const px = pickAxis('x', axesOf(set)[0])
+  const asked = pickAxis('y', axesOf(set)[1])
+  const py = asked !== px ? asked : property(axesOf(set)[1]) !== px ? property(axesOf(set)[1])! : usable.find((p) => p !== px) ?? asked
   // A task set keeps the axes picked when it measured both of them, else it opens on its own.
-  const pickSet = (id: SetId) => setParams((p) => {
+  const pickSet = (id: string) => setParams((p) => {
     const next = all?.get(id) ?? []
     const ok = (k: 'x' | 'y') => { const v = p.get(k); return !v || axes(next).usable.some((u) => u.id === v) }
     p.set('set', id)
@@ -114,7 +115,7 @@ export default function Benchmarks() {
         icon={<Trophy size={14} />}
         empty={!all ? 'Reading the runs…' : ps.length < 2 ? 'This task set has fewer than two points.' : undefined}
         table={frontierTable(ps, placed, px, py, usable, set)}
-        actions={<SetPicker value={set.id} onChange={pickSet} />}>
+        actions={<SetPicker sets={SETS} value={set.id} onChange={pickSet} />}>
         <div className="flex h-full flex-col">
           <AxisRow px={px} py={py} usable={usable} one={one}
             onX={(id) => put('x', id)} onY={(id) => put('y', id)} onSwap={() => setParams((p) => { p.set('x', py.id); p.set('y', px.id); return p }, { replace: true })} />
@@ -233,10 +234,10 @@ function Spark({ s }: { s: Series }) {
 
 // ---------------------------------------------------------------- the pickers
 
-function SetPicker({ value, onChange }: { value: SetId; onChange: (id: SetId) => void }) {
+function SetPicker({ sets, value, onChange }: { sets: readonly TaskSet[]; value: string; onChange: (id: string) => void }) {
   return (
     <div className="flex flex-wrap items-center rounded-md bg-black/30 p-0.5 ring-1 ring-line" role="tablist" aria-label="task set">
-      {TASK_SETS.map((s) => (
+      {sets.map((s) => (
         <button key={s.id} type="button" role="tab" aria-selected={s.id === value} title={s.label} onClick={() => onChange(s.id)}
           className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors', s.id === value ? 'bg-live/15 text-live shadow-[0_0_10px_-2px_rgba(34,211,238,0.5)]' : 'text-ink-faint hover:text-ink')}>
           {s.short}

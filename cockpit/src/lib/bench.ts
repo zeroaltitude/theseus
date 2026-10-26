@@ -380,7 +380,7 @@ export type SetId = (typeof SET_IDS)[number]
 
 /** A task set: one report's per-trial table, the trials of it that ran the same tasks, and how its rows read. */
 export interface TaskSet {
-  id: SetId; label: string; short: string; report: string
+  id: string; label: string; short: string; report: string
   /** What the task set is, in a line. */
   about: string
   /** The trials of the table in this set. */
@@ -398,11 +398,14 @@ export interface TaskSet {
   notes: Record<string, Record<string, Note[]>>
   /** Each harness's effort in this set's runs, where it is not `EFFORT`'s (the first full run's). */
   effort?: Record<string, Note>
+  /** The axes it opens on, for a set a dataset's `ui` block made; the built-ins' are `DEFAULT_AXES`. */
+  axes?: [string, string]
 }
 
 const ABLATION: Note = { text: 'a prompt ablation, never shipped', report: TB2, quote: 'B is reported here once, as an ablation, and was never shipped.' }
 const EFFORT_DIFFERS: Note = { text: 'Effort: Theseus sent none (the API’s default is high); Claude Code ran per-turn effort at a level not recorded.', report: TB2, quote: 'And the arms may not have thought at the same effort' }
 
+/** The five hand-written task sets; a dataset's own `ui` block makes the rest (`setsFrom`). */
 export const TASK_SETS: readonly TaskSet[] = [
   {
     id: 'tb2', label: 'Terminal-Bench 2.0, all 89 tasks × 2 attempts', short: 'Terminal-Bench 2.0 · 89 tasks', report: TB2,
@@ -529,6 +532,44 @@ export const TASK_SETS: readonly TaskSet[] = [
   },
 ]
 
+// ---------------------------------------------------------------- task sets from a dataset's own `ui` block (theseus-tyv41)
+
+/** A dataset (`docs/benchmarks/<report>.json`) may carry a top-level `ui` block: `{ set_id, label, short, about,
+ *  default_axes: [x, y], conditions: [{text, quote}], versions: {arm: {run: {text, quote}}}, notes, effort }`. A new
+ *  run then reaches the page with no UI change: capture writes the dataset, and the set appears. A block that is not
+ *  one (no string `set_id`, `label`, `short` or `about`, or a set id a built-in holds) makes no set. The dataset's
+ *  table is `<report>.csv`, read as the built-ins' are: a point is an arm, its `arm` column the key. */
+export function setsFrom(datasets: readonly { report: string; ui?: unknown }[]): TaskSet[] {
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+  const str = (v: unknown): v is string => typeof v === 'string' && v !== ''
+  const out: TaskSet[] = []
+  for (const { report, ui } of datasets) {
+    if (!isObj(ui) || !str(ui.set_id) || !str(ui.label) || !str(ui.short) || !str(ui.about)) continue
+    const id = ui.set_id
+    if (TASK_SETS.some((t) => t.id === id) || out.some((t) => t.id === id)) continue
+    const note = (v: unknown): Note | undefined => (isObj(v) && str(v.text) && str(v.quote) ? { text: v.text, report, quote: v.quote } : undefined)
+    const notes = (v: unknown): Note[] => (Array.isArray(v) ? v.map(note).filter((n): n is Note => !!n) : [])
+    const byArm = <T,>(v: unknown, one: (x: unknown) => T | undefined): Record<string, Record<string, T>> =>
+      Object.fromEntries(Object.entries(isObj(v) ? v : {}).map(([arm, runs]) => [arm, Object.fromEntries(Object.entries(isObj(runs) ? runs : {})
+        .map(([run, x]) => [run, one(x)] as const).filter((e): e is [string, T] => e[1] !== undefined))]))
+    const axes = Array.isArray(ui.default_axes) && ui.default_axes.length === 2 && ui.default_axes.every((a) => typeof a === 'string' && !!property(a))
+      && ui.default_axes[0] !== ui.default_axes[1] ? [ui.default_axes[0], ui.default_axes[1]] as [string, string] : undefined
+    out.push({
+      id, label: ui.label, short: ui.short, about: ui.about, report,
+      keep: () => true, arm: (r) => r.arm, run: () => ({ id, label: ui.short as string }),
+      conditions: (Array.isArray(ui.conditions) ? ui.conditions : []).map(note).filter((n): n is Note => !!n),
+      versions: byArm(ui.versions, note) as Record<string, Record<string, Note>>,
+      notes: byArm(ui.notes, notes) as Record<string, Record<string, Note[]>>,
+      effort: Object.fromEntries(Object.entries(isObj(ui.effort) ? ui.effort : {}).map(([a, n]) => [a, note(n)] as const).filter((e): e is [string, Note] => !!e[1])),
+      axes,
+    })
+  }
+  return out
+}
+
+/** The sets a page offers, newest runs first: those datasets made, then the five built-ins. */
+export const allSets = (datasets: readonly { report: string; ui?: unknown }[]): TaskSet[] => [...setsFrom(datasets), ...TASK_SETS]
+
 // ---------------------------------------------------------------- properties
 
 export type Better = 'higher' | 'lower'
@@ -597,6 +638,16 @@ export const property = (id: string): Property | undefined => PROPERTIES.find((p
 /** Each task set's axes when the address names none: the question its report asked first. */
 export const DEFAULT_AXES: Record<SetId, [string, string]> = {
   tb2: ['usd', 'pass'], fixgit: ['rss', 'usd'], worth: ['usd', 'agent-s'], async: ['respond-s', 'usd'], arms: ['usd', 'pass'],
+}
+
+/** What a generated set opens on when its `ui` block names no usable axes: the question every harness table answers. */
+export const FALLBACK_AXES: [string, string] = ['usd', 'pass']
+
+/** A set's opening axes: a generated set's own (`ui.default_axes`), else a built-in's exhaustive `DEFAULT_AXES` row
+ *  (so a built-in without one is still a build error), else the explicit `FALLBACK_AXES`. */
+export function axesOf(set: TaskSet): [string, string] {
+  if (set.axes) return set.axes
+  return (SET_IDS as readonly string[]).includes(set.id) ? DEFAULT_AXES[set.id as SetId] : FALLBACK_AXES
 }
 
 // ---------------------------------------------------------------- points
