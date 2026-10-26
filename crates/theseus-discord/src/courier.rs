@@ -792,6 +792,27 @@ impl Lane {
         }
     }
 
+    /// A content label's message (theseus-9ymz0): its words as the core wrote
+    /// them, in the session's place, with the one Remove button.
+    async fn content_label_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
+        let channel = self.place_channel().await?;
+        let session = body["session_id"].as_str().unwrap_or("").to_string();
+        let flag = body["flag"].as_str().unwrap_or("").to_string();
+        Ok(Plan {
+            writes: vec![Write {
+                key: format!("content:{corr}"),
+                channel,
+                content: body["text"].as_str().unwrap_or("").to_string(),
+                buttons: Buttons::ContentRemove(session, flag),
+                reply_to: None,
+                message: None,
+                mentions: vec![],
+                ping: self.pings(Event::Note),
+            }],
+            extra: json!({}),
+        })
+    }
+
     /// A post's writes, by its kind.
     async fn plan(&mut self, a: &Action) -> Result<Plan, SendErr> {
         let body = body_of(a).clone();
@@ -839,24 +860,7 @@ impl Lane {
             "failed" => self.failed_post(&body, corr).await,
             // A content label was raised on the session (theseus-9ymz0): the one
             // message the locked DM flow gains, in the session's place.
-            "content_label" => {
-                let channel = self.place_channel().await?;
-                let mut w = text(
-                    body["text"].as_str().unwrap_or("").to_string(),
-                    format!("content:{corr}"),
-                    channel,
-                    None,
-                    Event::Note,
-                );
-                w.buttons = Buttons::ContentRemove(
-                    body["session_id"].as_str().unwrap_or("").to_string(),
-                    body["flag"].as_str().unwrap_or("").to_string(),
-                );
-                Ok(Plan {
-                    writes: vec![w],
-                    extra: json!({}),
-                })
-            }
+            "content_label" => self.content_label_post(&body, corr).await,
             "report" => self.report_post(&body, corr).await,
             "offer" => Ok(self.offer_post(&body)),
             // A hands group's one line (step 40 part 2): under its group's
