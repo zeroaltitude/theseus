@@ -28,7 +28,7 @@ import { daylightColor } from '@/lib/daylight'
 type D = Record<string, any>
 
 const KINDS = new Set([
-  'session.external_read', 'session.trusted', 'policy.tightened', 'policy.untightened', 'secret.granted', 'secret.withheld',
+  'session.external_read', 'session.trusted', 'content.labelled', 'content.removed', 'policy.tightened', 'policy.untightened', 'secret.granted', 'secret.withheld',
   'place.viewed', 'place.published', 'action.cancel_verified', 'action.cancel_uncertain', 'action.cancel_unsupported',
   'tool.job_started', 'sandbox.started', 'action.succeeded', 'action.failed', 'action.cancelled',
   // 18c's egress.

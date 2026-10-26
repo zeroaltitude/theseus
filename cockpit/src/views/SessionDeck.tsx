@@ -28,6 +28,7 @@ import { flatten, spanColor, timeByKind, type Flat } from '@/lib/spans'
 import { useTick } from '@/lib/hooks'
 import { judged, line, marksOf } from '@/lib/judgment'
 import { useAsOf } from '@/lib/timemachine'
+import { chipsOf, unlabelCall } from '@/lib/labels'
 import { Echart } from '@/components/Echart'
 import { Flame } from '@/components/Flame'
 import { ChartTable, Legend, Swatch, TableToggle, TipArea, TipBody, TipTarget, type LegendItem } from '@/components/ChartPanel'
@@ -231,13 +232,14 @@ function Follow({ children, deps }: { children: React.ReactNode; deps: unknown[]
 function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: ExecutionInfo; onBack: () => void }) {
   const now = useTick(5000)
   const [busy, setBusy] = useState<string | null>(null)
-  const act = async (label: string, method: string, params: unknown) => {
-    if (!window.confirm(`${label} ${short(s.session_id)}?`)) return
+  const act = async (label: string, method: string, params: unknown, ask?: string) => {
+    if (!window.confirm(ask ?? `${label} ${short(s.session_id)}?`)) return
     setBusy(label)
     try { await call(method, params) } catch (e: any) { window.alert(e?.message ?? String(e)) } finally { setBusy(null) }
   }
   const b = exec?.budget
   const u = s.usage
+  const chips = chipsOf(s.labels)
   return (
     <div className="panel relative z-20 flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
       <button onClick={onBack} className="rounded-md p-1 text-ink-faint hover:bg-white/5 hover:text-ink"><ArrowLeft size={16} /></button>
@@ -251,6 +253,20 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
         </div>
         {s.title_was?.length ? <div className="truncate text-[11px] text-ink-faint" title={s.title_was.join(' · ')}>was: {s.title_was.join(' · ')}</div> : null}
         <SessionLinks by={s.superseded_by} replaces={s.supersedes} />
+        {chips.length > 0 && (
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {chips.map((c) => (
+              <Pill key={c.flag} tone={c.tone} title={c.title}>
+                <span className="num">{c.text}</span>
+                <button
+                  title={`Remove the ${c.flag} label`} aria-label={`Remove the ${c.flag} label`} disabled={busy === `Remove ${c.flag}`}
+                  onClick={() => { const u = unlabelCall(s.session_id, c.flag); void act(`Remove ${c.flag}`, u.method, u.params, u.ask) }}
+                  className="ml-0.5 rounded p-0.5 hover:bg-white/10 disabled:opacity-50"
+                ><X size={10} /></button>
+              </Pill>
+            ))}
+          </div>
+        )}
         <div className="num mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-ink-faint">
           <button onClick={() => navigator.clipboard?.writeText(s.session_id)} className="inline-flex items-center gap-1 hover:text-ink"><Copy size={10} />{s.session_id}</button>
           {s.label && <span>{s.label}</span>}

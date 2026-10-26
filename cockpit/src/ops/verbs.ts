@@ -47,6 +47,7 @@ export const VERBS: readonly VerbDef[] = [
   { id: 'job_stop', label: 'Stop the job', on: ['job'], methods: ['job.stop'], posture: 'arm' },
   { id: 'answer', label: 'Answer', on: ['question'], methods: ['work.answer'], posture: 'floor' },
   { id: 'trust', label: 'Trust the session again', on: ['session', 'conversation'], methods: ['policy.trust'], posture: 'ask' },
+  { id: 'unlabel', label: 'Remove a label', on: ['session', 'conversation'], methods: ['content.unlabel'], posture: 'ask' },
   { id: 'retry', label: 'Retry the failed task', on: ['task'], methods: ['task.retry'], posture: 'do' },
   { id: 'dismiss', label: 'Dismiss the failure', on: ['task', 'conversation'], methods: ['execution.dismiss'], posture: 'do' },
   { id: 'new_task', label: 'Start a task', on: ['daemon', ...SESSIONISH], methods: ['task.start'], posture: 'do' },
