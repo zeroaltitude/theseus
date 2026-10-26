@@ -166,17 +166,31 @@ async fn the_owners_press_removes_the_label_and_a_guests_is_refused() {
         .await;
     assert!(carrying(&r, &sid, Flag::Injection));
 
-    // The owner, in the DM: the label goes and the message settles.
-    r.press(&m.id, "Remove", (ANA, "ana"));
+    // The owner, in the DM: the label goes and the message settles. The stand-in
+    // does not apply an edit to a message, so the press's calls are what is read:
+    // the acknowledgement (a deferred update), then the original response edited
+    // to say who removed it, with no components.
+    let pressed = r.press(&m.id, "Remove", (ANA, "ana"));
     r.until("the label is removed", || !carrying(&r, &sid, Flag::Injection))
         .await;
     r.until("the message settles", || {
-        notes(&r).is_empty()
-            && r.posted(ANA_DM)
-                .iter()
-                .any(|x| x.versions.last().is_some_and(|v| v.contains("✅ Removed by")))
+        r.fake.replies().iter().any(|x| {
+            x.interaction.as_deref() == Some(pressed.as_str())
+                && x.kind == "original"
+                && x.content
+                    .as_deref()
+                    .is_some_and(|c| c.ends_with("✅ Removed by discord:ana."))
+        })
     })
     .await;
+    let of_press: Vec<_> = r
+        .fake
+        .replies()
+        .into_iter()
+        .filter(|x| x.interaction.as_deref() == Some(pressed.as_str()))
+        .collect();
+    assert_eq!(of_press[0].kind, "callback", "{of_press:?}");
+    assert_eq!(of_press[0].response_type, Some(6), "{of_press:?}");
     let rows: Vec<_> = r
         .core
         .store
