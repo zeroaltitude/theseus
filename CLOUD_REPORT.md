@@ -44,8 +44,7 @@ With the fix: all 19 `tests_tree` tests pass; clippy of theseus-core all-targets
 
 ## Gate
 `TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 THESEUS_KEEL_BASE=92e3dbed scripts/gate.sh` with `CARGO_INCREMENTAL=0`. First run died at "test build" with `No space left on device` (target/debug/incremental); I removed it and reran. Second run: fmt, shape, features, clippy, clippy-probe, cockpit, test build all passed; suite: 8629 tests, 8594 passed, 35 failed:
-- 33 are the known L1 failures (theseus-sandbox contract tests and `spawn_100`, theseusd `sandbox` tests).
-- 1 more of the same family counted in those 35 is not listed separately; the count of L1 names in the log is 34 FAIL lines; plus
+- 34 are the known L1 failures (theseus-sandbox contract tests and `spawn_100`, theseusd `sandbox` tests; the prompt said "about 33").
 - `theseus-core tests_route::a_switched_turns_compilation_names_its_recall_drops`: NOT on the known list. Failed in the full run at tests_route.rs:1575 `sophisticated` left `("opus", 2)` right `("opus", 1)`; it passed on two solo reruns. It is outside `rsi/` and I did not change anything it reads, so I read it as a load race, but it is a finding: it needs a look.
 After the suite I ran the later phases I could: `tests_registry` (15 passed) and theseus-protocol (210 passed). Lifecycle/jobs/turn/size benches skipped (`THESEUS_GATE_NO_BENCH=1`, owner's machine). The door's "FAILED in door" line is the gate's verdict on the tree from the suite failure, not a separate fault.
 
