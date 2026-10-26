@@ -6,7 +6,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { allSets, reportName, TASK_SETS } from '@/lib/bench'
-import { readManifest } from '@/lib/benchindex'
+import { datasetsUi, readManifest } from '@/lib/benchindex'
 import { readCatalogue } from '@/lib/benchtasks'
 
 type Load = () => Promise<string>
@@ -67,9 +67,7 @@ export function useBenchSets() {
   const names = useMemo(() => [...FILES.json.keys()].sort().reverse(), [])
   const q = useQuery({
     queryKey: ['bench', 'sets'], staleTime: Infinity, gcTime: Infinity,
-    queryFn: async () => allSets(await Promise.all(names.map(async (report) => {
-      try { return { report, ui: (JSON.parse((await loadFile(report, 'json')) ?? 'null') as { ui?: unknown } | null)?.ui } } catch { return { report } }
-    }))),
+    queryFn: async () => allSets(await datasetsUi(names, await loadFile('index', 'json').catch(() => undefined), (n) => loadFile(n, 'json'))),
   })
   return { sets: q.data ?? TASK_SETS, loading: q.isPending }
 }

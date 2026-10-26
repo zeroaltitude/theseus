@@ -126,3 +126,23 @@ export function leadRow(s: Series, rule: LeadRule, largest: number = groupTasks(
   for (let i = s.history.length - 1; i >= 0; i--) if ((s.history[i].tasks ?? 0) === largest) return s.history[i]
   return s.newest
 }
+
+// ---------------------------------------------------------------- the datasets' ui blocks (theseus-tyv41, theseus-2w02d)
+
+/** A dataset's name with the `ui` block it carries, if any: what `setsFrom` takes. */
+export type UiDataset = { report: string; ui?: unknown }
+
+/** Every dataset's `ui` block, read by one function so a test can count what is read. Today it reads every dataset
+ *  in full and takes the key (a Vite glob importing only `ui` fails the build for a dataset with none). */
+export async function datasetsUi(
+  names: readonly string[], _manifestText: string | null | undefined, read: (name: string) => Promise<string | undefined>,
+): Promise<UiDataset[]> {
+  return Promise.all(names.map(async (report): Promise<UiDataset> => {
+    try { return { report, ui: (JSON.parse((await read(report)) ?? 'null') as { ui?: unknown } | null)?.ui } } catch { return { report } }
+  }))
+}
+
+/** The `ui` blocks a manifest states, by dataset name; none yet, so every dataset is read. */
+export function readUiBlocks(_text: string | null | undefined): Map<string, unknown> {
+  return new Map()
+}
