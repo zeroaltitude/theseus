@@ -65,6 +65,17 @@ const OUTPUT: u32 = 1_000;
 /// the band above).
 const BILLED: u64 = 42_600;
 
+/// How many times each of the two earlier messages repeats its sentence: the
+/// turn's first compile must estimate under `[routing] cold_switch_tokens`
+/// (30,000), or a `sophisticated` verdict waits a turn for agreement instead of
+/// switching to opus and line 151's three requests stay on sonnet. It was 430
+/// (the first compile then estimated 29,9xx); on the #86 tree, with the p3b
+/// persona's Spoken-aloud line and the p3h `task_wait` and `task_fan_out`
+/// definitions in the request, it estimated 30,098, 98 over the line, and no
+/// WINDOW or BILLED rang less (a 13 x 15 sweep, every cell). 410 repeats put it
+/// back under with room for the next row's sentence.
+const FILLER: usize = 410;
+
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {
     let b = c.budget.as_ref().expect("a budget report");
@@ -128,8 +139,8 @@ async fn two_loops(verdict: &str, model: &str) -> (Vec<Compilation>, Vec<String>
         &r.core,
         None,
         &[
-            &"the first thing said was about boats. ".repeat(430),
-            &"the second thing said was about reeds. ".repeat(430),
+            &"the first thing said was about boats. ".repeat(FILLER),
+            &"the second thing said was about reeds. ".repeat(FILLER),
         ],
     );
     mode(&jev, verdict, 0.95);

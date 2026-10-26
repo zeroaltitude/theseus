@@ -384,7 +384,7 @@ impl Drop for Lent {
             if lent {
                 core.tools.admission.retake(&exec).await;
             }
-            for (call, ids) in helpers {
+            if let Some((call, ids)) = helpers {
                 cancel_helpers(&core, &call, &ids).await;
             }
         });

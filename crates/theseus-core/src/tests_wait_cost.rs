@@ -451,6 +451,19 @@ async fn a_wait_that_ends_before_the_cache_lapses_reads_it_once_or_not_at_all() 
     assert!(short.warm_reads().is_empty(), "a 200 s wait reads nothing");
 }
 
+/// The `keep_warm_min_tokens` the small-prefix rig sets: a line above this rig's
+/// prefix, which counts the tool catalog whole even for a deferred family. The
+/// rig's three waits measured 19,925, 20,083 and 20,189 tokens on the #86 tree
+/// (the p3b persona's Spoken-aloud line, the p3h `task_wait` and `task_fan_out`
+/// definitions and the restored `task.create` descriptions all joined the
+/// request), so the line it was swept to, 20,000, sat between its waits and the
+/// later two crossed it: a prefix the test holds to be small was no longer
+/// under the line. 21,000 leaves 800 tokens above the largest; the assertion is
+/// unchanged: a prefix under the line is a cheap rewrite, not read. The cause is
+/// the token count, not `keep_warm_wait::caches`' widening: the request carries
+/// the top-level breakpoint, so both readings of it agree.
+const SMALL_PREFIX: u64 = 21_000;
+
 /// A one-hour cache is read at `[cache] keep_warm_every_minutes`, so a wait of the
 /// longest length reads nothing; a prefix under `keep_warm_min_tokens` is
 /// not read either.
@@ -464,7 +477,7 @@ async fn an_hour_long_cache_and_a_small_prefix_are_not_read() {
         "an hour's cache lapses after the wait"
     );
 
-    let small = rig(script(900), |c| c.cache.keep_warm_min_tokens = 20_000);
+    let small = rig(script(900), |c| c.cache.keep_warm_min_tokens = SMALL_PREFIX);
     let s = small.session();
     small.submit(&s, "build it").await.unwrap();
     assert!(
