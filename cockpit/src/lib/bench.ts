@@ -665,6 +665,8 @@ export const unequal = (p: Point): boolean => p.tags.some((t) => UNEQUAL.include
 
 export interface Point {
   id: string; set: string; harness: string; run: string; runLabel: string; report: string
+  /** Set on a finer point (`points(…, 'task' | 'trial')`): the task it is the attempts of. An arm's point has none. */
+  task?: string
   /** The first trial's start where the table has one, else the report's date. */
   date: string
   model?: string
@@ -793,16 +795,20 @@ function pick<T>(byHarness: Record<string, Record<string, T>>, h: string, run: s
 /** A small sample: under ten trials a point is a size, not a ranking. */
 export const SMALL = 10
 
+/** The unit a point folds: an arm in a run (the claim a Pareto comparison makes), or, behind it, one task of that arm
+ *  (the attempts at that task), or one trial. Only the group key differs; the fold is the same. */
+export type Unit = 'arm' | 'task' | 'trial'
+
 /** A task set's points: its table's trials grouped by harness and run, each property folded, each point's tags. */
-export function points(set: TaskSet, csv: string, json: string | undefined, md: string | undefined, date: string): Point[] {
+export function points(set: TaskSet, csv: string, json: string | undefined, md: string | undefined, date: string, by: Unit = 'arm'): Point[] {
   const arms = json ? ((JSON.parse(json) as { arms?: { key: string }[] }).arms ?? []).map((a) => a.key) : []
   const rows = parseCsv(csv).filter(set.keep)
   const model = md ? modelOf(md) : undefined
   const allTasks = new Set(rows.map((r) => r.task).filter(Boolean))
   const groups = new Map<string, { h: string; run: { id: string; label: string }; trials: Record<string, string>[] }>()
-  for (const r of rows) {
+  for (const [i, r] of rows.entries()) {
     const h = set.arm(r, arms), run = set.run(r)
-    const id = `${set.id}:${run.id}:${h}`
+    const id = `${set.id}:${run.id}:${h}${by === 'task' ? `:${r.task ?? ''}` : by === 'trial' ? `:#${i}` : ''}`
     const g = groups.get(id) ?? groups.set(id, { h, run, trials: [] }).get(id)!
     g.trials.push(r)
   }
@@ -812,6 +818,14 @@ export function points(set: TaskSet, csv: string, json: string | undefined, md: 
     for (const p of PROPERTIES) { const v = fold(p, g.trials); if (v) values[p.id] = v }
     const tasks = new Set(g.trials.map((r) => r.task).filter(Boolean))
     const tags: Tag[] = []
+    if (by !== 'arm') {
+      // A finer point is a size, not a claim: it carries no tags (an arm's own are said on the arm).
+      out.push({
+        id, set: set.id, harness: g.h, run: g.run.id, runLabel: g.run.label, report: set.runReport?.[g.run.id] ?? set.report,
+        task: g.trials[0].task ?? '', date: date, n: g.trials.length, tasks: tasks.size, values, tags,
+      })
+      continue
+    }
     if (g.trials.length < SMALL) tags.push({ kind: 'sample', text: `a small sample: ${g.trials.length} trial${g.trials.length === 1 ? '' : 's'}` })
     const ex = g.trials.filter((r) => (r.harbor_exception ?? r.exception ?? '') !== '')
     if (ex.length) {

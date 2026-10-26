@@ -16,6 +16,7 @@ import {
 } from '@/lib/bench'
 import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets } from '@/lib/benchfiles'
 import { sparkline, type Series } from '@/lib/benchindex'
+import { cloudCaption, cloudDrawn, cloudTip, cloudUnit } from '@/lib/benchcloud'
 import type { EChartsOption } from '@/lib/chart'
 import { CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIP_FRAME, baseAxis, niceStep, usdTick, valueAxis } from '@/lib/viz'
 import { tip } from '@/lib/viztip'
@@ -79,6 +80,14 @@ export default function Benchmarks() {
     return p
   }, { replace: true })
   const placed = useMemo(() => frontier(ps, px, py), [ps, px, py])
+  // The finer unit behind the arm points: counted always (the caption states the fold), drawn only at ?cloud=on. The
+  // frontier and the verdict above are worked out from the arm points and never see these.
+  const cloudOn = params.get('cloud') === 'on'
+  const unit = useMemo(() => cloudUnit(ps), [ps])
+  const cloud = useMemo(() => {
+    const [c, j, m] = [csv.data, json.data, md.data]
+    return c && j && m && ps.length ? points(set, c.get(set.report) ?? '', j.get(set.report), m.get(set.report), set.report.slice(0, 10), unit) : []
+  }, [csv.data, json.data, md.data, set, ps.length, unit])
   // Every property's intervals for this task set, worked out while the page is idle, so a pick of any axis draws at
   // once (a bootstrap of 178 trials is tens of milliseconds; each value's is kept once worked out).
   useEffect(() => {
@@ -120,8 +129,14 @@ export default function Benchmarks() {
           <AxisRow px={px} py={py} usable={usable} one={one}
             onX={(id) => put('x', id)} onY={(id) => put('y', id)} onSwap={() => setParams((p) => { p.set('x', py.id); p.set('y', px.id); return p }, { replace: true })} />
           <Verdict placed={placed} ps={ps} px={px} py={py} many={new Set(ps.map((p) => p.run)).size > 1} />
+          <div className="flex flex-wrap items-center gap-x-3 px-2 pb-1 text-[11px] text-ink-faint">
+            <span>{cloudCaption(ps, cloud, unit)}</span>
+            <label className="flex items-center gap-1.5 text-ink-dim">
+              <input type="checkbox" checked={cloudOn} onChange={(e) => put('cloud', e.target.checked ? 'on' : null)} />show them
+            </label>
+          </div>
           <div className="min-h-0 flex-1">
-            <FrontierChart placed={placed} px={px} py={py} many={new Set(ps.map((p) => p.run)).size > 1}
+            <FrontierChart placed={placed} px={px} py={py} many={new Set(ps.map((p) => p.run)).size > 1} cloud={cloudOn ? cloud : []}
               onPick={(p) => nav(`/benchmarks/${p.report}`)} />
           </div>
           <Key placed={placed} px={px} py={py} />
@@ -313,8 +328,8 @@ function logFor(vals: number[]): boolean {
   return vals.length > 1 && vals.every((v) => v > 0) && Math.max(...vals) / Math.min(...vals) >= 30
 }
 
-function FrontierChart({ placed, px, py, many, onPick }: {
-  placed: Placed[]; px: Property; py: Property; many: boolean; onPick: (p: Point) => void
+function FrontierChart({ placed, px, py, many, cloud, onPick }: {
+  placed: Placed[]; px: Property; py: Property; many: boolean; cloud: Point[]; onPick: (p: Point) => void
 }) {
   const option = useMemo<EChartsOption>(() => {
     const vaxis = valueAxis(), axis = baseAxis()
@@ -360,10 +375,12 @@ function FrontierChart({ placed, px, py, many, onPick }: {
       if (pr.fold === 'rate') { lo = Math.max(0, lo); hi = Math.min(1, hi) } else if (Math.min(...vals) >= 0) lo = Math.max(0, lo)
       return { min: +lo.toPrecision(12), max: +hi.toPrecision(12), interval: step }
     }
-    const span = (axis: 'x' | 'y', pr: Property) => placed.flatMap((p) => {
+    const dots = cloudDrawn(cloud, px.id, py.id, xlog, ylog)
+    // The cloud is data the reader asked to see, so the frame holds it too (a clipped dot would be a hidden one).
+    const span = (axis: 'x' | 'y', pr: Property) => [...placed.flatMap((p) => {
       const i = interval(pr, p.point.values[pr.id])
       return [i.lo, i.hi, axis === 'x' ? p.x : p.y]
-    })
+    }), ...dots.map((d) => (axis === 'x' ? d.x : d.y))]
     const xe = extent(span('x', px), px, xlog), ye = extent(span('y', py), py, ylog)
     // Ticks at the axis's own step: dollars with the decimals the step needs, so $0.08 and $0.10 read alike.
     const fmt = (p: Property, e: { interval?: number }) => (p.unit === 'usd' && e.interval ? usdTick(e.interval) : (v: number) => p.format(v))
@@ -375,7 +392,12 @@ function FrontierChart({ placed, px, py, many, onPick }: {
       tooltip: {
         ...TIP_FRAME, trigger: 'item',
         formatter: (raw: unknown) => {
-          const prm = raw as { data?: { id?: string } }
+          const prm = raw as { data?: { id?: string; cloud?: number } }
+          if (prm.data?.cloud !== undefined) {
+            const c = cloudTip(dots[prm.data.cloud].p, px.id, py.id), el = tip(c.title, [])
+            for (const l of c.lines) { const d = document.createElement('div'); d.style.fontSize = '11px'; d.textContent = l; el.append(d) }
+            return el
+          }
           const p = placed.find((x) => x.point.id === prm.data?.id)
           return p ? pointTip(p, px, py, many) : ''
         },
@@ -395,6 +417,11 @@ function FrontierChart({ placed, px, py, many, onPick }: {
         { type: 'line', name: 'the frontier', data: line, symbol: 'none', silent: true, z: 1, lineStyle: { color: C.secondary, width: 1.5 }, animationDurationUpdate: 350 },
         // Its legs to the frame, dashed and fainter: where the frontier's points say a harness would be beaten, not measured.
         ...legs.map((leg, i) => ({ type: 'line' as const, name: `the frontier's leg ${i + 1}`, data: leg, symbol: 'none', silent: true, z: 1, lineStyle: { color: C.secondary, width: 1.5, type: 'dashed' as const, opacity: 0.6 } })),
+        // The data behind the arm points: faint, in the arm's colour, no labels, a tip only.
+        ...(dots.length ? [{
+          type: 'scatter' as const, name: 'behind the points', z: 1.5, symbolSize: 4, silent: false, cursor: 'default',
+          data: dots.map((d, i) => ({ value: [d.x, d.y], cloud: i, itemStyle: { color: harnessColor(d.p.harness), opacity: 0.3 } })),
+        }] : []),
         ...(whiskers.length ? [{
           type: 'custom' as const, name: '95% intervals', silent: true, z: 2,
           data: whiskers,
@@ -415,7 +442,7 @@ function FrontierChart({ placed, px, py, many, onPick }: {
           data: placed.map((p) => ({ value: [p.x, p.y], id: p.point.id })) },
       ],
     } as EChartsOption
-  }, [placed, px, py, many])
+  }, [placed, px, py, many, cloud])
   return <Echart option={option} onClick={(raw) => {
     const id = (raw as { data?: { id?: string } }).data?.id
     const p = placed.find((x) => x.point.id === id)
