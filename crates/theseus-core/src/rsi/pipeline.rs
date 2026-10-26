@@ -23,8 +23,8 @@
 //!   │            (stays ready)                     ▼            ──► returned to READY with
 //!   │                                          JOINING                the findings
 //!   └── reject once ◄──────────────────────── (queued)          reject, the second time
-//!                                                  │            ──► parked: the owner's view
-//!                       the join lock, one at a time │                (waiting_human)
+//!                                                  │            ──► dropped with a notice
+//!                       the join lock, one at a time │                (failed; `theseus self retry`)
 //!                                                  ▼
 //!                                   JOINED (self.joined): its trees deleted (cleared)
 //!                                   or HELD at the keel, the gate, the signature: the owner's
@@ -38,8 +38,9 @@
 //! says why (`theseus self pipeline`, and a `self.pipeline.held` row when the
 //! reason changes). A start is the [`Builder`]'s: [`Local`] (self-pr's
 //! sandboxed tree, through the backlog's own start: a `"self"` session and
-//! its first turn) is the only one. While the pipeline runs, the night files
-//! and ranks and starts nothing itself.
+//! its first turn) is the only one. A tick that started at least one build
+//! stages one `self_digest` line in the night's words. While the pipeline runs,
+//! the night files and ranks and starts nothing itself.
 //!
 //! **Reviews and joins** are self-join's: [`Core::self_join_pass`] reviews
 //! each green branch once per head and joins at most one a pass, under
@@ -49,8 +50,8 @@
 //! keeps a self-join off the owner's own joins. A rejected review puts its
 //! item back to proposed (self-join does, with the reasons in its evidence):
 //! the first time the pipeline says so (`returned`) and builds it again, the
-//! reviewer's findings in its first turn; the second time it parks it for
-//! the owner (`waiting_human`, `parked`).
+//! reviewer's findings in its first turn; the second time it drops it with a
+//! notice carrying both findings and the retry command (`failed`).
 //!
 //! **The owner's words act at once**: a drop stops its build and deletes its
 //! trees, a move reorders ready, and a halt stops every build in flight at
