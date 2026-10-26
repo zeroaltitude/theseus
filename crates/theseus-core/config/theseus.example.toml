@@ -1811,6 +1811,26 @@ max_switches = 2                        # moves per task, up or down
 # [privacy]
 # sensitive_names = ["examplecorp", "examplecorpinc", "example-repo"]
 
+# Content flags (theseus-9ymz0): every item that enters a session — each message you send,
+# each tool result, each page fetched and each file read — is classified once by Jev, and what
+# it finds becomes a label on the session that survives compaction and restart. `secret`,
+# `confidential` and `personal` disqualify a model of restricted origin for that session;
+# `injection` means something tried to steer the assistant, and its session's calls that act
+# are refused until you clear the label (`theseus content remove <session> injection`, or the
+# button on the message). The injection question is never asked of your own messages. The
+# sensitive-names list above is unaffected: it is checked at the provider, deterministically,
+# whatever these say.
+# [content]
+# enabled = true                        # off: nothing is classified, and a model of restricted
+#                                       # origin is then refused every request, since nothing
+#                                       # has judged what the session carries
+# injection = "refuse"                  # or "notify": the label is raised and told, nothing is
+#                                       # refused. A benchmark daemon sets this, so a trial
+#                                       # never waits for you to tap a button
+# wait_ms = 4000                        # how long a turn bound for a model of restricted origin
+#                                       # waits for an item's verdict before going to Claude
+#                                       # instead; a Claude turn never waits. 0 never waits
+
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and
 # its tools are offered to the model as mcp__<server>__<tool>, after the
