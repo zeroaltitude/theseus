@@ -1947,7 +1947,10 @@ impl TurnRunner {
                     *called
                 }
                 Called::Failed(failure) => {
-                    if self.retry_after(t, &failure, &mut retried).await? {
+                    if self
+                        .retry_after(t, &failure, &mut retried, &mut spec, fallback)
+                        .await?
+                    {
                         continue;
                     }
                     if self.without_message_effort(

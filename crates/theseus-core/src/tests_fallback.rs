@@ -73,6 +73,15 @@ fn bound_session(core: &Core) -> String {
 
 /// One input turn on the live profile, or on `model` when one is named.
 async fn turn(core: &Arc<Core>, sid: &str, model: Option<&str>) -> TurnSubmitResult {
+    try_turn(core, sid, model).await.expect("the turn ends")
+}
+
+/// `turn`, or the failure a turn that does not end ends with.
+async fn try_turn(
+    core: &Arc<Core>,
+    sid: &str,
+    model: Option<&str>,
+) -> anyhow::Result<TurnSubmitResult> {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core
@@ -95,7 +104,6 @@ async fn turn(core: &Arc<Core>, sid: &str, model: Option<&str>) -> TurnSubmitRes
             answer_at: None,
         })
         .await
-        .expect("the turn ends")
 }
 
 fn execution(core: &Core, sid: &str) -> Execution {
@@ -467,3 +475,5 @@ fn a_fallback_must_be_another_model_the_same_provider_serves() {
         );
     }
 }
+
+mod timeout;
