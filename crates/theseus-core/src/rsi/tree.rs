@@ -305,8 +305,42 @@ pub fn find(p: &Place, item: &str) -> Option<Tree> {
 /// branch has no upstream (`--no-track`), so an open writes no config.
 static REPO: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// A new tree for `item` off the repo's `origin/main`, on a new
-/// `self/<date>-<slug>` branch (with `-2`, `-3`… when the name is taken).
+/// The remote the door reads main from: the `origin/main` its refs name.
+const DOOR_REMOTE: &str = "origin";
+
+/// How long one fetch serves the cuts that follow it: a pass that opens
+/// several trees (the backlog's night) fetches once, not once an item.
+const FETCH_FRESH: Duration = Duration::from_secs(60);
+
+/// When each repo's door last fetched, so a pass fetches once.
+static FETCHED: std::sync::Mutex<Vec<(PathBuf, Instant)>> = std::sync::Mutex::new(Vec::new());
+
+/// Bring `origin/main` up to date before a tree is cut from it, so the
+/// branch's base and the gate blob [`Place::main_script`] resolves are main's
+/// now, not main as of the last green join (theseus-g5wxc). A failed fetch
+/// (no network, a remote that is down) is an infrastructure fault and never
+/// a reason to stop the build: the door goes on with the base it has, says
+/// so, and tries again at the next cut. Called with [`REPO`] held.
+fn refresh_main(p: &Place, repo: &Path) {
+    let mut seen = FETCHED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    seen.retain(|(_, at)| at.elapsed() < FETCH_FRESH);
+    if seen.iter().any(|(r, _)| r == repo) {
+        return;
+    }
+    match super::join::git::fetch(p, DOOR_REMOTE) {
+        Ok(()) => seen.push((repo.to_path_buf(), Instant::now())),
+        Err(e) => tracing::warn!(
+            repo = %repo.display(),
+            "self door: fetch of {DOOR_REMOTE} failed, cutting from the base it has: {e:#}"
+        ),
+    }
+}
+
+/// A new tree for `item` off the repo's `origin/main` (fetched first, once a
+/// pass), on a new `self/<date>-<slug>` branch (with `-2`, `-3`… when the
+/// name is taken).
 pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
     let _one = REPO
         .lock()
@@ -318,6 +352,7 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
     }
     let repo = std::fs::canonicalize(&p.repo)
         .with_context(|| format!("[self] repo {} is not there", p.repo.display()))?;
+    refresh_main(p, &repo);
     p.git_ok(&repo, &["rev-parse", "--verify", "origin/main^{commit}"])
         .context("[self] repo has no origin/main to branch from")?;
     std::fs::create_dir_all(p.trees())?;
