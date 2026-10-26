@@ -325,7 +325,8 @@ static FETCHED: std::sync::Mutex<Vec<(PathBuf, Instant)>> = std::sync::Mutex::ne
 /// now, not main as of the last green join (theseus-g5wxc). A failed fetch
 /// (no network, a remote that is down) is an infrastructure fault and never
 /// a reason to stop the build: the door goes on with the base it has, says
-/// so, and tries again at the next cut. Called with [`REPO`] held.
+/// so (to the log and, through [`Place::notify`], to the owner), and tries
+/// again at the next cut. Called with [`REPO`] held.
 fn refresh_main(p: &Place, repo: &Path) {
     let mut seen = FETCHED
         .lock()
@@ -336,10 +337,19 @@ fn refresh_main(p: &Place, repo: &Path) {
     }
     match super::join::git::fetch(p, DOOR_REMOTE) {
         Ok(()) => seen.push((repo.to_path_buf(), Instant::now())),
-        Err(e) => tracing::warn!(
-            repo = %repo.display(),
-            "self door: fetch of {DOOR_REMOTE} failed, cutting from the base it has: {e:#}"
-        ),
+        Err(e) => {
+            tracing::warn!(
+                repo = %repo.display(),
+                "self door: fetch of {DOOR_REMOTE} failed, cutting from the base it has: {e:#}"
+            );
+            if let Some(n) = &p.notify {
+                (n.0)(format!(
+                    "The self door could not reach {DOOR_REMOTE}: this tree is cut from the base the \
+                     repo already had, which may be behind main, and it will be judged by that base's \
+                     gate script. The next cut tries again. ({e:#})"
+                ));
+            }
+        }
     }
 }
 

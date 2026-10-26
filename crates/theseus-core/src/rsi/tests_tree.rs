@@ -571,6 +571,29 @@ fn a_failed_fetch_does_not_fail_the_door() {
     assert_eq!(git(&t.dir, &["rev-parse", "HEAD"]), before);
 }
 
+/// A fetch that fails is told to the owner, who would otherwise never learn the
+/// tree was cut from a stale base (the second theseus-51sfw shape).
+#[test]
+fn a_failed_fetch_tells_the_owner_and_a_good_one_says_nothing() {
+    let f = fixture();
+    let (place, told) = listening(&f.place);
+    tree::open(&place, "reachable", NOW).unwrap();
+    assert!(
+        told.lock().unwrap().is_empty(),
+        "a fetch that works is not news"
+    );
+    let g = fixture();
+    let (place, told) = listening(&g.place);
+    std::fs::rename(&g.upstream, g.upstream.with_extension("gone")).unwrap();
+    tree::open(&place, "unreachable", NOW).expect("the door goes on");
+    let said = told.lock().unwrap().clone();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("could not reach origin") && said[0].contains("may be behind main"),
+        "{said:?}"
+    );
+}
+
 /// One fetch a pass, not one an item: a second cut straight after the first
 /// does not fetch again (the self backlog's night opens several in a loop).
 #[test]
