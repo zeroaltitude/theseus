@@ -595,8 +595,10 @@ mod tests {
             Box::new(f)
         };
         // A turn that read the session before the label, and judged further.
-        let mut turn = ContentFlags::default();
-        turn.judged_through = Some("n7".into());
+        let turn = ContentFlags {
+            judged_through: Some("n7".into()),
+            ..Default::default()
+        };
         let merged = ContentFlags::merge(Some(stored.clone()), Some(&turn)).unwrap();
         assert!(merged.has(Flag::Confidential), "the stored label survives");
         assert_eq!(
@@ -736,7 +738,7 @@ mod tests {
         let joined: String = many.iter().map(|(_, _, t)| t.as_str()).collect();
         assert_eq!(joined, text, "the pieces are the whole");
         for (_, _, t) in &many {
-            assert!(t.ends_with('\n') || t == &"delta\n", "cut at a line: {t:?}");
+            assert!(t.ends_with('\n') || t == "delta\n", "cut at a line: {t:?}");
         }
         let long = format!("{}\nshort\n", "x".repeat(50));
         let split = pieces(&long, 10);
