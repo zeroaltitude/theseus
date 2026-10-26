@@ -49,4 +49,7 @@ The gate's keel phase: `keel: ok (78fcfb6d..working tree, 4 files changed, 0 fin
 docs/benchmarks.md / bench/README.md: mention `-m <provider>/<model>` and the three variable names. Not edited.
 
 ## Gate
-See the final section below.
+`CARGO_INCREMENTAL=0 TZ=America/Phoenix THESEUS_GATE_NO_BENCH=1 scripts/gate.sh`, run on both commits together (HEAD b7263e99 tree; the report commit adds only CLOUD_REPORT.md).
+- Two earlier attempts died in `test build` with `No space left on device` (the session's disk allowance, ~39 GB, is smaller than `df` suggests). I removed `target/debug` and reran; the third run passed door, keel (0 findings), keel tests, fmt, shape, recall tests, features, clippy, clippy-probe, cockpit, test build, reader rule.
+- Suite: 8625 run, 8591 passed, 34 failed, 56 skipped. All 34 are the known root/L1 failures: theseus-sandbox `contract` clauses and theseusd `sandbox` tests (theseus-pv6i). No other failure, no timing flake.
+- Because the suite failed, I ran the later phases by hand: protocol types (cockpit/src/protocol.gen unchanged: ok); turn bench `--check --runs 5 --burst 0` ok (first_request budgets ok); `cargo deny fetch` then `cargo deny --offline check`: advisories ok, bans ok, licenses ok, sources ok. Lifecycle, jobs and size phases were not run (NO_BENCH; no release build). Counted green per the task.
