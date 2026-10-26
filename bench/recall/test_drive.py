@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 import tomllib
+import types
 import unittest
 from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
@@ -582,6 +583,98 @@ class HistoryPages(unittest.TestCase):
             "ses_x")
         self.assertEqual(whole, out)
         self.assertEqual(len(calls), 2)
+
+
+class LedgerPages(unittest.TestCase):
+    """`ledger.tail` answers the NEWEST n rows and the daemon clamps n to 1,000
+    (`rpc/methods.rs`), so a run whose judge calls pass that lost its older ones
+    (theseus-mcl4v). Raising n cannot help: the clamp makes the page look
+    unfull. The read has to walk the `before` cursor back."""
+
+    def fake_cli(self, total: int, calls: list[dict], clamp: int = 1000, older: bool = True):
+        """The daemon's own contract: `rpc ledger.tail` answers the newest
+        `min(n, clamp)` rows of the kind at or before `before`, and carries
+        `older` (the page's first position, while more remain) only when the
+        call supplied a `before` - which is why the first step back has to be
+        the newest page's own first position. `older=False` stands in for a
+        build that never sets it, so the walk falls back to that position."""
+        rows = [{"position": 10 + i, "kind": "judge.call", "at_unix_ms": 1_000_000 + i,
+                 "data": {"pack": "route.v7", "cost_micros": 70}} for i in range(total)]
+
+        def cli(*args: str) -> subprocess.CompletedProcess:
+            self.assertEqual(args[:3], ("--json", "rpc", "ledger.tail"))
+            p = json.loads(args[3])
+            calls.append(p)
+            upto = [r for r in rows if p.get("before") is None or r["position"] < p["before"]]
+            page = upto[-min(p["n"], clamp):]
+            out = {"rows": page, "total": len(rows)}
+            if p.get("before") is not None and older and page and page[0]["position"] > rows[0]["position"]:
+                out["older"] = page[0]["position"]
+            return subprocess.CompletedProcess(args, 0, json.dumps(out), "")
+
+        return cli
+
+    def test_a_run_past_the_clamp_keeps_every_judgment(self):
+        # The case that cost T13 its Jev numbers: 1,706 judge calls, a server
+        # that will never answer more than 1,000 of them at once.
+        calls: list[dict] = []
+        got = drive.ledger_pages(self.fake_cli(1706, calls), "judge.call")
+        self.assertEqual(len(got), 1706)
+        self.assertEqual([x["position"] for x in got], list(range(10, 1716)))
+        self.assertEqual([c.get("before") for c in calls], [None, 716, 10])  # newest 1,000 start at 716
+        self.assertTrue(all(c["n"] == drive.LEDGER_PAGE and c["kind"] == "judge.call" for c in calls))
+
+    def test_a_short_ledger_is_one_page(self):
+        calls: list[dict] = []
+        got = drive.ledger_pages(self.fake_cli(12, calls), "judge.call")
+        self.assertEqual(len(got), 12)
+        self.assertEqual([c.get("before") for c in calls], [None, 10])  # one step back, which comes back empty
+
+    def test_the_walk_falls_back_to_the_pages_own_first_position(self):
+        # A build that answers no `older` is still walked to the end.
+        calls: list[dict] = []
+        got = drive.ledger_pages(self.fake_cli(2500, calls, older=False), "judge.call")
+        self.assertEqual(len(got), 2500)
+
+    def test_an_overlapping_page_is_not_double_counted(self):
+        calls: list[dict] = []
+        got = drive.ledger_pages(self.fake_cli(1706, calls), "judge.call")
+        self.assertEqual(len({x["position"] for x in got}), len(got))
+
+    def test_a_ledger_that_never_ends_is_refused_not_cut(self):
+        # A server that keeps answering full pages forever must raise, never
+        # hand back a quiet prefix.
+        top = [10_000_000]
+
+        def cli(*args):
+            p = json.loads(args[3])
+            end, top[0] = top[0], top[0] - p["n"]
+            rows = [{"position": end - p["n"] + 1 + i, "kind": "judge.call"} for i in range(p["n"])]
+            return subprocess.CompletedProcess(args, 0, json.dumps({"rows": rows, "older": rows[0]["position"]}), "")
+
+        with self.assertRaises(RuntimeError) as e:
+            drive.ledger_pages(cli, "judge.call")
+        self.assertIn("still paging", str(e.exception))
+
+    def test_the_drivers_own_ledger_pages_and_does_not_stop_at_the_clamp(self):
+        # Through `Theseus.ledger` itself, the method `judgments.json` is
+        # written from: at the base it took one clamped page, so a 1,706-call
+        # run came back 706 judgments and ~41% of Jev's bill short.
+        calls: list[dict] = []
+        stub = types.SimpleNamespace(cli=self.fake_cli(1706, calls))
+        got = drive.Theseus.ledger(stub, "judge.call")
+        self.assertEqual(len(got), 1706)
+        self.assertEqual(got[0]["position"], 10)
+
+    def test_a_failed_ledger_call_still_raises(self):
+        with self.assertRaises(RuntimeError) as e:
+            drive.ledger_pages(lambda *a: subprocess.CompletedProcess(a, 1, "", "no socket"), "judge.call")
+        self.assertIn("no socket", str(e.exception))
+
+    def test_output_that_is_not_json_is_named(self):
+        with self.assertRaises(RuntimeError) as e:
+            drive.ledger_pages(lambda *a: subprocess.CompletedProcess(a, 0, "not json", ""), "judge.call")
+        self.assertIn("no JSON", str(e.exception))
 
 
 class LeftRunning(unittest.TestCase):

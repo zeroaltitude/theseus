@@ -108,6 +108,9 @@ CC_AUTOCOMPACT_MIN = 100_000
 DAY_CEILING_PER_LIMIT = 2.0
 STOP_WAIT = 20.0
 SERVE_WAIT = 60.0
+LEDGER_PAGE = 1000  # `ledger.tail`'s page: the daemon clamps `n` to this (rpc/methods.rs), so a longer read must page
+LEDGER_MAX = 64_000  # the ceiling a run's own ledger cannot reach (a threads arm writes ~1.7k judge.call rows)
+LEDGER_TAIL = "ledger.tail"  # the daemon clamps its `n` to LEDGER_PAGE, so a long read pages on its `before` cursor
 # A parent Claude Code session's variables, which would make the arm think
 # it runs inside one.
 CC_PARENT_ENV = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_PROJECT_DIR")
@@ -316,6 +319,74 @@ def history_pages(cli, session: str) -> tuple[str, dict | None]:
     whole.pop("older", None)
     whole["nodes"] = [n for p in reversed(pages) for n in p]
     return json.dumps(whole), whole
+
+
+def ledger_page(cli, kind: str, before: int | None = None) -> dict:
+    """One `ledger.tail` page of `kind`, oldest first, through the raw `rpc`
+    surface: the `ledger` subcommand sends no cursor, and the cursor is the
+    whole point here."""
+    p = {"n": LEDGER_PAGE, "kind": kind}
+    if before is not None:
+        p["before"] = before
+    r = cli("--json", "rpc", LEDGER_TAIL, json.dumps(p))
+    if r.returncode != 0:
+        raise RuntimeError(f"ledger {kind}: {LEDGER_TAIL} failed: {r.stderr.strip()}")
+    try:
+        v = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"ledger {kind}: {LEDGER_TAIL} gave no JSON: {r.stdout[:200]}")
+    if isinstance(v, dict) and "result" in v and "rows" not in v:
+        v = v["result"]
+    rows = [x for x in (v.get("rows") or []) if isinstance(x, dict)]
+    return {"rows": rows, "older": v.get("older"), "total": v.get("total")}
+
+
+def ledger_pages(cli, kind: str) -> list[dict]:
+    """Every row of `kind` the daemon holds, oldest first.
+
+    `ledger -n` returns the NEWEST n rows, and the daemon clamps n to 1,000
+    (`rpc/methods.rs`, `p.n.unwrap_or(20).min(1000)`), so one call silently
+    drops a longer run's older rows: a threads arm makes 1,300-1,700
+    `judge.call` rows, and `judgments.json` held only the last 1,000, so the
+    decisions column and Jev's bill both read low (theseus-mcl4v). Asking for a
+    bigger `-n` cannot fix it - the clamp makes the page look unfull - so this
+    pages BACKWARDS through the cursor `ledger.tail` already answers with,
+    exactly as `history_pages` does: the newest page, then each page before the
+    one before it, until a page comes back empty.
+
+    A page carries `older` only when it was asked with a `before`, so the first
+    step back is the newest page's own first position. Rows are kept by
+    position, so a page that overlaps its neighbour cannot double-count."""
+    first = ledger_page(cli, kind)
+    by_pos: dict[int, dict] = {}
+    seen_unpositioned: list[dict] = []
+
+    def keep(rows):
+        new = 0
+        for x in rows:
+            pos = x.get("position")
+            if isinstance(pos, int):
+                if pos not in by_pos:
+                    by_pos[pos] = x
+                    new += 1
+            else:  # a build whose rows carry no position: keep them, page no further on them
+                seen_unpositioned.append(x)
+                new += 1
+        return new
+
+    keep(first["rows"])
+    before = first["rows"][0].get("position") if first["rows"] else None
+    for _ in range(LEDGER_MAX // LEDGER_PAGE):
+        if not isinstance(before, int):
+            break
+        page = ledger_page(cli, kind, before)
+        if not page["rows"] or not keep(page["rows"]):
+            break
+        nxt = page["older"]
+        before = nxt if isinstance(nxt, int) else page["rows"][0].get("position")
+    else:
+        raise RuntimeError(f"ledger {kind}: still paging after {LEDGER_MAX} rows")
+    return [by_pos[p] for p in sorted(by_pos)] + seen_unpositioned
 
 
 def delivery(prog: pg.Progression, transcript: str) -> dict[str, dict]:
@@ -571,17 +642,12 @@ class Theseus:
         return sid
 
     def compactions(self) -> list[dict]:
-        """The newest `context.compacted` rows (a page holds 1000 at most:
-        far more than a run compacts)."""
+        """Every `context.compacted` row of the run."""
         return self.ledger("context.compacted")
 
     def ledger(self, kind: str) -> list[dict]:
-        r = self.cli("--json", "ledger", "-k", kind, "-n", "1000")
-        if r.returncode != 0:
-            raise RuntimeError(f"ledger failed: {r.stderr.strip()}")
-        v = json.loads(r.stdout)
-        rows = v.get("rows", v) if isinstance(v, dict) else v
-        return [x for x in rows if isinstance(x, dict)]
+        """Every row of `kind`, paged whole: see `ledger_pages`."""
+        return ledger_pages(self.cli, kind)
 
     def drive(self) -> str:
         prog, run, a = self.run.prog, self.run, self.a
