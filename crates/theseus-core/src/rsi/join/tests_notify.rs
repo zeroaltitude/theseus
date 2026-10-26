@@ -73,6 +73,9 @@ async fn a_conflict_with_main_returns_the_item_to_proposed_with_a_notice() {
     main_moves(&r);
     let main = r.upstream_main();
     let seams = r.seams();
+    // The item's own tree, as its build left it.
+    let tree =
+        crate::rsi::tree::open(&r.f.place, "tsk_sails", theseus_protocol::now_unix_ms()).unwrap();
     let pass = r.core.self_join_pass(&seams).await.unwrap();
     assert_eq!(
         pass.stopped,
@@ -81,6 +84,11 @@ async fn a_conflict_with_main_returns_the_item_to_proposed_with_a_notice() {
     );
     assert!(pass.joined.is_empty(), "{pass:?}");
     assert_eq!(r.upstream_main(), main, "nothing joined");
+    assert!(
+        crate::rsi::tree::find(&r.f.place, "tsk_sails").is_none(),
+        "the tree is closed, so the next build cuts a fresh branch from the new main"
+    );
+    assert!(!tree.dir.exists());
     let t = crate::task_graph::get(&r.core.store, "tsk_sails")
         .unwrap()
         .unwrap();

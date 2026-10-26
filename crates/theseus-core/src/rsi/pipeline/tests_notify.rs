@@ -188,3 +188,41 @@ async fn a_keel_class_cause_still_waits_for_the_owner_and_never_starts() {
     }
     assert_eq!(r.state(&marked), TaskState::WaitingHuman);
 }
+
+/// A head a join returned for a conflict with main joins nothing and holds nobody (the item is
+/// built again off the new main): it is in no queue, so no join pass is due and the tender sleeps
+/// its interval instead of spinning on a head no pass can advance (theseus-o1h3f.6).
+#[tokio::test]
+async fn a_conflicted_head_is_in_no_queue_and_no_join_is_due() {
+    let r = rig_with(1, 30.0);
+    r.tick().await;
+    let item = r.fake.starts.lock().unwrap()[0].0.clone();
+    let (b, h) = r.built(&item, 1);
+    r.core
+        .rec(None)
+        .record(&crate::fact::rsi_join::SelfReviewVerdict {
+            item: item.clone(),
+            branch: b.clone(),
+            head: h.clone(),
+            reviewer: "fable (claude-fable-5-1)".into(),
+            model: "claude-fable-5-1".into(),
+            verdict: "accept".into(),
+            planted_revert: "failed".into(),
+            reasons: vec![],
+            cost_usd: 0.5,
+        });
+    r.core
+        .rec(None)
+        .record(&crate::fact::rsi_join::SelfJoinStopped {
+            branch: b,
+            head: h,
+            phase: "merge".into(),
+            why: "it conflicts with main in same.txt".into(),
+            numbers: json!({"held": true, "conflict": true, "dropped": false}),
+        });
+    let t = r.tick().await;
+    assert!(!t.join_due, "{t:?}");
+    let v = r.view();
+    assert!(!v.joining.iter().any(|e| e.item == item), "{:?}", v.joining);
+    assert!(!v.held.iter().any(|e| e.item == item), "{:?}", v.held);
+}

@@ -128,12 +128,14 @@ fn entry(t: &TaskRecord) -> Entry {
 }
 
 /// What the self-join's rows say: green branches, verdicts by head, joined
-/// branches, and heads a join stopped and holds.
+/// branches, heads a join stopped and holds, and heads a conflict with main
+/// returned.
 struct Seen {
     greens: Vec<Green>,
     verdicts: HashMap<(String, String), (String, String)>,
     joined: Vec<String>,
     stopped: HashMap<(String, String), String>,
+    conflicted: Vec<(String, String)>,
 }
 
 impl Seen {
@@ -154,6 +156,7 @@ impl Seen {
         let mut verdicts: HashMap<(String, String), (String, String)> = HashMap::new();
         let mut joined: Vec<String> = Vec::new();
         let mut stopped: HashMap<(String, String), String> = HashMap::new();
+        let mut conflicted: Vec<(String, String)> = Vec::new();
         for r in rows {
             let d = &r.data;
             match r.kind.as_str() {
@@ -170,11 +173,12 @@ impl Seen {
                     verdicts.insert((s(d, "branch"), s(d, "head")), (s(d, "verdict"), why));
                 }
                 "self.joined" => joined.push(s(d, "branch")),
-                // A conflict with main is no one's hold: the item is built
-                // again (theseus-o1h3f.6).
-                "self.join.stopped"
-                    if d["numbers"]["held"] == true && d["numbers"]["conflict"] != true =>
-                {
+                // A conflict with main is no one's hold and no queue's: this head
+                // is never joined, and the item is built again (theseus-o1h3f.6).
+                "self.join.stopped" if d["numbers"]["conflict"] == true => {
+                    conflicted.push((s(d, "branch"), s(d, "head")));
+                }
+                "self.join.stopped" if d["numbers"]["held"] == true => {
                     stopped.insert((s(d, "branch"), s(d, "head")), s(d, "why"));
                 }
                 _ => {}
@@ -185,20 +189,21 @@ impl Seen {
             verdicts,
             joined,
             stopped,
+            conflicted,
         }))
     }
 }
 
 /// Reviewing and joining, and the held branches: each green branch's newest
 /// head that has not joined.
-fn branches(
-    q: &mut Queues,
-    greens: &[Green],
-    verdicts: &HashMap<(String, String), (String, String)>,
-    joined: &[String],
-    stopped: &HashMap<(String, String), String>,
-    by_id: &HashMap<&str, &TaskRecord>,
-) {
+fn branches(q: &mut Queues, seen: &Seen, by_id: &HashMap<&str, &TaskRecord>) {
+    let Seen {
+        greens,
+        verdicts,
+        joined,
+        stopped,
+        conflicted,
+    } = seen;
     let mut newest: Vec<&Green> = Vec::new();
     for g in greens.iter().rev() {
         if !newest.iter().any(|n| n.branch == g.branch) {
@@ -223,6 +228,11 @@ fn branches(
             continue;
         }
         let key = (g.branch.clone(), g.head.clone());
+        if conflicted.contains(&key) {
+            // Its item is on the backlog: this head joins nothing and holds
+            // nobody (theseus-o1h3f.6).
+            continue;
+        }
         if let Some(why) = stopped.get(&key) {
             let mut e = e;
             e.why = Some(why.clone());
@@ -292,12 +302,6 @@ impl Core {
         let Some(seen) = Seen::read(&self.store)? else {
             return Ok(None);
         };
-        let Seen {
-            greens,
-            verdicts,
-            joined,
-            stopped,
-        } = seen;
         let (tasks, order) = self.backlog_for_pipeline()?;
         let by_id: HashMap<&str, &TaskRecord> = tasks.iter().map(|t| (t.id.as_str(), t)).collect();
         let now = theseus_protocol::now_unix_ms();
@@ -317,7 +321,8 @@ impl Core {
             e.findings = findings;
             if let Some((b, h)) = at {
                 // The rejected head as the row has it whole.
-                let whole = greens
+                let whole = seen
+                    .greens
                     .iter()
                     .rev()
                     .find(|g| g.branch == b && g.head.starts_with(&h))
@@ -343,7 +348,7 @@ impl Core {
                     e.session = Some(session);
                     e.since_ms = Some(at);
                     e.live = self.live(e.execution.as_deref());
-                    if greens.iter().any(|g| g.item == t.id && g.at_ms >= at) {
+                    if seen.greens.iter().any(|g| g.item == t.id && g.at_ms >= at) {
                         continue;
                     }
                     if e.live || now.saturating_sub(at) < grace.as_millis() as u64 {
@@ -381,7 +386,7 @@ impl Core {
                 _ => {}
             }
         }
-        branches(&mut q, &greens, &verdicts, &joined, &stopped, &by_id);
+        branches(&mut q, &seen, &by_id);
         closed(&mut q, &tasks, place);
         Ok(Some(q))
     }

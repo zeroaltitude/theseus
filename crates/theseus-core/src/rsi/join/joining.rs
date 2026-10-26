@@ -264,7 +264,7 @@ impl Run<'_> {
                 Ok(None)
             }
             Err(Refused::Conflict(why)) => {
-                self.conflicted(&why)?;
+                self.conflicted(&why).await?;
                 Ok(None)
             }
         }
@@ -276,7 +276,7 @@ impl Run<'_> {
     /// held so no pass joins it again, but the held row says `conflict`, so
     /// the pipeline does not show it as the owner's. A third conflict of one
     /// item drops it instead, with the command back (the bound on a loop).
-    fn conflicted(&mut self, why: &str) -> Result<()> {
+    async fn conflicted(&mut self, why: &str) -> Result<()> {
         let item = self.b.item.clone();
         let prior = crate::task_graph::get(&self.core.store, &item)?.map_or(0, |t| {
             t.evidence
@@ -315,6 +315,21 @@ impl Run<'_> {
             self.core
                 .store
                 .append(&[crate::task_graph::record(&task)?])?;
+        }
+        // The next build must cut a fresh branch from the new main (design
+        // item 29): close this tree, so `self_tree_open` opens a new one off
+        // origin/main instead of finding this one.
+        let (p, c) = (self.place.clone(), item.clone());
+        if let Err(e) = blocking(move || {
+            if let Some(t) = tree::find(&p, &c) {
+                tree::close(&p, &t)?;
+            }
+            Ok(())
+        })
+        .await
+        {
+            tracing::warn!(error = %format!("{e:#}"),
+                "self-join: the conflicted tree was not closed");
         }
         self.card(text);
         self.stop(
