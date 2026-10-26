@@ -589,7 +589,7 @@ impl Tool for Edit {
             "properties": {
                 "path": {"type": "string", "description": "File path, absolute or relative to the working directory."},
                 "old_string": {"type": "string", "description": "Exact text to replace (must occur exactly once unless replace_all)."},
-                "new_string": {"type": "string", "description": "Replacement text."},
+                "new_string": {"type": "string", "description": "Replacement text; it must differ from old_string."},
                 "replace_all": {"type": "boolean", "description": "Replace every occurrence. Default false."}
             },
             "required": ["path", "old_string", "new_string"],
@@ -607,9 +607,9 @@ impl Tool for Edit {
         if a.old_string.is_empty() {
             return Err("old_string must not be empty (use fs_write to create a file)".into());
         }
-        if a.old_string == a.new_string {
-            return Err("old_string and new_string are identical; nothing would change".into());
-        }
+        // An edit whose two strings match is not invalid input: it is a no-op
+        // the model reaches when it believes a change is already in (or sends
+        // its text twice). `run` answers it, so it is not a ledger fault.
         let path = ctx.resolve(&a.path);
         Ok(Plan {
             summary: format!(
@@ -646,6 +646,15 @@ impl Tool for Edit {
                 "old_string occurs {n} times in {}. Add surrounding lines to make it unique, or set replace_all.",
                 path.display()
             )));
+        }
+        if a.old_string == a.new_string {
+            return Ok(ToolOutput {
+                text: format!(
+                    "No change made to {}: new_string is identical to old_string, so the file was left as it is. If you meant to change the text, send a new_string that differs.",
+                    path.display()
+                ),
+                meta: json!({"path": path, "replacements": 0, "bytes_before": before.len(), "bytes_after": before.len(), "diff": null}),
+            });
         }
         let after = if a.replace_all {
             before.replace(a.old_string.as_str(), &a.new_string)
@@ -1913,6 +1922,15 @@ mod tests {
                 &c
             )
             .is_err());
+        // Identical strings are a no-op answered by `run`, not invalid input.
+        let same = json!({"path": "dup.txt", "old_string": "y", "new_string": "y", "replace_all": true});
+        assert!(Edit.plan(&same, &c).is_ok(), "an identical edit is not invalid input");
+        let out = Edit.run(&same, &c).unwrap();
+        assert!(out.text.starts_with("No change made"), "{}", out.text);
+        assert_eq!(out.meta["replacements"], 0);
+        assert_eq!(fs::read_to_string(d.path().join("dup.txt")).unwrap(), "y y y");
+        let gone = json!({"path": "dup.txt", "old_string": "q", "new_string": "q"});
+        assert!(Edit.run(&gone, &c).unwrap_err().message.contains("not found"));
         assert!(
             Read.plan(&json!({"path": "a", "bogus": 1}), &c).is_err(),
             "unknown fields are rejected"
