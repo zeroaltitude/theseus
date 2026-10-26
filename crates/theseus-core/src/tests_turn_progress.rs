@@ -561,3 +561,239 @@ async fn a_turn_that_has_not_edited_yet_is_not_steered_for_reading() {
     }
     assert!(r.rows(&sid).is_empty());
 }
+
+/// The first loop writes a file, the next starts `sleep` in the background.
+fn build(root: &Path) -> Vec<Scripted> {
+    vec![
+        Scripted::tools(
+            "Writing.",
+            &[(
+                "w1",
+                "fs_write",
+                json!({"path": root.join("notes.txt").display().to_string(), "content": "high\n"}),
+            )],
+        ),
+        Scripted::tools(
+            "Building.",
+            &[(
+                "b1",
+                "proc_run",
+                json!({"argv": ["sleep", "20"], "background": true}),
+            )],
+        ),
+    ]
+}
+
+/// A read of the file `build` wrote, as loop `id`'s one call.
+fn reread(root: &Path, id: &str) -> Scripted {
+    Scripted::tools(
+        "Looking again.",
+        &[(
+            id,
+            "fs_read",
+            json!({"path": root.join("notes.txt").display().to_string()}),
+        )],
+    )
+}
+
+/// A build in the background is progress (theseus-duzha): a turn that
+/// started one and then reads it, loop after loop, is told nothing at 60% of
+/// its deadline and not stopped at 90%.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_waits_on_a_background_build_is_neither_steered_nor_stopped() {
+    for used in [360, 540] {
+        let r = rig(|root| {
+            let mut script = build(root);
+            for n in 1..=7 {
+                script.push(Scripted::tools(
+                    "Reading the build.",
+                    &[(&format!("j{n}"), "job_read", json!({"job": "j1"}))],
+                ));
+            }
+            script.push(Scripted::text("The build is still running."));
+            script
+        });
+        let (sid, res) = r.turn(Some((600, used))).await;
+        assert_eq!(
+            (res.loops, res.stop_reason.as_str()),
+            (10, "no_tool_calls"),
+            "{used} s used"
+        );
+        for req in r.requests() {
+            assert!(!messages(&req).contains(STEER), "{used} s used");
+            assert!(!messages(&req).contains(STOP), "{used} s used");
+        }
+        assert!(r.rows(&sid).is_empty(), "{used} s used");
+    }
+}
+
+/// The steer is still there: a build that runs does not quiet a turn that
+/// is not looking at it, but re-reading a file, and the same job's loops
+/// once the build is not what they touch count as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_running_build_does_not_quiet_loops_that_do_not_touch_it() {
+    let r = rig(|root| {
+        let mut script = build(root);
+        for n in 1..=6 {
+            script.push(reread(root, &format!("r{n}")));
+        }
+        script.push(Scripted::text("Nothing new."));
+        script
+    });
+    // 600 s, 360 used: 60%.
+    let (sid, res) = r.turn(Some((600, 360))).await;
+    assert_eq!(res.loops, 9);
+    let reqs = r.requests();
+    assert!(messages(reqs.last().unwrap()).contains(STEER));
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "steer");
+    assert_eq!(rows[0]["since_pass"], 3);
+}
+
+/// And the same turn with no build at all is steered, and at 90% stopped, so
+/// a build changes nothing but its own loops.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_with_no_build_and_no_progress_is_still_steered_and_stopped() {
+    for (used, decision) in [(360, "steer"), (540, "stop")] {
+        let r = rig(|root| {
+            let mut script = vec![build(root).remove(0)];
+            for n in 1..=6 {
+                script.push(reread(root, &format!("r{n}")));
+            }
+            script.push(Scripted::text("Nothing new."));
+            script
+        });
+        let (sid, res) = r.turn(Some((600, used))).await;
+        let rows = r.rows(&sid);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0]["decision"], decision);
+        assert_eq!(res.stop_reason == PROGRESS_STOP, decision == "stop");
+    }
+}
+
+const HINT: &str = "call what you built once, the way the task spells it";
+const DOUBT: &str = "your last message names something it did not check or run";
+
+/// A file written, as loop `id`'s one call.
+fn write(root: &Path, id: &str) -> Scripted {
+    Scripted::tools(
+        "Writing.",
+        &[(
+            id,
+            "fs_write",
+            json!({"path": root.join("tool.py").display().to_string(), "content": "x\n"}),
+        )],
+    )
+}
+
+/// The deliverable's hint rides the request's tail from the loop after the
+/// turn's first file edit (theseus-eb4o4), and a turn that wrote none never
+/// carries it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_wrote_a_file_is_told_to_call_it_as_the_task_spells_it() {
+    let r = rig(|root| {
+        vec![
+            write(root, "w1"),
+            command(root, "c1", 0),
+            Scripted::text("Done."),
+        ]
+    });
+    let (_, res) = r.turn(None).await;
+    assert_eq!(res.loops, 3);
+    let reqs = r.requests();
+    assert!(!messages(&reqs[0]).contains(HINT), "no work yet");
+    for req in &reqs[1..] {
+        assert_eq!(messages(req).matches(HINT).count(), 1, "once a request");
+    }
+    // A chat turn that only answers carries none, and neither does one that
+    // only ran commands: the tails of such turns are what they were.
+    let r = rig(|_| vec![Scripted::text("Hello.")]);
+    r.turn(None).await;
+    assert!(!messages(&r.requests()[0]).contains(HINT));
+    let r = rig(|root| {
+        vec![
+            command(root, "c1", 0),
+            command(root, "c2", 0),
+            Scripted::text("Done."),
+        ]
+    });
+    r.turn(None).await;
+    for req in r.requests() {
+        assert!(!messages(&req).contains(HINT));
+    }
+}
+
+/// A closing message that names a doubt, early in the turn, sends it back
+/// once (theseus-rqu7j); the second such message ends it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_doubt_the_closing_message_names_sends_an_early_turn_back_once() {
+    let r = rig(|root| {
+        vec![
+            write(root, "w1"),
+            Scripted::text("Wrote tool.py, but the sandbox has no torch, so I never ran it."),
+            Scripted::text("Still not run: torch is missing."),
+            Scripted::text("Never reached."),
+        ]
+    });
+    // 600 s, 120 used: 20%.
+    let (sid, res) = r.turn(Some((600, 120))).await;
+    assert_eq!((res.loops, res.stop_reason.as_str()), (3, "no_tool_calls"));
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 3);
+    assert!(!messages(&reqs[1]).contains(DOUBT));
+    assert_eq!(messages(&reqs[2]).matches(DOUBT).count(), 1);
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "doubt");
+    assert_eq!(rows[0]["loop"], 1);
+    assert!(rows[0]["time_share"].as_f64().unwrap() < 0.4);
+}
+
+/// And not when the gate is shut: past 40% of the time, past 40% of the
+/// spend, a clean closing message, or a turn that did no work.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_doubt_does_not_send_a_turn_back_past_the_share_or_without_work() {
+    let doubt = "I did not check the date.";
+    // 600 s, 300 used: 50%.
+    let r = rig(|root| {
+        vec![
+            write(root, "w1"),
+            Scripted::text(doubt),
+            Scripted::text("x"),
+        ]
+    });
+    let (sid, res) = r.turn(Some((600, 300))).await;
+    assert_eq!(res.loops, 2, "past 40% of the time");
+    assert!(r.rows(&sid).is_empty());
+    // Under the time share, over the spend share ($0.47 of $1).
+    let r = rig_with(
+        |root| {
+            vec![
+                billed(write(root, "w1")),
+                Scripted::text(doubt),
+                Scripted::text("x"),
+            ]
+        },
+        |c| {
+            c.kernel.spend_limit_usd = 1.0;
+            c.kernel.spend_limit_mode = crate::config::SpendLimitMode::Notify;
+        },
+    );
+    let (sid, res) = r.turn(Some((600, 60))).await;
+    assert_eq!(res.loops, 2, "past 40% of the spend");
+    assert!(r.rows(&sid).is_empty());
+    // A message that names nothing.
+    let r = rig(|root| vec![write(root, "w1"), Scripted::text("Done; the check passes.")]);
+    let (sid, res) = r.turn(Some((600, 60))).await;
+    assert_eq!(res.loops, 2);
+    assert!(r.rows(&sid).is_empty());
+    // A turn that edited nothing and ran nothing.
+    let r = rig(|_| vec![Scripted::text(doubt), Scripted::text("x")]);
+    let (sid, res) = r.turn(Some((600, 60))).await;
+    assert_eq!(res.loops, 1);
+    assert!(r.rows(&sid).is_empty());
+    for req in r.requests() {
+        assert!(!messages(&req).contains(DOUBT));
+    }
+}

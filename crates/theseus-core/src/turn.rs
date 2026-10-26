@@ -66,6 +66,7 @@ mod ceiling_step;
 mod checkpoint_step;
 mod cite_step;
 pub mod clock_step;
+mod close_out_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
@@ -2092,6 +2093,8 @@ impl TurnRunner {
             run_model = run_model || (window_failed.is_none() && self.stop_nudge(t, i).await?);
             // A stop that would leave command outputs or unrun edits, once (theseus-53ujg.1).
             run_model = run_model || (window_failed.is_none() && self.end_note(t, i)?);
+            // A stop whose message names a doubt, early in the turn, once (theseus-rqu7j).
+            run_model = run_model || (window_failed.is_none() && self.doubt_note(t, i)?);
             if let Some(f) = window_failed {
                 return Ok(Next::Fail(f));
             }

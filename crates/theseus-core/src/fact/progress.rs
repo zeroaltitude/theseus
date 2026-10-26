@@ -11,7 +11,8 @@ use crate::trace::Trace;
 use crate::turn::progress_step::Signals;
 
 /// The check told the model, at loop `loop_index`'s end, to replan
-/// (`steer`) or to stop and report (`stop`).
+/// (`steer`), to stop and report (`stop`), or to check a doubt its closing
+/// message named (`doubt`, theseus-rqu7j).
 pub struct TurnProgress<'a> {
     pub decision: &'static str,
     pub loop_index: u32,
@@ -56,6 +57,19 @@ impl Fact for TurnProgress<'_> {
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
+        if self.decision == "doubt" {
+            say.line(
+                Model,
+                format!(
+                    "The closing message named something it had not checked, with {} of the \
+                     turn's time and {} of its spend limit used, so the harness sent the model \
+                     back to check it once.",
+                    share(self.signals.time),
+                    share(self.signals.spend),
+                ),
+            );
+            return;
+        }
         let what = match self.decision {
             "stop" => "to stop and report",
             _ => "that this is not a stop",
