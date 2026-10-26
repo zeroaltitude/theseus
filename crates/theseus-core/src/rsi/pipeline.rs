@@ -296,6 +296,7 @@ pub(crate) fn rejected_twice_text(e: &Entry) -> String {
     use crate::owner_note::{note, Kind};
     let mut body = format!("Two independent reviews rejected {}:\n", e.title);
     for (i, f) in e.findings.iter().enumerate() {
+        let f: String = f.chars().take(300).collect();
         body.push_str(&format!("- review {}: {f}\n", i + 1));
     }
     body.push_str(&format!(

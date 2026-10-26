@@ -226,3 +226,21 @@ async fn a_conflicted_head_is_in_no_queue_and_no_join_is_due() {
     assert!(!v.joining.iter().any(|e| e.item == item), "{:?}", v.joining);
     assert!(!v.held.iter().any(|e| e.item == item), "{:?}", v.held);
 }
+
+/// The notice for an item two reviews rejected carries both findings, each bounded: a reviewer's
+/// note is up to 1,000 characters, and two whole would pass Discord's 2,000-character message.
+#[test]
+fn a_twice_rejected_notice_bounds_each_finding() {
+    let e = super::queues::Entry {
+        item: "tsk_1".into(),
+        title: "Trim the sails".into(),
+        findings: vec!["a".repeat(1_000), "b".repeat(1_000)],
+        ..Default::default()
+    };
+    let text = super::rejected_twice_text(&e);
+    assert!(text.contains(&"a".repeat(300)), "{text}");
+    assert!(!text.contains(&"a".repeat(301)), "{text}");
+    assert!(text.contains(&"b".repeat(300)), "{text}");
+    assert!(!text.contains(&"b".repeat(301)), "{text}");
+    assert!(text.chars().count() < 1_500, "{}", text.chars().count());
+}
