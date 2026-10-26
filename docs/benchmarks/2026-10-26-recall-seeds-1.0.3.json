@@ -72,6 +72,7 @@
    "overhead_tokens": 7467,
    "cost_usd_per_probe": 0.094097,
    "cost_usd": 19.1958,
+   "run_cost_usd": 37.1726,
    "latency_ms_p50": 5650,
    "by_bucket": {
     "compaction": {
@@ -155,6 +156,7 @@
    "overhead_tokens": 7467,
    "cost_usd_per_probe": 0.090032,
    "cost_usd": 18.3665,
+   "run_cost_usd": 35.0959,
    "latency_ms_p50": 6807,
    "by_bucket": {
     "compaction": {
@@ -195,71 +197,16 @@
    "within_n": 88,
    "abstain_gave_value": 38,
    "abstain_n": 60,
-   "cost_usd": 11.44,
+   "run_cost_usd": 11.44,
+   "cost_usd": 4.8412,
    "undelivered": 10,
    "undelivered_flagged": 57,
    "abstention_accuracy": 0.3667,
    "overhead_tokens": 7335,
-   "cost_usd_per_probe": 0.0561,
+   "cost_usd_per_probe": 0.0237,
    "confident_wrong": 19,
    "note": "recomputed from the published CSV on this report's grouping; see the comment in recall_report.py"
   },
   "note": "rivals not rerun: Claude Code 0 of 48 and Pi 1 of 48 across sessions on seed 7, a structural fact about harnesses that carry nothing between sessions"
- },
- "figures": [
-  {
-   "name": "seed-spread",
-   "form": "dumbbell",
-   "arm": "theseus",
-   "title": "The same build, two fresh progressions: recall by distance from the fact",
-   "question": "How much of a recall number is the seed it was drawn from? Each bar's length is the gap between two draws of one build.",
-   "note": "Seeds 11 and 13 of the `full` progression on the frozen 1.0.3 build, 24 to 30 probes a bucket. The published series reports one seed at a time with intervals computed within a progression, which do not cover this spread.",
-   "from_label": "seed 11",
-   "to_label": "seed 13",
-   "x": {
-    "label": "probes answered right",
-    "format": "pct",
-    "min": 0,
-    "max": 1
-   },
-   "rows": [
-    {
-     "label": "near",
-     "from": 0.8571,
-     "to": 0.8636,
-     "tip": "seed 11 18 of 21; seed 13 19 of 22"
-    },
-    {
-     "label": "topic shift",
-     "from": 0.7619,
-     "to": 0.9167,
-     "tip": "seed 11 16 of 21; seed 13 22 of 24"
-    },
-    {
-     "label": "compaction",
-     "from": 0.8,
-     "to": 0.6538,
-     "tip": "seed 11 24 of 30; seed 13 17 of 26"
-    },
-    {
-     "label": "later session",
-     "from": 0.875,
-     "to": 0.9583,
-     "tip": "seed 11 21 of 24; seed 13 23 of 24"
-    },
-    {
-     "label": "days later",
-     "from": 0.5417,
-     "to": 0.875,
-     "tip": "seed 11 13 of 24; seed 13 21 of 24"
-    },
-    {
-     "label": "supersession",
-     "from": 0.2917,
-     "to": 0.4167,
-     "tip": "seed 11 7 of 24; seed 13 10 of 24"
-    }
-   ]
-  }
- ]
+ }
 }

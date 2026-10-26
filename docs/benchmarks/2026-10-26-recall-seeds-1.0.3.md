@@ -23,8 +23,10 @@ in a tool's output were recalled 22% of the time at seed 11 and 64% at seed 13.
 - **Abstention got worse, and it was already the weak spot.** Asked about something never said, Theseus gave a
   value instead of "I don't know" in **51 of 60** cases at seed 11 and **56 of 60** at seed 13, against **38 of
   60** on 10-18. That is the one number that moved against the build at both seeds.
-- **It costs about 1.6× more.** $19.20 and $18.37 for the Theseus arm, against $11.44 — $0.094 and $0.090 a
-  probe against $0.056. The system prompt and tools are unchanged (7,467 tokens measured, against 7,335).
+- **It costs about 3.2× more.** The whole 600-turn progression cost **$37.17** and **$35.10**, against
+  **$11.44** on 10-18. Over the 204 probe turns alone it is $19.20 and $18.37 against **$4.84** — about 3.9×.
+  The system prompt and tools are unchanged (7,467 tokens measured, against 7,335), so this is more work per
+  turn rather than a bigger prompt.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/2026-10-26-recall-seeds-1.0.3/seed-spread-dark.svg">
@@ -45,7 +47,7 @@ which do not cover this.*
 | Rivals | **not rerun** — see "Why no rivals" |
 | Scoring | `score.py`, stale rule `strict`; 204 scored, 0 failed, 0 undelivered at both seeds |
 | When | 2026-10-26, 12:14–13:21 and 13:21–14:33 (UTC−7) |
-| Cost | $37.56 for the two seeds |
+| Cost | $72.27 for the two seeds (whole runs); $37.56 of that on the 204 probe turns each |
 
 ## The question
 
@@ -86,9 +88,15 @@ seed 7.
 | abstention: gave a value instead of "I don't know" | 51/60 | 56/60 | 38/60 |
 | confident-wrong | 21 (10.3%) | 11 (5.4%) | 19 |
 | undelivered facts | **0** | **0** | 10 (after 46 of 57 were recovered by hand) |
-| cost, Theseus arm | $19.20 | $18.37 | $11.44 |
-| cost a probe | $0.094 | $0.090 | $0.056 |
+| cost, whole 600-turn run | $37.17 | $35.10 | $11.44 |
+| cost over the 204 probe turns | $19.20 | $18.37 | $4.84 |
+| cost a probe turn | $0.094 | $0.090 | $0.0237 |
 | overhead (prompt + tools) | 7,467 tok | 7,467 tok | 7,335 tok |
+
+**Two cost bases, and they must not be mixed.** The published report's headline dollar figure is the
+**whole 600-turn run**; a scores file carries only the **204 probe turns**. Comparing a new seed's probe-sum
+with the old whole-run figure understates the gap by about two and a half times, so both bases are given above
+and each is compared with its own.
 
 Seed 7's rows above are **recomputed from its published data file on this report's own grouping**, not copied
 from its prose. Its report quotes "60 of 64" within a session, which groups the buckets differently; on the
@@ -118,7 +126,8 @@ same build:
   as weak in both prior reports; it has not improved and on this evidence it regressed.
 - **Supersession is the weakest bucket at both seeds** — 29% and 42% — and the failure mode is naming the
   superseded value rather than refusing: the strict stale rule counts a stale value named anywhere as wrong.
-- **Cost is up about 1.6×** at both seeds, on an unchanged prompt.
+- **Cost is up about 3.2× on the whole run** at both seeds (3.9× over the probe turns alone), on an
+  unchanged prompt.
 
 **Not robust — a single seed would have told a different story:**
 
