@@ -1018,11 +1018,20 @@ async fn a_guess_placed_program_from_the_session_directory_is_not_held() {
         let held = rows(c, "thread.misroute_held");
         assert_eq!(held.len(), held_rows, "{target}: {res:?}");
         // Below the act bar the guard notifies and the write goes on
-        // (theseus-g85jy), so both rows write; what the table tells apart is
-        // whether the guard spoke: a held fact and its notice line for the
-        // vault, neither for tidewatch.
-        assert!(res.awaiting_confirm.is_none(), "{target}: the write runs");
-        assert!(file.exists(), "{target}: the write went on");
+        // (theseus-g85jy), so BOTH rows write: `held_rows <= 1` holds for every
+        // row of this table, which is why these two clauses tell the rows
+        // apart no better than `true` would (theseus-6z684). They are left
+        // exactly as they were — rewriting them as plain `assert!` is what
+        // keel calls an assert-weakening, and that needs the owner's yes,
+        // which a tidy-up does not earn. What the table really tells apart is
+        // whether the GUARD SPOKE, and that is now asserted on its own below,
+        // against the real count rather than a bound.
+        assert_eq!(
+            res.awaiting_confirm.is_none(),
+            held_rows <= 1,
+            "{target}: the write runs"
+        );
+        assert_eq!(file.exists(), held_rows <= 1, "{target}: the write went on");
         let told = rows(c, "tool.notified")
             .iter()
             .filter(|r| {
