@@ -14,7 +14,16 @@
 //!   session outspends its limit through its tasks, and the only way past a
 //!   carve is an approved reset of the task's own spend, which the parent's
 //!   spend still counts.
-//! - **Depth one.** A task cannot open tasks.
+//! - **Depth one.** A task cannot open tasks. The bound lives in one place,
+//!   `depth_refusal`, and `carve_task` — the only way a task is ever opened —
+//!   checks it, so no caller can skip it (theseus-rrqmr: a routine's fire
+//!   did).
+//! - **The spend carries all the way up.** What a task settles is the spend
+//!   of every execution above it, not only its parent's, and each carve above
+//!   it shrinks to what the execution under it can still spend
+//!   (`Kernel::carry_to_parent`, theseus-deaqt). At depth one that is one
+//!   level; deeper, it is the whole chain to the conversation, whose own
+//!   spend-limit notice reads the `spent_micros` it raises.
 //! - **The end.** The frame that ends a task (its last turn, a failed turn, a
 //!   cancel) puts it on the parent's `reports`, and the parent's next turn
 //!   reads them (`take_reports`).
@@ -26,9 +35,11 @@
 //!   that land together start one turn, which reads them all. A cancelled
 //!   task wakes nothing: whoever cancelled it is already there, and its
 //!   report says who did.
-//! - **Locks.** Every transition that writes both takes both locks, in id
-//!   order (`Kernel::lock`), so the parent's own writers and its task's never lose
-//!   each other's update.
+//! - **Locks.** Every transition that writes a task and the executions above
+//!   it takes all of their locks, in id order, in one call (`lock_family`,
+//!   whose doc argues why that cannot deadlock however long the chain), so
+//!   that a conversation's own writers and its tasks' never lose each other's
+//!   update.
 
 use anyhow::Result;
 use serde_json::json;
@@ -191,8 +202,11 @@ impl Kernel {
                 available_before,
             });
         }
-        if parent.parent.is_some() || parent.kind == SessionKind::Task {
-            return Err(KernelError::TaskDepth { id: parent.id }.into());
+        // Early, so that a parent that is itself a task is refused as
+        // `TaskDepth` and not as `NothingToCarve`; `carve_task` checks it
+        // again, and that is the check no caller can skip (`depth_refusal`).
+        if let Some(e) = depth_refusal(&parent) {
+            return Err(e.into());
         }
         if needs_turn {
             crate::kernel::require_turn(&parent)?;
@@ -505,6 +519,26 @@ impl Kernel {
     }
 }
 
+/// How deep a task tree may go (DD7: depth one — a task cannot open tasks).
+/// `Some` is the refusal for opening a task under `parent`.
+///
+/// **One place, and one place only.** `carve_task` checks this, and
+/// `carve_task` is the only way a task is ever opened, so no caller can open
+/// one past the bound. The shared open (`open_task_in`) checks it as well,
+/// early, so that its refusal reads `TaskDepth` rather than `NothingToCarve`;
+/// a caller that does not go through the shared open is refused all the same.
+/// A routine's fire was exactly such a caller (theseus-rrqmr): it called
+/// `carve_task` with nothing to say about depth, so a routine's series set on
+/// a task carved a task under a task, which the bound could say nothing
+/// about. A step that moves the bound — `theseus-tecj5` raises it to ten —
+/// changes this function, and the `a_task` predicate kernel-sim uses to
+/// expect the refusal, and nothing else.
+pub fn depth_refusal(parent: &Execution) -> Option<KernelError> {
+    (parent.parent.is_some() || parent.kind == SessionKind::Task).then(|| KernelError::TaskDepth {
+        id: parent.id.clone(),
+    })
+}
+
 /// What `carve_task` opens: the ids, the limit, and how it begins.
 pub(crate) struct CarveFor<'a> {
     pub task_id: ExecutionId,
@@ -521,12 +555,21 @@ impl Kernel {
     /// call) and a routine's fire (`routines.rs`): the task, the carve in the
     /// parent's reservations, and the frame's records, which the caller
     /// commits. The parent is changed in place.
+    ///
+    /// **The depth bound is checked here**, because this is the only place a
+    /// task is ever opened, and a caller that opened one past the bound was
+    /// the bug (theseus-rrqmr). `TaskDepth` leaves `parent` and the frame
+    /// untouched, so a caller that stages into a frame of its own and commits
+    /// only on `Ok` writes nothing.
     pub(crate) fn carve_task(
         &self,
         parent: &mut Execution,
         c: CarveFor<'_>,
         extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
     ) -> Result<(Execution, Vec<NewRecord>)> {
+        if let Some(e) = depth_refusal(parent) {
+            return Err(e.into());
+        }
         let CarveFor {
             task_id,
             session_id,
