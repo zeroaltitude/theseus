@@ -434,8 +434,10 @@ fn split(core: &Core, tc: &TurnCtx<'_>, a: &Args) -> Result<f64, String> {
         true => left.max(parent.budget.limit_micros),
         false => left,
     };
+    // What the model asks for is bounded by what the session can carve, or the
+    // floor would bound the fan-out against a figure the session does not have.
     let total = match a.budget_usd {
-        Some(b) => usd_to_micros(b),
+        Some(b) => usd_to_micros(b).min(share_of),
         None => share_of / 2,
     };
     let n = a.helpers.len() as u64;
