@@ -26,6 +26,16 @@ in a tool's output were recalled 22% of the time at seed 11 and 64% at seed 13.
 - **It costs about 1.6× more.** $19.20 and $18.37 for the Theseus arm, against $11.44 — $0.094 and $0.090 a
   probe against $0.056. The system prompt and tools are unchanged (7,467 tokens measured, against 7,335).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/2026-10-26-recall-seeds-1.0.3/seed-spread-dark.svg">
+  <img alt="The same build, two fresh progressions: recall by distance from the fact. How much of a recall number is the seed it was drawn from? Each bar's length is the gap between two draws of one build." src="img/2026-10-26-recall-seeds-1.0.3/seed-spread.svg" width="720">
+</picture>
+
+*Figure 1. Each bar's length is the gap between two draws of the same build. Near facts are stable across
+seeds (0.7 points); everything further away is not — days-later recall moves 33 points, topic shift 16 and
+compaction 15. The published series reports one seed at a time, with intervals computed within a progression,
+which do not cover this.*
+
 | | |
 |---|---|
 | Suite | the incidental-recall bench (`bench/recall`), progression `full` |
