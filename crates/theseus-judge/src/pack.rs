@@ -39,7 +39,7 @@ use crate::learn::RollbackRule;
 /// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
 /// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v8`
 /// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
-/// theseus-a1wvq and theseus-f9qa8). Older versions
+/// theseus-a1wvq and theseus-f9qa8), and `content.v1` (the four content flags, theseus-9ymz0). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
@@ -82,6 +82,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         include_str!("../packs/recall_cross.v1.toml"),
     ),
     ("families.v1", include_str!("../packs/families.v1.toml")),
+    ("content.v1", include_str!("../packs/content.v1.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -105,6 +106,9 @@ pub enum Point {
     Replay,
     /// A voice call's engine waits for it, live (theseus-s3dwj).
     Voice,
+    /// One item that entered a session, asked off the turn's path and landed
+    /// between turns (`content.v1`, theseus-9ymz0).
+    Item,
 }
 
 /// The state builder a pack names (a closed set, in code).
@@ -152,6 +156,9 @@ pub enum Builder {
     /// `families.v1`'s: the message and the tool families its request hides
     /// (theseus-xlri5).
     Families,
+    /// `content.v1`'s: one item that entered a session, and what it was and
+    /// where it came from (theseus-9ymz0).
+    Content,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -260,6 +267,10 @@ pub enum Source {
     /// first ten, and the next ten (a per-item Noul asks at most ten).
     Families,
     MoreFamilies,
+    /// One item when the item is not the operator's own words (`content.v1`'s
+    /// `injection` is asked only then, theseus-9ymz0): the builder sets it
+    /// from the item's kind, so the rule is the code's, not the wording's.
+    Untrusted,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -1497,10 +1508,10 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            30,
+            31,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
-             onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1 and reply_data.v1"
+             onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1, reply_data.v1 and content.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

@@ -61,6 +61,7 @@ impl ToolRuntime {
             Self::announce_end(tc, node);
         }
         self.held(tc, newly);
+        self.queue_content(tc.session_id, &late);
         // Their nodes are written, so the jobs' raw output goes, as for a
         // result read within a turn (`answer_job`, theseus-wz2), a stopped
         // job's included (theseus-ewev).

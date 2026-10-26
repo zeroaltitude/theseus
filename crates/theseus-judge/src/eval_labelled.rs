@@ -1,7 +1,7 @@
 //! Labelled sets for packs whose questions have one right answer per case
 //! (theseus-98bz.9, theseus-98bz.10): `classify.v4`'s `scope` and `thread`,
-//! `recall_cross.v1`'s `same_subject`, and `families.v1`'s `relevant`
-//! (theseus-xlri5). Each case is the pack's own input
+//! `recall_cross.v1`'s `same_subject`, `families.v1`'s `relevant`
+//! (theseus-xlri5), and `content.v1`'s four flags (theseus-9ymz0). Each case is the pack's own input
 //! and the answers it should draw, checked as `eval::check` checks them (an
 //! option id, or `high`/`low` for a Noul). `jev-probe --eval <pack>` runs a
 //! set live, one call per case. The fixtures' names and texts are made up.
@@ -14,9 +14,10 @@ use serde::Deserialize;
 const CLASSIFY_V4: &str = include_str!("../fixtures/eval/classify.v4.json");
 const RECALL_CROSS_V1: &str = include_str!("../fixtures/eval/recall_cross.v1.json");
 const FAMILIES_V1: &str = include_str!("../fixtures/eval/families.v1.json");
+const CONTENT_V1: &str = include_str!("../fixtures/eval/content.v1.json");
 
 /// The packs with a labelled set.
-pub const PACKS: [&str; 3] = ["classify.v4", "recall_cross.v1", "families.v1"];
+pub const PACKS: [&str; 4] = ["classify.v4", "recall_cross.v1", "families.v1", "content.v1"];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -36,6 +37,7 @@ pub fn set(pack: &str) -> Result<Vec<LabelledCase>> {
         "classify.v4" => CLASSIFY_V4,
         "recall_cross.v1" => RECALL_CROSS_V1,
         "families.v1" => FAMILIES_V1,
+        "content.v1" => CONTENT_V1,
         other => bail!("no labelled set for {other} (have: {})", PACKS.join(", ")),
     };
     serde_json::from_str(text).with_context(|| format!("fixtures/eval/{pack}.json"))
@@ -73,6 +75,78 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// `content.v1`'s set is design §10's: ten clear cases for each of the four
+    /// flags, twenty clean cases chosen adversarially, and five near-miss
+    /// pairs a flag, each pair a flagged and a clean member.
+    #[test]
+    fn content_v1s_set_has_the_counts_the_design_names() {
+        let cases = set("content.v1").unwrap();
+        let count = |prefix: &str| cases.iter().filter(|c| c.name.starts_with(prefix)).count();
+        for clear in ["inj_", "sec_", "conf_", "pers_"] {
+            assert_eq!(count(clear), 10, "{clear}");
+        }
+        assert_eq!(count("clean_"), 20);
+        for flag in ["injection", "secret", "confidential", "personal"] {
+            assert_eq!(count(&format!("pair_{flag}_")), 10, "{flag}: five pairs");
+            for n in 1..=5 {
+                for member in ["flagged", "clean"] {
+                    let name = format!("pair_{flag}_{n}_{member}");
+                    assert!(cases.iter().any(|c| c.name == name), "{name}");
+                }
+            }
+        }
+        assert_eq!(cases.len(), 100);
+        let names: std::collections::BTreeSet<&str> =
+            cases.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names.len(), cases.len(), "names are unique");
+    }
+
+    /// A flagged case expects its one flag `yes`, and nothing else; a clean case
+    /// expects every question it is asked `no`. The operator's own words are
+    /// never expected to answer `injection`, which is not asked of them.
+    #[test]
+    fn content_v1s_expectations_match_the_case_names() {
+        for case in set("content.v1").unwrap() {
+            let flag = |f: &str| case.expect.get(f).map(String::as_str);
+            let operator = case.input["kind"] == "operator_message";
+            if operator {
+                assert_eq!(flag("injection"), None, "{}: never asked", case.name);
+            }
+            let flagged = ["inj_", "sec_", "conf_", "pers_"]
+                .iter()
+                .any(|p| case.name.starts_with(p))
+                || case.name.ends_with("_flagged");
+            if flagged {
+                assert_eq!(case.expect.len(), 1, "{}", case.name);
+                assert!(case.expect.values().all(|v| v == "yes"), "{}", case.name);
+            } else {
+                assert_eq!(case.expect.len(), if operator { 3 } else { 4 }, "{}", case.name);
+                assert!(case.expect.values().all(|v| v == "no"), "{}", case.name);
+            }
+        }
+    }
+
+    /// The set is invented through and through: no vendor's token prefix that
+    /// a secret scanner would take for an issued credential, and no address
+    /// but the reserved `.invalid` and `example` ones.
+    #[test]
+    fn content_v1s_set_holds_no_real_credential_shape() {
+        let text = CONTENT_V1;
+        for prefix in ["ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "sk_live_", "whsec_", "sk-ant-", "AIza"] {
+            assert!(!text.contains(prefix), "{prefix}");
+        }
+        for (i, _) in text.match_indices('@') {
+            let after: String = text[i + 1..]
+                .chars()
+                .take_while(|c| !c.is_whitespace() && *c != '"' && *c != '\\' && *c != ',' && *c != ')' && *c != '\'')
+                .collect();
+            assert!(
+                after.contains(".invalid") || after.starts_with("example."),
+                "an address that could be real: {after}"
+            );
         }
     }
 

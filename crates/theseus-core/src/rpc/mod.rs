@@ -926,6 +926,14 @@ impl Core {
         let telemetry_cell = std::sync::OnceLock::new();
         // The judge's facts speak in the narrative, and count in telemetry (23b).
         runner.judge.narrate_to(narrator.clone());
+        runner.judge.content_from(
+            theseus_judge::builders::DataNames {
+                open: vec![],
+                private: cfg.privacy.sensitive_names.clone(),
+            },
+            cfg.content.enabled,
+            cfg.content.max_pieces,
+        );
         if let Some(t) = telemetry {
             runner.judge.export_to(t.clone());
             runner.memory.export_to(t.clone());
