@@ -22,7 +22,8 @@ in a tool's output were recalled 22% of the time at seed 11 and 64% at seed 13.
   nothing to correct.
 - **Abstention got worse, and it was already the weak spot.** Asked about something never said, Theseus gave a
   value instead of "I don't know" in **51 of 60** cases at seed 11 and **56 of 60** at seed 13, against **38 of
-  60** on 10-18. That is the one number that moved against the build at both seeds.
+  60** on 10-18. **Confident-wrong moved with it: 21 and 11 against 2.** Those two are the numbers that moved
+  against the build at both seeds.
 - **It costs about 3.2× more.** The whole 600-turn progression cost **$37.17** and **$35.10**, against
   **$11.44** on 10-18. Over the 204 probe turns alone it is $19.20 and $18.37 against **$4.84** — about 3.9×.
   The system prompt and tools are unchanged (7,467 tokens measured, against 7,335), so this is more work per
@@ -86,7 +87,7 @@ seed 7.
 | cross-session (later session, or days later) | 70.8% (34/48) | 91.7% (44/48) | 58.7% (27/46) |
 | within a session | 67.7% (65/96) | 70.8% (68/96) | 80.7% (71/88) |
 | abstention: gave a value instead of "I don't know" | 51/60 | 56/60 | 38/60 |
-| confident-wrong | 21 (10.3%) | 11 (5.4%) | 19 |
+| confident-wrong | **21 (10.3%)** | **11 (5.4%)** | **2 (1.0%)** |
 | undelivered facts | **0** | **0** | 10 (after 46 of 57 were recovered by hand) |
 | cost, whole 600-turn run | $37.17 | $35.10 | $11.44 |
 | cost over the 204 probe turns | $19.20 | $18.37 | $4.84 |
@@ -126,6 +127,9 @@ same build:
   as weak in both prior reports; it has not improved and on this evidence it regressed.
 - **Supersession is the weakest bucket at both seeds** — 29% and 42% — and the failure mode is naming the
   superseded value rather than refusing: the strict stale rule counts a stale value named anywhere as wrong.
+- **Confident-wrong rose sharply** — 21 and 11 against **2** on seed 7, a rate of 10.3% and 5.4% against
+  1.0%. Both seeds are many times the published figure, and it sits beside the abstention result: this build
+  is readier to assert a wrong value and less ready to say it does not know.
 - **Cost is up about 3.2× on the whole run** at both seeds (3.9× over the probe turns alone), on an
   unchanged prompt.
 

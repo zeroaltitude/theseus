@@ -204,7 +204,8 @@
    "abstention_accuracy": 0.3667,
    "overhead_tokens": 7335,
    "cost_usd_per_probe": 0.0237,
-   "confident_wrong": 19,
+   "confident_wrong": 2,
+   "confident_wrong_rate": 0.0103,
    "note": "recomputed from the published CSV on this report's grouping; see the comment in recall_report.py"
   },
   "note": "rivals not rerun: Claude Code 0 of 48 and Pi 1 of 48 across sessions on seed 7, a structural fact about harnesses that carry nothing between sessions"
