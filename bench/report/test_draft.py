@@ -70,6 +70,15 @@ class Endings(unittest.TestCase):
                              {"ended by the agent": 1, "provider failure (Pi)": 1, "aborted (Pi)": 1})
 
 
+class Models(unittest.TestCase):
+    def test_an_arms_models_are_what_its_trials_called(self):
+        t = lambda *ms: {"record": {"by_model": {m: {} for m in ms}}}
+        self.assertEqual(draft.models_of([t("claude-a"), t("claude-a")]), "claude-a")
+        self.assertEqual(draft.models_of([t("claude-b"), t("claude-a", "unknown")]), ["claude-a", "claude-b"])
+        self.assertIsNone(draft.models_of([t(), t("unknown"), {"record": {}}]))
+        self.assertIsNone(draft.models_of([]))
+
+
 class Draft(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -101,6 +110,7 @@ class Draft(unittest.TestCase):
         self.assertEqual((th["pass"]["k"], th["pass"]["n"], cc["pass"]["k"]), (3, 4, 1))
         self.assertEqual((th["solved_every_attempt"], th["solved_any_attempt"]), (1, 2))
         self.assertEqual(th["endings"], {"ended by the agent": 3, "timeout": 1})
+        self.assertEqual((th["model"], th["provider"]), (None, None), "a trial that names no model gives the arm none")
         self.assertAlmostEqual(th["cost_usd"], 0.89)
         self.assertEqual(th["cost_per_trial"]["method"], "range", "four trials: a range, not a bootstrap")
         # paired by task and attempt: (1,1) (1,0) (1,0) (0,0) -> 2 pairs only theseus, none only claude-code
