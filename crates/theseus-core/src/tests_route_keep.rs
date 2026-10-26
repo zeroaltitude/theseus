@@ -57,6 +57,10 @@ use crate::tests_route::{mode, rig, turn};
 /// And 46,300 before `task_fan_out` joined it (theseus-z9mze.3: with it, no window from 43,000 to 46,700 held at
 /// any input billed; at 47,300 and up the input billed from 41,400 or 42,200 to 44,200 does, so both moved: a 2-D
 /// sweep at its join; 47,600 with 42,600 is inside both bands).
+/// And 47,600 and 42,600 after the filler came down to `FILLER` (the #86 join: the persona's line and the stack's
+/// definitions had put the first compile over `cold_switch_tokens`, so no cell rang; a 13 x 14 sweep at 410 repeats:
+/// at billed 42,400 windows 46,800 to 48,400 hold, at 42,800 and up 46,800 and above, below billed 40,800 none; the
+/// constants stand, inside both bands).
 const WINDOW: u64 = 47_600;
 const OUTPUT: u32 = 1_000;
 
