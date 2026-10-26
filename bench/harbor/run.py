@@ -15,8 +15,19 @@ reason) when one fails:
 
 then it runs one `harbor run` per attempt group, in order, and writes the run's
 record beside the job, `<jobs dir>/<job name>.run.json`: the plan, the commit
-that holds it, the commit the code is at, the host's reading, and the lines it
-ran. `--dry-run` checks and prints without running.
+that holds it, the commit the code is at, the host's reading, the cap the run
+took, and the lines it ran. `--dry-run` checks and prints without running.
+
+**The per-trial spend cap is off by default** (theseus-710ch; the owner,
+2026-10-25 23:17, on the $2 cap: it "comes off for every harness"), which sets
+`measure.NO_CAP_ENV` for the arms. `--cap` puts it back, to reproduce a capped
+cell such as the 10-18 to 10-23 runs. Either way the state is printed and
+written to the run's record, so a capped cell and an uncapped one are never
+read as one series. What a driver asked for stays in each trial's record
+(`efficiency.limits`, `cap_asked_usd`), with `would_have_been_capped` where a
+trial passed it. The host's own spend stop, the turn caps, and the kernel's
+runaway guard for the Theseus arm (`theseus_bench.NO_CAP_TRIAL_LIMIT_USD`) are
+not per-trial spend caps and stay on.
 
 Standard library only; Harbor is the command it is given.
 """
@@ -25,11 +36,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable
 
+import measure
 import plan as planmod
 import quiet
 
@@ -93,14 +106,24 @@ def main(argv: list[str], runner: Callable[[list[str]], int] | None = None) -> i
     ap = argparse.ArgumentParser(prog="run.py")
     ap.add_argument("--plan", required=True)
     ap.add_argument("--dry-run", action="store_true")
+    cap = ap.add_mutually_exclusive_group()
+    cap.add_argument("--no-cap", dest="no_cap", action="store_true", default=True,
+                     help="the per-trial spend cap off for every arm (the default)")
+    cap.add_argument("--cap", dest="no_cap", action="store_false",
+                     help="the per-trial spend cap on, to reproduce a capped cell")
     a = ap.parse_args(argv[:cut])
+    # Set before `prepare`, so a dry run prints the state the real run takes.
+    os.environ[measure.NO_CAP_ENV] = "1" if a.no_cap else "0"
     try:
         rec = prepare(a.plan, argv[cut + 1:])
     except Refused as e:
         for r in e.reasons:
             print(f"run.py: refusing to start: {r}", file=sys.stderr)
         return 3
+    rec["no_cap"] = bool(a.no_cap)
     path = Path(rec["jobs_dir"]) / f"{rec['job_name']}.run.json"
+    print("run.py: the per-trial spend cap is "
+          + ("OFF for every arm (--no-cap)" if a.no_cap else "ON (--cap)"))
     for line in rec["lines"]:
         print(" ".join(line))
     if a.dry_run:

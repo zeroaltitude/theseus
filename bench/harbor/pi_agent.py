@@ -162,7 +162,10 @@ class MeasuredPi(Pi):
             pass
         try:
             rec = ef.stamp(self.logs_dir,
-                           ef.pi_record(self.logs_dir, self.options.max_budget_usd, self.options.max_turns),
+                           ef.pi_record(self.logs_dir,
+                                        measure.budget_cap(self.options.max_budget_usd),
+                                        self.options.max_turns,
+                                        cap_asked_usd=self.options.max_budget_usd),
                            self.options.thinking, self.version(), self.parse_version)
             ef.write(self.logs_dir, rec)
             t = rec.get("tokens") or {}

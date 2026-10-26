@@ -199,7 +199,7 @@ class Theseus(BaseInstalledAgent):
             spend_limit_usd=float(
                 os.environ.get(
                     "THESEUS_BENCH_SPEND_LIMIT",
-                    str(tb.ROUTED_SPEND_LIMIT_USD if self.routed else tb.spend_limit_usd(model)),
+                    str(tb.routed_spend_limit_usd() if self.routed else tb.spend_limit_usd(model)),
                 )
             ),
             proc_sync_secs=int(os.environ.get("THESEUS_BENCH_PROC_SYNC", "900")),

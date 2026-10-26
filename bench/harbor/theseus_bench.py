@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import efficiency as ef
+import measure as msr
 import plan as planmod
 import sampler as smp
 
@@ -58,6 +59,19 @@ RESERVE_STEP_USD = 0.25
 # trial has spent (review of theseus-eo3h; the number is the owner's): one
 # Opus 5.5 call reserves about $2.6 and one Fable 5.1 call about $6.5.
 ROUTED_SPEND_LIMIT_USD = 20.0
+# The trial limit under `measure.no_cap` (theseus-710ch, the owner 2026-10-25
+# 23:17): not "no limit" — a runaway guard. The kernel must still refuse a
+# trial that loops, because a driver's own spend stop counts *finished* trials
+# only, so it overshoots by about one trial times the parallelism and latches
+# once tripped (memory `tb-driver-spend-stop-latches`). $50 is about seven
+# times the most expensive uncapped trial on record (Codex's $6.54 on the
+# 10-25 run, whose mean was $1.37), so it cannot bind a trial any arm has ever
+# run while still bounding one that goes wrong. It replaces the budget term
+# only: the arm's model reservation is still added on top, since a reservation
+# the limit cannot clear would end the trial at exit 5 before it spent
+# anything (theseus-xkzsn is the same hazard from the other side).
+# `THESEUS_BENCH_SPEND_LIMIT` still names another, and overrides this.
+NO_CAP_TRIAL_LIMIT_USD = 50.0
 # A trial's daemon's day ceiling (theseus-l9on), `[kernel]
 # daily_spend_ceiling_usd`, set explicitly so a run never meets the daemon's
 # default ($200) by surprise: this many times the trial's spend limit, above
@@ -85,14 +99,31 @@ def reservation_usd(model: str) -> float:
     return round(-(-raw // RESERVE_STEP_USD) * RESERVE_STEP_USD, 2)
 
 
-def spend_limit_usd(model: str) -> float:
+def trial_budget_usd(env: dict[str, str] | None = None) -> float:
+    """What a trial may spend before the kernel stops it: `TRIAL_BUDGET_USD`,
+    or `NO_CAP_TRIAL_LIMIT_USD` under `measure.no_cap`."""
+    return NO_CAP_TRIAL_LIMIT_USD if msr.no_cap(env) else TRIAL_BUDGET_USD
+
+
+def spend_limit_usd(model: str, env: dict[str, str] | None = None) -> float:
     """The plain arm's default spend limit at `model`: the trial's budget
-    plus one maximum reservation."""
-    return round(TRIAL_BUDGET_USD + reservation_usd(model), 2)
+    (`trial_budget_usd`) plus one maximum reservation."""
+    return round(trial_budget_usd(env) + reservation_usd(model), 2)
 
 
-# The default at Sonnet 5.5, the R0 arms' model.
-SPEND_LIMIT_USD = spend_limit_usd("claude-sonnet-5-5")
+def routed_spend_limit_usd(env: dict[str, str] | None = None) -> float:
+    """The routed arm's default: `ROUTED_SPEND_LIMIT_USD`, or the no-cap
+    guard plus Fable's reservation, which is what the $20 was built from."""
+    if not msr.no_cap(env):
+        return ROUTED_SPEND_LIMIT_USD
+    return round(NO_CAP_TRIAL_LIMIT_USD + reservation_usd("claude-fable-5-1"), 2)
+
+
+# The capped default at Sonnet 5.5, the R0 arms' model. Deliberately computed
+# against an empty environment: a module constant that moved with
+# `NO_CAP_ENV` would make a run's conditions unreadable from the code. An
+# arm's live limit comes from `spend_limit_usd` / `routed_spend_limit_usd`.
+SPEND_LIMIT_USD = spend_limit_usd("claude-sonnet-5-5", {})
 
 # `theseus ask`'s exit codes, by how the turn ended (theseus-n88g.2).
 ENDS = {

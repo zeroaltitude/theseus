@@ -186,7 +186,8 @@ class Record(unittest.TestCase):
         self.assertEqual(rec["end"], {"stop_reason": "stop", "error": None, "answers": 4, "turns": 3})
         self.assertEqual(rec["limits"], {"enforced": False, "max_budget_usd": 2.0, "max_turns": 200,
                                          "answers": 4, "turns": 3, "over_budget": False,
-                                         "over_turns": False})
+                                         "over_turns": False, "no_cap": False, "cap_asked_usd": None,
+                                         "would_have_been_capped": None})
         # What ran, beside what was asked for (`stamp`): the log's own words.
         self.assertEqual(rec["effort_ran"], {"changes": ["medium"], "answers": ["medium"]})
 

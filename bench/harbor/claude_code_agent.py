@@ -37,7 +37,7 @@ import asyncio
 import os
 import shlex
 from pathlib import Path
-from typing import override
+from typing import Any, override
 
 from harbor.agents.installed.claude_code import ClaudeCode
 from harbor.environments.base import BaseEnvironment
@@ -58,7 +58,16 @@ PINNED_VERSION = "2.1.290"
 
 
 class MeasuredClaudeCode(ClaudeCode):
-    def __init__(self, *args, version: str | None = None, reasoning_effort: str | None = None, **kwargs):
+    def __init__(self, *args, version: str | None = None, reasoning_effort: str | None = None,
+                 max_budget_usd: Any = None, **kwargs):
+        # Claude Code is the one rival whose cap is really enforced: Harbor
+        # passes `max_budget_usd` to the CLI as `--max-budget-usd`. A no-cap
+        # run drops it (`measure.budget_cap`), keeping what was asked for the
+        # trial's record. `max_turns` is Harbor's own and is not a spend cap.
+        self.cap_asked_usd = None if max_budget_usd in (None, "") else float(max_budget_usd)
+        cap = measure.budget_cap(self.cap_asked_usd)
+        if cap is not None:
+            kwargs["max_budget_usd"] = str(cap)
         super().__init__(*args, version=version or PINNED_VERSION,
                          reasoning_effort=reasoning_effort or measure.EFFORT, **kwargs)
 
@@ -101,6 +110,13 @@ class MeasuredClaudeCode(ClaudeCode):
         try:
             rec = ef.stamp(self.logs_dir, ef.claude_code_record(self.logs_dir),
                            self.options.reasoning_effort, self.version(), self.parse_version)
+            # The cap this trial ran under, as the other arms record it: the
+            # CLI enforces the budget it was given, so `enforced` is true
+            # whenever one was (theseus-710ch).
+            cap = getattr(self.options, "max_budget_usd", None)
+            cap = None if cap in (None, "") else float(cap)
+            rec["limits"] = ef.limits(rec, cap, getattr(self.options, "max_turns", None),
+                                      cap is not None, cap_asked_usd=self.cap_asked_usd)
             ef.write(self.logs_dir, rec)
         except Exception as e:  # noqa: BLE001: a record never fails the trial
             rec = {"schema": ef.SCHEMA, "arm": "claude-code", "error": f"{type(e).__name__}: {e}"}

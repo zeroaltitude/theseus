@@ -22,12 +22,23 @@ Standard library only, so the tests run without Harbor.
 
 from __future__ import annotations
 
+import os
 import shlex
 from typing import Any
 
 EFFORT = "medium"
 # How long a SIGTERMed agent gets before the SIGKILL, in seconds.
 GRACE_S = 3
+# The gauntlet's no-cap switch (theseus-710ch, the owner 2026-10-25 23:17: the
+# per-trial cap "comes off for every harness"). `run.py --no-cap` sets it, and
+# every arm reads it here, so one flag covers the enforced caps (Theseus's
+# `spend_limit_usd`, Claude Code's `--max-budget-usd`) and the recorded ones
+# (every other arm, where `max_budget_usd` only flagged a trial that passed it).
+# The cap a driver asked for is kept in the trial's record
+# (`efficiency.limits`, `cap_asked_usd`), so a capped cell and an uncapped one
+# are told apart on the page, and the old $2 line stays readable as the
+# historical comparison (`efficiency.OVER_BUDGET_USD`).
+NO_CAP_ENV = "BENCH_NO_CAP"
 # Where the container's version read goes, in the trial's agent directory.
 VERSION_FILE = "version.txt"
 # Where the Theseus arm's build commit goes (`efficiency.BUILD_FILE`).
@@ -37,6 +48,21 @@ BUILD_FILE = "build-commit.txt"
 # Where the arm keeps the container's process list from before Harbor's run,
 # in its state directory (`snapshot_script`).
 BASELINE_FILE = "pids.before"
+
+
+def no_cap(env: dict[str, str] | None = None) -> bool:
+    """True when this run takes the per-trial spend cap off every arm:
+    `NO_CAP_ENV` set to anything but `0`, `off`, `false`, `no` or empty."""
+    v = (os.environ if env is None else env).get(NO_CAP_ENV, "").strip().lower()
+    return v not in ("", "0", "off", "false", "no")
+
+
+def budget_cap(asked: float | None, env: dict[str, str] | None = None) -> float | None:
+    """The spend cap an arm runs under: `None` under `no_cap` (so a harness
+    that enforces one is given none, and a harness that only records one
+    flags nothing), else `asked`. The turn cap is untouched: it is not a
+    spend cap, and OpenHands' `max_iterations` is the only one enforced."""
+    return None if no_cap(env) else asked
 
 
 def snapshot_script(path: str) -> str:
