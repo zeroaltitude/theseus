@@ -1888,8 +1888,20 @@ mod tests {
         assert!(means(m9, "run_tool").contains("command, script or tool to be run"));
         assert!(means(m9, "commentary").contains("asks for nothing"));
         assert_eq!(
-            (&m9.instructions, &m9.decides, &m9.kind, &m9.thresholds, &m9.no_match),
-            (&m8.instructions, &m8.decides, &m8.kind, &m8.thresholds, &m8.no_match)
+            (
+                &m9.instructions,
+                &m9.decides,
+                &m9.kind,
+                &m9.thresholds,
+                &m9.no_match
+            ),
+            (
+                &m8.instructions,
+                &m8.decides,
+                &m8.kind,
+                &m8.thresholds,
+                &m8.no_match
+            )
         );
         let (e8, e9) = (
             v8.question("reply_effort").unwrap(),
@@ -1900,13 +1912,29 @@ mod tests {
             assert_eq!(means(e9, id), means(e8, id), "{id} is v8's word for word");
         }
         assert!(means(e9, "leave").contains("keep the effort the session's profile already has"));
-        assert_eq!(e9.no_match.as_deref(), Some("leave"), "no `unclear` effort left");
+        assert_eq!(
+            e9.no_match.as_deref(),
+            Some("leave"),
+            "no `unclear` effort left"
+        );
         assert!(!opts(e9).iter().any(|o| o == "unclear"));
         assert_eq!(v9.rollback, v8.rollback, "both rules, word for word");
         assert_eq!(v9.version, 9);
         assert_eq!(
-            (v9.point, v9.builder, v9.baseline, v9.action, v9.state_cap_tokens),
-            (v8.point, v8.builder, v8.baseline, v8.action, v8.state_cap_tokens)
+            (
+                v9.point,
+                v9.builder,
+                v9.baseline,
+                v9.action,
+                v9.state_cap_tokens
+            ),
+            (
+                v8.point,
+                v8.builder,
+                v8.baseline,
+                v8.action,
+                v8.state_cap_tokens
+            )
         );
         assert!(v9.description.contains("a command or tool to run"));
         assert!(v9.description.contains("a remark that asks for nothing"));

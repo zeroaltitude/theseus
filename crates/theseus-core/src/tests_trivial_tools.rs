@@ -99,8 +99,16 @@ async fn a_run_tool_detour_keeps_its_tools_and_a_commentary_one_carries_tools_fi
         return;
     }
     for (kind, message, bare) in [
-        ("run_tool", "Run slow.sh census 3 and give me its last line.", false),
-        ("commentary", "Harnesses writing harnesses, it all fits.", true),
+        (
+            "run_tool",
+            "Run slow.sh census 3 and give me its last line.",
+            false,
+        ),
+        (
+            "commentary",
+            "Harnesses writing harnesses, it all fits.",
+            true,
+        ),
     ] {
         let jev = FakeJev::start().unwrap();
         mode(&jev, kind, 0.95);
@@ -113,7 +121,10 @@ async fn a_run_tool_detour_keeps_its_tools_and_a_commentary_one_carries_tools_fi
             true => assert_eq!(names, ["tools_find"], "{kind}"),
             false => {
                 for kept in ["fs_read", "proc_run", "tools_find"] {
-                    assert!(names.contains(&kept.to_string()), "{kind}: {kept} in {names:?}");
+                    assert!(
+                        names.contains(&kept.to_string()),
+                        "{kind}: {kept} in {names:?}"
+                    );
                 }
             }
         }

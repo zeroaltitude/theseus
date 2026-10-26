@@ -34,8 +34,9 @@ pub(super) fn detour_spec(spec: &RequestSpec) -> RequestSpec {
 /// `tools_find` alone (theseus-d9je7, theseus-gezlj), and the row says so.
 fn tools_name(tools: &[serde_json::Value], kind: &str) -> String {
     match tools {
-        [one] if crate::config::routing::is_bare_detour(kind)
-            && one["name"] == crate::tools_defer::FIND =>
+        [one]
+            if crate::config::routing::is_bare_detour(kind)
+                && one["name"] == crate::tools_defer::FIND =>
         {
             format!("{kind}: tools_find only")
         }
