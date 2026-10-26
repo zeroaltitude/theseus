@@ -858,8 +858,7 @@ impl Lane {
                 })
             }
             "failed" => self.failed_post(&body, corr).await,
-            // A content label was raised on the session (theseus-9ymz0): the one
-            // message the locked DM flow gains, in the session's place.
+            // A content label (theseus-9ymz0): the one message the locked DM flow gains.
             "content_label" => self.content_label_post(&body, corr).await,
             "report" => self.report_post(&body, corr).await,
             "offer" => Ok(self.offer_post(&body)),
