@@ -410,6 +410,18 @@ impl Core {
     }
 }
 
+/// The wait between two questions of one run: while the machine is busy, up
+/// to [`theseus_store::pressure::BOUND`] a question (the sweep is background
+/// work, theseus-63tfk). A test never waits: the host's pressure is no input
+/// of its own (a run asks up to 20 pairs, and 19 waits of 10 s on a loaded
+/// host passed nextest's 120 s kill: theseus-75t4q). The wait itself is held
+/// by `tests_onto_names::a_chain_clusters_on_a_busy_machine`, which fakes the
+/// pressure.
+pub(super) async fn pace() {
+    #[cfg(not(test))]
+    theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+}
+
 /// A split Jev answered for: the parent, the two names and the sessions it
 /// placed in each.
 struct Splitting {
@@ -481,7 +493,7 @@ impl Run<'_> {
                 second,
             };
             if asked > 0 {
-                theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                pace().await;
             }
             let context = json!({"a": a, "b": b});
             let judge = &self.core.runner.judge;
@@ -542,7 +554,7 @@ impl Run<'_> {
             let names = input.names();
             let sampled = input.sessions.clone();
             if asked > 0 {
-                theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                pace().await;
             }
             let context = json!({"category": parent});
             let judge = &self.core.runner.judge;
