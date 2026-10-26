@@ -375,7 +375,7 @@ fn the_digest_lists_a_seeded_week() {
         t.starts_with("What Theseus changed about itself this week"),
         "{t}"
     );
-    let empty = crate::rsi::digest_text(&[], 0, 1, &c.self_state());
+    let empty = crate::rsi::digest_text(&[], &Default::default(), false, 0, 1, &c.self_state());
     assert!(empty.ends_with("Nothing changed.\n"), "{empty}");
     let free = theseus_protocol::rsi::SelfLogRow {
         position: 1,
@@ -387,12 +387,18 @@ fn the_digest_lists_a_seeded_week() {
         undo: None,
         session_id: None,
     };
-    let zero = crate::rsi::digest_text(&[free], 0, now, &c.self_state());
+    let zero =
+        crate::rsi::digest_text(&[free], &Default::default(), false, 0, now, &c.self_state());
     assert!(zero.contains("Cost: $0.00."), "never $-0.00: {zero}");
     assert!(
-        t.contains("3 changes: 1 judge.proposal, 1 self.halted, 1 self.joined."),
+        t.contains("Ledger rows read (bookkeeping, not work done): 3: 1 judge.proposal, 1 self.halted, 1 self.joined."),
         "{t}"
     );
+    assert!(
+        t.contains("- Joined: 1."),
+        "one self.joined row is one join: {t}"
+    );
+    assert!(!t.contains("changes:"), "{t}");
     assert!(t.contains("Cost: $3.00."), "{t}");
     assert!(
         t.contains("Joins:\n- ") && t.contains("undo: `theseus self veto m1`"),
@@ -412,6 +418,35 @@ fn the_digest_lists_a_seeded_week() {
         !c.cfg.self_improve.posts_digest(),
         "never posted while the mode is off"
     );
+}
+
+/// A week with more ledger rows than the digest reads, all of them budget
+/// bookkeeping and no join: the digest must not report its page size as work
+/// (theseus-1q2ho: "2000 changes" was `MAX_ROWS` saturating).
+#[test]
+fn a_week_of_bookkeeping_beyond_the_page_cap_is_a_floor_and_no_work() {
+    let c = core(SelfMode::Off);
+    let now = theseus_protocol::now_unix_ms();
+    for i in 0..2_100_u64 {
+        seed(
+            &c,
+            "self.budget.settled",
+            now - DAY + i,
+            json!({"what": "settled", "numbers": {"spent_usd": 0.0}}),
+        );
+    }
+    let d = c
+        .self_digest(&theseus_protocol::rsi::SelfDigestParams::default())
+        .unwrap();
+    let t = &d.text;
+    assert!(t.contains("- Joined: 0."), "{t}");
+    assert!(t.contains("- Branches built: 0"), "{t}");
+    assert!(!t.contains("changes"), "{t}");
+    assert!(
+        t.contains("bookkeeping, not work done): at least 2000:"),
+        "{t}"
+    );
+    assert!(t.contains("every count of rows above is a floor"), "{t}");
 }
 
 /// The weekly post: nothing at all while the mode is off (no read, no
