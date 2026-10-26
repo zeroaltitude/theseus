@@ -174,7 +174,10 @@ async fn a_retired_sessions_held_question_ends_and_frees_its_reservation() {
         ])
         .unwrap();
     let held = r.core.kernel.execution(&a.execution_id).unwrap().unwrap();
-    assert_eq!(held.budget.reserved_micros, 5_000, "the reservation is held");
+    assert_eq!(
+        held.budget.reserved_micros, 5_000,
+        "the reservation is held"
+    );
     r.core
         .retire_session(&sid, &crate::approval::Answerer::from("cli"))
         .unwrap();
@@ -186,7 +189,11 @@ async fn a_retired_sessions_held_question_ends_and_frees_its_reservation() {
     assert!(r.core.kernel.pending_confirms().unwrap().is_empty());
     let a = r.core.kernel.action(&corr).unwrap().unwrap();
     assert_eq!(a.state, theseus_kernel::ActionState::Cancelled, "{a:?}");
-    assert!(a.resolution.as_deref().unwrap().contains("session was retired"));
+    assert!(a
+        .resolution
+        .as_deref()
+        .unwrap()
+        .contains("session was retired"));
     let e = r.core.kernel.execution(&a.execution_id).unwrap().unwrap();
     assert_eq!(e.budget.reserved_micros, 0, "{:?}", e.budget);
     assert!(e.budget.reservations.is_empty(), "{:?}", e.budget);
