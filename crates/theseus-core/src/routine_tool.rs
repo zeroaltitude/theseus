@@ -161,9 +161,8 @@ pub fn run(
     input: &Value,
     known: &dyn Fn(&str) -> bool,
 ) -> Result<(String, Value), String> {
-    if tc.task.is_some() {
-        return Err("a task cannot set up a routine".into());
-    }
+    // A task may propose one: the owner's yes on its card is the gate, as for a
+    // conversation's (the owner, 2026-10-25 13:58: "precious few hard gates").
     if let Some(why) = crate::places::refusal(tc.class, CREATE, &Plan::default(), &[]) {
         return Err(format!("Refused: {why}."));
     }
