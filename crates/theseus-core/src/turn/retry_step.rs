@@ -11,6 +11,9 @@
 //! }`: a stream that was alive, cut at `Timeouts::whole_call`) is retried at
 //! most once a turn, whatever `transient` allows: the same call would most
 //! likely run as long again (theseus-5pg8u). Other classes keep their count.
+//! Where the catalog names a fallback model, that one retry is made on it
+//! instead (`fall_back_on_timeout`), and it spends the turn's whole-call
+//! retry: a fallback that is cut too ends the turn.
 
 use super::*;
 use crate::provider::TimeoutPhase;
@@ -41,14 +44,27 @@ impl TurnRunner {
     /// `[model.retries] transient`. It waits out the backoff first, on
     /// tokio's timer; a `/stop` ends the wait at once, and the loop's next
     /// step then sees the stop.
-    pub(super) async fn retry_after(
+    pub(super) async fn retry_after<'a>(
         &self,
-        t: &mut Turn<'_>,
+        t: &mut Turn<'a>,
         failure: &Failure,
         retried: &mut Retried,
+        spec: &mut RequestSpec,
+        slot: &'a OnceLock<Target>,
     ) -> Result<bool> {
         let r = self.cfg.model.retries;
         let whole = is_whole_call(failure);
+        if whole
+            && failure.transient
+            && retried.whole_call == 0
+            && self.fall_back_on_timeout(t, spec, slot)
+        {
+            retried.whole_call += 1;
+            t.record(&fact::turn::LoopCut {
+                decision: "timeout_fallback",
+            });
+            return Ok(true);
+        }
         if !failure.transient
             || self.stopping()
             || retried.count >= r.transient
