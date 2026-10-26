@@ -79,8 +79,10 @@ fn a_week_of_bookkeeping_reports_no_work() {
     let o = Outcomes::of_rows(&[], SINCE, UNTIL);
     let t = week(&rows, &o, false);
     assert!(t.contains("- Joined: 0."), "{t}");
-    assert!(t.contains("- Branches built: 0"), "{t}");
+    assert!(t.contains("- Branch builds: 0"), "{t}");
     assert!(t.contains("Judged: 0"), "{t}");
+    // The pure-bookkeeping week prints no rate at all, not even `0/0`.
+    assert!(!t.contains("pass rate"), "{t}");
     assert!(
         !t.contains("changes"),
         "a count of ledger rows is never called changes: {t}"
@@ -195,4 +197,40 @@ fn a_join_is_counted_from_its_own_row() {
     let o = Outcomes::of_rows(&[j], SINCE, UNTIL);
     assert_eq!(o.joined, 1);
     assert!(week(&[], &o, false).contains("- Joined: 1."));
+}
+
+#[test]
+fn a_revert_is_said_beside_the_joins_and_never_netted() {
+    let row = |kind: &str, n: u64| {
+        let mut r = LedgerRow::named(kind, None, None, json!({}));
+        r.at_unix_ms = SINCE + n;
+        r
+    };
+    let all = [
+        row("self.joined", 1),
+        row("self.joined", 2),
+        row("self.reverted", 3),
+        row("self.vetoed", 4),
+    ];
+    let o = Outcomes::of_rows(&all, SINCE, UNTIL);
+    assert_eq!((o.joined, o.undone), (2, 2));
+    let t = week(&[], &o, false);
+    assert!(
+        t.contains("- Joined: 2 (2 reverted or vetoed this week"),
+        "{t}"
+    );
+    assert!(t.contains("not netted"), "{t}");
+}
+
+#[test]
+fn a_retried_item_is_a_build_per_row_and_the_label_says_so() {
+    let all = [
+        built("green", json!(0), json!(0), 1),
+        built("green", json!(0), json!(0), 1),
+    ];
+    let o = Outcomes::of_rows(&all, SINCE, UNTIL);
+    assert_eq!(o.built, 2, "a row each, however few branches");
+    let t = week(&bookkeeping(2), &o, false);
+    assert!(t.contains("- Branch builds: 2"), "{t}");
+    assert!(!t.contains("Branches built"), "{t}");
 }

@@ -56,16 +56,24 @@ impl Core {
         let (rows, more, building) =
             super::log::read(&self.store, Some(since), Some(until), MAX_ROWS)?;
         // The outcomes are read whole, not from the capped page above.
-        let outcomes =
-            match super::join::rows_of(&self.store, &["self.branch.built", "self.joined"])? {
-                Some(all) => Outcomes::of_rows(&all, since, until),
-                None => Outcomes::default(),
-            };
+        let outcomes = match super::join::rows_of(
+            &self.store,
+            &[
+                "self.branch.built",
+                "self.joined",
+                "self.reverted",
+                "self.vetoed",
+            ],
+        )? {
+            Some(all) => Outcomes::of_rows(&all, since, until),
+            None => Outcomes::default(),
+        };
         let mut text = digest_text(&rows, &outcomes, more, since, until, &self.self_state());
         if more {
             text.push_str(&format!(
                 "\n(Read the newest {MAX_ROWS} ledger rows of the week; there are more, so every \
-                 count of rows above is a floor. `theseus self log` pages the rest.)"
+                 count of ledger rows below, and the cost, is a floor; the outcome counts above \
+                 are exact. `theseus self log` pages the rest.)"
             ));
         }
         if building {

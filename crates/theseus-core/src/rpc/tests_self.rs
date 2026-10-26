@@ -440,13 +440,18 @@ fn a_week_of_bookkeeping_beyond_the_page_cap_is_a_floor_and_no_work() {
         .unwrap();
     let t = &d.text;
     assert!(t.contains("- Joined: 0."), "{t}");
-    assert!(t.contains("- Branches built: 0"), "{t}");
+    assert!(t.contains("- Branch builds: 0"), "{t}");
+    assert!(!t.contains("pass rate"), "no judged branch, no rate: {t}");
     assert!(!t.contains("changes"), "{t}");
     assert!(
         t.contains("bookkeeping, not work done): at least 2000:"),
         "{t}"
     );
-    assert!(t.contains("every count of rows above is a floor"), "{t}");
+    assert!(
+        t.contains("every count of ledger rows below, and the cost, is a floor"),
+        "{t}"
+    );
+    assert!(t.contains("the outcome counts above are exact"), "{t}");
 }
 
 /// The weekly post: nothing at all while the mode is off (no read, no
