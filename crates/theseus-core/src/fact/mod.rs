@@ -47,6 +47,7 @@ pub mod capture;
 pub mod card;
 pub mod check;
 pub mod compaction;
+pub mod content;
 pub mod data;
 pub mod detour;
 pub mod disk;
@@ -322,6 +323,10 @@ facts![
     place::PlaceViewed<'static>,
     place::PlaceWarned<'static>,
     privacy::PrivacyWarned<'static>,
+    content::ContentJudged<'static>,
+    content::ContentLabelled<'static>,
+    content::ContentRemoved<'static>,
+    content::ContentUnjudged<'static>,
     data::DataGateBlocked<'static>,
     data::SessionDataOpened,
     data::SessionDataTainted<'static>,

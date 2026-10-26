@@ -1675,6 +1675,140 @@ fn policy_lists_tightens_untightens_and_trusts() {
     );
 }
 
+/// A session as `session.list` shows it, carrying `labels` (theseus-9ymz0).
+fn labelled_list(labels: &[(&str, &str, &str)]) -> Value {
+    let labels: Vec<Value> = labels
+        .iter()
+        .map(|(flag, kind, source)| {
+            json!({"flag": flag, "node": "nod_e1", "kind": kind, "source": source,
+                   "confidence": 0.93, "band": "act", "at_ms": 1_759_300_400_000u64})
+        })
+        .collect();
+    json!({"sessions": [{"session_id": S, "kind": "conversation", "label": null,
+        "created_at_unix_ms": 1_759_300_000_000u64, "turns": 2, "labels": labels}]})
+}
+
+/// What `content.unlabel` answers for `flag`.
+fn unlabelled(flag: &str, kind: &str, source: &str) -> Value {
+    json!({"session_id": S, "flag": flag, "by": "the CLI", "who": "sock#3", "via": "cli",
+        "how": "content.unlabel", "at_ms": 1_759_300_500_000u64,
+        "label": {"flag": flag, "node": "nod_e1", "kind": kind, "source": source,
+                  "confidence": 0.93, "band": "act", "at_ms": 1_759_300_400_000u64}})
+}
+
+/// `theseus content SESSION` lists a session's labels, one line each with what
+/// raised it and from where, and the command that clears it; a session with
+/// none says so (theseus-9ymz0).
+#[test]
+fn content_lists_a_sessions_labels() {
+    let out = run(
+        &["content", S],
+        vec![step(
+            "session.list",
+            labelled_list(&[
+                ("injection", "fetched_page", "http.fetch notes.example/today"),
+                ("secret", "tool_result", "fs.read /srv/open/.env"),
+            ]),
+        )],
+    );
+    assert!(out.contains("--- requests\nsession.list\n"), "{out}");
+    assert!(out.contains("ses_q7f3k2: 2 content labels\n"), "{out}");
+    assert!(
+        out.contains(
+            "  injection\t2025-09-30 23:33\tfetched_page (node nod_e1)\tfrom http.fetch \
+             notes.example/today\tact 0.93\n"
+        ),
+        "{out}"
+    );
+    assert!(
+        out.contains("theseus content remove ses_q7f3k2 secret"),
+        "{out}"
+    );
+    assert!(out.ends_with("--- exit 0\n"), "{out}");
+    let none = run(&["content", S], vec![step("session.list", labelled_list(&[]))]);
+    assert!(none.contains("ses_q7f3k2: no content labels\n"), "{none}");
+}
+
+/// `theseus content remove SESSION FLAG` is one `content.unlabel`; `--all`
+/// removes each label the session carries, one call each.
+#[test]
+fn content_remove_takes_one_label_or_all_of_them() {
+    let one = run(
+        &["content", "remove", S, "injection"],
+        vec![
+            step(
+                "session.list",
+                labelled_list(&[("injection", "fetched_page", "http.fetch notes.example/today")]),
+            ),
+            step(
+                "content.unlabel",
+                unlabelled("injection", "fetched_page", "http.fetch notes.example/today"),
+            ),
+        ],
+    );
+    assert!(
+        one.contains("--- requests\nsession.list content.unlabel\n"),
+        "{one}"
+    );
+    assert!(
+        one.contains(
+            "removed injection from session ses_q7f3k2 (by the CLI) · it was raised by \
+             fetched_page from http.fetch notes.example/today · its calls that act run at \
+             their postures again\n"
+        ),
+        "{one}"
+    );
+    let both = run(
+        &["content", "remove", S, "--all"],
+        vec![
+            step(
+                "session.list",
+                labelled_list(&[
+                    ("injection", "fetched_page", "http.fetch notes.example/today"),
+                    ("secret", "tool_result", "fs.read /srv/open/.env"),
+                ]),
+            ),
+            step(
+                "content.unlabel",
+                unlabelled("injection", "fetched_page", "http.fetch notes.example/today"),
+            ),
+            step(
+                "content.unlabel",
+                unlabelled("secret", "tool_result", "fs.read /srv/open/.env"),
+            ),
+        ],
+    );
+    assert!(
+        both.contains("--- requests\nsession.list content.unlabel content.unlabel\n"),
+        "{both}"
+    );
+    assert!(both.contains("removed secret from session"), "{both}");
+    assert!(both.ends_with("--- exit 0\n"), "{both}");
+}
+
+/// A removal loosens, so inside a Theseus job the CLI refuses it before it
+/// sends anything, as it refuses `policy trust` (theseus-zmgb), and a word
+/// that is not a flag is a usage error.
+#[test]
+fn content_remove_is_refused_inside_a_job_and_takes_only_a_flag() {
+    let out = run_in(
+        &["content", "remove", S, "injection"],
+        vec![step(
+            "session.list",
+            labelled_list(&[("injection", "fetched_page", "x")]),
+        )],
+        Some("ses_job01"),
+    );
+    assert!(
+        out.contains("theseus content remove refused: it is the operator's to run"),
+        "{out}"
+    );
+    assert!(!out.contains("content.unlabel"), "nothing was removed: {out}");
+    assert!(out.contains("--- exit 1\n"), "{out}");
+    let bad = run(&["content", "remove", S, "open"], vec![]);
+    assert!(bad.contains("--- exit 2\n"), "{bad}");
+}
+
 #[test]
 fn catalog_prints_windows_and_prices() {
     let cat = json!({"version": "2026-09-30", "models": [

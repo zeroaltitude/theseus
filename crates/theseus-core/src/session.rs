@@ -452,6 +452,7 @@ impl SessionRecord {
             dir: self.dir.clone(),
             started_on: None,
             data: None,
+            labels: Vec::new(),
             first_text: None,
             last_text: None,
             prompts: None,
