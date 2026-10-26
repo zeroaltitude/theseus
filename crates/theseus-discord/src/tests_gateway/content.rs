@@ -46,7 +46,7 @@ async fn dm_session(r: &Rig) -> String {
     .await;
     r.core
         .outbox
-        .place_session(&format!("discord:dm:{ANA}"))
+        .place_session(&format!("dm:{ANA}"))
         .unwrap()
         .expect("the DM has a session")
 }

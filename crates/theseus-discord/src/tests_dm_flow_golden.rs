@@ -298,7 +298,7 @@ async fn the_dm_task_flow_is_as_the_owner_approved_it() {
     let session = r
         .core
         .outbox
-        .place_session(&format!("discord:dm:{ANA}"))
+        .place_session(&format!("dm:{ANA}"))
         .unwrap()
         .expect("the DM's session");
     let label = theseus_core::content::Label {
