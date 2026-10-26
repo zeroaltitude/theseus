@@ -2673,6 +2673,58 @@
    "subset_of": null,
    "framing": "routed",
    "carried_from": "2026-10-18-terminal-bench-v1-high"
+  },
+  {
+   "report": "2026-10-26-bughunt-rs-theseus-k3",
+   "benchmark": "bughunt-rs",
+   "tier": "high",
+   "arm": "theseus",
+   "variant": "theseus-routed",
+   "harness": "Theseus as shipped, frozen 1.0.3 (92e3dbed)",
+   "model": "Jev-routed Anthropic profiles; a quarter of trials fell back from claude-sonnet-5-5 to claude-sonnet-5 (theseus-wf482)",
+   "date": "2026-10-26",
+   "commit": "92e3dbed (the frozen behaviour build; adapters at 3235e029)",
+   "dataset": "docs/benchmarks/2026-10-26-bughunt-rs-theseus-k3.json",
+   "trials": 3,
+   "tasks": 1,
+   "metrics": {
+    "bugs_fixed_per_trial": {
+     "value": 3.3333,
+     "of": 13
+    },
+    "bug_trials_fixed": {
+     "value": 0.25641,
+     "lo": 0.145686,
+     "hi": 0.41082,
+     "k": 10,
+     "n": 39
+    },
+    "hidden_tests_passed": {
+     "value": 31,
+     "n": 78
+    },
+    "usd_per_trial": {
+     "value": 7.59
+    },
+    "usd_total": {
+     "value": 22.76
+    },
+    "usd_per_bug": {
+     "value": 2.28
+    },
+    "agent_s_median": {
+     "value": 938.8
+    }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "routed",
+   "effort": "low..high (the HIGH tier band)",
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "routed",
+   "carried_from": null
   }
  ]
 }
