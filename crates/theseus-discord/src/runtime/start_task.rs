@@ -48,7 +48,7 @@ const EXPECT: &str = "expect";
 const INPUT_MAX: usize = 4000;
 /// The modal id of a message by someone else: its quote is outside text
 /// (theseus-nfhaf), where `nt:` alone carries the presser's own words.
-pub(super) fn outside_id() -> String {
+fn outside_id() -> String {
     format!("{MODAL}{OUTSIDE}")
 }
 const OUTSIDE: &str = "!";
@@ -162,18 +162,24 @@ fn pick(id: &str, options: &[(&str, &str)], default: &str) -> Value {
            "max_values": 1, "required": true})
 }
 
-/// The new-task modal; `quote` is a message's text, offered as a quote, and
-/// `brief` fills the first field (the core titles the task from its first line).
-pub(super) fn modal(quote: Option<&str>, brief: Option<&str>) -> Value {
+/// The new-task modal; `quote` is a message's text, offered as a quote, with
+/// whether the message is the presser's own (`true`) or someone else's, which
+/// words its label and sets the modal's id (theseus-tbm1q); `brief` fills the
+/// first field (the core titles the task from its first line).
+pub(super) fn modal(quote: Option<(&str, bool)>, brief: Option<&str>) -> Value {
     let mut input = json!({"type": 4, "custom_id": BRIEF, "style": 2, "required": true,
                            "max_length": INPUT_MAX});
     if let Some(b) = brief {
         input["value"] = json!(crate::render::clip(b, INPUT_MAX));
     }
     let mut components = vec![label("What should the task do?", None, input)];
-    if let Some(q) = quote {
+    if let Some((q, own)) = quote {
         components.push(label(
-            "The message (read as outside text)",
+            if own {
+                "The message"
+            } else {
+                "The message (read as outside text)"
+            },
             Some("The task reads it verbatim; clear it to start without"),
             json!({"type": 4, "custom_id": QUOTE, "style": 2, "required": false,
                    "max_length": INPUT_MAX, "value": crate::render::clip(q, INPUT_MAX)}),
@@ -209,7 +215,11 @@ pub(super) fn modal(quote: Option<&str>, brief: Option<&str>) -> Value {
             "short",
         ),
     ));
-    json!({"type": 9, "data": {"custom_id": MODAL, "title": "New task", "components": components}})
+    let id = match quote {
+        Some((_, false)) => outside_id(),
+        _ => MODAL.to_string(),
+    };
+    json!({"type": 9, "data": {"custom_id": id, "title": "New task", "components": components}})
 }
 
 /// A submitted modal's fields.
@@ -438,7 +448,7 @@ mod tests {
 
     #[test]
     fn a_message_made_a_task_brings_its_text_as_an_editable_quote() {
-        let m = modal(Some("the log says the reef sensor died"), None);
+        let m = modal(Some(("the log says the reef sensor died", true)), None);
         let parts = m["data"]["components"].as_array().unwrap();
         assert_eq!(parts.len(), 5, "a modal holds five");
         assert_eq!(parts[1]["component"]["custom_id"], "quote");
@@ -447,5 +457,54 @@ mod tests {
             "the log says the reef sensor died"
         );
         assert_eq!(parts[1]["component"]["required"], false);
+    }
+
+    const DESCRIPTION: &str = "The task reads it verbatim; clear it to start without";
+
+    fn quote_label(m: &Value) -> &Value {
+        &m["data"]["components"][1]
+    }
+
+    /// The presser's own message is not outside text, so its label does not say so.
+    #[test]
+    fn the_owners_own_message_is_labelled_the_message() {
+        let m = modal(Some(("the reef log", true)), None);
+        assert_eq!(quote_label(&m)["label"], "The message");
+        assert_eq!(quote_label(&m)["description"], DESCRIPTION);
+        assert_eq!(m["data"]["custom_id"], "nt:");
+    }
+
+    #[test]
+    fn another_persons_message_is_labelled_outside_text_and_carries_the_bang() {
+        let m = modal(Some(("the reef log", false)), None);
+        assert_eq!(
+            quote_label(&m)["label"],
+            "The message (read as outside text)"
+        );
+        assert_eq!(quote_label(&m)["description"], DESCRIPTION);
+        assert_eq!(m["data"]["custom_id"], "nt:!");
+    }
+
+    /// The modal with no quote is what it was before the label learned whose
+    /// message it is: the whole JSON, field for field.
+    #[test]
+    fn the_modal_with_no_quote_is_unchanged() {
+        let want: Value = serde_json::from_str(
+            r#"{"data":{"components":[{"component":{"custom_id":"brief","max_length":4000,"required":true,"style":2,"type":4},"label":"What should the task do?","type":18},{"component":{"custom_id":"budget","max_values":1,"min_values":1,"options":[{"default":false,"label":"$1","value":"1"},{"default":true,"label":"$2","value":"2"},{"default":false,"label":"$5","value":"5"},{"default":false,"label":"$10","value":"10"}],"required":true,"type":3},"label":"Budget","type":18},{"component":{"custom_id":"report","max_values":1,"min_values":1,"options":[{"default":true,"label":"Here, when it ends","value":"home"},{"default":false,"label":"Silently to the board","value":"board"}],"required":true,"type":3},"label":"Report","type":18},{"component":{"custom_id":"expect","max_values":1,"min_values":1,"options":[{"default":true,"label":"short","value":"short"},{"default":false,"label":"long (over 10 min)","value":"long"}],"required":true,"type":3},"label":"Expected","type":18}],"custom_id":"nt:","title":"New task"},"type":9}"#,
+        )
+        .unwrap();
+        assert_eq!(modal(None, None), want);
+    }
+
+    /// Whichever label it wears, the quote field is the same input.
+    #[test]
+    fn the_two_modals_differ_only_in_the_label_and_the_id() {
+        let mut own = modal(Some(("x", true)), None);
+        let mut other = modal(Some(("x", false)), None);
+        own["data"]["custom_id"] = Value::Null;
+        other["data"]["custom_id"] = Value::Null;
+        own["data"]["components"][1]["label"] = Value::Null;
+        other["data"]["components"][1]["label"] = Value::Null;
+        assert_eq!(own, other);
     }
 }
