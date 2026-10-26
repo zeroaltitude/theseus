@@ -301,7 +301,7 @@ impl Tool for TaskCreate {
                     "type": "boolean",
                     "description": "Its report, done or failed, starts this conversation's next turn (default: false; a cancel wakes nothing)."
                 },
-                "because": {"type": "string", "maxLength": 160},
+                "because": {"type": "string", "maxLength": 160, "description": "One line, up to 160 characters, of why you start it. Required when no one asked this turn (a wake, a report, a continuation)."},
                 "notify_done": {
                     "type": "boolean",
                     "description": "Its finish notifies the owner, wherever they are (default: false)."
@@ -358,8 +358,8 @@ impl Tool for TaskCreate {
                 "acceptance": {"type": "array", "items": {"type": "string"}, "description": "How to know it is done, one line each, beside any `acceptance` pieces."},
                 "parent": {"type": "string", "description": "The task it goes under (tsk_…)."},
                 "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on (tsk_…)."},
-                "check_of": {"type": "string", "description": "Check this task (id or the end of it): one that has reported."},
-                "profile": {"type": "string", "description": "A check's model: a profile's name (default: this conversation's). Only for `check_of`."},
+                "check_of": {"type": "string", "description": "Check this task (its id or its end): one this conversation started that has reported."},
+                "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."},
                 "open": {"type": "boolean", "description": "Brief only, no arrangement; compiled without owner material; may leave Claude."},
                 "start_after": {"type": "string", "description": "Start this long from now: 2h, 1d (1 second to 365 days)."},
                 "kind": {"type": "string", "enum": ["item", "project", "milestone"], "description": "Without `brief`: `project` (`objective`, `milestones`, a weekly `review` or `none`, which waits for the owner's yes) or `milestone` (`parent` a project, `due`; the owner is reminded)."},
