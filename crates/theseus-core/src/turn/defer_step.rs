@@ -224,6 +224,11 @@ impl TurnRunner {
             && known.contains(tools_defer::family::TASKS)
             && !loaded.contains(tools_defer::family::TASKS)
         {
+            // It rides past the place's budget by exactly its own size, as an admitted family does
+            // (`fit.rs`): the learned families stay held to the budget plus that raise, so admitting
+            // the tasks evicts none of them.
+            let whole = fit.total(&loaded) + fit.tokens(tools_defer::family::TASKS);
+            fit.raised = fit.raised.max(whole.saturating_sub(fit.budget));
             extra.insert(tools_defer::family::TASKS.to_string());
             loaded = offer(&extra, &fit);
         }

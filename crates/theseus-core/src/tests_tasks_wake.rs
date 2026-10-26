@@ -177,6 +177,46 @@ async fn a_persons_turn_after_a_wake_costs_what_it_always_did() {
     assert_eq!(req.tools, fresh.tools);
 }
 
+/// Whether the request carries the tool, loaded: present, and not deferred.
+fn offered(req: &ProviderRequest, name: &str) -> bool {
+    req.tools.iter().any(|t| t["name"] == name) && !hidden(req, name)
+}
+
+/// The tasks ride past the place's budget by their own size on a turn with no person's input, as
+/// an admitted family does: a family the ledger learned for the place stays loaded on the wake's
+/// turn, where the tasks would otherwise be held to the budget and evict it.
+#[tokio::test]
+async fn a_wake_turn_loads_the_tasks_and_evicts_no_learned_family() {
+    let r = rig_deferring(|_| {}, waking);
+    let at = theseus_protocol::now_unix_ms() - 3 * 86_400_000;
+    for i in 0..12 {
+        r.core.runner.tools.defer.apply_used(
+            at + i,
+            &json!({"place": "dm", "loaded": ["files", "commands"], "used": ["routines"],
+            "searched": [], "unused": []}),
+        );
+    }
+    let sid = session(&r.core, Some(DM));
+    run(&r.core, &sid, Some("WAKE me")).await;
+    let person = r.requests().pop().unwrap();
+    assert!(
+        offered(&person, "routine_create"),
+        "the ledger's family loads"
+    );
+    assert!(!offered(&person, "task_create"));
+    r.until("the wake's turn", 30, |r| r.requests().len() >= 3)
+        .await;
+    let wake = r.requests().pop().unwrap();
+    assert!(
+        offered(&wake, "task_create"),
+        "the wake is offered the tasks"
+    );
+    assert!(
+        offered(&wake, "routine_create"),
+        "the tasks evicted the learned family"
+    );
+}
+
 const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"];
 const DM_PERSON_TOKENS: u64 = 9869;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
