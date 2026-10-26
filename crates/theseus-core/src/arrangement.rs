@@ -45,7 +45,8 @@ use crate::node::{Body, Node, Origin, ResultStatus};
 
 /// The refusal without an arrangement (M5 §2.10).
 pub const REFUSAL: &str =
-    "Promotion needs an arrangement: quote the messages that define this work.";
+    "Promotion needs an arrangement: quote the messages that define this work. \
+     For work you noticed yourself, quote the tool result or your own line that shows it.";
 /// The shortest quote, in non-space characters: a token floor only, since a
 /// quote must also match exactly one node (theseus-e31an).
 pub const MIN_QUOTE_CHARS: usize = 4;
