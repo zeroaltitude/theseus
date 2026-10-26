@@ -27,6 +27,12 @@
 //! for the stuck window (`[kernel] admission_stuck_secs`, 600 s): a long
 //! queue that moves is slow, never stuck.
 //!
+//! A person's wait is the exception: a typed message is never failed by the
+//! window. When the queue has not moved for it, the waiter goes on waiting
+//! and one quiet notice names the turns holding the slots and for how long,
+//! once per stuck episode (it ends when the queue moves). Wakes and task
+//! turns fail as before.
+//!
 //! The kernel counts no ceiling for a turn this queue admitted
 //! (`Kernel::admit_queued`): a turn that lent its slot still holds its turn
 //! there. The queue's state is one mutex, held across no `.await`. A grant
@@ -36,7 +42,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant as StdInstant};
 
 use anyhow::Result;
@@ -112,6 +118,45 @@ impl Class {
     }
 }
 
+/// Where the stuck notice goes: a sink of the core's own, set once after the
+/// queue is built (`Admission::set_notice`). None set means no notice.
+#[derive(Clone)]
+pub struct Notice(Arc<dyn Fn(String) + Send + Sync>);
+
+impl Notice {
+    pub fn new(f: impl Fn(String) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+}
+
+/// The core's sink: an inform notice to the operator through the outbox,
+/// quiet (a badge and the digest, never a ping).
+pub fn notice_to_operator(core: &Arc<crate::rpc::Core>) -> Notice {
+    let core = Arc::downgrade(core);
+    Notice::new(move |text| {
+        let Some(core) = core.upgrade() else { return };
+        let sent = (|| -> Result<()> {
+            let body = serde_json::json!({"kind": "notice", "text": text, "quiet": true});
+            let (post, frame) = core.outbox.stage_to_operator(None, body)?;
+            core.store.append(&frame)?;
+            core.outbox.posted(&post);
+            Ok(())
+        })();
+        if let Err(e) = sent {
+            tracing::warn!(error = %format!("{e:#}"), "admission: the stuck notice was not posted");
+        }
+    })
+}
+
+/// A running turn's slot, by its execution: its lent mark, its class, and
+/// when it was bound (how long it has held the slot).
+#[derive(Clone)]
+struct Bound {
+    lent: Arc<AtomicBool>,
+    class: Class,
+    since: Instant,
+}
+
 /// Where a turn reached the queue: its class and its ticket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Queued {
@@ -159,6 +204,9 @@ struct State {
     /// When a turn was last admitted, or the queue last emptied.
     moved: Instant,
     admitted: u64,
+    /// The `moved` of the stuck episode a notice was staged for: one notice
+    /// an episode, and the next movement of the queue ends it.
+    told: Option<Instant>,
 }
 
 impl State {
@@ -228,7 +276,9 @@ pub struct Admission {
     state: Mutex<State>,
     /// Each running turn's lent mark, by its execution: a job's wait lends
     /// the slot of the turn it waits in.
-    bound: Mutex<HashMap<String, (Arc<AtomicBool>, Class)>>,
+    bound: Mutex<HashMap<String, Bound>>,
+    /// Where a person's stuck wait is told; unset, it is told to no one.
+    notice: OnceLock<Notice>,
     /// A slot that held a turn was dropped, so a turn ended: a turn that
     /// found its execution's turn held looks again.
     ended: Notify,
@@ -300,11 +350,14 @@ impl Slot {
     /// The slot is the turn of `execution_id` now: a job's wait in it may
     /// lend it (`Admission::lend`).
     pub fn bind(&mut self, execution_id: &str) {
-        self.adm
-            .bound
-            .lock()
-            .unwrap()
-            .insert(execution_id.to_string(), (self.lent.clone(), self.class));
+        self.adm.bound.lock().unwrap().insert(
+            execution_id.to_string(),
+            Bound {
+                lent: self.lent.clone(),
+                class: self.class,
+                since: Instant::now(),
+            },
+        );
         self.bound = Some(execution_id.to_string());
     }
 }
@@ -317,7 +370,7 @@ impl Drop for Slot {
             let mut bound = self.adm.bound.lock().unwrap();
             if bound
                 .get(&id)
-                .is_some_and(|(l, _)| Arc::ptr_eq(l, &self.lent))
+                .is_some_and(|b| Arc::ptr_eq(&b.lent, &self.lent))
             {
                 bound.remove(&id);
             }
@@ -354,10 +407,49 @@ impl Admission {
                 next_front: 1 << 62,
                 moved: Instant::now(),
                 admitted: 0,
+                told: None,
             }),
             bound: Mutex::default(),
+            notice: OnceLock::new(),
             ended: Notify::new(),
         })
+    }
+
+    /// Where a person's stuck wait is told. Set once; a second call is ignored.
+    pub fn set_notice(&self, notice: Notice) {
+        let _ = self.notice.set(notice);
+    }
+
+    /// The words of the stuck notice: the turns holding slots and how long
+    /// each has held one (execution ids and durations only).
+    fn stuck_notice(&self, s: &State, now: Instant) -> String {
+        let mut held: Vec<(String, Duration)> = self
+            .bound
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, b)| !b.lent.load(Ordering::SeqCst))
+            .map(|(id, b)| (id.clone(), now.saturating_duration_since(b.since)))
+            .collect();
+        held.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let holders = held
+            .iter()
+            .map(|(id, d)| format!("{id} for {} s", d.as_secs()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "A typed message is waiting for a turn slot, and no turn has been admitted for {} s \
+             ({} of {} slots held, {} waiting). It keeps waiting. Holding: {}.",
+            self.stuck.as_secs(),
+            s.in_use,
+            self.ceiling,
+            s.waiting(),
+            if holders.is_empty() {
+                "no named turn"
+            } else {
+                &holders
+            },
+        )
     }
 
     pub fn ceiling(&self) -> u32 {
@@ -460,9 +552,9 @@ impl Admission {
 
     /// Wait for a slot in `class`'s queue (`front`: at its head, for a turn
     /// that had one). Fails only when no turn was admitted for the stuck
-    /// window while it waited.
+    /// window while it waited, and never a person's.
     pub async fn take(self: &Arc<Self>, class: Class, front: bool) -> Result<Slot, Stuck> {
-        let since = Instant::now();
+        let mut since = Instant::now();
         let (ticket, joined) = self.join(class, front);
         let mut rx = match joined {
             Ok(()) => return Ok(self.slot(class, ticket)),
@@ -492,6 +584,22 @@ impl Admission {
                 g.keep();
                 return Ok(self.slot(class, ticket));
             }
+            if class == Class::Person {
+                // A person's wait is never failed: it stays in its queue, its
+                // receiver open, and waits another window. One notice an
+                // episode, which the queue's next movement ends.
+                let now = Instant::now();
+                let told = (s.told != Some(s.moved)).then(|| {
+                    s.told = Some(s.moved);
+                    self.stuck_notice(&s, now)
+                });
+                drop(s);
+                if let (Some(text), Some(n)) = (told, self.notice.get()) {
+                    (n.0)(text);
+                }
+                since = now;
+                continue;
+            }
             // Leave the queue: closed, this waiter's sender reads closed.
             // Only this failure path searches the queues.
             rx.close();
@@ -512,7 +620,8 @@ impl Admission {
     /// or this machine (a foreground job): its slot goes to the next waiting
     /// turn. True when it was held and is lent now.
     pub fn lend(self: &Arc<Self>, execution_id: &str) -> bool {
-        let Some((lent, class)) = self.bound.lock().unwrap().get(execution_id).cloned() else {
+        let Some(Bound { lent, class, .. }) = self.bound.lock().unwrap().get(execution_id).cloned()
+        else {
             return false;
         };
         if lent.swap(true, Ordering::SeqCst) {
@@ -527,7 +636,8 @@ impl Admission {
     /// turn has aged past its class. Never fails, since the turn is under
     /// way. Nothing lent, and it returns at once.
     pub async fn retake(self: &Arc<Self>, execution_id: &str) {
-        let Some((lent, class)) = self.bound.lock().unwrap().get(execution_id).cloned() else {
+        let Some(Bound { lent, class, .. }) = self.bound.lock().unwrap().get(execution_id).cloned()
+        else {
             return;
         };
         if !lent.load(Ordering::SeqCst) {
