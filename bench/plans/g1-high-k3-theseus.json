@@ -1,0 +1,8 @@
+{
+  "name": "g1-high-k3-theseus",
+  "k": 3,
+  "effort_bounds": [
+    "low",
+    "high"
+  ]
+}
