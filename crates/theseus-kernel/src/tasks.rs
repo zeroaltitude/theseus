@@ -401,6 +401,54 @@ impl Kernel {
         Ok(TakenReports { ids, woke })
     }
 
+    /// A task's change reaches every execution above it (DD7, theseus-deaqt):
+    /// under the whole family's locks, which the caller holds (`lock_family`,
+    /// or `Kernel::frame` inside a transaction), `carry` applies to the
+    /// parent, then to that one's parent, up to the conversation, and each
+    /// record that changed joins `frame`. So the spend a task settled is the
+    /// spend of every execution above it, and each carve shrinks to what the
+    /// execution under it can still spend; a conversation, whose own
+    /// spend-limit notice reads `spent_micros`, therefore sees what a
+    /// grandchild spent. `spent_before` is the task's spend before the change;
+    /// at each level above, what that level had spent before its own carry is
+    /// what the level above carries from — the same money, one level up.
+    ///
+    /// The walk stops at the first level `carry` leaves unchanged: a level
+    /// that did not change passes nothing on. Returns the immediate parent
+    /// when it changed. Nothing for an execution with no parent.
+    pub(crate) fn carry_to_parent(
+        &self,
+        child: &Execution,
+        mut spent_before: Micros,
+        frame: &mut Vec<NewRecord>,
+    ) -> Result<Option<Execution>> {
+        let now = self.now_ms();
+        let mut below = std::borrow::Cow::Borrowed(child);
+        let mut first = None;
+        // Only a corrupt store could hold a chain that names an id twice; it
+        // stops the walk rather than looping (`family`).
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        seen.insert(child.id.clone());
+        while let Some(pid) = below.parent.clone() {
+            let Some(mut parent) = self.execution(&pid)?.filter(|_| seen.insert(pid.clone()))
+            else {
+                break;
+            };
+            let was = parent.budget.spent_micros;
+            if !carry(&mut parent, &below, spent_before) {
+                break;
+            }
+            parent.updated_at_ms = now;
+            frame.push(exec_record(&parent)?);
+            if first.is_none() {
+                first = Some(parent.clone());
+            }
+            spent_before = was;
+            below = std::borrow::Cow::Owned(parent);
+        }
+        Ok(first)
+    }
+
     /// A task ended in the frame being built: the parent's carve keeps only
     /// what the task still has in flight or unknown, and the task joins the
     /// parent's `reports`, with a `task.ended` row. The caller holds the whole
