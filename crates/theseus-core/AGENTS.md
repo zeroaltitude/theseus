@@ -1343,7 +1343,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `<state>/self/trees/<slug>`, branch `self/<date>-<slug>`, build tree `<state>/self/target/<slug>`), `gate` (main's
   `scripts/gate.sh` blob copied to `<state>/self/gates/` and run with `THESEUS_GATE_ROOT`, so the tree's own copy judges
   nothing; nice 19 and `ionice -c 3`, `THESEUS_GATE_NO_BENCH=1`, no compiler wrapper, no `THESEUS_*`; main's
-  `scripts/may-build.sh` asked first when main has one), `push` (`refs/heads/self/*` only, never forced, after the
+  `scripts/may-build.sh` asked first when main has one, and waited on for as long as it says no, one quiet FYI notice
+  to the owner every 30 minutes carrying the rule's last line — `MAY_BUILD_WAIT` is that notice's interval, not a
+  deadline, and neither a stop nor a halt lands until the wait ends, `theseus-rexxp`; a gate stopped at `GATE_LIMIT`
+  names the phase it was in, which at L0 is its log's last `gate: ` line), `push` (`refs/heads/self/*` only, never forced, after the
   daemon's scrubber over every added line and message, and main's `scripts/scrub.sh` when there is one), `close`.
   `self.propose_change { item, issue, why }` is registered only under `[self] mode = "act"`, runs only for an
   execution whose principal is `"self"`, and asks `rsi::gate` between phases: the first call opens the tree (which

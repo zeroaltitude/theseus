@@ -906,8 +906,12 @@ export function staircase(ps: readonly Placed[], px: Property, py: Property, ext
   const out = line.filter((v, i) => i === 0 || v[0] !== line[i - 1][0] || v[1] !== line[i - 1][1])
   if (!extent || !f.length) return { line: out, legs: [] }
   const worse = (e: [number, number], better: Better) => (better === 'lower' ? Math.max(...e) : Math.min(...e))
-  const first = f[0], last = f[f.length - 1]
-  return { line: out, legs: [[[first.x, first.y], [worse(extent.x, px.better), first.y]], [[last.x, last.y], [last.x, worse(extent.y, py.better)]]] }
+  // `f` is sorted by RAW ascending x, so which end holds the best x depends on the direction. Each leg must leave the
+  // end it extends or it is drawn back over the measured line: the leg along x runs toward worse x, so it leaves the
+  // best-y end; the leg along y runs toward worse y, so it leaves the best-x end.
+  const lo = f[0], hi = f[f.length - 1]
+  const bestX = px.better === 'lower' ? lo : hi, bestY = px.better === 'lower' ? hi : lo
+  return { line: out, legs: [[[bestY.x, bestY.y], [worse(extent.x, px.better), bestY.y]], [[bestX.x, bestX.y], [bestX.x, worse(extent.y, py.better)]]] }
 }
 
 /** An axis's name: the property, its scale, and where better lies. The axes of lower-is-better properties run

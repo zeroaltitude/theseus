@@ -61,7 +61,9 @@ export function useBenchManifest() {
  *  the `ui` key of each dataset fails the build for a dataset with none, so every dataset is read (lazily, once) and
  *  its block taken; until they are read the built-ins stand alone. */
 export function useBenchSets() {
-  const names = useMemo(() => [...FILES.json.keys()].sort(), [])
+  // Newest first, because a dataset's name opens with its date and `allSets` promises that order — and the page
+  // opens on the first set it is offered. Ascending left the default pinned to the oldest generated set for good.
+  const names = useMemo(() => [...FILES.json.keys()].sort().reverse(), [])
   const q = useQuery({
     queryKey: ['bench', 'sets'], staleTime: Infinity, gcTime: Infinity,
     queryFn: async () => allSets(await Promise.all(names.map(async (report) => {

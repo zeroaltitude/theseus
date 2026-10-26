@@ -28,16 +28,20 @@ test('one point is a single vertex; a tie is one vertex', () => {
   assert.deepEqual(line([pt('p', 1, 5), pt('t', 3, 7), pt('u', 3, 7)], 'lower', 'higher'), [[1, 5], [3, 5], [3, 7]])
 })
 
-test('the legs run from the first point along x, and from the last along y, to the worse ends of the extent', () => {
+// The leg along x leaves the BEST-Y end and the leg along y leaves the BEST-X end, whichever direction each axis
+// runs. Anchoring them by sort position instead draws both legs back along the measured line whenever x is
+// lower-is-better, which is every default chart (found in review, not by a gate: the first two cases below were
+// pinned to the swapped anchors).
+test('each leg leaves the end it extends: along x from the best-y point, along y from the best-x point', () => {
   const ext = { x: [0, 10] as [number, number], y: [0, 20] as [number, number] }
   const legs = (ps: Point[], bx: 'higher' | 'lower', by: 'higher' | 'lower') => {
     const px = ax('a', bx), py = ax('b', by)
     return staircase(frontier(ps, px, py), px, py, ext).legs
   }
-  // Lower x worse = 10, higher y worse = 0.
-  assert.deepEqual(legs([pt('p', 1, 1), pt('r', 5, 9)], 'lower', 'higher'), [[[1, 1], [10, 1]], [[5, 9], [5, 0]]])
-  // Both lower: worse x = 10, worse y = 20.
-  assert.deepEqual(legs([pt('p', 1, 9), pt('r', 5, 1)], 'lower', 'lower'), [[[1, 9], [10, 9]], [[5, 1], [5, 20]]])
+  // Lower x worse = 10, higher y worse = 0. Best x is p (cheapest), best y is r (most passes).
+  assert.deepEqual(legs([pt('p', 1, 1), pt('r', 5, 9)], 'lower', 'higher'), [[[5, 9], [10, 9]], [[1, 1], [1, 0]]])
+  // Both lower: worse x = 10, worse y = 20. Best x is p, best y is r.
+  assert.deepEqual(legs([pt('p', 1, 9), pt('r', 5, 1)], 'lower', 'lower'), [[[5, 1], [10, 1]], [[1, 9], [1, 20]]])
   // Both higher: worse x = 0, worse y = 0.
   assert.deepEqual(legs([pt('p', 1, 9), pt('r', 5, 1)], 'higher', 'higher'), [[[1, 9], [0, 9]], [[5, 1], [5, 0]]])
   // Higher x, lower y: worse x = 0, worse y = 20.

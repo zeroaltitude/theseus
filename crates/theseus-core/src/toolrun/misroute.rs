@@ -9,8 +9,9 @@
 //! 2026-10-25: notify, then write). A call a stricter rule already holds
 //! still waits: the guard raises a floor and lowers nothing. `Held::why`,
 //! the question "This edits ~/projects/x, which isn't in the pr round
-//! thread. Go on, or move to the security fix?", is what a call already at
-//! the approve posture shows. A program
+//! thread. Go on, or move to the security fix?", is kept (with
+//! `is_question`) so a tightening is one line away; a call already at the
+//! approve posture keeps its own reason and shows neither line. A program
 //! run from a directory above the roots (the session's directory) decides
 //! nothing, and the next write or program does: a misplaced turn that only
 //! runs programs there goes unasked, its first write is held. The guard then
