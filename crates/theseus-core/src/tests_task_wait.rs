@@ -908,3 +908,42 @@ async fn a_wait_that_outlived_its_turn_brings_in_no_report_and_writes_no_node() 
         "the report stays for the next turn"
     );
 }
+
+/// A wait whose parent holds no slot to lend (its turn ended, so the queue
+/// does not hold it) asks to lend once, then naps a `LOOK` at a time. The retry
+/// that asked again on every pass, with its nap clamped to 1 ms, looked at the
+/// tasks hundreds of times in the second after `LEND_AFTER`; the wait looks
+/// about once a second.
+#[tokio::test]
+async fn a_wait_with_no_slot_to_lend_asks_once_and_does_not_spin() {
+    let r = rig(
+        |req| {
+            if first_user(req).contains("CHILD:") {
+                return Scripted::text("never answered");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started.");
+            }
+            starts(&["CHILD: stuck"])
+        },
+        |_| {},
+    );
+    *r.model.hold.lock().unwrap() = Some("CHILD: stuck".into());
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let ask = WaitAsk {
+        tasks: tasks_of(&r.core, &parent).iter().map(|t| t.id.clone()).collect(),
+        timeout: crate::turn::admission::LEND_AFTER + Duration::from_secs(1),
+        report_chars: 6000,
+        fan_out: None,
+        turn: TurnRef::for_exec(&r.core, &parent_exec(&r.core, &parent)),
+    };
+    let before = r.core.tools.job_waits.looks();
+    let _ = crate::task_wait::wait_on_tasks(r.core.clone(), parent.clone(), ask).await;
+    let looks = r.core.tools.job_waits.looks() - before;
+    assert!(
+        (2..=20).contains(&looks),
+        "the wait looked at its tasks {looks} times in {:?}",
+        crate::turn::admission::LEND_AFTER + Duration::from_secs(1)
+    );
+}
