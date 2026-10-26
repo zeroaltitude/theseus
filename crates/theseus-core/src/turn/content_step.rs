@@ -10,20 +10,20 @@ use crate::judge::content::ContentItem;
 
 impl TurnRunner {
     /// A message node a turn just wrote, in the session `session`.
-    pub(super) fn content_message(
-        &self,
-        session: &str,
-        node: &Node,
-        kind: ItemKind,
-        source: &str,
-    ) {
+    pub(super) fn content_message(&self, session: &str, node: &Node, kind: ItemKind, source: &str) {
         if let Some(item) = ContentItem::of_message(node, kind, source) {
             self.judge.ask_content(session, vec![item]);
         }
     }
 
     /// The nodes a turn took in together (its reports), as one batch.
-    pub(super) fn content_nodes(&self, session: &str, nodes: &[Node], kind: ItemKind, source: &str) {
+    pub(super) fn content_nodes(
+        &self,
+        session: &str,
+        nodes: &[Node],
+        kind: ItemKind,
+        source: &str,
+    ) {
         let items: Vec<ContentItem> = nodes
             .iter()
             .filter_map(|n| ContentItem::of_message(n, kind, source))

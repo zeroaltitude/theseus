@@ -17,7 +17,12 @@ const FAMILIES_V1: &str = include_str!("../fixtures/eval/families.v1.json");
 const CONTENT_V1: &str = include_str!("../fixtures/eval/content.v1.json");
 
 /// The packs with a labelled set.
-pub const PACKS: [&str; 4] = ["classify.v4", "recall_cross.v1", "families.v1", "content.v1"];
+pub const PACKS: [&str; 4] = [
+    "classify.v4",
+    "recall_cross.v1",
+    "families.v1",
+    "content.v1",
+];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -123,7 +128,12 @@ mod tests {
                 assert_eq!(case.expect.len(), 1, "{}", case.name);
                 assert!(case.expect.values().all(|v| v == "yes"), "{}", case.name);
             } else {
-                assert_eq!(case.expect.len(), if operator { 3 } else { 4 }, "{}", case.name);
+                assert_eq!(
+                    case.expect.len(),
+                    if operator { 3 } else { 4 },
+                    "{}",
+                    case.name
+                );
                 assert!(case.expect.values().all(|v| v == "no"), "{}", case.name);
             }
         }
@@ -135,13 +145,30 @@ mod tests {
     #[test]
     fn content_v1s_set_holds_no_real_credential_shape() {
         let text = CONTENT_V1;
-        for prefix in ["ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "sk_live_", "whsec_", "sk-ant-", "AIza"] {
+        for prefix in [
+            "ghp_",
+            "gho_",
+            "github_pat_",
+            "xoxb-",
+            "xoxp-",
+            "sk_live_",
+            "whsec_",
+            "sk-ant-",
+            "AIza",
+        ] {
             assert!(!text.contains(prefix), "{prefix}");
         }
         for (i, _) in text.match_indices('@') {
             let after: String = text[i + 1..]
                 .chars()
-                .take_while(|c| !c.is_whitespace() && *c != '"' && *c != '\\' && *c != ',' && *c != ')' && *c != '\'')
+                .take_while(|c| {
+                    !c.is_whitespace()
+                        && *c != '"'
+                        && *c != '\\'
+                        && *c != ','
+                        && *c != ')'
+                        && *c != '\''
+                })
                 .collect();
             assert!(
                 after.contains(".invalid") || after.starts_with("example."),

@@ -118,7 +118,10 @@ mod tests {
         assert_eq!(p.sample, 1.0);
         assert_eq!(p.baseline, crate::pack::Baseline::None);
         assert_eq!(p.action, crate::pack::Action::None);
-        assert!(p.rollback.is_empty(), "it starts nothing, so nothing rolls it back");
+        assert!(
+            p.rollback.is_empty(),
+            "it starts nothing, so nothing rolls it back"
+        );
         let ids: Vec<&str> = p.questions.iter().map(|q| q.id.as_str()).collect();
         assert_eq!(ids, ["confidential", "injection", "personal", "secret"]);
         for q in &p.questions {
@@ -143,7 +146,11 @@ mod tests {
             "injection alone is conditional"
         );
         for q in ["confidential", "personal", "secret"] {
-            assert_eq!(p.question(q).unwrap().only_when, None, "{q} is always asked");
+            assert_eq!(
+                p.question(q).unwrap().only_when,
+                None,
+                "{q} is always asked"
+            );
         }
     }
 
@@ -203,7 +210,10 @@ mod tests {
             .unwrap()
             .state
             .value();
-        assert_eq!((v["piece"].as_u64(), v["pieces"].as_u64()), (Some(2), Some(3)));
+        assert_eq!(
+            (v["piece"].as_u64(), v["pieces"].as_u64()),
+            (Some(2), Some(3))
+        );
         assert_eq!(v["data_names"]["private"], serde_json::json!(["Acme"]));
         // One piece of one is not a piece.
         i.piece = Some((1, 1));
@@ -225,7 +235,11 @@ mod tests {
         let mut i = input("fetched_page");
         i.text = text.clone();
         let built = prepare(&p, &Input::Content(i), &NoScrub).unwrap().state;
-        assert_eq!(built.value()["text"], text.as_str(), "a piece is held whole");
+        assert_eq!(
+            built.value()["text"],
+            text.as_str(),
+            "a piece is held whole"
+        );
         assert!(!built.json.is_empty());
         let mut big = input("fetched_page");
         big.text = line.repeat(10 * PIECE_CHARS / line.len());

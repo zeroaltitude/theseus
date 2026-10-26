@@ -645,8 +645,13 @@ mod tests {
     fn the_freeze_refuses_what_acts_and_notify_refuses_nothing() {
         let mut f = ContentFlags::default();
         f.raise(label(Flag::Injection));
-        let why = refusal(Some(&f), InjectionMode::Refuse, ToolClass::Write, "fs.write")
-            .expect("a write is refused");
+        let why = refusal(
+            Some(&f),
+            InjectionMode::Refuse,
+            ToolClass::Write,
+            "fs.write",
+        )
+        .expect("a write is refused");
         assert!(why.contains("theseus content remove"), "{why}");
         assert!(why.contains("fs.write was not run"), "{why}");
         assert!(
@@ -687,11 +692,22 @@ mod tests {
         // A local-read NAME at a class that acts is still refused: the name
         // alone never clears it.
         assert!(
-            refusal(Some(&f), InjectionMode::Refuse, ToolClass::Write, "fs.write").is_some(),
+            refusal(
+                Some(&f),
+                InjectionMode::Refuse,
+                ToolClass::Write,
+                "fs.write"
+            )
+            .is_some(),
             "the allowlist is a narrowing of Read, never a widening"
         );
         assert_eq!(
-            refusal(Some(&f), InjectionMode::Notify, ToolClass::Write, "fs.write"),
+            refusal(
+                Some(&f),
+                InjectionMode::Notify,
+                ToolClass::Write,
+                "fs.write"
+            ),
             None,
             "notify refuses nothing"
         );
@@ -715,7 +731,13 @@ mod tests {
     fn only_our_own_acknowledgements_go_unjudged() {
         assert!(!judges("task.update"));
         assert!(!judges("task.close"));
-        for t in ["fs.read", "http.fetch", "web.search", "proc.run", "fs.write"] {
+        for t in [
+            "fs.read",
+            "http.fetch",
+            "web.search",
+            "proc.run",
+            "fs.write",
+        ] {
             assert!(judges(t), "{t}");
         }
     }

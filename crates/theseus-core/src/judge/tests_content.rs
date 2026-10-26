@@ -12,8 +12,8 @@ use super::content::{ContentItem, PACK};
 use crate::content::{ContentFlags, Flag, ItemKind};
 use crate::node::{Body, Node, ResultStatus};
 use crate::session::SessionRecord;
-use theseus_protocol::SessionKind;
 use crate::tests_judge::{kinds, rig_with, texts, Rig};
+use theseus_protocol::SessionKind;
 
 fn no(jev: &FakeJev) {
     for q in ["injection", "secret", "confidential", "personal"] {
@@ -54,7 +54,12 @@ fn session(r: &Rig) -> String {
 
 /// The session's content flags, as stored.
 fn flags(r: &Rig, sid: &str) -> ContentFlags {
-    let rec = r.core.store.get_session::<SessionRecord>(sid).unwrap().unwrap();
+    let rec = r
+        .core
+        .store
+        .get_session::<SessionRecord>(sid)
+        .unwrap()
+        .unwrap();
     rec.data.map(|b| *b).unwrap_or_default()
 }
 
@@ -133,13 +138,16 @@ async fn the_operators_message_is_asked_three_questions_and_a_tool_result_four()
     let f = flags(&r, &sid);
     assert!(f.has(Flag::Secret), "a pasted key raises secret");
     assert!(!f.has(Flag::Injection));
-    assert_eq!(f.label(Flag::Secret).unwrap().kind, ItemKind::OperatorMessage);
+    assert_eq!(
+        f.label(Flag::Secret).unwrap().kind,
+        ItemKind::OperatorMessage
+    );
 
     // A tool result is asked all four.
-    r.core
-        .runner
-        .judge
-        .ask_content(&sid, vec![item("n2", ItemKind::ToolResult, "ordinary text")]);
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![item("n2", ItemKind::ToolResult, "ordinary text")],
+    );
     until(&r, "content.judged", 2).await;
     let seen = jev.seen();
     assert_eq!(seen.len(), 2);
@@ -159,14 +167,22 @@ async fn ten_results_are_one_decision_point() {
     let r = rig(&jev, |_| {});
     let sid = session(&r);
     let items: Vec<ContentItem> = (0..10)
-        .map(|i| item(&format!("n{i}"), ItemKind::ToolResult, &format!("result {i}")))
+        .map(|i| {
+            item(
+                &format!("n{i}"),
+                ItemKind::ToolResult,
+                &format!("result {i}"),
+            )
+        })
         .collect();
     r.core.runner.judge.ask_content(&sid, items);
     let judged = until(&r, "content.judged", 10).await;
     assert_eq!(judged.len(), 10, "ten items, ten rows");
     let svc = &r.core.runner.judge;
     assert_eq!(
-        svc.content.points.load(std::sync::atomic::Ordering::Relaxed),
+        svc.content
+            .points
+            .load(std::sync::atomic::Ordering::Relaxed),
         1,
         "one decision point, not ten"
     );
@@ -176,19 +192,33 @@ async fn ten_results_are_one_decision_point() {
         "through the last, in transcript order"
     );
     let batches: std::collections::BTreeSet<String> = jev_batches(&r).await;
-    assert_eq!(batches.len(), 1, "every judgment names one batch: {batches:?}");
+    assert_eq!(
+        batches.len(),
+        1,
+        "every judgment names one batch: {batches:?}"
+    );
 
     // Queued one at a time, inside the window: still one point.
-    let before = svc.content.points.load(std::sync::atomic::Ordering::Relaxed);
+    let before = svc
+        .content
+        .points
+        .load(std::sync::atomic::Ordering::Relaxed);
     for i in 10..20 {
         svc.ask_content(
             &sid,
-            vec![item(&format!("n{i}"), ItemKind::ToolResult, &format!("result {i}"))],
+            vec![item(
+                &format!("n{i}"),
+                ItemKind::ToolResult,
+                &format!("result {i}"),
+            )],
         );
     }
     until(&r, "content.judged", 20).await;
     assert_eq!(
-        svc.content.points.load(std::sync::atomic::Ordering::Relaxed) - before,
+        svc.content
+            .points
+            .load(std::sync::atomic::Ordering::Relaxed)
+            - before,
         1,
         "ten queued in a burst join one batch"
     );
@@ -314,7 +344,11 @@ async fn an_answer_below_its_bar_raises_nothing_and_is_still_recorded() {
     assert_eq!(by("injection")["band"], "confirm");
     assert_eq!(by("secret")["choice"], "yes");
     assert_eq!(by("secret")["band"], "escalate");
-    assert_eq!(f.judged_through.as_deref(), Some("n1"), "judged all the same");
+    assert_eq!(
+        f.judged_through.as_deref(),
+        Some("n1"),
+        "judged all the same"
+    );
     let labelled = rows(&r, "content.labelled");
     assert_eq!(labelled.len(), 1, "one row for the one label");
     assert_eq!(labelled[0]["flag"], "confidential");
@@ -345,14 +379,21 @@ async fn a_label_names_what_raised_it_and_a_second_raise_keeps_the_first() {
     let l = f.label(Flag::Injection).expect("raised");
     assert_eq!(
         (l.node.as_deref(), l.kind, l.source.as_str()),
-        (Some("n1"), ItemKind::FetchedPage, "http.fetch the changelog page")
+        (
+            Some("n1"),
+            ItemKind::FetchedPage,
+            "http.fetch the changelog page"
+        )
     );
     assert!(f.frozen());
     svc.ask_content(&sid, vec![item("n2", ItemKind::ToolResult, "more of it")]);
     until(&r, "content.judged", 2).await;
     let f = flags(&r, &sid);
     assert_eq!(f.labels.len(), 1);
-    assert_eq!(f.label(Flag::Injection).unwrap().node.as_deref(), Some("n1"));
+    assert_eq!(
+        f.label(Flag::Injection).unwrap().node.as_deref(),
+        Some("n1")
+    );
     assert_eq!(rows(&r, "content.labelled").len(), 1, "no second row");
 }
 

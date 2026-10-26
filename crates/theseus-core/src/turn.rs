@@ -60,7 +60,6 @@ pub(crate) mod advance_step;
 #[cfg(test)]
 pub(crate) use admit_step::admit_hook;
 pub(crate) mod brief_step;
-mod content_step;
 pub(crate) mod budget_step;
 mod budget_words;
 mod calls;
@@ -69,6 +68,7 @@ mod checkpoint_step;
 mod cite_step;
 pub mod clock_step;
 mod close_out_step;
+mod content_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;

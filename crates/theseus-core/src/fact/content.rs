@@ -73,7 +73,9 @@ impl Fact for ContentLabelled<'_> {
 
     fn narrate(&self, say: &mut Say<'_>) {
         let effect = match self.flag {
-            Flag::Injection => "writes, programs and sends are refused until the operator clears it",
+            Flag::Injection => {
+                "writes, programs and sends are refused until the operator clears it"
+            }
             _ => "China-origin models are off for this session",
         };
         say.line(

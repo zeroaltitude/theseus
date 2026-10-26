@@ -430,7 +430,10 @@ impl JudgeService {
         match &written {
             Ok(Some(_)) => {}
             Ok(None) => {
-                tracing::debug!(session, "judge: a session's content was not written; it is gone");
+                tracing::debug!(
+                    session,
+                    "judge: a session's content was not written; it is gone"
+                );
             }
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "judge: a session's content labels were not written");
@@ -582,7 +585,12 @@ async fn judge_batch(me: &Weak<JudgeService>, session: &str, items: Vec<ContentI
 /// Each judgment settles its share of the point's reservation, the last taking
 /// what is left; a call whose usage is unknown is booked at its share,
 /// conservatively.
-fn settle(me: &Weak<JudgeService>, today: &str, need: theseus_judge::price::Micros, js: &[Judgment]) {
+fn settle(
+    me: &Weak<JudgeService>,
+    today: &str,
+    need: theseus_judge::price::Micros,
+    js: &[Judgment],
+) {
     let Some(svc) = me.upgrade() else { return };
     let mut left = need;
     let n = js.len();
@@ -643,7 +651,9 @@ fn landings_of(
                     l.unjudged = l.unjudged.or(Some("shadow"));
                 }
                 for flag in Flag::ALL {
-                    let Some(a) = j.answer(flag.as_str()) else { continue };
+                    let Some(a) = j.answer(flag.as_str()) else {
+                        continue;
+                    };
                     let Answer::Choice {
                         choice, confidence, ..
                     } = &a.answer
@@ -698,7 +708,12 @@ fn clip(s: &str, max: usize) -> String {
 /// contiguous run of judged items from the batch's start, and never past an
 /// item that could not be judged, in this batch or an earlier one of the
 /// session (`Slot::gap`).
-async fn land(me: &Weak<JudgeService>, session: &str, landings: Vec<Landing>, base: &Option<String>) {
+async fn land(
+    me: &Weak<JudgeService>,
+    session: &str,
+    landings: Vec<Landing>,
+    base: &Option<String>,
+) {
     let (turns, timing) = match me.upgrade() {
         Some(s) => (s.between.get().cloned(), s.sink_timing()),
         None => return,
@@ -708,10 +723,7 @@ async fn land(me: &Weak<JudgeService>, session: &str, landings: Vec<Landing>, ba
         None => None,
     };
     let Some(svc) = me.upgrade() else { return };
-    let run = landings
-        .iter()
-        .take_while(|l| l.unjudged.is_none())
-        .count();
+    let run = landings.iter().take_while(|l| l.unjudged.is_none()).count();
     let broke = run < landings.len();
     let through = {
         let mut slots = svc.content.slots();
