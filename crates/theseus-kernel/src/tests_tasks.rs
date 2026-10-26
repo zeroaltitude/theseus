@@ -760,10 +760,13 @@ fn a_tasks_settle_and_its_parents_own_reservation_never_lose_each_other() {
     let (parent, g, task, _) = with_task(&w, 30_000);
     let tg = w.kernel.admit(&task.id).unwrap();
     let a = dispatched(&w, &tg, "provider.messages", 10_000);
+    // The settle's first read of the parent is `lock_family`'s walk up the
+    // family, before the lock (an execution's `parent` never changes, so that
+    // read is sound); its second is the carry's, under the lock.
     let r = race(
         &w.kernel,
         &p,
-        (kinds::EXECUTION, &parent.id, 1),
+        (kinds::EXECUTION, &parent.id, 2),
         |k| {
             k.accept_completion(&completion(
                 &a.correlation_id,
