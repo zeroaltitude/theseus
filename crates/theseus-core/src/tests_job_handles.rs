@@ -228,7 +228,7 @@ async fn a_run_past_its_window_answers_with_its_handle() {
     assert_eq!(status, ResultStatus::Background, "{text}");
     assert_eq!(
         text,
-        "Still running as job j1 after 1 s (timeout 600 s). job_read, job_wait or job_stop it; \
+        "Still running as job j1 after 1 s (timeout 3600 s). job_read, job_wait or job_stop it; \
          its result also arrives by itself when it ends."
     );
     assert_eq!(meta["job"], "j1");

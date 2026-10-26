@@ -335,8 +335,8 @@ async fn an_l1_job_granted_aws_takes_its_session_at_launch_and_no_other_credenti
     assert_eq!(mint["RoleSessionName"], job.correlation_id);
     assert_eq!(minted_arns(&mint), policy_arns(ACCOUNT, Kind::Job));
     assert_eq!(
-        mint["DurationSeconds"], "900",
-        "600 s and a minute, raised to STS's shortest"
+        mint["DurationSeconds"], "3660",
+        "3600 s (the default limit) and a minute"
     );
     // The view: no ~/.aws, whatever the approve list says; the list its
     // proposal binds, the operator's.
