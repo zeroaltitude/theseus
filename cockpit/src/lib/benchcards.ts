@@ -29,6 +29,8 @@ export interface Card {
   noMetric: string | null
   /** A report's title, for a card made from reports. */
   headline: string | null
+  /** The task set whose per-task table the card opens ("every test"), where the card's reports have one. */
+  taskSet: string | null
   /** The report the card opens, and its GitHub address; null when the build does not hold that report. */
   report: string | null
   github: string | null
@@ -52,19 +54,28 @@ const heldOr = (report: string, reports: readonly string[]) => (reports.includes
 export const taskChip = (row: IndexRow, largest: number): string | null =>
   row.tasks !== null && largest > 0 && row.tasks < largest ? `${row.tasks} of ${largest} tasks` : null
 
+/** The first of these reports (the card's lead first) that a task set reads. */
+const setFor = (names: readonly string[], sets: readonly { id: string; report: string }[]): string | null => {
+  for (const n of names) { const s = sets.find((x) => x.report === n); if (s) return s.id }
+  return null
+}
+
 /** The cards, newest first with the omnibus pinned at the top. `list` is the runs newest first; `reports` the names the build holds. */
-export function cardsOf(manifest: Manifest, list: readonly Run[], reports: readonly string[], rule: LeadRule = LEAD): Card[] {
+export function cardsOf(manifest: Manifest, list: readonly Run[], reports: readonly string[], rule: LeadRule = LEAD, sets: readonly { id: string; report: string }[] = []): Card[] {
   const out: Card[] = []
   if (reports.includes(OMNIBUS)) {
     const o = list.find((r) => r.name === OMNIBUS)
     out.push({
       id: OMNIBUS, kind: 'pinned', title: 'The omnibus review', tier: null, asOf: o?.date ?? '', arms: null, lines: [], noMetric: null,
-      headline: 'what every run says, in one page: start here', report: OMNIBUS, github: githubUrl(OMNIBUS, reports), newer: null,
+      headline: 'what every run says, in one page: start here', taskSet: null, report: OMNIBUS, github: githubUrl(OMNIBUS, reports), newer: null,
     })
   }
   // The measured benchmarks: one card per benchmark and tier.
   const groups = new Map<string, Series[]>()
-  for (const s of manifest.series) groups.set(`${s.benchmark}\u0000${s.tier ?? ''}`, [...(groups.get(`${s.benchmark}\u0000${s.tier ?? ''}`) ?? []), s])
+  for (const s of manifest.series) {
+    const key = `${s.benchmark}|${s.tier ?? ''}`
+    groups.set(key, [...(groups.get(key) ?? []), s])
+  }
   const covered = new Set<string>()
   const measured: Card[] = []
   for (const [key, group] of groups) {
@@ -78,8 +89,8 @@ export function cardsOf(manifest: Manifest, list: readonly Run[], reports: reado
     covered.add(suiteOf(first.benchmark))
     const top = lines[0].row
     measured.push({
-      id: key.replace(/\u0000/g, ':'), kind: 'measured', title: nameOf(first.benchmark), tier: first.tier, asOf, arms: group.length, lines,
-      noMetric: null, headline: null, report: heldOr(top.report, reports), github: githubUrl(top.report, reports), newer: null,
+      id: key.replace('|', ':'), kind: 'measured', title: nameOf(first.benchmark), tier: first.tier, asOf, arms: group.length, lines,
+      noMetric: null, headline: null, taskSet: setFor(lines.map((l) => l.row.report), sets), report: heldOr(top.report, reports), github: githubUrl(top.report, reports), newer: null,
     })
   }
   // A report of a measured suite that no manifest row cites, and is newer than the suite's cards: said, not guessed.
@@ -99,7 +110,7 @@ export function cardsOf(manifest: Manifest, list: readonly Run[], reports: reado
     seen.add(r.suite)
     suites.push({
       id: r.suite, kind: 'suite', title: nameOf(r.suite), tier: null, asOf: r.date, arms: null, lines: [], noMetric: NO_METRIC,
-      headline: r.title, report: r.name, github: githubUrl(r.name, reports), newer: null,
+      headline: r.title, taskSet: setFor([r.name], sets), report: r.name, github: githubUrl(r.name, reports), newer: null,
     })
   }
   return [...out, ...[...measured, ...suites].sort((a, b) => b.asOf.localeCompare(a.asOf) || a.title.localeCompare(b.title) || (a.tier ?? '').localeCompare(b.tier ?? ''))]

@@ -78,3 +78,11 @@ test('a manifest it cannot read leaves the suite cards, with no number', () => {
   assert.ok(cards.some((c) => c.id === 'terminal-bench' && c.kind === 'suite' && c.noMetric === NO_METRIC))
   assert.ok(cards.every((c) => c.lines.length === 0))
 })
+
+test('"every test" opens a set only where a task set reads one of the card’s reports', () => {
+  const sets = [{ id: 'tb-v1-high', report: '2026-10-18-terminal-bench-v1-high' }]
+  const cards = cardsOf(manifest, list, reports, LEAD, sets)
+  assert.equal(cards.find((c) => c.id === 'terminal-bench@2.0:high')!.taskSet, 'tb-v1-high')
+  assert.equal(cards.find((c) => c.id === 'terminal-bench@2.0:max')!.taskSet, null)
+  assert.ok(cards.filter((c) => c.kind === 'suite').every((c) => c.taskSet === null))
+})

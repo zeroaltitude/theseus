@@ -15,7 +15,9 @@ import {
   type Note, type Placed, type Point, type Property, type TaskSet,
 } from '@/lib/bench'
 import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets } from '@/lib/benchfiles'
-import { sparkline, type Series } from '@/lib/benchindex'
+import { LEAD, sparkline, type Series } from '@/lib/benchindex'
+import { BenchTasks } from '@/components/BenchTasks'
+import { taskRows } from '@/lib/benchtasks'
 import { BenchIndex } from '@/components/BenchIndex'
 import { cardsOf } from '@/lib/benchcards'
 import { cloudCaption, cloudDrawn, cloudTip, cloudUnit } from '@/lib/benchcloud'
@@ -86,6 +88,12 @@ export default function Benchmarks() {
   // frontier and the verdict above are worked out from the arm points and never see these.
   const cloudOn = params.get('cloud') === 'on'
   const unit = useMemo(() => cloudUnit(ps), [ps])
+  // The task table (`?tasks=on`) and its drawer (`?task=<id>`): per-task points, counted within this set's one report.
+  const tasksOn = params.get('tasks') === 'on' || !!params.get('task')
+  const taskTable = useMemo(() => {
+    const [c, j, m] = [csv.data, json.data, md.data]
+    return tasksOn && c && j && m && ps.length ? taskRows(points(set, c.get(set.report) ?? '', j.get(set.report), m.get(set.report), set.report.slice(0, 10), 'task')) : []
+  }, [tasksOn, csv.data, json.data, md.data, set, ps.length])
   const cloud = useMemo(() => {
     const [c, j, m] = [csv.data, json.data, md.data]
     return c && j && m && ps.length ? points(set, c.get(set.report) ?? '', j.get(set.report), m.get(set.report), set.report.slice(0, 10), unit) : []
@@ -138,6 +146,9 @@ export default function Benchmarks() {
             <label className="flex items-center gap-1.5 text-ink-dim">
               <input type="checkbox" checked={cloudOn} onChange={(e) => put('cloud', e.target.checked ? 'on' : null)} />show them
             </label>
+            <button type="button" className="underline decoration-line underline-offset-2 hover:text-live" onClick={() => put('tasks', tasksOn ? null : 'on')}>
+              {tasksOn ? 'hide every test' : 'every test'}
+            </button>
           </div>
           <div className="min-h-0 flex-1">
             <FrontierChart placed={placed} px={px} py={py} many={new Set(ps.map((p) => p.run)).size > 1} cloud={cloudOn ? cloud : []}
@@ -146,6 +157,8 @@ export default function Benchmarks() {
           <Key placed={placed} px={px} py={py} />
         </div>
       </ChartPanel>
+
+      {tasksOn && taskTable.length > 0 && <BenchTasks rows={taskTable} label={set.label} selected={params.get('task')} onSelect={(t) => put('task', t)} />}
 
       <Conditions set={set} />
 
@@ -183,7 +196,8 @@ export default function Benchmarks() {
 /** The browse cards over the manifest and the reports (`lib/benchcards.ts`). */
 function Cards({ list }: { list: ReturnType<typeof runs> }) {
   const { loading, manifest } = useBenchManifest()
-  const cards = useMemo(() => cardsOf(manifest, list, REPORTS), [manifest, list])
+  const { sets } = useBenchSets()
+  const cards = useMemo(() => cardsOf(manifest, list, REPORTS, LEAD, sets), [manifest, list, sets])
   if (loading) return null
   return <BenchIndex cards={cards} reason={manifest.reason} />
 }

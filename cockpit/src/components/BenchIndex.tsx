@@ -60,6 +60,7 @@ function CardView({ c }: { c: Card }) {
       )}
       <div className="mt-1.5 flex flex-wrap gap-x-3 text-[11px]">
         {c.report && <Link to={`/benchmarks/${c.report}`} className="text-ink-faint underline decoration-line underline-offset-2 hover:text-live">its report</Link>}
+        {c.taskSet && <Link to={`/benchmarks?set=${encodeURIComponent(c.taskSet)}&tasks=on`} className="text-ink-faint underline decoration-line underline-offset-2 hover:text-live">every test</Link>}
         {c.github && <a href={c.github} target="_blank" rel="noreferrer" className="text-ink-faint underline decoration-line underline-offset-2 hover:text-live">on GitHub</a>}
       </div>
     </article>
