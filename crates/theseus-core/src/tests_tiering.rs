@@ -93,7 +93,7 @@ fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {
-            context_window: Some(46_200),
+            context_window: Some(46_300),
             max_output_tokens: Some(2_000),
             ..Default::default()
         },

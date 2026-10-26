@@ -483,6 +483,8 @@ mod tests_private_background;
 #[cfg(test)]
 mod tests_private_recall;
 #[cfg(test)]
+mod tests_proc_cap;
+#[cfg(test)]
 mod tests_profile_floor;
 #[cfg(test)]
 mod tests_progress;

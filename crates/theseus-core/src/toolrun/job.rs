@@ -994,8 +994,13 @@ impl ToolRuntime {
             (None, Some(i)) => crate::external::Listed::of(i, &self.external_programs),
             _ => None,
         };
+        // An ask past `proc_timeout_max_secs` was cut; this call is told so (theseus-spntl).
+        let clamp = input
+            .and_then(|i| super::proc_cap::asked_beyond(i, self.ctx.proc_timeout_max_secs))
+            .map(|asked| super::proc_cap::note(asked, self.ctx.proc_timeout_max_secs));
         let header = format!(
-            "{}{}{header}",
+            "{}{}{}{header}",
+            clamp.as_ref().map_or("", |(_, line)| line),
             sandbox::result_lines(&detail),
             listed
                 .as_ref()
@@ -1017,6 +1022,9 @@ impl ToolRuntime {
         };
         let duration_ms = detail.get("duration_ms").and_then(Value::as_u64);
         let mut meta = json!({"exit_code": exit, "detail": detail});
+        if let Some((note, _)) = clamp {
+            meta[super::proc_cap::KEY] = note;
+        }
         if let Some(l) = &listed {
             meta[crate::external::PROGRAM_KEY] = json!(l.program);
         }

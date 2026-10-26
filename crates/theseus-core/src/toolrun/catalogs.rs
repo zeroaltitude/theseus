@@ -104,6 +104,11 @@ impl ToolRuntime {
             .registry
             .definitions_of(true, |n| offered(n) && crate::tools_defer::listed(n));
         jobs_tools::say_wait_cap(&mut defs, self.job_wait_max_secs);
+        super::proc_cap::say_proc_cap(
+            &mut defs,
+            self.ctx.proc_timeout_secs,
+            self.ctx.proc_timeout_max_secs,
+        );
         // The MCP servers' tools, after the built-ins, by canonical name (the
         // catalog's order): none in a shared place (the place rule), and in a
         // place with a ceiling only its `mcp:<server>` entries' (38a).

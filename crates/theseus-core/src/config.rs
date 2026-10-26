@@ -544,7 +544,7 @@ fn default_proc_sync_secs() -> u64 {
     60
 }
 fn default_proc_timeout_secs() -> u64 {
-    600
+    3600
 }
 fn default_proc_timeout_max_secs() -> u64 {
     3600

@@ -64,6 +64,7 @@ mod operands;
 pub(crate) mod order;
 mod parallel;
 mod peek;
+mod proc_cap;
 mod proposal;
 mod resume;
 mod self_pr;
