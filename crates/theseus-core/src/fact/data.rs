@@ -104,3 +104,28 @@ impl Fact for SessionDataScreened<'_> {
         );
     }
 }
+
+/// `session.data`, `program`: a program's result passed the tool screen on its
+/// provenance (theseus-ouqru), and how: `l1` for an enforced job whose recorded
+/// view held nothing private, `seal` for a sealed benchmark container, with the
+/// seal's verdict and reason so a reader can see what the daemon decided.
+pub struct SessionDataProgram<'a> {
+    pub node: &'a str,
+    pub via: &'a str,
+    pub seal: &'a str,
+}
+
+impl Fact for SessionDataProgram<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SessionData);
+
+    fn row(&self) -> Value {
+        json!({"row": "program", "node": self.node, "via": self.via, "seal": self.seal})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!("Data: a program's result passed the screen ({}).", self.via),
+        );
+    }
+}

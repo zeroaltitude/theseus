@@ -845,6 +845,25 @@ impl Core {
             catalog = %catalog.version,
             "tools and catalog"
         );
+        // This machine's seal, read once, here rather than lazily at the first
+        // screen, so the verdict is in the ledger whichever way it went
+        // (theseus-ouqru): a daemon that never passes a program's result would
+        // otherwise leave no record of what it decided about itself.
+        let seal = crate::seal::of();
+        tracing::info!(
+            sealed = seal.is_sealed(),
+            reason = seal.reason(),
+            "machine seal"
+        );
+        let sealed = crate::fact::sandbox::SandboxSeal {
+            sealed: seal.is_sealed(),
+            reason: seal.reason(),
+        };
+        if let Err(e) = crate::fact::row(&sealed, None, None)
+            .and_then(|r| theseus_store::blocking(|| store.defer(r)))
+        {
+            tracing::warn!(error = %e, "sandbox.seal: the row was not written");
+        }
         // Read from the store on its first use, never on the start path.
         let outbox = Arc::new(crate::outbox::Outbox::new(store.clone(), kernel.clone()));
         // Nothing starts, and nothing is looked for, until after serving.
@@ -920,6 +939,8 @@ impl Core {
             judge,
             // Read at a routed session's first turn, never on the start path.
             live_switched: Default::default(),
+            // The machine's own, read when a program's result is first screened.
+            seal: Default::default(),
         };
         // Every call that acts goes to the judge at its gate (M5 step 24).
         let _ = runner.tools.judge.set(runner.judge.clone());

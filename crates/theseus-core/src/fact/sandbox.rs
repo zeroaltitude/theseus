@@ -15,6 +15,39 @@ use crate::narrative;
 use crate::sandbox::Sandbox;
 use crate::scrub::Scrubber;
 
+/// What this machine's mount table said of it, once, at the daemon's start
+/// (`sandbox.seal`, theseus-ouqru): whether it is a sealed benchmark
+/// container, and the verdict's own reason — for a sealed one, the harness
+/// mount points it admitted and the source root of each. Written whichever
+/// way it went, so a daemon that never passes a program's result still leaves
+/// its verdict where a reader can find it.
+pub struct SandboxSeal<'a> {
+    pub sealed: bool,
+    pub reason: &'a str,
+}
+
+impl Fact for SandboxSeal<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SandboxSeal);
+
+    fn row(&self) -> Value {
+        json!({"sealed": self.sealed, "reason": self.reason})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let what = match self.sealed {
+            true => {
+                "This machine is a sealed benchmark container, so a program's result may pass \
+                     the data screen on it"
+            }
+            false => {
+                "This machine is not a sealed container, so a program's result passes the \
+                      data screen only from an enforced sandbox"
+            }
+        };
+        say.line(Tool, format!("{what} ({}).", self.reason));
+    }
+}
+
 /// A job started in L1 (`sandbox.started`): its limits, its read-only
 /// paths, and its egress list (18c; empty for no network). Its
 /// `tool.started` carries `class: l1` and the list beside it, and each grant

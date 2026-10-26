@@ -244,6 +244,9 @@ pub struct TurnRunner {
     pub kept: Arc<crate::compiler::kept::Kept>,
     /// The self budget's account (theseus-pw1q.3).
     pub self_budget: crate::rsi::budget::Budget,
+    /// A test's stand-in for this machine's seal verdict; none reads the
+    /// machine's own (`seal::of`). Nothing but a test sets it (theseus-ouqru).
+    pub(crate) seal: std::sync::Mutex<Option<crate::seal::Seal>>,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's

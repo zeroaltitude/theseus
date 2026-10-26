@@ -140,6 +140,10 @@ pub(crate) fn run(
             );
         }
     };
+    // The view the init built, from the spec it was handed: the record the
+    // data screen reads as the job's read reach (theseus-ouqru). Written only
+    // here, after the spawn, so a job that did not start has none.
+    sandbox["view"] = view_record(&spec, l1, args);
     let started = child.started();
     sandbox["setup_us"] = json!(started.setup_us);
     sandbox["sys"] = json!(started.sys);
@@ -180,6 +184,26 @@ pub(crate) fn run(
     };
     detail["sandbox"] = sandbox;
     ended
+}
+
+/// What the init was given to build the job's view from (theseus-ouqru): the
+/// system set, every host path bound, HOME's tmpfs, what is covered, and
+/// whether a network or a granted variable came in. The data screen reads it
+/// back from the job's completion: a command cannot read a host path that is
+/// not in its mount namespace, so this is the boundary of what it could read.
+fn view_record(spec: &Spec, l1: &L1, args: &WrapperArgs) -> Value {
+    let granted: Vec<&str> = args.redact.iter().map(|(var, _)| var.as_str()).collect();
+    json!({
+        "system": theseus_sandbox::SYSTEM,
+        "workspace": spec.workspace,
+        "ro_paths": spec.ro_paths,
+        "rw": spec.rw,
+        "cwd": spec.cwd,
+        "home_tmpfs": spec.home.is_some(),
+        "hidden": spec.hidden,
+        "egress": if spec.egress_port.is_some() { l1.egress.clone() } else { Vec::new() },
+        "granted": granted,
+    })
 }
 
 /// The spec for `args`' command, and the `ro_paths` skipped because they do
@@ -408,5 +432,83 @@ fn ended(
         (Some(c), _) => (Outcome::Failed, format!("exit status: {c}")),
         (None, Some(s)) => (Outcome::Failed, format!("signal: {s}")),
         (None, None) => (Outcome::Failed, "it ended with no status".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(redact: Vec<(String, String)>) -> WrapperArgs {
+        WrapperArgs {
+            spool_dir: PathBuf::new(),
+            correlation_id: "t".into(),
+            deadline_ms: 1000,
+            notify_socket: None,
+            argv: vec!["true".into()],
+            cwd: Some("/w".into()),
+            env: vec![],
+            umask: None,
+            redact,
+            output_max_bytes: 0,
+            sandbox: None,
+            cgroup: None,
+        }
+    }
+
+    /// The record names what the init was handed: the pinned system set, each
+    /// bind, HOME as a tmpfs, what is covered, and a network or a granted
+    /// variable only when the job has one (theseus-ouqru).
+    #[test]
+    fn the_view_record_names_what_the_init_was_given() {
+        let mut spec = Spec::new(vec!["true".into()], "/w");
+        spec.workspace = vec!["/w".into()];
+        spec.ro_paths = vec!["/usr/lib/x".into()];
+        spec.home = Some("/home/u".into());
+        spec.hidden = vec!["/etc/theseus".into()];
+        let l1 = L1 {
+            egress: vec!["example.org:443".into()],
+            ..Default::default()
+        };
+        let v = view_record(&spec, &l1, &args(vec![]));
+        assert_eq!(v["system"], json!(theseus_sandbox::SYSTEM));
+        assert_eq!(v["workspace"], json!(["/w"]));
+        assert_eq!(v["ro_paths"], json!(["/usr/lib/x"]));
+        assert_eq!(v["rw"], json!([]));
+        assert_eq!(v["cwd"], "/w");
+        assert_eq!(v["home_tmpfs"], true);
+        assert_eq!(v["hidden"], json!(["/etc/theseus"]));
+        assert_eq!(
+            v["egress"],
+            json!([]),
+            "a list with no listener is no network"
+        );
+        assert_eq!(v["granted"], json!([]));
+        // The listener is what gives a job a way out.
+        spec.egress_port = Some(1);
+        let granted = args(vec![("GH_TOKEN".into(), "github_token".into())]);
+        let v = view_record(&spec, &l1, &granted);
+        assert_eq!(v["egress"], json!(["example.org:443"]));
+        assert_eq!(v["granted"], json!(["GH_TOKEN"]));
+        // No HOME in the job's environment: no tmpfs recorded.
+        spec.home = None;
+        assert_eq!(view_record(&spec, &l1, &args(vec![]))["home_tmpfs"], false);
+    }
+
+    /// The record is the wrapper's, written after the spawn: a launch that
+    /// worked has it, one that did not (a root daemon, a host without user
+    /// namespaces) has an error and none.
+    #[test]
+    fn the_view_is_recorded_only_for_a_job_that_started() {
+        let detail = self_test(&L1::default());
+        let sandbox = &detail["sandbox"];
+        assert_eq!(sandbox["class"], "l1", "{detail}");
+        match sandbox.get("error") {
+            None => {
+                assert_eq!(sandbox["view"]["system"], json!(theseus_sandbox::SYSTEM));
+                assert_eq!(sandbox["view"]["rw"], json!([]));
+            }
+            Some(_) => assert!(sandbox.get("view").is_none(), "{detail}"),
+        }
     }
 }

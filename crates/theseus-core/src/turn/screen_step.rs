@@ -31,6 +31,12 @@ impl TurnRunner {
             return;
         };
         let turn = t.tc.turn_id;
+        let names = self.cfg.privacy.names();
+        // What a program's provenance is read against (theseus-ouqru).
+        let seal = self.seal.lock().unwrap().clone();
+        let seal = seal.unwrap_or_else(|| crate::seal::of().clone());
+        let public_reach = data::public_reach(&self.cfg.routing.data.public_reach);
+        let must_cover = crate::sandbox::config_covers();
         let mut failed = None;
         for (_, n) in nodes
             .iter()
@@ -40,7 +46,10 @@ impl TurnRunner {
             let (
                 Kind::ToolResult,
                 Body::ToolResult {
-                    tool_use_id, meta, ..
+                    tool_use_id,
+                    content,
+                    meta,
+                    ..
                 },
             ) = (n.kind, &n.body)
             else {
@@ -51,6 +60,7 @@ impl TurnRunner {
             };
             let redactions = meta.get("redactions").and_then(|r| r.as_u64()).unwrap_or(0);
             let final_url = meta.get("final_url").and_then(|u| u.as_str());
+            let mut via = None;
             let verdict = match t.tc.open {
                 None => Err(data::Unscreened::Tool),
                 Some(open) => {
@@ -58,12 +68,42 @@ impl TurnRunner {
                         .tool_by_wire(&u.name)
                         .map_or(Err(data::Unscreened::Tool), |tool| {
                             let plan = tool.plan(&u.input, &self.tools.ctx_in(&t.tc)).ok();
-                            data::screen(tool.name(), plan.as_ref(), redactions, final_url, open)
+                            let s = data::Screening {
+                                tool: tool.name(),
+                                plan: plan.as_ref(),
+                                redactions,
+                                final_url,
+                                content,
+                                names: &names,
+                                proof: data::Proof {
+                                    detail: meta.get("detail"),
+                                    steps: meta.get("steps"),
+                                    seal: &seal,
+                                    public_reach: &public_reach,
+                                    must_cover: &must_cover,
+                                },
+                                open,
+                            };
+                            let passed = data::screen(&s);
+                            if passed.is_ok() && crate::open_view::runs_tool(tool.name()) {
+                                via = data::provenance::via(&s);
+                            }
+                            passed
                         })
                 }
             };
             match verdict {
-                Ok(()) => t.route.screened.push(n.id.clone()),
+                Ok(()) => {
+                    t.route.screened.push(n.id.clone());
+                    // A program's result passed on provenance: say which.
+                    if let Some(via) = via {
+                        t.record(&crate::fact::data::SessionDataProgram {
+                            node: &n.id,
+                            via: via.as_str(),
+                            seal: seal.reason(),
+                        });
+                    }
+                }
                 // The transcript is read newest first: keep the earliest failure.
                 Err(why) => failed = Some((why, n.id.clone())),
             }

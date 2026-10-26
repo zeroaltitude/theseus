@@ -29,8 +29,10 @@ use crate::spec::Spec;
 use crate::sys::{self, cpath, Failure, Stage};
 use crate::sys::{MOUNT_ATTR_NODEV, MOUNT_ATTR_NOEXEC, MOUNT_ATTR_NOSUID, MOUNT_ATTR_RDONLY};
 
-/// The system's directories, bound read-only when the host has them.
-const SYSTEM: [&str; 8] = [
+/// The system's directories, bound read-only when the host has them. Public
+/// because a job's recorded view names them, and the data screen pins the list
+/// (theseus-ouqru): a view that binds a directory it does not name is refused.
+pub const SYSTEM: [&str; 8] = [
     "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc",
 ];
 

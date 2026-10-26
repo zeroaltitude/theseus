@@ -12,10 +12,21 @@
 //! only when `screen` passes it, and a result it fails ends the run there, never
 //! the session. The result is the one part of an open request that no person
 //! wrote and Jev never judged, so only the file tools under the open roots, a
-//! search and a fetch of a public address may pass, and only a result the
-//! scrubber found nothing in. A program's result never passes (it can read any
-//! path the daemon's user can); a sandboxed program run is a later row. The
-//! turn's side is `turn/screen_step.rs`.
+//! program with a recorded read reach, a search and a fetch of a public address
+//! may pass, and only a result the scrubber found nothing in and no
+//! `[privacy] sensitive_names` name is in.
+//!
+//! **A program's result passes on provenance, never on its command line**
+//! (theseus-ouqru; the owner, 2026-10-26: "Command output should not gate
+//! china models at all. Thats a bugfix before a new benchmark run."). A command
+//! line does not bound what a program reads, so nothing here reads one. The
+//! result passes only when the system that ran it recorded that the run could
+//! reach nothing private: an enforced L1 job whose recorded view binds only
+//! the open roots and public paths, or a sealed benchmark container
+//! ([`crate::seal`]). See [`provenance`]. Every other program result is
+//! refused, as it was before. The content detectors (the scrub, the names)
+//! stay in front of that, a second layer and never the reason a result
+//! passes. The turn's side is `turn/screen_step.rs`.
 //!
 //! A session's data state (theseus-a1wvq.5, `SessionRecord.data`): whether
 //! it was opened, its open run, and its taint. An open task opens one
@@ -23,7 +34,10 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod provenance;
 pub mod reply;
+
+pub use provenance::{provenance, public_reach, Proof};
 
 /// Leave to send one compiled request to a model of restricted origin. It
 /// holds that request's digest and covers nothing else: minted, never copied
@@ -289,12 +303,15 @@ fn refused(run: &OpenRun, c: &Carried) -> Option<DataWhy> {
 /// Why a tool's result did not pass the screen (`screen`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unscreened {
-    /// A program's output: it can print any file the daemon's user reads.
+    /// A program's result with no provenance: nothing the system recorded
+    /// says what it could read (theseus-ouqru). Not "it is a program".
     Program,
     /// A tool the screen does not list.
     Tool,
     /// The scrubber found a secret in it.
     Secret,
+    /// It holds one of `[privacy] sensitive_names` (theseus-ouqru).
+    Name,
     /// A path outside the open roots, or a private address.
     Outside,
 }
@@ -305,53 +322,78 @@ impl Unscreened {
             Unscreened::Program => "program",
             Unscreened::Tool => "tool",
             Unscreened::Secret => "secret",
+            Unscreened::Name => "name",
             Unscreened::Outside => "outside",
         }
     }
 }
 
-/// Whether one tool result may join an open request's run: `plan` is the call's
-/// own plan (none when it does not plan), `redactions` the result node's
-/// `meta.redactions`, and `open` the request's reach. In order: a program
-/// fails; only the file tools (`places::files_tool`), `web.search` and
-/// `http.fetch` are listed, every other tool's result fails (a task list names
-/// the owner's other work, `tools.find` the owner's tools); a scrubbed secret
-/// fails; and, checked again here after the gate, a file tool must name a
-/// resource and every one canonical within an open root, and a fetch must name
-/// a public URL and, when the result names one (`meta.final_url`), end at one:
-/// a redirect may lead into the owner's network (theseus-lm38z).
-pub fn screen(
-    tool: &str,
-    plan: Option<&theseus_protocol::Plan>,
-    redactions: u64,
-    final_url: Option<&str>,
-    open: &crate::open_view::Open,
-) -> Result<(), Unscreened> {
+/// What [`screen`] reads of one tool result. A struct because the screen of
+/// theseus-ouqru added the result's own text, the sensitive names, and the
+/// program's recorded provenance to what the kind test alone needed.
+pub struct Screening<'a> {
+    /// The call's canonical tool name.
+    pub tool: &'a str,
+    /// The call's own plan, none when it does not plan.
+    pub plan: Option<&'a theseus_protocol::Plan>,
+    /// The result node's `meta.redactions`: what the scrubber withheld.
+    pub redactions: u64,
+    /// The result node's `meta.final_url`, where a fetch ended.
+    pub final_url: Option<&'a str>,
+    /// The result's content as the model will read it: scrubbed and capped,
+    /// so screening it screens exactly what would be sent.
+    pub content: &'a str,
+    /// `[privacy] sensitive_names`, which no result may carry to a model
+    /// outside the owner's trust.
+    pub names: &'a theseus_judge::names::Names,
+    /// What the system recorded of how a program ran ([`provenance`]).
+    pub proof: Proof<'a>,
+    /// The request's reach.
+    pub open: &'a crate::open_view::Open,
+}
+
+/// Whether one tool result may join an open request's run. In order: only the
+/// file tools (`places::files_tool`), the command-running tools
+/// (`open_view::runs_tool`), `web.search` and `http.fetch` are listed, every
+/// other tool's result fails (a task list names the owner's other work,
+/// `tools.find` the owner's tools); a scrubbed secret fails; one of `[privacy]
+/// sensitive_names` in the content fails (every tool alike); and then, by
+/// kind: a program's result needs provenance ([`provenance`]), a file tool
+/// must name a resource and every one canonical within an open root, and a
+/// fetch must name a public URL and, when the result names one
+/// (`meta.final_url`), end at one: a redirect may lead into the owner's
+/// network (theseus-lm38z).
+pub fn screen(s: &Screening<'_>) -> Result<(), Unscreened> {
     use theseus_tools::paths;
-    if crate::open_view::runs_tool(tool) {
-        return Err(Unscreened::Program);
-    }
-    let file = crate::places::files_tool(tool);
-    if !(file || matches!(tool, "web.search" | "http.fetch")) {
+    let file = crate::places::files_tool(s.tool);
+    let program = crate::open_view::runs_tool(s.tool);
+    if !(file || program || matches!(s.tool, "web.search" | "http.fetch")) {
         return Err(Unscreened::Tool);
     }
-    if redactions > 0 {
+    // The content layer, every listed tool alike: what the model would read.
+    if s.redactions > 0 {
         return Err(Unscreened::Secret);
+    }
+    if !s.names.hits(s.content).is_empty() {
+        return Err(Unscreened::Name);
+    }
+    if program {
+        return provenance(s);
     }
     let inside = |r: &theseus_protocol::Resource| {
         let p = paths::canonical_best_effort(&r.path);
-        open.roots.iter().any(|root| paths::within(&p, root))
+        s.open.roots.iter().any(|root| paths::within(&p, root))
     };
-    let outside = match (file, tool) {
-        (true, _) => {
-            !plan.is_some_and(|p| !p.resources.is_empty() && p.resources.iter().all(inside))
-        }
+    let outside = match (file, s.tool) {
+        (true, _) => !s
+            .plan
+            .is_some_and(|p| !p.resources.is_empty() && p.resources.iter().all(inside)),
         (_, "http.fetch") => {
             let not_public = |u: &str| {
                 reqwest::Url::parse(u).is_err() || crate::web::net::private_url(u).is_some()
             };
-            plan.and_then(|p| p.url.as_deref()).is_none_or(not_public)
-                || final_url.is_some_and(not_public)
+            s.plan.and_then(|p| p.url.as_deref()).is_none_or(not_public)
+                || s.final_url.is_some_and(not_public)
         }
         _ => false,
     };

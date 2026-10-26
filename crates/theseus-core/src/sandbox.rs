@@ -504,6 +504,24 @@ const CREDENTIALS: [&str; 3] = [
     "~/.aws",
 ];
 
+/// The daemon's own config, which an L1 view must never show (theseus-ouqru):
+/// `/etc/theseus` and `~/.theseus`, where the config is found by default, and
+/// what `THESEUS_CONFIG` names when it names a path. `/etc` is bound whole into
+/// every view, so the first would otherwise be readable, and the data screen
+/// reads these back from a job's recorded view (`data::provenance`): a view
+/// that did not cover them is not one it trusts. A config named by `--config`
+/// alone is not known here.
+pub fn config_covers() -> Vec<PathBuf> {
+    let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
+    let mut covers = vec![canon("/etc/theseus"), canon("~/.theseus")];
+    if let Ok(named) = std::env::var("THESEUS_CONFIG") {
+        if named.starts_with('/') || named.starts_with("~/") {
+            covers.push(canon(&named));
+        }
+    }
+    covers
+}
+
 /// L1's state in a daemon: its settings, the view a job gets, the last L1
 /// launch heard of, why L1 refuses every job here (a root daemon), and the
 /// jobs by class.
@@ -545,6 +563,7 @@ impl Sandbox {
             .chain(approve)
             .filter_map(|p| std::path::absolute(p).ok())
             .chain(CREDENTIALS.iter().map(|p| canon(p)))
+            .chain(config_covers())
             .filter(|p| p.is_absolute())
         {
             if !hidden.contains(&p) {
@@ -870,6 +889,27 @@ mod tests {
         for f in CREDENTIALS {
             let real = theseus_tools::paths::canonical_best_effort(&crate::config::expand(f));
             assert!(hidden.contains(&real), "{f}: {hidden:?}");
+        }
+    }
+
+    /// The daemon's own config never shows in a view, whatever binds `/etc`
+    /// (theseus-ouqru): the data screen reads these paths back from a job's
+    /// recorded view and trusts no view that left one uncovered.
+    #[test]
+    fn the_daemons_config_is_hidden_in_every_view() {
+        let hidden = Sandbox::new(&SandboxConfig::default(), &[], &[], &[])
+            .view
+            .lock()
+            .unwrap()
+            .hidden
+            .clone();
+        let covers = config_covers();
+        assert!(
+            covers.contains(&PathBuf::from("/etc/theseus")),
+            "{covers:?}"
+        );
+        for c in covers {
+            assert!(hidden.contains(&c), "{}: {hidden:?}", c.display());
         }
     }
 

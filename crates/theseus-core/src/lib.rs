@@ -119,6 +119,7 @@ pub mod rpc;
 pub mod rsi;
 pub mod sandbox;
 pub mod scrub;
+pub mod seal;
 pub mod secrets;
 pub mod self_card;
 pub mod session;
@@ -492,6 +493,8 @@ mod tests_progress;
 mod tests_projects;
 #[cfg(test)]
 mod tests_prove;
+#[cfg(test)]
+mod tests_provenance;
 #[cfg(test)]
 mod tests_push;
 #[cfg(test)]

@@ -100,7 +100,8 @@ impl Look<'_> {
                 k.after += self.after.len();
             }
             if let Some(m) = r.meta.as_object_mut() {
-                m.insert("steps".into(), steps.clone());
+                let rows = super::steps::with_last_sandbox(steps, m.get("detail"));
+                m.insert("steps".into(), rows);
             }
         }
         r

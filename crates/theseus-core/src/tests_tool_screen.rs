@@ -339,6 +339,33 @@ fn fetch(url: &str) -> Plan {
     }
 }
 
+/// `screen` of a result with no text, no names and no provenance (an unsealed
+/// machine, no recorded view): what a tool screens on with nothing else.
+fn screen_of(
+    tool: &str,
+    plan: Option<&Plan>,
+    redactions: u64,
+    final_url: Option<&str>,
+    open: &Open,
+) -> Result<(), Unscreened> {
+    data::screen(&data::Screening {
+        tool,
+        plan,
+        redactions,
+        final_url,
+        content: "",
+        names: &theseus_judge::names::Names::new(&[]),
+        proof: data::Proof {
+            detail: None,
+            steps: None,
+            seal: &crate::seal::Seal::Unsealed("a host's root".into()),
+            public_reach: &[],
+            must_cover: &[],
+        },
+        open,
+    })
+}
+
 /// `screen`, one assertion per word and the passes.
 #[test]
 fn screen_matrix() {
@@ -355,7 +382,7 @@ fn screen_matrix() {
     );
     let linked = root.path().join("link").join("b.txt");
     let screen = |tool: &str, plan: Option<&Plan>, redactions: u64| {
-        data::screen(tool, plan, redactions, None, open)
+        screen_of(tool, plan, redactions, None, open)
     };
     assert_eq!(screen("fs.read", Some(&plan(&[&inside])), 0), Ok(()));
     assert_eq!(
@@ -403,6 +430,7 @@ fn screen_matrix() {
         (Unscreened::Program, "program"),
         (Unscreened::Tool, "tool"),
         (Unscreened::Secret, "secret"),
+        (Unscreened::Name, "name"),
         (Unscreened::Outside, "outside"),
     ] {
         assert_eq!(w.as_str(), s);
@@ -420,7 +448,7 @@ fn a_fetch_that_redirects_into_the_owners_network_fails_the_screen() {
         root.path(),
     );
     let plan = fetch("https://example.com/page");
-    let screen = |end: Option<&str>| data::screen("http.fetch", Some(&plan), 0, end, open);
+    let screen = |end: Option<&str>| screen_of("http.fetch", Some(&plan), 0, end, open);
     assert_eq!(screen(None), Ok(()));
     assert_eq!(screen(Some("https://example.com/other")), Ok(()));
     for private in [
@@ -535,4 +563,265 @@ async fn a_turns_fetch_that_redirected_into_the_owners_network_is_not_screened_o
     );
     let taint = rec.data.unwrap().taint.expect("the task is tainted");
     assert_eq!(taint.node.as_deref(), Some(id.as_str()));
+}
+
+// ------------------------------------------------ a program's provenance (theseus-ouqru)
+
+/// The `session.data` rows of one word for `sid`: `screened` rows name why a
+/// result failed, `program` rows how a program's result passed.
+fn data_rows(core: &Core, sid: &str, row: &str) -> Vec<Value> {
+    crate::tests_judge::kinds(&core.store, "session.data")
+        .into_iter()
+        .filter(|r| r.session_id.as_deref() == Some(sid) && r.data["row"] == row)
+        .map(|r| r.data)
+        .collect()
+}
+
+/// The content of the session's tool results, in order: what the model reads.
+fn result_texts(core: &Core, sid: &str) -> Vec<String> {
+    core.store
+        .transcript(sid)
+        .unwrap()
+        .iter()
+        .filter_map(|(_, n)| match &n.body {
+            Body::ToolResult { content, .. } if n.kind == Kind::ToolResult => Some(content.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A command whose result is clean text, run by the real `proc.run`: the two
+/// loops of a turn that runs one.
+fn echo_calls(word: &str) -> Vec<Scripted> {
+    vec![
+        Scripted::tools(
+            "Running.",
+            &[("p1", "proc_run", json!({"argv": ["echo", word]}))],
+        ),
+        Scripted::text("Done."),
+    ]
+}
+
+/// The sealed container's two-loop turn: a command's clean result extends the
+/// run, so the second request goes to `dsflash` under its pass.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sealed_container_run_extends_the_run() {
+    let jev = task_jev();
+    let s = rig(
+        &jev,
+        tempfile::tempdir().unwrap(),
+        echo_calls("nine bollards"),
+        None,
+    );
+    *s.r.core.runner.seal.lock().unwrap() = Some(crate::seal::Seal::for_test());
+    let (sid, rec) = run_task(&s, OPEN_A, "dsflash").await;
+    let sent = s.zai.requests();
+    assert_eq!(sent.len(), 2, "both loops stayed on the restricted model");
+    // The command ran, and its own output is what rode into loop 1.
+    let out = result_texts(&s.r.core, &sid);
+    assert!(
+        out.len() == 1 && out[0].contains("nine bollards"),
+        "{out:?}"
+    );
+    // Once as the call's arguments, once as the result's text.
+    assert!(
+        text(&sent[1]).matches("nine bollards").count() >= 2,
+        "the result rode"
+    );
+    assert_eq!(blocked(&s.r.core), 0, "each request carried its pass");
+    assert!(decided(&s.r.core.store)
+        .iter()
+        .all(|d| d["reason"] != "data_gate"));
+    assert!(tainted(&s.r.core, &sid).is_empty());
+    assert!(data_rows(&s.r.core, &sid, "screened").is_empty());
+    let rows = data_rows(&s.r.core, &sid, "program");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["via"], "seal");
+    let last =
+        s.r.core
+            .store
+            .transcript(&sid)
+            .unwrap()
+            .last()
+            .unwrap()
+            .1
+            .id
+            .clone();
+    assert_eq!(rec.data.unwrap().run.map(|r| r.through), Some(last));
+}
+
+/// The bench's shape: a trial runs several commands, one a loop, and every
+/// loop's request is cleared (the mid-trial failure, as a test).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sealed_container_trial_runs_command_after_command() {
+    let jev = task_jev();
+    let step = |id: &'static str, word: &str| {
+        Scripted::tools(
+            "Running.",
+            &[(id, "proc_run", json!({"argv": ["echo", word]}))],
+        )
+    };
+    let calls = vec![
+        step("p1", "first"),
+        step("p2", "second"),
+        Scripted::text("Done."),
+    ];
+    let s = rig(&jev, tempfile::tempdir().unwrap(), calls, None);
+    *s.r.core.runner.seal.lock().unwrap() = Some(crate::seal::Seal::for_test());
+    let (sid, _) = run_task(&s, OPEN_A, "dsflash").await;
+    assert_eq!(s.zai.requests().len(), 3, "three loops, one profile");
+    assert_eq!(blocked(&s.r.core), 0);
+    assert!(tainted(&s.r.core, &sid).is_empty());
+    let out = result_texts(&s.r.core, &sid);
+    assert!(
+        out[0].contains("first") && out[1].contains("second"),
+        "{out:?}"
+    );
+    assert_eq!(data_rows(&s.r.core, &sid, "program").len(), 2);
+}
+
+/// The same turn on a machine that is not sealed, with a result no recorded
+/// view vouches for: it ends the run as before: the word is `program`, the
+/// next request leaves the restricted model, and the session is tainted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_program_result_with_no_provenance_still_ends_the_run() {
+    let jev = task_jev();
+    let s = rig(
+        &jev,
+        tempfile::tempdir().unwrap(),
+        echo_calls("nine bollards"),
+        None,
+    );
+    *s.r.core.runner.seal.lock().unwrap() = Some(crate::seal::Seal::Unsealed(
+        "/ is ext4, not an overlay".into(),
+    ));
+    let (sid, rec) = run_task(&s, OPEN_A, "dsflash").await;
+    assert_eq!(s.zai.requests().len(), 1, "loop 0 alone");
+    let rows = data_rows(&s.r.core, &sid, "screened");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["word"], "program");
+    assert!(data_rows(&s.r.core, &sid, "program").is_empty());
+    let routed = decided(&s.r.core.store);
+    assert_eq!(routed.last().unwrap()["reason"], "data_gate", "{routed:?}");
+    assert_eq!(tainted(&s.r.core, &sid).len(), 1);
+    assert!(rec.data.unwrap().run.is_none());
+    assert_eq!(blocked(&s.r.core), 0, "nothing reached the chokepoint");
+}
+
+/// A stand-in `proc.run` that needs no sandbox: it plans a command in the
+/// working directory and answers a result whose `meta.detail.sandbox` is
+/// `record`, as an enforced L1 job's completion leaves it.
+struct Recorded {
+    record: Value,
+}
+
+impl theseus_tools::Tool for Recorded {
+    fn name(&self) -> &str {
+        "proc.run"
+    }
+    fn description(&self) -> &str {
+        "a command whose result carries a recorded view"
+    }
+    fn input_schema(&self) -> Value {
+        json!({"type": "object", "properties": {"argv": {"type": "array", "items": {"type": "string"}}}, "required": ["argv"]})
+    }
+    fn class(&self) -> theseus_tools::ToolClass {
+        theseus_tools::ToolClass::Run
+    }
+    fn backend(&self) -> theseus_tools::Backend {
+        theseus_tools::Backend::Async
+    }
+    fn retry(&self) -> theseus_tools::Retry {
+        theseus_tools::Retry::SafeToRepeat
+    }
+    fn plan(&self, input: &Value, ctx: &theseus_tools::ToolCtx) -> Result<Plan, String> {
+        Ok(Plan {
+            resources: vec![Resource {
+                path: ctx.cwd.clone(),
+                access: Access::Exec,
+            }],
+            argv: Some(vec![input["argv"][0]
+                .as_str()
+                .unwrap_or("true")
+                .to_string()]),
+            summary: "run".into(),
+            ..Default::default()
+        })
+    }
+    fn run_async(&self, _input: &Value, _ctx: &theseus_tools::ToolCtx) -> theseus_tools::AsyncRun {
+        let detail = json!({"exit_code": 0, "sandbox": self.record.clone()});
+        Box::pin(std::future::ready(Ok((
+            theseus_tools::ToolOutput {
+                text: "A page of tide tables.".into(),
+                meta: json!({"exit_code": 0, "detail": detail}),
+            },
+            None,
+        ))))
+    }
+}
+
+/// An L1 job's sandbox record over the open root `root`, with `edit` applied
+/// to its view.
+fn l1_record(root: &Path, edit: impl FnOnce(&mut Value)) -> Value {
+    let root = theseus_tools::paths::canonical_best_effort(root);
+    let mut sandbox = json!({"class": "l1", "view": {
+        "system": theseus_sandbox::SYSTEM,
+        "workspace": [root],
+        "ro_paths": [],
+        "rw": [],
+        "cwd": root,
+        "home_tmpfs": true,
+        "hidden": crate::sandbox::config_covers(),
+        "egress": [],
+        "granted": [],
+    }});
+    edit(&mut sandbox["view"]);
+    sandbox
+}
+
+/// A clean enforced-L1 result extends the run on a machine that is not sealed
+/// (the owner's), and a view that binds a path outside the open root does
+/// not: the same turn, the same command, only the recorded view differs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_clean_l1_program_result_extends_the_run() {
+    for outside in [false, true] {
+        let jev = task_jev();
+        let dir = tempfile::tempdir().unwrap();
+        let far = tempfile::tempdir().unwrap();
+        let record = l1_record(dir.path(), |v| {
+            if outside {
+                v["ro_paths"] = json!([far.path()]);
+            }
+        });
+        let s = rig_tools(
+            &jev,
+            dir,
+            echo_calls("x"),
+            None,
+            vec![Arc::new(Recorded { record })],
+        );
+        *s.r.core.runner.seal.lock().unwrap() = Some(crate::seal::Seal::Unsealed(
+            "/ is ext4, not an overlay".into(),
+        ));
+        let (sid, rec) = run_task(&s, OPEN_A, "dsflash").await;
+        let rows = data_rows(&s.r.core, &sid, "screened");
+        match outside {
+            false => {
+                assert_eq!(s.zai.requests().len(), 2, "{rows:?}");
+                assert!(text(&s.zai.requests()[1]).contains("tide tables"));
+                assert_eq!(blocked(&s.r.core), 0);
+                assert!(rows.is_empty() && tainted(&s.r.core, &sid).is_empty());
+                let ran = data_rows(&s.r.core, &sid, "program");
+                assert_eq!(ran.len(), 1, "{ran:?}");
+                assert_eq!(ran[0]["via"], "l1");
+            }
+            true => {
+                assert_eq!(s.zai.requests().len(), 1, "loop 0 alone");
+                assert_eq!(rows.len(), 1, "{rows:?}");
+                assert_eq!(rows[0]["word"], "program");
+                assert_eq!(tainted(&s.r.core, &sid).len(), 1);
+                assert!(rec.data.unwrap().run.is_none());
+            }
+        }
+    }
 }

@@ -35,4 +35,4 @@ pub use init::init_main;
 pub use report::{Exit, Scratch, Started};
 pub use spawn::{refusal, refused_here, spawn, SandboxChild, SpawnError, Stdio, ROOT_REFUSED};
 pub use spec::{Init, Limits, Spec, HOSTNAME, INIT_ROLE};
-pub use view::DEVICES;
+pub use view::{DEVICES, SYSTEM};

@@ -1794,6 +1794,10 @@ max_switches = 2                        # moves per task, up or down
 # open_paths = []                       # trees of open data (~/ or absolute): an open request's
 #                                       # file tools reach these alone, and its programs run only
 #                                       # in a session whose directory is under one
+# public_reach = []                     # read-only paths you certify hold nothing private (~/ or
+#                                       # absolute), beyond /usr and the system's lib directories:
+#                                       # an L1 job that binds only these and the open paths may
+#                                       # have its output screened for a model outside your trust
 
 # Sensitive names (theseus-oejh3, theseus-xs5ah): organisations, clients, projects and people
 # whose matter goes only to a model of US origin, an allowlist: `eu`, `cn` and `unknown` (any

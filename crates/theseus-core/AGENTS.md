@@ -2000,8 +2000,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     loop's calls run, each result it wrote passes only for a file tool, `web.search` or `http.fetch`, with nothing
     redacted (`meta.redactions`), every resource of a file tool canonically within an open root, and a fetch of a
     public URL; a fetch also fails when its `meta.final_url` is not public (a redirect into the owner's network), and a
-    failed screen is a `session.data` `screened` row (node, word; theseus-lm38z). A program's result (`proc.run`, `job.*`, `term.*`) never passes yet (a sandboxed program run is the
-    follow-up). A result that fails ends the run, not the session: the node stays but is not in `RouteState.screened`,
+    failed screen is a `session.data` `screened` row (node, word; theseus-lm38z). A `[privacy] sensitive_names` name in any listed result's content fails it too (word `name`). **A program's
+    result passes on provenance, never on its command line** (theseus-ouqru; `data/provenance.rs`): only when the
+    system that ran it recorded that its read reach held nothing private. (a) an enforced L1 `proc.run` whose
+    completion's `detail.sandbox.view` (written by `job_l1::run` after the spawn, one per step of a batch in
+    `meta.steps[].sandbox`) is `class: l1` with no error, the pinned `theseus_sandbox::SYSTEM`, only open roots and
+    public paths (`[routing.data] public_reach`, default none, plus `/usr` and the lib directories), `rw` empty, HOME a
+    tmpfs, the daemon's config covered (`sandbox::config_covers`), no egress and no granted variable; or (b) a sealed
+    benchmark container (`seal.rs`: an overlay root and no host filesystem in `/proc/self/mountinfo`, nothing to
+    configure). Else `Unscreened::Program`, as before; `job.*` and `term.*` stay refused unless sealed. A passing
+    program result is a `session.data` `program` row (node, via `l1` or `seal`, the seal's reason). No command line
+    is parsed anywhere. A result that fails ends the run, not the session: the node stays but is not in `RouteState.screened`,
     so the next loop moves and no run is stored past it, and an open session records the taint naming the result. The turn
     stores the run (through its last node) in its own session write only when every request went out cleared and
     only its own loop wrote after the run; anything else ends a run (a private-view reply, a steer, a wake, a report).

@@ -255,6 +255,7 @@ ledger_kinds! {
     Reconcile = "reconcile",
     SandboxEgress = "sandbox.egress",
     SandboxEgressRefused = "sandbox.egress_refused",
+    SandboxSeal = "sandbox.seal",
     SandboxStarted = "sandbox.started",
     SecretGranted = "secret.granted",
     SecretWithheld = "secret.withheld",

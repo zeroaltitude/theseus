@@ -77,6 +77,21 @@ fn rows(specs: &[JobSpec], passed: &[Value], at: usize) -> Value {
     Value::Array(out)
 }
 
+/// `steps` with the last step that ran carrying `detail`'s `sandbox`: that step is
+/// the one whose completion the result's own `detail` is, so its row gets the
+/// record the earlier steps' rows were given as each ended (theseus-ouqru).
+pub(super) fn with_last_sandbox(steps: &Value, detail: Option<&Value>) -> Value {
+    let mut out = steps.clone();
+    let sandbox = detail.and_then(|d| d.get("sandbox"));
+    let last = out
+        .as_array_mut()
+        .and_then(|rows| rows.iter_mut().rfind(|r| r["ran"] == json!(true)));
+    if let (Some(row), Some(sandbox)) = (last, sandbox) {
+        row["sandbox"] = sandbox.clone();
+    }
+    out
+}
+
 /// The last `room` characters of `out`, saying what it left out.
 fn tail_of(out: &str, room: usize) -> String {
     let n = out.chars().count();
@@ -196,7 +211,12 @@ impl ToolRuntime {
                 false => tail_of(&out, room),
             };
             before = format!("{head}[exit code 0, {ms} ms]\n{}\n", out.trim_end());
-            passed.push(json!({"step": i + 1, "argv": spec.argv, "cwd": spec.cwd, "ran": true, "exit_code": 0, "duration_ms": ms}));
+            let mut row = json!({"step": i + 1, "argv": spec.argv, "cwd": spec.cwd, "ran": true, "exit_code": 0, "duration_ms": ms});
+            // This step's own record of how it ran, for the data screen (theseus-ouqru).
+            if let Some(sandbox) = c.detail.as_ref().and_then(|d| d.get("sandbox")) {
+                row["sandbox"] = sandbox.clone();
+            }
+            passed.push(row);
             // The step's wrapper removes the pid file just after its report:
             // the next step's launch waits for that, or it would lose its own
             // (`unlisted`; the look leaves the file to the wrapper).
@@ -294,6 +314,26 @@ impl ToolRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The last step that ran takes the result's own `sandbox` (its completion
+    /// is the result's); earlier steps keep theirs, and a step that did not run
+    /// gets none (theseus-ouqru).
+    #[test]
+    fn the_last_step_that_ran_takes_the_results_sandbox() {
+        let rows = json!([
+            {"step": 1, "ran": true, "sandbox": {"class": "l1", "n": 1}},
+            {"step": 2, "ran": true},
+            {"step": 3, "ran": false},
+        ]);
+        let detail = json!({"sandbox": {"class": "l1", "n": 2}});
+        let out = with_last_sandbox(&rows, Some(&detail));
+        assert_eq!(out[0]["sandbox"]["n"], 1);
+        assert_eq!(out[1]["sandbox"]["n"], 2);
+        assert!(out[2].get("sandbox").is_none());
+        // No record in the detail: the row has none, which the screen refuses.
+        assert_eq!(with_last_sandbox(&rows, Some(&json!({}))), rows);
+        assert_eq!(with_last_sandbox(&rows, None), rows);
+    }
 
     /// theseus-v18k: a step's wrapper that will linger writes its marker
     /// before its report, then removes its pid file. The next step's launch

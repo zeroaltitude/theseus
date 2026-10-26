@@ -20,6 +20,14 @@ pub struct RoutingData {
     /// whose directory is under one (`open_view::open_roots`). Default none.
     #[serde(default, deserialize_with = "rooted")]
     pub open_paths: Vec<String>,
+    /// Read-only paths the owner certifies hold nothing private, `~/` or
+    /// absolute, beyond the system's own (`data::public_reach`): an L1 job
+    /// whose recorded view binds only these and the open roots may have its
+    /// output screened for a restricted-origin model (theseus-ouqru). Owner-set
+    /// and additive, as `open_paths` is: only an edit of the config widens it.
+    /// Default none.
+    #[serde(default, deserialize_with = "rooted")]
+    pub public_reach: Vec<String>,
 }
 
 /// `open_paths`, each absolute or under `~/`: a relative path would be the
@@ -31,7 +39,7 @@ fn rooted<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Erro
         .find(|p| !(p.starts_with('/') || p.starts_with("~/")))
     {
         Some(p) => Err(serde::de::Error::custom(format!(
-            "open_paths entry {p:?} must be an absolute path or start with ~/"
+            "{p:?} must be an absolute path or start with ~/"
         ))),
         None => Ok(paths),
     }
@@ -95,6 +103,23 @@ mod tests {
         assert!(roots[0].starts_with(theseus_tools::paths::canonical_best_effort(&home)));
         assert!(roots[0].ends_with("src/widgetco"), "{roots:?}");
         assert_eq!(roots[1], std::path::Path::new("/srv/open"));
+    }
+
+    /// `public_reach` (theseus-ouqru) parses, defaults empty, takes `~/` and
+    /// absolute paths alone, and is never one of the open paths.
+    #[test]
+    fn public_reach_parses() {
+        let d: RoutingConfig = toml::from_str("[data]").unwrap();
+        assert!(d.data.public_reach.is_empty(), "none by default");
+        let c: RoutingConfig =
+            toml::from_str("[data]\npublic_reach = [\"~/.cargo/registry\", \"/opt/tools\"]")
+                .unwrap();
+        assert_eq!(c.data.public_reach, ["~/.cargo/registry", "/opt/tools"]);
+        assert!(c.data.open_paths.is_empty());
+        let e = toml::from_str::<RoutingConfig>("[data]\npublic_reach = [\"tools\"]")
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("must be an absolute path"), "{e}");
     }
 
     /// The private list moved to `[privacy] sensitive_names`; the old key is
