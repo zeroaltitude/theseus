@@ -288,7 +288,10 @@ impl FakeDiscord {
     }
 
     /// A forum post's first message: its id is the post's, its content the
-    /// text or the V2 card's text, kept as a create keeps it.
+    /// text or the V2 card's text, kept as a create keeps it. It is pushed in
+    /// one hold of the state: a message another request pushed between a push
+    /// and a read of "the last message" took this one's id, flag and card
+    /// (theseus-g8bxk).
     fn starter_message(&self, t: &FakeThread, body: &Value) -> Result<Msg, String> {
         let flags = body["flags"].as_u64().unwrap_or(0);
         if let Some(why) = v2_refusal(flags, &body["content"], &body["components"]) {
@@ -300,27 +303,16 @@ impl FakeDiscord {
         } else {
             body["content"].as_str().unwrap_or("").to_string()
         };
-        self.push_bot_message(&t.id.to_string(), &content);
         let mut st = self.state.lock().unwrap();
-        let last = st.messages.last_mut().expect("it was just pushed");
-        last.id = t.id.to_string();
-        last.flags = flags;
-        last.components = rows(&body["components"]);
-        last.buttons = buttons(&body["components"]);
-        last.components_json = body["components"].clone();
-        Ok(last.clone())
-    }
-
-    /// A message the bot wrote, kept in `channel`.
-    fn push_bot_message(&self, channel: &str, content: &str) -> Msg {
-        let mut st = self.state.lock().unwrap();
+        // The id the message would have had; the next create's is the same as before.
         st.next_id += 1;
         let m = Msg {
-            id: st.next_id.to_string(),
-            channel: channel.to_string(),
-            content: content.to_string(),
+            id: t.id.to_string(),
+            channel: t.id.to_string(),
+            versions: vec![content.clone()],
+            content,
             nonce: None,
-            components: 0,
+            components: rows(&body["components"]),
             reply_to: None,
             edits: 0,
             created_ms: now_ms(),
@@ -328,14 +320,13 @@ impl FakeDiscord {
             mentions: vec![],
             author: BOT_ID.to_string(),
             hook: None,
-            versions: vec![content.to_string()],
-            buttons: vec![],
-            components_json: json!([]),
+            buttons: buttons(&body["components"]),
+            components_json: body["components"].clone(),
             pinned: false,
-            flags: 0,
+            flags,
         };
         st.messages.push(m.clone());
-        m
+        Ok(m)
     }
 
     /// `PATCH /channels/<id>` of a thread: archive, lock, rename.
