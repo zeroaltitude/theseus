@@ -236,11 +236,19 @@ async fn a_fan_in_past_the_bound_is_cut_and_the_whole_report_is_kept() {
 #[test]
 fn the_least_a_report_keeps_does_not_defeat_the_bound() {
     use crate::task_wait::{split_room, REPORT_CHARS_MIN as LEAST};
-    assert_eq!(split_room(36_000, 4, 6_000), vec![6_000; 4], "room to spare");
+    assert_eq!(
+        split_room(36_000, 4, 6_000),
+        vec![6_000; 4],
+        "room to spare"
+    );
     assert_eq!(split_room(3_000, 2, 6_000), vec![1_500; 2], "equal shares");
     assert_eq!(split_room(3_500, 5, 6_000), vec![LEAST, LEAST, LEAST, 0, 0]);
     assert_eq!(split_room(0, 3, 6_000), vec![0; 3], "past the line: none");
-    assert_eq!(split_room(400, 2, 6_000), vec![0; 2], "under the least: none");
+    assert_eq!(
+        split_room(400, 2, 6_000),
+        vec![0; 2],
+        "under the least: none"
+    );
     for (total, n) in [(3_500, 5), (20_000, 40), (999, 7), (0, 12)] {
         let sum: usize = split_room(total, n, 6_000).iter().sum();
         assert!(sum <= total, "{n} texts took {sum} of {total}");

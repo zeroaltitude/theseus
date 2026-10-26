@@ -933,7 +933,10 @@ async fn a_fan_out_a_wake_makes_says_why_and_each_helper_carries_it() {
     }
     // The objective each helper quotes is the report that started this turn,
     // not the earlier exchange's operator message (the stack review's N6).
-    for t in tasks_of(&r2.core, &p2).iter().filter(|t| t.helper_of().is_some()) {
+    for t in tasks_of(&r2.core, &p2)
+        .iter()
+        .filter(|t| t.helper_of().is_some())
+    {
         let text = briefs(&r2.core, t);
         assert!(text.contains("[Report from task"), "{text}");
         assert!(!text.contains(crate::tests_tasks::QUOTE), "{text}");
