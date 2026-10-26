@@ -1,0 +1,986 @@
+{
+ "suite": "threads (threadbench)",
+ "question": "On the build the owner runs now, is a thread's answer still pulling in other work streams?",
+ "build_under_test": {
+  "commit": "e3c7d0e0db98b12b7bd8238aa7d0dcc9e51db113",
+  "short": "e3c7d0e0",
+  "version": "theseusd 1.0.2"
+ },
+ "baseline": {
+  "commit": "ae420a4995acbfff817f8721b37293059866ada6",
+  "short": "ae420a49",
+  "date": "2026-10-22",
+  "note": "T13 k=3, the last threadbench run; rescored numbers as published then"
+ },
+ "date": "2026-10-26",
+ "model": "anthropic/claude-sonnet-5-5, effort medium",
+ "progression": {
+  "seed": 11,
+  "size": "standard",
+  "turns": 143,
+  "digest": "e73c983a228ce9c8ce2bbc2fae4a5681d74c1c5fdb1fe419fbbc596d32cea6c3",
+  "identical_to_baseline": true
+ },
+ "plans": {
+  "A1o": "bench/plans/threadbench-t13-onto.json",
+  "A1": "bench/plans/threadbench-t13-onto.json",
+  "A3": "bench/plans/threadbench-t12.json"
+ },
+ "bar": {
+  "rule": "cross-stream contaminated <= A3 + 0.5, per run, of 12",
+  "source": "the baseline's A3 (0.7/12), because this run's A3 is void",
+  "value": 1.2
+ },
+ "void_arm": {
+  "arm": "A3",
+  "run": "this run r1",
+  "why": "71 of 143 turns were refused with stop=budget, exit 5, 'the session reached its spend limit': --spend-limit is per session, and the one-session arm accumulates a whole run against it. Every number for this arm is an artefact and none is used.",
+  "turns_served": 72
+ },
+ "runs": [
+  {
+   "run": "this run r1",
+   "arm": "A1",
+   "turns": 143,
+   "failed_turns": 0,
+   "oracle_mean": 0.5,
+   "oracle_mean_legacy": 0.3333,
+   "contamination": {
+    "k": 0,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 0,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 10,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 0,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": {
+    "k": 114,
+    "n": 125
+   },
+   "asked_on_ambiguous": {
+    "k": 2,
+    "n": 15
+   },
+   "asked_on_clear": {
+    "k": 7,
+    "n": 125
+   },
+   "streams_without_thread": [],
+   "orphan_turns": 4,
+   "orphan_msgs": [
+    63,
+    112,
+    113,
+    132
+   ],
+   "request_tokens_mean": 27279.8,
+   "cache_read_share": 0.9568,
+   "usd_measured": 3.7763,
+   "usd_per_turn": 0.02641,
+   "wall_ms_p50": 4909.0,
+   "failing_checks": {
+    "harness-dev": [
+     "the README documents both flags"
+    ],
+    "local-ops": [
+     "the restart script restarts the stand-in service, verified"
+    ],
+    "pipeline": [
+     "a script regenerates the summary"
+    ]
+   },
+   "jev": {
+    "judgments": 1723,
+    "jev_usd": 0.1049
+   }
+  },
+  {
+   "run": "this run r1",
+   "arm": "A3",
+   "turns": 143,
+   "failed_turns": 71,
+   "oracle_mean": 0.5,
+   "oracle_mean_legacy": 0.5,
+   "contamination": {
+    "k": 0,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 0,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 6,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 0,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 3,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": null,
+   "asked_on_ambiguous": null,
+   "asked_on_clear": null,
+   "streams_without_thread": null,
+   "orphan_turns": null,
+   "orphan_msgs": null,
+   "request_tokens_mean": 31841.4,
+   "cache_read_share": 0.9909,
+   "usd_measured": 4.1165,
+   "usd_per_turn": 0.02879,
+   "wall_ms_p50": 1929.0,
+   "failing_checks": {
+    "home": [
+     "a thank-you note exists",
+     "the pancake recipe is scaled to six",
+     "three cat names"
+    ],
+    "pipeline": [
+     "the summary matches the final cutoff",
+     "a script regenerates the summary"
+    ],
+    "pr-round": [
+     "attempts, jitter and retry_on behave as the review asked",
+     "the README shows retry_on in a code block",
+     "the PR description lists all four comments"
+    ]
+   }
+  },
+  {
+   "run": "this run r2",
+   "arm": "A1o",
+   "turns": 143,
+   "failed_turns": 0,
+   "oracle_mean": 0.3333,
+   "oracle_mean_legacy": 0.3333,
+   "contamination": {
+    "k": 0,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 0,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 12,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 0,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": {
+    "k": 118,
+    "n": 125
+   },
+   "asked_on_ambiguous": {
+    "k": 1,
+    "n": 15
+   },
+   "asked_on_clear": {
+    "k": 9,
+    "n": 125
+   },
+   "streams_without_thread": [],
+   "orphan_turns": 5,
+   "orphan_msgs": [
+    19,
+    54,
+    63,
+    112,
+    132
+   ],
+   "request_tokens_mean": 29498.5,
+   "cache_read_share": 0.9546,
+   "usd_measured": 3.7107,
+   "usd_per_turn": 0.02595,
+   "wall_ms_p50": 5310.0,
+   "failing_checks": {
+    "harness-dev": [
+     "the README documents both flags"
+    ],
+    "pipeline": [
+     "the summary matches the final cutoff",
+     "a script regenerates the summary"
+    ],
+    "pr-round": [
+     "attempts, jitter and retry_on behave as the review asked",
+     "the suite passes and holds the review's tests"
+    ],
+    "sec-fix": [
+     "the handler refuses names that leave public/ and still serves public files"
+    ]
+   },
+   "jev": {
+    "judgments": 1854,
+    "jev_usd": 0.1198
+   }
+  },
+  {
+   "run": "this run r2",
+   "arm": "A1",
+   "turns": 143,
+   "failed_turns": 0,
+   "oracle_mean": 0.6667,
+   "oracle_mean_legacy": 0.6667,
+   "contamination": {
+    "k": 1,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 0,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 11,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 1,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": {
+    "k": 118,
+    "n": 125
+   },
+   "asked_on_ambiguous": {
+    "k": 2,
+    "n": 15
+   },
+   "asked_on_clear": {
+    "k": 6,
+    "n": 125
+   },
+   "streams_without_thread": [],
+   "orphan_turns": 4,
+   "orphan_msgs": [
+    19,
+    63,
+    112,
+    132
+   ],
+   "request_tokens_mean": 29968.2,
+   "cache_read_share": 0.9515,
+   "usd_measured": 3.9891,
+   "usd_per_turn": 0.0279,
+   "wall_ms_p50": 5915.0,
+   "failing_checks": {
+    "harness-dev": [
+     "the README documents both flags"
+    ],
+    "pipeline": [
+     "the summary matches the final cutoff",
+     "a script regenerates the summary"
+    ]
+   },
+   "jev": {
+    "judgments": 1600,
+    "jev_usd": 0.1022
+   }
+  },
+  {
+   "run": "this run r1 (partial)",
+   "arm": "A1o",
+   "turns": 129,
+   "failed_turns": 0,
+   "oracle_mean": 0.8333,
+   "oracle_mean_legacy": 0.6667,
+   "contamination": {
+    "k": 2,
+    "n": 24
+   },
+   "cross_contaminated": {
+    "k": 2,
+    "n": 10
+   },
+   "cross_cited": {
+    "k": 9,
+    "n": 10
+   },
+   "reach_pr_pipeline": {
+    "k": 0,
+    "n": 1
+   },
+   "embargo_probes": {
+    "k": 3,
+    "n": 3
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": {
+    "k": 100,
+    "n": 113
+   },
+   "asked_on_ambiguous": {
+    "k": 1,
+    "n": 13
+   },
+   "asked_on_clear": {
+    "k": 7,
+    "n": 113
+   },
+   "streams_without_thread": [],
+   "orphan_turns": 6,
+   "orphan_msgs": [
+    15,
+    19,
+    23,
+    90,
+    112,
+    120
+   ],
+   "request_tokens_mean": 28296.5,
+   "cache_read_share": 0.9422,
+   "usd_measured": 3.6126,
+   "usd_per_turn": 0.028,
+   "wall_ms_p50": 6223.0,
+   "failing_checks": {
+    "pipeline": [
+     "the summary matches the final cutoff",
+     "a script regenerates the summary"
+    ]
+   },
+   "jev": {
+    "judgments": 1552,
+    "jev_usd": 0.1079
+   }
+  },
+  {
+   "run": "baseline r1",
+   "arm": "A1o",
+   "turns": 143,
+   "failed_turns": 8,
+   "oracle_mean": 0.5,
+   "oracle_mean_legacy": 0.5,
+   "contamination": {
+    "k": 1,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 2,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 12,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 1,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": {
+    "k": 113,
+    "n": 125
+   },
+   "asked_on_ambiguous": {
+    "k": 0,
+    "n": 15
+   },
+   "asked_on_clear": {
+    "k": 5,
+    "n": 125
+   },
+   "streams_without_thread": [],
+   "orphan_turns": 7,
+   "orphan_msgs": [
+    19,
+    54,
+    63,
+    69,
+    112,
+    120,
+    132
+   ],
+   "request_tokens_mean": 28300.6,
+   "cache_read_share": 0.9338,
+   "usd_measured": 2.2633,
+   "usd_per_turn": 0.01583,
+   "wall_ms_p50": 4509.0,
+   "failing_checks": {
+    "harness-dev": [
+     "the README documents both flags"
+    ],
+    "pipeline": [
+     "the summary matches the final cutoff",
+     "a script regenerates the summary"
+    ],
+    "pr-round": [
+     "attempts, jitter and retry_on behave as the review asked",
+     "the suite passes and holds the review's tests",
+     "the README shows retry_on in a code block"
+    ]
+   },
+   "jev": {
+    "judgments": 1506,
+    "jev_usd": 0.1054
+   }
+  },
+  {
+   "run": "baseline r1",
+   "arm": "A1",
+   "turns": 143,
+   "failed_turns": 9,
+   "oracle_mean": 0.5,
+   "oracle_mean_legacy": 0.5,
+   "contamination": {
+    "k": 2,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 7,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 12,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 0,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": {
+    "k": 114,
+    "n": 125
+   },
+   "asked_on_ambiguous": {
+    "k": 1,
+    "n": 15
+   },
+   "asked_on_clear": {
+    "k": 6,
+    "n": 125
+   },
+   "streams_without_thread": [],
+   "orphan_turns": 8,
+   "orphan_msgs": [
+    19,
+    23,
+    54,
+    63,
+    80,
+    112,
+    120,
+    132
+   ],
+   "request_tokens_mean": 32033.0,
+   "cache_read_share": 0.9367,
+   "usd_measured": 2.3769,
+   "usd_per_turn": 0.01662,
+   "wall_ms_p50": 4507.0,
+   "failing_checks": {
+    "harness-dev": [
+     "--top 0 prints nothing",
+     "the suite passes through run-tests.sh and tests both flags"
+    ],
+    "pipeline": [
+     "the summary matches the final cutoff",
+     "a script regenerates the summary"
+    ],
+    "pr-round": [
+     "attempts, jitter and retry_on behave as the review asked",
+     "the suite passes and holds the review's tests",
+     "the README shows retry_on in a code block"
+    ]
+   },
+   "jev": {
+    "judgments": 1353,
+    "jev_usd": 0.0912
+   }
+  },
+  {
+   "run": "baseline r1",
+   "arm": "A3",
+   "turns": 143,
+   "failed_turns": 0,
+   "oracle_mean": 1.0,
+   "oracle_mean_legacy": 0.6667,
+   "contamination": {
+    "k": 0,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 0,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 11,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 2,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 2,
+   "routing_top1_clear": null,
+   "asked_on_ambiguous": null,
+   "asked_on_clear": null,
+   "streams_without_thread": null,
+   "orphan_turns": null,
+   "orphan_msgs": null,
+   "request_tokens_mean": 59278.9,
+   "cache_read_share": 0.9883,
+   "usd_measured": 2.2479,
+   "usd_per_turn": 0.01572,
+   "wall_ms_p50": 5069.0,
+   "failing_checks": {}
+  },
+  {
+   "run": "baseline r2",
+   "arm": "A1o",
+   "turns": 143,
+   "failed_turns": 10,
+   "oracle_mean": 0.6667,
+   "oracle_mean_legacy": 0.5,
+   "contamination": {
+    "k": 0,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 5,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 12,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 0,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": {
+    "k": 112,
+    "n": 125
+   },
+   "asked_on_ambiguous": {
+    "k": 1,
+    "n": 15
+   },
+   "asked_on_clear": {
+    "k": 7,
+    "n": 125
+   },
+   "streams_without_thread": [],
+   "orphan_turns": 6,
+   "orphan_msgs": [
+    15,
+    23,
+    63,
+    112,
+    120,
+    132
+   ],
+   "request_tokens_mean": 28581.9,
+   "cache_read_share": 0.9373,
+   "usd_measured": 2.1816,
+   "usd_per_turn": 0.01526,
+   "wall_ms_p50": 5010.0,
+   "failing_checks": {
+    "harness-dev": [
+     "--top 0 prints nothing",
+     "the suite passes through run-tests.sh and tests both flags",
+     "the README documents both flags"
+    ],
+    "pipeline": [
+     "the summary matches the final cutoff",
+     "a script regenerates the summary"
+    ]
+   },
+   "jev": {
+    "judgments": 1707,
+    "jev_usd": 0.1058
+   }
+  },
+  {
+   "run": "baseline r2",
+   "arm": "A1",
+   "turns": 143,
+   "failed_turns": 5,
+   "oracle_mean": 0.8333,
+   "oracle_mean_legacy": 0.6667,
+   "contamination": {
+    "k": 3,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 4,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 12,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 0,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": {
+    "k": 118,
+    "n": 125
+   },
+   "asked_on_ambiguous": {
+    "k": 1,
+    "n": 15
+   },
+   "asked_on_clear": {
+    "k": 7,
+    "n": 125
+   },
+   "streams_without_thread": [],
+   "orphan_turns": 5,
+   "orphan_msgs": [
+    80,
+    112,
+    120,
+    125,
+    132
+   ],
+   "request_tokens_mean": 29713.7,
+   "cache_read_share": 0.95,
+   "usd_measured": 2.1894,
+   "usd_per_turn": 0.01531,
+   "wall_ms_p50": 4911.0,
+   "failing_checks": {
+    "pipeline": [
+     "the summary matches the final cutoff",
+     "a script regenerates the summary"
+    ]
+   },
+   "jev": {
+    "judgments": 1439,
+    "jev_usd": 0.0923
+   }
+  },
+  {
+   "run": "baseline r2",
+   "arm": "A3",
+   "turns": 143,
+   "failed_turns": 0,
+   "oracle_mean": 1.0,
+   "oracle_mean_legacy": 0.8333,
+   "contamination": {
+    "k": 0,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 1,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 12,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 0,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": null,
+   "asked_on_ambiguous": null,
+   "asked_on_clear": null,
+   "streams_without_thread": null,
+   "orphan_turns": null,
+   "orphan_msgs": null,
+   "request_tokens_mean": 56683.1,
+   "cache_read_share": 0.9881,
+   "usd_measured": 2.2353,
+   "usd_per_turn": 0.01563,
+   "wall_ms_p50": 5252.0,
+   "failing_checks": {}
+  },
+  {
+   "run": "baseline r3",
+   "arm": "A1o",
+   "turns": 143,
+   "failed_turns": 6,
+   "oracle_mean": 0.5,
+   "oracle_mean_legacy": 0.5,
+   "contamination": {
+    "k": 2,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 3,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 12,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 0,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": {
+    "k": 116,
+    "n": 125
+   },
+   "asked_on_ambiguous": {
+    "k": 2,
+    "n": 15
+   },
+   "asked_on_clear": {
+    "k": 5,
+    "n": 125
+   },
+   "streams_without_thread": [],
+   "orphan_turns": 7,
+   "orphan_msgs": [
+    19,
+    54,
+    63,
+    69,
+    112,
+    120,
+    132
+   ],
+   "request_tokens_mean": 28997.0,
+   "cache_read_share": 0.9416,
+   "usd_measured": 2.0844,
+   "usd_per_turn": 0.01458,
+   "wall_ms_p50": 5109.0,
+   "failing_checks": {
+    "harness-dev": [
+     "--top 0 prints nothing",
+     "the suite passes through run-tests.sh and tests both flags",
+     "the README documents both flags"
+    ],
+    "pipeline": [
+     "the summary matches the final cutoff",
+     "a script regenerates the summary"
+    ],
+    "pr-round": [
+     "attempts, jitter and retry_on behave as the review asked",
+     "the suite passes and holds the review's tests",
+     "the README shows retry_on in a code block"
+    ]
+   },
+   "jev": {
+    "judgments": 1593,
+    "jev_usd": 0.1046
+   }
+  },
+  {
+   "run": "baseline r3",
+   "arm": "A1",
+   "turns": 143,
+   "failed_turns": 6,
+   "oracle_mean": 1.0,
+   "oracle_mean_legacy": 0.6667,
+   "contamination": {
+    "k": 5,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 5,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 12,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 1,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": {
+    "k": 117,
+    "n": 125
+   },
+   "asked_on_ambiguous": {
+    "k": 1,
+    "n": 15
+   },
+   "asked_on_clear": {
+    "k": 5,
+    "n": 125
+   },
+   "streams_without_thread": [],
+   "orphan_turns": 6,
+   "orphan_msgs": [
+    48,
+    90,
+    112,
+    113,
+    120,
+    132
+   ],
+   "request_tokens_mean": 31010.4,
+   "cache_read_share": 0.9522,
+   "usd_measured": 2.1879,
+   "usd_per_turn": 0.0153,
+   "wall_ms_p50": 5009.0,
+   "failing_checks": {},
+   "jev": {
+    "judgments": 1406,
+    "jev_usd": 0.0921
+   }
+  },
+  {
+   "run": "baseline r3",
+   "arm": "A3",
+   "turns": 143,
+   "failed_turns": 0,
+   "oracle_mean": 1.0,
+   "oracle_mean_legacy": 0.8333,
+   "contamination": {
+    "k": 0,
+    "n": 26
+   },
+   "cross_contaminated": {
+    "k": 1,
+    "n": 12
+   },
+   "cross_cited": {
+    "k": 12,
+    "n": 12
+   },
+   "reach_pr_pipeline": {
+    "k": 2,
+    "n": 2
+   },
+   "embargo_probes": {
+    "k": 4,
+    "n": 4
+   },
+   "embargo_leaks": 0,
+   "routing_top1_clear": null,
+   "asked_on_ambiguous": null,
+   "asked_on_clear": null,
+   "streams_without_thread": null,
+   "orphan_turns": null,
+   "orphan_msgs": null,
+   "request_tokens_mean": 60455.1,
+   "cache_read_share": 0.9887,
+   "usd_measured": 2.4176,
+   "usd_per_turn": 0.01691,
+   "wall_ms_p50": 5504.0,
+   "failing_checks": {}
+  }
+ ],
+ "recall_admissions": {
+  "note": "from each run's saved store WAL: notes admitted into a turn, and the thread lens's drops",
+  "this run A1 r1": {
+   "admitted": 157,
+   "thread_entity": 1086,
+   "thread_base": 499,
+   "thread_bar": 474,
+   "thread_own": 301,
+   "in_context": 2918,
+   "budget": 160
+  },
+  "this run A1 r2": {
+   "admitted": 230,
+   "thread_entity": 954,
+   "thread_base": 512,
+   "thread_bar": 463,
+   "thread_own": 238,
+   "in_context": 2952,
+   "budget": 203
+  },
+  "this run A1o r2": {
+   "admitted": 246,
+   "thread_entity": 851,
+   "thread_base": 602,
+   "thread_bar": 436,
+   "thread_own": 233,
+   "in_context": 2989,
+   "budget": 194
+  },
+  "baseline A1 r1": {
+   "admitted": 447,
+   "thread_entity": 746,
+   "thread_base": 486,
+   "thread_bar": 365,
+   "in_context": 3062,
+   "budget": 425,
+   "recursion": 60
+  },
+  "baseline A1o r1": {
+   "admitted": 399,
+   "thread_entity": 988,
+   "thread_base": 385,
+   "thread_bar": 461,
+   "in_context": 2920,
+   "budget": 367,
+   "recursion": 60
+  }
+ },
+ "spend_usd": {
+  "model_per_run": {
+   "A1o r1 (partial)": 3.5577,
+   "A1 r1": 3.7763,
+   "A1o r2": 3.7107,
+   "A1 r2": 3.9891,
+   "A3 r1 (void)": 4.1165
+  },
+  "model_total": 19.1503,
+  "jev_total": 0.4348,
+  "all_in": 19.5851,
+  "line": 20.0,
+  "note": "each turn's own reported usage, summed; Jev from the repaired judgment rows"
+ }
+}
