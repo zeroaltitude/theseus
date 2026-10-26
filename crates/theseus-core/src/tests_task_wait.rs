@@ -229,6 +229,65 @@ async fn a_fan_in_past_the_bound_is_cut_and_the_whole_report_is_kept() {
         .all(|t| t["cut"] == true && t["outputs"].is_string()));
 }
 
+/// What the reports and the running notes may take is `total` characters among
+/// them, and the least a text keeps does not defeat it (the stack review's N5):
+/// an equal share when that is no less than the least; else the first
+/// `total / least` keep the least and the rest take none.
+#[test]
+fn the_least_a_report_keeps_does_not_defeat_the_bound() {
+    use crate::task_wait::{split_room, REPORT_CHARS_MIN as LEAST};
+    assert_eq!(split_room(36_000, 4, 6_000), vec![6_000; 4], "room to spare");
+    assert_eq!(split_room(3_000, 2, 6_000), vec![1_500; 2], "equal shares");
+    assert_eq!(split_room(3_500, 5, 6_000), vec![LEAST, LEAST, LEAST, 0, 0]);
+    assert_eq!(split_room(0, 3, 6_000), vec![0; 3], "past the line: none");
+    assert_eq!(split_room(400, 2, 6_000), vec![0; 2], "under the least: none");
+    for (total, n) in [(3_500, 5), (20_000, 40), (999, 7), (0, 12)] {
+        let sum: usize = split_room(total, n, 6_000).iter().sum();
+        assert!(sum <= total, "{n} texts took {sum} of {total}");
+    }
+}
+
+/// Twelve reports in a fan-in of 2,500 characters: the room holds two at the
+/// least a report keeps; the other ten arrive as a pointer to their whole text
+/// in a kept file, so the bound holds however many reports there are.
+#[tokio::test]
+async fn many_reports_past_the_bound_arrive_as_pointers_after_the_ones_that_fit() {
+    let wait: WaitCall = Arc::new(Mutex::new(json!({"report_chars": 2000})));
+    let r = waiting_rig(
+        &[
+            "CHILD: a", "CHILD: b", "CHILD: c", "CHILD: d", "CHILD: e", "CHILD: f",
+        ],
+        wait,
+        |_| {
+            let lines: Vec<String> = (0..200)
+                .map(|i| format!("src/m{i}.rs:{i} — f{i} — the problem {i} — the fix {i}"))
+                .collect();
+            Scripted::text(&lines.join("\n"))
+        },
+        |c| c.tools.fan_in_chars = 2_500,
+    );
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let nodes = reports_in(&r.core, &parent);
+    assert_eq!(nodes.len(), 6, "{nodes:?}");
+    let held: Vec<&Node> = nodes
+        .iter()
+        .filter(|n| text_of(n).contains("held back"))
+        .collect();
+    assert_eq!(held.len(), 4, "two fit, the other four are pointers");
+    for n in &held {
+        let t = text_of(n);
+        assert!(t.contains("fs_read "), "{t}");
+        assert!(t.chars().count() < 600, "a pointer is short: {t}");
+    }
+    let inline: usize = nodes
+        .iter()
+        .filter(|n| !text_of(n).contains("held back"))
+        .map(|n| text_of(n).chars().count())
+        .sum();
+    assert!(inline < 2_500 + 2 * 400, "{inline} characters inline");
+}
+
 /// The room is half of what is left before the clearing line, never more than
 /// `fan_in_chars`; with none known, `fan_in_chars` alone.
 #[tokio::test]

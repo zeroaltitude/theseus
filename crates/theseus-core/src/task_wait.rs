@@ -652,9 +652,9 @@ fn take(core: &Core, session: &str, ask: &WaitAsk, total: usize) -> anyhow::Resu
                         reports.push(r);
                     }
                 }
-                let per = share(&reports, ask.report_chars, total);
+                let per = shares(&reports, ask.report_chars, total);
                 let (mut records, mut rec) = (Vec::new(), rec);
-                for r in reports {
+                for (r, per) in reports.into_iter().zip(per) {
                     let (more, got, held) = relay(core, session, turn, (r, per), &mut rec)?;
                     records.extend(more);
                     wrote.held = held.or(wrote.held.take());
@@ -687,7 +687,11 @@ fn running_note(store: &Store, e: &Execution, chars: usize) -> (String, Option<u
     let short = task::short(&e.session_id);
     let said = said_so_far(store, &e.session_id);
     let findings = said.as_deref().map(findings_in);
-    let body = said.map_or_else(|| "it has said nothing yet".into(), |t| newest(&t, chars));
+    let body = match (said, chars) {
+        (None, _) => "it has said nothing yet".into(),
+        (Some(_), 0) => format!("the room for notes is used; read them in task {short}'s session"),
+        (Some(t), _) => newest(&t, chars),
+    };
     (
         format!("[Task {short} still running: its latest findings so far]\n{body}"),
         findings,
@@ -725,9 +729,11 @@ fn deliver(
         rec.record(&fact::tool::HoldTaken { hold, mode });
     }
     // The rows of the index, in the order the tasks were named; a task still
-    // running gets a note of its findings so far.
+    // running gets a note of its findings so far, from what the delivered
+    // reports left of the same bound.
     let mut rows = Vec::new();
     let mut notes: Vec<Node> = Vec::new();
+    let mut open: Vec<(usize, Execution)> = Vec::new();
     for id in &ask.tasks {
         let Some(e) = turn.kernel.execution(id)? else {
             continue;
@@ -742,19 +748,24 @@ fn deliver(
             row.chars = d.report.node_text().chars().count();
             (row.cut, row.outputs, row.delivered) = (d.cut, d.outputs.clone(), true);
         } else if row.state == RUNNING {
-            let (text, findings) = running_note(&turn.store, &e, ask.report_chars);
-            (row.findings, row.chars) = (findings, text.chars().count());
-            let author = format!("task:{}", row.short);
-            let note = Node::relayed(
-                session,
-                Some(&turn.turn_id),
-                Origin::Harness,
-                &author,
-                &text,
-            );
-            notes.push(note);
+            open.push((rows.len(), e));
         }
         rows.push(row);
+    }
+    let used: usize = rows.iter().map(|r| r.chars).sum();
+    let each = split_room(total.saturating_sub(used), open.len(), ask.report_chars);
+    for ((at, e), chars) in open.iter().zip(each) {
+        let (text, findings) = running_note(&turn.store, e, chars);
+        let row = &mut rows[*at];
+        (row.findings, row.chars) = (findings, text.chars().count());
+        let author = format!("task:{}", row.short);
+        notes.push(Node::relayed(
+            session,
+            Some(&turn.turn_id),
+            Origin::Harness,
+            &author,
+            &text,
+        ));
     }
     if !notes.is_empty() {
         let records = notes
@@ -823,19 +834,38 @@ pub(crate) fn fan_in_bound(core: &Core, room: Option<(u64, u64)>) -> (usize, &'s
     }
 }
 
-/// What one report may take: `report_chars`, or, when the reports together
-/// pass `total`, each one's share of it (never under the least a report keeps).
-fn share(reports: &[Report], report_chars: usize, total: usize) -> usize {
+/// What each report may take: `report_chars`, or, when the reports together
+/// pass `total`, each one's share of it, never under the least a report keeps.
+/// When there are so many that `total` cannot give each that least, the first
+/// `total / REPORT_CHARS_MIN` keep it and the rest take none: they arrive as a
+/// pointer to their whole text (`fit`), so the floor cannot defeat the bound.
+fn shares(reports: &[Report], report_chars: usize, total: usize) -> Vec<usize> {
     let size = |r: &Report| {
         r.text
             .as_deref()
             .map_or(0, |t| t.chars().count().min(report_chars))
     };
-    let sum: usize = reports.iter().map(size).sum();
-    match sum > total && !reports.is_empty() {
-        true => (total / reports.len()).clamp(REPORT_CHARS_MIN, report_chars),
-        false => report_chars,
+    let n = reports.len();
+    match reports.iter().map(size).sum::<usize>() <= total {
+        true => vec![report_chars; n],
+        false => split_room(total, n, report_chars),
     }
+}
+
+/// `total` characters among `n` texts of at most `cap` each: an equal share
+/// when that is no less than `REPORT_CHARS_MIN`; else the first
+/// `total / REPORT_CHARS_MIN` get the least and the rest nothing.
+pub(crate) fn split_room(total: usize, n: usize, cap: usize) -> Vec<usize> {
+    if n > 0 && total / n >= REPORT_CHARS_MIN {
+        return vec![(total / n).min(cap); n];
+    }
+    let inline = total / REPORT_CHARS_MIN;
+    (0..n)
+        .map(|i| match i < inline {
+            true => REPORT_CHARS_MIN.min(cap),
+            false => 0,
+        })
+        .collect()
 }
 
 /// `r`'s text within `per` characters, and where its whole text is kept when
@@ -861,6 +891,18 @@ fn fit(
             core.tools.outputs.keep_text(&whole, &to).ok().map(|()| to)
         })
         .map(|p| p.display().to_string());
+    if per == 0 {
+        let n = text.lines().filter(|l| !l.trim().is_empty()).count();
+        let n = narrative::count(n as u64, "finding", "findings");
+        let msg = match &kept {
+            Some(path) => format!("{n} held back, the delivered reports took the room; the whole report: fs_read {path}"),
+            None => format!(
+                "{n} held back, the delivered reports took the room; the whole report stays in task {}'s session",
+                r.short
+            ),
+        };
+        return (Some(msg), true, kept);
+    }
     let (cut, _) = crate::toolrun::cap(text, per, |left| {
         let n = left.lines().filter(|l| !l.trim().is_empty()).count();
         match &kept {
