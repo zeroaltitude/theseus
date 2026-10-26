@@ -346,8 +346,8 @@ pub(crate) fn run(
         Ok(a) => a,
         Err(e) => return fail(e),
     };
-    if tc.task.is_some() {
-        return fail(task::DEPTH_REFUSAL);
+    if let Err(refusal) = crate::task_lineage::check_depth(tc.kernel, tc.execution_id) {
+        return fail(refusal);
     }
     if let Err(e) = check(&a) {
         return fail(e);
@@ -431,9 +431,7 @@ fn split(core: &Core, tc: &TurnCtx<'_>, a: &Args) -> Result<f64, String> {
         .execution(tc.execution_id)
         .map_err(|e| format!("{e:#}"))?
         .ok_or("this session has no execution")?;
-    if parent.parent.is_some() {
-        return Err(task::DEPTH_REFUSAL.into());
-    }
+    crate::task_lineage::check_depth(tc.kernel, &parent.id)?;
     let left = parent.budget.available();
     // Under a limit that notifies, half of the limit, even once the session has
     // passed it, as a task's quarter is (theseus-usei).

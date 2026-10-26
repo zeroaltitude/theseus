@@ -14,7 +14,7 @@
 //!   session outspends its limit through its tasks, and the only way past a
 //!   carve is an approved reset of the task's own spend, which the parent's
 //!   spend still counts.
-//! - **Depth one.** A task cannot open tasks.
+//! - **Depth.** Tasks may go `task_depth_limit` (10) deep (`task_depth.rs`).
 //! - **The end.** The frame that ends a task (its last turn, a failed turn, a
 //!   cancel) puts it on the parent's `reports`, and the parent's next turn
 //!   reads them (`take_reports`).
@@ -96,7 +96,7 @@ impl Kernel {
     ///   brief as the first node, where it reports);
     /// - the rows `execution.opened`, `budget.carved`, and `execution.queued`.
     ///
-    /// A task cannot open tasks (`TaskDepth`), and a parent with nothing left
+    /// A parent at the depth limit opens none (`TaskDepth`), and a parent with nothing left
     /// has nothing to carve (`NothingToCarve`); either way nothing is written.
     /// A call that opened its task before gets that task back, and writes
     /// nothing.
@@ -191,8 +191,17 @@ impl Kernel {
                 available_before,
             });
         }
-        if parent.parent.is_some() || parent.kind == SessionKind::Task {
-            return Err(KernelError::TaskDepth { id: parent.id }.into());
+        // The bound is the depth of the parent's chain, not a flag: a task
+        // at the limit opens nothing (theseus-tecj5).
+        let depth = self.task_depth(&parent.id)?;
+        let limit = self.task_depth_limit();
+        if depth >= limit as usize {
+            return Err(KernelError::TaskDepth {
+                id: parent.id,
+                depth,
+                limit,
+            }
+            .into());
         }
         if needs_turn {
             crate::kernel::require_turn(&parent)?;

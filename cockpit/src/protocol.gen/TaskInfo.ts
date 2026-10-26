@@ -68,4 +68,9 @@ arrangement?: TaskArrangement,
  * A check task's basis (M5 28a): what it checks, and why it is
  * independent of it.
  */
-check?: TaskCheck, };
+check?: TaskCheck, 
+/**
+ * Task levels above it and including it: 1 for a conversation's task
+ * (theseus-tecj5). Absent (0) from a daemon before it.
+ */
+depth?: number, };

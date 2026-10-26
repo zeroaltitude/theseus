@@ -89,6 +89,14 @@ pub struct KernelConfig {
     /// How far ahead and how many wakes (theseus-8ux6x).
     #[serde(default)]
     pub wakes: crate::wake_kinds::WakeLimits,
+    /// How many levels of tasks may sit below a conversation
+    /// (theseus-tecj5, `task_depth.rs`).
+    #[serde(default = "default_task_depth")]
+    pub task_depth_limit: u32,
+}
+
+fn default_task_depth() -> u32 {
+    crate::task_depth::DEFAULT_DEPTH_LIMIT
 }
 
 fn default_runaway() -> Micros {
@@ -126,6 +134,7 @@ impl Default for KernelConfig {
             daily_step_micros: default_step(),
             burn_line_micros: 0,
             wakes: Default::default(),
+            task_depth_limit: default_task_depth(),
         }
     }
 }
@@ -177,9 +186,15 @@ pub enum KernelError {
     UnknownAction(CorrelationId),
     #[error("kernel is not accepting events yet (startup step {step})")]
     NotAccepting { step: u8 },
-    /// A task cannot open tasks (DD7: depth one).
-    #[error("execution {id} is a task, and a task cannot start tasks (depth one)")]
-    TaskDepth { id: ExecutionId },
+    /// A task would sit deeper than the limit (DD7; theseus-tecj5).
+    #[error(
+        "execution {id} sits at task depth {depth}, and tasks may go {limit} deep: it cannot start another"
+    )]
+    TaskDepth {
+        id: ExecutionId,
+        depth: usize,
+        limit: u32,
+    },
     /// Nothing is left under the parent's limit to carve a task's budget from.
     #[error(
         "nothing to carve a task's budget from: {} of the {} limit is left ({} spent)",

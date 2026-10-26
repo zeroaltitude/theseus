@@ -518,7 +518,7 @@ fn the_timeout_is_clamped_to_the_range_and_to_the_turns_deadline() {
     assert_eq!(secs(Some(200), Some(10_000)), 200);
 }
 
-/// `task_wait` in a task session is refused with the depth words, and it runs
+/// `task_wait` in a task session at the depth limit (here 1) is refused with the depth words, and it runs
 /// in a group of its own beside other calls.
 #[tokio::test]
 async fn a_task_session_cannot_wait_and_a_wait_runs_alone() {
@@ -539,7 +539,7 @@ async fn a_task_session_cannot_wait_and_a_wait_runs_alone() {
             }
             starts(&["CHILD: nested"])
         },
-        |_| {},
+        |c| c.kernel.task_depth = 1,
     );
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
@@ -549,7 +549,7 @@ async fn a_task_session_cannot_wait_and_a_wait_runs_alone() {
     })
     .await;
     let (text, _) = result_of(&r.core, &t.session_id, "n_1");
-    assert_eq!(text, crate::task::DEPTH_REFUSAL);
+    assert_eq!(text, crate::task_lineage::depth_refusal(1, 1));
 }
 
 /// A person's message ends the wait at once, the tasks untouched.

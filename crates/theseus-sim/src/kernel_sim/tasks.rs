@@ -20,7 +20,7 @@ use super::World;
 
 impl World {
     /// The turn holding `exec_id` opens a task. A task's own turn is refused
-    /// (depth one), and writes nothing; a parent with nothing left to carve
+    /// (at the depth limit), and writes nothing; a parent with nothing left to carve
     /// opens none. Returns whether a crash came after it.
     pub(super) fn open_a_task(&mut self, exec_id: &str) -> Result<bool> {
         let parent = self.kernel.execution(exec_id)?.unwrap();
@@ -44,7 +44,7 @@ impl World {
                     | (Some(KernelError::NothingToCarve { .. }), false)
             )
         };
-        let a_task = parent.kind == SessionKind::Task || parent.parent.is_some();
+        let a_task = self.kernel.task_depth(&parent.id)? >= self.kernel.task_depth_limit() as usize;
         let t = match opened {
             Err(e) if refused(&e, a_task) => {
                 if self.kernel.store().last_position() != at {
@@ -54,7 +54,7 @@ impl World {
                 return Ok(false);
             }
             Err(e) => return Err(e),
-            Ok(_) if a_task => bail!("{exec_id}, a task, opened a task"),
+            Ok(_) if a_task => bail!("{exec_id}, at the depth limit, opened a task"),
             Ok(t) => t,
         };
         let task = &t.task;
@@ -177,8 +177,8 @@ impl World {
             let p = by_id
                 .get(pid.as_str())
                 .ok_or_else(|| anyhow::anyhow!("{at}: task {}'s parent {pid} is gone", t.id))?;
-            if p.parent.is_some() || t.kind != SessionKind::Task {
-                bail!("{at}: task {} under {pid} is more than one deep", t.id);
+            if t.kind != SessionKind::Task {
+                bail!("{at}: execution {} under {pid} is not a task", t.id);
             }
             if !t.state.is_terminal() && task_unparked(t) {
                 bail!("{at}: task {} waits on input with no wake of its own", t.id);
