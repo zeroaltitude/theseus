@@ -1058,5 +1058,41 @@ class Adapter(unittest.TestCase):
         self.assertEqual(theseus_agent.SAMPLER, "/installed-agent/bin/sampler.py")
 
 
+class ListPrices(unittest.TestCase):
+    """The price rows a non-Anthropic arm needs (theseus-01n2l)."""
+
+    NEW = ("glm-5.3", "kimi-k3.1-pro", "deepseek-v4-pro", "claude-sonnet-5", "claude-opus-5")
+
+    def test_every_row_has_the_four_classes_positive(self):
+        for name, row in ef.LIST_PRICES.items():
+            self.assertEqual(set(row), set(ef.CLASSES), name)
+            for c in ef.CLASSES:
+                self.assertGreater(row[c], 0, f"{name} {c}")
+
+    def test_a_reservation_prices_each_new_model(self):
+        for m in self.NEW:
+            for name in (m, f"someprovider/{m}"):
+                r = tb.reservation_usd(name)
+                self.assertIsInstance(r, float, name)
+                self.assertGreater(r, 0, name)
+            p = ef.LIST_PRICES[m]
+            worst = (tb.RESERVE_OUTPUT_TOKENS * p["output"] + tb.RESERVE_INPUT_TOKENS * p["input"]) / 1e6
+            self.assertGreaterEqual(tb.reservation_usd(m), worst, m)
+
+    def test_one_dataset_of_a_cn_model_and_a_claude_model_prices_completely(self):
+        by = {
+            "claude-sonnet-5": {"input": 1_000_000, "cache_read": 2_000_000, "cache_write": 0, "output": 500_000},
+            "zai/glm-5.3": {"input": 3_000_000, "cache_read": 1_000_000, "cache_write": 0, "output": 1_000_000},
+        }
+        s, g = ef.LIST_PRICES["claude-sonnet-5"], ef.LIST_PRICES["glm-5.3"]
+        want = (1 * s["input"] + 2 * s["cache_read"] + 0.5 * s["output"]
+                + 3 * g["input"] + 1 * g["cache_read"] + 1 * g["output"])
+        got = ef.list_price(by)
+        self.assertIsNotNone(got)
+        self.assertAlmostEqual(got, want)
+        # The two Opus models are one character apart and priced apart.
+        self.assertNotEqual(ef.LIST_PRICES["claude-opus-5"], ef.LIST_PRICES["claude-opus-5-5"])
+
+
 if __name__ == "__main__":
     unittest.main()
