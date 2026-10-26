@@ -88,7 +88,11 @@ LIST_PRICES: dict[str, dict[str, float]] = {
 GRADER_TIMEOUT_ERRORS = frozenset({"VerifierTimeoutError"})
 # A trial that spent more than this, in real dollars, is named in the report
 # (theseus-w052 2): the spend limit is $2.00 plus one reservation, so a trial
-# can pass it by up to that much, and the arms' budgets are $2.00.
+# can pass it by up to that much, and the arms' budgets were $2.00.
+# On a no-cap run (theseus-710ch) this is no longer a budget but the line the
+# earlier cells ran under, so it stays here as the historical comparison: it
+# says which uncapped trials the old cap would have cut. The per-trial record
+# carries the same answer for its own cap (`limits.would_have_been_capped`).
 OVER_BUDGET_USD = 2.0
 
 # Anthropic's usage keys, by class.
@@ -510,15 +514,18 @@ def pi_end(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def pi_limits(spend: dict[str, Any], answers: int | None, max_budget_usd: float | None,
-              max_turns: int | None, turns: int | None = None) -> dict[str, Any]:
+              max_turns: int | None, turns: int | None = None,
+              cap_asked_usd: float | None = None) -> dict[str, Any]:
     """The other arms' caps, held against a Pi trial that had none: Pi has
     no spend cap and no turn cap, so the trial ran unbounded, and the record
     says whether it passed the caps the others ran under (`max_budget_usd`,
     against its dollars; `max_turns`, against its `turns`, its answers less
     the failed requests it retried, as Claude Code's `--max-turns` counts
     them; `answers` is every answer, a retry's failure included). None where
-    a side is unknown."""
+    a side is unknown. `cap_asked_usd` as `limits`' is: the cap a no-cap run
+    dropped, so an uncapped cell reads beside a capped one."""
     cost = spend.get("cost_usd")
+    dropped = max_budget_usd is None and cap_asked_usd is not None
     return {
         "enforced": False,
         "max_budget_usd": max_budget_usd,
@@ -527,6 +534,9 @@ def pi_limits(spend: dict[str, Any], answers: int | None, max_budget_usd: float 
         "turns": turns,
         "over_budget": None if max_budget_usd is None or cost is None else cost > max_budget_usd,
         "over_turns": None if max_turns is None or turns is None else turns > max_turns,
+        "no_cap": dropped,
+        "cap_asked_usd": cap_asked_usd,
+        "would_have_been_capped": (cost > cap_asked_usd) if dropped and cost is not None else None,
     }
 
 
@@ -813,7 +823,7 @@ def pi_wall(entries: list[dict[str, Any]]) -> float | None:
 
 
 def pi_record(logs: Path, max_budget_usd: float | None = None,
-              max_turns: int | None = None) -> dict[str, Any]:
+              max_turns: int | None = None, cap_asked_usd: float | None = None) -> dict[str, Any]:
     """A Pi trial's record, from its agent directory: the session log
     (`pi/sessions/*.jsonl`), the stream (`pi.txt`), and the trajectory. It
     adds `end` (`pi_end`) and `limits` (`pi_limits`), the caps the other
@@ -830,7 +840,7 @@ def pi_record(logs: Path, max_budget_usd: float | None = None,
     rec["end"] = end
     counted = spend["spend_from"] in ("session_log", "stream")
     rec["limits"] = pi_limits(spend, end["answers"] if counted else None, max_budget_usd, max_turns,
-                              end["turns"] if counted else None)
+                              end["turns"] if counted else None, cap_asked_usd=cap_asked_usd)
     rec["effort_ran"] = pi_effort_ran(entries) if entries else None
     return rec
 
@@ -856,15 +866,22 @@ def list_price(by_model: dict[str, dict[str, Any]]) -> float | None:
 
 
 def limits(rec: dict[str, Any], max_budget_usd: float | None, max_turns: int | None,
-           enforced: bool) -> dict[str, Any]:
+           enforced: bool, cap_asked_usd: float | None = None) -> dict[str, Any]:
     """The other arms' caps held against a trial: `enforced` when the
     harness was given them as its own options, else recorded only, and the
     trial flagged where it passed them. The dollars held are the list
-    price's, else the harness's own; the turns are its model calls."""
+    price's, else the harness's own; the turns are its model calls.
+
+    `cap_asked_usd` is the cap the driver asked for, which a no-cap run drops
+    (`measure.budget_cap`): `no_cap` is then true, `max_budget_usd` is None,
+    and `would_have_been_capped` says whether the cap this trial did *not*
+    run under would have cut it — the comparison a page needs to set an
+    uncapped cell beside a capped one honestly."""
     cost = rec.get("list_cost_usd")
     if cost is None:
         cost = rec.get("cost_usd")
     turns = rec.get("model_calls")
+    dropped = max_budget_usd is None and cap_asked_usd is not None
     return {
         "enforced": enforced,
         "max_budget_usd": max_budget_usd,
@@ -872,6 +889,9 @@ def limits(rec: dict[str, Any], max_budget_usd: float | None, max_turns: int | N
         "turns": turns,
         "over_budget": None if max_budget_usd is None or cost is None else cost > max_budget_usd,
         "over_turns": None if max_turns is None or turns is None else turns > max_turns,
+        "no_cap": dropped,
+        "cap_asked_usd": cap_asked_usd,
+        "would_have_been_capped": (cost > cap_asked_usd) if dropped and cost is not None else None,
     }
 
 

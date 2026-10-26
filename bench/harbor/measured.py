@@ -89,8 +89,14 @@ class MeasuredArm:
 
     def __init__(self, *args: Any, version: str | None = None, max_budget_usd: Any = None,
                  max_turns: Any = None, **kwargs: Any):
+        asked = None if max_budget_usd in (None, "") else float(max_budget_usd)
+        # The no-cap run takes the spend cap off every arm (`measure.no_cap`):
+        # a harness that enforces one is given none, and a harness that only
+        # records one flags nothing. What the driver asked for is kept for the
+        # trial's record. The turn cap is not a spend cap and is untouched.
+        self.cap_asked_usd = asked
         self.caps = {
-            "max_budget_usd": None if max_budget_usd in (None, "") else float(max_budget_usd),
+            "max_budget_usd": measure.budget_cap(asked),
             "max_turns": None if max_turns in (None, "") else int(max_turns),
         }
         if self.EFFORT_OPTION and kwargs.get(self.EFFORT_OPTION) is None:
@@ -175,7 +181,7 @@ class MeasuredArm:
             rec = ef.stamp(logs, self.record(), self.effort_asked(), self.version(),  # type: ignore[attr-defined]
                            self.parse_version)  # type: ignore[attr-defined]
             rec["limits"] = ef.limits(rec, self.caps["max_budget_usd"], self.caps["max_turns"],
-                                      self.caps_enforced())
+                                      self.caps_enforced(), cap_asked_usd=self.cap_asked_usd)
             ef.write(logs, rec)
             t = rec.get("tokens") or {}
             supersedes = self.RECORD_SUPERSEDES_HARBORS and rec.get("spend_from") == "db"

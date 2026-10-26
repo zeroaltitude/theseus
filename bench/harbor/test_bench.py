@@ -22,6 +22,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+import measure as msr
 import sampler as smp
 import theseus_atif as atif
 import efficiency as ef
@@ -342,20 +343,22 @@ class Routed(unittest.TestCase):
         budget plus one worst-case reservation at the arm's model (128,000
         output tokens at the output price, and as many input tokens at the
         input price, to a quarter dollar)."""
+        capped: dict[str, str] = {}   # no NO_CAP_ENV: the capped run
         self.assertEqual(tb.TRIAL_BUDGET_USD, 2.0)
-        self.assertEqual(tb.spend_limit_usd("claude-sonnet-5-5"), 3.75)
-        self.assertEqual(tb.spend_limit_usd("anthropic/claude-sonnet-5-5"), 3.75)
+        self.assertEqual(tb.trial_budget_usd(capped), 2.0)
+        self.assertEqual(tb.spend_limit_usd("claude-sonnet-5-5", capped), 3.75)
+        self.assertEqual(tb.spend_limit_usd("anthropic/claude-sonnet-5-5", capped), 3.75)
         self.assertEqual(tb.SPEND_LIMIT_USD, 3.75)
-        self.assertEqual(tb.spend_limit_usd("claude-opus-5-5"), 5.25)
+        self.assertEqual(tb.spend_limit_usd("claude-opus-5-5", capped), 5.25)
         for m in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-haiku-5-5"):
             p = ef.LIST_PRICES[m]
             worst = 128_000 * p["output"] / 1e6 + 128_000 * p["input"] / 1e6
             self.assertGreaterEqual(tb.reservation_usd(m), worst, m)
             self.assertLess(tb.reservation_usd(m), worst + tb.RESERVE_STEP_USD, m)
             # Spent just under the budget, the next call's reserve still fits.
-            self.assertGreaterEqual(tb.spend_limit_usd(m), 1.99 + worst, m)
+            self.assertGreaterEqual(tb.spend_limit_usd(m, capped), 1.99 + worst, m)
         with self.assertRaises(ValueError):
-            tb.spend_limit_usd("no-such-model")
+            tb.spend_limit_usd("no-such-model", capped)
 
     def test_each_arm_writes_its_day_ceiling_into_the_config_it_uploads(self):
         """theseus-l9on: the adapter's uploaded config, read back, carries the
@@ -462,6 +465,134 @@ class Routed(unittest.TestCase):
         self.assertGreater(128_000 * 20.0 / 1e6, 2.0)   # Opus 5.5
         self.assertGreater(128_000 * 50.0 / 1e6, 2.0)   # Fable 5.1
         self.assertLess(128_000 * 50.0 / 1e6 + 10.0, tb.ROUTED_SPEND_LIMIT_USD)  # a 1M-token prompt
+
+
+class NoCap(unittest.TestCase):
+    """The gauntlet's no-cap switch (theseus-710ch, the owner 2026-10-25
+    23:17: the $2 per-trial cap "comes off for every harness").
+
+    It has to cover both halves of a cap that was never one thing: the two
+    arms whose cap the harness really enforced (Theseus's `spend_limit_usd`
+    and Claude Code's `--max-budget-usd`), and the six whose `max_budget_usd`
+    was only recorded and used to flag a trial that passed it."""
+
+    CAPPED: dict[str, str] = {}
+    OFF = {msr.NO_CAP_ENV: "1"}
+
+    def test_the_switch_reads_a_shells_truth_values(self):
+        for v in ("1", "yes", "true", "on", "ON"):
+            self.assertTrue(msr.no_cap({msr.NO_CAP_ENV: v}), v)
+        for v in ("", " ", "0", "off", "false", "no", "NO"):
+            self.assertFalse(msr.no_cap({msr.NO_CAP_ENV: v}), repr(v))
+        self.assertFalse(msr.no_cap(self.CAPPED))
+
+    def test_a_recorded_cap_is_dropped_and_an_enforced_one_is_not_asked_for(self):
+        """`budget_cap` is the one place every arm asks: None under the
+        switch, so a harness that enforces a cap is given none and a harness
+        that only records one flags nothing. The turn cap is not a spend cap
+        and never passes through here."""
+        self.assertEqual(msr.budget_cap(2.0, self.CAPPED), 2.0)
+        self.assertEqual(msr.budget_cap(5.0, self.CAPPED), 5.0)
+        self.assertIsNone(msr.budget_cap(2.0, self.OFF))
+        self.assertIsNone(msr.budget_cap(None, self.CAPPED))
+        self.assertIsNone(msr.budget_cap(None, self.OFF))
+
+    def test_the_theseus_arms_limit_becomes_a_runaway_guard_not_no_limit(self):
+        """A trial that loops must still be refused, because a driver's spend
+        stop counts finished trials only and overshoots by about one trial
+        times the parallelism (memory `tb-driver-spend-stop-latches`). The
+        guard is far above anything any arm has run: the most expensive
+        uncapped trial on record is Codex's $6.54 (10-25)."""
+        self.assertEqual(tb.trial_budget_usd(self.OFF), tb.NO_CAP_TRIAL_LIMIT_USD)
+        self.assertGreater(tb.NO_CAP_TRIAL_LIMIT_USD, 7 * 6.54)
+        plain = tb.spend_limit_usd("claude-sonnet-5-5", self.OFF)
+        self.assertEqual(plain, 51.75)
+        self.assertGreater(plain, tb.spend_limit_usd("claude-sonnet-5-5", self.CAPPED))
+        # The routed arm's $20 was the budget plus Fable's reserve; so is this.
+        self.assertEqual(tb.routed_spend_limit_usd(self.CAPPED), tb.ROUTED_SPEND_LIMIT_USD)
+        self.assertEqual(tb.routed_spend_limit_usd(self.OFF),
+                         round(tb.NO_CAP_TRIAL_LIMIT_USD + tb.reservation_usd("claude-fable-5-1"), 2))
+
+    def test_the_guard_still_clears_one_reservation_at_every_model(self):
+        """The reservation must fit under the limit or the kernel refuses the
+        call and the trial ends at exit 5 having spent almost nothing —
+        `theseus-xkzsn`'s hazard, which would read as a weak arm rather than
+        as a broken cell. So the guard replaces the budget term only."""
+        for m in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-haiku-5-5"):
+            limit = tb.spend_limit_usd(m, self.OFF)
+            self.assertGreaterEqual(limit, tb.NO_CAP_TRIAL_LIMIT_USD + tb.reservation_usd(m), m)
+            # And a trial at the guard's edge is not refused by the reserve alone.
+            self.assertGreaterEqual(limit, tb.NO_CAP_TRIAL_LIMIT_USD - 0.01 + tb.reservation_usd(m), m)
+
+    def test_the_profile_the_trial_writes_carries_the_guard_and_its_day_ceiling(self):
+        values = tb.settings("claude-sonnet-5-5", "/app",
+                             spend_limit_usd=tb.spend_limit_usd("claude-sonnet-5-5", self.OFF))
+        k = {key: v for (table, key), v in values.items() if table == "kernel"}
+        self.assertEqual(k["spend_limit_usd"], 51.75)
+        # The ceiling stays above the limit, and still stops rather than warns.
+        self.assertGreater(k["daily_spend_ceiling_usd"], k["spend_limit_usd"])
+        self.assertEqual(k["daily_spend_ceiling_mode"], tb.DAY_CEILING_MODE)
+
+    def test_a_trials_record_says_it_ran_uncapped_and_whether_the_old_cap_would_have_cut_it(self):
+        """The page has to put an uncapped cell beside a capped one, so the
+        record carries the cap that was dropped as well as the fact of it."""
+        rec = {"list_cost_usd": 3.5, "model_calls": 9}
+        off = ef.limits(rec, msr.budget_cap(2.0, self.OFF), 200, False, cap_asked_usd=2.0)
+        self.assertEqual((off["no_cap"], off["max_budget_usd"], off["cap_asked_usd"]), (True, None, 2.0))
+        self.assertIs(off["over_budget"], None)          # no cap: nothing to pass
+        self.assertIs(off["would_have_been_capped"], True)
+        self.assertIs(off["over_turns"], False)          # the turn cap is untouched
+        on = ef.limits(rec, msr.budget_cap(2.0, self.CAPPED), 200, True, cap_asked_usd=2.0)
+        self.assertEqual((on["no_cap"], on["max_budget_usd"]), (False, 2.0))
+        self.assertIs(on["over_budget"], True)
+        # A cheap uncapped trial the old cap would not have touched.
+        cheap = ef.limits({"list_cost_usd": 0.12, "model_calls": 9}, None, 200, False, cap_asked_usd=2.0)
+        self.assertIs(cheap["would_have_been_capped"], False)
+        # No cap asked for at all: the fields say so rather than guessing.
+        none = ef.limits(rec, None, 200, False)
+        self.assertEqual((none["no_cap"], none["cap_asked_usd"], none["would_have_been_capped"]),
+                         (False, None, None))
+
+    def test_pis_record_carries_the_same_three_fields(self):
+        """Pi's limits are built by their own function, so they can drift."""
+        spend = {"cost_usd": 3.5}
+        off = ef.pi_limits(spend, 4, msr.budget_cap(2.0, self.OFF), 200, 3, cap_asked_usd=2.0)
+        self.assertEqual((off["no_cap"], off["cap_asked_usd"], off["would_have_been_capped"]),
+                         (True, 2.0, True))
+        self.assertIs(off["over_budget"], None)
+        self.assertFalse(off["enforced"])
+
+    def test_run_py_takes_the_cap_off_by_default_and_records_which_it_took(self):
+        """The owner's decision is the default, and `--cap` reproduces a
+        capped cell. Either way the state is in the run's record, so the two
+        are never read as one series."""
+        import run as runmod
+        with tempfile.TemporaryDirectory() as d:
+            plan = Path(d) / "p.json"
+            plan.write_text(json.dumps({"name": "p", "k": 1}))
+            lines: list[list[str]] = []
+            for argv, want in (([], True), (["--no-cap"], True), (["--cap"], False)):
+                before = os.environ.get(msr.NO_CAP_ENV)
+                try:
+                    with unittest.mock.patch.object(
+                            runmod, "prepare",
+                            side_effect=lambda *_a, **_k: {"job_name": "j", "jobs_dir": d,
+                                                           "plan": {}, "host": {}, "parallel": 4,
+                                                           "lines": [["harbor", "run"]]}):
+                        code = runmod.main(["--plan", str(plan), *argv, "--", "harbor", "run"],
+                                           runner=lambda line: lines.append(line) or 0)
+                    self.assertEqual(code, 0, argv)
+                    self.assertIs(msr.no_cap(), want, argv)
+                    rec = json.loads((Path(d) / "j.run.json").read_text())
+                    self.assertIs(rec["no_cap"], want, argv)
+                finally:
+                    if before is None:
+                        os.environ.pop(msr.NO_CAP_ENV, None)
+                    else:
+                        os.environ[msr.NO_CAP_ENV] = before
+            # `--no-cap --cap` is a contradiction, not a silent last-wins.
+            with self.assertRaises(SystemExit):
+                runmod.main(["--plan", str(plan), "--no-cap", "--cap", "--", "harbor", "run"])
 
 
 class ExitCodes(unittest.TestCase):
