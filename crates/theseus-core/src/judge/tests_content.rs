@@ -15,6 +15,9 @@ use crate::session::SessionRecord;
 use crate::tests_judge::{kinds, rig_with, texts, Rig};
 use theseus_protocol::SessionKind;
 
+/// What a test's callback saw told: the session, the flag, the node.
+type Told = Vec<(String, Flag, Option<String>)>;
+
 fn no(jev: &FakeJev) {
     for q in ["injection", "secret", "confidential", "personal"] {
         jev.script(
@@ -407,8 +410,7 @@ async fn each_label_raised_is_told_once() {
     yes(&jev, "secret", 0.95);
     let r = rig(&jev, |_| {});
     let sid = session(&r);
-    let told: std::sync::Arc<std::sync::Mutex<Vec<(String, Flag, Option<String>)>>> =
-        Default::default();
+    let told: std::sync::Arc<std::sync::Mutex<Told>> = Default::default();
     let sink = told.clone();
     let svc = &r.core.runner.judge;
     svc.label_told(move |session, label| {
