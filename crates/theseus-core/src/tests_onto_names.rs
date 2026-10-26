@@ -312,6 +312,22 @@ async fn a_chain_asked_over_two_nights_clusters() {
     assert_eq!(r.jev.seen().len(), 22, "the pair, and the kind's name");
 }
 
+/// The chain test on a machine that says it is busy (theseus-75t4q): the sweep
+/// waits out the host's CPU or IO pressure between two questions
+/// (`judged::pace`), up to 10 s each, and the test asks 20 pairs on its first
+/// night: 190 s on a loaded host, past nextest's 120 s kill, 1 run in 4 on the
+/// owner's machine. The test runs again in namespaces with fake pressure files
+/// saying IO is busy (as `tests_activation_pace` does), so the host's own
+/// load is no input; where namespaces can't be made it says so and passes.
+#[test]
+fn a_chain_clusters_on_a_busy_machine() {
+    let name = "tests_onto_names::a_chain_asked_over_two_nights_clusters";
+    let Some(text) = crate::tests_activation_pace::namespaced(name, "test tests_onto_names") else {
+        return;
+    };
+    assert!(text.contains(&format!("test {name} ... ok")), "{text}");
+}
+
 /// A kept yes goes with its `kind <a> <b>` ask at 30 days, and not before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_kept_yes_is_pruned_with_its_ask() {

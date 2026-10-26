@@ -32,7 +32,7 @@ use theseus_judge::Input;
 use theseus_ontology::sweep::fold;
 use theseus_ontology::{CategoryId, Ontology};
 
-use super::judged::{acts, named, noul, Asked, Run, KIND_PACK, NAME_PACK};
+use super::judged::{acts, named, noul, pace, Asked, Run, KIND_PACK, NAME_PACK};
 use super::mint::{self, Hints};
 use crate::rpc::Core;
 
@@ -124,7 +124,7 @@ impl Run<'_> {
                 names: names.clone(),
             };
             if asked > 0 {
-                theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                pace().await;
             }
             let context = json!({"category": id});
             match self.ask(NAME_PACK, Input::NameIt(input), context).await {
@@ -209,7 +209,7 @@ impl Run<'_> {
                 second: side(self, &b),
             };
             if asked > 0 {
-                theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                pace().await;
             }
             match self
                 .ask(KIND_PACK, Input::SameKind(input), json!({"a": a, "b": b}))
@@ -303,7 +303,7 @@ impl Run<'_> {
                 names: names.iter().take(NAMES).cloned().collect(),
             };
             if asked > 0 {
-                theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                pace().await;
             }
             let context = json!({"cluster": cluster.key});
             match self.ask(NAME_PACK, Input::NameIt(input), context).await {
