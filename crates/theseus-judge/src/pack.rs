@@ -37,9 +37,9 @@ use crate::learn::RollbackRule;
 
 /// Every pack version this build knows, by file name: the test pack, §2.4's six, `security.v3` beside
 /// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
-/// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v8`
+/// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v9`
 /// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
-/// theseus-a1wvq and theseus-f9qa8). Older versions
+/// theseus-a1wvq and theseus-f9qa8; `run_tool` and `commentary`, theseus-gezlj). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
@@ -63,6 +63,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v6", include_str!("../packs/route.v6.toml")),
     ("route.v7", include_str!("../packs/route.v7.toml")),
     ("route.v8", include_str!("../packs/route.v8.toml")),
+    ("route.v9", include_str!("../packs/route.v9.toml")),
     ("reply_data.v1", include_str!("../packs/reply_data.v1.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
@@ -1380,6 +1381,19 @@ mod tests {
                     "rollback [labels_per_day on_path_p95]",
                 ],
             ),
+            (
+                "route.v9",
+                &[
+                    "Inbound Inbound SessionProfile Route",
+                    "data Choice [open private unclear]",
+                    "mode Choice decides [run_tool commentary trivial quick chat sophisticated deep_coding routine_coding review other]",
+                    "persona Choice from Personas + [prior] only_when Personas",
+                    "personal Choice [none elicit expose]",
+                    "reply_effort Choice decides [low medium high xhigh max leave]",
+                    "seal Choice [yes no] only_when ThreadNow",
+                    "rollback [labels_per_day on_path_p95]",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1456,6 +1470,11 @@ mod tests {
             "route.v8 keeps v7's rules"
         );
         assert_eq!(
+            rules("route.v9"),
+            rules("route.v8"),
+            "route.v9 keeps v8's rules"
+        );
+        assert_eq!(
             rules("classify.v2"),
             vec![RollbackRule::LabelsPerDay {
                 label: "wrong thread".into(),
@@ -1497,8 +1516,8 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            30,
-            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, \
+            31,
+            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v9, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
              onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1 and reply_data.v1"
         );
@@ -1817,6 +1836,80 @@ mod tests {
             )
         );
         assert_eq!(v8.description, v7.description);
+    }
+
+    /// route.v9 (theseus-gezlj) is route.v8 word for word, but for the `mode`
+    /// question's two new kinds, `reply_effort`'s `leave` in place of
+    /// `unclear`, and the description. The new kinds sit before the ones that
+    /// swallowed their turns (options are read in order), and the questions
+    /// that decide nothing, the thresholds and both rollback rules are v8's.
+    #[test]
+    fn route_v9_is_v8_but_two_kinds_and_leave() {
+        let (v8, v9) = (by_name("route.v8").unwrap(), by_name("route.v9").unwrap());
+        for q in ["data", "persona", "seal", "personal"] {
+            assert_eq!(v9.question(q), v8.question(q), "{q} word for word");
+        }
+        let ids = |p: &Pack| p.questions.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&v9), ids(&v8), "the same questions");
+        let opts = |q: &QuestionDef| q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>();
+        let means = |q: &QuestionDef, id: &str| {
+            q.options
+                .iter()
+                .find(|o| o.id == id)
+                .unwrap()
+                .means
+                .clone()
+                .unwrap_or_default()
+        };
+        let (m8, m9) = (v8.question("mode").unwrap(), v9.question("mode").unwrap());
+        assert_eq!(
+            opts(m9),
+            [
+                "run_tool",
+                "commentary",
+                "trivial",
+                "quick",
+                "chat",
+                "sophisticated",
+                "deep_coding",
+                "routine_coding",
+                "review",
+                "other"
+            ]
+        );
+        for id in opts(m8) {
+            assert_eq!(means(m9, &id), means(m8, &id), "{id} is v8's word for word");
+        }
+        let position = |id: &str| opts(m9).iter().position(|o| o == id).unwrap();
+        assert!(position("run_tool") < position("quick"));
+        assert!(position("run_tool") < position("routine_coding"));
+        assert!(position("commentary") < position("trivial"));
+        assert!(position("commentary") < position("chat"));
+        assert!(means(m9, "run_tool").contains("command, script or tool to be run"));
+        assert!(means(m9, "commentary").contains("asks for nothing"));
+        assert_eq!(
+            (&m9.instructions, &m9.decides, &m9.kind, &m9.thresholds, &m9.no_match),
+            (&m8.instructions, &m8.decides, &m8.kind, &m8.thresholds, &m8.no_match)
+        );
+        let (e8, e9) = (
+            v8.question("reply_effort").unwrap(),
+            v9.question("reply_effort").unwrap(),
+        );
+        assert_eq!(opts(e9), ["low", "medium", "high", "xhigh", "max", "leave"]);
+        for id in ["low", "medium", "high", "xhigh", "max"] {
+            assert_eq!(means(e9, id), means(e8, id), "{id} is v8's word for word");
+        }
+        assert!(means(e9, "leave").contains("keep the effort the session's profile already has"));
+        assert_eq!(e9.no_match.as_deref(), Some("leave"), "no `unclear` effort left");
+        assert!(!opts(e9).iter().any(|o| o == "unclear"));
+        assert_eq!(v9.rollback, v8.rollback, "both rules, word for word");
+        assert_eq!(v9.version, 9);
+        assert_eq!(
+            (v9.point, v9.builder, v9.baseline, v9.action, v9.state_cap_tokens),
+            (v8.point, v8.builder, v8.baseline, v8.action, v8.state_cap_tokens)
+        );
+        assert!(v9.description.contains("a command or tool to run"));
+        assert!(v9.description.contains("a remark that asks for nothing"));
     }
 
     /// reply_data.v1 (theseus-a1wvq.15) asks route.v7's `data` question of one
