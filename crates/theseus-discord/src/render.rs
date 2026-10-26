@@ -86,6 +86,8 @@ pub enum Buttons {
     OntoUndo(String),
     /// A new persona's card (theseus-utfnl): Write its soul and Decline, for this persona.
     PersonaSoul(String),
+    /// A self note's Drop for each started item `(id, title)` and its Halt (theseus-o1h3f.7).
+    SelfNote(Vec<(String, String)>),
     /// A capture's card (theseus-slvl.5): `(mode, id, everywhere)`, a kept record's Undo or an ask's keep and not.
     Standing(String, String, bool),
     /// A live owner-card question (theseus-6f8t0): `(ask, proposal id)`.
