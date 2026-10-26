@@ -835,8 +835,9 @@ pub struct KernelSection {
     /// Deadline for an action whose tool declares none.
     #[serde(default = "default_deadline_secs")]
     pub default_deadline_secs: u64,
-    /// How long a call's question waits for an answer before it expires,
-    /// not run (theseus-830), and how long an approval stays valid.
+    /// How long a call's question waits before the owner is told, once, and
+    /// again each further life: it stays pending, never expired (theseus-v2dnc).
+    /// A proposed extension's ack and a pack's promotion still expire.
     #[serde(default = "default_confirm_ttl_secs")]
     pub confirm_ttl_secs: u64,
     /// The shortest span a repeating wake may take, in minutes (37a): a

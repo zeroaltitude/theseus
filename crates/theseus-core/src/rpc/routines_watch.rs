@@ -1,7 +1,8 @@
 //! The ends of a routine's runs (theseus-52tut; the Core's half of
 //! `routine/watch.rs`): a question the run asked outside its grant that
-//! nobody answered by the run's deadline ends the run **blocked**, naming the
-//! tool; a run that fails or is blocked is told as one Interrupt a routine a
+//! nobody answered by the run's deadline is **dropped** with a notice and the
+//! run goes on without the tool; asked again, the run returns to its schedule
+//! (theseus-v2dnc; it ended blocked before); a run that fails or is blocked is told as one Interrupt a routine a
 //! local day, with the streak; a run skipped, or missed while the daemon was
 //! down, informs. The harness's 500 ms tick calls `routines_tick`: it reads
 //! only the runs not yet settled and the asks the expiry scan queued, so a
@@ -20,7 +21,7 @@ use theseus_protocol::answer::WorkAnswerResult;
 use theseus_protocol::notices::{routine_answers, routine_line, routine_pings};
 use theseus_protocol::routines::{
     RoutineBlocked, RoutineNameParams, RoutinePauseParams, RoutineRunsParams, RoutineSpec,
-    RoutineUpdateParams, BLOCKED_PREFIX,
+    RoutineUpdateParams,
 };
 use theseus_protocol::{error_code, WakeAnswer};
 use theseus_store::{kinds, NewRecord};
@@ -31,6 +32,9 @@ use crate::approval::Answerer;
 use crate::fact::wake::RoutineNoticed;
 use crate::routine::watch::{self, Outcome};
 use crate::routine::{self, Env};
+
+/// The META key of the tools a run dropped (a list of grant entries).
+const DROPPED_PREFIX: &str = "routine.dropped.";
 
 impl Core {
     /// What a run's question may wait: the run's deadline for a routine's run,
@@ -45,8 +49,9 @@ impl Core {
         )
     }
 
-    /// An expired question of a routine's run goes to the tick, which ends the
-    /// run blocked; false for any other question.
+    /// An expired question of a routine's run goes to the tick, which drops
+    /// the call or returns the run to its schedule (`routine_block`); false
+    /// for any other question.
     pub(crate) fn queue_if_routine(&self, a: &Action) -> bool {
         if !watch::is_run(&self.store, &a.session_id) {
             return false;
@@ -128,32 +133,90 @@ impl Core {
     }
 
     /// A question a routine's run asked outside its grant is past the run's
-    /// deadline: the run ends `blocked`, naming the tool, in one record with
-    /// its row; then it is cancelled (its question and calls answered not
-    /// run), and the next settle tells the owner.
+    /// deadline (theseus-v2dnc; a clock is no reason to end a run). The call is
+    /// dropped with a quiet notice naming the tool, and the run goes on
+    /// without it. When the run asks for the same dropped tool again and
+    /// nobody answers that either, it cannot go on: it is cancelled and
+    /// returns to its schedule, with a notice, never told as blocked. A 1.0.4
+    /// reconsideration hooks here: where it asks, before the decline, whether
+    /// the run may do without the tool.
     async fn routine_block(&self, a: &Action) -> Result<()> {
-        let tool = blocked_entry(a);
-        let why = watch::blocked_reason(&tool);
-        let mark = RoutineBlocked {
-            tool: tool.clone(),
-            reason: why.clone(),
-        };
-        let mut records = vec![NewRecord::json(
-            kinds::META,
-            Some(&format!("{BLOCKED_PREFIX}{}", a.session_id)),
-            &mark,
-        )?];
-        if let Some(spec) = self.routine_of_run(&a.session_id) {
-            records.push(routine::changed_row(
-                &spec,
-                &format!("run blocked: {why}"),
-                "routine",
-            )?);
+        if !self
+            .kernel
+            .pending_confirms()?
+            .iter()
+            .any(|p| p.correlation_id == a.correlation_id)
+        {
+            return Ok(());
         }
-        self.store.append(&records)?;
-        self.cancel_execution(&a.execution_id, "routine:blocked")
-            .await?;
+        let tool = blocked_entry(a);
+        let key = format!("{DROPPED_PREFIX}{}", a.session_id);
+        let mut dropped: Vec<String> = self.store.get_meta(&key)?.unwrap_or_default();
+        let spec = self.routine_of_run(&a.session_id);
+        let title = spec.as_ref().map_or("A routine", |s| s.title.as_str());
+        let (purpose, what, text) = if dropped.contains(&tool) {
+            self.cancel_execution(&a.execution_id, "routine:rescheduled")
+                .await?;
+            (
+                "routine_rescheduled",
+                "run returned to its schedule",
+                format!(
+                    "🔁 {title}: the run needed `{tool}` again, which is outside its grant, so \
+                     it stopped here and waits for its next scheduled time. Add `{tool}` to \
+                     the grant to let it run."
+                ),
+            )
+        } else {
+            let ttl = self.ask_ttl_ms(&a.session_id, true);
+            let why = format!(
+                "nobody answered within {} ({tool} is not in this routine's grant, and no one \
+                 is there to add it); the run goes on without it",
+                crate::fact::answer::within(ttl)
+            );
+            self.decline_expired(a, ttl, &why)?;
+            dropped.push(tool.clone());
+            (
+                "routine_question_dropped",
+                "question dropped",
+                format!(
+                    "🔁 {title}: `{tool}` is outside its grant and nobody answered in time, so \
+                     that call was dropped and the run goes on without it. Add `{tool}` to the \
+                     grant to let it run."
+                ),
+            )
+        };
+        let mut records = vec![NewRecord::json(kinds::META, Some(&key), &dropped)?];
+        if let Some(spec) = &spec {
+            let row = format!("{what}: {tool}");
+            records.extend(routine::changed_row(spec, &row, "routine").ok());
+        }
+        self.tell_dropped(a, purpose, &text, records);
         Ok(())
+    }
+
+    /// A dropped question's notice (quiet, to the owner's DM when one is bound)
+    /// and its records, in one frame; a failure is said, never retried: the
+    /// call is already answered.
+    fn tell_dropped(&self, a: &Action, purpose: &str, text: &str, mut records: Vec<NewRecord>) {
+        let mut post = None;
+        if self.runner.place_rule.owner_dm_bound() {
+            let body = json!({"kind": "notice", "text": text, "quiet": true,
+                              "purpose": purpose, "correlation_id": a.correlation_id});
+            match self.outbox.stage_to_operator(Some(&a.session_id), body) {
+                Ok((p, more)) => {
+                    records.extend(more);
+                    post = Some(p);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), "a routine's notice was not staged")
+                }
+            }
+        }
+        match self.store.append(&records) {
+            Ok(_) => post.iter().for_each(|p| self.outbox.posted(p)),
+            Err(e) => tracing::warn!(error = %format!("{e:#}"), purpose,
+                "a routine's dropped question was not told"),
+        }
     }
 
     /// The routine a run's task session belongs to.

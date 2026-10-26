@@ -11,7 +11,7 @@ use theseus_store::{kinds, NewRecord};
 use crate::node::ResultStatus;
 use crate::task_graph::{self as graph, TaskState};
 use crate::tests_layouts::TASK_BEFORE_MODEL_MARK;
-use crate::tests_task_graph::{results, rig, rows, session, turn, until};
+use crate::tests_task_graph::{results, rig, rows, session, turn};
 
 /// A plan item's acceptance change and its abandoning apply at once, with no
 /// question at the template's posture (notify), each a new version with its
@@ -99,8 +99,8 @@ async fn a_plan_items_layer_one_applies_at_once_and_so_does_a_split_childs() {
 
 /// A record written before the model's mark (the layout sample) reads as the
 /// owner's: a change to its acceptance waits on its card, its proposal on the
-/// record; and that question, expired unanswered, leaves no proposal, with
-/// `task.change_expired` written in the expiry's frame.
+/// record; and that question, unanswered past its life, is held with its
+/// proposal (it expired and cleared it before theseus-v2dnc).
 #[tokio::test]
 async fn an_old_records_change_waits_and_its_expiry_clears_the_proposal() {
     let r = rig();
@@ -138,30 +138,26 @@ async fn an_old_records_change_waits_and_its_expiry_clears_the_proposal() {
         Some(q.correlation_id.as_str())
     );
 
-    // Nobody answers: the expiry clears the proposal in its own frame.
+    // Nobody answers: the question is held past its life (theseus-v2dnc), so
+    // the proposal stays on the record, and the life is counted in one frame.
     let frames = theseus_store::frames_written_here();
     assert_eq!(c.expire_questions(q.expires_at_ms - 1), 0);
-    assert_eq!(c.expire_questions(q.expires_at_ms), 1);
-    // The clear rides in the decline's frame: two frames, as any expiry
-    // with a card writes (the decline, then its card's settle).
+    assert_eq!(c.expire_questions(q.expires_at_ms), 0);
     assert_eq!(
         theseus_store::frames_written_here(),
-        frames + 2,
-        "no frame of its own"
+        frames + 1,
+        "the life's notice is one frame"
     );
     let left = r.task(&old.id);
-    assert!(left.proposal.is_none(), "{left:?}");
+    assert_eq!(
+        left.proposal.as_ref().map(|p| p.card.as_str()),
+        Some(q.correlation_id.as_str())
+    );
     assert_eq!(left.version, 1);
     assert_eq!(left.acceptance, ["every buoy has a depth on the chart"]);
     let expired = rows(c, "task.change_expired");
-    assert_eq!(expired.len(), 1, "{expired:?}");
-    assert_eq!(expired[0].data["card"], q.correlation_id.as_str());
-    until("the expired call's answer", || {
-        results(c, &s, "task.update")
-            .last()
-            .is_some_and(|(st, _)| *st == ResultStatus::Declined)
-    })
-    .await;
-    assert!(r.task(&old.id).proposal.is_none());
+    assert_eq!(expired.len(), 0, "{expired:?}");
+    assert!(results(c, &s, "task.update").is_empty());
+    assert_eq!(c.confirm_list().unwrap().len(), 1, "still waiting");
     assert_eq!(r.tasks().len(), 1);
 }

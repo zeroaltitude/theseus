@@ -493,7 +493,7 @@ daily_notice_step_usd = 200.0           # under notify, one warning at the ceili
 runaway_usd_per_10min = 200.0           # a session whose settled spend in ten minutes reaches this pauses and asks you to resume (0: never)
 heartbeat_secs = 60                     # reconciler cadence: due wakes, overdue actions, spool drain
 default_deadline_secs = 600             # deadline for an action whose tool declares none
-confirm_ttl_secs = 900                  # how long a call waits for your answer: then it expires, not run, and its card says so; and how long an approval stays valid
+confirm_ttl_secs = 900                  # how long a call waits for your answer before you are told, quietly, and again each further span: it stays pending, never cancelled
 min_repeat_minutes = 5                  # the shortest span a repeating wake (wake.at with `every`) may take; at least 1
 task_lease_minutes = 30                 # a task claim's lease (task.claim): the holder's edits renew it, and past it the task is free; at least 1
 max_wake_ahead_days = 365               # the furthest ahead a wake, a reminder or a deferred task may be set; at least 1
@@ -1308,7 +1308,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # default_run_usd = 0.50                  # the most one run may spend, when a routine names none
 # default_month_usd = 10                  # a routine's month, reset on the 1st (local), when it names none
 # max_routines = 50                       # live routines at once
-# run_deadline_secs = 900                 # how long a run's question outside its grant waits before the run ends blocked
+# run_deadline_secs = 900                 # how long a run's question outside its grant waits before the call is dropped and the run goes on without it
 
 # ---------------------------------------------------------------- watches
 # Waiting on the world with no model (theseus-f2r2b): `theseus watch-for add "PR 123

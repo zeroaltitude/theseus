@@ -1,8 +1,10 @@
 //! A `/stop` that lands before an input's turn is admitted (theseus-hmwv), and
-//! a question nobody answers expiring at the time its card gives (theseus-830).
+//! a question nobody answers noticed, not cancelled, at the time its card gives
+//! (theseus-830, theseus-v2dnc).
 //! A child of `tests_m3` for its rig and helpers, split out under bench2's file
 //! ceiling.
 
+use super::question_waits::{bind_dm, waiting};
 use super::*;
 
 /// theseus-hmwv: a `/stop` that lands after an input arrived and before its
@@ -101,12 +103,12 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
     assert_ne!(b3.stop_reason, "stopped");
 }
 
-/// theseus-830: a call's question nobody answers expires at the time its
-/// card and `confirm.list` give (its plan's time and `confirm_ttl_secs`),
-/// not a moment before: declined by `expiry` in one frame with its
-/// `action.expired` row, gone from `confirm.list`, its execution woken, and
-/// the model reads that it was not run. Before, it waited on forever while
-/// its card said it had expired.
+/// theseus-830, changed by theseus-v2dnc: a call's question nobody answers
+/// is not cancelled when its card's time comes (its plan's time and
+/// `confirm_ttl_secs`). It stays pending in `confirm.list`, its call
+/// unanswered and its execution parked, and one quiet notice names it and its
+/// wait; the owner can still approve it. Before, it was declined by `expiry`
+/// and the model read that it was not run.
 #[tokio::test]
 async fn a_question_nobody_answers_expires_at_the_time_its_card_gives() {
     let r = rig(vec![
@@ -118,8 +120,9 @@ async fn a_question_nobody_answers_expires_at_the_time_its_card_gives() {
                 json!({"path": "note.txt", "content": "hi"}),
             )],
         ),
-        Scripted::text("It expired, so I stopped."),
+        Scripted::text("Written after all."),
     ]);
+    bind_dm(&r);
     let res = turn(&r.core, None, "write a note").await;
     let corr = res.awaiting_confirm.clone().expect("the write waits");
     let listed = r.core.confirm_list().unwrap();
@@ -129,42 +132,40 @@ async fn a_question_nobody_answers_expires_at_the_time_its_card_gives() {
     let ttl = r.core.kernel.config().confirm_ttl_ms;
     assert_eq!(due, a.planned_at_ms + ttl, "the time the card gives");
     assert_eq!(r.core.expire_questions(due - 1), 0, "not a moment before");
+    assert!(waiting(&r).is_empty(), "no notice before it");
     assert_eq!(r.core.confirm_list().unwrap().len(), 1);
-    assert_eq!(r.core.expire_questions(due), 1);
+    assert_eq!(r.core.expire_questions(due), 0, "held, not expired");
     let a = r.core.kernel.action(&corr).unwrap().unwrap();
-    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled);
-    assert_eq!(
-        a.resolution.as_deref(),
-        Some("declined by expiry: nobody answered within 15 minutes")
-    );
-    assert!(r.core.confirm_list().unwrap().is_empty());
-    let rows = ledgered(&r, "action.expired");
-    assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0]["correlation_id"], corr.as_str());
-    assert_eq!(rows[0]["waited_ms"], ttl);
-    let declined = ledgered(&r, "action.declined");
-    assert_eq!(declined.last().unwrap()["by"], "expiry");
-    // A second pass finds nothing more.
+    assert!(a.awaits_confirm(), "{a:?}");
+    assert_eq!(a.resolution, None);
+    assert_eq!(r.core.confirm_list().unwrap().len(), 1);
+    assert_eq!(ledgered(&r, "action.expired").len(), 0);
+    assert!(ledgered(&r, "action.declined").is_empty());
+    let told = waiting(&r);
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(told[0]["correlation_id"], corr.as_str());
+    // A second pass in the same life tells nothing more.
     assert_eq!(r.core.expire_questions(due + 60_000), 0);
+    assert_eq!(waiting(&r).len(), 1);
+    assert!(results(&r.core, &res.session_id).is_empty());
+    // Approved late, it runs, and the model goes on.
+    r.core.confirm_action(&corr, true, None, "test").unwrap();
     let cont = r
         .core
         .continue_execution(res.execution_id.as_deref().unwrap())
         .await
         .unwrap()
-        .expect("the expiry woke its execution");
-    assert_eq!(cont.output, "It expired, so I stopped.");
-    assert_eq!(
-        results(&r.core, &res.session_id),
-        vec![(
-            ResultStatus::Declined,
-            "Not run: nobody answered within 15 minutes, so the request expired.".to_string()
-        )]
-    );
-    assert!(!r.root.join("note.txt").exists());
+        .expect("the answer woke its execution");
+    assert_eq!(cont.output, "Written after all.");
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs.len(), 1, "{rs:?}");
+    assert_ne!(rs[0].0, ResultStatus::Declined, "{rs:?}");
+    assert!(r.root.join("note.txt").exists());
 }
 
-/// theseus-830, end to end: the driver expires a question within a tick of
-/// its time, and resumes the turn, which reads that it was not run.
+/// theseus-830, end to end, changed by theseus-v2dnc: the driver tells of a
+/// question within a tick of its time and leaves it pending, its call
+/// unanswered.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_driver_expires_a_question_within_a_tick_of_its_time() {
     let r = rig_with(
@@ -181,26 +182,24 @@ async fn the_driver_expires_a_question_within_a_tick_of_its_time() {
         ],
         |cfg| cfg.kernel.confirm_ttl_secs = 1,
     );
+    bind_dm(&r);
     let res = turn(&r.core, None, "write a note").await;
     let corr = res.awaiting_confirm.clone().expect("the write waits");
     let driver = tokio::spawn(crate::harness::drive(r.core.clone()));
     let t0 = std::time::Instant::now();
-    loop {
-        let done = results(&r.core, &res.session_id).len() == 1
-            && r.core.kernel.action(&corr).unwrap().unwrap().state
-                == theseus_kernel::ActionState::Cancelled;
-        if done {
-            break;
-        }
-        assert!(t0.elapsed() < Duration::from_secs(10), "it never expired");
+    while waiting(&r).is_empty() {
+        assert!(t0.elapsed() < Duration::from_secs(10), "it never noticed");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let rs = results(&r.core, &res.session_id);
-    assert_eq!(
-        rs[0].1,
-        "Not run: nobody answered within 1 second, so the request expired."
+    let told = waiting(&r);
+    assert!(
+        told[0]["text"].as_str().unwrap().contains("1 minute"),
+        "{told:?}"
     );
-    assert_eq!(ledgered(&r, "action.expired").len(), 1);
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert!(a.awaits_confirm(), "still pending: {a:?}");
+    assert!(results(&r.core, &res.session_id).is_empty());
+    assert_eq!(ledgered(&r, "action.expired").len(), 0);
     r.core.shutdown.notify_waiters();
     let _ = tokio::time::timeout(Duration::from_secs(5), driver).await;
 }
