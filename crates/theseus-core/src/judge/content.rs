@@ -130,8 +130,18 @@ struct Slot {
     /// in against a 4 s wait, measured on a scratch daemon 2026-10-27, so
     /// every such turn fell back to Claude and no China-origin model was ever
     /// reachable.
+    ///
+    /// It is read **twice**, not once: a landing that began before any turn
+    /// was waiting parks in `Turns::between`, and `awaiting` below ends that
+    /// park when a turn joins (theseus-8qgwo). Read once, the park outlived
+    /// the wait it was blocking and deadlocked the session's whole queue.
     waiters: usize,
     notify: Arc<Notify>,
+    /// Fired when `waiters` goes from none to one: a turn has begun to wait
+    /// on this session, so a parked landing must write now. A separate
+    /// `Notify` from `notify`, which says "a batch landed": a landing waiting
+    /// on that one would be waiting on itself.
+    awaiting: Arc<Notify>,
 }
 
 /// A label told, as the core takes it: the session and the label.
@@ -258,6 +268,33 @@ impl JudgeService {
             .clone()
     }
 
+    /// Ends when a turn begins to wait on this session's verdicts
+    /// (theseus-8qgwo). A landing that parked because nothing was waiting
+    /// yet selects on this, so the park cannot outlive the reason for it.
+    ///
+    /// Interest is taken **before** the count is read, so a turn that begins
+    /// to wait between the two still ends this rather than being missed — the
+    /// same contract `content_wait::Verdicts` states for its own future.
+    async fn until_awaited(&self, session: &str) {
+        let awaiting = {
+            let mut slots = self.content.slots();
+            slots
+                .entry(session.to_string())
+                .or_default()
+                .awaiting
+                .clone()
+        };
+        let woken = awaiting.notified();
+        tokio::pin!(woken);
+        woken.as_mut().enable();
+        // After enabling, not before: a turn that began to wait in between is
+        // seen here, and one that begins after it ends the enabled future.
+        if self.content_awaited(session) {
+            return;
+        }
+        woken.await;
+    }
+
     /// Whether a turn is blocked on this session's verdicts right now.
     pub(crate) fn content_awaited(&self, session: &str) -> bool {
         self.content
@@ -321,13 +358,29 @@ impl JudgeService {
     ///
     /// It does nothing while anything is in flight for the session. **That
     /// stops a second, concurrent ask for one node; it is not a claim that a
-    /// node is never asked twice** (the review of 2026-10-27, B3). What would
-    /// otherwise make a repeat expensive is handled by standing down when the
-    /// first item past the mark is one an earlier batch could not judge: the
-    /// mark is then stuck on a known failure, and re-reading the transcript
-    /// would re-ask — and pay for — every item behind it that was judged
-    /// already. `with_worklist`'s capped re-ask is the path for that case; the
-    /// sweep's job is the item nobody offered, and only that.
+    /// node is never asked twice** (the review of 2026-10-27, B3).
+    ///
+    /// **A mark stuck on a batch's own failure is re-asked here too**
+    /// (theseus-8qgwo). B3 had this stand down and leave the re-ask to
+    /// `with_worklist`, to avoid paying again for the items judged behind the
+    /// stuck one. That was right about the cost and wrong about who would pay
+    /// it: `with_worklist` rides a **new batch**, and between a tool's result
+    /// and the next model call of the same turn there is no new item to queue,
+    /// so no batch is ever made for it to ride. One content call that fails
+    /// mid-turn takes the session off every model of restricted origin **for
+    /// the rest of that turn, and until another item is queued** — which for
+    /// a bench trial is the whole trial, and for a chat session is until the
+    /// next thing anyone says.
+    ///
+    /// `reask_stuck` is the caller's, not read from ambient state: only the
+    /// floor knows both "I am about to wait on this session" and "I have not
+    /// re-asked yet in this wait", and inferring the first from
+    /// `content_awaited` made it depend on `cn_wait` happening to call
+    /// `verdicts.settled` two lines earlier — three facts across two modules
+    /// with nothing asserting them, and an unbounded repeat, since `cn_move`
+    /// runs on every loop after every tool result. The cost B3 was protecting
+    /// is still not paid: a stuck mark re-asks the **stuck prefix alone**, the
+    /// run of worklist items from the mark, never the judged items behind it.
     ///
     /// At most [`SWEEP_MAX`] a call: the mark moves over the batch's own span
     /// (`land` picks the last of the batch's leading judged run, and `span_to`
@@ -338,9 +391,14 @@ impl JudgeService {
     /// and the queueing that follows it are not racing another turn of the
     /// same session. If that stops being true this wants the slots lock held
     /// across both.
-    pub fn ask_unsubmitted(&self, session: &str) {
+    /// Returns whether it re-asked a **stuck** mark, so a caller that allows
+    /// one such re-ask a wait can spend it on the read where the mark is
+    /// actually stuck rather than on the first read of the wait. A batch that
+    /// fails does so partway through a wait, so "the first read" and "the
+    /// read that finds it stuck" are rarely the same read.
+    pub fn ask_unsubmitted(&self, session: &str, reask_stuck: bool) -> bool {
         if self.content.off.load(Ordering::Relaxed) || self.content_pending(session) {
-            return;
+            return false;
         }
         // A build with no such pack can never ask, so it need not read.
         //
@@ -355,16 +413,16 @@ impl JudgeService {
         // save falls on a config where the session cannot reach a model of
         // restricted origin at all.
         if self.pack(PACK).is_none() {
-            return;
+            return false;
         }
         let Ok(Some(rec)) = self
             .store
             .get_session::<crate::session::SessionRecord>(session)
         else {
-            return;
+            return false;
         };
         let Ok(nodes) = self.store.transcript(session) else {
-            return;
+            return false;
         };
         let flags = flags_of(&rec);
         let stuck: Vec<String> = flags.map(|f| f.unjudged.clone()).unwrap_or_default();
@@ -379,22 +437,32 @@ impl JudgeService {
                 .map_or(0, |at| at + 1),
         };
         let item = |n: &&(u64, crate::stub::Stub)| crate::content_wait::is_item(&n.1);
-        // The mark stuck on a batch's failure rather than on a node nobody
-        // offered: leave it to `with_worklist`, as above.
-        if nodes[from..]
-            .iter()
-            .find(item)
-            .is_none_or(|(_, n)| stuck.contains(&n.id))
-        {
-            return;
+        let past: Vec<&(u64, crate::stub::Stub)> = nodes[from..].iter().filter(item).collect();
+        // Nothing past the mark: the session is judged through, and the floor
+        // would not have asked.
+        let Some((_, first)) = past.first() else {
+            return false;
+        };
+        // The mark stuck on a batch's own failure. Re-ask the stuck run from
+        // the mark and nothing behind it, and only when the caller asked for
+        // it: `with_worklist` cannot reach this case (see above).
+        let wedged = stuck.contains(&first.id);
+        if wedged && !reask_stuck {
+            return false;
         }
         let brief = crate::task::brief(&self.store, session)
             .ok()
             .flatten()
             .map(|n| n.id);
-        let items: Vec<ContentItem> = nodes[from..]
-            .iter()
-            .filter(item)
+        let reach: Vec<&&(u64, crate::stub::Stub)> = match wedged {
+            true => past
+                .iter()
+                .take_while(|(_, n)| stuck.contains(&n.id))
+                .collect(),
+            false => past.iter().collect(),
+        };
+        let items: Vec<ContentItem> = reach
+            .into_iter()
             .take(SWEEP_MAX)
             .filter_map(|(_, n)| rebuild(n, brief.as_deref()))
             .collect();
@@ -404,7 +472,9 @@ impl JudgeService {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .extend(items.iter().map(|i| i.node.clone()));
+        let asked = !items.is_empty();
         self.ask_content(session, items);
+        wedged && asked
     }
 
     /// Whether items of `session` are queued or being judged: a request bound
@@ -472,14 +542,24 @@ impl crate::content_wait::Verdicts for JudgeService {
         &self,
         session: &str,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
-        let (notify, pending) = {
+        let (notify, pending, joined) = {
             let mut slots = self.content.slots();
             let slot = slots.entry(session.to_string()).or_default();
             // Counted before the pending check, so a verdict landing between
             // this call and the first poll still writes without deferring.
             slot.waiters += 1;
-            (slot.notify.clone(), slot.open > 0)
+            (
+                slot.notify.clone(),
+                slot.open > 0,
+                (slot.waiters == 1).then(|| slot.awaiting.clone()),
+            )
         };
+        // The first waiter tells a landing already parked in `Turns::between`
+        // that there is now a turn to write for (theseus-8qgwo). Outside the
+        // lock: `notify_waiters` wakes, and nothing it wakes needs the slots.
+        if let Some(a) = joined {
+            a.notify_waiters();
+        }
         // The count comes down however the wait ends — the caller's timeout
         // included — so a dropped future never leaves a session marked awaited.
         let guard = Waiting {
@@ -1113,17 +1193,43 @@ async fn land(
     landings: Vec<Landing>,
     base: &Option<String>,
 ) {
-    let (turns, timing, awaited) = match me.upgrade() {
-        Some(s) => (
-            s.between.get().cloned(),
-            s.sink_timing(),
-            s.content_awaited(session),
-        ),
-        None => return,
-    };
-    // A turn is blocked on this session's verdict: write it now.
+    let Some(svc) = me.upgrade() else { return };
+    let (turns, timing, awaited) = (
+        svc.between.get().cloned(),
+        svc.sink_timing(),
+        svc.content_awaited(session),
+    );
+    // A turn is blocked on this session's verdict: write it now — and **a turn
+    // that begins to wait while this is parked ends the park** (theseus-8qgwo).
+    //
+    // `awaited` read once was a deadlock, and it is what failed 25 of cell 8's
+    // 89 `c8c-deepseek-high-k1` trials. This runs on the drain task's own path
+    // (`drain` -> `judge_batch` -> here), so parking stops the **whole
+    // session's queue**: no later batch is taken, `slot.open` never comes down
+    // and `notify_waiters` never fires. A parallel tool-call group writes its
+    // results across the loop; the first batch takes whatever was queued
+    // within `COALESCE`, Jev answers it while the turn is still running the
+    // rest of the group, so no turn is waiting yet and this parks behind the
+    // running turn — holding the group's later results in the queue. The turn
+    // then reaches the floor, waits its whole `[content] wait_ms` on a notify
+    // that cannot fire, and is refused. The landing waits for the turn to end
+    // and the turn waits for the landing. Every one of the 25 shows the same
+    // 30.007-30.014 s between its last tool result and the `data_gate` row:
+    // one uninterrupted `wait_ms`, with nothing having failed at all.
+    //
+    // A single-call loop cannot reach it — the one result is written, the
+    // floor begins waiting within milliseconds, and the landing finds
+    // `awaited` already true. That is why none of the cell's 1,181 single-call
+    // loops failed and all 25 failures were on groups of 2, 3 or 11.
     let _writing = match turns.filter(|_| !awaited) {
-        Some(t) => Some(t.between(tokio::time::Instant::now(), &timing).await),
+        Some(t) => {
+            let park = t.between(tokio::time::Instant::now(), &timing);
+            tokio::pin!(park);
+            tokio::select! {
+                w = &mut park => Some(w),
+                () = svc.until_awaited(session) => None,
+            }
+        }
         None => None,
     };
     let Some(svc) = me.upgrade() else { return };

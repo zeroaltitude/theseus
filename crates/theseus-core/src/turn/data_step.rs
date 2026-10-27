@@ -43,6 +43,13 @@ pub(super) const REFUSED: &str =
 /// How many times a wait for verdicts reads the record again: a wake-up that
 /// judged only some of the items leaves the rest to the next one, and a notify
 /// that answers at once (the stand-in's) must not spin.
+///
+/// It bounds the *wait* as well as the reads, which `[content] wait_ms` is
+/// supposed to do alone: every landing wakes the loop, so eight failing ones
+/// end the wait early. That mattered before the sweep re-asked a stuck mark
+/// (theseus-8qgwo) and does not now — the first sweep queues the stuck item,
+/// so each read waits on real work. Left as it is rather than changed on an
+/// argument no test could hold to.
 const SETTLE_READS: u32 = 8;
 
 /// Where a turn stands on its session's labels, as the floor reads it.
@@ -202,6 +209,7 @@ impl TurnRunner {
         let deadline = Instant::now() + Duration::from_millis(self.cfg.content.wait_ms);
         let mut cn = Self::cn_read(t);
         let mut swept = false;
+        let mut reasked = false;
         for _ in 0..SETTLE_READS {
             let left = deadline.saturating_duration_since(Instant::now());
             if cn != Cn::Pending || left.is_zero() {
@@ -215,9 +223,19 @@ impl TurnRunner {
             let woken = self.verdicts.settled(sid);
             // An item that nothing queued would never land, however long this
             // waited, and its session would be off every model of restricted
-            // origin for the rest of its life (theseus-sh1n3). The floor's own
-            // reading of the transcript queues what a write site did not.
-            self.judge.ask_unsubmitted(sid);
+            // origin until something else queued an item (theseus-sh1n3). The
+            // floor's own reading of the transcript queues what a write site
+            // did not.
+            //
+            // The re-ask of a mark a failed batch left stuck is **once a
+            // wait** (theseus-8qgwo): it costs a real decision point and a
+            // reservation, `cn_move` runs this on every loop after every tool
+            // result, and a stuck item that failed once in this wait will not
+            // answer differently on the next read of it. It is spent on the
+            // read that finds the mark stuck, not on the first read: a batch
+            // fails partway through a wait, so those are rarely the same
+            // read. The ordinary sweep still runs on every read.
+            reasked |= self.judge.ask_unsubmitted(sid, !reasked);
             swept = true;
             cn = Self::cn_read(t);
             if cn != Cn::Pending {
@@ -234,8 +252,12 @@ impl TurnRunner {
         // and the whole defect class would be back on it (the review of
         // 2026-10-27, B1). This request goes to Claude either way; what the
         // sweep buys is that the next one need not.
+        //
+        // No stuck re-ask here: this request never waits, so a verdict it
+        // paid for could not help it, and the stuck node is picked up by
+        // `with_worklist` on the next batch the session queues.
         if cn == Cn::Pending && !swept {
-            self.judge.ask_unsubmitted(sid);
+            let _ = self.judge.ask_unsubmitted(sid, false);
         }
         match cn {
             Cn::Pending => Cn::No("unjudged"),
@@ -305,6 +327,14 @@ impl TurnRunner {
     /// waited for (at most `[content] wait_ms`), and a label raised since
     /// moves the turn to the `[model]` default with `data_gate`, as a plain
     /// route does, instead of failing it at the chokepoint.
+    ///
+    /// **The move reads the default's own origin** (theseus-8qgwo). It used to
+    /// route there on nothing but "it resolves", and where the `[model]`
+    /// default is itself of restricted origin — which is how every bench cell
+    /// runs, and anyone who pins one model — the move landed back on the model
+    /// the floor had just refused, and the chokepoint failed the whole turn
+    /// with `nothing was sent`. The floor, not the chokepoint, decides: a turn
+    /// with nowhere unrestricted to go ends here, saying so.
     pub(super) async fn cn_move<'a>(
         &self,
         t: &mut Turn<'a>,
@@ -331,6 +361,22 @@ impl TurnRunner {
             switch: false,
             hold: HoldNext::Keep,
         };
+        // Nowhere unrestricted to move to: end the turn here with the floor's
+        // own words, rather than route to a model the chokepoint will refuse.
+        //
+        // The route row is written first (`record_route`), as the move below
+        // does. It is the only place `t.route.gated` is consumed and the only
+        // place `data_gate` is counted, so returning before it left the gate
+        // that killed the turn invisible to the ledger, to `efficiency.json`
+        // and so to the bench's own `cn: {gated, reasons}` accounting — the
+        // counter this row is graded on. `git-multibranch__QjwxfPB`, the one
+        // cell-8 trial that already took a floor refusal, has zero route rows
+        // and `gated: 0` for exactly that reason.
+        if let Some(no) = self.floor_refuses(t.route.floor(), DEFAULT_PROFILE) {
+            t.route.gated = Some(t.route.cn.word());
+            self.record_route(t, None, Some(&d), None, Default::default(), None);
+            return Ok(Some(refusal(&no)));
+        }
         let to = self.resolve_target(&t.target.profile, Some(&d.profile), None, None);
         let Some((p, to)) = to
             .ok()
