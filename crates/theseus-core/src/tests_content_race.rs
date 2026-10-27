@@ -6,33 +6,51 @@
 //!
 //! What this file is for. theseus-sh1n3 made the blocked set and the submitted
 //! set one set, so every item that enters a session is offered for judgment.
-//! It did not make a *landing* reach the mark. Cell 8's `c8c-deepseek-high-k1`
-//! then failed 23 of 75 trials on `data_gate: unjudged`, and all 23 share one
-//! shape: the model emitted a **parallel tool-call group** (2, 3 or 11 calls in
-//! one loop), the first result of the group was judged, a later one never was,
-//! and the next model call was refused for the session's whole life. Not one
-//! single-call loop failed. The gap between the judged result and the dropped
-//! one ran from 21 ms to 20 s, so it is not a narrow timing race.
+//! It did not make a *landing* reach the mark in time. Cell 8's
+//! `c8c-deepseek-high-k1` then failed **39 of 89** trials at the data gate:
 //!
-//! The three defects, each with a test here:
+//! | 25 | `holds an item that has not been judged yet` | the defect |
+//! | 8  | `carries a 'secret' label` | the gate working |
+//! | 5  | `carries a 'confidential' label` | the gate working |
+//! | 1  | `No model cleared …` | the fallback hole |
 //!
-//! 1. `move_mark`'s compare-and-set **loses the landing**. The mark moves only
-//!    if `judged_through` still equals the `base` the batch read at
-//!    `prepare_content`. A second batch of the same session begun against the
-//!    same base returns without moving the mark *and* without putting its node
-//!    on `ContentFlags::unjudged` -- neither marked nor stuck, so nothing will
-//!    ever ask for it again. Leaving the *label* alone is right; losing the
-//!    node is not.
-//! 2. The sweep stands down on exactly the state it exists to repair:
-//!    `ask_unsubmitted` returns early while anything of the session is in
-//!    flight, and again when the first item past the mark is on the worklist.
-//!    `with_worklist`'s re-ask runs only when a new batch is queued, and on a
-//!    wedged turn no new batch comes.
-//! 3. The floor's fallback does not read the fallback's origin: a turn refused
-//!    for its content moves to the `[model]` default whatever that model is.
-//!    Where the default is itself of restricted origin -- a pinned arm, which
-//!    is how every bench cell runs -- "go to Claude" lands back on the same
-//!    model and the chokepoint fails the whole turn.
+//! All 25 share one shape: the model emitted a **parallel tool-call group**
+//! (2 × 22, 3 × 2, 11 × 1), the first result was judged and a later one never
+//! was. Across the whole cell, 1,181 of 1,387 tool-call loops were single-call
+//! and **not one of those ever failed** — 83 of them ran inside the 25 failing
+//! trials themselves and survived. Every one of the 25 waited **30.007 to
+//! 30.014 s**, one uninterrupted `[content] wait_ms`, and in every one every
+//! judgment that exists reads `outcome: answered`. **Nothing failed. A verdict
+//! was simply never asked for.**
+//!
+//! Three defects, in the order they matter:
+//!
+//! 1. **The landing deadlock**, which is what cell 8 died of. `land` reads
+//!    `content_awaited` **once** and then parks in `Turns::between` waiting for
+//!    a quiet moment, on the drain task's own path — so the park stops the
+//!    whole session's queue. A group's first batch lands while the turn is
+//!    still running the rest of the group, so nothing is waiting yet and it
+//!    parks; the group's later results are never taken; the turn reaches the
+//!    floor and waits its whole `wait_ms` on a notify that cannot fire. The
+//!    landing waits for the turn and the turn waits for the landing. A
+//!    single-call loop cannot reach it, which is the fingerprint.
+//!    Tested by `a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landing`.
+//! 2. **The sweep stands down on a stuck mark.** `ask_unsubmitted` leaves a
+//!    node an earlier batch could not judge to `with_worklist`, which rides a
+//!    **new batch**; mid-turn there is none to ride. A latent wedge of the
+//!    same family, not cell 8's — no batch failed there.
+//!    Tested by `a_failed_content_call_mid_turn_is_asked_again_rather_than_wedging`.
+//! 3. **The floor's fallback does not read the fallback's origin.** A turn
+//!    refused for its content moves to the `[model]` default whatever that
+//!    model is; where the default is itself restricted — a pinned arm, which
+//!    is how every bench cell runs — "go to Claude" lands back on the same
+//!    model and the chokepoint fails the turn with `nothing was sent`. That is
+//!    the 1 `No model cleared` trial, and it is why the other 25 died hard.
+//!    Tested by `a_restricted_default_is_not_a_fallback_on_a_later_loop`.
+//!
+//! The two whole-group tests below are **regression cover, not evidence**:
+//! their results land inside one `COALESCE` window, so there is no second
+//! batch to strand and they pass on the unfixed tree.
 
 use std::time::{Duration, Instant};
 
@@ -132,9 +150,9 @@ fn results(r: &Rig, sid: &str) -> Vec<String> {
 
 /// **The row's own repro** (theseus-8qgwo): a loop of two parallel tool calls
 /// writes two results, and *both* must be judged. On the build cell 8 ran
-/// (`69b373e8`, which carries sh1n3) the second is offered, judged by nobody,
-/// and left neither marked nor on the worklist, so the session is off every
-/// model of restricted origin for the rest of its life.
+/// (`69b373e8`, which carries sh1n3) a group's later result could go unjudged
+/// for the rest of its turn, which is enough to refuse every request of that
+/// turn to a model of restricted origin.
 ///
 /// Two calls, not one, is the whole point: a single-call loop queues one item,
 /// its batch lands against the base it read, and the mark moves. The second
@@ -208,32 +226,44 @@ async fn every_result_of_a_group_of_three_is_judged() {
     settles(&r, &sid, "a parallel tool-call group of three").await;
 }
 
-/// The bench's own shape, in process: a turn **pinned to a model of restricted
-/// origin** runs a parallel tool-call group and then loops back to that model,
-/// against a Jev slow enough that the first result's batch is still in flight
-/// when the second result is written. This is `c8c-deepseek-high-k1`: the cell
-/// pins `glm`'s place here (`deepseek-v4-pro` there), `[model]`'s default is
-/// the same restricted model, and four trials run at once, which is what
-/// stretches the judge's answer past the next loop.
+/// **The cell-8 deadlock itself** (theseus-8qgwo, the review's B1): a turn
+/// pinned to a model of restricted origin runs a parallel tool-call group
+/// whose results are written **further apart than `COALESCE`**, so the group
+/// needs two batches. The first batch's `land` runs while the turn is still
+/// executing the rest of the group — no turn is waiting yet — so it parks in
+/// `Turns::between` on the drain task's own path and the second result is
+/// never taken from the queue. The turn then waits its whole `wait_ms` on a
+/// notify that cannot fire. The landing waits for the turn to end and the
+/// turn waits for the landing.
 ///
-/// Two things must hold and neither did on `69b373e8`: every result of the
-/// group ends judged, and the turn is not refused at the chokepoint for an
-/// item the floor could have waited for.
+/// Three knobs make it, and getting any of them wrong hides it:
+/// - **Jev must be fast.** A slow Jev is the one thing that *prevents* this:
+///   it delays the first landing until after the floor has begun waiting, so
+///   `awaited` is already true and the landing writes at once. An earlier
+///   version of this test set a 300 ms latency and passed on the broken tree.
+/// - **The results must straddle `COALESCE`** (50 ms). Two `echo`s land in
+///   one batch, there is no second batch to strand, and it passes.
+/// - **The profile must be restricted**, or the floor never waits at all.
+///
+/// On the unfixed tree the mark stops short of the second result with
+/// `unjudged` empty — nothing failed; a verdict was simply never asked for.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_pinned_restricted_turn_survives_a_parallel_group_on_a_slow_judge() {
+async fn a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landing() {
     use crate::tests_route::{rig_parts, try_turn_attached as route_turn};
     let jev = FakeJev::start().unwrap();
     clean(&jev);
     crate::tests_route::mode(&jev, "trivial", 0.95);
-    // Jev answers a content pack in 300 ms: long enough that the group's
-    // second result is written while the first's batch is still out, which is
-    // the whole shape. The fake's microsecond answer hides it.
-    jev.set_latency(Duration::from_millis(300), Duration::from_millis(300));
     let pair = Scripted::tools(
         "",
         &[
             ("t1", "proc_run", json!({"argv": ["bash", "-c", "echo p1"]})),
-            ("t2", "proc_run", json!({"argv": ["bash", "-c", "echo p2"]})),
+            (
+                "t2",
+                "proc_run",
+                // Six times `COALESCE`, so this result misses the first
+                // batch and needs a second the parked drain cannot take.
+                json!({"argv": ["bash", "-c", "sleep 0.3; echo p2"]}),
+            ),
         ],
     );
     let mine = std::sync::Arc::new(crate::provider::FakeProvider::scripted(vec![
@@ -248,6 +278,9 @@ async fn a_pinned_restricted_turn_survives_a_parallel_group_on_a_slow_judge() {
             // content.v1 live: the judge rigs turn it off.
             c.judge.packs.remove(crate::judge::content::PACK);
             c.judge.total_secs = 10;
+            // Generous, so a move to the default means the verdict never came
+            // rather than that the fake Jev was slow.
+            c.content.wait_ms = 5_000;
             c.tools.proc_sync_secs = 5;
             c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
             c.model.retries.transient = 0;
@@ -264,6 +297,11 @@ async fn a_pinned_restricted_turn_survives_a_parallel_group_on_a_slow_judge() {
         .await
         .expect("the turn was refused outright");
     let sid = one.session_id.clone();
+    // The discriminating assertion. The landing deadlock shows here: the floor
+    // cannot settle inside `wait_ms`, so the turn leaves the model it was
+    // pinned to. `settles_on` below is a true invariant but does not
+    // discriminate — the park ends when the turn ends, so the verdict lands
+    // late either way.
     assert_eq!(
         one.profile, "glm",
         "the turn left its pinned restricted model: {:?}",
@@ -283,18 +321,21 @@ async fn a_pinned_restricted_turn_survives_a_parallel_group_on_a_slow_judge() {
 /// model of restricted origin waits its whole `[content] wait_ms` and is then
 /// refused, however healthy the judge has since become.
 ///
+/// **This is not what cell 8 died of** — no content call failed there (every
+/// judgment reads `answered`). It is a latent wedge of the same family, found
+/// while chasing that one, and it is real: a shed or a refused reservation
+/// mid-turn costs the rest of the turn.
+///
 /// Why nothing asks again. `ask_unsubmitted` stands down when the first item
 /// past the mark is on the worklist, leaving the re-ask to `with_worklist`
 /// (the review of 2026-10-27, B3). But `with_worklist` rides a **new batch**,
 /// and between a tool's result and the next model call of the same turn there
 /// is no new item to queue, so no batch is ever made for it to ride. The
-/// session is off every model of restricted origin for the rest of its life.
+/// session is off every model of restricted origin for the rest of that turn,
+/// and until something else queues an item.
 ///
-/// That is cell 8's 23 trials. Their profile sets `[content] wait_ms = 30000`,
-/// so each burned a full thirty seconds waiting on a verdict that nothing had
-/// asked for -- which is also why the three one-trial smokes passed: the
-/// wedge needs one content call to fail, and under four concurrent trials one
-/// does.
+/// Cell 8's profile sets `[content] wait_ms = 30000`, so a turn in this state
+/// burns a full thirty seconds waiting on a verdict nothing asked for.
 ///
 /// The rig holds the result's own content call until the judge's own
 /// `total_secs` gives up on it, then lets later calls through. A build that

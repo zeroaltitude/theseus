@@ -218,15 +218,21 @@ impl TurnRunner {
             // wait is not slept through — and **before the sweep**, which
             // reads the record and the whole transcript: a landing while that
             // ran would be deferred to after this turn, and the wait below
-            // would then be for nothing. It is also what marks the session
-            // awaited, which is what lets the sweep re-ask a stuck mark.
+            // would then be for nothing.
             let woken = self.verdicts.settled(sid);
             // An item that nothing queued would never land, however long this
             // waited, and its session would be off every model of restricted
-            // origin for the rest of its life (theseus-sh1n3). The floor's own
-            // reading of the transcript queues what a write site did not, and
-            // re-asks what a failed batch left stuck (theseus-8qgwo).
-            self.judge.ask_unsubmitted(sid);
+            // origin until something else queued an item (theseus-sh1n3). The
+            // floor's own reading of the transcript queues what a write site
+            // did not.
+            //
+            // The re-ask of a mark a failed batch left stuck is **this wait's
+            // first read only** (theseus-8qgwo): it costs a real decision
+            // point and a reservation, `cn_move` runs this on every loop after
+            // every tool result, and a stuck item that failed once in this
+            // wait will not answer differently on the next read of the same
+            // wait. The non-stuck sweep still runs on every read.
+            self.judge.ask_unsubmitted(sid, !swept);
             swept = true;
             cn = Self::cn_read(t);
             if cn != Cn::Pending {
@@ -243,8 +249,12 @@ impl TurnRunner {
         // and the whole defect class would be back on it (the review of
         // 2026-10-27, B1). This request goes to Claude either way; what the
         // sweep buys is that the next one need not.
+        //
+        // No stuck re-ask here: this request never waits, so a verdict it
+        // paid for could not help it, and the stuck node is picked up by
+        // `with_worklist` on the next batch the session queues.
         if cn == Cn::Pending && !swept {
-            self.judge.ask_unsubmitted(sid);
+            self.judge.ask_unsubmitted(sid, false);
         }
         match cn {
             Cn::Pending => Cn::No("unjudged"),
@@ -341,14 +351,6 @@ impl TurnRunner {
         if let Some(f) = Self::draft_stopped(t, &why, false) {
             return Ok(Some(f));
         }
-        // Nowhere unrestricted to move to: end the turn here with the floor's
-        // own words, rather than route to a model the chokepoint will refuse.
-        if let Some(no) = self.floor_refuses(t.route.floor(), DEFAULT_PROFILE) {
-            t.route.gated = Some(t.route.cn.word());
-            return Ok(Some(refusal(&format!(
-                "no model cleared for this session's content is usable: {no}"
-            ))));
-        }
         let d = Decision {
             profile: DEFAULT_PROFILE.into(),
             reason: Reason::DataGate,
@@ -356,6 +358,22 @@ impl TurnRunner {
             switch: false,
             hold: HoldNext::Keep,
         };
+        // Nowhere unrestricted to move to: end the turn here with the floor's
+        // own words, rather than route to a model the chokepoint will refuse.
+        //
+        // The route row is written first (`record_route`), as the move below
+        // does. It is the only place `t.route.gated` is consumed and the only
+        // place `data_gate` is counted, so returning before it left the gate
+        // that killed the turn invisible to the ledger, to `efficiency.json`
+        // and so to the bench's own `cn: {gated, reasons}` accounting — the
+        // counter this row is graded on. `git-multibranch__QjwxfPB`, the one
+        // cell-8 trial that already took a floor refusal, has zero route rows
+        // and `gated: 0` for exactly that reason.
+        if let Some(no) = self.floor_refuses(t.route.floor(), DEFAULT_PROFILE) {
+            t.route.gated = Some(t.route.cn.word());
+            self.record_route(t, None, Some(&d), None, Default::default(), None);
+            return Ok(Some(refusal(&no)));
+        }
         let to = self.resolve_target(&t.target.profile, Some(&d.profile), None, None);
         let Some((p, to)) = to
             .ok()
