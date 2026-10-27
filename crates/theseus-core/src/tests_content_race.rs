@@ -82,7 +82,7 @@ fn flags(r: &Rig, sid: &str) -> ContentFlags {
 /// the next request to a model of restricted origin, named rather than
 /// counted, so a failure says which node was lost.
 fn unjudged_items(r: &Rig, sid: &str) -> Vec<String> {
-    let nodes = r.core.store.session_nodes(sid).unwrap();
+    let nodes = r.core.store.transcript(sid).unwrap();
     let f = flags(r, sid);
     let through = f
         .judged_through
@@ -92,12 +92,7 @@ fn unjudged_items(r: &Rig, sid: &str) -> Vec<String> {
     nodes[from..]
         .iter()
         .filter(|(_, n)| crate::content_wait::is_item(n))
-        .map(|(_, n)| match &n.body {
-            Body::ToolResult { tool, content, .. } => {
-                format!("{} {tool} {:?}", n.id, content.chars().take(40).collect::<String>())
-            }
-            _ => format!("{} {:?}", n.id, n.kind),
-        })
+        .map(|(_, n)| format!("{} {:?}", n.id, n.kind))
         .collect()
 }
 
