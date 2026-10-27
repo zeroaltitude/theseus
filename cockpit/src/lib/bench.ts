@@ -341,7 +341,8 @@ export const HARNESSES: readonly Harness[] = [
 ]
 
 /** The arm a summary key belongs to: Theseus's variants (`theseus-routed`, `theseus-68`) are one arm; the rest are
- *  their own. Mirrors `family()` in `bench/report/manifest.py`; `test/bench.test.ts` holds the two to the same answers. */
+ *  their own. Mirrors `family()` in `bench/report/manifest.py`; `test/benchlabels.test.ts` holds the two to the same
+ *  answers, against the real manifest writer as an oracle. */
 export function family(key: string): string {
   return key === 'theseus' || key.startsWith('theseus-') ? 'theseus' : key
 }
@@ -350,12 +351,19 @@ export function family(key: string): string {
  *  key `HARNESSES` lists itself (`theseus-batching`, the paragraph ablation) is its own arm. The raw `key` is kept, so a
  *  tip can still say which variant a point was. */
 export const harness = (key: string): Harness => {
-  const own = HARNESSES.find((h) => h.key === key) ?? HARNESSES.find((h) => h.key === family(key))
+  const own = HARNESSES.find((h) => h.key === sameArm(key))
   return own ? { ...own, key } : { key, name: key, slot: null }
 }
 
-/** The placed points that are Theseus's, under any of its keys (the Verdict's subject). */
-export const theseusOf = (placed: readonly Placed[]): Placed[] => placed.filter((p) => family(p.point.harness) === 'theseus')
+/** A key's arm: the key itself when `HARNESSES` lists it (`theseus-batching` is its own arm), else its family. The one
+ *  rule the colour, the legend, the series and the Verdict's subject share, so a mark is never classed two ways. */
+export const sameArm = (key: string): string => (HARNESSES.some((h) => h.key === key) ? key : family(key))
+
+/** The arms the placed points belong to, in first-seen order (the legend's keys and the chart's series). */
+export const armsOf = (placed: readonly Placed[]): string[] => [...new Set(placed.map((p) => sameArm(p.point.harness)))]
+
+/** The placed points that are Theseus's, under any of its keys but a listed ablation (the Verdict's subject). */
+export const theseusOf = (placed: readonly Placed[]): Placed[] => placed.filter((p) => sameArm(p.point.harness) === 'theseus')
 
 /** Whether a point's name is drawn on the chart: the frontier's, any arm with no palette slot (it is told by name, not
  *  colour), and Theseus's whether or not it is dominated. A dominated name is drawn in the muted ink by the view.
@@ -363,7 +371,13 @@ export const theseusOf = (placed: readonly Placed[]): Placed[] => placed.filter(
  *  A set that gathers every run on its task set (theseus-s5qwv) draws ten points, and the harnesses cluster — five of
  *  them within a cent of each other at the same pass rate. There a slotless arm reads from the legend instead, because
  *  a name printed through another name is worse than one the tip and the table still carry whole. ECharts resolves
- *  overlapping labels within a series, and the chart draws a series a harness, so it cannot do this for us. */
+ *  overlapping labels within a series, and the chart draws a series a harness, so it cannot do this for us.
+ *
+ *  This is the one test here deliberately left on `family` rather than `sameArm` (the theseus-4zea0 join): a listed
+ *  ablation keeps its name even in a crowd, because the page exists to compare Theseus's own variants and two
+ *  unlabelled Theseus-ish marks are the one reading this chart must never produce. It is a labelling policy, not a
+ *  classification — the name drawn is `harness(key).name`, which honours the listing, so `theseus-batching` is
+ *  labelled "Theseus + paragraph" and never "Theseus". `benchlabels.test.ts` pins both halves of that sentence. */
 export const showsName = (p: Placed, crowded = false): boolean =>
   p.frontier || family(p.point.harness) === 'theseus' || (!crowded && harness(p.point.harness).slot === null)
 
@@ -904,7 +918,7 @@ export function points(set: TaskSet, csv: string, json: string | undefined, md: 
     })
   }
   // Harness by harness in the palette's order, a harness's runs by date.
-  const rank = (h: string) => { const i = HARNESSES.findIndex((x) => x.key === (HARNESSES.some((y) => y.key === h) ? h : family(h))); return i < 0 ? HARNESSES.length : i }
+  const rank = (h: string) => { const i = HARNESSES.findIndex((x) => x.key === sameArm(h)); return i < 0 ? HARNESSES.length : i }
   return out.sort((a, b) => rank(a.harness) - rank(b.harness) || a.date.localeCompare(b.date))
 }
 
