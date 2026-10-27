@@ -15,6 +15,24 @@
 > | both at $0.20 (like for like) | $21.66 | $7.58 | 0.350× | **65.0%** |
 > | as billed — **mixed, as first published** | $15.71 | $7.58 | 0.483× | 51.7% |
 
+> **ARM KEYS — CORRECTION, 2026-10-27.** Three rows of this run's data carried an arm key that named the wrong
+> harness. **No measured number moves**; only the key beside each label does.
+>
+> | was | is now | the label it always had |
+> |---|---|---|
+> | `openclaw` | `opencode` | OpenCode 1.18.35 |
+> | `pi` | `codex` | Codex CLI 0.161.0 (`gpt-6-astra`) |
+> | `theseus-batching` | `theseus-1.0.1` | Theseus as shipped, 1.0.1 (round 1) |
+>
+> The labels, the setup table and every figure's prose were right all along; the keys disagreed with them. It
+> mattered because the cockpit and `charts.py` read a harness's name and its palette colour off the arm key alone,
+> so a chart over this table drew OpenClaw where OpenCode ran, Pi where Codex CLI ran, and the batching ablation
+> where the 1.0.1 carry-forward ran. The two figures below are redrawn from the corrected keys: OpenCode and Codex
+> CLI have no slot in the house palette, so they take the gray outside it with their names on the mark (the same
+> way OpenCode is drawn in the 10-18, 10-21 and 10-23 reports), and the 1.0.1 carry-forward takes `oracle`, the
+> carried-build neutral those reports use. Every value, interval and tip is byte-identical to the first drawing.
+> `bench/report/test_manifest.py` now holds every published dataset to the agreement (theseus-sjf5q).
+
 **The answer first.** The 1.0.3 behaviour build does **less work for less money and fixes no more bugs**. Over three
 trials it fixed **3.33 of 13** a trial at **$7.59** a trial, against round 1's 1.0.1 build at **4.33 of 13** and
 **$15.72**. Cost fell **52% as billed and 65% like for like** (the price-basis note above), model calls

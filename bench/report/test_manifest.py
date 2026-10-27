@@ -10,12 +10,14 @@ written by the drafting tool beside every run's data file.
 
 from __future__ import annotations
 
+import csv
 import importlib.util
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 HERE = Path(__file__).resolve().parent
 
@@ -301,6 +303,45 @@ class Published(unittest.TestCase):
                 self.assertEqual(set(r) - {"comparison"}, before | added, name)
                 self.assertEqual(r["model"], data["model"], "no per-arm model in a published dataset: the prose stays")
                 self.assertEqual(r["trials"], data["summary"][r["variant"]]["trials"])
+
+    def test_every_published_rows_arm_key_names_the_harness_its_label_names(self):
+        """theseus-sjf5q: the Bug Hunt's OpenCode rows were keyed `openclaw` and its Codex CLI rows `pi`, so any
+        chart over them drew the wrong harness in the wrong colour. An arm key is the only thing the cockpit and
+        `charts.py` read a harness's name and colour from, so it has to agree with the label beside it."""
+        checked, wrong = 0, []
+
+        def hold(where: str, arm: Any, label: Any) -> None:
+            nonlocal checked
+            if not isinstance(arm, str) or not isinstance(label, str):
+                return
+            fam, names = manifest.family(arm), manifest.harnesses_named(label)
+            if fam in manifest.NEUTRAL_ARMS or not names:
+                return                                   # a role, or a label that names no harness
+            checked += 1
+            if fam not in names:
+                wrong.append(f"{where}: arm {arm!r} against label {label!r} ({'/'.join(sorted(names))})")
+
+        def walk(o: Any, where: str) -> None:
+            if isinstance(o, dict):
+                hold(where, o.get("arm"), o.get("label"))
+                for k, v in o.items():
+                    walk(v, f"{where}/{k}")
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v, f"{where}[]")
+
+        for p in sorted(DOCS.glob("*.json")):
+            if p.name == manifest.INDEX:
+                continue
+            walk(json.loads(p.read_text()), p.name)
+        for i, r in enumerate(json.loads((DOCS / manifest.INDEX).read_text())["runs"]):
+            hold(f"{manifest.INDEX} run {i}", r.get("arm"), r.get("harness"))   # the manifest says it as `harness`
+        for p in sorted(DOCS.glob("*.csv")):
+            rows = list(csv.DictReader(p.read_text().splitlines()))
+            for i, r in enumerate(rows):
+                hold(f"{p.name} row {i + 1}", r.get("arm"), r.get("label"))
+        self.assertEqual(wrong, [], "\n".join(wrong))
+        self.assertGreater(checked, 200, "the published datasets stopped reaching this check")
 
 
 class DraftHook(unittest.TestCase):
