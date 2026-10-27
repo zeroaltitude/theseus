@@ -182,8 +182,16 @@ async fn every_result_of_a_group_of_three_is_judged() {
     let three = Scripted::tools(
         "",
         &[
-            ("t1", "proc_run", json!({"argv": ["bash", "-c", "echo one"]})),
-            ("t2", "proc_run", json!({"argv": ["bash", "-c", "echo two"]})),
+            (
+                "t1",
+                "proc_run",
+                json!({"argv": ["bash", "-c", "echo one"]}),
+            ),
+            (
+                "t2",
+                "proc_run",
+                json!({"argv": ["bash", "-c", "echo two"]}),
+            ),
             (
                 "t3",
                 "proc_run",
