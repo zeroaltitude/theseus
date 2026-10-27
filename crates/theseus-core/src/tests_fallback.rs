@@ -540,7 +540,11 @@ async fn a_hard_decline_category_latches_at_once() {
         ]);
         let sid = bound_session(&r.core);
         let res = turn(&r.core, &sid, None).await;
-        assert_eq!(models(&r), [ROUTED, ROUTED, FALLBACK, FALLBACK], "{category}");
+        assert_eq!(
+            models(&r),
+            [ROUTED, ROUTED, FALLBACK, FALLBACK],
+            "{category}"
+        );
         assert!(res.fallback.as_ref().unwrap().latched, "{category}");
         assert!(rows(&r.core, &sid, "provider.routed_back").is_empty());
     }
@@ -599,7 +603,12 @@ async fn the_return_keeps_the_cached_prefix_and_the_routed_output_cap() {
     let named: Vec<&str> = reqs.iter().map(|q| q.model.as_str()).collect();
     assert_eq!(
         named,
-        ["claude-opus-5-5", "claude-opus-5-5", "claude-haiku-4-5", "claude-opus-5-5"]
+        [
+            "claude-opus-5-5",
+            "claude-opus-5-5",
+            "claude-haiku-4-5",
+            "claude-opus-5-5"
+        ]
     );
     // The output cap: Haiku's on its one request, the routed model's again.
     assert_eq!(reqs[2].max_tokens, 64_000);

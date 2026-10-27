@@ -267,7 +267,11 @@ impl TurnFallback {
     pub fn line(&self, stop_reason: &str) -> String {
         let (from, to) = (model_name(&self.from), model_name(&self.to));
         let refusals = self.refusals.max(1);
-        let answers = if self.answered { self.answers.max(1) } else { 0 };
+        let answers = if self.answered {
+            self.answers.max(1)
+        } else {
+            0
+        };
         let mut declined = match &self.category {
             Some(c) => format!("{from} declined ({c})"),
             None => format!("{from} declined"),
@@ -468,7 +472,10 @@ mod tests {
             (0, 0, false),
             "{old:?}"
         );
-        assert_eq!(old.line("end_turn"), "Sonnet 5.5 declined; Sonnet 5 answered.");
+        assert_eq!(
+            old.line("end_turn"),
+            "Sonnet 5.5 declined; Sonnet 5 answered."
+        );
         f.answered = false;
         assert_eq!(
             f.line("refusal"),

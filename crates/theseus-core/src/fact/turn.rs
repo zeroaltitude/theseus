@@ -1224,7 +1224,10 @@ impl Fact for RoutedBack<'_> {
     fn narrate(&self, say: &mut Say<'_>) {
         say.line(
             Model,
-            format!("{} answered; the next request goes back to {}.", self.after, self.to),
+            format!(
+                "{} answered; the next request goes back to {}.",
+                self.after, self.to
+            ),
         );
     }
 }

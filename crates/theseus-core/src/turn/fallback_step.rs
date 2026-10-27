@@ -147,7 +147,9 @@ impl TurnRunner {
             category: category.map(str::to_string),
             refusals: n,
             latched,
-            ..fell.as_ref().map_or_else(TurnFallback::default, |f| f.fallback.clone())
+            ..fell
+                .as_ref()
+                .map_or_else(TurnFallback::default, |f| f.fallback.clone())
         };
         t.record(&fact::turn::FellBack {
             from: &fallback.from,
