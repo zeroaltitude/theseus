@@ -269,6 +269,103 @@ async fn a_pinned_restricted_turn_survives_a_parallel_group_on_a_slow_judge() {
     settles_on(&r.core, &sid, "a pinned restricted turn's parallel group").await;
 }
 
+/// **The wedge itself** (theseus-8qgwo): a content batch that fails *mid-turn*
+/// puts its node on `ContentFlags::unjudged`, and from that moment nothing
+/// will ever ask for it again while the turn lasts -- so a turn pinned to a
+/// model of restricted origin waits its whole `[content] wait_ms` and is then
+/// refused, however healthy the judge has since become.
+///
+/// Why nothing asks again. `ask_unsubmitted` stands down when the first item
+/// past the mark is on the worklist, leaving the re-ask to `with_worklist`
+/// (the review of 2026-10-27, B3). But `with_worklist` rides a **new batch**,
+/// and between a tool's result and the next model call of the same turn there
+/// is no new item to queue, so no batch is ever made for it to ride. The
+/// session is off every model of restricted origin for the rest of its life.
+///
+/// That is cell 8's 23 trials. Their profile sets `[content] wait_ms = 30000`,
+/// so each burned a full thirty seconds waiting on a verdict that nothing had
+/// asked for -- which is also why the three one-trial smokes passed: the
+/// wedge needs one content call to fail, and under four concurrent trials one
+/// does.
+///
+/// The rig holds the result's own content call until the judge's own
+/// `total_secs` gives up on it, then lets later calls through. A build that
+/// re-asks the worklist finishes the turn on the restricted model; a build
+/// that leaves it to a batch that never comes does not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failed_content_call_mid_turn_is_asked_again_rather_than_wedging() {
+    use crate::tests_route::{rig_parts, try_turn_attached as route_turn};
+    const MARK: &str = "wedgemarker";
+    let jev = FakeJev::start().unwrap();
+    clean(&jev);
+    crate::tests_route::mode(&jev, "trivial", 0.95);
+    // Only the call whose state carries the result's own text waits; the
+    // route verdict and every other pack answer at once.
+    jev.hold_when(MARK);
+    let one_call = Scripted::tools(
+        "",
+        &[(
+            "t1",
+            "proc_run",
+            json!({"argv": ["bash", "-c", format!("echo {MARK}")]}),
+        )],
+    );
+    let mine = std::sync::Arc::new(crate::provider::FakeProvider::scripted(vec![
+        one_call,
+        Scripted::text("Ran it."),
+    ]));
+    let r = rig_parts(
+        Some(&jev),
+        2,
+        |c| {
+            crate::tests_route::restricted_placements(c);
+            c.judge.packs.remove(crate::judge::content::PACK);
+            // The held call gives up here; the floor has far longer to notice
+            // and ask again, as cell 8's profile does.
+            c.judge.total_secs = 3;
+            c.content.wait_ms = 30_000;
+            c.tools.proc_sync_secs = 5;
+            c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
+            c.model.retries.transient = 0;
+            c.policy.tools.insert("proc.run".into(), Posture::Open);
+        },
+        {
+            let mine = mine.clone();
+            move |p| {
+                p.providers.insert("zai".into(), mine);
+            }
+        },
+    );
+    // The judge recovers while the floor is still waiting: every call held
+    // from here on answers, so a re-ask succeeds and only a build that never
+    // re-asks is still stuck.
+    let releasing = {
+        let jev = jev.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            for _ in 0..100 {
+                jev.release();
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        })
+    };
+    let one = route_turn(&r.core, None, "run that one", Some("glm"), vec![])
+        .await
+        .expect("the turn was refused outright");
+    releasing.abort();
+    assert_eq!(
+        one.profile, "glm",
+        "the turn left its pinned restricted model for an item nothing re-asked: {:?}",
+        one.route
+    );
+    assert_eq!(
+        crate::tests_dm_rig::blocked(&r.core),
+        0,
+        "the chokepoint refused a request whose item the floor could have re-asked"
+    );
+    settles_on(&r.core, &one.session_id, "a failed content call mid-turn").await;
+}
+
 /// `settles`, against a `tests_route` core rather than a `tests_judge` rig.
 async fn settles_on(core: &std::sync::Arc<crate::rpc::Core>, sid: &str, what: &str) {
     let t0 = Instant::now();
