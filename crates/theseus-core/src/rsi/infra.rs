@@ -198,7 +198,7 @@ pub(super) fn tell(notify: Option<&Notify>, run: &[Failed]) {
             )
         })
         .collect();
-    n.send(format!(
+    n.send_halt(format!(
         "Self builds are halted, and they need you. The gate did not start on the last {} \
          attempts: {}. That is the build environment, not the code: the code was never tested, \
          so nothing was marked red and no cause was filed from it. Fix the gate's environment, \
