@@ -121,3 +121,38 @@ async fn a_judged_attempt_never_halts() {
     w.attempt("green", Some(0), Some(300));
     assert!(!w.halted());
 }
+
+/// The halt's notice is its own kind and pings: no `quiet` (theseus-6s7ll).
+#[test]
+fn the_halt_notice_is_its_own_kind_and_does_not_ask_for_quiet() {
+    let b = crate::rsi::pr::notice_body(true, "halted".into());
+    assert_eq!(b["kind"], "self_halt");
+    assert_eq!(b["text"], "halted");
+    assert!(b.get("quiet").is_none(), "{b}");
+}
+
+/// The guard on the exception: every other self notice stays a quiet `notice`
+/// (passes at the base too; it is not a red-first test).
+#[test]
+fn an_informational_self_notice_stays_quiet() {
+    let b = crate::rsi::pr::notice_body(false, "may build".into());
+    assert_eq!(b["kind"], "notice");
+    assert_eq!(b["quiet"], true);
+}
+
+/// The halt takes the sink's halt line when it has one, else the plain one.
+#[test]
+fn the_halt_takes_the_halt_sink_and_a_plain_sink_takes_it_too() {
+    let plain = Arc::new(Mutex::new(Vec::new()));
+    let halts = Arc::new(Mutex::new(Vec::new()));
+    let (p, h) = (plain.clone(), halts.clone());
+    Notify::new(move |t| p.lock().unwrap().push(t))
+        .with_halt(move |t| h.lock().unwrap().push(t))
+        .send_halt("h".into());
+    assert!(plain.lock().unwrap().is_empty());
+    assert_eq!(*halts.lock().unwrap(), ["h"]);
+    let only = Arc::new(Mutex::new(Vec::new()));
+    let o = only.clone();
+    Notify::new(move |t| o.lock().unwrap().push(t)).send_halt("h".into());
+    assert_eq!(*only.lock().unwrap(), ["h"]);
+}
