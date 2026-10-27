@@ -174,7 +174,6 @@ pub fn request(
         betas: Vec::new(),
         extra,
         image_tokens: 0,
-        data_pass: None,
     }
 }
 

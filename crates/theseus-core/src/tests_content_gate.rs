@@ -36,7 +36,6 @@ fn request(model: &str, text: &str) -> ProviderRequest {
         betas: vec![],
         extra: Default::default(),
         image_tokens: 0,
-        data_pass: None,
     }
 }
 
@@ -77,9 +76,20 @@ fn label(flag: Flag) -> Label {
 }
 
 /// A session record holding `flags` (as JSON, whatever the record's `data` is
-/// typed as) and `nodes`, written to the store.
-fn session_with(r: &Rig, flags: Option<ContentFlags>, nodes: &[&Node]) -> String {
+/// typed as) and a user node for each of `said`, written to the store. With
+/// `judged`, the mark stands at the last node: every item was judged.
+fn session_with(r: &Rig, flags: Option<ContentFlags>, said: &[&str], judged: bool) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
+    let nodes: Vec<Node> = said
+        .iter()
+        .map(|t| Node::user(&rec.session_id, Some("trn_1"), "cli", t))
+        .collect();
+    let mut flags = flags;
+    if judged {
+        let mut f = flags.take().unwrap_or_default();
+        f.judged_through = nodes.last().map(|n| n.id.clone());
+        flags = Some(f);
+    }
     let mut v = serde_json::to_value(&rec).unwrap();
     if let Some(f) = &flags {
         v["data"] = serde_json::to_value(f).unwrap();
@@ -106,7 +116,7 @@ fn blocked(r: &Rig) -> Vec<Value> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_restricted_model_is_sent_a_session_with_no_label() {
     let r = rig(None, 1, |_| {});
-    let sid = session_with(&r, None, &[]);
+    let sid = session_with(&r, None, &[], false);
     let zai = &r.core.runner.providers["zai"];
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
@@ -122,19 +132,13 @@ async fn a_restricted_model_is_sent_a_session_with_no_label() {
 async fn a_restricted_model_is_sent_only_what_was_judged() {
     let r = rig(None, 1, |_| {});
     let zai = &r.core.runner.providers["zai"];
-    let first = Node::user("ses_x", Some("trn_1"), "cli", "Rename the call sites.");
-    let judged = ContentFlags {
-        judged_through: Some(first.id.clone()),
-        ..Default::default()
-    };
-    let sid = session_with(&r, Some(judged), &[&first]);
+    let sid = session_with(&r, None, &["Rename the call sites."], true);
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
         .expect("every item was judged");
     assert_eq!(r.zai.requests().len(), 1);
     // The same session, its item not yet judged.
-    let second = Node::user("ses_y", Some("trn_1"), "cli", "And the tests.");
-    let sid = session_with(&r, None, &[&second]);
+    let sid = session_with(&r, None, &["And the tests."], false);
     let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
         .unwrap_err();
@@ -154,7 +158,7 @@ async fn a_restricted_model_is_refused_a_session_with_a_cn_label() {
     for flag in [Flag::Secret, Flag::Confidential, Flag::Personal] {
         let mut f = ContentFlags::default();
         f.raise(label(flag));
-        let sid = session_with(&r, Some(f), &[]);
+        let sid = session_with(&r, Some(f), &[], false);
         let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
             .await
             .unwrap_err();
@@ -176,7 +180,7 @@ async fn an_injection_label_does_not_keep_a_restricted_model_off() {
     let r = rig(None, 1, |_| {});
     let mut f = ContentFlags::default();
     f.raise(label(Flag::Injection));
-    let sid = session_with(&r, Some(f), &[]);
+    let sid = session_with(&r, Some(f), &[], false);
     let zai = &r.core.runner.providers["zai"];
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
@@ -215,7 +219,7 @@ async fn the_names_tripwire_needs_no_label() {
     let r = rig(None, 1, |c| {
         c.privacy.sensitive_names = vec!["Examplecorp".into()];
     });
-    let sid = session_with(&r, None, &[]);
+    let sid = session_with(&r, None, &[], false);
     let zai = &r.core.runner.providers["zai"];
     let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", named))
         .await
@@ -243,7 +247,7 @@ async fn the_names_tripwire_holds_for_a_model_of_eu_origin() {
         c.privacy.sensitive_names = vec!["Examplecorp".into()];
         c.serve_default_from_eu();
     });
-    let sid = session_with(&r, None, &[]);
+    let sid = session_with(&r, None, &[], false);
     let claude = &r.core.runner.providers["anthropic"];
     let (class, said) = send_for(claude, Some(&sid), &request("claude-sonnet-5-5", named))
         .await
@@ -259,11 +263,14 @@ async fn a_label_does_not_touch_a_us_model() {
     let mut f = ContentFlags::default();
     f.raise(label(Flag::Confidential));
     f.raise(label(Flag::Secret));
-    let sid = session_with(&r, Some(f), &[]);
+    let sid = session_with(&r, Some(f), &[], false);
     let claude = &r.core.runner.providers["anthropic"];
     send_for(claude, Some(&sid), &request("claude-sonnet-5-5", PLAIN))
         .await
         .unwrap();
     assert_eq!(r.claude.requests().len(), 1);
-    assert!(blocked(&r).is_empty(), "an unrestricted model writes no row");
+    assert!(
+        blocked(&r).is_empty(),
+        "an unrestricted model writes no row"
+    );
 }

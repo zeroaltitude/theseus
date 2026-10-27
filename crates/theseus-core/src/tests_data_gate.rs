@@ -252,7 +252,6 @@ async fn every_provider_of_the_core_is_behind_the_floor() {
         betas: vec![],
         extra: Default::default(),
         image_tokens: 0,
-        data_pass: None,
     };
     let providers = &r.core.runner.providers;
     let mut sink = |_: crate::provider::Delta<'_>| {};

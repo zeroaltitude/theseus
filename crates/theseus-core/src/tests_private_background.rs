@@ -260,7 +260,6 @@ async fn a_bound_provider_is_held_by_the_floor_on_any_task() {
         betas: vec![],
         extra: Default::default(),
         image_tokens: 0,
-        data_pass: None,
     };
     let send = |private: bool| {
         let (p, r) = (provider.clone(), request.clone());
