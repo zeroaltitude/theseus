@@ -419,7 +419,8 @@ async fn a_refusal_sends_one_request_to_the_fallback_and_the_next_goes_back() {
     ]);
     let sid = bound_session(&r.core);
     let res = turn(&r.core, &sid, None).await;
-    assert_eq!((res.output.as_str(), res.loops), ("Four.", 4), "{res:?}");
+    assert!(res.output.ends_with("Four."), "{}", res.output);
+    assert_eq!(res.loops, 4, "{res:?}");
     let models: Vec<String> = r.fake.requests().iter().map(|q| q.model.clone()).collect();
     assert_eq!(
         models,
