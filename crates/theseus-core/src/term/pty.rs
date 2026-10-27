@@ -226,6 +226,13 @@ impl Pty {
     /// "idle" with the output missing from the screen. Looked at after the
     /// program's own state, so output written before it began to wait is
     /// counted.
+    ///
+    /// The window is narrower, not closed: between the kernel handing the
+    /// reader its bytes and the `feeding` store below, both halves of this
+    /// read clear. Closing it needs the reader to publish a monotone
+    /// counter, or an idle confirmed on two looks, which costs latency
+    /// against the `< 100 ms` bounds in `tests_idle.rs` (theseus-o1jnt,
+    /// OWNER CALL).
     fn drained(&self) -> bool {
         use std::os::fd::AsRawFd;
         let m = self.master.lock().unwrap_or_else(|p| p.into_inner());
