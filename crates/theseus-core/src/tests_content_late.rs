@@ -104,13 +104,28 @@ async fn a_late_result_is_judged_once_its_continuation_has_taken_it() {
     for _ in 0..200 {
         tokio::time::sleep(Duration::from_millis(50)).await;
         r.core.heartbeat("test");
-        if r.core.kernel.execution(&exec).unwrap().unwrap().state.as_str() == "queued" {
+        if r.core
+            .kernel
+            .execution(&exec)
+            .unwrap()
+            .unwrap()
+            .state
+            .as_str()
+            == "queued"
+        {
             break;
         }
     }
     let e = r.core.kernel.execution(&exec).unwrap().unwrap();
-    assert_eq!(e.state.as_str(), "queued", "the job's end queued the execution");
-    assert!(late_ids(&r, &sid).is_empty(), "no late result is written yet");
+    assert_eq!(
+        e.state.as_str(),
+        "queued",
+        "the job's end queued the execution"
+    );
+    assert!(
+        late_ids(&r, &sid).is_empty(),
+        "no late result is written yet"
+    );
 
     let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
     assert!(cont.continuation);
