@@ -174,7 +174,11 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "compare.v1: shadow",
             "heard.v1: live",
             "people.v1: live",
-            "people_seen.v1: live"
+            "people_seen.v1: live",
+            // Off in this rig: these tests count the calls Jev is made, and a
+            // pack that asks about every item entering a session would be
+            // counting its own (theseus-9ymz0).
+            "content.v1: off"
         ])
     );
     assert_eq!(rig.rows("pack.mode").len(), 3, "one adoption row each");

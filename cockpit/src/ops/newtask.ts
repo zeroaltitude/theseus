@@ -5,9 +5,9 @@ import type { DataMark, ProfileInfo, TaskStartParams } from '@protocol'
 import { greyOf } from './floor.ts'
 
 export interface NewTaskForm {
-  brief: string; title: string; budget: string; home: string; profile: string; startWhen: string; quotes: string; open: boolean
+  brief: string; title: string; budget: string; home: string; profile: string; startWhen: string; quotes: string
 }
-export const EMPTY_FORM: NewTaskForm = { brief: '', title: '', budget: '', home: '', profile: '', startWhen: '', quotes: '', open: false }
+export const EMPTY_FORM: NewTaskForm = { brief: '', title: '', budget: '', home: '', profile: '', startWhen: '', quotes: '' }
 
 /** The budget as dollars: blank is none (a quarter of what's left); anything but a positive number is bad. */
 export function dollarsOf(budget: string): { usd?: number; bad: boolean } {
@@ -33,7 +33,6 @@ export function startParams(f: NewTaskForm): TaskStartParams | null {
     ...(f.profile && { profile: f.profile }),
     ...(f.startWhen.trim() && { start_when: f.startWhen.trim() }),
     ...(quotes.length && { quotes }),
-    ...(f.open && { open: true }),
   }
 }
 

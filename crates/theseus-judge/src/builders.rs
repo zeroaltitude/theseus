@@ -716,7 +716,7 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
 
 mod citation;
 mod compare;
-mod content;
+pub mod content;
 mod cross;
 mod families;
 mod heard;

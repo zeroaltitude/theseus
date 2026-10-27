@@ -143,11 +143,15 @@ impl ItemKind {
         }
     }
 
-    /// Whether the injection question is asked of an item of this kind. Two
-    /// kinds are exempt, for two different reasons, and both exemptions live
-    /// here in code rather than in the pack's wording: a wording rule can be
-    /// talked around by the very text it judges, a question that is never
-    /// asked cannot be answered.
+    /// Whether the injection question is asked of an item of this kind.
+    ///
+    /// **The list lives in `theseus_judge::builders::content::asks_injection`,
+    /// which is what the builder itself calls**, and this delegates to it. It
+    /// was stated in both places until the review of 2026-10-26 found this one
+    /// was dead code and the two had drifted. The exemptions live in code
+    /// rather than in the pack's wording either way: a wording rule can be
+    /// talked around by the very text it judges, a question that is never asked
+    /// cannot be answered.
     ///
     /// - [`ItemKind::OperatorMessage`] — the owner's own words (the owner,
     ///   2026-10-17: "my own DM or channel text should never cause a flag").
@@ -173,7 +177,7 @@ impl ItemKind {
     /// messages included: he can paste a key or a confidential document, and he
     /// wants that to disqualify a model of restricted origin.
     pub fn asks_injection(self) -> bool {
-        !matches!(self, ItemKind::OperatorMessage | ItemKind::TaskBrief)
+        theseus_judge::builders::content::asks_injection(self.as_str())
     }
 }
 
@@ -446,12 +450,21 @@ impl InjectionMode {
 /// an outbound send with the data in the query string. A session that an
 /// injection has taken over must not keep that channel.
 ///
-/// So: local reads of files and code (`fs.`, `git.`, `text.`, `lsp.`), the
-/// tool catalogue, and a task's reads of its own record. Nothing that crosses
-/// the machine boundary — no fetch, no search, no MCP tool, no Workspace or
-/// cloud call, no post — and nothing that writes or runs.
+/// So: local reads of files and code (`fs.`, `git.`, `text.`), the tool
+/// catalogue, and a task's reads of its own record. Nothing that crosses the
+/// machine boundary — no fetch, no search, no MCP tool, no Workspace or cloud
+/// call, no post — and nothing that writes or runs.
+///
+/// **`lsp.` is deliberately NOT here**, though its reads are `Read` class. The
+/// review of 2026-10-26 found the hole: starting a language server *is* a run
+/// (`lsp/mod.rs`: "a language server runs build scripts and proc macros, as
+/// `cargo build` would"), and `lsp::gate` handles that by raising the call's
+/// posture rather than its class — which is not what this reads. Where that
+/// posture is open, a frozen session could have started rust-analyzer and run
+/// the project's `build.rs`. `fs.`, `git.` and `text.` are enough to
+/// investigate a frozen session, which is what this allowlist is for.
 pub fn local_read(tool: &str) -> bool {
-    ["fs.", "git.", "text.", "lsp.", "task.read", "tools.find"]
+    ["fs.", "git.", "text.", "task.read", "tools.find"]
         .iter()
         .any(|p| tool.starts_with(p))
 }
@@ -539,22 +552,27 @@ pub fn pieces(text: &str, cap: usize) -> Vec<(u32, u32, String)> {
 /// One item split for the pack, bounded: at most `max` pieces, taken from the
 /// start, and whether anything was left unread.
 ///
-/// **Why there is a bound at all.** Jev is cheap — about $0.000147 for a
-/// 3,000-token item with its four questions, so a turn with ten tool calls
-/// costs under a fifth of a cent and a thousand-trial benchmark about fifteen
-/// dollars. Cost is not the reason. The reason is that `[tools]
-/// job_output_max_bytes` is 64 MiB, and an unbounded split of one runaway
-/// program's output would be thousands of concurrent calls for a single item,
-/// which is an incident rather than a classification.
+/// **Why there is a bound at all, corrected 2026-10-26 by the review.** My
+/// first reason for it was wrong: I justified it against `[tools]
+/// job_output_max_bytes` (64 MiB), but a job's output never reaches an item —
+/// the result node is capped at the tool's `result_max_chars`, and the whole
+/// output goes to a file. The incident I wrote the bound to prevent cannot
+/// happen. The largest item that can actually exist is an `fs.read` at
+/// `FS_READ_MAX_CHARS` (100,000 characters).
 ///
-/// **What the bound costs, said plainly.** A secret or a confidential line
-/// past the bound is not seen, and the item is still counted as judged. Two
-/// things still cover it: the deterministic `[privacy] sensitive_names`
-/// tripwire runs at the provider on the whole request, whatever was read here;
-/// and a job's granted secrets are withheld by the wrapper's pipe
-/// (`redact.rs`) before a node exists at all. The alternative — marking a long
-/// item unjudged — would take a session off China-origin models for good the
-/// first time it read a large file, which serves nobody.
+/// So the bound's job is not to stop a runaway; it is to be large enough that
+/// nothing real is ever cut. It is set so the largest possible item fits whole,
+/// and Jev's price (about $0.000147 for a 3,000-token piece) makes that cheap:
+/// reading one 100,000-character file in full costs about half a thousandth of
+/// a dollar.
+///
+/// **What truncation would cost, if it ever happened:** the text past the bound
+/// is not seen and the item still counts as judged. The deterministic
+/// `[privacy] sensitive_names` tripwire still runs at the provider on the whole
+/// request, and a job's granted secrets are withheld by the wrapper's pipe
+/// (`redact.rs`) before a node exists. Marking long items unjudged instead
+/// would take a session off China-origin models for good the first time it read
+/// a large file, which serves nobody.
 ///
 /// The row records `truncated`, so this is visible rather than silent.
 pub fn split(text: &str, cap: usize, max: usize) -> (Vec<(u32, u32, String)>, bool) {
@@ -759,7 +777,13 @@ mod tests {
                 "{t} reaches off this machine and must be refused though it reads"
             );
         }
-        for t in ["fs.read", "git.log", "text.grep", "lsp.hover", "tools.find"] {
+        // `lsp.` is NOT here: starting a language server runs build scripts.
+        assert!(!local_read("lsp.hover"), "a language server start is a run");
+        assert!(
+            refusal(Some(&f), InjectionMode::Refuse, ToolClass::Read, "lsp.hover").is_some(),
+            "a frozen session may not start a language server"
+        );
+        for t in ["fs.read", "git.log", "text.grep", "tools.find", "task.read"] {
             assert!(local_read(t), "{t}");
             assert_eq!(
                 refusal(Some(&f), InjectionMode::Refuse, ToolClass::Read, t),

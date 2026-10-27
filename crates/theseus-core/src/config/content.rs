@@ -11,10 +11,10 @@
 //!   never waits, whatever this says. Zero means it never waits, so an
 //!   unjudged item sends that one request to Claude at once.
 //! - `max_pieces`: the bound on how many pieces one long item is split into
-//!   (`content::split`). A job's output may be 64 MiB, and an unbounded split
-//!   of one runaway program's output would be thousands of concurrent calls
-//!   for a single item. Past the bound the item is read from the start and its
-//!   row says `truncated`.
+//!   (`content::split`). Set so the largest item that can exist — an `fs.read`
+//!   at `FS_READ_MAX_CHARS`, 100,000 characters, which is 17 pieces of the
+//!   pack's 6,000-character cap — fits whole, with room to spare. Past the
+//!   bound an item is read from the start and its row says `truncated`.
 //! - `enabled`: the whole mechanism, on by default. Off, nothing is asked, no
 //!   label is ever raised, and no session is frozen — but **a model of
 //!   restricted origin is then refused every request**, because nothing has
@@ -50,11 +50,18 @@ fn default_wait_ms() -> u64 {
     4_000
 }
 
-/// Six pieces of the pack's 3,000-token cap is about 72 KB of one item read in
-/// full, which covers every ordinary file, page and result. Past it the item is
-/// read from the start and its row says `truncated`.
+/// The pack's state cap is 3,000 tokens, which the builder takes as
+/// `PIECE_CHARS` = 6,000 characters a piece. The largest item that can exist is
+/// an `fs.read` at `FS_READ_MAX_CHARS` (100,000 characters), which is 17
+/// pieces; 20 fits it whole with room to spare, and costs about half a
+/// thousandth of a dollar for such a read.
+///
+/// **This was 6 until the review of 2026-10-26**, which did the arithmetic I
+/// had not: 6 pieces is 36 KB, not the "about 72 KB" three documents claimed,
+/// so an ordinary 60 KB file was classified a third of the way through and the
+/// session stayed eligible for a China-origin model.
 fn default_max_pieces() -> usize {
-    6
+    20
 }
 
 impl Default for ContentConfig {
@@ -86,7 +93,7 @@ mod tests {
         assert!(d.enabled);
         assert_eq!(d.injection, InjectionMode::Refuse);
         assert_eq!(d.wait_ms, 4_000);
-        assert_eq!(d.max_pieces, 6);
+        assert_eq!(d.max_pieces, 20);
         assert!(d.is_default());
         let c: ContentConfig = toml::from_str("").unwrap();
         assert_eq!(c, d, "an empty table is the default");

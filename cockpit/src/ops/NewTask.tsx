@@ -1,6 +1,6 @@
 // The New task sheet (theseus-jid7t.3, .6): every field of the Tasks page's form (a brief, a title, a budget, where it
 // goes) and what `task.start` takes besides: the profile, greyed by the home's data mark as the model menu is, a start
-// time, quotes, and an open task. It calls `task.start`, which opens the task with no model turn; the row it makes is
+// time and quotes. It calls `task.start`, which opens the task with no model turn; the row it makes is
 // selected on the board (the page writes it into the address), and a refusal shows the daemon's own words. `N` opens it
 // with the conversation under the cursor as its home. A caller may pass a profile, a brief and a title, and "US only"
 // (the Timeline does for a sensitive calendar event, theseus-jid7t.5): then another origin's profile is greyed with
@@ -68,9 +68,6 @@ export function NewTask({ home: initialHome = '', profile: initialProfile = '', 
           {choices.map((c) => <option key={c.name} value={c.name} disabled={!!c.grey} title={c.grey ?? undefined}>{c.label}{c.grey ? ' · refused' : ''}</option>)}
         </select>
         <input value={f.startWhen} onChange={set('startWhen')} placeholder="Start: now, 2h, fri 9:00" aria-label="Start time" className={cn(FIELD, 'w-44')} />
-        <label className="flex items-center gap-1.5 text-[12px] text-ink-dim" title="An open task: its data may go to a model of any origin once its content is judged open">
-          <input type="checkbox" checked={f.open} onChange={(e) => setF((x) => ({ ...x, open: e.target.checked }))} /> open task
-        </label>
       </div>
       {(chosen?.grey || closed) && <div className="text-[11.5px] text-fault">{chosen?.grey ?? `${US_ONLY_WORDS}: pick a profile of US origin`}</div>}
       <textarea value={f.quotes} onChange={set('quotes')} rows={2} placeholder="Quotes the task reads verbatim (a message, a pasted log); a blank line between two" aria-label="Quotes" className={cn(FIELD, 'resize-y')} />
