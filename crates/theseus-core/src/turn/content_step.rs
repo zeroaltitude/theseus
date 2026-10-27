@@ -21,17 +21,26 @@ impl TurnRunner {
     /// 2026-10-17: "my own DM or channel text should never cause a flag") —
     /// **his own**, and no one else's.
     ///
-    /// A private place is the CLI, the web UI, a DM with an owner, and a guild
-    /// channel the bindings bind privately: places where the only person who
-    /// speaks is an owner. Every other place is shared, and a guest there is
-    /// exactly who an injection would come from, so their message is asked like
-    /// any other text Theseus did not write. Erring toward `PersonMessage` errs
-    /// toward asking, which is the safe direction.
-    pub(crate) fn message_kind(&self, session: &str) -> ItemKind {
-        match self.view_of(session).class {
-            crate::places::PlaceClass::Private => ItemKind::OperatorMessage,
-            crate::places::PlaceClass::Shared => ItemKind::PersonMessage,
+    /// So both must hold, as `places::owner_in_private` requires for an
+    /// approval: the place is private **and** the author is an owner (`owner`,
+    /// which `Core::owner_input` judged from who spoke and where, and the
+    /// sink carries). A private place is not enough: a guild channel bound
+    /// private, and every channel of a trusted guild, hold other people too,
+    /// and a guest there is exactly who an injection would come from. Every
+    /// other message is asked like any text Theseus did not write. Erring
+    /// toward `PersonMessage` errs toward asking, which is the safe direction.
+    pub(crate) fn message_kind(&self, session: &str, owner: bool) -> ItemKind {
+        match (owner, self.view_of(session).class) {
+            (true, crate::places::PlaceClass::Private) => ItemKind::OperatorMessage,
+            _ => ItemKind::PersonMessage,
         }
+    }
+
+    /// The message node a turn just wrote for its input: judged as the
+    /// operator's own only when its author is an owner (`message_kind`).
+    pub(super) fn content_input(&self, t: &Turn<'_>, node: &Node) {
+        let kind = self.message_kind(t.tc.session_id, t.tc.sink.owner);
+        self.content_message(t.tc.session_id, node, kind, "operator message");
     }
 
     /// The nodes a turn took in together (its reports), as one batch.

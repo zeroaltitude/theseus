@@ -1775,7 +1775,7 @@ impl TurnRunner {
             crate::rpc::ordered::applied();
             t.tc.node_written(&node);
             self.inbound_point(t, &node, &author, false);
-            self.content_message(sid, &node, self.message_kind(sid), "operator message");
+            self.content_input(t, &node);
         } else {
             // A task's first turn has no message: its brief is judged.
             self.brief_point(t);
