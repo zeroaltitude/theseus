@@ -63,7 +63,7 @@ pub(crate) mod brief_step;
 pub(crate) mod budget_step;
 mod budget_words;
 mod calls;
-mod ceiling_step;
+pub(crate) mod ceiling_step;
 mod checkpoint_step;
 mod cite_step;
 pub mod clock_step;

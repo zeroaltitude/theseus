@@ -1643,6 +1643,12 @@ impl ToolRuntime {
         crate::project::remind::after(self, tc, &edit.changes);
         self.plan_moved(tc, &edit.changes);
         Self::announce_end(tc, &node);
+        // A harness tool's result is an item like any other tool's
+        // (theseus-sh1n3): this site wrote one and queued nothing, so a
+        // `task.create` result — or a wake's, a plan's, an `rsi.evidence`'s —
+        // was counted unjudged for ever and took its session off every model
+        // of restricted origin.
+        self.queue_content(tc.session_id, std::slice::from_ref(&node));
         Ok(CallOutcome::Done { status })
     }
 

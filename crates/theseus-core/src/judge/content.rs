@@ -76,31 +76,29 @@ impl ContentItem {
     }
 
     /// The item a message node is: its text as written, or `None` for a node
-    /// with none. For the operator's words, a steer, a task's brief or a report
-    /// a turn took.
+    /// that is no item. For the operator's words, a steer, a task's brief or a
+    /// report a turn took.
+    ///
+    /// Whether it is an item at all is `content::item_text`'s to say and no
+    /// one else's (theseus-sh1n3): the set submitted here and the set the
+    /// floor blocks on are one set, read from one function.
     pub fn of_message(node: &Node, kind: ItemKind, source: &str) -> Option<Self> {
-        let Body::UserMessage { text, .. } = &node.body else {
+        if !matches!(node.body, Body::UserMessage { .. }) {
             return None;
-        };
-        (!text.trim().is_empty()).then(|| Self::new(&node.id, kind, source, text))
+        }
+        let text = content::item_text(node)?;
+        Some(Self::new(&node.id, kind, source, text))
     }
 
     /// The item a tool result node is, or `None` for one that is not classified:
     /// not a result, an acknowledgement of Theseus's own (`content::judges`), or
-    /// a result with no text.
+    /// a result with no text. `content::item_text` decides, as it does for a
+    /// message (theseus-sh1n3).
     pub fn of_result(node: &Node) -> Option<Self> {
-        let Body::ToolResult {
-            tool,
-            content,
-            external,
-            ..
-        } = &node.body
-        else {
+        let Body::ToolResult { tool, external, .. } = &node.body else {
             return None;
         };
-        if !content::judges(tool) || content.trim().is_empty() {
-            return None;
-        }
+        let text = content::item_text(node)?;
         let kind = match tool.as_str() {
             "http.fetch" => ItemKind::FetchedPage,
             "web.search" => ItemKind::SearchResult,
@@ -110,7 +108,7 @@ impl ContentItem {
             Some(e) => format!("{tool} {}", e.url),
             None => tool.clone(),
         };
-        Some(Self::new(&node.id, kind, &source, content))
+        Some(Self::new(&node.id, kind, &source, text))
     }
 }
 
@@ -154,6 +152,15 @@ pub(crate) struct Point {
     /// Decision points asked, for a test that counts them.
     #[cfg(test)]
     pub(crate) points: std::sync::atomic::AtomicU64,
+    /// Every node a hook site offered for judgment, in order, for the test
+    /// that holds the submitted set against the blocked set (theseus-sh1n3).
+    #[cfg(test)]
+    pub(crate) submitted: Mutex<Vec<String>>,
+    /// Of those, the ones the sweep offered rather than a write site. A test
+    /// that means to hold the **sites** to their queueing must see this
+    /// empty, or it is proving the sweep and saying it proved the sites.
+    #[cfg(test)]
+    pub(crate) swept: Mutex<Vec<String>>,
 }
 
 impl Point {
@@ -230,6 +237,27 @@ impl JudgeService {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::new(told));
     }
 
+    /// Every node a hook site offered for judgment, whether or not the
+    /// mechanism was on to ask about it (theseus-sh1n3).
+    #[cfg(test)]
+    pub(crate) fn content_submitted(&self) -> Vec<String> {
+        self.content
+            .submitted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Of those, the ones the sweep offered rather than a write site.
+    #[cfg(test)]
+    pub(crate) fn content_swept(&self) -> Vec<String> {
+        self.content
+            .swept
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
     /// Whether a turn is blocked on this session's verdicts right now.
     pub(crate) fn content_awaited(&self, session: &str) -> bool {
         self.content
@@ -244,7 +272,18 @@ impl JudgeService {
     /// the pack off, and an item with no text is never asked (it counts as
     /// judged once the batch it rides in lands).
     pub fn ask_content(&self, session: &str, items: Vec<ContentItem>) {
-        if items.is_empty() || self.content.off.load(Ordering::Relaxed) {
+        if items.is_empty() {
+            return;
+        }
+        // Every node a hook site offered, whether or not the mechanism is on:
+        // what a test holds the blocker's set against (theseus-sh1n3).
+        #[cfg(test)]
+        self.content
+            .submitted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .extend(items.iter().map(|i| i.node.clone()));
+        if self.content.off.load(Ordering::Relaxed) {
             return;
         }
         if !self.mode_for(PACK, session).on() || self.pack(PACK).is_none() {
@@ -263,6 +302,109 @@ impl JudgeService {
         if spawn {
             rt.spawn(drain(self.me.clone(), session.to_string()));
         }
+    }
+
+    /// Every item of `session` past its mark that nothing has queued, queued
+    /// now (theseus-sh1n3). The floor calls it before it waits, so the set a
+    /// restricted-origin request blocks on and the set that is submitted are
+    /// **the same set by construction**, not by an audit of the write sites.
+    ///
+    /// Why it exists at all. A node becomes an item the moment it is written,
+    /// and the sites that write one are many — a turn's steps, a tool's
+    /// completion, a task's reports, an RPC that appends to a session nobody's
+    /// turn owns. Each queues what it wrote. A site that forgets costs the
+    /// session every model of restricted origin for the rest of its life, in
+    /// silence, and nothing fails until someone runs a cn request and reads
+    /// the gate's row. Two such sites shipped in theseus-9ymz0. This makes the
+    /// floor's own reading of the transcript the submitter of last resort, so
+    /// a site added later that forgets costs a round trip, not a session.
+    ///
+    /// It does nothing while anything is in flight for the session. **That
+    /// stops a second, concurrent ask for one node; it is not a claim that a
+    /// node is never asked twice** (the review of 2026-10-27, B3). What would
+    /// otherwise make a repeat expensive is handled by standing down when the
+    /// first item past the mark is one an earlier batch could not judge: the
+    /// mark is then stuck on a known failure, and re-reading the transcript
+    /// would re-ask — and pay for — every item behind it that was judged
+    /// already. `with_worklist`'s capped re-ask is the path for that case; the
+    /// sweep's job is the item nobody offered, and only that.
+    ///
+    /// At most [`SWEEP_MAX`] a call: the mark moves over the batch's own span
+    /// (`land` picks the last of the batch's leading judged run, and `span_to`
+    /// builds the span from the mark to it), so the rest follow on the next
+    /// read.
+    ///
+    /// Turns of one session are serialised, so the read of `content_pending`
+    /// and the queueing that follows it are not racing another turn of the
+    /// same session. If that stops being true this wants the slots lock held
+    /// across both.
+    pub fn ask_unsubmitted(&self, session: &str) {
+        if self.content.off.load(Ordering::Relaxed) || self.content_pending(session) {
+            return;
+        }
+        // A build with no such pack can never ask, so it need not read.
+        //
+        // The review (should-fix 4) asked for the per-session **mode** check
+        // here too, since everything below is a record read, a whole
+        // transcript and up to sixteen item builds that clone a node's whole
+        // text, and with the pack off for a session none of it is ever asked.
+        // It is deliberately not here: the stand-in judge the floor's tests
+        // use (`content_wait::judging`) replaces the judge entirely and runs
+        // with this pack's mode off, so a mode check makes the sweep
+        // invisible to the only rig that exercises it — and the work it would
+        // save falls on a config where the session cannot reach a model of
+        // restricted origin at all.
+        if self.pack(PACK).is_none() {
+            return;
+        }
+        let Ok(Some(rec)) = self
+            .store
+            .get_session::<crate::session::SessionRecord>(session)
+        else {
+            return;
+        };
+        let Ok(nodes) = self.store.transcript(session) else {
+            return;
+        };
+        let flags = flags_of(&rec);
+        let stuck: Vec<String> = flags.map(|f| f.unjudged.clone()).unwrap_or_default();
+        let through = flags.and_then(|f| f.judged_through.clone());
+        // A mark the transcript has lost reads as nothing judged, exactly as
+        // `content_wait::unjudged` reads it: fail closed, and ask again.
+        let from = match through.as_deref() {
+            None => 0,
+            Some(id) => nodes
+                .iter()
+                .position(|(_, n)| n.id == id)
+                .map_or(0, |at| at + 1),
+        };
+        let item = |n: &&(u64, crate::stub::Stub)| crate::content_wait::is_item(&n.1);
+        // The mark stuck on a batch's failure rather than on a node nobody
+        // offered: leave it to `with_worklist`, as above.
+        if nodes[from..]
+            .iter()
+            .find(item)
+            .is_none_or(|(_, n)| stuck.contains(&n.id))
+        {
+            return;
+        }
+        let brief = crate::task::brief(&self.store, session)
+            .ok()
+            .flatten()
+            .map(|n| n.id);
+        let items: Vec<ContentItem> = nodes[from..]
+            .iter()
+            .filter(item)
+            .take(SWEEP_MAX)
+            .filter_map(|(_, n)| rebuild(n, brief.as_deref()))
+            .collect();
+        #[cfg(test)]
+        self.content
+            .swept
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .extend(items.iter().map(|i| i.node.clone()));
+        self.ask_content(session, items);
     }
 
     /// Whether items of `session` are queued or being judged: a request bound
@@ -593,6 +735,13 @@ impl JudgeService {
 /// call keeps each failure on the list, and none of them may make a batch
 /// without bound.
 const REASK_MAX: usize = 16;
+
+/// The most items one sweep takes (`JudgeService::ask_unsubmitted`): a session
+/// that has run a long way on Claude and is then asked for a model of
+/// restricted origin has every item of it to judge, and none of them may make
+/// one unbounded batch. The mark moves over each batch's own span, so the next
+/// read takes the next lot.
+const SWEEP_MAX: usize = 16;
 
 impl JudgeService {
     /// `items`, preceded by the nodes of the session's `unjudged` worklist

@@ -19,6 +19,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::content::ContentFlags;
+#[cfg(test)]
 use crate::node::Body;
 use crate::stub::Stub;
 
@@ -84,20 +85,18 @@ pub fn flags_of(store: &crate::store::Store, session: &str) -> Option<ContentFla
 }
 
 /// Whether `node` is an item: what the judge classifies when it enters a
-/// session. An operator's message, a brief or a report (a user message of any
-/// origin) and a tool result, but not the acknowledgement of a tool whose
-/// answer is Theseus's own fixed string (`content::judges`).
+/// session. An operator's message, a brief or a report, and a tool result; not
+/// the acknowledgement of a tool whose answer is Theseus's own fixed string,
+/// and not a line the harness wrote in its own words (the turn clock, the
+/// progress line, the end note).
+///
+/// **It states nothing itself**: `content::item_text` is the one definition,
+/// and the submitter is built on the same call (theseus-sh1n3). A second
+/// statement of the rule here is how the two sets came apart, and how a clock
+/// node or a `task.create` result could wedge a session off every model of
+/// restricted origin for good.
 pub(crate) fn is_item(node: &Stub) -> bool {
-    match &node.body {
-        // A message or result with no text is never asked (`ContentItem::of_message`,
-        // `of_result`), so it is no item: counted, it would stand in the mark's
-        // way for good.
-        Body::UserMessage { text, .. } => !text.trim().is_empty(),
-        Body::ToolResult { tool, content, .. } => {
-            crate::content::judges(tool) && !content.trim().is_empty()
-        }
-        _ => false,
-    }
+    crate::content::item_text(node).is_some()
 }
 
 /// Whether `nodes` (a session's transcript, in order) hold an item the judge
@@ -131,6 +130,9 @@ pub(crate) mod judging {
     pub(crate) struct Judging {
         store: std::sync::OnceLock<crate::store::Store>,
         rule: Rule,
+        /// Set: judge only the nodes a hook site actually submitted, and stop
+        /// the mark at the first item nobody did (theseus-sh1n3).
+        real: std::sync::OnceLock<std::sync::Arc<crate::judge::JudgeService>>,
         /// How many times a turn waited on it, by session.
         pub waits: std::sync::Mutex<Vec<String>>,
     }
@@ -147,6 +149,7 @@ pub(crate) mod judging {
             std::sync::Arc::new(Self {
                 store: Default::default(),
                 rule: Box::new(rule),
+                real: Default::default(),
                 waits: Default::default(),
             })
         }
@@ -154,6 +157,26 @@ pub(crate) mod judging {
         /// The store it judges in, once the core that owns it is built.
         pub fn attach(&self, store: &crate::store::Store) {
             let _ = self.store.set(store.clone());
+        }
+
+        /// Judge only what the hook sites submitted to `judge`, and never
+        /// carry the mark past an item none of them did (theseus-sh1n3).
+        ///
+        /// **Without this a test's judge is more generous than the running
+        /// system**, because it judges straight from the transcript: it lands
+        /// a verdict for a node nothing ever offered, and so cannot see the
+        /// defect that took every cn session down — a node the floor counts
+        /// and no site submits. Every test of the floor that does not ask for
+        /// this is testing the floor, not the wiring.
+        ///
+        /// It is **still more generous than production**, in one way worth
+        /// knowing: it moves the mark node by node, where the real landing
+        /// moves it only over a span from the mark that one batch covered
+        /// whole (`ContentFlags::judged_run`). So a test can pass under this
+        /// that the real `move_mark` would leave stuck. Do not read a pass
+        /// here as a claim about the mark's arithmetic.
+        pub fn faithful(&self, judge: &std::sync::Arc<crate::judge::JudgeService>) {
+            let _ = self.real.set(judge.clone());
         }
 
         /// Judge `session`'s items now.
@@ -164,9 +187,10 @@ pub(crate) mod judging {
             let Ok(nodes) = store.transcript(session) else {
                 return;
             };
-            let Some((_, last)) = nodes.last() else {
+            if nodes.is_empty() {
                 return;
-            };
+            }
+            let submitted = self.real.get().map(|j| j.content_submitted());
             let _ = store.update_session(session, |rec| {
                 let mut flags = rec.data.take().map(|b| *b).unwrap_or_default();
                 let from = flags
@@ -174,7 +198,16 @@ pub(crate) mod judging {
                     .as_deref()
                     .and_then(|id| nodes.iter().position(|(_, n)| n.id == id))
                     .map_or(0, |at| at + 1);
+                let mut mark = None;
                 for (_, n) in &nodes[from..] {
+                    // Faithful: the mark stops at the first item no hook site
+                    // offered, as the real judge's does — it never hears of it.
+                    if let Some(done) = &submitted {
+                        if is_item(n) && !done.contains(&n.id) {
+                            break;
+                        }
+                    }
+                    mark = Some(n.id.clone());
                     let (kind, text) = match &n.body {
                         Body::UserMessage { text, .. } => (ItemKind::OperatorMessage, text.clone()),
                         Body::ToolResult { content, .. } => (ItemKind::ToolResult, content.clone()),
@@ -192,7 +225,9 @@ pub(crate) mod judging {
                         });
                     }
                 }
-                flags.judged_through = Some(last.id.clone());
+                if let Some(mark) = mark {
+                    flags.judged_through = Some(mark);
+                }
                 rec.data = Some(Box::new(flags));
                 Ok(vec![])
             });
@@ -277,5 +312,56 @@ mod tests {
     #[tokio::test]
     async fn the_stand_in_is_ready() {
         Ready.settled("ses_1").await;
+    }
+
+    /// **Blocker and submitter are the same set** (theseus-sh1n3): for every
+    /// node kind, what [`is_item`] counts against a model of restricted origin
+    /// is exactly what `ContentItem` builds to be judged. A node in the gap —
+    /// counted and never built — can never be judged, so `judged_through`
+    /// never reaches it and every request of that session to such a model is
+    /// refused for the rest of the session's life, with no label to point at.
+    ///
+    /// The turn clock's node and a `task.create` result were both in that gap
+    /// until this was written: the first made `theseus ask --deadline 840`
+    /// refuse where the same ask without the flag answered.
+    #[test]
+    fn the_blocker_and_the_submitter_are_one_set() {
+        use crate::content::ItemKind;
+        use crate::judge::content::ContentItem;
+        let clock = Node::relayed(
+            "ses_1",
+            Some("trn_1"),
+            crate::node::Origin::Harness,
+            crate::turn::clock_step::CLOCK_AUTHOR,
+            "[The harness: 13 minutes left of this turn's 14.]",
+        );
+        let report = Node::relayed(
+            "ses_1",
+            Some("trn_1"),
+            crate::node::Origin::Harness,
+            "task:ab12",
+            "the child's findings",
+        );
+        let nodes = vec![
+            user("the owner's words"),
+            user("   "),
+            clock,
+            report,
+            Node::recall("ses_1", "trn_1", "rcl_1", "baseline", vec![]),
+        ];
+        for n in &nodes {
+            let built = ContentItem::of_message(n, ItemKind::PersonMessage, "message")
+                .or_else(|| ContentItem::of_result(n));
+            let stub: Stub = n.clone().into();
+            assert_eq!(
+                is_item(&stub),
+                built.is_some(),
+                "{} ({:?}): blocked {} but built {}",
+                n.id,
+                n.author,
+                is_item(&stub),
+                built.is_some(),
+            );
+        }
     }
 }

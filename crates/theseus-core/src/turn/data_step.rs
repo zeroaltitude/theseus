@@ -201,20 +201,41 @@ impl TurnRunner {
         let sid = t.tc.session_id;
         let deadline = Instant::now() + Duration::from_millis(self.cfg.content.wait_ms);
         let mut cn = Self::cn_read(t);
+        let mut swept = false;
         for _ in 0..SETTLE_READS {
             let left = deadline.saturating_duration_since(Instant::now());
             if cn != Cn::Pending || left.is_zero() {
                 break;
             }
             // Interest first, so a verdict that lands between the read and the
-            // wait is not slept through.
+            // wait is not slept through — and **before the sweep**, which
+            // reads the record and the whole transcript: a landing while that
+            // ran would be deferred to after this turn, and the wait below
+            // would then be for nothing.
             let woken = self.verdicts.settled(sid);
+            // An item that nothing queued would never land, however long this
+            // waited, and its session would be off every model of restricted
+            // origin for the rest of its life (theseus-sh1n3). The floor's own
+            // reading of the transcript queues what a write site did not.
+            self.judge.ask_unsubmitted(sid);
+            swept = true;
             cn = Self::cn_read(t);
             if cn != Cn::Pending {
                 break;
             }
             let _ = tokio::time::timeout(left, woken).await;
             cn = Self::cn_read(t);
+        }
+        // The loop may not have run its body at all: `wait_ms = 0` is a
+        // supported setting meaning "a cn request never waits", and the
+        // loop's first act is to break on it. Sweeping only inside would put
+        // the one path that makes the blocked set and the submitted set equal
+        // by construction behind a config the operator is entitled to choose,
+        // and the whole defect class would be back on it (the review of
+        // 2026-10-27, B1). This request goes to Claude either way; what the
+        // sweep buys is that the next one need not.
+        if cn == Cn::Pending && !swept {
+            self.judge.ask_unsubmitted(sid);
         }
         match cn {
             Cn::Pending => Cn::No("unjudged"),
