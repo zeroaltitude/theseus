@@ -598,6 +598,8 @@ mod tests_self_budget;
 #[cfg(test)]
 mod tests_self_card;
 #[cfg(test)]
+mod tests_self_turns;
+#[cfg(test)]
 mod tests_send_path;
 #[cfg(test)]
 mod tests_session_dir;

@@ -381,6 +381,8 @@ struct Turn<'a> {
     tc: TurnCtx<'a>,
     target: &'a Target,
     continuation: bool,
+    /// Its author is the pipeline's own (`defer_step::is_self`), so its work is noticed work.
+    self_authored: bool,
     started: Instant,
     /// When the input arrived: the start of the frames the trace names the
     /// slowest of.
@@ -554,6 +556,7 @@ impl<'a> Turn<'a> {
             tc,
             target,
             continuation,
+            self_authored: false,
             started,
             arrived,
             trace,
@@ -595,6 +598,7 @@ impl<'a> Turn<'a> {
 
     /// Record that the turn began, after its waits (`fact::turn::TurnStarted`).
     fn announce(&mut self, input: Option<&str>, files: usize, author: &str, waits: &Waits) {
+        self.self_authored = defer_step::is_self(author);
         let f = fact::turn::TurnStarted {
             session_id: self.tc.session_id,
             turn_id: self.tc.turn_id,
