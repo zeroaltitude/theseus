@@ -17,6 +17,7 @@ use theseus_protocol::tasks::TaskState;
 use super::tests::test_core;
 use super::{Core, Parts};
 use crate::approval::{Answerer, Refusal, Surface};
+use crate::fact::rsi_pr::SelfBranchBuilt;
 use crate::ledger::LedgerRow;
 use crate::provider::FakeProvider;
 use crate::test_support::rows;
@@ -727,6 +728,57 @@ fn a_build_in_flight_takes_a_slot_from_the_night() {
         "one slot free of three: {second:?}"
     );
     assert_eq!(running(&c), 3);
+}
+
+/// The night's free slots are the pipeline's own: an item `in_progress`
+/// whose build has gone green since it started is reviewing, not building,
+/// and does not hold a slot (theseus-awycv). With three slots and two items
+/// started, one going green leaves two free, so the next night starts both
+/// of its two ready, not one.
+#[test]
+fn a_green_build_frees_its_slot_for_the_night() {
+    let c = core_starting(SelfMode::Act, None, 3, 20);
+    c.self_resume(&SelfResumeParams::default(), &cli()).unwrap();
+    let t0 = theseus_protocol::now_unix_ms();
+    seed_day(&c, t0);
+    let n1 = tick();
+    let first = c.backlog_night(n1).unwrap();
+    assert_eq!(first.started.len(), 2, "no build in flight: {first:?}");
+    let building: Vec<_> = listed(&c)
+        .into_iter()
+        .filter(|i| i.state == "in_progress")
+        .map(|i| i.id)
+        .collect();
+    assert_eq!(building.len(), 2);
+    // One of them builds green: its branch waits on a review.
+    c.rec(None).record(&SelfBranchBuilt {
+        item: &building[0],
+        issue: "theseus-sail1",
+        branch: "self/20261026-sail-1",
+        head: Some(&format!("{:0>40}", 1)),
+        gate: "green",
+        report: None,
+        cost_usd: 1.25,
+        stopped_at: None,
+        why: "Trim the sails.",
+        numbers: Value::Null,
+    });
+    for producer in ["proc", "fs"] {
+        for k in 0..3 {
+            seed(
+                &c,
+                "action.failed",
+                json!({"producer": producer, "duration_ms": 10}),
+                n1 + (3 + k) * HOUR,
+            );
+        }
+    }
+    let second = c.backlog_night(n1 + DAY).unwrap();
+    assert_eq!(
+        second.started.len(),
+        2,
+        "one build in flight of three slots, the other in review: {second:?}"
+    );
 }
 
 mod infra;
