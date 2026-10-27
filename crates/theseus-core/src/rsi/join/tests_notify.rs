@@ -112,12 +112,51 @@ async fn a_conflict_with_main_returns_the_item_to_proposed_with_a_notice() {
     );
     let stopped = &r.rows("self.join.stopped")[0];
     assert_eq!(stopped["numbers"]["conflict"], true, "{stopped}");
+    // A close that worked raises no alarm (theseus-51sfw).
+    assert!(!posts[0].contains("could not be closed"), "{}", posts[0]);
+    assert!(stopped["numbers"]["tree_closed"].is_null(), "{stopped}");
     let again = r.core.self_join_pass(&seams).await.unwrap();
     assert!(
         again.stopped.is_empty() && again.joined.is_empty(),
         "{again:?}"
     );
     assert_eq!(r.posts().len(), 1, "that head is never tried again");
+}
+
+/// A tree that will not close is said to the owner (theseus-51sfw): the note
+/// that goes out anyway also says the next build may cut from a stale base,
+/// and the stop's numbers say the tree is still open. The item still goes
+/// back to the backlog.
+#[tokio::test]
+async fn a_conflicted_tree_that_will_not_close_is_said_to_the_owner() {
+    let r = rig(SelfMode::Act);
+    item(&r, "tsk_sails", 0);
+    let (branch, _) = r.seed("tsk_sails", &conflicting(), SONNET);
+    main_moves(&r);
+    let tree =
+        crate::rsi::tree::open(&r.f.place, "tsk_sails", theseus_protocol::now_unix_ms()).unwrap();
+    // A file where the build directory belongs: removing the worktree works,
+    // removing the build directory does not, so the close fails.
+    let _ = std::fs::remove_dir_all(&tree.target);
+    std::fs::write(&tree.target, "not a directory").unwrap();
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.stopped, [(branch, "merge".to_string())], "{pass:?}");
+    let posts = r.posts();
+    assert_eq!(posts.len(), 1, "the conflict's note still goes: {posts:?}");
+    assert!(
+        posts[0].contains("same.txt")
+            && posts[0].contains("could not be closed")
+            && posts[0].contains("old base"),
+        "{}",
+        posts[0]
+    );
+    let stopped = &r.rows("self.join.stopped")[0];
+    assert_eq!(stopped["numbers"]["conflict"], true, "{stopped}");
+    assert_eq!(stopped["numbers"]["tree_closed"], false, "{stopped}");
+    let t = crate::task_graph::get(&r.core.store, "tsk_sails")
+        .unwrap()
+        .unwrap();
+    assert_eq!(t.state, TaskState::Proposed);
 }
 
 /// The bound on a loop: the third conflict of one item drops it, `failed`,
