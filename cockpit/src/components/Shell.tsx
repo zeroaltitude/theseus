@@ -20,6 +20,7 @@ import { LiveDot, Spark } from './ui'
 import { Coin } from './brass'
 import { DesktopNotices } from './DesktopNotices'
 import { HeartbeatBar } from './Heartbeat'
+import { HomeMark } from './HomeMark'
 import { useFlow } from '@/lib/flow'
 import { useAsOf } from '@/lib/timemachine'
 import { FOLDS } from '@/lib/world'
@@ -175,10 +176,10 @@ function NavRail({ onPalette }: { onPalette: () => void }) {
     <nav className="brass-rail relative z-10 flex w-[68px] shrink-0 flex-col items-center gap-1 py-3 [@media(max-height:860px)]:gap-0.5 [@media(max-height:860px)]:py-2">
       {notify.on && <DesktopNotices />}
       <div className="mb-3 flex flex-col items-center [@media(max-height:860px)]:mb-1.5">
-        <div className="relative" title="Theseus">
+        <HomeMark title="Theseus: back to the start" className="relative block rounded-full transition hover:brightness-110">
           <Coin size={42} className="drop-shadow-[0_0_10px_rgba(214,165,72,0.35)]" />
           <span className="absolute -right-0.5 top-0"><LiveDot tone={status === 'open' ? 'ok' : status === 'connecting' ? 'wait' : 'fault'} size={7} /></span>
-        </div>
+        </HomeMark>
       </div>
       <div className="flex min-h-0 w-full flex-col items-center gap-0.5 overflow-y-auto overflow-x-hidden [scrollbar-width:none]" role="presentation">
         {NAV_GROUPS.map((g) => {
