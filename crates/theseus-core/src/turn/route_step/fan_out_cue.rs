@@ -19,7 +19,7 @@ use crate::turn::{Turn, TurnRunner};
 /// The route classes (the verdict's `mode`) that may fan out.
 pub const CLASSES: [&str; 3] = ["deep_coding", "review", "sophisticated"];
 
-/// The revision of `OPEN_WORDS`, written on every row (`v9`).
+/// The revision of `OPEN_WORDS`, written on every row (`words_rev`).
 pub const WORDS_REV: u32 = 1;
 
 /// Words that open a piece of work out across many places: asking for these, a person usually means
@@ -148,7 +148,7 @@ impl TurnRunner {
             class,
             words: &words,
             fired,
-            v9: WORDS_REV,
+            words_rev: WORDS_REV,
         });
         if fired {
             self.defer_cued(t, spec);
@@ -164,7 +164,7 @@ impl TurnRunner {
 
     /// Admit the helpers family into the request's own deferral (`By::Cue`), held to the same
     /// ceiling as any admission; the next compile sees the changed tools, as for a found family.
-    fn defer_cued(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
+    pub(in crate::turn) fn defer_cued(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
         let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
         let rates = self.catalog.get(&spec.model).map_or_else(
             || crate::catalog::TokenRates::of(&spec.model),
@@ -291,7 +291,10 @@ mod tests {
     }
 
     /// The cue's precision and recall on the labelled set, held at a floor so a word added or cut
-    /// that makes it worse fails here. It prints both (`--nocapture`).
+    /// that makes it worse fails here. It prints both (`--nocapture`). The bar is design §18.4's:
+    /// at least 18 of the 20 labelled-true asks fire and at least 18 of the 20 labelled-false stay
+    /// silent. The set is the author's own, so it guards the word list's stability, not the cue's
+    /// accuracy.
     #[test]
     fn the_labelled_set_of_forty_asks_scores_as_reported() {
         let (mut tp, mut fp, mut fn_) = (0u32, 0u32, 0u32);
@@ -313,8 +316,20 @@ mod tests {
         let recall = f64::from(tp) / f64::from((tp + fn_).max(1));
         println!("precision {precision:.3} recall {recall:.3} (tp {tp}, fp {fp}, fn {fn_})");
         assert_eq!(SET.len(), 40);
-        assert!(precision >= 0.85, "precision {precision}");
-        assert!(recall >= 0.85, "recall {recall}");
+        let fired = SET
+            .iter()
+            .filter(|(ask, should)| *should && fires(ask))
+            .count();
+        let silent = SET
+            .iter()
+            .filter(|(ask, should)| !*should && !fires(ask))
+            .count();
+        assert_eq!(SET.iter().filter(|(_, should)| *should).count(), 20);
+        assert!(fired >= 18, "{fired} of the 20 labelled-true asks fired");
+        assert!(
+            silent >= 18,
+            "{silent} of the 20 labelled-false asks stayed silent"
+        );
     }
 
     #[test]
@@ -330,7 +345,7 @@ mod tests {
         for class in ["review", "sophisticated"] {
             assert!(decide(&Look { class, ..base }).1, "{class}");
         }
-        for class in ["trivial", "quick", "casual", ""] {
+        for class in ["trivial", "quick", "chat", "routine_coding", "other", ""] {
             assert!(!decide(&Look { class, ..base }).1, "{class}");
         }
         assert!(

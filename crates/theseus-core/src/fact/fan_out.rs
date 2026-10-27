@@ -1,4 +1,4 @@
-//! The static fan-out cue's verdict (`fan_out.cue`, theseus-z9mze.4; `turn/fan_out_cue.rs`).
+//! The static fan-out cue's verdict (`fan_out.cue`, theseus-z9mze.4; `turn/route_step/fan_out_cue.rs`).
 
 use serde_json::{json, Value};
 use theseus_protocol::LedgerKind;
@@ -14,14 +14,14 @@ pub struct FanOutCue<'a> {
     pub words: &'a [&'static str],
     pub fired: bool,
     /// The revision of the cue's word list that decided.
-    pub v9: u32,
+    pub words_rev: u32,
 }
 
 impl Fact for FanOutCue<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::FanOutCue);
 
     fn row(&self) -> Value {
-        json!({"class": self.class, "words": self.words, "fired": self.fired, "v9": self.v9})
+        json!({"class": self.class, "words": self.words, "fired": self.fired, "words_rev": self.words_rev})
     }
 
     fn span(&self, trace: &mut Trace) {

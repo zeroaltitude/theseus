@@ -1039,6 +1039,9 @@ impl TurnRunner {
         self.stand(t, &mut s);
         self.thread_spec(&mut s, t.tc.session_id, session.compilation_id.as_deref());
         self.defer_tools(t, &mut s);
+        if t.route.fan_out {
+            self.defer_cued(t, &mut s);
+        }
         *spec = s;
         if d.switch {
             session.last_target = Some(TargetRef::from(target));

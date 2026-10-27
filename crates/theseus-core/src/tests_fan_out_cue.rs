@@ -8,7 +8,7 @@ use theseus_judge::fake::FakeJev;
 use crate::provider::ProviderRequest;
 use crate::tests_injection_tiers::tiered;
 use crate::tests_judge::kinds;
-use crate::tests_route::{mode, turn};
+use crate::tests_route::{glm_placements, mode, rig_parts, turn};
 
 /// The cue's line is the one tail block that begins with these words.
 const LINE: &str = "You may fan out";
@@ -65,7 +65,7 @@ async fn a_firing_cue_writes_its_row_and_one_tail_line_and_moves_no_prefix_byte(
     assert_eq!(got[0]["class"], "deep_coding");
     assert_eq!(got[0]["fired"], true);
     assert_eq!(got[0]["words"], serde_json::json!(["audit", "every"]));
-    assert!(got[0].get("v9").is_some());
+    assert!(got[0].get("words_rev").is_some());
 }
 
 /// A miss is logged too: the class may fan out, the ask has no open-ended word.
@@ -96,4 +96,37 @@ async fn no_room_for_two_helpers_holds_the_cue_back() {
     let got = rows(&r);
     assert_eq!(got[0]["fired"], false);
     assert_eq!(got[0]["words"], serde_json::json!(["audit", "every"]));
+}
+
+/// A routed switch rebuilds the request spec and its deferral (`route_to`), so the cue's admission
+/// is made again there: a `sophisticated` ask that switches to Opus, with a cue that fired, still
+/// carries the helpers family on the request that goes to Opus (theseus-z9mze.4 join fix).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_routed_switch_after_a_fired_cue_still_carries_the_helpers_family() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "sophisticated", 0.95);
+    let r = rig_parts(Some(&jev), 2, glm_placements, |parts| {
+        parts.cfg.tools.defer.enabled = true;
+    });
+    let res = turn(&r.core, None, OPEN, None).await;
+    assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
+    let _ = turn(&r.core, None, PLAIN, None).await;
+    let q = r.claude.requests();
+    assert_eq!(q[0].model, "claude-opus-5-5", "the turn switched");
+    assert_eq!(rows(&r)[0]["fired"], true, "the cue fired");
+    // With tool search the helpers' tools are in the request, hidden or not: `defer_loading` says.
+    let hidden = |req: &ProviderRequest, tool: &str| {
+        let t = req.tools.iter().find(|t| t["name"] == tool);
+        t.unwrap_or_else(|| panic!("{tool} is not in the request"))["defer_loading"] == true
+    };
+    for tool in ["task_fan_out", "task_wait"] {
+        assert!(
+            hidden(&q[1], tool),
+            "{tool}: an ordinary turn leaves the family hidden"
+        );
+        assert!(
+            !hidden(&q[0], tool),
+            "{tool}: the cue's admission is lost on the switch"
+        );
+    }
 }

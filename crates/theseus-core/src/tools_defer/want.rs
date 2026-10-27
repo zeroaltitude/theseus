@@ -107,7 +107,7 @@ pub enum By {
     Named,
     /// Jev judged it relevant to the message (`families.v1`).
     Jev,
-    /// A static cue admitted it (theseus-z9mze.4: the fan-out cue, `turn/fan_out_cue.rs`).
+    /// A static cue admitted it (theseus-z9mze.4: the fan-out cue, `turn/route_step/fan_out_cue.rs`).
     Cue,
 }
 
