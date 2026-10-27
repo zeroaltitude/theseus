@@ -5,6 +5,9 @@
 //! stops it on Yes, 🔁 tries a failed or cancelled task again (`task.retry`;
 //! a done one starts anew from its brief, `task.start`), 👀 follows it in the
 //! owner's DM, and 📌 makes it a project (`project.create`, `project.attach`).
+//! 👎 on a task that started itself says "not this" (`task.not_this`: it
+//! cancels the task and keeps one rolling preference against work like it);
+//! on any other task or message it is left to the next reader.
 //! Every call carries the reaction's `DiscordOrigin`, so the core judges the
 //! owner as it judges a press.
 //!
@@ -30,6 +33,7 @@ use serde_json::{json, Value};
 use theseus_protocol::projects::{
     ProjectAttachParams, ProjectAttachResult, ProjectCreateParams, ProjectCreateResult,
 };
+use theseus_protocol::task_not_this::{TaskNotThisParams, TaskNotThisResult};
 use theseus_protocol::task_pause::{TaskPauseParams, TaskPauseResult};
 use theseus_protocol::task_start::{TaskStartParams, TaskStartResult};
 use theseus_protocol::work::{WorkState, WorkView};
@@ -56,6 +60,7 @@ const FOLLOW: &str = "\u{1f440}";
 const PROJECT: &str = "\u{1f4cc}";
 const RETRY: &str = "\u{1f501}";
 const DONE: &str = "\u{2705}";
+const NOT_THIS: &str = "\u{1f44e}";
 
 /// What a control does.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -66,6 +71,7 @@ enum Verb {
     Retry,
     Follow,
     Project,
+    NotThis,
 }
 
 impl Verb {
@@ -81,6 +87,7 @@ impl Verb {
             RETRY => Self::Retry,
             FOLLOW => Self::Follow,
             PROJECT => Self::Project,
+            NOT_THIS => Self::NotThis,
             _ => return None,
         })
     }
@@ -221,6 +228,11 @@ impl Shared {
         let Some(task) = self.task_of_message(channel, message) else {
             return false;
         };
+        // 👎 is a control only on a task that started itself: elsewhere it is
+        // a rating, which the next reader takes.
+        if verb == Verb::NotThis && !self.started_itself(&task) {
+            return false;
+        }
         let owner = self
             .core
             .runner
@@ -246,6 +258,7 @@ impl Shared {
             Verb::Retry => self.again(&v, &by, origin).await,
             Verb::Follow => self.follow_in_dm(&v).await,
             Verb::Project => self.make_project(&v, &by, origin).await,
+            Verb::NotThis => self.not_this(&v, &by, origin).await,
         };
         match done {
             Ok(true) => self.react(channel, message, DONE).await,
@@ -313,6 +326,39 @@ impl Shared {
                 .await;
             self.react(channel, message, come).await;
         }
+    }
+
+    /// Whether the task named by its work id started itself
+    /// (`TaskOrigin.self_started`).
+    fn started_itself(&self, task: &str) -> bool {
+        let Some(session) = self.tasks.view(task).and_then(|v| v.session_id) else {
+            return false;
+        };
+        let id = theseus_core::task_graph::of_session(&session);
+        theseus_core::task_graph::all(&self.core.store)
+            .ok()
+            .is_some_and(|all| all.iter().any(|t| t.id == id && t.origin.self_started))
+    }
+
+    /// 👎: the task this turn started, told "not this".
+    async fn not_this(
+        &self,
+        v: &WorkView,
+        by: &str,
+        discord: DiscordOrigin,
+    ) -> Result<bool, String> {
+        let p = TaskNotThisParams {
+            task: v.session_id.clone().unwrap_or_else(|| v.id.clone()),
+            reason: None,
+            author: Some(by.to_string()),
+            discord: Some(discord),
+        };
+        let _: TaskNotThisResult = self
+            .rpc
+            .call(method::TASK_NOT_THIS, p)
+            .await
+            .map_err(|e| format!("⚠️ {e}"))?;
+        Ok(true)
     }
 
     /// 🛑: the board's own Stop question, as a message in the place; its Yes
