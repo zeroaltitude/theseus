@@ -413,6 +413,17 @@ async fn attempt(
     tc: &TurnCtx<'_>,
     a: &mut Attempt<'_>,
 ) -> Result<(String, Value), String> {
+    // The stop check reaches the wait through one line of wiring in
+    // `propose` (`place.stop = Some(stop_of(..))`), and both halves of the
+    // mechanism are tested apart from it. This is the seam: the place handed
+    // on to `tree::gate` below, and from there to the wait, must carry the
+    // check (theseus-rexxp join fix).
+    #[cfg(test)]
+    assert!(
+        place.stop.is_some(),
+        "propose hands the gate a place with no stop check: the owner's stop \
+         would end no wait"
+    );
     if let Some(why) = stopped(core) {
         return halted(a, COMMIT, &why);
     }
