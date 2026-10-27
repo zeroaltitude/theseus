@@ -93,10 +93,10 @@ fire say what it cut. `bs` = generous backstop (keel-class).
 | `confirm_ttl_secs` `config.rs:841,883`; `ask.rs`; `rpc/confirms.rs:550` | 900 s | a call's question: notice every life, **never declined** (done); `owner_ask`: default applies at its own life (30 min, ≤24 h); extension ack, promotion: expire | — | — | yes | — | **done (v2dnc).** A **budget** question holds until answered (keep: money). |
 | `task_lease_minutes` `config.rs:889`; `task_graph/lease.rs` | 30 min | a lapsed claim frees the task; a holder's every edit renews | C on a claim, renewed by edits | an edit is progress | row `task.lease_expired` | — | keep: it frees a claim, it cuts no work |
 | routine `run_deadline_secs` `config/routines.rs:31` | 900 s | the life of a run's out-of-grant question; the call is dropped and the run goes on (v2dnc) | C | — | quiet notice | — | done (v2dnc) |
-| `GATE_LIMIT` `rsi/tree.rs:125,491,544,712-727`; `BUILD_LIMIT` `rsi/join/install.rs:98`; `TESTS_LIMIT` `rsi/join/planted.rs:178`; `lock_wait` `rsi/join.rs:111`, `rsi/revert.rs:93` | 2 h each | `tokio::time::timeout` → SIGKILL of the group → "the gate ran past N minutes and was stopped; its log's last phase line: …" | **C** | no | **yes** (last phase line) | no | **to change (its own row; `rsi/tree.rs` was in three in-flight branches when this was written, and the door fetch joined at #91, so a row that edits it starts from the merged file).** Turn the 2 h kill into "no new log bytes for N min" with a notice at 2 h; names what it stopped already. The jailed path (`rsi/jail.rs:100-109`) shares the clock. |
+| `GATE_LIMIT` `rsi/tree.rs:125,491,544,712-727`; `BUILD_LIMIT` `rsi/join/install.rs:98`; `TESTS_LIMIT` `rsi/join/planted.rs:178`; `lock_wait` `rsi/join.rs:111`, `rsi/revert.rs:93` | 2 h each | `tokio::time::timeout` → SIGKILL of the group → "the gate ran past N minutes and was stopped; its log's last phase line: …" | **C** | no | **yes** (last phase line) | no | **DONE (theseus-x1zz8): renamed `GATE_SILENCE` / `BUILD_SILENCE` / `TESTS_SILENCE` and now bounds silence, with a ceiling of 24x; see the E addendum. The original note follows.** (its own row; `rsi/tree.rs` was in three in-flight branches when this was written, and the door fetch joined at #91, so a row that edits it starts from the merged file).** Turn the 2 h kill into "no new log bytes for N min" with a notice at 2 h; names what it stopped already. The jailed path (`rsi/jail.rs:100-109`) shares the clock. |
 | `MAY_BUILD_WAIT` `rsi/tree.rs:131` | 30 min | **notice interval**, not a deadline (done) | — | — | the rule's last words | — | **done (ccik8).** |
 | `GRACE` `rsi/pipeline.rs:101`, `FIRST`/`EVERY` of the tenders | 5 min / 10-30 min | tender cadence, not stops | — | — | — | — | not a stop. **But the tenders also hold real deadlines on a model call, which are not cadence:** `tender.rs:850` `timeout(deadline, ask)` fails `"no answer within N ms"`; `tender/pair.rs:145`; `tender/status_cache.rs:64,76`. Clock-only, not read for whether a healthy answer is cut: **unassessed**. |
-| `extend` (self-extension): `TRIAL_LIMIT` `extend/mod.rs:87`, `CALL_TIMEOUT_SECS` `:86` | 100 s trial; 20 s per call | the trial is `tokio::time::timeout(TRIAL_LIMIT, &mut task)` (`:645`); on expiry `task.abort()` (`:650-651`) and `"the trial took over 100 s"`. A call fails `"no answer within 20 s"` (`:538-539`) | **C** | no | the duration only | no | **to change.** A **hard abort** of a trial that may be compiling or running tests and is perfectly healthy, with no progress check: the same shape as `GATE_LIMIT`'s 2 h SIGKILL, **about 70 times tighter**. Not in the written pass, which is why section E did not list it. `extend.propose` is in `routine/grant.rs:40`'s `NEVER`, so it is deliberate machinery, not a forgotten corner. Not changed by this row: a first item for the clock-only row. |
+| `extend` (self-extension): `TRIAL_LIMIT` `extend/mod.rs:87`, `CALL_TIMEOUT_SECS` `:86` | 100 s trial; 20 s per call | the trial is `tokio::time::timeout(TRIAL_LIMIT, &mut task)` (`:645`); on expiry `task.abort()` (`:650-651`) and `"the trial took over 100 s"`. A call fails `"no answer within 20 s"` (`:538-539`) | **C** | no | the duration only | no | **to change.** A **hard abort** of a trial that may be compiling or running tests and is perfectly healthy, with no progress check: the same shape as `GATE_LIMIT`'s 2 h SIGKILL, **about 70 times tighter**. Not in the written pass, which is why section E did not list it. `extend.propose` is in `routine/grant.rs:40`'s `NEVER`, so it is deliberate machinery, not a forgotten corner. Not changed by this row: a first item for the clock-only row. **theseus-x1zz8 examined it and LEFT it**: every `Backend::Harness` call is already abandoned above it at `INPROC_DEADLINE_MS = 120_000` (`toolrun.rs:458`), and a trial waits on a handshake and test calls with their own 20-30 s bounds rather than producing long work. **The residual stands**: a healthy trial is still cut at 100 s, and nothing watches its progress. |
 | `UNKNOWN_AFTER` 24 h `sweep.rs:36`, `GIVE_UP` 6 h `rpc/index_rebuild.rs:38`, `BUSY_BOUND` 600 s `memory_pass/mod.rs:103`, `READY_WITHIN` 600 s `lsp/mod.rs:970` | as shown | bookkeeping: an outcome-unknown marker, an index rebuild's retry bound, a memory pass yielding to a busy turn, an LSP start | C | — | logged | — | keep: they stop Theseus's own infrastructure, never the owner's work |
 | AWS settle clocks (`aws/stack.rs:45,47`, `bootstrap.rs:73`, `tend.rs:321`, `narrow/live.rs:24`, `session.rs:87-89`; also `aws/durable.rs` `BACKSTOP` 60 s at `:87,1029` and `aws/mod.rs` `BIND_WAIT` 30 s at `:146,789`) and the Google analogue (`google/mod.rs` `BIND_WAIT` 30 s at `:100,461`, `google/auth.rs:165`) | 4-30 min, session 15 min-12 h; 30-60 s binds | a stack operation reports unsettled / a credential session ends / a bind fails as unbound | C | — | yes | — | keep; AWS, no call made |
 
@@ -172,3 +172,38 @@ it is the reviewer's second blocking finding (theseus-rrqmr). Nothing in this ro
   100 s trial abort (B2)** are clock-only stops that should become progress-based. At the time they were not touched
   because each sat in a file another row was editing, or in the job wrapper the sandbox shares; the provider and
   admission rows have since joined, so those two are open to a row now. They are the first items for the next row.
+
+### E addendum, 2026-10-27 (theseus-x1zz8)
+
+Two of those five are now progress-based, and two were examined and deliberately left. Recorded
+here because the line above said "the first items for the next row", and this was that row.
+
+- **The may-build RULE keeps a hard clock**, `RULE_LIMIT` 120 s (`rsi/tree.rs`, `Bound::Clock`).
+  It is a predicate polled in a loop whose stop check and operator notice both sit outside the
+  run, so bounding it on silence would have turned a 120 s window into a 48 minute one and
+  delayed a stop aimed at the build by the same factor. Found by the join review, fixed at join.
+- **`proc.run`'s hour, and the 2 h build clocks: now bounds on SILENCE**, through
+  `crates/theseus-kernel/src/patience.rs`. A job is stopped after its limit of *silence* rather
+  than of wall clock; one still printing past the limit runs on and says so in
+  `detail.ran_past_limit_ms`, and is stopped at a **ceiling of 24 × the limit**
+  (`CEILING_FACTOR`, a constant rather than a config key — say so if the owner wants it
+  configurable). Default values are unchanged. The gate, build and test constants in
+  `rsi/tree.rs` were renamed `GATE_SILENCE`, `BUILD_SILENCE`, `TESTS_SILENCE` to say what they
+  now bound; **anything still citing `GATE_LIMIT` is citing a name that no longer exists.**
+- **`extend`'s 100 s trial abort: a real deadline, left alone.** Every `Backend::Harness` call is
+  already abandoned by the layer above at `INPROC_DEADLINE_MS = 120_000` (`toolrun.rs:458`), and
+  a trial is waiting on a handshake and test calls with their own 20-30 s bounds, not producing
+  long work.
+- **The tenders' deadlines: real, and not model calls - left alone.** `tender.rs`, `tender/pair.rs` and
+  `tender/status_cache.rs` bound a local unix socket to the index tender, not a model call. A
+  silent socket is the failure being bounded, and every caller degrades rather than failing.
+- **Still open from the list above:** the live-stream whole-call, and admission for wakes and
+  tasks. Two residuals from this row are open too: `extend`'s healthy trial is still cut at 100 s
+  (the refusal is about the layer above it, not about the trial), and `ran_past_limit_ms` has **no
+  reader** outside `probe_run::Logged` - for `proc.run` the value reaches the model in the
+  completion's `detail`, but on the RSI and gate paths the "it was let run on, and told" half of
+  the design currently goes nowhere, so do not read this section as saying the notice is delivered.
+- **Known gap, deliberate:** the `proc.run` tool description and `toolrun/proc_cap.rs` still
+  describe the old clock. Rewriting them moves the **locked** DM flow golden (the cost line
+  changes), so the edits were reverted and the wording waits on the owner. Suggested text is in
+  the row's report.

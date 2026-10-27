@@ -404,6 +404,34 @@ pub(crate) enum Reap {
     Descendants,
 }
 
+/// The command, L1 or L0, under the job's limit: a bound on its silence, with
+/// a ceiling past it (theseus-x1zz8). Its outcome and the completion's note.
+fn run_command(
+    args: &WrapperArgs,
+    reap: Reap,
+    (write, err): (std::io::PipeWriter, std::io::PipeWriter),
+    (copier, t0): (&crate::redact::Copier, Instant),
+    detail: &mut serde_json::Value,
+) -> (Outcome, String) {
+    let printed = copier.read_counter();
+    let mut patience = crate::patience::Patience::silence(args.deadline_ms, t0, move || {
+        printed.load(std::sync::atomic::Ordering::Relaxed)
+    });
+    let ended = match &args.sandbox {
+        Some(l1) => crate::job_l1::run(
+            args,
+            l1,
+            reap,
+            (write.into(), err.into()),
+            &mut patience,
+            detail,
+        ),
+        None => run_l0(args, reap, (write, err), &mut patience, detail),
+    };
+    patience.note(detail);
+    ended
+}
+
 /// The command, its deadline, and the report. `subreaper_error` is why the
 /// wrapper could not become a subreaper, recorded in the completion. Also
 /// the copy of the command's output, which may outlive the report while a
@@ -447,10 +475,7 @@ fn run(
         detail["subreaper_error"] = serde_json::Value::String(e);
     }
     // An L1 job runs below the sandbox's init, and never at L0 instead (17b).
-    let (outcome, note) = match &args.sandbox {
-        Some(l1) => crate::job_l1::run(args, l1, reap, write.into(), err.into(), &mut detail),
-        None => run_l0(args, reap, (write, err), t0, &mut detail),
-    };
+    let (outcome, note) = run_command(args, reap, (write, err), (&copier, t0), &mut detail);
     // A stop ended the job (M4 18a). Its verdict goes to the spool for the
     // cancel that asked, and no completion, as a cancelled job wrote none
     // before; once the copy has ended, since the stop left no writer.
@@ -584,7 +609,7 @@ fn run_l0(
     args: &WrapperArgs,
     reap: Reap,
     pipes: (std::io::PipeWriter, std::io::PipeWriter),
-    t0: Instant,
+    patience: &mut crate::patience::Patience,
     detail: &mut serde_json::Value,
 ) -> (Outcome, String) {
     let (pid, mut child) = match spawn_l0(args, reap, pipes, detail) {
@@ -594,9 +619,8 @@ fn run_l0(
         }
         Ok(started) => started,
     };
-    let deadline = Duration::from_millis(args.deadline_ms);
     // Asleep between looks until the command exits, a stop or a child's exit
-    // pokes the wake pipe, or the deadline comes (7.1).
+    // pokes the wake pipe, or the limit's next look comes (7.1).
     let pidfd = crate::job_wait::pidfd(pid);
     loop {
         let exited = match &mut child {
@@ -624,7 +648,7 @@ fn run_l0(
                     detail["stopped"] = serde_json::Value::Bool(true);
                     return (Outcome::Failed, format!("stopped: {}", v.words()));
                 }
-                if t0.elapsed() >= deadline {
+                if let Some(cut) = patience.check() {
                     detail["timed_out"] = serde_json::Value::Bool(true);
                     // The deadline's stop is the cancel's: the whole tree,
                     // not only the command (theseus-hcc). A thread in a test
@@ -637,12 +661,9 @@ fn run_l0(
                             "killed".into()
                         }
                     };
-                    return (
-                        Outcome::Failed,
-                        format!("deadline {} ms exceeded; {how}", args.deadline_ms),
-                    );
+                    return (Outcome::Failed, patience.words(cut, &how));
                 }
-                let left = deadline.saturating_sub(t0.elapsed());
+                let left = patience.sleep();
                 match &pidfd {
                     Some(fd) => crate::job_wait::wait(fd.as_fd(), left),
                     None => std::thread::sleep(crate::job_wait::NO_PIDFD_LOOK.min(left)),

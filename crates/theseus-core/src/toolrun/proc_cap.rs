@@ -3,6 +3,7 @@
 //! was asked, what the call was held to, and that the whole process tree stops at the limit (theseus-spntl).
 
 use serde_json::{json, Value};
+use theseus_kernel::patience::CEILING_FACTOR;
 use theseus_tools::wire_name;
 
 /// The key of the clamp's note in a result's meta.
@@ -39,13 +40,26 @@ pub(super) fn asked_beyond(input: &Value, max_secs: u64) -> Option<u64> {
 }
 
 /// What the result says of a cut ask: the meta's note and the line the model reads.
+///
+/// theseus-x1zz8 made the limit a bound on SILENCE, so "the longest a run lasts" became false: a
+/// run still printing is let run on, and the real backstop is the ceiling over it. This note is a
+/// per-call line rather than part of the tool catalogue the locked DM golden's cost line tracks,
+/// so unlike `proc.run`'s own description — which still describes the old clock and waits on the
+/// owner, because correcting it moves that golden — it could simply be corrected here.
 pub(super) fn note(asked: u64, max_secs: u64) -> (Value, String) {
+    let ceiling = max_secs.saturating_mul(u64::from(CEILING_FACTOR));
     let line = format!(
-        "[time limit: {asked} s was asked, held to {max_secs} s (the longest a run lasts); at the limit the \
-         whole process tree is stopped]\n"
+        "[time limit: {asked} s was asked, held to {max_secs} s of silence; a run still printing is let run \
+         on, and is stopped at {ceiling} s. At the stop the whole process tree is stopped]\n"
     );
     (
-        json!({"asked_secs": asked, "held_to_secs": max_secs, "tree_stopped_at_limit": true}),
+        json!({
+            "asked_secs": asked,
+            "held_to_secs": max_secs,
+            "limit_is_on_silence": true,
+            "ceiling_secs": ceiling,
+            "tree_stopped_at_limit": true,
+        }),
         line,
     )
 }
@@ -72,7 +86,15 @@ mod tests {
         let (meta, line) = note(7200, 3600);
         assert_eq!(meta["asked_secs"], 7200);
         assert_eq!(meta["held_to_secs"], 3600);
-        assert!(line.contains("7200 s was asked, held to 3600 s"), "{line}");
+        assert!(
+            line.contains("7200 s was asked, held to 3600 s of silence"),
+            "{line}"
+        );
         assert!(line.contains("whole process tree is stopped"), "{line}");
+        // theseus-x1zz8: the note must not promise a stop the code no longer makes.
+        assert!(!line.contains("the longest a run lasts"), "{line}");
+        assert!(line.contains("still printing is let run on"), "{line}");
+        assert_eq!(meta["limit_is_on_silence"], true);
+        assert_eq!(meta["ceiling_secs"], 3600 * u64::from(CEILING_FACTOR));
     }
 }

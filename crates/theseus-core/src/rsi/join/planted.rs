@@ -163,7 +163,7 @@ fn in_l1(jail: &Jail, p: &Place, t: &Tree, expr: &str) -> Result<(bool, String)>
             argv,
             env: Vec::new(),
             log: &log,
-            limit: TESTS_LIMIT,
+            limit: TESTS_SILENCE,
         },
     )?;
     let text = std::fs::read_to_string(&log).unwrap_or_default();
@@ -175,7 +175,7 @@ fn in_l1(jail: &Jail, p: &Place, t: &Tree, expr: &str) -> Result<(bool, String)>
 }
 
 /// The longest a planted revert's test run may take before it is stopped.
-const TESTS_LIMIT: std::time::Duration = std::time::Duration::from_secs(2 * 3600);
+const TESTS_SILENCE: std::time::Duration = std::time::Duration::from_secs(2 * 3600);
 
 /// Whether `path` holds tests only.
 pub fn is_test_path(path: &str) -> bool {

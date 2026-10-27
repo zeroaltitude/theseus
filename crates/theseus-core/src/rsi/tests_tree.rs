@@ -492,7 +492,7 @@ async fn a_stopped_gate_names_its_phase() {
             &t,
             &script,
             &log,
-            std::time::Duration::from_millis(700),
+            tree::Bound::Silence(std::time::Duration::from_millis(700)),
             false,
         )
         .await
@@ -501,10 +501,66 @@ async fn a_stopped_gate_names_its_phase() {
     }
 }
 
+/// A gate that keeps printing is not stopped at its limit: the limit is on
+/// silence, and the ceiling is far past it (theseus-x1zz8).
+#[tokio::test]
+async fn a_gate_still_printing_past_its_limit_runs_to_its_end() {
+    let f = fixture();
+    let t = tree::open(&f.place, "busy", NOW).unwrap();
+    let log = f.place.state.join("busy.log");
+    let script = f.place.state.join("busy.sh");
+    std::fs::write(
+        &script,
+        "#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo \"gate: phase $i\"; sleep 0.1; done\n",
+    )
+    .unwrap();
+    let code = tree::run_niced(
+        &f.place,
+        &t,
+        &script,
+        &log,
+        tree::Bound::Silence(std::time::Duration::from_millis(700)),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(code, Some(0));
+}
+
+/// The same script under `Bound::Clock` IS stopped at its limit, and says the
+/// clock rather than silence. This is the may-build rule's bound: a predicate
+/// that prints must not be able to hold its caller's loop - and so a stop
+/// aimed at the build - open for 24 times its window (theseus-x1zz8, join).
+#[tokio::test]
+async fn a_printing_predicate_under_a_clock_bound_is_still_stopped_at_its_limit() {
+    let f = fixture();
+    let t = tree::open(&f.place, "rule", NOW).unwrap();
+    let log = f.place.state.join("rule.log");
+    let script = f.place.state.join("rule.sh");
+    std::fs::write(
+        &script,
+        "#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo \"gate: phase $i\"; sleep 0.1; done\n",
+    )
+    .unwrap();
+    let e = tree::run_niced(
+        &f.place,
+        &t,
+        &script,
+        &log,
+        tree::Bound::Clock(std::time::Duration::from_millis(400)),
+        false,
+    )
+    .await
+    .unwrap_err();
+    let said = format!("{e:#}");
+    assert!(said.contains("ran for its whole"), "{said}");
+    assert!(!said.contains("printed nothing"), "{said}");
+}
+
 /// The two-hour backstop is generous and stays where it is.
 #[test]
 fn the_gate_limit_is_still_two_hours() {
-    assert_eq!(tree::GATE_LIMIT, std::time::Duration::from_secs(2 * 3600));
+    assert_eq!(tree::GATE_SILENCE, std::time::Duration::from_secs(2 * 3600));
 }
 
 /// Advance the upstream's main behind the repo's back: a commit that rewrites

@@ -3,7 +3,7 @@
 //! awaited here, as `extend.propose`'s trial is, and its result is written as
 //! any harness call's. Like a harness call, a cancel does not cut it short:
 //! the kill switch is asked between its phases, and its gate is bounded by
-//! `rsi::tree::GATE_LIMIT`.
+//! `rsi::tree::GATE_SILENCE`.
 
 use std::time::Instant;
 

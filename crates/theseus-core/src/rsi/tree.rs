@@ -44,6 +44,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use theseus_kernel::children::{self, Kind};
+use theseus_kernel::patience::{Cut, Patience};
 
 use super::jail::{Jail, Job};
 
@@ -185,9 +186,11 @@ pub struct GateRun {
     pub tail: String,
 }
 
-/// The longest gate run before it is stopped: a cold build of the whole
-/// workspace at nice 19 beside busy neighbours took about 22 minutes.
-pub const GATE_LIMIT: Duration = Duration::from_secs(2 * 3600);
+/// How long a gate run may print nothing before it is stopped (theseus-x1zz8):
+/// a cold build of the whole workspace at nice 19 beside busy neighbours took
+/// about 22 minutes, and one that still prints is let run on, to 24 times
+/// this (`theseus_kernel::patience`).
+pub const GATE_SILENCE: Duration = Duration::from_secs(2 * 3600);
 /// How often the operator is told that the gate is still waiting for main's
 /// may-build rule to say yes. It is a notice interval, not a deadline: the
 /// wait ends when the rule says yes, never on a clock (the owner, 2026-10-25
@@ -195,6 +198,13 @@ pub const GATE_LIMIT: Duration = Duration::from_secs(2 * 3600);
 /// theseus").
 pub const MAY_BUILD_WAIT: Duration = Duration::from_secs(30 * 60);
 const MAY_BUILD_EVERY: Duration = Duration::from_secs(60);
+/// How long one evaluation of the may-build rule may take. A hard clock, and
+/// deliberately so: the rule is a predicate polled in a loop, and the stop
+/// check and the operator's notice both live in that loop, outside the run.
+/// Bounding it on silence instead would let a rule script that prints - and
+/// one that runs `git fetch` does print - hold the loop open for 24 times
+/// this, and delay a stop aimed at the build by the same factor.
+const RULE_LIMIT: Duration = Duration::from_secs(120);
 /// How the gate says the keel stopped it (gate.sh's `phase` names).
 const KEEL_FAILED: &[&str] = &["gate: FAILED in keel", "gate: FAILED in door"];
 
@@ -638,7 +648,17 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
     let t0 = Instant::now();
     let status = match p.jail()? {
         Some(j) => jailed(j, p, tree, &script, &log, benches).await?,
-        None => run_niced(p, tree, &script, &log, GATE_LIMIT, benches).await?,
+        None => {
+            run_niced(
+                p,
+                tree,
+                &script,
+                &log,
+                Bound::Silence(GATE_SILENCE),
+                benches,
+            )
+            .await?
+        }
     };
     let text = std::fs::read_to_string(&log).unwrap_or_default();
     let verdict = if status == Some(0) {
@@ -691,7 +711,7 @@ async fn jailed(
         argv,
         env,
         log,
-        limit: GATE_LIMIT,
+        limit: GATE_SILENCE,
     };
     jail.run(p, job)
         .await
@@ -767,7 +787,9 @@ pub(super) async fn may_build_paced(
         if let Some(why) = p.stop.as_ref().and_then(Stop::check) {
             return Ok(Waited::Stopped(why));
         }
-        if run_niced(p, tree, script, &log, Duration::from_secs(120), false).await? == Some(0) {
+        // A hard clock, not silence: the stop check and the operator notice
+        // both live outside this call (theseus-x1zz8 join review).
+        if run_niced(p, tree, script, &log, Bound::Clock(RULE_LIMIT), false).await? == Some(0) {
             return Ok(Waited::Yes);
         }
         let waited = clock.elapsed();
@@ -819,16 +841,39 @@ fn last_phase(log: &Path) -> Option<String> {
         .map(|l| l.chars().take(200).collect())
 }
 
+/// How a niced run is bounded (theseus-x1zz8, and its join review).
+///
+/// A build or a gate is bounded by `Silence`: it may take as long as it is
+/// making noise, because a long quiet spell is the failure and the wall clock
+/// says nothing about it. A **predicate** is bounded by `Clock`: the may-build
+/// rule is polled in a loop whose stop check and operator notice both sit
+/// outside this call, so a rule script that prints must not be able to hold
+/// the loop open past its own interval. Silence there would turn a 120 s
+/// window into a 48 minute one and delay a stop by the same factor.
+pub(super) enum Bound {
+    Silence(Duration),
+    Clock(Duration),
+}
+
+impl Bound {
+    fn limit(&self) -> Duration {
+        match self {
+            Self::Silence(d) | Self::Clock(d) => *d,
+        }
+    }
+}
+
 /// `bash <script>` in the tree at nice 19 (and the idle IO class where
-/// `ionice` is), its output to `log`, stopped past `limit`. Its exit code.
+/// `ionice` is), its output to `log`, stopped at its [`Bound`]. Its exit code.
 pub(super) async fn run_niced(
     p: &Place,
     tree: &Tree,
     script: &Path,
     log: &Path,
-    limit: Duration,
+    bound: Bound,
     benches: bool,
 ) -> Result<Option<i32>> {
+    let limit = bound.limit();
     let out = std::fs::File::create(log)?;
     let err = out.try_clone()?;
     let mut argv: Vec<OsString> = vec!["nice".into(), "-n".into(), "19".into()];
@@ -863,23 +908,49 @@ pub(super) async fn run_niced(
     let mut child = children::spawn(Kind::Owned, || c.spawn(), |c| c.id())
         .context("the gate could not start")?;
     let pid = child.id();
-    match tokio::time::timeout(limit, child.wait()).await {
-        Ok(s) => Ok(s?.code()),
-        Err(_) => {
-            // Its whole group: the build's children too.
-            if let Some(pid) = pid {
-                // SAFETY: a plain signal to the group this child leads.
-                unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+    // The log's length is the gate's sign of life: the same bound as a
+    // jailed run's, `theseus_kernel::patience` (theseus-x1zz8). A predicate
+    // keeps the hard clock instead, so its caller's loop stays responsive.
+    let ms = u64::try_from(limit.as_millis()).unwrap_or(u64::MAX);
+    let t0 = std::time::Instant::now();
+    let mut patience = match bound {
+        Bound::Clock(_) => Patience::clock(ms, t0),
+        Bound::Silence(_) => {
+            let sized = std::fs::File::open(log)?;
+            Patience::silence(ms, t0, move || sized.metadata().map_or(0, |m| m.len()))
+        }
+    };
+    loop {
+        match tokio::time::timeout(patience.sleep(), child.wait()).await {
+            Ok(s) => return Ok(s?.code()),
+            Err(_) => {
+                let Some(cut) = patience.check() else {
+                    continue;
+                };
+                // Its whole group: the build's children too.
+                if let Some(pid) = pid {
+                    // SAFETY: a plain signal to the group this child leads.
+                    unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+                }
+                let _ = child.wait().await;
+                let phase = last_phase(log).map_or_else(
+                    || "no `gate: ` line in its log yet".to_string(),
+                    |l| format!("`{l}`"),
+                );
+                let why = match cut {
+                    Cut::Ceiling(_) => format!(
+                        "was still printing at its ceiling, {} minutes,",
+                        patience.ceiling_ms() / 60_000
+                    ),
+                    // A predicate's bound is the clock, so say the clock: it may
+                    // have printed the whole way and still be past its window.
+                    Cut::Clock => format!("ran for its whole {} s", limit.as_secs()),
+                    Cut::Silent(_) => {
+                        format!("printed nothing for {} minutes", limit.as_secs() / 60)
+                    }
+                };
+                bail!("the gate {why} and was stopped; its log's last phase line: {phase}")
             }
-            let _ = child.wait().await;
-            let phase = last_phase(log).map_or_else(
-                || "no `gate: ` line in its log yet".to_string(),
-                |l| format!("`{l}`"),
-            );
-            bail!(
-                "the gate ran past {} minutes and was stopped; its log's last phase line: {phase}",
-                limit.as_secs() / 60
-            )
         }
     }
 }
