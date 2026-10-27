@@ -664,6 +664,8 @@ mod tests_tasks_deferred;
 #[cfg(test)]
 mod tests_tasks_wake;
 #[cfg(test)]
+mod tests_find_sticks;
+#[cfg(test)]
 mod tests_tender;
 #[cfg(test)]
 mod tests_term;
