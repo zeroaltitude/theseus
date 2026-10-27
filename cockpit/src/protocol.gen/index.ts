@@ -706,6 +706,8 @@ export type * from './TaskInfo';
 export type * from './TaskKind';
 export type * from './TaskListParams';
 export type * from './TaskListResult';
+export type * from './TaskNotThisParams';
+export type * from './TaskNotThisResult';
 export type * from './TaskOrigin';
 export type * from './TaskPauseParams';
 export type * from './TaskPauseResult';

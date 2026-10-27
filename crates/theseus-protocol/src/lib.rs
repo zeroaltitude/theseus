@@ -98,6 +98,7 @@ pub mod standing;
 pub mod standing_proposals;
 mod submit;
 pub mod surface;
+pub mod task_not_this;
 pub mod task_pause;
 pub mod task_start;
 pub mod tasks;
@@ -300,7 +301,7 @@ pub mod method {
         TASK_LIST = "task.list",
         /// Stop a task and its jobs; the place hears it once.
         TASK_CANCEL = "task.cancel", TASK_PAUSE = "task.pause", TASK_RESUME = "task.resume", // the owner holds a task at its next loop, and lets it go on
-        TASK_REHOME = "task.rehome",
+        TASK_REHOME = "task.rehome", TASK_NOT_THIS = "task.not_this", // the owner says "not this" to a task: cancel it, one rolling preference, label its offer
         TASK_RESCHEDULE = "task.reschedule",
         /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).
         TASK_START = "task.start",
