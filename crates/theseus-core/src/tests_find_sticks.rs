@@ -123,7 +123,10 @@ async fn a_family_tools_find_loaded_is_not_dropped_at_the_next_persons_turn() {
     assert!(has(&r, "task_create"), "the find's family stays");
 }
 
-/// Both in one session: a find's family stays through a wake and a person's turn, the wake's goes.
+/// Both mechanisms in one session, on DIFFERENT families: the find's terminals stay through a wake
+/// and a person's turn, the wake's tasks go. This does NOT demonstrate the Find/wake distinction --
+/// `Deferral::dropped` can only ever hold the tasks family, so the `term_open` assertion is outside
+/// its reach and would hold however the find were treated. The distinction test is the next one.
 #[tokio::test]
 async fn a_finds_family_stays_and_a_wakes_goes_in_one_session() {
     let r = rig();
@@ -138,7 +141,9 @@ async fn a_finds_family_stays_and_a_wakes_goes_in_one_session() {
     assert!(has(&r, "term_open"), "the find's family stays");
 }
 
-/// A find of the tasks, then a wake that loads them too, then a person's turn: the find's holds.
+/// THE DISTINCTION TEST: a find of the tasks, then a wake that loads them too, then a person's turn --
+/// the find's holds. Both mechanisms on the SAME family, which is the only shape that can tell them
+/// apart, because the tasks family is the only one a wake loads and the only one `dropped` can name.
 #[tokio::test]
 async fn the_tasks_a_find_loaded_survive_a_wake_that_loads_them_too() {
     let r = rig();
