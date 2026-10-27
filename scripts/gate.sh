@@ -668,15 +668,19 @@ compiled_under_lock() {
 # lock across them, and whose binaries the compile phases built beforehand. The benches run
 # the test build's `theseusd`, `theseus-sim`, and `theseus-index` (the workspace's features,
 # which the features phase holds an install's to; see test_build).
+#
+# The suite is last: a phase that fails ends the gate, so the one that fails most (a timing test
+# under load) must not hide the checks after it, three of which a lane's gate makes (protocol
+# types, turn, size; theseus-zsddv). `compiled_under_lock` follows it, since it reads the suite's log.
 machine_checks() {
   phase "reader rule" registry
-  phase suite suite
   phase "protocol types" protocol_types
-  compiled_under_lock
   phase lifecycle lifecycle_bench
   phase jobs jobs_bench
   phase turn turn_step
   phase size size_step
+  phase suite suite
+  compiled_under_lock
 }
 
 # Take the lock around machine_checks, by running the gate again as the locked part. The wait,
