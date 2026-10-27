@@ -563,7 +563,10 @@ impl JudgeService {
     /// batch is queued, never on a timer: a re-ask that fails again leaves its
     /// node where it is and starts nothing.
     fn with_worklist(&self, session: &str, items: Vec<ContentItem>) -> Vec<ContentItem> {
-        let Ok(Some(rec)) = self.store.get_session::<crate::session::SessionRecord>(session) else {
+        let Ok(Some(rec)) = self
+            .store
+            .get_session::<crate::session::SessionRecord>(session)
+        else {
             return items;
         };
         let worklist: Vec<String> = match flags_of(&rec) {

@@ -10,9 +10,11 @@ test('the old form’s fields, trimmed, and only those given', () => {
   assert.deepEqual(startParams({ ...EMPTY_FORM, brief: 'b', title: ' T ', budget: '$1.5', home: 'ses_h' }), { brief: 'b', title: 'T', home: 'ses_h', budget_usd: 1.5 })
 })
 
-test('the new fields: profile, start time, quotes, open', () => {
-  const p = startParams({ ...EMPTY_FORM, brief: 'b', profile: 'deep', startWhen: ' fri 9:00 ', quotes: 'first log\n\n  second one  \n\n', open: true })!
-  assert.deepEqual(p, { brief: 'b', profile: 'deep', start_when: 'fri 9:00', quotes: ['first log', 'second one'], open: true })
+// The open task is retired (theseus-9ymz0): the daemon refuses `open` in
+// words, so the sheet no longer offers it and the form no longer carries it.
+test('the new fields: profile, start time, quotes', () => {
+  const p = startParams({ ...EMPTY_FORM, brief: 'b', profile: 'deep', startWhen: ' fri 9:00 ', quotes: 'first log\n\n  second one  \n\n' })!
+  assert.deepEqual(p, { brief: 'b', profile: 'deep', start_when: 'fri 9:00', quotes: ['first log', 'second one'] })
   assert.deepEqual(quotesOf('  '), [])
 })
 

@@ -780,7 +780,13 @@ mod tests {
         // `lsp.` is NOT here: starting a language server runs build scripts.
         assert!(!local_read("lsp.hover"), "a language server start is a run");
         assert!(
-            refusal(Some(&f), InjectionMode::Refuse, ToolClass::Read, "lsp.hover").is_some(),
+            refusal(
+                Some(&f),
+                InjectionMode::Refuse,
+                ToolClass::Read,
+                "lsp.hover"
+            )
+            .is_some(),
             "a frozen session may not start a language server"
         );
         for t in ["fs.read", "git.log", "text.grep", "tools.find", "task.read"] {

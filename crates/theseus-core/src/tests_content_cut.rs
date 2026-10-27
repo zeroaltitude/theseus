@@ -56,7 +56,10 @@ fn confidential_session(r: &Rig) -> String {
     rec.data = Some(Box::new(flags));
     r.core.store.put_session(&a, &rec).unwrap();
     let stored = crate::content_wait::flags_of(&r.core.store, &a).unwrap();
-    assert!(stored.disqualifies_cn().is_some(), "A is off the restricted models");
+    assert!(
+        stored.disqualifies_cn().is_some(),
+        "A is off the restricted models"
+    );
     let node = r.core.store.transcript(&a).unwrap()[0].1.id.clone();
     r.core
         .standing_add(

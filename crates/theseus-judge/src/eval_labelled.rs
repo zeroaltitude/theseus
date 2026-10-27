@@ -116,8 +116,12 @@ mod tests {
     fn content_v1s_expectations_match_the_case_names() {
         for case in set("content.v1").unwrap() {
             let flag = |f: &str| case.expect.get(f).map(String::as_str);
-            let operator = case.input["kind"] == "operator_message";
-            if operator {
+            // The exempt kinds come from the one list, never restated here:
+            // three places stated this rule and disagreed until the review of
+            // 2026-10-26, and this test was one of them.
+            let kind = case.input["kind"].as_str().unwrap_or_default();
+            let asked = crate::builders::asks_injection(kind);
+            if !asked {
                 assert_eq!(flag("injection"), None, "{}: never asked", case.name);
             }
             let flagged = ["inj_", "sec_", "conf_", "pers_"]
@@ -128,12 +132,7 @@ mod tests {
                 assert_eq!(case.expect.len(), 1, "{}", case.name);
                 assert!(case.expect.values().all(|v| v == "yes"), "{}", case.name);
             } else {
-                assert_eq!(
-                    case.expect.len(),
-                    if operator { 3 } else { 4 },
-                    "{}",
-                    case.name
-                );
+                assert_eq!(case.expect.len(), 3 + usize::from(asked), "{}", case.name);
                 assert!(case.expect.values().all(|v| v == "no"), "{}", case.name);
             }
         }

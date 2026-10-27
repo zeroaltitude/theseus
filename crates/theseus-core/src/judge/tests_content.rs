@@ -665,11 +665,7 @@ async fn a_long_item_is_asked_in_pieces_and_the_bound_is_visible() {
     // default (20) fits the largest item that can exist, so the test sets its
     // own small bound rather than building a 20-piece item for nothing.
     let svc = &r.core.runner.judge;
-    svc.content_from(
-        theseus_judge::builders::DataNames::default(),
-        true,
-        3,
-    );
+    svc.content_from(theseus_judge::builders::DataNames::default(), true, 3);
     let huge = piece.repeat(9);
     svc.ask_content(
         &sid,
