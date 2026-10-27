@@ -194,6 +194,7 @@ gate_done=""
 on_exit() {
   local status=$?
   if [ "$part" = locked ]; then
+    [ "$status" -eq 0 ] || not_reached
     save_locked_record
     return
   fi
@@ -662,6 +663,21 @@ compiled_under_lock() {
   if [ "$n" -gt 0 ]; then
     echo "gate: NOTE: $n crate(s) were compiled under the lock: the tree changed after the compile phases (rerun the gate before you commit), or they built something other than the tests run"
   fi
+}
+
+# What a failed locked part never ran: a phase that fails ends the gate, so the ones after it have no verdict,
+# which the table alone does not say. `machine_order` is machine_checks's order, and the two are kept together.
+machine_order=("reader rule" "protocol types" lifecycle jobs turn size suite)
+not_reached() {
+  local name seen="" left=()
+  for name in "${machine_order[@]}"; do
+    if [ -n "$seen" ]; then left+=("$name"); fi
+    if [ "$name" = "$phase_now" ]; then seen=1; fi
+  done
+  if [ "${#left[@]}" -gt 0 ]; then
+    echo "gate: NOT RUN, no verdict, after the failure in $phase_now: ${left[*]}"
+  fi
+  compiled_under_lock
 }
 
 # The checks that need the machine to themselves, in order: the locked part, which holds the
