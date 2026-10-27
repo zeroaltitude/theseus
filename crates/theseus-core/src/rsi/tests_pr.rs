@@ -871,3 +871,57 @@ mod own_tree_edits {
 }
 
 mod infra;
+
+/// The stop check of a self build's wait reads the kill switch...
+#[tokio::test]
+async fn the_waits_stop_check_reads_the_halt() {
+    let r = rig(SelfMode::Act, None);
+    let sid = r.session("self");
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    let check = super::pr::stop_of(&r.core, &rec.execution_id.unwrap());
+    let none = || check.check();
+    assert_eq!(none(), None);
+    let p = SelfHaltParams {
+        why: Some("the wind turned".into()),
+        ..Default::default()
+    };
+    r.core.self_halt(&p, &Answerer::from("the CLI")).unwrap();
+    let why = none().expect("a halt stops the wait");
+    assert!(why.contains("halted"), "{why}");
+}
+
+/// ...and a `/stop` of the call's execution, with no halt.
+#[tokio::test]
+async fn the_waits_stop_check_reads_the_executions_stop() {
+    let r = rig(SelfMode::Act, None);
+    let sid = r.session("self");
+    let other = r.session("self");
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    let exec = rec.execution_id.unwrap();
+    let orec: SessionRecord = r.core.store.get_session(&other).unwrap().unwrap();
+    let check = super::pr::stop_of(&r.core, &exec);
+    assert_eq!(check.check(), None);
+    // A stop leaves its mark on an execution whose turn is running, as the
+    // wait's is.
+    let _turns = (
+        r.core.kernel.admit_input(&exec).unwrap(),
+        r.core
+            .kernel
+            .admit_input(&orec.execution_id.clone().unwrap())
+            .unwrap(),
+    );
+    r.core
+        .stop_execution(&orec.execution_id.unwrap(), "the CLI")
+        .await
+        .unwrap();
+    assert_eq!(
+        check.check(),
+        None,
+        "another session's stop is not this one's"
+    );
+    r.core.stop_execution(&exec, "the CLI").await.unwrap();
+    let why = check
+        .check()
+        .expect("a stop of the execution stops the wait");
+    assert!(why.contains("the CLI"), "{why}");
+}

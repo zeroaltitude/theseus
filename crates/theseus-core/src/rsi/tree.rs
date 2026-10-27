@@ -61,6 +61,56 @@ pub struct Place {
     /// Where the gate's inform notices go (a wait for may-build that has
     /// lasted a window). None in a test's place: no notice, never an error.
     pub notify: Option<Notify>,
+    /// Whether the owner's stop has landed, asked each minute of a wait for
+    /// may-build (and before the first ask). None in a test's place and for
+    /// every caller that has no stop to read: the wait is then as it always
+    /// was, for as long as the rule says no.
+    pub stop: Option<Stop>,
+}
+
+/// A stop check: why the build must stop now (the kill switch's halt, the
+/// session's execution stopped), or none. Read each minute of a wait for
+/// may-build; it never bounds the wait by a clock.
+#[derive(Clone)]
+pub struct Stop(Arc<dyn Fn() -> Option<String> + Send + Sync>);
+
+impl Stop {
+    pub fn new(f: impl Fn() -> Option<String> + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+
+    pub(super) fn check(&self) -> Option<String> {
+        (self.0)()
+    }
+}
+
+impl std::fmt::Debug for Stop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Stop")
+    }
+}
+
+/// A gate that did not run because the owner's stop landed while it waited
+/// for may-build. An error of its own, so a caller tells it from a gate that
+/// failed, and nothing reads it as a verdict.
+#[derive(Debug)]
+pub struct GateStopped(pub String);
+
+impl std::fmt::Display for GateStopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "stopped while waiting for may-build: {}", self.0)
+    }
+}
+
+impl std::error::Error for GateStopped {}
+
+/// How a wait for may-build ended.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Waited {
+    /// The rule said yes.
+    Yes,
+    /// The stop check fired, with its reason: the build must not go on.
+    Stopped(String),
 }
 
 /// A sink for one inform notice: its text in, a post to the operator out.
@@ -567,7 +617,9 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
         .unwrap_or_default()
         .to_string();
     if let Some(may) = may {
-        may_build(p, tree, &may).await?;
+        if let Waited::Stopped(why) = may_build(p, tree, &may).await? {
+            return Err(GateStopped(why).into());
+        }
     }
     std::fs::create_dir_all(p.gates())?;
     let log = p
@@ -676,8 +728,9 @@ impl Clock {
 /// long as it says no: its no is the machine busy (the owner gaming, trees
 /// compiling, a disk low), and the right answer to that is to wait, never to
 /// drop the item. Each [`MAY_BUILD_WAIT`] waited, one inform notice carries
-/// the rule's last words. `/stop` drops the future and with it the child.
-async fn may_build(p: &Place, tree: &Tree, script: &Path) -> Result<()> {
+/// the rule's last words. Nothing but the rule ends the wait except the
+/// place's stop check, read each minute: it ends it as [`Waited::Stopped`].
+async fn may_build(p: &Place, tree: &Tree, script: &Path) -> Result<Waited> {
     may_build_paced(
         p,
         tree,
@@ -696,13 +749,16 @@ pub(super) async fn may_build_paced(
     every: Duration,
     notice_every: Duration,
     clock: Clock,
-) -> Result<()> {
+) -> Result<Waited> {
     std::fs::create_dir_all(p.gates())?;
     let log = p.gates().join("may-build.log");
     let mut told = 0u32;
     loop {
+        if let Some(why) = p.stop.as_ref().and_then(Stop::check) {
+            return Ok(Waited::Stopped(why));
+        }
         if run_niced(p, tree, script, &log, Duration::from_secs(120), false).await? == Some(0) {
-            return Ok(());
+            return Ok(Waited::Yes);
         }
         let waited = clock.elapsed();
         if waited >= notice_every * (told + 1) {
