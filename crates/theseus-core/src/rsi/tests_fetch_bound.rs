@@ -153,10 +153,7 @@ fn a_hung_fetch_holds_no_close() {
     let f = fixture();
     let other = jgit::detached(&f.place, "probe", "self/probe", "origin/main").unwrap();
     let (p, h) = hanging_place(&f.place, Duration::from_secs(4));
-    let opener = {
-        let p = p.clone();
-        std::thread::spawn(move || tree::open(&p, "stuck", NOW))
-    };
+    let opener = std::thread::spawn(move || tree::open(&p, "stuck", NOW));
     h.wait_hanging();
     let t = Instant::now();
     tree::close(&f.place, &other).unwrap();
