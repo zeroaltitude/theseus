@@ -144,6 +144,7 @@ ledger_kinds! {
     ExtendTested = "extend.tested",
     FactCorrected = "fact.corrected",
     FactRetracted = "fact.retracted",
+    FanOutCue = "fan_out.cue",
     FileRead = "file.read",
     FilesRestored = "files.restored",
     FlowLoaded = "flow.loaded",

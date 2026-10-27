@@ -392,6 +392,29 @@ mod tests {
         }
     }
 
+    /// The helpers family (`task_wait`, `task_fan_out`) is in no place's defaults, so it is deferred
+    /// everywhere until something admits it (theseus-z9mze.4); the other families' defaults are as
+    /// they were.
+    #[test]
+    fn the_helpers_family_is_deferred_by_default_in_every_place() {
+        for k in PlaceKind::ALL {
+            assert!(!k.defaults().contains(&HELPERS), "{}", k.as_str());
+        }
+        let was: [(PlaceKind, &[&str]); 5] = [
+            (PlaceKind::Cli, &["memory"]),
+            (PlaceKind::Dm, &["memory", "reminders", "web"]),
+            (
+                PlaceKind::Channel,
+                &["memory", "tasks", "reminders", "web", "channels"],
+            ),
+            (PlaceKind::Task, &[]),
+            (PlaceKind::Headless, &["terminals"]),
+        ];
+        for (k, d) in was {
+            assert_eq!(k.defaults(), d, "{}", k.as_str());
+        }
+    }
+
     /// The committed defaults name families that exist, and no harness or
     /// benchmark (the task's rule: a headless run has the defaults of its
     /// place kind, nothing keyed on what is running it).
