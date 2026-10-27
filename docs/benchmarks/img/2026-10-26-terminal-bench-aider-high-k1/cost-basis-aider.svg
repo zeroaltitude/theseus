@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="221" viewBox="0 0 720 221" role="img" aria-labelledby="t-cost-basis-aider t-cost-basis-aider-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-cost-basis-aider">Dollars a trial, Aider 0.86.2, at $0.20/Mtok Sonnet 5.5 cache reads</title>
+<desc id="t-cost-basis-aider-d">What does one Aider 0.86.2 trial cost, on the table the other cells are quoted on?</desc>
+<rect width="720" height="221" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Dollars a trial, Aider 0.86.2, at $0.20/Mtok Sonnet 5.5 cache reads</text>
+<line x1="115.1" y1="48.0" x2="115.1" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="221.7" y1="48.0" x2="221.7" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="328.2" y1="48.0" x2="328.2" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="434.8" y1="48.0" x2="434.8" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="541.4" y1="48.0" x2="541.4" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="647.9" y1="48.0" x2="647.9" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="105.1" y="68.0" font-size="12" fill="#0b0b0b" text-anchor="end">median $/trial</text>
+<g><title>median $/trial · cache reads at $0.20/Mtok: $0.0092</title>
+<path d="M115.1,55.0H307.5A4,4 0 0 1 311.5,59.0V69.0A4,4 0 0 1 307.5,73.0H115.1Z" fill="#898781"/>
+</g>
+<text x="316.5" y="68.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.0092</text>
+<text x="105.1" y="100.0" font-size="12" fill="#0b0b0b" text-anchor="end">mean $/trial</text>
+<g><title>mean $/trial · cache reads at $0.20/Mtok: $0.025</title>
+<path d="M115.1,87.0H642.5A4,4 0 0 1 646.5,91.0V101.0A4,4 0 0 1 642.5,105.0H115.1Z" fill="#898781"/>
+</g>
+<text x="651.5" y="100.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.025</text>
+<text x="115.1" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.000</text>
+<text x="221.7" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.005</text>
+<text x="328.2" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.010</text>
+<text x="434.8" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.015</text>
+<text x="541.4" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.020</text>
+<text x="647.9" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.025</text>
+<line x1="115.1" y1="112.0" x2="647.9" y2="112.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="381.5" y="146.0" font-size="12" fill="#52514e" text-anchor="middle">dollars a trial</text>
+<text x="18.0" y="168.0" font-size="11" fill="#52514e">89 trials, 84 of which reached a priced call; the other 5 cost $0 and stay in the denominator. This cell's own records fit the</text>
+<text x="18.0" y="183.0" font-size="11" fill="#52514e">$either (this arm never read from cache)/Mtok cache-read table to 1e-17. The report's PRICE BASIS table carries every</text>
+<text x="18.0" y="198.0" font-size="11" fill="#52514e">basis; this plots the quoted one.</text>
+</svg>

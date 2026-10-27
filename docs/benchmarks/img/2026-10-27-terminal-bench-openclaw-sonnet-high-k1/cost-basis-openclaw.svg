@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="264" viewBox="0 0 720 264" role="img" aria-labelledby="t-cost-basis-openclaw t-cost-basis-openclaw-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-cost-basis-openclaw">Dollars a trial, OpenClaw 2026.9.8, at $0.20/Mtok Sonnet 5.5 cache reads</title>
+<desc id="t-cost-basis-openclaw-d">What does one OpenClaw 2026.9.8 trial cost, on the table the other cells are quoted on?</desc>
+<rect width="720" height="264" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Dollars a trial, OpenClaw 2026.9.8, at $0.20/Mtok Sonnet 5.5 cache reads</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#eda100"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">cache reads at $0.20/Mtok</text>
+<rect x="219.5" y="44.0" width="14" height="12" rx="3" fill="#898781"/>
+<text x="241.5" y="54.0" font-size="12" fill="#52514e">cache reads at $0.10/Mtok</text>
+<line x1="115.1" y1="74.0" x2="115.1" y2="170.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="250.0" y1="74.0" x2="250.0" y2="170.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="385.0" y1="74.0" x2="385.0" y2="170.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="519.9" y1="74.0" x2="519.9" y2="170.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="654.8" y1="74.0" x2="654.8" y2="170.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="105.1" y="102.0" font-size="12" fill="#0b0b0b" text-anchor="end">median $/trial</text>
+<g><title>median $/trial · cache reads at $0.20/Mtok: $0.12</title>
+<path d="M115.1,81.0H276.0A4,4 0 0 1 280.0,85.0V93.0A4,4 0 0 1 276.0,97.0H115.1Z" fill="#eda100"/>
+</g>
+<text x="285.0" y="93.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.12</text>
+<g><title>median $/trial · cache reads at $0.10/Mtok: $0.098</title>
+<path d="M115.1,99.0H243.8A4,4 0 0 1 247.8,103.0V111.0A4,4 0 0 1 243.8,115.0H115.1Z" fill="#898781"/>
+</g>
+<text x="252.8" y="111.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.098</text>
+<text x="105.1" y="150.0" font-size="12" fill="#0b0b0b" text-anchor="end">mean $/trial</text>
+<g><title>mean $/trial · cache reads at $0.20/Mtok: $0.33</title>
+<path d="M115.1,129.0H551.6A4,4 0 0 1 555.6,133.0V141.0A4,4 0 0 1 551.6,145.0H115.1Z" fill="#eda100"/>
+</g>
+<text x="560.6" y="141.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.33</text>
+<g><title>mean $/trial · cache reads at $0.10/Mtok: $0.24</title>
+<path d="M115.1,147.0H431.2A4,4 0 0 1 435.2,151.0V159.0A4,4 0 0 1 431.2,163.0H115.1Z" fill="#898781"/>
+</g>
+<text x="440.2" y="159.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.24</text>
+<text x="115.1" y="186.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.00</text>
+<text x="250.0" y="186.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.10</text>
+<text x="385.0" y="186.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.20</text>
+<text x="519.9" y="186.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.30</text>
+<text x="654.8" y="186.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.40</text>
+<line x1="115.1" y1="170.0" x2="654.8" y2="170.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="385.0" y="204.0" font-size="12" fill="#52514e" text-anchor="middle">dollars a trial</text>
+<text x="18.0" y="226.0" font-size="11" fill="#52514e">89 trials, 86 of which reached a priced call; the other 3 cost $0 and stay in the denominator. This cell's own records fit the</text>
+<text x="18.0" y="241.0" font-size="11" fill="#52514e">$0.20/Mtok cache-read table to 4e-16. The report's PRICE BASIS table carries every basis; this plots the quoted one.</text>
+</svg>

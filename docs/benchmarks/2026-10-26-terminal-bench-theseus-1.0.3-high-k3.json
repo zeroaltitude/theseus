@@ -1,0 +1,498 @@
+{
+ "report": "2026-10-26-terminal-bench-theseus-1.0.3-high-k3",
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-26",
+ "cell": "c1-theseus-high-k3",
+ "commit": "92e3dbed (the frozen 1.0.3 behaviour build; harness at 3235e029)",
+ "tasks": 89,
+ "trials": 267,
+ "k_per_task": {
+  "3": 89
+ },
+ "task_set": "full",
+ "summary": {
+  "theseus-routed-1.0.3": {
+   "label": "Theseus as shipped (routed), frozen 1.0.3 92e3dbed, HIGH, 89x3",
+   "trials": 267,
+   "solved": 209,
+   "tasks": 89,
+   "rate": 0.782772,
+   "wilson": [
+    0.729487,
+    0.828035
+   ],
+   "k": 3,
+   "effort": [
+    "low",
+    "high"
+   ],
+   "routing": "routed",
+   "provider": "anthropic",
+   "model": [
+    "claude-haiku-5-5",
+    "claude-sonnet-5",
+    "claude-sonnet-5-5"
+   ],
+   "usd_total": 89.806152,
+   "usd_trial": 0.336353,
+   "usd_trial_ci": [
+    0.262472,
+    0.410233
+   ],
+   "usd_solve": 0.429695,
+   "agent_s_median": 118.74,
+   "model_calls_median": 12,
+   "exceptions": {
+    "AgentTimeoutError": 2,
+    "AgentSafetyRefusalError": 2,
+    "NonZeroAgentExitCodeError": 6,
+    "TheseusTurnCutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 151,
+    "claude-haiku-5-5": 41,
+    "claude-sonnet-5,claude-sonnet-5-5": 67,
+    "claude-sonnet-5": 2
+   }
+  }
+ },
+ "baseline": {
+  "report": "2026-10-18-terminal-bench-v1-high",
+  "arm": "theseus",
+  "label": "Theseus as shipped (routed), v1 freeze 351159fc, HIGH, 89x3",
+  "pass_rate": {
+   "value": 0.7303370786516854,
+   "lo": 0.6741159859446423,
+   "hi": 0.780023998459526,
+   "k": 195,
+   "n": 267
+  },
+  "usd_per_trial": {
+   "value": 0.09964080898876404,
+   "lo": 0.08234206367041198,
+   "hi": 0.11933708988764045
+  },
+  "usd_total": {
+   "value": 26.604096
+  },
+  "usd_per_solve": {
+   "value": 0.13643126153846152
+  },
+  "agent_s_median": {
+   "value": 50.4
+  },
+  "trials": 267,
+  "tasks": 89,
+  "own": {
+   "n": 267,
+   "usd_median": 0.051948,
+   "usd_mean": 0.105992,
+   "agent_s_median": 50.4,
+   "model_calls_median": 7.0,
+   "pass_raw": [
+    195,
+    267
+   ],
+   "pass_agent_ran": [
+    195,
+    259
+   ],
+   "no_agent": 8
+  }
+ },
+ "replaced": [],
+ "tier": "high",
+ "model": "Jev-routed Anthropic profiles; the pinned model is claude-sonnet-5-5, and a quarter of trials fell back to claude-sonnet-5 (theseus-wf482)",
+ "commits": [
+  "92e3dbed47a466bec774148f201974ad0773cdaa"
+ ],
+ "price_basis": {
+  "note": "Sonnet 5.5 cache reads moved $0.10 -> $0.20/Mtok on 2026-10-25 (install #85). The v1 arm ran before it and this cell after it, so the as-billed column adds a price change to a behaviour change and must not be quoted.",
+  "n": {
+   "cell": 229,
+   "baseline": 259
+  },
+  "rows": [
+   {
+    "basis": "both at $0.20 (like for like)",
+    "cell_median": 0.1204,
+    "baseline_median": 0.0543,
+    "median_ratio": 2.22,
+    "cell_mean": 0.3323,
+    "baseline_mean": 0.1191,
+    "mean_ratio": 2.79,
+    "quote": true
+   },
+   {
+    "basis": "both at $0.10 (like for like)",
+    "cell_median": 0.1076,
+    "baseline_median": 0.0492,
+    "median_ratio": 2.19,
+    "cell_mean": 0.3143,
+    "baseline_mean": 0.106,
+    "mean_ratio": 2.96,
+    "quote": true
+   },
+   {
+    "basis": "as billed (mixed)",
+    "cell_median": 0.1204,
+    "baseline_median": 0.0492,
+    "median_ratio": 2.45,
+    "cell_mean": 0.3323,
+    "baseline_mean": 0.106,
+    "mean_ratio": 3.13,
+    "quote": false
+   }
+  ]
+ },
+ "wf482": {
+  "trials_with_fallback": {
+   "value": 61,
+   "n": 229,
+   "share": 0.2664
+  },
+  "distinct_tasks": 37,
+  "categories": {
+   "reasoning_extraction": 53,
+   "cyber": 8
+  },
+  "usd_total_clean": 75.66,
+  "usd_at_or_after_first_fallback": {
+   "value": 49.27,
+   "share": 0.651
+  },
+  "sonnet_5_5_calls": {
+   "value": 2063,
+   "n": 3709,
+   "share": 0.5562
+  }
+ },
+ "mechanism": {
+  "n": {
+   "cell": 261,
+   "baseline": 259
+  },
+  "rows": [
+   {
+    "metric": "model calls, median",
+    "cell": 12,
+    "baseline": 7,
+    "ratio": 1.71
+   },
+   {
+    "metric": "loops, median",
+    "cell": 12,
+    "baseline": 7,
+    "ratio": 1.71
+   },
+   {
+    "metric": "context tokens, median",
+    "cell": 20455,
+    "baseline": 14292,
+    "ratio": 1.43
+   },
+   {
+    "metric": "elapsed, median (s)",
+    "cell": 116.9,
+    "baseline": 49.5,
+    "ratio": 2.36
+   }
+  ]
+ },
+ "figures": [
+  {
+   "name": "pass-rates-c1",
+   "form": "intervals",
+   "title": "Pass rate, frozen 1.0.3 against the v1 freeze, all 89 tasks x 3, HIGH tier",
+   "question": "Does 1.0.3 solve more of the suite than v1 did?",
+   "note": "Both arms are Theseus as shipped (routed), 267 trials each, on the same 89 tasks. The agent-ran rows drop the trials whose agent never started (6 here, 8 on v1); 95% Wilson intervals.",
+   "x": {
+    "label": "trials passed",
+    "format": "pct",
+    "min": 0.6,
+    "max": 0.95
+   },
+   "rows": [
+    {
+     "label": "frozen 1.0.3 (92e3dbed)",
+     "arm": "theseus",
+     "group": "every trial (raw)",
+     "value": 0.7828,
+     "lo": 0.729487,
+     "hi": 0.828035,
+     "tip": "209 of 267"
+    },
+    {
+     "label": "v1 freeze (351159fc)",
+     "arm": "context",
+     "group": "every trial (raw)",
+     "value": 0.7303,
+     "lo": 0.6741,
+     "hi": 0.78,
+     "tip": "195 of 267"
+    },
+    {
+     "label": "frozen 1.0.3 (92e3dbed)",
+     "arm": "theseus",
+     "group": "trials whose agent started",
+     "value": 0.8008,
+     "lo": 0.7481,
+     "hi": 0.844707,
+     "tip": "209 of 261"
+    },
+    {
+     "label": "v1 freeze (351159fc)",
+     "arm": "context",
+     "group": "trials whose agent started",
+     "value": 0.7529,
+     "lo": 0.6969,
+     "hi": 0.8015,
+     "tip": "195 of 259"
+    }
+   ],
+   "legend_labels": {
+    "theseus": "frozen 1.0.3 (92e3dbed)",
+    "context": "v1 freeze (351159fc)"
+   }
+  },
+  {
+   "name": "cost-basis-c1",
+   "form": "bars",
+   "title": "Dollars a trial, both arms priced on one table ($0.20/Mtok Sonnet 5.5 cache reads)",
+   "question": "What does 1.0.3's trial cost against v1's, like for like?",
+   "note": "229 clean 1.0.3 trials against 259 v1 trials. The two runs were billed on different price tables; these are both repriced at $0.20. The as-billed numbers mix the tables and are in the report's table, not plotted.",
+   "categories": [
+    "median $/trial",
+    "mean $/trial"
+   ],
+   "value": {
+    "label": "dollars a trial",
+    "format": "usd",
+    "min": 0
+   },
+   "series": [
+    {
+     "arm": "theseus",
+     "label": "frozen 1.0.3 (92e3dbed)",
+     "values": [
+      0.1204,
+      0.3323
+     ]
+    },
+    {
+     "arm": "context",
+     "label": "v1 freeze (351159fc)",
+     "values": [
+      0.0543,
+      0.1191
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf482-share-c1",
+   "form": "bars",
+   "title": "How much of this cell ran the model its arm names (theseus-wf482)",
+   "question": "A quarter of the cell fell back from claude-sonnet-5-5 to claude-sonnet-5 - how much of the result is that?",
+   "note": "229 clean trials. The fallback is a one-way door: the rest of the turn runs on the fallback model. Counted by claude-sonnet-5 appearing in the bill, never by the absence of claude-sonnet-5-5.",
+   "categories": [
+    "trials touched by a refusal fallback",
+    "spend at or after the first fallback",
+    "model calls that went to claude-sonnet-5-5"
+   ],
+   "value": {
+    "label": "share of the cell",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "series": [
+    {
+     "arm": "theseus",
+     "label": "share of the cell",
+     "values": [
+      0.2664,
+      0.651,
+      0.5562
+     ]
+    }
+   ]
+  }
+ ],
+ "groupings": {
+  "all": {
+   "label": "every trial",
+   "trials": 267,
+   "passed": 209,
+   "pass_rate": {
+    "value": 0.782772,
+    "lo": 0.729487,
+    "hi": 0.828035,
+    "k": 209,
+    "n": 267
+   },
+   "usd_total": {
+    "value": 89.806152
+   },
+   "usd_per_trial": {
+    "value": 0.344085
+   },
+   "usd_per_solve": {
+    "value": 0.429695
+   },
+   "agent_s_median": {
+    "value": 118.74
+   },
+   "model_calls_median": {
+    "value": 12
+   },
+   "exceptions": {
+    "AgentTimeoutError": 2,
+    "AgentSafetyRefusalError": 2,
+    "NonZeroAgentExitCodeError": 6,
+    "TheseusTurnCutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 151,
+    "claude-haiku-5-5": 41,
+    "claude-sonnet-5,claude-sonnet-5-5": 67,
+    "claude-sonnet-5": 2
+   }
+  },
+  "clean": {
+   "label": "trials on a quiet host",
+   "trials": 234,
+   "passed": 187,
+   "pass_rate": {
+    "value": 0.799145,
+    "lo": 0.743167,
+    "hi": 0.84546,
+    "k": 187,
+    "n": 234
+   },
+   "usd_total": {
+    "value": 76.105579
+   },
+   "usd_per_trial": {
+    "value": 0.332339
+   },
+   "usd_per_solve": {
+    "value": 0.406982
+   },
+   "agent_s_median": {
+    "value": 105.44
+   },
+   "model_calls_median": {
+    "value": 11
+   },
+   "exceptions": {
+    "AgentTimeoutError": 2,
+    "AgentSafetyRefusalError": 2,
+    "NonZeroAgentExitCodeError": 5,
+    "TheseusTurnCutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 132,
+    "claude-haiku-5-5": 36,
+    "claude-sonnet-5,claude-sonnet-5-5": 59,
+    "claude-sonnet-5": 2
+   }
+  },
+  "gate_contaminated": {
+   "label": "trials inside a WSL join-gate window",
+   "trials": 33,
+   "passed": 22,
+   "pass_rate": {
+    "value": 0.666667,
+    "lo": 0.496076,
+    "hi": 0.8025,
+    "k": 22,
+    "n": 33
+   },
+   "usd_total": {
+    "value": 13.700573
+   },
+   "usd_per_trial": {
+    "value": 0.428143
+   },
+   "usd_per_solve": {
+    "value": 0.622753
+   },
+   "agent_s_median": {
+    "value": 223.0
+   },
+   "model_calls_median": {
+    "value": 13.0
+   },
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 19,
+    "claude-haiku-5-5": 5,
+    "claude-sonnet-5,claude-sonnet-5-5": 8
+   }
+  },
+  "agent_ran": {
+   "label": "trials whose agent actually started",
+   "trials": 261,
+   "passed": 209,
+   "pass_rate": {
+    "value": 0.800766,
+    "lo": 0.7481,
+    "hi": 0.844707,
+    "k": 209,
+    "n": 261
+   },
+   "usd_total": {
+    "value": 89.806152
+   },
+   "usd_per_trial": {
+    "value": 0.344085
+   },
+   "usd_per_solve": {
+    "value": 0.429695
+   },
+   "agent_s_median": {
+    "value": 118.74
+   },
+   "model_calls_median": {
+    "value": 12
+   },
+   "exceptions": {
+    "AgentTimeoutError": 2,
+    "AgentSafetyRefusalError": 2,
+    "TheseusTurnCutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 151,
+    "claude-haiku-5-5": 41,
+    "claude-sonnet-5,claude-sonnet-5-5": 67,
+    "claude-sonnet-5": 2
+   }
+  },
+  "setup_failed": {
+   "label": "trials whose agent never started",
+   "trials": 6,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.390343,
+    "k": 0,
+    "n": 6
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 6
+   },
+   "billed_models": {}
+  }
+ }
+}

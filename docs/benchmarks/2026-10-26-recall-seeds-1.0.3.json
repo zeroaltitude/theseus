@@ -1,0 +1,213 @@
+{
+ "report": "2026-10-26-recall-seeds-1.0.3",
+ "suite": "recall",
+ "date": "2026-10-26",
+ "kind": "recall",
+ "stale_rule": "strict",
+ "build": "92e3dbed (the frozen 1.0.3 behaviour build)",
+ "host": "M1 Max, aarch64 (the published seed-7 run was on the WSL box)",
+ "arms": [
+  {
+   "key": "theseus/baseline@seed11",
+   "label": "Theseus 1.0.3, seed 11"
+  },
+  {
+   "key": "theseus/baseline@seed13",
+   "label": "Theseus 1.0.3, seed 13"
+  }
+ ],
+ "summary": {
+  "theseus/baseline@seed11": {
+   "arm": "theseus/baseline",
+   "digest": "34c09f7de2cf9b2db9906f5d0eec576ac971be55098e87b6aac087f2be267119",
+   "stale_rule": "strict",
+   "probes": 204,
+   "scored": 204,
+   "failed": 0,
+   "undelivered": 0,
+   "recall_accuracy": 0.6875,
+   "recall_right": 99,
+   "recall_n": 144,
+   "cross_right": 34,
+   "cross_n": 48,
+   "within_right": 65,
+   "within_n": 96,
+   "abstention_accuracy": 0.15,
+   "abstain_gave_value": 51,
+   "abstain_n": 60,
+   "confident_wrong": 21,
+   "confident_wrong_rate": 0.1029,
+   "cites_when": 0.7843,
+   "cites_where": 0.9216,
+   "half_life": {
+    "central": {
+     "tokens": "not reached",
+     "turns": "not reached"
+    },
+    "incidental": {
+     "tokens": 986826.90625,
+     "turns": 256.05
+    }
+   },
+   "by_carrier": {
+    "aside": 0.7619,
+    "error": 0.5625,
+    "output": 0.2222,
+    "remark": 0.8235,
+    "topic": 0.7778
+   },
+   "by_value_kind": {
+    "date": 0.3667,
+    "host": 0.8182,
+    "path": 0.913,
+    "port": 0.7308,
+    "ticket": 0.7,
+    "version": 0.6957
+   },
+   "by_kind": {
+    "abstention": 0.15,
+    "direct": 0.7083,
+    "indirect": 0.6667
+   },
+   "overhead_tokens": 7467,
+   "cost_usd_per_probe": 0.094097,
+   "cost_usd": 19.1958,
+   "run_cost_usd": 37.1726,
+   "latency_ms_p50": 5650,
+   "by_bucket": {
+    "compaction": {
+     "right": 24,
+     "n": 30
+    },
+    "days": {
+     "right": 13,
+     "n": 24
+    },
+    "near": {
+     "right": 18,
+     "n": 21
+    },
+    "session": {
+     "right": 21,
+     "n": 24
+    },
+    "supersession": {
+     "right": 7,
+     "n": 24
+    },
+    "topic_shift": {
+     "right": 16,
+     "n": 21
+    }
+   }
+  },
+  "theseus/baseline@seed13": {
+   "arm": "theseus/baseline",
+   "digest": "2d1e77c16fb304d6ae33058d38f776ca65abee03a2734d2f988f8c125857e748",
+   "stale_rule": "strict",
+   "probes": 204,
+   "scored": 204,
+   "failed": 0,
+   "undelivered": 0,
+   "recall_accuracy": 0.7778,
+   "recall_right": 112,
+   "recall_n": 144,
+   "cross_right": 44,
+   "cross_n": 48,
+   "within_right": 68,
+   "within_n": 96,
+   "abstention_accuracy": 0.0667,
+   "abstain_gave_value": 56,
+   "abstain_n": 60,
+   "confident_wrong": 11,
+   "confident_wrong_rate": 0.0539,
+   "cites_when": 0.9107,
+   "cites_where": 0.2679,
+   "half_life": {
+    "central": {
+     "tokens": "not reached",
+     "turns": "not reached"
+    },
+    "incidental": {
+     "tokens": "not reached",
+     "turns": "not reached"
+    }
+   },
+   "by_carrier": {
+    "aside": 0.9444,
+    "error": 0.6111,
+    "output": 0.6364,
+    "remark": 0.76,
+    "topic": 0.8056
+   },
+   "by_value_kind": {
+    "date": 0.6,
+    "host": 0.6897,
+    "path": 0.85,
+    "port": 0.8095,
+    "ticket": 0.8387,
+    "version": 0.8696
+   },
+   "by_kind": {
+    "abstention": 0.0667,
+    "direct": 0.7778,
+    "indirect": 0.7778
+   },
+   "overhead_tokens": 7467,
+   "cost_usd_per_probe": 0.090032,
+   "cost_usd": 18.3665,
+   "run_cost_usd": 35.0959,
+   "latency_ms_p50": 6807,
+   "by_bucket": {
+    "compaction": {
+     "right": 17,
+     "n": 26
+    },
+    "days": {
+     "right": 21,
+     "n": 24
+    },
+    "near": {
+     "right": 19,
+     "n": 22
+    },
+    "session": {
+     "right": 23,
+     "n": 24
+    },
+    "supersession": {
+     "right": 10,
+     "n": 24
+    },
+    "topic_shift": {
+     "right": 22,
+     "n": 24
+    }
+   }
+  }
+ },
+ "compare": {
+  "2026-10-18 seed 7, Theseus": {
+   "recall_accuracy": 0.731,
+   "recall_right": 98,
+   "recall_n": 134,
+   "cross_right": 27,
+   "cross_n": 46,
+   "within_right": 71,
+   "within_n": 88,
+   "abstain_gave_value": 38,
+   "abstain_n": 60,
+   "run_cost_usd": 11.44,
+   "cost_usd": 4.8412,
+   "undelivered": 10,
+   "undelivered_flagged": 57,
+   "abstention_accuracy": 0.3667,
+   "overhead_tokens": 7335,
+   "cost_usd_per_probe": 0.0237,
+   "confident_wrong": 2,
+   "confident_wrong_rate": 0.0103,
+   "note": "recomputed from the published CSV on this report's grouping; see the comment in recall_report.py"
+  },
+  "note": "rivals not rerun: Claude Code 0 of 48 and Pi 1 of 48 across sessions on seed 7, a structural fact about harnesses that carry nothing between sessions"
+ }
+}
