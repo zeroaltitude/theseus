@@ -214,37 +214,76 @@ pub struct RouteCorrectionInfo {
 }
 
 /// A refusal's client-side fallback in one turn (theseus-7gir.18): the model
-/// that declined, the one its request went to instead, for the rest of the
-/// turn, and the refusal's category. `line` is the one wording every surface
-/// shows (`cockpit/src/lib/fallback.ts` mirrors it).
+/// that declined, the one its request went to instead, and the refusal's
+/// category. The fallback answers the refused request and the next goes back
+/// to the routed model (theseus-wf482), so a turn can switch more than once;
+/// it stays on the fallback only when `latched`. `line` is the one wording
+/// every surface shows (`cockpit/src/lib/fallback.ts` mirrors it).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TurnFallback {
     pub from: String,
     pub to: String,
-    /// The refusal's `stop_details.category` (`cyber`), when it named one.
+    /// The latest refusal's `stop_details.category` (`cyber`), when it named
+    /// one; `timeout` for a call cut at its whole-call bound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub category: Option<String>,
-    /// `to` answered: false when it declined too, or never ran (the spend
-    /// limit, a stop, a failed call).
+    /// `to` answered at least once (`answers > 0`): false when it declined
+    /// too, or never ran (the spend limit, a stop, a failed call).
     #[serde(default)]
     pub answered: bool,
+    /// Requests `to` answered in this turn.
+    #[serde(default)]
+    pub answers: u32,
+    /// Requests the routed model refused, or cut at the whole-call bound, and
+    /// that went to `to` instead, in this turn.
+    #[serde(default)]
+    pub refusals: u32,
+    /// The turn stayed on `to` from its last switch on: a hard-decline
+    /// category, a timeout, or the third routed refusal in a row.
+    #[serde(default)]
+    pub latched: bool,
+}
+
+/// `twice`, `3 times`: how many times, in words, for a count above one.
+fn times(n: u32) -> String {
+    if n == 2 {
+        "twice".into()
+    } else {
+        format!("{n} times")
+    }
 }
 
 impl TurnFallback {
     /// `Sonnet 5.5 declined (cyber); Sonnet 5 answered.`, by the turn's end:
     /// `… declined (cyber), and so did Sonnet 5.` when its stop reason is a
     /// refusal too, and `…; the request went to Sonnet 5.` when `to` never
-    /// answered.
+    /// answered. A turn that switched more than once says how many times
+    /// (`declined (reasoning_extraction) twice; Sonnet 5 answered twice.`),
+    /// and one that stayed on `to` says so (`…; Sonnet 5 answered, and the
+    /// turn stayed there.`). A record from before the counts reads as one
+    /// refusal and, when `answered`, one answer.
     pub fn line(&self, stop_reason: &str) -> String {
         let (from, to) = (model_name(&self.from), model_name(&self.to));
-        let declined = match &self.category {
+        let refusals = self.refusals.max(1);
+        let answers = if self.answered { self.answers.max(1) } else { 0 };
+        let mut declined = match &self.category {
             Some(c) => format!("{from} declined ({c})"),
             None => format!("{from} declined"),
         };
-        if self.answered {
-            format!("{declined}; {to} answered.")
+        if refusals > 1 {
+            declined = format!("{declined} {}", times(refusals));
+        }
+        if answers > 0 {
+            let mut said = format!("{to} answered");
+            if answers > 1 {
+                said = format!("{said} {}", times(answers));
+            }
+            if self.latched {
+                said.push_str(", and the turn stayed there");
+            }
+            format!("{declined}; {said}.")
         } else if stop_reason == "refusal" {
             format!("{declined}, and so did {to}.")
         } else {
@@ -389,11 +428,47 @@ mod tests {
             to: "claude-sonnet-5".into(),
             category: Some("cyber".into()),
             answered: true,
+            ..Default::default()
         };
         assert_eq!(
             f.line("end_turn"),
             "Sonnet 5.5 declined (cyber); Sonnet 5 answered."
         );
+        // A turn that went back and forth, and one that stayed (theseus-wf482).
+        let mut many = TurnFallback {
+            category: Some("reasoning_extraction".into()),
+            answers: 2,
+            refusals: 2,
+            ..f.clone()
+        };
+        assert_eq!(
+            many.line("end_turn"),
+            "Sonnet 5.5 declined (reasoning_extraction) twice; Sonnet 5 answered twice."
+        );
+        many.latched = true;
+        many.answers = 1;
+        many.refusals = 3;
+        assert_eq!(
+            many.line("end_turn"),
+            "Sonnet 5.5 declined (reasoning_extraction) 3 times; Sonnet 5 answered, and the turn stayed there."
+        );
+        many.refusals = 1;
+        many.answers = 4;
+        assert_eq!(
+            many.line("end_turn"),
+            "Sonnet 5.5 declined (reasoning_extraction); Sonnet 5 answered 4 times, and the turn stayed there."
+        );
+        // A record from before the counts still reads.
+        let old: TurnFallback = serde_json::from_value(serde_json::json!(
+            {"from": "claude-sonnet-5-5", "to": "claude-sonnet-5", "answered": true}
+        ))
+        .unwrap();
+        assert_eq!(
+            (old.answers, old.refusals, old.latched),
+            (0, 0, false),
+            "{old:?}"
+        );
+        assert_eq!(old.line("end_turn"), "Sonnet 5.5 declined; Sonnet 5 answered.");
         f.answered = false;
         assert_eq!(
             f.line("refusal"),
