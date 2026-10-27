@@ -200,6 +200,106 @@ async fn every_result_of_a_group_of_three_is_judged() {
     settles(&r, &sid, "a parallel tool-call group of three").await;
 }
 
+/// The bench's own shape, in process: a turn **pinned to a model of restricted
+/// origin** runs a parallel tool-call group and then loops back to that model,
+/// against a Jev slow enough that the first result's batch is still in flight
+/// when the second result is written. This is `c8c-deepseek-high-k1`: the cell
+/// pins `glm`'s place here (`deepseek-v4-pro` there), `[model]`'s default is
+/// the same restricted model, and four trials run at once, which is what
+/// stretches the judge's answer past the next loop.
+///
+/// Two things must hold and neither did on `69b373e8`: every result of the
+/// group ends judged, and the turn is not refused at the chokepoint for an
+/// item the floor could have waited for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pinned_restricted_turn_survives_a_parallel_group_on_a_slow_judge() {
+    use crate::tests_route::{rig_parts, try_turn_attached as route_turn};
+    let jev = FakeJev::start().unwrap();
+    clean(&jev);
+    crate::tests_route::mode(&jev, "trivial", 0.95);
+    // Jev answers a content pack in 300 ms: long enough that the group's
+    // second result is written while the first's batch is still out, which is
+    // the whole shape. The fake's microsecond answer hides it.
+    jev.set_latency(Duration::from_millis(300), Duration::from_millis(300));
+    let pair = Scripted::tools(
+        "",
+        &[
+            ("t1", "proc_run", json!({"argv": ["bash", "-c", "echo p1"]})),
+            ("t2", "proc_run", json!({"argv": ["bash", "-c", "echo p2"]})),
+        ],
+    );
+    let mine = std::sync::Arc::new(crate::provider::FakeProvider::scripted(vec![
+        pair,
+        Scripted::text("Both ran."),
+    ]));
+    let r = rig_parts(
+        Some(&jev),
+        2,
+        |c| {
+            crate::tests_route::restricted_placements(c);
+            // content.v1 live: the judge rigs turn it off.
+            c.judge.packs.remove(crate::judge::content::PACK);
+            c.judge.total_secs = 10;
+            c.tools.proc_sync_secs = 5;
+            c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
+            c.model.retries.transient = 0;
+            c.policy.tools.insert("proc.run".into(), Posture::Open);
+        },
+        {
+            let mine = mine.clone();
+            move |p| {
+                p.providers.insert("zai".into(), mine);
+            }
+        },
+    );
+    let one = route_turn(&r.core, None, "run both of those", Some("glm"), vec![])
+        .await
+        .expect("the turn was refused outright");
+    let sid = one.session_id.clone();
+    assert_eq!(
+        one.profile, "glm",
+        "the turn left its pinned restricted model: {:?}",
+        one.route
+    );
+    assert_eq!(
+        crate::tests_dm_rig::blocked(&r.core),
+        0,
+        "the chokepoint refused a request the floor should have settled"
+    );
+    settles_on(&r.core, &sid, "a pinned restricted turn's parallel group").await;
+}
+
+/// `settles`, against a `tests_route` core rather than a `tests_judge` rig.
+async fn settles_on(core: &std::sync::Arc<crate::rpc::Core>, sid: &str, what: &str) {
+    let t0 = Instant::now();
+    loop {
+        let nodes = core.store.transcript(sid).unwrap();
+        let rec: Option<SessionRecord> = core.store.get_session(sid).unwrap();
+        let f = rec.and_then(|r| r.data.map(|b| *b)).unwrap_or_default();
+        let through = f
+            .judged_through
+            .as_deref()
+            .and_then(|id| nodes.iter().position(|(_, n)| n.id == id));
+        let from = through.map_or(0, |at| at + 1);
+        let left: Vec<String> = nodes[from..]
+            .iter()
+            .filter(|(_, n)| crate::content_wait::is_item(n))
+            .map(|(_, n)| format!("{} {:?}", n.id, n.kind))
+            .collect();
+        if left.is_empty() {
+            return;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(25),
+            "{what}: never judged, so the session is off every model of \
+             restricted origin for good: {left:#?}\nmark: {:?}\nworklist: {:?}",
+            f.judged_through,
+            f.unjudged,
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
 /// A landing whose base has moved is **not lost**: `move_mark`'s compare-and-set
 /// may decline to move the mark, but the node it judged must still end up
 /// covered -- by this landing or by a later read -- never left silently behind.
