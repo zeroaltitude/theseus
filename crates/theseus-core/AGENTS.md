@@ -1330,7 +1330,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   "Self-improvement backlog", `origin.principal = "self"`, `proposed` with no session (or `waiting_human` for a keel
   class, `keel.rs`, which never starts). A cause open already gets the night's evidence; a dropped cause is never
   filed again (`self.backlog` META, `state.rs`, no format change). `rank.rs` documents the score; `[self]
-  backlog_max_open` trims the lowest; `backlog_starts` top unmarked items start in a session under the reserved
+  backlog_max_open` trims the lowest; `backlog_starts` (unset: `[self] pipeline_builds` less the builds in flight, `SelfImproveConfig::night_starts`) top unmarked items start in a session under the reserved
   `"self"` principal (`start.rs`: `open_session_as`), and the first turn runs from the tender. A fix item's tree is
   opened first (`self_tree_open`: the one open already, else `tree::open`, off the runtime's worker), the session's `dir`
   is that tree, and its first turn's input ends "Your tree is <path> on branch <branch>; read and edit there, by

@@ -32,7 +32,7 @@ async fn rig() -> Rig {
         &[],
         |c| {
             c.self_improve.mode = SelfMode::Act;
-            c.self_improve.backlog_starts = 0;
+            c.self_improve.backlog_starts = Some(0);
             c.places.owner = Some(vec![format!("discord:{ANA}")]);
         },
     )
