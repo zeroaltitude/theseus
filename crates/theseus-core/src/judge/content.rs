@@ -391,9 +391,14 @@ impl JudgeService {
     /// and the queueing that follows it are not racing another turn of the
     /// same session. If that stops being true this wants the slots lock held
     /// across both.
-    pub fn ask_unsubmitted(&self, session: &str, reask_stuck: bool) {
+    /// Returns whether it re-asked a **stuck** mark, so a caller that allows
+    /// one such re-ask a wait can spend it on the read where the mark is
+    /// actually stuck rather than on the first read of the wait. A batch that
+    /// fails does so partway through a wait, so "the first read" and "the
+    /// read that finds it stuck" are rarely the same read.
+    pub fn ask_unsubmitted(&self, session: &str, reask_stuck: bool) -> bool {
         if self.content.off.load(Ordering::Relaxed) || self.content_pending(session) {
-            return;
+            return false;
         }
         // A build with no such pack can never ask, so it need not read.
         //
@@ -408,16 +413,16 @@ impl JudgeService {
         // save falls on a config where the session cannot reach a model of
         // restricted origin at all.
         if self.pack(PACK).is_none() {
-            return;
+            return false;
         }
         let Ok(Some(rec)) = self
             .store
             .get_session::<crate::session::SessionRecord>(session)
         else {
-            return;
+            return false;
         };
         let Ok(nodes) = self.store.transcript(session) else {
-            return;
+            return false;
         };
         let flags = flags_of(&rec);
         let stuck: Vec<String> = flags.map(|f| f.unjudged.clone()).unwrap_or_default();
@@ -436,14 +441,14 @@ impl JudgeService {
         // Nothing past the mark: the session is judged through, and the floor
         // would not have asked.
         let Some((_, first)) = past.first() else {
-            return;
+            return false;
         };
         // The mark stuck on a batch's own failure. Re-ask the stuck run from
         // the mark and nothing behind it, and only when the caller asked for
         // it: `with_worklist` cannot reach this case (see above).
         let wedged = stuck.contains(&first.id);
         if wedged && !reask_stuck {
-            return;
+            return false;
         }
         let brief = crate::task::brief(&self.store, session)
             .ok()
@@ -467,7 +472,9 @@ impl JudgeService {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .extend(items.iter().map(|i| i.node.clone()));
+        let asked = !items.is_empty();
         self.ask_content(session, items);
+        wedged && asked
     }
 
     /// Whether items of `session` are queued or being judged: a request bound

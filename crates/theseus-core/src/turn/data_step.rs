@@ -209,6 +209,7 @@ impl TurnRunner {
         let deadline = Instant::now() + Duration::from_millis(self.cfg.content.wait_ms);
         let mut cn = Self::cn_read(t);
         let mut swept = false;
+        let mut reasked = false;
         for _ in 0..SETTLE_READS {
             let left = deadline.saturating_duration_since(Instant::now());
             if cn != Cn::Pending || left.is_zero() {
@@ -226,13 +227,15 @@ impl TurnRunner {
             // floor's own reading of the transcript queues what a write site
             // did not.
             //
-            // The re-ask of a mark a failed batch left stuck is **this wait's
-            // first read only** (theseus-8qgwo): it costs a real decision
-            // point and a reservation, `cn_move` runs this on every loop after
-            // every tool result, and a stuck item that failed once in this
-            // wait will not answer differently on the next read of the same
-            // wait. The non-stuck sweep still runs on every read.
-            self.judge.ask_unsubmitted(sid, !swept);
+            // The re-ask of a mark a failed batch left stuck is **once a
+            // wait** (theseus-8qgwo): it costs a real decision point and a
+            // reservation, `cn_move` runs this on every loop after every tool
+            // result, and a stuck item that failed once in this wait will not
+            // answer differently on the next read of it. It is spent on the
+            // read that finds the mark stuck, not on the first read: a batch
+            // fails partway through a wait, so those are rarely the same
+            // read. The ordinary sweep still runs on every read.
+            reasked |= self.judge.ask_unsubmitted(sid, !reasked);
             swept = true;
             cn = Self::cn_read(t);
             if cn != Cn::Pending {
@@ -254,7 +257,7 @@ impl TurnRunner {
         // paid for could not help it, and the stuck node is picked up by
         // `with_worklist` on the next batch the session queues.
         if cn == Cn::Pending && !swept {
-            self.judge.ask_unsubmitted(sid, false);
+            let _ = self.judge.ask_unsubmitted(sid, false);
         }
         match cn {
             Cn::Pending => Cn::No("unjudged"),
