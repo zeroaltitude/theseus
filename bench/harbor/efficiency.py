@@ -189,6 +189,35 @@ def run_turn_ids(turn: dict[str, Any] | None) -> tuple[str, ...] | None:
     return (tid, *(t["turn_id"] for t in more if t.get("turn_id")))
 
 
+def fallback_mark(fallback: Any) -> dict[str, Any]:
+    """The mark a refusal's fallback leaves on a trial (theseus-wf482), from the
+    turn result's `fallback`: `mixed_model` when the fallback answered, and
+    `fallback` with the model it answered on, the routed model the turn went
+    back to, how many answers and refusals, whether the turn stayed on it, and
+    the category (the result keeps the latest). A fallback no answer reached
+    (it declined too, or never ran) is not mixed. Without a `fallback` the
+    trial is unmarked, and a report reading an old record infers it from the
+    models billed."""
+    if not isinstance(fallback, dict):
+        return {"mixed_model": False, "fallback": None}
+    answers = fallback.get("answers")
+    answers = answers if isinstance(answers, int) else 0
+    answered = bool(fallback.get("answered")) or answers > 0
+    refusals = fallback.get("refusals")
+    category = fallback.get("category")
+    return {
+        "mixed_model": answered,
+        "fallback": {
+            "model": fallback.get("to"),
+            "routed": fallback.get("from"),
+            "answers": max(answers, 1) if answered else 0,
+            "refusals": refusals if isinstance(refusals, int) and refusals > 0 else 1,
+            "latched": bool(fallback.get("latched")),
+            "categories": [category] if category else [],
+        },
+    }
+
+
 def theseus_spend(turn: dict[str, Any] | None, history: dict[str, Any] | None) -> dict[str, Any]:
     """A Theseus trial's spend, from `theseus --json ask`'s result (`turn`)
     and `theseus --json history`.
@@ -232,7 +261,8 @@ def theseus_spend(turn: dict[str, Any] | None, history: dict[str, Any] | None) -
         tools = turn.get("tool_calls")
         if tools is None:
             tools = sum(1 for n in nodes if n.get("kind") == "tool_call")
-        return _spend(by_model, cost, "turn", calls, int(tools))
+        spent = _spend(by_model, cost, "turn", calls, int(tools))
+        return {**spent, **fallback_mark(turn.get("fallback"))}
     if history:
         tools = sum(1 for n in nodes if n.get("kind") == "tool_call")
         return _spend(by_model, _priced(costs) if costs else None, "history", len(answers), tools)

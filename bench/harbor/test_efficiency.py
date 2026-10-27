@@ -105,6 +105,37 @@ class Theseus(unittest.TestCase):
                                                    "cost_usd": 0.005, "calls": 1})
         self.assertEqual((s["cost_usd"], s["model_calls"]), (0.017, 3))
 
+    def test_a_mixed_trial_is_marked_with_its_fallbacks_counts(self):
+        """The fallback answered twice and the turn went back (theseus-wf482): the record says so, so a report
+        need not infer it from the models billed."""
+        history = {"session": {}, "nodes": [
+            {"kind": "user_message", "text": "Recover the hash."},
+            answer(SONNET, usage(200, 0, 3000, 10), 0.012, stop="refusal"),
+            answer(FALLBACK, usage(100, 3000, 0, 80), 0.004, calls=["toolu_1"]),
+            tool_call("toolu_1"),
+            answer(SONNET, usage(50, 3100, 0, 20), 0.002, stop="end_turn"),
+        ]}
+        turn = {"turn_id": "turn_1", "model": SONNET, "cost_usd": 0.018, "tool_calls": 1,
+                "usage": usage(350, 6100, 3000, 110), "trace": trace(1, 1, 1),
+                "fallback": {"from": SONNET, "to": FALLBACK, "category": "reasoning_extraction",
+                             "answered": True, "answers": 1, "refusals": 1, "latched": False}}
+        s = ef.theseus_spend(turn, history)
+        self.assertTrue(s["mixed_model"])
+        self.assertEqual(s["fallback"], {"model": FALLBACK, "routed": SONNET, "answers": 1, "refusals": 1,
+                                         "latched": False, "categories": ["reasoning_extraction"]})
+        self.assertEqual((s["by_model"][SONNET]["calls"], s["by_model"][FALLBACK]["calls"]), (2, 1))
+        # An old record's fallback has no counts: one refusal, one answer.
+        old = dict(turn, fallback={"from": SONNET, "to": FALLBACK, "answered": True})
+        self.assertEqual(ef.theseus_spend(old, history)["fallback"]["answers"], 1)
+        # A fallback that declined too answered nothing: not mixed.
+        declined = dict(turn, fallback={"from": SONNET, "to": FALLBACK, "answered": False})
+        s = ef.theseus_spend(declined, history)
+        self.assertFalse(s["mixed_model"])
+        self.assertEqual(s["fallback"]["answers"], 0)
+        # No fallback, no mark.
+        s = ef.theseus_spend(PLAIN_TURN, PLAIN_HISTORY)
+        self.assertEqual((s["mixed_model"], s["fallback"]), (False, None))
+
     def test_a_followed_run_is_every_turns_spend_once(self):
         """`ask` followed a late result (theseus-mqxk): one object, the last
         turn's result with both turns' spend summed, the ask's own turn in

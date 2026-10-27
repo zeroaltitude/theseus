@@ -233,7 +233,7 @@ fn a_refusal_its_fallback_answers_exits_0_and_says_so() {
         String::from_utf8_lossy(&out.stderr),
     );
     assert_eq!(out.status.code(), Some(0), "{stdout}\n{stderr}");
-    let line = "Sonnet 5.5 declined (cyber); Sonnet 5 answered.";
+    let line = "Sonnet 5.5 declined (cyber); Sonnet 5 answered, and the turn stayed there.";
     let at = stderr.find(line).expect(&stderr);
     assert!(
         stderr[at..].contains("[sonnet → anthropic/claude-sonnet-5 "),
