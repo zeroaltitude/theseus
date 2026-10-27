@@ -60,6 +60,8 @@ mod switch;
 #[cfg(test)]
 mod tests_budget;
 #[cfg(test)]
+mod tests_fetch_bound;
+#[cfg(test)]
 mod tests_identity;
 #[cfg(test)]
 mod tests_jail;
