@@ -122,6 +122,17 @@ struct Slot {
     running: bool,
     /// Items queued or being judged, not yet landed.
     open: usize,
+    /// Turns blocked on this session's verdicts right now
+    /// (`JudgeService::settled`). **A landing someone is waiting on does not
+    /// defer to a moment between turns**: the courtesy exists to keep the
+    /// judge's writes off a turn's path, and a turn that is blocked waiting
+    /// for the write is not helped by postponing it until after the turn it
+    /// is blocking. Without this a request bound for a model of restricted
+    /// origin could never be judged in time — the verdict landed about 7.7 s
+    /// in against a 4 s wait, measured on a scratch daemon 2026-10-27, so
+    /// every such turn fell back to Claude and no China-origin model was ever
+    /// reachable.
+    waiters: usize,
     notify: Arc<Notify>,
 }
 
@@ -219,9 +230,17 @@ impl JudgeService {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::new(told));
     }
 
+    /// Whether a turn is blocked on this session's verdicts right now.
+    pub(crate) fn content_awaited(&self, session: &str) -> bool {
+        self.content
+            .slots()
+            .get(session)
+            .is_some_and(|s| s.waiters > 0)
+    }
+
     /// Queue `items` for judgment and return: nothing waits here. The items are
-    /// in transcript order, and each answer lands between turns, under the
-    /// session's lock. Nothing is asked with the mechanism off, the judge off or
+    /// in transcript order, and each answer lands between turns unless a turn
+    /// is waiting on them, under the session's lock. Nothing is asked with the mechanism off, the judge off or
     /// the pack off, and an item with no text is never asked (it counts as
     /// judged once the batch it rides in lands).
     pub fn ask_content(&self, session: &str, items: Vec<ContentItem>) {
@@ -290,17 +309,43 @@ impl JudgeService {
 /// pending check, so a verdict that lands between the caller taking this future
 /// and first polling it still ends the future rather than being slept through.
 /// The caller bounds the wait; this never times out on its own.
+/// One turn's wait on a session's verdicts, counted while it lasts.
+struct Waiting {
+    me: Weak<JudgeService>,
+    session: String,
+}
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        if let Some(svc) = self.me.upgrade() {
+            if let Some(slot) = svc.content.slots().get_mut(&self.session) {
+                slot.waiters = slot.waiters.saturating_sub(1);
+            }
+        }
+    }
+}
+
 impl crate::content_wait::Verdicts for JudgeService {
     fn settled(
         &self,
         session: &str,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
-        let notify = {
+        let (notify, pending) = {
             let mut slots = self.content.slots();
-            slots.entry(session.to_string()).or_default().notify.clone()
+            let slot = slots.entry(session.to_string()).or_default();
+            // Counted before the pending check, so a verdict landing between
+            // this call and the first poll still writes without deferring.
+            slot.waiters += 1;
+            (slot.notify.clone(), slot.open > 0)
         };
-        let pending = self.content_pending(session);
+        // The count comes down however the wait ends — the caller's timeout
+        // included — so a dropped future never leaves a session marked awaited.
+        let guard = Waiting {
+            me: self.me.clone(),
+            session: session.to_string(),
+        };
         Box::pin(async move {
+            let _guard = guard;
             if !pending {
                 return;
             }
@@ -919,11 +964,16 @@ async fn land(
     landings: Vec<Landing>,
     base: &Option<String>,
 ) {
-    let (turns, timing) = match me.upgrade() {
-        Some(s) => (s.between.get().cloned(), s.sink_timing()),
+    let (turns, timing, awaited) = match me.upgrade() {
+        Some(s) => (
+            s.between.get().cloned(),
+            s.sink_timing(),
+            s.content_awaited(session),
+        ),
         None => return,
     };
-    let _writing = match turns {
+    // A turn is blocked on this session's verdict: write it now.
+    let _writing = match turns.filter(|_| !awaited) {
         Some(t) => Some(t.between(tokio::time::Instant::now(), &timing).await),
         None => None,
     };

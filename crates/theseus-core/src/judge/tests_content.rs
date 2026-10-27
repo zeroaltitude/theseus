@@ -775,6 +775,52 @@ async fn a_pending_session_wakes_its_waiter_when_the_items_land() {
     assert_eq!(flags(&r, &sid).judged_through.as_deref(), Some("n1"));
 }
 
+/// A turn's wait is counted from the call and released however it ends, which
+/// is what lets `land` tell that someone is waiting (`content_awaited`).
+///
+/// **What this does NOT prove, said plainly.** The bug it was written for —
+/// `land` deferring a waited-on write to a moment between turns, which made
+/// every China-origin turn fall back to Claude — is not caught here. I planted
+/// it (the `turns.filter(|_| !awaited)` reverted to `turns`) and **this test
+/// still passed**: in the rig no turn is in flight, so the between-turns moment
+/// is immediate and the deferral costs nothing. Catching it needs a turn held
+/// open, which this rig has no machinery for.
+///
+/// The evidence for the fix itself is the live check:
+/// `~/reports/theseus-content-flags/live-evidence.md`, where the verdict moved
+/// from 7.72 s (past a 4 s wait, every cn turn falling back) to 0.21 s with the
+/// request running on the China-origin model. Do not read a green here as
+/// cover for that behaviour.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turns_wait_is_counted_from_the_call_and_released_on_drop() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |_| {});
+    let sid = session(&r);
+    let svc = r.core.runner.judge.clone();
+    // The order the turn runs in: the item is queued when its node is written,
+    // and the floor takes the wait after. Nothing is awaited in between, so the
+    // batch is still open when the wait is taken.
+    svc.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "text")],
+    );
+    let settled = crate::content_wait::Verdicts::settled(&*svc, &sid);
+    assert!(
+        svc.content_awaited(&sid),
+        "the wait is counted from the call, not from the first poll"
+    );
+    tokio::time::timeout(Duration::from_secs(15), settled)
+        .await
+        .expect("the landing woke the waiter");
+    assert_eq!(flags(&r, &sid).judged_through.as_deref(), Some("n1"));
+    // And the count comes down when the wait is dropped, however it ended.
+    assert!(!svc.content_awaited(&sid), "the waiter was released");
+    // A wait that is dropped without ever being polled releases too.
+    drop(crate::content_wait::Verdicts::settled(&*svc, &sid));
+    assert!(!svc.content_awaited(&sid), "a dropped wait releases");
+}
+
 /// With `[content] enabled = false`, the judge off, or the pack off, nothing is
 /// asked and nothing waits.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
