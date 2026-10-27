@@ -2830,6 +2830,39 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `judge_act(Act::Task)`: the owner, from a private place; a shared place and an MCP client (`mcp_server::JUDGED`) are refused with
   where to start it instead, a job's shell by the CLI (`client::OPERATORS`). Tests: `tests_task_start.rs`, theseusd's
   `tests/task_start.rs`, the CLI's `tests/task_start.rs`.
+- **`task.not_this`: the owner's "not this" on a task** (theseus-o1h3f.2, the feedback leg of notify-work-feedback; no store
+  format change: a standing record and a judgment label that exist, no new kind; `rpc/task_not_this.rs`,
+  `theseus_protocol::task_not_this`; routed with `task.cancel` by `task_stop`, `rpc/server.rs`). It is **not** the card proposal's
+  `Keep/Edit/Not this` (`card.answer`, above) nor the capture ask's `standing.answer` `not`: it is a call about a *task*.
+  `task.not_this { task, reason?, author?, discord? }` answers `{ task, preference, replaced?, labeled? }`: `task` is an id, an
+  execution's id or the end of either, as `task.cancel` takes it; `reason` is the owner's words and rides the preference; `author`
+  and `discord` are the surface's, as `task.pause`'s. Three things, in this order:
+  (1) **it is judged first**, `judge_act(Act::Standing { method: "task.not_this", .. })`, which takes the verdict every act
+  without an arm of its own takes: the owner, from a private place (`places::owner_in_private`), as `task.rehome` and
+  `task.reschedule` (`Act::Task`) do; a refusal is ledgered `approval.refused` and leaves the task running and nothing written;
+  the CLI refuses it inside a job (`client::OPERATORS`). (2) **It cancels the task with `task_cancel_by`**, the function `task.cancel`
+  itself calls, so it ends and releases exactly what `task.cancel` does (Discord's Stop and the other `task.cancel` callers), with nothing of
+  its own added; a task that has ended is left as it was and the rest goes on (the answer is not a refusal), and an unknown task is
+  `NOT_FOUND` with nothing written. (3) **It writes the one rolling preference**: a `StandingKind::Preference` for
+  `StandingScope::Everywhere` whose `source` is `task.not_this` (`theseus_protocol::task_not_this::SOURCE`), made with
+  `standing.add`'s `replaces` naming the live record of that source, so there is one and never a pile (the answer's `replaced` is
+  the id it ended). Its text is one line of prose: the task's shape, which is what the model said it started the task for
+  (`TaskOrigin.because`), else the task's title, cut to 300 characters, and the owner's reason, cut to 400: `Not this: the owner
+  turned down a task you started on your own for "<shape>". Do not start another like it. Their reason: <reason>`. **It is a
+  preference, and only that**: words in the standing block that every turn's header layer carries (`standing::Block`, the records
+  for everywhere), which the model reads and can follow or not. Nothing gates, counts, caps or refuses a start by it: the
+  helper slots and the spend gates are as they were. The same words again leave the one record (`replaced` is none); two writers
+  that race for the live one retry up to three times. (4) **It labels the offer**, best
+  effort, because a task carries no link to the offer that produced it: the newest acting `offer_task` judgment in the task's
+  origin session, found in the last `OFFER_SCAN` (2,000) ledger rows, is labelled false (`judge.label`, the note `not this` or
+  `not this: <reason>`) and its id is the answer's `labeled`; none found, or a label that fails (warned), leaves `labeled` empty
+  and the cancel and the preference stand. The core does not ask whether the task started itself: any task may be told "not
+  this", and the Discord reaction alone is limited to the ones that did. Readers, one tap each: `theseus task not-this ID [REASON]`
+  (the CLI's `task_start.rs`), the cockpit's Ops page (`u` pressed twice on a task, `cockpit/src/ops/keys.ts` and `verbs.ts`,
+  the `not_this` verb), and a 👎 reaction on a task that started itself (theseus-discord's `runtime/task_react.rs`). Tests:
+  `rpc/tests_task_not_this.rs` (the cancel and the preference; two calls leave one, the second's, naming the first as `replaced`;
+  an ended task answered, and the same words again leave the one record; a stranger cancels and writes nothing; an unknown task is
+  not found; the text is one line), `cockpit/test/ops-verbs.test.ts`'s verb row, the Discord crate's `tests_task_react.rs`.
 - **Forks** (theseus-2qzx, the killer-features plan's R19; store format 32): `session.fork { session, at, title?,
   profile?, budget_usd? }` (`rpc/fork.rs`; the stored parts and reads are `fork.rs`) makes a conversation from any
   moment of another, by reference, in one frame: the new execution (the source's authority, a pinned limit of
