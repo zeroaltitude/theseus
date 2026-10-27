@@ -15,6 +15,19 @@ export type IndexRow = {
   usdPerTrial: Interval | null
   /** A comparison arm the report drew against, or a row repeating an earlier report's figures: not a new measurement. */
   carried: boolean
+  /** The report this row repeats, where it names one: the run that did the measuring (theseus-s5qwv). */
+  carriedFrom: string | null
+  /** Which of the benchmark's tasks it ran (`full`, `subset:6`): two task sets are not one comparison. */
+  taskSet: string | null
+  /** Attempts a task. */
+  k: number | null
+  /** The model this arm ran, where the row names one apart from its peers'. */
+  armModel: string | null
+  /** The effort levels the row records, as it spells them. */
+  effort: string[]
+  /** The rest of the row's folded figures, where it states them: dollars a solved trial, and the median agent time. */
+  usdPerSolve: number | null
+  agentS: number | null
 }
 
 /** The newest measurement of one (benchmark, tier, arm), and the measurements before it, oldest to newest. */
@@ -37,6 +50,9 @@ const orNull = <T>(v: unknown, ok: (x: unknown) => x is T): T | null => (ok(v) ?
 function interval(v: unknown): Interval | null {
   return isObj(v) && isNum(v.value) && isNum(v.lo) && isNum(v.hi) ? { value: v.value, lo: v.lo, hi: v.hi } : null
 }
+
+/** A metric that states a figure and no interval (`usd_per_solve`, `agent_s_median`). */
+const value = (v: unknown): number | null => (isObj(v) && isNum(v.value) ? v.value : null)
 
 /** A row this reader cannot score: whole as a row, but stating no pass rate at all. Its own words, for `Skipped.why`.
  *  A `pass_rate` that is *there* and broken is a different thing and stays a fault of the manifest: `index.json` is
@@ -63,6 +79,13 @@ function rowOf(raw: unknown): IndexRow | { bad: string } | { aside: string } {
     pass: { value: p.value, lo: p.lo, hi: p.hi, k: p.k, n: p.n },
     usdPerTrial: isObj(m) ? interval(m.usd_per_trial) : null,
     carried: raw.comparison === true || isStr(raw.carried_from),
+    carriedFrom: orNull(raw.carried_from, isStr),
+    taskSet: orNull(raw.task_set, isStr),
+    k: orNull(raw.k, isNum),
+    armModel: orNull(raw.arm_model, isStr),
+    effort: Array.isArray(raw.effort) ? raw.effort.filter(isStr) : isStr(raw.effort) ? [raw.effort] : [],
+    usdPerSolve: value(m.usd_per_solve),
+    agentS: value(m.agent_s_median),
   }
 }
 

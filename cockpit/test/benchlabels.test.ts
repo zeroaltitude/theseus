@@ -36,6 +36,11 @@ test('a dominated Theseus keeps its name, and a slotless rival is named too', ()
   assert.equal(showsName(by('aider')), true) // dominated, and slotless
   assert.equal(showsName(by('claude-code')), false) // dominated, in a slot: not named
   assert.equal(showsName(by('pi')), true) // on the frontier
+  // Crowded, a slotless rival reads from the legend instead; the frontier's own points and Theseus's are always named.
+  assert.equal(showsName(by('aider'), true), false)
+  assert.equal(showsName(by('claude-code'), true), false)
+  assert.equal(showsName(by('theseus-routed'), true), true)
+  assert.equal(showsName(by('pi'), true), true)
 })
 
 test("the Verdict's Theseus is every placed point of the family", () => {
