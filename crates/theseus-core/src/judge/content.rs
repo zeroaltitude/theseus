@@ -122,10 +122,6 @@ struct Slot {
     running: bool,
     /// Items queued or being judged, not yet landed.
     open: usize,
-    /// An item of this session could not be judged since this process began:
-    /// `judged_through` never passes it, so the session stays off a model of
-    /// restricted origin until a restart re-reads it.
-    gap: bool,
     notify: Arc<Notify>,
 }
 
@@ -548,6 +544,89 @@ impl JudgeService {
     }
 }
 
+/// The most nodes of the worklist one batch takes back: a Jev that fails every
+/// call keeps each failure on the list, and none of them may make a batch
+/// without bound.
+const REASK_MAX: usize = 16;
+
+impl JudgeService {
+    /// `items`, preceded by the nodes of the session's `unjudged` worklist
+    /// (`ContentFlags::unjudged`): what an earlier batch could not judge is asked
+    /// again in this one, so a covering batch moves the mark
+    /// (`ContentFlags::judged_run`) and the session becomes eligible for a model
+    /// of restricted origin again, which a single failure otherwise forfeits
+    /// for good.
+    ///
+    /// A node is read back from the transcript by id and its item rebuilt. A node
+    /// the transcript no longer holds, or that is no longer an item, is dropped
+    /// from the list rather than retried for ever. The list is read only when a
+    /// batch is queued, never on a timer: a re-ask that fails again leaves its
+    /// node where it is and starts nothing.
+    fn with_worklist(&self, session: &str, items: Vec<ContentItem>) -> Vec<ContentItem> {
+        let Ok(Some(rec)) = self.store.get_session::<crate::session::SessionRecord>(session) else {
+            return items;
+        };
+        let worklist: Vec<String> = match flags_of(&rec) {
+            Some(f) if !f.unjudged.is_empty() => f.unjudged.clone(),
+            _ => return items,
+        };
+        let Ok(nodes) = self.store.transcript(session) else {
+            return items;
+        };
+        let brief = crate::task::brief(&self.store, session)
+            .ok()
+            .flatten()
+            .map(|n| n.id);
+        let (mut again, mut gone) = (Vec::new(), Vec::new());
+        for id in &worklist {
+            if items.iter().any(|i| i.node == *id) {
+                continue;
+            }
+            let rebuilt = nodes
+                .iter()
+                .any(|(_, n)| n.id == *id)
+                .then(|| self.store.get_node(id).ok().flatten())
+                .flatten()
+                .and_then(|(_, n)| rebuild(&n, brief.as_deref()));
+            match rebuilt {
+                Some(item) if again.len() < REASK_MAX => again.push(item),
+                Some(_) => {}
+                None => gone.push(id.clone()),
+            }
+        }
+        if !gone.is_empty() {
+            let dropped = self.store.update_session(session, |rec| {
+                let mut flags = take_flags(rec);
+                flags.unjudged.retain(|n| !gone.contains(n));
+                put_flags(rec, flags);
+                Ok(vec![])
+            });
+            if let Err(e) = dropped {
+                tracing::warn!(error = %format!("{e:#}"), "judge: the unjudged list was not trimmed");
+            }
+        }
+        again.extend(items);
+        again
+    }
+}
+
+/// The item a node of the transcript is, as it was queued. A tool result and a
+/// task's brief come back as they were. Any other message comes back as a
+/// person's: its kind is not stored, and asking more of a message than was
+/// asked is the safe direction. `None` for a node that is no longer an item.
+fn rebuild(node: &Node, brief: Option<&str>) -> Option<ContentItem> {
+    match &node.body {
+        Body::ToolResult { .. } => ContentItem::of_result(node),
+        Body::UserMessage { .. } if brief == Some(node.id.as_str()) => {
+            ContentItem::of_message(node, ItemKind::TaskBrief, "task brief")
+        }
+        Body::UserMessage { .. } => {
+            ContentItem::of_message(node, ItemKind::PersonMessage, "message")
+        }
+        _ => None,
+    }
+}
+
 /// Every item node of `session`'s transcript strictly after `through`, up to
 /// and including `node`: the span `ContentFlags::judged_run` is held to. `None`
 /// when the transcript cannot be read, when it does not hold `node`, or when it
@@ -634,6 +713,15 @@ async fn judge_batch(me: &Weak<JudgeService>, session: &str, items: Vec<ContentI
     let Some(svc) = me.upgrade() else { return };
     let Some(pack) = svc.pack(PACK) else { return };
     let total = Duration::from_secs(svc.cfg.total_secs);
+    // What an earlier batch could not judge rides this one (theseus-9ymz0, the
+    // review's B4): the mark cannot pass it until it is judged.
+    let items = {
+        let (svc, sid) = (svc.clone(), session.to_string());
+        let held = items.clone();
+        tokio::task::spawn_blocking(move || svc.with_worklist(&sid, items))
+            .await
+            .unwrap_or(held)
+    };
     let (day, queued, sid) = (today.clone(), items.clone(), session.to_string());
     let prepared = tokio::task::spawn_blocking({
         let svc = svc.clone();
@@ -818,8 +906,10 @@ fn clip(s: &str, max: usize) -> String {
 
 /// The write between turns. `judged_through` moves through the last item of the
 /// contiguous run of judged items from the batch's start, and never past an
-/// item that could not be judged, in this batch or an earlier one of the
-/// session (`Slot::gap`).
+/// item that could not be judged, in this batch or an earlier one: the span
+/// from the mark, read from the transcript, must be covered whole
+/// (`ContentFlags::judged_run`). An earlier batch's failure is re-asked in the
+/// next batch (`JudgeService::with_worklist`), so the mark moves again.
 async fn land(
     me: &Weak<JudgeService>,
     session: &str,
@@ -835,18 +925,14 @@ async fn land(
         None => None,
     };
     let Some(svc) = me.upgrade() else { return };
+    // The mark may reach the last item of the run judged from the batch's
+    // start. Whether it may pass what an earlier batch could not judge is not
+    // decided here: `move_mark` holds it to the transcript's span.
     let run = landings.iter().take_while(|l| l.unjudged.is_none()).count();
-    let broke = run < landings.len();
-    let through = {
-        let mut slots = svc.content.slots();
-        let slot = slots.entry(session.to_string()).or_default();
-        let through = match slot.gap || run == 0 {
-            true => None,
-            false => landings.get(run - 1).map(|l| l.item.node.clone()),
-        };
-        slot.gap |= broke;
-        through
-    };
+    let through = run
+        .checked_sub(1)
+        .and_then(|last| landings.get(last))
+        .map(|l| l.item.node.clone());
     let sid = session.to_string();
     let base = base.clone();
     let _ = tokio::task::spawn_blocking(move || {
