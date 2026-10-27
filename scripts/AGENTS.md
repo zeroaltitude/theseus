@@ -62,7 +62,6 @@ It runs, in order:
    when something does, which means the tree changed after step 1).
    - The reader rule's registry test alone (`tests_registry` in theseus-core), so a miss stops the gate in seconds
      and names every fix at once.
-   - The whole suite, `cargo nextest run --workspace` (about 1,300 tests).
    - The generated TypeScript: it fails when `cockpit/src/protocol.gen/` differs from the commit.
    - The lifecycle bench, on debug builds of `theseusd` and `theseus-sim`, ten runs a phase against §9's budgets. It
      first flushes dirty pages and waits, up to 2 minutes, until IO and CPU pressure are low and the load is under
@@ -79,6 +78,10 @@ It runs, in order:
      against §9's per-turn overhead restated as frames (4; the floor is 2). A count needs no quiet machine, and never
      gets the allowance, so it runs in a lane's gate too, with five runs of each kind and no burst (about 5 s); at the
      join it runs ten runs and a burst of 30 turns and records the row (about 11 s). A miss reruns once.
+   - The whole suite, `cargo nextest run --workspace`, last, so its red hides none of the checks
+     above it (theseus-zsddv). A phase that fails ends the gate, so when one does, the locked part
+     prints `gate: NOT RUN, no verdict, after the failure in <phase>: <phases>` naming what never
+     ran, and still reports the compile note.
 
    The benches run the test build's `theseusd`, `theseus-sim`, and `theseus-index`: the workspace's features, which
    the `features` phase holds an install's to.

@@ -930,6 +930,8 @@ impl Lane {
             | "onto_card" | "home_size" | "link_card" | "persona_soul" | "card_question" => {
                 self.jev_post(a, &body).await
             }
+            // The self-build halt's note, to the owner's DM alone, pinging (theseus-6s7ll).
+            "self_halt" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // An open question pinged the owner's DM (theseus-j7cje).
             "needs_you" => self.needs_you_post(&body).await,
@@ -1522,6 +1524,12 @@ impl Lane {
                 format!("self:{}", a.correlation_id),
                 Buttons::SelfNote(crate::runtime::self_note::items_of(k, body)),
             ),
+            // The self-build halt: pings, and carries Resume (theseus-6s7ll).
+            "self_halt" => (
+                body["text"].as_str().unwrap_or("").to_string(),
+                format!("self:{}", a.correlation_id),
+                Buttons::SelfResume,
+            ),
             // A live owner-card question (theseus-6f8t0).
             "card_question" => {
                 let (ask, id) = crate::runtime::card_question::card_of(body);
@@ -1803,6 +1811,7 @@ impl Lane {
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
             Buttons::PersonaSoul(key) => crate::runtime::persona_soul::buttons(key),
             Buttons::SelfNote(items) => crate::runtime::self_note::buttons(items),
+            Buttons::SelfResume => crate::runtime::self_note::resume_buttons(),
             Buttons::ContentRemove(s, f) => crate::runtime::content::buttons(s, f),
             Buttons::Again(q) => crate::runtime::again_buttons(q),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
@@ -1882,6 +1891,7 @@ impl Lane {
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
             Buttons::PersonaSoul(key) => Some(crate::runtime::persona_soul::buttons(key)),
             Buttons::SelfNote(items) => Some(crate::runtime::self_note::buttons(items)),
+            Buttons::SelfResume => Some(crate::runtime::self_note::resume_buttons()),
             Buttons::ContentRemove(s, f) => Some(crate::runtime::content::buttons(s, f)),
             Buttons::Again(q) => Some(crate::runtime::again_buttons(q)),
             Buttons::Standing(mode, id, wide) => {
