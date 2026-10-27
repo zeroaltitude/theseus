@@ -290,6 +290,8 @@ mod tests_content_gate;
 #[cfg(test)]
 mod tests_content_kind;
 #[cfg(test)]
+mod tests_content_late;
+#[cfg(test)]
 mod tests_context;
 #[cfg(test)]
 mod tests_continuations;
