@@ -178,7 +178,7 @@ impl Board {
                 Ok(())
             })();
             if let Err(e) = sent {
-                tracing::warn!(error = %format!("{e:#}"), "self build: the may-build notice was not posted");
+                tracing::warn!(error = %format!("{e:#}"), "self build: the notice was not posted");
             }
         };
         let halt = stage.clone();
