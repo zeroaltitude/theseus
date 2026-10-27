@@ -280,6 +280,8 @@ mod tests_config;
 #[cfg(test)]
 mod tests_consolidate;
 #[cfg(test)]
+mod tests_content_cut;
+#[cfg(test)]
 mod tests_content_floor;
 #[cfg(test)]
 mod tests_content_freeze;

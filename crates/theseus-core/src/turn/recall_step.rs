@@ -453,7 +453,7 @@ impl TurnRunner {
     /// model or in shadow as the session's arm says. Its node's id, when
     /// it admitted something in front of the model.
     pub(super) async fn recall_assembled(&self, t: &mut Turn<'_>) -> Option<String> {
-        if !self.memory.on() {
+        if !self.memory.on() || self.restricted_profile(&t.target.profile) {
             return None;
         }
         t.recall.assembled = true;
@@ -650,9 +650,23 @@ impl TurnRunner {
     }
 
     /// The transcript a loop compiles, with the turn's pending `Recall` node
-    /// after every node, and the sources its recalls render.
-    pub(super) fn recall_view(&self, t: &Turn<'_>, nodes: Transcript) -> (Transcript, Sources) {
+    /// after every node, and the sources its recalls render. A request bound
+    /// for a model of restricted origin (`profile`) carries no `Recall` node
+    /// at all: a note is drawn from other sessions, whose labels are not this
+    /// one's, so what it holds is not this session's to send there
+    /// (theseus-9ymz0, the review's B1). The notes stay in the transcript for
+    /// the next request that may carry them.
+    pub(super) fn recall_view(
+        &self,
+        t: &Turn<'_>,
+        nodes: Transcript,
+        profile: &str,
+    ) -> (Transcript, Sources) {
         let mut nodes = nodes;
+        if self.restricted_profile(profile) {
+            nodes.retain(|(_, n)| n.kind != crate::stub::Kind::Recall);
+            return (nodes, Sources::new());
+        }
         if let Some(n) = &t.recall.pending {
             // Once the plan frame wrote it, the transcript holds it.
             if !nodes.iter().any(|(_, m)| m.id == n.id) {

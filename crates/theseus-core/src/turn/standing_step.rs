@@ -64,7 +64,8 @@ impl TurnRunner {
     /// The system's block and the tail's (the records of `surface`) of
     /// `session_id`'s scope in a place of `class`, from memory. For a
     /// `restricted` target the records a Google-private session authored are
-    /// listed and not shown (`google::private::authored`).
+    /// listed and not shown (`google::private::authored`), and so is every
+    /// record kept from a message of another session.
     fn standing_blocks(
         &self,
         session_id: &str,
@@ -90,11 +91,26 @@ impl TurnRunner {
         };
         let now = theseus_protocol::now_unix_ms();
         let held = if restricted {
-            crate::google::private::authored(
-                &self.store,
-                &self.cfg,
-                crate::standing::live(&all, Some(scope), now),
-            )
+            let live = crate::standing::live(&all, Some(scope), now);
+            let mut held =
+                crate::google::private::authored(&self.store, &self.cfg, live.iter().copied());
+            // A record kept from a message of another session is that
+            // session's content, and its labels are not this one's
+            // (theseus-9ymz0, the review's B1). A node the store cannot read
+            // counts as another's.
+            held.extend(
+                live.iter()
+                    .filter_map(|r| Some((*r, r.source.strip_prefix("capture:")?)))
+                    .filter(|(_, node)| {
+                        self.store
+                            .get_node(node)
+                            .ok()
+                            .flatten()
+                            .is_none_or(|(_, n)| n.session_id != session_id)
+                    })
+                    .map(|(r, _)| r.id.clone()),
+            );
+            held
         } else {
             Default::default()
         };

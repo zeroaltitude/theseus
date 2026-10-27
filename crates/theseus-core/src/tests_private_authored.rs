@@ -265,17 +265,91 @@ async fn a_milestone_reminder_stays_out_of_a_restricted_request() {
     );
 }
 
-/// With no `[google]` nothing is held and nothing is read: both orders reach
-/// dsflash, and `authored` answers empty before any read.
+/// A guard of what the open view used to do: the task view and the project
+/// slice carry titles any session wrote, and neither reaches dsflash. Deleted
+/// with the open view and restored (theseus-9ymz0, the review's B1): under
+/// content flags a label belongs to the session that raised it, so a request
+/// to a restricted model leaves out what another session wrote instead.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn without_google_nothing_is_held() {
+async fn the_task_view_and_slice_never_reach_a_restricted_request() {
+    let (r, zai, _dir, _jev) = rig(false);
+    let s = cn_session(&r).await;
+    let p = r
+        .core
+        .project_create(
+            &serde_json::from_value(json!({
+                "title": "Heronsgate tide tables",
+                "milestones": [{"title": "Heronsgate tide tables"}],
+                "review": "none",
+            }))
+            .unwrap(),
+            "the CLI",
+        )
+        .unwrap();
+    r.core
+        .project_attach(
+            &theseus_protocol::projects::ProjectAttachParams {
+                session: s.clone(),
+                project: Some(p.project.id),
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap();
+    // A plain task in S's scope, titled by another session.
+    let task = crate::task_graph::NewTask {
+        id: "tsk_heronsgate".into(),
+        title: "Heronsgate tide tables",
+        objective: String::new(),
+        acceptance: vec![],
+        parent: None,
+        deps: vec![],
+        session: None,
+        origin: theseus_protocol::tasks::TaskOrigin {
+            session: s.clone(),
+            principal: "agent".into(),
+            by_model: true,
+            ..Default::default()
+        },
+        state: theseus_protocol::tasks::TaskState::Accepted,
+    }
+    .build(r.core.kernel.now_ms());
+    r.core
+        .store
+        .append(&[crate::task_graph::record(&task).unwrap()])
+        .unwrap();
+    let res = say(&r.core, &s, OPEN_A, None).await;
+    assert_eq!(res.profile, "dsflash", "{:?}", res.route);
+    let body = text(&zai.requests()[0]);
+    assert!(!body.contains(crate::task_graph::view::HEAD), "{body}");
+    assert!(!body.contains(crate::project::slice::HEAD), "{body}");
+    assert!(!body.contains("Heronsgate"), "{body}");
+
+    // The same session on Claude carries both: nothing is lost for a model
+    // that may see them.
+    call(&r.core, "profile.use", json!({"name": "default"})).await;
+    let before = r.claude.requests().len();
+    say(&r.core, &s, OPEN_B, None).await;
+    let sent = r.claude.requests();
+    assert!(sent.len() > before);
+    let body = text(sent.last().unwrap());
+    assert!(body.contains(crate::task_graph::view::HEAD), "{body}");
+    assert!(body.contains(crate::project::slice::HEAD), "{body}");
+}
+
+/// With no `[google]` the Google hold reads nothing (`authored` answers empty
+/// before any read), but a record kept from another session's message is still
+/// held from a restricted request, for it is that session's content
+/// (theseus-9ymz0, the review's B1): the owner's own order reaches dsflash.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_google_the_google_hold_reads_nothing() {
     let (r, zai, _dir, _jev) = rig(false);
     let (a, _b) = orders(&r, StandingScope::Everywhere).await;
     let s = cn_session(&r).await;
     let res = say(&r.core, &s, OPEN_A, None).await;
     assert_eq!(res.profile, "dsflash", "{:?}", res.route);
     let body = text(&zai.requests()[0]);
-    assert!(body.contains(SHORT) && body.contains(HERON), "{body}");
+    assert!(body.contains(SHORT) && !body.contains(HERON), "{body}");
     let all = r.core.runner.standing.held().unwrap();
     let kept: Vec<&StandingRecord> = all.iter().filter(|x| x.id == a).collect();
     // A node id the store does not hold would count as private with `[google]`.
