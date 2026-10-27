@@ -271,17 +271,23 @@ async fn ten_results_are_one_decision_point() {
         .content
         .points
         .load(std::sync::atomic::Ordering::Relaxed);
-    for i in 10..20 {
-        svc.ask_content(
-            &sid,
-            vec![item_in(
+    // Each item is written to the store (a synced append) as it is made, so
+    // they are all made before the burst: made inside the loop, the writes'
+    // own time (slow where fsync is) counted against the window, and the
+    // burst split into several points.
+    let burst: Vec<ContentItem> = (10..20)
+        .map(|i| {
+            item_in(
                 &r,
                 &sid,
                 &format!("n{i}"),
                 ItemKind::ToolResult,
                 &format!("result {i}"),
-            )],
-        );
+            )
+        })
+        .collect();
+    for item in burst {
+        svc.ask_content(&sid, vec![item]);
     }
     until(&r, "content.judged", 20).await;
     assert_eq!(
