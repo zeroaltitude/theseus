@@ -205,7 +205,7 @@ function Cards({ list }: { list: ReturnType<typeof runs> }) {
   const arms = useBenchFile('arms', 'json')
   const planned = useMemo(() => plannedArms(arms.data), [arms.data])
   if (loading) return null
-  return <BenchIndex cards={cards} reason={manifest.reason} planned={planned} />
+  return <BenchIndex cards={cards} reason={manifest.reason} planned={planned} skipped={manifest.skipped} />
 }
 
 const plainArms = (s: string) => s.replace(/`/g, '')
