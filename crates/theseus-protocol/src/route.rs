@@ -71,12 +71,9 @@ pub struct TurnRoute {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TurnData {
-    /// Jev's data answer (`open`, `private`, `unclear`), when it gave one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub verdict: Option<String>,
-    /// `admitted` or `closed` as routing found the turn, `open` once a request of it carried a pass.
-    pub clearance: String,
+    /// Whether the session may use a model of restricted origin, as routing found it: `allowed`, the word of the flag that keeps it off one (`secret`, `confidential`, `personal`), `pending` while items are not yet judged, or `unjudged` when a wait for them ran out. Empty in a route from before content flags.
+    #[serde(default)]
+    pub cn: String,
     /// Why the data rule kept the turn off a restricted-origin model: an open word, absent when it did not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -86,15 +83,11 @@ pub struct TurnData {
 }
 
 impl TurnData {
-    /// The route line's data words, as every surface words them: `open` when a
-    /// request carried a pass, `data gate: <why>` when the rule kept the turn
-    /// off a restricted-origin model, nothing otherwise.
+    /// The route line's data words, as every surface words them: `data gate:
+    /// <why>` when the rule kept the turn off a restricted-origin model,
+    /// nothing otherwise.
     pub fn footer(&self) -> Option<String> {
-        match (self.clearance.as_str(), &self.gate) {
-            ("open", _) => Some("open".into()),
-            (_, Some(g)) => Some(format!("data gate: {g}")),
-            _ => None,
-        }
+        self.gate.as_ref().map(|g| format!("data gate: {g}"))
     }
 }
 
@@ -347,8 +340,7 @@ mod tests {
     #[test]
     fn turn_route_data_round_trips() {
         let data = TurnData {
-            verdict: Some("open".into()),
-            clearance: "open".into(),
+            cn: "allowed".into(),
             gate: None,
             origin: "cn".into(),
         };
@@ -366,18 +358,31 @@ mod tests {
         assert_eq!(serde_json::from_str::<TurnRoute>(&json).unwrap(), without);
         let old = r#"{"reason":"verdict","from":"sonnet"}"#;
         assert_eq!(serde_json::from_str::<TurnRoute>(old).unwrap().data, None);
-        let gated = |clearance: &str, gate: Option<&str>| TurnData {
-            clearance: clearance.into(),
+        // A route from before content flags carried a `clearance` and a
+        // `verdict`: it still reads, its `cn` empty.
+        let before = r#"{"reason":"verdict","from":"sonnet","data":{"verdict":"open","clearance":"open","origin":"cn"}}"#;
+        let read = serde_json::from_str::<TurnRoute>(before)
+            .unwrap()
+            .data
+            .unwrap();
+        assert_eq!((read.cn.as_str(), read.origin.as_str()), ("", "cn"));
+        let gated = |cn: &str, gate: Option<&str>| TurnData {
+            cn: cn.into(),
             gate: gate.map(Into::into),
             ..data.clone()
         };
-        assert_eq!(data.footer().as_deref(), Some("open"));
         assert_eq!(
-            gated("closed", Some("verdict_private")).footer().as_deref(),
-            Some("data gate: verdict_private")
+            data.footer(),
+            None,
+            "a turn that ran on a cn model words nothing"
         );
-        assert_eq!(gated("admitted", None).footer(), None);
-        assert_eq!(gated("closed", None).footer(), None);
+        assert_eq!(
+            gated("confidential", Some("confidential"))
+                .footer()
+                .as_deref(),
+            Some("data gate: confidential")
+        );
+        assert_eq!(gated("allowed", None).footer(), None);
     }
 
     /// The one line every surface shows, by how the turn ended (the cockpit's

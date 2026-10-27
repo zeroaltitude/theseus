@@ -1042,17 +1042,8 @@ pub struct ProviderCall<'a> {
     pub settled_micros: Micros,
     /// When its settle began, on the trace's clock.
     pub s0: u64,
-    /// The origin of the profile the call ran on, and for a restricted one
-    /// whether its request carried a pass (theseus-a1wvq.11).
+    /// The origin of the profile the call ran on (theseus-a1wvq.11).
     pub origin: &'a str,
-    pub sent: Option<Sent>,
-}
-
-/// A request to a restricted-origin model: its pass, and the transcript
-/// nodes it carried when it had one.
-pub struct Sent {
-    pub pass: bool,
-    pub run_nodes: usize,
 }
 
 impl Fact for ProviderCall<'_> {
@@ -1060,7 +1051,7 @@ impl Fact for ProviderCall<'_> {
 
     fn row(&self) -> Value {
         let resp = self.resp;
-        let mut row = json!({
+        let row = json!({
             "loop": self.loop_index,
             "provider": self.provider,
             "model": resp.model,
@@ -1077,12 +1068,6 @@ impl Fact for ProviderCall<'_> {
             "node_id": self.node_id,
             "origin": self.origin,
         });
-        if let Some(s) = &self.sent {
-            row["pass"] = json!(s.pass);
-            if s.pass {
-                row["run_nodes"] = json!(s.run_nodes);
-            }
-        }
         row
     }
 
