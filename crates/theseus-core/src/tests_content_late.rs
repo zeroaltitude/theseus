@@ -7,6 +7,17 @@
 //! refactor that moves the call keeps it, and one that loses it fails it.
 //! (`content_wait::unjudged` fails closed, so a result nobody judged would
 //! refuse the next restricted-origin request, far from its cause.)
+//!
+//! This pins the classification half of the row, and only that. The other half
+//! of the issue's sentence -- that the late result is judged *before the next
+//! request is routed* -- is an ordering, and is not pinned here: pinning it
+//! needs the restricted-origin rig plus a late result through `turn.rs`'s
+//! mid-turn site, where the stand-in judge lands verdicts whether or not
+//! anything queued the item. Nor is it pinned that the other two `absorb`
+//! callers still call it: this test rides `catch_up` alone, so dropping
+//! `take_late` at the mid-turn or the finish site leaves it green. The
+//! `queue_content` line itself is covered for all three, since all three
+//! reach the same `absorb`.
 
 use std::time::{Duration, Instant};
 
