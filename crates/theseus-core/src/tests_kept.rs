@@ -246,6 +246,7 @@ fn posture(core: &Core, sid: &str, path: &Path) -> String {
     let at = At {
         place: core.runner.view_of(sid),
         held: &held,
+        labels: &|| None,
         mcp: &|| None,
         glide: None,
         session: Some(sid),

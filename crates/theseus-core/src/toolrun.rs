@@ -149,9 +149,9 @@ pub struct TurnCtx<'a> {
     /// That place's ceiling (step 38a), taken with its class: a floor, and
     /// the tools it offers (`ceiling.rs`).
     pub ceiling: Option<&'static crate::ceiling::Ceiling>,
-    /// Open when its session is (theseus-a1wvq.7): its requests take the
-    /// open view's content and tools, and its calls are gated in it.
-    pub open: Option<&'static crate::open_view::Open>,
+    /// Set for a China-origin draft's session (`draft_view.rs`): its requests
+    /// take the stripped prefix, and its calls are gated in the draft's reach.
+    pub draft: Option<&'static crate::draft_view::DraftReach>,
     /// The bound places, as a glide names them (38b).
     pub places: crate::places::Places<'a>,
     /// The session's directory, as its client sent it (theseus-aab7):
@@ -172,7 +172,7 @@ impl TurnCtx<'_> {
             class: self.class,
             ceiling: self.ceiling,
             voice: false,
-            open: self.open,
+            draft: self.draft,
         }
     }
 }
@@ -735,8 +735,8 @@ impl ToolRuntime {
                 })
                 .collect::<Vec<_>>(),
         );
-        if let Some(open) = place.open {
-            return open.note(&postures, &ceiling_note);
+        if let Some(reach) = place.draft {
+            return reach.note(&postures, &ceiling_note);
         }
         if class == crate::places::PlaceClass::Shared {
             let files = match self.public_roots.is_empty() {
@@ -1135,6 +1135,7 @@ impl ToolRuntime {
         let at = order::At {
             place: tc.place(),
             held: &held,
+            labels: &|| crate::content_wait::flags_of(tc.store, tc.session_id),
             mcp: &mcp,
             glide: glide.as_ref().and_then(|g| g.as_ref().ok()),
             session: Some(tc.session_id),
@@ -1911,8 +1912,8 @@ impl ToolRuntime {
                 true => u64::MAX,
                 false => e.budget.available(),
             });
-        // An open session's reads may reach a model outside the trust: held too.
-        let shared = tc.class != crate::places::PlaceClass::Private || tc.open.is_some();
+        // A draft's reads reach a model outside the trust: held too.
+        let shared = tc.class != crate::places::PlaceClass::Private || tc.draft.is_some();
         self.files.run(
             &nodes,
             tc.store.blobs_handle(),
