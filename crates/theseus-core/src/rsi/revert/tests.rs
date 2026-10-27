@@ -27,6 +27,8 @@ use crate::rsi::tree::Place;
 use crate::store::Store;
 use crate::{Config, Core};
 
+mod fetch_retry;
+
 const FAKE_GPG: &str = "#!/bin/bash\n\
 echo '[GNUPG:] KEY_CONSIDERED FIXTURE 0' >&2\n\
 echo '[GNUPG:] SIG_CREATED D 1 8 00 1792000000 FIXTURE' >&2\n\

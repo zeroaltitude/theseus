@@ -218,7 +218,9 @@ impl Core {
         let remote = remote_of(&self.cfg);
         for red in reds {
             let key = format!("{}:{}:{:?}", red.signal, red.at_ms, red.commit);
-            if !known.insert(key) {
+            // Recorded once the red has been looked at, not before: a fetch or a
+            // probe that errors returns early, and the next pass must see it again.
+            if known.contains(&key) {
                 continue;
             }
             let (p, r) = (place.clone(), remote.clone());
@@ -228,6 +230,7 @@ impl Core {
             })
             .await?;
             let blame = attribute::blame(&place, &*seams.prober, &main, &watched, &red).await?;
+            known.insert(key);
             let why = match blame {
                 Blame::Join(j, tested) => {
                     if let Some(why) = super::join::refused(self) {
