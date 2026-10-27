@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="238" viewBox="0 0 720 238" role="img" aria-labelledby="t-wf482-share-c1 t-wf482-share-c1-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-wf482-share-c1">How much of this cell ran the model its arm names (theseus-wf482)</title>
+<desc id="t-wf482-share-c1-d">A quarter of the cell fell back from claude-sonnet-5-5 to claude-sonnet-5 - how much of the result is that?</desc>
+<rect width="720" height="238" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">How much of this cell ran the model its arm names (theseus-wf482)</text>
+<line x1="290.4" y1="48.0" x2="290.4" y2="144.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="363.9" y1="48.0" x2="363.9" y2="144.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="437.4" y1="48.0" x2="437.4" y2="144.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="510.9" y1="48.0" x2="510.9" y2="144.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="584.4" y1="48.0" x2="584.4" y2="144.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="657.9" y1="48.0" x2="657.9" y2="144.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="280.4" y="68.0" font-size="12" fill="#0b0b0b" text-anchor="end">trials touched by a refusal fallback</text>
+<g><title>trials touched by a refusal fallback · share of the cell: 26.6%</title>
+<path d="M290.4,55.0H384.3A4,4 0 0 1 388.3,59.0V69.0A4,4 0 0 1 384.3,73.0H290.4Z" fill="#2a78d6"/>
+</g>
+<text x="393.3" y="68.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">26.6%</text>
+<text x="280.4" y="100.0" font-size="12" fill="#0b0b0b" text-anchor="end">spend at or after the first fallback</text>
+<g><title>spend at or after the first fallback · share of the cell: 65.1%</title>
+<path d="M290.4,87.0H525.6A4,4 0 0 1 529.6,91.0V101.0A4,4 0 0 1 525.6,105.0H290.4Z" fill="#2a78d6"/>
+</g>
+<text x="534.6" y="100.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">65.1%</text>
+<text x="280.4" y="132.0" font-size="12" fill="#0b0b0b" text-anchor="end">model calls that went to claude-sonnet-5-5</text>
+<g><title>model calls that went to claude-sonnet-5-5 · share of the cell: 55.6%</title>
+<path d="M290.4,119.0H490.8A4,4 0 0 1 494.8,123.0V133.0A4,4 0 0 1 490.8,137.0H290.4Z" fill="#2a78d6"/>
+</g>
+<text x="499.8" y="132.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">55.6%</text>
+<text x="290.4" y="160.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="363.9" y="160.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="437.4" y="160.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="510.9" y="160.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="584.4" y="160.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="657.9" y="160.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<line x1="290.4" y1="144.0" x2="657.9" y2="144.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="474.1" y="178.0" font-size="12" fill="#52514e" text-anchor="middle">share of the cell</text>
+<text x="18.0" y="200.0" font-size="11" fill="#52514e">229 clean trials. The fallback is a one-way door: the rest of the turn runs on the fallback model. Counted by</text>
+<text x="18.0" y="215.0" font-size="11" fill="#52514e">claude-sonnet-5 appearing in the bill, never by the absence of claude-sonnet-5-5.</text>
+</svg>
