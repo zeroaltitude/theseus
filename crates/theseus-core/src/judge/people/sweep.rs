@@ -148,6 +148,11 @@ impl Core {
         let before = swept_before + self.people_sync_spent(&today)?;
         let cap_usd = self.runner.cfg.people.sweep_usd_per_day;
         let cap = usd_to_micros((cap_usd - before).max(0.0));
+        // The merge of equal name keys needs no model, so it runs with the sweep
+        // whatever the pack and the cap say (theseus-jrffh).
+        if let Err(e) = theseus_store::blocking(|| self.people_same_merge()) {
+            tracing::warn!(error = %format!("{e:#}"), "the merge of equal name keys failed");
+        }
         let mut out = Swept::default();
         match self.runner.judge.pack_on(PACK) {
             true => self.sweep_sessions(from_ms, now, cap, &mut out).await?,

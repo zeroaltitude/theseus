@@ -20,7 +20,7 @@ use crate::approval::Answerer;
 use crate::fact;
 
 /// The methods `rpc_prefixed` routes to the ontology's arm.
-pub(super) const ROUTE: [&str; 6] = [
+pub(super) const ROUTE: [&str; 9] = [
     method::ONTOLOGY_UNDO,
     method::ONTOLOGY_KIND_ADD,
     method::ONTOLOGY_KIND_RETIRE,
@@ -28,6 +28,10 @@ pub(super) const ROUTE: [&str; 6] = [
     method::ONTOLOGY_PROPOSAL_NEVER,
     method::ONTOLOGY_NEVER_LIST,
     method::ONTOLOGY_NEVER_UNDO,
+    // Two people that are not one (theseus-jrffh, `never.rs`).
+    method::ONTOLOGY_PERSON_NOT_SAME,
+    method::ONTOLOGY_PERSON_NOT_SAME_LIST,
+    method::ONTOLOGY_PERSON_CANDIDATES,
 ];
 
 /// A closed word of the wire (`operator`, `chain`, `titles`) as its type.

@@ -47,10 +47,12 @@ use crate::config::Config;
 use crate::node::{Body, Node, Origin};
 
 pub mod backfill;
+pub mod cands;
 pub mod extract;
 pub mod house;
 pub mod live;
 pub mod run;
+pub mod same;
 pub mod seen;
 pub mod sweep;
 pub mod sync;
@@ -64,6 +66,8 @@ mod tests_groups;
 mod tests_handles;
 #[cfg(test)]
 mod tests_never;
+#[cfg(test)]
+mod tests_same;
 #[cfg(test)]
 mod tests_seen;
 #[cfg(test)]

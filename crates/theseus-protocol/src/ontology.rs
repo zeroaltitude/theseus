@@ -719,3 +719,96 @@ pub struct OntologyNeverUndoParams {
 pub struct OntologyNeverUndoResult {
     pub undone: OntologyNever,
 }
+
+/// `ontology.person.not_same` (theseus-jrffh): the owner's word that two
+/// people are not one. The pair is kept (as a never of kind `pair`, so
+/// `ontology.never.undo` takes it back) and is never proposed again, and the
+/// automatic merge of two equal name keys skips it. With `undo`, the word is
+/// taken back.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonNotSameParams {
+    /// Two person ids (`person:<local>`), in either order.
+    pub a: String,
+    pub b: String,
+    #[serde(default)]
+    pub undo: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// One recorded pair.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonNotSame {
+    /// What `ontology.never.undo` names: `pair:<id>|<id>`, the smaller id first.
+    pub key: String,
+    pub a: String,
+    pub b: String,
+    pub who: String,
+    pub at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub note: Option<String>,
+    /// True when this call took the pair back.
+    #[serde(default)]
+    pub undone: bool,
+}
+
+/// `ontology.person.not_same_list`: the pairs in force, newest first.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonNotSameListParams {}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonNotSameListResult {
+    pub pairs: Vec<OntologyPersonNotSame>,
+}
+
+/// `ontology.person.candidates` (theseus-jrffh): pairs of people that may be
+/// one person, found without a model, for the owner to decide: "Join" is
+/// `ontology.person.merge`, "Not the same" is `ontology.person.not_same`.
+/// Nothing is merged or written.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonCandidatesParams {
+    /// At most this many, best first (50 when absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub limit: Option<u32>,
+}
+
+/// One pair put to the owner.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonCandidate {
+    pub a: String,
+    pub b: String,
+    pub a_name: String,
+    pub b_name: String,
+    /// `handle`, `first_name`, `ambiguous` or `role`.
+    pub kind: String,
+    /// 0 to 1: how likely they are one person.
+    pub score: f64,
+    pub why: String,
+    /// For `ambiguous`: every full name the short one could be.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub could_be: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonCandidatesResult {
+    pub candidates: Vec<OntologyPersonCandidate>,
+    /// Pairs left out: recorded as not the same, or named together in one message.
+    pub left_out: u64,
+}
