@@ -162,14 +162,16 @@ impl Board {
     }
 
     /// The gate's inform notices go to the operator's DM through the core's
-    /// outbox, quietly (a badge and the digest, never a ping).
+    /// outbox, quietly (a badge and the digest, never a ping); the halt's
+    /// notice alone is its own kind, which pings (theseus-6s7ll).
     fn notify(&self) -> Option<tree::Notify> {
         let core = self.core.get()?.clone();
-        Some(tree::Notify::new(move |text| {
+        let stage = move |halt: bool, text: String| {
             let Some(core) = core.upgrade() else { return };
             let sent = (|| -> anyhow::Result<()> {
-                let body = json!({"kind": "notice", "text": text, "quiet": true});
-                let (post, frame) = core.outbox.stage_to_operator(None, body)?;
+                let (post, frame) = core
+                    .outbox
+                    .stage_to_operator(None, notice_body(halt, text))?;
                 core.store.append(&frame)?;
                 core.outbox.posted(&post);
                 Ok(())
@@ -177,7 +179,20 @@ impl Board {
             if let Err(e) = sent {
                 tracing::warn!(error = %format!("{e:#}"), "self build: the may-build notice was not posted");
             }
-        }))
+        };
+        let halt = stage.clone();
+        Some(
+            tree::Notify::new(move |text| stage(false, text))
+                .with_halt(move |text| halt(true, text)),
+        )
+    }
+}
+
+/// The body of a self build's notice: quiet, or for the halt a `self_halt` post that pings.
+pub(super) fn notice_body(halt: bool, text: String) -> serde_json::Value {
+    match halt {
+        true => json!({"kind": "self_halt", "text": text}),
+        false => json!({"kind": "notice", "text": text, "quiet": true}),
     }
 }
 

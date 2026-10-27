@@ -66,16 +66,26 @@ pub struct Place {
 /// A sink for one inform notice: its text in, a post to the operator out.
 /// The daemon's is built from the core's outbox (`pr.rs`, `Board::place`).
 #[derive(Clone)]
-pub struct Notify(Arc<dyn Fn(String) + Send + Sync>);
+pub struct Notify(
+    Arc<dyn Fn(String) + Send + Sync>,
+    Option<Arc<dyn Fn(String) + Send + Sync>>,
+);
 
 impl Notify {
     pub fn new(f: impl Fn(String) + Send + Sync + 'static) -> Self {
-        Self(Arc::new(f))
+        Self(Arc::new(f), None)
     }
 
-    /// Send one notice.
-    pub(crate) fn send(&self, text: String) {
-        (self.0)(text);
+    /// The sink for the halt notice alone: it pings and carries a Resume button
+    /// (theseus-6s7ll). A sink with none sends the halt as it sends any notice.
+    pub fn with_halt(mut self, f: impl Fn(String) + Send + Sync + 'static) -> Self {
+        self.1 = Some(Arc::new(f));
+        self
+    }
+
+    /// Send the halt notice.
+    pub(crate) fn send_halt(&self, text: String) {
+        (self.1.as_ref().unwrap_or(&self.0))(text);
     }
 }
 
