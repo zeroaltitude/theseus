@@ -401,6 +401,37 @@ async fn after_a_call_the_fallbacks_requests_keep_both_models_thinking_and_exten
     }
 }
 
+/// The fallback answers the refused request and no more (theseus-wf482): the
+/// next request goes back to the routed model.
+#[tokio::test]
+async fn a_refusal_sends_one_request_to_the_fallback_and_the_next_goes_back() {
+    let r = rig(vec![
+        Scripted::tools(
+            "Opening the archive.",
+            &[("toolu_a", "fs_read", json!({"path": "harbor.txt"}))],
+        ),
+        refused("reasoning_extraction"),
+        Scripted::tools(
+            "Reading it again.",
+            &[("toolu_b", "fs_read", json!({"path": "harbor.txt"}))],
+        ),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!((res.output.as_str(), res.loops), ("Four.", 4), "{res:?}");
+    let models: Vec<String> = r.fake.requests().iter().map(|q| q.model.clone()).collect();
+    assert_eq!(
+        models,
+        [
+            "claude-sonnet-5-5",
+            "claude-sonnet-5-5",
+            "claude-sonnet-5",
+            "claude-sonnet-5-5"
+        ]
+    );
+}
+
 /// A fallback's request is one its own model takes (theseus-7gir.18): with
 /// Haiku 4.5 named, it carries no adaptive thinking and asks for Haiku's
 /// 64,000 tokens at most; and the provider's own fallback, which Opus 5
