@@ -141,7 +141,7 @@ pub(crate) struct Point {
     slots: Mutex<HashMap<String, Slot>>,
     /// What the core does with a label once it is written: tell the operator's
     /// surfaces (`Core::tell_label`). Set by the core as it is built.
-    told: OnceLock<Told>,
+    told: std::sync::RwLock<Option<Told>>,
     /// `[content] max_pieces`: the most pieces one item is read in.
     max_pieces: std::sync::atomic::AtomicUsize,
     /// Decision points asked, for a test that counts them.
@@ -212,8 +212,15 @@ impl JudgeService {
     /// What to do once a label is written and told in the narrative: the core
     /// hands over `Core::tell_label` (the `session.labelled` event and the one
     /// Discord message), set once as it is built.
+    /// Last writer wins, as `content_wait::Handle::set` does: the core stands
+    /// `Core::tell_label` here as it is built, and a test may stand its own in
+    /// its place. A set-once would silently make the test's a no-op.
     pub fn label_told(&self, told: impl Fn(&str, &Label) + Send + Sync + 'static) {
-        let _ = self.content.told.set(Box::new(told));
+        *self
+            .content
+            .told
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::new(told));
     }
 
     /// Queue `items` for judgment and return: nothing waits here. The items are
@@ -275,7 +282,38 @@ impl JudgeService {
         let _ = tokio::time::timeout(max, waited).await;
         !self.content_pending(session)
     }
+}
 
+/// The judge standing behind the turn's wait (theseus-9ymz0, the join's seam).
+/// `content_wait::Ready` answers at once, so until this is set a turn bound for
+/// a model of restricted origin with unjudged items goes to Claude without
+/// waiting — safe, but it would make `[content] wait_ms` dead and every cn turn
+/// a Claude turn. `Core::build` sets it.
+///
+/// It honours the trait's contract: the wake-up is enabled **before** the
+/// pending check, so a verdict that lands between the caller taking this future
+/// and first polling it still ends the future rather than being slept through.
+/// The caller bounds the wait; this never times out on its own.
+impl crate::content_wait::Verdicts for JudgeService {
+    fn settled(
+        &self,
+        session: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        let notify = {
+            let mut slots = self.content.slots();
+            slots.entry(session.to_string()).or_default().notify.clone()
+        };
+        let pending = self.content_pending(session);
+        Box::pin(async move {
+            if !pending {
+                return;
+            }
+            notify.notified().await;
+        })
+    }
+}
+
+impl JudgeService {
     /// The blocking half: every item's state (a piece each, a long item cut at
     /// line boundaries), their blobs staged, and one reservation for the batch,
     /// its frame left beside the call.
@@ -419,11 +457,7 @@ impl JudgeService {
                     }
                 }
             }
-            if let Some(n) = through {
-                if flags.judged_through == *base || flags.judged_through.as_deref() == Some(n) {
-                    flags.judged_through = Some(n.to_string());
-                }
-            }
+            self.move_mark(&mut flags, session, landings, through, base);
             put_flags(rec, flags);
             Ok(rows)
         });
@@ -458,16 +492,94 @@ impl JudgeService {
                     band: label.band,
                 },
             );
-            // TODO(theseus-9ymz0, cf-surfaces): `Core::tell_label(session, &label)`
-            // (`rpc/content.rs`, lane cf-core) publishes `session.labelled` and posts the
-            // one approved Discord message with its Remove button. The service holds no
-            // core, so the core hands it that call here, once, when it is built:
-            // `judge.label_told(|session, label| core.tell_label(session, label))`.
-            if let Some(told) = self.content.told.get() {
+            // And told to the operator: `Core::tell_label` (`rpc/content.rs`)
+            // publishes `session.labelled` and posts the one approved Discord
+            // message with its Remove button. The service holds no core, so the
+            // core hands it that call once as it is built (`Core::build`).
+            if let Some(told) = self
+                .content
+                .told
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+            {
                 told(session, label);
             }
         }
     }
+}
+
+impl JudgeService {
+    /// What this batch did to the session's mark.
+    ///
+    /// What it could not judge is recorded durably, as a worklist for a re-ask
+    /// and so the operator can see it; that record gates nothing.
+    ///
+    /// The mark itself moves only over a transcript span whose every node this
+    /// batch judged (`ContentFlags::judged_run`). The span comes from the
+    /// **transcript**, not from the batch, which is what makes this hold across
+    /// a restart: the judging process forgets which item it gave up on, and the
+    /// transcript remembers for it. The compare-and-set against `base` still
+    /// guards a mark that moved while the batch was in flight.
+    fn move_mark(
+        &self,
+        flags: &mut ContentFlags,
+        session: &str,
+        landings: &[Landing],
+        through: Option<&str>,
+        base: &Option<String>,
+    ) {
+        for l in landings.iter().filter(|l| l.unjudged.is_some()) {
+            flags.could_not_judge(&l.item.node);
+        }
+        let Some(n) = through else { return };
+        if !(flags.judged_through == *base || flags.judged_through.as_deref() == Some(n)) {
+            return;
+        }
+        let Some(span) = span_to(&self.store, session, flags.judged_through.as_deref(), n) else {
+            return;
+        };
+        let judged: Vec<String> = landings
+            .iter()
+            .filter(|l| l.unjudged.is_none())
+            .map(|l| l.item.node.clone())
+            .collect();
+        flags.judged_run(&span, &judged, n);
+    }
+}
+
+/// Every item node of `session`'s transcript strictly after `through`, up to
+/// and including `node`: the span `ContentFlags::judged_run` is held to. `None`
+/// when the transcript cannot be read, when it does not hold `node`, or when it
+/// does not hold `through` — each of which leaves the mark where it is, which
+/// fails closed, exactly as `content_wait::unjudged` reads a mark the
+/// transcript has lost.
+///
+/// Only items count. A node that is not an item (an assistant message, a tool
+/// call) was never going to be judged, so including it would stop the mark for
+/// good.
+fn span_to(
+    store: &crate::store::Store,
+    session: &str,
+    through: Option<&str>,
+    node: &str,
+) -> Option<Vec<String>> {
+    let nodes = store.transcript(session).ok()?;
+    let at = nodes.iter().position(|(_, n)| n.id == node)?;
+    let from = match through {
+        None => 0,
+        Some(id) => nodes.iter().position(|(_, n)| n.id == id)? + 1,
+    };
+    if from > at {
+        return None;
+    }
+    Some(
+        nodes[from..=at]
+            .iter()
+            .filter(|(_, n)| crate::content_wait::is_item(n))
+            .map(|(_, n)| n.id.clone())
+            .collect(),
+    )
 }
 
 /// The record's content flags, taken out to be changed.

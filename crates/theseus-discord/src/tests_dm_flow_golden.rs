@@ -359,9 +359,11 @@ fn record(r: &Rig, forum: u64, home: u64, asked: &Msg) -> String {
     // line, the call's notice) land in whatever order the lanes win; they are sorted.
     let mut dm = r.fake.messages(ANA_DM);
     // The content label's message is recorded in its own section below.
-    let note = dm
-        .iter()
-        .position(|m| m.buttons.iter().any(|b| b.custom_id.starts_with("content:")));
+    let note = dm.iter().position(|m| {
+        m.buttons
+            .iter()
+            .any(|b| b.custom_id.starts_with("content:"))
+    });
     let note = note.map(|i| dm.remove(i));
     let from = dm
         .iter()

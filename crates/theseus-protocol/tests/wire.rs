@@ -577,7 +577,10 @@ fn policy_and_trust() {
         "at_ms": 1_759_300_300_000u64});
     let labelled: theseus_protocol::LabelRaised =
         serde_json::from_value(json!({"session_id": S, "label": label})).unwrap();
-    wire("session_labelled", &line(notify::SESSION_LABELLED, labelled));
+    wire(
+        "session_labelled",
+        &line(notify::SESSION_LABELLED, labelled),
+    );
     let unlabelled: theseus_protocol::UnlabelResult = serde_json::from_value(json!({
         "session_id": S, "flag": "injection", "by": "the CLI", "who": "sock#3", "via": "cli",
         "how": "content.unlabel", "at_ms": 1_759_300_400_000u64, "label": label}))

@@ -193,9 +193,9 @@ impl ActRefused<'_> {
         match self.act {
             Act::Answer { action: a, .. } => Some(a.session_id.as_str()),
             Act::Tighten { .. } | Act::Untighten { .. } => None,
-            Act::Trust { session } | Act::Dismiss { session, .. } | Act::Unlabel { session, .. } => {
-                Some(session)
-            }
+            Act::Trust { session }
+            | Act::Dismiss { session, .. }
+            | Act::Unlabel { session, .. } => Some(session),
             Act::Publish { .. }
             | Act::Ontology { .. }
             | Act::Label { .. }
@@ -330,12 +330,12 @@ impl Fact for ActRefused<'_> {
                 "Earned autonomy, {what}, from {who} through {via}, did not count: {why}. \
                  Nothing changed."
             ),
-            Act::Session { what, .. }
-            | Act::Dismiss { what, .. }
-            | Act::Unlabel { what, .. } => format!(
-                "{what}, from {} through {}, did not count: {}. The session is as it was.",
-                who, via, why
-            ),
+            Act::Session { what, .. } | Act::Dismiss { what, .. } | Act::Unlabel { what, .. } => {
+                format!(
+                    "{what}, from {} through {}, did not count: {}. The session is as it was.",
+                    who, via, why
+                )
+            }
             Act::Task { what } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. No task was started \
                  and nothing was carved."

@@ -103,10 +103,14 @@ async fn remove(
         _ => bail!("name a flag, or pass --all"),
     };
     if flags.is_empty() {
-        output(json, json!({"session_id": id, "removed": []}), |_: Value| {
-            println!("{}", render::content::labels_lines(&id, &[])[0]);
-            Ok(())
-        })?;
+        output(
+            json,
+            json!({"session_id": id, "removed": []}),
+            |_: Value| {
+                println!("{}", render::content::labels_lines(&id, &[])[0]);
+                Ok(())
+            },
+        )?;
         return Ok(());
     }
     let mut done: Vec<UnlabelResult> = Vec::new();

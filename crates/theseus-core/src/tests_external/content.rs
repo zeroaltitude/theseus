@@ -25,7 +25,7 @@ fn label(flag: Flag, at_ms: u64) -> Label {
 }
 
 /// A core and a session carrying `injection` and `secret`.
-async fn labelled(dir: &Path) -> (Arc<Core>, String) {
+fn labelled(dir: &Path) -> (Arc<Core>, String) {
     let core = core_tuned(
         dir,
         0,
@@ -55,7 +55,7 @@ fn flags_of(core: &Core, sid: &str) -> ContentFlags {
 #[tokio::test]
 async fn removal_from_the_owner_clears_the_flag_writes_the_row_and_publishes() {
     let dir = tempfile::tempdir().unwrap();
-    let (core, sid) = labelled(dir.path()).await;
+    let (core, sid) = labelled(dir.path());
     let (tx, mut heard) = tokio::sync::mpsc::unbounded_channel();
     core.bus.watch(&sid, "test", tx);
     let ledger = core.store.ledger_len().unwrap();
@@ -119,7 +119,7 @@ async fn removal_from_the_owner_clears_the_flag_writes_the_row_and_publishes() {
 #[tokio::test]
 async fn removal_from_a_jobs_process_is_refused_as_a_trust_is() {
     let dir = tempfile::tempdir().unwrap();
-    let (core, sid) = labelled(dir.path()).await;
+    let (core, sid) = labelled(dir.path());
     assert!(crate::mcp_server::JUDGED.contains(&method::CONTENT_UNLABEL));
     let before = flags_of(&core, &sid);
     let e = rpc_as(
@@ -149,7 +149,11 @@ async fn removal_from_a_jobs_process_is_refused_as_a_trust_is() {
         .unwrap_or_else(|| panic!("not a refusal: {e:#}"));
     assert!(r.why.contains("is not an owner"), "{}", r.why);
     assert_eq!(flags_of(&core, &sid), before);
-    assert_eq!(core.store.ledger_len().unwrap(), ledger + 1, "the refusal only");
+    assert_eq!(
+        core.store.ledger_len().unwrap(),
+        ledger + 1,
+        "the refusal only"
+    );
     assert!(ledgered(&core, "content.removed").is_empty());
 }
 
@@ -158,14 +162,17 @@ async fn removal_from_a_jobs_process_is_refused_as_a_trust_is() {
 #[tokio::test]
 async fn removing_a_flag_that_is_not_there_is_an_error_and_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let (core, sid) = labelled(dir.path()).await;
+    let (core, sid) = labelled(dir.path());
     let before = flags_of(&core, &sid);
     let ledger = core.store.ledger_len().unwrap();
 
     let e = core
         .unlabel_session(&sid, "confidential", "test")
         .unwrap_err();
-    assert!(e.to_string().contains("carries no confidential label"), "{e}");
+    assert!(
+        e.to_string().contains("carries no confidential label"),
+        "{e}"
+    );
     let e = core.unlabel_session(&sid, "open", "test").unwrap_err();
     assert!(e.to_string().contains("is not a content flag"), "{e}");
     let e = core

@@ -215,6 +215,7 @@ impl TurnRunner {
             draft: sid.to_string(),
             tree: tree.to_string_lossy().into_owned(),
         };
+        let briefed: std::sync::Mutex<Option<Node>> = std::sync::Mutex::new(None);
         let opened =
             self.kernel
                 .open_task_owned(&d.parent_execution, &corr, want.max(1), how, |task| {
@@ -241,6 +242,9 @@ impl TurnRunner {
                         cut(&diff, DIFF_MAX)
                     );
                     let brief = Node::relayed(id, None, Origin::Agent, &author, &text);
+                    *briefed
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(brief.clone());
                     let mut records = vec![
                         NewRecord::json(kinds::SESSION, Some(id), &rec)?,
                         brief.record()?,
@@ -259,6 +263,19 @@ impl TurnRunner {
                     )?);
                     Ok(records)
                 })?;
+        // The first pass's brief is an item too, and its session is judged by
+        // it (theseus-9ymz0): see the note at the draft's own brief.
+        let briefed = briefed
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(node) = briefed {
+            self.content_message(
+                &opened.task.session_id,
+                &node,
+                crate::content::ItemKind::TaskBrief,
+                "first-pass brief",
+            );
+        }
         Ok(opened.opened)
     }
 

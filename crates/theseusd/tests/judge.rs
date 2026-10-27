@@ -64,7 +64,10 @@ impl Rig {
             j.insert("connect_secs".into(), 1.into());
             j.insert("total_secs".into(), 5.into());
             // loop.v1 alone: the inbound point's packs (25a, 25e's route.v1)
-            // are judged in theseus-core's tests_inbound and tests_route.
+            // are judged in theseus-core's tests_inbound and tests_route, and
+            // content.v1 in its tests_content (theseus-9ymz0). These tests count
+            // the calls Jev is made, so a pack that asks about every item
+            // entering a session would be counting its own.
             let packs = table(j, "packs");
             for p in [
                 "classify.v4",
@@ -72,6 +75,7 @@ impl Rig {
                 "route.v8",
                 "directive.v1",
                 "onto.v1",
+                "content.v1",
             ] {
                 let mut off = toml::Table::new();
                 off.insert("rung".into(), "off".into());

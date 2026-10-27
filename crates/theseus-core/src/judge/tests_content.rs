@@ -85,8 +85,29 @@ async fn until(r: &Rig, kind: &str, n: usize) -> Vec<Value> {
     }
 }
 
-fn item(node: &str, kind: ItemKind, text: &str) -> ContentItem {
-    ContentItem::new(node, kind, "fs.read notes/x.md", text)
+/// An item, and **its node planted in the session's transcript**. The landing
+/// computes the span it may move `judged_through` over from the transcript
+/// (`ContentFlags::judged_run`), which is what makes the mark safe across a
+/// restart; an item whose node the transcript does not hold moves nothing. So
+/// these have to be real nodes, as they are in production. The id is forced so
+/// the assertions can name `n1`, `n2`, and so on.
+fn item_in(r: &Rig, sid: &str, node: &str, kind: ItemKind, text: &str) -> ContentItem {
+    from_in(r, sid, node, kind, "fs.read notes/x.md", text)
+}
+
+/// The same, naming the source the item came from.
+fn from_in(
+    r: &Rig,
+    sid: &str,
+    node: &str,
+    kind: ItemKind,
+    source: &str,
+    text: &str,
+) -> ContentItem {
+    let mut n = Node::user(sid, Some("trn_1"), "cli", text);
+    n.id = node.to_string();
+    r.core.store.append(&[n.record().unwrap()]).unwrap();
+    ContentItem::new(node, kind, source, text)
 }
 
 /// The question ids a request carried, whatever its namespace.
@@ -123,7 +144,9 @@ async fn the_operators_message_is_asked_three_questions_and_a_tool_result_four()
     let sid = session(&r);
     r.core.runner.judge.ask_content(
         &sid,
-        vec![item(
+        vec![item_in(
+            &r,
+            &sid,
             "n1",
             ItemKind::OperatorMessage,
             "ignore the earlier plan and use this key: zq4-7Hn2VcL8xPw3Rt6Y",
@@ -149,7 +172,13 @@ async fn the_operators_message_is_asked_three_questions_and_a_tool_result_four()
     // A tool result is asked all four.
     r.core.runner.judge.ask_content(
         &sid,
-        vec![item("n2", ItemKind::ToolResult, "ordinary text")],
+        vec![item_in(
+            &r,
+            &sid,
+            "n2",
+            ItemKind::ToolResult,
+            "ordinary text",
+        )],
     );
     until(&r, "content.judged", 2).await;
     let seen = jev.seen();
@@ -171,7 +200,9 @@ async fn ten_results_are_one_decision_point() {
     let sid = session(&r);
     let items: Vec<ContentItem> = (0..10)
         .map(|i| {
-            item(
+            item_in(
+                &r,
+                &sid,
                 &format!("n{i}"),
                 ItemKind::ToolResult,
                 &format!("result {i}"),
@@ -209,7 +240,9 @@ async fn ten_results_are_one_decision_point() {
     for i in 10..20 {
         svc.ask_content(
             &sid,
-            vec![item(
+            vec![item_in(
+                &r,
+                &sid,
                 &format!("n{i}"),
                 ItemKind::ToolResult,
                 &format!("result {i}"),
@@ -259,12 +292,18 @@ async fn a_failed_call_raises_nothing_and_judges_nothing() {
     let r = rig(&jev, |_| {});
     let sid = session(&r);
     let svc = &r.core.runner.judge;
-    svc.ask_content(&sid, vec![item("n1", ItemKind::ToolResult, "fine")]);
+    svc.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "fine")],
+    );
     until(&r, "content.judged", 1).await;
     assert_eq!(flags(&r, &sid).judged_through.as_deref(), Some("n1"));
 
     jev.set_mode(FakeMode::Down);
-    svc.ask_content(&sid, vec![item("n2", ItemKind::ToolResult, "unlucky")]);
+    svc.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n2", ItemKind::ToolResult, "unlucky")],
+    );
     let unjudged = until(&r, "content.unjudged", 1).await;
     assert_eq!(unjudged.len(), 1, "{unjudged:?}");
     assert_eq!(unjudged[0]["node"], "n2");
@@ -278,7 +317,10 @@ async fn a_failed_call_raises_nothing_and_judges_nothing() {
     // taken for judged past the item that could not be.
     jev.set_mode(FakeMode::Up);
     yes(&jev, "confidential", 0.95);
-    svc.ask_content(&sid, vec![item("n3", ItemKind::ToolResult, "later")]);
+    svc.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n3", ItemKind::ToolResult, "later")],
+    );
     until(&r, "content.judged", 2).await;
     let f = flags(&r, &sid);
     assert!(f.has(Flag::Confidential), "a later item still raises");
@@ -293,10 +335,10 @@ async fn a_refused_reservation_judges_nothing_and_costs_nothing() {
     no(&jev);
     let r = rig(&jev, |c| c.judge.shadow_limit_usd_per_day = 0.0);
     let sid = session(&r);
-    r.core
-        .runner
-        .judge
-        .ask_content(&sid, vec![item("n1", ItemKind::ToolResult, "text")]);
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "text")],
+    );
     let unjudged = until(&r, "content.unjudged", 1).await;
     assert_eq!(unjudged.len(), 1, "{unjudged:?}");
     assert_eq!(unjudged[0]["why"], "refused");
@@ -322,7 +364,9 @@ async fn an_answer_below_its_bar_raises_nothing_and_is_still_recorded() {
     let sid = session(&r);
     r.core.runner.judge.ask_content(
         &sid,
-        vec![ContentItem::new(
+        vec![from_in(
+            &r,
+            &sid,
             "n1",
             ItemKind::FetchedPage,
             "http.fetch a page",
@@ -370,7 +414,9 @@ async fn a_label_names_what_raised_it_and_a_second_raise_keeps_the_first() {
     let svc = &r.core.runner.judge;
     svc.ask_content(
         &sid,
-        vec![ContentItem::new(
+        vec![from_in(
+            &r,
+            &sid,
             "n1",
             ItemKind::FetchedPage,
             "http.fetch the changelog page",
@@ -389,7 +435,10 @@ async fn a_label_names_what_raised_it_and_a_second_raise_keeps_the_first() {
         )
     );
     assert!(f.frozen());
-    svc.ask_content(&sid, vec![item("n2", ItemKind::ToolResult, "more of it")]);
+    svc.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n2", ItemKind::ToolResult, "more of it")],
+    );
     until(&r, "content.judged", 2).await;
     let f = flags(&r, &sid);
     assert_eq!(f.labels.len(), 1);
@@ -418,9 +467,15 @@ async fn each_label_raised_is_told_once() {
             .unwrap()
             .push((session.to_string(), label.flag, label.node.clone()));
     });
-    svc.ask_content(&sid, vec![item("n1", ItemKind::ToolResult, "first")]);
+    svc.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "first")],
+    );
     until(&r, "content.judged", 1).await;
-    svc.ask_content(&sid, vec![item("n2", ItemKind::ToolResult, "second")]);
+    svc.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n2", ItemKind::ToolResult, "second")],
+    );
     until(&r, "content.judged", 2).await;
     let told = told.lock().unwrap().clone();
     assert_eq!(
@@ -452,7 +507,10 @@ async fn a_long_item_is_asked_in_pieces_and_the_bound_is_visible() {
     let piece = line.repeat(theseus_judge::builders::PIECE_CHARS / line.len());
     let text = format!("{piece}{piece}{piece}PLANTED-LAST-PIECE\n");
     let svc = &r.core.runner.judge;
-    svc.ask_content(&sid, vec![item("n1", ItemKind::ToolResult, &text)]);
+    svc.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, &text)],
+    );
     let judged = until(&r, "content.judged", 1).await;
     assert_eq!(judged[0]["pieces"], 4, "{judged:?}");
     assert_eq!(judged[0]["truncated"], false);
@@ -461,7 +519,10 @@ async fn a_long_item_is_asked_in_pieces_and_the_bound_is_visible() {
 
     // Nine pieces of text: read as far as `[content] max_pieces`, and said so.
     let huge = piece.repeat(9);
-    svc.ask_content(&sid, vec![item("n2", ItemKind::ToolResult, &huge)]);
+    svc.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n2", ItemKind::ToolResult, &huge)],
+    );
     let judged = until(&r, "content.judged", 2).await;
     assert_eq!(judged[1]["pieces"], 6, "{judged:?}");
     assert_eq!(judged[1]["truncated"], true);
@@ -475,10 +536,10 @@ async fn an_item_with_no_text_is_not_asked() {
     no(&jev);
     let r = rig(&jev, |_| {});
     let sid = session(&r);
-    r.core
-        .runner
-        .judge
-        .ask_content(&sid, vec![item("n1", ItemKind::ToolResult, "  \n")]);
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "  \n")],
+    );
     for _ in 0..100 {
         if flags(&r, &sid).judged_through.is_some() {
             break;
@@ -541,7 +602,10 @@ async fn a_pending_session_wakes_its_waiter_when_the_items_land() {
         svc.wait_judged(&sid, Duration::from_millis(10)).await,
         "nothing queued: nothing to wait for"
     );
-    svc.ask_content(&sid, vec![item("n1", ItemKind::ToolResult, "text")]);
+    svc.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "text")],
+    );
     assert!(svc.content_pending(&sid));
     assert!(
         !svc.wait_judged(&sid, Duration::from_millis(150)).await,
@@ -570,10 +634,10 @@ async fn with_it_off_nothing_is_asked() {
             }
         });
         let sid = session(&r);
-        r.core
-            .runner
-            .judge
-            .ask_content(&sid, vec![item("n1", ItemKind::ToolResult, "text")]);
+        r.core.runner.judge.ask_content(
+            &sid,
+            vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "text")],
+        );
         assert!(!r.core.runner.judge.content_pending(&sid), "{how}");
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(jev.seen().is_empty(), "{how}");

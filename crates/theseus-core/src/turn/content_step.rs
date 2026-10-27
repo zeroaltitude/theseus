@@ -10,9 +10,27 @@ use crate::judge::content::ContentItem;
 
 impl TurnRunner {
     /// A message node a turn just wrote, in the session `session`.
-    pub(super) fn content_message(&self, session: &str, node: &Node, kind: ItemKind, source: &str) {
+    pub(crate) fn content_message(&self, session: &str, node: &Node, kind: ItemKind, source: &str) {
         if let Some(item) = ContentItem::of_message(node, kind, source) {
             self.judge.ask_content(session, vec![item]);
+        }
+    }
+
+    /// Whose words a message in `session` is, for the injection question
+    /// (theseus-9ymz0). The owner's own text is never asked it (the owner,
+    /// 2026-10-17: "my own DM or channel text should never cause a flag") —
+    /// **his own**, and no one else's.
+    ///
+    /// A private place is the CLI, the web UI, a DM with an owner, and a guild
+    /// channel the bindings bind privately: places where the only person who
+    /// speaks is an owner. Every other place is shared, and a guest there is
+    /// exactly who an injection would come from, so their message is asked like
+    /// any other text Theseus did not write. Erring toward `PersonMessage` errs
+    /// toward asking, which is the safe direction.
+    pub(crate) fn message_kind(&self, session: &str) -> ItemKind {
+        match self.view_of(session).class {
+            crate::places::PlaceClass::Private => ItemKind::OperatorMessage,
+            crate::places::PlaceClass::Shared => ItemKind::PersonMessage,
         }
     }
 

@@ -41,7 +41,9 @@ async fn rig() -> Rig {
 async fn dm_session(r: &Rig) -> String {
     r.say((ANA, "ana"), None, "hello");
     r.until("the reply", || {
-        r.posted(ANA_DM).iter().any(|m| m.versions[0].contains("Hello."))
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.versions[0].contains("Hello."))
     })
     .await;
     r.core
@@ -81,7 +83,11 @@ fn carrying(r: &Rig, sid: &str, flag: Flag) -> bool {
 fn notes(r: &Rig) -> Vec<Msg> {
     r.posted(ANA_DM)
         .into_iter()
-        .filter(|m| m.buttons.iter().any(|b| b.custom_id.starts_with("content:")))
+        .filter(|m| {
+            m.buttons
+                .iter()
+                .any(|b| b.custom_id.starts_with("content:"))
+        })
         .collect()
 }
 
@@ -143,9 +149,11 @@ async fn a_label_is_one_message_with_one_remove_button() {
     assert!(raise(&r, &sid, &label(Flag::Confidential)));
     r.until("the second note", || notes(&r).len() == 2).await;
     let c = notes(&r).remove(1);
-    assert!(c.versions.last().unwrap().starts_with(
-        "⚑ **confidential** — China-origin models are off for this session"
-    ));
+    assert!(c
+        .versions
+        .last()
+        .unwrap()
+        .starts_with("⚑ **confidential** — China-origin models are off for this session"));
 }
 
 /// The owner's press removes the flag as the presser and settles the
@@ -162,8 +170,11 @@ async fn the_owners_press_removes_the_label_and_a_guests_is_refused() {
     // A guest, on a copy in the lab: refused, ledgered, and the label stays.
     let copy = forge(&r, LAB, &m.buttons[0].custom_id).await;
     let p = r.press(&copy, "Remove", (BEN, "ben"));
-    r.until("ben is refused", told(&r, &p, "🔐 Your removal did not count"))
-        .await;
+    r.until(
+        "ben is refused",
+        told(&r, &p, "🔐 Your removal did not count"),
+    )
+    .await;
     assert!(carrying(&r, &sid, Flag::Injection));
 
     // The owner, in the DM: the label goes and the message settles. The stand-in
@@ -171,8 +182,10 @@ async fn the_owners_press_removes_the_label_and_a_guests_is_refused() {
     // the acknowledgement (a deferred update), then the original response edited
     // to say who removed it, with no components.
     let pressed = r.press(&m.id, "Remove", (ANA, "ana"));
-    r.until("the label is removed", || !carrying(&r, &sid, Flag::Injection))
-        .await;
+    r.until("the label is removed", || {
+        !carrying(&r, &sid, Flag::Injection)
+    })
+    .await;
     r.until("the message settles", || {
         r.fake.replies().iter().any(|x| {
             x.interaction.as_deref() == Some(pressed.as_str())

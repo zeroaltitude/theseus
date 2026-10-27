@@ -269,8 +269,12 @@ impl From<Stored> for ContentFlags {
 /// Equal when what is stored is.
 impl PartialEq for ContentFlags {
     fn eq(&self, o: &Self) -> bool {
-        (&self.labels, &self.removed, &self.judged_through, &self.unjudged)
-            == (&o.labels, &o.removed, &o.judged_through, &o.unjudged)
+        (
+            &self.labels,
+            &self.removed,
+            &self.judged_through,
+            &self.unjudged,
+        ) == (&o.labels, &o.removed, &o.judged_through, &o.unjudged)
     }
 }
 
@@ -719,8 +723,13 @@ mod tests {
     fn the_freeze_refuses_what_acts_and_notify_refuses_nothing() {
         let mut f = ContentFlags::default();
         f.raise(label(Flag::Injection));
-        let why = refusal(Some(&f), InjectionMode::Refuse, ToolClass::Write, "fs.write")
-            .expect("a write is refused");
+        let why = refusal(
+            Some(&f),
+            InjectionMode::Refuse,
+            ToolClass::Write,
+            "fs.write",
+        )
+        .expect("a write is refused");
         assert!(why.contains("theseus content remove"), "{why}");
         assert!(why.contains("fs.write was not run"), "{why}");
         assert!(
@@ -761,11 +770,22 @@ mod tests {
         // A local-read NAME at a class that acts is still refused: the name
         // alone never clears it.
         assert!(
-            refusal(Some(&f), InjectionMode::Refuse, ToolClass::Write, "fs.write").is_some(),
+            refusal(
+                Some(&f),
+                InjectionMode::Refuse,
+                ToolClass::Write,
+                "fs.write"
+            )
+            .is_some(),
             "the allowlist is a narrowing of Read, never a widening"
         );
         assert_eq!(
-            refusal(Some(&f), InjectionMode::Notify, ToolClass::Write, "fs.write"),
+            refusal(
+                Some(&f),
+                InjectionMode::Notify,
+                ToolClass::Write,
+                "fs.write"
+            ),
             None,
             "notify refuses nothing"
         );
@@ -789,7 +809,13 @@ mod tests {
     fn only_our_own_acknowledgements_go_unjudged() {
         assert!(!judges("task.update"));
         assert!(!judges("task.close"));
-        for t in ["fs.read", "http.fetch", "web.search", "proc.run", "fs.write"] {
+        for t in [
+            "fs.read",
+            "http.fetch",
+            "web.search",
+            "proc.run",
+            "fs.write",
+        ] {
             assert!(judges(t), "{t}");
         }
     }
@@ -858,7 +884,10 @@ mod tests {
     /// task's REPORT is asked though its BRIEF is not.
     #[test]
     fn only_the_owners_words_and_a_brief_escape_the_injection_question() {
-        assert!(!ItemKind::OperatorMessage.asks_injection(), "the owner's own");
+        assert!(
+            !ItemKind::OperatorMessage.asks_injection(),
+            "the owner's own"
+        );
         assert!(
             !ItemKind::TaskBrief.asks_injection(),
             "a brief is our own parent instructing its child: steering by design, \
@@ -914,11 +943,7 @@ mod tests {
         // n5 — and the span from the mark still holds n2, n3, n4.
         let mut back: ContentFlags =
             serde_json::from_value(serde_json::to_value(&f).unwrap()).expect("round trip");
-        assert!(!back.judged_run(
-            &[n("n2"), n("n3"), n("n4"), n("n5")],
-            &[n("n5")],
-            "n5"
-        ));
+        assert!(!back.judged_run(&[n("n2"), n("n3"), n("n4"), n("n5")], &[n("n5")], "n5"));
         assert_eq!(
             back.judged_through.as_deref(),
             Some("n1"),

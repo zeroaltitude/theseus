@@ -227,6 +227,12 @@ impl TurnRunner {
             helper: None,
         };
         let hold = session_hold(tc)?;
+        // The brief is an item like any other, and the draft's session is
+        // judged by it (theseus-9ymz0). It is kept out here so it can be queued
+        // after its frame is written: without that the draft's own session is
+        // never judged, so its first request finds an unjudged item, waits,
+        // times out and ends `draft_not_admitted` — no draft would ever run.
+        let briefed: std::sync::Mutex<Option<Node>> = std::sync::Mutex::new(None);
         let opened = tc
             .kernel
             .open_task_at(tc.guard, &d.correlation_id, want, how, |task| {
@@ -274,6 +280,9 @@ impl TurnRunner {
                     )?],
                 };
                 records.push(brief.record()?);
+                *briefed
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(brief);
                 // A draft of a private session is private from its first call
                 // (theseus-b0ozi, LOW-5).
                 records.extend(crate::google::private::inherited(
@@ -294,6 +303,17 @@ impl TurnRunner {
             })?;
         if let Some(target) = &d.draft.target {
             tc.outbox.task_bound(&opened.task.session_id, target);
+        }
+        let briefed = briefed
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(node) = briefed {
+            self.content_message(
+                &opened.task.session_id,
+                &node,
+                ItemKind::TaskBrief,
+                "draft brief",
+            );
         }
         Ok(())
     }

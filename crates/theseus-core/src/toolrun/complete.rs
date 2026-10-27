@@ -10,6 +10,21 @@ use crate::fact;
 use crate::node::Node;
 
 impl ToolRuntime {
+    /// A result node is written: its `tool.ended` row, and the turn told that
+    /// the node is in its transcript. Six modules end a call this way; it
+    /// lives here, beside the completion frame it follows, rather than in
+    /// `toolrun.rs`, which is at its shape ceiling.
+    pub(super) fn announce_end(tc: &TurnCtx<'_>, node: &Node) {
+        tc.record(&fact::tool::ToolEnded {
+            session_id: tc.session_id,
+            turn_id: tc.turn_id,
+            node,
+        });
+        tc.node_written(node);
+    }
+}
+
+impl ToolRuntime {
     /// An in-process result's completion frame, with the records that ride
     /// in it (an edit's pre-images, theseus-23rk), and what the kernel did
     /// with it. A result marked external (DD5) that its session is the first

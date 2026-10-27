@@ -871,15 +871,6 @@ impl ToolRuntime {
         self.write_result(tc, &self.result_node(tc, r))
     }
 
-    fn announce_end(tc: &TurnCtx<'_>, node: &Node) {
-        tc.record(&fact::tool::ToolEnded {
-            session_id: tc.session_id,
-            turn_id: tc.turn_id,
-            node,
-        });
-        tc.node_written(node);
-    }
-
     /// Write a result node on its own frame and announce it, with the hold
     /// it brings its session in that frame when it is outside text (a job
     /// that connected out of L1, 18c).

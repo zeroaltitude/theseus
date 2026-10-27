@@ -100,7 +100,11 @@ fn content_lists_a_sessions_labels() {
         vec![(
             "session.list",
             labelled_list(&[
-                ("injection", "fetched_page", "http.fetch notes.example/today"),
+                (
+                    "injection",
+                    "fetched_page",
+                    "http.fetch notes.example/today",
+                ),
                 ("secret", "tool_result", "fs.read /srv/open/.env"),
             ]),
         )],
@@ -132,11 +136,19 @@ fn content_remove_takes_one_label_or_all_of_them() {
         vec![
             (
                 "session.list",
-                labelled_list(&[("injection", "fetched_page", "http.fetch notes.example/today")]),
+                labelled_list(&[(
+                    "injection",
+                    "fetched_page",
+                    "http.fetch notes.example/today",
+                )]),
             ),
             (
                 "content.unlabel",
-                unlabelled("injection", "fetched_page", "http.fetch notes.example/today"),
+                unlabelled(
+                    "injection",
+                    "fetched_page",
+                    "http.fetch notes.example/today",
+                ),
             ),
         ],
     );
@@ -158,13 +170,21 @@ fn content_remove_takes_one_label_or_all_of_them() {
             (
                 "session.list",
                 labelled_list(&[
-                    ("injection", "fetched_page", "http.fetch notes.example/today"),
+                    (
+                        "injection",
+                        "fetched_page",
+                        "http.fetch notes.example/today",
+                    ),
                     ("secret", "tool_result", "fs.read /srv/open/.env"),
                 ]),
             ),
             (
                 "content.unlabel",
-                unlabelled("injection", "fetched_page", "http.fetch notes.example/today"),
+                unlabelled(
+                    "injection",
+                    "fetched_page",
+                    "http.fetch notes.example/today",
+                ),
             ),
             (
                 "content.unlabel",
@@ -197,14 +217,23 @@ fn content_remove_is_refused_inside_a_job_and_takes_only_a_flag() {
         out.contains("theseus content remove refused: it is the operator's to run"),
         "{out}"
     );
-    assert!(!out.contains("content.unlabel"), "nothing was removed: {out}");
+    assert!(
+        !out.contains("content.unlabel"),
+        "nothing was removed: {out}"
+    );
     assert!(out.contains("--- exit 1\n"), "{out}");
     // A usage error is the CLI's own, before it connects to anything.
     let bad = Command::new(THESEUS)
-        .args(["--socket", "/nonexistent/sock", "content", "remove", S, "open"])
+        .args([
+            "--socket",
+            "/nonexistent/sock",
+            "content",
+            "remove",
+            S,
+            "open",
+        ])
         .output()
         .unwrap();
     assert_eq!(bad.status.code(), Some(2), "{bad:?}");
     assert!(String::from_utf8_lossy(&bad.stderr).contains("injection"));
 }
-

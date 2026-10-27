@@ -87,7 +87,7 @@ pub fn flags_of(store: &crate::store::Store, session: &str) -> Option<ContentFla
 /// session. An operator's message, a brief or a report (a user message of any
 /// origin) and a tool result, but not the acknowledgement of a tool whose
 /// answer is Theseus's own fixed string (`content::judges`).
-fn is_item(node: &Stub) -> bool {
+pub(crate) fn is_item(node: &Stub) -> bool {
     match node.kind {
         Kind::UserMessage => true,
         Kind::ToolResult => match &node.body {

@@ -52,6 +52,7 @@ pub(crate) fn label_view(l: &Label) -> LabelView {
 fn what_raised(l: &Label) -> String {
     let what = match l.kind {
         ItemKind::OperatorMessage => "your message",
+        ItemKind::PersonMessage => "a message from someone else here",
         ItemKind::ToolResult => "a tool result",
         ItemKind::FetchedPage => "a fetched page",
         ItemKind::SearchResult => "a search result",
@@ -120,11 +121,9 @@ impl Core {
             "flag": l.flag.as_str(),
             "text": label_notice(l, self.cfg.content.injection),
         });
-        let post = self.outbox.post_for(
-            session_id,
-            rec.execution_id.as_deref().unwrap_or(""),
-            body,
-        )?;
+        let post =
+            self.outbox
+                .post_for(session_id, rec.execution_id.as_deref().unwrap_or(""), body)?;
         Ok(post.is_some())
     }
 

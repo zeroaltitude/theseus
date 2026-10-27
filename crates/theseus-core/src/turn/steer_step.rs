@@ -124,7 +124,7 @@ impl TurnRunner {
         for (node, author) in &nodes {
             t.tc.node_written(node);
             self.inbound_point(t, node, author, true);
-            self.content_message(sid, node, ItemKind::OperatorMessage, "operator steer");
+            self.content_message(sid, node, self.message_kind(sid), "operator steer");
         }
         Ok(())
     }

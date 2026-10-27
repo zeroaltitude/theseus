@@ -143,7 +143,9 @@ mod tests {
     fn the_list_names_the_command_that_clears_each_label() {
         let lines = labels_lines("ses_a1b2", &[label("injection"), label("personal")]);
         assert_eq!(lines[0], "ses_a1b2: 2 content labels");
-        assert!(lines.iter().any(|l| l.contains("writes, programs and sends are refused")));
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("writes, programs and sends are refused")));
         assert!(lines
             .iter()
             .any(|l| l.contains("theseus content remove ses_a1b2 personal")));
