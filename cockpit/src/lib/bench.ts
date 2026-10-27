@@ -19,7 +19,7 @@ export interface ReportFiles { name: string; md?: string; json?: string; csv?: s
 export const GITHUB_DOCS = 'https://github.com/zeroaltitude/theseus/blob/main/docs/benchmarks/'
 
 /** The suites a report's name can start with after its date (`docs/benchmarks/README.md`, "Its name"). */
-export const SUITES = ['terminal-bench', 'swe-bench', 'harbor', 'gate-bench', 'memory-exam', 'retrieval', 'recall', 'async', 'context'] as const
+export const SUITES = ['terminal-bench', 'swe-bench', 'harbor', 'bughunt-rs', 'gate-bench', 'memory-exam', 'retrieval', 'recall', 'async', 'context'] as const
 
 /** A report's name from an embedded file's path: `…/2026-10-04-terminal-bench-first-full-run.csv` → its stem. */
 export function reportName(path: string): string {
