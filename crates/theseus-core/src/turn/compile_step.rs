@@ -59,8 +59,12 @@ impl TurnRunner {
     ) {
         // A check sees the task it checks by title and state (theseus-w8ys).
         // The owner's graph and project are not a draft's (theseus-a1wvq.13).
+        // Nor are they a restricted model's: their titles and objectives are
+        // written by any session in scope, and a label belongs to the session
+        // that raised it (theseus-9ymz0, the review's B1).
         let draft = t.tc.draft.is_some();
-        let tasks = (!draft)
+        let shared = !draft && !self.restricted_profile(&t.target.profile);
+        let tasks = shared
             .then(|| crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled))
             .flatten();
         // The wakes this conversation has pending, in the same last block
@@ -88,11 +92,11 @@ impl TurnRunner {
         Self::deliverable_hint(t, compiled);
         // The place's other threads, for a turn that asks across them (theseus-98bz.9);
         // their cards are the owner's material, so a draft has none (theseus-rcb2u).
-        if !draft {
+        if shared {
             Self::digest_line(t, compiled);
         }
         // The project this conversation serves, last of all (theseus-n5ui2).
-        let project = (!draft)
+        let project = shared
             .then(|| crate::project::slice::attach(&self.store, &self.kernel, session, compiled))
             .flatten();
         (tasks, project)
@@ -118,7 +122,7 @@ impl TurnRunner {
             Some(id) => self.store.get_compilation(id)?,
             None => None,
         };
-        let (nodes, sources) = self.recall_view(t, nodes);
+        let (nodes, sources) = self.recall_view(t, nodes, &spec.profile);
         // A big old attachment is a stub at a cold rewrite, and in the warm
         // window after it (theseus-ezeg): decided at the turn's first compile.
         let cold = (i == 0).then(|| self.cold_now(sid, session, spec));

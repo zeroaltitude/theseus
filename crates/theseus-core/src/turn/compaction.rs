@@ -199,7 +199,7 @@ impl TurnRunner {
         drops: Vec<BudgetDrop>,
     ) -> anyhow::Result<Compiled> {
         let nodes = t.tc.store.transcript(t.tc.session_id)?;
-        let (nodes, sources) = self.recall_view(t, nodes);
+        let (nodes, sources) = self.recall_view(t, nodes, &base.spec.profile);
         let input = CompileInput {
             nodes: &nodes,
             last_position: self.store.last_position(),

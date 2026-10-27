@@ -177,7 +177,7 @@ impl ItemKind {
     /// messages included: he can paste a key or a confidential document, and he
     /// wants that to disqualify a model of restricted origin.
     pub fn asks_injection(self) -> bool {
-        theseus_judge::builders::content::asks_injection(self.as_str())
+        theseus_judge::builders::asks_injection(self.as_str())
     }
 }
 

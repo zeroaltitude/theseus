@@ -729,7 +729,7 @@ mod sweep_names;
 
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use compare::{CompareInput, CompareReply};
-pub use content::{ContentInput, OPERATOR_MESSAGE, PIECE_CHARS};
+pub use content::{asks_injection, ContentInput, OPERATOR_MESSAGE, PIECE_CHARS};
 pub use cross::{CrossInput, CrossNote, CROSS_NOTES};
 pub use families::{FamiliesInput, FamilyItem, FamilyTool, FAMILIES_MAX, FAMILY_TOOLS};
 pub use heard::{HeardInput, HeardOverlap, SAID};

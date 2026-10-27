@@ -34,6 +34,9 @@ pub struct Steered {
     pub text: String,
     pub attachments: Vec<Attachment>,
     pub author: String,
+    /// The owner wrote it, from a private place (`Core::owner_input`): the
+    /// only words the injection question is left out of.
+    pub owner: bool,
     /// The code of the surface it was written from (`surface::code_of`).
     pub surface: Option<String>,
     /// The surface's message it answers (a Discord message id).
@@ -431,6 +434,7 @@ mod tests {
             text: text.into(),
             attachments: vec![],
             author: "test".into(),
+            owner: false,
             surface: None,
             reply_to: None,
             arrived: Instant::now(),

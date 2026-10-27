@@ -1090,7 +1090,7 @@ impl TurnRunner {
             .cloned()
             .collect();
         let (nodes, sources) = match t.route.detour_recall {
-            true => self.recall_view(t, nodes),
+            true => self.recall_view(t, nodes, &spec.profile),
             false => (nodes, crate::recall::render::Sources::default()),
         };
         // The owner's standing records ride a detour too (theseus-a7vi): they
@@ -1128,8 +1128,11 @@ impl TurnRunner {
         tail.persona = compiled.est_tokens.saturating_sub(before);
         // The project the conversation serves, last of all as `tail_blocks`
         // does (theseus-v4u66): a cheap turn about it is as wrong without it.
-        let project =
-            crate::project::slice::attach(&self.store, &self.kernel, session, &mut compiled);
+        let project = (!self.restricted_profile(&spec.profile))
+            .then(|| {
+                crate::project::slice::attach(&self.store, &self.kernel, session, &mut compiled)
+            })
+            .flatten();
         // The board notes this request's loaded set (theseus-zs6mm).
         self.defer_noted(t, &detour, &compiled);
         let last = self.store.last_position();

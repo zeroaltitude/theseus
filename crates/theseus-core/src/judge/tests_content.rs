@@ -110,6 +110,40 @@ fn from_in(
     ContentItem::new(node, kind, source, text)
 }
 
+/// A tool result node planted in the session's transcript, as production has
+/// them: a re-ask reads the node back from the transcript by id.
+fn plant_result(r: &Rig, sid: &str, node: &str, text: &str) -> Node {
+    let mut n = Node::tool_result(
+        sid,
+        Some("trn_1"),
+        Some(0),
+        Body::ToolResult {
+            tool_use_id: format!("tu_{node}"),
+            tool: "fs.read".into(),
+            status: ResultStatus::Ok,
+            is_error: false,
+            content: text.into(),
+            correlation_id: None,
+            bytes_total: text.len() as u64,
+            truncated: false,
+            full_ref: None,
+            duration_ms: None,
+            late: false,
+            meta: Value::Null,
+            image: None,
+            external: None,
+        },
+    );
+    n.id = node.to_string();
+    r.core.store.append(&[n.record().unwrap()]).unwrap();
+    n
+}
+
+/// [`plant_result`], and its item.
+fn result_in(r: &Rig, sid: &str, node: &str, text: &str) -> ContentItem {
+    ContentItem::of_result(&plant_result(r, sid, node, text)).unwrap()
+}
+
 /// The question ids a request carried, whatever its namespace.
 fn asked(body: &Value) -> Vec<String> {
     let mut q: Vec<String> = body["questions"]
@@ -283,8 +317,7 @@ async fn jev_batches(r: &Rig) -> std::collections::BTreeSet<String> {
 }
 
 /// Test 18. A call that fails writes `content.unjudged`, raises nothing, and
-/// leaves `judged_through` where it was; and the session never passes that
-/// item afterwards, in this process, though a later batch is judged.
+/// leaves `judged_through` where it was, the node on `unjudged` for a re-ask.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_call_raises_nothing_and_judges_nothing() {
     let jev = FakeJev::start().unwrap();
@@ -300,10 +333,7 @@ async fn a_failed_call_raises_nothing_and_judges_nothing() {
     assert_eq!(flags(&r, &sid).judged_through.as_deref(), Some("n1"));
 
     jev.set_mode(FakeMode::Down);
-    svc.ask_content(
-        &sid,
-        vec![item_in(&r, &sid, "n2", ItemKind::ToolResult, "unlucky")],
-    );
+    svc.ask_content(&sid, vec![result_in(&r, &sid, "n2", "unlucky")]);
     let unjudged = until(&r, "content.unjudged", 1).await;
     assert_eq!(unjudged.len(), 1, "{unjudged:?}");
     assert_eq!(unjudged[0]["node"], "n2");
@@ -311,20 +341,134 @@ async fn a_failed_call_raises_nothing_and_judges_nothing() {
     let f = flags(&r, &sid);
     assert!(f.labels.is_empty(), "nothing raised");
     assert_eq!(f.judged_through.as_deref(), Some("n1"), "not advanced");
+    assert_eq!(f.unjudged, ["n2"], "the node is kept for a re-ask");
     assert_eq!(rows(&r, "content.judged").len(), 1, "n2 was not judged");
+}
 
-    // Jev back: a later item is judged and may raise, but the session is not
-    // taken for judged past the item that could not be.
+/// theseus-9ymz0, the review's B4. One failed judgment does not take the
+/// session off a restricted model for good: the next batch queued for it
+/// re-asks the node, read back from the transcript by id, in the same decision
+/// point, and the mark moves past both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_next_batch_re_asks_an_unjudged_node_and_the_mark_moves_past_it() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |_| {});
+    let sid = session(&r);
+    let svc = &r.core.runner.judge;
+    svc.ask_content(&sid, vec![result_in(&r, &sid, "n1", "fine")]);
+    until(&r, "content.judged", 1).await;
+    jev.set_mode(FakeMode::Down);
+    svc.ask_content(&sid, vec![result_in(&r, &sid, "n2", "unlucky")]);
+    until(&r, "content.unjudged", 1).await;
+    assert_eq!(flags(&r, &sid).judged_through.as_deref(), Some("n1"));
+
     jev.set_mode(FakeMode::Up);
     yes(&jev, "confidential", 0.95);
-    svc.ask_content(
-        &sid,
-        vec![item_in(&r, &sid, "n3", ItemKind::ToolResult, "later")],
+    let points = svc
+        .content
+        .points
+        .load(std::sync::atomic::Ordering::Relaxed);
+    svc.ask_content(&sid, vec![result_in(&r, &sid, "n3", "later")]);
+    let judged = until(&r, "content.judged", 3).await;
+    let nodes: Vec<&str> = judged.iter().filter_map(|d| d["node"].as_str()).collect();
+    assert!(nodes.contains(&"n2"), "n2 was asked again: {nodes:?}");
+    assert_eq!(
+        svc.content
+            .points
+            .load(std::sync::atomic::Ordering::Relaxed)
+            - points,
+        1,
+        "and it rode the later item's decision point"
     );
-    until(&r, "content.judged", 2).await;
     let f = flags(&r, &sid);
     assert!(f.has(Flag::Confidential), "a later item still raises");
-    assert_eq!(f.judged_through.as_deref(), Some("n1"), "never past n2");
+    assert_eq!(f.judged_through.as_deref(), Some("n3"), "past n2 now");
+    assert!(f.unjudged.is_empty(), "the worklist is drained: {f:?}");
+}
+
+/// A tool result with no text is never queued (`ContentItem::of_result`), so it
+/// is no item to the mark either: counted as one, it would stand in the span
+/// from the mark for good, and every later request to a restricted model would
+/// wait on a verdict that was never going to come.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_empty_result_does_not_hold_the_mark() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |_| {});
+    let sid = session(&r);
+    let svc = &r.core.runner.judge;
+    svc.ask_content(&sid, vec![result_in(&r, &sid, "n1", "fine")]);
+    until(&r, "content.judged", 1).await;
+    plant_result(&r, &sid, "n2", "");
+    svc.ask_content(&sid, vec![result_in(&r, &sid, "n3", "later")]);
+    until(&r, "content.judged", 2).await;
+    let f = flags(&r, &sid);
+    assert_eq!(f.judged_through.as_deref(), Some("n3"), "{f:?}");
+    let nodes = r.core.store.transcript(&sid).unwrap();
+    assert!(
+        !crate::content_wait::unjudged(&nodes, Some(&f)),
+        "nothing is outstanding"
+    );
+}
+
+/// A node on the worklist that the transcript no longer holds is dropped from
+/// it, not retried for ever, and does not stop the mark.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_node_the_transcript_no_longer_holds_is_dropped_from_the_worklist() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |_| {});
+    let sid = session(&r);
+    let svc = &r.core.runner.judge;
+    r.core
+        .store
+        .update_session(&sid, |rec: &mut SessionRecord| {
+            let mut f = ContentFlags::default();
+            f.could_not_judge("nd_gone");
+            rec.data = Some(Box::new(f));
+            Ok(vec![])
+        })
+        .unwrap();
+    svc.ask_content(&sid, vec![result_in(&r, &sid, "n1", "fine")]);
+    until(&r, "content.judged", 1).await;
+    let f = flags(&r, &sid);
+    assert!(f.unjudged.is_empty(), "dropped: {f:?}");
+    assert_eq!(f.judged_through.as_deref(), Some("n1"));
+    assert_eq!(rows(&r, "content.judged").len(), 1, "it was never asked");
+}
+
+/// A re-ask that fails again leaves the node where it is and starts nothing
+/// more: the worklist is read when a batch is queued, never on a timer, so a
+/// Jev that stays down costs one decision point per batch and no loop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_failure_does_not_spin() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |_| {});
+    let sid = session(&r);
+    let svc = &r.core.runner.judge;
+    jev.set_mode(FakeMode::Down);
+    svc.ask_content(&sid, vec![result_in(&r, &sid, "n1", "one")]);
+    until(&r, "content.unjudged", 1).await;
+    svc.ask_content(&sid, vec![result_in(&r, &sid, "n2", "two")]);
+    until(&r, "content.unjudged", 3).await;
+    let points = svc
+        .content
+        .points
+        .load(std::sync::atomic::Ordering::Relaxed);
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(
+        svc.content
+            .points
+            .load(std::sync::atomic::Ordering::Relaxed),
+        points,
+        "nothing asked on its own"
+    );
+    let f = flags(&r, &sid);
+    assert_eq!(f.unjudged, ["n1", "n2"], "each once: {f:?}");
+    assert_eq!(f.judged_through, None);
+    assert!(!svc.content_pending(&sid), "nothing is left queued");
 }
 
 /// Test 19. A reservation the day's budget refuses writes `content.unjudged`
@@ -544,9 +688,15 @@ async fn an_item_with_no_text_is_not_asked() {
     no(&jev);
     let r = rig(&jev, |_| {});
     let sid = session(&r);
+    // A node with no text is no item (`content_wait::is_item`): the mark cannot
+    // stand on it, and it does not stand in the mark's way. Queued all the
+    // same, it is not asked and rides the batch.
     r.core.runner.judge.ask_content(
         &sid,
-        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "  \n")],
+        vec![
+            item_in(&r, &sid, "n1", ItemKind::ToolResult, "  \n"),
+            item_in(&r, &sid, "n2", ItemKind::ToolResult, "text"),
+        ],
     );
     for _ in 0..100 {
         if flags(&r, &sid).judged_through.is_some() {
@@ -554,9 +704,10 @@ async fn an_item_with_no_text_is_not_asked() {
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert_eq!(flags(&r, &sid).judged_through.as_deref(), Some("n1"));
-    assert!(jev.seen().is_empty());
-    assert!(rows(&r, "content.judged").is_empty());
+    assert_eq!(flags(&r, &sid).judged_through.as_deref(), Some("n2"));
+    let judged = rows(&r, "content.judged");
+    assert_eq!(judged.len(), 1, "only n2 was asked: {judged:?}");
+    assert_eq!(judged[0]["node"], "n2");
 
     let result = |tool: &str, text: &str| {
         Node::tool_result(

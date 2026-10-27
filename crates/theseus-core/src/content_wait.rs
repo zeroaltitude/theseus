@@ -20,7 +20,7 @@ use std::pin::Pin;
 
 use crate::content::ContentFlags;
 use crate::node::Body;
-use crate::stub::{Kind, Stub};
+use crate::stub::Stub;
 
 /// What a turn waits on: the next time the judge may have moved a session's
 /// `judged_through`. The future may end early or never end; the caller bounds
@@ -88,12 +88,14 @@ pub fn flags_of(store: &crate::store::Store, session: &str) -> Option<ContentFla
 /// origin) and a tool result, but not the acknowledgement of a tool whose
 /// answer is Theseus's own fixed string (`content::judges`).
 pub(crate) fn is_item(node: &Stub) -> bool {
-    match node.kind {
-        Kind::UserMessage => true,
-        Kind::ToolResult => match &node.body {
-            Body::ToolResult { tool, .. } => crate::content::judges(tool),
-            _ => false,
-        },
+    match &node.body {
+        // A message or result with no text is never asked (`ContentItem::of_message`,
+        // `of_result`), so it is no item: counted, it would stand in the mark's
+        // way for good.
+        Body::UserMessage { text, .. } => !text.trim().is_empty(),
+        Body::ToolResult { tool, content, .. } => {
+            crate::content::judges(tool) && !content.trim().is_empty()
+        }
         _ => false,
     }
 }
