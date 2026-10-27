@@ -674,6 +674,12 @@ not_reached() {
     if [ -n "$seen" ]; then left+=("$name"); fi
     if [ "$name" = "$phase_now" ]; then seen=1; fi
   done
+  # machine_order must stay in step with machine_checks: a phase in neither
+  # list silently prints no NOT RUN line at all (theseus-zsddv).
+  case "$phase_now" in
+    "" | "lock wait") ;;
+    *) [ -n "$seen" ] || echo "gate: BUG, the failed phase \"$phase_now\" is not in machine_order, so the NOT RUN list is missing" ;;
+  esac
   if [ "${#left[@]}" -gt 0 ]; then
     echo "gate: NOT RUN, no verdict, after the failure in $phase_now: ${left[*]}"
   fi
