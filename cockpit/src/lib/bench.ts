@@ -350,12 +350,19 @@ export function family(key: string): string {
  *  key `HARNESSES` lists itself (`theseus-batching`, the paragraph ablation) is its own arm. The raw `key` is kept, so a
  *  tip can still say which variant a point was. */
 export const harness = (key: string): Harness => {
-  const own = HARNESSES.find((h) => h.key === key) ?? HARNESSES.find((h) => h.key === family(key))
+  const own = HARNESSES.find((h) => h.key === sameArm(key))
   return own ? { ...own, key } : { key, name: key, slot: null }
 }
 
-/** The placed points that are Theseus's, under any of its keys (the Verdict's subject). */
-export const theseusOf = (placed: readonly Placed[]): Placed[] => placed.filter((p) => family(p.point.harness) === 'theseus')
+/** A key's arm: the key itself when `HARNESSES` lists it (`theseus-batching` is its own arm), else its family. The one
+ *  rule the colour, the legend, the series and the Verdict's subject share, so a mark is never classed two ways. */
+export const sameArm = (key: string): string => (HARNESSES.some((h) => h.key === key) ? key : family(key))
+
+/** The arms the placed points belong to, in first-seen order (the legend's keys and the chart's series). */
+export const armsOf = (placed: readonly Placed[]): string[] => [...new Set(placed.map((p) => sameArm(p.point.harness)))]
+
+/** The placed points that are Theseus's, under any of its keys but a listed ablation (the Verdict's subject). */
+export const theseusOf = (placed: readonly Placed[]): Placed[] => placed.filter((p) => sameArm(p.point.harness) === 'theseus')
 
 /** Whether a point's name is drawn on the chart: the frontier's, any arm with no palette slot (it is told by name, not
  *  colour), and Theseus's whether or not it is dominated. A dominated name is drawn in the muted ink by the view. */
@@ -890,7 +897,7 @@ export function points(set: TaskSet, csv: string, json: string | undefined, md: 
     })
   }
   // Harness by harness in the palette's order, a harness's runs by date.
-  const rank = (h: string) => { const i = HARNESSES.findIndex((x) => x.key === (HARNESSES.some((y) => y.key === h) ? h : family(h))); return i < 0 ? HARNESSES.length : i }
+  const rank = (h: string) => { const i = HARNESSES.findIndex((x) => x.key === sameArm(h)); return i < 0 ? HARNESSES.length : i }
   return out.sort((a, b) => rank(a.harness) - rank(b.harness) || a.date.localeCompare(b.date))
 }
 

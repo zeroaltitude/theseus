@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { family, frontier, harness, property, showsName, theseusOf, type Point } from '../src/lib/bench.ts'
+import { armsOf, family, frontier, HARNESSES, harness, property, sameArm, showsName, theseusOf, type Point } from '../src/lib/bench.ts'
 
 const DIR = new URL('../../docs/benchmarks/', import.meta.url)
 
@@ -56,4 +56,30 @@ test('family agrees with manifest.py on every key the published summaries carry'
   assert.equal(py.status, 0, py.stderr)
   const oracle = JSON.parse(py.stdout) as Record<string, string>
   for (const k of list) assert.equal(family(k), oracle[k], k)
+})
+
+// theseus-4zea0: an arm `HARNESSES` lists (the paragraph ablation) is not Theseus, in the Verdict or the legend.
+const both = () => frontier([pt('theseus', 4, 0.6), pt('theseus-batching', 3, 0.65), pt('claude-code', 1, 0.9)], property('usd')!, property('pass')!)
+
+test("the Verdict's Theseus is not a listed ablation", () => {
+  assert.deepEqual(theseusOf(both()).map((p) => p.point.harness), ['theseus'])
+})
+
+test('the legend has a key for the paragraph ablation, beside Theseus', () => {
+  assert.deepEqual(armsOf(both()), ['theseus', 'theseus-batching', 'claude-code'])
+})
+
+test('one key is one arm: the colour, the legend and the Verdict class it alike', () => {
+  const keys = ['theseus', 'theseus-routed', 'theseus-rt', 'theseus-batching', 'claude-code', 'pi', 'unlisted-arm']
+  const placed = frontier(keys.map((k, i) => pt(k, i + 1, 0.9 - i / 20)), property('usd')!, property('pass')!)
+  const arms = armsOf(placed)
+  for (const p of placed) {
+    const k = p.point.harness, arm = sameArm(k)
+    assert.ok(arms.includes(arm), k)
+    if (HARNESSES.some((h) => h.key === k)) assert.equal(arm, k, k) // a key the table lists is its own arm
+    assert.equal(harness(arm).slot, harness(k).slot, k) // the legend's swatch is the mark's colour
+    assert.equal(harness(arm).name, harness(k).name, k)
+    assert.equal(theseusOf([p]).length === 1, arm === 'theseus', k)
+  }
+  assert.equal(new Set(arms.map((a) => harness(a).slot).filter((s) => s !== null)).size, arms.filter((a) => harness(a).slot !== null).length)
 })
