@@ -297,7 +297,7 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 110] = [
+pub const OPERATORS: [(&str, &str); 111] = [
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
     (method::GOOGLE_AUTH_FINISH, "theseus google auth"),
     (method::GOOGLE_REVOKE, "theseus google revoke"),
@@ -418,6 +418,7 @@ pub const OPERATORS: [(&str, &str); 110] = [
     (method::THREAD_UNCLAIM, "theseus thread unclaim"),
     (method::TASK_START, "theseus task start"),
     (method::TASK_PAUSE, "theseus task pause"),
+    (method::TASK_NOT_THIS, "theseus task not-this"),
     (method::TASK_RESUME, "theseus task resume"),
     (method::SESSION_MODE, "theseus mode"),
     (method::SESSION_PROFILE, "theseus sessions model"),

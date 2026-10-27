@@ -93,6 +93,7 @@ mod standing;
 mod standing_proposals;
 mod stop_all;
 mod task_history;
+mod task_not_this;
 mod task_pause;
 mod task_rehome;
 mod task_reschedule;

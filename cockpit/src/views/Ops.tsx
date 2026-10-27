@@ -299,6 +299,7 @@ export default function Ops() {
     stop: () => twice('stop', () => { if (exe) void act('stop', `${exe}:stop`, 'execution.stop', { execution_id: exe }) }, 's again stops the running turn'),
     stop_all: () => { if (exe) void act('stop_all', `${exe}:all`, 'execution.stop', { execution_id: exe, tasks: true }, 'Stop its turn, and cancel every task under it?') },
     cancel: () => twice('cancel', () => { if (focusRow?.kind === 'task') void act('cancel', `${focusRow.id}:stop`, 'task.cancel', { task: focusRow.id }) }, 'c again cancels the task'),
+    not_this: () => twice('not_this', () => { if (focusRow?.kind === 'task') void act('not_this', `${focusRow.id}:not_this`, 'task.not_this', { task: focusRow.id }) }, 'u again says not this: it cancels the task and keeps work like it from starting'),
     cancel_wake: () => { if (focusRow?.kind === 'wake') void act('cancel_wake', `${focusRow.id}:x`, 'wake.cancel', { wake: focusRow.id }, `Cancel the wake “${focusRow.title}”?`) },
     new_task: () => { if (on('new_task')) setNewTask({ home: focusRow?.kind === 'conversation' ? focusRow.sessionId ?? '' : focusRow?.task?.info?.parent_session_id ?? '' }) },
     lens_graph: () => lens('graph'),
