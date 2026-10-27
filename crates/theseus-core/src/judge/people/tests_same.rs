@@ -67,28 +67,28 @@ fn not_same(a: &str, b: &str, undo: bool) -> OntologyPersonNotSameParams {
     }
 }
 
-/// The owner's four Aarons are one person, however they were added; a bare
-/// first name stays its own person.
+/// The four Brams are one person, however they were added; a bare first
+/// name stays its own person.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_four_aarons_are_one_person_and_a_bare_first_name_is_not() {
+async fn the_four_brams_are_one_person_and_a_bare_first_name_is_not() {
     let r = rig(None, 0, |_| {});
-    for n in ["aaronsolomon", "aaron-solomon", "aaron", "aaron solomon"] {
+    for n in ["bramteller", "bram-teller", "bram", "bram teller"] {
         add(&r, n);
     }
     // A display name alone makes a person of its own; the sweep joins them.
-    assert_eq!(live(&r, "aaronsolomon").len(), 3);
+    assert_eq!(live(&r, "bramteller").len(), 3);
     assert_eq!(r.core.people_same_merge().unwrap().len(), 2);
     assert_eq!(
-        live(&r, "aaronsolomon").len(),
+        live(&r, "bramteller").len(),
         1,
         "{:?}",
-        live(&r, "aaronsolomon")
+        live(&r, "bramteller")
     );
-    assert_eq!(live(&r, "aaron").len(), 1);
+    assert_eq!(live(&r, "bram").len(), 1);
     // The merge carries the absorbed names across as handles.
     let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
     let kept = o
-        .category(&CategoryId::parse(&live(&r, "aaronsolomon")[0]).unwrap())
+        .category(&CategoryId::parse(&live(&r, "bramteller")[0]).unwrap())
         .unwrap();
     assert!(
         kept.handles.iter().any(|h| h.starts_with("name:")),
@@ -214,8 +214,8 @@ fn reopened(
 async fn the_candidates_offer_a_first_name_and_leave_a_recorded_pair_out() {
     use theseus_protocol::OntologyPersonCandidatesParams;
     let r = rig(None, 0, |_| {});
-    let short = add(&r, "Peyton");
-    let long = add(&r, "Peyton Greenside");
+    let short = add(&r, "Juno");
+    let long = add(&r, "Juno Pike");
     add(&r, "Quill Marsh");
     let ask = || {
         r.core
@@ -231,11 +231,8 @@ async fn the_candidates_offer_a_first_name_and_leave_a_recorded_pair_out() {
         ),
         (short.as_str(), "first_name")
     );
-    assert_eq!(got.candidates[0].b_name, "Peyton Greenside");
-    assert_eq!(
-        live(&r, "peyton").len() + live(&r, "peytongreenside").len(),
-        2
-    );
+    assert_eq!(got.candidates[0].b_name, "Juno Pike");
+    assert_eq!(live(&r, "juno").len() + live(&r, "junopike").len(), 2);
     r.core
         .ontology_person_not_same(&not_same(&short, &long, false), "the CLI")
         .unwrap();

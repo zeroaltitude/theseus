@@ -59,9 +59,9 @@ fn occurrences(text: &[String], phrase: &[String]) -> usize {
 }
 
 /// Whether one message names both people: each name stands in the text, and
-/// where one name heads the other (`Peyton`, `Peyton Greenside`) the short
-/// one stands apart from the long one at least once. Two names in one
-/// message are evidence of two people.
+/// where one name heads the other (`Juno`, `Juno Pike`) the short one stands
+/// apart from the long one at least once. Two names in one message are
+/// evidence of two people.
 pub fn named_together(text: &str, x: &str, y: &str) -> bool {
     let (t, x, y) = (words(text), words(x), words(y));
     if x.is_empty() || y.is_empty() || x == y {
@@ -208,13 +208,13 @@ mod tests {
     #[test]
     fn a_first_name_heading_one_full_name_is_a_candidate() {
         let p = [
-            who("p", "Peyton"),
-            who("pg", "Peyton Greenside"),
+            who("j", "Juno"),
+            who("jp", "Juno Pike"),
             who("q", "Quill Marsh"),
         ];
         let (c, out) = candidates(&p, &HashSet::new(), &none);
         assert_eq!((c.len(), out), (1, 0), "{c:?}");
-        assert_eq!((c[0].kind, c[0].a.as_str()), ("first_name", "person:p"));
+        assert_eq!((c[0].kind, c[0].a.as_str()), ("first_name", "person:j"));
         assert!(c[0].could_be.is_empty());
     }
 
@@ -223,19 +223,19 @@ mod tests {
     #[test]
     fn a_first_name_heading_two_full_names_asks_and_names_them() {
         let p = [
-            who("a", "Aaron"),
-            who("as", "Aaron Solomon"),
-            who("ab", "Aaron Bell"),
+            who("b", "Bram"),
+            who("bt", "Bram Teller"),
+            who("bb", "Bram Bell"),
         ];
         let (c, _) = candidates(&p, &HashSet::new(), &none);
         assert_eq!(c.len(), 2, "{c:?}");
         for x in &c {
             assert_eq!(x.kind, "ambiguous");
-            assert_eq!(x.could_be, ["Aaron Bell", "Aaron Solomon"]);
+            assert_eq!(x.could_be, ["Bram Bell", "Bram Teller"]);
             assert!(x.score < FIRST_NAME);
         }
         // Two full names of one first name are not a pair to each other.
-        assert!(c.iter().all(|x| x.a == "person:a"));
+        assert!(c.iter().all(|x| x.a == "person:b"));
     }
 
     #[test]
@@ -265,8 +265,8 @@ mod tests {
     fn equal_keys_are_the_automatic_merges_and_a_recorded_pair_is_left_out() {
         let p = [who("a", "Odo Finch"), who("b", "odo-finch")];
         assert!(candidates(&p, &HashSet::new(), &none).0.is_empty());
-        let p = [who("p", "Peyton"), who("pg", "Peyton Greenside")];
-        let forbidden = HashSet::from([pair_key("person:pg", "person:p")]);
+        let p = [who("j", "Juno"), who("jp", "Juno Pike")];
+        let forbidden = HashSet::from([pair_key("person:jp", "person:j")]);
         let (c, out) = candidates(&p, &forbidden, &none);
         assert_eq!((c.len(), out), (0, 1));
     }
@@ -275,29 +275,20 @@ mod tests {
     #[test]
     fn two_names_in_one_message_suppress_the_candidate() {
         assert!(named_together(
-            "Peyton and Peyton Greenside met",
-            "Peyton",
-            "Peyton Greenside"
+            "Juno and Juno Pike met",
+            "Juno",
+            "Juno Pike"
         ));
-        assert!(!named_together(
-            "Peyton Greenside met",
-            "Peyton",
-            "Peyton Greenside"
-        ));
-        assert!(!named_together(
-            "peyton said hi",
-            "Peyton",
-            "Peyton Greenside"
-        ));
+        assert!(!named_together("Juno Pike met", "Juno", "Juno Pike"));
+        assert!(!named_together("juno said hi", "Juno", "Juno Pike"));
         assert!(named_together(
             "Ask Wren Hale and Ivo Marsh",
             "wren hale",
             "Ivo Marsh"
         ));
         assert!(!named_together("Ask Wren Hale", "wren hale", "Ivo Marsh"));
-        let p = [who("p", "Peyton"), who("pg", "Peyton Greenside")];
-        let said =
-            |a: &Who, b: &Who| named_together("Peyton and Peyton Greenside", &a.name, &b.name);
+        let p = [who("j", "Juno"), who("jp", "Juno Pike")];
+        let said = |a: &Who, b: &Who| named_together("Juno and Juno Pike", &a.name, &b.name);
         let (c, out) = candidates(&p, &HashSet::new(), &said);
         assert_eq!((c.len(), out), (0, 1));
     }

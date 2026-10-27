@@ -1,9 +1,9 @@
 //! "Are these the same person" by name alone, with no judgment (theseus-jrffh).
 //! A person's normalized key is the name lowercased with its spaces, hyphens,
-//! underscores and dots taken out, so `Aaron Solomon`, `aaron-solomon` and
-//! `aaronsolomon` are one key. Two people whose keys are equal are one
+//! underscores and dots taken out, so `Bram Teller`, `bram-teller` and
+//! `bramteller` are one key. Two people whose keys are equal are one
 //! person (`Core::people_same_merge`). A bare first name is never a key of a
-//! full name: `aaron` is not `aaronsolomon`.
+//! full name: `bram` is not `bramteller`.
 
 /// The separators a key leaves out.
 const SEPARATORS: [char; 4] = [' ', '-', '_', '.'];
@@ -30,25 +30,24 @@ pub fn pair_key(a: &str, b: &str) -> String {
 mod tests {
     use super::*;
 
-    /// The owner's four Aarons are one key, and every other row is a
-    /// different one.
+    /// The four Brams are one key, and every other row is a different one.
     #[test]
-    fn the_four_aarons_key_together_and_others_do_not() {
+    fn the_four_brams_key_together_and_others_do_not() {
         for n in [
-            "aaronsolomon",
-            "aaron-solomon",
-            "aaron solomon",
-            "Aaron Solomon",
-            "aaron_solomon",
-            "Aaron.Solomon",
-            "  @Aaron  Solomon ",
+            "bramteller",
+            "bram-teller",
+            "bram teller",
+            "Bram Teller",
+            "bram_teller",
+            "Bram.Teller",
+            "  @Bram  Teller ",
         ] {
-            assert_eq!(name_key(n), "aaronsolomon", "{n:?}");
+            assert_eq!(name_key(n), "bramteller", "{n:?}");
         }
         let apart = [
-            ("aaron", "aaron solomon"),
-            ("Peyton", "Peyton Greenside"),
-            ("aaron solomon", "aaron solomons"),
+            ("bram", "bram teller"),
+            ("Juno", "Juno Pike"),
+            ("bram teller", "bram tellers"),
             ("Ann Marie", "Anna Rie"),
         ];
         for (a, b) in apart {

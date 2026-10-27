@@ -4,7 +4,7 @@
 //! recorded the pair as not the same (`ontology.person.not_same`). It goes
 //! through `person_merge_in`, so each merge has its row, its notice and its
 //! undo (`ontology.person.merge --undo`). A bare first name is not a key of a
-//! full name, so `aaron` never merges into `aaron solomon` here.
+//! full name, so `bram` never merges into `bram teller` here.
 
 use std::collections::BTreeMap;
 
