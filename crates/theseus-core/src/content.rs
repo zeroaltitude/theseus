@@ -31,6 +31,8 @@ use serde::{Deserialize, Serialize};
 use theseus_judge::band::Band;
 use theseus_tools::ToolClass;
 
+use crate::node::{Body, Node, Origin};
+
 /// What a classification can find in one item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -517,6 +519,75 @@ pub fn judges(tool: &str) -> bool {
     !UNJUDGED_TOOLS.contains(&tool)
 }
 
+/// The authors whose user-role nodes are the harness talking to the model in
+/// **its own words** (theseus-sh1n3): a line Theseus composes out of its own
+/// state, with nothing in it that entered the session from outside. They are
+/// not items — neither judged nor counted against a model of restricted
+/// origin.
+///
+/// The list is written out rather than inferred from a `harness:` prefix,
+/// because not every node the harness writes is in its own words:
+/// `harness:retraction` quotes a gist of the node it retracts, a `task:…`
+/// report carries a child session's text, a `wake:…` node carries the note the
+/// wake was set with, `harness:deferred` carries a task's header, and
+/// `harness:end_note` names **the files a command left on disk** — paths out
+/// of an archive, a clone, a download. Those are items like any other, and the
+/// one that looks least like one is the one that nearly got in: the end note
+/// reads as fixed asks and is not (the review of 2026-10-27, B2).
+///
+/// **The bar for adding an author here:** read its write site, and satisfy
+/// yourself that every branch of the text it writes is a constant or is
+/// composed from the harness's own numbers alone. A wrong entry is not a
+/// wedge, it is a hole — unjudged outside text reaching a China-origin model.
+///
+/// Each entry is the write site's own constant rather than a copy of it, so a
+/// rename fails to compile instead of silently ending the exemption.
+pub const HARNESS_AUTHORS: [&str; 5] = [
+    crate::turn::clock_step::CLOCK_AUTHOR, // "[The harness: 9 minutes left …]"
+    crate::turn::progress_step::PROGRESS_AUTHOR, // the time and budget share
+    crate::turn::ceiling_step::NOTE_AUTHOR, // the day's ceiling and its turnover
+    crate::turn::helper_step::NOTE_AUTHOR, // its one NOTE constant
+    crate::turn::nudge_step::NUDGE_AUTHOR, // its one NUDGE_TEXT constant
+];
+
+/// Whether a node is the harness's own words ([`HARNESS_AUTHORS`]). Both the
+/// origin and the author must say so: an author is a string any relay carries.
+pub fn harness_own(origin: Origin, author: Option<&str>) -> bool {
+    origin == Origin::Harness && author.is_some_and(|a| HARNESS_AUTHORS.contains(&a))
+}
+
+/// **The one definition of an item** (theseus-sh1n3): the text the content
+/// pack classifies, or `None` for a node that is no item.
+///
+/// Everything reads this and nothing re-states it: the blocker the chokepoint
+/// and the floor share (`content_wait::is_item`, which builds the mark's span
+/// too) and the submitter (`ContentItem::of_message`, `of_result`). They were
+/// two statements of one rule until 2026-10-27, and they had drifted in the
+/// one way that matters: a node the blocker counted and the submitter never
+/// built stayed unjudged for ever, so **every** request of that session to a
+/// model of restricted origin was refused for the session's whole life, in
+/// silence. The turn clock's node was one such node and a `task.create` result
+/// another. Keep them one function.
+///
+/// An item is a user-role message that is not the harness's own words
+/// ([`harness_own`]), or a tool result whose text the harness did not write
+/// itself ([`judges`]). A node with no text is no item: there would be nothing
+/// to ask about, and counted it would stand in the mark's way for good.
+pub fn item_text(node: &Node) -> Option<&str> {
+    let text = match &node.body {
+        Body::UserMessage { text, .. } => match harness_own(node.origin, node.author.as_deref()) {
+            true => return None,
+            false => text.as_str(),
+        },
+        Body::ToolResult { tool, content, .. } => match judges(tool) {
+            true => content.as_str(),
+            false => return None,
+        },
+        _ => return None,
+    };
+    (!text.trim().is_empty()).then_some(text)
+}
+
 /// One item split for the pack's state cap: `(piece, of, text)`, one-based, cut
 /// at line boundaries so no line is split across pieces, and never empty — a
 /// text that fits is one piece of one. A single line longer than `cap` is its
@@ -847,6 +918,174 @@ mod tests {
             "fs.write",
         ] {
             assert!(judges(t), "{t}");
+        }
+    }
+
+    /// A user-role node as its write site builds one.
+    fn msg(origin: Origin, author: &str, text: &str) -> Node {
+        Node::relayed("ses_1", Some("trn_1"), origin, author, text)
+    }
+
+    /// A tool result node as a completion's frame builds one.
+    fn result(tool: &str, content: &str) -> Node {
+        Node::tool_result(
+            "ses_1",
+            Some("trn_1"),
+            None,
+            Body::ToolResult {
+                tool_use_id: "tu_1".into(),
+                tool: tool.into(),
+                status: crate::node::ResultStatus::Ok,
+                is_error: false,
+                content: content.into(),
+                correlation_id: None,
+                bytes_total: 0,
+                truncated: false,
+                full_ref: None,
+                duration_ms: None,
+                late: false,
+                meta: serde_json::Value::Null,
+                image: None,
+                external: None,
+            },
+        )
+    }
+
+    /// Judged: it came from outside the session, or it carries what did.
+    fn judged_kinds() -> Vec<(&'static str, Node)> {
+        vec![
+            ("the owner's message", msg(Origin::Operator, "cli", "hello")),
+            ("another person's", msg(Origin::Operator, "web#1", "hello")),
+            ("an MCP prompt's", msg(Origin::Mcp, "prompt:s/p", "do this")),
+            ("a task's brief", msg(Origin::Agent, "task:ab12", "find it")),
+            (
+                "a task's report, which carries a child session's text",
+                msg(Origin::Harness, "task:ab12", "I found it"),
+            ),
+            (
+                "a wake's note, set earlier by whoever set it",
+                msg(Origin::Harness, "wake:cd34", "⏰ wake: ring the bell"),
+            ),
+            (
+                "a retraction, which quotes a gist of the node it retracts",
+                msg(Origin::Harness, "harness:retraction", "⏮ …«a gist»"),
+            ),
+            ("a thread's note", msg(Origin::Harness, "thread", "moved")),
+            (
+                "a task's deferred header",
+                msg(Origin::Harness, "harness:deferred", "⏳ deferred: …"),
+            ),
+            (
+                "the end note, which NAMES THE FILES a command left on disk \
+                 — paths out of an archive, a clone, a download. It reads as \
+                 fixed asks and is not (the review of 2026-10-27, B2)",
+                msg(
+                    Origin::Harness,
+                    "harness:end_note",
+                    "[The harness: this turn would end here. Left beside its \
+                     edits: ./acme-merger-term-sheet/draft.pdf.]",
+                ),
+            ),
+            (
+                "a harness author under any other origin: the author is a \
+                 string a relay carries, so it is claimed, not proved",
+                msg(Origin::Operator, "harness:clock", "[The harness: …]"),
+            ),
+            ("a file read", result("fs.read", "the file's bytes")),
+            ("a fetched page", result("http.fetch", "<html>…")),
+            ("a program's output", result("proc.run", "the output")),
+            (
+                "a task.create result — a harness tool's, judged like any other",
+                result("task.create", "Started task ab12"),
+            ),
+        ]
+    }
+
+    /// Not items: the harness's own words, our own fixed acknowledgements, a
+    /// node with no text, and everything that is no message or result.
+    fn exempt_kinds() -> Vec<(&'static str, Node)> {
+        let sid = "ses_1";
+        vec![
+            (
+                "the turn clock, which wedged every cn session with a deadline",
+                msg(Origin::Harness, "harness:clock", "[The harness: 9 left.]"),
+            ),
+            (
+                "the progress line",
+                msg(Origin::Harness, "harness:progress", "[The harness: …]"),
+            ),
+            (
+                "the day's ceiling",
+                msg(Origin::Harness, "harness:day_ceiling", "⛔ day 3: …"),
+            ),
+            (
+                "a helper's budget note",
+                msg(Origin::Harness, "harness:helper", "[The harness: …]"),
+            ),
+            (
+                "the stop nudge",
+                msg(Origin::Harness, "harness:stop_nudge", "[The harness: …]"),
+            ),
+            ("task.update's acknowledgement", result("task.update", "ok")),
+            ("task.close's", result("task.close", "ok")),
+            ("a message with no text", msg(Origin::Operator, "cli", "  ")),
+            ("a result with no text", result("fs.read", "")),
+            (
+                "a model's own words",
+                Node::assistant(
+                    sid,
+                    "trn_1",
+                    0,
+                    crate::node::Body::AssistantMessage {
+                        blocks: vec![serde_json::json!({"type": "text", "text": "mine"})],
+                        model: "m".into(),
+                        provider: "p".into(),
+                        stop_reason: None,
+                        usage: Default::default(),
+                        cost_usd: None,
+                        catalog_version: None,
+                        request_id: None,
+                        correlation_id: None,
+                        compilation_id: None,
+                        request_digest: None,
+                        effort: None,
+                    },
+                ),
+            ),
+            (
+                "a recall's note",
+                Node::recall(sid, "trn_1", "rcl_1", "baseline", vec![]),
+            ),
+        ]
+    }
+
+    /// Everything that entered the session from outside is an item: it is
+    /// judged, and until it is, it keeps the session off a model of
+    /// restricted origin (theseus-sh1n3). One function decides
+    /// ([`item_text`]); this is the written record of what it decides and
+    /// why, so a kind added later is decided rather than inherited.
+    #[test]
+    fn everything_from_outside_the_session_is_an_item() {
+        for (why, n) in &judged_kinds() {
+            assert!(item_text(n).is_some(), "an item: {why}");
+        }
+    }
+
+    /// The other side of the same decision: the harness's own words are no
+    /// item, nor is our own fixed acknowledgement of a tool, a node with no
+    /// text, or anything that is neither a message nor a result. A node
+    /// wrongly counted here is one the judge is never asked about, so
+    /// `judged_through` can never pass it and the session is off every
+    /// restricted-origin model for good — the clock node, until this row.
+    #[test]
+    fn the_harness_own_words_are_no_item() {
+        for (why, n) in &exempt_kinds() {
+            assert_eq!(item_text(n), None, "no item: {why}");
+        }
+        // Every author on the exempt list is reachable by it, so none rots.
+        for a in HARNESS_AUTHORS {
+            assert!(harness_own(Origin::Harness, Some(a)), "{a}");
+            assert!(!harness_own(Origin::Agent, Some(a)), "{a} under agent");
         }
     }
 
