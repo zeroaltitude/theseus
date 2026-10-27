@@ -28,6 +28,16 @@ impl PrivacyConfig {
     pub fn names(&self) -> Names {
         Names::new(&self.sensitive_names)
     }
+
+    /// The names as a pack's state carries them: the sensitive names as the
+    /// private ones, and no open topics (`[routing.data]` is gone with the
+    /// open view, theseus-9ymz0).
+    pub fn data_names(&self) -> theseus_judge::builders::DataNames {
+        theseus_judge::builders::DataNames {
+            open: Vec::new(),
+            private: self.sensitive_names.clone(),
+        }
+    }
 }
 
 #[cfg(test)]

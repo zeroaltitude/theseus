@@ -269,8 +269,8 @@ async fn the_next_messages_state_reads_the_previous_message_and_the_reply() {
     assert_eq!(state["minutes_since_last_message"], 0);
 }
 
-/// The operator's names (`[routing.data]`) ride Jev's state as `data_names`
-/// (route.v8's `data` question, theseus-a1wvq.2); with none configured the
+/// The operator's names (`[privacy] sensitive_names`) ride Jev's state as
+/// `data_names` (route.v8's `data` question, theseus-a1wvq.2); with none configured the
 /// state has no such key, so it is the one before, byte for byte.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_operators_names_ride_the_state_only_when_configured() {
@@ -286,13 +286,11 @@ async fn the_operators_names_ride_the_state_only_when_configured() {
     let jev = FakeJev::start().unwrap();
     let r = rig_on(texts(1), Some(&jev), |c| {
         inbound_only(c);
-        c.routing.data.open_topics = vec!["Widgetco".into()];
         c.privacy.sensitive_names = vec!["Acme".into()];
     });
     turn(&r.core, None, "Summarise the Widgetco release notes.").await;
     until_inbound(&r.core.store, 1).await;
     let state = state_of(&r);
-    assert_eq!(state["data_names"]["open"], serde_json::json!(["Widgetco"]));
     assert_eq!(state["data_names"]["private"], serde_json::json!(["Acme"]));
 
     let jev = FakeJev::start().unwrap();

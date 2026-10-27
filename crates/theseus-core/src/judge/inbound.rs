@@ -875,15 +875,10 @@ struct Ready {
 /// answer beside it, sure when its band reached the question's confirm bar
 /// (theseus-qe3v).
 ///
-/// When the message names a sensitive name (`sensitive`), the `data` answer is
-/// `private` at confidence 1.0 in band `Act` whatever Jev said (theseus-oejh3):
-/// the later rows mint a pass only on `open`, so a hit fails closed. Jev's own
-/// answer stays in the judgment's record.
-pub fn verdict(
-    j: &theseus_judge::Judgment,
-    turn: &str,
-    sensitive: bool,
-) -> Option<crate::routing::Verdict> {
+/// The pack's `data` question is not read: whether a session may use a model
+/// of restricted origin is decided by the labels on it (`crate::content`),
+/// not by a verdict per message.
+pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing::Verdict> {
     use crate::routing::effort::{EffortAnswer, QUESTION};
     if !j.actionable() {
         return None;
@@ -911,17 +906,6 @@ pub fn verdict(
         turn: turn.to_string(),
         persona: crate::engage::persona_answer(j).map(Box::new),
         seal: crate::engage::seal_answer(j).map(Box::new),
-        data: if sensitive {
-            Some(Box::new(crate::routing::DataAnswer::private_by_name()))
-        } else {
-            choice(crate::routing::data::QUESTION).map(|(choice, confidence, band)| {
-                Box::new(crate::routing::DataAnswer {
-                    choice,
-                    confidence,
-                    band,
-                })
-            })
-        },
         personal: choice(crate::routing::personal::QUESTION).map(|(choice, confidence, band)| {
             Box::new(crate::routing::PersonalAnswer {
                 choice,
@@ -1116,8 +1100,7 @@ async fn judge_inbound(
     let total = svc.cfg.total_secs;
     let (route_urgency, rest_urgency) = urgencies(&packs, total);
     let (turn, brief) = (msg.turn_id.clone(), msg.text.clone());
-    let (session, names) = (msg.session_id.clone(), msg.data_names.clone());
-    let private_source = msg.private_source;
+    let session = msg.session_id.clone();
     let to_task = charged.then(|| (msg.kernel.clone(), msg.execution_id.clone()));
     let day = today.clone();
     let ready = tokio::task::spawn_blocking(move || svc.prepare_inbound(packs, &msg, &day))
@@ -1160,9 +1143,7 @@ async fn judge_inbound(
         }
         if let Some(tx) = route {
             let _ = tx.send(Answered {
-                verdict: judgments
-                    .first()
-                    .and_then(|j| verdict(j, &turn, private_source || names_hit(&names, &brief))),
+                verdict: judgments.first().and_then(|j| verdict(j, &turn)),
                 at: tokio::time::Instant::now(),
                 cost_micros,
             });
