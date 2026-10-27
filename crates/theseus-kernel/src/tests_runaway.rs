@@ -457,3 +457,78 @@ fn a_resume_clears_only_the_resumed_executions_window() {
     settle(&w, &a, 300);
     assert_eq!(c.burn_len(&parent.id), 1, "later spend counts from empty");
 }
+
+/// An execution stored by hand under `parent`, as the anchor test's helper is.
+fn stored_under(w: &World, template: &Execution, parent: Option<String>) -> Execution {
+    let mut e = template.clone();
+    e.id = new_id("exe");
+    e.session_id = new_id("ses");
+    e.parent = parent;
+    e.state = ExecState::Running;
+    w.kernel
+        .commit(&[crate::kernel::exec_record(&e).unwrap()])
+        .unwrap();
+    e
+}
+
+fn settle_for(w: &World, execution: &Execution) {
+    w.kernel.apply_day([crate::day_ceiling::Effect::Settle {
+        id: "res-x".into(),
+        execution_id: execution.id.clone(),
+        reserved: 700,
+        actual: Some(700),
+    }]);
+}
+
+/// The walk stops at `BURN_ANCESTORS` (8) steps above the origin: in a chain
+/// of ten, the origin's 8th ancestor holds the settle and its 9th, the top of
+/// the chain, does not. Both sides of the line, so neither a lower nor a
+/// higher bound passes.
+#[test]
+fn a_settled_cost_stops_at_the_ancestor_bound() {
+    let (w, parent, _g, _kids) = family(1);
+    // chain[0] is the deepest, chain[9] the top.
+    let mut chain: Vec<Execution> = Vec::new();
+    let mut above = None;
+    for _ in 0..10 {
+        let e = stored_under(&w, &parent, above);
+        above = Some(e.id.clone());
+        chain.push(e);
+    }
+    chain.reverse();
+    settle_for(&w, &chain[0]);
+    let c = w.kernel.day_ceiling();
+    assert_eq!(c.burn_len(&chain[0].id), 1, "its own");
+    assert_eq!(
+        c.burn_len(&chain[8].id),
+        1,
+        "the 8th ancestor, the last reached"
+    );
+    assert_eq!(
+        c.burn_len(&chain[9].id),
+        0,
+        "the 9th ancestor, past the bound"
+    );
+    assert_eq!(c.burn_rings(), 9, "the origin and eight ancestors, no more");
+}
+
+/// A parent cycle (a corrupt store's) ends the walk at the first repeat:
+/// each execution of a 2-cycle holds the settle once, not once per lap. An
+/// unguarded walk still ends at the depth bound, so the failure is a count,
+/// not a hang.
+#[test]
+fn a_parent_cycle_ends_the_walk_at_the_first_repeat() {
+    let (w, parent, _g, _kids) = family(1);
+    let a = stored_under(&w, &parent, None);
+    let b = stored_under(&w, &parent, Some(a.id.clone()));
+    let mut a_cycled = a.clone();
+    a_cycled.parent = Some(b.id.clone());
+    w.kernel
+        .commit(&[crate::kernel::exec_record(&a_cycled).unwrap()])
+        .unwrap();
+    settle_for(&w, &a);
+    let c = w.kernel.day_ceiling();
+    assert_eq!(c.burn_len(&a.id), 1, "a, once");
+    assert_eq!(c.burn_len(&b.id), 1, "b, once");
+    assert_eq!(c.burn_rings(), 2);
+}
