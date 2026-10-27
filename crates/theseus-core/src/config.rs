@@ -1208,7 +1208,7 @@ pub struct ModelConfig {
 /// 503 is made again inside its turn, where the model can still answer it. 0:
 /// none; the turn fails and the session's driver retries it later
 /// (theseus-ljr). A headless run ends with its turn, so it has no later retry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Retries {
     #[serde(default)]
@@ -1223,8 +1223,19 @@ pub struct Retries {
     /// catalog's `refusal_fallback_model` (theseus-7gir.18). On by default.
     #[serde(default = "default_true")]
     pub refusal: bool,
+    /// The refusal categories that are a genuine decline (theseus-wf482). The
+    /// fallback answers the refused request and the next goes back to the
+    /// routed model; a refusal with one of these categories keeps the turn on
+    /// the fallback instead, so a safety decline never bounces back to the
+    /// model that declined it. Any other refusal does so only at its third in
+    /// a row.
+    #[serde(default = "default_hard_decline_categories")]
+    pub hard_decline_categories: Vec<String>,
 }
 
+fn default_hard_decline_categories() -> Vec<String> {
+    ["cyber", "bio", "general_harms"].map(String::from).into()
+}
 fn default_backoff_ms() -> u64 {
     2_000
 }
@@ -1239,6 +1250,7 @@ impl Default for Retries {
             backoff_ms: default_backoff_ms(),
             backoff_max_ms: default_backoff_max_ms(),
             refusal: true,
+            hard_decline_categories: default_hard_decline_categories(),
         }
     }
 }

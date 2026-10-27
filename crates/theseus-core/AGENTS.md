@@ -37,12 +37,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   will not fire here; no other daemon reads it. The ask's own turn fixes the run's end, and a wake fires in the run
   when it is due by the end the run had when it was set, less `FIRE_MARGIN_MS` for the driver's tick (`OneShot::fires`):
   the words and the result's `fires`, which the CLI follows, are one rule however long the turn ran. A refused request goes once to its model's fallback, the catalog's
-  `refusal_fallback_model` (Sonnet 5.5's: Sonnet 5), and the rest of the turn runs there (`turn/fallback_step.rs`,
+  `refusal_fallback_model` (Sonnet 5.5's: Sonnet 5), and the fallback answers that request, the next going back to the routed model unless the turn stays (a
+  `[model.retries] hard_decline_categories` refusal, a timeout, or the third routed refusal in a row; theseus-wf482)
+  (`turn/fallback_step.rs`,
   theseus-7gir.18; `[model.retries] refusal`, on by default; the provider's own `refusal_fallbacks` wins where it rides
   the request, `compiler::server_fallbacks`). The compilation stays the profile model's: the requests name the fallback
   (`RequestSpec::fallback`), carry both models' thinking, and leave the refused answer out (`replaced_answers`, as a
-  cut one); the session's target stays. A `provider.fallback` row, and the result's `fallback`, whose `line` every
-  surface shows. Tests: `tests_fallback.rs`.
+  cut one); the session's target stays. A `provider.fallback` row per switch and a `provider.routed_back` row per return, and
+  the result's `fallback`, whose `line` every surface shows. Tests: `tests_fallback.rs`.
   **The stop nudge** (theseus-fh0u, the owner's D8; `turn/nudge_step.rs`, `judge/stop.rs`): a loop the baseline ends
   with no tool calls asks `loop.v1` at the stop, live (it is wired live while `[judge] stop_nudge`, on by default, is
   on; off, the switch holds it in shadow), and waits at most `judge::stop::WAIT` (1 s, the pack's own on-path bar).
@@ -1330,7 +1332,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   "Self-improvement backlog", `origin.principal = "self"`, `proposed` with no session (or `waiting_human` for a keel
   class, `keel.rs`, which never starts). A cause open already gets the night's evidence; a dropped cause is never
   filed again (`self.backlog` META, `state.rs`, no format change). `rank.rs` documents the score; `[self]
-  backlog_max_open` trims the lowest; `backlog_starts` top unmarked items start in a session under the reserved
+  backlog_max_open` trims the lowest; `backlog_starts` (unset: `[self] pipeline_builds` less the builds in flight, `SelfImproveConfig::night_starts`) top unmarked items start in a session under the reserved
   `"self"` principal (`start.rs`: `open_session_as`), and the first turn runs from the tender. A fix item's tree is
   opened first (`self_tree_open`: the one open already, else `tree::open`, off the runtime's worker), the session's `dir`
   is that tree, and its first turn's input ends "Your tree is <path> on branch <branch>; read and edit there, by

@@ -253,6 +253,7 @@ ledger_kinds! {
     ProviderError = "provider.error",
     ProviderFallback = "provider.fallback",
     ProviderRefusal = "provider.refusal",
+    ProviderRoutedBack = "provider.routed_back",
     RecallRan = "recall.ran",
     RecallShadow = "recall.shadow",
     Reconcile = "reconcile",

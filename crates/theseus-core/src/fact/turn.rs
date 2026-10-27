@@ -1145,10 +1145,11 @@ impl Fact for ProviderRefused<'_> {
     }
 }
 
-/// A refused request goes once to its model's fallback, and the rest of the
-/// turn runs there (`provider.fallback`, theseus-7gir.18): the model that
-/// refused, the one it goes to, the refusal's category, and the refused
-/// answer, which the fallback's requests leave out.
+/// A refused request goes to its model's fallback (`provider.fallback`,
+/// theseus-7gir.18), one row per switch: the model that refused, the one it
+/// goes to, the refusal's category, the refused answer, which the fallback's
+/// request leaves out, which switch of the turn this is (`n`, from 1), and
+/// whether the turn stays there (`latched`, theseus-wf482).
 pub struct FellBack<'a> {
     pub from: &'a str,
     pub to: &'a str,
@@ -1156,13 +1157,16 @@ pub struct FellBack<'a> {
     pub loop_index: Option<u32>,
     /// The refused answer's id; none for a timeout's fallback.
     pub refused: Option<&'a str>,
+    pub n: u32,
+    pub latched: bool,
 }
 
 impl Fact for FellBack<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ProviderFallback);
 
     fn row(&self) -> Value {
-        json!({"from": self.from, "to": self.to, "category": self.category, "loop": self.loop_index, "refused": self.refused})
+        json!({"from": self.from, "to": self.to, "category": self.category, "loop": self.loop_index, "refused": self.refused,
+               "n": self.n, "latched": self.latched})
     }
 
     fn span(&self, trace: &mut Trace) {
@@ -1174,9 +1178,40 @@ impl Fact for FellBack<'_> {
         say.line(
             Model,
             format!(
-                "The request goes to {} instead, once, by the same provider, and the rest of \
-                 the turn runs there ([model.retries] refusal).",
-                self.to
+                "The request goes to {} instead, by the same provider; {} ([model.retries] refusal).",
+                self.to,
+                if self.latched {
+                    "the turn stays there"
+                } else {
+                    "the next one goes back"
+                }
+            ),
+        );
+    }
+}
+
+/// The fallback answered and the turn is back on the model it was routed to
+/// (`provider.routed_back`, theseus-wf482): the routed model, the loop whose
+/// answer it was, and the fallback it was.
+pub struct RoutedBack<'a> {
+    pub to: &'a str,
+    pub after: &'a str,
+    pub loop_index: Option<u32>,
+}
+
+impl Fact for RoutedBack<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ProviderRoutedBack);
+
+    fn row(&self) -> Value {
+        json!({"to": self.to, "loop": self.loop_index, "after": self.after})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Model,
+            format!(
+                "{} answered; the next request goes back to {}.",
+                self.after, self.to
             ),
         );
     }

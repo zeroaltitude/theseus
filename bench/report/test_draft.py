@@ -78,6 +78,24 @@ class Models(unittest.TestCase):
         self.assertIsNone(draft.models_of([t(), t("unknown"), {"record": {}}]))
         self.assertIsNone(draft.models_of([]))
 
+    def test_a_fallbacks_answers_do_not_widen_a_pinned_arm(self):
+        """A trial a refusal's fallback answered part of calls two models; the arm is still the one it was routed to
+        (theseus-wf482), and the report counts the mixed trials beside it."""
+        plain = {"record": {"by_model": {"claude-a": {}}}}
+        mixed = {"record": {"by_model": {"claude-a": {}, "claude-b": {}}, "mixed_model": True,
+                            "fallback": {"model": "claude-b", "routed": "claude-a", "answers": 1}}}
+        whole = {"record": {"by_model": {"claude-b": {}}, "mixed_model": True,
+                            "fallback": {"model": "claude-b", "routed": "claude-a", "answers": 59}}}
+        self.assertEqual(draft.models_of([plain, mixed, whole]), "claude-a")
+        self.assertEqual(draft.mixed_trials([plain, mixed, whole]), 2)
+        self.assertEqual(draft.mixed_trials([plain]), 0)
+        # An old record has no mark: its models are what it called, as before.
+        old = {"record": {"by_model": {"claude-a": {}, "claude-b": {}}}}
+        self.assertEqual(draft.models_of([old]), ["claude-a", "claude-b"])
+        # A routed arm's own second model stays, beside the fallback's drop.
+        routed = {"record": {"by_model": {"claude-c": {}}}}
+        self.assertEqual(draft.models_of([mixed, routed]), ["claude-a", "claude-c"])
+
 
 class Draft(unittest.TestCase):
     def setUp(self):

@@ -2,17 +2,34 @@
 
 /**
  * A refusal's client-side fallback in one turn (theseus-7gir.18): the model
- * that declined, the one its request went to instead, for the rest of the
- * turn, and the refusal's category. `line` is the one wording every surface
- * shows (`cockpit/src/lib/fallback.ts` mirrors it).
+ * that declined, the one its request went to instead, and the refusal's
+ * category. The fallback answers the refused request and the next goes back
+ * to the routed model (theseus-wf482), so a turn can switch more than once;
+ * it stays on the fallback only when `latched`. `line` is the one wording
+ * every surface shows (`cockpit/src/lib/fallback.ts` mirrors it).
  */
 export type TurnFallback = { from: string, to: string, 
 /**
- * The refusal's `stop_details.category` (`cyber`), when it named one.
+ * The latest refusal's `stop_details.category` (`cyber`), when it named
+ * one; `timeout` for a call cut at its whole-call bound.
  */
 category?: string, 
 /**
- * `to` answered: false when it declined too, or never ran (the spend
- * limit, a stop, a failed call).
+ * `to` answered at least once (`answers > 0`): false when it declined
+ * too, or never ran (the spend limit, a stop, a failed call).
  */
-answered: boolean, };
+answered: boolean, 
+/**
+ * Requests `to` answered in this turn.
+ */
+answers: number, 
+/**
+ * Requests the routed model refused, or cut at the whole-call bound, and
+ * that went to `to` instead, in this turn.
+ */
+refusals: number, 
+/**
+ * The turn stayed on `to` from its last switch on: a hard-decline
+ * category, a timeout, or the third routed refusal in a row.
+ */
+latched: boolean, };
