@@ -186,7 +186,9 @@ async fn a_refusal_on_sonnet_5_5_is_answered_by_sonnet_5_with_its_row_and_line()
     assert_eq!(res.fallback.as_ref(), Some(&fell));
     assert_eq!(
         fell.line(&res.stop_reason),
-        "Sonnet 5.5 declined (cyber); Sonnet 5 answered, and the turn stayed there."
+        // `cyber` latches, but the turn ended on that one answer, so there
+        // was nothing to stay for: the line is the one it has always been.
+        "Sonnet 5.5 declined (cyber); Sonnet 5 answered."
     );
     // The same request, on the fallback: only the model differs.
     let reqs = r.fake.requests();

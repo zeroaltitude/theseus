@@ -15,9 +15,10 @@ test("a fallback's line says who declined and who answered", () => {
   // A turn that went back and forth, and one that stayed (theseus-wf482).
   const many: TurnFallback = { ...f, category: 'reasoning_extraction', answered: true, answers: 2, refusals: 2 }
   assert.equal(fallbackLine(many, 'end_turn'), 'Sonnet 5.5 declined (reasoning_extraction) twice; Sonnet 5 answered twice.')
+  // Latched on its last switch, but it ended on that one answer: nothing to stay for, so the line does not say it did.
   assert.equal(
     fallbackLine({ ...many, answers: 1, refusals: 3, latched: true }, 'end_turn'),
-    'Sonnet 5.5 declined (reasoning_extraction) 3 times; Sonnet 5 answered, and the turn stayed there.',
+    'Sonnet 5.5 declined (reasoning_extraction) 3 times; Sonnet 5 answered.',
   )
   assert.equal(
     fallbackLine({ ...many, answers: 4, refusals: 1, latched: true }, 'end_turn'),

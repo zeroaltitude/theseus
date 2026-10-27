@@ -21,8 +21,9 @@ export function modelName(id: string): string {
 const times = (n: number): string => (n === 2 ? 'twice' : `${n} times`)
 
 /** `Sonnet 5.5 declined (cyber); Sonnet 5 answered.`, by how the turn ended (its stop reason). A turn that switched
- *  more than once says how many times, and one that stayed on the fallback says so; a record from before the counts
- *  reads as one refusal and, when `answered`, one answer (`TurnFallback::line`). */
+ *  more than once says how many times, and one that stayed on the fallback for more than one answer says so; a
+ *  latched turn with a single answer ended on it, so there was nothing to stay for and the line is the ordinary one.
+ *  A record from before the counts reads as one refusal and, when `answered`, one answer (`TurnFallback::line`). */
 export function fallbackLine(f: TurnFallback, stopReason: string): string {
   const [from, to] = [modelName(f.from), modelName(f.to)]
   const refusals = Math.max(f.refusals ?? 0, 1)
@@ -31,8 +32,10 @@ export function fallbackLine(f: TurnFallback, stopReason: string): string {
   if (refusals > 1) declined = `${declined} ${times(refusals)}`
   if (answers > 0) {
     let said = `${to} answered`
-    if (answers > 1) said = `${said} ${times(answers)}`
-    if (f.latched) said += ', and the turn stayed there'
+    if (answers > 1) {
+      said = `${said} ${times(answers)}`
+      if (f.latched) said += ', and the turn stayed there'
+    }
     return `${declined}; ${said}.`
   }
   if (stopReason === 'refusal') return `${declined}, and so did ${to}.`

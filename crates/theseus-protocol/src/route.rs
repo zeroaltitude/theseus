@@ -261,9 +261,13 @@ impl TurnFallback {
     /// refusal too, and `…; the request went to Sonnet 5.` when `to` never
     /// answered. A turn that switched more than once says how many times
     /// (`declined (reasoning_extraction) twice; Sonnet 5 answered twice.`),
-    /// and one that stayed on `to` says so (`…; Sonnet 5 answered, and the
-    /// turn stayed there.`). A record from before the counts reads as one
-    /// refusal and, when `answered`, one answer.
+    /// and one that stayed on `to` **for more than one answer** says so
+    /// (`…; Sonnet 5 answered twice, and the turn stayed there.`). A latched
+    /// turn with a single answer ended on that answer, so there was nothing
+    /// to stay for and the line is the ordinary one: every `cyber` refusal,
+    /// which latches at once, reads exactly as it did before theseus-wf482.
+    /// A record from before the counts reads as one refusal and, when
+    /// `answered`, one answer.
     pub fn line(&self, stop_reason: &str) -> String {
         let (from, to) = (model_name(&self.from), model_name(&self.to));
         let refusals = self.refusals.max(1);
@@ -283,9 +287,9 @@ impl TurnFallback {
             let mut said = format!("{to} answered");
             if answers > 1 {
                 said = format!("{said} {}", times(answers));
-            }
-            if self.latched {
-                said.push_str(", and the turn stayed there");
+                if self.latched {
+                    said.push_str(", and the turn stayed there");
+                }
             }
             format!("{declined}; {said}.")
         } else if stop_reason == "refusal" {
@@ -452,9 +456,11 @@ mod tests {
         many.latched = true;
         many.answers = 1;
         many.refusals = 3;
+        // Latched on its last switch, but it ended on that one answer: there
+        // was nothing to stay for, so the line does not say it did.
         assert_eq!(
             many.line("end_turn"),
-            "Sonnet 5.5 declined (reasoning_extraction) 3 times; Sonnet 5 answered, and the turn stayed there."
+            "Sonnet 5.5 declined (reasoning_extraction) 3 times; Sonnet 5 answered."
         );
         many.refusals = 1;
         many.answers = 4;

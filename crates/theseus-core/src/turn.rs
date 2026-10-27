@@ -2056,10 +2056,10 @@ impl TurnRunner {
                 break;
             }
             // The fallback's answer, going back to the routed model, warms
-            // nothing: the routed prefix is the one the next call reads.
-            if !Self::returns_to_routed(t, &resp) {
-                self.stash_for_wait(&t.tc, &uses, &compiled, &spec, t.target);
-            }
+            // nothing: the routed prefix is the one the next call reads. Its
+            // task wait's room is still recorded (`stash_for_wait`).
+            let going_back = Self::returns_to_routed(t, &resp);
+            self.stash_for_wait(&t.tc, &uses, &compiled, &spec, t.target, going_back);
             let answered = boxed(|| self.run_tools(t, &resp, &uses, &node, i)).await?;
             self.screen_loop(t, session, &uses);
             // An answer cut at the window (theseus-9p88): none of its calls
