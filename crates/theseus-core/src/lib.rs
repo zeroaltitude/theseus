@@ -352,6 +352,8 @@ mod tests_families;
 #[cfg(test)]
 mod tests_fan_out_cue;
 #[cfg(test)]
+mod tests_find_sticks;
+#[cfg(test)]
 mod tests_first_request;
 #[cfg(test)]
 mod tests_fit;
@@ -667,8 +669,6 @@ mod tests_tasks;
 mod tests_tasks_deferred;
 #[cfg(test)]
 mod tests_tasks_wake;
-#[cfg(test)]
-mod tests_find_sticks;
 #[cfg(test)]
 mod tests_tender;
 #[cfg(test)]
