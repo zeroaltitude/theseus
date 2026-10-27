@@ -74,9 +74,14 @@ pub fn fetch_within(p: &Place, remote: &str, limit: Duration) -> Result<()> {
     let args = ["fetch", "-q", remote];
     let mut c = p.git_command(&p.repo, &args);
     c.process_group(0);
-    let child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
+    let mut child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
         .context("git could not start")?;
     let pid = child.id();
+    // The pipes are drained on threads of their own, so the wait below is on the child alone: a
+    // descendant that left the killed group and holds a pipe open cannot hold the fetch past its
+    // bound (theseus-6vlr4 join fix).
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
     let (done, finished) = mpsc::channel::<()>();
     let watcher = std::thread::spawn(move || {
         let timed_out = finished.recv_timeout(limit) == Err(mpsc::RecvTimeoutError::Timeout);
@@ -88,25 +93,40 @@ pub fn fetch_within(p: &Place, remote: &str, limit: Duration) -> Result<()> {
         }
         timed_out
     });
-    // Reads both pipes to the end and reaps the child, which the kill ends.
-    let out = child.wait_with_output();
+    // Reaps the child, which the kill ends.
+    let status = child.wait();
     drop(done);
     let timed_out = watcher.join().unwrap_or(false);
     if timed_out {
+        // The readers are left to end on their own when the last holder of a pipe closes it.
+        drop((stdout, stderr));
         bail!(
             "git fetch {remote} did not finish in {}s and was killed",
             limit.as_secs_f64()
         );
     }
-    let out = out?;
-    if !out.status.success() {
+    let status = status?;
+    let _ = stdout.join();
+    let stderr = stderr.join().unwrap_or_default();
+    if !status.success() {
         bail!(
             "git {} failed: {}",
             args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
+            String::from_utf8_lossy(&stderr).trim()
         );
     }
     Ok(())
+}
+
+/// Read a child's pipe to its end on a thread of its own.
+fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut r) = pipe {
+            let _ = r.read_to_end(&mut buf);
+        }
+        buf
+    })
 }
 
 /// The paths the branch changes against `base` (added, changed, deleted).

@@ -120,21 +120,39 @@ fn hanging_place(base: &Place, limit: Duration) -> (Place, Hang) {
 
 /// KEY: the bound fires, the fetch fails saying so, and the stand-in's shell
 /// and the `sleep` it started are both gone: the group was killed and reaped.
+/// The fetch runs on a worker thread, so a bound that is gone fails here on a
+/// message, not on the test runner's kill; and the repository is fetchable
+/// after (no lock file of the killed fetch is left behind).
 #[test]
 fn a_hung_fetch_fails_at_its_bound_and_leaves_no_git_behind() {
     let f = fixture();
     let (p, h) = hanging_place(&f.place, Duration::from_secs(60));
+    let bound = Duration::from_millis(400);
     let t = Instant::now();
-    let e = jgit::fetch_within(&p, "origin", Duration::from_millis(400)).unwrap_err();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(jgit::fetch_within(&p, "origin", bound));
+    });
+    let e = rx
+        .recv_timeout(bound * 10 + Duration::from_secs(1))
+        .unwrap_or_else(|_| {
+            panic!(
+                "the fetch was still running {:?} after its {bound:?} bound",
+                t.elapsed()
+            )
+        })
+        .unwrap_err();
     let took = t.elapsed();
     assert!(
         e.to_string().contains("did not finish") && e.to_string().contains("killed"),
         "{e:#}"
     );
-    assert!(took >= Duration::from_millis(400), "{took:?}");
-    assert!(took < Duration::from_secs(10), "{took:?}");
+    assert!(took >= bound, "{took:?}");
     assert_eq!(h.pids().len(), 2, "the fetch ran: {:?}", h.pids());
     h.nothing_left().unwrap();
+    // The place without the stand-in: a real fetch goes through.
+    jgit::fetch_within(&f.place, "origin", Duration::from_secs(60))
+        .expect("the repository is fetchable after a killed fetch");
 }
 
 /// A fetch that answers inside its bound is the fetch it was.
