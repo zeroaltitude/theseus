@@ -44,6 +44,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use theseus_kernel::children::{self, Kind};
+use theseus_kernel::patience::{Cut, Patience};
 
 use super::jail::{Jail, Job};
 
@@ -185,9 +186,11 @@ pub struct GateRun {
     pub tail: String,
 }
 
-/// The longest gate run before it is stopped: a cold build of the whole
-/// workspace at nice 19 beside busy neighbours took about 22 minutes.
-pub const GATE_LIMIT: Duration = Duration::from_secs(2 * 3600);
+/// How long a gate run may print nothing before it is stopped (theseus-x1zz8):
+/// a cold build of the whole workspace at nice 19 beside busy neighbours took
+/// about 22 minutes, and one that still prints is let run on, to 24 times
+/// this (`theseus_kernel::patience`).
+pub const GATE_SILENCE: Duration = Duration::from_secs(2 * 3600);
 /// How often the operator is told that the gate is still waiting for main's
 /// may-build rule to say yes. It is a notice interval, not a deadline: the
 /// wait ends when the rule says yes, never on a clock (the owner, 2026-10-25
@@ -638,7 +641,7 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
     let t0 = Instant::now();
     let status = match p.jail()? {
         Some(j) => jailed(j, p, tree, &script, &log, benches).await?,
-        None => run_niced(p, tree, &script, &log, GATE_LIMIT, benches).await?,
+        None => run_niced(p, tree, &script, &log, GATE_SILENCE, benches).await?,
     };
     let text = std::fs::read_to_string(&log).unwrap_or_default();
     let verdict = if status == Some(0) {
@@ -691,7 +694,7 @@ async fn jailed(
         argv,
         env,
         log,
-        limit: GATE_LIMIT,
+        limit: GATE_SILENCE,
     };
     jail.run(p, job)
         .await
@@ -820,7 +823,8 @@ fn last_phase(log: &Path) -> Option<String> {
 }
 
 /// `bash <script>` in the tree at nice 19 (and the idle IO class where
-/// `ionice` is), its output to `log`, stopped past `limit`. Its exit code.
+/// `ionice` is), its output to `log`, stopped when the log has not grown for
+/// `limit`, or at the ceiling over it. Its exit code.
 pub(super) async fn run_niced(
     p: &Place,
     tree: &Tree,
@@ -863,23 +867,40 @@ pub(super) async fn run_niced(
     let mut child = children::spawn(Kind::Owned, || c.spawn(), |c| c.id())
         .context("the gate could not start")?;
     let pid = child.id();
-    match tokio::time::timeout(limit, child.wait()).await {
-        Ok(s) => Ok(s?.code()),
-        Err(_) => {
-            // Its whole group: the build's children too.
-            if let Some(pid) = pid {
-                // SAFETY: a plain signal to the group this child leads.
-                unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+    // The log's length is the gate's sign of life: the same bound as a
+    // jailed run's, `theseus_kernel::patience` (theseus-x1zz8).
+    let sized = std::fs::File::open(log)?;
+    let mut patience = Patience::silence(
+        u64::try_from(limit.as_millis()).unwrap_or(u64::MAX),
+        std::time::Instant::now(),
+        move || sized.metadata().map_or(0, |m| m.len()),
+    );
+    loop {
+        match tokio::time::timeout(patience.sleep(), child.wait()).await {
+            Ok(s) => return Ok(s?.code()),
+            Err(_) => {
+                let Some(cut) = patience.check() else {
+                    continue;
+                };
+                // Its whole group: the build's children too.
+                if let Some(pid) = pid {
+                    // SAFETY: a plain signal to the group this child leads.
+                    unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+                }
+                let _ = child.wait().await;
+                let phase = last_phase(log).map_or_else(
+                    || "no `gate: ` line in its log yet".to_string(),
+                    |l| format!("`{l}`"),
+                );
+                let why = match cut {
+                    Cut::Ceiling(_) => format!(
+                        "was still printing at its ceiling, {} minutes,",
+                        patience.ceiling_ms() / 60_000
+                    ),
+                    _ => format!("printed nothing for {} minutes", limit.as_secs() / 60),
+                };
+                bail!("the gate {why} and was stopped; its log's last phase line: {phase}")
             }
-            let _ = child.wait().await;
-            let phase = last_phase(log).map_or_else(
-                || "no `gate: ` line in its log yet".to_string(),
-                |l| format!("`{l}`"),
-            );
-            bail!(
-                "the gate ran past {} minutes and was stopped; its log's last phase line: {phase}",
-                limit.as_secs() / 60
-            )
         }
     }
 }
