@@ -1,15 +1,15 @@
 //! A first-pass bug review before Claude's (theseus-a1wvq.17; the owner's
 //! answer R7, 2026-10-17). With `first_pass = "<profile>"` beside `cn_draft`,
 //! a draft that completed and changed something is read once more by a
-//! restricted-origin model, on open content only, before the Claude review
+//! restricted-origin model, on the draft's tree only, before the Claude review
 //! opens:
 //!
 //! - **The task.** After the draft's tree is committed, the core opens a
-//!   second open task of the session on the `first_pass` profile, in a
-//!   worktree of its own at the draft commit (its open root alone, file tools
-//!   only, no programs, as a draft: it is a draft session, `OpenHow::Draft`,
-//!   marked by the META record `draftfp.<session>` naming the draft it reads).
-//!   Its brief is `FIRST_PASS_HEADER`, the open run's person messages and the
+//!   second task of the session on the `first_pass` profile, in a worktree of
+//!   its own at the draft commit (its tree alone, file tools only, no
+//!   programs, as a draft: it is a draft session, marked by the META record
+//!   `draftfp.<session>` naming the draft it reads, `draft::is_draft`).
+//!   Its brief is `FIRST_PASS_HEADER`, the draft's person messages and the
 //!   draft's diff. Its report is never posted.
 //! - **The findings go to Claude, and nowhere else.** When the first pass
 //!   ends, the Claude review opens with its report in the brief, under
@@ -34,7 +34,6 @@ use theseus_kernel::{micros_to_usd, Opening, SessionKind};
 use theseus_store::{kinds, NewRecord};
 
 use super::{outcome_of, Draft};
-use crate::data::OpenHow;
 use crate::node::{Node, Origin};
 use crate::session::{title_from, SessionRecord, TaskOf};
 use crate::turn::TurnRunner;
@@ -242,11 +241,8 @@ impl TurnRunner {
                         cut(&diff, DIFF_MAX)
                     );
                     let brief = Node::relayed(id, None, Origin::Agent, &author, &text);
-                    let open_row =
-                        crate::data::open_task(&mut rec, OpenHow::Draft, self.kernel.now_ms())?;
                     let mut records = vec![
                         NewRecord::json(kinds::SESSION, Some(id), &rec)?,
-                        open_row,
                         brief.record()?,
                     ];
                     records.extend(crate::google::private::inherited(

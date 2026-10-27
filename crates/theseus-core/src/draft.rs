@@ -3,16 +3,16 @@
 //! more competent model").
 //!
 //! - **Who drafts.** A coding class whose `[routing.classes.<class>]` names
-//!   `cn_draft` (with `final`, its Claude reviewers) drafts an open, admitted
-//!   ask of a conversation working in a git tree under the open roots
+//!   `cn_draft` (with `final`, its Claude reviewers) drafts an ask of a
+//!   conversation whose session the labels allow a China-origin model
 //!   (`turn/draft_step.rs` says the rule and its `draft_skip` words). That
 //!   turn makes no model call: it opens the draft and says so in one line.
-//! - **The draft** is an open task of the session (`OpenHow::Draft`) on the
+//! - **The draft** is a task session (marked by its META record, below) on the
 //!   `cn_draft` profile, in its own git worktree of the session's directory at
-//!   `<state>/drafts/<short>`, on branch `draft/<short>`, which joins its open
-//!   roots (`open_view::open_roots`) and no other session's. Its brief is the
-//!   fixed `DRAFT_HEADER` and the open run's person messages, verbatim. It is
-//!   offered the file tools and never a program (`Open::offers`), and it never
+//!   `<state>/drafts/<short>`, on branch `draft/<short>`, whose roots are that
+//!   tree alone (`draft_view::draft_roots`). Its brief is the fixed
+//!   `DRAFT_HEADER` and the turn's person message, verbatim. It is offered the
+//!   file tools and never a program (`DraftReach::offers`), and it never
 //!   moves to the `[model]` default: where the floor would move it, its turn
 //!   ends (`draft_step::stopped`). Its report is never posted
 //!   (`TaskOf::target_for`, `task::cancelled_report`).
@@ -60,7 +60,9 @@ the tests, check and finish your work. When you are done, report what you change
 could not do.";
 
 /// The failure classes of a draft's turn that ends where the floor would
-/// move it: a result the screen failed or a taint, and a brief not admitted.
+/// move it: a label that landed after its first request, and a brief whose
+/// session the labels did not allow a model of restricted origin (or not
+/// judged in time).
 pub const DRAFT_STOPPED: &str = "draft_stopped";
 pub const DRAFT_NOT_ADMITTED: &str = "draft_not_admitted";
 
@@ -138,12 +140,21 @@ pub fn meta_key(draft_session: &str) -> String {
     format!("draft.{draft_session}")
 }
 
-/// Whether `rec` is a draft's session.
-pub fn is_draft(rec: &SessionRecord) -> bool {
-    rec.data
-        .as_ref()
-        .and_then(|d| d.opened.as_ref())
-        .is_some_and(|o| o.how == crate::data::OpenHow::Draft)
+/// Whether `rec` is a draft's session: a draft proper, which its frame gave a
+/// META record (`draft.<session>`), or a first pass reading one
+/// (`draftfp.<session>`, `first_pass.rs`). That record, written in the frame
+/// that opens the session, is the marker: the session record holds nothing of
+/// it. Only a task's session can be one, so every other session pays one test
+/// of `task`, and a task's one or two reads of a record whose body is not
+/// parsed.
+pub fn is_draft(store: &crate::store::Store, rec: &SessionRecord) -> bool {
+    rec.task.is_some()
+        && (store
+            .get_meta::<serde::de::IgnoredAny>(&meta_key(&rec.session_id))
+            .ok()
+            .flatten()
+            .is_some()
+            || first_pass::mark_of(store, &rec.session_id).is_some())
 }
 
 /// Whether the session `id` is a draft's, read from the store: a session
@@ -153,7 +164,7 @@ pub fn is_draft_session(store: &crate::store::Store, id: &str) -> bool {
         .get_session::<SessionRecord>(id)
         .ok()
         .flatten()
-        .is_some_and(|r| is_draft(&r))
+        .is_some_and(|r| is_draft(store, &r))
 }
 
 /// The tree a draft, or its review, works in while it is open: the file
@@ -167,7 +178,7 @@ pub(crate) fn own_tree(rt: &crate::toolrun::ToolRuntime, session: &str) -> Optio
         return (!d.settled)
             .then(|| theseus_tools::paths::canonical_best_effort(Path::new(&m.tree)));
     }
-    let of = match is_draft(&rec) {
+    let of = match is_draft(&core.store, &rec) {
         true => rec.session_id,
         false => rec.task?.check?.checked_task,
     };
@@ -479,20 +490,21 @@ impl TurnRunner {
         let Ok(Some(rec)) = self.store.get_session::<SessionRecord>(session_id) else {
             return;
         };
-        let fp = is_draft(&rec)
+        let drafted = is_draft(&self.store, &rec);
+        let fp = drafted
             .then(|| first_pass::mark_of(&self.store, session_id))
             .flatten();
         let checked = rec.task.as_ref().and_then(|t| t.check.as_ref());
         let key = match (&fp, checked) {
             (Some(m), _) => m.draft.as_str(),
-            (None, _) if is_draft(&rec) => session_id,
+            (None, _) if drafted => session_id,
             (None, Some(c)) => c.checked_task.as_str(),
             (None, None) => return,
         };
         let _one = flight::hold(key).await;
         let done = match (&fp, checked) {
             (Some(m), _) => self.first_pass_ended(&rec, m).await,
-            (None, _) if is_draft(&rec) => self.open_review(&rec).await,
+            (None, _) if drafted => self.open_review(&rec).await,
             (None, Some(c)) => self.finish_review(&rec, &c.checked_task).await,
             (None, None) => return,
         };

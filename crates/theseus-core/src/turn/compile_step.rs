@@ -58,9 +58,9 @@ impl TurnRunner {
         Option<theseus_protocol::projects::ProjectSliceSummary>,
     ) {
         // A check sees the task it checks by title and state (theseus-w8ys).
-        // The owner's graph and project are not open (theseus-a1wvq.7).
-        let open = t.tc.open.is_some();
-        let tasks = (!open)
+        // The owner's graph and project are not a draft's (theseus-a1wvq.13).
+        let draft = t.tc.draft.is_some();
+        let tasks = (!draft)
             .then(|| crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled))
             .flatten();
         // The wakes this conversation has pending, in the same last block
@@ -87,12 +87,12 @@ impl TurnRunner {
         // A working turn's deliverable, called as the task spells it (theseus-eb4o4).
         Self::deliverable_hint(t, compiled);
         // The place's other threads, for a turn that asks across them (theseus-98bz.9);
-        // their cards are the owner's material, so an open request has none (theseus-rcb2u).
-        if !open {
+        // their cards are the owner's material, so a draft has none (theseus-rcb2u).
+        if !draft {
             Self::digest_line(t, compiled);
         }
         // The project this conversation serves, last of all (theseus-n5ui2).
-        let project = (!open)
+        let project = (!draft)
             .then(|| crate::project::slice::attach(&self.store, &self.kernel, session, compiled))
             .flatten();
         (tasks, project)

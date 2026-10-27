@@ -4,8 +4,8 @@
 
 use crate::draft::first_pass::{BOUND, FIRST_PASS_HEADER};
 use crate::draft::{self, meta_key};
+use crate::tests_dm_rig::say;
 use crate::tests_draft::{draft_edit, load, rig, Draft, ASK};
-use crate::tests_open_request::say;
 
 const FINDING: &str = "notes.txt:2: gamma may break the parser (FPFIND-4417)";
 const SAID: &str = "A first-pass reviewer's findings (check each; it may be wrong):";
@@ -72,7 +72,7 @@ async fn a_first_pass_reviewers_findings_reach_the_claude_review() {
         assert!(
             !names
                 .iter()
-                .any(|n| crate::open_view::runs_tool(&n.replace('_', "."))),
+                .any(|n| crate::draft_view::runs_tool(&n.replace('_', "."))),
             "{names:?}"
         );
     }
