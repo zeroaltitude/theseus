@@ -388,15 +388,10 @@ async fn an_expired_card_offers_ask_again_and_the_owners_press_asks_it() {
     })
     .await;
 
-    let exec = r
-        .core
-        .kernel
-        .action(&corr[0])
-        .unwrap()
-        .unwrap()
-        .execution_id;
-    let wakes = || r.core.kernel.execution(&exec).unwrap().unwrap().wakes;
-    assert!(wakes().is_empty(), "nothing is asked before a press");
+    assert!(
+        r.ledger("wake.set").is_empty(),
+        "nothing is asked before a press"
+    );
 
     r.press(&card.id, "Ask again", (ANA, "ana"));
     r.until("the press answers by clearing the button", || {
@@ -408,7 +403,12 @@ async fn an_expired_card_offers_ask_again_and_the_owners_press_asks_it() {
         })
     })
     .await;
-    let wakes = wakes();
+    // The wake is due now, so the driver may already have taken it from the
+    // execution's pending list: the ledger's row of its being set is the record
+    // that stays.
+    let wakes = r.ledger("wake.set");
     assert_eq!(wakes.len(), 1, "{wakes:?}");
-    assert!(wakes[0].note.starts_with("The owner asked again for:"));
+    assert!(wakes[0]["note"]
+        .as_str()
+        .is_some_and(|n| n.starts_with("The owner asked again for:")));
 }
