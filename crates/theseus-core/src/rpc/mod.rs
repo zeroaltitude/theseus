@@ -68,6 +68,7 @@ mod packs_ahead;
 mod pages;
 mod peek;
 mod people;
+mod people_same;
 mod persona;
 mod persona_import;
 mod persona_view;

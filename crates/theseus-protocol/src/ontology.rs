@@ -719,3 +719,56 @@ pub struct OntologyNeverUndoParams {
 pub struct OntologyNeverUndoResult {
     pub undone: OntologyNever,
 }
+
+/// `ontology.person.not_same` (theseus-jrffh): the owner's word that two
+/// people are not one. The pair is kept (as a never of kind `pair`, so
+/// `ontology.never.undo` takes it back) and is never proposed again, and the
+/// automatic merge of two equal name keys skips it. With `undo`, the word is
+/// taken back.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonNotSameParams {
+    /// Two person ids (`person:<local>`), in either order.
+    pub a: String,
+    pub b: String,
+    #[serde(default)]
+    pub undo: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<DiscordOrigin>,
+}
+
+/// One recorded pair.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonNotSame {
+    /// What `ontology.never.undo` names: `pair:<id>|<id>`, the smaller id first.
+    pub key: String,
+    pub a: String,
+    pub b: String,
+    pub who: String,
+    pub at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub note: Option<String>,
+    /// True when this call took the pair back.
+    #[serde(default)]
+    pub undone: bool,
+}
+
+/// `ontology.person.not_same_list`: the pairs in force, newest first.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonNotSameListParams {}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonNotSameListResult {
+    pub pairs: Vec<OntologyPersonNotSame>,
+}
