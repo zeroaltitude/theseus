@@ -321,13 +321,25 @@ impl JudgeService {
     ///
     /// It does nothing while anything is in flight for the session. **That
     /// stops a second, concurrent ask for one node; it is not a claim that a
-    /// node is never asked twice** (the review of 2026-10-27, B3). What would
-    /// otherwise make a repeat expensive is handled by standing down when the
-    /// first item past the mark is one an earlier batch could not judge: the
-    /// mark is then stuck on a known failure, and re-reading the transcript
-    /// would re-ask — and pay for — every item behind it that was judged
-    /// already. `with_worklist`'s capped re-ask is the path for that case; the
-    /// sweep's job is the item nobody offered, and only that.
+    /// node is never asked twice** (the review of 2026-10-27, B3).
+    ///
+    /// **A mark stuck on a batch's own failure is re-asked here too**
+    /// (theseus-8qgwo). B3 had this stand down and leave the re-ask to
+    /// `with_worklist`, to avoid paying again for the items judged behind the
+    /// stuck one. That was right about the cost and wrong about who would pay
+    /// it: `with_worklist` rides a **new batch**, and between a tool's result
+    /// and the next model call of the same turn there is no new item to queue,
+    /// so no batch is ever made for it to ride. One content call that fails
+    /// mid-turn then takes the session off every model of restricted origin
+    /// for the rest of its life, which is what failed 23 of cell 8's 75
+    /// `c8c-deepseek-high-k1` trials at a full `[content] wait_ms` apiece.
+    ///
+    /// The cost B3 was protecting is still not paid: a stuck mark re-asks the
+    /// **stuck prefix alone** — the run of items from the mark that are on the
+    /// worklist — and not the judged items behind them. And it re-asks only
+    /// while a turn is actually blocked on this session's verdicts
+    /// ([`JudgeService::content_awaited`]), which is the case the wedge is in
+    /// and bounds the repeats to one waiting turn's own reads.
     ///
     /// At most [`SWEEP_MAX`] a call: the mark moves over the batch's own span
     /// (`land` picks the last of the batch's leading judged run, and `span_to`
@@ -379,22 +391,32 @@ impl JudgeService {
                 .map_or(0, |at| at + 1),
         };
         let item = |n: &&(u64, crate::stub::Stub)| crate::content_wait::is_item(&n.1);
-        // The mark stuck on a batch's failure rather than on a node nobody
-        // offered: leave it to `with_worklist`, as above.
-        if nodes[from..]
-            .iter()
-            .find(item)
-            .is_none_or(|(_, n)| stuck.contains(&n.id))
-        {
+        let past: Vec<&(u64, crate::stub::Stub)> = nodes[from..].iter().filter(item).collect();
+        // Nothing past the mark: the session is judged through, and the floor
+        // would not have asked.
+        let Some((_, first)) = past.first() else {
+            return;
+        };
+        // The mark stuck on a batch's own failure. Re-ask the stuck run from
+        // the mark and nothing behind it, and only for a turn that is waiting
+        // on it: `with_worklist` cannot reach this case (see above).
+        let wedged = stuck.contains(&first.id);
+        if wedged && !self.content_awaited(session) {
             return;
         }
         let brief = crate::task::brief(&self.store, session)
             .ok()
             .flatten()
             .map(|n| n.id);
-        let items: Vec<ContentItem> = nodes[from..]
-            .iter()
-            .filter(item)
+        let reach: Vec<&&(u64, crate::stub::Stub)> = match wedged {
+            true => past
+                .iter()
+                .take_while(|(_, n)| stuck.contains(&n.id))
+                .collect(),
+            false => past.iter().collect(),
+        };
+        let items: Vec<ContentItem> = reach
+            .into_iter()
             .take(SWEEP_MAX)
             .filter_map(|(_, n)| rebuild(n, brief.as_deref()))
             .collect();
