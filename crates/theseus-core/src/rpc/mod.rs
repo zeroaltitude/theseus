@@ -914,6 +914,7 @@ impl Core {
                 store.clone(),
             ),
             effort_refusals: Default::default(),
+            verdicts: Default::default(),
             keep_warm: Default::default(),
             cache_numbers: Default::default(),
             stubs: Default::default(),

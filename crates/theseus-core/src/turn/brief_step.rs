@@ -7,10 +7,6 @@
 //! ([`routing::brief::brief_base`]). No verdict in time, a verdict under its
 //! bar, or a class with no usable profile leaves the parent's model, as before.
 //!
-//! An open task's brief (theseus-a1wvq.8) is asked about always while the
-//! pack acts, for its `data` answer: the first compile waits for it as long
-//! as Jev's call runs, and its base is still chosen only when marked.
-//!
 //! The mark that a task wants this is the META record `task.route.<session>`,
 //! written in the open's frame when no profile was asked for; a task started
 //! with a profile is pinned and has no mark. Every other turn pays a check of
@@ -40,7 +36,7 @@ pub(crate) fn mark(task_session: &str) -> anyhow::Result<NewRecord> {
 }
 
 impl TurnRunner {
-    /// A task's first turn, marked for it or open, asks the route pack about
+    /// A task's first turn, marked for it, asks the route pack about
     /// the brief once its node is on the record; the verdict's channel is kept
     /// for the first compile, as for a message.
     pub(super) fn brief_point(&self, t: &mut Turn<'_>) {
@@ -48,8 +44,7 @@ impl TurnRunner {
         if t.tc.task.is_none() || t.tc.guard.turn != 1 || !self.judge.config().enabled {
             return;
         }
-        let (marked, open) = (marked(t.tc.store, sid), t.tc.open.is_some());
-        if !marked && !open {
+        if !marked(t.tc.store, sid) {
             return;
         }
         // Live only: a shadow route (or none) leaves the parent's model.
@@ -82,13 +77,12 @@ impl TurnRunner {
                 in_thread: false,
                 persona: self.persona_ctx(sid, class),
                 capture: false,
-                data_names: self.cfg.routing.data.names(&self.cfg.privacy),
+                data_names: self.cfg.privacy.data_names(),
                 private_source: crate::google::private::session(t.tc.store, &self.cfg, sid),
                 attachments: Vec::new(),
             },
         );
-        t.route.brief = marked && wait.is_some();
-        t.data.brief = open && wait.is_some();
+        t.route.brief = wait.is_some();
         Self::route_asked(t, wait, route, false);
     }
 
@@ -108,7 +102,7 @@ impl TurnRunner {
                 from: None,
                 images: t.route.images,
                 cap,
-                cleared: t.route.floor().cleared,
+                cleared: t.route.floor().cn_ok,
             },
         )
     }

@@ -85,7 +85,7 @@ impl TurnRunner {
             .ok()
             .flatten();
         let place = PlaceView {
-            open: rec.as_ref().and_then(|r| self.open_of(r)),
+            draft: rec.as_ref().and_then(|r| self.reach_of(r)),
             ..self.view_of(session)
         };
         let paths =

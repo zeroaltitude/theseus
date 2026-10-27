@@ -1,6 +1,8 @@
-//! The open view (theseus-a1wvq.7): a request compiled for open data carries
-//! none of the owner's material, whatever model it goes to. Its guard is the
-//! golden: a private session's request stays byte for byte as it was.
+//! The private view, held byte for byte, and what a draft's narrower view
+//! leaves out (theseus-9ymz0). The open view these tests were written for
+//! (theseus-a1wvq.7, `tests_open_view`) is gone; its guard, the golden of a
+//! private session's request, is not, and its content rules survive for drafts
+//! (`draft_view.rs`): a draft's request carries none of the owner's material.
 //!
 //! The rig is `tests_places`'s: a work tree with the owner's notes (a private
 //! context file) and a public tree (its README a context file marked public),
@@ -16,17 +18,11 @@ use theseus_protocol::{
     OntologyCategoryAddParams, OntologyGuidanceSetParams, OntologyMembershipSetParams,
 };
 
-use serde_json::json;
-use theseus_protocol::PlaceClass;
-
 use crate::config::MemoryMode;
-use crate::data::{DataWhy, OpenHow, Opened, Taint};
-use crate::provider::{ProviderRequest, Scripted};
+use crate::provider::ProviderRequest;
 use crate::recall::{Ask, AskFuture};
 use crate::session::SessionRecord;
-use crate::tests_places::{
-    offered, result_of, rig_scripted, rig_with, session, system_text, turn, Rig, OWNER, SECRET,
-};
+use crate::tests_places::{offered, rig_with, session, system_text, turn, Rig, OWNER, SECRET};
 use crate::Core;
 
 /// `tests/golden/private_requests.txt`: the first requests of a CLI session
@@ -258,8 +254,9 @@ pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String 
 /// The first request of (a) a CLI session and (b) the owner's DM, each with
 /// an earlier message, a private and a public context file, the standing records, a person, a
 /// directory and a recalled episode, as it is today: byte for byte the
-/// golden. It is the open view's guard: nothing it adds reaches a private
-/// session's request.
+/// golden. It is the guard of the view the open view's deletion must not move:
+/// nothing theseus-9ymz0 removed or narrowed reaches a private session's
+/// request.
 #[tokio::test]
 async fn a_private_sessions_request_is_byte_identical() {
     let (r, ids) = owners_rig(|_| {});
@@ -296,27 +293,7 @@ async fn a_private_sessions_request_is_byte_identical() {
     );
 }
 
-/// `sid`'s data state opened, as the open-task row's opening frame writes
-/// it (theseus-a1wvq.6), tainted at `taint` when given.
-pub(crate) fn open(c: &Core, sid: &str, taint: Option<u64>) {
-    c.store
-        .update_session(sid, |r| {
-            let d = r.data.get_or_insert_with(Default::default);
-            d.opened = Some(Opened {
-                how: OpenHow::Task,
-                at_ms: 1,
-            });
-            d.taint = taint.map(|at_ms| Taint {
-                why: DataWhy::VerdictPrivate,
-                node: None,
-                at_ms,
-            });
-            Ok(vec![])
-        })
-        .unwrap();
-}
-
-/// What an open request must never be offered.
+/// What a draft must never be offered.
 fn owners_tools(offered: &[String]) -> Vec<&String> {
     offered
         .iter()
@@ -328,120 +305,6 @@ fn owners_tools(offered: &[String]) -> Vec<&String> {
                 || t.as_str() == "proc_run"
         })
         .collect()
-}
-
-/// One compile through the seam (`TurnRunner::open_request`) of a private
-/// session carries none of the markers, and leaves the session as it was:
-/// its next ordinary compile is the golden's, byte for byte.
-#[tokio::test]
-async fn the_open_view_can_be_asked_for_one_compile() {
-    let (r, ids) = owners_rig(|_| {});
-    let c = &r.core;
-    let tmp = r.root.parent().unwrap().to_path_buf();
-    let sid = session_in(c, None, &r.root);
-    with_person(c, &sid);
-    said_earlier(c, &sid);
-    let rec = c.store.get_session::<SessionRecord>(&sid).unwrap().unwrap();
-    let (live, _) = c.live_profile();
-    let target = c.runner.resolve_target(&live, None, None, None).unwrap();
-    let newest = c
-        .store
-        .transcript(&sid)
-        .unwrap()
-        .last()
-        .unwrap()
-        .1
-        .id
-        .clone();
-    let run = crate::data::OpenRun {
-        from: newest.clone(),
-        through: newest,
-    };
-    let one = c.runner.open_request(&rec, &target, &run).unwrap();
-    assert!(one.view.open.is_some() && one.view.class == PlaceClass::Private);
-    let text = serde_json::to_string(&one.compiled.request).unwrap();
-    assert!(text.contains(EARLIER), "the newest message: {text}");
-    for marker in [SECRET, PREF, FACT, PERSON, EPISODE] {
-        assert!(
-            !text.contains(marker),
-            "{marker:?} reached the open compile: {text}"
-        );
-    }
-    assert!(text.contains(ORDER), "{text}");
-    let tools = offered(&one.compiled.request);
-    assert_eq!(owners_tools(&tools), Vec::<&String>::new(), "{tools:?}");
-    let after = c.store.get_session::<SessionRecord>(&sid).unwrap().unwrap();
-    assert!(after.data.is_none() && after.compilation_id.is_none());
-
-    turn(c, &sid, ASKED).await;
-    let req = r.requests().pop().unwrap();
-    let got = body(&req, &tmp, &[&[sid], &ids[..]].concat());
-    let want = std::fs::read_to_string(GOLDEN).unwrap();
-    let cli = want.split("== dm\n").next().unwrap();
-    assert_eq!(
-        format!("== cli\n{got}"),
-        cli,
-        "the next compile is the private view's"
-    );
-}
-
-/// A model that runs a program in `cwd` on `RUN <cwd>`, then answers.
-fn runs(req: &ProviderRequest) -> Scripted {
-    if crate::tests_places::answers_a_call(req) {
-        return Scripted::text("Done.");
-    }
-    let last = crate::tests_places::last_user(req);
-    match last.strip_prefix("RUN ") {
-        Some(cwd) => Scripted::tools(
-            "Running.",
-            &[("r1", "proc_run", json!({"argv": ["ls"], "cwd": cwd.trim()}))],
-        ),
-        None => Scripted::text("Hello."),
-    }
-}
-
-/// In the open view a session outside the open roots is not offered
-/// `proc.run`, and a call is refused; inside them it is offered, and a call
-/// whose `cwd` is outside them is refused in words.
-#[tokio::test]
-async fn proc_run_needs_its_cwd_under_open_paths() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("inside")).unwrap();
-    let inside = dir.path().join("inside").canonicalize().unwrap();
-    let r = rig_scripted(
-        |cfg| cfg.routing.data.open_paths = vec![path(&inside)],
-        runs,
-    );
-    let c = &r.core;
-    let outside = r.root.clone();
-
-    let away = session_in(c, None, &outside);
-    open(c, &away, None);
-    turn(c, &away, &format!("RUN {}", inside.display())).await;
-    let req = r.asked("RUN").pop().unwrap();
-    assert!(
-        !offered(&req).contains(&"proc_run".to_string()),
-        "{:?}",
-        offered(&req)
-    );
-    let res = result_of(c, &away, "r1");
-    assert!(
-        res.starts_with("Not run: proc.run is not offered in an open request"),
-        "{res}"
-    );
-
-    let home = session_in(c, None, &inside);
-    open(c, &home, None);
-    turn(c, &home, &format!("RUN {}", outside.display())).await;
-    let req = r.asked("RUN").pop().unwrap();
-    assert!(
-        offered(&req).contains(&"proc_run".to_string()),
-        "{:?}",
-        offered(&req)
-    );
-    let res = result_of(c, &home, "r1");
-    assert!(res.starts_with("Not run: "), "{res}");
-    assert!(res.contains("is outside the open paths"), "{res}");
 }
 
 /// The census's total of `sid`'s next request.
@@ -456,23 +319,23 @@ fn census_tokens(c: &Core, sid: &str) -> u64 {
     census.total_tokens
 }
 
-/// The key test (T22): an open task session in a private place, with the
-/// owner's every kind of material about, compiles a first request that
-/// holds the public file and the standing order and none of the markers;
-/// its session block is empty while its directory is outside the open
-/// roots, and it is offered no lookup, glide, AWS, MCP tool or program.
-/// Under `open_paths` its block is kept and the file tools are offered.
-/// It is at most its private view's size, and within 8,000 tokens.
+/// The key test (T22, ported to a draft): a draft's session in a private
+/// place, with the owner's every kind of material about, compiles a first
+/// request that holds the public file and the standing order and none of the
+/// markers; its session block is empty while its directory is outside its
+/// tree, and it is offered no lookup, glide, AWS, MCP tool or program. In its
+/// own tree its block is kept and the file tools are offered. It is at most
+/// its private view's size, and within 8,000 tokens.
 #[tokio::test]
-async fn open_view_request_carries_no_owner_material() {
+async fn a_drafts_request_carries_no_owner_material() {
     let (r, _) = owners_rig(|_| {});
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
     with_person(c, &sid);
     let private = census_tokens(c, &sid);
-    open(c, &sid, None);
+    crate::tests_dm_rig::mark_draft(c, &sid);
     let tokens = census_tokens(c, &sid);
-    eprintln!("first request: open view {tokens} tokens, private view {private}");
+    eprintln!("first request: draft view {tokens} tokens, private view {private}");
     assert!(
         tokens <= private && tokens <= 8_000,
         "{tokens} (private {private})"
@@ -481,12 +344,12 @@ async fn open_view_request_carries_no_owner_material() {
     let req = r.requests().pop().unwrap();
     let text = serde_json::to_string(&req).unwrap();
     for kept in [OPEN, ORDER] {
-        assert!(text.contains(kept), "the open view keeps {kept:?}: {text}");
+        assert!(text.contains(kept), "the draft view keeps {kept:?}: {text}");
     }
     for marker in [SECRET, PREF, FACT, PERSON, EPISODE] {
         assert!(
             !text.contains(marker),
-            "{marker:?} reached an open request: {text}"
+            "{marker:?} reached a draft's request: {text}"
         );
     }
     let system = system_text(&req);
@@ -495,39 +358,42 @@ async fn open_view_request_carries_no_owner_material() {
     let tools = offered(&req);
     assert_eq!(owners_tools(&tools), Vec::<&String>::new(), "{tools:?}");
     assert!(
-        !tools.contains(&"fs_read".to_string()),
-        "no open roots: {tools:?}"
+        tools.contains(&"fs_read".to_string()),
+        "its tree's: {tools:?}"
     );
     assert!(tools.contains(&"web_search".to_string()), "{tools:?}");
 
-    // Under the open roots: the block is kept and the file tools offered.
-    let root = r.root.join("open");
-    let (r, _) = owners_rig(|cfg| cfg.routing.data.open_paths = vec![path(&root)]);
+    // In its own tree: the block is kept.
+    let (r, _) = owners_rig(|_| {});
     let c = &r.core;
-    let sid = session_in(c, None, &root);
-    open(c, &sid, None);
+    let sid = session(c, None);
+    let tree = crate::draft::tree_of(&c.runner.cfg, &sid);
+    std::fs::create_dir_all(&tree).unwrap();
+    c.store
+        .update_session(&sid, |rec| {
+            rec.dir = Some(tree.to_string_lossy().into_owned());
+            Ok(vec![])
+        })
+        .unwrap();
+    crate::tests_dm_rig::mark_draft(c, &sid);
     turn(c, &sid, "What happened to the hives?").await;
     let req = r.requests().pop().unwrap();
     let system = system_text(&req);
-    assert!(
-        system.contains(&format!("Directory: {}", root.display())),
-        "{system}"
-    );
+    assert!(system.contains("Directory: "), "{system}");
     assert!(offered(&req).contains(&"fs_read".to_string()));
     let text = serde_json::to_string(&req).unwrap();
     for marker in [SECRET, PREF, FACT, EPISODE] {
         assert!(
             !text.contains(marker),
-            "{marker:?} reached an open request: {text}"
+            "{marker:?} reached a draft's request: {text}"
         );
     }
 }
 
-/// An open request recalls a node of an untainted open session, and none
-/// written after another open session's taint, of a private session, or of
-/// an imported episode; a private session still recalls all four.
+/// A draft's recall draws on no session's nodes (`TurnRunner::drawn_place`),
+/// where a private session recalls every one of them.
 #[tokio::test]
-async fn open_recall_draws_only_on_open_runs() {
+async fn a_drafts_recall_draws_on_no_session() {
     let r = rig_with(|c| c.memory.mode = MemoryMode::Live);
     let c = &r.core;
     let said = |sid: &str, text: &str, at_ms: u64| {
@@ -536,13 +402,8 @@ async fn open_recall_draws_only_on_open_runs() {
         c.store.append(&[n.record().unwrap()]).unwrap();
         n.id
     };
-    let untainted = session(c, None);
-    open(c, &untainted, None);
-    let alpha = said(&untainted, "alpha heron count", 1_000);
-    let tainted = session(c, None);
-    open(c, &tainted, Some(2_000));
-    let early = said(&tainted, "bravo heron early", 1_500);
-    let late = said(&tainted, "bravo heron late", 2_500);
+    let first = session(c, None);
+    let alpha = said(&first, "alpha heron count", 1_000);
     let private = session(c, None);
     let charlie = said(&private, "charlie heron private", 1_000);
     let imported = format!("{}{}", crate::import::SESSION_PREFIX, "a".repeat(64));
@@ -550,7 +411,7 @@ async fn open_recall_draws_only_on_open_runs() {
     rec.session_id = imported.clone();
     c.store.put_session(&imported, &rec).unwrap();
     let delta = said(&imported, "delta heron imported", 1_000);
-    let all = vec![untainted, tainted, private, imported];
+    let all = vec![first, private, imported];
     c.runner.memory.set_ask(index_of(c, all));
 
     let recalled = |sid: &str| -> Vec<String> {
@@ -558,19 +419,14 @@ async fn open_recall_draws_only_on_open_runs() {
         m.admitted.iter().map(|a| a.node_id.clone()).collect()
     };
     let asker = session(c, None);
-    open(c, &asker, None);
+    crate::tests_dm_rig::mark_draft(c, &asker);
     turn(c, &asker, "how many herons?").await;
     let got = recalled(&asker);
-    assert_eq!(got.len(), 2, "{got:?}");
-    assert!(got.contains(&alpha) && got.contains(&early), "{got:?}");
+    assert!(got.is_empty(), "a draft recalled {got:?}");
     let owner = session(c, None);
     turn(c, &owner, "how many herons?").await;
     let got = recalled(&owner);
-    for id in [&alpha, &early, &late, &charlie, &delta] {
+    for id in [&alpha, &charlie, &delta] {
         assert!(got.contains(id), "{id}: {got:?}");
     }
-}
-
-fn path(p: &Path) -> String {
-    p.to_string_lossy().into_owned()
 }

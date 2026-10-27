@@ -1762,15 +1762,16 @@ max_switches = 2                        # moves per task, up or down
 # Debugging with an unknown cause, and design, stay on Claude: vendor Terminal-Bench 4.0 has
 # deepseek-flash at 42.3 against Sonnet 5.5's 70.6. The pair below is off by default and goes on
 # together: `final` without `cn_draft` fails the load. It needs the DeepSeek key and a session
-# directory that is a git tree under [routing.data] open_paths; the draft runs no programs.
+# directory that is a git tree; the draft runs no programs.
 # cn_draft = "dsflashmax"               # a China-origin draft at max effort, in its own tree
 # final = ["sonnethi", "opus"]          # a Claude profile reviews and fixes it before anything is applied
 # [routing.classes.routine_coding]
 # profiles = ["haikuhi", "sonnet"]
 # DeepSeek Flash drafts routine coding, tests, mechanical refactors and planned features at about
 # a sixth of Sonnet's cost per trial; Sonnet always reviews and fixes the draft before anything is
-# applied. It needs the DeepSeek key and a session directory that is a git tree under the
-# open_paths of the routing.data table. The draft runs no programs; its reviewer runs the tests.
+# applied. It needs the DeepSeek key and a session directory that is a git tree, and a session
+# whose labels (`[content]` below) allow a China-origin model. The draft runs no programs; its
+# reviewer runs the tests.
 # cn_draft = "dsflash"                  # one China-origin profile, only on routine_coding and deep_coding
 # final = ["sonnet"]                    # a Claude profile; the first usable one reviews
 # first_pass = "dsflashmax"            # optional: a restricted-origin profile reads the draft's diff for bugs first; its findings go to the Claude review only
@@ -1786,15 +1787,6 @@ max_switches = 2                        # moves per task, up or down
 # enabled = true                        # off: words are messages, and the layer steers nothing
 # similarity = 0.5                      # the share of content words a close message has in common
 # max_entries = 64                      # the layer's bound, the oldest out
-# Names Jev reads with each message (route.v8's `data` question, theseus-a1wvq): work you
-# name as open may go to a model provider outside your trust. Names live here and nowhere
-# else; a message is judged by what it carries. The private ones are `[privacy]` below.
-# [routing.data]
-# open_topics = []                      # e.g. an open-source project of yours
-# open_paths = []                       # trees of open data (~/ or absolute): an open request's
-#                                       # file tools reach these alone, and its programs run only
-#                                       # in a session whose directory is under one
-
 # Sensitive names (theseus-oejh3, theseus-xs5ah): organisations, clients, projects and people
 # whose matter goes only to a model of US origin, an allowlist: `eu`, `cn` and `unknown` (any
 # model the catalog cannot place) are all refused. A message that names one is read by Jev as

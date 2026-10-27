@@ -58,12 +58,10 @@ use crate::config::RoutingConfig;
 
 pub mod brief;
 pub mod checkpoint;
-pub mod data;
 pub mod effort;
 pub mod personal;
 #[cfg(test)]
 mod tests_cn;
-pub use data::DataAnswer;
 pub use personal::PersonalAnswer;
 
 /// A short turn's uncached input, in tokens, for `cheapest` and the cap.
@@ -188,10 +186,6 @@ pub struct Verdict {
     /// route.v5's answers (theseus-c1uz): which persona, and whether to seal.
     pub persona: Option<Box<crate::engage::PersonaAnswer>>,
     pub seal: Option<Box<crate::engage::SealAnswer>>,
-    /// The route pack's `data` answer (route.v6 on, theseus-a1wvq): may the
-    /// message go to a model provider outside the owner's trust. Nothing acts
-    /// on it yet.
-    pub data: Option<Box<DataAnswer>>,
     /// route.v7's `personal` answer (theseus-gasov): a reach for the
     /// operator's personal details warns the owner.
     pub personal: Option<Box<PersonalAnswer>>,
@@ -655,7 +649,6 @@ mod tests {
             turn: "turn_1".into(),
             persona: None,
             seal: None,
-            data: None,
             personal: None,
         }
     }

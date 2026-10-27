@@ -340,15 +340,16 @@ mod tests {
         );
     }
 
-    /// The data rule's words end the route words (theseus-a1wvq.11): `open` when
-    /// a request carried a pass, `data gate: <why>` when it kept the turn off a
-    /// restricted-origin model; a result without them words as it always did.
+    /// The data rule's words end the route words (theseus-a1wvq.11):
+    /// `data gate: <why>` when it kept the turn off a restricted-origin model;
+    /// a result without them words as it always did, and a turn that ran on
+    /// one words nothing (theseus-9ymz0 retired the `open` word with the open
+    /// view).
     #[test]
-    fn the_footer_says_when_a_request_went_open_or_the_data_gate_held_it() {
-        let data = |clearance: &str, gate: Option<&str>| {
+    fn the_footer_says_when_the_data_gate_held_a_turn() {
+        let data = |cn: &str, gate: Option<&str>| {
             Some(theseus_protocol::route::TurnData {
-                verdict: None,
-                clearance: clearance.into(),
+                cn: cn.into(),
                 gate: gate.map(Into::into),
                 origin: "us".into(),
             })
@@ -372,22 +373,18 @@ mod tests {
             Some("routed: trivial")
         );
         assert_eq!(
-            say(data("admitted", None), Some("trivial")).as_deref(),
+            say(data("allowed", None), Some("trivial")).as_deref(),
             Some("routed: trivial")
         );
         assert_eq!(
-            say(data("open", None), Some("trivial")).as_deref(),
-            Some("routed: trivial \u{b7} open")
+            say(data("confidential", Some("confidential")), Some("trivial")).as_deref(),
+            Some("routed: trivial \u{b7} data gate: confidential")
         );
         assert_eq!(
-            say(data("closed", Some("verdict_private")), Some("trivial")).as_deref(),
-            Some("routed: trivial \u{b7} data gate: verdict_private")
+            say(data("confidential", Some("confidential")), None).as_deref(),
+            Some("routed: data gate: confidential")
         );
-        assert_eq!(
-            say(data("open", None), None).as_deref(),
-            Some("routed: open")
-        );
-        assert_eq!(say(data("closed", None), None), None);
+        assert_eq!(say(data("allowed", None), None), None);
     }
 
     #[test]

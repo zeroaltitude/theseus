@@ -223,7 +223,7 @@ impl TurnRunner {
                 tracing::warn!(error = %format!("{e:#}"), "recall: the labels cannot be read; none is applied");
                 BTreeSet::new()
             });
-        let place = match t.tc.open {
+        let place = match t.tc.draft {
             Some(_) => theseus_memory::Place::Open(None),
             None => self.place_of(t.tc.session_id),
         };
@@ -295,12 +295,12 @@ impl TurnRunner {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
         let scene = self.scene(t, "shadow", MemoryArm::Baseline, &begun.said);
-        let open = t.tc.open.is_some();
+        let draft = t.tc.draft.is_some();
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
             &begun,
             answer,
-            |s| self.drawn_place(open, s),
+            |s| self.drawn_place(draft, s),
             |ids| crate::recall::links(&self.store, ids),
             false,
         );

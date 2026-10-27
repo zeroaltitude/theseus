@@ -1879,9 +1879,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`rpc/thread_flow.rs`) asks the persona question without the thread's context.
   - **Sensitive names** (theseus-oejh3; `config/privacy.rs`, `data_gate.rs`, `turn/data_step.rs`, `pack_names.rs`): `[privacy]
     sensitive_names` is the one list, matched by `theseus_judge::names::hits` (case-insensitive, whole words, a name of
-    several words as a run of them). It is the route pack's `data_names.private` (`[routing.data]` keeps `open_topics` only; the old
-    `private_topics` key is refused), a message that hits one makes the verdict's `data` answer `private` at 1.0 in band `Act`
-    (`judge::inbound::verdict`), the route skips every profile not of US origin for that turn (`route_profiles(true)`; none
+    several words as a run of them). It is the route pack's `data_names.private` (`PrivacyConfig::data_names`; `[routing.data]` is gone,
+    theseus-9ymz0, and the old `private_topics` key is refused), a message that hits one makes the route skip every
+    profile not of US origin for that turn (`route_profiles(true)`; none
     left: the `[model]` default, else the turn ends before any model call, class `data_gate`), and the provider chokepoint
     refuses a request to a model not of US origin that holds one in any string of its system, messages or tools, before a byte is
     sent (`data_gate::guard`, applied to every provider in `Core::build`, always). At start the
@@ -1890,54 +1890,49 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     to us-based models"): `ModelOrigin::cleared_for_sensitive` admits only `us`, and never a `restricted` origin (`cn`,
     `unknown`), so the China-origin block stays the floor beneath it; the route, the chokepoint and a private motif's
     model (`rsi::mint::data_rule`) all read it. Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
-    **route.v8** (theseus-f9qa8) is the acting route pack, route.v7 word for word but the `data` question's `open` and
-    `unclear` options, and `reply_effort`'s `max`, which names the evidence a checkpoint shows (theseus-ujzuh): v7 still
-    read open-source work as `private` or below the act bar, because `unclear` counted a working directory's unshown
-    owner (every one hides it) and `open` named no public sign. v8 lists the signs (a public project, toolchain or
-    dataset, a fork of public code, a public licence) and says an unshown owner is none; `private` is v7's word for
-    word, and no code rule reads the wording. The verdict table that holds the floor is `tests_data_verdict.rs`;
-    `reply_data.v1` still asks v7's words of a reply (its own version when it moves).
-  - **The restricted-origin floor** (theseus-a1wvq.3; `data.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/data_floor.rs`,
-    `fact/data.rs`): no request reaches a model of restricted origin (`cn` or `unknown`, `catalog::origin_of`) without a
-    `data::DataPass` minted for that one request (it holds the request's digest; not `Clone`, a copied `ProviderRequest`
-    carries none, and `#[serde(skip)]`, so body and digest are unchanged). Only an open request's own clearance mints
-    one (theseus-a1wvq.8, below), in `TurnRunner::data_pass` before `call_model`. The chokepoint refuses the rest, class `data_gate`, nothing sent, one
-    `data_gate.blocked` row (provider, model, origin, the session from `data_gate::for_session`); an unrestricted model's
-    request costs a memoised origin lookup, the digest is taken only for a restricted one, and a pass never lifts a name.
-    The route's floor (`Floor`: the names and the clearance) marks a restricted profile unusable (`data_gate`), and
-    `data_floor` moves any turn still bound for one (a pin, a base, a hold, a correction, a checkpoint, a turn that asked no
-    route, `floor_unrouted`) to the `[model]` default with `Reason::DataGate`, or fails it before any call ("No model
-    cleared for this request's data is usable: …"); the driver parks that class, never retries it. The config refuses a
-    restricted profile for the owner-material keys (`[people] extract_profile`, `[card] profile`, `[threads]
-    import_profile`, `[judge.learn] writer_profile`, `[self] reviewer_profile`, `[initiative] profile`, `[ontology]
-    name_profile`) and a China-origin `[judge] api_base`. Tests: `tests_data_floor.rs`, `config/data_floor.rs`.
-    The floor is always on, with no switch, and its ledger kinds are `data_gate.blocked` and `session.data` (theseus-350xc).
-    `[memory] synth_profile` is the eighth such key (theseus-z1ros): a consolidation mixes many sessions, so no pass can
-    clear it; its word `session` names no profile and stays the run time's (`consolidate/run.rs`, `unrestricted`).
-    `summary_profile` is not one: a compaction in an open request may run restricted with a pass of its own.
-    **The data rule is on the record** (theseus-a1wvq.11; `tests_observability.rs`): the route row (`route.decided`) carries the turn's
-    admission and gate (`data`, `data_confidence`, `clearance`: `admitted` or `closed`, never a pass; `data_gate`, only when the rule
-    kept the turn off a restricted-origin model) and, always, `provider`, `model` and `origin` of the profile it runs on; `provider.call`
-    carries `origin` and, for a restricted one, `pass` and `run_nodes` per request, and the result's `TurnRoute.data` says `open` only
-    once a request left with a pass. `data_gate` is an open word (a `DataWhy` word, `sensitive`, or a later row's own); each one also
-    counts on `theseus.route.data_gate` (`Telemetry::record_data_gate(what, why)`).
-    The route's `data_gate` word (and its count and the footer's `data gate:`) shows only where a cleared ask would have taken a
-    restricted profile the rule removed (`cn_would_win`, theseus-4h85l); a turn that asked no route but left with a pass says `open` with no
-    route reason (`open_route`). The provider chokepoint (`what` `chokepoint`) and the four background refusals (`compaction`,
-    `consolidation`, `keep_warm`, `replay`) count on the same metric.
-  - **A session's data state** (theseus-a1wvq.5; store format 49; `data.rs`, `fact/data.rs`): `SessionRecord.data`,
-    `DataState { opened, run, taint }`, opened by an open task (theseus-a1wvq.6), its run kept by an open request's turn (theseus-a1wvq.8). Absent is the
-    private view with no open run (every older record, no migration). `OpenRun`'s doc is the chain of blessed writers.
-    The turn's write-back merges it (`DataState::merge`): a stored taint always wins, `opened` is never cleared, and the
-    turn's run is taken only while the stored one is still the run the turn read (a read copy remembers it, `Stored`):
-    compare and set. A task's record starts with none; a fork copies `opened` and `taint` and the run cut at the fork
-    point (`fork::data_through`). `session.data` rows (`opened_row`, `tainted_row`; their callers are later rows);
-    `turn.inspect`'s `data` line, for a private place. Tests: `tests_data_state.rs`, `tests_fork.rs`, `tests_layouts.rs`.
+    **route.v8** (theseus-f9qa8) is the acting route pack; its `data` question is asked and read by nothing since
+    theseus-9ymz0 (the labels on a session replaced it; route.v9 drops it, theseus-gezlj).
+  - **Content flags and the restricted-origin floor** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17;
+    `content.rs`, `content_wait.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/content.rs`, `fact/data.rs`): every item that
+    enters a session (an operator's message, a tool result, a brief, a report) is classified once, by itself, and what is
+    found is a durable label on `SessionRecord.data` (`ContentFlags`; store format 52, which reads an older record's open-view
+    state as no labels and nothing judged). `secret`, `confidential` and `personal` raise at the confirm band and disqualify
+    a model of restricted origin (`cn`, `unknown`) for the session; `injection` raises only at the act band, is never asked of the
+    operator's own words, and freezes the session: `ToolRuntime::refusal_at` refuses every call that is not a local read
+    of files and code (`content::local_read`) until the operator removes the label (`[content] injection = "notify"` only tells,
+    the bench daemon's). Nothing is proved per request: the session carries a label or it does not.
+    **The chokepoint** (`data_gate.rs`, keel): a request to a model of restricted origin is refused (class `data_gate`,
+    nothing sent, one `data_gate.blocked` row with a `why` word) unless the session in `CALLER` (`for_session`) has no
+    disqualifying label and every item in it was judged (`content_wait::unjudged`: an item after `judged_through`); a request
+    for no session, or for one with no readable record, is refused (`no_session`, `no_record`). The session is read only for a
+    restricted model; `[privacy] sensitive_names` is checked after it, unchanged and independent of every label.
+    **The turn's floor** (`turn/data_step.rs`): `Floor { sensitive, cn_ok }`, `cn_ok` from `RouteState.cn` (`Cn`: allowed,
+    pending, or no with the flag's word), read from the store, not the turn's copy. A turn bound for a restricted profile whose
+    session has unjudged items waits on `TurnRunner::verdicts` for at most `[content] wait_ms` and then goes to the `[model]`
+    default with `Reason::DataGate`: it never blocks and never fails for want of a verdict; a Claude turn never waits
+    (`decide_floored` decides as if allowed, and waits only when that names a restricted profile). A later loop on a restricted
+    profile reads the session again before it compiles (`cn_move`), so a label raised since moves it; a compaction's restricted
+    summary profile waits the same way (`compaction/gate.rs`). `data_floor` moves any turn still bound for one, or fails it
+    before any call ("No model cleared for this request's data is usable: …"); the driver parks that class, never retries it.
+    `verdicts` is a `content_wait::Handle`: `Ready` (answers at once) until the judge that lands verdicts stands behind it;
+    `content_wait::judging::Judging` is the tests' judge. The config refuses a restricted profile for the owner-material keys
+    (`[people] extract_profile`, `[card] profile`, `[threads] import_profile`, `[judge.learn] writer_profile`, `[self]
+    reviewer_profile`, `[initiative] profile`, `[ontology] name_profile`, `[memory] synth_profile`) and a China-origin `[judge]
+    api_base`. Tests: `tests_content_gate.rs`, `tests_content_floor.rs`, `tests_content_freeze.rs`, `tests_data_gate.rs`,
+    `data_gate.rs`, `config/data_floor.rs`.
+    **The data rule is on the record** (theseus-a1wvq.11; `tests_observability.rs`): the route row (`route.decided`) carries `cn`
+    (`allowed`, `pending`, a flag's word, `unjudged`), `data_gate` only when the rule kept the turn off a restricted-origin model,
+    and, always, `provider`, `model` and `origin` of the profile it runs on; `provider.call` carries `origin`. `data_gate` is an
+    open word (a flag's word, `unjudged`, `sensitive`, or a later row's own); each one also counts on `theseus.route.data_gate`
+    (`Telemetry::record_data_gate(what, why)`), with the chokepoint (`chokepoint`) and the four background refusals
+    (`compaction`, `consolidation`, `keep_warm`, `replay`).
+    Forks copy the labels their nodes raised and are judged as far as their source, through the fork point at most
+    (`fork::data_through`). `turn.inspect`'s `data` line is `ContentFlags::line`.
   - **The Google private mark** (`google/private.rs`): the META mark a Google result writes; `scoped`/`bound` carry it to
     the floor; it follows recalled nodes and a task's parent; and text a marked session authored for others (a kept
     standing record, by its `capture:` source) is held back, listed `shown: false`, from a request to a restricted
-    profile (`standing_step.rs`, `authored`), milestone reminders with it (`commitments.rs`), while the task view and
-    project slice are already outside the open view. The mark never spreads to the readers. Tests:
+    profile (`standing_step.rs`, `authored`), milestone reminders with it (`commitments.rs`), while a draft's view carries neither the task view
+    nor the project slice. The mark never spreads to the readers. Tests:
     `tests_private_authored.rs`.
   - **Google calendars, the cache and the sensitive level** (theseus-jid7t.1; no store format change: a new META key
     and no new record kind; `config/google_calendars.rs`, `google/calendar_cache.rs`, `rpc/calendar.rs`, wire
@@ -1974,81 +1969,37 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     the test `serve` answers by), so an event outside it is never kept or told, and a window cut at `MAX_EVENTS`
     drops its token; a 5xx, a rate limit or the network is `CalendarStatus::Unreachable`, a real 403 `Forbidden`. Tests:
     `google/tests_calendar_cache.rs`, `tests_sensitive.rs`, `tests_morning.rs`, `tests_calendar.rs`.
-  - **The open view** (theseus-a1wvq.7; `open_view.rs`): a request for open data carries none of the owner's material.
-    `PlaceView.open` (the reach: `[routing.data] open_paths` via `open_view::open_roots(cfg, session)`, and whether the
-    session's directory is within them) makes `content_class()` the shared class: every content reader on the compile
-    path reads it (context files, standing orders only, the walk, the session block only within the roots, no task
-    view or project slice, the prefix key), while approvals, cards, asks and glides keep `class`. Its tools are
-    `Open::offers` (public tools, file tools under the roots, `proc.run`/`job.*`/`term.*` only for a directory within
-    them), and the gate refuses the rest (`Open::refusal`). Recall asks as `Place::Open` and reads each candidate by
-    `drawn_place`: only open sessions, before their taint. A turn is open when its record's `data.opened` is
-    (`open_of`); `open_request` compiles an open detour's request of any other session in it, over its open run (theseus-a1wvq.8). Guard:
-    `tests_open_view::a_private_sessions_request_is_byte_identical` (`tests/golden/private_requests.txt`).
-  - **The open request, per request** (theseus-a1wvq.8; `data.rs`, `turn/open_step.rs`, `turn/data_step.rs`): a message
-    Jev judged `open` at the act band may reach a restricted model. `data::admits` (pure, after the verdict is read:
-    the pack acting, no attachment, no seal, a verdict in time, `open` at `Act`, no taint) gives the turn's
-    `RouteState.admitted`, its open run: the stored run extended when the node just before the input is its
-    `through`, else the input alone; an open session's turn with no input keeps the stored run while its last node is
-    `through`. A restricted profile runs only for an admitted turn whose request is open: an open session (`open_of`),
-    or a detour (`trivial`'s `cn_profiles`), which compiles through `open_request` over the run (from `run.from`, never
-    before `detour_start`'s bound, no recall, no summary) and gates its calls in the open view; elsewhere the turn moves
-    to the `[model]` default (`data_gate`, data reason `private_view`). Each request gets its own pass: `data_pass`
-    builds its `data::Carried` (its prefix's and tail's transcript nodes with their writers) and `data::clearance`, the
-    only cleared `Clearance`, mints it for its digest. A later loop whose request would carry a node past the run its
-    loop did not write (a tool result that failed the screen) moves to the default first (`data_move`).
-    **The tool screen** (theseus-a1wvq.9; `data::screen`, `turn/screen_step.rs`): right after a restricted, admitted
-    loop's calls run, each result it wrote passes only for a file tool, `web.search` or `http.fetch`, with nothing
-    redacted (`meta.redactions`), every resource of a file tool canonically within an open root, and a fetch of a
-    public URL; a fetch also fails when its `meta.final_url` is not public (a redirect into the owner's network), and a
-    failed screen is a `session.data` `screened` row (node, word; theseus-lm38z). A program's result (`proc.run`, `job.*`, `term.*`) never passes yet (a sandboxed program run is the
-    follow-up). A result that fails ends the run, not the session: the node stays but is not in `RouteState.screened`,
-    so the next loop moves and no run is stored past it, and an open session records the taint naming the result. The turn
-    stores the run (through its last node) in its own session write only when every request went out cleared and
-    only its own loop wrote after the run; anything else ends a run (a private-view reply, a steer, a wake, a report).
-    An open session's first input or request not admitted is its taint (`session.data` `tainted`, once), which closes
-    `admits` for it from then on and never blocks a Claude target. An open task's brief is asked about always while the
-    pack acts, waited for past `[routing] max_wait_ms` (`brief_step.rs`); an open task's hold from its parent names no
-    URL or query (`external::bare`), from `task.start` and `task.create` alike, and neither inherits its parent's run.
-    Clearance is per request: each pass is minted for one request's digest and carries to none after it; a taint (a
-    refusal whose `DataWhy::taints` is true) closes `admits` for its session, and an open session's run starts at its
-    first node. A turn that fails before its write-back loses the taint it found, and the next turn takes it again.
-    An open request is offered the public tools that start no later work (`open_view::open_public`: never `task.create`,
-    `task.split`, `task.claim` or `wake.at`, which would run later, on another model, with the owner's trust;
-    `task.update` and `task.close` stay and reach only the open task's own record, `toolrun::batch::own_record_only`
-    refusing another's by id, theseus-ol8w0; theseus-qul8y), and every root it is shown reads `~/…` (`places::home_shown`,
-    theseus-mhqlm). `file.read` is not offered there; if it were, an open session's read takes the outside-text hold,
-    as a shared place's does. An open task keeps its parent's directory and last target (theseus-5u16e F5): its
-    workspace reads are private to routing and the open view (`turn/data_step.rs`), so the directory opens nothing; an
-    open session holds no thread card, so `thread_spec` adds none of a thread's text to it.
-    Tests: `tests_open_request.rs`, `tests_cn_follow.rs`.
-    **Replies in the run** (theseus-a1wvq.15): the run includes Theseus's own reply only when Jev's data question
-    (`reply_data.v1`, route.v7's `data` question about the reply, asked off the turn's path by `judge/reply_data.rs` for
-    a reply that continues an open run, a `data.reply` row each) judges it `open` at the act band; the write is a compare
-    and set on the stored run (`data::reply::lands`). Only a reply of text (and thinking) is asked about: one carrying a
-    call or any other block (a provider's own tool call and its result) is never asked. A missing, late, private,
-    unclear, below-act answer, a refused reservation, a taint or a moved run leaves the reply a run-ender. `admits` is
-    unchanged. Tests: `tests_reply_data.rs`.
-    **Background calls** (theseus-a1wvq.10; `turn/compaction/gate.rs`): a compaction in an open request summarizes only a
-    range its run clears (`data::clearance` over the nodes the summary renders and the run's last, the stored run until the
-    turn's admission is read, and only for an open session: `stored_run`, theseus-pohih), with a pass of its own, and only such a summary joins the run (`Held.summaries`, read by
-    `open_step::writer`); a restricted summary profile otherwise falls back to the `[model]` default, or the ring stands.
-    Consolidation never runs on a restricted model (`restricted_origin`), keep-warm skips a restricted target, and
-    `turn.replay` refuses one. Tests: `tests_bg_gate.rs`.
+  - **The draft view** (theseus-a1wvq.7, narrowed to drafts by theseus-9ymz0; `draft_view.rs`): a draft is a model of restricted
+    origin reading a session, so its requests keep the stripped prefix and a bounded tool reach that the open view gave every
+    open request, and only drafts get them. `PlaceView.draft` / `TurnCtx.draft` (`DraftReach`: the draft's own tree as its
+    roots, `draft_view::draft_roots`, never the owner's directory) makes `content_class()` the shared class (context files marked
+    public, standing orders only, the walk, the session block only within the tree, no task view or project slice, the prefix
+    key), while approvals, cards, asks and glides keep `class`. Its tools are `DraftReach::offers` (the public tools that start
+    no later work, `open_public`: never `task.create`, `task.split`, `task.claim` or `wake.at`; the file tools under the tree;
+    never a program), and the gate refuses the rest (`DraftReach::refusal`, never a path through `.git`); `task.update` and
+    `task.close` stay and reach only the draft's own record (`toolrun::batch::own_record_only`). Recall draws on no session
+    (`drawn_place`). A turn is a draft's when its session's META record says so (`draft::is_draft`, `TurnRunner::reach_of`),
+    which a task's session alone can be. The open task (`task.create { open }`) and the open detour are gone: `open` is refused
+    in words (`task::OPEN_RETIRED`). Guards: `tests_private_view.rs` (the private view's golden, byte for byte; a draft's request
+    carries none of the owner's material; a draft's recall), `tests_draft_reach.rs`.
     A task's turn is private while its parent holds the Google mark, however late the parent took it
     (`private_session` reads every task above it on a task's turn alone, `google::private::lineage`; theseus-y8k3u); the learning writer and a thread
     import's card are scoped over every session they hold (`over_sessions`). Tests: `tests_private_background.rs`,
-    `tests_cn_follow.rs`.
+    `tests_private_lineage.rs`.
+    Consolidation never runs on a restricted model (`restricted_origin`), keep-warm skips a restricted target, and
+    `turn.replay` refuses one. Tests: `tests_bg_gate.rs`.
     **Drafts** (theseus-a1wvq.13; `draft.rs`, `turn/draft_step.rs`, `fact/draft.rs`; no store format change: a META record
-    `draft.<session>` and the ledger kind `task.draft`): a China-origin model only drafts code, in its own tree, with no
-    programs, and a Claude check always reviews it; nothing is applied or posted before that review. A coding class's
+    `draft.<session>` and the ledger kind `task.draft`; that record is what marks a draft's session, `draft::is_draft`): a
+    China-origin model only drafts code, in its own tree, with no programs, and a Claude check always reviews it; nothing is
+    applied or posted before that review. A coding class's
     `[routing.classes.<class>] cn_draft` (a restricted profile; `routine_coding` and `deep_coding` only) and `final` (its
-    Claude reviewers, first usable wins; required with it) make an admitted ask of a conversation (no task, no wake, its
-    `dir` in a git repository whose top is under the open roots: the tree is the whole repository, and it is applied
-    at that top) open a draft instead of a model call: an open task (`OpenHow::Draft`) on the `cn_draft` profile in a
-    worktree at `<drafts_dir>/<short>` on branch `draft/<short>` (`[server] drafts_dir`, default `~/.cache/theseus/drafts`: outside the state dir and every approve-list entry, refused at load otherwise, and a root of the workspace while a class drafts, so the review's runs there take the tool's posture; a draft made before keeps its tree under `<state>/drafts` where `tree_of` finds it; theseus-iilre), which is its open roots alone (never `open_paths`,
-    and never a path through `.git`), briefed by the core with the open run's person messages. Each failed condition is the route row's
-    `draft_skip`. `Open::offers` withholds programs from a draft, and where the floor would move it its turn ends
-    (`draft_stopped`). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
+    Claude reviewers, first usable wins; required with it) make an ask of a conversation whose labels do not keep a restricted
+    model off (no task, no wake, its `dir` in a git repository: the tree is the whole repository, and it is applied
+    at that top; the ask is the turn's own message) open a draft instead of a model call: a task session on the `cn_draft` profile in a
+    worktree at `<drafts_dir>/<short>` on branch `draft/<short>` (`[server] drafts_dir`, default `~/.cache/theseus/drafts`: outside the state dir and every approve-list entry, refused at load otherwise, and a root of the workspace while a class drafts, so the review's runs there take the tool's posture; a draft made before keeps its tree under `<state>/drafts` where `tree_of` finds it; theseus-iilre), which is its roots alone (never the owner's directory,
+    and never a path through `.git`), briefed by the core with the turn's own message. Each failed condition is the route row's
+    `draft_skip` (`labelled`, `in_task`, `wake`, `not_git`, `draft_unusable`, `no_reviewer`). `DraftReach::offers` withholds programs from a draft, and where the floor would move it its turn ends
+    (`draft_stopped`: `draft_not_admitted` for a brief whose session the labels did not allow a restricted model, `draft_stopped` for a label that landed after). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
     check on a `final` profile in the tree, the draft's claim, a correlation id from the draft's), whose end commits,
     applies `git diff <base>..<final>` with `git apply --check` first and never `--index` or `--3way`, removes the
     tree, and writes the line and the `task.draft` row. `first_pass` (a restricted profile, needs `cn_draft`;
@@ -3528,12 +3479,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (or a frame now, outside a turn), and a row that must ride in a frame the site builds is `Rec::row`, with the rest
   announced once that frame is written (`Rec::announce`).
 
-- **The data rule.** A model of restricted origin (`cn` or `unknown`) sees only an open request: the open run and the
-  open view; the provider refuses a request to one without a `DataPass` for that exact request's digest; origin is
-  judged by endpoint and family as well as by catalog row; `[privacy] sensitive_names` go only to models of US origin;
-  a China-origin model only drafts code, in its own tree, with no programs, and nothing it drafts is applied or
-  reported before a Claude review (`final`). The passages: "The restricted-origin floor", "The open view", "The open
-  request, per request", "Sensitive names" and "Drafts" under the judge.
+- **The data rule.** A model of restricted origin (`cn` or `unknown`) is sent a request only for a session with no
+  cn-disqualifying content label, every item of which was judged; the provider refuses a request to one for any other, and for
+  none; origin is judged by endpoint and family as well as by catalog row; `[privacy] sensitive_names` go only to models of
+  US origin, whatever the labels say; a China-origin model only drafts code, in its own tree, with no programs, and nothing
+  it drafts is applied or reported before a Claude review (`final`). The passages: "Content flags and the restricted-origin
+  floor", "The draft view", "Sensitive names" and "Drafts" under the judge.
 
 ## Tests
 
@@ -3611,6 +3562,6 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The data rule's traps** (theseus-a1wvq.12). DeepSeek's Anthropic endpoint serves a `claude*` model id with a DeepSeek
   model, so origin comes from the endpoint as well as the id (`catalog::origin_of`). A config row cannot loosen a
   built-in China-origin row's origin (`Config::validate`). `deepseek-flash` is a floating alias: its served model can
-  change under the same id. A later loop whose request leaves the open run moves to the `[model]` default (`data_move`).
+  change under the same id. A later loop on a restricted model whose session was labelled meanwhile moves to the `[model]` default (`cn_move`).
   `final` without `cn_draft` fails the load, so deep_coding's pair goes on together. `[routing.data] private_topics` was
   renamed `[privacy] sensitive_names`.

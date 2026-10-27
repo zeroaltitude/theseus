@@ -113,8 +113,11 @@ impl Flag {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemKind {
-    /// A message the operator sent. Never asked the injection question.
+    /// A message **the owner** sent. Never asked the injection question.
     OperatorMessage,
+    /// A message anyone else sent, in a shared place. Asked like any other
+    /// text that did not come from the owner (see [`ItemKind::asks_injection`]).
+    PersonMessage,
     /// Any tool's result: a file read, a program's output, an MCP call.
     ToolResult,
     /// A page `http.fetch` brought in.
@@ -131,6 +134,7 @@ impl ItemKind {
     pub fn as_str(self) -> &'static str {
         match self {
             ItemKind::OperatorMessage => "operator_message",
+            ItemKind::PersonMessage => "person_message",
             ItemKind::ToolResult => "tool_result",
             ItemKind::FetchedPage => "fetched_page",
             ItemKind::SearchResult => "search_result",
@@ -139,16 +143,37 @@ impl ItemKind {
         }
     }
 
-    /// Whether the injection question is asked of an item of this kind. It is
-    /// not asked of the operator's own words (the owner, 2026-10-17: "my own DM
-    /// or channel text should never cause a flag"), and the rule lives here, in
-    /// code, rather than in the pack's wording: a wording rule can be talked
-    /// around by the very text it judges, a question that is never asked cannot
-    /// be answered. The other three questions *are* asked of the operator's
-    /// text: he can paste a key or a confidential document, and he wants that to
-    /// disqualify a model of restricted origin.
+    /// Whether the injection question is asked of an item of this kind. Two
+    /// kinds are exempt, for two different reasons, and both exemptions live
+    /// here in code rather than in the pack's wording: a wording rule can be
+    /// talked around by the very text it judges, a question that is never
+    /// asked cannot be answered.
+    ///
+    /// - [`ItemKind::OperatorMessage`] — the owner's own words (the owner,
+    ///   2026-10-17: "my own DM or channel text should never cause a flag").
+    ///   **This is the owner's message alone.** A message from anyone else in a
+    ///   shared place is [`ItemKind::PersonMessage`] and *is* asked: the rule
+    ///   he stated is about his own text, and a guest in a shared channel is
+    ///   exactly who an injection would come from.
+    /// - [`ItemKind::TaskBrief`] — a brief is the instructions a parent session
+    ///   gave its child. It is steering by nature and by design, so the
+    ///   question is a guaranteed false positive, and at the act band it would
+    ///   freeze every task session on its first item. Nothing is lost: a parent
+    ///   carrying `injection` is frozen and **cannot call `task.create` at all**
+    ///   (it is not a local read), so an injection cannot launder itself into a
+    ///   child; and a brief that quotes foreign text is still asked `secret`,
+    ///   `confidential` and `personal`.
+    ///
+    /// [`ItemKind::TaskReport`] is **not** exempt. A report reports rather than
+    /// instructs, so the false-positive argument does not hold, and a child that
+    /// read a poisoned page can write its parent a report shaped by it — which
+    /// is a real way in, and the one the freeze does not already close.
+    ///
+    /// The other three questions are asked of every kind, the owner's own
+    /// messages included: he can paste a key or a confidential document, and he
+    /// wants that to disqualify a model of restricted origin.
     pub fn asks_injection(self) -> bool {
-        self != ItemKind::OperatorMessage
+        !matches!(self, ItemKind::OperatorMessage | ItemKind::TaskBrief)
     }
 }
 
@@ -202,6 +227,13 @@ pub struct ContentFlags {
     /// not yet judged, and waits (`turn/data_step.rs`) or goes to Claude.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub judged_through: Option<String>,
+    /// Nodes that could not be judged (Jev failed, the reservation was
+    /// refused, the pack was in shadow): a record for the operator and a
+    /// worklist for a re-ask. It does **not** gate the mark — the transcript
+    /// does, through [`ContentFlags::judged_run`] — so a stale or lost entry
+    /// here can never make a session look more judged than it is.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unjudged: Vec<String>,
     /// `judged_through` as this copy was read from the store, which a write
     /// back compares against (`merge`): compare and set. Never stored.
     #[serde(skip)]
@@ -218,6 +250,8 @@ struct Stored {
     removed: Vec<Removed>,
     #[serde(default)]
     judged_through: Option<String>,
+    #[serde(default)]
+    unjudged: Vec<String>,
 }
 
 impl From<Stored> for ContentFlags {
@@ -227,6 +261,7 @@ impl From<Stored> for ContentFlags {
             labels: s.labels,
             removed: s.removed,
             judged_through: s.judged_through,
+            unjudged: s.unjudged,
         }
     }
 }
@@ -234,8 +269,8 @@ impl From<Stored> for ContentFlags {
 /// Equal when what is stored is.
 impl PartialEq for ContentFlags {
     fn eq(&self, o: &Self) -> bool {
-        (&self.labels, &self.removed, &self.judged_through)
-            == (&o.labels, &o.removed, &o.judged_through)
+        (&self.labels, &self.removed, &self.judged_through, &self.unjudged)
+            == (&o.labels, &o.removed, &o.judged_through, &o.unjudged)
     }
 }
 
@@ -294,6 +329,42 @@ impl ContentFlags {
         self.judged_through.as_deref() == Some(node)
     }
 
+    /// Record that `node` could not be judged. Idempotent. This is a record
+    /// for the operator and for a re-ask to work from; it is **not** what
+    /// stops the mark — see [`ContentFlags::judged_run`], which is gated by
+    /// the transcript itself.
+    pub fn could_not_judge(&mut self, node: &str) {
+        if !self.unjudged.iter().any(|n| n == node) {
+            self.unjudged.push(node.into());
+        }
+    }
+
+    /// Advance the mark to `node`, where `span` is **every transcript node
+    /// after the current mark up to and including `node`**, in order, and
+    /// `judged_now` is the set this landing actually judged. The mark moves
+    /// only when every node of the span was judged. Returns whether it moved.
+    ///
+    /// The span comes from the transcript, which is why this holds **across a
+    /// restart with no in-memory state at all**. If an item was skipped, the
+    /// span from the mark will always contain it again, and a later landing
+    /// that judged only the newest item cannot carry the mark over it. An
+    /// earlier draft of this gated on a stored list of skipped nodes instead;
+    /// that was a worse primitive, because it needed the caller to pass a run
+    /// it had not judged in order to clear it, and it got the re-ask case
+    /// wrong. The transcript is already the durable record; nothing else has
+    /// to be.
+    pub fn judged_run(&mut self, span: &[String], judged_now: &[String], node: &str) -> bool {
+        if span.is_empty()
+            || span.last().map(String::as_str) != Some(node)
+            || !span.iter().all(|n| judged_now.contains(n))
+        {
+            return false;
+        }
+        self.unjudged.retain(|n| !span.contains(n));
+        self.judged_through = Some(node.into());
+        true
+    }
+
     /// A write back merged into the stored labels, never over them: a stored
     /// label always wins (a turn's copy cannot clear one, only the operator
     /// can), a stored removal is kept, and `judged_through` is taken only while
@@ -309,6 +380,9 @@ impl ContentFlags {
         let mut s = stored.map(|b| *b).unwrap_or_default();
         for l in &turn.labels {
             s.raise(l.clone());
+        }
+        for n in &turn.unjudged {
+            s.could_not_judge(n);
         }
         if s.judged_through == turn.read || s.judged_through == turn.judged_through {
             s.judged_through.clone_from(&turn.judged_through);
@@ -777,20 +851,101 @@ mod tests {
         assert_eq!((p.len(), cut), (1, true));
     }
 
-    /// The injection question is not asked of the operator's own words, and is
-    /// asked of everything else; the other three are asked of everything.
+    /// Exactly two kinds are exempt from the injection question, for two
+    /// different reasons, and nothing else is. In particular another person's
+    /// message in a shared place IS asked — the owner's rule is about his own
+    /// text, and a guest is exactly who an injection would come from — and a
+    /// task's REPORT is asked though its BRIEF is not.
     #[test]
-    fn the_operators_own_words_are_never_asked_about_injection() {
-        assert!(!ItemKind::OperatorMessage.asks_injection());
+    fn only_the_owners_words_and_a_brief_escape_the_injection_question() {
+        assert!(!ItemKind::OperatorMessage.asks_injection(), "the owner's own");
+        assert!(
+            !ItemKind::TaskBrief.asks_injection(),
+            "a brief is our own parent instructing its child: steering by design, \
+             so the question is a guaranteed false positive"
+        );
         for k in [
+            ItemKind::PersonMessage,
+            ItemKind::ToolResult,
+            ItemKind::FetchedPage,
+            ItemKind::SearchResult,
+            ItemKind::TaskReport,
+        ] {
+            assert!(k.asks_injection(), "{}", k.as_str());
+        }
+        // Every kind round-trips by its word, so a row is readable.
+        for k in [
+            ItemKind::OperatorMessage,
+            ItemKind::PersonMessage,
             ItemKind::ToolResult,
             ItemKind::FetchedPage,
             ItemKind::SearchResult,
             ItemKind::TaskBrief,
             ItemKind::TaskReport,
         ] {
-            assert!(k.asks_injection(), "{}", k.as_str());
+            let w = serde_json::to_string(&k).unwrap();
+            assert_eq!(w, format!("\"{}\"", k.as_str()));
         }
+    }
+
+    /// The mark moves only over a span every node of which was judged, and the
+    /// span comes from the transcript — so the guarantee survives a restart
+    /// with no in-memory state at all. The restart case is the one that
+    /// matters: the process forgets which item it gave up on, and the
+    /// transcript remembers for it.
+    #[test]
+    fn the_mark_never_carries_over_an_item_nothing_judged_even_after_a_restart() {
+        let n = |s: &str| s.to_string();
+        let mut f = ContentFlags::default();
+        // n1 judged.
+        assert!(f.judged_run(&[n("n1")], &[n("n1")], "n1"));
+        assert_eq!(f.judged_through.as_deref(), Some("n1"));
+
+        // n2 could not be judged; n3 was. The span from the mark is [n2, n3],
+        // and n2 was not judged, so the mark stays.
+        f.could_not_judge("n2");
+        f.could_not_judge("n2");
+        assert_eq!(f.unjudged, ["n2"], "idempotent");
+        assert!(!f.judged_run(&[n("n2"), n("n3")], &[n("n3")], "n3"));
+        assert_eq!(f.judged_through.as_deref(), Some("n1"));
+
+        // THE RESTART. Everything the judging process knew is gone; only what
+        // was stored comes back. A fresh landing judges only the newest item,
+        // n5 — and the span from the mark still holds n2, n3, n4.
+        let mut back: ContentFlags =
+            serde_json::from_value(serde_json::to_value(&f).unwrap()).expect("round trip");
+        assert!(!back.judged_run(
+            &[n("n2"), n("n3"), n("n4"), n("n5")],
+            &[n("n5")],
+            "n5"
+        ));
+        assert_eq!(
+            back.judged_through.as_deref(),
+            Some("n1"),
+            "the transcript remembers the skipped item for the process that forgot it"
+        );
+
+        // A re-ask that covers the whole span moves the mark and clears the record.
+        assert!(back.judged_run(
+            &[n("n2"), n("n3"), n("n4"), n("n5")],
+            &[n("n2"), n("n3"), n("n4"), n("n5")],
+            "n5"
+        ));
+        assert_eq!(back.judged_through.as_deref(), Some("n5"));
+        assert!(back.unjudged.is_empty(), "the re-ask cleared the record");
+
+        // Malformed spans move nothing: empty, or not ending at `node`.
+        let before = back.judged_through.clone();
+        assert!(!back.judged_run(&[], &[], "n6"));
+        assert!(!back.judged_run(&[n("n6"), n("n7")], &[n("n6"), n("n7")], "n6"));
+        assert_eq!(back.judged_through, before);
+
+        // A turn's write-back carries a new record up, and never drops a stored one.
+        let stored = Box::new(back.clone());
+        let mut turn = back;
+        turn.could_not_judge("n9");
+        let merged = ContentFlags::merge(Some(stored), Some(&turn)).unwrap();
+        assert_eq!(merged.unjudged, ["n9"]);
     }
 
     /// Its line for a person, with and without labels.
