@@ -374,50 +374,66 @@ async fn a_failed_content_call_mid_turn_is_asked_again_rather_than_wedging() {
 /// trial, and it is why the other 23 died hard instead of degrading.
 ///
 /// The floor decides, and says so: the turn ends with the floor's words and
-/// the chokepoint is never reached. A label the judge really found is used
-/// here rather than an unjudged item, so the refusal is about the fallback
-/// and not about anything that could have been waited for.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_restricted_default_is_not_a_fallback() {
-    use crate::content::{Flag, ItemKind, Label};
-    use crate::tests_route::{rig as route_rig, try_turn_attached as route_turn};
-    let r = route_rig(None, 2, |c| {
-        crate::tests_route::restricted_placements(c);
-        // `[model]`'s default is the restricted model itself, as a pinned
-        // bench arm's is.
-        c.copy_profile("default", "glm");
-    });
-    let mut f = crate::content::ContentFlags::default();
-    f.raise(Label {
-        flag: Flag::Confidential,
-        node: Some("nod_earlier".into()),
-        kind: ItemKind::ToolResult,
-        source: "fs.read /srv/notes.txt".into(),
-        confidence: 0.9,
-        band: theseus_judge::band::Band::Confirm,
-        at_ms: 1,
-    });
-    f.judged_through = Some("nod_earlier".into());
-    let mut rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
-    rec.data = Some(Box::new(f));
-    r.core.store.put_session(&rec.session_id, &rec).unwrap();
-    let out = route_turn(
-        &r.core,
-        Some(&rec.session_id),
-        "Rename the call sites.",
-        Some("glm"),
-        vec![],
-    )
-    .await;
-    assert!(
-        r.zai.requests().is_empty(),
-        "a request reached the restricted model"
+/// the chokepoint is never reached.
+///
+/// It must be a **later** loop, which is why the turn runs a tool first. The
+/// first loop's move (`floor_unrouted` through `data_floor`) already reads
+/// the fallback's origin, because `route_profiles` marks a profile the floor
+/// refuses `unusable`; `cn_move`, the loop after a tool's result, did not,
+/// and that is the loop every one of cell 8's trials died on. A test that
+/// skips the tool call passes on the unfixed build.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restricted_default_is_not_a_fallback_on_a_later_loop() {
+    use crate::tests_route::{rig_parts, try_turn_attached as route_turn};
+    const MARK: &str = "fallbackmarker";
+    let jev = FakeJev::start().unwrap();
+    clean(&jev);
+    crate::tests_route::mode(&jev, "trivial", 0.95);
+    // The result's own content call never answers, so the later loop reaches
+    // `cn_move` with the session unjudged -- a state the floor could not
+    // settle, which is exactly when it needs somewhere to go.
+    jev.hold_when(MARK);
+    let one_call = Scripted::tools(
+        "",
+        &[(
+            "t1",
+            "proc_run",
+            json!({"argv": ["bash", "-c", format!("echo {MARK}")]}),
+        )],
     );
+    let mine = std::sync::Arc::new(crate::provider::FakeProvider::scripted(vec![
+        one_call,
+        Scripted::text("Ran it."),
+    ]));
+    let r = rig_parts(
+        Some(&jev),
+        2,
+        |c| {
+            crate::tests_route::restricted_placements(c);
+            // `[model]`'s default is the restricted model itself, as a pinned
+            // bench arm's is.
+            c.copy_profile("default", "glm");
+            c.judge.packs.remove(crate::judge::content::PACK);
+            c.judge.total_secs = 2;
+            c.content.wait_ms = 1_000;
+            c.tools.proc_sync_secs = 5;
+            c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
+            c.model.retries.transient = 0;
+            c.policy.tools.insert("proc.run".into(), Posture::Open);
+        },
+        {
+            let mine = mine.clone();
+            move |p| {
+                p.providers.insert("zai".into(), mine);
+            }
+        },
+    );
+    let out = route_turn(&r.core, None, "run that one", Some("glm"), vec![]).await;
     assert_eq!(
         crate::tests_dm_rig::blocked(&r.core),
         0,
         "the chokepoint refused what the floor should have: the fallback was \
-         a model of restricted origin and nothing read its origin"
+         a model of restricted origin and the later loop never read its origin"
     );
     let said = match out {
         Ok(ok) => format!("the turn ran on `{}`: {:?}", ok.profile, ok.route),

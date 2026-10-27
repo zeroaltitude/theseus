@@ -40,15 +40,16 @@ pub(super) const REFUSED: &str =
     "this message names something in `[privacy] sensitive_names`, and \
                                   no profile of US origin is configured for it";
 
-/// How many times a wait for verdicts **sweeps**: reads the record and the
-/// whole transcript again and offers what nothing has asked for. A wake-up
-/// that judged only some of the items leaves the rest to the next one, and a
-/// notify that answers at once (the stand-in's) must not spin.
+/// How many times a wait for verdicts reads the record again: a wake-up that
+/// judged only some of the items leaves the rest to the next one, and a notify
+/// that answers at once (the stand-in's) must not spin.
 ///
-/// It bounds the sweeps and **not the wait** (theseus-8qgwo): the wait's own
-/// bound is `[content] wait_ms`. Bounding both meant a session whose landings
-/// were failing — each of which wakes the wait — spent its eight reads at once
-/// and was refused with nearly all of a 30-second `wait_ms` unspent.
+/// It bounds the *wait* as well as the reads, which `[content] wait_ms` is
+/// supposed to do alone: every landing wakes the loop, so eight failing ones
+/// end the wait early. That mattered before the sweep re-asked a stuck mark
+/// (theseus-8qgwo) and does not now — the first sweep queues the stuck item,
+/// so each read waits on real work. Left as it is rather than changed on an
+/// argument no test could hold to.
 const SETTLE_READS: u32 = 8;
 
 /// Where a turn stands on its session's labels, as the floor reads it.
@@ -203,21 +204,12 @@ impl TurnRunner {
     /// `cn_read`, and when items are not yet judged, a wait for their verdicts
     /// of at most `[content] wait_ms`; what is still pending then is refused
     /// (`unjudged`). Only a request bound for a restricted profile asks.
-    ///
-    /// **The wait runs to `wait_ms`, and [`SETTLE_READS`] bounds the sweeps
-    /// inside it, not the wait** (theseus-8qgwo). It used to bound both, and
-    /// each landing wakes this loop, so a session whose verdicts were failing
-    /// one after another used its eight reads in milliseconds and was refused
-    /// with almost all of its `wait_ms` unspent — a 30-second bound that in
-    /// practice gave up in three. The reads are the expensive part (a record,
-    /// a whole transcript, up to sixteen item builds); waiting is free.
     pub(super) async fn cn_wait(&self, t: &Turn<'_>) -> Cn {
         let sid = t.tc.session_id;
         let deadline = Instant::now() + Duration::from_millis(self.cfg.content.wait_ms);
         let mut cn = Self::cn_read(t);
         let mut swept = false;
-        let mut sweeps = 0;
-        loop {
+        for _ in 0..SETTLE_READS {
             let left = deadline.saturating_duration_since(Instant::now());
             if cn != Cn::Pending || left.is_zero() {
                 break;
@@ -234,19 +226,10 @@ impl TurnRunner {
             // origin for the rest of its life (theseus-sh1n3). The floor's own
             // reading of the transcript queues what a write site did not, and
             // re-asks what a failed batch left stuck (theseus-8qgwo).
-            if sweeps < SETTLE_READS {
-                self.judge.ask_unsubmitted(sid);
-                swept = true;
-                sweeps += 1;
-                cn = Self::cn_read(t);
-                if cn != Cn::Pending {
-                    break;
-                }
-            }
-            // Out of sweeps with nothing in flight: no verdict is coming, and
-            // `settled` on an idle session answers at once, so waiting on it
-            // would spin to the deadline rather than wait.
-            if sweeps >= SETTLE_READS && !self.judge.content_pending(sid) {
+            self.judge.ask_unsubmitted(sid);
+            swept = true;
+            cn = Self::cn_read(t);
+            if cn != Cn::Pending {
                 break;
             }
             let _ = tokio::time::timeout(left, woken).await;
