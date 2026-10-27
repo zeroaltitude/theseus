@@ -3,14 +3,16 @@
 //! when all of these hold, each failure its own `draft_skip` word on the
 //! route row, the first that fails:
 //!
-//! - `not_admitted`: the input is open and admitted (`RouteState.admitted`);
+//! - `labelled`: no label keeps the session off a model of restricted origin
+//!   (`RouteState.cn`: allowed, or its items not yet judged; the draft's own
+//!   brief is judged on its own session);
 //! - `in_task`: the session is no task;
 //! - `wake`: the turn is a person's message, not a wake's, a report's or a
 //!   continuation;
-//! - `dir_not_open`: the session's directory, and its repository's top (the draft
-//!   tree is the whole repository), are under the open roots;
-//! - `not_git`: it is a git work tree (and its worktree could be made);
-//! - `draft_unusable`: the `cn_draft` profile is usable for a cleared ask;
+//! - `not_git`: the session has a directory, and it is a git work tree (and
+//!   its worktree could be made);
+//! - `draft_unusable`: the `cn_draft` profile is usable for a session whose
+//!   labels allow it;
 //! - `no_reviewer`: a `final` profile is usable.
 //!
 //! A drafting turn makes no model call: its first compile is dropped, the
@@ -20,7 +22,6 @@
 //! (`noop_step.rs`). A class without `cn_draft` pays one branch.
 
 use super::*;
-use crate::data::OpenHow;
 use crate::draft::{self, Draft};
 use crate::routing::Verdict;
 use std::path::{Path, PathBuf};
@@ -34,11 +35,12 @@ pub(super) struct Drafting {
 }
 
 impl TurnRunner {
-    /// Whether `profile` is usable now, for a cleared ask or not.
-    pub(crate) fn profile_usable(&self, profile: &str, cleared: bool) -> bool {
+    /// Whether `profile` is usable now, for a session whose labels allow a
+    /// model of restricted origin or not.
+    pub(crate) fn profile_usable(&self, profile: &str, cn_ok: bool) -> bool {
         let floor = super::data_step::Floor {
             sensitive: false,
-            cleared,
+            cn_ok,
         };
         self.route_profiles(floor)
             .get(profile)
@@ -73,38 +75,24 @@ impl TurnRunner {
         table: &crate::config::routing::ClassProfiles,
     ) -> Result<Drafting, &'static str> {
         let reviewers = &table.final_review;
-        let Ok(run) = &t.route.admitted.0 else {
-            return Err("not_admitted");
-        };
+        if let super::data_step::Cn::No(word) = t.route.cn {
+            if crate::content::Flag::parse(word).is_some() {
+                return Err("labelled");
+            }
+        }
         if t.tc.task.is_some() || session.task.is_some() {
             return Err("in_task");
         }
         if t.continuation || !t.wakes.is_empty() || !t.woke_by.is_empty() {
             return Err("wake");
         }
-        let dir = session
-            .dir
-            .as_deref()
-            .map(PathBuf::from)
-            .ok_or("dir_not_open")?;
-        let roots = crate::open_view::open_roots(&self.cfg, session);
-        let canonical = theseus_tools::paths::canonical_best_effort(&dir);
-        if !roots
-            .iter()
-            .any(|r| theseus_tools::paths::within(&canonical, r))
-        {
-            return Err("dir_not_open");
-        }
-        let at = canonical.clone();
+        let dir = session.dir.as_deref().map(PathBuf::from).ok_or("not_git")?;
+        let at = theseus_tools::paths::canonical_best_effort(&dir);
         let top = tokio::task::spawn_blocking(move || draft::work_tree(&at))
             .await
             .ok()
             .flatten()
             .ok_or("not_git")?;
-        // The tree is the whole repository: all of it must be open.
-        if !roots.iter().any(|r| theseus_tools::paths::within(&top, r)) {
-            return Err("dir_not_open");
-        }
         let profile = self
             .tools
             .profiles
@@ -117,7 +105,7 @@ impl TurnRunner {
             .find(|p| self.profile_usable(p, false))
             .ok_or("no_reviewer")?
             .clone();
-        let asks = Self::person_messages(t, run).map_err(|_| "not_admitted")?;
+        let asks = Self::person_messages(t).map_err(|_| "wake")?;
         let correlation_id = theseus_kernel::new_id("act");
         let (_, task_session) = theseus_kernel::task_ids(&correlation_id);
         let tree = draft::tree_of(&self.cfg, &task_session);
@@ -165,22 +153,22 @@ impl TurnRunner {
         })
     }
 
-    /// The open run's person messages, oldest first, verbatim.
-    fn person_messages(t: &Turn<'_>, run: &crate::data::OpenRun) -> Result<Vec<String>> {
+    /// The turn's own person message, verbatim: the draft's brief is the ask
+    /// of this turn alone, since no run of earlier messages was judged open.
+    fn person_messages(t: &Turn<'_>) -> Result<Vec<String>> {
         let nodes = t.tc.store.transcript(t.tc.session_id)?;
-        let from = nodes.iter().position(|(_, n)| n.id == run.from);
-        let through = nodes.iter().position(|(_, n)| n.id == run.through);
-        let (Some(from), Some(through)) = (from, through) else {
-            anyhow::bail!("the open run is not in the transcript");
-        };
-        Ok(nodes[from..=through]
-            .iter()
-            .filter(|(_, n)| n.kind == crate::stub::Kind::UserMessage)
-            .filter_map(|(_, n)| match &n.body {
-                Body::UserMessage { text, .. } => Some(text.clone()),
-                _ => None,
-            })
-            .collect())
+        let turn = t.tc.turn_id;
+        let ask = nodes.iter().rev().find_map(|(_, n)| match &n.body {
+            Body::UserMessage { text, .. }
+                if n.kind == crate::stub::Kind::UserMessage
+                    && n.turn_id.as_deref() == Some(turn) =>
+            {
+                Some(text.clone())
+            }
+            _ => None,
+        });
+        ask.map(|a| vec![a])
+            .ok_or_else(|| anyhow::anyhow!("the turn has no message of its own"))
     }
 
     /// Open the draft in the turn's frame and end the turn with its line; a
@@ -239,6 +227,12 @@ impl TurnRunner {
             helper: None,
         };
         let hold = session_hold(tc)?;
+        // The brief is an item like any other, and the draft's session is
+        // judged by it (theseus-9ymz0). It is kept out here so it can be queued
+        // after its frame is written: without that the draft's own session is
+        // never judged, so its first request finds an unjudged item, waits,
+        // times out and ends `draft_not_admitted` — no draft would ever run.
+        let briefed: std::sync::Mutex<Option<Node>> = std::sync::Mutex::new(None);
         let opened = tc
             .kernel
             .open_task_at(tc.guard, &d.correlation_id, want, how, |task| {
@@ -267,7 +261,6 @@ impl TurnRunner {
                 let author = format!("session:{}", tc.session_id);
                 let text = draft::brief(draft::DRAFT_HEADER, &d.draft.asks);
                 let brief = Node::relayed(sid, None, crate::node::Origin::Agent, &author, &text);
-                let opened = crate::data::open_task(&mut rec, OpenHow::Draft, tc.kernel.now_ms())?;
                 let mut records = match &hold {
                     Some(h) => {
                         let taken = crate::external::taken(
@@ -286,10 +279,12 @@ impl TurnRunner {
                         &rec,
                     )?],
                 };
-                records.push(opened);
                 records.push(brief.record()?);
-                // A draft of a private session is private from its first call,
-                // as every other open task's is (theseus-b0ozi, LOW-5).
+                *briefed
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(brief);
+                // A draft of a private session is private from its first call
+                // (theseus-b0ozi, LOW-5).
                 records.extend(crate::google::private::inherited(
                     tc.store,
                     &self.cfg,
@@ -309,6 +304,17 @@ impl TurnRunner {
         if let Some(target) = &d.draft.target {
             tc.outbox.task_bound(&opened.task.session_id, target);
         }
+        let briefed = briefed
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(node) = briefed {
+            self.content_message(
+                &opened.task.session_id,
+                &node,
+                ItemKind::TaskBrief,
+                "draft brief",
+            );
+        }
         Ok(())
     }
 
@@ -323,12 +329,15 @@ impl TurnRunner {
 
     /// A draft never moves to the `[model]` default: where the floor would
     /// move it, its turn ends instead, with no model call, and its end opens
-    /// its review. None for every other session.
-    pub(super) fn draft_stopped(t: &Turn<'_>, why: &str) -> Option<Failure> {
-        t.tc.open.filter(|o| o.draft)?;
-        let class = match t.route.admitted.0 {
-            Ok(_) => draft::DRAFT_STOPPED,
-            Err(_) => draft::DRAFT_NOT_ADMITTED,
+    /// its review. `first` is the first loop's floor: a draft that never got
+    /// to use its model (its brief was labelled, or not judged in time) is
+    /// `draft_not_admitted`; one a later label stopped is `draft_stopped`.
+    /// None for every other session.
+    pub(super) fn draft_stopped(t: &Turn<'_>, why: &str, first: bool) -> Option<Failure> {
+        t.tc.draft?;
+        let class = match first {
+            true => draft::DRAFT_NOT_ADMITTED,
+            false => draft::DRAFT_STOPPED,
         };
         let said = format!("the draft ends here rather than leave its model: {why}");
         Some(Failure {
@@ -363,7 +372,7 @@ impl TurnRunner {
     }
 }
 
-/// The parent's external-text hold, which an open task takes bare.
+/// The parent's external-text hold, which a draft takes bare.
 fn session_hold(tc: &TurnCtx<'_>) -> Result<Option<theseus_protocol::ExternalText>> {
     Ok(tc
         .store

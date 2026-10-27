@@ -3,7 +3,7 @@
 //! standing record kept from its words (`capture:<node>`), and any milestone
 //! reminder. Requests to a model of US origin are unchanged, and the mark does
 //! not spread to the session that sees the text. The rig is
-//! `tests_open_request`'s, with `[google]` bound.
+//! `tests_dm_rig`'s, with `[google]` bound and a judge that finds nothing.
 
 use std::sync::Arc;
 
@@ -14,8 +14,8 @@ use theseus_protocol::StandingRecord;
 
 use crate::google::private;
 use crate::provider::FakeProvider;
-use crate::tests_open_request::{
-    blocked, dm, jev, open_session, record, rig_with, say, text, OPEN_A, OPEN_B,
+use crate::tests_dm_rig::{
+    blocked, cn_session, dm, jev, judging, record, rig_with, say, text, OPEN_A, OPEN_B,
 };
 use crate::tests_private_background::{google_on, mark};
 use crate::tests_route::{call, mode, Rig};
@@ -57,6 +57,8 @@ fn rig_mode(
             google_on(c);
         }
     });
+    // A judge that finds nothing, so a session may use `dsflash` at all.
+    judging(&r);
     (r, zai, dir, jev)
 }
 
@@ -109,7 +111,7 @@ fn manifest_standing(core: &Core, sid: &str) -> Vec<(String, bool)> {
 async fn a_private_sessions_kept_order_stays_out_of_a_restricted_request() {
     let (r, zai, _dir, _jev) = rig(true);
     let (a, b) = orders(&r, StandingScope::Everywhere).await;
-    let s = open_session(&r).await;
+    let s = cn_session(&r).await;
     let res = say(&r.core, &s, OPEN_A, None).await;
     assert_eq!(res.profile, "dsflash", "{:?}", res.route);
     let body = text(&zai.requests()[0]);
@@ -142,7 +144,7 @@ async fn a_private_sessions_kept_order_stays_out_of_a_restricted_request() {
 async fn a_private_surface_record_stays_out_of_the_tail() {
     let (r, zai, _dir, _jev) = rig(true);
     let (_a, _b) = orders(&r, StandingScope::Surface("terminal".into())).await;
-    let s = open_session(&r).await;
+    let s = cn_session(&r).await;
     let res = say_on_terminal(&r, &s, OPEN_A).await;
     assert_eq!(res.profile, "dsflash", "{:?}", res.route);
     let body = text(&zai.requests()[0]);
@@ -178,7 +180,7 @@ async fn say_on_terminal(r: &Rig, sid: &str, input: &str) -> theseus_protocol::T
             input: Some(input.into()),
             target,
             sink,
-            author: format!("discord:{}", crate::tests_open_request::OWNER),
+            author: format!("discord:{}", crate::tests_dm_rig::OWNER),
             recompile: None,
             attachments: vec![],
             arrived: None,
@@ -189,10 +191,10 @@ async fn say_on_terminal(r: &Rig, sid: &str, input: &str) -> theseus_protocol::T
         .unwrap()
 }
 
-/// An open detour (a plain DM session on Claude whose trivial message goes to
+/// A detour (a plain DM session on Claude whose trivial message goes to
 /// dsflash) holds back the same record, and its check passes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_open_detour_holds_back_the_same_records() {
+async fn a_detour_to_a_restricted_model_holds_back_the_same_records() {
     let (r, zai, _dir, _jev) = rig_mode(true, "trivial");
     let _ = orders(&r, StandingScope::Everywhere).await;
     let s = dm(&r.core);
@@ -209,7 +211,7 @@ async fn an_open_detour_holds_back_the_same_records() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_milestone_reminder_stays_out_of_a_restricted_request() {
     let (r, zai, _dir, _jev) = rig(true);
-    let s = open_session(&r).await;
+    let s = cn_session(&r).await;
     say(&r.core, &s, OPEN_A, None).await;
     let exec = record(&r.core, &s).execution_id.unwrap();
     let far = r.core.kernel.now_ms() + 30 * 86_400_000;
@@ -263,12 +265,15 @@ async fn a_milestone_reminder_stays_out_of_a_restricted_request() {
     );
 }
 
-/// A guard of what the open view already does: the task view and the project
-/// slice carry titles any session wrote, and neither reaches dsflash.
+/// A guard of what the open view used to do: the task view and the project
+/// slice carry titles any session wrote, and neither reaches dsflash. Deleted
+/// with the open view and restored (theseus-9ymz0, the review's B1): under
+/// content flags a label belongs to the session that raised it, so a request
+/// to a restricted model leaves out what another session wrote instead.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_task_view_and_slice_never_reach_a_restricted_request() {
-    let (r, zai, _dir, _jev) = rig(true);
-    let s = open_session(&r).await;
+    let (r, zai, _dir, _jev) = rig(false);
+    let s = cn_session(&r).await;
     let p = r
         .core
         .project_create(
@@ -285,7 +290,7 @@ async fn the_task_view_and_slice_never_reach_a_restricted_request() {
         .project_attach(
             &theseus_protocol::projects::ProjectAttachParams {
                 session: s.clone(),
-                project: Some(p.project.id.clone()),
+                project: Some(p.project.id),
                 ..Default::default()
             },
             "the CLI",
@@ -319,19 +324,32 @@ async fn the_task_view_and_slice_never_reach_a_restricted_request() {
     assert!(!body.contains(crate::task_graph::view::HEAD), "{body}");
     assert!(!body.contains(crate::project::slice::HEAD), "{body}");
     assert!(!body.contains("Heronsgate"), "{body}");
+
+    // The same session on Claude carries both: nothing is lost for a model
+    // that may see them.
+    call(&r.core, "profile.use", json!({"name": "default"})).await;
+    let before = r.claude.requests().len();
+    say(&r.core, &s, OPEN_B, None).await;
+    let sent = r.claude.requests();
+    assert!(sent.len() > before);
+    let body = text(sent.last().unwrap());
+    assert!(body.contains(crate::task_graph::view::HEAD), "{body}");
+    assert!(body.contains(crate::project::slice::HEAD), "{body}");
 }
 
-/// With no `[google]` nothing is held and nothing is read: both orders reach
-/// dsflash, and `authored` answers empty before any read.
+/// With no `[google]` the Google hold reads nothing (`authored` answers empty
+/// before any read), but a record kept from another session's message is still
+/// held from a restricted request, for it is that session's content
+/// (theseus-9ymz0, the review's B1): the owner's own order reaches dsflash.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn without_google_nothing_is_held() {
+async fn without_google_the_google_hold_reads_nothing() {
     let (r, zai, _dir, _jev) = rig(false);
     let (a, _b) = orders(&r, StandingScope::Everywhere).await;
-    let s = open_session(&r).await;
+    let s = cn_session(&r).await;
     let res = say(&r.core, &s, OPEN_A, None).await;
     assert_eq!(res.profile, "dsflash", "{:?}", res.route);
     let body = text(&zai.requests()[0]);
-    assert!(body.contains(SHORT) && body.contains(HERON), "{body}");
+    assert!(body.contains(SHORT) && !body.contains(HERON), "{body}");
     let all = r.core.runner.standing.held().unwrap();
     let kept: Vec<&StandingRecord> = all.iter().filter(|x| x.id == a).collect();
     // A node id the store does not hold would count as private with `[google]`.

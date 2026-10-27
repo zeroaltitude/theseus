@@ -21,6 +21,8 @@ pub mod card;
 pub mod census;
 pub mod check;
 pub mod cite;
+pub mod content;
+pub use content::{ContentUnlabelParams, LabelRaised, LabelView, UnlabelResult};
 pub mod context;
 mod cost;
 pub mod cred;
@@ -261,6 +263,10 @@ pub mod method {
         /// Trust a session again (theseus-9bp): it no longer holds external text, so its calls that act go back to
         /// their postures. It loosens, so it takes the same trusted answer as an approval.
         POLICY_TRUST = "policy.trust",
+        /// Remove a content label from a session (theseus-9ymz0, `content::ContentUnlabelParams`): an `injection` label
+        /// stops its calls that act, and a `secret`, `confidential` or `personal` one keeps it off a China-origin model,
+        /// until the operator removes it. It loosens, so it takes the same trusted answer as `policy.trust`.
+        CONTENT_UNLABEL = "content.unlabel",
         /// The owner has seen a hold's notice (theseus-g00vv): the hold stays, and its notice counts as told. Owner only, from a private place, as `policy.trust`.
         POLICY_NOTICE_SEEN = "policy.notice_seen",
         /// Publish an item into a place's conversation (the place rule, theseus-nbsh): the owner's act, from a private place.
@@ -474,6 +480,12 @@ pub mod notify {
         /// The operator trusted a session again (theseus-9bp), to the session's
         /// watchers. The params are a `TrustResult`.
         SESSION_TRUSTED = "session.trusted",
+        /// The operator removed a content label from a session (theseus-9ymz0), to the session's watchers. The params are
+        /// an `UnlabelResult`.
+        SESSION_UNLABELLED = "session.unlabelled",
+        /// A content label was raised on a session (theseus-9ymz0), to the session's watchers. The params are a
+        /// `LabelRaised`.
+        SESSION_LABELLED = "session.labelled",
         /// One line of the narrative, to every `narrative.watch` subscriber.
         /// Unlike the others it is not a ledger row: the narrative is never stored.
         NARRATIVE_LINE = "narrative.line",
@@ -1993,6 +2005,10 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub data: Option<ops::DataMark>,
+    /// The content labels it carries (theseus-9ymz0), in the flags' order. Empty
+    /// when it carries none, and from a daemon before them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<content::LabelView>,
     /// With `session.list`'s `with_text`: the words of its first user
     /// message and of its last message, cut short; and `prompts`, the head
     /// and the tail of each of its newest user messages, for a search.

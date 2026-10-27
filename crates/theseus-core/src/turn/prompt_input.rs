@@ -78,6 +78,13 @@ impl TurnRunner {
         for n in &nodes {
             t.tc.node_written(n);
         }
+        // An MCP server's prompt is text from outside, an item like a result.
+        self.content_nodes(
+            sid,
+            &nodes,
+            crate::content::ItemKind::ToolResult,
+            "mcp.prompt",
+        );
         if let Some(h) = &taken {
             t.tc.record(&fact::tool::HoldTaken {
                 hold: h,

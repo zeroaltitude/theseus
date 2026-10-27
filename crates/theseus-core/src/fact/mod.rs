@@ -47,6 +47,7 @@ pub mod capture;
 pub mod card;
 pub mod check;
 pub mod compaction;
+pub mod content;
 pub mod data;
 pub mod detour;
 pub mod disk;
@@ -80,7 +81,6 @@ pub mod prefix;
 pub mod privacy;
 pub mod progress;
 pub mod recall;
-pub mod reply_data;
 pub mod retract;
 pub mod retry;
 pub mod route;
@@ -322,11 +322,11 @@ facts![
     place::PlaceViewed<'static>,
     place::PlaceWarned<'static>,
     privacy::PrivacyWarned<'static>,
+    content::ContentJudged<'static>,
+    content::ContentLabelled<'static>,
+    content::ContentRemoved<'static>,
+    content::ContentUnjudged<'static>,
     data::DataGateBlocked<'static>,
-    data::SessionDataOpened,
-    data::SessionDataTainted<'static>,
-    data::SessionDataScreened<'static>,
-    reply_data::DataReply<'static>,
     place::Published<'static>,
     place::GlidePosted<'static>,
     place::GlideRead<'static>,

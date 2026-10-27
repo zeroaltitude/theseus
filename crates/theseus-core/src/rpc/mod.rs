@@ -113,6 +113,7 @@ mod watch;
 mod work_board;
 #[cfg(test)]
 pub(crate) use server::write_item;
+pub(crate) mod content;
 mod notice_seen;
 #[cfg(test)]
 mod tests;
@@ -913,6 +914,7 @@ impl Core {
                 store.clone(),
             ),
             effort_refusals: Default::default(),
+            verdicts: Default::default(),
             keep_warm: Default::default(),
             cache_numbers: Default::default(),
             stubs: Default::default(),
@@ -926,6 +928,14 @@ impl Core {
         let telemetry_cell = std::sync::OnceLock::new();
         // The judge's facts speak in the narrative, and count in telemetry (23b).
         runner.judge.narrate_to(narrator.clone());
+        runner.judge.content_from(
+            theseus_judge::builders::DataNames {
+                open: vec![],
+                private: cfg.privacy.sensitive_names.clone(),
+            },
+            cfg.content.enabled,
+            cfg.content.max_pieces,
+        );
         if let Some(t) = telemetry {
             runner.judge.export_to(t.clone());
             runner.memory.export_to(t.clone());
@@ -1007,6 +1017,28 @@ impl Core {
             .set_notice(crate::turn::admission::notice_to_operator(&core));
         core.runner.threads.attach(&core);
         core.runner.judge.attach(&core);
+        // The two seams between the content pack's ask and the operator's
+        // surfaces (theseus-9ymz0). Both are set here because the judge service
+        // holds no core and the turn runner holds no judge.
+        //
+        // A label that is raised is told: `session.labelled` to the session's
+        // watchers and the one approved Discord message with its Remove button.
+        // Without this the operator-facing half of the feature is dead code.
+        {
+            let told = Arc::downgrade(&core);
+            core.runner.judge.label_told(move |session, label| {
+                if let Some(core) = told.upgrade() {
+                    if let Err(e) = core.tell_label(session, label) {
+                        tracing::warn!(error = %format!("{e:#}"), "a content label was not told");
+                    }
+                }
+            });
+        }
+        // And a turn bound for a model of restricted origin waits on the judge
+        // for its session's items. Until this is set the handle is `Ready`,
+        // which answers at once, so such a turn would go to Claude without ever
+        // waiting and `[content] wait_ms` would mean nothing.
+        core.runner.verdicts.set(core.runner.judge.clone());
         // The judge's sink writes between turns, as the pass does.
         core.runner
             .judge

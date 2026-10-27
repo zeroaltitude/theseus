@@ -12,12 +12,12 @@ use theseus_protocol::ops::DataMark;
 
 const MARKS: [DataMark; 3] = [DataMark::Open, DataMark::Private, DataMark::Sensitive];
 
-/// The floor's answer for a turn of a session marked `mark` and admitted open
-/// (the most it lets through): the private marks are the names' floor.
+/// The floor's answer for a turn of a session marked `mark` whose labels allow
+/// a restricted model (the most it lets through): the private marks are the names' floor.
 fn route_refuses(r: &TurnRunner, mark: DataMark, profile: &str) -> bool {
     let floor = Floor {
         sensitive: mark >= DataMark::Private,
-        cleared: true,
+        cn_ok: true,
     };
     r.floor_refuses(floor, profile).is_some()
 }

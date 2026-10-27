@@ -37,6 +37,7 @@ use crate::compiler::{
     compile, situation, CompileInput, Compiled, Overflowed, Recompile, RequestSpec,
 };
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
+use crate::content::ItemKind;
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::fact::{self, Fact, To};
 use crate::narrative::{self, Narrator};
@@ -67,6 +68,7 @@ mod checkpoint_step;
 mod cite_step;
 pub mod clock_step;
 mod close_out_step;
+mod content_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
@@ -93,7 +95,6 @@ mod join_step;
 mod later_step;
 mod noop_step;
 pub mod nudge_step;
-mod open_step;
 mod persona_engage;
 pub(crate) mod persona_step;
 pub(crate) mod personal_step;
@@ -101,14 +102,12 @@ pub mod progress_step;
 mod promise_step;
 mod prompt_input;
 mod recall_step;
-mod reply_data_step;
 mod reply_step;
 mod request;
 mod rerank_step;
 mod retract_step;
 mod retry_step;
 mod route_step;
-mod screen_step;
 mod self_budget_step;
 pub(crate) mod situation_step;
 mod spec_step;
@@ -234,6 +233,9 @@ pub struct TurnRunner {
     pub(crate) spend_marks: budget_step::SpendMarks,
     /// The models found to refuse per-message effort, for this run (theseus-posww).
     pub effort_refusals: effort_step::EffortRefusals,
+    /// What a turn bound for a model of restricted origin waits on for its
+    /// session's items to be judged (theseus-9ymz0, `content_wait.rs`).
+    pub verdicts: crate::content_wait::Handle,
     /// The conversations kept warm after their turns, and the stubs their
     /// cold rewrites decided (theseus-ezeg).
     pub keep_warm: crate::keep_warm::KeepWarm,
@@ -455,8 +457,6 @@ struct Turn<'a> {
     keeping: compile_step::Keeping,
     /// The standing blocks the turn's spec and tail carry, and its surface.
     standing: standing_step::Held,
-    /// Its open requests' clearances (theseus-a1wvq.8).
-    data: open_step::Held,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -590,7 +590,6 @@ impl<'a> Turn<'a> {
             fill: fill_step::Fill::default(),
             keeping: compile_step::Keeping::default(),
             standing: standing_step::Held::default(),
-            data: open_step::Held::default(),
         }
     }
 
@@ -1587,7 +1586,7 @@ impl TurnRunner {
             .ok_or_else(|| anyhow::anyhow!("unknown provider {:?}", target.provider))?;
         // Where routing moves the turn (25e), a refusal (theseus-7gir.18), and
         // a task's checkpoints (theseus-ypnxt.9).
-        let slots = open_step::slots();
+        let slots = data_step::slots();
         // What this turn runs on is the session's target from the turn's
         // start (theseus-kol): its copy carries it into every session write
         // the turn makes (a recompile's, a failure's, its end's), and an
@@ -1626,7 +1625,7 @@ impl TurnRunner {
             // Taken again once the turn has read its wakes and reports.
             class: place.class,
             ceiling: place.ceiling,
-            open: None,
+            draft: None,
             places: crate::places::Places {
                 rule: &self.place_rule,
                 cfg: &self.cfg,
@@ -1730,7 +1729,7 @@ impl TurnRunner {
         // Where the turn's words go, now that it has taken its wakes and
         // reports: their place, when the session's own has moved on.
         let here = self.view_of(sid);
-        (t.tc.class, t.tc.ceiling, t.tc.open) = (here.class, here.ceiling, self.open_of(session));
+        (t.tc.class, t.tc.ceiling, t.tc.draft) = (here.class, here.ceiling, self.reach_of(session));
 
         // 2. The new input, with its files in the same node and frame.
         if let Some(p) = prompt {
@@ -1776,9 +1775,11 @@ impl TurnRunner {
             crate::rpc::ordered::applied();
             t.tc.node_written(&node);
             self.inbound_point(t, &node, &author, false);
+            self.content_input(t, &node);
         } else {
             // A task's first turn has no message: its brief is judged.
             self.brief_point(t);
+            self.content_brief(t);
         }
 
         // 3. The loops, while the model has something new to read.
@@ -1864,8 +1865,9 @@ impl TurnRunner {
                 {
                     return Ok(Next::Fail(f));
                 }
-                if let Some(f) =
-                    self.data_move(t, session, &mut spec, &mut routed_to, data_moved)?
+                if let Some(f) = self
+                    .cn_move(t, session, &mut spec, &mut routed_to, data_moved)
+                    .await?
                 {
                     return Ok(Next::Fail(f));
                 }
@@ -1910,7 +1912,7 @@ impl TurnRunner {
             // A reach for the owner's personal details in a shared place: the
             // reply is held, and the model is never called (theseus-i1z13),
             // even when the compile failed (theseus-cljlz).
-            let Some(mut compiled) = compiled.filter(|_| !t.route.held) else {
+            let Some(compiled) = compiled.filter(|_| !t.route.held) else {
                 if let Some(r) = recall {
                     self.recall_end(t, r).await;
                 }
@@ -1930,8 +1932,6 @@ impl TurnRunner {
             }
             let said_before = (t.output.len(), t.said.len());
             self.spend_checked(t, session)?;
-            Self::data_pass(t, &mut compiled);
-            self.note_open(t, &compiled);
             let on = routed_to.as_deref().unwrap_or(provider);
             let called = self.call_model(t, on, &compiled, i).await;
             self.self_settled(t, &called);
@@ -2061,7 +2061,6 @@ impl TurnRunner {
             let going_back = Self::returns_to_routed(t, &resp);
             self.stash_for_wait(&t.tc, &uses, &compiled, &spec, t.target, going_back);
             let answered = boxed(|| self.run_tools(t, &resp, &uses, &node, i)).await?;
-            self.screen_loop(t, session, &uses);
             // An answer cut at the window (theseus-9p88): none of its calls
             // ran, and the call is made once more on a ring, which leaves the
             // cut answer out; so does the reply. A retry cut too fails the turn.
@@ -2330,6 +2329,7 @@ impl TurnRunner {
         for n in &nodes {
             tc.node_written(n);
         }
+        self.content_nodes(tc.session_id, &nodes, ItemKind::TaskReport, "task report");
         if let Some(h) = &held {
             tc.record(&fact::tool::HoldTaken {
                 hold: h,
@@ -2813,12 +2813,6 @@ impl TurnRunner {
             settled_micros: cost,
             s0: t.trace.now_us(),
             origin: self.ran_of(&target.profile).origin,
-            sent: self
-                .restricted_profile(&target.profile)
-                .then(|| fact::turn::Sent {
-                    pass: compiled.request.data_pass.is_some(),
-                    run_nodes: t.data.run_nodes,
-                }),
         };
         // The call's `provider.call` row rides in its completion's frame, after
         // the node (theseus-qa0).
@@ -3324,7 +3318,6 @@ impl TurnRunner {
             Ok(end) => end,
             Err(e) => return Err(Self::fault(t, session, e)),
         };
-        self.data_end(&mut t, session);
         t.close_books(session);
         session.last_target = Some(Self::ran_on(&t));
         let w0 = t.trace.now_us();
@@ -3342,7 +3335,6 @@ impl TurnRunner {
             Err(e) => return Err(Self::fault(t, session, e)),
         };
         t.deferred = true;
-        self.reply_data_ask(&t, session);
 
         let cites = self.cite_reply(&mut t);
         let last = t.last.as_ref();

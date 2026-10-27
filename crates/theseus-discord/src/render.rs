@@ -92,6 +92,8 @@ pub enum Buttons {
     Standing(String, String, bool),
     /// A live owner-card question (theseus-6f8t0): `(ask, proposal id)`.
     CardQuestion(String, String),
+    /// A content label's one Remove button, for this `(session, flag)` (theseus-9ymz0).
+    ContentRemove(String, String),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.
     Accept(String),
     /// A reply's cited sources, for the session whose recall gave them, and the turn whose

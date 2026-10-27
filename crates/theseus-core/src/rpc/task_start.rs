@@ -170,7 +170,6 @@ impl Core {
             available: parent.budget.available(),
             expect: p.expect,
             private,
-            open: p.open,
         };
         let opened =
             self.kernel
@@ -277,17 +276,12 @@ impl Core {
         }
     }
 
-    /// [`Self::home_of`], for this task: an open task's input is judged open,
-    /// so a session that read private content starts none (theseus-a1wvq.6).
+    /// [`Self::home_of`], for this task.
     fn parent_of(
         &self,
         p: &TaskStartParams,
     ) -> Result<(String, String, SessionRecord, Option<String>), RpcFailure> {
-        let got = self.home_of(p)?;
-        if p.open && crate::google::private::session(&self.store, &self.cfg, &got.0) {
-            return Err(refused(crate::task::PRIVATE_OPEN_REFUSAL.into()));
-        }
-        Ok(got)
+        self.home_of(p)
     }
 
     /// The model the task starts on: the profile asked for (a pin), else the
@@ -341,8 +335,6 @@ struct Draft<'a> {
     available: theseus_kernel::Micros,
     expect: Option<theseus_protocol::task_start::Expect>,
     private: bool,
-    /// An open task (theseus-a1wvq.6): its session says it was opened open.
-    open: bool,
 }
 
 impl Core {
@@ -374,10 +366,6 @@ impl Core {
             check: None,
             notify_done: false,
         });
-        let opened = d
-            .open
-            .then(|| crate::data::open_task(&mut rec, crate::data::OpenHow::Task, d.now))
-            .transpose()?;
         let mut records = match d.hold {
             Some(h) => crate::external::hold(rec, h, None)?.unwrap_or_default(),
             None => vec![NewRecord::json(
@@ -386,7 +374,6 @@ impl Core {
                 &rec,
             )?],
         };
-        records.extend(opened);
         records.push(d.brief_node.record()?);
         if d.private {
             let key = crate::google::private::meta_key(&task.session_id);
@@ -514,6 +501,9 @@ impl Core {
 
 /// The brief, trimmed, once it and the budget are in bounds.
 fn checked(p: &TaskStartParams) -> Result<&str, RpcFailure> {
+    if p.open {
+        return Err(invalid(crate::task::OPEN_RETIRED));
+    }
     let brief = p.brief.trim();
     if brief.is_empty() {
         return Err(invalid("the brief is empty: say what the task should do"));
@@ -529,18 +519,13 @@ fn checked(p: &TaskStartParams) -> Result<&str, RpcFailure> {
             return Err(invalid(format!("budget_usd must be more than $0, not {b}")));
         }
     }
-    if p.open && !p.quotes.is_empty() {
-        return Err(invalid(
-            "an open task carries only its brief: leave out `quotes`",
-        ));
-    }
     Ok(brief)
 }
 
 /// The external-text hold the task's session starts with: its parent's, else
 /// the quotes', unless they are the owner's own words: the act passed as the
 /// owner's, no agent made it, and the start did not say `outside_quotes`
-/// (theseus-nfhaf). An open task keeps it bare.
+/// (theseus-nfhaf).
 fn hold_of(
     parent_rec: &SessionRecord,
     arrangement: Option<&Node>,
@@ -550,7 +535,7 @@ fn hold_of(
 ) -> Option<theseus_protocol::ExternalText> {
     let now = theseus_protocol::now_unix_ms();
     let owners_hand = who.agent.is_none() && !p.outside_quotes;
-    let held = match (&parent_rec.external, arrangement) {
+    match (&parent_rec.external, arrangement) {
         (Some(h), _) => Some(crate::external::taken(
             h,
             home_session,
@@ -564,8 +549,7 @@ fn hold_of(
             Some(h)
         }
         (None, _) => None,
-    };
-    held.map(|h| if p.open { crate::external::bare(h) } else { h })
+    }
 }
 
 impl Core {

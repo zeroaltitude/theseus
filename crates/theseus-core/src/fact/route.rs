@@ -69,10 +69,9 @@ pub struct Ran<'a> {
 /// The data rule on a turn's route row. `gate` is an open word: why the rule
 /// kept the turn off a restricted-origin profile, written only when it did.
 pub struct RouteData<'a> {
-    /// Jev's data answer and its confidence, when the verdict carried one.
-    pub verdict: Option<(&'a str, f64)>,
-    /// `admitted` or `closed`: the turn's admission, never a request's pass.
-    pub clearance: &'a str,
+    /// `allowed`, a flag's word, or `unjudged`: whether the session may use a
+    /// model of restricted origin, as the turn found it.
+    pub cn: &'a str,
     pub gate: Option<&'a str>,
     /// Why a class with `cn_draft` did not draft (theseus-a1wvq.13).
     pub draft_skip: Option<&'a str>,
@@ -108,11 +107,7 @@ impl Fact for RouteDecided<'_> {
         row["model"] = json!(self.ran.model);
         row["origin"] = json!(self.ran.origin);
         if let Some(d) = &self.data {
-            if let Some((choice, confidence)) = d.verdict {
-                row["data"] = json!(choice);
-                row["data_confidence"] = json!(confidence);
-            }
-            row["clearance"] = json!(d.clearance);
+            row["cn"] = json!(d.cn);
             if let Some(g) = d.gate {
                 row["data_gate"] = json!(g);
             }

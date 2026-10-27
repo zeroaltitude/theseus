@@ -286,7 +286,6 @@ mod tests {
             turn: "trn_x".into(),
             persona: None,
             seal: None,
-            data: None,
             personal: None,
         }
     }

@@ -26,6 +26,7 @@ mod index;
 pub use index::IndexConfig;
 pub mod card;
 mod cockpit;
+pub mod content;
 mod data_floor;
 pub mod earned;
 pub(crate) mod import;
@@ -47,7 +48,6 @@ mod routines;
 pub(crate) mod routing;
 mod routing_checkpoints;
 pub(crate) mod routing_cn;
-mod routing_data;
 pub mod self_improve;
 pub mod self_mint;
 mod self_sealed;
@@ -187,6 +187,9 @@ pub struct Config {
     /// `[privacy]`: the one list of sensitive names (theseus-oejh3), `config/privacy.rs`.
     #[serde(default, skip_serializing_if = "privacy::PrivacyConfig::is_default")]
     pub privacy: privacy::PrivacyConfig,
+    /// `[content]`: what a content flag does (theseus-9ymz0), `config/content.rs`.
+    #[serde(default, skip_serializing_if = "content::ContentConfig::is_default")]
+    pub content: content::ContentConfig,
     /// `[mcp.servers.<name>]`: the MCP servers whose tools turns are offered
     /// (M7 36b), in `config::mcp`.
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]

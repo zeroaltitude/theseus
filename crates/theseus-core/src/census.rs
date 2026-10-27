@@ -285,11 +285,11 @@ impl TurnRunner {
     ) -> (SessionKind, PlaceView, String, Vec<String>) {
         let mut notes = Vec::new();
         match rec {
-            // An open session's next request is the open view's (theseus-a1wvq.7).
+            // A draft's next request is the draft view's (theseus-a1wvq.13).
             Some(r) => (
                 r.kind,
                 PlaceView {
-                    open: self.open_of(r),
+                    draft: self.reach_of(r),
                     ..self.view_of(&r.session_id)
                 },
                 r.session_id.clone(),

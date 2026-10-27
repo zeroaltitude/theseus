@@ -350,6 +350,7 @@ async fn a_message_queued_behind_the_turn_ends_a_terminals_wait() {
                 text: "stop it".into(),
                 attachments: vec![],
                 author: "test".into(),
+                owner: false,
                 surface: None,
                 reply_to: None,
                 arrived: Instant::now(),

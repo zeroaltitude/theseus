@@ -1,8 +1,8 @@
 //! The Google `private` mark follows recalled nodes (theseus-39dj0): a turn
 //! whose recall admits a note of a session that holds the mark puts private
 //! content in its request, so the asking session is marked, and the provider
-//! floor refuses its requests to a model of restricted origin even with a
-//! pass. A note of an unmarked session leaves the asker unmarked, and with no
+//! floor refuses its requests to a model of restricted origin even for a
+//! session with no content label. A note of an unmarked session leaves the asker unmarked, and with no
 //! `[google]` nothing is read.
 
 use std::collections::BTreeMap;
@@ -11,7 +11,6 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::config::MemoryMode;
-use crate::data::DataPass;
 use crate::google::private;
 use crate::provider::{FakeProvider, Provider, ProviderRequest};
 use crate::tests_private_background::{google_on, mark};
@@ -34,10 +33,10 @@ fn private_now(r: &Rig, sid: &str) -> bool {
     private::session(&r.core.store, &r.core.cfg, sid)
 }
 
-/// A request to GLM (China origin) with a pass for its data: the floor sends
-/// it for a plain session and refuses it for a private one.
+/// A request to GLM (China origin): the floor sends it for a plain session
+/// whose items were judged, and refuses it for a private one.
 fn glm_request() -> ProviderRequest {
-    let mut req = ProviderRequest {
+    ProviderRequest {
         model: "glm-5.3-flash".into(),
         max_tokens: 16,
         system: vec![],
@@ -49,20 +48,21 @@ fn glm_request() -> ProviderRequest {
         betas: vec![],
         extra: Default::default(),
         image_tokens: 0,
-        data_pass: None,
-    };
-    req.data_pass = Some(DataPass::for_test(&req.digest()));
-    req
+    }
 }
 
 /// `sid`'s next call to GLM through the floor, as a background step makes it
-/// (`private::for_session`): Ok when sent, else the refusal's class.
+/// (`private::for_session`), once a judge that finds nothing has reached its
+/// items: Ok when sent, else the refusal's class.
 async fn glm_call(r: &Rig, sid: &str) -> Result<(), String> {
     glm_call_on(&r.core, sid).await
 }
 
 /// [`glm_call`], for any rig's core.
 pub(crate) async fn glm_call_on(core: &crate::Core, sid: &str) -> Result<(), String> {
+    let judge = crate::content_wait::judging::Judging::clean();
+    judge.attach(&core.store);
+    judge.land(sid);
     let fake: Arc<dyn Provider> = Arc::new(FakeProvider::default());
     let gated = crate::data_gate::guard(
         BTreeMap::from([("zai".to_string(), fake)]),
@@ -84,7 +84,7 @@ pub(crate) async fn glm_call_on(core: &crate::Core, sid: &str) -> Result<(), Str
 
 /// Session B recalls a note of private session A: B is marked, and B's next
 /// request to a model of restricted origin is refused by the floor, though
-/// it carries a pass.
+/// it has no content label.
 #[tokio::test]
 async fn a_session_that_recalls_a_private_note_becomes_private() {
     let r = canary(true);

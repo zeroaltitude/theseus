@@ -754,6 +754,7 @@ impl ToolRuntime {
         );
         if took {
             self.held(tc, newly);
+            self.queue_content(sid, std::slice::from_ref(node));
         }
         Ok(took)
     }

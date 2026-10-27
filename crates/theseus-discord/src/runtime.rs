@@ -54,6 +54,7 @@ mod board;
 pub(crate) use board::accept_buttons;
 mod capture_card;
 pub(crate) mod card_question;
+pub(crate) mod content;
 mod earned;
 pub(crate) mod grant;
 mod onto_card;

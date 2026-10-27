@@ -133,16 +133,16 @@ impl TurnRunner {
         let own = (word == SUMMARY_SESSION).then(|| t.target.clone());
         let profile = own.as_ref().map_or(word, |o| o.profile.clone());
         let t0 = t.trace.now_us();
-        // A restricted summary profile gets the range only if its run clears
-        // it (theseus-a1wvq.10, `gate.rs`).
-        let route = match self.summary_route(t, &ring, base.nodes, (profile.clone(), own)) {
+        // A restricted summary profile gets the range only if the session's
+        // labels allow it (theseus-a1wvq.10, `gate.rs`).
+        let route = match self.summary_route(t, (profile.clone(), own)).await {
             Ok(r) => r,
             Err(why) => {
                 Self::rang(t, &profile, Fallback::new(why), t0, i);
                 return Ok(ring);
             }
         };
-        let (profile, joins) = (route.profile.clone(), route.is_cleared());
+        let profile = route.profile.clone();
         let attempt = self.summarize(t, &ring, base, route, i).await?;
         let (summary, done) = match attempt {
             Ok(s) => s,
@@ -151,9 +151,6 @@ impl TurnRunner {
                 return Ok(ring);
             }
         };
-        if joins {
-            t.data.summaries.push(summary.id.clone());
-        }
         // The assembled prefix (30c): its recall section, the summary, the
         // kept turns, as of the summary's frame; without the section when
         // the section is what would not fit.
@@ -202,7 +199,7 @@ impl TurnRunner {
         drops: Vec<BudgetDrop>,
     ) -> anyhow::Result<Compiled> {
         let nodes = t.tc.store.transcript(t.tc.session_id)?;
-        let (nodes, sources) = self.recall_view(t, nodes);
+        let (nodes, sources) = self.recall_view(t, nodes, &base.spec.profile);
         let input = CompileInput {
             nodes: &nodes,
             last_position: self.store.last_position(),
@@ -411,14 +408,7 @@ impl TurnRunner {
             Err(why) => return fail(why),
         };
         let (target, provider) = (&p.target, &p.provider);
-        // A cleared range's call carries its own pass; the digest is the
-        // request's, never changed by it.
-        let mut request = p.request.clone();
-        request.data_pass = route
-            .cleared
-            .as_ref()
-            .and_then(|c| c.pass(&request.digest()));
-        let request = &request;
+        let request = &p.request;
         let started_ms = theseus_protocol::now_unix_ms();
         let started = Instant::now();
         let mut quiet = |_: crate::provider::Delta<'_>| {};
@@ -877,7 +867,6 @@ fn request_for(
         betas: Vec::new(),
         extra: Default::default(),
         image_tokens: 0,
-        data_pass: None,
     }
 }
 
