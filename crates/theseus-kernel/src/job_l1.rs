@@ -19,6 +19,7 @@ use theseus_sandbox::{Exit, Init, SandboxChild, Spec, Stdio};
 use crate::children::{self, Kind};
 use crate::job::{Reap, WrapperArgs, L1};
 use crate::job_egress as egress;
+use crate::patience::{Cut, Patience};
 use crate::tree::{self, Proc};
 use crate::types::{Outcome, Verdict, VerifiedBy};
 
@@ -56,7 +57,14 @@ pub fn self_test(l1: &L1) -> Value {
     let mut detail = json!({});
     match (null(), null()) {
         (Ok(out), Ok(err)) => {
-            let (outcome, note) = run(&args, l1, Reap::Command, out, err, &mut detail);
+            let (outcome, note) = run(
+                &args,
+                l1,
+                Reap::Command,
+                (out, err),
+                &mut Patience::clock(args.deadline_ms, Instant::now()),
+                &mut detail,
+            );
             if outcome != Outcome::Succeeded && detail.pointer("/sandbox/error").is_none() {
                 detail["sandbox"]["error"] = json!({"stage": "running /bin/true", "error": note});
             }
@@ -77,8 +85,8 @@ pub(crate) fn run(
     args: &WrapperArgs,
     l1: &L1,
     reap: Reap,
-    stdout: OwnedFd,
-    stderr: OwnedFd,
+    (stdout, stderr): (OwnedFd, OwnedFd),
+    patience: &mut Patience,
     detail: &mut Value,
 ) -> (Outcome, String) {
     let t0 = Instant::now();
@@ -145,12 +153,7 @@ pub(crate) fn run(
     sandbox["sys"] = json!(started.sys);
     sandbox["lo"] = json!(started.lo);
     let proxy = egress::start(&mut child, l1, &allow, detail);
-    let (exit, end) = wait(
-        &mut child,
-        reap,
-        Duration::from_millis(args.deadline_ms),
-        t0,
-    );
+    let (exit, end) = wait(&mut child, reap, patience);
     // The job has ended, its whole tree with it (a stop included).
     egress::stop(proxy, &allow, detail);
     // An init a stop could not reap (a process of its namespace in `D`):
@@ -159,7 +162,7 @@ pub(crate) fn run(
     if exit.is_err() {
         std::mem::forget(child);
     }
-    if let End::Stopped(v) | End::TimedOut(v) = &end {
+    if let End::Stopped(v) | End::TimedOut(v, _) = &end {
         detail["stop"] = serde_json::to_value(v).unwrap_or_default();
     }
     let ended = match (exit, end) {
@@ -167,14 +170,10 @@ pub(crate) fn run(
             detail["stopped"] = json!(true);
             (Outcome::Failed, format!("stopped: {}", v.words()))
         }
-        (Ok(e), end) => ended(&e, end, args.deadline_ms, &mut sandbox, detail),
-        (Err(e), End::TimedOut(v)) => (
+        (Ok(e), end) => ended(&e, end, patience, &mut sandbox, detail),
+        (Err(e), End::TimedOut(v, cut)) => (
             Outcome::Failed,
-            format!(
-                "deadline {} ms exceeded; {}: {e}",
-                args.deadline_ms,
-                v.words()
-            ),
+            patience.words(cut, &format!("{}: {e}", v.words())),
         ),
         (Err(e), End::Finished) => (Outcome::Unknown, format!("wait: {e}")),
     };
@@ -218,7 +217,7 @@ fn spec(args: &WrapperArgs, l1: &L1, env: Vec<(String, String)>) -> (Spec, Vec<S
 /// (M4 18a), with the stop's verdict.
 enum End {
     Finished,
-    TimedOut(Verdict),
+    TimedOut(Verdict, Cut),
     Stopped(Verdict),
 }
 
@@ -227,8 +226,7 @@ enum End {
 fn wait(
     child: &mut SandboxChild,
     reap: Reap,
-    deadline: Duration,
-    t0: Instant,
+    patience: &mut Patience,
 ) -> (std::io::Result<Exit>, End) {
     loop {
         match try_reap(child, reap) {
@@ -240,18 +238,18 @@ fn wait(
             let (exit, v) = stop(child, reap, asked.grace());
             return (exit, End::Stopped(v));
         }
-        if t0.elapsed() >= deadline {
+        if let Some(cut) = patience.check() {
             // A test's thread kills at once, as it did.
             let grace = match reap {
                 Reap::Descendants => crate::job::STOP_GRACE,
                 Reap::Command => Duration::ZERO,
             };
             let (exit, v) = stop(child, reap, grace);
-            return (exit, End::TimedOut(v));
+            return (exit, End::TimedOut(v, cut));
         }
         // Asleep until the init exits, a stop or a child's exit pokes the
         // wake pipe, or the deadline comes (7.1).
-        crate::job_wait::wait(child.pidfd(), deadline.saturating_sub(t0.elapsed()));
+        crate::job_wait::wait(child.pidfd(), patience.sleep());
         #[cfg(debug_assertions)]
         planted_delay();
     }
@@ -380,7 +378,7 @@ fn reap_init(child: &mut SandboxChild) -> std::io::Result<Option<Exit>> {
 fn ended(
     e: &Exit,
     end: End,
-    deadline_ms: u64,
+    patience: &Patience,
     sandbox: &mut Value,
     detail: &mut Value,
 ) -> (Outcome, String) {
@@ -393,14 +391,11 @@ fn ended(
         detail["scratch"] = json!({"files": s.files, "bytes": s.bytes, "removed": s.removed,
             "paths": s.paths, "summary": s.summary()});
     }
-    if let End::TimedOut(v) = &end {
+    if let End::TimedOut(v, cut) = &end {
         detail["timed_out"] = json!(true);
         return (
             Outcome::Failed,
-            format!(
-                "deadline {deadline_ms} ms exceeded; the whole job was stopped ({})",
-                v.words()
-            ),
+            patience.words(*cut, &format!("the whole job was stopped ({})", v.words())),
         );
     }
     match (e.code, e.signal.or(e.init_signal)) {

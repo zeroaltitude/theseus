@@ -29,6 +29,7 @@ mod locks;
 pub mod mcp_l1;
 pub mod outbox;
 mod overdraw;
+pub mod patience;
 pub mod place_limit;
 pub mod probe_run;
 pub mod redact;
@@ -78,6 +79,8 @@ mod tests_gone;
 mod tests_held;
 #[cfg(test)]
 mod tests_overdraw;
+#[cfg(test)]
+mod tests_patience;
 #[cfg(test)]
 mod tests_place_limit;
 #[cfg(test)]
