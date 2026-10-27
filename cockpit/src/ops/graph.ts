@@ -9,6 +9,10 @@
 //   new node moves nothing else. The lanes keep their order; a new lane goes below. `prev = null` lays it out afresh,
 //   needs-you lanes first (the lens's "tidy").
 // - Ended work older than an hour folds into one "✓ N done" node per lane, which opens on a click (`expanded`).
+// - **A band is never shorter than its own gutter label** (`labelHeight`, theseus-6ln2q): a lane with no card drawn
+//   still carries its wrapped title, its warmth words and its needs-you badge, so the band holds them and no two
+//   lanes overlap. Before that, a lane the retire bar had emptied was `LANE_HEAD` tall and its label overprinted the
+//   lanes below it.
 // - Past `cap` nodes (400), subtrees fold, the deepest and oldest first, each into one "+N folded" node; a subtree that
 //   holds something that needs the owner never folds.
 // - Edges: a view's parent (solid; it flows while the child runs), a record's deps (dashed, with an arrow: "waits
@@ -24,6 +28,32 @@ export const ROW_H = 140
 export const GUTTER = 212
 export const LANE_HEAD = 18
 export const LANE_GAP = 22
+/** The gutter label's box in `GraphNode`'s `Lane`: `left-4 top-4 w-[180px]`, and the same inset again under it. */
+export const LANE_LABEL_W = 180
+export const LANE_LABEL_PAD = 16
+/** One line of the display title (`text-[15px] leading-tight`), measured at 19 px in the browser. */
+export const LANE_TITLE_LINE = 19
+/** The warmth words under the title: `mt-1`, then a `text-[10.5px] leading-snug` line each. */
+export const LANE_WORDS_TOP = 4
+export const LANE_WORDS_LINE = 15
+/** A badge row under them: `mt-1.5` and the pill. Both the needs-you count and the "fold N done" button are one. */
+export const LANE_BADGE_H = 24
+/** The lock a sealed lane's title carries (`Lock size={11}` and its `mr-1`). */
+const LOCK_W = 15
+/** The advance of every character the display face draws a title with — 15 px, `font-bold`, `tracking-[0.12em]`,
+ *  and `uppercase`, so every letter is a cap. Measured in headless Chrome against the real font (theseus-6ln2q);
+ *  the width of a title is not one number, since W is more than twice I. A character the table lacks is charged
+ *  `TITLE_WIDEST`, so a glyph we have not measured can only make the band taller, never shorter. */
+const TITLE_ADVANCE: Readonly<Record<string, number>> = {
+  A: 12.633, B: 11.806, C: 12.633, D: 12.633, E: 11.806, F: 10.964, G: 13.469, H: 13.469, I: 7.638,
+  J: 9.3, K: 13.469, L: 11.806, M: 15.958, N: 12.633, O: 13.469, P: 10.964, Q: 13.469, R: 12.633,
+  S: 10.144, T: 11.806, U: 12.633, V: 12.633, W: 16.8, X: 12.633, Y: 12.633, Z: 11.806,
+  0: 9.3, 1: 8.556, 2: 9.3, 3: 9.3, 4: 9.3, 5: 9.3, 6: 9.3, 7: 9.3, 8: 9.3, 9: 9.3,
+  ' ': 3.896, '·': 5.55, ',': 5.55, '.': 5.55, '-': 6.795,
+}
+const TITLE_WIDEST = 16.8
+/** The warmth words' face is JetBrains Mono at 10.5 px: one advance for every character. */
+const WORDS_ADVANCE = 6.322
 export const NODE_W = 248
 export const NODE_CAP = 400
 export const DONE_FOLD_MS = 3_600_000
@@ -70,10 +100,54 @@ export type EdgeKind = 'parent' | 'deps' | 'retry'
 
 export interface GEdge { id: string; source: string; target: string; kind: EdgeKind; running: boolean }
 
-/** A lane's words, from the page (the Threads lens's `threadFacts`): the layout reads `key` and `needs` alone. */
+/** A lane's words, from the page (the Threads lens's `threadFacts`): the layout reads `key`, `needs` and, for the
+ *  band's floor, the words the gutter draws (`title`, `words`, `sealed`). */
 export interface LaneMeta { key: string; title: string; needs: number; words?: string; sealed?: boolean; data?: DataMark; /** The thread's own conversation (its session), drawn as the lane's head card. */ head?: string }
 
 export interface GLane extends LaneMeta { y: number; height: number; rows: number }
+
+/** The lines a run of text wraps onto in a box this wide, the way the browser breaks it: at a space, never inside a
+ *  word. `lead` is what already sits on the first line (a lock). A word wider than the whole box keeps its own line
+ *  and runs past the edge — the gutter sets no `break-words`, so that is what the browser does too. */
+function wrapLines(text: string, width: number, advance: (ch: string) => number, lead = 0): number {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return 1
+  const span = (s: string) => [...s].reduce((w, ch) => w + advance(ch), 0)
+  const gap = advance(' ')
+  let lines = 1
+  let used = lead
+  for (const w of words) {
+    const own = span(w)
+    if (used && used + gap + own > width) { lines += 1; used = own } else used += (used ? gap : 0) + own
+  }
+  return lines
+}
+
+const titleAdvance = (ch: string): number => TITLE_ADVANCE[ch] ?? TITLE_WIDEST
+
+/** The lines the gutter wraps a lane's title onto. The face uppercases, so the title is measured in caps; a seal
+ *  leaves room for its lock on the first line. */
+export const titleLines = (title: string, sealed = false): number =>
+  wrapLines(title.toUpperCase(), LANE_LABEL_W, titleAdvance, sealed ? LOCK_W : 0)
+
+/** The lines the warmth words wrap onto. They are not one line: `details` adds today's dollars and the persona
+ *  (`lib/threadboard.ts`), and a warm thread that spent money today runs to two (theseus-6ln2q join fix). */
+export const wordsLines = (words: string): number => wrapLines(words, LANE_LABEL_W, () => WORDS_ADVANCE)
+
+/** How tall a lane's gutter label is, so the band can never be shorter than its own words (theseus-6ln2q): the
+ *  inset above and below, the wrapped title, the wrapped warmth words, the needs-you badge, and — for a lane whose
+ *  ended work is open — the "fold N done" button under them.
+ *
+ *  Each term is the browser's measure rounded up, never down, since a short band is the bug and a long one is a
+ *  little space. Redact (`?redact=1`) drops the words but can *lengthen* a short title ("QX-LAB" becomes "a
+ *  sensitive thread"), so a locked lane is measured both ways and keeps the taller: the band holds whichever the
+ *  address asks for. */
+export function labelHeight(l: LaneMeta, opened = false): number {
+  const lines = Math.max(titleLines(l.title, l.sealed), titleLines(shownTitle(l, true), l.sealed))
+  return LANE_LABEL_PAD * 2 + lines * LANE_TITLE_LINE
+    + (l.words ? LANE_WORDS_TOP + wordsLines(l.words) * LANE_WORDS_LINE : 0)
+    + (l.needs > 0 ? LANE_BADGE_H : 0) + (opened ? LANE_BADGE_H : 0)
+}
 
 export interface Graph {
   nodes: GNode[]
@@ -338,8 +412,12 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
     const rows = was !== undefined && n <= was ? was : n + 1
     bands[k] = rows
     const drawn = opts.keep ? seenRow.get(k) ?? 0 : rows
-    const height = LANE_HEAD + drawn * ROW_H
-    out.push({ ...metas.get(k)!, y, height, rows: drawn })
+    // The band holds its rows, and never less than its own gutter label: with the retire bar on, a cold thread has
+    // no card drawn at all, and a band of `LANE_HEAD` alone let its title and warmth words run over the lane below
+    // (theseus-6ln2q).
+    const meta = metas.get(k)!
+    const height = Math.max(LANE_HEAD + drawn * ROW_H, labelHeight(meta, expanded.has(k)))
+    out.push({ ...meta, y, height, rows: drawn })
     y += height + LANE_GAP
   }
   const top = new Map(out.map((l) => [l.key, l.y]))

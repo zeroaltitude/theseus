@@ -5,7 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { WorkView } from '../src/protocol.gen/index.ts'
-import { COL_W, foldBacks, GUTTER, HOME, NODE_CAP, opsLayout, shownTitle, stepNode, viewsOf, type Graph, type LaneMeta } from '../src/ops/graph.ts'
+import { COL_W, foldBacks, GUTTER, HOME, labelHeight, LANE_HEAD, LANE_LABEL_PAD, LANE_TITLE_LINE, NODE_CAP, opsLayout, shownTitle, stepNode, titleLines, viewsOf, wordsLines, type Graph, type LaneMeta } from '../src/ops/graph.ts'
 import { boardRows } from '../src/ops/board.ts'
 import { board, HOUR, MIN, NOW, record, view } from './ops-fixtures.ts'
 
@@ -362,7 +362,7 @@ test('the filter keeps records: a counter click keeps a matching step drawn norm
   assert.ok(ctx.has('tsk_pl') && !kept.has('tsk_pl'), 'its plan is context: outlined, not counted')
 })
 
-test('Q4 A: the rest of the graph is left out, every slot kept as a hole, and a lane with no kept card shrinks to its head', () => {
+test('Q4 A: the rest of the graph is left out, every slot kept as a hole, and a lane with no kept card shrinks to its label', () => {
   const rows = boardRows({ ...board(), now: NOW })
   const full = layoutRows(rows, LANES, null, { now: NOW })
   const kept = new Set(['ses_t2'])
@@ -373,11 +373,103 @@ test('Q4 A: the rest of the graph is left out, every slot kept as a hole, and a 
   assert.deepEqual(cut.slots, full.slots, 'every slot is kept, hidden ones too')
   assert.deepEqual(cut.bands, full.bands, 'so the layout the next change keeps is the full one')
   const emptied = cut.lanes.find((l) => l.key === 'harbour-survey')!
-  assert.equal(emptied.height, 18, 'a lane with no kept card is its head')
+  assert.equal(emptied.rows, 0, 'a lane with no kept card draws no row')
+  assert.equal(emptied.height, labelHeight(emptied), 'and shrinks to its gutter label, never below it (theseus-6ln2q)')
   assert.ok(cut.edges.every((e) => keep.has(e.source) && keep.has(e.target)))
   const again = layoutRows(rows, LANES, cut, { now: NOW })
   assert.equal(again.hidden, 0)
   assert.deepEqual(where(again), where(full), 'the filter cleared, nothing moved')
+})
+
+// theseus-6ln2q: the owner's own board — seven cold threads the retire bar has emptied, long wrapping titles, one
+// live home lane. Every band used to be LANE_HEAD tall and every label overprinted the lane below it.
+const COLD: LaneMeta[] = [
+  { key: 'harbor-survey', title: 'Harbor survey', needs: 0, words: 'cold · 9d 19h ago · 22k ctx' },
+  { key: 'theseus-development', title: 'Theseus development', needs: 0, words: 'cold · 10d 19h ago · 36k ctx' },
+  { key: 'openclaw', title: 'OpenClaw', needs: 0, words: 'cold · 12d 13h ago · 23k ctx' },
+  { key: 'theseus-design-oct-3-11', title: 'Theseus design, Oct 3-11', needs: 0, words: 'cold · 14d ago · 51k ctx' },
+  { key: 'garden-notes', title: 'Garden notes', needs: 0, words: 'cold · 16d ago · 9k ctx' },
+  { key: 'openclaw-plugins', title: 'OpenClaw plugins', needs: 0, words: 'cold · 18d ago · 14k ctx', sealed: true },
+  { key: 'qx-lab', title: 'QX-LAB', needs: 2, words: 'cold · 20d ago · 31k ctx' },
+]
+
+test('a lane’s band holds its own gutter label, so no two lanes overlap (theseus-6ln2q)', () => {
+  const rows = boardRows({ ...board(), now: NOW })
+  // The retire bar's shape: nothing of the cold threads is kept, so each of their lanes draws no card at all.
+  const keep = new Set(rows.filter((r) => r.id === 'ses_t2').map((r) => r.id))
+  for (const opts of [{ now: NOW }, { now: NOW, keep }]) {
+    const g = layoutRows(rows, [...COLD, ...LANES], null, opts)
+    for (const l of g.lanes) {
+      assert.ok(l.height >= labelHeight(l), `${l.key}: the band (${l.height}) holds its label (${labelHeight(l)})`)
+      assert.ok(l.height >= LANE_HEAD, `${l.key}: and still holds its head`)
+    }
+    for (const [i, l] of g.lanes.entries()) {
+      for (const m of g.lanes.slice(i + 1)) {
+        assert.ok(l.y + l.height <= m.y, `${l.key} (${l.y}+${l.height}) ends before ${m.key} (${m.y}) begins`)
+      }
+    }
+  }
+  // The `keep` pass is the one that exercises the fix: without it every band carries a spare row and is 158 tall,
+  // so `Math.max` never reaches for the label. Pin that the pass actually empties a lane (join fix).
+  const cut = layoutRows(rows, [...COLD, ...LANES], null, { now: NOW, keep })
+  const empty = cut.lanes.filter((l) => l.rows === 0)
+  assert.ok(empty.length >= COLD.length, `${empty.length} lanes draw no card, so the label is what holds the band`)
+  assert.ok(empty.every((l) => l.height === labelHeight(l)))
+})
+
+// The browser's own answers, measured in headless Chrome against the real faces at the gutter label's exact CSS
+// (theseus-6ln2q): Cinzel at 15 px, bold, uppercase, tracking 0.12em, and JetBrains Mono at 10.5 px, both in the
+// 180 px box. This is the oracle for `titleLines` and `wordsLines`: every row here is a height a browser drew.
+// The first pass of the fix charged one width for every character and one line for the words, and it under-counted
+// the last four titles and both of the long words rows, so the band came out short of its own label again.
+const MEASURED_TITLE: ReadonlyArray<[string, number]> = [
+  ['Harbor survey', 1], ['OpenClaw', 1], ['Garden notes', 1], ['QX-LAB', 1], ['Home · no thread', 1],
+  ['WWWWW MMMMM', 1], ['IIIIIIIIIIIIIIIIIIII', 1], ['Supercalifragilisticexpialidocious', 1],
+  ['Theseus development', 2], ['OpenClaw plugins', 2], ['Theseus design, Oct 3-11', 2],
+  ['Workflow memory', 2], ['a sensitive thread', 2], ['Supercalifragilistic expialidocious', 2],
+  ['Summer mammoth window', 3], ['Memory window mammoth warmth', 3],
+]
+const MEASURED_WORDS: ReadonlyArray<[string, number]> = [
+  ['cold · 8d ago', 1], ['cold · 9d 19h ago · 22k ctx', 1], ['cold · 10d 19h ago · 36k ctx', 1],
+  ['warm · 2h ago · 128k ctx · $12.40 today', 2],
+  ['warm · 2d 19h ago · 128k ctx · $12.40 today · Opus', 2],
+]
+
+test('the gutter wraps a lane’s words the way the browser does (theseus-6ln2q)', () => {
+  for (const [title, lines] of MEASURED_TITLE) assert.equal(titleLines(title), lines, `the browser draws “${title}” on ${lines}`)
+  for (const [words, lines] of MEASURED_WORDS) assert.equal(wordsLines(words), lines, `the browser draws “${words}” on ${lines}`)
+  assert.equal(titleLines(''), 1, 'a lane with no title still takes a line')
+  assert.ok(titleLines('OpenClaw plugins', true) >= titleLines('OpenClaw plugins'), 'a seal leaves room for its lock')
+  // A glyph the advance table has not measured is charged the widest one, so it can only make the band taller.
+  assert.ok(titleLines('幸幸幸幸幸幸幸幸幸幸幸幸') >= 1)
+  // The label's own sum: the inset twice, the title's lines, the words' lines and their margin, the badges.
+  assert.equal(labelHeight({ key: 'k', title: 'OpenClaw', needs: 0 }), 32 + 19)
+  assert.equal(labelHeight({ key: 'k', title: 'OpenClaw', needs: 0, words: 'cold · 8d ago' }), 32 + 19 + 4 + 15)
+  assert.equal(labelHeight({ key: 'k', title: 'Theseus development', needs: 3, words: 'cold · 8d ago' }), 32 + 38 + 19 + 24)
+  assert.equal(labelHeight({ key: 'k', title: 'Workflow memory', needs: 0, words: 'warm · 2h ago · 128k ctx · $12.40 today' }), 32 + 38 + 4 + 30,
+    'a two-line title over two lines of words — the case the first pass drew 36 px short of')
+  assert.equal(labelHeight({ key: 'k', title: 'OpenClaw', needs: 0 }, true), 32 + 19 + 24, 'an opened lane leaves room for its fold-back')
+  // Redact can lengthen a short title, so a locked lane's band holds whichever of the two is taller.
+  const locked = { key: 'k', title: 'QX-LAB', needs: 0, data: 'sensitive' as const }
+  assert.equal(titleLines(shownTitle(locked, true)), 2, 'redact draws “a sensitive thread” on two lines')
+  assert.equal(labelHeight(locked), 32 + 38, 'so the band holds two, not the one “QX-LAB” needs')
+})
+
+test('a band is never shorter than the label it carries, for any lane the page can build (theseus-6ln2q)', () => {
+  // Every title the browser was measured on, against every words row, with and without a seal, a needs count and an
+  // opened fold: the band must hold the label in all of them.
+  for (const [title] of MEASURED_TITLE) {
+    for (const [words] of MEASURED_WORDS) {
+      for (const sealed of [false, true]) {
+        for (const needs of [0, 3]) {
+          const lane: LaneMeta = { key: 'k', title, needs, words, sealed }
+          const g = layoutRows([], [lane], null, { now: NOW })
+          assert.ok(g.lanes[0].height >= labelHeight(lane), `${title} / ${words}: band ${g.lanes[0].height} holds label ${labelHeight(lane)}`)
+          assert.ok(labelHeight(lane) >= LANE_LABEL_PAD * 2 + LANE_TITLE_LINE, 'and never less than one line in its inset')
+        }
+      }
+    }
+  }
 })
 
 test('a filter chip reads the counter’s words and number', async () => {

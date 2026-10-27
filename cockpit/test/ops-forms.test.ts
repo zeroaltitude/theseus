@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import type { TaskRecord, WorkView } from '../src/protocol.gen/index.ts'
 import { boardRows, type OpsRow } from '../src/ops/board.ts'
 import { formsOf, progressOf, stepLook, STEP_GLYPH, type StepWord } from '../src/ops/forms.ts'
-import { layoutRows, NODE_CAP, type Graph, type LaneMeta } from '../src/ops/graph.ts'
+import { labelHeight, layoutRows, NODE_CAP, type Graph, type LaneMeta } from '../src/ops/graph.ts'
 import { queueOf } from '../src/ops/queue.ts'
 import { confirm, NOW, record, view } from './ops-fixtures.ts'
 
@@ -195,8 +195,8 @@ test('the counter filter through the forms: a collapsed plan holding a kept card
   for (const id of ['ses_home', 'ses_t2']) assert.deepEqual([node(kept, id)!.x, node(kept, id)!.y], [node(full, id)!.x, node(full, id)!.y], `${id} keeps its slot`)
   assert.ok(!node(kept, 'tsk_s1'), 'what is not kept is left out')
   const empty = kept.lanes.find((l) => l.key === 'tide-tables')!
-  assert.equal(empty.rows, 0, 'a lane with no kept card shrinks to its head')
-  assert.equal(empty.height, 18)
+  assert.equal(empty.rows, 0, 'a lane with no kept card draws no row')
+  assert.equal(empty.height, labelHeight(empty), 'and shrinks to its gutter label, never below it (theseus-6ln2q)')
   // theseus-hl0r1 F3: retiring something narrows what is drawn (`keep`), and must not unfold the owner's plan. Only
   // the counter's own set (`filter`) does that, so a drawn set with no filter leaves a folded plan folded.
   const retired = layoutRows(rows, lanes, null, { now: NOW, folds: new Map([['tsk_sub', false]]), keep: new Set(rows.map((r) => r.id)) })
