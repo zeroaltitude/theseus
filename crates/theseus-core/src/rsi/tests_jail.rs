@@ -236,6 +236,7 @@ fn a_jails_job_gets_its_view_and_its_variables() {
         )],
         jail: None,
         notify: None,
+        stop: None,
     };
     let tree = Tree {
         slug: "t".into(),
