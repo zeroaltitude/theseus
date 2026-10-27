@@ -460,6 +460,10 @@ impl Core {
                 self.ontology_person_not_same_list(&p)
                     .map_err(RpcFailure::invalid)
             }),
+            method::ONTOLOGY_PERSON_CANDIDATES => route(or_empty(params), |p| {
+                self.ontology_person_candidates(&p)
+                    .map_err(RpcFailure::invalid)
+            }),
             _ => route(params, |p| self.rpc_ontology_membership_set(p, conn)),
         }
     }

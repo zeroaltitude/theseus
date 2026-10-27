@@ -207,3 +207,38 @@ fn reopened(
     ))
     .unwrap()
 }
+
+/// The candidates read: a first name heading one full name is offered, a
+/// recorded pair is left out and counted, and nothing is merged.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_candidates_offer_a_first_name_and_leave_a_recorded_pair_out() {
+    use theseus_protocol::OntologyPersonCandidatesParams;
+    let r = rig(None, 0, |_| {});
+    let short = add(&r, "Peyton");
+    let long = add(&r, "Peyton Greenside");
+    add(&r, "Quill Marsh");
+    let ask = || {
+        r.core
+            .ontology_person_candidates(&OntologyPersonCandidatesParams::default())
+            .unwrap()
+    };
+    let got = ask();
+    assert_eq!(got.candidates.len(), 1, "{got:?}");
+    assert_eq!(
+        (
+            got.candidates[0].a.as_str(),
+            got.candidates[0].kind.as_str()
+        ),
+        (short.as_str(), "first_name")
+    );
+    assert_eq!(got.candidates[0].b_name, "Peyton Greenside");
+    assert_eq!(
+        live(&r, "peyton").len() + live(&r, "peytongreenside").len(),
+        2
+    );
+    r.core
+        .ontology_person_not_same(&not_same(&short, &long, false), "the CLI")
+        .unwrap();
+    let got = ask();
+    assert_eq!((got.candidates.len(), got.left_out), (0, 1));
+}

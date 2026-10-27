@@ -47,6 +47,7 @@ use crate::config::Config;
 use crate::node::{Body, Node, Origin};
 
 pub mod backfill;
+pub mod cands;
 pub mod extract;
 pub mod house;
 pub mod live;

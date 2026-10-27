@@ -772,3 +772,43 @@ pub struct OntologyPersonNotSameListParams {}
 pub struct OntologyPersonNotSameListResult {
     pub pairs: Vec<OntologyPersonNotSame>,
 }
+
+/// `ontology.person.candidates` (theseus-jrffh): pairs of people that may be
+/// one person, found without a model, for the owner to decide: "Join" is
+/// `ontology.person.merge`, "Not the same" is `ontology.person.not_same`.
+/// Nothing is merged or written.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonCandidatesParams {
+    /// At most this many, best first (50 when absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub limit: Option<u32>,
+}
+
+/// One pair put to the owner.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonCandidate {
+    pub a: String,
+    pub b: String,
+    pub a_name: String,
+    pub b_name: String,
+    /// `handle`, `first_name`, `ambiguous` or `role`.
+    pub kind: String,
+    /// 0 to 1: how likely they are one person.
+    pub score: f64,
+    pub why: String,
+    /// For `ambiguous`: every full name the short one could be.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>", optional))]
+    pub could_be: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OntologyPersonCandidatesResult {
+    pub candidates: Vec<OntologyPersonCandidate>,
+    /// Pairs left out: recorded as not the same, or named together in one message.
+    pub left_out: u64,
+}
