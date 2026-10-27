@@ -1,8 +1,24 @@
 # Bug Hunt RS: the 1.0.3 build against round 1, three trials on thirteen planted Rust bugs (2026-10-26)
 
+> **PRICE BASIS — CORRECTION, 2026-10-26.** The two rounds were billed on **different price tables**. A catalog
+> change on 2026-10-25 moved the Sonnet 5.5 cache-read price **$0.10 → $0.20/Mtok**, landing between round 1
+> (10-24) and round 2 (10-26). Both prices are measured here rather than inferred from the dates, by solving each
+> recorded per-call cost against its recorded usage: round 1 fits $0.10 over 586 calls, round 2 fits $0.20 over
+> 455 calls. **So the "52% cheaper" below adds a price change to a behaviour change. Like for like the saving is
+> 65% — larger, not smaller, than the figure first published.** The ratio is 0.348–0.350× on either basis,
+> because both rounds are almost entirely Sonnet 5.5. Every other number on this page is unaffected: bug counts,
+> call counts, tool counts and wall times are not priced. Reproduce with `driver/bh_pricebasis.py`.
+>
+> | basis | round 1 $/trial | round 2 $/trial | round 2 / round 1 | cheaper by |
+> |---|---|---|---|---|
+> | both at $0.10 (like for like) | $15.71 | $5.47 | 0.348× | **65.2%** |
+> | both at $0.20 (like for like) | $21.66 | $7.58 | 0.350× | **65.0%** |
+> | as billed — **mixed, as first published** | $15.71 | $7.58 | 0.483× | 51.7% |
+
 **The answer first.** The 1.0.3 behaviour build does **less work for less money and fixes no more bugs**. Over three
 trials it fixed **3.33 of 13** a trial at **$7.59** a trial, against round 1's 1.0.1 build at **4.33 of 13** and
-**$15.72**. Cost fell **52%**, model calls **22%**, tool calls **29%** and wall time **24%**; the bug count fell by
+**$15.72**. Cost fell **52% as billed and 65% like for like** (the price-basis note above), model calls
+**22%**, tool calls **29%** and wall time **24%**; the bug count fell by
 one, which three trials a side cannot separate from noise (4, 4, 5 against 4, 2, 4; Wilson over the 39 bug-trials
 25.6% [14.6, 41.1] against 33.3% [20.6, 49.0]). **Cost per bug improved, from $3.63 to $2.28.**
 
@@ -70,7 +86,11 @@ The rivals are not rerun. Nothing about them changed, and a rerun buys a re-meas
 
 ## Results
 
-| Arm | Bugs a trial (of 13) | Bug-trials fixed of 39 (95% Wilson) | Hidden tests of 78 | $ a trial | $ a bug | Model calls | Tool calls | Wall (mean) |
+**The `$ a trial` and `$ a bug` columns are AS BILLED, and the two Theseus rows are on different price tables**
+(the price-basis note at the top). On one basis the two Theseus rows are $21.66 and $7.58 at $0.20, or $15.71
+and $5.47 at $0.10. The non-Theseus rows are from their own runs and are not repriced here.
+
+| Arm | Bugs a trial (of 13) | Bug-trials fixed of 39 (95% Wilson) | Hidden tests of 78 | $ a trial (as billed) | $ a bug | Model calls | Tool calls | Wall (mean) |
 |---|---|---|---|---|---|---|---|---|
 | **Theseus, frozen 1.0.3** | **3.33** (4, 2, 4) | 10 = **25.6%** [14.6, 41.1] | 31 | **$7.59** | **$2.28** | 153 | 206 | **15.1 min** |
 | Theseus 1.0.1 (round 1) | 4.33 (4, 4, 5) | 13 = 33.3% [20.6, 49.0] | 40 | $15.72 | $3.63 | 196 | 290 | 19.9 min |
@@ -114,11 +134,18 @@ Claude-model arm in both runs — only Codex ever fixes `r9` — which is worth 
 
 ## Analysis
 
-**Where the money went, and why less of it is not obviously good.** Cost fell 52% while model calls fell only 22%,
-so the cost *per call* fell from $0.080 to $0.050 — a 38% drop with the same price table. Tool calls fell 29% and
+**Where the money went, and why less of it is not obviously good.** Cost fell 65% like for like (52% as billed)
+while model calls fell only 22%, so the cost *per call* fell from **$0.110 to $0.050** on one basis — a **55%**
+drop. The earlier reading of this line, "$0.080 to $0.050, a 38% drop with the same price table", was wrong in
+its premise: **the price table is not the same across the two rounds** (the price-basis note at the top), and
+$0.080 is round 1's per-call cost on round 1's older table against round 2's on the newer one. On either single
+table the per-call drop is 55% — $0.1105 → $0.0495 at $0.20, or $0.0802 → $0.0358 at $0.10, over 196.0 and
+153.3 calls a trial. Tool calls fell 29% and
 wall time 24%. Taken together the 1.0.3 build is doing shorter, cheaper turns: fewer calls, fewer commands, smaller
-contexts per call. On Terminal-Bench the same build moves the *other* way, spending four to seven times the published
-arm's per-trial cost and running 66 model calls where the published arm averaged 8.6. The two cells disagree, and
+contexts per call. On Terminal-Bench the same build moves the *other* way, spending several times the published
+arm's per-trial cost and running many more model calls. **That comparison carries the same two-table problem and
+the figure quoted here, "four to seven times", was a mixed-basis reading from an early partial cell**; take the
+Terminal-Bench ratio from that cell's own report, which prints it on one basis. The two cells disagree, and
 that is itself the finding: the stops rows did not simply "let Theseus work longer", they changed *where* it stops,
 and on a repository-scale bug hunt it now stops sooner.
 
@@ -156,11 +183,17 @@ Two days, one build, and three changes that bear on the reading:
   trials the daemon's history records `claude-sonnet-5` for **every** answer, not only the one that tripped — one
   Terminal-Bench trial ran 59 of 59 answers on the fallback. Across the 33 trials that is **205 of 922 model calls
   (22%) and $10.21 of $35.79 (29%)**. The categories are `reasoning_extraction` (7) and `cyber` (2); the mechanism is
-  `catalog.rs`'s `refusal_fallback_model` for Sonnet 5.5. The two catalog rows carry identical prices, so the
-  **dollars here are right**; what is wrong is the arm's identity, and validity rule 8 of the gauntlet plan says a
+  `catalog.rs`'s `refusal_fallback_model` for Sonnet 5.5. The two catalog rows carry identical prices **as of the
+  2026-10-25 catalog change, which is the table this round was billed on** — before it, Sonnet 5.5 cache reads
+  were half Sonnet 5's, so this sentence is not safe to carry back to a pre-10-25 run. Here the
+  **dollars are right**; what is wrong is the arm's identity, and validity rule 8 of the gauntlet plan says a
   version bump is a new arm. In this cell one trial (`bh-tr-r3`) is affected, 5 of its 152 calls. Round 1's build
   shows no fallback at all, so it either arrived or widened between 1.0.1 and `92e3dbed` — **a hypothesis, not a
   finding**; the frozen merge's own message names "a transient provider failure is retried inside the turn".
+  **Update, 2026-10-26, from the Terminal-Bench cell at 154 trials:** the fallback is not rare there. **33 of 122
+  clean trials (27.0%) fall back, over 28 distinct tasks — 28 of them on `reasoning_extraction` and 5 on
+  `cyber`** — and **64.2% of that cell's dollars are spent at or after the first fallback call**, because the
+  switch holds for the rest of the turn rather than retrying once. Reproduce with `driver/wf482.py`.
 - **The host was not formally idle at the start.** A conductor flake-count loop (`arml-p386-sh`) was running when
   the cell launched. Its cost is measured, not assumed: over 225 samples the M1 Max's load1 median was **0.26** and
   p75 **0.62**, with the 11.8 maximum coming from the Bug Hunt's own cargo work. The neighbour was effectively idle.

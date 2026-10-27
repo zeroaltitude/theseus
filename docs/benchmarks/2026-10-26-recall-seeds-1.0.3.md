@@ -1,5 +1,32 @@
 # Recall at two fresh seeds on the frozen 1.0.3 build: how much of the published number is the seed? (2026-10-26)
 
+> **TWO CORRECTIONS, 2026-10-26, both to this page's "what is robust" section. Neither touches the seed-spread
+> headline, the recall rates, delivery, supersession or the figure.**
+>
+> **1. PRICE BASIS.** A catalog change on 2026-10-25 moved the Sonnet 5.5 cache-read price **$0.10 →
+> $0.20/Mtok**. The 10-18 seed-7 run was billed on the old table and both 10-26 seeds on the new one, so
+> **"about 3.2× more" adds a price change to a behaviour change.** Measured from each seed's own per-turn
+> records — the implied cache-read price solves to exactly $0.20 over all 600 turns at both seeds — the two
+> seeds cost **$23.15** and **$22.55** on seed 7's table, against **$11.44**: **about 2.0× like for like**, not
+> 3.2×. (The 1.95–2.02× spread depends on how the handful of non-Sonnet turns are treated; the direction and
+> magnitude do not.) **And about half of even that remaining rise is the bench, not the build:** the planned
+> context window moved 88,000 → 183,000 tokens between the runs, 2.08×, so per unit of window these runs are
+> slightly *cheaper* than 10-18. The prompt is unchanged (7,467 tokens against 7,335). Seed 7's published data
+> file carries no per-turn usage, so it cannot be repriced upward; comparisons must be made on its table.
+> Reproduce with `driver/recall_pricebasis.py`.
+>
+> **2. THE ABSTENTION RESULT IS A GRADER ARTEFACT, and this is the correction that matters.** "Theseus gave a
+> value instead of 'I don't know' in 51 of 60 and 56 of 60 cases" is **not what the replies say**. All 120
+> abstention probes across the two seeds — **60 of 60 at each seed** — contain an explicit abstention, and
+> **none of them carries a value-shaped string in its first sentence.** What trips the grader is the second
+> half of the reply, where the model volunteers the nearest thing it does hold and says it is a *different*
+> component: *"I don't know where the veery indexer keeps its cache index… The quail indexer's is
+> `/srv/quail/indexer/cache-43.idx`"*. The bench's `lacks` clause is applied to the whole reply and cannot tell
+> that apart from an answer. **Rescored with `lacks` applied to the answer rather than to the explanation,
+> abstention is 60/60 at both seeds, not 9/60 and 4/60**, and 107 probes flip. The corrected table is in
+> "Rescored abstention" below, beside the original. **Confident-wrong is a separate population** (none of the
+> 32 confident-wrong probes is an abstention probe) and is corrected on its own terms there too.
+
 **The answer first.** Two progressions the series has never used, both on the frozen 1.0.3 build, both Theseus
 with its memory (arm `baseline`) on Claude Sonnet 5.5 at medium effort. Seed 11 answered **68.8%** of the recall
 probes right; seed 13 answered **77.8%**. **They straddle the published 73.1% from seed 7, and they differ from
@@ -20,14 +47,21 @@ in a tool's output were recalled 22% of the time at seed 11 and 64% at seed 13.
   (they appear verbatim in Theseus's own replies) and **10 remain unproven in the published data file**, which
   is why that report carries a correction section and two different headline rates. On this build there is
   nothing to correct.
-- **Abstention got worse, and it was already the weak spot.** Asked about something never said, Theseus gave a
+- ~~**Abstention got worse, and it was already the weak spot.** Asked about something never said, Theseus gave a
   value instead of "I don't know" in **51 of 60** cases at seed 11 and **56 of 60** at seed 13, against **38 of
   60** on 10-18. **Confident-wrong moved with it: 21 and 11 against 2.** Those two are the numbers that moved
-  against the build at both seeds.
-- **It costs about 3.2× more.** The whole 600-turn progression cost **$37.17** and **$35.10**, against
-  **$11.44** on 10-18. Over the 204 probe turns alone it is $19.20 and $18.37 against **$4.84** — about 3.9×.
-  The system prompt and tools are unchanged (7,467 tokens measured, against 7,335), so this is more work per
-  turn rather than a bigger prompt.
+  against the build at both seeds.~~ **WITHDRAWN — correction 2 at the top.** Rescored against the replies,
+  abstention is **60 of 60 at both seeds**; the 51 and 56 are the grader's `lacks` clause firing on a
+  *different* component's path named in the explanation after the abstention. Confident-wrong is a separate
+  population and survives, smaller: 17 of 21 and 6 of 11 are date-valued probes in which the model preferred
+  the machine clock to the bench's narrated calendar and said so. Ex-date it is **4 of 114 and 5 of 124**
+  against seed 7's 2 of 134 — real, and too small to interval.
+- **It costs about 2.0× more like for like, not 3.2×** (correction 1 at the top). The whole 600-turn
+  progression cost **$37.17** and **$35.10** as billed, against **$11.44** on 10-18 — but on 10-18's own price
+  table the two seeds are **$23.15** and **$22.55**. The planned context window also moved 88,000 → 183,000
+  tokens (2.08×) between the runs, which over-explains what is left: per unit of window these runs are slightly
+  cheaper than 10-18's. The system prompt and tools are unchanged (7,467 tokens measured, against 7,335), so
+  what remains is more work per turn rather than a bigger prompt.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/2026-10-26-recall-seeds-1.0.3/seed-spread-dark.svg">
@@ -123,15 +157,23 @@ same build:
 - **Delivery.** 0 undelivered, against 57 flagged and 10 still unproven on 10-18. That report had to correct
   its own scoring by hand because its delivery check read `theseus history`, which on that build returned fewer
   of the messages a compaction cut. This build does not need the correction, and its rate needs no asterisk.
-- **Abstention is worse.** 51 and 56 of 60 gave a value where seed 7 gave 38 of 60. Abstention was already named
-  as weak in both prior reports; it has not improved and on this evidence it regressed.
+- ~~**Abstention is worse.** 51 and 56 of 60 gave a value where seed 7 gave 38 of 60.~~ **WITHDRAWN** — it is
+  the grader, not the build. See "Rescored abstention" below; on the corrected rule it is 60 of 60 at both
+  seeds. Abstention is named as weak in both prior reports, so the same clause very likely cost seed 7 too;
+  its raw replies are not on this machine and that cannot be checked here.
 - **Supersession is the weakest bucket at both seeds** — 29% and 42% — and the failure mode is naming the
   superseded value rather than refusing: the strict stale rule counts a stale value named anywhere as wrong.
-- **Confident-wrong rose sharply** — 21 and 11 against **2** on seed 7, a rate of 10.3% and 5.4% against
-  1.0%. Both seeds are many times the published figure, and it sits beside the abstention result: this build
-  is readier to assert a wrong value and less ready to say it does not know.
-- **Cost is up about 3.2× on the whole run** at both seeds (3.9× over the probe turns alone), on an
-  unchanged prompt.
+  **This is the same clause as the abstention artefact**, applied to a population where naming the superseded
+  value genuinely is the error, so it stands — but a reader should see the two together.
+- **Confident-wrong rose** — 21 and 11 against **2** on seed 7, a rate of 10.3% and 5.4% against 1.0%.
+  ~~it sits beside the abstention result: this build is readier to assert a wrong value and less ready to say
+  it does not know.~~ **That gloss is withdrawn:** the abstention half of it is a grader artefact, and **17 of
+  the 21 and 6 of the 11 are date-valued probes** where the bench narrates a simulated calendar, the build
+  surfaces the real machine date, and the model says which it used (*"Your first message said the date was
+  2026-11-24, but the machine date is 2026-10-26, and I used the machine's"*). **Ex-date the rise is 4 of 114
+  and 5 of 124 against 2 of 134** — real, small, and on counts too low to interval.
+- **Cost is up about 2.0× on the whole run** at both seeds on one price table (3.2× as billed, across two),
+  on an unchanged prompt and with the planned context window 2.08× larger. See correction 1 at the top.
 
 **Not robust — a single seed would have told a different story:**
 
@@ -144,6 +186,65 @@ same build:
 **The practical consequence for this series: a single-seed recall number should not be compared with another
 single-seed recall number to two significant figures, and the published intervals do not cover this.** Any
 future claim that a build moved recall by a few points needs more than one progression behind it.
+
+## Rescored abstention — the original scoring and the corrected one, side by side
+
+Added 2026-10-26, from the saved replies. **No model call, no rerun, $0.** Both columns are printed by one
+tool over one set of replies, so the difference is the grader and nothing else.
+
+**What the grader does, and the one line that changes.** An abstention probe asks about a fact the progression
+never stated. Its check is two clauses:
+
+```
+reply lacks /<value-shaped regex: \/srv\/… for a path, \d+\.\d+\.\d+ for a version, …>/
+reply has   /<abstention-phrase regex: don't know | no record | not mentioned | …>/i
+```
+
+`lacks` is evaluated against **the whole reply**. The corrected rule evaluates it against **the first sentence**
+— the answer — and leaves `has` over the whole reply unchanged. One scope, one clause:
+
+```diff
+- lacks_ok = not value_regex.search(reply)
++ lacks_ok = not value_regex.search(first_sentence(reply))
+```
+
+| | seed 11 | seed 13 | 10-18 seed 7 |
+|---|---|---|---|
+| abstention probes | 60 | 60 | 60 |
+| contain an explicit abstention phrase | **60** | **60** | not checkable here * |
+| **as shipped** — `lacks` over the whole reply | 9 correct | 4 correct | 22 correct (38 "gave a value") |
+| **corrected** — `lacks` over the first sentence | **60** | **60** | not checkable here * |
+| variant — `lacks` over the first paragraph | 58 | 60 | — |
+| probes that flip wrong → right | **51** | **56** | — |
+
+\* **Seed 7 cannot be rescored and this is a real limit of the correction, not a formality.** Its published
+data file carries scores and usage but **no replies**, and no run directory for it survives on either host, so
+there is nothing to apply a corrected grader to. Its 38-of-60 figure is on the uncorrected rule. The two 10-26
+seeds are therefore compared with a seed-7 number the correction could not reach, and **the honest reading is
+that the abstention comparison across builds is not available at all**, rather than that it favours either
+build. Abstention was named as weak in both prior reports, so the same clause plausibly cost seed 7 as well.
+
+**What the correction does *not* change.** The 144 non-abstention probes are untouched: recall stays **99/144**
+at seed 11 and **112/144** at seed 13, and every bucket, carrier and cross-session figure on this page stands.
+The confident-wrong population is disjoint from the abstention one — **0 of the 32 confident-wrong probes is an
+abstention probe** — so it is not flipped by this at all; it is qualified separately above, by the date split.
+
+All four rows below are over the **144 non-abstention probes** — the same population as this page's
+`recall, all probes` row. (The 10.3% / 5.4% rates quoted earlier on this page are the same counts over all
+204 probes; the counts, not the denominators, are what the date split moves.)
+
+| | seed 11 | seed 13 |
+|---|---|---|
+| confident-wrong | 21 | 11 |
+| of those, date-valued | **17** | **6** |
+| confident-wrong, ex-date | **4 of 114** | **5 of 124** |
+| recall, ex-date | 88/114 = 77.2% | 100/124 = 80.6% |
+| recall, all 144 (unchanged) | 99/144 = 68.8% | 112/144 = 77.8% |
+
+Reproduce with `driver/recall_rescore.py` (prints both columns and the flipped probes) over
+`seed{11,13}-turns.jsonl`, `seed{11,13}-prog.json` and this cell's own `seed{11,13}-scores.json`. The
+as-shipped column reproduces the shipped scorer exactly — 9 and 4 — which is what makes the corrected column
+comparable.
 
 ## Validity
 
