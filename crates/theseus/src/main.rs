@@ -21,6 +21,7 @@ mod census;
 mod chat_cmd;
 mod cite;
 mod cmd;
+mod content_cmd;
 mod digest;
 mod earned;
 mod extend;
@@ -612,6 +613,13 @@ enum Cmd {
         #[arg(long, visible_alias = "tasks")]
         all: bool,
     },
+    /// A session's content labels: what entered it (a tool result, a page, a pasted file) and was
+    /// judged to carry. `injection` stops its calls that act; `secret`, `confidential` and
+    /// `personal` keep it off a China-origin model. `theseus content SESSION` lists them;
+    /// `theseus content remove SESSION FLAG` (or `--all`) removes one, which is yours alone to do.
+    /// SESSION is its id, or at least its last four characters.
+    #[command(hide = true, subcommand_precedence_over_arg = true)]
+    Content(content_cmd::ContentArgs),
     /// A conversation's mode, as Shift+Tab sets it: `ask`, `edits` (file edits in this project run
     /// with a notice), `plan` (read-only until you approve a plan) or `auto` (what only its posture
     /// made wait runs with a notice). With no MODE, says the current one and the plan's checklist.
@@ -1495,6 +1503,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Ontology { cmd } => ontology::ontology(c, json, cmd.unwrap_or_default()).await,
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
+        Cmd::Content(a) => content_cmd::run(c, json, a).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
         Cmd::Tasks { args, cmd } => tasks_forecast::dispatch(c, json, args, cmd).await,
         Cmd::Task { cmd } => task_start::run(c, json, cmd).await,

@@ -792,7 +792,29 @@ impl Lane {
         }
     }
 
+    /// A content label's message (theseus-9ymz0): its words as the core wrote
+    /// them, in the session's place, with the one Remove button.
+    async fn content_label_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
+        let channel = self.place_channel().await?;
+        let session = body["session_id"].as_str().unwrap_or("").to_string();
+        let flag = body["flag"].as_str().unwrap_or("").to_string();
+        Ok(Plan {
+            writes: vec![Write {
+                key: format!("content:{corr}"),
+                channel,
+                content: body["text"].as_str().unwrap_or("").to_string(),
+                buttons: Buttons::ContentRemove(session, flag),
+                reply_to: None,
+                message: None,
+                mentions: vec![],
+                ping: self.pings(Event::Note),
+            }],
+            extra: json!({}),
+        })
+    }
+
     /// A post's writes, by its kind.
+    #[expect(clippy::too_many_lines, reason = "shape budget: a post kind is one arm; split it")]
     async fn plan(&mut self, a: &Action) -> Result<Plan, SendErr> {
         let body = body_of(a).clone();
         let corr = &a.correlation_id;
@@ -837,6 +859,8 @@ impl Lane {
                 })
             }
             "failed" => self.failed_post(&body, corr).await,
+            // A content label (theseus-9ymz0): the one message the locked DM flow gains.
+            "content_label" => self.content_label_post(&body, corr).await,
             "report" => self.report_post(&body, corr).await,
             "offer" => Ok(self.offer_post(&body)),
             // A hands group's one line (step 40 part 2): under its group's
@@ -1776,6 +1800,7 @@ impl Lane {
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
             Buttons::PersonaSoul(key) => crate::runtime::persona_soul::buttons(key),
             Buttons::SelfNote(items) => crate::runtime::self_note::buttons(items),
+            Buttons::ContentRemove(s, f) => crate::runtime::content::buttons(s, f),
             Buttons::Again(q) => crate::runtime::again_buttons(q),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
             Buttons::CardQuestion(ask, id) => crate::runtime::card_question::buttons(ask, id),
@@ -1854,6 +1879,7 @@ impl Lane {
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
             Buttons::PersonaSoul(key) => Some(crate::runtime::persona_soul::buttons(key)),
             Buttons::SelfNote(items) => Some(crate::runtime::self_note::buttons(items)),
+            Buttons::ContentRemove(s, f) => Some(crate::runtime::content::buttons(s, f)),
             Buttons::Again(q) => Some(crate::runtime::again_buttons(q)),
             Buttons::Standing(mode, id, wide) => {
                 Some(crate::runtime::capture_buttons(mode, id, *wide))

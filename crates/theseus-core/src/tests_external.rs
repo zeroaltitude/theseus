@@ -28,6 +28,7 @@ use crate::test_support::{turn, until};
 use crate::web::tests::{serve, web};
 use crate::{Config, Core};
 
+mod content;
 mod notice;
 mod once;
 mod split;

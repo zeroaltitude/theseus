@@ -385,6 +385,9 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
   task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
   UI and herdr's reporter all call it; never read `label` before `title` at a site.
+- `src/content_cmd.rs`, `src/render/content.rs` (theseus-9ymz0): `theseus content SESSION` lists a session's content labels (`session.list`'s `labels`: the flag,
+  when, what raised it and from where, and the command that clears it); `theseus content remove SESSION FLAG|--all` is one `content.unlabel` per label, the
+  owner's act (in `client::OPERATORS`, refused inside a job). `theseus sessions` adds a `⚑ flag,flag` column only for a labelled session. Tests: `tests/content_cli.rs`.
 - `src/resolve.rs`: the one id resolver (theseus-0n1v) for `history`, `watch`, `stop`, `cancel`, `wait`
   and `sessions explain`: a whole id, or a unique end of at least four characters; ambiguous, short and unknown names are
   refused, and `watch` of an unknown one exits 1. One read a resolution at most.

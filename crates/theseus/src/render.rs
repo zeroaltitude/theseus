@@ -27,6 +27,7 @@ pub mod census;
 pub mod cite;
 pub mod code;
 mod connections;
+pub mod content;
 pub mod day;
 pub mod defer;
 pub mod diffview;
@@ -2133,7 +2134,7 @@ pub fn session_row(s: &SessionInfo) -> Line {
                 None => s.execution_state.clone().unwrap_or_else(|| "-".into()),
             } + &sessions::state_column(s),
             s.model.as_deref().unwrap_or("-"),
-            sessions::name_column(s) + &session_dir::column(s)
+            sessions::name_column(s) + &session_dir::column(s) + &content::flag_column(s)
         ),
     )
 }
