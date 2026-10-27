@@ -724,6 +724,21 @@ fn deliver(
             node,
         });
     }
+    // The reports taken in are items of the session, asked together (theseus-9ymz0).
+    let items: Vec<crate::judge::content::ContentItem> = wrote
+        .delivered
+        .iter()
+        .filter_map(|d| {
+            crate::judge::content::ContentItem::of_message(
+                &d.node,
+                crate::content::ItemKind::TaskReport,
+                "task report",
+            )
+        })
+        .collect();
+    if !items.is_empty() {
+        core.runner.judge.ask_content(session, items);
+    }
     if let Some(hold) = &wrote.held {
         let mode = core.tools.external.mode;
         rec.record(&fact::tool::HoldTaken { hold, mode });

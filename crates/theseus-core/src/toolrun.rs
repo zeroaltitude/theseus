@@ -894,6 +894,7 @@ impl ToolRuntime {
             })?;
         Self::announce_end(tc, node);
         self.held(tc, newly);
+        self.queue_content(tc.session_id, std::slice::from_ref(node));
         Ok(status)
     }
 

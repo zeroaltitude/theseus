@@ -72,6 +72,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a families state is the tool families the turn's request hid, from the catalog and \
              the board's counts as they stood then, which are not kept",
         ),
+        Builder::Content => Some(
+            "a content state is one item that entered a session, which the record keeps only in \
+             the judgment's blob",
+        ),
         Builder::Heard => Some(
             "a voice transcript's state is one utterance's text, the sentences it may echo and \
              its timing, which the record keeps only in the judgment's blob",

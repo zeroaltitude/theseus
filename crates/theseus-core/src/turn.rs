@@ -37,6 +37,7 @@ use crate::compiler::{
     compile, situation, CompileInput, Compiled, Overflowed, Recompile, RequestSpec,
 };
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
+use crate::content::ItemKind;
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::fact::{self, Fact, To};
 use crate::narrative::{self, Narrator};
@@ -67,6 +68,7 @@ mod checkpoint_step;
 mod cite_step;
 pub mod clock_step;
 mod close_out_step;
+mod content_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
@@ -1773,9 +1775,11 @@ impl TurnRunner {
             crate::rpc::ordered::applied();
             t.tc.node_written(&node);
             self.inbound_point(t, &node, &author, false);
+            self.content_message(sid, &node, ItemKind::OperatorMessage, "operator message");
         } else {
             // A task's first turn has no message: its brief is judged.
             self.brief_point(t);
+            self.content_brief(t);
         }
 
         // 3. The loops, while the model has something new to read.
@@ -2318,6 +2322,7 @@ impl TurnRunner {
         for n in &nodes {
             tc.node_written(n);
         }
+        self.content_nodes(tc.session_id, &nodes, ItemKind::TaskReport, "task report");
         if let Some(h) = &held {
             tc.record(&fact::tool::HoldTaken {
                 hold: h,

@@ -92,6 +92,10 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
     c.judge
         .packs
         .insert(crate::judge::rerank::RERANK_PACK.into(), off());
+    // content.v1 (theseus-9ymz0) judges every item a session takes in: `judge::tests_content` is its own.
+    c.judge
+        .packs
+        .insert(crate::judge::content::PACK.into(), off());
     // onto.v1 (theseus-xzxqv) rides this batch when it is on; `tests_onto` is its own.
     c.judge
         .packs
@@ -102,7 +106,7 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
 /// Health's lines once the turn's judged point has read the ladder: the
 /// three packs the owner put live stand as his adoption, under the
 /// config's ceiling (26a).
-const INBOUND_ALONE: [&str; 23] = [
+const INBOUND_ALONE: [&str; 24] = [
     "loop.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v4: live",
@@ -126,6 +130,7 @@ const INBOUND_ALONE: [&str; 23] = [
     "heard.v1: live",
     "people.v1: off",
     "people_seen.v1: off",
+    "content.v1: off",
 ];
 
 /// A person's message is judged by both packs in one request: the fake
