@@ -100,7 +100,7 @@
    ]
   },
   {
-   "arm": "theseus-batching",
+   "arm": "theseus-1.0.1",
    "label": "Theseus as shipped, 1.0.1 (round 1)",
    "date": "2026-10-24",
    "trials": 3,
@@ -324,7 +324,7 @@
    ]
   },
   {
-   "arm": "openclaw",
+   "arm": "opencode",
    "label": "OpenCode 1.18.35",
    "date": "2026-10-24",
    "trials": 3,
@@ -454,7 +454,7 @@
    ]
   },
   {
-   "arm": "pi",
+   "arm": "codex",
    "label": "Codex CLI 0.161.0 (gpt-6-astra)",
    "date": "2026-10-24",
    "trials": 3,
@@ -594,7 +594,7 @@
     },
     {
      "label": "Theseus as shipped, 1.0.1 (round 1)",
-     "arm": "theseus-batching",
+     "arm": "oracle",
      "value": 0.3333,
      "lo": 0.2063,
      "hi": 0.4902,
@@ -610,7 +610,7 @@
     },
     {
      "label": "OpenCode 1.18.35",
-     "arm": "openclaw",
+     "arm": "other",
      "value": 0.7949,
      "lo": 0.6447,
      "hi": 0.8922,
@@ -618,13 +618,19 @@
     },
     {
      "label": "Codex CLI 0.161.0 (gpt-6-astra)",
-     "arm": "pi",
+     "arm": "other",
      "value": 0.5897,
      "lo": 0.4342,
      "hi": 0.7292,
      "tip": "23 of 39; 7.67 bugs a trial"
     }
-   ]
+   ],
+   "legend_labels": {
+    "theseus": "Theseus as shipped, frozen 1.0.3 (92e3dbed)",
+    "oracle": "Theseus as shipped, 1.0.1 (round 1)",
+    "claude-code": "Claude Code 2.1.290",
+    "other": "OpenCode 1.18.35 and Codex CLI 0.161.0 (outside the house palette)"
+   }
   },
   {
    "name": "pareto-bughunt",
@@ -651,7 +657,7 @@
     },
     {
      "label": "Theseus as shipped, 1.0.1 (round 1)",
-     "arm": "theseus-batching",
+     "arm": "oracle",
      "x": 15.72,
      "y": 4.33,
      "tip": "3.63 a bug"
@@ -665,19 +671,25 @@
     },
     {
      "label": "OpenCode 1.18.35",
-     "arm": "openclaw",
+     "arm": "other",
      "x": 18.48,
      "y": 10.33,
      "tip": "1.79 a bug"
     },
     {
      "label": "Codex CLI 0.161.0 (gpt-6-astra)",
-     "arm": "pi",
+     "arm": "other",
      "x": 12.54,
      "y": 7.67,
      "tip": "1.64 a bug"
     }
-   ]
+   ],
+   "legend_labels": {
+    "theseus": "Theseus as shipped, frozen 1.0.3 (92e3dbed)",
+    "oracle": "Theseus as shipped, 1.0.1 (round 1)",
+    "claude-code": "Claude Code 2.1.290",
+    "other": "OpenCode 1.18.35 and Codex CLI 0.161.0 (outside the house palette)"
+   }
   }
  ],
  "run": {
