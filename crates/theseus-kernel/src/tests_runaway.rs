@@ -499,8 +499,16 @@ fn a_settled_cost_stops_at_the_ancestor_bound() {
     settle_for(&w, &chain[0]);
     let c = w.kernel.day_ceiling();
     assert_eq!(c.burn_len(&chain[0].id), 1, "its own");
-    assert_eq!(c.burn_len(&chain[8].id), 1, "the 8th ancestor, the last reached");
-    assert_eq!(c.burn_len(&chain[9].id), 0, "the 9th ancestor, past the bound");
+    assert_eq!(
+        c.burn_len(&chain[8].id),
+        1,
+        "the 8th ancestor, the last reached"
+    );
+    assert_eq!(
+        c.burn_len(&chain[9].id),
+        0,
+        "the 9th ancestor, past the bound"
+    );
     assert_eq!(c.burn_rings(), 9, "the origin and eight ancestors, no more");
 }
 
