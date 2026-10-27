@@ -89,9 +89,13 @@ transient = 2                           # retries inside a turn; 0: none
 backoff_ms = 2000                       # the wait before the first one
 backoff_max_ms = 30000                  # the longest one wait
 # A request the model refuses is made once more on its catalog entry's
-# refusal_fallback_model (Sonnet 5.5's: Sonnet 5), by the same provider, and the
-# rest of the turn runs there; the reply says so. A refusal there ends the turn.
+# refusal_fallback_model (Sonnet 5.5's: Sonnet 5), by the same provider; the
+# fallback answers that request and the next goes back to the model, and the reply
+# says so. A refusal there ends the turn.
 refusal = true                          # false: a refusal ends its turn
+# The turn stays on the fallback from a refusal of one of these categories, or
+# from the third refusal in a row; a refusal of any other category goes back.
+hard_decline_categories = ["cyber", "bio", "general_harms"]
 
 # ---------------------------------------------------------------- profiles
 # A profile is provider + model + output limit + system prompt. Exactly one is

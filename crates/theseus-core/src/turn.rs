@@ -444,7 +444,7 @@ struct Turn<'a> {
     /// A running task's checkpoints (theseus-ypnxt.9).
     checkpoint: checkpoint_step::Checkpoints,
     /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
-    fallback: Option<fallback_step::FellBack>,
+    fallback: Option<fallback_step::FellBack<'a>>,
     /// The stop judged live, and the one nudge (theseus-fh0u).
     nudge: nudge_step::Nudge,
     /// The one end note, and the drop of the turn's files at its end (theseus-53ujg.1).
@@ -2055,7 +2055,11 @@ impl TurnRunner {
                 Self::stopped(t, &by);
                 break;
             }
-            self.stash_for_wait(&t.tc, &uses, &compiled, &spec, t.target);
+            // The fallback's answer, going back to the routed model, warms
+            // nothing: the routed prefix is the one the next call reads. Its
+            // task wait's room is still recorded (`stash_for_wait`).
+            let going_back = Self::returns_to_routed(t, &resp);
+            self.stash_for_wait(&t.tc, &uses, &compiled, &spec, t.target, going_back);
             let answered = boxed(|| self.run_tools(t, &resp, &uses, &node, i)).await?;
             self.screen_loop(t, session, &uses);
             // An answer cut at the window (theseus-9p88): none of its calls
@@ -2080,6 +2084,9 @@ impl TurnRunner {
             }
             // A refusal goes once to its model's fallback (theseus-7gir.18).
             let fell = self.fall_back(t, &mut spec, fallback, (&resp, &node), said_before);
+            // The fallback answered that request: the next goes back to the
+            // routed model (theseus-wf482).
+            Self::go_back(t, &mut spec, (&resp, &node));
             run_model = self.advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             self.loops_noticed(t, i, run_model)?;
             run_model = self.progress(t, i, run_model)?;

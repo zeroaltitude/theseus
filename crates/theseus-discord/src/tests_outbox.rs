@@ -1220,6 +1220,7 @@ fn a_reply_a_fallback_answered_says_so_above_its_footer() {
         to: "claude-sonnet-5".into(),
         category: Some("cyber".into()),
         answered: true,
+        ..Default::default()
     });
     let parts = crate::render::reply_parts("t1", &[(1, "Four.".into())], Some(&result));
     assert_eq!(

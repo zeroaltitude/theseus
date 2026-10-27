@@ -121,6 +121,14 @@ impl TurnRunner {
     /// kept request is the one sent, so its read is the cache the next call
     /// reads. Only a request that caches, and a prefix worth keeping
     /// (`[cache] keep_warm_min_tokens`: a small prompt's rewrite is cents).
+    ///
+    /// `going_back` is a fallback's answer whose turn returns to the routed
+    /// model (theseus-wf482). A provider's cache is its model's, so keeping
+    /// this request would warm the fallback's prefix while the next call
+    /// reads the routed one, and the routed prefix would expire under the
+    /// wait: nothing is kept. **The task wait's room is still recorded**, as
+    /// it bounds the fan-in of the wait this very response opens, whichever
+    /// model answered it.
     pub fn stash_for_wait(
         &self,
         tc: &TurnCtx<'_>,
@@ -128,6 +136,7 @@ impl TurnRunner {
         compiled: &crate::compiler::Compiled,
         spec: &RequestSpec,
         target: &Target,
+        going_back: bool,
     ) {
         let tokens = compiled.estimate.tokens;
         // A task wait's fan-in is bounded by the room this request leaves
@@ -139,6 +148,9 @@ impl TurnRunner {
         if task_wait {
             self.keep_warm
                 .set_room(tc.session_id, tokens, compiled.budget.limit_tokens);
+        }
+        if going_back {
+            return;
         }
         let waits = task_wait
             || uses

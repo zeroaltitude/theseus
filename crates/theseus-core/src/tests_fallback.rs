@@ -179,10 +179,15 @@ async fn a_refusal_on_sonnet_5_5_is_answered_by_sonnet_5_with_its_row_and_line()
         to: "claude-sonnet-5".into(),
         category: Some("cyber".into()),
         answered: true,
+        answers: 1,
+        refusals: 1,
+        latched: true,
     };
     assert_eq!(res.fallback.as_ref(), Some(&fell));
     assert_eq!(
         fell.line(&res.stop_reason),
+        // `cyber` latches, but the turn ended on that one answer, so there
+        // was nothing to stay for: the line is the one it has always been.
         "Sonnet 5.5 declined (cyber); Sonnet 5 answered."
     );
     // The same request, on the fallback: only the model differs.
@@ -204,7 +209,8 @@ async fn a_refusal_on_sonnet_5_5_is_answered_by_sonnet_5_with_its_row_and_line()
     let refused_node = &switch[0]["refused"];
     assert_eq!(
         switch[0],
-        json!({"from": "claude-sonnet-5-5", "to": "claude-sonnet-5", "category": "cyber", "loop": 0, "refused": refused_node})
+        json!({"from": "claude-sonnet-5-5", "to": "claude-sonnet-5", "category": "cyber", "loop": 0, "refused": refused_node,
+               "n": 1, "latched": true})
     );
     assert_eq!(rows(&r.core, &sid, "provider.refusal").len(), 1);
     let ended = rows(&r.core, &sid, "turn.ended");
@@ -399,6 +405,282 @@ async fn after_a_call_the_fallbacks_requests_keep_both_models_thinking_and_exten
     for i in 2..4 {
         assert!(!text(i).contains("toolu_refused"), "{}", text(i));
     }
+}
+
+/// The fallback answers the refused request and no more (theseus-wf482): the
+/// next request goes back to the routed model.
+#[tokio::test]
+async fn a_refusal_sends_one_request_to_the_fallback_and_the_next_goes_back() {
+    let r = rig(vec![
+        Scripted::tools(
+            "Opening the archive.",
+            &[("toolu_a", "fs_read", json!({"path": "harbor.txt"}))],
+        ),
+        refused("reasoning_extraction"),
+        Scripted::tools(
+            "Reading it again.",
+            &[("toolu_b", "fs_read", json!({"path": "harbor.txt"}))],
+        ),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert!(res.output.ends_with("Four."), "{}", res.output);
+    assert_eq!(res.loops, 4, "{res:?}");
+    let models: Vec<String> = r.fake.requests().iter().map(|q| q.model.clone()).collect();
+    assert_eq!(
+        models,
+        [
+            "claude-sonnet-5-5",
+            "claude-sonnet-5-5",
+            "claude-sonnet-5",
+            "claude-sonnet-5-5"
+        ]
+    );
+}
+
+/// A script's tool call, every one of them the same read.
+fn read(id: &str) -> Scripted {
+    Scripted::tools(
+        "Reading it again.",
+        &[(id, "fs_read", json!({"path": "harbor.txt"}))],
+    )
+}
+
+/// The models of a turn's requests, in order.
+fn models(r: &Rig) -> Vec<String> {
+    r.fake.requests().iter().map(|q| q.model.clone()).collect()
+}
+
+const ROUTED: &str = "claude-sonnet-5-5";
+const FALLBACK: &str = "claude-sonnet-5";
+
+/// Three refusals with no routed answer between them (theseus-wf482): the
+/// third keeps the turn on the fallback, for the rest of it.
+#[tokio::test]
+async fn three_refusals_in_a_row_latch_the_turn_on_the_fallback() {
+    let r = rig(vec![
+        read("toolu_a"),
+        refused("reasoning_extraction"),
+        read("toolu_b"),
+        refused("reasoning_extraction"),
+        read("toolu_c"),
+        refused("reasoning_extraction"),
+        read("toolu_d"),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!(res.loops, 8, "{res:?}");
+    assert_eq!(
+        models(&r),
+        [ROUTED, ROUTED, FALLBACK, ROUTED, FALLBACK, ROUTED, FALLBACK, FALLBACK]
+    );
+    let fell = res.fallback.as_ref().expect("it fell back");
+    assert_eq!(
+        (fell.refusals, fell.answers, fell.latched, fell.answered),
+        (3, 4, true, true),
+        "{fell:?}"
+    );
+    assert_eq!(res.model, FALLBACK);
+    // One row per switch, the third saying it stayed.
+    let switches = rows(&r.core, &sid, "provider.fallback");
+    let flags: Vec<(u64, bool)> = switches
+        .iter()
+        .map(|w| (w["n"].as_u64().unwrap(), w["latched"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(flags, [(1, false), (2, false), (3, true)], "{switches:?}");
+    assert_eq!(rows(&r.core, &sid, "provider.routed_back").len(), 2);
+}
+
+/// A routed answer between refusals ends the run of them: refuse, answer,
+/// refuse, answer, refuse never stays on the fallback.
+#[tokio::test]
+async fn a_routed_answer_between_refusals_resets_the_count() {
+    let r = rig(vec![
+        read("toolu_a"),
+        refused("reasoning_extraction"),
+        read("toolu_b"),
+        read("toolu_c"),
+        refused("reasoning_extraction"),
+        read("toolu_d"),
+        read("toolu_e"),
+        refused("reasoning_extraction"),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!(res.loops, 9, "{res:?}");
+    assert_eq!(
+        models(&r),
+        [ROUTED, ROUTED, FALLBACK, ROUTED, ROUTED, FALLBACK, ROUTED, ROUTED, FALLBACK]
+    );
+    let fell = res.fallback.as_ref().expect("it fell back");
+    assert_eq!(
+        (fell.refusals, fell.answers, fell.latched),
+        (3, 3, false),
+        "{fell:?}"
+    );
+    assert_eq!(rows(&r.core, &sid, "provider.fallback").len(), 3);
+    assert_eq!(rows(&r.core, &sid, "provider.routed_back").len(), 3);
+    // The turn ended back on its routed model.
+    assert_eq!(res.model, FALLBACK, "the last answer was the fallback's");
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    assert_eq!(rec.last_target.unwrap().model, ROUTED);
+}
+
+/// A genuine decline never goes back to the model that declined it: a
+/// hard-decline category keeps the turn on the fallback at the first.
+#[tokio::test]
+async fn a_hard_decline_category_latches_at_once() {
+    for category in ["cyber", "bio", "general_harms"] {
+        let r = rig(vec![
+            read("toolu_a"),
+            refused(category),
+            read("toolu_b"),
+            Scripted::text("Four."),
+        ]);
+        let sid = bound_session(&r.core);
+        let res = turn(&r.core, &sid, None).await;
+        assert_eq!(
+            models(&r),
+            [ROUTED, ROUTED, FALLBACK, FALLBACK],
+            "{category}"
+        );
+        assert!(res.fallback.as_ref().unwrap().latched, "{category}");
+        assert!(rows(&r.core, &sid, "provider.routed_back").is_empty());
+    }
+    // The categories are the config's.
+    let r = rig_with(
+        vec![
+            read("toolu_a"),
+            refused("cyber"),
+            read("toolu_b"),
+            Scripted::text("Four."),
+        ],
+        |c| c.model.retries.hard_decline_categories = vec![],
+    );
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!(models(&r), [ROUTED, ROUTED, FALLBACK, ROUTED]);
+    assert!(!res.fallback.unwrap().latched);
+}
+
+/// The request that goes back is the routed model's: its own output cap, the
+/// system blocks the first request carried, the fallback's request extended,
+/// and the fallback's thinking, which the routed model cannot read, left out
+/// (theseus-wf482). Haiku 4.5 as Opus 5.5's fallback caps at 64,000.
+#[tokio::test]
+async fn the_return_keeps_the_cached_prefix_and_the_routed_output_cap() {
+    let thinking =
+        |t: &str| json!({"type": "thinking", "thinking": t, "signature": format!("sig-{t}")});
+    let call = |id: &str, t: &str| Scripted::Blocks {
+        blocks: vec![
+            thinking(t),
+            json!({"type": "tool_use", "id": id, "name": "fs_read", "input": {"path": "harbor.txt"}}),
+        ],
+        stop_reason: "tool_use".into(),
+    };
+    let r = rig_with(
+        vec![
+            call("toolu_a", "routed reads"),
+            refused("reasoning_extraction"),
+            call("toolu_b", "fallback reads"),
+            Scripted::text("Four."),
+        ],
+        |c| {
+            c.catalog.insert(
+                "claude-opus-5-5".into(),
+                crate::catalog::CatalogRow {
+                    refusal_fallback_model: Some("claude-haiku-4-5".into()),
+                    ..Default::default()
+                },
+            );
+        },
+    );
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, Some("claude-opus-5-5")).await;
+    assert_eq!(res.loops, 4, "{res:?}");
+    let reqs = r.fake.requests();
+    let named: Vec<&str> = reqs.iter().map(|q| q.model.as_str()).collect();
+    assert_eq!(
+        named,
+        [
+            "claude-opus-5-5",
+            "claude-opus-5-5",
+            "claude-haiku-4-5",
+            "claude-opus-5-5"
+        ]
+    );
+    // The output cap: Haiku's on its one request, the routed model's again.
+    assert_eq!(reqs[2].max_tokens, 64_000);
+    assert_ne!(reqs[0].max_tokens, 64_000, "the routed cap differs");
+    assert_eq!(reqs[3].max_tokens, reqs[0].max_tokens);
+    // The prefix the provider caches is the first request's, byte for byte.
+    assert_eq!(
+        serde_json::to_string(&reqs[3].system).unwrap(),
+        serde_json::to_string(&reqs[0].system).unwrap()
+    );
+    // The fallback's request extended, its own answer's thinking left out.
+    let text = |i: usize| serde_json::to_string(&reqs[i].messages).unwrap();
+    let n = reqs[2].messages.len();
+    assert_eq!(&reqs[3].messages[..n], &reqs[2].messages[..], "an append");
+    assert!(text(3).contains("sig-routed reads"), "{}", text(3));
+    assert!(text(3).contains("toolu_b"), "{}", text(3));
+    assert!(!text(3).contains("sig-fallback reads"), "{}", text(3));
+    assert!(!text(3).contains("toolu_refused"), "{}", text(3));
+    // The fallback's own request kept the thinking it was handed.
+    assert!(!text(2).contains("toolu_refused"), "{}", text(2));
+}
+
+/// Each switch and each return is a row, and the turn's end carries the
+/// counts, so the ledger needs no join.
+#[tokio::test]
+async fn the_ledger_rows_say_each_fallback_answer() {
+    let r = rig(vec![
+        read("toolu_a"),
+        refused("reasoning_extraction"),
+        read("toolu_b"),
+        refused("reasoning_extraction"),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!(models(&r), [ROUTED, ROUTED, FALLBACK, ROUTED, FALLBACK]);
+    let switches = rows(&r.core, &sid, "provider.fallback");
+    assert_eq!(switches.len(), 2, "{switches:?}");
+    for (w, (n, at)) in switches.iter().zip([(1, 1), (2, 3)]) {
+        assert_eq!(
+            (w["from"].as_str(), w["to"].as_str(), w["category"].as_str()),
+            (Some(ROUTED), Some(FALLBACK), Some("reasoning_extraction"))
+        );
+        assert_eq!((w["n"].as_u64(), w["loop"].as_u64()), (Some(n), Some(at)));
+        assert_eq!(w["latched"], false);
+    }
+    let back = rows(&r.core, &sid, "provider.routed_back");
+    assert_eq!(
+        back,
+        [
+            json!({"to": ROUTED, "loop": 2, "after": FALLBACK}),
+            json!({"to": ROUTED, "loop": 4, "after": FALLBACK})
+        ]
+    );
+    let fell = TurnFallback {
+        from: ROUTED.into(),
+        to: FALLBACK.into(),
+        category: Some("reasoning_extraction".into()),
+        answered: true,
+        answers: 2,
+        refusals: 2,
+        latched: false,
+    };
+    assert_eq!(res.fallback.as_ref(), Some(&fell));
+    assert_eq!(
+        fell.line(&res.stop_reason),
+        "Sonnet 5.5 declined (reasoning_extraction) twice; Sonnet 5 answered twice."
+    );
+    let ended = rows(&r.core, &sid, "turn.ended");
+    assert_eq!(ended[0]["fallback"], json!(fell), "{ended:?}");
 }
 
 /// A fallback's request is one its own model takes (theseus-7gir.18): with

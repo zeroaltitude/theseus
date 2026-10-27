@@ -234,7 +234,8 @@ fn a_refused_request_is_answered_by_its_fallback_inside_the_headless_turn() {
     assert_eq!(run.turn["model"], "claude-sonnet-5", "{}", run.turn);
     assert_eq!(
         run.turn["fallback"],
-        json!({"from": "claude-sonnet-5-5", "to": "claude-sonnet-5", "category": "cyber", "answered": true})
+        json!({"from": "claude-sonnet-5-5", "to": "claude-sonnet-5", "category": "cyber", "answered": true,
+               "answers": 1, "refusals": 1, "latched": true})
     );
     let models: Vec<Value> = model
         .requests()
