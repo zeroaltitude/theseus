@@ -155,30 +155,40 @@ pub fn in_transcript(
     Ok(false)
 }
 
-/// A fork's data state (theseus-a1wvq.5): `opened` and `taint` copied, and
-/// the open run cut at the fork point: from its `from` through the point (or
-/// its own `through`, when that is earlier) when `from` is at or before the
-/// point, else none. `position` finds a node's WAL position; a node it cannot
-/// place cuts the run (fail closed).
+/// A fork's content labels (theseus-9ymz0): the labels whose item the fork
+/// carries (the item's node is at or before the fork point; one whose node is
+/// unknown, or cannot be placed, is carried too, since fewer labels is never
+/// the safe side), and how far the fork is judged: through the point when the
+/// source was judged that far, else as far as it was. `position` finds a
+/// node's WAL position; a `judged_through` it cannot place is dropped (the
+/// fork is judged from nothing, fail closed).
 pub fn data_through(
-    source: Option<&crate::data::DataState>,
+    source: Option<&crate::content::ContentFlags>,
     point: (u64, &str),
     position: impl Fn(&str) -> Option<u64>,
-) -> Option<Box<crate::data::DataState>> {
+) -> Option<Box<crate::content::ContentFlags>> {
     let s = source?;
-    let run = s.run.as_ref().and_then(|r| {
-        let from = position(&r.from).filter(|p| *p <= point.0)?;
-        let through = match position(&r.through)? {
-            p if p < point.0 && p >= from => r.through.clone(),
-            _ => point.1.to_string(),
-        };
-        Some(crate::data::OpenRun {
-            from: r.from.clone(),
-            through,
-        })
-    });
-    let forked = crate::data::DataState::new(s.opened.clone(), run, s.taint.clone());
-    (forked != crate::data::DataState::default()).then(|| Box::new(forked))
+    let mut forked = crate::content::ContentFlags::default();
+    for l in &s.labels {
+        let inside = l
+            .node
+            .as_deref()
+            .and_then(&position)
+            .is_none_or(|p| p <= point.0);
+        if inside {
+            forked.raise(l.clone());
+        }
+    }
+    forked.removed.clone_from(&s.removed);
+    forked.judged_through =
+        s.judged_through
+            .as_deref()
+            .and_then(&position)
+            .map(|p| match p >= point.0 {
+                true => point.1.to_string(),
+                false => s.judged_through.clone().unwrap_or_default(),
+            });
+    (forked != crate::content::ContentFlags::default()).then(|| Box::new(forked))
 }
 
 /// Whether a position falls in a compilation's inherited run.
