@@ -2727,6 +2727,53 @@
    "carried_from": null
   },
   {
+   "report": "2026-10-26-terminal-bench-aider-high-k1",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "aider",
+   "variant": "aider",
+   "harness": "Aider 0.86.2, HIGH, 89x1",
+   "model": "anthropic/claude-sonnet-5-5, pinned: one model, no routing and no fallback -- every priced call in all three cells is billed to claude-sonnet-5-5",
+   "date": "2026-10-26",
+   "commit": "harbor arm at ee7e1c9f",
+   "dataset": "docs/benchmarks/2026-10-26-terminal-bench-aider-high-k1.json",
+   "trials": 89,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.123596,
+     "lo": 0.070434,
+     "hi": 0.207906,
+     "k": 11,
+     "n": 89
+    },
+    "usd_per_trial": {
+     "value": 0.024933,
+     "lo": 0.004777,
+     "hi": 0.045089
+    },
+    "usd_total": {
+     "value": 2.21901
+    },
+    "usd_per_solve": {
+     "value": 0.201728
+    },
+    "agent_s_median": {
+     "value": 12.49
+    }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 1,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
+  },
+  {
    "report": "2026-10-26-terminal-bench-theseus-1.0.3-high-k3",
    "benchmark": "terminal-bench@2.0",
    "tier": "high",
