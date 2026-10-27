@@ -56,6 +56,7 @@ pub mod driver;
 pub mod durability;
 pub mod extend;
 pub mod extend_hands;
+pub mod fan_out;
 pub mod flow;
 pub mod google;
 pub mod import;
@@ -349,6 +350,7 @@ facts![
     turn::TurnEndNoted<'static>,
     progress::TurnProgress<'static>,
     steer::TurnSteered<'static>,
+    fan_out::FanOutCue<'static>,
     turn::EffortRefused<'static>,
     turn::BudgetAsked<'static>,
     turn::LoopEndedOnBudget<'static>,

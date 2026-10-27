@@ -47,6 +47,7 @@
 //!   verdict, and does not wait for it.
 
 mod correct;
+mod fan_out_cue;
 
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -139,6 +140,8 @@ pub(super) struct RouteState {
     /// model call (`draft_step.rs`).
     pub(super) draft_skip: Option<&'static str>,
     pub(super) drafted: Option<String>,
+    /// The static fan-out cue fired for this turn (theseus-z9mze.4), so its tail line rides.
+    pub(super) fan_out: bool,
 }
 
 /// Where an effort is decided: the session (its base profile), whether the
@@ -578,7 +581,7 @@ impl TurnRunner {
         let timed = Timed::of(&w, late, t.started);
         let got = w.got;
         t.route.defer_persist = false;
-        let compiled = match compiled? {
+        let mut compiled = match compiled? {
             Ok(c) => c,
             Err(f) => {
                 let seen = (got, live, unreachable);
@@ -619,6 +622,9 @@ impl TurnRunner {
             steering.as_ref(),
         );
         self.note_routed(t, verdict.as_ref(), decision.as_ref());
+        let class = verdict.as_ref().filter(|_| reason.is_none());
+        self.fan_out_cue(t, spec, class.map(|v| v.mode.as_str()));
+        Self::fan_out_line(t, &mut compiled);
         if self.draft_open(t, drafting) {
             self.drop_first(t, &compiled);
             return Ok(Ok(compiled));
