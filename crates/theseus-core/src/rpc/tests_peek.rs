@@ -384,19 +384,22 @@ async fn a_slow_client_recovers(job: &str, cap: Option<usize>) {
     assert!(lost.params["dropped"].as_u64().unwrap() > 0);
     // It peeks, and follows on from what the peek says.
     let p = peek_until(&mut slow, &job, |p| p.bytes > 0).await;
-    slow.call(method::ACTION_OUTPUT, json!({"id": job, "from": p.bytes}))
+    let follow = slow
+        .call(method::ACTION_OUTPUT, json!({"id": job, "from": p.bytes}))
         .await;
-    // The old follower was ended by the new follow, so every chunk it queued
-    // came before the answer (a client drops those: they begin before its
-    // peek's end); the ones after are the new follower's.
-    slow.notes.clear();
-    let chunk = slow
-        .until("a chunk after the peek", |n| {
-            n.method == notify::ACTION_OUTPUT_CHUNK
-        })
-        .await;
-    let c: ActionOutputChunk = serde_json::from_value(chunk.params).unwrap();
-    assert!(c.offset >= p.bytes, "{} < {}", c.offset, p.bytes);
+    let from = follow.result.unwrap()["offset"].as_u64().unwrap();
+    assert!(from >= p.bytes, "{from} < {}", p.bytes);
+    // The old follower is ended by the new follow, but an abort takes effect
+    // at its next await: a chunk it was already sending can land after the
+    // answer, so no clearing of the notes separates the two followers by
+    // time. A client drops a chunk that begins before its peek's end (the
+    // old follower's), so what is told apart is the new follower's own first
+    // chunk, which begins exactly where the answer said. Waiting for it
+    // cannot pass with no chunk: `until` fails when none comes.
+    slow.until("the new follower's first chunk", |n| {
+        n.method == notify::ACTION_OUTPUT_CHUNK && n.params["offset"].as_u64() == Some(from)
+    })
+    .await;
 }
 
 const CHATTY: &str =
