@@ -166,8 +166,8 @@ impl Place {
         self.root().join("reports")
     }
 
-    /// `git -C <dir> <args>`, as a child of the daemon's, never prompting.
-    pub fn git(&self, dir: &Path, args: &[&str]) -> Result<Output> {
+    /// `git -C <dir> <args>` ready to spawn, never prompting.
+    pub(super) fn git_command(&self, dir: &Path, args: &[&str]) -> Command {
         let mut c = Command::new("git");
         c.arg("-C")
             .arg(dir)
@@ -179,6 +179,12 @@ impl Place {
         for (k, v) in &self.env {
             c.env(k, v);
         }
+        c
+    }
+
+    /// `git -C <dir> <args>`, as a child of the daemon's, never prompting.
+    pub fn git(&self, dir: &Path, args: &[&str]) -> Result<Output> {
+        let mut c = self.git_command(dir, args);
         let child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
             .context("git could not start")?;
         Ok(child.wait_with_output()?)
@@ -308,6 +314,13 @@ pub fn find(p: &Place, item: &str) -> Option<Tree> {
 /// add`s at once race for the repo's locks, and the loser leaves a tree half
 /// made (the self pipeline's builds start together, theseus-pw1q.16). The
 /// branch has no upstream (`--no-track`), so an open writes no config.
+///
+/// It guards the worktree list (`.git/worktrees/`) and the branch names an
+/// open picks, and nothing the fetch writes (`refs/remotes/origin/*`,
+/// `FETCH_HEAD`, the object store, which git locks itself). So the fetch is
+/// taken **outside** it ([`refresh_main`] runs before [`open`] locks it): a
+/// slow remote never holds up a [`close`], and an open reads `origin/main`
+/// once, after the fetch, whichever commit that is (theseus-6vlr4).
 static REPO: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The remote the door reads main from: the `origin/main` its refs name.
@@ -318,7 +331,28 @@ const DOOR_REMOTE: &str = "origin";
 const FETCH_FRESH: Duration = Duration::from_secs(60);
 
 /// When each repo's door last fetched, so a pass fetches once.
+///
+/// This lock guards only that list, and it is held across the fetch on
+/// purpose: it makes the fetch single-flight, so the cuts of a pass that
+/// start together wait for the one fetch and then all see it done, rather
+/// than each fetching. The wait is bounded by [`super::join::git::FETCH_LIMIT`]. The
+/// fetch cannot move out of it without a second marker (a fetch in flight)
+/// that does the same job; a bounded wait on one fetch is the cheaper answer.
 static FETCHED: std::sync::Mutex<Vec<(PathBuf, Instant)>> = std::sync::Mutex::new(Vec::new());
+
+/// The bound on the door's fetch: [`super::join::git::FETCH_LIMIT`]; a test's place
+/// shortens it with `THESEUS_SELF_FETCH_LIMIT_MS` in its own environment.
+fn fetch_limit(p: &Place) -> Duration {
+    let own = p
+        .env
+        .iter()
+        .find(|(k, _)| k == "THESEUS_SELF_FETCH_LIMIT_MS")
+        .and_then(|(_, v)| v.to_str()?.parse::<u64>().ok());
+    match own {
+        Some(ms) if cfg!(test) => Duration::from_millis(ms),
+        _ => super::join::git::FETCH_LIMIT,
+    }
+}
 
 /// Bring `origin/main` up to date before a tree is cut from it, so the
 /// branch's base and the gate blob [`Place::main_script`] resolves are main's
@@ -326,7 +360,10 @@ static FETCHED: std::sync::Mutex<Vec<(PathBuf, Instant)>> = std::sync::Mutex::ne
 /// (no network, a remote that is down) is an infrastructure fault and never
 /// a reason to stop the build: the door goes on with the base it has, says
 /// so (to the log and, through [`Place::notify`], to the owner), and tries
-/// again at the next cut. Called with [`REPO`] held.
+/// again at the next cut. The fetch is bounded ([`super::join::git::FETCH_LIMIT`]): a
+/// remote that does not answer fails it like any other fault, with its
+/// child killed and reaped, and the door goes on with the base it has. Called
+/// without [`REPO`] held.
 fn refresh_main(p: &Place, repo: &Path) {
     let mut seen = FETCHED
         .lock()
@@ -335,7 +372,7 @@ fn refresh_main(p: &Place, repo: &Path) {
     if seen.iter().any(|(r, _)| r == repo) {
         return;
     }
-    match super::join::git::fetch(p, DOOR_REMOTE) {
+    match super::join::git::fetch_within(p, DOOR_REMOTE, fetch_limit(p)) {
         Ok(()) => seen.push((repo.to_path_buf(), Instant::now())),
         Err(e) => {
             tracing::warn!(
@@ -357,6 +394,10 @@ fn refresh_main(p: &Place, repo: &Path) {
 /// pass), on a new `self/<date>-<slug>` branch (with `-2`, `-3`… when the
 /// name is taken).
 pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
+    let repo = std::fs::canonicalize(&p.repo)
+        .with_context(|| format!("[self] repo {} is not there", p.repo.display()))?;
+    // Before [`REPO`], so a slow remote holds no close of another tree.
+    refresh_main(p, &repo);
     let _one = REPO
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -365,9 +406,6 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
     if dir.exists() {
         bail!("a tree for {item} is open already at {}", dir.display());
     }
-    let repo = std::fs::canonicalize(&p.repo)
-        .with_context(|| format!("[self] repo {} is not there", p.repo.display()))?;
-    refresh_main(p, &repo);
     p.git_ok(&repo, &["rev-parse", "--verify", "origin/main^{commit}"])
         .context("[self] repo has no origin/main to branch from")?;
     std::fs::create_dir_all(p.trees())?;
