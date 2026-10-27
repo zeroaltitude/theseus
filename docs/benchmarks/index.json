@@ -2827,6 +2827,53 @@
    "carried_from": null
   },
   {
+   "report": "2026-10-27-terminal-bench-openclaw-sonnet-high-k1",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "openclaw",
+   "variant": "openclaw",
+   "harness": "OpenClaw 2026.9.8, HIGH, 89x1",
+   "model": "anthropic/claude-sonnet-5-5, pinned: one model, no routing and no fallback -- every priced call in all three cells is billed to claude-sonnet-5-5",
+   "date": "2026-10-27",
+   "commit": "harbor arm at d7eb4c27",
+   "dataset": "docs/benchmarks/2026-10-27-terminal-bench-openclaw-sonnet-high-k1.json",
+   "trials": 89,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.741573,
+     "lo": 0.641969,
+     "hi": 0.821186,
+     "k": 66,
+     "n": 89
+    },
+    "usd_per_trial": {
+     "value": 0.32647,
+     "lo": 0.221894,
+     "hi": 0.431045
+    },
+    "usd_total": {
+     "value": 29.055803
+    },
+    "usd_per_solve": {
+     "value": 0.440239
+    },
+    "agent_s_median": {
+     "value": 94.26
+    }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 1,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
+  },
+  {
    "report": "2026-10-27-terminal-bench-openhands-high-k1",
    "benchmark": "terminal-bench@2.0",
    "tier": "high",
