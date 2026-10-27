@@ -18,9 +18,34 @@ pub const PIECE_CHARS: usize = 6000;
 const SOURCE_CHARS: usize = 200;
 const KIND_CHARS: usize = 24;
 
-/// The kind of an item that is the operator's own words: the only kind whose
-/// `injection` question is not asked.
+/// The kind of an item that is the operator's own words.
 pub const OPERATOR_MESSAGE: &str = "operator_message";
+
+/// The kind of a task's brief: the instructions a parent session gave its
+/// child.
+pub const TASK_BRIEF: &str = "task_brief";
+
+/// Whether an item of `kind` is asked the `injection` question. **This is the
+/// one list**, and `theseus_core::content::ItemKind::asks_injection` calls it,
+/// so the rule cannot be stated twice and drift (it did: until the review of
+/// 2026-10-26 the core's method was dead code and this site had its own check,
+/// so a brief was asked after the design said it must not be).
+///
+/// Two kinds are exempt, for two different reasons:
+/// - the operator's own words (the owner, 2026-10-17: "my own DM or channel
+///   text should never cause a flag"). His own, and no one else's: anyone
+///   else's message is `person_message` and is asked.
+/// - a task's brief, which is a parent instructing its child. It is steering by
+///   design, so the question is a guaranteed false positive, and at the act
+///   band it would freeze every task session on its first item. Nothing is
+///   lost: a parent carrying `injection` is frozen and cannot start a task at
+///   all, and a brief quoting foreign text is still asked the other three.
+///
+/// A task's REPORT is not exempt: a report reports rather than instructs, and a
+/// child that read a poisoned page can write its parent a report shaped by it.
+pub fn asks_injection(kind: &str) -> bool {
+    !matches!(kind, OPERATOR_MESSAGE | TASK_BRIEF)
+}
 
 /// `content.v1`'s input: one item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,7 +91,7 @@ pub fn content(i: &ContentInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     }
     b.text("text", 9, share(cap, 75), Keep::Both, &i.text);
     let mut dynamic = Dynamic::default();
-    if i.kind != OPERATOR_MESSAGE {
+    if asks_injection(&i.kind) {
         dynamic.sources.insert(
             Source::Untrusted,
             vec![Item {

@@ -1822,9 +1822,10 @@ max_switches = 2                        # moves per task, up or down
 # wait_ms = 4000                        # how long a turn bound for a model of restricted origin
 #                                       # waits for an item's verdict before going to Claude
 #                                       # instead; a Claude turn never waits. 0 never waits
-# max_pieces = 6                        # a long item is split to the pack's cap; this bounds how
-#                                       # many pieces are read, about 72 KB. Past it the item is
-#                                       # read from the start and its row says `truncated`
+# max_pieces = 20                       # a long item is split at 6,000 characters a piece; this
+#                                       # bounds how many are read. 20 fits the largest item that
+#                                       # can exist (a 100,000-character file read) whole. Past the
+#                                       # bound an item is read from the start and says `truncated`
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and
