@@ -572,8 +572,17 @@ function Judgments({ trace, rows }: { trace: Span | null | undefined; rows: Rows
   )
 }
 
+/** The compilation whose manifest is open lives in the address, under `?comp=` (theseus-gi8o2): the model-call
+ *  drawer's "its manifest, in the Context tab" link names one, and it is a place worth sending someone to, so it
+ *  survives a reload and can be pasted. The row scrolls itself into view when the address names it, because a long
+ *  lineage puts it well below the fold. */
 function ContextTab({ comps, rows, session }: { comps: CompilationInfo[]; rows: Rows; session: SessionHistory['session'] }) {
-  const [open, setOpen] = useState<string | null>(null)
+  const [params, setParams] = useSearchParams()
+  const open = params.get('comp')
+  const setOpen = (id: string | null) =>
+    setParams((p) => { if (id) p.set('comp', id); else p.delete('comp'); return p }, { replace: true })
+  const asked = useRef<HTMLDivElement | null>(null)
+  useEffect(() => { asked.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }) }, [open])
   const [contextTableOn] = useTableView('deckcontext')
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -585,7 +594,8 @@ function ContextTab({ comps, rows, session }: { comps: CompilationInfo[]; rows: 
       <ContextFiles files={((comps.find((c) => c.current)?.manifest as { context_files?: ContextFileRef[] } | undefined)?.context_files) ?? []} />
       <div className="panel-title flex items-center gap-1.5"><GitBranch size={12} /> compilation lineage</div>
       {comps.map((c) => (
-        <div key={c.compilation_id} className={cn('rounded-lg ring-1 ring-inset', c.current ? 'bg-think/5 ring-think/30' : 'ring-line')}>
+        <div key={c.compilation_id} ref={open === c.compilation_id ? asked : undefined}
+          className={cn('rounded-lg ring-1 ring-inset', open === c.compilation_id ? 'bg-live/5 ring-live/50' : c.current ? 'bg-think/5 ring-think/30' : 'ring-line')}>
           <button onClick={() => setOpen(open === c.compilation_id ? null : c.compilation_id)} className="w-full px-3 py-2 text-left">
             <div className="flex items-center gap-2 text-[12px]">
               <span className="num text-think">{short(c.compilation_id)}</span>

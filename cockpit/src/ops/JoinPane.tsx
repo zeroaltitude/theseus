@@ -100,12 +100,14 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
           {sid && <Link to={`/session/${sid}`} className="ml-auto text-[11px] text-live hover:underline">open the deck</Link>}
         </div>
       )}
+      {/* The transcript gets `deck` because this page draws no model or tool drawer (theseus-gi8o2): without it an
+          inspect press here only wrote `?msg=`/`?call=` into the Operations address, which nothing on it reads. */}
       <div className={cn('min-h-0 overflow-auto', compact ? 'max-h-52 p-2' : 'flex-1 p-3')}>
         {compact
           ? (tail.length === 0 ? <div className="text-[12px] text-ink-faint">No messages yet.</div>
             : <ol className="space-y-1.5 text-[12px]">{tail.map((m) => <li key={m.id}><span className="text-ink-faint">{m.who === 'you' ? 'You' : 'Theseus'} · {ago(m.at)}</span><div className="line-clamp-3 whitespace-pre-wrap text-ink">{m.text}</div></li>)}</ol>)
           : !sid ? <Empty>The first message opens this thread’s session.</Empty>
-            : <Transcript nodes={nodes} turns={turns} live={live} drafts={drafts} />}
+            : <Transcript nodes={nodes} turns={turns} live={live} drafts={drafts} deck={sid} />}
         {compact && live?.text && <div className="mt-1 whitespace-pre-wrap text-[12px] text-live">{live.text.slice(-300)}</div>}
       </div>
       {error && <div className="mx-2 mb-1 rounded-md bg-fault/10 px-2.5 py-1 text-[12px] text-fault ring-1 ring-fault/30">{error}</div>}

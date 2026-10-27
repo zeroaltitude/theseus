@@ -12,6 +12,7 @@ import { useWorld } from '@/lib/world'
 import { dropDraft, type Draft } from '@/lib/drafts'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
 import type { TurnRow } from '@/lib/derive'
+import { inspectCallHref, inspectMsgHref } from '@/lib/explorer'
 import { fallbackLine } from '@/lib/fallback'
 import { nudgeLine } from '@/lib/nudge'
 import { effortWords, type TurnRouted } from '@/lib/route'
@@ -66,7 +67,7 @@ function items(nodes: NodeInfo[]): Item[] {
 /** What a session's current turn is doing that no node holds yet: the streamed text and thinking, and the tools running. */
 export interface LiveTurn { turn_id: string; text: string; thinking?: string; running?: { id: string; tool: string; startedAt: number }[] }
 
-export function Transcript({ nodes, turns, live, asking, tightened, scores, noticed, drafts, cites }: {
+export function Transcript({ nodes, turns, live, asking, tightened, scores, noticed, drafts, cites, deck }: {
   nodes: NodeInfo[]; turns: Map<string, TurnRow>; live?: LiveTurn | null
   /** The sources the session's replies cite (`session.history`'s `cites`). */
   cites?: Citation[]
@@ -77,8 +78,17 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
   noticed?: Map<string, Noticed>
   /** What was sent from here that the session has not written yet (`lib/drafts.ts`). */
   drafts?: Draft[]
+  /** The session these nodes belong to, when this transcript is NOT on that session's page (theseus-gi8o2). The
+   *  Operations page's join pane passes it: there the route has no `:id` and nothing on the page draws the model
+   *  and tool drawers, so an inspect press that only set `?msg=` or `?call=` went nowhere at all. Given it, the
+   *  inspect marks become links to the deck, which does draw them. */
+  deck?: string
 }) {
-  const { id: sessionId } = useParams()
+  const { id: routeId } = useParams()
+  // A page with the session in its route is the deck, and it draws the drawers beside this transcript; anywhere else
+  // the press has to travel. `away` is null on the deck, and the session's id elsewhere.
+  const sessionId = routeId ?? deck
+  const away = routeId ? null : deck ?? null
   const { groups, late, callOf } = useMemo(() => {
     const g: { turn_id: string | null; items: Item[] }[] = []
     for (const it of items(nodes)) {
@@ -127,9 +137,9 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
             <div className="flex flex-col gap-2">
               {g.turn_id && !g.items.some((it) => it.kind === 'user') && <Continuation late={late.get(g.turn_id) ?? []} callOf={callOf} />}
               {g.items.map((it, ix) => it.kind === 'user' ? <UserItem key={it.node.node_id} n={it.node} steered={g.items.slice(0, ix).some((x) => x.kind === 'user')} />
-                : it.kind === 'assistant' ? <AssistantItem key={it.node.node_id} n={it.node} cites={cites} />
+                : it.kind === 'assistant' ? <AssistantItem key={it.node.node_id} n={it.node} cites={cites} away={away} />
                 : it.kind === 'queued' ? (waits && it.use ? <QueuedItem key={`${it.node.node_id}:${it.use.id}`} at={it.node.at_unix_ms} use={it.use} /> : null)
-                : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} scores={scores} noticed={noticed} />)}
+                : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} scores={scores} noticed={noticed} away={away} />)}
               {running && live && <LiveItem live={live} />}
               {t?.fallback && <TurnFellBack t={t} />}
               {t?.nudged && <TurnNudged t={t} />}
@@ -277,7 +287,18 @@ function PublishControl({ nodeId }: { nodeId: string }) {
   )
 }
 
-function AssistantItem({ n, cites }: { n: NodeInfo; cites?: Citation[] }) {
+/** The little magnifier on a message or a call (theseus-gi8o2). Where the drawers are drawn beside this transcript it
+ *  toggles the address key they read, as it always did. Where they are not — the Operations page's join pane — that
+ *  key is read by nobody, and the press did nothing at all; there `away` is the deck's address and the mark is a
+ *  link, so it is an `<a href>` the middle button and ⌘-click open as well. */
+function InspectMark({ away, press, title, tone }: { away: string | null; press: () => void; title: string; tone: string }) {
+  const cls = cn('absolute -right-2 -top-2 z-10 rounded-md bg-deck p-1 ring-1 transition-opacity', tone)
+  return away
+    ? <Link to={away} title={`${title} (on its session's deck)`} className={cls}><ScanSearch size={13} /></Link>
+    : <button onClick={press} title={title} className={cls}><ScanSearch size={13} /></button>
+}
+
+function AssistantItem({ n, cites, away }: { n: NodeInfo; cites?: Citation[]; away?: string | null }) {
   const d = (n.detail ?? {}) as D
   const [think, setThink] = useState(false)
   const [params, setParams] = useSearchParams()
@@ -287,11 +308,12 @@ function AssistantItem({ n, cites }: { n: NodeInfo; cites?: Citation[] }) {
     <div className="group flex gap-3">
       <Gutter icon={<Bot size={13} />} at={n.at_unix_ms} tone="bg-model/10 text-model ring-model/30" />
       <div className={cn('relative min-w-0 flex-1 rounded-lg bg-model/[0.05] px-3 py-2 ring-1', inspecting ? 'ring-model/60' : 'ring-model/15')}>
-        <button
-          onClick={() => setParams((p) => { if (inspecting) p.delete('msg'); else { p.set('msg', n.node_id); p.delete('call') } return p }, { replace: true })}
+        <InspectMark
+          away={away ? inspectMsgHref(away, n.node_id) : null}
+          press={() => setParams((p) => { if (inspecting) p.delete('msg'); else { p.set('msg', n.node_id); p.delete('call') } return p }, { replace: true })}
           title="inspect this model call: its time, tokens, cost, headroom, and context"
-          className={cn('absolute -right-2 -top-2 z-10 rounded-md bg-deck p-1 ring-1 transition-opacity', inspecting ? 'text-model ring-model/60' : 'text-ink-faint opacity-0 ring-line group-hover:opacity-100 hover:text-model')}
-        ><ScanSearch size={13} /></button>
+          tone={inspecting ? 'text-model ring-model/60' : 'text-ink-faint opacity-0 ring-line group-hover:opacity-100 hover:text-model'}
+        />
         {n.thinking && (
           <button onClick={() => setThink((v) => !v)} className="mb-1 flex items-center gap-1 text-[11px] text-think">
             <ChevronRight size={12} className={cn('transition-transform', think && 'rotate-90')} /><Brain size={12} /> thinking · {n.thinking.length.toLocaleString()} chars
@@ -371,7 +393,7 @@ function ResultText({ text }: { text: string }) {
   )
 }
 
-function ToolItem({ call, result, asking, tightened, scores, noticed }: { call: NodeInfo; result?: NodeInfo; asking?: Set<string>; tightened?: Map<string, Tightening>; scores?: Map<string, Score>; noticed?: Map<string, Noticed> }) {
+function ToolItem({ call, result, asking, tightened, scores, noticed, away }: { call: NodeInfo; result?: NodeInfo; asking?: Set<string>; tightened?: Map<string, Tightening>; scores?: Map<string, Score>; noticed?: Map<string, Noticed>; away?: string | null }) {
   const d = (call.detail ?? {}) as D
   const r = (result?.detail ?? (call.kind === 'tool_result' ? call.detail : null) ?? {}) as D
   const [open, setOpen] = useState(false)
@@ -399,11 +421,12 @@ function ToolItem({ call, result, asking, tightened, scores, noticed }: { call: 
       <Gutter icon={<Wrench size={13} />} at={call.at_unix_ms} tone="bg-tool/10 text-tool ring-tool/30" />
       <div className={cn('relative min-w-0 flex-1 rounded-lg bg-tool/[0.04] ring-1', inspecting ? 'ring-tool/60' : 'ring-tool/15')}>
         {callKey && (
-          <button
-            onClick={() => setParams((p) => { if (inspecting) p.delete('call'); else { p.set('call', callKey); p.delete('msg') } return p }, { replace: true })}
+          <InspectMark
+            away={away ? inspectCallHref(away, callKey) : null}
+            press={() => setParams((p) => { if (inspecting) p.delete('call'); else { p.set('call', callKey); p.delete('msg') } return p }, { replace: true })}
             title="inspect this call: its gate, its life in the ledger, its job, its result"
-            className={cn('absolute -right-2 -top-2 z-10 rounded-md bg-deck p-1 ring-1 transition-opacity', inspecting ? 'text-tool ring-tool/60' : 'text-ink-faint opacity-0 ring-line group-hover:opacity-100 hover:text-tool')}
-          ><ScanSearch size={13} /></button>
+            tone={inspecting ? 'text-tool ring-tool/60' : 'text-ink-faint opacity-0 ring-line group-hover:opacity-100 hover:text-tool'}
+          />
         )}
         <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left">
           <ChevronRight size={13} className={cn('text-ink-faint transition-transform', open && 'rotate-90')} />
