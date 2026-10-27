@@ -158,6 +158,7 @@ impl Board {
                 .clone(),
             jail: self.jail(),
             notify: self.notify(),
+            stop: None,
         }
     }
 
@@ -320,7 +321,8 @@ pub async fn propose(
             ));
         }
     }
-    let place = board.place(&repo);
+    let mut place = board.place(&repo);
+    place.stop = Some(stop_of(&core, tc.execution_id));
     let (p, item) = (place.clone(), i.item.clone());
     let found = blocking(move || Ok(tree::find(&p, &item))).await?;
     let Some(mut t) = found else {
@@ -391,6 +393,19 @@ fn stopped(core: &Core) -> Option<String> {
     }
 }
 
+/// The stop check of a self build's wait for may-build: the kill switch (the
+/// same one asked between phases) or a `/stop` of this call's execution.
+pub(super) fn stop_of(core: &Arc<Core>, execution_id: &str) -> tree::Stop {
+    let (core, exec) = (Arc::downgrade(core), execution_id.to_string());
+    tree::Stop::new(move || {
+        let core = core.upgrade()?;
+        stopped(&core).or_else(|| {
+            let e = core.kernel.execution(&exec).ok()??;
+            e.stopped.map(|s| format!("stopped by {}", s.by))
+        })
+    })
+}
+
 /// The attempt's phases after the tree is open: commit, gate, report, push.
 async fn attempt(
     core: &Core,
@@ -430,6 +445,9 @@ async fn attempt(
     let run = match tree::gate(place, &a.tree).await {
         Ok(r) => r,
         Err(e) => {
+            if let Some(tree::GateStopped(why)) = e.downcast_ref() {
+                return halted(a, GATE, why);
+            }
             a.verdict = "failed";
             return Err(format!("The gate did not run: {e:#}"));
         }
