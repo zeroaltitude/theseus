@@ -2778,6 +2778,53 @@
    "subset_of": null,
    "framing": "routed",
    "carried_from": null
+  },
+  {
+   "report": "2026-10-27-terminal-bench-openhands-high-k1",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "openhands",
+   "variant": "openhands",
+   "harness": "OpenHands 1.53.0, HIGH, 89x1",
+   "model": "anthropic/claude-sonnet-5-5, pinned: one model, no routing and no fallback -- every priced call in all three cells is billed to claude-sonnet-5-5",
+   "date": "2026-10-27",
+   "commit": "harbor arm at 7b2f1565; openhands-sdk 1.53.0, litellm pinned <1.103.0",
+   "dataset": "docs/benchmarks/2026-10-27-terminal-bench-openhands-high-k1.json",
+   "trials": 89,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.719101,
+     "lo": 0.618164,
+     "hi": 0.801906,
+     "k": 64,
+     "n": 89
+    },
+    "usd_per_trial": {
+     "value": 0.101673,
+     "lo": 0.072486,
+     "hi": 0.13086
+    },
+    "usd_total": {
+     "value": 9.048909
+    },
+    "usd_per_solve": {
+     "value": 0.141389
+    },
+    "agent_s_median": {
+     "value": 56.75
+    }
+   },
+   "arm_model": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 1,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
   }
  ]
 }
