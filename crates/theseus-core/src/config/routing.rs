@@ -77,6 +77,54 @@ pub struct RoutingConfig {
     /// A running task's model ranges (theseus-ypnxt.9).
     #[serde(default)]
     pub task_checkpoints: TaskCheckpoints,
+    /// The coding floor (theseus-mn5dr): off unless it names a profile.
+    #[serde(default, skip_serializing_if = "CodingFloor::is_off")]
+    pub coding_floor: CodingFloor,
+}
+
+/// `[routing.coding_floor]` (theseus-mn5dr, the TB-hard report's fix 5): a
+/// coding verdict (`routine_coding`, `deep_coding`) under its bar routes
+/// nothing, so the turn runs on the session's base profile at the base's
+/// effort. On the owner's benchmark trials the failing ones sat on the base
+/// profile 48% of the time against 9% of the solving ones, and ran at medium
+/// 33% against 9% (69 decisions against 162). That is an association and a
+/// confounded one: the hard tasks are both harder and more often unsure. With
+/// `profile` named, such a verdict holds that profile instead, at its own
+/// effort (a routed profile's effort is its floor, theseus-53ujg.3), and the
+/// route row says `floor`. **It ships off**: the A/B that would justify
+/// defaulting it on is owed to the benchmarks after 1.0.4, and the row's own
+/// text says "A/B first".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodingFloor {
+    /// The profile a coding verdict under its bar holds, `sonnethi` as the
+    /// report names it. Unset: nothing is held, which is today's rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// The lowest confidence that still holds it. Under it the verdict says
+    /// too little about the turn to move a session at all. Above zero and
+    /// under `[routing] switch_confidence`, or the floor never fires.
+    #[serde(default = "floor_confidence")]
+    pub min_confidence: f64,
+}
+
+impl Default for CodingFloor {
+    fn default() -> Self {
+        Self {
+            profile: None,
+            min_confidence: floor_confidence(),
+        }
+    }
+}
+
+impl CodingFloor {
+    pub fn is_off(&self) -> bool {
+        self.profile.is_none()
+    }
+}
+
+fn floor_confidence() -> f64 {
+    0.30
 }
 
 /// `[routing.corrections]` (theseus-q31l): the owner's corrections in a
@@ -406,6 +454,7 @@ impl Default for RoutingConfig {
             classes: RoutingClasses::default(),
             corrections: CorrectionsConfig::default(),
             task_checkpoints: TaskCheckpoints::default(),
+            coding_floor: CodingFloor::default(),
         }
     }
 }
@@ -466,6 +515,16 @@ impl RoutingConfig {
             }
         }
         self.task_checkpoints.validate()?;
+        let f = &self.coding_floor;
+        if f.profile.as_deref().is_some_and(|p| p.trim().is_empty()) {
+            anyhow::bail!("routing.coding_floor.profile has an empty name");
+        }
+        if !(f.min_confidence > 0.0 && f.min_confidence < self.switch_confidence) {
+            anyhow::bail!(
+                "routing.coding_floor.min_confidence must be above 0 and under \
+                 routing.switch_confidence: at or over it the floor never fires"
+            );
+        }
         let c = &self.corrections;
         if !(c.similarity > 0.0 && c.similarity <= 1.0) {
             anyhow::bail!("routing.corrections.similarity must be above 0 and at most 1");

@@ -1738,6 +1738,20 @@ failing_streak = 3                      # loops in a row that each had a failed 
 quiet_loops = 8                         # loops in a row with no progress signal
 min_loops_between = 4                   # at most one verdict per this many loops
 max_switches = 2                        # moves per task, up or down
+# The coding floor (theseus-mn5dr; off, and it stays off until a benchmark arm shows it earns its
+# cost): a routine_coding or deep_coding verdict under its bar normally routes nothing, so the turn
+# runs on the session's own profile at that profile's effort. With a profile named here such a
+# verdict holds that profile instead, at its own effort, and the route row says `floor`. A floor
+# only lifts a session (a base as dear as it is left alone), stays inside the place's cap, never
+# takes a profile of restricted origin, and keeps the cache rule for a switch. On the owner's
+# benchmark trials the failing ones sat on the base profile 48% of the time against 9% of the
+# solving ones, an association the hard tasks confound: the A/B is owed to the benchmarks after
+# 1.0.4, and it flips the default only if the floor arm solves at least two more trials than its
+# control across caffe-cifar-10, mteb-leaderboard and compile-compcert (k=3 each) at no more than
+# one and a half times the cost per trial.
+# [routing.coding_floor]
+# profile = "sonnethi"                  # unset: off
+# min_confidence = 0.30                 # the lowest verdict that holds it; above 0 and under switch_confidence
 # No China-origin model is named for chat, quick, sophisticated or review: Haiku 5.5 is two to
 # three times cheaper per short turn and has no forced thinking, and review and judgment stay on
 # Claude. A first-pass bug review by DeepSeek Flash is a later key (theseus-a1wvq.17), not yet here.

@@ -148,6 +148,9 @@ pub enum Reason {
     /// A task's checkpoint verdict would move it up, but it has made its
     /// `[routing.task_checkpoints] max_switches` moves (theseus-ypnxt.9).
     SwitchCap,
+    /// A coding verdict under its bar held `[routing.coding_floor]`'s profile
+    /// instead of the session's base (theseus-mn5dr).
+    Floor,
 }
 
 impl Reason {
@@ -169,6 +172,7 @@ impl Reason {
             Reason::StepDown => "step_down",
             Reason::DataGate => "data_gate",
             Reason::SwitchCap => "switch_cap",
+            Reason::Floor => "floor",
         }
     }
 }
@@ -480,7 +484,10 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
         HoldNext::Clear
     };
     if a.verdict.confidence < cfg.confidence_for(&a.verdict.mode) {
-        return stay(Reason::Unsure, keep_or_clear);
+        return match floor_pick(cfg, profiles, a) {
+            Some(target) => switch_to(cfg, a, target, Reason::Floor),
+            None => stay(Reason::Unsure, keep_or_clear),
+        };
     }
     let list = cfg.classes.effective(&a.verdict.mode, a.cleared);
     let kept = (GUARDED.contains(&a.verdict.mode.as_str())
@@ -525,6 +532,13 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
             hold: HoldNext::Keep,
         };
     }
+    switch_to(cfg, a, target, reason)
+}
+
+/// A switch of the session's profile to `target`: at once while the first
+/// compile is under `cold_switch_tokens` or a second turn in a row agreed,
+/// else held for that second turn, the cache's rule.
+fn switch_to(cfg: &RoutingConfig, a: &Ask<'_>, target: String, reason: Reason) -> Decision {
     let agreed = a.hold.is_some_and(|h| h.profile == target);
     if a.est_tokens < cfg.cold_switch_tokens || agreed {
         return Decision {
@@ -535,14 +549,39 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
             hold: HoldNext::Clear,
         };
     }
-    stay(
-        Reason::CacheHold,
-        HoldNext::Set(Hold {
+    Decision {
+        profile: a.base.to_string(),
+        reason: Reason::CacheHold,
+        detour: false,
+        switch: false,
+        hold: HoldNext::Set(Hold {
             mode: a.verdict.mode.clone(),
             profile: target,
             turn: a.verdict.turn.clone(),
         }),
-    )
+    }
+}
+
+/// The coding modes the floor holds (theseus-mn5dr).
+pub const CODING: [&str; 2] = ["routine_coding", "deep_coding"];
+
+/// The profile an unsure coding verdict holds, when `[routing.coding_floor]`
+/// names one (theseus-mn5dr): a coding mode, at or over the floor's own
+/// confidence, and a profile that is usable, within the place's cap, never of
+/// restricted origin (a China-origin model drafts a coding turn, it never
+/// answers one) and dearer than the session's own: a floor lifts a session
+/// and never lowers it.
+fn floor_pick(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Option<String> {
+    let f = &cfg.coding_floor;
+    let name = f.profile.as_deref()?;
+    if !CODING.contains(&a.verdict.mode.as_str()) || a.verdict.confidence < f.min_confidence {
+        return None;
+    }
+    let held = profiles
+        .get(name)
+        .filter(|p| !p.restricted && p.runs(a.images, false) && within(p, a.cap))?;
+    let base = profiles.get(a.base)?.short_cost?;
+    (held.short_cost? > base + 1e-12).then(|| name.to_string())
 }
 
 /// A correction's place for the turn (theseus-q31l): `profile`, if it runs

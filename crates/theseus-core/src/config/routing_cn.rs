@@ -18,6 +18,15 @@ pub(super) fn validate(cfg: &Config, catalog: &Catalog) -> Result<()> {
         (cfg.all_profiles().contains_key(p) && origin.restricted()).then_some(origin)
     };
     drafts_dir(cfg)?;
+    if let Some(p) = cfg.routing.coding_floor.profile.as_deref() {
+        if let Some(origin) = restricted(p) {
+            bail!(
+                "routing.coding_floor.profile: {p} is of restricted origin ({}): a China-origin \
+                 model never answers a coding turn; it drafts one through `cn_draft`",
+                format!("{origin:?}").to_lowercase()
+            );
+        }
+    }
     for m in MODES {
         let t = cfg.routing.classes.table(m);
         for p in t.profiles.iter().filter(|p| *p != CHEAPEST) {
