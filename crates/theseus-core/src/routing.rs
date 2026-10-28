@@ -62,6 +62,8 @@ pub mod effort;
 pub mod personal;
 #[cfg(test)]
 mod tests_cn;
+#[cfg(test)]
+mod tests_floor;
 pub use personal::PersonalAnswer;
 
 /// A short turn's uncached input, in tokens, for `cheapest` and the cap.
