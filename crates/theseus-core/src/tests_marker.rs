@@ -123,7 +123,10 @@ async fn a_job_of_gh_is_marked_outside_text_and_holds_nothing() {
                 json!({"argv": [bin.to_string_lossy(), "issue", "view", "1"]}),
             )],
         ),
-        Scripted::tools("", &[("r1", "proc_run", json!({"argv": ["echo", "hi"]}))]),
+        Scripted::tools(
+            "",
+            &[("r1", "proc_run", json!({"argv": ["echo", "plainly"]}))],
+        ),
         Scripted::text("Done."),
     ]));
     let store = Store::open(&dir.path().join("store")).unwrap();
@@ -148,7 +151,9 @@ async fn a_job_of_gh_is_marked_outside_text_and_holds_nothing() {
     assert!(crate::external::is_outside(printed), "{printed:?}");
     let echoed = nodes
         .iter()
-        .find(|n| matches!(&n.body, Body::ToolResult { content, .. } if content.contains("hi")))
+        .find(
+            |n| matches!(&n.body, Body::ToolResult { content, .. } if content.contains("plainly")),
+        )
         .expect("the echo's result");
     assert!(
         !crate::external::is_outside(echoed),
