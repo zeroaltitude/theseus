@@ -61,7 +61,7 @@ pub const RECALL_CROSS_VERSION: u32 = 1;
 /// `families.v1`'s builder (module `families`, theseus-xlri5).
 pub const FAMILIES_VERSION: u32 = 1;
 
-/// `content.v1`'s builder (module `content`, theseus-9ymz0).
+/// `content.v2`'s builder (module `content`, theseus-9ymz0).
 pub const CONTENT_VERSION: u32 = 1;
 
 /// The most a builder keeps of each list.
@@ -416,7 +416,7 @@ pub enum Input {
     /// `families.v1`'s (theseus-xlri5): the message and the tool families its
     /// request hides.
     Families(FamiliesInput),
-    /// `content.v1`'s (theseus-9ymz0): one item that entered a session.
+    /// `content.v2`'s (theseus-9ymz0): one item that entered a session.
     Content(ContentInput),
 }
 

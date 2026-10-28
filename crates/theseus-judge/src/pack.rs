@@ -82,6 +82,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ),
     ("families.v1", include_str!("../packs/families.v1.toml")),
     ("content.v1", include_str!("../packs/content.v1.toml")),
+    ("content.v2", include_str!("../packs/content.v2.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -1507,11 +1508,11 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            30,
+            31,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
              onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1 \
-             and content.v1"
+             and content.v1 to v2"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -1828,6 +1829,157 @@ mod tests {
             )
         );
         assert_eq!(v8.description, v7.description);
+    }
+
+    /// One question of a pack, or a panic naming it.
+    fn q<'a>(p: &'a Pack, n: &str) -> &'a QuestionDef {
+        p.question(n).unwrap_or_else(|| panic!("{n}"))
+    }
+
+    /// Everything about `content.v2` that is not its wording is `content.v1`'s
+    /// (theseus-78qay): the same id, builder, point, cap, sample, baseline and
+    /// action, the same four questions deciding at the same bars, and the same
+    /// rollback rules. `injection` is byte-identical, since its `no` already said
+    /// that discussing prompt injection is not attempting one.
+    #[test]
+    fn content_v2_keeps_v1s_shape_and_its_injection_question() {
+        let (v1, v2) = (
+            by_name("content.v1").unwrap(),
+            by_name("content.v2").unwrap(),
+        );
+        assert_eq!(v2.version, 2);
+        assert_eq!(v2.id, v1.id);
+        assert_eq!(
+            (
+                v2.point,
+                v2.builder,
+                v2.baseline,
+                v2.action,
+                v2.state_cap_tokens,
+                v2.sample
+            ),
+            (
+                v1.point,
+                v1.builder,
+                v1.baseline,
+                v1.action,
+                v1.state_cap_tokens,
+                v1.sample
+            )
+        );
+        let ids = |p: &Pack| p.questions.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&v2), ids(&v1));
+        for n in ["confidential", "injection", "personal", "secret"] {
+            let (a, b) = (q(&v2, n), q(&v1, n));
+            assert_eq!(
+                (
+                    &a.decides,
+                    &a.kind,
+                    &a.thresholds,
+                    &a.no_match,
+                    &a.only_when
+                ),
+                (
+                    &b.decides,
+                    &b.kind,
+                    &b.thresholds,
+                    &b.no_match,
+                    &b.only_when
+                ),
+                "{n}"
+            );
+            assert!(a.decides, "{n}");
+        }
+        assert_eq!(q(&v2, "injection"), q(&v1, "injection"));
+        assert_eq!(v2.rollback, v1.rollback, "both rules, word for word");
+        assert_ne!(v2.description, v1.description, "it reveals, not shows");
+    }
+
+    /// `content.v2`'s one idea, added and nothing taken away (theseus-78qay, the
+    /// owner 2026-10-27: a flag describes what an item REVEALS, not what it is
+    /// ABOUT). Each of the three revealing questions carries the rule in its
+    /// `instructions` and names the three near-misses in its `no`.
+    #[test]
+    fn content_v2_adds_the_reveal_rule_and_changes_nothing_else() {
+        let (v1, v2) = (
+            by_name("content.v1").unwrap(),
+            by_name("content.v2").unwrap(),
+        );
+        let means = |d: &QuestionDef, id: &str| {
+            d.options
+                .iter()
+                .find(|o| o.id == id)
+                .unwrap()
+                .means
+                .clone()
+                .unwrap_or_default()
+        };
+        // Each revealing question carries the reveal rule in the question itself,
+        // where the text being judged cannot argue with it. It does NOT ask whether
+        // the party is real: a first draft did, and on the live set it cost recall
+        // 1.000 -> 0.623, because one item rarely shows whose anything is and Jev
+        // answered "cannot tell" as "no". The rule that holds is reveal-versus-about,
+        // and the near-misses are named in `no`, where they are observable.
+        for n in ["secret", "confidential", "personal"] {
+            let (a, b) = (q(&v2, n), q(&v1, n));
+            assert_ne!(a.instructions, b.instructions, "{n}: v2 rewords it");
+            assert!(
+                a.instructions.contains("not what it is about"),
+                "{n}: {}",
+                a.instructions
+            );
+            assert!(
+                !a.instructions.contains("real"),
+                "{n}: `real` cost recall; the rule is reveal-versus-about: {}",
+                a.instructions
+            );
+            // `yes` keeps v1's words and then adds; `no` grows, never shrinks.
+            assert!(
+                means(a, "yes").starts_with(&means(b, "yes")),
+                "{n}: v2's yes drops words v1's had"
+            );
+            assert!(means(a, "no").len() > means(b, "no").len(), "{n}");
+        }
+        // And each `no` names the three near-misses v1 flagged on.
+        for (n, words) in [
+            (
+                "secret",
+                &[
+                    "about credentials",
+                    "exercise's own answer",
+                    "working output",
+                    // Scoped to the exercise, never to the tree: a password in an
+                    // ordinary project's configuration is a credential. A review of
+                    // 2026-10-27 found the unscoped version, and the set now holds
+                    // `sec_14` and `sec_15` against it.
+                    "whatever directory it sits in",
+                ][..],
+            ),
+            (
+                "confidential",
+                &[
+                    "topic of confidentiality",
+                    "self-contained technical exercise",
+                    "invented organisation names",
+                    // A real organisation's own test suite is a test suite; its
+                    // fixtures are not exempt for that reason (`conf_14`).
+                    "actual customers",
+                ][..],
+            ),
+            (
+                "personal",
+                &[
+                    "topic of privacy",
+                    "Placeholder identities",
+                    "benchmark task",
+                ][..],
+            ),
+        ] {
+            let no = means(q(&v2, n), "no");
+            for w in words {
+                assert!(no.contains(w), "{n}'s no lacks {w:?}: {no}");
+            }
+        }
     }
 
     /// No pack's text names an organisation: the matcher runs over every pack
