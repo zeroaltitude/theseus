@@ -106,7 +106,7 @@ options = [
 [questions.draft]
 type = "choice"
 decides = false
-instructions = "Should a cheaper drafting model make the first pass of the work this request needs, which a stronger model then reviews and fixes? A first pass by the cheaper model is not the default for code: choose cheap only for the kinds of work it lists, and only where a failed draft is cheap to redo."
+instructions = "A first pass by a cheaper drafting model is not the default for code: choose cheap only for the kinds of work it lists, and only where a failed draft is cheap to redo. Should a cheaper drafting model make the first pass of the work this request needs, which a stronger model then reviews and fixes?"
 act = 0.90
 confirm = 0.60
 only_when = "draft_choice"
