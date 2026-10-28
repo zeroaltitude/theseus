@@ -46,10 +46,10 @@ test('the page opens on the newest, most-measured slice: Terminal-Bench 2.0, hig
 })
 
 test('a report that cites an earlier run’s figures is the same point cited again, not a second dot', () => {
-  // Eighteen rows on this task set, ten of them measurements: Claude Code's 0.752809 is one run, re-cited twice.
+  // Nineteen rows on this task set, eleven of them measurements: Claude Code's 0.752809 is one run, re-cited twice.
   const rows = manifest.rows.filter((r) => r.benchmark === 'terminal-bench@2.0' && r.tier === 'high' && r.tasks === 89)
-  assert.equal(rows.length, 18)
-  assert.equal(open.members.length, 10)
+  assert.equal(rows.length, 19)
+  assert.equal(open.members.length, 11)
   const cc = open.members.filter((m) => m.row.arm === 'claude-code')
   assert.equal(cc.length, 1)
   assert.equal(cc[0].row.date, '2026-10-18', 'the member is kept at the run that measured it')
@@ -59,11 +59,11 @@ test('a report that cites an earlier run’s figures is the same point cited aga
   for (const r of rows) assert.ok(held.has(r.report), `${r.report} is accounted for`)
 })
 
-test('every member draws exactly one point, and the default slice draws ten over eight harnesses', () => {
+test('every member draws exactly one point, and the default slice draws eleven over eight harnesses', () => {
   const ps = slicePoints(open, files)
-  assert.equal(ps.length, 10)
+  assert.equal(ps.length, 11)
   assert.equal(new Set(ps.map((p) => p.harness)).size, 8)
-  assert.equal(new Set(ps.map((p) => p.id)).size, 10, 'each point has its own id')
+  assert.equal(new Set(ps.map((p) => p.id)).size, ps.length, 'each point has its own id')
   // Each point's pass rate is the one the manifest states for its member, whether it was folded or stated.
   for (const m of open.members) {
     const p = ps.find((x) => x.report === m.row.report && x.harness === m.row.arm)
@@ -106,7 +106,10 @@ test('a point is named with its harness and the date of the run that measured it
   const ps = slicePoints(open, files)
   // The manifest's `harness` line runs to sixty characters ("Theseus as shipped (routed), frozen 1.0.3 …"): it is the
   // tip's and the table's, never a label drawn beside a dot.
-  for (const p of ps) assert.match(p.runLabel, /^\d{4}-\d{2}-\d{2}$/, p.harness)
+  // A bare date where the arm ran once that day; a date plus a short suffix that tells it from its same-day peer
+  // where it did not. Never the harness line itself.
+  for (const p of ps) assert.match(p.runLabel, /^\d{4}-\d{2}-\d{2}(, \S+)?$/, p.harness)
+  for (const p of ps) assert.ok(p.runLabel.length <= 24, `${p.harness} is named short enough to draw: ${p.runLabel}`)
   assert.equal(new Set(ps.filter((p) => p.harness === 'theseus').map((p) => p.runLabel)).size, 3)
   // Where one slice holds two runs of an arm on one day, the variant tells them apart rather than nothing doing it.
   const same = slices.find((s) => s.id === 'terminal-bench-untiered-14')!

@@ -248,12 +248,28 @@ function statedPoint(slice: Slice, m: SliceMember, run: { id: string; label: str
   }
 }
 
+/** The segments of a report slug that its same-day peers do not all share: what actually differed between two runs of
+ *  one arm on one day, which is usually the model (`…-openclaw-astra-high-k1` against `…-openclaw-sonnet-high-k1`
+ *  leaves `astra`). Empty only where the slugs match, which a run's id already forbids. */
+function slugMark(report: string, peers: readonly string[]): string {
+  const theirs = peers.map((p) => new Set(p.split('-')))
+  return report.split('-').filter((seg) => !theirs.every((t) => t.has(seg))).join('-')
+}
+
 /** A member's run as the chart names it. A point's name is its harness and its run, drawn beside the dot, so the run
- *  has to be short: the date, which is what tells two runs of one arm apart, and the variant only where one slice
- *  holds two of an arm's runs on the same day. The manifest's long `harness` line is the tip's and the table's. */
+ *  has to be short: the date, which is what tells two runs of one arm apart, and a suffix only where one slice holds
+ *  two of an arm's runs on the same day. The manifest's long `harness` line is the tip's and the table's.
+ *
+ *  The suffix is the variant where the variant says something the arm did not — but a variant may simply repeat the
+ *  arm (two models of one harness both recorded `openclaw`), and then it tells nothing apart and both runs would be
+ *  drawn under one name. Where that happens the report slug's own differing segments do the work instead. */
 function runOf(r: IndexRow, members: readonly SliceMember[]): { id: string; label: string } {
-  const sameDay = members.filter((m) => m.row.arm === r.arm && m.row.date === r.date).length > 1
-  return { id: `${r.report}|${r.variant}`, label: sameDay ? `${r.date}, ${r.variant}` : r.date }
+  const id = `${r.report}|${r.variant}`
+  const sameDay = members.filter((m) => m.row.arm === r.arm && m.row.date === r.date)
+  if (sameDay.length <= 1) return { id, label: r.date }
+  if (new Set(sameDay.map((m) => m.row.variant)).size === sameDay.length) return { id, label: `${r.date}, ${r.variant}` }
+  const mark = slugMark(r.report, sameDay.filter((m) => m.row.report !== r.report).map((m) => m.row.report))
+  return { id, label: `${r.date}, ${mark || r.report}` }
 }
 
 /** A slice's points: one a member. Its own table where that table can name it and folds to the figure the manifest

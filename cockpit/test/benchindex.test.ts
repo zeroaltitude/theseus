@@ -99,16 +99,20 @@ test('the committed manifest parses, and its newest Terminal-Bench rows for Thes
   assert.ok(m.rows.length > 40)
   const tb = m.series.filter((s) => s.benchmark === 'terminal-bench@2.0')
   const theseus = (tier: string) => tb.find((s) => s.arm === 'theseus' && s.tier === tier)!
-  assert.equal(theseus('max').newest.report, '2026-10-23-terminal-bench-retest-max')
-  assert.equal(theseus('max').newest.date, '2026-10-23')
-  assert.match(theseus('max').newest.commit ?? '', /^fe56a164/)
+  // The max tier gained the frozen 1.0.3 cell on 10-27, all 30 of the hard set x 3; its commit is recorded as the
+  // bench binaries' build rather than a bare sha, since the trials agree on one and the harbor arm sits elsewhere.
+  assert.equal(theseus('max').newest.report, '2026-10-27-terminal-bench-theseus-1.0.3-max-k3')
+  assert.equal(theseus('max').newest.date, '2026-10-27')
+  assert.equal(theseus('max').newest.tasks, 30)
+  assert.equal(theseus('max').newest.trials, 90)
+  assert.match(theseus('max').newest.commit ?? '', /92e3dbed/)
   // The high tier gained the frozen 1.0.3 cell on 10-26, all 89 tasks x 3 (theseus-cfttq).
   assert.equal(theseus('high').newest.report, '2026-10-26-terminal-bench-theseus-1.0.3-high-k3')
   assert.equal(theseus('high').newest.date, '2026-10-26')
   assert.equal(theseus('high').newest.tasks, 89)
   assert.equal(theseus('high').newest.trials, 267)
   // The history reaches back through the 10-21 rerun to the v1 run, one point a report.
-  assert.deepEqual(theseus('max').history.map((r) => r.date), ['2026-10-18', '2026-10-21', '2026-10-23'])
+  assert.deepEqual(theseus('max').history.map((r) => r.date), ['2026-10-18', '2026-10-21', '2026-10-23', '2026-10-27'])
   assert.deepEqual(theseus('high').history.map((r) => r.date), ['2026-10-18', '2026-10-21', '2026-10-23', '2026-10-26'])
   // The rivals were not run again on 10-23: their newest measurement is the v1 run's, not a re-cut of it.
   assert.equal(tb.find((s) => s.arm === 'claude-code' && s.tier === 'max')!.newest.date, '2026-10-18')
