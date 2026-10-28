@@ -321,7 +321,7 @@ async fn the_grant_keys_follow_the_offer() {
     r.asked("action.confirm", 1).await;
     let a = &r.daemon.asked("action.confirm")[0];
     assert_eq!(a["approve"], true);
-    assert_eq!(a["grant"]["pattern"], "/home/ada/work");
+    assert_eq!(a["grant"]["pattern"], "edits");
 }
 
 // ------------------------------------------------------------ the stop

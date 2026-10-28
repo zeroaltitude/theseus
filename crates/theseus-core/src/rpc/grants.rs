@@ -62,14 +62,14 @@ impl Core {
             .ok_or_else(|| anyhow!("no session {}", a.session_id))?;
         let nodes = self.store.session_nodes(&a.session_id)?;
         let Some((tool, input, gate)) = call_of(&nodes, correlation_id) else {
-            bail!("{correlation_id} is no tool call's question: it offers nothing");
+            bail!("{correlation_id} is no tool call's question: it offers no grant");
         };
         let Some(offered) = self.grant_offer_of(&rec, &tool, &input, gate.as_deref()) else {
-            bail!("{correlation_id} offers nothing: approve it plainly. Nothing changed.");
+            bail!("{correlation_id} offers no grant: approve it without one. Nothing changed.");
         };
         if answer.pattern != offered.pattern {
             bail!(
-                "the offer answered (`{}`) is not the one made (`{}`). Nothing changed.",
+                "the grant answered (`{}`) is not the one offered (`{}`). Nothing changed.",
                 answer.pattern,
                 offered.pattern
             );
