@@ -259,9 +259,13 @@ fn a_missing_ancestor_ends_the_depth_walk_and_refuses() {
     );
     let err = w
         .kernel
-        .open_task_owned(&orphan.id, &new_id("act"), 1_000, Default::default(), |_| {
-            Ok(vec![])
-        })
+        .open_task_owned(
+            &orphan.id,
+            &new_id("act"),
+            1_000,
+            Default::default(),
+            |_| Ok(vec![]),
+        )
         .unwrap_err();
     assert!(
         matches!(
