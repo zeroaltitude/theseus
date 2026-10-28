@@ -13,9 +13,11 @@
 //!   (`TurnRunner::verdicts`), then **goes to Claude**: the turn is never
 //!   blocked and never fails for want of a verdict. A turn bound for Claude
 //!   never waits.
-//! - **The sensitive names**: a message that names one of `[privacy]
-//!   sensitive_names`, or a session that read private content, runs only on a
-//!   profile of US origin (`ModelOrigin::cleared_for_sensitive`).
+//! - **Private content**: a session that read private content (Google's
+//!   marker) runs only on a profile of US origin
+//!   (`ModelOrigin::cleared_for_sensitive`); theseus-gyjyo.5 replaces it with a label.
+//!   A name in `[privacy] sensitive_names` is no part of the floor: it raises
+//!   a removable label at the item's entry (theseus-gyjyo.4).
 //!
 //! The route skips every profile the floor refuses (`route_profiles`), so the
 //! next usable one in the mode's list runs; if the turn would still run on
@@ -37,8 +39,7 @@ use crate::routing::{Decision, HoldNext, Reason};
 pub(crate) const DEFAULT_PROFILE: &str = "default";
 
 pub(super) const REFUSED: &str =
-    "this message names something in `[privacy] sensitive_names`, and \
-                                  no profile of US origin is configured for it";
+    "this session read private content, and no profile of US origin is configured for it";
 
 /// How many times a wait for verdicts reads the record again: a wake-up that
 /// judged only some of the items leaves the rest to the next one, and a notify
@@ -102,14 +103,14 @@ pub(super) fn slots() -> Slots {
 /// What the floor keeps a turn off, as `route_profiles` reads it.
 #[derive(Clone, Copy)]
 pub(super) struct Floor {
-    /// The names' floor: only a profile of US origin.
+    /// The private-content floor: only a profile of US origin.
     pub(super) sensitive: bool,
     /// The session's labels allow a profile of restricted origin.
     pub(super) cn_ok: bool,
 }
 
 impl super::route_step::RouteState {
-    /// The turn's floor: its names and its labels.
+    /// The turn's floor: its private content and its labels.
     pub(super) fn floor(&self) -> Floor {
         Floor {
             sensitive: self.sensitive,
@@ -119,21 +120,6 @@ impl super::route_step::RouteState {
 }
 
 impl TurnRunner {
-    /// The message names a sensitive name.
-    pub(super) fn sensitive_message(&self, text: &str) -> bool {
-        let names = self.cfg.privacy.names();
-        !names.is_empty() && !names.hits(text).is_empty()
-    }
-
-    /// The request names a sensitive name in any string the chokepoint reads
-    /// (`data_gate::names_in`): a name said earlier in the conversation, or in
-    /// a recalled memory or a tool's text, keeps the route off a model that
-    /// would refuse it there, not the message's own words alone.
-    pub(super) fn sensitive_request(&self, req: &crate::provider::ProviderRequest) -> bool {
-        let names = self.cfg.privacy.names();
-        !names.is_empty() && crate::data_gate::names_in(req, &names)
-    }
-
     /// The session has read a Google result (the Google design, §4.1): all
     /// Workspace content is private, so the route skips every profile of
     /// any origin but the allowlist's from now on. Nothing is read without `[google]`.
@@ -160,7 +146,7 @@ impl TurnRunner {
         own.max(Level::from(self.private_session(t)))
     }
 
-    /// Whether `profile` may not be sent the sensitive names: its origin is
+    /// Whether `profile` may not be sent private content: its origin is
     /// not on the allowlist.
     pub(super) fn uncleared_profile(&self, profile: &str) -> bool {
         crate::data_mark::uncleared(&self.cfg, &self.catalog, profile)

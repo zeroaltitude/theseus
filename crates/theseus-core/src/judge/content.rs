@@ -155,6 +155,9 @@ type Told = Box<dyn Fn(&str, &Label) + Send + Sync>;
 #[derive(Default)]
 pub(crate) struct Point {
     names: OnceLock<DataNames>,
+    /// The operator's private names, made once: the deterministic source
+    /// (`content::deterministic::from_names`) reads it at every item's entry.
+    matcher: OnceLock<theseus_judge::names::Names>,
     /// `[content_based_security] session_flags = false`: nothing is asked.
     off: AtomicBool,
     slots: Mutex<HashMap<String, Slot>>,
@@ -232,6 +235,10 @@ impl JudgeService {
     /// whether the mechanism is on (`[content_based_security] session_flags`): set once, as the core
     /// is built.
     pub fn content_from(&self, names: DataNames, enabled: bool, max_pieces: usize) {
+        let _ = self
+            .content
+            .matcher
+            .set(theseus_judge::names::Names::new(&names.private));
         let _ = self.content.names.set(names);
         self.content.off.store(!enabled, Ordering::Relaxed);
         self.content.max_pieces.store(max_pieces, Ordering::Relaxed);
@@ -327,6 +334,7 @@ impl JudgeService {
         if self.content.off.load(Ordering::Relaxed) {
             return;
         }
+        self.raise_names(session, &items);
         if !self.mode_for(PACK, session).on() || self.pack(PACK).is_none() {
             return;
         }
@@ -745,34 +753,90 @@ impl JudgeService {
         }
         // What was raised is told after it is written, in the session's own words,
         // and to the operator's surfaces.
-        for (at, label) in fresh {
-            let l = &landings[at];
-            self.announce(
-                Some(session),
-                None,
-                &ContentLabelled {
-                    flag: label.flag,
-                    node: &l.item.node,
-                    kind: l.item.kind,
-                    source: &l.item.source,
-                    confidence: label.confidence,
-                    band: label.band,
-                },
-            );
-            // And told to the operator: `Core::tell_label` (`rpc/content.rs`)
-            // publishes `session.labelled` and posts the one approved Discord
-            // message with its Remove button. The service holds no core, so the
-            // core hands it that call once as it is built (`Core::build`).
-            if let Some(told) = self
-                .content
-                .told
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .as_ref()
-            {
-                told(session, label);
+        for (_, label) in fresh {
+            self.tell_label(session, label);
+        }
+    }
+}
+
+impl JudgeService {
+    /// The deterministic source for names (theseus-gyjyo.4): an item that holds
+    /// one of `[privacy] sensitive_names` raises `confidential` at its entry,
+    /// before and whether or not the pack asks, and with no model call. At most
+    /// one label comes of a call, the first item's: a flag is on a session once.
+    fn raise_names(&self, session: &str, items: &[ContentItem]) {
+        let Some(names) = self.content.matcher.get().filter(|n| !n.is_empty()) else {
+            return;
+        };
+        let now = theseus_protocol::now_unix_ms();
+        let hit = items
+            .iter()
+            .find_map(|i| content::deterministic::from_names(names, &i.node, i.kind, &i.text, now));
+        if let Some(label) = hit {
+            self.land_deterministic(session, vec![label]);
+        }
+    }
+
+    /// Write labels no model raised, in one frame with their `content.labelled`
+    /// rows, then tell the operator as a pack's label is told. A flag the
+    /// session already carries keeps its first label and writes nothing: a
+    /// removed one is raised again by the next item that earns it, as a pack's
+    /// is. The home of every `content::deterministic` source.
+    pub fn land_deterministic(&self, session: &str, labels: Vec<Label>) {
+        let mut fresh: Vec<&Label> = Vec::new();
+        let written = theseus_store::blocking(|| {
+            self.store.update_session(session, |rec| {
+                let mut flags = take_flags(rec);
+                let mut rows = Vec::new();
+                for label in &labels {
+                    if flags.raise(label.clone()) {
+                        fresh.push(label);
+                        rows.push(crate::fact::row(&labelled(label), Some(session), None)?);
+                    }
+                }
+                put_flags(rec, flags);
+                Ok(rows)
+            })
+        });
+        match written {
+            Ok(Some(_)) => {}
+            Ok(None) => return,
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "judge: a deterministic label was not written");
+                return;
             }
         }
+        for label in fresh {
+            self.tell_label(session, label);
+        }
+    }
+
+    /// A label written, told: in the session's own words and to the operator's
+    /// surfaces (`Core::tell_label`, which the core hands the service once as
+    /// it is built).
+    fn tell_label(&self, session: &str, label: &Label) {
+        self.announce(Some(session), None, &labelled(label));
+        if let Some(told) = self
+            .content
+            .told
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            told(session, label);
+        }
+    }
+}
+
+/// The row a label written says.
+fn labelled(l: &Label) -> ContentLabelled<'_> {
+    ContentLabelled {
+        flag: l.flag,
+        node: l.node.as_deref().unwrap_or_default(),
+        kind: l.kind,
+        source: &l.source,
+        confidence: l.confidence,
+        band: l.band,
     }
 }
 

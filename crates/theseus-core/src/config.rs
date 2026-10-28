@@ -2021,7 +2021,7 @@ impl Config {
         crate::catalog::origin_of(&prov.api_base, prov.origin, &p.model, catalog.get(&p.model))
     }
 
-    /// Whether a profile may be sent the sensitive names (theseus-xs5ah), by
+    /// Whether a profile may be sent private data (theseus-xs5ah), by
     /// [`crate::catalog::cleared_for_sensitive`]; a profile or provider that
     /// does not resolve is not.
     pub fn profile_cleared_for_sensitive(

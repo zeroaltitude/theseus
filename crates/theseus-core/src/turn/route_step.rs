@@ -97,8 +97,8 @@ pub(super) struct RouteState {
     pub(super) steer: Option<Steering>,
     /// The message's content words, for a correction to find it by.
     pub(super) words: Vec<String>,
-    /// The message names one of `[privacy] sensitive_names`: a profile not of
-    /// US origin is unusable for the turn (`data_step.rs`).
+    /// The session read private content (Google's marker): a profile not of US
+    /// origin is unusable for the turn (`data_step.rs`).
     pub(super) sensitive: bool,
     /// Where the turn stands on its session's content labels
     /// (`data_step::Cn`): unchecked at the turn's start, which fails closed.
@@ -789,7 +789,7 @@ impl TurnRunner {
         (steering, verdict, reason): (&Option<Steering>, &Option<Verdict>, Option<Reason>),
         compiled: &Compiled,
     ) -> Result<Option<Decision>, Failure> {
-        t.route.sensitive |= self.sensitive_request(&compiled.request) || self.private_session(t);
+        t.route.sensitive |= self.private_session(t);
         let est_tokens = compiled.est_tokens;
         let decide = |t: &Turn<'_>| match (steering, verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),
