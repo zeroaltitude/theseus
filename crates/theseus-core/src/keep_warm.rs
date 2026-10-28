@@ -667,13 +667,7 @@ impl TurnRunner {
         }
         let started = std::time::Instant::now();
         let mut quiet = |_: crate::provider::Delta<'_>| {};
-        // The read's own row names its session, so `theseus inspect` can find
-        // it: a read resends the whole transcript every few minutes.
-        let call = crate::exits::Call {
-            op: Some("keep_warm"),
-            session: Some(sid.to_string()),
-            ..Default::default()
-        };
+        let call = crate::exits::Call::of_session("keep_warm", sid);
         let resp =
             match crate::exits::for_call(call, || provider.stream_message(&b.request, &mut quiet))
                 .await

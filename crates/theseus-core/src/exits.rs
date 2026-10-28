@@ -224,6 +224,19 @@ pub struct Call {
     pub correlation_id: Option<String>,
 }
 
+impl Call {
+    /// A call with a session and nothing of a turn: a keep-warm read, which
+    /// resends the whole transcript every few minutes, names its session in
+    /// its row so the ledger can find it.
+    pub fn of_session(op: &'static str, session: &str) -> Self {
+        Self {
+            op: Some(op),
+            session: Some(session.to_string()),
+            ..Self::default()
+        }
+    }
+}
+
 /// Run `f`, the making of a provider call, for `call`. Read at the call, as
 /// `data_gate::for_session`'s session is.
 pub fn for_call<R>(call: Call, f: impl FnOnce() -> R) -> R {
