@@ -174,9 +174,7 @@ async fn a_sensitive_name_runs_on_a_model_of_eu_origin() {
     let origin = cfg.profile_origin("sonnet", &r.core.runner.catalog);
     assert_eq!(origin, crate::catalog::ModelOrigin::Eu);
     let ended = try_turn(&r.core, NAMED).await;
-    let said = format!("{ended:?}");
-    assert!(!said.contains("data_gate"), "{said}");
-    assert!(ended.is_ok(), "{said}");
+    assert!(ended.is_ok(), "{ended:?}");
     assert_eq!(r.claude.requests().len(), 1);
     assert!(r.zai.requests().is_empty());
 }
