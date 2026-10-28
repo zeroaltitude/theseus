@@ -1354,7 +1354,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `scripts/may-build.sh` asked first when main has one, and waited on for as long as it says no, one quiet FYI notice
   to the owner every 30 minutes carrying the rule's last line — `MAY_BUILD_WAIT` is that notice's interval, not a
   deadline, and neither a stop nor a halt lands until the wait ends, `theseus-rexxp`; a gate stopped at `GATE_SILENCE`
-  names the phase it was in, which at L0 is its log's last `gate: ` line), `push` (`refs/heads/self/*` only, never forced, after the
+  names the phase it was in, its log's last `gate: ` line, at L0 and in a daemon's jail alike), `push` (`refs/heads/self/*` only, never forced, after the
   daemon's scrubber over every added line and message, and main's `scripts/scrub.sh` when there is one), `close`.
   `self.propose_change { item, issue, why }` is registered only under `[self] mode = "act"`, runs only for an
   execution whose principal is `"self"`, and asks `rsi::gate` between phases: the first call opens the tree (which
@@ -1384,7 +1384,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   L1, then its L0 half (`install::script`) only copies the binaries and restarts the daemon. `self.propose_change`
   refuses only when L1 cannot run on this host (`Board::l1_unavailable`: health's refusal, else `Sandbox::self_test`),
   sealed set or not. Tests: `rsi/tests_jail.rs`, `tests_pr.rs`, `tests_sandbox.rs`'s `no_model_input_reaches_rw`, and
-  theseusd's `tests/self_build.rs` (real L1; an ordinary user runs them).
+  theseusd's `tests/self_build.rs` (real L1; an ordinary user runs them) and `tests/jail_stop.rs` (`harness = false`: a libtest binary cannot be the init `Jail::run_blocking` starts as `/proc/self/exe`; it proves a stopped job names its phase).
   **Graduation** (theseus-pw1q.13; `extend/usage.rs`, `rsi/backlog/graduate.rs`, `fact/rsi_graduate.rs`): `Core::extension_usage`
   counts an extension's calls, failures (an error result, a timeout, a crash, an unknown outcome) and p50/p95 from the
   ledger's `action.*` rows by kind (producer `async:mcp:ext-<name>/<tool>`); no counter on the call path. `extend.list

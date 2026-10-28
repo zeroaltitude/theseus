@@ -832,13 +832,20 @@ pub(super) fn wait_notice_for_test(slug: &str, log: &str) -> String {
     wait_notice(slug, Duration::from_secs(1800), log)
 }
 
-/// The phase a gate log was last in: its last `gate: ` line.
-fn last_phase(log: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(log).ok()?;
-    text.lines()
-        .rev()
-        .find(|l| l.starts_with("gate: "))
-        .map(|l| l.chars().take(200).collect())
+/// The phase a gate log was last in, as a stop says it: its last `gate: `
+/// line, or that the log has none yet. The stop at L0 and the stop in a
+/// daemon's jail say it the same way.
+pub(super) fn phase_note(log: &Path) -> String {
+    let last = std::fs::read_to_string(log).ok().and_then(|text| {
+        text.lines()
+            .rev()
+            .find(|l| l.starts_with("gate: "))
+            .map(|l| l.chars().take(200).collect::<String>())
+    });
+    last.map_or_else(
+        || "no `gate: ` line in its log yet".to_string(),
+        |l| format!("`{l}`"),
+    )
 }
 
 /// How a niced run is bounded (theseus-x1zz8, and its join review).
@@ -933,10 +940,7 @@ pub(super) async fn run_niced(
                     unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
                 }
                 let _ = child.wait().await;
-                let phase = last_phase(log).map_or_else(
-                    || "no `gate: ` line in its log yet".to_string(),
-                    |l| format!("`{l}`"),
-                );
+                let phase = phase_note(log);
                 let why = match cut {
                     Cut::Ceiling(_) => format!(
                         "was still printing at its ceiling, {} minutes,",
