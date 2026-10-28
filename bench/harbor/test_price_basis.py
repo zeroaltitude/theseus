@@ -154,6 +154,44 @@ class Stamp(unittest.TestCase):
         self.assertEqual(got["price_basis"], "measured")
 
 
+class StampGrade(unittest.TestCase):
+    """`grade.json` carries cost_usd (as billed) and cost_cat (the catalog table) side by
+    side, and they differ by exactly the cache-read delta: the digest says which is which."""
+
+    def trial(self, billed_on, cat_on=None):
+        by = {S55: {**usage(i=32_612, r=24_842_015, w=1_094_261, o=67_298), "calls": 171,
+                    "cost_usd": 0.0}}
+        model = pb.reprice(by, pb.TABLES[billed_on])
+        by[S55]["cost_usd"] = model
+        return {"trial": "t1", "job": "bh-tr-r1", "by_model": by, "cost_usd": model + 0.003197,
+                "cost_cat": None if cat_on is None else pb.reprice(by, pb.TABLES[cat_on]),
+                "jev": {"cost_usd": 0.003197}}
+
+    def test_a_trial_says_which_table_billed_it_and_which_cost_cat_is_on(self):
+        g = {"arms": {"tr": [self.trial(pb.CURRENT, pb.PRE_RKO44)]}}
+        pb.stamp_grade(g)
+        t = g["arms"]["tr"][0]
+        self.assertEqual(t["price_digest"], pb.digest_of(pb.CURRENT))
+        self.assertEqual(t["cost_cat_price_digest"], pb.digest_of(pb.PRE_RKO44))
+        self.assertEqual(t["price_basis"], "measured")
+
+    def test_the_two_costs_are_on_different_tables_by_the_cache_read_delta(self):
+        t = self.trial(pb.CURRENT, pb.PRE_RKO44)
+        self.assertAlmostEqual(t["cost_usd"] - 0.003197 - t["cost_cat"], 24_842_015 * 0.10e-6, places=4)
+
+    def test_a_trial_with_no_cost_cat_gets_none_not_a_guess(self):
+        g = {"arms": {"tr": [self.trial(pb.CURRENT)]}}
+        pb.stamp_grade(g)
+        self.assertIsNone(g["arms"]["tr"][0]["cost_cat_price_digest"])
+
+    def test_the_summary_lists_each_arms_digests_and_every_arm_is_counted(self):
+        g = {"arms": {"tr": [self.trial(pb.CURRENT), self.trial(pb.CURRENT)], "cc": []}}
+        out = pb.stamp_grade(g)
+        self.assertEqual(out["price_digests"]["tr"], [pb.digest_of(pb.CURRENT)])
+        self.assertEqual(out["price_digests"]["cc"], [])
+        self.assertEqual(out["stamped"], 2)
+
+
 class Guard(unittest.TestCase):
     def test_a_cross_digest_comparison_fails_loudly(self):
         a = [row("round1", pb.PRE_RKO44)]

@@ -150,6 +150,31 @@ def stamp(rec: Mapping[str, Any]) -> dict[str, Any]:
     return {"price_digest": digest, "price_basis": how, "list_price_digest": digest_of(CURRENT)}
 
 
+def stamp_grade(grade: dict[str, Any]) -> dict[str, Any]:
+    """Stamp every trial of a Bug Hunt `grade.json` (mutating it, and returning it with a
+    summary): `price_digest` for the dollars it was billed (`cost_usd`, less Jev's share),
+    `cost_cat_price_digest` for `cost_cat` (the catalog table's dollars, which differ from
+    `cost_usd` by exactly the cache-read delta when the two are on different tables), and
+    `price_basis` for how the first was learned. A `cost_cat` that fits no table is None."""
+    seen: dict[str, list[str]] = {}
+    n = 0
+    for arm, trials in (grade.get("arms") or {}).items():
+        digests: set[str] = set()
+        for t in trials:
+            by = t.get("by_model") or {}
+            jev = (t.get("jev") or {}).get("cost_usd") or 0.0
+            billed = t.get("cost_usd")
+            d, how = measure(by, None if billed is None else billed - jev)
+            t["price_digest"], t["price_basis"] = d, how
+            t["cost_cat_price_digest"] = measure(by, t["cost_cat"])[0] if t.get("cost_cat") is not None else None
+            if d:
+                digests.add(d)
+            n += 1
+        seen[arm] = sorted(digests)
+    grade["price_digests"] = seen
+    return {"price_digests": seen, "stamped": n}
+
+
 def _seen(rows: Iterable[Mapping[str, Any]]) -> list[str]:
     return sorted({r["price_digest"] for r in rows if r.get("price_digest")})
 
@@ -220,3 +245,18 @@ def compare(arms: Mapping[str, list], value: Callable[[Mapping[str, Any]], float
     return {"basis": basis, "basis_name": name_of(basis), "repriced": repriced, "seen": seen,
             "n": {a: len(v) for a, v in vals.items()}, names[0]: lo, names[1]: hi,
             "ratio": hi / lo if lo else None}
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) == 3 and sys.argv[1] == "stamp-grade":
+        with open(sys.argv[2]) as fh:
+            g = json.load(fh)
+        out = stamp_grade(g)
+        with open(sys.argv[2], "w") as fh:
+            json.dump(g, fh, indent=1)
+            fh.write("\n")
+        print(json.dumps(out))
+    else:
+        sys.exit("usage: price_basis.py stamp-grade <grade.json>")
