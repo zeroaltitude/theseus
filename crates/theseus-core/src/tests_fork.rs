@@ -622,8 +622,7 @@ async fn a_forks_title_profile_and_budget_are_its_own() {
 
 /// Authority: a surface that reads no private text may not fork a private
 /// place's session; an MCP client forks only its own; an imported session
-/// is not forked. A fork keeps the source's authority and its hold on
-/// outside text.
+/// is not forked.
 #[tokio::test]
 async fn a_fork_of_a_session_the_caller_cannot_read_is_refused() {
     let r = rig();
@@ -698,7 +697,7 @@ async fn a_fork_of_a_session_the_caller_cannot_read_is_refused() {
 /// An MCP client's conversation forks under its own authority, and the fork
 /// carries it: never wider than the source's.
 #[tokio::test]
-async fn a_fork_keeps_the_sources_authority_and_hold() {
+async fn a_fork_keeps_the_sources_authority() {
     let r = rig();
     let info = r
         .core
@@ -709,17 +708,7 @@ async fn a_fork_keeps_the_sources_authority_and_hold() {
         .unwrap();
     let s = info.session_id;
     turn(&r.core, &s, "one").await;
-    let mut rec: SessionRecord = r.core.store.get_session(&s).unwrap().unwrap();
-    rec.external = Some(theseus_protocol::ExternalText {
-        since_ms: 1_790_000_000_000,
-        tool: "http.fetch".into(),
-        url: "example.invalid/tides".into(),
-        node_id: "trs_tides".into(),
-        from_session: None,
-        via: None,
-        query: None,
-    });
-    r.core.store.put_session(&s, &rec).unwrap();
+    let rec: SessionRecord = r.core.store.get_session(&s).unwrap().unwrap();
     let nodes = nodes_of(&r.core, &s);
     let f = r
         .core
@@ -733,7 +722,6 @@ async fn a_fork_keeps_the_sources_authority_and_hold() {
         )
         .unwrap();
     let frec: SessionRecord = r.core.store.get_session(&f.session_id).unwrap().unwrap();
-    assert_eq!(frec.external, rec.external, "the hold carries over");
     let sexec = r
         .core
         .kernel

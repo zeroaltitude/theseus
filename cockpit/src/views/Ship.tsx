@@ -531,7 +531,6 @@ function VesselCard({ v, model, whole, bench, onClose, now, reachCap, ref }: { v
         {(v.profile || v.model) && <><dt className="text-ink-faint">model</dt><dd className="truncate text-ink">{v.profile ?? '—'} · {v.model ?? '—'}</dd></>}
         {!!l1 && <><dt className="text-ink-faint">sandbox</dt><dd className="text-[#5eead4]">{count(l1, 'call')} sandboxed (L1)</dd></>}
         {!!ext && <><dt className="text-ink-faint">web</dt><dd className="text-think">{count(ext, 'result')} with text from the web</dd></>}
-        {v.hold && <><dt className="text-ink-faint">holds</dt><dd className="text-wait" title={v.hold.url}>read {v.hold.tool} {v.hold.query ? `"${v.hold.query}"` : v.hold.url} · {ago(v.hold.since_ms, now)}</dd></>}
         {!!v.pendingConfirms && <><dt className="text-ink-faint">waiting</dt><dd className="text-wait">{count(v.pendingConfirms, 'approval')} for you</dd></>}
         {parent && <><dt className="text-ink-faint">started by</dt><dd className="truncate text-ink">{parent.title}</dd></>}
         {!!tasks.length && <><dt className="text-ink-faint">tasks</dt><dd className="text-ink">{count(tasks.length, 'task')} in tow</dd></>}

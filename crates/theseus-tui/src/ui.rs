@@ -793,7 +793,7 @@ fn help(area: Rect, buf: &mut Buffer) {
         " ↑ ↓  j k   move (on a narrow screen's session: scroll it)",
         " enter      open the session under the cursor",
         " tab ⇧tab   the next / previous that needs you, then done (◆)",
-        " y t n      approve / approve + trust / decline (with a note)",
+        " y n        approve / decline (with a note)",
         " esc        back to the list (narrow screens); clear the filters",
         " i          type to the open session: enter sends, esc leaves, ⇧tab its mode",
         " s          stop the open conversation (s twice)",

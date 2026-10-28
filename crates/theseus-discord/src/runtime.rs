@@ -24,7 +24,8 @@ use theseus_core::Core;
 use theseus_protocol::Event as CoreEvent;
 use theseus_protocol::{
     BindingStatus, DiscordOrigin, Notification, PlaceStatus, PolicyTightenParams, SessionInfo,
-    SessionListResult, SessionRef, TightenResult, TrustResult, TurnSubmitParams, TurnSubmitResult,
+    SessionListResult, SessionRef, TightenResult, TurnSubmitParams, TurnSubmitResult,
+    UnlabelResult,
 };
 use tokio::sync::{mpsc, oneshot};
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
@@ -720,9 +721,9 @@ enum Control {
     Wakes,
     /// Cancel the wake or stop the task named; None asks which.
     Cancel(Option<String>),
-    /// Trust this place's session again after it read web text (T1b), as
-    /// the presser, whose ids the handler fills in: None names no one, and
-    /// never counts.
+    /// Remove the `injection` label from this place's session, as the
+    /// presser, whose ids the handler fills in: None names no one, and never
+    /// counts.
     Trust(Option<DiscordOrigin>),
     /// Publish into a place (the place rule), as the presser.
     Publish(Box<PublishAsk>),
@@ -778,24 +779,22 @@ fn stop_answer(r: &theseus_protocol::ExecutionStopResult) -> String {
     out
 }
 
-/// What `/trust` answers (T1b): who trusted the conversation again, and what
-/// it had read; or, when the core refused the presser, why.
-fn trust_answer(r: &Result<TrustResult, CallError>) -> String {
+/// What `/trust` answers once the core has judged the press: who removed the `injection` label; or, when the
+/// core refused the presser, why.
+fn trust_answer(r: &Result<UnlabelResult, CallError>) -> String {
     match r {
-        Ok(t) => format!(
-            "Trusted again by {}: this conversation no longer holds web text (it had read {}). \
-             Calls that change things run at their postures again.",
-            t.by,
-            theseus_core::external::source(&t.held)
+        Ok(u) => format!(
+            "Removed the `injection` label (by {}): calls that act run again.",
+            u.by
         ),
         Err(e) if e.code == theseus_protocol::error_code::REFUSED => format!(
-            "🔐 Your /trust did not count: {}. This conversation still holds web text.",
+            "🔐 Your /trust did not count: {}. The `injection` label stays.",
             e.data
                 .get("why")
                 .and_then(Value::as_str)
                 .unwrap_or(&e.message)
         ),
-        Err(e) => format!("⚠️ Could not trust the conversation again: {e}."),
+        Err(e) => format!("⚠️ Could not remove the `injection` label: {e}."),
     }
 }
 
@@ -1256,12 +1255,7 @@ impl Shared {
                     self.should_have_asked(&i, asked, &who, discord).await;
                     return;
                 }
-                let Some(Press {
-                    approve,
-                    trust,
-                    corr,
-                }) = parse_confirm_id(&c.custom_id)
-                else {
+                let Some(Press { approve, corr }) = parse_confirm_id(&c.custom_id) else {
                     return;
                 };
                 // Acknowledge now (Discord allows three seconds), answer the kernel, then settle the message.
@@ -1283,7 +1277,6 @@ impl Shared {
                             watch: false,
                             author: Some(who.clone()),
                             discord,
-                            trust,
                             grant: grant::answer_of(&self.core, &c.custom_id, &corr),
                         },
                     )
@@ -1296,7 +1289,7 @@ impl Shared {
                         self.core.binding_ledger(
                             LedgerKind::DiscordConfirm,
                             None,
-                            json!({"correlation_id": corr, "approve": approve, "trust": trust, "by": who, "ok": false, "refused": true, "error": e.message}),
+                            json!({"correlation_id": corr, "approve": approve, "by": who, "ok": false, "refused": true, "error": e.message}),
                         );
                         let why = e.data.get("why").and_then(Value::as_str);
                         self.followup(
@@ -1318,9 +1311,6 @@ impl Shared {
                     .map(|l| crate::render::strip_ask(l).to_string())
                     .unwrap_or_default();
                 let content = match &r {
-                    Ok(_) if trust => {
-                        format!("✅ **Approved** by {who}, and trusted the session again · {line}")
-                    }
                     Ok(_) if approve => format!("✅ **Approved** by {who} · {line}"),
                     Ok(_) => format!("❎ **Declined** by {who} · {line}"),
                     Err(e) => format!("⚠️ Could not answer: {e} · {line}"),
@@ -1328,7 +1318,7 @@ impl Shared {
                 self.core.binding_ledger(
                     LedgerKind::DiscordConfirm,
                     None,
-                    json!({"correlation_id": corr, "approve": approve, "trust": trust, "by": who, "ok": r.is_ok(), "error": r.as_ref().err().map(|e| e.message.clone())}),
+                    json!({"correlation_id": corr, "approve": approve, "by": who, "ok": r.is_ok(), "error": r.as_ref().err().map(|e| e.message.clone())}),
                 );
                 // An outbox card is settled by its settle post, which the
                 // answer just wrote (theseus-q4v); a card from before the
@@ -1366,7 +1356,7 @@ impl Shared {
                     "new" => Control::New,
                     "tasks" => Control::Tasks,
                     "wakes" => Control::Wakes,
-                    // As the presser (T1b), as a card's press is.
+                    // As the presser, as a card's press is.
                     "trust" => Control::Trust(discord),
                     "publish" => Control::Publish(Box::new(PublishAsk::of(&c.options, discord))),
                     "join" => Control::Join(voice::join_option(&c.options), discord),
@@ -1588,30 +1578,24 @@ fn terminal(state: Option<&str>) -> bool {
     )
 }
 
-/// What a card's button asks: approve, and whether to trust the session
-/// again too (theseus-9bp), for one correlation id.
+/// What a card's button asks: approve or decline, for one correlation id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Press {
     approve: bool,
-    trust: bool,
     corr: String,
 }
 
-/// `confirm:approve:<corr>`, `confirm:trust:<corr>` (approve, and trust the
-/// session again), or `confirm:decline:<corr>`.
+/// `confirm:approve:<corr>` or `confirm:decline:<corr>`.
 fn parse_confirm_id(id: &str) -> Option<Press> {
     let rest = id.strip_prefix("confirm:")?;
     let (verb, corr) = rest.split_once(':')?;
-    let (approve, trust) = match verb {
-        "approve" => (true, false),
-        "trust" => (true, true),
-        grant::VERB => (true, false),
-        "decline" => (false, false),
+    let approve = match verb {
+        "approve" | grant::VERB => true,
+        "decline" => false,
         _ => return None,
     };
     Some(Press {
         approve,
-        trust,
         corr: corr.to_string(),
     })
 }
@@ -1766,10 +1750,8 @@ fn tightened_reply(tool: &str, r: &Result<TightenResult, CallError>) -> String {
     }
 }
 
-/// Approve and Decline, and with `trust` (theseus-9bp) "Approve + trust
-/// session" between them, for a call that waits because its session read
-/// external text.
-pub(crate) fn confirm_buttons(corr: &str, trust: bool) -> Vec<Component> {
+/// Approve and Decline, for a call that waits.
+pub(crate) fn confirm_buttons(corr: &str) -> Vec<Component> {
     let button = |verb: &str, label: &str, style| {
         Component::Button(Button {
             id: None,
@@ -1782,15 +1764,10 @@ pub(crate) fn confirm_buttons(corr: &str, trust: bool) -> Vec<Component> {
             sku_id: None,
         })
     };
-    let mut components = vec![button("approve", "Approve", ButtonStyle::Success)];
-    if trust {
-        components.push(button(
-            "trust",
-            "Approve + trust session",
-            ButtonStyle::Primary,
-        ));
-    }
-    components.push(button("decline", "Decline", ButtonStyle::Danger));
+    let components = vec![
+        button("approve", "Approve", ButtonStyle::Success),
+        button("decline", "Decline", ButtonStyle::Danger),
+    ];
     vec![Component::ActionRow(ActionRow {
         id: None,
         components,
@@ -2246,27 +2223,27 @@ impl Place {
         }
     }
 
-    /// `/trust` (T1b): this place's session no longer holds web text. It
-    /// goes through `policy.trust` as the presser, so the core judges it as a
-    /// card's press (`[approval]`, and `approval.refused` when it does not
-    /// count). A session that holds nothing is told so, and nothing is
-    /// written.
+    /// `/trust`: the Remove press for this place's `injection` label, and nothing else. It goes through
+    /// `content.unlabel` as the presser, so the core judges it as a card's press (`approval.refused` when it
+    /// does not count). A session without the label is told so, and nothing is written.
     async fn trust(&self, origin: Option<DiscordOrigin>, by: &str) -> String {
-        let held = self
+        let carries = self
             .shared
             .session_info(&self.session_id)
             .await
-            .and_then(|s| s.external_text);
-        if held.is_none() {
-            return "This conversation holds no web text, so there is nothing to trust.".into();
+            .is_some_and(|s| s.labels.iter().any(|l| l.flag == "injection"));
+        if !carries {
+            return "This conversation carries no `injection` label, so there is nothing to remove."
+                .into();
         }
         let r = self
             .shared
             .rpc
-            .call::<_, TrustResult>(
-                theseus_protocol::method::POLICY_TRUST,
-                theseus_protocol::PolicyTrustParams {
+            .call::<_, UnlabelResult>(
+                theseus_protocol::method::CONTENT_UNLABEL,
+                theseus_protocol::ContentUnlabelParams {
                     session_id: self.session_id.clone(),
+                    flag: "injection".into(),
                     author: Some(by.to_string()),
                     discord: origin,
                 },
@@ -2413,11 +2390,10 @@ pub(crate) mod tests {
             desc("new"),
             "Start a fresh session here; the old one stays in the web UI"
         );
-        // `/trust` (T1b): its one effect.
+        // `/trust`: its one effect.
         assert_eq!(
             desc("trust"),
-            "Trust this conversation again after it read web text: its calls that change things \
-             stop waiting"
+            "Remove the injection label: this conversation's calls that change things run again"
         );
         assert!(cmds
             .iter()
@@ -2502,30 +2478,25 @@ pub(crate) mod tests {
         assert_eq!(parse_control("/wakes"), Some(Control::Wakes));
         assert_eq!(parse_control("/new"), Some(Control::New));
         assert_eq!(parse_control("/status"), Some(Control::Status));
-        // A typed `/trust` (T1b): the place fills in who typed it, and where.
+        // A typed `/trust`: the place fills in who typed it, and where.
         assert_eq!(parse_control("/trust"), Some(Control::Trust(None)));
         assert_eq!(parse_control("/trusted"), None);
         assert_eq!(parse_control("please /stop"), None);
         assert_eq!(parse_control("/stopper"), None);
-        let press = |approve, trust, corr: &str| Press {
+        let press = |approve, corr: &str| Press {
             approve,
-            trust,
             corr: corr.into(),
         };
         assert_eq!(
             parse_confirm_id("confirm:approve:act_1"),
-            Some(press(true, false, "act_1"))
+            Some(press(true, "act_1"))
         );
         assert_eq!(
             parse_confirm_id("confirm:decline:act_2"),
-            Some(press(false, false, "act_2"))
+            Some(press(false, "act_2"))
         );
-        // "Approve + trust session" (theseus-9bp): an approval that trusts
-        // the session again as well.
-        assert_eq!(
-            parse_confirm_id("confirm:trust:act_3"),
-            Some(press(true, true, "act_3"))
-        );
+        // "Approve + trust session" is no button any more (R6, theseus-gyjyo.8).
+        assert_eq!(parse_confirm_id("confirm:trust:act_3"), None);
         assert_eq!(parse_confirm_id("confirm:maybe:x"), None);
         assert_eq!(parse_confirm_id("other"), None);
         assert!(terminal(Some("cancelled")));
@@ -2572,36 +2543,22 @@ pub(crate) mod tests {
 
     #[test]
     fn confirm_buttons_carry_the_correlation_id() {
-        let ids = |trust| {
-            let c = confirm_buttons("act_9", trust);
-            let Component::ActionRow(row) = &c[0] else {
-                panic!()
-            };
-            row.components
-                .iter()
-                .map(|b| match b {
-                    Component::Button(b) => {
-                        (b.custom_id.clone().unwrap(), b.label.clone().unwrap())
-                    }
-                    _ => panic!(),
-                })
-                .collect::<Vec<_>>()
+        let c = confirm_buttons("act_9");
+        let Component::ActionRow(row) = &c[0] else {
+            panic!()
         };
-        let plain: Vec<String> = ids(false).into_iter().map(|(id, _)| id).collect();
+        let ids: Vec<(String, String)> = row
+            .components
+            .iter()
+            .map(|b| match b {
+                Component::Button(b) => (b.custom_id.clone().unwrap(), b.label.clone().unwrap()),
+                _ => panic!(),
+            })
+            .collect();
         assert_eq!(
-            plain,
-            vec!["confirm:approve:act_9", "confirm:decline:act_9"]
-        );
-        // A call that waits because its session read external text
-        // (theseus-9bp): the third button trusts the session again.
-        assert_eq!(
-            ids(true),
+            ids,
             vec![
                 ("confirm:approve:act_9".to_string(), "Approve".to_string()),
-                (
-                    "confirm:trust:act_9".to_string(),
-                    "Approve + trust session".to_string()
-                ),
                 ("confirm:decline:act_9".to_string(), "Decline".to_string()),
             ]
         );
@@ -3148,44 +3105,38 @@ pub(crate) mod tests {
     pub(super) const OWNER: u64 = 271_828_182_845_904_523;
     pub(super) const MALLORY: u64 = 222_222_222_222_222_222;
 
-    /// Give `sid` a hold on web text, as a fetch leaves one (theseus-9bp);
-    /// the core's own tests bring it in through a real fetch.
-    fn holding(core: &Arc<Core>, sid: &str) {
-        let mut rec: theseus_core::session::SessionRecord =
-            core.store.get_session(sid).unwrap().unwrap();
-        rec.external = Some(theseus_protocol::ExternalText {
-            since_ms: 1_759_266_720_000,
-            tool: "http.fetch".into(),
-            url: "https://example.test/page".into(),
-            node_id: "nod_1".into(),
-            from_session: None,
-            via: None,
-            query: None,
-        });
-        core.store.put_session(sid, &rec).unwrap();
-    }
-
-    /// `/trust` (T1b), driven as W1 drives `/stop`: it clears the place's
-    /// session's hold through `policy.trust`, as the presser, and
-    /// `session.trusted` names Discord and them; a second press finds nothing
-    /// to trust and writes nothing; someone who is not the owner is refused
-    /// with the reason, and the hold stays; and a typed `/trust` answers in
-    /// the place.
+    /// R6 (theseus-gyjyo.8): `/trust` is the Remove press for the `injection` label, and nothing
+    /// else. It removes that one label as the presser (`content.unlabel`), leaves the session's
+    /// other labels alone, tells a session without one so and writes nothing, and a person who is
+    /// not the owner is refused with the reason and the label stays.
     #[tokio::test]
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-    async fn trust_clears_the_places_hold_as_the_presser_who_is_the_owner() {
+    async fn trust_removes_the_injection_label_and_nothing_else() {
+        use theseus_core::content::{ContentFlags, Flag, ItemKind, Label};
         let d = tempfile::tempdir().unwrap();
         let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
             c.discord.rest_proxy = Some("127.0.0.1:9".into());
             c.places.owner = Some(vec![format!("discord:{OWNER}")]);
         });
-        let rec = theseus_core::session::SessionRecord::new(
+        let mut rec = theseus_core::session::SessionRecord::new(
             theseus_protocol::SessionKind::Conversation,
             None,
         );
         let sid = rec.session_id.clone();
+        let label = |flag: Flag, at_ms: u64| Label {
+            flag,
+            node: Some("nod_e1".into()),
+            kind: ItemKind::FetchedPage,
+            source: "http.fetch notes.example/today".into(),
+            confidence: 0.93,
+            band: flag.bar(),
+            at_ms,
+            judgment: String::new(),
+        };
+        let mut flags = ContentFlags::default();
+        assert!(flags.raise(label(Flag::Injection, 11)));
+        assert!(flags.raise(label(Flag::Secret, 12)));
+        rec.data = Some(Box::new(flags));
         core.store.put_session(&sid, &rec).unwrap();
-        holding(&core, &sid);
         let (mut place, _rx) = place_for_tests(&core, &sid);
         let dm = |user: u64| {
             Some(DiscordOrigin {
@@ -3206,112 +3157,51 @@ pub(crate) mod tests {
                 .map(|(_, r)| r.data)
                 .collect()
         };
-        let held = || {
-            core.store
-                .get_session::<theseus_core::session::SessionRecord>(&sid)
-                .unwrap()
-                .unwrap()
-                .external
+        let flags_now = || -> ContentFlags {
+            let rec: theseus_core::session::SessionRecord =
+                core.store.get_session(&sid).unwrap().unwrap();
+            rec.data.map(|b| *b).unwrap_or_default()
         };
 
-        let answer = place
-            .control(Control::Trust(dm(OWNER)), "discord:zeroaltitude")
-            .await;
-        assert!(
-            answer.starts_with(
-                "Trusted again by discord:zeroaltitude: this conversation no longer holds web text (it \
-                 had read http.fetch https://example.test/page, at "
-            ),
-            "{answer}"
-        );
-        assert!(
-            answer.ends_with("). Calls that change things run at their postures again."),
-            "{answer}"
-        );
-        assert!(held().is_none());
-        let trusted = rows("session.trusted");
-        assert_eq!(trusted.len(), 1);
-        let who = format!("discord:{OWNER} (discord:zeroaltitude)");
-        assert_eq!(
-            (
-                trusted[0]["via"].as_str(),
-                trusted[0]["by"].as_str(),
-                trusted[0]["who"].as_str(),
-                trusted[0]["how"].as_str()
-            ),
-            (
-                Some("discord:dm"),
-                Some("discord:zeroaltitude"),
-                Some(who.as_str()),
-                Some("policy.trust")
-            )
-        );
-
-        // A second press: nothing to trust, and nothing written.
-        let before = ledger().len();
-        let answer = place
-            .control(Control::Trust(dm(OWNER)), "discord:zeroaltitude")
-            .await;
-        assert_eq!(
-            answer,
-            "This conversation holds no web text, so there is nothing to trust."
-        );
-        assert_eq!(ledger().len(), before);
-
-        // Someone who is not the owner: refused with the reason, ledgered,
-        // and the hold stays.
-        holding(&core, &sid);
+        // Someone who is not the owner: refused with the reason, and the label stays.
         let answer = place
             .control(Control::Trust(dm(MALLORY)), "discord:mallory")
             .await;
         assert_eq!(
             answer,
             format!(
-                "🔐 Your /trust did not count: discord:{MALLORY} is not an owner. This \
-                 conversation still holds web text."
+                "🔐 Your /trust did not count: discord:{MALLORY} is not an owner. The `injection` \
+                 label stays."
             )
         );
-        assert!(held().is_some());
-        let refused = rows("approval.refused");
-        assert_eq!(refused.len(), 1);
-        assert_eq!(
-            (refused[0]["act"].as_str(), refused[0]["via"].as_str()),
-            (Some("policy.trust"), Some("discord:dm"))
-        );
-        assert_eq!(rows("session.trusted").len(), 1);
+        assert!(flags_now().has(Flag::Injection));
+        assert!(rows("content.removed").is_empty());
 
-        // Typed as a message, it answers in the place, as its author.
-        place
-            .handle(PlaceMsg::Inbound(Inbound {
-                author: "zeroaltitude".into(),
-                author_id: OWNER,
-                text: "/trust".into(),
-                files: None,
-                message: Id::new(7),
-                channel: Id::new(444_444_444_444_444_444),
-                guild: None,
-                thread: None,
-                reply_turn: None,
-                task: None,
-            }))
+        // The owner: the injection label goes, the secret one stays, one row says who.
+        let answer = place
+            .control(Control::Trust(dm(OWNER)), "discord:zeroaltitude")
             .await;
-        assert!(held().is_none());
-        assert_eq!(rows("session.trusted").len(), 2);
-        let said: Vec<String> = core
-            .outbox
-            .open_for("discord:dm:42")
-            .iter()
-            .filter_map(|a| {
-                theseus_core::outbox::body_of(a)["text"]
-                    .as_str()
-                    .map(String::from)
-            })
-            .collect();
-        assert!(
-            said.iter()
-                .any(|t| t.starts_with("Trusted again by discord:zeroaltitude: ")),
-            "{said:?}"
+        assert_eq!(
+            answer,
+            "Removed the `injection` label (by discord:zeroaltitude): calls that act run again."
         );
+        let now = flags_now();
+        assert!(!now.has(Flag::Injection) && now.has(Flag::Secret));
+        let removed = rows("content.removed");
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0]["flag"], "injection");
+
+        // Again: no injection label, so it says so and writes nothing.
+        let before = ledger().len();
+        let answer = place
+            .control(Control::Trust(dm(OWNER)), "discord:zeroaltitude")
+            .await;
+        assert_eq!(
+            answer,
+            "This conversation carries no `injection` label, so there is nothing to remove."
+        );
+        assert_eq!(ledger().len(), before);
+        assert!(flags_now().has(Flag::Secret));
     }
 
     /// A slash command as the gateway delivers one, from `user`, in

@@ -176,14 +176,14 @@ mod tests {
         let Component::ActionRow(row) = &accept_buttons("act_0000reef")[0] else {
             panic!("a row")
         };
-        let pressed: Vec<(String, bool, bool, String)> = row
+        let pressed: Vec<(String, bool, String)> = row
             .components
             .iter()
             .map(|b| match b {
                 Component::Button(b) => {
                     let id = b.custom_id.clone().unwrap();
                     let p = super::super::parse_confirm_id(&id).expect("it parses");
-                    (b.label.clone().unwrap(), p.approve, p.trust, p.corr)
+                    (b.label.clone().unwrap(), p.approve, p.corr)
                 }
                 _ => panic!("a button"),
             })
@@ -191,18 +191,8 @@ mod tests {
         assert_eq!(
             pressed,
             [
-                (
-                    "Accept".to_string(),
-                    true,
-                    false,
-                    "act_0000reef".to_string()
-                ),
-                (
-                    "Decline".to_string(),
-                    false,
-                    false,
-                    "act_0000reef".to_string()
-                ),
+                ("Accept".to_string(), true, "act_0000reef".to_string()),
+                ("Decline".to_string(), false, "act_0000reef".to_string()),
             ]
         );
     }

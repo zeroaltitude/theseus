@@ -201,7 +201,7 @@ fn content_remove_takes_one_label_or_all_of_them() {
 }
 
 /// A removal loosens, so inside a Theseus job the CLI refuses it before it
-/// sends anything, as it refuses `policy trust` (theseus-zmgb), and a word
+/// sends anything, as it refuses `policy untighten` (theseus-zmgb), and a word
 /// that is not a flag is a usage error.
 #[test]
 fn content_remove_is_refused_inside_a_job_and_takes_only_a_flag() {

@@ -801,7 +801,7 @@ async fn confirm_alerts(
     })
 }
 
-/// `theseus policy`: the postures, a tightening and its undo, and a trust.
+/// `theseus policy`: the postures, and a tightening and its undo.
 pub async fn policy(conn: &mut Conn, json: bool, cmd: PolicyCmd) -> Result<()> {
     match cmd {
         PolicyCmd::List => policy_list(conn, json).await,
@@ -841,51 +841,10 @@ pub async fn policy(conn: &mut Conn, json: bool, cmd: PolicyCmd) -> Result<()> {
                 Ok(())
             })
         }
-        PolicyCmd::Dismiss { session } => {
-            let h: HealthResult =
-                serde_json::from_value(conn.request(method::HEALTH, Value::Null).await?)?;
-            let session_id = trust_target(&h.external_text, &session)?;
-            let v = conn
-                .request(
-                    method::POLICY_NOTICE_SEEN,
-                    theseus_protocol::notice::PolicyNoticeSeenParams {
-                        session_id,
-                        author: None,
-                        discord: None,
-                    },
-                )
-                .await?;
-            output(json, v, |r| {
-                println!("{}", render::external::notice_seen_line(&r));
-                Ok(())
-            })
-        }
-        PolicyCmd::Trust { session } => {
-            // A short name is looked for among the sessions that hold
-            // external text (theseus-9bp), which health lists.
-            let h: HealthResult =
-                serde_json::from_value(conn.request(method::HEALTH, Value::Null).await?)?;
-            let session_id = trust_target(&h.external_text, &session)?;
-            let v = conn
-                .request(
-                    method::POLICY_TRUST,
-                    theseus_protocol::PolicyTrustParams {
-                        session_id,
-                        author: None,
-                        discord: None,
-                    },
-                )
-                .await?;
-            output(json, v, |r| {
-                println!("{}", render::trusted_line(&r));
-                Ok(())
-            })
-        }
     }
 }
 
-/// Every tool's posture now and what set it, with the tightenings, and the
-/// sessions that hold external text.
+/// Every tool's posture now and what set it, with the tightenings.
 async fn policy_list(conn: &mut Conn, json: bool) -> Result<()> {
     let tools = conn.request(method::TOOL_LIST, Value::Null).await?;
     let health = conn.request(method::HEALTH, Value::Null).await?;
@@ -900,10 +859,6 @@ async fn policy_list(conn: &mut Conn, json: bool) -> Result<()> {
     print!("{}", render::policy_list(&l, &h.tightenings));
     for why in &h.tools_not_offered {
         println!("{why}");
-    }
-    // In the daemon's mode's words, as health's own line: under notify a hold makes nothing wait.
-    if let Some(line) = render::external::line(&h.external_text, &h.external_text_mode) {
-        println!("{line}");
     }
     Ok(())
 }
@@ -1825,33 +1780,6 @@ fn stop_target(execs: &[theseus_protocol::ExecutionInfo], session: &str) -> Resu
         .clone())
 }
 
-/// The session `policy trust` names (theseus-9bp): its whole id, or at least
-/// its last four characters among the sessions that hold external text.
-fn trust_target(held: &[theseus_protocol::ExternalTextInfo], session: &str) -> Result<String> {
-    let s = session.trim().trim_start_matches('…');
-    if s.len() < 4 {
-        anyhow::bail!(
-            "`{session}` is too short to name a session: give at least four characters of its id"
-        );
-    }
-    let found: Vec<&str> = held
-        .iter()
-        .map(|i| i.session_id.as_str())
-        .filter(|id| *id == s || id.ends_with(s))
-        .collect();
-    match found.as_slice() {
-        [one] => Ok(one.to_string()),
-        [] if s.starts_with("ses_") => Ok(s.to_string()),
-        [] => anyhow::bail!(
-            "no session that holds external text is named `{session}` (theseus health lists them)"
-        ),
-        more => anyhow::bail!(
-            "`{session}` names {} sessions: give more of its id",
-            more.len()
-        ),
-    }
-}
-
 /// The largest file `ask --attach` sends: the daemon's default
 /// `[tools] max_attachment_bytes` (theseus-c9l6), which it applies again; it
 /// caps text further, at `[tools].max_read_bytes`.
@@ -1987,140 +1915,6 @@ mod tests {
             stop_line(&r),
             "stopped session ses_a1b2c3's work · 1 action(s) told to stop · 0 declined · the \
              conversation goes on · 1 task(s) and 0 wake(s) go on (theseus cancel <id>)"
-        );
-    }
-
-    /// The sessions that hold external text (theseus-9bp): health's line
-    /// names each with what it read, and `policy trust` takes a short name
-    /// only among them, refusing one too short or naming two.
-    #[test]
-    fn external_text_lines_and_the_trust_target() {
-        let held =
-            |sid: &str, task: Option<&str>, via: Option<&str>| theseus_protocol::ExternalTextInfo {
-                session_id: sid.into(),
-                title: None,
-                task: task.map(str::to_string),
-                held: theseus_protocol::ExternalText {
-                    since_ms: 0,
-                    tool: "http.fetch".into(),
-                    url: "https://example.test/a".into(),
-                    node_id: "trs_1".into(),
-                    from_session: via.map(|_| "ses_parent".into()),
-                    via: via.map(str::to_string),
-                    query: None,
-                },
-                since_local: String::new(),
-            };
-        assert_eq!(external_line(&[]), None);
-        let two = [
-            held("ses_0000aa1111", None, None),
-            held("ses_0000bb1111", Some("bb1111"), Some("task.create")),
-        ];
-        // From a daemon that sends no local time: this machine's clock,
-        // pinned at the tests' zone (theseus-0n1v).
-        theseus_client::render::time::pin_for_tests();
-        assert_eq!(
-            external_line(&two).unwrap(),
-            "external text: 2 sessions read it, so their calls that act wait: …aa1111 since \
-             17:00:00.000 (http.fetch https://example.test/a); task bb1111 since 17:00:00.000 \
-             (http.fetch https://example.test/a, from the session that started it) · trust one \
-             again: theseus policy trust <session>"
-        );
-        // A search names its query, in the daemon's local time (theseus-qiy).
-        let mut search = held("ses_0000cc2222", None, None);
-        search.held.tool = "web.search".into();
-        search.held.url = "https://search.example.test/res?q=lantern+tide+tables".into();
-        search.held.query = Some("lantern tide tables".into());
-        search.since_local = "12:55:01".into();
-        assert_eq!(
-            external_line(std::slice::from_ref(&search)).unwrap(),
-            "external text: 1 session read it, so their calls that act wait: …cc2222 since \
-             12:55:01 (web.search \"lantern tide tables\") · trust one again: theseus policy \
-             trust <session>"
-        );
-        let trusted = theseus_protocol::TrustResult {
-            session_id: search.session_id.clone(),
-            by: "the CLI".into(),
-            how: "action.confirm".into(),
-            held: search.held.clone(),
-            since_local: "12:55:01".into(),
-            ..Default::default()
-        };
-        assert_eq!(
-            trusted_line(&trusted),
-            "trusted session ses_0000cc2222 again (by the CLI) · it had read web.search \"lantern \
-             tide tables\" since 12:55:01 · its calls that act run at their postures again, until \
-             it reads external text again"
-        );
-        let mut long = search;
-        long.held.query = Some("q".repeat(100));
-        let line = external_line(std::slice::from_ref(&long)).unwrap();
-        assert!(
-            line.contains(&format!("(web.search \"{}…)", "q".repeat(59))),
-            "{line}"
-        );
-        assert_eq!(trust_target(&two, "aa1111").unwrap(), "ses_0000aa1111");
-        assert_eq!(trust_target(&two, "…bb1111").unwrap(), "ses_0000bb1111");
-        assert!(trust_target(&two, "111")
-            .unwrap_err()
-            .to_string()
-            .contains("too short"));
-        assert!(trust_target(&two, "1111")
-            .unwrap_err()
-            .to_string()
-            .contains("names 2 sessions"));
-        assert!(trust_target(&two, "cccc")
-            .unwrap_err()
-            .to_string()
-            .contains("no session that holds external text"));
-        assert_eq!(trust_target(&two, "ses_other").unwrap(), "ses_other");
-    }
-
-    /// Under `notify` a hold waits for nothing: health says each one's first
-    /// call that acts tells the owner, and never "wait" (theseus-g00vv). Under
-    /// `ask`, and from a daemon that names no mode, the words are as before.
-    #[test]
-    fn external_text_line_says_what_a_hold_does_under_each_mode() {
-        let held = theseus_protocol::ExternalTextInfo {
-            session_id: "ses_0000aa1111".into(),
-            held: theseus_protocol::ExternalText {
-                since_ms: 0,
-                tool: "http.fetch".into(),
-                url: "https://example.test/a".into(),
-                node_id: "trs_1".into(),
-                ..Default::default()
-            },
-            since_local: "12:55:01".into(),
-            ..Default::default()
-        };
-        let two = [held.clone(), held.clone()];
-        let notify = render::external::line(&two, "notify").unwrap();
-        assert_eq!(
-            notify,
-            "external text: 2 sessions read it; under notify each one's first call that acts tells \
-             you: …aa1111 since 12:55:01 (http.fetch https://example.test/a); …aa1111 since \
-             12:55:01 (http.fetch https://example.test/a) · trust one again: theseus policy \
-             trust <session>"
-        );
-        assert!(!notify.contains("wait"), "{notify}");
-        let ask = render::external::line(&two, "ask").unwrap();
-        assert!(ask.contains("so their calls that act wait"), "{ask}");
-        assert_eq!(Some(ask), external_line(&two));
-        assert_eq!(
-            render::external::line(&two, "").unwrap(),
-            external_line(&two).unwrap()
-        );
-        let many = vec![held; 5];
-        assert!(render::external::line(&many, "notify")
-            .unwrap()
-            .contains(", and 2 more"));
-        // `theseus policy` prints the same mode-aware line as health, never the ask words alone.
-        let src = include_str!("cmd.rs");
-        let list = &src[src.find("async fn policy_list(").unwrap()..];
-        let list = &list[..list.find("\n}\n").unwrap()];
-        assert!(
-            list.contains("render::external::line(&h.external_text, &h.external_text_mode)"),
-            "theseus policy's hold line must follow the mode"
         );
     }
 

@@ -130,7 +130,7 @@ export function Meter({ value, max, tone = 'live', className }: { value: number;
   )
 }
 
-/** An action button in a tone: approve (ok), stop or trust (wait), cancel (fault). */
+/** An action button in a tone: approve (ok), stop (wait), cancel (fault). */
 export function Btn({ children, onClick, tone = 'live', busy, title }: { children: ReactNode; onClick: () => void; tone?: Tone; busy?: boolean; title?: string }) {
   return (
     <button onClick={onClick} disabled={busy} title={title}

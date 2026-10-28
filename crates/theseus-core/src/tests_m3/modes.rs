@@ -40,7 +40,6 @@ fn ordered(
     let mut ctx = rt.ctx.clone();
     ctx.cwd = dir.to_path_buf();
     let plan = tool.plan(&input, &ctx).unwrap();
-    let held = || Ok(None);
     let mcp = || None;
     let at = crate::toolrun::order::At {
         place: crate::ceiling::PlaceView {
@@ -49,7 +48,6 @@ fn ordered(
             voice: false,
             draft: None,
         },
-        held: &held,
         labels: &|| None,
         mcp: &mcp,
         glide: None,
@@ -73,7 +71,6 @@ fn refused(
     let mut ctx = rt.ctx.clone();
     ctx.cwd = dir.to_path_buf();
     let plan = tool.plan(&input, &ctx).unwrap();
-    let held = || Ok(None);
     let mcp = || None;
     let at = crate::toolrun::order::At {
         place: crate::ceiling::PlaceView {
@@ -82,7 +79,6 @@ fn refused(
             voice: false,
             draft: None,
         },
-        held: &held,
         labels: &|| None,
         mcp: &mcp,
         glide: None,
@@ -232,15 +228,22 @@ async fn auto_is_notify_for_what_only_the_posture_asked_and_the_floor_still_asks
             "an env",
             json!({"argv": ["echo", "hi"], "cwd": r.root, "env": {"A": "b"}}),
         ),
-        (
-            "an L1 job's egress",
-            json!({"argv": ["echo", "hi"], "cwd": r.root,
-                   "sandbox": {"egress": ["exfil.example:443"]}}),
-        ),
     ] {
         let d = ordered(&r, &sid, "proc.run", input, PlaceClass::Private, &dir);
         assert_eq!(d.posture, Posture::Approve, "{why}: {}", d.reason);
     }
+    // An L1 job's host beyond `[sandbox] egress` is a notice that names it, not a question (R6).
+    let d = ordered(
+        &r,
+        &sid,
+        "proc.run",
+        json!({"argv": ["echo", "hi"], "cwd": r.root,
+               "sandbox": {"egress": ["exfil.example:443"]}}),
+        PlaceClass::Private,
+        &dir,
+    );
+    assert_eq!(d.posture, Posture::Notify, "{}", d.reason);
+    assert!(d.reason.contains("exfil.example:443"), "{}", d.reason);
     let d = ordered(
         &r,
         &sid,
@@ -291,7 +294,7 @@ async fn plan_refuses_each_writer_and_proc_run_in_words_the_model_can_act_on() {
     let tool = r.core.tools.registry.get("proc.run").unwrap().clone();
     let mut ctx = r.core.tools.ctx.clone();
     ctx.cwd = dir.clone();
-    let (held, mcp) = (|| Ok(None), || None);
+    let mcp = || None;
     let at = crate::toolrun::order::At {
         place: crate::ceiling::PlaceView {
             class: PlaceClass::Private,
@@ -299,7 +302,6 @@ async fn plan_refuses_each_writer_and_proc_run_in_words_the_model_can_act_on() {
             voice: false,
             draft: None,
         },
-        held: &held,
         labels: &|| None,
         mcp: &mcp,
         glide: None,
@@ -608,7 +610,6 @@ async fn the_other_yes_on_a_plan_moves_to_edits_and_a_decline_stays_in_plan() {
             &corr,
             None,
             "test".into(),
-            false,
             &GrantAnswer {
                 pattern: "auto".into(),
             },
@@ -620,7 +621,6 @@ async fn the_other_yes_on_a_plan_moves_to_edits_and_a_decline_stays_in_plan() {
             &corr,
             None,
             "test".into(),
-            false,
             &GrantAnswer {
                 pattern: "edits".into(),
             },

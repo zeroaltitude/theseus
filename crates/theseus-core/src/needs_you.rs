@@ -315,7 +315,7 @@ pub fn card_body(
         "prompt": w.what,
         "choices": choices,
         "expires_at_ms": (req.expires_at_ms > 0).then_some(req.expires_at_ms),
-        "card": words::card_of(kind, &w, req.external_text.is_some(), nth),
+        "card": words::card_of(kind, &w, nth),
     })
 }
 
@@ -330,7 +330,6 @@ pub fn header_body(asks: &[(&Action, &ConfirmRequest, String)]) -> serde_json::V
             .iter()
             .map(|(a, _, _)| crate::ask::input_of(a).map_or_else(Vec::new, |i| i.choices()))
             .collect::<Vec<_>>(),
-        "trust": asks.iter().map(|(_, r, _)| r.external_text.is_some()).collect::<Vec<_>>(),
         "header": true,
     })
 }

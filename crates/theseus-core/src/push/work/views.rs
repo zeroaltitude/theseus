@@ -333,7 +333,6 @@ impl WorkBoard {
             may_answer: true,
             tool: Some(tool),
             asked_at_ms: a.planned_at_ms,
-            external_text: ai.external_text,
             choices: asked.as_ref().map(|i| i.choices()).unwrap_or_default(),
         };
         q.options = answer_options(&q);

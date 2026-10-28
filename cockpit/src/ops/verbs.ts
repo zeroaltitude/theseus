@@ -47,7 +47,6 @@ export const VERBS: readonly VerbDef[] = [
   { id: 'not_this', label: 'Not this: cancel it, and don’t start work like it', on: ['task'], methods: ['task.not_this'], posture: 'arm' },
   { id: 'job_stop', label: 'Stop the job', on: ['job'], methods: ['job.stop'], posture: 'arm' },
   { id: 'answer', label: 'Answer', on: ['question'], methods: ['work.answer'], posture: 'floor' },
-  { id: 'trust', label: 'Trust the session again', on: ['session', 'conversation'], methods: ['policy.trust'], posture: 'ask' },
   { id: 'unlabel', label: 'Remove a label', on: ['session', 'conversation'], methods: ['content.unlabel'], posture: 'ask' },
   { id: 'retry', label: 'Retry the failed task', on: ['task'], methods: ['task.retry'], posture: 'do' },
   { id: 'dismiss', label: 'Dismiss the failure', on: ['task', 'conversation'], methods: ['execution.dismiss'], posture: 'do' },
@@ -80,7 +79,7 @@ export const verbsOn = (kind: Kind): VerbDef[] => VERBS.filter((v) => v.on.inclu
 
 /** The table verb each acting key of `keys.ts` is: a test holds that every `act` key names one. */
 export const KEY_VERB: Readonly<Record<string, string>> = {
-  approve: 'answer', approve_trust: 'answer', decline: 'answer', choice: 'answer', grant: 'answer',
+  approve: 'answer', decline: 'answer', choice: 'answer', grant: 'answer',
   retry: 'retry', dismiss: 'dismiss', pause: 'task_pause', stop: 'stop', stop_all: 'stop_all', cancel: 'cancel', not_this: 'not_this', cancel_wake: 'wake_cancel',
   new_task: 'new_task', model_menu: 'model_sticky', mode_menu: 'mode',
   // ops-timeline (theseus-jid7t.5): the Horizon's keys on a focused mark.

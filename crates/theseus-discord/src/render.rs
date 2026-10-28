@@ -59,11 +59,9 @@ pub enum Buttons {
     Confirm(String),
     /// One button per option of an `owner_ask` question (theseus-j7cje).
     Ask(String, Vec<String>),
-    /// A needs-you card (theseus-suvpe): the question's choices, else Approve (and
-    /// trust when `bool`) and Decline, and always Details.
-    Card(String, Vec<String>, bool),
-    /// Approve, "Approve + trust session", and Decline (theseus-9bp): external text.
-    ConfirmTrust(String),
+    /// A needs-you card (theseus-suvpe): the question's choices, else Approve
+    /// and Decline, and always Details.
+    Card(String, Vec<String>),
     /// Approve, the question's grant, and Decline (theseus-drjs).
     ConfirmGrant(String, theseus_protocol::grants::GrantOffer),
     /// A "Should I have asked?" select menu (theseus-sgh): an option per notified tool, `MAX_ASKED`.

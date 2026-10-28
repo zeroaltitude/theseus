@@ -11,7 +11,7 @@
 //   oar           = a tool call; its blade is the result (green ok, rose failed, amber waits for you, open pending)
 //   brass gear    = a job running; hex shield = sandboxed (L1); magenta = text from the web
 //   rig           = the state: sail up working, lantern waiting for you, flare failed, at anchor idle
-//   gold planks   = its turns of the last hour; a chain along its rail = it holds text from the web until trusted
+//   gold planks   = its turns of the last hour
 //   gold coin     = a turn's cost, flying to "Spent today"; violet spark = a turn that recalled memory
 //   the swell     = the work now: a slow roll when nothing runs, rising with tokens a minute and running turns
 
@@ -37,7 +37,6 @@ export const SHAPES = {
   down: { word: 'failed or over budget', noun: 'failed', sea: 'flare up' },
   idle: { word: 'idle', noun: 'idle', sea: 'at anchor' },
   planks: { word: 'turns in the last hour', noun: 'recent turns', sea: 'gold planks on its deck' },
-  held: { word: 'holds web text', noun: 'holds web text', sea: 'a chain along its rail' },
   coin: { word: 'a turn’s cost', noun: 'cost', sea: 'gold coin, flying to Spent today' },
   recall: { word: 'recalled memory', noun: 'recall', sea: 'violet spark on its bench' },
   sea: { word: 'the work now', noun: 'the sea', sea: 'the swell' },
@@ -212,14 +211,14 @@ export function benchLabel(b: Pick<BenchLike, 'n' | 'calls' | 'running' | 'waiti
   return wide && b.calls ? `${head} · ${count(b.calls, 'tool call')}` : head
 }
 
-/** A nameplate's line under its title: "idle · 17 turns · $0.0069", and "holds web text" when it does. */
-export function plateLine(v: VesselLike & { turns: number; cost: number; hold?: unknown; life?: string; retired?: { reason: string }; supersededBy?: { session_id: string } }): string {
+/** A nameplate's line under its title: "idle · 17 turns · $0.0069". */
+export function plateLine(v: VesselLike & { turns: number; cost: number; life?: string; retired?: { reason: string }; supersededBy?: { session_id: string } }): string {
   // Its state, when not live (theseus-emqx): at anchor in the roads, or laid up, and a superseded ship's signal toward
   // its successor.
   const why = v.retired ? ({ superseded: 'superseded', empty: 'never used', by_hand: 'retired by hand' } as Record<string, string>)[v.retired.reason] ?? v.retired.reason : ''
   const life = v.life === 'quiet' ? ' · at anchor' : v.life === 'retired' ? ` · laid up${why ? `, ${why}` : ''}` : ''
   const signal = v.supersededBy ? ` · ⚑ to …${v.supersededBy.session_id.slice(-6)}` : ''
-  return `${stateWord(v).word}${life} · ${count(v.turns, 'turn')} · ${usdShort(v.cost)}${v.hold ? ' · holds web text' : ''}${signal}`
+  return `${stateWord(v).word}${life} · ${count(v.turns, 'turn')} · ${usdShort(v.cost)}${signal}`
 }
 
 /** A harbour's line beside its name: " · 3 sessions · 4 tasks". */

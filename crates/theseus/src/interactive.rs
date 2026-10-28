@@ -4,7 +4,7 @@
 //! session's state to its pane (`herdr::Reporter`), and releases it on exit:
 //! Ctrl-C, SIGTERM, a hangup, the end of
 //! stdin, or a panic. With `--interactive` it reads lines: a question waiting
-//! asks `approve? [y/N/t/note]`, and any other line is sent to the session as a
+//! asks `approve? [y/N/note]`, and any other line is sent to the session as a
 //! message. Line mode, no raw terminal, so it works in any pane.
 //!
 //! A plain `theseus watch` outside herdr is `cmd::watch`, unchanged.
@@ -39,12 +39,10 @@ pub const AUTHOR: &str = "theseus watch";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Answer {
     pub approve: bool,
-    pub trust: bool,
     pub note: Option<String>,
 }
 
-/// `y` approves; `t` approves and trusts the session again (it read external
-/// text); `n`, or an empty line, declines. Words after any of them are the
+/// `y` approves; `n`, or an empty line, declines. Words after either are the
 /// note. Any other line declines, with the line as its note, so the model is
 /// told why.
 pub fn parse_answer(line: &str) -> Answer {
@@ -53,21 +51,18 @@ pub fn parse_answer(line: &str) -> Answer {
         Some((h, r)) => (h, Some(r.trim().to_string()).filter(|r| !r.is_empty())),
         None => (line, None),
     };
-    let (approve, trust) = match head.to_ascii_lowercase().as_str() {
-        "y" | "yes" => (true, false),
-        "t" | "trust" => (true, true),
-        "" | "n" | "no" => (false, false),
+    let approve = match head.to_ascii_lowercase().as_str() {
+        "y" | "yes" => true,
+        "" | "n" | "no" => false,
         _ => {
             return Answer {
                 approve: false,
-                trust: false,
                 note: Some(line.to_string()),
             }
         }
     };
     Answer {
         approve,
-        trust,
         note: rest,
     }
 }
@@ -77,7 +72,7 @@ pub fn parse_answer(line: &str) -> Answer {
 fn only_an_answer(line: &str) -> bool {
     matches!(
         line.trim().to_ascii_lowercase().as_str(),
-        "y" | "yes" | "t" | "trust" | "n" | "no"
+        "y" | "yes" | "n" | "no"
     )
 }
 
@@ -291,7 +286,7 @@ pub async fn watch(
         eprintln!("reporting its state to herdr's pane {}", r.pane_id());
     }
     if interactive {
-        eprintln!("a line you type is sent to the session; a question asks approve? [y/N/t/note]");
+        eprintln!("a line you type is sent to the session; a question asks approve? [y/N/note]");
     }
     // A session that already failed says why, then the watch waits on it.
     w.say_failed(first.execution.as_ref());
@@ -743,13 +738,11 @@ impl Watch {
             ask::keys_line(q)
         } else if q.budget.is_some() {
             "reset and continue? [y/N/note]".to_string()
-        } else if q.external_text.is_some() {
-            "approve? [y/N/t/note] (t: approve, and trust the session again)".to_string()
         } else if let Some(o) = &q.grant_offer {
             // A plan's other yes, edits mode (theseus-lyxy).
             format!("approve? [y/N/{k}/note] ({k}: {})", o.words, k = o.key())
         } else {
-            "approve? [y/N/t/note]".to_string()
+            "approve? [y/N/note]".to_string()
         };
         // Under the card, in a herdr pane: links that open the answer card, never answer.
         if let Some(l) =
@@ -790,7 +783,7 @@ impl Watch {
                 let params = match &grant {
                     Some(pattern) => json!({"correlation_id": cid, "approve": true,
                                             "grant": {"pattern": pattern}, "author": AUTHOR}),
-                    None => json!({"correlation_id": cid, "approve": a.approve, "trust": a.trust,
+                    None => json!({"correlation_id": cid, "approve": a.approve,
                                    "note": a.note, "author": AUTHOR}),
                 };
                 let id = conn.send(method::ACTION_CONFIRM, params).await?;
@@ -992,34 +985,29 @@ mod tests {
         assert_eq!(grant_answer(&q, "e lot"), None);
     }
 
-    /// The answers a line gives (design §2.10's `approve? [y/N/t/note]`).
+    /// The answers a line gives (design §2.10's `approve? [y/N/note]`).
     #[test]
     fn a_line_answers_as_it_says() {
-        let a = |approve, trust, note: Option<&str>| Answer {
+        let a = |approve, note: Option<&str>| Answer {
             approve,
-            trust,
             note: note.map(str::to_string),
         };
-        assert_eq!(parse_answer("y"), a(true, false, None));
-        assert_eq!(parse_answer(" YES "), a(true, false, None));
+        assert_eq!(parse_answer("y"), a(true, None));
+        assert_eq!(parse_answer(" YES "), a(true, None));
         assert_eq!(
             parse_answer("y the tide is low"),
-            a(true, false, Some("the tide is low"))
+            a(true, Some("the tide is low"))
         );
-        assert_eq!(parse_answer("t"), a(true, true, None));
-        assert_eq!(parse_answer(""), a(false, false, None));
-        assert_eq!(parse_answer("n"), a(false, false, None));
+        assert_eq!(parse_answer(""), a(false, None));
+        assert_eq!(parse_answer("n"), a(false, None));
         assert_eq!(
             parse_answer("no, not today"),
-            a(false, false, Some("no, not today"))
+            a(false, Some("no, not today"))
         );
-        assert_eq!(
-            parse_answer("n not today"),
-            a(false, false, Some("not today"))
-        );
+        assert_eq!(parse_answer("n not today"), a(false, Some("not today")));
         assert_eq!(
             parse_answer("use the staging port"),
-            a(false, false, Some("use the staging port"))
+            a(false, Some("use the staging port"))
         );
     }
 
@@ -1027,7 +1015,7 @@ mod tests {
     /// a message.
     #[test]
     fn a_bare_answer_is_never_sent_as_a_message() {
-        for l in ["y", "N", " t ", "yes", "no", "trust"] {
+        for l in ["y", "N", "yes", "no"] {
             assert!(only_an_answer(l), "{l}");
         }
         for l in ["yes, run it", "y?", "tide", "n2"] {

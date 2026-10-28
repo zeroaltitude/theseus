@@ -4,8 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { answerOf, arrived, choiceOption, comingUp, grantKey, itemFor, keepCursor, queueOf, step } from '../src/ops/queue.ts'
 import { itemFacts } from '../src/ops/facts.ts'
-import { holdsOf } from '../src/ops/notices.ts'
-import { board, confirm, execution, HOUR, MIN, NOW, record, session, view } from './ops-fixtures.ts'
+import { board, confirm, execution, HOUR, MIN, NOW, record, view } from './ops-fixtures.ts'
 
 const titleOf = (s: string) => `«${s}»`
 
@@ -18,7 +17,6 @@ function full() {
     records: [record('tsk_x', { session: 'ses_t2', proposal: { abandon: true, by: 'ses_t2', card: 'act_px', base_version: 1, at_ms: NOW - 90 * MIN } }),
       record('tsk_y', { proposal: { objective: 'x', by: 'ses_t1', card: 'act_ch', base_version: 1, at_ms: NOW - 3 * MIN } })],
     groups: b.groups,
-    holds: [{ session_id: 'ses_tides', title: 'Tide chat', external_text: { since_ms: NOW - 3 * HOUR, tool: 'web.search', url: '', node_id: 'nod_1', query: 'tide tables' } }],
     asks: [{ ask: { ask_id: 'ask_1', session_id: 'ses_home', question: 'Is this about the quay or the tides?', options: [], message: 'the north wall', expires_ms: NOW + 5 * MIN }, heard_ms: NOW - MIN }],
     titleOf,
   })
@@ -27,7 +25,6 @@ function full() {
 test('every kind of item, the longest waiting first', () => {
   const q = full()
   assert.deepEqual(q.map((i) => [i.key, i.kind]), [
-    ['h:ses_tides', 'hold'], // three hours
     ['f:exe_t5', 'failure'], // two hours
     ['q:act_px', 'change'], // ninety minutes: a proposal not yet in the list
     ['s:tide-tables', 'seal'], // fifty minutes
@@ -40,7 +37,6 @@ test('every kind of item, the longest waiting first', () => {
   const by = new Map(q.map((i) => [i.key, i]))
   assert.equal(by.get('q:act_c1')!.owner, 'task Map the quay walls')
   assert.equal(by.get('q:act_px')!.title, 'Abandon tsk_x')
-  assert.equal(by.get('h:ses_tides')!.title, 'Trust it again: it read web.search "tide tables"')
   assert.equal(by.get('f:exe_t5')!.title, 'the chart server refused')
   assert.equal(by.get('q:act_q1')!.owner, '«ses_t1»')
 })
@@ -80,11 +76,11 @@ test('a new item never moves the cursor: it slides in where its age puts it', ()
   const before = queueOf({ confirms: b.confirms, views: b.views })
   const cursor = 'q:act_c1'
   assert.deepEqual(before.map((i) => i.key), ['f:exe_t5', 'q:act_q1', 'q:act_c1'])
-  // An older item arrives (a hold from three hours ago) and a newer one: the order changes, the cursor stays put.
-  const after = queueOf({ confirms: [...b.confirms, confirm('act_new', { requested_at_ms: NOW - MIN })], views: b.views, holds: [{ session_id: 'ses_z', title: 'z', external_text: { since_ms: NOW - 3 * HOUR, tool: 'http.fetch', url: 'https://example.test/', node_id: 'n' } }] })
-  assert.deepEqual(after.map((i) => i.key), ['h:ses_z', 'f:exe_t5', 'q:act_q1', 'q:act_c1', 'q:act_new'])
+  // An older item arrives (three hours old) and a newer one: the order changes, the cursor stays put.
+  const after = queueOf({ confirms: [...b.confirms, confirm('act_new', { requested_at_ms: NOW - MIN }), confirm('act_old', { requested_at_ms: NOW - 3 * HOUR })], views: b.views })
+  assert.deepEqual(after.map((i) => i.key), ['q:act_old', 'f:exe_t5', 'q:act_q1', 'q:act_c1', 'q:act_new'])
   assert.equal(keepCursor(before.map((i) => i.key), after, cursor), cursor)
-  assert.deepEqual(arrived(before.map((i) => i.key), after), ['h:ses_z', 'q:act_new'], 'the counter pulses for these')
+  assert.deepEqual(arrived(before.map((i) => i.key), after), ['q:act_old', 'q:act_new'], 'the counter pulses for these')
   // The item under the cursor is answered: the cursor goes to the one that took its place, else the last.
   const answered = after.filter((i) => i.key !== 'q:act_q1')
   assert.equal(keepCursor(after.map((i) => i.key), answered, 'q:act_q1'), 'q:act_c1')
@@ -112,7 +108,7 @@ test('tab and shift-tab go round; numbered choices map to the wire’s', () => {
   assert.equal(choiceOption(question, 1), 'choice:0')
   assert.equal(choiceOption(question, 2), 'choice:1')
   assert.equal(choiceOption(question, 3), null, 'two choices')
-  assert.equal(choiceOption(q[0], 1), null, 'a hold has no choices')
+  assert.equal(choiceOption(q[0], 1), null, 'a failure has no choices')
 })
 
 test('a selection or a deep link finds its item', () => {
@@ -148,11 +144,9 @@ test('each answer is one protocol call, the one every surface makes; an item tha
   const approval = q.find((i) => i.key === 'q:act_c1')!
   assert.deepEqual(answerOf(approval, { verb: 'approve' }), { method: 'work.answer', params: { question_id: 'act_c1', option: 'approve' } })
   assert.deepEqual(answerOf(approval, { verb: 'decline', note: ' not the north wall ' }), { method: 'work.answer', params: { question_id: 'act_c1', option: 'decline', note: 'not the north wall' } })
-  assert.equal(answerOf(approval, { verb: 'approve_trust' }), null, 'it holds no external text')
   assert.equal(answerOf(approval, { verb: 'grant' }), null, 'it offers no grant')
-  const offered = queueOf({ confirms: [confirm('act_g', { grant_offer: { scope: 'session', kind: 'edits', pattern: '/srv/harbour', words: 'edits in the project' }, external_text: { since_ms: 1, tool: 'http.fetch', url: 'https://example.test/', node_id: 'n' } })], views: [] })[0]
+  const offered = queueOf({ confirms: [confirm('act_g', { grant_offer: { scope: 'session', kind: 'edits', pattern: '/srv/harbour', words: 'edits in the project' } })], views: [] })[0]
   assert.deepEqual(answerOf(offered, { verb: 'grant' })?.params, { question_id: 'act_g', option: 'approve_grant' })
-  assert.deepEqual(answerOf(offered, { verb: 'approve_trust' })?.params, { question_id: 'act_g', option: 'approve_trust' })
   assert.equal(grantKey(offered.confirm!), 'e', 'edits take e, as the TUI reads it')
   assert.equal(grantKey({ grant_offer: { scope: 'session', kind: 'prefix', pattern: 'cargo test', words: '' } }), 'a')
   assert.equal(answerOf(by.get('budget')!, { verb: 'approve' })?.params.option, 'reset')
@@ -170,31 +164,7 @@ test('each answer is one protocol call, the one every surface makes; an item tha
   assert.equal(answerOf(convFailed, { verb: 'retry' }), null, 'only a task is retried')
   assert.deepEqual(answerOf(by.get('seal')!, { verb: 'seal' })?.params, { slug: 'tide-tables', reason: 'it read a private chart' })
   assert.deepEqual(answerOf(by.get('seal')!, { verb: 'seal_dismiss' }), { method: 'thread.seal_dismiss', params: { slug: 'tide-tables' } })
-  assert.deepEqual(answerOf(by.get('hold')!, { verb: 'trust' })?.params, { session_id: 'ses_tides' })
-  assert.ok(answerOf(by.get('hold')!, { verb: 'trust' })?.ask, 'a trust asks first, as Actions does')
   assert.deepEqual(answerOf(by.get('ask')!, { verb: 'thread_answer', key: '2' }), { method: 'thread.answer', params: { ask_id: 'ask_1', choice: '2' } })
-  assert.equal(answerOf(by.get('hold')!, { verb: 'approve' }), null)
-})
-
-// External text (theseus-g00vv): a hold is an item only when it makes a call wait; the rest are notices.
-
-const hold = (over: object = {}) => ({ since_ms: NOW - HOUR, tool: 'web.search', url: '', node_id: 'nod_1', query: 'tide tables', ...over })
-
-test('a hold whose session does not wait gives no queue item; one that waits gives one hold', () => {
-  const quiet = [session('ses_n', { external_text: hold(), external_waits: false })]
-  assert.deepEqual(queueOf({ confirms: [], views: [], holds: holdsOf(quiet).waiting, past: false }), [])
-  const asks = [session('ses_a', { external_text: hold(), external_waits: true })]
-  const q = queueOf({ confirms: [], views: [], holds: holdsOf(asks).waiting, past: false })
-  assert.deepEqual(q.map((i) => [i.key, i.kind]), [['h:ses_a', 'hold']])
-  assert.equal(answerOf(q[0], { verb: 'trust' })?.method, 'policy.trust')
-})
-
-test('a hold on an ended task (shaped like a dry-run task) is neither an item nor a notice', () => {
-  const ended = [session('ses_e', { kind: 'task', execution_state: 'complete', external_text: hold({ via: 'quote' }) })]
-  const h = holdsOf(ended)
-  assert.deepEqual(h.waiting, [])
-  assert.deepEqual(h.notices, [])
-  assert.deepEqual(queueOf({ confirms: [], views: [], holds: h.waiting, past: false }), [])
 })
 
 test('the present is told, not guessed: past false with no views reads no executions', () => {

@@ -15,10 +15,10 @@
 //!   it is given, or changes who may act: `NEVER`), and a posting tool with
 //!   no place.
 //! - **What the gate does with it.** `gate`, after the place's own layers and
-//!   before T1's hold, for the routine's own run only (`Book::grant_for`: a
+//!   for the routine's own run only (`Book::grant_for`: a
 //!   task whose parent is the routine; a task the run starts has the run as
 //!   its parent and gets nothing): a granted call that only the tool's
-//!   posture, or the hold, would make wait runs at `notify`. It never loosens
+//!   posture would make wait runs at `notify`. It never loosens
 //!   the floor, a layer-1 change, the approve lists, a granted secret, a
 //!   place's ceiling or an L1 call's own asks.
 
@@ -212,8 +212,7 @@ pub(crate) fn covering(
 }
 
 /// The gate's step for a routine's run (see the module's doc). `d` is the
-/// decision after the glide's layer; the second value says the call is
-/// granted, so T1's hold does not apply to it.
+/// decision after the glide's layer.
 pub(crate) fn gate(
     rt: &ToolRuntime,
     at: &crate::toolrun::order::At<'_>,
@@ -222,9 +221,9 @@ pub(crate) fn gate(
     input: &Value,
     l1: bool,
     d: Decision,
-) -> (Decision, bool) {
+) -> Decision {
     let Some(entry) = covering(at.routine, tool.name(), input, at.glide) else {
-        return (d, false);
+        return d;
     };
     // Whatever a place, a secret, the floor or L1 asked stays asked.
     if l1
@@ -235,26 +234,25 @@ pub(crate) fn gate(
         || rt.tightened.get(tool.name()).is_some()
         || !rt.policy.posture_only(tool, plan)
     {
-        return (d, false);
+        return d;
     }
     // An open call needs no word; a notified or asked one runs at notify
     // and says whose grant it ran under.
     if d.posture == Posture::Open {
-        return (d, true);
+        return d;
     }
     let rule = format!(
         "{} — notify ({SETTING}{entry}; `theseus routine update --grant` changes it)",
         tool.name()
     );
-    let d = Decision {
+    Decision {
         notify: Some(Notice {
             kind: "notify".into(),
             setting: format!("{SETTING}{entry}"),
             rule: rule.clone(),
         }),
         ..Decision::new(Posture::Notify, rule)
-    };
-    (d, true)
+    }
 }
 
 #[cfg(test)]

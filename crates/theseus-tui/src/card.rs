@@ -1,10 +1,9 @@
 //! The card (design `stage2` §2.9, "Answering"): the focused session's first
 //! question, whole, at the foot of the detail pane, with the keys that answer
 //! it. A tool's question shows the tool, the input (clipped), the reason, the
-//! floor, the external text (with `t` to trust), and the expiry as a
-//! countdown; a budget question shows spent, limit, needed, and lifetime.
+//! floor, and the expiry as a countdown; a budget question shows spent, limit, needed, and lifetime.
 
-use theseus_client::render::{self, held_what, Tag};
+use theseus_client::render::{self, Tag};
 use theseus_protocol::{usd, ConfirmRequest};
 
 use crate::board::Question;
@@ -87,12 +86,6 @@ pub fn lines(
                     ),
                 ));
             }
-            if let Some(h) = &c.external_text {
-                out.push((
-                    Tag::Warn,
-                    format!("  it waits because the session read {}", held_what(h)),
-                ));
-            }
             // A plan's other yes (theseus-lyxy): what it does on a line of
             // its own, short, so it stays whole on a narrow pane.
             if let Some(o) = &c.grant_offer {
@@ -101,13 +94,12 @@ pub fn lines(
             push_refusal(&mut out, refused);
             out.push((
                 Tag::Plain,
-                match (&c.grant_offer, c.external_text.is_some()) {
-                    (_, true) => "  [y] approve  [t] approve + trust  [n] decline".to_string(),
-                    (Some(o), false) => format!(
+                match &c.grant_offer {
+                    Some(o) => format!(
                         "  [y] approve  [{}] approve + don't ask again  [n] decline",
                         o.key()
                     ),
-                    (None, false) => "  [y] approve  [n] decline".to_string(),
+                    None => "  [y] approve  [n] decline".to_string(),
                 },
             ));
         }

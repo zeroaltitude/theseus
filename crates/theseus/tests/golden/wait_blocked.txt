@@ -6,7 +6,6 @@ blocked	48	ses_q7f3k2	conversation	waiting	● confirm fs.write: write outside t
   ? fs.write waits for you in ses_q7f3k2: write outside the roots (/w)
       input: {"path":"/srv/motd","text":"hello"}
       approve: theseus answer act_k4 approve
-      approve, and trust the session again: theseus answer act_k4 approve_trust
       decline: theseus answer act_k4 decline
 --- stderr
 --- exit 0

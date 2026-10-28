@@ -283,7 +283,6 @@ fn a_guarded_scope_scrubs_and_cannot_answer() {
         may_answer: true,
         tool: Some("proc.run".into()),
         asked_at_ms: 1,
-        external_text: false,
         choices: vec![],
     });
     let guarded = WorkScope {

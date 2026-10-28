@@ -10,7 +10,7 @@
 //
 // Motion: every term that moves with time (uTime, uSwell) names its row of the motion table (`motion.ts`) in a
 // `motion:` comment on its line, and a test holds it: nothing else moves.
-// Flags: 1 holds external text, 2 selected, 4 hovered, 8 a task, 16 dimmed by a filter.
+// Flags: 2 selected, 4 hovered, 8 a task, 16 dimmed by a filter.
 
 export const VESSEL_COMMON = /* glsl */ `
 uniform sampler2D uVessels;
@@ -290,19 +290,6 @@ void main() {
   col = mix(col, ivory * 0.42, eyeA * 0.75);
   col = mix(col, goldC * 0.9, pupil);
   alpha = max(alpha, eyeA * 0.7);
-
-  // The latch: a session that read external text carries a chain along its rail until the operator trusts it.
-  if (bit(vFlags, 1.0) > 0.5) {
-    float rail = -sd;
-    float band2 = 1.0 - smoothstep(0.08, 0.16, abs(rail - vB * 0.09 - 0.12));
-    float linkP = vLocal.x / max(vB * 0.16, 0.28);
-    float link = abs(fract(linkP) - 0.5);
-    float ringL = 1.0 - smoothstep(0.06, 0.16, abs(length(vec2(link * 1.6, (rail - vB * 0.09 - 0.12) / 0.12)) - 0.55));
-    float chain = band2 * ringL * inside;
-    vec3 cc = mix(vec3(1.0, 0.77, 0.15), vec3(1.0, 0.47, 0.74), 0.45);
-    col += cc * chain;
-    alpha = max(alpha, chain);
-  }
 
   float hot = vRig > 0.5 ? 1.0 : 0.45;
   // Far out, a hull is a few dozen pixels: its glow would swallow its shape, so the glow comes up as the hull grows on

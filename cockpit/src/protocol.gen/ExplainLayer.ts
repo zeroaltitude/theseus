@@ -6,7 +6,7 @@
 export type ExplainLayer = { 
 /**
  * The layer's name: `place`, `ceiling`, `class`, `posture`,
- * `tightening`, `grant`, `lsp`, `floor`, `hold`, `mcp_client`.
+ * `tightening`, `grant`, `lsp`, `floor`, `mcp_client`.
  */
 layer: string, 
 /**

@@ -1,6 +1,6 @@
 //! What asks, and what is counted (the Google design §3.2, §4.3, and the
 //! owner's decision that every send asks): a send, a delete, a share and the
-//! like are authority, so no posture, grant or trust loosens them; and the
+//! like are authority, so no posture or grant loosens them; and the
 //! daily brake counts a send by `google.call`.
 
 use std::sync::Arc;
@@ -50,11 +50,11 @@ async fn a_send_through_google_call_asks_at_every_posture_and_no_grant_loosens_i
     );
     r.fake.json("GET", "/drive/v3/files", json!({"files": []}));
     let sid = session(&r.core);
-    // A read runs unasked at `open`, and holds the session as outside text...
+    // A read runs unasked at `open`, and holds nothing: its result is marked, no more.
     let res = turn(&r.core, &sid, "list my files").await;
     assert!(res.awaiting_confirm.is_none(), "{res:?}");
-    // ...which the owner trusts away: the session is as clean as a session gets.
-    r.core.trust_session(&sid, "test").unwrap();
+    assert!(crate::external::read_any(&r.core.store, &sid));
+    assert!(ledgered(&r.core, "session.external_read").is_empty());
     // The plan names the authority, and the gate's decision is Approve with the
     // floor, the lists and the posture all `open`: the one thing every loosening
     // layer (modes, a routine's grant) asks first is

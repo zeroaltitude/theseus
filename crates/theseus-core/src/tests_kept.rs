@@ -262,10 +262,8 @@ fn posture(core: &Core, sid: &str, path: &Path) -> String {
     let tool = theseus_tools::fs::Read;
     let input = json!({"path": path});
     let plan = tool.plan(&input, &core.tools.ctx).unwrap();
-    let held = || crate::external::held(&core.store, sid);
     let at = At {
         place: core.runner.view_of(sid),
-        held: &held,
         labels: &|| None,
         mcp: &|| None,
         glide: None,
@@ -525,7 +523,6 @@ async fn a_task_reports_kept_copy_is_the_report_as_written() {
         turns: 1,
         elapsed_ms: 1,
         target: None,
-        external: None,
         check: None,
         joined: 0,
     };

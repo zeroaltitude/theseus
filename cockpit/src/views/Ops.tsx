@@ -31,8 +31,6 @@ import { answerOf, asksWord, comingUp, grantKey, itemFor, keepCursor, queueOf, s
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
 import { threadFacts } from '@/ops/facts'
 import { stepNode, viewsOf, type Graph, type LaneMeta } from '@/ops/graph'
-import { Notices } from '@/ops/Notices'
-import { holdsOf, pastNotices } from '@/ops/notices'
 import { GraphLens } from '@/ops/GraphLens'
 import { BulkBar, ResultsToast, useBulk } from '@/ops/BulkBar'
 import { useDragDrop } from '@/ops/DropLayer'
@@ -120,17 +118,9 @@ export default function Ops() {
   const read = useQueries({ queries: ended.map((r) => ({ queryKey: ['task.report', r.id], staleTime: Infinity, queryFn: async () => reportLineOf((await call<{ nodes: { kind: string; text?: string }[] }>('session.history', { session_id: r.id, n: 3 })).nodes) ?? null })) })
   const lines = useMemo(() => Object.fromEntries(ended.flatMap((r, i) => (read[i]?.data ? [[r.id, read[i].data as string]] : []))), [ended, read])
 
-  // External text (ops/notices.ts): a hold that makes a call wait is an item of the queue; one that does not is a notice,
-  // never counted. The time machine's holds are notices, read-only: the fold knows the hold, not the mode of the day.
-  const held = useMemo(() => holdsOf(world ? [] : sessions), [world, sessions])
-  const notices = useMemo(() => (world
-    ? pastNotices(world.holds.map((h) => ({ session_id: h.session_id, title: h.title || titleOf(h.session_id), external_text: h.held })),
-      new Set(sessions.filter((s) => ['complete', 'cancelled', 'failed', 'budget_exhausted'].includes(s.execution_state ?? '')).map((s) => s.session_id)))
-    : held.notices), [world, sessions, held, titleOf])
-  const holds = held.waiting
   const queue = useMemo(() => queueOf({
-    confirms, views, records: world ? [] : records, groups: world ? [] : groups, holds, asks: world ? [] : asks, executions: world?.executions, past: !!world, titleOf,
-  }), [confirms, views, records, groups, holds, asks, world, titleOf])
+    confirms, views, records: world ? [] : records, groups: world ? [] : groups, asks: world ? [] : asks, executions: world?.executions, past: !!world, titleOf,
+  }), [confirms, views, records, groups, asks, world, titleOf])
   // The one work set (ops/board.ts): every card once, with its asks mapped to it. The counters, the Board, the Graph,
   // the selection and the filters all read these rows and no others.
   const rows = useMemo(() => boardRows({ views, tasks, sessions, records, lines, queue, now, past: !!world }), [views, tasks, sessions, records, lines, queue, now, world])
@@ -197,7 +187,7 @@ export default function Ops() {
   const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel && !handOpen ? { kind: 'mark', key: a.sel } : { kind: 'none', counts: noneCounts(counts), onFilter: (b) => set({ f: { ...a.f, bucket: b } }) }
   const region: 'queue' | 'canvas' = item ? 'queue' : 'canvas'
   // The item a key answers: the queue's cursor, or the needs-you item of the row on the canvas.
-  const focusItem = item ?? (row ? queue.find((i) => (row.view != null && i.view?.id === row.view.id) || (row.sessionId != null && i.sessionId === row.sessionId && i.kind !== 'hold')) : undefined)
+  const focusItem = item ?? (row ? queue.find((i) => (row.view != null && i.view?.id === row.view.id) || (row.sessionId != null && i.sessionId === row.sessionId)) : undefined)
   const focusRow = row ?? (item?.sessionId ? rows.find((r) => r.sessionId === item.sessionId && r.kind !== 'job') : undefined)
   const [open, setOpen] = useState<string | null>(a.do === 'answer' && item ? item.key : null)
   const [note, setNote] = useState<{ key: string; text: string } | null>(null)
@@ -289,7 +279,6 @@ export default function Ops() {
     next: () => pick(step(queue, item?.key ?? null, 1)),
     prev: () => pick(step(queue, item?.key ?? null, -1)),
     approve: () => answer('approve', { verb: 'approve' }),
-    approve_trust: () => answer('approve_trust', { verb: 'approve_trust' }),
     decline: () => { if (focusItem) { pick(focusItem.key); setNote({ key: focusItem.key, text: '' }) } },
     choice: (key) => answer('choice', { verb: 'choice', n: Number(key) }),
     grant: () => answer('grant', { verb: 'grant' }),
@@ -431,8 +420,7 @@ export default function Ops() {
 
   const queuePanel = (
     <Queue items={queue} cursor={item?.key ?? null} onCursor={(k) => pick(k)} open={open} note={note} onNote={setNote} past={past} now={now}
-      coming={world ? [] : comingUp(Object.values(board.views), tick)} events={world ? [] : comingEvents(cal.calendars, tick, a.redact)} arrivedKeys={fresh}
-      notices={<Notices notices={notices} now={now} readOnly={!!world} redact={a.redact} />} />
+      coming={world ? [] : comingUp(Object.values(board.views), tick)} events={world ? [] : comingEvents(cal.calendars, tick, a.redact)} arrivedKeys={fresh} />
   )
   const joined = a.join ?? null
   const lensView = (

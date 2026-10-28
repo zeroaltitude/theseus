@@ -72,7 +72,7 @@ test('under the time machine every act is off, keys and buttons alike; looking s
     assert.equal(enabled(b, true), false, b)
     assert.equal(enabled(b, false), true, b)
   }
-  for (const v of ['approve', 'decline', 'choice', 'retry', 'dismiss', 'pause', 'stop', 'stop_all', 'cancel', 'cancel_wake', 'new_task', 'grant', 'approve_trust']) assert.ok(ACTS.has(v), v)
+  for (const v of ['approve', 'decline', 'choice', 'retry', 'dismiss', 'pause', 'stop', 'stop_all', 'cancel', 'cancel_wake', 'new_task', 'grant']) assert.ok(ACTS.has(v), v)
   for (const v of ['down', 'lens_board', 'search', 'inspect', 'open', 'keys', 'filter_needs']) assert.ok(!ACTS.has(v), v)
 })
 

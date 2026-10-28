@@ -9,8 +9,6 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 
-use crate::ExternalText;
-
 /// How a call touches a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -111,8 +109,8 @@ pub struct Plan {
     /// One line for humans ("edit src/main.rs (1 occurrence)").
     pub summary: String,
     /// This call's class, when it is the call's and not the tool's (an
-    /// `aws.call` is a read or a write by its operation): the gate, the
-    /// external-text hold, and the reads that run together read it.
+    /// `aws.call` is a read or a write by its operation): the gate and
+    /// the reads that run together read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub class: Option<ToolClass>,
@@ -192,11 +190,6 @@ pub struct GateDecision {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub granted: Option<String>,
-    /// The call waits (or is notified) because its session read external
-    /// text (theseus-9bp): what it read.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub external: Option<ExternalText>,
     /// A job's class (M4 17b): `l1` when it runs in the sandbox, and then the
     /// proposal a confirm binds names it too. Absent: L0.
     #[serde(default, skip_serializing_if = "Option::is_none")]

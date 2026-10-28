@@ -1,12 +1,12 @@
 // One waiting question, answered where it is read: the Actions view lists every session's, and a session's deck lists
-// its own above the composer (as the Observatory's transcript did, theseus-vm3n.6). A tool call asks to be approved,
-// approved and its session trusted again, or declined, with a note the model sees on a decline; a session at its spend
+// its own above the composer (as the Observatory's transcript did, theseus-vm3n.6). A tool call asks to be approved
+// or declined, with a note the model sees on a decline; a session at its spend
 // limit asks whether its spend may go back to $0. A held post (M4 19c) is the boundaries' to answer, not this card's.
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { CircleCheck, OctagonX, ShieldCheck, Siren, Zap } from 'lucide-react'
+import { CircleCheck, OctagonX, Zap } from 'lucide-react'
 import type { ConfirmPreview, ConfirmRequest } from '@protocol'
 import { call } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
@@ -113,7 +113,6 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
             <span className="num text-[12px] font-semibold text-tool">{budget ? 'budget' : c.tool}</span>
             {budget && <span className="text-[12px] text-ink-dim">this session reached its spend limit</span>}
             {c.floor && <Pill tone="fault" title="the call touches Theseus's own state or secrets; it always asks">floor</Pill>}
-            {c.external_text && <Pill tone="wait"><Siren size={11} /> after external text</Pill>}
             {c.task && <Pill tone="tool">task</Pill>}
             {!here && <button onClick={() => nav(`/session/${c.session_id}`)} className="num text-[11px] text-ink-faint hover:text-live">{short(c.session_id)}</button>}
             <span className="num text-[11px] text-ink-faint">asked {ago(c.requested_at_ms, now)}</span>
@@ -131,12 +130,11 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
               </div>
             </div>
           )}
-          {c.external_text && <div className="num mt-1 text-[11.5px] text-wait">this session read {c.external_text.tool} {c.external_text.url} {ago(c.external_text.since_ms, now)}, so a call that acts waits</div>}
           {past !== undefined && <div className="mt-2 text-[11px] text-ink-faint">asked by {c.by}; the log shows how it was answered after this moment</div>}
           {past === undefined && <div className="mt-2.5 flex flex-wrap items-center gap-2">
             {buttons.map((b) => (
               <Btn key={b.id} tone={b.tone} busy={busy === b.id} title={b.title} onClick={() => answer(b.id)}>
-                {b.tone === 'fault' ? <OctagonX size={13} /> : b.id === 'approve_trust' ? <ShieldCheck size={13} /> : <CircleCheck size={13} />} {b.label}
+                {b.tone === 'fault' ? <OctagonX size={13} /> : <CircleCheck size={13} />} {b.label}
               </Btn>
             ))}
             {buttons.length === 0 && <span className="text-[11.5px] text-wait">this connection may not answer it: answer from the CLI (theseus answer {short(c.correlation_id)}), or a private place</span>}

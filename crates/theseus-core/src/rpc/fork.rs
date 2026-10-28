@@ -10,7 +10,7 @@
 //! a fork asks no lock of it and a turn there runs on.
 //!
 //! **Authority** (§3.3, "never broadens"): the fork's execution carries the
-//! source execution's authority, and its external-text hold; its spend limit
+//! source execution's authority; its spend limit
 //! is its own (`budget_usd`, pinned, else the daemon's). A caller on a
 //! surface that reads no private text may fork only a session of a shared
 //! place; an MCP client may fork only a conversation it opened. The fork
@@ -80,8 +80,6 @@ impl Core {
         rec.title = Some(title.clone());
         rec.dir.clone_from(&source.dir);
         rec.last_target = profile;
-        // What the source read from outside holds the fork too: never less.
-        rec.external.clone_from(&source.external);
         let found = |id: &str| self.store.get_node(id).ok().flatten().map(|(p, _)| p);
         rec.data =
             crate::fork::data_through(source.data.as_deref(), (at_position, &at_node.id), found);

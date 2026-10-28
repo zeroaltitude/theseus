@@ -1,7 +1,7 @@
 //! Inside a job, the CLI names its job's session (theseus-b5cl): `ask` and
 //! `sessions open` send the `THESEUS_SESSION` every job carries as
-//! `opened_from`, so the session they reach takes that session's hold of
-//! external text. Outside a job they send none.
+//! `opened_from`, which the daemon records on `session.opened`. Outside a job
+//! they send none.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;

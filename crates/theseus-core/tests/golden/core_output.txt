@@ -455,12 +455,12 @@ narrate session session=ses_#1 turn=turn_#41 Parked until the operator answers t
 {"approved":true,"correlation_id":"act_#39","execution_id":"exe_#2","resumes":true,"session_id":"ses_#1"}
 frame: action act_#39 · ledger · ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.confirmed","session_id":"ses_#1","data":{"by":"operator","confirm":{"bound_digest":"<sha#>","by":"operator","confirm_id":"cfm_#47","expires_at_ms":#},"correlation_id":"act_#39"},"chain":"#.<sha#>"}
-  ledger {"at_unix_ms":#,"kind":"action.confirm_answered","session_id":"ses_#1","data":{"approved":true,"by":"test","correlation_id":"act_#39","note":null,"option":"approve","trust":false,"via":"cli"},"chain":"#.<sha#>"}
+  ledger {"at_unix_ms":#,"kind":"action.confirm_answered","session_id":"ses_#1","data":{"approved":true,"by":"test","correlation_id":"act_#39","note":null,"option":"approve","via":"cli"},"chain":"#.<sha#>"}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"confirmed"},"chain":"#.<sha#>"}
 frame: outbox out_#48 · ledger
   outbox scope=ses_#1 {"correlation_id":"out_#48","schema":#,"execution_id":"exe_#2","session_id":"ses_#1","tool":"outbox","args_digest":"<sha#>","proposal":{"tool":"outbox","args":{"card":"out_#45","closed":{"by":"test","how":"approved"},"kind":"settle","question":"act_#39"},"resource":"discord:dm:#","policy_context":null},"resource":"discord:dm:#","retry_class":{"class":"safe_to_repeat"},"state":"authorized","deadline_at_ms":#,"planned_at_ms":#,"authorized_at_ms":#,"reserved_micros":#,"completions_seen":#}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"correlation_id":"out_#48","execution_id":"exe_#2","kind":"settle","outbox":"discord:dm:#","retry_class":{"class":"safe_to_repeat"},"tool":"outbox"},"chain":"#.<sha#>"}
-notify confirm.resolved {"approved":true,"by":"test","correlation_id":"act_#39","option":"approve","session_id":"ses_#1","trust":false}
+notify confirm.resolved {"approved":true,"by":"test","correlation_id":"act_#39","option":"approve","session_id":"ses_#1"}
 narrate approval session=ses_#1 turn=- fs.write approved by test.
 narrate session session=ses_#1 turn=- Woken by the approval; the driver resumes the turn.
 
@@ -595,12 +595,12 @@ narrate session session=ses_#1 turn=turn_#56 Parked until the operator answers t
 {"approved":false,"correlation_id":"act_#54","execution_id":"exe_#2","resumes":true,"session_id":"ses_#1"}
 frame: action act_#54 · ledger · ledger · execution exe_#2 · ledger
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.declined","session_id":"ses_#1","data":{"by":"operator","correlation_id":"act_#54","reason":"not that one","tool":"fs.write"},"chain":"#.<sha#>"}
-  ledger {"at_unix_ms":#,"kind":"action.confirm_answered","session_id":"ses_#1","data":{"approved":false,"by":"test","correlation_id":"act_#54","note":"not that one","option":"decline","trust":false,"via":"cli"},"chain":"#.<sha#>"}
+  ledger {"at_unix_ms":#,"kind":"action.confirm_answered","session_id":"ses_#1","data":{"approved":false,"by":"test","correlation_id":"act_#54","note":"not that one","option":"decline","via":"cli"},"chain":"#.<sha#>"}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"execution.queued","session_id":"ses_#1","data":{"execution_id":"exe_#2","why":"declined"},"chain":"#.<sha#>"}
 frame: outbox out_#62 · ledger
   outbox scope=ses_#1 {"correlation_id":"out_#62","schema":#,"execution_id":"exe_#2","session_id":"ses_#1","tool":"outbox","args_digest":"<sha#>","proposal":{"tool":"outbox","args":{"card":"out_#60","closed":{"by":"test","how":"declined"},"kind":"settle","question":"act_#54"},"resource":"discord:dm:#","policy_context":null},"resource":"discord:dm:#","retry_class":{"class":"safe_to_repeat"},"state":"authorized","deadline_at_ms":#,"planned_at_ms":#,"authorized_at_ms":#,"reserved_micros":#,"completions_seen":#}
   ledger scope=ses_#1 {"at_unix_ms":#,"kind":"action.planned","session_id":"ses_#1","data":{"correlation_id":"out_#62","execution_id":"exe_#2","kind":"settle","outbox":"discord:dm:#","retry_class":{"class":"safe_to_repeat"},"tool":"outbox"},"chain":"#.<sha#>"}
-notify confirm.resolved {"approved":false,"by":"test","correlation_id":"act_#54","option":"decline","session_id":"ses_#1","trust":false}
+notify confirm.resolved {"approved":false,"by":"test","correlation_id":"act_#54","option":"decline","session_id":"ses_#1"}
 narrate approval session=ses_#1 turn=- fs.write declined by test, with a note.
 narrate session session=ses_#1 turn=- Woken by the decline; the driver resumes the turn.
 

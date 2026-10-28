@@ -365,22 +365,19 @@ async fn an_l1_job_granted_aws_takes_its_session_at_launch_and_no_other_credenti
 }
 
 /// The other way a job's list gets an AWS endpoint (18c, as for any host):
-/// its call names it beyond `[sandbox] egress`. The call waits, its reason
-/// names the host, and nothing is minted before the answer; once approved,
+/// its call names it beyond `[sandbox] egress`. The call runs (R6,
+/// theseus-gyjyo.8), its reason names the host, a session is minted for it, and
 /// the job runs in L1 with the list its proposal bound, and its session.
 #[tokio::test]
-async fn a_call_that_names_its_aws_endpoint_waits_and_mints_nothing_before_the_answer() {
+async fn a_call_that_names_its_aws_endpoint_runs_with_a_notice_naming_it() {
     let r = rig(
         vec![call(json!({"egress": [STS]})), Scripted::text("Answered.")],
         &[],
     );
     let res = r.turn("whoami, naming STS").await;
-    assert_eq!(res.stop_reason, "awaiting_confirm", "{res:?}");
+    assert_ne!(res.stop_reason, "awaiting_confirm", "{res:?}");
     let (posture, class, granted, reason) = r.gate(&res.session_id);
-    assert_eq!(
-        (posture.as_str(), class.as_deref()),
-        ("approve", Some("l1"))
-    );
+    assert_eq!((posture.as_str(), class.as_deref()), ("notify", Some("l1")));
     assert_eq!(
         granted,
         Some(format!(
@@ -392,15 +389,6 @@ async fn a_call_that_names_its_aws_endpoint_waits_and_mints_nothing_before_the_a
         reason.contains(&format!("beyond [sandbox] egress: {STS}")),
         "{reason}"
     );
-    assert!(r.launched().is_empty());
-    assert_eq!(r.mints(), 0, "a session was minted before the answer");
-    let pending = r.core.pending_confirms(&res.session_id).unwrap();
-    r.core
-        .confirm_action(&pending[0].correlation_id, true, None, "test")
-        .unwrap();
-    let exec = res.execution_id.clone().unwrap();
-    let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
-    assert_eq!(cont.output, "Answered.");
     let jobs = r.launched();
     assert_eq!(jobs.len(), 1);
     let view = jobs[0]

@@ -23,7 +23,7 @@ use crate::provider::Provider;
 use crate::rpc::{Core, Parts};
 use crate::store::Store;
 use crate::tests_security::{
-    a_hold, board, rig_with, security_rows, session, the_call, turn, until_judged, Heard, RunsOnce,
+    board, rig_with, security_rows, session, the_call, turn, until_judged, Heard, RunsOnce,
 };
 use crate::Config;
 
@@ -200,25 +200,20 @@ async fn an_open_call_jev_is_sure_was_risky_posts_one_notice_after_it_started() 
 }
 
 /// Nothing new posts for a call that had its say: a `notify` call (its own
-/// notice and score), an `approve` call, and an open call the hold made
-/// wait, each scored 0.95.
+/// notice and score) and an `approve` call, each scored 0.95.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_call_that_had_its_say_posts_nothing_new() {
     let jev = FakeJev::start().unwrap();
     jev.script("risky", Jev::Noul(0.95));
-    for (p, held) in [
-        (Posture::Notify, false),
-        (Posture::Approve, false),
-        (Posture::Open, true),
-    ] {
+    for p in [Posture::Notify, Posture::Approve] {
         let r = rig_with(echoes(), Some(&jev), posture(p)).await;
-        let sid = session(&r.core, held.then(a_hold));
+        let sid = session(&r.core, None);
         let res = turn(&r.core, &sid, "say hi", None).await;
-        assert_eq!(res.awaiting_confirm.is_some(), p != Posture::Notify || held);
+        assert_eq!(res.awaiting_confirm.is_some(), p != Posture::Notify);
         until_judged(&r.core.store, 1).await;
         settle().await;
-        assert!(notices(&r.core.store).is_empty(), "{p:?} held {held}");
-        assert!(posts(&r.core, "jev_notice").is_empty(), "{p:?} held {held}");
+        assert!(notices(&r.core.store).is_empty(), "{p:?}");
+        assert!(posts(&r.core, "jev_notice").is_empty(), "{p:?}");
     }
 }
 

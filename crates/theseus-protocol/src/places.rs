@@ -36,8 +36,8 @@ impl PlaceClass {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlaceCeiling {
     /// No call here runs looser than this: `open`, `notify`, or `approve`.
-    /// A call's posture is the strictest of the config's, a tightening, this,
-    /// and an external-text hold; never a refusal.
+    /// A call's posture is the strictest of the config's, a tightening, this;
+    /// never a refusal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub posture_floor: Option<String>,

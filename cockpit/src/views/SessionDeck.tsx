@@ -248,7 +248,6 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
           <h1 className="truncate text-[17px] font-semibold text-ink">{s.title || s.label || 'untitled session'}</h1>
           <AttentionPill a={s.attention} state={s.execution_state} />
           <Pill tone={s.kind === 'task' ? 'tool' : 'idle'}>{s.kind}</Pill>
-          {s.external_text && <Pill tone="wait"><ShieldCheck size={11} /> holds external text</Pill>}
           <StateBadge state={s.state} retired={s.retired} />
         </div>
         {s.title_was?.length ? <div className="truncate text-[11px] text-ink-faint" title={s.title_was.join(' · ')}>was: {s.title_was.join(' · ')}</div> : null}
@@ -305,7 +304,6 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
         {s.kind === 'conversation' && <RetireButton sessionId={s.session_id} state={s.state} retired={s.retired} />}
         <PendingNote sessionId={s.session_id} />
         <Recompile busy={!!busy?.startsWith('Recompile')} onPick={(strategy) => act(`Recompile (${strategy})`, 'session.recompile', { session_id: s.session_id, strategy }).then(() => undefined)} />
-        {s.external_text && <Btn tone="wait" onClick={() => act('Trust', 'policy.trust', { session_id: s.session_id })} busy={busy === 'Trust'}><ShieldCheck size={13} /> Trust</Btn>}
         {exec && ['running', 'queued'].includes(exec.state) &&
           <Btn tone="wait" title="Halt the running turn; the session stays" onClick={() => act('Stop', 'execution.stop', { execution_id: exec.execution_id })} busy={busy === 'Stop'}><Pause size={13} /> Stop</Btn>}
         {exec && ['running', 'queued', 'waiting'].includes(exec.state) &&

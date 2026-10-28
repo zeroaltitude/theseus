@@ -71,8 +71,6 @@ export const PARITY: readonly ParityRow[] = [
   { id: 'X1', group: '1d', datum: 'approvals waiting (ConfirmCard, every field, read-only under the time machine)', home: 'here', at: [[QUEUE, '<ConfirmCard c={i.confirm} past='], [ACTIONS, '<ConfirmCard']],
     facts: { fn: 'itemFacts', drawn: QUEUE, fields: ['glyph', 'kind', 'title', 'owner', 'age', 'left'] } },
   { id: 'X2', group: '1d', datum: 'tool calls', home: 'stays', at: [[ACTIONS, '<Lifecycle']] },
-  { id: 'X3', group: '1d', datum: 'external text holds with Trust (a hold that waits is a queue item; one that waits on nothing is a notice in the Notices strip, with Trust again and Dismiss, and also stays on Actions’ holds and in the session deck)', home: 'here',
-    at: [['src/ops/queue.ts', "method: 'policy.trust'"], [ACTIONS, '<Holds'], ['src/ops/Notices.tsx', 'trustCall'], ['src/ops/notices.ts', "method: 'policy.notice_seen'"], ['src/views/SessionDeck.tsx', 'external_text']] },
   { id: 'X4', group: '1d', datum: 'the wakes link: to the Timeline lens', home: 'stays', at: [[ACTIONS, 'to="/agenda"'], ['src/ops/address.ts', "'/agenda': 'timeline'"]] },
   { id: 'X5', group: '1d', datum: 'the tasks panel', home: 'stays', at: [[ACTIONS, 'function Tasks(']] },
   { id: 'X6', group: '1d', datum: 'the task tree', home: 'stays', at: [[ACTIONS, '<TaskTree']] },
@@ -118,7 +116,7 @@ export const INVENTORY: readonly string[] = [
   ...Array.from({ length: 12 }, (_, i) => `A${i + 1}`),
   ...Array.from({ length: 6 }, (_, i) => `T${i + 1}`),
   ...Array.from({ length: 6 }, (_, i) => `H${i + 1}`),
-  ...Array.from({ length: 10 }, (_, i) => `X${i + 1}`),
+  ...Array.from({ length: 10 }, (_, i) => `X${i + 1}`).filter((id) => id !== 'X3'), // X3 (the external-text hold) retired with the hold
   ...Array.from({ length: 18 }, (_, i) => `B${i + 1}`),
   ...Array.from({ length: 8 }, (_, i) => `R${i + 1}`),
 ]

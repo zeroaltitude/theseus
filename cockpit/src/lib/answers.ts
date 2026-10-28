@@ -11,15 +11,13 @@ export type AnswerButton = { id: string; label: string; tone: Tone; takesNote: b
 export function legacyOptions(c: ConfirmRequest): AnswerOption[] {
   const yes = c.budget ? ['reset', 'Reset to $0'] : c.change ? ['accept', 'Accept'] : c.tool === 'extend.ack' ? ['ack', 'Acknowledge'] : ['approve', 'Approve']
   const out: AnswerOption[] = [{ id: yes[0], label: yes[1], style: 'primary', takes_note: false, effect: '' }]
-  if (c.external_text) out.push({ id: 'approve_trust', label: 'Approve and trust', style: 'primary', takes_note: false, effect: '' })
   out.push({ id: 'decline', label: 'Decline', style: 'plain', takes_note: !c.budget, effect: '' })
   return out
 }
 
-/** The tone of a button: a decline is a fault's, a trust is a wait's, and the rest approve. */
+/** The tone of a button: a decline is a fault's, and the rest approve. */
 export function toneOf(o: AnswerOption): Tone {
   if (o.id === 'decline') return 'fault'
-  if (o.id === 'approve_trust') return 'wait'
   return o.style === 'danger' ? 'fault' : 'ok'
 }
 

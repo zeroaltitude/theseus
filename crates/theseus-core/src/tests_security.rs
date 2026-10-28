@@ -1,8 +1,8 @@
 //! `security.v3` at the gate (M5 step 24; design
 //! §3's "24"), against the fake Jev: every call that acts is judged after the
-//! gate decides, and nothing the gate decides changes with it. A call Jev
-//! scores at 1% in a holding session still waits; the floor still asks; a
-//! search is judged only in a session that holds external text; a "should
+//! gate decides, and nothing the gate decides changes with it. The floor still
+//! asks whatever Jev scores; a search is judged only in a session that has read
+//! outside text (a result marked `external`); a "should
 //! have asked" press labels the call's judgments; a notified call's score
 //! follows its notice; a slow Jev never delays `tool.started`; and a judged
 //! tool loop keeps its frame budget.
@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use proptest::prelude::*;
 use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, FakeMode, Scripted as Jev};
-use theseus_protocol::{ExternalText, Message, SessionKind, TurnSubmitResult};
+use theseus_protocol::{Message, SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
 use crate::config::WebToolsConfig;
@@ -153,22 +153,43 @@ pub(crate) async fn rig_with(
     }
 }
 
-pub(crate) fn session(core: &Core, hold: Option<ExternalText>) -> String {
-    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
-    rec.external = hold;
-    core.store.put_session(&rec.session_id, &rec).unwrap();
-    rec.session_id
+/// A page a session read: a fetch's result node marked `external` (DD5), which is all that is left of what
+/// "holding external text" was (R6, theseus-gyjyo.8).
+#[derive(Clone, Copy)]
+pub(crate) struct PageRead;
+
+/// A session that read a page, for [`session`].
+pub(crate) fn a_hold() -> PageRead {
+    PageRead
 }
 
-/// What a session that read a page holds.
-pub(crate) fn a_hold() -> ExternalText {
-    ExternalText {
-        since_ms: 1_700_000_000_000,
-        tool: "http.fetch".into(),
-        url: "http://site.test/page.html".into(),
-        node_id: "nod_page".into(),
-        ..Default::default()
+/// A new conversation, with a page read into it when `read` says so.
+pub(crate) fn session(core: &Core, read: Option<PageRead>) -> String {
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    if read.is_some() {
+        let body = crate::node::Body::ToolResult {
+            tool_use_id: "tu_page".into(),
+            tool: "http.fetch".into(),
+            status: crate::node::ResultStatus::Ok,
+            is_error: false,
+            content: "a page".into(),
+            correlation_id: None,
+            bytes_total: 6,
+            truncated: false,
+            full_ref: None,
+            duration_ms: None,
+            late: false,
+            meta: Value::Null,
+            image: None,
+            external: Some(theseus_tools::External {
+                url: "http://site.test/page.html".into(),
+            }),
+        };
+        let node = crate::node::Node::tool_result(&rec.session_id, None, None, body);
+        core.store.append(&[node.record().unwrap()]).unwrap();
     }
+    rec.session_id
 }
 
 /// Every notification the turn's connection got, with when it came.
@@ -369,54 +390,6 @@ proptest! {
     }
 }
 
-/// In a holding session, a call Jev scores at 1% still waits: the hold is
-/// the deterministic floor, and the record says the hold made it wait.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn in_a_holding_session_a_call_scored_one_percent_still_waits() {
-    let jev = FakeJev::start().unwrap();
-    jev.script("risky", Jev::Noul(0.01));
-    let r = rig(
-        vec![run("r1", &["echo", "hi"]), Scripted::text("Done.")],
-        Some(&jev),
-        |_| {},
-    )
-    .await;
-    let sid = session(&r.core, Some(a_hold()));
-    let res = turn(&r.core, &sid, "run it", None).await;
-    let corr = res.awaiting_confirm.clone().expect("the run waits");
-    let rows = until_judged(&r.core.store, 1).await;
-    let judged = rows
-        .iter()
-        .find(|r| r.data["pack"] == SECURITY_PACK)
-        .unwrap();
-    let c = &judged.data["context"];
-    assert_eq!(c["call"], corr.as_str());
-    assert_eq!(
-        (
-            c["posture"].as_str(),
-            c["hold"].as_bool(),
-            c["hold_raised"].as_bool(),
-            c["waited_on_hold"].as_bool()
-        ),
-        (Some("approve"), Some(true), Some(true), Some(true)),
-        "{c}"
-    );
-    assert_eq!(
-        judged.data["id"],
-        judgment_id(SECURITY_PACK, &corr).as_str()
-    );
-    let risky = &judged.data["answers"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|a| a["question"] == "risky")
-        .unwrap()["band"]["value"];
-    assert_eq!(risky.as_f64(), Some(0.01));
-    // Still waiting, whatever Jev said.
-    assert_eq!(r.core.pending_confirms(&sid).unwrap().len(), 1);
-    assert!(rows.iter().all(|r| r.data["pack"] == SECURITY_PACK));
-}
-
 /// The floor still asks, whatever the score: `op` waits at 1%.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_floor_still_asks() {
@@ -443,12 +416,11 @@ async fn the_floor_still_asks() {
         ),
         (Some(corr.as_str()), Some(true), Some("approve"))
     );
-    assert_eq!(c["waited_on_hold"], false);
     assert!(r.core.pending_confirms(&sid).unwrap()[0].floor);
 }
 
 /// Q12: a `web.search` in a clean session is a read, and is not judged; in a
-/// session that holds external text it is, as the exfiltration path.
+/// session that has read outside text it is, as the exfiltration path.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_search_is_judged_only_in_a_holding_session() {
     let jev = FakeJev::start().unwrap();
@@ -496,7 +468,6 @@ async fn a_search_is_judged_only_in_a_holding_session() {
             ),
             (Some("read"), Some("tools"), Some(true))
         );
-        assert_eq!(c["hold_raised"], false, "a read keeps its posture");
     }
     let (search_call, _) = the_call(&r.core, &held, "web.search");
     assert_eq!(r.core.runner.judge.of_call(&search_call).len(), 1);

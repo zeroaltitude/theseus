@@ -44,7 +44,6 @@ export function KeyGlyph({ g }: { g: Glyph }) {
       {g === 'anchor' && hull('#9a7745')}
       {g === 'planks' && <g>{hull('#b08d57')}<path d="M5 7.6 H15 M4 9 H16.6 M5 10.4 H15" stroke="#e3ad4f" strokeWidth="0.9" strokeDasharray="3 0.8" /></g>}
       {g === 'sea' && <g fill="none" stroke="#22d3ee" strokeWidth="1.1" strokeLinecap="round"><path d="M1 6 Q4 3.6 7 6 T13 6 T19 6" strokeOpacity="0.55" /><path d="M1 10.5 Q4 8.1 7 10.5 T13 10.5 T19 10.5" /><path d="M1 15 Q4 12.6 7 15 T13 15 T19 15" strokeOpacity="0.55" /></g>}
-      {g === 'chain' && <g>{hull('#b08d57')}<path d="M3.4 8.2 Q9 5.2 16.8 8.2" fill="none" stroke="#ffa26a" strokeWidth="1.1" strokeDasharray="1.4 0.9" /></g>}
     </svg>
   )
 }

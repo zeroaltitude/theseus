@@ -138,10 +138,6 @@ pub struct Decision {
     /// What the secret broker gives the call, by name: `gh got GH_TOKEN`
     /// (theseus-dcy). Its tool line and its notice say so.
     pub granted: Option<String>,
-    /// The call waits (or is notified) because its session read external
-    /// text (theseus-9bp): what it read. Set only when that is what raised
-    /// the posture, so its card can offer to trust the session again.
-    pub external: Option<theseus_protocol::ExternalText>,
 }
 
 impl Decision {
@@ -154,7 +150,6 @@ impl Decision {
             notify: self.notify.clone(),
             floor: self.floor,
             granted: self.granted.clone(),
-            external: self.external.clone(),
             // The gate names an L1 call's class (M4 17b).
             class: None,
         }
@@ -167,7 +162,6 @@ impl Decision {
             notify: None,
             floor: false,
             granted: None,
-            external: None,
         }
     }
 

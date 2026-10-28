@@ -7,8 +7,8 @@ const opt = (id: string, label: string, takes_note = false, style = 'plain') => 
 const ask = (o: Record<string, unknown> = {}) => ({ correlation_id: 'act_7f3a9c', session_id: 'ses_a', execution_id: 'exe_a', tool: 'fs.write', input: {}, reason: 'write', by: 'operator', requested_at_ms: 0, expires_at_ms: 0, floor: false, ...o }) as any
 
 test('the buttons are the question\'s options, in order, with their tones', () => {
-  const c = ask({ options: [opt('approve', 'Approve', false, 'primary'), opt('approve_trust', 'Approve and trust', false, 'primary'), opt('decline', 'Decline', true)] })
-  assert.deepEqual(buttonsOf(c).map((b) => [b.id, b.tone, b.takesNote]), [['approve', 'ok', false], ['approve_trust', 'wait', false], ['decline', 'fault', true]])
+  const c = ask({ options: [opt('approve', 'Approve', false, 'primary'), opt('decline', 'Decline', true)] })
+  assert.deepEqual(buttonsOf(c).map((b) => [b.id, b.tone, b.takesNote]), [['approve', 'ok', false], ['decline', 'fault', true]])
 })
 
 test('a floor question\'s approve is drawn as a danger', () => {
@@ -28,7 +28,6 @@ test('no button is drawn for a connection that may not answer', () => {
 test('a daemon that sends no options means the answers its kind always had', () => {
   assert.deepEqual(buttonsOf(ask()).map((b) => b.id), ['approve', 'decline'])
   assert.deepEqual(buttonsOf(ask({ budget: { spent_usd: 1, limit_usd: 1, needed_usd: 1, lifetime_usd: 1 } })).map((b) => b.id), ['reset', 'decline'])
-  assert.deepEqual(buttonsOf(ask({ external_text: { tool: 'web.fetch', url: 'u', since_ms: 0 } })).map((b) => b.id), ['approve', 'approve_trust', 'decline'])
   assert.deepEqual(buttonsOf(ask({ tool: 'extend.ack' })).map((b) => b.id), ['ack', 'decline'])
 })
 

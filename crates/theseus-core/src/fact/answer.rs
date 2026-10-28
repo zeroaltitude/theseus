@@ -22,8 +22,6 @@ pub struct CallAnswered<'a> {
     /// Who answered, and through what.
     pub by: &'a str,
     pub via: &'a str,
-    /// The answer trusts the session again (theseus-9bp).
-    pub trust: bool,
     /// The option it is (`approve`, `decline`, `accept`, `ack`, ...), as
     /// `confirm.resolved` carries it; none for an expiry (theseus-ds5os).
     pub option: Option<&'a str>,
@@ -35,7 +33,7 @@ impl Fact for CallAnswered<'_> {
 
     fn row(&self) -> Value {
         json!({"correlation_id": self.action.correlation_id, "approved": self.approve, "note": self.note, "by": self.by, "via": self.via,
-               "trust": self.trust, "option": self.option})
+               "option": self.option})
     }
 
     fn event(&self) -> Option<Event> {
@@ -44,7 +42,6 @@ impl Fact for CallAnswered<'_> {
             correlation_id: self.action.correlation_id.clone(),
             approved: self.approve,
             by: Some(self.by.into()),
-            trust: Some(self.trust),
             option: self.option.map(str::to_string),
             ..Default::default()
         }))
@@ -187,15 +184,12 @@ pub struct ActRefused<'a> {
 }
 
 impl ActRefused<'_> {
-    /// Whose it is: the answered call's session, or the trusted or
-    /// dismissed one's.
+    /// Whose it is: the answered call's session, or the unlabelled one's.
     pub fn session(&self) -> Option<&str> {
         match self.act {
             Act::Answer { action: a, .. } => Some(a.session_id.as_str()),
             Act::Tighten { .. } | Act::Untighten { .. } => None,
-            Act::Trust { session }
-            | Act::Dismiss { session, .. }
-            | Act::Unlabel { session, .. } => Some(session),
+            Act::Unlabel { session, .. } => Some(session),
             Act::Publish { .. }
             | Act::Ontology { .. }
             | Act::Label { .. }
@@ -235,15 +229,11 @@ impl Fact for ActRefused<'_> {
                 json!({"act": act.method(), "tool": tool, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
-            Act::Trust { session } => {
-                json!({"act": act.method(), "session_id": session, "who": r.who, "via": r.via,
-                       "why": r.why, "by": self.by})
-            }
             Act::Publish { place } => {
                 json!({"act": act.method(), "place": place, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
             }
-            Act::Dismiss { session, what } | Act::Unlabel { session, what } => {
+            Act::Unlabel { session, what } => {
                 json!({"act": act.method(), "session_id": session, "what": what, "who": r.who,
                        "via": r.via, "why": r.why, "by": self.by})
             }
@@ -300,10 +290,6 @@ impl Fact for ActRefused<'_> {
                 "An undo of {tool}'s tightening from {who} through {via} did not count: {why}. \
                  It keeps asking first."
             ),
-            Act::Trust { .. } => format!(
-                "Trusting this session again, from {who} through {via}, did not count: {why}. \
-                 Its calls that act keep waiting."
-            ),
             Act::Publish { place } => format!(
                 "Publishing into {place}, from {who} through {via}, did not count: {why}. \
                  Nothing was published."
@@ -324,7 +310,7 @@ impl Fact for ActRefused<'_> {
                 "The import's {what}, from {who} through {via}, did not count: {why}. Nothing \
                  was written."
             ),
-            Act::Session { what, .. } | Act::Dismiss { what, .. } | Act::Unlabel { what, .. } => {
+            Act::Session { what, .. } | Act::Unlabel { what, .. } => {
                 format!(
                     "{what}, from {} through {}, did not count: {}. The session is as it was.",
                     who, via, why

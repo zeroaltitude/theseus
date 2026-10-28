@@ -311,8 +311,7 @@ impl Tool for Close {
         json!({"type": "object", "required": ["terminal"], "additionalProperties": false,
             "properties": {"terminal": {"type": "string"}}})
     }
-    /// A read: it stops only what this session started, as a cancel does,
-    /// so it never waits on a hold.
+    /// A read: it stops only what this session started, as a cancel does.
     fn class(&self) -> ToolClass {
         ToolClass::Read
     }

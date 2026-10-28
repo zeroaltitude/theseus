@@ -15,12 +15,12 @@ const DAY = Date.UTC(2026, 9, 6, 7, 0, 0)
 const NOW = DAY + 14 * HOUR_MS
 const MIN = 60_000
 
-interface V { id: string; title?: string; state?: string; attention?: { level: string; label: string; since_ms: number }; hold?: Record<string, unknown> }
+interface V { id: string; title?: string; state?: string; attention?: { level: string; label: string; since_ms: number } }
 interface L { id: string; session: string; kind: 'user' | 'model' | 'call' | 'result'; at: number; turn?: string; tool?: string; cid?: string; failed?: boolean; l1?: boolean; running?: boolean; preview?: string }
 
 /** A model with only what the watch reads: vessels, lights, and their lookups. */
 function fleet(vs: V[], ls: L[] = []) {
-  const vessels = vs.map((v) => ({ id: v.id, title: v.title ?? v.id, state: v.state ?? 'waiting', attention: v.attention, hold: v.hold, kind: 'conversation', rig: 'anchor' }))
+  const vessels = vs.map((v) => ({ id: v.id, title: v.title ?? v.id, state: v.state ?? 'waiting', attention: v.attention, kind: 'conversation', rig: 'anchor' }))
   const byId = new Map(vessels.map((v, i) => [v.id, i]))
   const lights = ls.map((l) => ({
     id: l.id, sessionId: l.session, vessel: byId.get(l.session), kind: l.kind, at: l.at, turnId: l.turn, tool: l.tool,
@@ -466,19 +466,6 @@ test("the words: a job's program, and each plate's key", () => {
   assert.equal(programOf(['sh', '-c', 'echo done']), undefined)
   assert.deepEqual(WATCH_KEYS.map(keyOf), ['1', '2', '3', '4', '5', '6'])
   assert.deepEqual([keyOf('working'), keyOf('wrong'), keyOf('since')], ['1', '5', '6'])
-})
-
-test('a session that holds web text waits for your trust: said in the caption and on its line, not in the number', () => {
-  const hold = { since_ms: NOW - 20 * MIN, tool: 'http.fetch', url: 'tides.example/today', node_id: 'trs_tides' }
-  const model = fleet([{ id: 'ses_h', title: 'Tide news', hold }, { id: 'ses_q', title: 'Search the charts', hold: { ...hold, tool: 'web.search', query: 'north channel silt', node_id: '' } }])
-  const w = watchOf(at({ model }))
-  assert.deepEqual([w.waiting.value, w.waiting.holds, w.waiting.tone], ['0', 2, 'idle'])
-  assert.equal(w.waiting.caption, 'nothing waits for your answer; 2 sessions hold web text')
-  assert.deepEqual(w.waiting.lines.map((l) => [l.tag, l.text, l.detail, l.to?.node]), [
-    ['holds', 'read http.fetch tides.example/today', 'since 20m · Tide news', 'trs_tides'],
-    ['holds', 'read web.search "north channel silt"', 'since 20m · Search the charts', undefined],
-  ])
-  assert.deepEqual(w.waiting.focus, { vessels: ['ses_h', 'ses_q'], lights: [] })
 })
 
 test("a walk back from a moment starts at the moment, not at the ledger's end, and misses no row a skew put late", () => {

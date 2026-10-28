@@ -61,7 +61,7 @@ async fn idle_read(terms: &Arc<Terms>, id: &str, timeout_ms: u64, dir: &std::pat
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn until_idle_waits_for_the_typed_command() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let id = bash(&terms, d.path()).await;
     // At an idle prompt, at once.
     tokio::time::sleep(IDLE_SETTLE).await;
@@ -157,7 +157,7 @@ async fn until_idle_waits_for_the_typed_command() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_repl_at_its_prompt_reads_idle_and_an_end_ends_the_wait() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let (o, _) = call(
         &terms,
         "s1",
@@ -186,9 +186,9 @@ async fn a_repl_at_its_prompt_reads_idle_and_an_end_ends_the_wait() {
 /// far as `[tools] proc_sync_secs`.
 #[test]
 fn until_idle_alone_may_wait_as_long_as_proc_run_does() {
-    let t = Terms::new(Vec::new(), Vec::new()).configured(true, 900);
+    let t = Terms::new(Vec::new()).configured(true, 900);
     assert_eq!(t.idle_max_ms, 900_000);
-    let t = Terms::new(Vec::new(), Vec::new()).configured(true, 10);
+    let t = Terms::new(Vec::new()).configured(true, 10);
     assert_eq!(t.idle_max_ms, MAX_WAIT_MS);
 }
 
@@ -200,7 +200,7 @@ fn until_idle_alone_may_wait_as_long_as_proc_run_does() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_list_between_its_commands_is_not_idle() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let id = bash(&terms, d.path()).await;
     for round in 0..5 {
         let done = d.path().join(format!("done{round}"));
@@ -233,7 +233,7 @@ async fn a_list_between_its_commands_is_not_idle() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_repl_computing_is_not_idle() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let (o, _) = call(
         &terms,
         "s1",
@@ -273,7 +273,7 @@ async fn a_repl_computing_is_not_idle() {
 /// without `until_idle`, at most `MAX_WAIT_MS`; 10 s when no timeout is given.
 #[test]
 fn a_reads_bound_is_proc_runs_only_for_until_idle_alone() {
-    let t = Terms::new(Vec::new(), Vec::new()).configured(true, 900);
+    let t = Terms::new(Vec::new()).configured(true, 900);
     let bound = |ms, alone| tools::bound_of(&t, ms, alone).as_millis();
     assert_eq!(bound(Some(900_000), true), 900_000);
     assert_eq!(bound(Some(2_000_000), true), 900_000);
@@ -286,7 +286,7 @@ fn a_reads_bound_is_proc_runs_only_for_until_idle_alone() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn until_idle_with_quiet_ends_at_the_quiet() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let id = bash(&terms, d.path()).await;
     call(
         &terms,
@@ -320,7 +320,7 @@ async fn until_idle_with_quiet_ends_at_the_quiet() {
 async fn a_message_queued_behind_the_turn_ends_a_terminals_wait() {
     let d = tempfile::tempdir().unwrap();
     let dir = d.path().canonicalize().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let id = bash(&terms, &dir).await;
     call(
         &terms,

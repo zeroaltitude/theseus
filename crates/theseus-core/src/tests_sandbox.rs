@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 use theseus_kernel::job::WrapperArgs;
-use theseus_protocol::{ExternalText, SessionKind, TurnSubmitResult};
+use theseus_protocol::{SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
 use crate::node::{Body, ResultStatus};
@@ -332,9 +332,9 @@ async fn l1_argv_and_the_default_route_to_l1_whatever_the_call_says() {
     assert_eq!(all.launched(), ["l1"]);
 }
 
-/// The class is bound (design §2.2): a session that holds external text
-/// still holds an L1 call (decision 4: 20a lifts it), so it waits; its
-/// proposal names L1, so a proposal without the class (an L0 dispatch of
+/// The class is bound (design §2.2): an L1 call the operator's own word
+/// makes wait (`[policy.tools] "proc.run" = approve`, which L1 keeps) has a
+/// proposal that names L1, so a proposal without the class (an L0 dispatch of
 /// it) is refused by the digest, and once approved it runs in L1, the class
 /// its proposal names.
 #[tokio::test]
@@ -344,19 +344,11 @@ async fn an_approved_l1_call_runs_in_l1_and_never_as_l0() {
             run(json!({"argv": ["true"], "sandbox": true})),
             Scripted::text("Ran."),
         ],
-        |_, _| {},
+        |cfg, _| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Approve);
+        },
     );
-    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
-    rec.external = Some(ExternalText {
-        since_ms: 1,
-        tool: "http.fetch".into(),
-        url: "page".into(),
-        node_id: "nod_page".into(),
-        from_session: None,
-        via: None,
-        query: None,
-    });
-    let res = r.turn(Some(rec), "run it in L1").await;
+    let res = r.turn(None, "run it in L1").await;
     assert_eq!(res.stop_reason, "awaiting_confirm", "{res:?}");
     assert_eq!(
         r.gates(&res.session_id),

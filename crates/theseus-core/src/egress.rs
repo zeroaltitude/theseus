@@ -8,18 +8,17 @@
 //!   `allow_argv` is: every L1 job may reach those hosts. Empty by default, so
 //!   L1 has no network. A call may name more:
 //!   `proc.run { sandbox: { egress: ["pypi.org:443"] } }`.
-//! - **A host beyond the list makes the call wait** (step 2 of the order, as a
-//!   path outside the roots does). Its approval reaches only the hosts it
-//!   named: the job's whole list is in its proposal, so the digest a confirm
-//!   binds covers it, and a confirmed call runs with that list and no other.
-//! - **Outside text.** A job that reached a host beyond `[sandbox] egress`,
-//!   one only its call's approved list let it reach, returns what it brought
-//!   back. Its result is marked `external` (DD5's marker, its `url` those
-//!   hosts), so T1 holds its session (`via: egress`), and its node is
-//!   untrusted, its readers still `Owner`. A job that reached only the hosts
-//!   the operator listed, or none, keeps 19a's label and holds nothing: the
-//!   operator chose those hosts, and a build that fetched its crates must not
-//!   stop to ask (theseus-gyin; theseus-20f, closed for L1).
+//! - **A host beyond the list is a notice** (R6, theseus-gyjyo.8): the call
+//!   runs at L1's notify, and the notice names those hosts. The job's whole
+//!   list is in its proposal, so the job gets the operator's list and the
+//!   hosts its call named, and no other. Where the operator's own word makes
+//!   the call ask (a `[policy.tools]` line, a tightening), it still asks.
+//! - **Outside text.** A job that reached a host beyond `[sandbox] egress`
+//!   returns what it brought back. Its result is marked `external` (DD5's
+//!   marker, its `url` those hosts), and its node is untrusted, its readers
+//!   still `Owner`. A job that reached only the hosts the operator listed, or
+//!   none, keeps 19a's label and is not marked: the operator chose those
+//!   hosts (theseus-gyin; theseus-20f, closed for L1).
 
 use serde_json::Value;
 use theseus_kernel::Action;
@@ -80,18 +79,25 @@ pub fn list(operator: &[String], call: &[String]) -> (Vec<String>, Vec<String>) 
 }
 
 /// The gate's step for a call whose hosts go beyond `[sandbox] egress`: it
-/// waits for the operator, whatever L1's posture would be, and the reason
-/// names those hosts.
+/// runs, and its notice names those hosts. A call that already asks (the
+/// operator's own word about the tool) still does.
 pub fn gate(d: Decision, beyond: &[String], tool: &str, summary: &str) -> Decision {
-    if beyond.is_empty() {
+    if beyond.is_empty() || d.posture == Posture::Approve {
         return d;
     }
     let why = format!(
-        "it names hosts beyond [sandbox] egress: {}; an approval lets this job reach them, and \
-         no other",
+        "it names hosts beyond [sandbox] egress: {}; the job reaches them, and no other",
         beyond.join(", ")
     );
-    d.at_least(Posture::Approve, &why, "[sandbox] egress", tool, summary)
+    if d.posture < Posture::Notify {
+        return d.at_least(Posture::Notify, &why, "[sandbox] egress", tool, summary);
+    }
+    let mut d = d;
+    d.reason = format!("{}; {why}", d.reason);
+    if let Some(n) = d.notify.as_mut() {
+        n.rule = format!("{}; {why}", n.rule);
+    }
+    d
 }
 
 /// The list a proposal binds: what a confirmed call's job may reach.

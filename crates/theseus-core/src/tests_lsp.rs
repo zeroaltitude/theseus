@@ -608,7 +608,6 @@ async fn a_rename_is_gated_on_every_file_it_writes() {
         notify: None,
         floor: false,
         granted: None,
-        external: None,
     };
     let d = crate::lsp::gate(rt, tool.as_ref(), &outside, open);
     assert_eq!(d.posture, Posture::Approve, "{}", d.reason);

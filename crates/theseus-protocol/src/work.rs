@@ -411,10 +411,6 @@ pub struct Question {
     /// to need you.
     #[serde(default)]
     pub asked_at_ms: u64,
-    /// The call waits because its session read external text: an approval
-    /// may trust the session again (`action.confirm`'s `trust`).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub external_text: bool,
     /// An `ask`'s own choices, in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<String>,
@@ -444,7 +440,7 @@ pub enum Style {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AnswerOption {
-    /// `approve`, `approve_trust`, `decline`, `reset`, `accept`, `ack`, or
+    /// `approve`, `decline`, `reset`, `accept`, `ack`, or
     /// `choice:N`.
     pub id: String,
     pub label: String,
@@ -523,8 +519,7 @@ fn option(id: &str, label: &str, style: Style, takes_note: bool, effect: &str) -
 }
 
 /// A question's answers, worded once for every surface: an approval gives
-/// approve, approve and trust (when its session read external text), and
-/// decline with a note, and the floor marks approve as dangerous; a budget
+/// approve and decline with a note, and the floor marks approve as dangerous; a budget
 /// question gives reset and decline; a task change accept and decline; an
 /// extension ack and decline; an `ask` its choices, then something else.
 pub fn answer_options(q: &Question) -> Vec<AnswerOption> {
@@ -537,15 +532,6 @@ pub fn answer_options(q: &Question) -> Vec<AnswerOption> {
                 Style::Primary
             };
             let mut out = vec![option("approve", "Approve", style, false, "the call runs")];
-            if q.external_text {
-                out.push(option(
-                    "approve_trust",
-                    "Approve and trust",
-                    style,
-                    false,
-                    "the call runs, and the session is trusted again",
-                ));
-            }
             out.push(decline("the call does not run"));
             out
         }
@@ -931,7 +917,6 @@ fn brief(p: &PendingConfirm, asked_by: WorkRef, asked_at_ms: u64) -> Question {
         may_answer: false,
         tool: Some(p.tool.clone()),
         asked_at_ms,
-        external_text: false,
         choices: Vec::new(),
     };
     q.options = answer_options(&q);

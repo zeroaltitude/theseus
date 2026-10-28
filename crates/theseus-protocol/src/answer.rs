@@ -99,7 +99,7 @@ pub fn reminder_options() -> Vec<AnswerOption> {
 pub fn approves(option: &str) -> bool {
     matches!(
         option,
-        "approve" | "approve_trust" | "approve_grant" | "reset" | "accept" | "ack"
+        "approve" | "approve_grant" | "reset" | "accept" | "ack"
     )
 }
 
@@ -134,7 +134,6 @@ impl ConfirmRequest {
             may_answer,
             tool: Some(self.tool.clone()),
             asked_at_ms: self.requested_at_ms,
-            external_text: self.external_text.is_some(),
             choices: match asking {
                 true => crate::work::ask::choices_of(&self.input),
                 false => Vec::new(),

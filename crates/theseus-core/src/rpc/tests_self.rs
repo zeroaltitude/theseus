@@ -283,7 +283,7 @@ fn the_log_holds_self_rows_and_todays_kinds_newest_first() {
         &c,
         "approval.refused",
         now - 2 * DAY,
-        json!({"act": "policy.trust", "who": "x", "why": "y"}),
+        json!({"act": "content.unlabel", "who": "x", "why": "y"}),
     );
     seed(
         &c,

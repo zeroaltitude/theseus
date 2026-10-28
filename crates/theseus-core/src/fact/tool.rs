@@ -4,8 +4,7 @@ use serde_json::{json, Value};
 use theseus_kernel::Action;
 use theseus_protocol::NarrativePart::{Approval, Job, Tool};
 use theseus_protocol::{
-    notify, ConfirmRequest, ConfirmResolved, Event, ExternalText, GateRecord, LedgerKind,
-    PolicyNotified,
+    notify, ConfirmRequest, ConfirmResolved, Event, GateRecord, LedgerKind, PolicyNotified,
 };
 
 use super::{Fact, Say};
@@ -364,20 +363,6 @@ impl Fact for AwsSessionMinted<'_> {
 
     fn row(&self) -> Value {
         self.row.clone()
-    }
-}
-
-/// The session took a hold on external text (theseus-9bp): a result it
-/// read, or a task's report that carried one. A call that acts now waits,
-/// or is notified.
-pub struct HoldTaken<'a> {
-    pub hold: &'a ExternalText,
-    pub mode: crate::external::Mode,
-}
-
-impl Fact for HoldTaken<'_> {
-    fn narrate(&self, say: &mut Say<'_>) {
-        say.line(Approval, crate::external::narrated(self.hold, self.mode));
     }
 }
 
@@ -828,25 +813,6 @@ impl Fact for TaskStarted<'_> {
                     Some(t) => format!("to {t}"),
                     None => "in this session".to_string(),
                 }
-            ),
-        );
-    }
-}
-
-/// A task started from a session that holds external text holds it too
-/// (theseus-9bp): its calls that act wait until the operator trusts it.
-pub struct TaskHoldsExternal<'a> {
-    pub short: &'a str,
-}
-
-impl Fact for TaskHoldsExternal<'_> {
-    fn narrate(&self, say: &mut Say<'_>) {
-        say.line(
-            Approval,
-            format!(
-                "Task {} holds this session's external text from its start, so its calls that \
-                 act wait for approval too, until the operator trusts it.",
-                self.short
             ),
         );
     }

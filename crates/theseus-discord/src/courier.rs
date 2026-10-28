@@ -247,7 +247,6 @@ fn asks(w: &Write) -> bool {
         Buttons::Confirm(_)
             | Buttons::Card(..)
             | Buttons::Ask(..)
-            | Buttons::ConfirmTrust(_)
             | Buttons::ConfirmGrant(..)
             | Buttons::Accept(_)
     ) || w.key.starts_with("needs-you:")
@@ -1146,8 +1145,6 @@ impl Lane {
         let mut note = render::card_note(&route, &card.line, elsewhere);
         let key = key_of_card(&q);
         let note_key = format!("approval:{q}");
-        // A call that waits because its session read external text gets the
-        // third button, which trusts the session again (theseus-9bp).
         let mut buttons = ask::card_buttons(&req, &q);
         // The card as one V2 message (theseus-2j2ka) when the bot may send one.
         let v2 = self.shared.v2_cards() && !req.options.is_empty();
@@ -1821,12 +1818,9 @@ impl Lane {
             body["flags"] = json!(policy::SUPPRESS_NOTIFICATIONS);
         }
         let comps = match buttons {
-            Buttons::Confirm(corr) => confirm_buttons(corr, false),
+            Buttons::Confirm(corr) => confirm_buttons(corr),
             Buttons::Ask(corr, choices) => crate::runtime::ask_buttons(corr, choices),
-            Buttons::Card(corr, choices, trust) => {
-                crate::runtime::card_buttons(corr, choices, *trust)
-            }
-            Buttons::ConfirmTrust(corr) => confirm_buttons(corr, true),
+            Buttons::Card(corr, choices) => crate::runtime::card_buttons(corr, choices),
             Buttons::ConfirmGrant(corr, o) => crate::runtime::grant::grant_buttons(corr, o),
             Buttons::Accept(corr) => crate::runtime::accept_buttons(corr),
             Buttons::ShouldHaveAsked(options) => asked_menu(options),
@@ -1882,7 +1876,7 @@ impl Lane {
             LedgerKind::DiscordMessageOut,
             None,
             json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "ping": ping, "held": wants && !ping,
-                   "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::ConfirmTrust(_) | Buttons::Accept(_)),
+                   "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::Accept(_)),
                    "menu": matches!(buttons, Buttons::ShouldHaveAsked(_)), "mentions": mentioned}),
         );
         Ok((m.id.get(), m.content))
@@ -1900,12 +1894,9 @@ impl Lane {
         }
         let none = AllowedMentions::default();
         let comps = match buttons {
-            Buttons::Confirm(corr) => Some(confirm_buttons(corr, false)),
+            Buttons::Confirm(corr) => Some(confirm_buttons(corr)),
             Buttons::Ask(corr, choices) => Some(crate::runtime::ask_buttons(corr, choices)),
-            Buttons::Card(corr, choices, trust) => {
-                Some(crate::runtime::card_buttons(corr, choices, *trust))
-            }
-            Buttons::ConfirmTrust(corr) => Some(confirm_buttons(corr, true)),
+            Buttons::Card(corr, choices) => Some(crate::runtime::card_buttons(corr, choices)),
             Buttons::ConfirmGrant(corr, o) => Some(crate::runtime::grant::grant_buttons(corr, o)),
             Buttons::Accept(corr) => Some(crate::runtime::accept_buttons(corr)),
             Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),

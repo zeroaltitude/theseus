@@ -6,21 +6,18 @@
 //! should be an exact count (the retired sessions' executions read) is the
 //! owner's call; changing it changes these tests on purpose.
 
-use super::*;
 use crate::approval::Answerer;
-use crate::external::Mode;
+use crate::test_support::turn;
+use crate::tests_unlabel::{core_in, session};
+use crate::{session::SessionRecord, Core};
+use std::path::Path;
+use std::sync::Arc;
 use theseus_protocol::notice::WaitingSplit;
 
 /// A core, and `n` sessions that each took one turn, so each one's execution
 /// waits on input.
 async fn at_rest(dir: &Path, n: usize) -> (Arc<Core>, Vec<String>) {
-    let core = core_mode(
-        dir,
-        0,
-        |_| Scripted::text("ok"),
-        false,
-        (Mode::Notify, Posture::Open),
-    );
+    let core = core_in(dir);
     let mut sids = Vec::new();
     for i in 0..n {
         let sid = session(&core);

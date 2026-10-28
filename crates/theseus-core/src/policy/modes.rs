@@ -290,7 +290,7 @@ pub(crate) fn gate(
 /// raised it past its posture (it has no path, so the floor, the lists and
 /// the roots cannot).
 fn quiet(d: Decision) -> Decision {
-    if d.floor || d.external.is_some() || d.posture == Posture::Open {
+    if d.floor || d.posture == Posture::Open {
         return d;
     }
     Decision {

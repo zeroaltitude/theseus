@@ -429,9 +429,7 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
 }
 
 /// How to answer a tool's question, after its first line: its input, then
-/// the commands that approve it, approve it and trust its session (when it
-/// waits because its session read external text, theseus-9bp), and decline
-/// it.
+/// the commands that approve it and decline it.
 fn answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
     // What the call would do (an edit's hunk, a command with its directory)
     // stands in for its input, which holds the same text as JSON.
@@ -449,16 +447,6 @@ fn answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
         Tag::Dim,
         &format!("      approve: theseus answer {} approve", c.correlation_id),
     );
-    if c.external_text.is_some() {
-        push(
-            out,
-            Tag::Dim,
-            &format!(
-                "      approve, and trust the session again: theseus answer {} approve_trust",
-                c.correlation_id
-            ),
-        );
-    }
     push(
         out,
         Tag::Dim,
@@ -1505,51 +1493,12 @@ pub fn budget_line(b: &theseus_protocol::BudgetInfo) -> String {
     s
 }
 
-/// The sessions that hold external text (theseus-9bp), as health and `policy
-/// list` say them under `ask`; [`external::line`] says them for a mode.
-pub fn external_line(held: &[theseus_protocol::ExternalTextInfo]) -> Option<String> {
-    external::line(held, "ask")
-}
-
-/// What a session read, as the hold's reason names it (theseus-qiy): a
-/// search by its query, anything else by its URL, cut to 72 characters.
-pub fn held_what(h: &theseus_protocol::ExternalText) -> String {
-    let what = h.what();
-    if what.chars().count() <= 72 {
-        return what;
-    }
-    format!("{}…", what.chars().take(71).collect::<String>())
-}
-
-/// When a hold began: the daemon's local time, as the reason says it
-/// (theseus-qiy), or UTC from a daemon that sends none.
-pub fn held_since(since_local: &str, h: &theseus_protocol::ExternalText) -> String {
-    if since_local.is_empty() {
-        fmt_time(h.since_ms)
-    } else {
-        since_local.to_string()
-    }
-}
-
 /// A session id as people name it: `…` and its last six characters.
 pub fn short_id(id: &str) -> String {
     let n = id.chars().count();
     format!(
         "…{}",
         id.chars().skip(n.saturating_sub(6)).collect::<String>()
-    )
-}
-
-/// What `theseus policy trust` prints: the session, what it had read, and
-/// that its calls that act run at their postures again.
-pub fn trusted_line(r: &theseus_protocol::TrustResult) -> String {
-    format!(
-        "trusted session {} again (by {}) · it had read {} since {} · its calls that act run at \
-         their postures again, until it reads external text again",
-        r.session_id,
-        r.by,
-        r.held.what(),
-        held_since(&r.since_local, &r.held)
     )
 }
 
@@ -1840,9 +1789,6 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
                 t.join(", ")
             ),
         );
-    }
-    if let Some(line) = external::line(&h.external_text, &h.external_text_mode) {
-        push(o, Tag::Plain, &line);
     }
     // A line per open terminal (theseus-n88g.4), and what their closes left.
     let terms = theseus_protocol::term::health_lines(&h.terminals, &h.terminals_left, now_ms);

@@ -101,7 +101,6 @@ impl Core {
             note,
             by,
             via,
-            trust: false,
             option: answer.option(),
         };
         let acked = ExtendAcked {

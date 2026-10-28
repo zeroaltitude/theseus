@@ -435,7 +435,6 @@ pub fn question(sid: &str, correlation_id: &str, reason: &str, at: u64) -> Confi
         floor: false,
         budget: None,
         task: None,
-        external_text: None,
         change: None,
         options: Vec::new(),
         may_answer: None,
@@ -1356,12 +1355,6 @@ async fn the_card_shows_the_question_and_y_approves_it_as_the_tui() {
     NOW.with(|n| n.set(T0 + 99_000));
     rig.runner.draw().unwrap();
     assert!(rig.screen().iter().any(|l| l.contains("expires in 4:11")));
-    rig.press(&[KeyCode::Char('t')]).await;
-    assert!(
-        rig.screen()[19].contains("nothing to trust"),
-        "{:?}",
-        rig.screen()
-    );
     rig.press(&[KeyCode::Char('y')]).await;
     rig.asked("work.answer", 1).await;
     assert_eq!(
@@ -1428,39 +1421,21 @@ async fn a_long_reason_wraps_and_is_read_to_its_end() {
     );
 }
 
-/// `n` asks for a note, and the decline carries it; `t` approves and trusts a
-/// session that holds external text.
+/// `n` asks for a note, and the decline carries it.
 #[tokio::test]
-async fn n_declines_with_a_note_and_t_trusts_external_text() {
+async fn n_declines_with_a_note() {
     let world = two_questions();
-    {
-        let mut w = world.lock().unwrap();
-        let confirms = w.board["confirms"].as_array_mut().unwrap();
-        confirms[1]["external_text"] = json!({
-            "since_ms": T0, "tool": "web.search", "url": "", "node_id": "nod_s1",
-            "query": "harbour tide tables",
-        });
-    }
     let mut rig = Rig::new(120, 20, script(world));
     rig.shows("ready  DM +1").await;
     rig.press(&[KeyCode::Tab, KeyCode::Char('n')]).await;
     rig.type_text("not before the review").await;
     rig.press(&[KeyCode::Enter]).await;
     rig.asked("work.answer", 1).await;
-    rig.press(&[KeyCode::Tab]).await;
-    rig.shows("[t] approve + trust").await;
-    assert!(rig
-        .screen()
-        .iter()
-        .any(|l| l.contains("web.search \"harbour tide tables\"")));
-    rig.press(&[KeyCode::Char('t')]).await;
-    rig.asked("work.answer", 2).await;
     assert_eq!(
         rig.daemon().asked("work.answer"),
         [
             json!({"question_id": "cor_spec01", "option": "decline", "author": "the TUI",
-                   "note": "not before the review"}),
-            json!({"question_id": "cor_tide01", "option": "approve_trust", "author": "the TUI"}),
+                "note": "not before the review"})
         ]
     );
 }
