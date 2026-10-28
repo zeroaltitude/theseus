@@ -20,7 +20,6 @@ use std::time::{Duration, Instant};
 use crate::content::ContentFlags;
 #[cfg(test)]
 use crate::node::Body;
-use crate::stub::Stub;
 
 /// What a turn waits on: the asks out for a session, and the next landing.
 /// The judge service's per-session notify (`judge/content.rs`) stands behind
@@ -37,9 +36,7 @@ pub trait Verdicts: Send + Sync {
     /// **A wake-up that comes after this call must end the future, even if it
     /// comes before the future's first poll** (a `Notify`'s `notified()` enabled
     /// at once, or a permit): the turn takes the future, reads the count, and only
-    /// then waits, so a verdict that lands in between is not slept through. The
-    /// call also tells the judge a turn is blocked on this session, so a landing
-    /// parked behind the turn writes now.
+    /// then waits, so a verdict that lands in between is not slept through.
     fn settled(&self, session: &str) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 }
 
@@ -143,56 +140,27 @@ pub fn try_mark_of(
         .map_or(theseus_protocol::ops::DataMark::Open, |d| d.mark()))
 }
 
-/// Whether `node` is an item: what the judge classifies when it enters a
-/// session. An operator's message, a brief or a report, and a tool result; not
-/// the acknowledgement of a tool whose answer is Theseus's own fixed string,
-/// and not a line the harness wrote in its own words (the turn clock, the
-/// progress line, the end note).
-///
-/// **It states nothing itself**: `content::item_text` is the one definition,
-/// and the submitter is built on the same call (theseus-sh1n3). A second
-/// statement of the rule here is how the two sets came apart, and how a clock
-/// node or a `task.create` result could wedge a session off every model of
-/// restricted origin for good.
-pub(crate) fn is_item(node: &Stub) -> bool {
-    crate::content::item_text(node).is_some()
-}
-
-/// Whether `nodes` (a session's transcript, in order) hold an item past what
-/// `flags.judged_through` names. **No production code reads it**
-/// (theseus-gyjyo.6): the chokepoint and the turn's floor read labels, and the
-/// mark is written and left unread until R5b removes it; it stays here for the
-/// judge's landing tests, which assert where the mark stands.
-#[cfg(test)]
-pub fn unjudged(nodes: &[(u64, Stub)], flags: Option<&ContentFlags>) -> bool {
-    let through = flags
-        .and_then(|f| f.judged_through.as_deref())
-        .and_then(|id| nodes.iter().position(|(_, n)| n.id == id));
-    let after = match through {
-        Some(at) => &nodes[at + 1..],
-        None => nodes,
-    };
-    after.iter().any(|(_, n)| is_item(n))
-}
-
 /// A judge for tests: it lands a verdict when a turn waits for one, as the
-/// real judge's notify does between a turn's read and its wait. Every item
-/// past the session's `judged_through` is read by `rule`, which names the
-/// flags its kind and text raise, and the mark moves to the last node. Attach it to a
-/// core's store, then stand it behind `core.runner.verdicts`.
+/// real judge's notify does between a turn's read and its wait. Every item it
+/// has not read yet is read by `rule`, which names the flags its kind and text
+/// raise; what it has read it remembers in memory, as the count of asks out
+/// for a session. Attach it to a core's store, then stand it behind
+/// `core.runner.verdicts`.
 #[cfg(test)]
 pub(crate) mod judging {
     use super::*;
-    use crate::content::{Flag, ItemKind, Label};
+    use crate::content::{item_text, Flag, ItemKind, Label};
 
     type Rule = Box<dyn Fn(ItemKind, &str) -> Vec<Flag> + Send + Sync>;
 
     pub(crate) struct Judging {
         store: std::sync::OnceLock<crate::store::Store>,
         rule: Rule,
-        /// Set: judge only the nodes a hook site actually submitted, and stop
-        /// the mark at the first item nobody did (theseus-sh1n3).
+        /// Set: judge only the nodes a hook site actually submitted
+        /// (theseus-sh1n3).
         real: std::sync::OnceLock<std::sync::Arc<crate::judge::JudgeService>>,
+        /// The nodes it has read, by id: what is no longer an ask out.
+        read: std::sync::Mutex<std::collections::HashSet<String>>,
         /// How many times a turn waited on it, by session.
         pub waits: std::sync::Mutex<Vec<String>>,
     }
@@ -210,6 +178,7 @@ pub(crate) mod judging {
                 store: Default::default(),
                 rule: Box::new(rule),
                 real: Default::default(),
+                read: Default::default(),
                 waits: Default::default(),
             })
         }
@@ -219,24 +188,42 @@ pub(crate) mod judging {
             let _ = self.store.set(store.clone());
         }
 
-        /// Judge only what the hook sites submitted to `judge`, and never
-        /// carry the mark past an item none of them did (theseus-sh1n3).
+        /// Judge only what the hook sites submitted to `judge` (theseus-sh1n3).
         ///
         /// **Without this a test's judge is more generous than the running
         /// system**, because it judges straight from the transcript: it lands
-        /// a verdict for a node nothing ever offered, and so cannot see the
-        /// defect that took every cn session down — a node the floor counts
-        /// and no site submits. Every test of the floor that does not ask for
-        /// this is testing the floor, not the wiring.
-        ///
-        /// It is **still more generous than production**, in one way worth
-        /// knowing: it moves the mark node by node, where the real landing
-        /// moves it only over a span from the mark that one batch covered
-        /// whole (`ContentFlags::judged_run`). So a test can pass under this
-        /// that the real `move_mark` would leave stuck. Do not read a pass
-        /// here as a claim about the mark's arithmetic.
+        /// a verdict for a node nothing ever offered. Every test of the floor
+        /// that does not ask for this is testing the floor, not the wiring.
         pub fn faithful(&self, judge: &std::sync::Arc<crate::judge::JudgeService>) {
             let _ = self.real.set(judge.clone());
+        }
+
+        /// The items of `session` it has not read: the asks a real judge would
+        /// have out for them (of the nodes a hook site submitted, when
+        /// `faithful`).
+        fn unread(&self, session: &str) -> Vec<(String, ItemKind, String)> {
+            let Some(store) = self.store.get() else {
+                return vec![];
+            };
+            let Ok(nodes) = store.transcript(session) else {
+                return vec![];
+            };
+            let submitted = self.real.get().map(|j| j.content_submitted());
+            let read = self.read.lock().unwrap();
+            nodes
+                .iter()
+                .filter(|(_, n)| item_text(n).is_some() && !read.contains(&n.id))
+                .filter(|(_, n)| submitted.as_ref().is_none_or(|s| s.contains(&n.id)))
+                .filter_map(|(_, n)| match &n.body {
+                    Body::UserMessage { text, .. } => {
+                        Some((n.id.clone(), ItemKind::OperatorMessage, text.clone()))
+                    }
+                    Body::ToolResult { content, .. } => {
+                        Some((n.id.clone(), ItemKind::ToolResult, content.clone()))
+                    }
+                    _ => None,
+                })
+                .collect()
         }
 
         /// Judge `session`'s items now.
@@ -244,40 +231,18 @@ pub(crate) mod judging {
             let Some(store) = self.store.get() else {
                 return;
             };
-            let Ok(nodes) = store.transcript(session) else {
-                return;
-            };
-            if nodes.is_empty() {
+            let items = self.unread(session);
+            if items.is_empty() {
                 return;
             }
-            let submitted = self.real.get().map(|j| j.content_submitted());
             let _ = store.update_session(session, |rec| {
                 let mut flags = rec.data.take().map(|b| *b).unwrap_or_default();
-                let from = flags
-                    .judged_through
-                    .as_deref()
-                    .and_then(|id| nodes.iter().position(|(_, n)| n.id == id))
-                    .map_or(0, |at| at + 1);
-                let mut mark = None;
-                for (_, n) in &nodes[from..] {
-                    // Faithful: the mark stops at the first item no hook site
-                    // offered, as the real judge's does — it never hears of it.
-                    if let Some(done) = &submitted {
-                        if is_item(n) && !done.contains(&n.id) {
-                            break;
-                        }
-                    }
-                    mark = Some(n.id.clone());
-                    let (kind, text) = match &n.body {
-                        Body::UserMessage { text, .. } => (ItemKind::OperatorMessage, text.clone()),
-                        Body::ToolResult { content, .. } => (ItemKind::ToolResult, content.clone()),
-                        _ => continue,
-                    };
-                    for flag in (self.rule)(kind, &text) {
+                for (id, kind, text) in &items {
+                    for flag in (self.rule)(*kind, text) {
                         flags.raise(Label {
                             flag,
-                            node: Some(n.id.clone()),
-                            kind,
+                            node: Some(id.clone()),
+                            kind: *kind,
                             source: "a test's judge".into(),
                             confidence: 0.9,
                             band: flag.bar(),
@@ -286,12 +251,14 @@ pub(crate) mod judging {
                         });
                     }
                 }
-                if let Some(mark) = mark {
-                    flags.judged_through = Some(mark);
-                }
-                rec.data = Some(Box::new(flags));
+                rec.data =
+                    (flags != crate::content::ContentFlags::default()).then(|| Box::new(flags));
                 Ok(vec![])
             });
+            self.read
+                .lock()
+                .unwrap()
+                .extend(items.into_iter().map(|(id, _, _)| id));
         }
     }
 
@@ -315,28 +282,9 @@ pub(crate) mod judging {
     }
 
     impl Verdicts for Judging {
-        /// The items past the session's mark: the asks a real judge would
-        /// have out for them (of the nodes a hook site submitted, when
-        /// `faithful`).
+        /// The items it has not read: the asks a real judge would have out.
         fn outstanding(&self, session: &str) -> usize {
-            let Some(store) = self.store.get() else {
-                return 0;
-            };
-            let Ok(nodes) = store.transcript(session) else {
-                return 0;
-            };
-            let flags = flags_of(store, session);
-            let from = flags
-                .as_ref()
-                .and_then(|f| f.judged_through.as_deref())
-                .and_then(|id| nodes.iter().position(|(_, n)| n.id == id))
-                .map_or(0, |at| at + 1);
-            let submitted = self.real.get().map(|j| j.content_submitted());
-            nodes[from..]
-                .iter()
-                .filter(|(_, n)| is_item(n))
-                .filter(|(_, n)| submitted.as_ref().is_none_or(|s| s.contains(&n.id)))
-                .count()
+            self.unread(session).len()
         }
 
         fn settled(&self, session: &str) -> Pin<Box<dyn Future<Output = ()> + Send>> {
@@ -350,109 +298,11 @@ pub(crate) mod judging {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::Node;
-
-    fn stubs(nodes: Vec<Node>) -> Vec<(u64, Stub)> {
-        nodes
-            .into_iter()
-            .enumerate()
-            .map(|(i, n)| (i as u64 + 1, n.into()))
-            .collect()
-    }
-
-    fn through(id: &str) -> ContentFlags {
-        let mut f = ContentFlags::default();
-        f.judged_through = Some(id.into());
-        f
-    }
-
-    fn user(text: &str) -> Node {
-        Node::user("ses_1", Some("trn_1"), "cli", text)
-    }
-
-    /// Items after the mark are unjudged, the mark's own and everything before
-    /// it are judged, and a model's own words are never items.
-    #[test]
-    fn only_an_item_past_the_mark_is_unjudged() {
-        let (a, b) = (user("one"), user("two"));
-        let flags = through(&a.id);
-        let nodes = stubs(vec![a.clone(), b.clone()]);
-        assert!(unjudged(&nodes, Some(&flags)), "b is past the mark");
-        let flags = through(&b.id);
-        assert!(!unjudged(&nodes, Some(&flags)), "both are judged");
-        let reply = Node::recall("ses_1", "trn_1", "rcl_1", "baseline", vec![]);
-        let nodes = stubs(vec![a, reply]);
-        let flags = through(&nodes[0].1.id);
-        assert!(!unjudged(&nodes, Some(&flags)), "a recall note is no item");
-    }
-
-    /// Nothing judged means every item counts; a mark the transcript lacks
-    /// is nothing judged; an empty transcript holds no item.
-    #[test]
-    fn nothing_judged_counts_every_item() {
-        let nodes = stubs(vec![user("one")]);
-        assert!(unjudged(&nodes, None));
-        assert!(unjudged(&nodes, Some(&ContentFlags::default())));
-        let lost = through("nod_gone");
-        assert!(unjudged(&nodes, Some(&lost)), "fail closed");
-        assert!(!unjudged(&[], None));
-    }
 
     /// The stand-in answers at once.
     #[tokio::test]
     async fn the_stand_in_is_ready() {
         Ready.settled("ses_1").await;
-    }
-
-    /// **Blocker and submitter are the same set** (theseus-sh1n3): for every
-    /// node kind, what [`is_item`] counts against a model of restricted origin
-    /// is exactly what `ContentItem` builds to be judged. A node in the gap —
-    /// counted and never built — can never be judged, so `judged_through`
-    /// never reaches it and every request of that session to such a model is
-    /// refused for the rest of the session's life, with no label to point at.
-    ///
-    /// The turn clock's node and a `task.create` result were both in that gap
-    /// until this was written: the first made `theseus ask --deadline 840`
-    /// refuse where the same ask without the flag answered.
-    #[test]
-    fn the_blocker_and_the_submitter_are_one_set() {
-        use crate::content::ItemKind;
-        use crate::judge::content::ContentItem;
-        let clock = Node::relayed(
-            "ses_1",
-            Some("trn_1"),
-            crate::node::Origin::Harness,
-            crate::turn::clock_step::CLOCK_AUTHOR,
-            "[The harness: 13 minutes left of this turn's 14.]",
-        );
-        let report = Node::relayed(
-            "ses_1",
-            Some("trn_1"),
-            crate::node::Origin::Harness,
-            "task:ab12",
-            "the child's findings",
-        );
-        let nodes = vec![
-            user("the owner's words"),
-            user("   "),
-            clock,
-            report,
-            Node::recall("ses_1", "trn_1", "rcl_1", "baseline", vec![]),
-        ];
-        for n in &nodes {
-            let built = ContentItem::of_message(n, ItemKind::PersonMessage, "message")
-                .or_else(|| ContentItem::of_result(n));
-            let stub: Stub = n.clone().into();
-            assert_eq!(
-                is_item(&stub),
-                built.is_some(),
-                "{} ({:?}): blocked {} but built {}",
-                n.id,
-                n.author,
-                is_item(&stub),
-                built.is_some(),
-            );
-        }
     }
 
     /// A counter a test moves by hand: a stand-in for the judge's asks, with

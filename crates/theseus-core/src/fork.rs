@@ -158,13 +158,13 @@ pub fn in_transcript(
 /// A fork's content labels (theseus-9ymz0): the labels whose item the fork
 /// carries (the item's node is at or before the fork point; one whose node is
 /// unknown, or cannot be placed, is carried too, since fewer labels is never
-/// the safe side), and how far the fork is judged: through the point when the
-/// source was judged that far, else as far as it was. `position` finds a
-/// node's WAL position; a `judged_through` it cannot place is dropped (the
-/// fork is judged from nothing, fail closed).
+/// the safe side), and the source's removals. `position` finds a node's WAL
+/// position. A fork carries no mark (theseus-gyjyo.7): a turn bound for a model
+/// of restricted origin goes on the labels, and an item that entered after the
+/// fork point is asked about as it enters.
 pub fn data_through(
     source: Option<&crate::content::ContentFlags>,
-    point: (u64, &str),
+    point: u64,
     position: impl Fn(&str) -> Option<u64>,
 ) -> Option<Box<crate::content::ContentFlags>> {
     let s = source?;
@@ -174,20 +174,12 @@ pub fn data_through(
             .node
             .as_deref()
             .and_then(&position)
-            .is_none_or(|p| p <= point.0);
+            .is_none_or(|p| p <= point);
         if inside {
             forked.raise(l.clone());
         }
     }
     forked.removed.clone_from(&s.removed);
-    forked.judged_through =
-        s.judged_through
-            .as_deref()
-            .and_then(&position)
-            .map(|p| match p >= point.0 {
-                true => point.1.to_string(),
-                false => s.judged_through.clone().unwrap_or_default(),
-            });
     (forked != crate::content::ContentFlags::default()).then(|| Box::new(forked))
 }
 

@@ -692,7 +692,11 @@ const BULK: usize = 4096;
 /// 53 = a label names its judgment (theseus-gyjyo.3): a content label in a SESSION record's `data`
 /// carries `judgment`, the raising judgment's id, which a removal or a "wrong" press labels in
 /// `judge.label`. A record from before reads it absent, and its label teaches nothing.
-const MANIFEST_FORMAT: u32 = 53;
+/// 54 = the judged-through mark goes (theseus-gyjyo.7): a SESSION record's `data` no longer holds
+/// the mark or its worklist, the two fields a session's content labels carried beside `labels` and
+/// `removed`. A record from before reads both ignored, which is no change to what it says (a
+/// session is not treated as partly judged: nothing asks), and the next write leaves them out.
+const MANIFEST_FORMAT: u32 = 54;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

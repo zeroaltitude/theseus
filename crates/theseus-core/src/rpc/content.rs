@@ -128,6 +128,22 @@ impl Core {
         Ok(post.is_some())
     }
 
+    /// Tell the operator that asks about a session's content failed twice
+    /// (theseus-gyjyo.7): one `notice` post in the session's place, with the
+    /// words the judge wrote. No post when the session has no place; the
+    /// `content.unjudged` row is the record either way.
+    pub fn tell_unjudged(&self, session_id: &str, text: &str) -> Result<bool> {
+        let rec = self
+            .store
+            .get_session::<SessionRecord>(session_id)?
+            .ok_or_else(|| anyhow!("no session is named {session_id}"))?;
+        let body = json!({"kind": "notice", "text": text});
+        let post =
+            self.outbox
+                .post_for(session_id, rec.execution_id.as_deref().unwrap_or(""), body)?;
+        Ok(post.is_some())
+    }
+
     /// `content.unlabel`: the session no longer carries `flag`. An unknown
     /// session, a word that is not a flag, and a flag the session does not
     /// carry are each an error, and nothing is written.

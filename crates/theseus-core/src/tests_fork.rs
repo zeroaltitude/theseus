@@ -1011,8 +1011,10 @@ async fn a_fork_past_its_window_rings_over_the_prefix_and_its_own_turns() {
 }
 
 /// A fork's content labels (theseus-9ymz0): the labels whose item the fork
-/// carries are copied, one raised by a node after the fork point is not, and
-/// the fork is judged as far as its source was, through the point at most.
+/// carries are copied, and one raised by a node after the fork point is not.
+/// The source's removals come too. **The fork carries no mark** (theseus-gyjyo.7):
+/// there is none to carry, and a source record that still holds one (a format-53
+/// record) does not give the fork one.
 #[tokio::test]
 async fn fork_copies_content_labels_through_the_fork_point() {
     use crate::content::{ContentFlags, Flag, ItemKind, Label};
@@ -1029,36 +1031,67 @@ async fn fork_copies_content_labels_through_the_fork_point() {
         at_ms: 9,
         judgment: String::new(),
     };
-    let set = |judged_through: &str| {
-        let mut rec: SessionRecord = r.core.store.get_session(&s).unwrap().unwrap();
-        let mut flags = ContentFlags::default();
-        flags.raise(label(Flag::Confidential, &nodes[1].0));
-        flags.raise(label(Flag::Secret, &nodes[4].0));
-        flags.judged_through = Some(judged_through.into());
-        rec.data = Some(Box::new(flags));
-        r.core.store.put_session(&s, &rec).unwrap();
-    };
+    let mut rec: SessionRecord = r.core.store.get_session(&s).unwrap().unwrap();
+    let mut flags = ContentFlags::default();
+    flags.raise(label(Flag::Confidential, &nodes[1].0));
+    flags.raise(label(Flag::Secret, &nodes[4].0));
+    flags.raise(label(Flag::Personal, &nodes[3].0));
+    flags.remove(Flag::Personal, "the owner", "cli", 11);
+    rec.data = Some(Box::new(flags));
+    r.core.store.put_session(&s, &rec).unwrap();
     let data_of = |sid: &str| {
         let rec: SessionRecord = r.core.store.get_session(sid).unwrap().unwrap();
         rec.data.map(|d| *d)
     };
-    // Judged past the point: the fork is judged through the point, and holds
-    // only the label its own nodes raised.
-    set(&nodes[5].0);
-    let before = fork(&r.core, &s, &nodes[3].0);
-    let got = data_of(&before.session_id).expect("the fork carries labels");
+    let forked = fork(&r.core, &s, &nodes[3].0);
+    let got = data_of(&forked.session_id).expect("the fork carries labels");
     assert!(got.has(Flag::Confidential), "its item is in the fork");
     assert!(!got.has(Flag::Secret), "its item came after the point");
-    assert_eq!(got.judged_through.as_deref(), Some(nodes[3].0.as_str()));
-    // Judged only to an earlier node: the fork is judged no further.
-    set(&nodes[1].0);
-    let short = fork(&r.core, &s, &nodes[3].0);
-    let got = data_of(&short.session_id).unwrap();
-    assert_eq!(got.judged_through.as_deref(), Some(nodes[1].0.as_str()));
+    assert_eq!(got.removed.len(), 1, "the source's removal comes with it");
     assert_eq!(
-        data_of(&s).unwrap().judged_through.as_deref(),
-        Some(nodes[1].0.as_str()),
+        data_of(&s).unwrap().labels.len(),
+        2,
         "the source is read only"
     );
     assert!(data_of(&s).unwrap().has(Flag::Secret));
+}
+
+/// A source with no content data forks with none, and one whose only content
+/// is after the point forks with none (nothing is written for an empty record).
+#[tokio::test]
+async fn a_fork_of_a_session_with_no_labels_inside_the_point_carries_no_data() {
+    use crate::content::{ContentFlags, Flag, ItemKind, Label};
+    use theseus_judge::band::Band;
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let plain = fork(&r.core, &s, &nodes[3].0);
+    let rec: SessionRecord = r
+        .core
+        .store
+        .get_session(&plain.session_id)
+        .unwrap()
+        .unwrap();
+    assert!(rec.data.is_none(), "no labels, no data");
+    let mut src: SessionRecord = r.core.store.get_session(&s).unwrap().unwrap();
+    let mut flags = ContentFlags::default();
+    flags.raise(Label {
+        flag: Flag::Secret,
+        node: Some(nodes[4].0.clone()),
+        kind: ItemKind::ToolResult,
+        source: "fs.read /srv/notes.txt".into(),
+        confidence: 0.8,
+        band: Band::Confirm,
+        at_ms: 9,
+        judgment: String::new(),
+    });
+    src.data = Some(Box::new(flags));
+    r.core.store.put_session(&s, &src).unwrap();
+    let after = fork(&r.core, &s, &nodes[3].0);
+    let rec: SessionRecord = r
+        .core
+        .store
+        .get_session(&after.session_id)
+        .unwrap()
+        .unwrap();
+    assert!(rec.data.is_none(), "the label's item is after the point");
 }

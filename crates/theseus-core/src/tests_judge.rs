@@ -188,6 +188,16 @@ pub(crate) fn kinds(store: &Store, kind: &str) -> Vec<LedgerRow> {
         .collect()
 }
 
+/// The nodes the content pack has asked about and judged, in the order its
+/// `content.judged` rows were written: what a test holds an item's being
+/// asked about against (theseus-gyjyo.7; there is no mark to read).
+pub(crate) fn judged_nodes(store: &Store) -> Vec<String> {
+    kinds(store, "content.judged")
+        .into_iter()
+        .filter_map(|r| r.data["node"].as_str().map(str::to_string))
+        .collect()
+}
+
 /// A turn the baseline ends with no tool calls is judged once by `loop.v1`
 /// in shadow: its row is keyed by the judgment's id and scoped
 /// `judge:loop`, its state is in a blob written before it, and its cost is

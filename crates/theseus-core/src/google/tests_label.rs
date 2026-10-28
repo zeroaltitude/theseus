@@ -564,12 +564,21 @@ async fn a_remove_sticks_against_the_packs_verdict_on_the_same_google_result() {
     });
     let sid = new_session(&r.core);
     run_on(&r.core, &sid, "list my files", None).await.unwrap();
+    let google = result_of(&r.core, &sid, "google.call").id;
+    // The pack's verdict on the Google result. The operator's own message is
+    // judged too, and since theseus-gyjyo.7 its row lands at once (there is no
+    // park between turns), so only the Google node's row says the hold ended.
+    let landed = |core: &crate::Core| {
+        super::tests::ledgered(core, "content.judged")
+            .iter()
+            .any(|j| j["node"] == google.as_str())
+    };
     // The write site raised it; the pack's verdict is still held.
     assert_eq!(flags(&r.core, &sid).labels.len(), 1);
-    assert!(super::tests::ledgered(&r.core, "content.judged").is_empty());
+    assert!(!landed(&r.core));
     r.core.unlabel_session(&sid, "confidential", cli()).unwrap();
     let start = Instant::now();
-    while super::tests::ledgered(&r.core, "content.judged").is_empty() {
+    while !landed(&r.core) {
         // The ask reaches Jev off the turn's path, some time after the turn:
         // release whatever is held until it has landed.
         jev.release();

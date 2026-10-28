@@ -1901,11 +1901,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     state as no labels and nothing judged; format 53, theseus-gyjyo.3, adds `Label.judgment`, the raising judgment's id, so the owner's taps
     teach the classifier: `unlabel_session` writes a `judge.label` row (source `operator`, the flag's question `no`) in the removal's frame,
     the cockpit chip's "wrong" and `theseus judge label` write the same row without removing the label, and `learning/system.rs`'s
-    `content` arm labels a label left standing a week, or present when its session retires, `yes` at weight 0.5). `secret`, `confidential` and `personal` raise at the confirm band and disqualify
+    `content` arm labels a label left standing a week, or present when its session retires, `yes` at weight 0.5; format 54, theseus-gyjyo.7, removes the mark
+    a record also carried, how far the session was judged and a worklist of what a failed ask left, which a record from before reads ignored). `secret`, `confidential` and `personal` raise at the confirm band and disqualify
     a model of restricted origin (`cn`, `unknown`) for the session; `injection` raises only at the act band, is never asked of the
     operator's own words, and freezes the session: `ToolRuntime::refusal_at` refuses every call that is not a local read
     of files and code (`content::local_read`) until the operator removes the label (`[content_based_security] injection = "notify"` only tells,
     the bench daemon's). Nothing is proved per request: the session carries a label or it does not.
+    **A failed ask** (`judge/content.rs`, theseus-gyjyo.7): an ask whose call failed is asked **once more** (after `REASK_PAUSE`, 200 ms),
+    **inside the same open ask**, so the session's counter stays up across the retry; if that fails too the item is rowed `content.unjudged`
+    (`why: failed`) and the owner is told once, in the session's place (`JudgeService::unjudged_told` -> `Core::tell_unjudged`, a `notice`
+    post; told once per session for a run of failures, re-armed by the next batch of that session that is judged), and the session goes on. **An item whose ask failed twice
+    can reach a model of restricted origin unlabelled, with a notice** (the owner's answer to review Q2); nothing is kept for a later
+    re-ask, there is no mark and no sweep, and an item no write site offers is never asked about
+    (`tests_content_floor::every_item_a_turn_writes_is_offered_for_judgment` is the guard). A refusal (`refused`) or an unbuilt state
+    (`unbuilt`) is not an ask that failed and is not retried; it is rowed and told at once, in the same one message, so on a day the judge's
+    budget runs out every active session hears it once. The notice says what is true of the session: when it already carries a label that
+    keeps a model of restricted origin off, it says those labels still do (`unjudged_notice`'s `kept_off`). A landing writes at once (no park between turns).
     **The chokepoint** (`data_gate.rs`, keel): a request to a model of restricted origin is refused (class `data_gate`,
     nothing sent, one `data_gate.blocked` row with a `why` word) when `[content_based_security] cn_models` is
     `follow_flags` and the session in `CALLER` (`for_session`) carries a disqualifying label; `always` sends whatever the
@@ -1940,8 +1951,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     open word (a flag's word, `never`, or a later row's own); each one also counts on `theseus.route.data_gate`
     (`Telemetry::record_data_gate(what, why)`), with the chokepoint (`chokepoint`) and the four background refusals
     (`compaction`, `consolidation`, `keep_warm`, `replay`).
-    Forks copy the labels their nodes raised and are judged as far as their source, through the fork point at most
-    (`fork::data_through`). `turn.inspect`'s `data` line is `ContentFlags::line`.
+    Forks copy the labels their nodes raised, through the fork point at most, and the source's removals (`fork::data_through`);
+    they carry no mark. `turn.inspect`'s `data` line is `ContentFlags::line`.
   - **The Google private mark** (`google/private.rs`): the META mark a Google result writes; `scoped`/`bound` carry it to
     the floor; it follows recalled nodes and a task's parent; and text a marked session authored for others (a kept
     standing record, by its `capture:` source) is held back, listed `shown: false`, from a request to a restricted

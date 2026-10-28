@@ -71,7 +71,7 @@ pub struct TurnRoute {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct TurnData {
-    /// Whether the session may use a model of restricted origin, as routing found it: `allowed`, the word of the flag that keeps it off one (`secret`, `confidential`, `personal`), `pending` while items are not yet judged, or `unjudged` when a wait for them ran out. Empty in a route from before content flags.
+    /// Whether the session may use a model of restricted origin, as routing found it: `allowed`, the word of the flag that keeps it off one (`secret`, `confidential`, `personal`), `never` under `cn_models = "never"`, or `no_record`; `pending` and `unjudged` in a route from before theseus-gyjyo.6. Empty in a route from before content flags.
     #[serde(default)]
     pub cn: String,
     /// Why the data rule kept the turn off a restricted-origin model: an open word, absent when it did not.

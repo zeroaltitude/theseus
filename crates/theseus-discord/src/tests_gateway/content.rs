@@ -218,3 +218,77 @@ async fn the_owners_press_removes_the_label_and_a_guests_is_refused() {
     assert_eq!(rows[0].data["flag"], "injection");
     assert_eq!(rows[0].data["via"], "discord:dm");
 }
+
+/// **A failed content ask is one message in the DM** (theseus-gyjyo.7), through
+/// the real judge against a Jev that is down, and the stand-in's gateway. The
+/// owner says hello; the item is asked about, fails, is asked once more,
+/// fails again, and the DM gets one `unchecked` notice (no button: there is
+/// nothing to remove) and the ledger one `content.unjudged` row. Said again
+/// while Jev is still down: another row, **no second notice** (told once per
+/// run of failures). The session carries no label, so it stays eligible for a
+/// model of restricted origin, which is the notice's own words.
+#[tokio::test]
+async fn a_failed_content_ask_is_one_unchecked_notice_in_the_dm() {
+    use theseus_judge::fake::{FakeJev, FakeMode};
+    let jev = FakeJev::start().unwrap();
+    jev.set_mode(FakeMode::Down);
+    let base = jev.base();
+    let model = |_: &std::path::Path,
+                 _: Arc<theseus_sim::fake_discord::FakeDiscord>|
+     -> Arc<dyn Provider> {
+        Arc::new(FakeProvider::scripted(vec![
+            Scripted::text("Hello."),
+            Scripted::text("Hello again."),
+        ]))
+    };
+    let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], move |c| {
+        c.judge.enabled = true;
+        c.judge.api_base = base;
+        c.judge.connect_secs = 1;
+        c.judge.total_secs = 2;
+        c.places.owner = Some(vec![format!("discord:{ANA}")]);
+    })
+    .await;
+    let is_notice = |m: &Msg| m.versions[0].contains("could not be checked");
+    r.say((ANA, "ana"), None, "hello");
+    r.until("the notice in ana's DM", || {
+        r.posted(ANA_DM).iter().any(is_notice)
+    })
+    .await;
+    let notice = r.posted(ANA_DM).into_iter().find(is_notice).unwrap();
+    let text = notice.versions.last().unwrap();
+    assert!(text.starts_with("⚑ **unchecked** — "), "{text}");
+    assert!(
+        text.contains("China-origin models are still allowed"),
+        "it says what that means: {text}"
+    );
+    assert!(
+        notice.buttons.is_empty(),
+        "nothing to remove: {:?}",
+        notice.buttons
+    );
+    let rows = r.ledger("content.unjudged");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["why"], "failed");
+    r.say((ANA, "ana"), None, "and again");
+    r.until("the second item's row", || {
+        r.ledger("content.unjudged").len() >= 2
+    })
+    .await;
+    assert_eq!(
+        r.posted(ANA_DM).iter().filter(|m| is_notice(m)).count(),
+        1,
+        "told once, not once an item"
+    );
+    let sid = r
+        .core
+        .outbox
+        .place_session(&format!("dm:{ANA}"))
+        .unwrap()
+        .expect("the DM has a session");
+    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    assert!(
+        rec.data.is_none_or(|d| d.disqualifies_cn().is_none()),
+        "no label: the session stays eligible"
+    );
+}
