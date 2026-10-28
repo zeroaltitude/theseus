@@ -84,6 +84,38 @@ async fn a_vault_value_leaves_as_its_name_in_a_post_an_edit_and_a_stream() {
     assert!(!everything.contains(VALUE), "{everything}");
 }
 
+/// A value encoded in what a place is told (a probe row, a task report, a
+/// tool's output the model quoted) leaves by name too: base64, percent-encoded
+/// and JSON-escaped, each in a post.
+#[tokio::test]
+async fn an_encoded_vault_value_leaves_as_its_name() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake, true);
+    // `user:` and VALUE in base64, as a Basic header carries it.
+    let basic = "dXNlcjp2YXVsdC10b2tlbi00YzhlMWY3YTkyYjM=";
+    let percent = "vault-token-4c8e1f7a92b3"
+        .bytes()
+        .map(|c| format!("%{c:02X}"))
+        .collect::<String>();
+    for (i, (said, leaked)) in [
+        (format!("Authorization: Basic {basic}"), basic.to_string()),
+        (format!("GET /cb?token={percent}&n=1"), percent),
+        (
+            r#"{"token": "vault-token-4c8e1f7a92b3"}"#.replace('-', r"\u002d"),
+            r"\u002d".into(),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        lane.write(&post(&format!("k:enc{i}"), &said)).await.unwrap();
+        let out = last(&fake);
+        assert!(out.contains("[redacted:courier_token]"), "{said} -> {out}");
+        assert!(!out.contains(&leaked), "{said} -> {out}");
+    }
+}
+
 /// `redact_outbound = false`: the operator's choice, the value goes as written.
 #[tokio::test]
 async fn with_redact_outbound_off_the_value_is_sent_as_written() {

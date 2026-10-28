@@ -249,6 +249,12 @@ fn a_job_that_reads_the_daemons_environment_leaves_both_keys_in_the_record() {
         hist.contains(KEY) && hist.contains(JEV),
         "the record shows what the job read: {hist}"
     );
+    // What went to the model is the exits' copy: both keys are on the board
+    // (`env:` sources), so each leaves as its name.
+    assert!(
+        !seen.contains(KEY) && !seen.contains(JEV),
+        "a key reached the model: {seen}"
+    );
 }
 
 /// At the plain arm's $2 limit the money gate refuses the first call Jev

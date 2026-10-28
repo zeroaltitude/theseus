@@ -24,8 +24,19 @@ const VALUE: &str = "harbor-vault-value-5d2a9c04e7b1";
 /// Looks exactly like a provider key; the vault never held it.
 const LOOKALIKE: &str = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
 
+/// `deploy:` and the vault value in base64, as `curl -v -u deploy:$TOKEN` prints
+/// it after `Authorization: Basic`.
+const BASIC: &str = "ZGVwbG95OmhhcmJvci12YXVsdC12YWx1ZS01ZDJhOWMwNGU3YjE=";
+
 fn daemon(redact: bool) -> (Served, FakeModel) {
-    let model = FakeModel::start(|_| vec![]);
+    daemon_with(redact, |_| vec![])
+}
+
+fn daemon_with(
+    redact: bool,
+    calls: impl Fn(&str) -> Vec<(&'static str, Value)> + Send + Sync + 'static,
+) -> (Served, FakeModel) {
+    let model = FakeModel::start(calls);
     let base = model.base.clone();
     let dir = std::cell::RefCell::new(std::path::PathBuf::new());
     let d = Served::start(
@@ -202,4 +213,46 @@ fn with_redact_outbound_off_the_value_goes_as_written_and_the_row_still_says_whi
         r["loops"][0]["answer"]["redacted"][0]["substituted"],
         json!(false)
     );
+}
+
+/// A tool that prints a vault value encoded: the record holds it as printed,
+/// and the next request carries the name, not the base64, and the row says
+/// which secret. Before the encodings were applied at the exit, the request
+/// carried the base64 and no row was written.
+#[test]
+fn a_value_a_tool_printed_in_base64_leaves_by_name_and_the_row_says_which() {
+    let (d, model) = daemon_with(true, |prompt| {
+        if prompt.contains("show the header") {
+            let script = format!("echo 'Authorization: Basic {BASIC}'");
+            vec![("proc_run", json!({"argv": ["sh", "-c", script]}))]
+        } else {
+            vec![]
+        }
+    });
+    let (session, turn) = say(&d, &model, "show the header");
+    let t0 = Instant::now();
+    while model.requests().len() < 2 {
+        assert!(t0.elapsed() < Duration::from_secs(60), "{}", d.log());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let bodies: Vec<String> = model
+        .raw_requests()
+        .iter()
+        .map(|b| String::from_utf8_lossy(b).into_owned())
+        .collect();
+    let last = bodies.last().unwrap();
+    assert!(
+        !last.contains(BASIC) && !last.contains(VALUE),
+        "the encoded vault value reached the model:\n{last}"
+    );
+    assert!(last.contains(&format!("[redacted:{NAME}]")), "{last}");
+    let rows = redacted_rows(&d);
+    assert!(!rows.is_empty(), "no request.redacted row for an encoded value");
+    assert_eq!(rows[0]["data"]["names"], json!([NAME]));
+    assert_eq!(rows[0]["turn_id"], json!(turn));
+    let history = d
+        .call("session.history", json!({"session_id": session}))
+        .unwrap()
+        .to_string();
+    assert!(history.contains(BASIC), "the record holds what the tool printed");
 }

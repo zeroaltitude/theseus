@@ -313,3 +313,157 @@ async fn the_token_counter_is_sent_the_substituted_copy() {
     assert!(p.count_tokens(&req).await.is_ok());
     assert_eq!(rows(&store).len(), 1);
 }
+
+// ------------------------------------------------------------- encoded values
+//
+// A vault value a tool printed encoded (`curl -v -u user:$TOKEN` prints it in
+// base64, a query string percent-encodes it, a Go tool's JSON escapes it) is in
+// the record as printed, and leaves substituted all the same: the exits find
+// what `Scrubber` finds (review of R7, finding 1).
+
+/// A value that base64 writes with `+` and `/`, percent-encoding writes in
+/// pieces, and JSON can escape.
+const ENC: &str = "Inv3nted/Value+For~Tests?x=1";
+
+fn b64(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn encoded_exits(on: bool) -> Arc<Exits> {
+    Exits::new(board(&[("demo_secret", ENC)]), on)
+}
+
+/// `text` leaves both exits without `leaked` in it and with the name, and each
+/// reports the secret by name.
+fn assert_encoded_goes(text: &str, leaked: &str) {
+    let x = encoded_exits(true);
+    let (t, found) = x.text(text);
+    assert!(!t.contains(leaked), "text still holds {leaked:?}: {t}");
+    assert!(t.contains("[redacted:demo_secret]"), "{t}");
+    assert_eq!(found.names(), ["demo_secret"], "text: {text}");
+    // The request carries the text inside JSON, so a backslash is doubled there.
+    let (sent, found) = x.request(&request(text));
+    let sent = wire(&sent.expect("a request that carried an encoded value is substituted"));
+    let quoted = serde_json::to_string(leaked).unwrap();
+    assert!(
+        !sent.contains(&quoted[1..quoted.len() - 1]),
+        "request still holds {leaked:?}: {sent}"
+    );
+    assert!(sent.contains("[redacted:demo_secret]"), "{sent}");
+    assert_eq!(found.names(), ["demo_secret"], "request: {text}");
+}
+
+/// Base64 at each of the three offsets a value can start at inside a longer
+/// encoding (`curl -v -u user:value` prints the header), in the standard
+/// alphabet and the URL-safe one.
+#[test]
+fn a_value_in_base64_leaves_by_name_at_every_offset() {
+    for before in ["", "u:", "us:", "user:"] {
+        let blob = b64(format!("{before}{ENC} and more").as_bytes());
+        assert_encoded_goes(&format!("Authorization: Basic {blob}\nok"), &blob);
+        let url = blob.replace('+', "-").replace('/', "_").replace('=', "");
+        assert_encoded_goes(&format!("?t={url}&"), &url);
+    }
+}
+
+/// Base64 wrapped across lines, as `base64` writes it at 76 columns: the
+/// lines that hold the value go, a line of the filler only stays.
+#[test]
+fn a_value_in_wrapped_base64_leaves_by_name() {
+    let long = b64(format!("{}{ENC}{}", "x".repeat(100), "y".repeat(100)).as_bytes());
+    let lines: Vec<&str> = long
+        .as_bytes()
+        .chunks(76)
+        .map(|c| std::str::from_utf8(c).unwrap())
+        .collect();
+    let wrapped = lines.join("\n");
+    let x = encoded_exits(true);
+    let (t, found) = x.text(&format!("{wrapped}\nend"));
+    assert!(t.contains("[redacted:demo_secret]"), "{t}");
+    assert!(t.starts_with(lines[0]), "a line of filler only is kept: {t}");
+    assert_eq!(found.names(), ["demo_secret"]);
+    let (sent, found) = x.request(&request(&format!("{wrapped}\nend")));
+    assert!(wire(&sent.unwrap()).contains("[redacted:demo_secret]"));
+    assert_eq!(found.names(), ["demo_secret"]);
+}
+
+/// Percent-encoded, wholly or in part, in either case of hex.
+#[test]
+fn a_percent_encoded_value_leaves_by_name() {
+    let upper = "Inv3nted%2FValue%2BFor~Tests%3Fx%3D1";
+    let lower = "Inv3nted%2fValue%2bFor~Tests%3fx%3d1";
+    let every: String = ENC.bytes().map(|c| format!("%{c:02X}")).collect();
+    for enc in [upper.to_string(), lower.to_string(), every] {
+        assert_encoded_goes(&format!("GET /cb?token={enc}&next=1"), &enc);
+    }
+}
+
+/// JSON-escaped, as PHP (`\/`), Python's ASCII mode and Go (`\u0026`) write it.
+#[test]
+fn a_json_escaped_value_leaves_by_name() {
+    for enc in [
+        r"Inv3nted\/Value+For~Tests?x=1",
+        r"Inv3nted\u002fValue\u002BFor~Tests\u003fx=1",
+    ] {
+        assert_encoded_goes(&format!("{{\"token\": \"{enc}\"}}"), enc);
+    }
+}
+
+/// With the switch off the encoded value goes as it was, and the row still
+/// names it: "what key did we send?" has an answer for an encoded key too.
+#[test]
+fn an_encoded_value_is_named_even_with_the_switch_off() {
+    let x = encoded_exits(false);
+    let blob = b64(format!("user:{ENC}").as_bytes());
+    let text = format!("Authorization: Basic {blob}");
+    let (t, found) = x.text(&text);
+    assert_eq!(t.as_ref(), text);
+    assert_eq!(found.names(), ["demo_secret"]);
+    let (sent, found) = x.request(&request(&text));
+    assert!(sent.is_none());
+    assert_eq!(found.names(), ["demo_secret"]);
+}
+
+/// The encoded scan runs on every string of every request: it stays bounded
+/// on a transcript of ordinary output, finds nothing in it, and changes
+/// nothing. (Measured: see the row's report; this is the guard.)
+#[test]
+fn a_200_kb_transcript_of_ordinary_output_is_scanned_in_bounded_time() {
+    let x = Exits::new(
+        board(&[
+            ("a", "vault-value-aaaaaaaa"),
+            ("b", "vault-value-bbbbbbbb"),
+            ("c", "vault-value-cccccccc"),
+            ("d", "vault-value-dddddddd"),
+            ("e", "vault-value-eeeeeeee"),
+            ("f", "vault-value-ffffffff"),
+            ("g", "vault-value-gggggggg"),
+            ("h", "vault-value-hhhhhhhh"),
+            ("i", "vault-value-iiiiiiii"),
+            ("j", "vault-value-jjjjjjjj"),
+        ]),
+        true,
+    );
+    let line = "   Compiling theseus-core v0.1.0 (/home/u/src/crates/theseus-core)\n\
+                warning: unused import: `std::fmt` at src/lib.rs:42:5 100% done\n\
+                {\"level\":\"info\",\"msg\":\"GET /v1/items?id=42&page=3\",\"ms\":12}\n\
+                aGVsbG8gd29ybGQ= and dGVzdA== then a path C:\\Users\\x\\file\n";
+    let mut req = ProviderRequest::simple("m", 64, "start");
+    for i in 0..100 {
+        let text = line.repeat(2_000 / line.len() + 1);
+        req.messages.push(json!({"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": format!("t{i}"),
+             "content": [{"type": "text", "text": text}]}]}));
+    }
+    assert!(wire(&req).len() > 200_000);
+    let began = std::time::Instant::now();
+    let (sent, found) = x.request(&req);
+    let took = began.elapsed();
+    assert!(sent.is_none() && found.is_empty(), "{found:?}");
+    eprintln!("exits: 200 KB request, ten values, one request: {took:?}");
+    assert!(
+        took < std::time::Duration::from_secs(5),
+        "the encoded scan took {took:?}"
+    );
+}
