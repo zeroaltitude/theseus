@@ -716,10 +716,20 @@ fn content_v3() -> String {
     )
 }
 
+/// The same candidate at a learned version (25f numbers a learned pack from
+/// `propose::LEARNED_FROM`, 101).
+fn content_learned() -> String {
+    content_v3().replacen("version = 3", "version = 101", 1)
+}
+
 async fn replay_content(c: &Arc<Core>, ids: &[&str]) -> JudgeReplayResult {
+    replay_content_with(c, content_v3(), ids).await
+}
+
+async fn replay_content_with(c: &Arc<Core>, pack: String, ids: &[&str]) -> JudgeReplayResult {
     c.judge_replay(
         JudgeReplayParams {
-            pack_text: Some(content_v3()),
+            pack_text: Some(pack),
             judgments: ids.iter().map(|s| s.to_string()).collect(),
             ..Default::default()
         },
@@ -787,6 +797,40 @@ async fn a_content_judgment_missing_a_recorded_source_is_left_out_naming_it() {
         out.left_out[0].reason
     );
     assert!(jev.seen().is_empty());
+}
+
+/// A LEARNED content candidate reads the record's sources too. 25f asks a
+/// learned candidate on the stored state *without* the builder's items,
+/// because the record does not keep them -- but a content record does, since
+/// theseus-gyjyo.1. Without this the nightly loop would grade a content
+/// candidate on three questions while the live pack asks four, and report
+/// nothing left out: the worst shape a replay can take.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_learned_content_candidate_asks_what_the_record_says() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(vec![], &jev, |_| {});
+    let c = &r.core;
+    let page = content_judgment(c, "jdg_page", "fetched_page", "A page about herons.", true);
+    let other = content_judgment(c, "jdg_two", "tool_result", "Another page.", true);
+    c.store
+        .append(&[call_row(&page, 10), call_row(&other, 11)])
+        .unwrap();
+    let out = replay_content_with(c, content_learned(), &["jdg_page", "jdg_two"]).await;
+    assert!(out.left_out.is_empty(), "{:?}", out.left_out);
+    let seen = jev.seen();
+    let asked = |text: &str| -> usize {
+        seen.iter()
+            .filter(|s| s.body["state"].to_string().contains(text))
+            .flat_map(|s| {
+                s.body["questions"]
+                    .as_object()
+                    .map(|q| q.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default()
+            })
+            .count()
+    };
+    assert_eq!(asked("A page about herons."), 4, "{seen:?}");
+    assert_eq!(asked("Another page."), 4, "{seen:?}");
 }
 
 /// A judgment made before the sources were recorded has the item in its blob

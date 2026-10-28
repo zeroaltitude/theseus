@@ -532,9 +532,16 @@ impl Core {
         // A learned candidate (25f) keeps its parent's questions and
         // builder: it is asked on the stored state without the builder's
         // items (a question only for them is not asked; a Choice drawing
-        // options from them asks its own).
-        let dynamic = !theseus_judge::propose::is_learned(cand.version)
-            && !theseus_judge::pack::Dynamic::needed(cand).is_empty();
+        // options from them asks its own). That rule was a compromise for a
+        // record that does not keep the items. Where the record DOES keep
+        // what a question resolves against -- content, since theseus-gyjyo.1
+        // -- a learned candidate reads it like any other, or the nightly
+        // loop would grade a content candidate on three questions while the
+        // live pack asks four, and report nothing left out.
+        let learned = theseus_judge::propose::is_learned(cand.version);
+        let records_its_sources = cand.builder == theseus_judge::pack::Builder::Content;
+        let dynamic = !theseus_judge::pack::Dynamic::needed(cand).is_empty()
+            && (!learned || records_its_sources);
         let mut why_not_stored = stored_state_differs(cand, &j.state);
         if why_not_stored.is_none() {
             // The sources the candidate's conditional questions resolve
@@ -560,6 +567,9 @@ impl Core {
                         )
                     })?,
                 ),
+                // 25f, above: a learned candidate of a pack whose record does
+                // not keep its items is still asked without them.
+                None if learned && !records_its_sources => Some(Default::default()),
                 None => None,
             };
             if let Some(dynamic) = sources {
