@@ -271,3 +271,56 @@ class DateProbesOfAnUnpinnedRun(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def host_date() -> str:
+    return os.popen("date +%F").read().strip()
+
+
+class SmokeProof(unittest.TestCase):
+    """The pin, shown at smoke level with a control: a process under the pin, the same process without it,
+    and the host's own date, side by side. The control is what tells the proof from an empty set."""
+
+    PIN = "2021-03-04"
+
+    def run_smoke(self, runner, host=None, **kw):
+        with tempfile.TemporaryDirectory() as t:
+            return clock.smoke(self.PIN, lib="/x/libfaketime.so.1", workdir=Path(t), runner=runner,
+                               host=host or (lambda: "2026-10-28"), **kw)
+
+    def machine_that_honours_the_pin(self, env: dict) -> str:
+        return obedient(env) if "FAKETIME_TIMESTAMP_FILE" in env else "2026-10-28"
+
+    def test_the_pinned_arm_reads_the_pin_and_the_control_reads_the_real_date(self):
+        r = self.run_smoke(self.machine_that_honours_the_pin)
+        self.assertEqual((r["pinned"], r["control"], r["host"]), (self.PIN, "2026-10-28", "2026-10-28"))
+        self.assertTrue(r["proof"])
+
+    def test_a_pin_that_does_nothing_is_not_a_proof(self):
+        with self.assertRaises(clock.ClockDrift) as cm:
+            self.run_smoke(contradicting)
+        self.assertIn(self.PIN, str(cm.exception))
+
+    def test_a_control_that_also_reads_the_pin_is_not_a_proof(self):
+        with self.assertRaises(clock.ClockDrift) as cm:
+            self.run_smoke(lambda env: self.PIN)
+        self.assertIn("control", str(cm.exception))
+
+    def test_a_pin_near_the_real_date_cannot_discriminate(self):
+        with self.assertRaises(ValueError):
+            self.run_smoke(self.machine_that_honours_the_pin, host=lambda: "2021-03-05")
+
+    def test_the_control_env_carries_no_pin(self):
+        seen = []
+        self.run_smoke(lambda env: (seen.append(dict(env)), self.machine_that_honours_the_pin(env))[1])
+        self.assertEqual(["LD_PRELOAD" in e for e in seen], [True, False])
+
+    def test_the_real_machine_pins_and_its_control_does_not(self):
+        lib = clock.find_lib()
+        if lib is None:
+            self.skipTest("no libfaketime on this machine (set LIBFAKETIME_LIB)")
+        with tempfile.TemporaryDirectory() as t:
+            r = clock.smoke(self.PIN, lib=lib, workdir=Path(t))
+        self.assertEqual(r["pinned"], self.PIN)
+        self.assertEqual(r["control"], host_date())
+        self.assertNotEqual(r["pinned"], r["control"])
