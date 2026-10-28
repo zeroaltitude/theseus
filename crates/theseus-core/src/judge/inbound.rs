@@ -620,6 +620,9 @@ impl JudgeService {
         // (one state, one request), `route.v6` never does, and with
         // `request = "own"` only `onto.v1` does (theseus-xzxqv).
         let core = self.core();
+        // route.v9 asks `draft` only when the operator lets Jev choose
+        // (theseus-kqeih); a service with no core attached asks nothing more.
+        input.draft_choice = core.as_ref().is_some_and(|c| c.cfg.routing.draft_by_jev);
         let onto = packs.iter().any(|(p, _, _)| is_onto(p))
             && core
                 .as_ref()
@@ -830,6 +833,7 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         personas: msg.persona.personas.clone(),
         speaker: msg.persona.speaker.clone(),
         categories: msg.persona.categories.clone(),
+        draft_choice: false,
         thread_now: msg.persona.thread.as_ref().map(|h| ThreadNow {
             title: h.title.clone(),
             goal: h.goal.clone(),
@@ -909,6 +913,13 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
         seal: crate::engage::seal_answer(j).map(Box::new),
         personal: choice(crate::routing::personal::QUESTION).map(|(choice, confidence, band)| {
             Box::new(crate::routing::PersonalAnswer {
+                choice,
+                confidence,
+                band,
+            })
+        }),
+        draft: choice(crate::routing::draft_choice::QUESTION).map(|(choice, confidence, band)| {
+            Box::new(crate::routing::draft_choice::DraftAnswer {
                 choice,
                 confidence,
                 band,

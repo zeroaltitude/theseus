@@ -58,6 +58,7 @@ use crate::config::RoutingConfig;
 
 pub mod brief;
 pub mod checkpoint;
+pub mod draft_choice;
 pub mod effort;
 pub mod personal;
 #[cfg(test)]
@@ -195,6 +196,9 @@ pub struct Verdict {
     /// route.v7's `personal` answer (theseus-gasov): a reach for the
     /// operator's personal details warns the owner.
     pub personal: Option<Box<PersonalAnswer>>,
+    /// route.v9's `draft` answer (theseus-kqeih), when the operator lets Jev
+    /// choose and Jev answered it.
+    pub draft: Option<Box<draft_choice::DraftAnswer>>,
 }
 
 /// One configured profile, as routing weighs it.
@@ -691,6 +695,7 @@ mod tests {
             persona: None,
             seal: None,
             personal: None,
+            draft: None,
         }
     }
 

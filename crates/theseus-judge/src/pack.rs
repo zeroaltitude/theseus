@@ -232,6 +232,10 @@ pub enum Source {
     /// The thread a message arrives in: one item, or none (`route.v5`'s
     /// `seal` is asked only in a thread).
     ThreadNow,
+    /// One item when the operator lets Jev choose which coding turns a cheaper
+    /// drafting model makes the first pass of (`route.v9`'s `draft`,
+    /// theseus-kqeih): the question is asked only then.
+    DraftChoice,
     /// One item when the place has live threads: the router listed them, or
     /// the message arrives in a thread (`classify.v4`'s `scope`,
     /// theseus-98bz.9).

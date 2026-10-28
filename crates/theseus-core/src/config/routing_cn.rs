@@ -27,6 +27,16 @@ pub(super) fn validate(cfg: &Config, catalog: &Catalog) -> Result<()> {
             );
         }
     }
+    if cfg.routing.draft_by_jev
+        && !DRAFTING
+            .iter()
+            .any(|m| cfg.routing.classes.table(m).cn_draft.is_some())
+    {
+        bail!(
+            "routing.draft_by_jev: Jev chooses among drafts, and no class has a cn_draft \
+             (routine_coding or deep_coding): name one, or leave it off"
+        );
+    }
     for m in MODES {
         let t = cfg.routing.classes.table(m);
         for p in t.profiles.iter().filter(|p| *p != CHEAPEST) {

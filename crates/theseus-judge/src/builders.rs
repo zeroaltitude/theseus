@@ -286,6 +286,12 @@ pub struct InboundInput {
     /// out when there are none, or when the question is not asked.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub categories: Vec<String>,
+    /// The operator lets Jev choose which coding turns a cheaper drafting
+    /// model makes the first pass of (`[routing] draft_by_jev`; `route.v9`'s
+    /// `draft`, theseus-kqeih): the question is asked only then. It is not part
+    /// of the state, so a request without it is byte for byte the one before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub draft_choice: bool,
     #[serde(default)]
     pub current_role: Option<String>,
     /// The roles table, for `role.v1`'s options.
@@ -962,6 +968,15 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     );
     threads_dynamic(&mut dynamic, i, threads, &clip);
     persona::dynamic(&mut dynamic, i, &clip, in_thread);
+    if i.draft_choice {
+        dynamic.sources.insert(
+            Source::DraftChoice,
+            vec![Item {
+                key: "draft".into(),
+                text: "The operator lets Jev choose which coding requests a cheaper drafting model makes the first pass of.".into(),
+            }],
+        );
+    }
     onto::dynamic(&mut dynamic, i, &clip);
     dynamic.sources.insert(
         Source::Roles,
@@ -1627,6 +1642,7 @@ pub(crate) mod tests {
                     speaker: None,
                     thread_now: None,
                     categories: Vec::new(),
+                    draft_choice: false,
                     data_names: DataNames::default(),
                     onto: None,
                     current_role: Some(big.clone()),

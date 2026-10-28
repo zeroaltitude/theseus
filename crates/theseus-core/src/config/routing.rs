@@ -80,6 +80,13 @@ pub struct RoutingConfig {
     /// The coding floor (theseus-mn5dr): off unless it names a profile.
     #[serde(default, skip_serializing_if = "CodingFloor::is_off")]
     pub coding_floor: CodingFloor,
+    /// Jev chooses which coding turns a China-origin draft is made for
+    /// (theseus-kqeih): route.v9 asks its `draft` question, the owner's
+    /// standing orders in its words, and a class with a `cn_draft` drafts only
+    /// on a sure `cheap`. Off: a class with a `cn_draft` drafts whenever it is
+    /// eligible, as before, and Jev is not asked. Needs a class that drafts.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub draft_by_jev: bool,
 }
 
 /// `[routing.coding_floor]` (theseus-mn5dr, the TB-hard report's fix 5): a
@@ -455,6 +462,7 @@ impl Default for RoutingConfig {
             corrections: CorrectionsConfig::default(),
             task_checkpoints: TaskCheckpoints::default(),
             coding_floor: CodingFloor::default(),
+            draft_by_jev: false,
         }
     }
 }
