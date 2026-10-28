@@ -23,8 +23,16 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "harbor"))
+import price_basis as pb  # noqa: E402
+
 RUNS = HERE.parent / "runs/c10-recall"
 DOCS = Path.home() / "lanes/gauntlet/docs/benchmarks"
+# Each run's own per-turn tokens and dollars, which say which price table billed it
+# (theseus-0j5k5): the published seed-7 run's, and the regress copy of a new seed's.
+SEED7_TURNS = Path.home() / "reports/theseus-v1-bench/item8/out/rc-th-fix/turns.jsonl"
+REGRESS = Path.home() / "reports/theseus-regress-1026"
+MODEL = "claude-sonnet-5-5"  # every run in this cell is Theseus on one model
 DATE = "2026-10-26"
 NAME = f"{DATE}-recall-seeds-1.0.3"
 
@@ -57,6 +65,44 @@ SEED7 = {
     "note": "recomputed from the published CSV on this report's grouping; see the comment in recall_report.py",
 }
 CROSS = ("session", "days")
+
+
+def turns_path(seed):
+    """A seed's saved turns: beside its scores, else the regress run's copy."""
+    for p in (RUNS / f"seed{seed}-turns.jsonl", REGRESS / f"seed{seed}-turns.jsonl"):
+        if p.exists():
+            return p
+    return RUNS / f"seed{seed}-turns.jsonl"
+
+
+def run_basis(path, model=MODEL):
+    """Which price table billed a run, measured from its own turns, with the run's tokens
+    by model so it can be repriced onto another. A table is never taken from a run's date:
+    seeds 11 and 13 and the published seed 7 span the 2026-10-25 cache-read move."""
+    turns = [json.loads(l) for l in open(path) if l.strip()]
+    tok = lambda t: {c: int((t.get("tokens") or {}).get(c) or 0)  # noqa: E731
+                     for c in ("input", "cache_read", "cache_write", "output")}
+    m = pb.measure_many(({model: tok(t)}, t.get("cost_usd")) for t in turns)
+    total = {c: sum(tok(t)[c] for t in turns) for c in ("input", "cache_read", "cache_write", "output")}
+    return {"price_digest": m["digest"], "price_basis": m["how"], "price_counts": m["counts"],
+            "price_unmatched_turns": m["unmatched"], "by_model": {model: total},
+            "run_cost_usd": round(sum(t.get("cost_usd") or 0 for t in turns), 4)}
+
+
+def cost_comparison(rows, seed7, reprice_to=None):
+    """The new seeds' whole-run cost against the published seed 7's, on ONE price basis.
+    `price_basis.compare` refuses across two digests; the refusal comes back as
+    `{"refused": ...}` and is printed and published. None when there is nothing to compare."""
+    new = [{"price_digest": r.get("price_digest"), "dollars": r.get("run_cost_usd"),
+            "by_model": r.get("by_model") or {}} for r in rows.values() if r.get("run_cost_usd")]
+    old = [{"price_digest": seed7.get("price_digest"), "dollars": seed7.get("run_cost_usd"),
+            "by_model": seed7.get("by_model") or {}}]
+    if not new:
+        return None
+    try:
+        return pb.compare({"seed7": old, "new": new}, value=lambda r: r["dollars"], reprice_to=reprice_to)
+    except pb.CrossBasisError as e:
+        return {"refused": str(e)}
 
 
 def fetch(seeds):
@@ -116,6 +162,9 @@ def fetch_run_costs(seeds):
     about 2.5x, which is exactly the mistake this function exists to prevent."""
     out = {}
     for s in seeds:
+        if turns_path(s).exists():
+            out[s] = run_basis(turns_path(s))["run_cost_usd"]
+            continue
         r = subprocess.run([sys.executable, str(HERE / "arm_peek.py"),
                             f'python3 -c \'import json,os;print(sum(float(json.loads(l).get("cost_usd") or 0) '
                             f'for l in open(os.path.expanduser("~/recall-g/seed{s}/turns.jsonl")) if l.strip()))\''],
@@ -171,7 +220,7 @@ def per_seed(path):
     }
 
 
-def build(seeds):
+def build(seeds, reprice_to=None):
     rows = {}
     for s in seeds:
         f = RUNS / f"seed{s}-scores.json"
@@ -183,6 +232,14 @@ def build(seeds):
         sys.exit("no seeds scored yet")
     for s, c in fetch_run_costs(list(rows)).items():
         rows[s]["run_cost_usd"] = c
+    for s, r in rows.items():
+        r.update(run_basis(turns_path(s)) if turns_path(s).exists()
+                 else {"price_digest": None, "price_basis": "unread", "by_model": {}})
+    seed7 = {**SEED7, **(run_basis(SEED7_TURNS) if SEED7_TURNS.exists()
+                         else {"price_digest": None, "price_basis": "unread", "by_model": {}})}
+    if "run_cost_usd" in seed7 and seed7.get("price_digest"):
+        seed7["run_cost_usd"] = SEED7["run_cost_usd"]  # the published figure, not a re-sum
+    cost_cmp = cost_comparison(rows, seed7, reprice_to)
 
     data = {
         "report": NAME, "suite": "recall", "date": DATE, "kind": "recall",
@@ -193,7 +250,8 @@ def build(seeds):
                  for s in rows],
         "summary": {f"theseus/baseline@seed{s}": {k: v for k, v in r.items() if k != "_probes"}
                     for s, r in rows.items()},
-        "compare": {"2026-10-18 seed 7, Theseus": SEED7,
+        "cost_comparison": cost_cmp,
+        "compare": {"2026-10-18 seed 7, Theseus": {k: v for k, v in seed7.items() if k != "by_model"},
                     "note": "rivals not rerun: Claude Code 0 of 48 and Pi 1 of 48 across "
                             "sessions on seed 7, a structural fact about harnesses that "
                             "carry nothing between sessions"},
@@ -203,13 +261,13 @@ def build(seeds):
 
     csv_path = RUNS / f"{NAME}.csv"
     cols = ["arm", "seed", "kind", "salience", "bucket", "planned", "status", "correct",
-            "turns_since", "tokens_since", "cost_usd", "latency_ms"]
+            "turns_since", "tokens_since", "cost_usd", "latency_ms", "price_digest"]
     with open(csv_path, "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(cols)
         for s, r in rows.items():
             for x in r["_probes"]:
-                w.writerow([r["arm"], s] + [x.get(c) for c in cols[2:]])
+                w.writerow([r["arm"], s] + [x.get(c) for c in cols[2:-1]] + [r.get("price_digest")])
 
     print(f"wrote {out.name} and {csv_path.name}\n")
     rng = lambda f: f"{min(f(r) for r in rows.values()):.1f}-{max(f(r) for r in rows.values()):.1f}"
@@ -235,7 +293,15 @@ def build(seeds):
           f"within {SEED7['within_right']}/{SEED7['within_n']}, abstention gave a value "
           f"{SEED7['abstain_gave_value']}/{SEED7['abstain_n']}, undelivered "
           f"{SEED7['undelivered']}, probes ${SEED7['cost_usd']:.2f}, "
-          f"whole run ${SEED7['run_cost_usd']:.2f}")
+          f"whole run ${SEED7['run_cost_usd']:.2f}  [price table {seed7.get('price_digest')}]")
+    if cost_cmp and "refused" in cost_cmp:
+        print(f"\n  COST RATIO REFUSED (theseus-0j5k5): {cost_cmp['refused']}")
+        print("  Every dollar above is as billed on its own table. Pass `--reprice <table>` to put both on one.")
+    elif cost_cmp:
+        how = (f"REPRICED onto {cost_cmp['basis_name']} ({cost_cmp['basis']})" if cost_cmp["repriced"]
+               else f"one price table, {cost_cmp['basis_name']} {cost_cmp['basis']}")
+        print(f"\n  whole-run cost ratio, new seeds' mean over seed 7: {cost_cmp['ratio']:.2f}x  ({how}; "
+              f"{cost_cmp['n']['new']} new run(s) against {cost_cmp['n']['seed7']})")
     print("\n  by bucket:")
     buckets = sorted({b for r in rows.values() for b in r["by_bucket"]})
     print("    " + "seed".ljust(6) + "".join(b[:12].ljust(14) for b in buckets))
@@ -245,16 +311,25 @@ def build(seeds):
             v = r["by_bucket"].get(b)
             cells.append((f"{v['right']}/{v['n']}" if v else "-").ljust(14))
         print("    " + str(s).ljust(6) + "".join(cells))
-    return 0
+    # a refused ratio is a loud failure, after everything else has been written and printed
+    return 3 if cost_cmp and "refused" in cost_cmp else 0
 
 
 def main() -> int:
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    seeds = [int(a) for a in sys.argv[2:]] or [11, 13]
+    args = sys.argv[2:]
+    reprice_to = None
+    if "--reprice" in args:
+        i = args.index("--reprice")
+        reprice_to = args[i + 1]
+        if reprice_to not in pb.TABLES:
+            sys.exit(f"unknown --reprice {reprice_to!r}; have: {', '.join(pb.TABLES)}")
+        del args[i:i + 2]
+    seeds = [int(a) for a in args] or [11, 13]
     if cmd == "fetch":
         fetch(seeds); return 0
     if cmd == "build":
-        fetch(seeds); return build(seeds)
+        fetch(seeds); return build(seeds, reprice_to)
     sys.exit(__doc__)
 
 
