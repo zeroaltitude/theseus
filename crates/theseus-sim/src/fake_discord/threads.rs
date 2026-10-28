@@ -568,9 +568,6 @@ impl FakeDiscord {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-
     use super::*;
 
     fn thread(id: u64) -> FakeThread {
@@ -629,13 +626,17 @@ mod tests {
     #[test]
     fn a_post_made_beside_other_creates_never_takes_their_message() {
         const DM: &str = "7";
+        // A fixed count per pusher, not a spin until the main thread is done:
+        // the test's size is then a property of the test and not of the host's
+        // core count, allocator and mutex handoff. 20,000 creates against
+        // 3,000 posts is far more pressure than the window this row measured.
+        const PUSHES: usize = 20_000;
         let fake = FakeDiscord::start();
-        let stop = Arc::new(AtomicBool::new(false));
         let pushers: Vec<_> = (0..2)
             .map(|_| {
-                let (fake, stop) = (fake.clone(), stop.clone());
+                let fake = fake.clone();
                 std::thread::spawn(move || {
-                    while !stop.load(Ordering::Relaxed) {
+                    for _ in 0..PUSHES {
                         push_reply(&fake, DM);
                     }
                 })
@@ -647,17 +648,18 @@ mod tests {
         for id in &posts {
             fake.starter_message(&thread(*id), &body).unwrap();
         }
-        stop.store(true, Ordering::Relaxed);
         for p in pushers {
             p.join().unwrap();
         }
         let dm = fake.messages(7);
         assert!(!dm.is_empty());
+        // Hoisted: `p.to_string()` inside the inner loop allocated once per
+        // (message, post) pair, which is `dm.len() * 3000` allocations.
+        let post_ids: std::collections::HashSet<String> =
+            posts.iter().map(|p| p.to_string()).collect();
         for m in &dm {
             assert!(
-                m.flags == 0
-                    && m.components_json == json!([])
-                    && !posts.iter().any(|p| m.id == p.to_string()),
+                m.flags == 0 && m.components_json == json!([]) && !post_ids.contains(&m.id),
                 "a DM message was taken for a post's: {m:#?}"
             );
         }
