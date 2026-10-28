@@ -277,6 +277,9 @@ function Response({ l, r }: { l: InspectLoop; r: TurnInspectResult }) {
         {a.cost_usd != null && <Kv k="cost">{usd(a.cost_usd)}</Kv>}
         {a.request_id && <Kv k="request id">{a.request_id}</Kv>}
         {a.request_digest && <Kv k="request digest">{a.request_digest}</Kv>}
+        {a.redacted.map((x, i) => (
+          <Kv key={i} k="vault secrets">{x.names.length ? x.names.join(', ') : `${x.count} value${x.count === 1 ? '' : 's'}`} · {x.substituted ? 'substituted before it left' : 'sent as written (redact_outbound is off)'}</Kv>
+        ))}
         {t && <Kv k="latency">call {us(t.call)}{t.firstByte != null ? ` · first byte ${us(t.firstByte)}` : ''}{t.firstToken != null ? ` · first token ${us(t.firstToken)}` : ''}{t.streaming != null ? ` · streaming ${us(t.streaming)}` : ''}</Kv>}
         {!t && timing && <Kv k="latency">{timing.total_ms != null ? `call ${ms(timing.total_ms)}` : ''}{timing.first_byte_ms != null ? ` · first byte ${ms(timing.first_byte_ms)}` : ''}{timing.first_token_ms != null ? ` · first token ${ms(timing.first_token_ms)}` : ''}</Kv>}
         <Kv k="at">{stamp(a.at_ms)}</Kv>

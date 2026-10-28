@@ -287,6 +287,7 @@ export type * from './InspectAnswer';
 export type * from './InspectCall';
 export type * from './InspectLoop';
 export type * from './InspectPrompt';
+export type * from './InspectRedacted';
 export type * from './InspectRow';
 export type * from './InspectTotals';
 export type * from './JobStopParams';

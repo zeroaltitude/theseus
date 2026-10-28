@@ -118,6 +118,8 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   `--exact` asks the provider's token counter.
 - **`open`**: open a turn in the cockpit's inspector (flame graph, each loop's request and thinking, each tool call).
   `theseus open turn [TURN]`.
+- **`inspect`**: which vault secrets a turn's requests carried, by name, per loop, with the model, and whether each was
+  substituted before the request left (`[privacy] redact_outbound`). `theseus inspect [SESSION] [TURN]`.
 - **`reach`**: where a node went: the compilations that held it and its copies in other sessions. `theseus reach NODE`.
 - **`fork`**: a new session from any moment of another, by reference; the original is never written to.
   `theseus fork NODE`.

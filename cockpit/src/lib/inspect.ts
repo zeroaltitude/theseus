@@ -87,6 +87,23 @@ export function personWaits(rows: readonly InspectRow[], originMs: number): Omit
   return out
 }
 
+/** Where a request carried a value the vault resolved: each `request.redacted` row of a model call, a mark at the
+ *  moment it was sent, beside that loop's provider call. `originMs` is the unix ms the clock began at. */
+export function redactionMarks(rows: readonly InspectRow[], originMs: number): Omit<Bar, 'row'>[] {
+  return rows
+    .filter((r) => r.kind === 'request.redacted' && (r.data as { op?: string } | null)?.op === 'stream')
+    .map((r) => {
+      const d = r.data as { names?: string[]; count?: number; substituted?: boolean; loop?: number | null }
+      const start = (r.at_ms - originMs) * 1000
+      const what = d.names?.length ? d.names.join(', ') : `${d.count ?? 0} vault value${d.count === 1 ? '' : 's'}`
+      return {
+        id: `redacted-${r.position}`, lane: 'marks' as Lane, start, end: start + 1,
+        name: `request.redacted: ${what} (${d.substituted ? 'substituted' : 'sent as written'})`,
+        kind: 'mark', attrs: r.data, loop: d.loop ?? null,
+      }
+    })
+}
+
 /** A wait in a few words. */
 export function waitWords(us: number): string {
   const s = us / 1e6
@@ -107,6 +124,7 @@ export function layout(trace: Span | null | undefined, rows: readonly InspectRow
   const origin = endedMs != null && trace ? endedMs - Math.round(end / 1000) : startedMs
   // A wait that outlasts the turn is drawn to the turn's end, so it does not flatten the rest on the axis.
   bars.push(...personWaits(rows, origin).filter((b) => b.start < end).map((b) => ({ ...b, end: Math.min(b.end, end) })))
+  bars.push(...redactionMarks(rows, origin).filter((b) => b.start < end))
   const packed = pack(bars)
   const rowsIn = Object.fromEntries(LANES.map((l) => [l, 0])) as Record<Lane, number>
   for (const b of packed) rowsIn[b.lane] = Math.max(rowsIn[b.lane], b.row + 1)

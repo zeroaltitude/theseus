@@ -20,8 +20,8 @@ use std::time::Instant;
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use theseus_protocol::inspect::{
-    InspectAnswer, InspectCall, InspectLoop, InspectPrompt, InspectRow, TurnInspectParams,
-    TurnInspectResult,
+    InspectAnswer, InspectCall, InspectLoop, InspectPrompt, InspectRedacted, InspectRow,
+    TurnInspectParams, TurnInspectResult,
 };
 use theseus_protocol::{error_code, ContextCompiled, LedgerKind, Span, Usage};
 use theseus_store::pages::{ledger_kind_session, ledger_session};
@@ -273,6 +273,8 @@ fn thinking_chars(blocks: &[Value]) -> u64 {
 struct Read {
     errors: u32,
     compiled: BTreeMap<u32, ContextCompiled>,
+    /// Each loop's `request.redacted` rows, in order.
+    redacted: BTreeMap<u32, Vec<InspectRedacted>>,
     started_on: Value,
 }
 
@@ -282,6 +284,7 @@ fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], private: bo
     let mut r = Read {
         errors: 0,
         compiled: BTreeMap::new(),
+        redacted: BTreeMap::new(),
         started_on: Value::Null,
     };
     for (pos, row) in rows {
@@ -318,6 +321,27 @@ fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], private: bo
             "context.compiled" => {
                 if let Ok(c) = serde_json::from_value::<ContextCompiled>(row.data.clone()) {
                     r.compiled.insert(c.loop_index, c);
+                }
+            }
+            "request.redacted" => {
+                // Only a model call's: a token count is no loop's request.
+                if let (Some(i), Some("stream")) =
+                    (row.data["loop"].as_u64(), row.data["op"].as_str())
+                {
+                    let names = row.data["names"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|n| n.as_str().map(str::to_string));
+                    r.redacted
+                        .entry(i as u32)
+                        .or_default()
+                        .push(InspectRedacted {
+                            names: if private { names.collect() } else { vec![] },
+                            count: row.data["count"].as_u64().unwrap_or(0),
+                            substituted: row.data["substituted"].as_bool().unwrap_or(false),
+                            correlation_id: row.data["correlation_id"].as_str().map(str::to_string),
+                        });
                 }
             }
             "provider.error" | "provider.refusal" | "tool.invalid_input" => r.errors += 1,
@@ -391,6 +415,7 @@ impl Loops {
                 blocks.iter().map(shape_of).collect()
             },
             thinking_chars: thinking_chars(blocks),
+            redacted: vec![],
         });
     }
 
@@ -518,6 +543,11 @@ pub(crate) fn assemble(
     let mut l = read_nodes(out, &nodes, private);
     for (i, c) in read.compiled {
         l.loops.entry(i).or_default().compiled = Some(c);
+    }
+    for (i, redacted) in read.redacted {
+        if let Some(a) = l.loops.get_mut(&i).and_then(|lp| lp.answer.as_mut()) {
+            a.redacted = redacted;
+        }
     }
     let mut prior: Vec<String> = Vec::new();
     for (i, lp) in &mut l.loops {

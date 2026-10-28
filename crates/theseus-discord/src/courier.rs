@@ -204,6 +204,22 @@ pub fn nonce(key: &str) -> String {
     u64::from_be_bytes(b).to_string()
 }
 
+/// `card` as it leaves: the vault's own values replaced by their names in its
+/// title, description and fields, as a message's text is (`Lane::write`).
+fn mask_card(exits: &theseus_core::exits::Exits, card: &NoticeCard) -> NoticeCard {
+    let mask = |s: &str| exits.text(s).0.into_owned();
+    NoticeCard {
+        title: mask(&card.title),
+        description: mask(&card.description),
+        fields: card
+            .fields
+            .iter()
+            .map(|(n, v)| (mask(n), mask(v)))
+            .collect(),
+        ..card.clone()
+    }
+}
+
 /// One message a post writes: created, or edited when its message is known.
 #[derive(Clone)]
 struct Write {
@@ -1655,6 +1671,17 @@ impl Lane {
         if w.content.trim().is_empty() {
             return Ok(None);
         }
+        // The vault's own values never leave in a message (`[privacy]
+        // redact_outbound`, theseus-gyjyo R7b): a post, an edit and a live
+        // stream's text all come through here. A shape is not a value.
+        let masked = match self.shared.core.exits.text(&w.content).0 {
+            std::borrow::Cow::Owned(content) => Some(Write {
+                content,
+                ..w.clone()
+            }),
+            std::borrow::Cow::Borrowed(_) => None,
+        };
+        let w = masked.as_ref().unwrap_or(w);
         // A persona's text is signed (theseus-sjzm).
         let signed = self.sign(w).await;
         let w = signed.as_ref().map_or(w, |s| &s.write);
@@ -1988,6 +2015,8 @@ impl Lane {
     /// A structured notice (a Discord embed, no mentions): live, when
     /// `[discord] notice_embeds` is on.
     async fn notice(&mut self, key: &str, card: &NoticeCard) -> Result<(), SendErr> {
+        // A notice names the call it is about, command line and paths included.
+        let card = &mask_card(&self.shared.core.exits, card);
         let channel = self.place_channel().await?;
         let mut b = twilight_util::builder::embed::EmbedBuilder::new()
             .title(card.title.clone())
@@ -2170,6 +2199,8 @@ pub(crate) fn mcp_note(body: &Value) -> String {
 mod tests_bound;
 #[cfg(test)]
 mod tests_catchup;
+#[cfg(test)]
+mod tests_exits;
 #[cfg(test)]
 mod tests_self_note;
 #[cfg(test)]

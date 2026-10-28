@@ -98,6 +98,29 @@ pub struct InspectAnswer {
     pub blocks: Vec<Value>,
     /// The thinking blocks' characters, whether or not shown.
     pub thinking_chars: u64,
+    /// The requests this loop sent that carried values the vault resolved
+    /// (`request.redacted` rows, theseus-gyjyo R7b): which secret by name, how
+    /// many times, and whether the exit substituted it. A retry sends a
+    /// request again, so a loop may have more than one. A key the vault never
+    /// resolved is not here: it is in the record, found by reading it.
+    pub redacted: Vec<InspectRedacted>,
+}
+
+/// One request's vault secrets: what `request.redacted` says.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct InspectRedacted {
+    /// The secrets' names, sorted. Empty for a surface that reads no private
+    /// text (`withheld`): it learns how many and whether substituted.
+    pub names: Vec<String>,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub count: u64,
+    /// `true`: replaced by `[redacted:<name>]` before the request left.
+    /// `false`: sent as written (`[privacy] redact_outbound = false`).
+    pub substituted: bool,
+    /// The provider action's correlation id.
+    pub correlation_id: Option<String>,
 }
 
 /// One tool call of a loop: the call, its gate's record, its result.

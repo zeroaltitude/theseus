@@ -2557,9 +2557,18 @@ impl TurnRunner {
             // The provider floor reads the session's mark as the call is made.
             let private = self.session_level(t);
             let sid = t.tc.session_id;
-            let mut stream = std::pin::pin!(crate::data_gate::for_session(sid, || {
-                crate::google::private::scoped(private, || {
-                    provider.stream_message(&compiled.request, &mut on_delta)
+            // The call the provider's substitution names in its row.
+            let call = crate::exits::Call {
+                session: Some(sid.to_string()),
+                turn: Some(t.tc.turn_id.to_string()),
+                loop_index: Some(i),
+                correlation_id: Some(action.correlation_id.clone()),
+            };
+            let mut stream = std::pin::pin!(crate::exits::for_call(call, || {
+                crate::data_gate::for_session(sid, || {
+                    crate::google::private::scoped(private, || {
+                        provider.stream_message(&compiled.request, &mut on_delta)
+                    })
                 })
             }));
             let mut sent = false;

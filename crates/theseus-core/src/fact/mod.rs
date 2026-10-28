@@ -328,6 +328,7 @@ facts![
     content::ContentRemoved<'static>,
     content::ContentUnjudged<'static>,
     data::DataGateBlocked<'static>,
+    data::RequestRedacted<'static>,
     place::Published<'static>,
     place::GlidePosted<'static>,
     place::GlideRead<'static>,
