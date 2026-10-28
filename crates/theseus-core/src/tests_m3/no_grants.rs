@@ -3,8 +3,8 @@
 //! offer a question may make), the rows the two wrote read back as they were
 //! written, and a config that still has `[policy.earned]` loads.
 
-use serde_json::json;
 use super::*;
+use serde_json::json;
 
 fn run_of(id: &str, argv: &[&str]) -> Scripted {
     Scripted::tools("", &[(id, "proc_run", json!({"argv": argv}))])
@@ -21,7 +21,10 @@ fn write_of(id: &str, path: &str) -> Scripted {
 /// and no offer: the daemon makes no grant, so none is offered.
 #[tokio::test]
 async fn a_question_the_posture_asked_offers_no_grant() {
-    for script in [run_of("g0", &["echo", "hello", "x"]), write_of("g1", "a.txt")] {
+    for script in [
+        run_of("g0", &["echo", "hello", "x"]),
+        write_of("g1", "a.txt"),
+    ] {
         let r = rig(vec![script, Scripted::text("asked")]);
         let sid = {
             let rec = SessionRecord::new(SessionKind::Conversation, None);

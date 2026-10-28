@@ -179,7 +179,9 @@ mod tests {
         let policy = root.find_subcommand_mut("policy").expect("policy");
         let names: Vec<&str> = policy.get_subcommands().map(|c| c.get_name()).collect();
         assert!(
-            !names.iter().any(|n| ["earned", "revoke", "grants"].contains(n)),
+            !names
+                .iter()
+                .any(|n| ["earned", "revoke", "grants"].contains(n)),
             "{names:?}"
         );
         let help = policy.render_long_help().to_string();

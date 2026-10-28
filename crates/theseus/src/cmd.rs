@@ -890,7 +890,8 @@ async fn policy_list(conn: &mut Conn, json: bool) -> Result<()> {
     let tools = conn.request(method::TOOL_LIST, Value::Null).await?;
     let health = conn.request(method::HEALTH, Value::Null).await?;
     if json {
-        let out = serde_json::json!({"tools": tools["tools"], "tightenings": health["tightenings"]});
+        let out =
+            serde_json::json!({"tools": tools["tools"], "tightenings": health["tightenings"]});
         println!("{out}");
         return Ok(());
     }

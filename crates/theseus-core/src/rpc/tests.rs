@@ -2187,8 +2187,14 @@ async fn rows_of_the_retired_policy_kinds_still_read() {
             json!({"group": {"id": "ern_00000001", "tool": "proc.run", "prefix": ["cargo", "test"]},
                    "by": "operator", "who": "operator", "via": "discord", "at_ms": 1_760_000_000_001u64}),
         ),
-        ("policy.earned_passed", json!({"id": "ern_00000001", "until_ms": 9})),
-        ("policy.earned_revoked", json!({"id": "ern_00000001", "why": "revoked"})),
+        (
+            "policy.earned_passed",
+            json!({"id": "ern_00000001", "until_ms": 9}),
+        ),
+        (
+            "policy.earned_revoked",
+            json!({"id": "ern_00000001", "why": "revoked"}),
+        ),
     ];
     for (i, (kind, data)) in old.iter().enumerate() {
         let row = json!({"at_unix_ms": 1_760_000_000_000u64 + i as u64, "kind": kind,
