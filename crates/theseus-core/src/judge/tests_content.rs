@@ -864,3 +864,114 @@ fn content_is_wired_live_with_no_action() {
     assert_eq!(p.point, theseus_judge::pack::Point::Item);
     assert_eq!(p.questions.len(), 4);
 }
+
+// ------------------------------------------- theseus-gyjyo.4: names are a label source
+
+/// A name in `[privacy] sensitive_names` found in an item raises `confidential`
+/// on the session at the item's entry (`ask_content`), with the word as its
+/// source and no model call: the label is on the record when `ask_content`
+/// returns, while the judge's answers are held five seconds off, and the judge
+/// has been sent nothing. It carries no judgment, since none raised it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_name_in_an_item_raises_confidential_with_no_model_call() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    jev.set_latency(Duration::from_secs(5), Duration::from_secs(5));
+    let r = rig(&jev, |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into()]
+    });
+    let sid = session(&r);
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![from_in(
+            &r,
+            &sid,
+            "n1",
+            ItemKind::ToolResult,
+            "fs.grep src",
+            "Examplecorp's billing module",
+        )],
+    );
+    let f = flags(&r, &sid);
+    let l = f.label(Flag::Confidential).expect("a names hit is a label");
+    assert_eq!(l.source, "name: Examplecorp");
+    assert_eq!(l.node.as_deref(), Some("n1"));
+    assert_eq!(l.kind, ItemKind::ToolResult);
+    assert!((l.confidence - 1.0).abs() < f64::EPSILON, "{l:?}");
+    assert_eq!(l.band, theseus_judge::band::Band::Act);
+    assert!(!f.has(Flag::Secret) && !f.has(Flag::Personal) && !f.has(Flag::Injection));
+    assert!(jev.seen().is_empty(), "no judge traffic raised it");
+    let rows = rows(&r, "content.labelled");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["flag"], "confidential");
+}
+
+/// An item that names nothing raises nothing, and a second hit on a session
+/// that already carries `confidential` keeps the first label: one per flag.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_name_keeps_the_first_label_and_a_plain_item_raises_none() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    jev.set_latency(Duration::from_secs(5), Duration::from_secs(5));
+    let r = rig(&jev, |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into(), "Otherco".into()];
+    });
+    let sid = session(&r);
+    let judge = &r.core.runner.judge;
+    judge.ask_content(
+        &sid,
+        vec![item_in(
+            &r,
+            &sid,
+            "n1",
+            ItemKind::ToolResult,
+            "the billing module",
+        )],
+    );
+    assert!(flags(&r, &sid).label(Flag::Confidential).is_none());
+    judge.ask_content(
+        &sid,
+        vec![item_in(
+            &r,
+            &sid,
+            "n2",
+            ItemKind::ToolResult,
+            "Examplecorp notes",
+        )],
+    );
+    judge.ask_content(
+        &sid,
+        vec![item_in(
+            &r,
+            &sid,
+            "n3",
+            ItemKind::OperatorMessage,
+            "and Otherco too",
+        )],
+    );
+    let f = flags(&r, &sid);
+    let l = f.label(Flag::Confidential).unwrap();
+    assert_eq!(
+        (l.source.as_str(), l.node.as_deref()),
+        ("name: Examplecorp", Some("n2"))
+    );
+    assert_eq!(rows(&r, "content.labelled").len(), 1);
+}
+
+/// `session_flags = false` turns the whole mechanism off, a names hit included.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_name_raises_nothing_with_the_flags_off() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into()];
+        c.content_based_security.session_flags = false;
+        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
+    });
+    let sid = session(&r);
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "Examplecorp")],
+    );
+    assert!(flags(&r, &sid).label(Flag::Confidential).is_none());
+}

@@ -210,38 +210,76 @@ async fn a_restricted_model_is_refused_a_call_with_no_session() {
     assert!(r.zai.requests().is_empty());
 }
 
-/// Test 13: the names tripwire is independent of every label. A request that
-/// holds a sensitive name is refused for a model not of US origin with no label
-/// on its session, a restricted model's included; and a Claude is sent it.
+/// Test 13: a names hit is a label, not a refusal (theseus-gyjyo.4). An item
+/// that holds a sensitive name raises `confidential` on its session at its
+/// entry, with no judge behind it; the label is what refuses a restricted
+/// model the session's next request, the chokepoint walks no request for the
+/// name, and after the operator removes the label the same request is sent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_names_tripwire_needs_no_label() {
+async fn a_names_hit_is_a_label() {
     let named = "Rename the call sites in Examplecorp's billing module.";
     let r = rig(None, 1, |c| {
         c.privacy.sensitive_names = vec!["Examplecorp".into()];
     });
     let sid = session_with(&r, None, &[], false);
+    let node = Node::user(&sid, Some("trn_1"), "cli", named);
+    r.core.store.append(&[node.record().unwrap()]).unwrap();
+    let item = crate::judge::content::ContentItem::of_message(
+        &node,
+        ItemKind::OperatorMessage,
+        "operator message",
+    )
+    .unwrap();
+    r.core.runner.judge.ask_content(&sid, vec![item]);
+    let rec = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&sid)
+        .unwrap()
+        .unwrap();
+    let flags = rec.data.as_deref().cloned().unwrap_or_default();
+    assert_eq!(
+        flags.label(Flag::Confidential).map(|l| l.source.as_str()),
+        Some("name: Examplecorp")
+    );
+    // The label refuses the restricted model, and says so by the label.
     let zai = &r.core.runner.providers["zai"];
-    let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", named))
+    let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
         .unwrap_err();
     assert_eq!(class, "data_gate", "{said}");
-    assert!(said.contains("sensitive_names"), "{said}");
+    assert!(said.contains("`confidential` label"), "{said}");
+    assert!(!said.contains("sensitive_names"), "{said}");
     assert!(r.zai.requests().is_empty());
-    // The same session, unnamed text: no label, so it goes.
-    send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
-        .await
+    // The operator removes it (the mark stands: the item was judged).
+    r.core
+        .store
+        .update_session(&sid, |rec| {
+            let mut f = rec.data.as_deref().cloned().unwrap_or_default();
+            f.remove(Flag::Confidential, "owner", "test", 2);
+            f.judged_through = Some(node.id.clone());
+            rec.data = Some(Box::new(f));
+            Ok(vec![])
+        })
         .unwrap();
-    // A US model is sent the named request.
-    let claude = &r.core.runner.providers["anthropic"];
-    send_for(claude, Some(&sid), &request("claude-sonnet-5-5", named))
+    send_for(zai, Some(&sid), &request("glm-5.3", named))
         .await
-        .unwrap();
-    assert_eq!(r.claude.requests().len(), 1);
+        .expect("nothing overrides the operator: the named request is sent");
+    assert_eq!(r.zai.requests().len(), 1);
+    // A request that names a word, in a session no item of which did, is not
+    // stopped at the chokepoint: the accepted residual (the review's P1 trade).
+    let other = session_with(&r, None, &[], false);
+    send_for(zai, Some(&other), &request("glm-5.3", named))
+        .await
+        .expect("the request walk is gone");
+    assert_eq!(r.zai.requests().len(), 2);
 }
 
-/// The tripwire holds for a model that is not restricted but not US either.
+/// A model of EU origin is no longer refused for a name: the US allowlist went
+/// with the request walk (theseus-gyjyo.4). Only a label keeps a session off a
+/// model, and only a model of restricted origin.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_names_tripwire_holds_for_a_model_of_eu_origin() {
+async fn a_name_does_not_refuse_a_model_of_eu_origin() {
     let named = "Rename the call sites in Examplecorp's billing module.";
     let r = rig(None, 1, |c| {
         c.privacy.sensitive_names = vec!["Examplecorp".into()];
@@ -249,11 +287,10 @@ async fn the_names_tripwire_holds_for_a_model_of_eu_origin() {
     });
     let sid = session_with(&r, None, &[], false);
     let claude = &r.core.runner.providers["anthropic"];
-    let (class, said) = send_for(claude, Some(&sid), &request("claude-sonnet-5-5", named))
+    send_for(claude, Some(&sid), &request("claude-sonnet-5-5", named))
         .await
-        .unwrap_err();
-    assert_eq!(class, "data_gate", "{said}");
-    assert!(r.claude.requests().is_empty());
+        .expect("a model of EU origin is sent it");
+    assert_eq!(r.claude.requests().len(), 1);
 }
 
 /// Test 14: a label does not affect a request to a model of US origin.

@@ -511,10 +511,10 @@ async fn the_trivial_default_skips_glm() {
     assert!(r.zai.requests().is_empty());
 }
 
-/// The names' floor holds beside the new one: a named message never runs on a
-/// Claude served from a host vouched EU, and no label is needed for it.
+/// A named message runs on a Claude served from a host vouched EU: the names'
+/// floor is gone (theseus-gyjyo.4), and a model of EU origin is not restricted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_named_request_still_needs_a_us_model() {
+async fn a_named_request_runs_on_a_model_of_eu_origin() {
     let named = "Rename the call sites in Examplecorp's billing module.";
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
@@ -529,8 +529,9 @@ async fn a_named_request_still_needs_a_us_model() {
         .profile_origin("default", &r.core.runner.catalog);
     assert_eq!(origin, crate::catalog::ModelOrigin::Eu, "unrestricted");
     let said = format!("{:?}", try_turn(&r.core, named).await);
-    assert!(said.contains("sensitive_names"), "{said}");
-    assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
+    assert!(!said.contains("sensitive_names"), "{said}");
+    assert_eq!(r.claude.requests().len(), 1, "{said}");
+    assert!(r.zai.requests().is_empty());
 }
 
 /// A refusal is never retried into a send: the driver's rule parks a
