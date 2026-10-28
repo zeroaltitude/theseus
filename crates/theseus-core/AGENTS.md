@@ -1907,14 +1907,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     of files and code (`content::local_read`) until the operator removes the label (`[content_based_security] injection = "notify"` only tells,
     the bench daemon's). Nothing is proved per request: the session carries a label or it does not.
     **The chokepoint** (`data_gate.rs`, keel): a request to a model of restricted origin is refused (class `data_gate`,
-    nothing sent, one `data_gate.blocked` row with a `why` word) unless the session in `CALLER` (`for_session`) has no
-    disqualifying label and every item in it was judged (`content_wait::unjudged`: an item after `judged_through`); a request
-    for no session, or for one with no readable record, is refused (`no_session`, `no_record`). The session is read only for a
-    restricted model; `[privacy] sensitive_names` is checked after it, unchanged and independent of every label.
+    nothing sent, one `data_gate.blocked` row with a `why` word) when `[content_based_security] cn_models` is
+    `follow_flags` and the session in `CALLER` (`for_session`) carries a disqualifying label; `always` sends whatever the
+    session carries, and `never` refuses every such request and takes the profile out of routing. One record read, no
+    transcript read, and nothing is proved per request: the session carries a label or it does not. A request for no
+    session, or for one with no readable record, is still refused (`no_session`, `no_record`). The session is read only
+    for a restricted model. `[privacy] sensitive_names` is no longer checked here: a hit raises a removable
+    `confidential` label at the item's entry (`content::deterministic`), and the label is what this reads.
     **The turn's floor** (`turn/data_step.rs`): `Floor { sensitive, cn_ok }`, `cn_ok` from `RouteState.cn` (`Cn`: allowed,
-    pending, or no with the flag's word), read from the store, not the turn's copy. A turn bound for a restricted profile whose
-    session has unjudged items waits on `TurnRunner::verdicts` for at most `[content_based_security] wait_ms` and then goes to the `[model]`
-    default with `Reason::DataGate`: it never blocks and never fails for want of a verdict; a Claude turn never waits
+    unchecked, or no with a word), read from the store, not the turn's copy. A turn bound for a restricted profile waits on
+    `TurnRunner::verdicts` for at most `[content_based_security] wait_ms` for this session's **outstanding content asks**
+    to land -- a counter, not a mark on the transcript -- and then decides again either way, going to the `[model]`
+    default with `Reason::DataGate` if a label arrived: it never blocks and never fails for want of a verdict; a Claude turn never waits
     (`decide_floored` decides as if allowed, and waits only when that names a restricted profile). A later loop on a restricted
     profile reads the session again before it compiles (`cn_move`), so a label raised since moves it; a compaction's restricted
     summary profile waits the same way (`compaction/gate.rs`). `data_floor` moves any turn still bound for one, or fails it
@@ -1931,9 +1935,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     verbatim), and `[privacy] open_source_paths` / `redact_outbound`. `session_flags = false` with `cn_models = "follow_flags"` refuses to start
     (`ContentBasedSecurityConfig::validate`): with nothing judged there are no labels to follow. Tests: `config/tests_content_based_security.rs`.
     **The data rule is on the record** (theseus-a1wvq.11; `tests_observability.rs`): the route row (`route.decided`) carries `cn`
-    (`allowed`, `pending`, a flag's word, `unjudged`), `data_gate` only when the rule kept the turn off a restricted-origin model,
+    (`allowed`, `unchecked`, a flag's word, `never`), `data_gate` only when the rule kept the turn off a restricted-origin model,
     and, always, `provider`, `model` and `origin` of the profile it runs on; `provider.call` carries `origin`. `data_gate` is an
-    open word (a flag's word, `unjudged`, `sensitive`, or a later row's own); each one also counts on `theseus.route.data_gate`
+    open word (a flag's word, `never`, or a later row's own); each one also counts on `theseus.route.data_gate`
     (`Telemetry::record_data_gate(what, why)`), with the chokepoint (`chokepoint`) and the four background refusals
     (`compaction`, `consolidation`, `keep_warm`, `replay`).
     Forks copy the labels their nodes raised and are judged as far as their source, through the fork point at most

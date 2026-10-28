@@ -785,6 +785,24 @@ fn cn_draft_only_on_coding_classes() {
     assert!(e.contains("cn_drafts"), "{e}");
 }
 
+/// `cn_models = "never"` keeps a coding turn off its `cn_draft` profile
+/// (theseus-gyjyo.6, found by the R5a review). The draft gate used to skip
+/// only for a label's word, so `never` passed it and the turn opened a draft
+/// task and ended `drafted` with no model call; the draft's own first request
+/// was then refused by its floor, and the owner got a "drafted" notice and a
+/// failed draft in place of an answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn never_does_not_draft() {
+    let d = rig(|c| {
+        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never
+    });
+    let sid = d.dm(&d.repo);
+    let res = say(&d.r.core, &sid, ASK, None).await;
+    assert_ne!(res.stop_reason, "drafted", "{:?}", res.route);
+    assert_eq!(skip_of(&d), "draft_unusable");
+    assert!(d.tasks(&sid).is_empty(), "no draft under never");
+}
+
 /// The route row's `draft_skip` of `sid`'s last turn.
 fn skip_of(d: &Draft) -> Value {
     decided(&d.r.core.store)

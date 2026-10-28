@@ -97,7 +97,17 @@ impl TurnRunner {
             .tools
             .profiles
             .get(name)
-            .filter(|_| self.profile_usable(name, true) && !t.route.sensitive)
+            .filter(|_| {
+                // `cn_models = "never"` takes a profile of restricted origin out
+                // of routing (theseus-gyjyo.6), and that has to include the
+                // draft's own profile: without this the turn opens a draft task
+                // and ends `drafted` with no model call, and the draft's first
+                // request is then refused by its floor, so the owner gets a
+                // "drafted" notice and a failed draft in place of an answer.
+                let cn_ok = self.cfg.content_based_security.cn_models
+                    != crate::config::content_based_security::CnModels::Never;
+                self.profile_usable(name, cn_ok) && !t.route.sensitive
+            })
             .cloned()
             .ok_or("draft_unusable")?;
         let reviewer = reviewers

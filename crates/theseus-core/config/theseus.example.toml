@@ -1819,13 +1819,15 @@ max_switches = 2                        # moves per task, up or down
 # cn_models = "follow_flags"            # a request to a model of restricted origin: "always" sends it
 #                                       # whatever the session carries, "follow_flags" refuses it
 #                                       # when the session's labels disqualify it, "never" refuses
-#                                       # it. Read by a later step; today the labels decide
+#                                       # it and routing skips such a profile altogether
 # injection = "refuse"                  # or "notify": the label is raised and told, nothing is
 #                                       # refused. A benchmark daemon sets this, so a trial
 #                                       # never waits for you to tap a button
 # wait_ms = 4000                        # how long a turn bound for a model of restricted origin
-#                                       # waits for an item's verdict before going to Claude
-#                                       # instead; a Claude turn never waits. 0 never waits
+#                                       # waits for this session's outstanding content asks to
+#                                       # land, so a label its own items earn is read before the
+#                                       # request goes. It goes either way when the wait is up; a
+#                                       # Claude turn never waits. 0 never waits
 # max_pieces = 20                       # a long item is split at 6,000 characters a piece; this
 #                                       # bounds how many are read. 20 fits the largest item that
 #                                       # can exist (a 100,000-character file read) whole. Past the
