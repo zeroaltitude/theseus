@@ -99,7 +99,22 @@ pub fn call_paths(input: &Value) -> Vec<String> {
     let Some(map) = input.as_object() else {
         return out;
     };
-    for key in ["path", "paths", "file", "files", "dir", "cwd", "root"] {
+    // `fs.read`, `fs.write` and `fs.edit` also accept `file_path` and `filename`
+    // (theseus-tools/src/fs.rs), and `file_path` is the spelling a model trained on
+    // other harnesses reaches for. Missing them here made a read of a private file
+    // from a session that sits in a listed tree fall back to the session's directory
+    // and come out `public: true` -- the exact case this is meant to prevent.
+    for key in [
+        "path",
+        "paths",
+        "file",
+        "files",
+        "file_path",
+        "filename",
+        "dir",
+        "cwd",
+        "root",
+    ] {
         match map.get(key) {
             Some(Value::String(s)) if !s.is_empty() => out.push(s.clone()),
             Some(Value::Array(a)) => out.extend(
@@ -194,7 +209,11 @@ impl Around {
             .dir
             .as_deref()
             .map(|d| home_shown(d, self.home.as_deref()));
-        input.public = self.public(scene.dir.as_deref(), paths);
+        // Only what came from a path sits in a tree. A fetched page, a search
+        // result, a person's message and the operator's own words name none, and
+        // falling back to the session's directory would tell the pack that a page
+        // fetched from anywhere is "from a tree the operator lists as open source".
+        input.public = kind == ItemKind::ToolResult && self.public(scene.dir.as_deref(), paths);
         input.context = (!self.context.is_empty()).then(|| self.context.clone());
     }
 }
@@ -239,6 +258,54 @@ mod tests {
             "A personal assistant. ~/projects/lantern is open source.",
             Some("/home/owner".into()),
         )
+    }
+
+    /// `fs.read`'s own spellings count as paths (theseus-gyjyo.11, the R9
+    /// review): a model that sends `file_path` or `filename` must not fall
+    /// through to the session's directory.
+    #[test]
+    fn a_calls_path_is_read_under_every_spelling_the_tools_accept() {
+        for key in [
+            "path",
+            "paths",
+            "file",
+            "files",
+            "file_path",
+            "filename",
+            "dir",
+            "cwd",
+            "root",
+        ] {
+            assert_eq!(
+                call_paths(&json!({ key: "/a/b" })),
+                vec!["/a/b".to_string()],
+                "{key}"
+            );
+        }
+    }
+
+    /// Only what came from a path sits in a tree. A page, a search result and a
+    /// message name none, so a session that happens to sit in a listed tree must
+    /// not make them public (theseus-gyjyo.11, the R9 review).
+    #[test]
+    fn a_pathless_item_is_public_only_when_a_tool_result_read_the_tree() {
+        let scene = Scene {
+            place: Some("private"),
+            dir: Some("/home/owner/projects/lantern".into()),
+        };
+        let public_of = |kind| {
+            let mut i = ContentInput::default();
+            around().apply(&mut i, kind, &scene, &[]);
+            i.public
+        };
+        assert!(public_of(ItemKind::ToolResult), "a tool read the tree");
+        for kind in [
+            ItemKind::FetchedPage,
+            ItemKind::PersonMessage,
+            ItemKind::OperatorMessage,
+        ] {
+            assert!(!public_of(kind), "{kind:?} names no path");
+        }
     }
 
     #[test]
