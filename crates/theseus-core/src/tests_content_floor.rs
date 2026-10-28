@@ -420,6 +420,7 @@ async fn a_plain_turn_keeps_the_sessions_labels() {
         confidence: 0.8,
         band: theseus_judge::band::Band::Confirm,
         at_ms: 1,
+        judgment: String::new(),
     });
     flags.judged_through = Some("nod_earlier".into());
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);

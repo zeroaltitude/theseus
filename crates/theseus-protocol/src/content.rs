@@ -27,6 +27,11 @@ pub struct LabelView {
     pub band: String,
     /// When it was raised.
     pub at_ms: u64,
+    /// The judgment that raised it, which a "wrong" press labels; none for a
+    /// label raised before store format 53.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub judgment: Option<String>,
 }
 
 /// `content.unlabel`: remove one label from a session.

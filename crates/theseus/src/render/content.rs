@@ -65,6 +65,12 @@ pub fn labels_lines(session: &str, labels: &[LabelView]) -> Vec<String> {
             effect(&l.flag),
             l.flag
         ));
+        if let Some(j) = &l.judgment {
+            out.push(format!(
+                "    raised by {j}; if it should not have been, `theseus judge label {j} no --question {}` teaches the classifier and leaves the label",
+                l.flag
+            ));
+        }
     }
     out
 }
@@ -98,6 +104,7 @@ mod tests {
             confidence: 0.93,
             band: "act".into(),
             at_ms: 1_760_000_000_000,
+            judgment: None,
         }
     }
 
@@ -136,6 +143,20 @@ mod tests {
             ..label("secret")
         };
         assert!(!label_line(&none).contains("node"));
+    }
+
+    /// A label that names its judgment says how to call it wrong; one raised
+    /// before store format 53 names none.
+    #[test]
+    fn the_list_names_the_judgment_a_wrong_label_is_taught_through() {
+        let with = LabelView {
+            judgment: Some("jdg_x1".into()),
+            ..label("secret")
+        };
+        let lines = labels_lines("ses_a1b2", &[with, label("personal")]);
+        let said: Vec<&String> = lines.iter().filter(|l| l.contains("judge label")).collect();
+        assert_eq!(said.len(), 1, "{lines:#?}");
+        assert!(said[0].contains("theseus judge label jdg_x1 no --question secret"));
     }
 
     /// The list names the remedy for each label, and says so when there is none.

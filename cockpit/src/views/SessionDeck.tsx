@@ -28,7 +28,7 @@ import { flatten, spanColor, timeByKind, type Flat } from '@/lib/spans'
 import { useTick } from '@/lib/hooks'
 import { judged, line, marksOf } from '@/lib/judgment'
 import { useAsOf } from '@/lib/timemachine'
-import { chipsOf, unlabelCall } from '@/lib/labels'
+import { chipsOf, unlabelCall, wrongCall } from '@/lib/labels'
 import { Echart } from '@/components/Echart'
 import { Flame } from '@/components/Flame'
 import { ChartTable, Legend, Swatch, TableToggle, TipArea, TipBody, TipTarget, type LegendItem } from '@/components/ChartPanel'
@@ -255,16 +255,26 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
         <SessionLinks by={s.superseded_by} replaces={s.supersedes} />
         {chips.length > 0 && (
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            {chips.map((c) => (
+            {chips.map((c) => {
+              const w = wrongCall(s.session_id, c)
+              return (
               <Pill key={c.flag} tone={c.tone} title={c.title}>
                 <span className="num">{c.text}</span>
+                {w && (
+                  <button
+                    title={`The ${c.flag} label is miscategorised; leave it`} aria-label={`Mark the ${c.flag} label wrong`} disabled={busy === `Wrong ${c.flag}`}
+                    onClick={() => void act(`Wrong ${c.flag}`, w.method, w.params, w.ask)}
+                    className="ml-1 rounded px-1 text-[10px] hover:bg-white/10 disabled:opacity-50"
+                  >wrong</button>
+                )}
                 <button
                   title={`Remove the ${c.flag} label`} aria-label={`Remove the ${c.flag} label`} disabled={busy === `Remove ${c.flag}`}
                   onClick={() => { const u = unlabelCall(s.session_id, c.flag); void act(`Remove ${c.flag}`, u.method, u.params, u.ask) }}
                   className="ml-0.5 rounded p-0.5 hover:bg-white/10 disabled:opacity-50"
                 ><X size={10} /></button>
               </Pill>
-            ))}
+              )
+            })}
           </div>
         )}
         <div className="num mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-ink-faint">

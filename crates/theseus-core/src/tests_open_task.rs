@@ -130,6 +130,7 @@ async fn a_task_never_inherits_its_parents_labels() {
         confidence: 0.8,
         band: theseus_judge::band::Band::Confirm,
         at_ms: 1,
+        judgment: String::new(),
     });
     parent.data = Some(Box::new(flags.clone()));
     r.core

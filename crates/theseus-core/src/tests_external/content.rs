@@ -21,6 +21,7 @@ fn label(flag: Flag, at_ms: u64) -> Label {
         confidence: 0.93,
         band: flag.bar(),
         at_ms,
+        judgment: String::new(),
     }
 }
 

@@ -62,6 +62,7 @@ fn label(flag: Flag) -> Label {
         confidence: 0.93,
         band: Band::Act,
         at_ms: 1,
+        judgment: String::new(),
     }
 }
 

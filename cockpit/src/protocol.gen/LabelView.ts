@@ -19,4 +19,9 @@ source: string, confidence: number, band: string,
 /**
  * When it was raised.
  */
-at_ms: number, };
+at_ms: number, 
+/**
+ * The judgment that raised it, which a "wrong" press labels; none for a
+ * label raised before store format 53.
+ */
+judgment?: string, };

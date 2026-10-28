@@ -4,7 +4,7 @@
 // (`SessionInfo.labels`) and pushes `session.labelled` and `session.unlabelled`; the owner removes one with
 // `content.unlabel`, which the daemon judges as it judges `policy.trust`. Pure: `npm test` runs it
 // (test/labels.test.ts); the deck's chips are drawn in `views/SessionDeck.tsx`.
-import type { ContentUnlabelParams, LabelView } from '@protocol'
+import type { ContentUnlabelParams, JudgeLabelParams, LabelView } from '@protocol'
 import type { Tone } from '@/lib/taxonomy'
 
 /** One chip: the label in words, the node it came from, and the tooltip that says what raised it. */
@@ -16,6 +16,8 @@ export interface LabelChip {
   /** The kind of item, the tool and resource it named, how sure the classifier was, and the band it crossed. */
   title: string
   node?: string
+  /** The judgment that raised the label, which "wrong" labels; absent for a label raised before store format 53. */
+  judgment?: string
 }
 
 /** What each flag does to the session, in the daemon's terms. An unknown flag (a newer daemon's) gets no sentence. */
@@ -40,6 +42,7 @@ export function chipsOf(labels: readonly LabelView[] | undefined): LabelChip[] {
       tone: toneOf(l.flag),
       title: `${l.kind} · ${l.source} · ${Math.round(l.confidence * 100)}% · ${l.band}${effect ? `. It ${effect}.` : ''}`,
       ...(l.node ? { node: l.node } : {}),
+      ...(l.judgment ? { judgment: l.judgment } : {}),
     }
   })
 }
@@ -53,3 +56,19 @@ export const askOf = (flag: string, session: string): string => {
 /** The call Remove makes: `content.unlabel` with the session and the flag, and the question to ask before it. */
 export const unlabelCall = (session: string, flag: string): { method: 'content.unlabel'; params: ContentUnlabelParams; ask: string } =>
   ({ method: 'content.unlabel', params: { session_id: session, flag }, ask: askOf(flag, session) })
+
+/** What "wrong" asks first: the label is miscategorised, and it stays. */
+export const wrongAskOf = (flag: string, session: string): string =>
+  `Mark the ${flag} label on ${session} as miscategorised? The item should not have been flagged ${flag}. The label stays on ${session}, and the classifier is taught.`
+
+/** The call "wrong" makes: a `judge.label` row saying the raising judgment answered the flag's question `yes` when it should
+ *  have been `no`, the row a Remove writes too, without removing the label. A label with no judgment (raised before store
+ *  format 53) has nothing to teach, so it has no call. */
+export const wrongCall = (session: string, l: Pick<LabelView, 'flag' | 'judgment'>): { method: 'judge.label'; params: JudgeLabelParams; ask: string } | null =>
+  l.judgment
+    ? {
+        method: 'judge.label',
+        params: { judgment: l.judgment, question: l.flag, label: 'no', note: 'marked wrong by the owner via the cockpit; the label stays' },
+        ask: wrongAskOf(l.flag, session),
+      }
+    : null

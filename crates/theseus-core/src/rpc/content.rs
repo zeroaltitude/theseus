@@ -44,6 +44,7 @@ pub(crate) fn label_view(l: &Label) -> LabelView {
         }
         .into(),
         at_ms: l.at_ms,
+        judgment: Some(l.judgment.clone()).filter(|j| !j.is_empty()),
     }
 }
 
@@ -161,6 +162,7 @@ impl Core {
                     &who,
                     theseus_protocol::method::CONTENT_UNLABEL,
                     None,
+                    &|judgment| self.judgment_pack(judgment),
                 )?
                 else {
                     return Ok(None);
@@ -224,6 +226,7 @@ fn removed(
     who: &Answerer,
     how: &str,
     correlation_id: Option<&str>,
+    pack_of: &dyn Fn(&str) -> String,
 ) -> Result<Option<(UnlabelResult, Vec<NewRecord>)>> {
     let Some(mut flags) = rec.data.take() else {
         return Ok(None);
@@ -244,11 +247,55 @@ fn removed(
         at_ms,
         label: label_view(&label),
     };
-    let frame = vec![
-        fact::row(&ContentRemoved { result: &r }, Some(session_id), None)?,
-        NewRecord::json(kinds::SESSION, Some(session_id), &rec)?,
-    ];
+    let mut frame = vec![fact::row(
+        &ContentRemoved { result: &r },
+        Some(session_id),
+        None,
+    )?];
+    // A removal is the clearest "you got this wrong" the classifier will
+    // get (theseus-gyjyo.3): the raising judgment's answer to the flag's
+    // question was `yes` and should have been `no`. It is written in this
+    // frame, so a removal that survives a restart is never one whose label
+    // was lost. A label that names no judgment (raised before store format
+    // 53) teaches nothing.
+    if !label.judgment.is_empty() {
+        frame.push(wrong_row(
+            &label,
+            session_id,
+            who,
+            &pack_of(&label.judgment),
+        )?);
+    }
+    frame.push(NewRecord::json(kinds::SESSION, Some(session_id), &rec)?);
     Ok(Some((r, frame)))
+}
+
+/// The `judge.label` row that says the judgment that raised `label` answered
+/// its question wrongly: `yes` where the truth was `no`. Source `operator`,
+/// weight 1.0, keyed `lbl_<id>` and scoped as its judgment, as `judge.label`
+/// writes one, so the learning ledger reads it with the rest.
+fn wrong_row(label: &Label, session_id: &str, who: &Answerer, pack: &str) -> Result<NewRecord> {
+    let id = crate::new_id("lbl");
+    let (who_s, via) = (who.who(), who.via());
+    let note = format!("removed by the owner via {via}");
+    let f = fact::judge::JudgeLabel {
+        id: &id,
+        judgment: &label.judgment,
+        pack,
+        question: Some(label.flag.as_str()),
+        about: None,
+        label: json!("no"),
+        source: "operator",
+        who: &who_s,
+        via: &via,
+        weight: 1.0,
+        note: &note,
+        correlation_id: None,
+        rule: None,
+    };
+    let mut rec = fact::row(&f, Some(session_id), None)?;
+    rec.key = Some(id);
+    Ok(rec.scoped(&super::judge::scope_of(pack)))
 }
 
 #[cfg(test)]
@@ -265,6 +312,7 @@ mod tests {
             confidence: 0.9,
             band: Band::Act,
             at_ms: 1,
+            judgment: String::new(),
         }
     }
 
