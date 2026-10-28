@@ -1243,7 +1243,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   response: plan, gate at the model's posture, place rule, L0 or L1, its own `ToolCall`, result and rows. A step that would wait
   is not asked: the flow stops and hands back the exact call (`needs-approval`), which the model makes and so waits as any call
   does (the flow holds no state across a turn's park); a step policy refuses stops the flow with the refusal as its result. The
-  flow's own call is open at the gate (`flow::quiet`, in `modes::gate`) and class `Run`, so the hold still reaches it.
+  flow's own call is open at the gate (`flow::quiet`, in `modes::gate`) and class `Run`, so the gate's postures still reach it.
   `flow::class` is the one reading of a result's class (`ok`, `err`, `conflict`, `test-fail`, `rerere-left`, `rerere-resolved`).
   `Core::flow_load` (a test, the owner's CLI when it comes, R8's self-load) scrubs the spec and refuses one the scrubber would
   change; a load or retire by the `"self"` principal asks `rsi::gate` first. `theseus self revert flow:<name>` is the owner's undo
@@ -1591,7 +1591,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   - **v3's live notices** (step 24's notices, theseus-0j2.13; the owner's decision of 2026-10-04): `notice.rs`.
     `WIRED` gives `security.v3` `live` while `[judge.packs."security.v3"] notices` is on (the default;
     `JudgeService::given`/`mode`), so its judgments are marked and recorded `live`. When v3, live, answers `risky`
-    act-true for an open call the hold did not make wait (`notice::flagged`), the gate's task posts once the
+    act-true for an open call that no question made wait (`notice::flagged`), the gate's task posts once the
     judgments land, never on the call's path: one frame with the post to the owner (`Outbox::stage_to_operator`,
     kind `jev_notice`, which the Discord courier posts to the owner's DM alone) and its `tool.notified` row
     (`by: judge`, keyed `notice_<judgment>`, scoped `judge:security`), then `judge.noticed` to the turn's clients.
@@ -1881,17 +1881,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`rpc/thread_flow.rs`) asks the persona question without the thread's context.
   - **Sensitive names** (theseus-oejh3; `config/privacy.rs`, `data_gate.rs`, `turn/data_step.rs`, `pack_names.rs`): `[privacy]
     sensitive_names` is the one list, matched by `theseus_judge::names::hits` (case-insensitive, whole words, a name of
-    several words as a run of them). It is the route pack's `data_names.private` (`PrivacyConfig::data_names`; `[routing.data]` is gone,
-    theseus-9ymz0, and the old `private_topics` key is refused), a message that hits one makes the route skip every
-    profile not of US origin for that turn (`route_profiles(true)`; none
-    left: the `[model]` default, else the turn ends before any model call, class `data_gate`), and the provider chokepoint
-    refuses a request to a model not of US origin that holds one in any string of its system, messages or tools, before a byte is
-    sent (`data_gate::guard`, applied to every provider in `Core::build`, always). At start the
-    embedded packs' text is checked against the list (`Core::check_pack_text_after_serving`, a `privacy.packs` startup phase
-    naming pack and count, never a name). The origin rule is an allowlist (theseus-xs5ah, the owner: such data "must be routed
-    to us-based models"): `ModelOrigin::cleared_for_sensitive` admits only `us`, and never a `restricted` origin (`cn`,
-    `unknown`), so the China-origin block stays the floor beneath it; the route, the chokepoint and a private motif's
-    model (`rsi::mint::data_rule`) all read it. Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
+    several words as a run of them). It is the content pack's `data_names.private` (`PrivacyConfig::data_names`; `[routing.data]`
+    is gone, theseus-9ymz0, and the old `private_topics` key is refused), and **an item that holds one raises a removable
+    `confidential` label at its entry** (theseus-gyjyo.4: `content::deterministic::from_names`, source `name: <word>`, no model
+    call, landed by `JudgeService::land_deterministic`, for every item kind and off with `session_flags`). Nothing refuses a
+    request for a name any more: `data_gate::names_in`, the route floor's `sensitive` leg and the US allowlist's use for names are
+    deleted, and the label follows `cn_models` like any other, so the operator who removes it can send that session to a
+    restricted model (P3). The accepted residual: a name in a context file or standing record, with no item in the session
+    naming it, stops nothing, and a model of EU origin is not refused for a name. At start the embedded packs' text is checked
+    against the list (`Core::check_pack_text_after_serving`, a `privacy.packs` startup phase naming pack and count, never a
+    name). `ModelOrigin::cleared_for_sensitive` (theseus-xs5ah, "such data must be routed to us-based models") has one reader
+    now, a private motif's model (`rsi::mint::data_rule`); whether that rule stays is the owner's. Tests:
+    `judge/tests_content.rs`, `tests_content_gate.rs`, `data_gate.rs`'s own.
     **route.v8** (theseus-f9qa8) is the acting route pack; its `data` question is asked and read by nothing since
     theseus-9ymz0 (the labels on a session replaced it; route.v9 drops it, theseus-gezlj).
   - **Content flags and the restricted-origin floor** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17;
@@ -1914,7 +1915,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     session, or for one with no readable record, is still refused (`no_session`, `no_record`). The session is read only
     for a restricted model. `[privacy] sensitive_names` is no longer checked here: a hit raises a removable
     `confidential` label at the item's entry (`content::deterministic`), and the label is what this reads.
-    **The turn's floor** (`turn/data_step.rs`): `Floor { sensitive, cn_ok }`, `cn_ok` from `RouteState.cn` (`Cn`: allowed,
+    **The turn's floor** (`turn/data_step.rs`): `Floor { cn_ok }`, `cn_ok` from `RouteState.cn` (`Cn`: allowed,
     unchecked, or no with a word), read from the store, not the turn's copy. A turn bound for a restricted profile waits on
     `TurnRunner::verdicts` for at most `[content_based_security] wait_ms` for this session's **outstanding content asks**
     to land -- a counter, not a mark on the transcript -- and then decides again either way, going to the `[model]`
@@ -1930,10 +1931,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     api_base`. Tests: `tests_content_gate.rs`, `tests_content_floor.rs`, `tests_content_freeze.rs`, `tests_data_gate.rs`,
     `data_gate.rs`, `config/data_floor.rs`.
     **The table is `[content_based_security]`** (theseus-gyjyo.2; it was `[content]`, whose keys are each a hard error naming their
-    new home in `config/renamed.rs`): `session_flags` (was `enabled`), `injection`, `wait_ms`, `max_pieces`, and three keys **parsed and exposed
-    only**, read by later rows of the principles migration: `cn_models` (`always | follow_flags | never`), `context` (handed to the pack
-    verbatim), and `[privacy] open_source_paths` / `redact_outbound`. `session_flags = false` with `cn_models = "follow_flags"` refuses to start
-    (`ContentBasedSecurityConfig::validate`): with nothing judged there are no labels to follow. Tests: `config/tests_content_based_security.rs`.
+    new home in `config/renamed.rs`): `session_flags` (was `enabled`), `cn_models` (`always | follow_flags | never`, read by the
+    chokepoint and the route), `injection` (`refuse | notify`), `wait_ms`, `max_pieces` and `context` (handed to the pack
+    verbatim through `content_scene.rs`, cut to 800 characters); `[privacy]` adds `open_source_paths` (read by `content_scene.rs`
+    for the pack's `public`; absolute or `~/`; **not** `[places] public_paths`, which opens trees to a shared place's file tools)
+    and `redact_outbound` (read by `exits.rs`). `[policy] external_text` and `external_programs` are retired keys that fail the
+    load (`config/renamed.rs::RETIRED`); a `[policy.earned]` section loads, is ignored and warned of. `session_flags = false` with
+    `cn_models = "follow_flags"` refuses to start (`ContentBasedSecurityConfig::validate`): with nothing judged there are no labels
+    to follow. Tests: `config/tests_content_based_security.rs`.
     **The data rule is on the record** (theseus-a1wvq.11; `tests_observability.rs`): the route row (`route.decided`) carries `cn`
     (`allowed`, `unchecked`, a flag's word, `never`), `data_gate` only when the rule kept the turn off a restricted-origin model,
     and, always, `provider`, `model` and `origin` of the profile it runs on; `provider.call` carries `origin`. `data_gate` is an
@@ -1942,12 +1947,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`compaction`, `consolidation`, `keep_warm`, `replay`).
     Forks copy the labels their nodes raised and are judged as far as their source, through the fork point at most
     (`fork::data_through`). `turn.inspect`'s `data` line is `ContentFlags::line`.
-  - **The Google private mark** (`google/private.rs`): the META mark a Google result writes; `scoped`/`bound` carry it to
-    the floor; it follows recalled nodes and a task's parent; and text a marked session authored for others (a kept
-    standing record, by its `capture:` source) is held back, listed `shown: false`, from a request to a restricted
-    profile (`standing_step.rs`, `authored`), milestone reminders with it (`commitments.rs`), while a draft's view carries neither the task view
-    nor the project slice. The mark never spreads to the readers. Tests:
-    `tests_private_authored.rs`.
+  - **A Google result is a label source** (theseus-gyjyo.5; `google/private.rs`, 62 lines, and `toolrun/complete.rs::label_google`): a
+    Google tool's result carries `private` (and `sensitive` for a sensitive calendar) in its meta, and the write site raises
+    `confidential` (`personal` for a sensitive calendar) with source `google.<tool>` through `land_deterministic`, after the frame that
+    wrote the node (the landing takes the session's lock, which is not re-entrant), with the node's `created_at_ms` so a Remove
+    sticks. There is no mark any more: no META record, no task-locals, no lineage walk, no recall follow, no `data_mark.rs`. A task,
+    a retry, a routine's run, a draft and its first pass start with the parent's cn-disqualifying labels
+    (`ContentFlags::inherited`, not `injection`). Recalled notes, the place digest and `memory.lookup` carry no mark; a request to a
+    restricted model carries no `Recall` node, lists and does not show every standing record kept from a message of another
+    session (`standing_step.rs`) and leaves out every milestone's reminder (`commitments.rs`), whatever the labels, and a draft's
+    view carries neither the task view nor the project slice. **A model of EU origin is refused
+    nothing**: the old floor was the US allowlist, and a label keeps off only `cn` and `unknown`. A calendar the config marks
+    `sensitive` still never reaches a shared place or the ledger (`rpc/publish.rs` reads the labels: any `personal` label stops a
+    node going to a shared place). Tests: `google/tests_label.rs`, `tests_private_authored.rs`, `tests_private_view.rs`.
   - **Google calendars, the cache and the sensitive level** (theseus-jid7t.1; no store format change: a new META key
     and no new record kind; `config/google_calendars.rs`, `google/calendar_cache.rs`, `rpc/calendar.rs`, wire
     `theseus_protocol::calendar`). `[google] calendars` lists ids or `{ id, label, color, sensitive }`, validated at
@@ -2675,8 +2687,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   its place) and read by the gate for the routine's own run only: `Book::grant_for(task)` is one map lookup for a task whose parent
   session and execution are the routine's (a task a run starts has the run as its parent and gets none; any other session pays an
   `Option` test), cached from the wake and dropped by `Book::set`. `grant::gate` is the `Layer::Routine` step of `toolrun/order.rs`
-  after the glide's layer: a granted call that only the tool's posture (`posture_only`) or the hold would make wait runs at `notify`
-  (`ran under the routine's grant: <entry>`) and T1's hold does not apply; the floor, a layer-1 change, the approve lists, a granted
+  after the glide's layer: a granted call that only the tool's posture (`posture_only`) would make wait runs at `notify`
+  (`ran under the routine's grant: <entry>`); the floor, a layer-1 change, the approve lists, a granted
   secret, a place's ceiling, a tightened tool and an L1 call's own asks still hold. **Bounded asks**: a routine run's question waits
   `[routines] run_deadline_secs` (900) (`ask_ttl_ms`: its card, `confirm.list`, the expiry scan); past it `expire_questions` queues it
   (`Book.blocked`) and the harness's tick (`Core::due_and_routines`: `due_without_turns`, then `routines_tick`) writes META `routine.blocked:<task>`
@@ -2764,7 +2776,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   at its expiry, which is its one look. Set by the owner's `watch.create` (the place rule is `Act::Watch`'s) and the model's
   `watch` tool (asks the owner once). Tests: `watch/tests_reply.rs`.
 - **The Operations page's verbs** (theseus-jid7t.2; no store format change: META `session.profile.<session>`, three ledger
-  kinds, `theseus_protocol::ops`; `rpc/session_profile.rs`, `rpc/task_rehome.rs`, `rpc/task_reschedule.rs`, `data_mark.rs`,
+  kinds, `theseus_protocol::ops`; `rpc/session_profile.rs`, `rpc/task_rehome.rs`, `rpc/task_reschedule.rs`, `content_wait.rs`'s `mark_of`,
   `fact/ops.rs`, the kernel's `task_edit.rs`), each the owner's act (`session.profile`: `Act::Session`; the two task verbs:
   `Act::Task`) and none a Discord message (a card follows the kernel's records, as it does for any surface's change).
   **`session.profile { session_id, profile | null }`** holds a session to a profile: the META key (`{profile, was}`, `null`
@@ -2774,31 +2786,31 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   turn that was not pinned, and the floor moves a refused base as it moves any (a judge-less core's private session fails at
   the provider's floor instead, as before). A turn fixes its model once (`route_to` routes once), so a running task takes it at
   its next turn, never mid-call. `null` puts back the target the session ran on when the hold began (`was`) and answers
-  `previous`, which is the undo. **The refusal** is `data_mark::profile_refusal(cfg, catalog, mark, profile)`, pure over
-  `refusal_of(mark, profile, known, origin, cleared)` (the origin picks the words only: a `us` profile that is not cleared is told the catalog does not list its model as of US origin), built on `uncleared` which `TurnRunner::uncleared_profile` reads too, so the menu
-  and the route's floor cannot disagree (`turn/tests_sticky.rs` pins every mark x origin): a private or sensitive session runs
-  only on a profile of US origin, an unknown profile runs nowhere, and a restricted profile on an open session is set with a note
-  (the floor decides per turn). Nothing is written when refused. **The data mark** (`DataMark`: `open`, `private`,
-  `sensitive`) is `session_mark`, read from `google::private::level`: the Google level of the session or any task above it
-  (sensitive after a sensitive calendar's read, private after other Google content), else open. It rides `SessionInfo.data`
-  and `WorkView.data` (stamped as a view leaves the board, `Core::stamp_data`; the board reads no store) and
-  `ProfileInfo.origin` names each profile's origin word.
+  `previous`, which is the undo. **The refusal** is `TurnRunner::profile_refusal(mark, profile)` (`turn/data_step.rs`): an unconfigured profile is refused, and
+  so is a profile of restricted origin (`cn`, `unknown`) for a session whose labels keep such a model off (the wire mark below is
+  `private` or `sensitive`); a restricted profile on an open session is set with a note (`per_turn_note`: the floor decides per
+  turn). The origin decides, not a US allowlist (theseus-gyjyo.5), and the menu and the route's floor read the same labels
+  (`turn/tests_sticky.rs` pins every mark x origin). Nothing is written when refused. **The data mark** (`DataMark`: `open`,
+  `private`, `sensitive`) is read from the session's labels (`ContentFlags::mark`, through `content_wait::mark_of`): `sensitive`
+  when it carries `personal`, `private` for any other label that keeps a restricted model off, else open. It rides
+  `SessionInfo.data` and `WorkView.data` (stamped as a view leaves the board, `Core::stamp_data`; the board reads no store) and
+  `ProfileInfo.origin` names each profile's origin word; `ProfileInfo.cleared` is "not of restricted origin".
   **`task.rehome { task, home }`** moves where the report is posted (the task record's `target`, the execution's
   `reports_to`, META `task.place.<session>`; the frame that ends the task reads the target again,
   `TaskOf::target_for_now`): `home` is a conversation's session id or `thread:<slug>`; the budget stays carved from the
   original parent and the parent's next turn still reads the report. A home with no place leaves the report on the board.
   Refused: an ended task; a missing, retired, task or shared-place home; a home whose mark is weaker than the task's,
-  or **whose mark cannot be read** (`data_mark::try_session_mark` over `private::try_level`, the one walk `level` uses
-  too: a failed read is an error for the home, `Sensitive` for the task). A home with no place writes `task.place.<session>`
+  or **whose mark cannot be read** (`content_wait::try_mark_of`: a failed read is an error for the home, `Sensitive` for
+  the task). A home with no place writes `task.place.<session>`
   as JSON `null` (not `""`: a build before this one reads a string and binds nothing from null; this build's rebuild and
   the index tender read null and `""` alike as no place). `session.profile` refuses a retired session (a let-go goes).
   **`task.reschedule { task, start_at_ms | start_after_ms | start_when }`** moves a sleeping deferred task's due wake
   (`Kernel::edit_task`) and its `task.deferred.<session>` times, parsed by `Core::start_time`, which `task.start` shares;
   `previous` is the undo. Tests: `rpc/tests_session_profile.rs`, `tests_task_rehome.rs`, `tests_task_reschedule.rs`,
-  `tests_data_mark.rs`, `turn/tests_sticky.rs`, the kernel's `tests_task_edit.rs`. **The floor's table is shared with the cockpit**
-  (theseus-jid7t.6): `cockpit/test/fixtures/profile_floor.json` lists every mark × origin × known case and whether
-  `refusal_of` refuses it; `tests_profile_floor.rs` holds the daemon to it and the cockpit's `test/ops-floor.test.ts` holds the model
-  menu's greying to it, so a change to the floor edits that file and both tests say where the other side must follow.
+  `tests_wire_mark.rs`, `turn/tests_sticky.rs`, the kernel's `tests_task_edit.rs`. **The floor's table was shared with the cockpit**
+  (theseus-jid7t.6): `cockpit/test/fixtures/profile_floor.json` still encodes the old US-only table and `tests_profile_floor.rs` that held
+  the daemon to it is gone (theseus-gyjyo.5), so the cockpit's `test/ops-floor.test.ts` holds the menu's greying only to the fixture, which
+  is stale; the menu follows `ProfileInfo.cleared`, which now says "not of restricted origin".
 - **Starting a task with no model turn** (theseus-7oq0w): `task.start { brief, title?, home?, budget_usd?, profile?,
   start_at_ms? | start_after_ms? | start_when?, quotes?, report_to? }` (`rpc/task_start.rs`, `theseus_protocol::task_start`),
   the owner's verb for every surface (`theseus task start`, the TUI's `N`; Discord's "New task" and the horizon's deferred start

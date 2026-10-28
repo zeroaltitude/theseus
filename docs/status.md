@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-24 18:41 MST. Version 1.0.2 (v1 patch2); the design document is at v0.91._
+_Updated 2026-10-28 10:15 MST. Version 1.0.2 (v1 patch2); v1 patch3, the principles migration, is under way (its section is first); the design document is at v0.92._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -18,6 +18,53 @@ This page changes with every step that lands. The [README](../README.md) stays t
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and
 for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
+
+## v1 patch3: trust, privacy and content (under way)
+
+**v1 patch3 (version 1.0.3)** is the principles migration: the review of 2026-10-27 held the trust, privacy and content
+machinery against four of the owner's principles (a trusted machine, so notify and block only the irreversible; the
+session is the true record; models of restricted origin are the operator's control, by labels and not by proof; less
+code) and rebuilt it in eleven rows (Beads `theseus-gyjyo`). Part III Item 259 is the as-built record, with each row's
+divergence from the plan. What it changes:
+
+- **Four labels on a session** (`injection`, `secret`, `confidential`, `personal`), each removable with one tap, read by
+  **one switch**, `[content_based_security] cn_models = always | follow_flags | never`. A request to a model of China or
+  unknown origin is refused when the session carries a disqualifying label (`follow_flags`, the default), always
+  refused (`never`) or always sent (`always`). That is one read of the session's record: the chokepoint no longer reads
+  the transcript to prove every item was judged. A turn bound for such a model waits at most `wait_ms` (4 s) for the
+  checks still out for its session, then goes on the labels it has.
+- **Labels come from three places.** Jev's content pack (`content.v3`) asks four questions of every item that enters a
+  session. Two rules are free and exact: an item holding a `[privacy] sensitive_names` word raises `confidential`, and a
+  Google result raises `confidential` (a sensitive calendar, `personal`), with no model call. A Remove sticks: an item
+  that entered before it cannot raise that flag again. A task, a retry, a routine's run and a draft start with their
+  parent's `secret`, `confidential` and `personal` labels.
+- **The classifier learns from the owner's taps.** Every Remove writes a `judge.label` row (the chip's "wrong" does the
+  same), a label left standing a week counts for the pack, and replay serves every stored content judgment (all 28 of the
+  owner's, for a quarter of a cent). `content.v3` reads who wrote an item, where, the session's directory, whether the
+  tree is one the owner lists as open source and the owner's own paragraph: precision at the raising bar 0.956 against
+  v2's 0.875, recall 0.985 against 0.955, on a set of v2's 125 cases plus 26 new ones, and the gain is the wording more
+  than the new fields.
+- **The record is raw.** What a tool printed is stored as it was: the node, the kept output, the spool file, imports, the
+  ledger's narrative lines. The vault's own values (and their base64, percent and JSON-escaped forms) are replaced by
+  `[redacted:<name>]` on the copies that leave for a model, for Discord and for Jev: the request, each post, the Jev state, the
+  push line. `theseus inspect` says which secret went in which request to which model (`request.redacted`), and
+  `[privacy] redact_outbound = false` sends them as written. Nothing guesses a key's shape any more.
+- **Reading the web no longer holds the session.** The `external` marker stays on a result, and the `injection` label is
+  the one place outside text can stop a later call: a call that is not a local read of files and code is refused until
+  you remove it (`/trust`, `theseus content remove`, or the button). `[policy] external_text` and `external_programs`
+  are retired and a config that names one fails to load, saying so. A host an L1 call names beyond `[sandbox] egress`
+  runs with a notice.
+- **Earned autonomy and scoped grants are gone** (about 6,600 lines, which could never fire under
+  `enforcement = notify`): no weekly card, no `theseus policy earned`, `revoke` or `grants`.
+- **Config.** `[content]` is now `[content_based_security]`, a hard error naming each key's new home;
+  `[privacy]` gains `open_source_paths` and `redact_outbound`; `session_flags = false` with `cn_models = "follow_flags"`
+  refuses to start. The owner's config needs the `external_text` line under `[policy]` removed before this installs, and
+  his own `open_source_paths` and `context`, which `content.v3` uses when he writes them.
+
+Where it stands: R0, R1 and R2 reached `main` on 2026-10-28 and are installed (#98); the other rows joined the
+principles lane, which merges to `main` once after a gate of the merged tree. What the owner still decides is listed
+at the end of Item 259 (Google content and a model of EU origin; the two exits the substitution cannot see; a locked
+approval card and the DM golden's `/trust` line; an AWS L1 job and the egress list).
 
 ## v1 patch2
 
@@ -261,9 +308,10 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
   - **One name for each thing.** A task is a "task"; `theseus answer` is the one verb for an answer (`confirm` and
     `executions` are gone, and an old config key fails naming the new one); the cockpit, Discord, the TUI and the CLI say
     the same words.
-  - **A floor off models of restricted origin.** `[privacy] sensitive_names` is one list that the route's data question,
-    the start's pack check and a floor read: a turn that names one reaches only a model of US origin (an allowlist
-    since v1 patch1; `cn`, `eu` and unknown origins are refused).
+  - **Labels keep a session off models of restricted origin** (v1 patch3, the first section). A session carries up to
+    four labels, raised by Jev's content pack and by two free rules (a `[privacy] sensitive_names` hit and a Google
+    result), each removable with one tap; `[content_based_security] cn_models` reads them. Nothing walks a request for
+    a name any more, and the old US-only allowlist is gone.
     Self-improvement (RSI loop 1's builds, scorer and pattern miner) is built, and on since 2026-10-18 at 12:25.
 - Conversations in Discord (DMs and channels), the terminal, and the browser, with Claude and GLM models.
 - **The model for each message, picked by Jev.** `route.v1` reads each message's interaction mode as it arrives and
@@ -349,9 +397,9 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
 - The compiled context with its manifests, caching shared across sessions, and token estimates that start from
   the provider's own counts.
 - **Approvals from your private places, by you:** the terminal, the web UI, your DMs, and the Discord channels you
-  bind private, including "approve, and trust this session". A question asked in a shared channel comes to your
+  bind private. A question asked in a shared channel comes to your
   DM, and a question nobody answers expires at the time its card gives. A command run from inside a job cannot
-  answer, untighten, trust, publish, or bootstrap AWS.
+  answer, untighten, remove a content label, publish, or bootstrap AWS.
 - What needs you, the same everywhere: one rule, shown as a pill in the terminal and the cockpit.
   Changes are pushed live to every surface instead of polled, each notification serialized once for every watcher
   (Item 172). `theseus watch --all` follows every session, and `theseus wait` returns the moment a
@@ -374,8 +422,9 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
   on demand; nothing runs one at the start any more. A daemon run as root refuses sandboxed commands, which would get
   no process limit there.
   - **Egress:** it reaches only the hosts you list (`[sandbox] egress`), through a proxy of its own; a call that
-    names other hosts waits for you, and your approval reaches those hosts alone. What it brings back from such an
-    approved host counts as outside text, so its session holds it; your listed hosts don't.
+    names other hosts runs with a notice that names them, and reaches those hosts alone. What it brings back from such
+    a host counts as outside text (it carries the `external` marker, which holds nothing); your listed hosts' results
+    don't.
   - **Credentials at launch:** it gets a secret only when you grant it to the program it runs, at its start,
     exactly as an ordinary command does, and any approval the secret needs comes before it starts. Your own AWS
     files (`~/.aws`) are hidden from every sandboxed command.
@@ -489,9 +538,10 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
 - A stop reaches a job even while the job is still starting, and cuts the model's reply mid-stream.
 - A cancel answers every call it ends, and a corrupt record degrades only what reads it, with a repair from a
   backup copy.
-- Reading the web, or running a program that prints outsiders' text (`gh`, by default), holds the session's hands
-  until you trust it again, and so does a session that a command run from it opens or writes to. A repeating
-  reminder set in such a session waits for you; a one-off doesn't.
+- Text from outside (a page, a search, an MCP result, a mail, `gh`'s output) carries an `external` marker and is
+  classified like any item: if Jev finds it trying to steer the assistant, the session carries an `injection` label,
+  and every call except a local read of files and code is refused until you remove the label (`/trust`,
+  `theseus content remove SESSION injection`, or the button on the message).
 - A secret broker that hands a program, sandboxed or not, only the credentials you've granted it, never through a
   shell or a program that runs others, and never to a cloned project's git hooks.
 - Budgets in dollars, the cockpit and The Narrative, crash recovery, restore from a backup copy, and a systemd
@@ -1127,12 +1177,21 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   It has no memory limit, as an ordinary command has none.
 - A daemon run as root refuses sandboxed commands, since Linux exempts root from the process limit L1 sets. Run it
   as your own user, as the user service does.
-- A sandboxed command with no network and no secret still waits in a session that read outside text.
 - Whether anyone else can view a Discord channel you bound private is checked when the binding starts (at the
   daemon's start, or when the place is added while it runs), so a member added later is seen at the next start.
   In a trusted guild it isn't checked at all: your word is the check.
 - A store moves to a newer build's format at that build's first write, one way: the install's backup is the only way
   back to an older build.
+- The record is raw (v1 patch3): a key the vault never saw is in the record, and reaches a model as written; for a model
+  of restricted origin the `secret` label is the guard. A vault value whose secret the running daemon does not hold at
+  that moment (failed at the start, rotated, removed) leaves as written with no `request.redacted` row, and a value cut
+  in two by a size limit between the record and the exit is no longer recognised there.
+- An item whose content check fails twice reaches a model of restricted origin with no label; the session gets one
+  notice (v1 patch3).
+- Google content is kept off a model of `cn` or unknown origin by its label, and off nothing else: a model of EU origin
+  is refused nothing (none is configured today), and the owner can remove the label (v1 patch3).
+- A label that a sensitive name raises is told in the session's place with the matched word, so in a shared place the
+  word is visible to its members (v1 patch3).
 - Under WSL, health's free-space lines watch the virtual disk under the state directory, not the Windows drive that
   holds it, which fills first (theseus-83y0).
 - A `--stdio` daemon answers `shutdown` and keeps serving (theseus-yg1y); the socket daemon stops.

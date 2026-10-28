@@ -193,7 +193,7 @@ Native **toollets**, no shell unless asked for: `fs.read`, `fs.write`, `fs.edit`
 `fs.patch`, `fs.glob`, `fs.grep`, `fs.list`, `text.diff`, `git.diff`, `git.log` (native, through
 `gix`), and `proc.run` (typed argv; `bash -c` is possible and visible as such). These were M3's eleven. The Daily
 Driver added four:
-- `http.fetch` and `web.search` (whose text holds the session: spec §3.9, "External text");
+- `http.fetch` and `web.search` (whose text is marked `external`, and classified like any item: Part III Item 259);
 - `task.create`, a background task with its own budget;
 - `wake.at`, a reminder that starts a later turn.
 

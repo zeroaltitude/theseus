@@ -1,6 +1,6 @@
 # Privacy
 
-Updated: 2026-10-19
+Updated: 2026-10-28
 
 ## What Theseus is
 
@@ -28,6 +28,8 @@ id or its owner) is `sensitive` with no config; `[google] sensitive_domains` nam
 calendar can be marked `sensitive` too. Its events are read only into a conversation or note that runs on a model of US origin, are never
 offered to a shared place such as a Discord channel others can read, and are written to no log or ledger row: the
 record of a read holds the calendar's label and a status, never an event's title, place, guests or call link.
+Reading one raises a `personal` label on the conversation (next section), which keeps it off models of China or
+unknown origin until the owner removes the label.
 
 ## Who else sees it
 
@@ -42,36 +44,49 @@ Theseus sends data only to services the owner has configured, under those servic
 
 **Models of China origin.** Theseus knows the origin of each model it can call. Its built-in catalog marks the models
 of China origin; a model served from a China-origin host, or of a China-origin family, counts as China origin whatever
-the configuration says; and a model Theseus cannot place counts as of unknown origin. The owner can list names
-(organisations, clients, projects, people) under `[privacy] sensitive_names`. Those names go only to models of US
-origin: the rule is an allowlist, so a model of any other origin (EU, China, or one Theseus cannot place) is refused,
-and so is a model the built-in catalog does not itself list as of US origin, whatever a proxy's configuration says. A
-turn whose request contains one of those names runs on a model of US origin, or ends before any model is called; and
-any request to a model of another origin that contains one of those names is refused before it is sent.
+the configuration says; and a model Theseus cannot place counts as of unknown origin. What such a model may be sent is
+decided by labels on the conversation, which the owner can see and remove.
 
-The floor beneath these rules is always on, and there is no switch to turn it off. A request to a model of China or
-unknown origin carries only what the open request cleared for that one request: the part of the conversation judged
-open, with none of the owner's private files, facts, preferences or memories, no home directory in a path, and no tool
-that would start work later. Any other request to such a model is refused before it is sent.
+Every item that enters a conversation (what the owner writes, a tool's result, a page, a file) is classified once by
+Jev, the routing service, and a conversation carries a label when something in it showed the value of a credential
+(`secret`), an organisation's non-public matter (`confidential`) or a person's private information (`personal`).
+Two rules raise a label without a model: an item that holds a word the owner listed under `[privacy] sensitive_names`
+(organisations, clients, projects, people) raises `confidential`, and everything Google returns raises `confidential`
+(a sensitive calendar's, `personal`). While a conversation carries one of those three, a request for it to a model of
+China or unknown origin is refused before it is sent, and routing skips those models. The owner removes a label with
+one tap in Discord, the cockpit, or `theseus content remove`, and those models may then be used for that
+conversation: the removal is the owner's call, and nothing overrides it. The setting `[content_based_security]
+cn_models` is the one switch: `follow_flags` (the default) reads the labels, `never` uses such models for nothing and
+`always` ignores the labels. The check is one read of the conversation's record; Theseus does not search a request for
+a name. A turn bound for such a model waits a few seconds (`wait_ms`) for the checks still out for its conversation,
+then goes on the labels it has; an item whose check failed twice reaches such a model with no label, and the owner is
+told once. A task, a retry, a routine's run and a draft start with their parent's labels. A fourth label, `injection`,
+is not about origin: it says something tried to steer the assistant, and until the owner removes it every call except
+a local read of files and code is refused.
 
-Theseus's own replies are judged like your messages: a reply Jev is sure is open may stay in the run a China-origin
-model sees, so the next open message keeps its context; any other reply, or one not judged in time, ends the run. The
-reply text goes to Jev (the same judge your messages go to), never to the restricted model unless it was judged open.
+What the labels do not do: they are not a promise about every other origin. A model of EU origin is refused nothing
+today, because no label keeps it off; the built-in catalog lists no model of EU origin, so the owner would have to add one. The labels also do not rewrite anything:
+Theseus stores what happened as it happened (see "Secrets" below).
 
 Such a model only drafts code: in its own copy of an open repository, with no programs, and a Claude model reviews and
 fixes the draft before anything is applied.
 
-Google content is held back by more than names. Every result Google gives Theseus marks its conversation private. From
-then on that conversation's requests, including the summary that shortens it, go only to models of US origin, by the
-same allowlist: the route skips every other model, and a request that would reach one is refused before it is sent. A
-conversation that has not read anything from Google is not affected. The background steps that send a conversation's
-content carry the mark the same way: the keep-warm read of its cache, the memory pass, the learning loop, the people and
-naming calls, cards, replays, the census's exact count, and the finding said from the memory pass. A request that
-holds content from several conversations (a memory note's sources, the learning writer's cases) is private when any
-one of them is, and a task a private conversation starts is private from its first call. What a private conversation
-wrote for other conversations to see is left out of every request to a model of China or unknown origin: a standing
-order Theseus kept from its words, and any milestone reminder, since a milestone's title does not record who wrote it.
-Requests to models of US origin carry them as before, and a conversation is not made private by seeing them.
+Google content is labelled as it arrives (above): a conversation that reads anything from Google carries
+`confidential`, and a sensitive calendar's events `personal`, and the labels keep that conversation, and a task, retry
+or routine it starts, off models of China or unknown origin until the owner removes them. A conversation that has not
+read anything from Google is not affected. A request to a model of China or unknown origin carries no recalled
+notes, and leaves out what other conversations wrote for others to see (a standing order, a milestone reminder).
+A sensitive calendar's events, and anything marked `personal`, are never published to a
+shared place.
+
+**Secrets.** Theseus's store holds what happened as it happened: a tool's output, a file it read and the owner's own
+messages are not rewritten, and a key that appears in them is in the store, on the owner's machine. What leaves the
+machine is different: the value of every secret Theseus itself read from the owner's secret store (and its base64,
+percent-encoded and JSON-escaped forms) is replaced by `[redacted:<name>]` in each request to a model provider, each
+Discord message, the text sent to Jev and each push line, so a provider never receives Theseus's own keys. Anything
+that only looks like a key, and a key Theseus never read from the store, is not recognised and goes as written; for a
+model of China or unknown origin the `secret` label is the guard. `theseus inspect` says which secret, by name, went
+in which request to which model. `[privacy] redact_outbound = false` turns the replacement off.
 
 **Personal details.** The owner's personal details may live in Theseus's context; that is what makes it a personal
 assistant. When the routing service is on, it is also asked whether each message tries to draw out the owner's

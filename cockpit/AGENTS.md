@@ -122,12 +122,13 @@ build.
     each row to the owner's table, each method to the protocol's, and each acting key of `keys.ts` to a verb (`KEY_VERB`). Every
     method is the protocol's (`job.stop` since p2f-ops-act); a job's Stop in the inspector arms on a first press and calls it on a
     second, and the toast says the answer's `words`.
-  - **The floor contract** (`ops/floor.ts`, `test/fixtures/profile_floor.json`): the daemon's refusal table (`data_mark::refusal_of`)
-    as data, one row per mark × origin × known. theseus-core's `tests_profile_floor.rs` holds the daemon to it and
-    `test/ops-floor.test.ts` holds `greyOf` (the menu's greying) to it; a change to the floor edits the file and both tests say so.
+  - **The floor contract** (`ops/floor.ts`, `test/fixtures/profile_floor.json`): the daemon's old refusal table (US origin only)
+    as data, one row per mark × origin × known. The daemon's half (`tests_profile_floor.rs`, `data_mark::refusal_of`) is gone
+    (theseus-gyjyo.5: labels keep off only `cn` and `unknown`), so the fixture and `test/ops-floor.test.ts` hold `greyOf` only to
+    themselves, and both are stale until the cockpit's floor words are rewritten.
   - **What the daemon clears, jobs, watches** (p2f-ops-act; theseus-dyukm, theseus-xzf71): the menu greys a profile by
-    `ProfileInfo.cleared`, the daemon's own floor answer (`data_mark::cleared`: US origin *and* a catalog row of `us`; a
-    provider's vouch alone clears nothing), never by `origin` alone; a missing `cleared` greys (fail closed), and the New task
+    `ProfileInfo.cleared`, the daemon's own floor answer (now "not of restricted origin": `cn` and `unknown` are not cleared, `us` and
+    `eu` are; it was US origin *and* a catalog row of `us` before theseus-gyjyo.5), never by `origin` alone; a missing `cleared` greys (fail closed), and the New task
     sheet's "US only" reads it too. The shared table has a second array, `vouched_uncatalogued`, for the case the origin gets
     wrong. `job.stop` is a method now (`JobStopParams`/`JobStopResult` in `job_follow.rs`, served beside `work.peek` under its
     place rule). A watch is a palette entity (`watchEntity`: its check, when it gives up, "failing"); choosing it opens the
