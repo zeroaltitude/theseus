@@ -182,3 +182,21 @@ fn the_floors_own_settings_are_checked_at_load() {
     let err = ok(&blank).unwrap_err().to_string();
     assert!(err.contains("coding_floor.profile"), "{err}");
 }
+
+#[test]
+fn a_floor_lifts_a_session_and_never_lowers_one() {
+    let cfg = floored("");
+    let ps = profiles();
+    // `opus` costs more than `sonnethi`: holding the floor would be a step down.
+    let v = verdict("deep_coding", 0.45);
+    let d = decide(&cfg, &ps, &ask(&v, "opus", 10));
+    assert_eq!(
+        (d.profile.as_str(), d.reason, d.switch),
+        ("opus", Reason::Unsure, false)
+    );
+    // And a base with no price cannot be told to be below it.
+    let mut ps = profiles();
+    ps.get_mut("haiku").unwrap().short_cost = None;
+    let d = decide(&cfg, &ps, &ask(&v, "haiku", 10));
+    assert_eq!((d.profile.as_str(), d.reason), ("haiku", Reason::Unsure));
+}
