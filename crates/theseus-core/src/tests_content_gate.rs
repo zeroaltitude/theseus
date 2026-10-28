@@ -401,3 +401,24 @@ async fn cn_models_never_refuses_a_clean_session() {
         .await
         .unwrap();
 }
+
+/// What R1's refuse-to-start message promises (theseus-gyjyo.2): with the
+/// mechanism off there are no labels to follow, and `cn_models = "always"`
+/// is how an operator "sends to them without labels", `"never"` how he keeps
+/// them off. Both are the chokepoint's words now, not only the config's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn with_session_flags_off_always_sends_and_never_refuses() {
+    use crate::config::content_based_security::CnModels;
+    for (mode, sent) in [(CnModels::Always, true), (CnModels::Never, false)] {
+        let r = rig(None, 1, |c| {
+            c.content_based_security.session_flags = false;
+            c.content_based_security.cn_models = mode;
+            c.content_based_security.validate().unwrap();
+        });
+        let sid = session_with(&r, None, &["Synthetic words."], false);
+        let zai = &r.core.runner.providers["zai"];
+        let got = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN)).await;
+        assert_eq!(got.is_ok(), sent, "{mode:?}: {got:?}");
+        assert_eq!(r.zai.requests().len(), usize::from(sent), "{mode:?}");
+    }
+}
