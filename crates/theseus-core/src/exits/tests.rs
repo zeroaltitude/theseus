@@ -493,4 +493,34 @@ fn a_200_kb_transcript_of_ordinary_output_is_scanned_in_bounded_time() {
         took < std::time::Duration::from_secs(5),
         "the encoded scan took {took:?}"
     );
+    // The worst inputs for each pass, 200 KB in one string: base64 wrapped at 76
+    // columns (every run read, every needle tried), percent escapes end to end,
+    // and a JSON string of escapes (decoded twice).
+    let blob = b64(&(0..150_000u32)
+        .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+        .collect::<Vec<u8>>());
+    let wrapped: Vec<&str> = blob
+        .as_bytes()
+        .chunks(76)
+        .map(|c| std::str::from_utf8(c).unwrap())
+        .collect();
+    for (what, text) in [
+        ("base64 wrapped at 76", wrapped.join("\n")),
+        ("percent escapes", "%2F%41%7e".repeat(25_000)),
+        ("JSON escapes", "\\n\\\"\\u00e9\\/".repeat(30_000)),
+    ] {
+        let hard = request(&text);
+        let began = std::time::Instant::now();
+        let (sent, found) = x.request(&hard);
+        let took = began.elapsed();
+        assert!(sent.is_none() && found.is_empty(), "{what}: {found:?}");
+        eprintln!(
+            "exits: {what}, {} KB in each of five places, ten values: {took:?}",
+            text.len() / 1000
+        );
+        assert!(
+            took < std::time::Duration::from_secs(5),
+            "{what} took {took:?}"
+        );
+    }
 }
