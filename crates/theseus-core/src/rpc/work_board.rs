@@ -164,3 +164,29 @@ impl Core {
         })
     }
 }
+
+impl Core {
+    /// The work board's snapshot (`Push::work_snapshot`), its views stamped.
+    pub(crate) fn work_snapshot_marked(
+        &self,
+        limit: usize,
+        scope: &crate::push::WorkScope,
+    ) -> (u64, Vec<theseus_protocol::work::WorkView>, u64) {
+        let (position, mut views, total) = self.push.work_snapshot(limit, scope);
+        self.stamp_data(&mut views);
+        (position, views, total)
+    }
+
+    /// Stamp each conversation's and task's view with its data mark, read from
+    /// its labels (`ContentFlags::mark`). The work board holds none (it reads no
+    /// store): a snapshot and each frame it sends are stamped here as they go
+    /// out.
+    pub(crate) fn stamp_data(&self, views: &mut [theseus_protocol::work::WorkView]) {
+        use theseus_protocol::work::WorkKind;
+        for v in views {
+            if let (WorkKind::Conversation | WorkKind::Task, Some(sid)) = (v.kind, &v.session_id) {
+                v.data = Some(crate::content_wait::mark_of(&self.store, sid));
+            }
+        }
+    }
+}

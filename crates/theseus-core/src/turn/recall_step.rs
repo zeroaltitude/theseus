@@ -66,10 +66,6 @@ pub(crate) struct Recalled {
     /// route to decide, with their times: recorded once it is known
     /// (`recall_routed`, theseus-n7nc).
     pub held: Vec<(RecallManifest, u64, u64)>,
-    /// It admitted a note of a session that holds the Google `private` mark
-    /// (theseus-39dj0): this turn's calls are private before the plan frame
-    /// writes the session's own mark, which rides with the node.
-    pub private: bool,
 }
 
 impl Recalled {
@@ -598,9 +594,6 @@ impl TurnRunner {
         let Body::Recall { items, .. } = &node.body else {
             return;
         };
-        // The one point recalled notes join a request, for every recall path
-        // (theseus-39dj0): a note of a private session makes the asker private.
-        rides.extend(self.follow_private(t, items));
         t.recall.count = items.len() as u32;
         t.recall.items = items.clone();
         t.recall.recall_id = node.id.clone();
@@ -626,27 +619,6 @@ impl TurnRunner {
             .flatten()
             .flatten()
             .and_then(|m| threads.and_then(|th| th.other_title_of(&m.thread)))
-    }
-
-    /// The asker's Google `private` mark when `items` hold a note of a
-    /// session that holds it (`google::private::followed`); the turn's own
-    /// calls are private from now on.
-    fn follow_private(&self, t: &mut Turn<'_>, items: &[RecalledRef]) -> Vec<NewRecord> {
-        let recalled = items
-            .iter()
-            .map(|r| (r.node_id.as_str(), r.session_id.as_str()));
-        let mut mark = crate::google::private::followed(
-            t.tc.store,
-            &self.cfg.google,
-            t.tc.session_id,
-            recalled,
-        );
-        // The place digest's mark rides the same frame (theseus-yso6p): a key
-        // it already writes is not written twice, and a level it lacks (a
-        // recalled sensitive note under a private digest) is still added.
-        mark.retain(|r| !t.digest.mark.iter().any(|d| d.key == r.key));
-        t.recall.private |= !mark.is_empty();
-        mark
     }
 
     /// The transcript a loop compiles, with the turn's pending `Recall` node

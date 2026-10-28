@@ -849,7 +849,9 @@ async fn an_ineligible_coding_turn_runs_as_before() {
         assert_eq!(skip_of(&d), word, "{:?}", decided(&d.r.core.store).last());
         assert!(d.tasks(&sid).is_empty(), "{word}: no draft");
     }
-    // A task's own turn, under the last conversation, in the repository.
+    // A task's own turn, under the last conversation, in the repository: it
+    // carries that conversation's label (theseus-gyjyo.5), which says so first.
+    let before = decided(&d.r.core.store).len();
     d.drive();
     let mut p = crate::tests_task_brief::params("Rename beta in the acme tree.", None);
     p.home = Some(sid.clone());
@@ -858,12 +860,16 @@ async fn an_ineligible_coding_turn_runs_as_before() {
             .task_start(&p, crate::tests_task_brief::cli())
             .unwrap();
     until_within("the task's route row", 30, || {
-        decided(&d.r.core.store)
-            .iter()
-            .any(|r| r["draft_skip"] == "in_task")
+        decided(&d.r.core.store).len() > before
     })
     .await;
     let _ = task;
+    assert_eq!(
+        skip_of(&d),
+        "labelled",
+        "{:?}",
+        decided(&d.r.core.store).last()
+    );
     assert!(d.zai.sent().is_empty(), "nothing drafted");
 
     // A class with no cn_draft.

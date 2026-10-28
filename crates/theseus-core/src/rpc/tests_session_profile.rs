@@ -7,8 +7,6 @@ use serde_json::json;
 use theseus_protocol::ops::{DataMark, SessionProfileParams, SessionProfileResult};
 use theseus_protocol::{SessionKind, TurnSubmitResult};
 
-use crate::catalog::ModelOrigin;
-use crate::data_mark::{refusal_of, session_mark};
 use crate::provider::Scripted;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
@@ -44,11 +42,9 @@ pub(crate) fn session(core: &Core) -> String {
     rec.session_id
 }
 
-/// Mark `sid` private, as a Google read does.
+/// Label `sid` `confidential`, as a Google read does.
 pub(crate) fn mark(core: &Core, sid: &str) {
-    core.store
-        .put_meta(&crate::google::private::meta_key(sid), &"nd_test")
-        .unwrap();
+    crate::test_support::label_session(core, sid, crate::content::Flag::Confidential);
 }
 
 fn params(sid: &str, profile: Option<&str>) -> SessionProfileParams {
@@ -96,18 +92,21 @@ async fn a_cn_profile_on_a_private_session_is_refused_with_nothing_written() {
     mark(&r.core, &sid);
     let got = hold(&r.core, &sid, Some("glm"));
     let why = got.refused.expect("refused");
-    assert!(why.contains("not a model of US origin"), "{why}");
+    assert!(why.contains("restricted origin"), "{why}");
     assert_eq!((got.profile, got.previous), (None, None));
     untouched(&r, &sid);
 }
 
 #[tokio::test]
-async fn an_eu_profile_on_a_private_session_is_refused_and_a_us_one_is_set() {
+async fn an_eu_profile_on_a_labelled_session_is_set_as_a_us_one_is() {
     let r = rig(None, 1, google_on(true));
     let sid = session(&r.core);
     mark(&r.core, &sid);
-    assert!(hold(&r.core, &sid, Some("glm53")).refused.is_some());
-    untouched(&r, &sid);
+    let eu = hold(&r.core, &sid, Some("glm53"));
+    assert_eq!(
+        eu.refused, None,
+        "a label keeps only a restricted model off"
+    );
     let set = hold(&r.core, &sid, Some("opus"));
     assert_eq!(set.refused, None);
     assert_eq!(set.profile.as_deref(), Some("opus"));
@@ -119,7 +118,7 @@ async fn a_cn_profile_on_an_open_session_is_set_and_the_floor_decides_per_turn()
     let r = rig(None, 1, google_on(false));
     let sid = session(&r.core);
     assert_eq!(
-        session_mark(&r.core.store, &r.core.cfg, &sid),
+        crate::content_wait::mark_of(&r.core.store, &sid),
         DataMark::Open
     );
     let got = hold(&r.core, &sid, Some("glm"));
@@ -275,7 +274,7 @@ async fn raw(
 /// profile, the provider's floor refuses it before a byte is sent.
 #[tokio::test]
 async fn a_mark_taken_after_the_hold_still_cannot_reach_the_model() {
-    let r = rig(None, 2, google_on(true));
+    let r = rig(None, 2, google_on(false));
     let sid = session(&r.core);
     hold(&r.core, &sid, Some("glm53"));
     mark(&r.core, &sid);
@@ -285,12 +284,7 @@ async fn a_mark_taken_after_the_hold_still_cannot_reach_the_model() {
         json!({"session_id": sid, "input": "go on"}),
     )
     .await;
-    let said = format!("{:?}", res.error);
-    assert!(
-        said.contains("data_gate") && said.contains("not of US origin"),
-        "{said}"
-    );
-    assert!(r.zai.requests().is_empty(), "nothing went to it");
+    assert!(r.zai.requests().is_empty(), "nothing went to it: {res:?}");
 }
 
 /// The same with the route on: the floor moves the refused base as it moves
@@ -299,7 +293,7 @@ async fn a_mark_taken_after_the_hold_still_cannot_reach_the_model() {
 async fn a_mark_taken_after_the_hold_moves_a_routed_turn_off_it() {
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
     crate::tests_route::mode(&jev, "routine_coding", 0.95);
-    let r = crate::tests_route::rig_parts(Some(&jev), 2, google_on(true), |p| {
+    let r = crate::tests_route::rig_parts(Some(&jev), 2, google_on(false), |p| {
         p.cfg.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
     });
     let sid = session(&r.core);
@@ -346,46 +340,6 @@ async fn the_method_has_its_arm_and_refuses_an_unnamed_connection() {
     assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
     assert!(e.message.contains("is never a private place"), "{e:?}");
     untouched(&r, &sid);
-}
-
-/// The pure refusal, which the model menu greys by and the router's floor
-/// agrees with (the contract is `data_step`'s `tests_sticky`).
-#[test]
-fn the_refusal_over_every_mark_and_origin() {
-    // (mark, known, cleared) -> refused
-    for (mark, known, cleared, refused) in [
-        (DataMark::Open, true, true, false),
-        (DataMark::Open, true, false, false),
-        (DataMark::Private, true, true, false),
-        (DataMark::Private, true, false, true),
-        (DataMark::Sensitive, true, true, false),
-        (DataMark::Sensitive, true, false, true),
-        (DataMark::Open, false, false, true),
-        (DataMark::Sensitive, false, true, true),
-    ] {
-        assert_eq!(
-            refusal_of(mark, "p", known, ModelOrigin::Us, cleared).is_some(),
-            refused,
-            "{mark:?} known={known} cleared={cleared}"
-        );
-    }
-    let w = refusal_of(DataMark::Sensitive, "p", true, ModelOrigin::Cn, false).unwrap();
-    assert!(w.contains("sensitive content"), "{w}");
-}
-
-/// A vouched provider serving a model the catalog does not list as `us` has
-/// origin `us` and is not cleared: the words say the catalog's part, not that
-/// the model is foreign. Any other origin keeps the original words.
-#[test]
-fn a_vouched_uncatalogued_profile_is_refused_in_the_catalogs_words() {
-    assert_eq!(
-        refusal_of(DataMark::Private, "p", true, ModelOrigin::Us, false).unwrap(),
-        "this conversation holds private content, and `p` is not cleared for it: the catalog does not list its model as of US origin"
-    );
-    assert_eq!(
-        refusal_of(DataMark::Private, "p", true, ModelOrigin::Cn, false).unwrap(),
-        "this conversation holds private content, and `p` is not a model of US origin"
-    );
 }
 
 /// A running task keeps the model of the call it is making and of the rest of

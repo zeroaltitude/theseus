@@ -89,11 +89,9 @@ fn channel_home(r: &Rig, channel: &str, private: bool) -> String {
     sid
 }
 
+/// Label `sid` `confidential`, as a Google read does.
 fn mark(r: &Rig, sid: &str) {
-    r.core
-        .store
-        .put_meta(&crate::google::private::meta_key(sid), &"nd_test")
-        .unwrap();
+    crate::test_support::label_session(&r.core, sid, crate::content::Flag::Confidential);
 }
 
 fn task_of(r: &Rig, sid: &str) -> SessionRecord {
@@ -305,15 +303,12 @@ async fn a_private_task_never_reports_into_an_open_home() {
     turn(&r.core, &parent, ASK).await;
     let task = only_task(&r.core, &parent);
     r.entered.recv().await.unwrap();
-    // The parent read Google after the task started: the task is private by lineage.
-    mark(&r, &parent);
+    // The task read Google after it started: it carries the label.
+    mark(&r, &task.session_id);
     let (open, private) = (terminal_home(&r), terminal_home(&r));
     mark(&r, &private);
     for (home, mark) in [(&open, DataMark::Open), (&private, DataMark::Private)] {
-        assert_eq!(
-            crate::data_mark::session_mark(&r.core.store, &r.core.cfg, home),
-            mark
-        );
+        assert_eq!(crate::content_wait::mark_of(&r.core.store, home), mark);
     }
     let e = r
         .core
@@ -379,32 +374,6 @@ async fn moving_a_report_posts_nothing() {
     })
     .await;
     let _ = turn_in;
-}
-
-#[tokio::test]
-async fn a_home_whose_mark_cannot_be_read_is_refused() {
-    let mut r = rig_with_a_task();
-    let parent = parent_session(&r.core);
-    turn(&r.core, &parent, ASK).await;
-    let task = only_task(&r.core, &parent);
-    r.entered.recv().await.unwrap();
-    let home = terminal_home(&r);
-    // A sensitive record that does not decode as a string: the mark is unknown.
-    r.core
-        .store
-        .put_meta(&crate::google::private::sensitive_key(&home), &42u64)
-        .unwrap();
-    let e = r
-        .core
-        .task_rehome(&params(&task.id, &home), &cli())
-        .unwrap_err();
-    let said = format!("{e:#}");
-    assert!(
-        said.contains("cannot be read")
-            && said.contains("a report never goes to a home whose mark is unknown"),
-        "{said}"
-    );
-    unchanged(&r, &task);
 }
 
 #[tokio::test]

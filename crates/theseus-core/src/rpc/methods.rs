@@ -699,11 +699,11 @@ impl Core {
             .as_deref()
             .map(|f| f.labels.iter().map(super::content::label_view).collect())
             .unwrap_or_default();
-        i.data = Some(crate::data_mark::session_mark(
-            &self.store,
-            &self.cfg,
-            &r.session_id,
-        ));
+        i.data = Some(
+            r.data
+                .as_deref()
+                .map_or(theseus_protocol::ops::DataMark::Open, |f| f.mark()),
+        );
         let asks = r
             .execution_id
             .as_deref()
@@ -1204,7 +1204,9 @@ impl Core {
                 origin: Some(
                     crate::data_gate::word(self.cfg.profile_origin(name, &self.catalog)).into(),
                 ),
-                cleared: Some(crate::data_mark::cleared(&self.cfg, &self.catalog, name)),
+                // Cleared for a session that carries a label: not of restricted
+                // origin, which is all a label keeps a session off.
+                cleared: Some(!self.cfg.profile_origin(name, &self.catalog).restricted()),
                 effort: p
                     .effort
                     .and_then(|e| serde_json::to_value(e).ok())

@@ -515,10 +515,6 @@ impl Core {
         let Some(provider) = self.runner.providers.get(&target.provider).cloned() else {
             return Ok(Step::Skip("no_provider"));
         };
-        // One request holds every source: it is private when any source's
-        // session is, as it names its sessions' content together.
-        let of = sources.iter().map(|s| s.node.session_id.as_str());
-        let provider = crate::google::private::over_sessions(provider, &self.store, &self.cfg, of);
         let thinking = self.runner.catalog.thinking_off(&target.model);
         let request = request_for(&target.model, thinking, sources);
         let Some(need) = self.audit_reserve(&request) else {

@@ -497,7 +497,7 @@ pub fn create_call<'a>(
         &std::collections::BTreeMap<String, TargetRef>,
         crate::project::Ext<'_>,
     ),
-    b: (&crate::forecast::Book, &crate::config::GoogleConfig),
+    b: &crate::forecast::Book,
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     create(tc, input, (correlation_id, correlation_id, None), a, b)
 }
@@ -517,7 +517,7 @@ pub fn create<'a>(
         &std::collections::BTreeMap<String, TargetRef>,
         crate::project::Ext<'_>,
     ),
-    (forecasts, google): (&crate::forecast::Book, &crate::config::GoogleConfig),
+    forecasts: &crate::forecast::Book,
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
     let Some(brief) = i.brief.as_deref() else {
@@ -616,11 +616,13 @@ pub fn create<'a>(
         .map_err(|e| format!("Not started: {e:#}"))?;
     // A task that a session holding external text starts holds it too, from
     // its brief on, since the brief may carry that text (theseus-9bp).
-    let parent_hold = tc
+    let parent_rec = tc
         .store
         .get_session::<SessionRecord>(tc.session_id)
-        .map_err(|e| format!("Not started: {e:#}"))?
-        .and_then(|r| r.external);
+        .map_err(|e| format!("Not started: {e:#}"))?;
+    let parent_hold = parent_rec.as_ref().and_then(|r| r.external.clone());
+    // and carries its parent's labels from its first call (theseus-gyjyo.5).
+    let inherited = parent_rec.and_then(|r| r.data).and_then(|d| d.inherited());
     let opening = theseus_kernel::Opening {
         reports_to: target.clone(),
         wake_parent: i.wake_parent,
@@ -637,6 +639,7 @@ pub fn create<'a>(
             );
             rec.title = Some(title.clone());
             rec.execution_id = Some(task.id.clone());
+            rec.data.clone_from(&inherited);
             // A task works where its parent does (theseus-aab7).
             rec.dir = tc.dir.map(str::to_string);
             rec.last_target = tc.target.map(|t| TargetRef {
@@ -690,14 +693,6 @@ pub fn create<'a>(
                 )?],
             };
             records.push(brief.record()?);
-            // A task of a private session is private from its first call, as
-            // task.start's (theseus-a1wvq.10).
-            records.extend(crate::google::private::inherited_on(
-                tc.store,
-                google,
-                tc.session_id,
-                &task.session_id,
-            )?);
             if let Some(reply) = &holder {
                 records.push(
                     crate::graph::Edge::new(

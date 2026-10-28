@@ -377,7 +377,7 @@ impl Core {
         now: u64,
     ) -> Result<Asked> {
         let (target, provider, _) = self.observe_model()?;
-        let provider = crate::google::private::for_session(provider, &self.store, &self.cfg, sid);
+        let provider = crate::data_gate::bound(provider, sid);
         let scrubber = self.tools.scrubber.clone();
         let how = self.runner.catalog.forcing(&target.model);
         let request =

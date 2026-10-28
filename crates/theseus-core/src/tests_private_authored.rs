@@ -1,23 +1,22 @@
-//! What a Google-private session wrote for other sessions to see is left out
-//! of every request to a model of restricted origin (theseus-lt4xh): a
-//! standing record kept from its words (`capture:<node>`), and any milestone
-//! reminder. Requests to a model of US origin are unchanged, and the mark does
-//! not spread to the session that sees the text. The rig is
-//! `tests_dm_rig`'s, with `[google]` bound and a judge that finds nothing.
+//! What another session wrote for a session to see is left out of every
+//! request to a model of restricted origin (theseus-lt4xh, theseus-9ymz0's
+//! review B1): a standing record kept from its words (`capture:<node>`), and
+//! any milestone reminder. Requests to a model of US origin are unchanged. The
+//! rig is `tests_dm_rig`'s, with a judge that finds nothing. (These were
+//! written for a Google-private session's words; a label belongs to the session
+//! that raised it, so it is the other session's words that are held, as
+//! theseus-gyjyo.5 leaves it.)
 
 use std::sync::Arc;
 
 use serde_json::json;
 use theseus_kernel::{NewWake, Purpose, WakeRun};
 use theseus_protocol::standing::{StandingAddParams, StandingKind, StandingScope};
-use theseus_protocol::StandingRecord;
 
-use crate::google::private;
 use crate::provider::FakeProvider;
 use crate::tests_dm_rig::{
     blocked, cn_session, dm, jev, judging, record, rig_with, say, text, OPEN_A, OPEN_B,
 };
-use crate::tests_private_background::{google_on, mark};
 use crate::tests_route::{call, mode, Rig};
 use crate::Core;
 
@@ -25,20 +24,17 @@ use crate::Core;
 const HERON: &str = "Always cc the Heronsgate survey lead";
 const SHORT: &str = "Answer in short lines";
 
-fn rig(
-    google: bool,
-) -> (
+fn rig() -> (
     Rig,
     Arc<FakeProvider>,
     tempfile::TempDir,
     theseus_judge::fake::FakeJev,
 ) {
-    rig_mode(google, "chat")
+    rig_mode("chat")
 }
 
 /// `rig`, Jev judging every message of `mode` (`trivial`: a detour).
 fn rig_mode(
-    google: bool,
     mode_name: &str,
 ) -> (
     Rig,
@@ -52,23 +48,18 @@ fn rig_mode(
         mode_name,
         if mode_name == "chat" { 0.2 } else { 0.95 },
     );
-    let (r, zai, dir) = rig_with(&jev, None, |c| {
-        if google {
-            google_on(c);
-        }
-    });
+    let (r, zai, dir) = rig_with(&jev, None, |_| {});
     // A judge that finds nothing, so a session may use `dsflash` at all.
     judging(&r);
     (r, zai, dir, jev)
 }
 
-/// A private session P (marked, with a node) and the two orders: `std_a`
+/// A session P (with a node) and the two orders: `std_a`
 /// kept from P's node, scoped as given, and `std_b` typed on the CLI.
 /// Returns the ids of `std_a` and `std_b`.
 async fn orders(r: &Rig, scope: StandingScope) -> (String, String) {
     let p = dm(&r.core);
     say(&r.core, &p, "hello", Some("default")).await;
-    mark(&r.core, &p);
     let node = r.core.store.transcript(&p).unwrap()[0].1.id.clone();
     let add = |text: &str, source: Option<String>, scope| {
         r.core
@@ -109,7 +100,7 @@ fn manifest_standing(core: &Core, sid: &str) -> Vec<(String, bool)> {
 /// refusal; the same session on Claude carries it; S is never marked.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_private_sessions_kept_order_stays_out_of_a_restricted_request() {
-    let (r, zai, _dir, _jev) = rig(true);
+    let (r, zai, _dir, _jev) = rig();
     let (a, b) = orders(&r, StandingScope::Everywhere).await;
     let s = cn_session(&r).await;
     let res = say(&r.core, &s, OPEN_A, None).await;
@@ -128,21 +119,13 @@ async fn a_private_sessions_kept_order_stays_out_of_a_restricted_request() {
     let sent = r.claude.requests();
     assert!(sent.len() > before);
     assert!(text(sent.last().unwrap()).contains("Heronsgate"));
-
-    assert!(!private::session(&r.core.store, &r.core.cfg, &s));
-    assert!(r
-        .core
-        .store
-        .get_meta::<String>(&private::meta_key(&s))
-        .unwrap()
-        .is_none());
 }
 
 /// As the key test, with the record scoped to the turn's surface: the
 /// "Standing here:" tail leaves it out and `missing_here` does not refuse.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_private_surface_record_stays_out_of_the_tail() {
-    let (r, zai, _dir, _jev) = rig(true);
+    let (r, zai, _dir, _jev) = rig();
     let (_a, _b) = orders(&r, StandingScope::Surface("terminal".into())).await;
     let s = cn_session(&r).await;
     let res = say_on_terminal(&r, &s, OPEN_A).await;
@@ -195,7 +178,7 @@ async fn say_on_terminal(r: &Rig, sid: &str, input: &str) -> theseus_protocol::T
 /// dsflash) holds back the same record, and its check passes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_detour_to_a_restricted_model_holds_back_the_same_records() {
-    let (r, zai, _dir, _jev) = rig_mode(true, "trivial");
+    let (r, zai, _dir, _jev) = rig_mode("trivial");
     let _ = orders(&r, StandingScope::Everywhere).await;
     let s = dm(&r.core);
     let res = say(&r.core, &s, OPEN_A, None).await;
@@ -210,7 +193,7 @@ async fn a_detour_to_a_restricted_model_holds_back_the_same_records() {
 /// restricted request shows the first and counts one; Claude's shows both.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_milestone_reminder_stays_out_of_a_restricted_request() {
-    let (r, zai, _dir, _jev) = rig(true);
+    let (r, zai, _dir, _jev) = rig();
     let s = cn_session(&r).await;
     say(&r.core, &s, OPEN_A, None).await;
     let exec = record(&r.core, &s).execution_id.unwrap();
@@ -272,7 +255,7 @@ async fn a_milestone_reminder_stays_out_of_a_restricted_request() {
 /// to a restricted model leaves out what another session wrote instead.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_task_view_and_slice_never_reach_a_restricted_request() {
-    let (r, zai, _dir, _jev) = rig(false);
+    let (r, zai, _dir, _jev) = rig();
     let s = cn_session(&r).await;
     let p = r
         .core
@@ -337,50 +320,16 @@ async fn the_task_view_and_slice_never_reach_a_restricted_request() {
     assert!(body.contains(crate::project::slice::HEAD), "{body}");
 }
 
-/// With no `[google]` the Google hold reads nothing (`authored` answers empty
-/// before any read), but a record kept from another session's message is still
-/// held from a restricted request, for it is that session's content
-/// (theseus-9ymz0, the review's B1): the owner's own order reaches dsflash.
+/// A record kept from another session's message is held from a restricted
+/// request, for it is that session's content (theseus-9ymz0, the review's B1):
+/// the owner's own order reaches dsflash.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn without_google_the_google_hold_reads_nothing() {
-    let (r, zai, _dir, _jev) = rig(false);
-    let (a, _b) = orders(&r, StandingScope::Everywhere).await;
+async fn a_record_kept_from_another_sessions_message_is_held_and_the_owners_own_is_not() {
+    let (r, zai, _dir, _jev) = rig();
+    let (_a, _b) = orders(&r, StandingScope::Everywhere).await;
     let s = cn_session(&r).await;
     let res = say(&r.core, &s, OPEN_A, None).await;
     assert_eq!(res.profile, "dsflash", "{:?}", res.route);
     let body = text(&zai.requests()[0]);
     assert!(body.contains(SHORT) && !body.contains(HERON), "{body}");
-    let all = r.core.runner.standing.held().unwrap();
-    let kept: Vec<&StandingRecord> = all.iter().filter(|x| x.id == a).collect();
-    // A node id the store does not hold would count as private with `[google]`.
-    let mut ghost = kept[0].clone();
-    ghost.source = "capture:nd_missing".into();
-    assert!(private::authored(&r.core.store, &r.core.cfg, [&ghost]).is_empty());
-}
-
-/// theseus-dyx7o: with `[google]` set, a record kept from a node the store
-/// cannot read is held (an unknown session counts as private), a record from
-/// any other source is not, and with no `[google]` nothing is read.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn authored_holds_an_unreadable_capture_node() {
-    let (r, _zai, _dir, _jev) = rig(true);
-    let record = |id: &str, source: &str| StandingRecord {
-        id: id.into(),
-        kind: StandingKind::Order,
-        text: HERON.into(),
-        scope: StandingScope::Everywhere,
-        since_ms: 1,
-        until_ms: None,
-        source: source.into(),
-        ends: None,
-    };
-    let records = [
-        record("std_gone", "capture:nde_missing"),
-        record("std_typed", "cli"),
-    ];
-    let held = private::authored(&r.core.store, &r.core.cfg, &records);
-    assert_eq!(held, ["std_gone".to_string()].into());
-    let mut cfg = (*r.core.cfg).clone();
-    cfg.google = Default::default();
-    assert!(private::authored(&r.core.store, &cfg, &records).is_empty());
 }

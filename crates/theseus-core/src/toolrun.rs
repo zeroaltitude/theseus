@@ -395,9 +395,6 @@ pub struct ToolRuntime {
     pub watches: Arc<crate::watch::Board>,
     /// `[watch_for]`, for the tool's bounds.
     pub watches_cfg: crate::config::WatchesConfig,
-    /// The `[google]` table: whether a session's Google mark is read, for
-    /// `task.create` (theseus-a1wvq.6).
-    pub google_cfg: crate::config::GoogleConfig,
     /// The finished tasks a new task's forecast is made from, and the work
     /// board's view of it (theseus-zz752).
     pub forecasts: Arc<crate::forecast::Book>,
@@ -581,7 +578,6 @@ impl ToolRuntime {
             leases: crate::task_graph::lease::Leases::new(30 * 60_000),
             watches: Default::default(),
             watches_cfg: Default::default(),
-            google_cfg: Default::default(),
             forecasts: Default::default(),
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
@@ -1517,7 +1513,7 @@ impl ToolRuntime {
                 &call.input,
                 correlation_id,
                 (&self.profiles, (&self.routines, &self.projects)),
-                (&self.forecasts, &self.google_cfg),
+                &self.forecasts,
             )
             .map(|c| edit.take(c)),
             crate::project_tool::ATTACH => crate::project_tool::attach(tc, &call.input),
@@ -2379,7 +2375,6 @@ pub fn build_runtime(
         leases: crate::task_graph::lease::Leases::new(cfg.kernel.task_lease_ms()),
         watches: Default::default(),
         watches_cfg: cfg.watch_for.clone(),
-        google_cfg: cfg.google.clone(),
         forecasts: Default::default(),
         sandbox,
         stops: Default::default(),

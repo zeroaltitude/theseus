@@ -270,9 +270,16 @@ async fn a_trusted_senders_mail_starts_a_held_task() {
         .to_string();
     let rec: crate::session::SessionRecord = r.core.store.get_session(&task).unwrap().unwrap();
     assert!(rec.external.is_some(), "the mail holds the task's session");
-    assert!(
-        crate::google::private::session(&r.core.store, &r.core.cfg, &task),
-        "and it is private from the start"
+    let labelled = rec
+        .data
+        .as_deref()
+        .map(|f| f.labels.clone())
+        .unwrap_or_default();
+    assert_eq!(labelled.len(), 1, "{labelled:?}");
+    assert_eq!(
+        (labelled[0].flag, labelled[0].source.as_str()),
+        (crate::content::Flag::Confidential, "google.mail.watch"),
+        "and it carries the mail's label from the start"
     );
     until("the held task's first write to ask", 20, || {
         ledgered(&r.core, "tool.confirm_requested")
