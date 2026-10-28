@@ -243,7 +243,7 @@ export function WeekStripV2(p: StripProps) {
                 {col.tasks.length > 0 && (
                   <div className="absolute inset-y-0" style={{ right: GUTTER, width: `${TASK_SHARE}%` }} data-testid="task-lane">
                     {col.tasks.map((t) => (
-                      <TaskBlockView key={`${t.key}:${t.day}`} t={t} y={atY(t.top)} h={atY(t.bottom) - atY(t.top)} now={now} selected={p.selected === t.key} clash={false}
+                      <TaskBlockView key={`${t.key}:${t.day}`} t={t} y={atY(t.top)} h={atY(t.bottom) - atY(t.top)} now={now} selected={p.selected === t.key} clash={p.clash.keys.has(t.key)}
                         dim={!p.matches(t.key)} onPick={p.onPick} onHover={p.onHover} />
                     ))}
                   </div>
