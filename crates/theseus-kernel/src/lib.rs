@@ -41,6 +41,7 @@ mod spawn;
 pub mod spend;
 pub mod spool;
 pub mod stops;
+pub mod task_depth;
 pub mod task_edit;
 pub mod tasks;
 pub mod terms;

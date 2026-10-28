@@ -14,10 +14,12 @@
 //!   session outspends its limit through its tasks, and the only way past a
 //!   carve is an approved reset of the task's own spend, which the parent's
 //!   spend still counts.
-//! - **Depth one.** A task cannot open tasks. The bound lives in one place,
-//!   `depth_refusal`, and `carve_task` — the only way a task is ever opened —
-//!   checks it, so no caller can skip it (theseus-rrqmr: a routine's fire
-//!   did).
+//! - **Depth.** Tasks may go `task_depth_limit` (10) deep (`task_depth.rs`).
+//!   The bound lives in one place, `Kernel::depth_refusal`, which counts the
+//!   executions above the parent against the configured limit. `carve_task`
+//!   and `open_retry` ask it, the two places a task's record and carve are
+//!   written, and the shared open asks it early, so no caller can skip it
+//!   (theseus-rrqmr: a routine's fire did).
 //! - **The spend carries all the way up.** What a task settles is the spend
 //!   of every execution above it, not only its parent's, and each carve above
 //!   it shrinks to what the execution under it can still spend
@@ -107,7 +109,7 @@ impl Kernel {
     ///   brief as the first node, where it reports);
     /// - the rows `execution.opened`, `budget.carved`, and `execution.queued`.
     ///
-    /// A task cannot open tasks (`TaskDepth`), and a parent with nothing left
+    /// A parent at the depth limit opens none (`TaskDepth`), and a parent with nothing left
     /// has nothing to carve (`NothingToCarve`); either way nothing is written.
     /// A call that opened its task before gets that task back, and writes
     /// nothing.
@@ -202,10 +204,10 @@ impl Kernel {
                 available_before,
             });
         }
-        // Early, so that a parent that is itself a task is refused as
-        // `TaskDepth` and not as `NothingToCarve`; `carve_task` checks it
-        // again, and that is the check no caller can skip (`depth_refusal`).
-        if let Some(e) = depth_refusal(&parent) {
+        // Early, so that a parent at the limit is refused as `TaskDepth` and
+        // not as `NothingToCarve`; `carve_task` asks again, and that is the
+        // check no caller can skip (`depth_refusal`).
+        if let Some(e) = self.depth_refusal(&parent)? {
             return Err(e.into());
         }
         if needs_turn {
@@ -585,24 +587,29 @@ impl Kernel {
     }
 }
 
-/// How deep a task tree may go (DD7: depth one — a task cannot open tasks).
-/// `Some` is the refusal for opening a task under `parent`.
-///
-/// **One place, and one place only.** `carve_task` checks this, and
-/// `carve_task` is the only way a task is ever opened, so no caller can open
-/// one past the bound. The shared open (`open_task_in`) checks it as well,
-/// early, so that its refusal reads `TaskDepth` rather than `NothingToCarve`;
-/// a caller that does not go through the shared open is refused all the same.
-/// A routine's fire was exactly such a caller (theseus-rrqmr): it called
-/// `carve_task` with nothing to say about depth, so a routine's series set on
-/// a task carved a task under a task, which the bound could say nothing
-/// about. A step that moves the bound — `theseus-tecj5` raises it to ten —
-/// changes this function, and the `a_task` predicate kernel-sim uses to
-/// expect the refusal, and nothing else.
-pub fn depth_refusal(parent: &Execution) -> Option<KernelError> {
-    (parent.parent.is_some() || parent.kind == SessionKind::Task).then(|| KernelError::TaskDepth {
-        id: parent.id.clone(),
-    })
+impl Kernel {
+    /// How deep a task tree may go (DD7; theseus-tecj5 raised the bound from
+    /// one to `task_depth_limit`). `Some` is the refusal for opening a task
+    /// under `parent`: the executions above it, counted from their `parent`
+    /// links, are already at the limit.
+    ///
+    /// **One place, and one place only.** `carve_task` checks this, and so
+    /// does `open_retry`, which writes its own records rather than going
+    /// through `carve_task`; the shared open (`open_task_in`) checks it as
+    /// well, early, so that its refusal reads `TaskDepth` rather than
+    /// `NothingToCarve`. A routine's fire was once a caller that never asked
+    /// (theseus-rrqmr), so a step that moves the bound changes this function
+    /// and the limit it reads, and nothing else; kernel-sim's expectation
+    /// asks it. A failed read of the ancestry is an error, never a pass.
+    pub fn depth_refusal(&self, parent: &Execution) -> Result<Option<KernelError>> {
+        let depth = self.task_depth(&parent.id)?;
+        let limit = self.task_depth_limit();
+        Ok((depth >= limit as usize).then(|| KernelError::TaskDepth {
+            id: parent.id.clone(),
+            depth,
+            limit,
+        }))
+    }
 }
 
 /// What `carve_task` opens: the ids, the limit, and how it begins.
@@ -633,7 +640,7 @@ impl Kernel {
         c: CarveFor<'_>,
         extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
     ) -> Result<(Execution, Vec<NewRecord>)> {
-        if let Some(e) = depth_refusal(parent) {
+        if let Some(e) = self.depth_refusal(parent)? {
             return Err(e.into());
         }
         let CarveFor {

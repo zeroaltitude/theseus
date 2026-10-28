@@ -831,6 +831,15 @@ pub struct KernelSection {
     /// the turn to end and runs as the next one.
     #[serde(default = "default_true")]
     pub steer_queued: bool,
+    /// How many levels of tasks may sit below a conversation: a task starts
+    /// tasks until this depth (theseus-tecj5, the owner's "lets start with 10
+    /// deep, and observe"). 1 to 32.
+    #[serde(default = "default_task_depth")]
+    pub task_depth: u32,
+}
+
+fn default_task_depth() -> u32 {
+    theseus_kernel::task_depth::DEFAULT_DEPTH_LIMIT
 }
 
 fn default_admission_ceiling() -> u32 {
@@ -878,6 +887,7 @@ impl Default for KernelSection {
             max_reminders: wake_limits::default_max_reminders(),
             max_watches: wake_limits::default_max_watches(),
             steer_queued: true,
+            task_depth: default_task_depth(),
         }
     }
 }
@@ -910,6 +920,9 @@ impl KernelSection {
             daily_step_micros: theseus_kernel::usd_to_micros(self.daily_notice_step_usd),
             burn_line_micros: theseus_kernel::usd_to_micros(self.runaway_usd_per_10min),
             wakes: wake_limits::limits(self),
+            task_depth_limit: self
+                .task_depth
+                .clamp(1, theseus_kernel::task_depth::DEPTH_LIMIT_MAX),
             // The system's zone.
             ..Default::default()
         }

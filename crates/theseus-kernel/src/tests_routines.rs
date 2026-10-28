@@ -267,26 +267,12 @@ fn a_restart_across_occurrences_passes_two_over_for_one_catch_up_to_say() {
     );
 }
 
-/// theseus-rrqmr: a routine's fire goes through the task depth bound. A
-/// routine's series can be set on any execution that has not ended
-/// (`create_wake` asks nothing about its kind), a task included; firing it
-/// there opens nothing and refuses with `TaskDepth`, and the fire writes
-/// nothing at all. Before the fix `routines.rs` called `carve_task` with no
-/// depth argument, so the fire carved a task under a task — a chain the
-/// depth bound could say nothing about.
-#[test]
-fn a_routine_fired_in_a_task_refuses_at_the_depth_bound() {
-    let w = world_with(cfg());
-    let (_, _parent, g) = running(&w);
-    let task = w
-        .kernel
-        .open_task(&g, &new_id("act"), 10 * RUN, None, false, |_| Ok(vec![]))
-        .unwrap()
-        .task;
+/// A routine's series on `exec_id`, due in a minute and then every minute.
+fn set_routine(w: &World, exec_id: &str) {
     let first = w.kernel.now_ms() + MIN;
     w.kernel
         .create_wake(
-            &task.id,
+            exec_id,
             None,
             NewWake {
                 due_at_ms: first,
@@ -309,6 +295,30 @@ fn a_routine_fired_in_a_task_refuses_at_the_depth_bound() {
             "the CLI",
         )
         .unwrap();
+}
+
+/// theseus-rrqmr: a routine's fire goes through the task depth bound. A
+/// routine's series can be set on any execution that has not ended
+/// (`create_wake` asks nothing about its kind), a task included; firing it
+/// at the limit opens nothing and refuses with `TaskDepth`, and the fire
+/// writes nothing at all. Before the fix `routines.rs` called `carve_task`
+/// with no depth argument, so the fire carved a task past the bound, which
+/// the bound could say nothing about. The limit is one here, so the task
+/// the parent opened is already at it (theseus-tecj5 made the bound a limit,
+/// not "a task").
+#[test]
+fn a_routine_fired_in_a_task_at_the_limit_refuses_at_the_depth_bound() {
+    let w = world_with(KernelConfig {
+        task_depth_limit: 1,
+        ..cfg()
+    });
+    let (_, _parent, g) = running(&w);
+    let task = w
+        .kernel
+        .open_task(&g, &new_id("act"), 10 * RUN, None, false, |_| Ok(vec![]))
+        .unwrap()
+        .task;
+    set_routine(&w, &task.id);
     w.clock.advance(MIN);
     let at = w.kernel.store().last_position();
     let err = w
@@ -318,7 +328,11 @@ fn a_routine_fired_in_a_task_refuses_at_the_depth_bound() {
     assert!(
         matches!(
             err.downcast_ref::<KernelError>(),
-            Some(KernelError::TaskDepth { .. })
+            Some(KernelError::TaskDepth {
+                depth: 1,
+                limit: 1,
+                ..
+            })
         ),
         "{err:#}"
     );
@@ -345,5 +359,52 @@ fn a_routine_fired_in_a_task_refuses_at_the_depth_bound() {
         "{err:#}"
     );
     assert_eq!(w.kernel.store().last_position(), at);
+    drop(g);
+}
+
+/// The bound a routine's fire meets is the limit, not "a task": with the
+/// limit at two, a routine fired in a depth-one task opens a task under it,
+/// and the same fire in that task, at depth two, is refused and writes
+/// nothing (theseus-tecj5 on theseus-rrqmr).
+#[test]
+fn a_routine_fired_below_the_limit_opens_and_at_it_refuses() {
+    let w = world_with(KernelConfig {
+        task_depth_limit: 2,
+        ..cfg()
+    });
+    let (_, _parent, g) = running(&w);
+    let one = w
+        .kernel
+        .open_task(&g, &new_id("act"), 10 * RUN, None, false, |_| Ok(vec![]))
+        .unwrap()
+        .task;
+    set_routine(&w, &one.id);
+    w.clock.advance(MIN);
+    w.kernel
+        .fire_routines(&one.id, |_, _| Ok(run(false)))
+        .unwrap();
+    let two = w.kernel.tasks(Some(&one.id)).unwrap();
+    assert_eq!(two.len(), 1, "depth one is under a limit of two");
+    assert_eq!(w.kernel.task_depth(&two[0].id).unwrap(), 2);
+    set_routine(&w, &two[0].id);
+    w.clock.advance(MIN);
+    let at = w.kernel.store().last_position();
+    let err = w
+        .kernel
+        .fire_routines(&two[0].id, |_, _| Ok(run(false)))
+        .unwrap_err();
+    assert!(
+        matches!(
+            err.downcast_ref::<KernelError>(),
+            Some(KernelError::TaskDepth {
+                depth: 2,
+                limit: 2,
+                ..
+            })
+        ),
+        "{err:#}"
+    );
+    assert_eq!(w.kernel.store().last_position(), at);
+    assert!(w.kernel.tasks(Some(&two[0].id)).unwrap().is_empty());
     drop(g);
 }

@@ -440,7 +440,7 @@ async fn bad_input_and_depth_are_refused_in_words() {
                 ],
             )
         },
-        |_| {},
+        |c| c.kernel.task_depth = 1,
     );
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
@@ -460,7 +460,7 @@ async fn bad_input_and_depth_are_refused_in_words() {
     .await;
     assert_eq!(
         result_of(&r.core, &nested.session_id, "n_1").0,
-        crate::task::DEPTH_REFUSAL
+        crate::task_lineage::depth_refusal(1, 1)
     );
 }
 

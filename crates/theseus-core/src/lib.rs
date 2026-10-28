@@ -138,6 +138,7 @@ pub mod task;
 pub mod task_fan_out;
 pub mod task_graph;
 mod task_home;
+pub mod task_lineage;
 pub mod task_self;
 pub mod task_start;
 pub mod task_wait;
@@ -646,6 +647,8 @@ mod tests_task_graph;
 mod tests_task_join;
 #[cfg(test)]
 mod tests_task_layers;
+#[cfg(test)]
+mod tests_task_lineage;
 #[cfg(test)]
 mod tests_task_report;
 #[cfg(test)]

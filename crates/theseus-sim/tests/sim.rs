@@ -144,7 +144,7 @@ fn the_kernel_holds_its_invariants_under_seeded_faults() {
         " next inputs ran a turn;",
         " calls stopped alone",
         " tasks opened:",
-        " refused at depth one;",
+        " refused at the depth limit;",
         " reports read:",
         " woke their parent,",
         " wakes due in a turn queued by its end",

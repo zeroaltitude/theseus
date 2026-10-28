@@ -198,7 +198,11 @@ async fn a_named_home_is_the_parent_and_a_task_cannot_be() {
         )
         .unwrap_err();
     assert_eq!(e.code, theseus_protocol::error_code::REFUSED);
-    assert!(e.message.contains("depth one"), "{}", e.message);
+    assert!(
+        e.message.contains("is itself a task") && e.message.contains("task.create"),
+        "{}",
+        e.message
+    );
 }
 
 /// `start_after_ms`: asleep in `Waiting{DueAt}` with its carve held and no

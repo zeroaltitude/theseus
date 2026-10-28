@@ -1448,6 +1448,10 @@ pub fn task_line(t: &theseus_protocol::TaskInfo, now_ms: u64) -> Line {
     if let Some(a) = &t.arrangement {
         asks.push_str(&tasks::clip(a));
     }
+    // A task of a task says how deep it sits (theseus-tecj5).
+    if t.depth > 1 {
+        asks.push_str(&format!(" · depth {}", t.depth));
+    }
     Line::new(
         level_tag(t.attention.as_ref()),
         format!(

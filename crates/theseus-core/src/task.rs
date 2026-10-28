@@ -19,7 +19,7 @@
 //!   starts only from quoted pieces of this session: the messages that define
 //!   the work, resolved to nodes and written into the child after the brief,
 //!   with the fidelity check for a one-line brief from a long discussion.
-//! - **Depth one.** A task cannot start tasks.
+//! - **Depth.** Tasks may go `[kernel] task_depth` (10) deep; `task_lineage.rs`.
 //! - **The report.** A task whose turn has nothing left to wait on is done,
 //!   and its last message is its report. The frame that ends it carries one
 //!   outbox post naming it; a failed turn or a cancel reports so, once. The
@@ -84,11 +84,6 @@ pub const REPORT_NODE_CHARS: usize = 8_000;
 pub const OPEN_RETIRED: &str = "Not started: open tasks are retired. A task runs as any other \
     does, and what keeps a session off a model outside the owner's trust is the labels on it. \
     Start it without `open`.";
-
-/// What a task says to a model that asks it to start one (depth one).
-pub const DEPTH_REFUSAL: &str = "Refused: this session is itself a task, and a task cannot start \
-    tasks (depth one). Do the work here, or finish and say in your report what should be started \
-    next; the conversation that started you can start it.";
 
 /// How people name a task: the last six characters of its id.
 pub fn short(task_id: &str) -> String {
@@ -254,7 +249,8 @@ impl Tool for TaskCreate {
          reaches the person at once, and you read it at this conversation's next turn. With \
          `wake_parent: true`, the report starts that turn by itself, so you can review the result \
          and start the next task of a chain; leave it off for work the person will ask about. A \
-         task cannot start tasks. For work on a day that needs judgment, give `start_after` or \
+         task may start tasks too. \
+         For work on a day that needs judgment, give `start_after` or \
          `start_at`: the task sleeps, its budget is carved now, and it starts then; a reminder \
          to the owner is a `wake_at` instead.\n\n\
          Every task needs an `arrangement`: quote the messages of this conversation that define \
@@ -448,6 +444,22 @@ mod tests {
 
 /// The child's first input: what it is, and then the brief.
 pub(crate) fn brief_text(task_session: &str, parent_session: &str, brief: &str) -> String {
+    brief_text_in(task_session, parent_session, brief, None)
+}
+
+/// `brief_text` with the task's place in its tree (theseus-tecj5): its depth,
+/// and below the first level the root goal and the chain. The header stays one
+/// paragraph (`task_lineage::brief_of` finds the brief after it).
+pub(crate) fn brief_text_in(
+    task_session: &str,
+    parent_session: &str,
+    brief: &str,
+    lineage: Option<&crate::task_lineage::Lineage>,
+) -> String {
+    let place = match lineage {
+        Some(l) => l.note(&short(task_session)),
+        None => "You may start tasks of your own, down to the depth limit.".to_string(),
+    };
     format!(
         "[Task {}: a background task started by session {}. Work on the brief below on your \
          own. Nobody reads this session while you work, and a question asked in words goes \
@@ -457,7 +469,7 @@ pub(crate) fn brief_text(task_session: &str, parent_session: &str, brief: &str) 
          {plan} \
          The task graph is the system's business: your own task's record closes when you \
          report, so do not report on it; open your report with the result. \
-         You cannot start tasks of your own.]\n\n{brief}",
+         {place}]\n\n{brief}",
         short(task_session),
         narrative::short(parent_session),
         plan = crate::task_graph::PLAN_GUIDE.replace("{id}", &short(task_session)),
@@ -547,8 +559,9 @@ pub fn create<'a>(
         .execution(tc.execution_id)
         .map_err(|e| format!("{e:#}"))?
         .ok_or("this session has no execution")?;
-    if parent.parent.is_some() || parent.kind == SessionKind::Task {
-        return Err(DEPTH_REFUSAL.into());
+    let lineage = crate::task_lineage::Lineage::of(tc.kernel, tc.store, &parent)?;
+    if let Some((twin, depth)) = lineage.repeat_of(brief) {
+        return Err(crate::task_lineage::cycle_refusal(twin, depth));
     }
     let own = crate::task_self::Own::read(tc, call_id, i.because.as_deref())?;
     let nodes = tc
@@ -606,7 +619,7 @@ pub fn create<'a>(
     let (target, home) = tc.outbox.report_target(tc.outbox.target(tc.session_id));
     let title = i.title.clone().unwrap_or_else(|| title_from(brief));
     let (_, task_session) = task_ids(open_id);
-    let text = brief_text(&task_session, tc.session_id, brief);
+    let text = brief_text_in(&task_session, tc.session_id, brief, Some(&lineage));
     // Its record (39a), written with its session: its objective and
     // acceptance are the arrangement's pieces when they say them.
     let graph = graph_record(tc, &i, &own, &pieces, &title, &task_session)?;
@@ -738,7 +751,9 @@ pub fn create<'a>(
         Ok(o) => o,
         Err(e) => {
             return Err(match e.downcast_ref::<KernelError>() {
-                Some(KernelError::TaskDepth { .. }) => DEPTH_REFUSAL.into(),
+                Some(KernelError::TaskDepth { depth, limit, .. }) => {
+                    crate::task_lineage::depth_refusal(*depth, *limit)
+                }
                 Some(KernelError::NothingToCarve { .. }) => {
                     format!("Not started: {e}. Finish the work here instead.")
                 }
@@ -1341,6 +1356,7 @@ pub fn info(
         attention: None,
         arrangement: None,
         check: task_of.and_then(|t| t.check.clone()),
+        depth: 0,
     }
 }
 

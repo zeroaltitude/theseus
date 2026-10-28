@@ -1654,6 +1654,14 @@ pub struct TaskInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub check: Option<TaskCheck>,
+    /// Task levels above it and including it: 1 for a conversation's task
+    /// (theseus-tecj5). Absent (0) from a daemon before it.
+    #[serde(default, skip_serializing_if = "is_zero_depth")]
+    pub depth: u32,
+}
+
+fn is_zero_depth(d: &u32) -> bool {
+    *d == 0
 }
 
 /// `task.cancel`: stop a task and its jobs, as `execution.cancel` does; the

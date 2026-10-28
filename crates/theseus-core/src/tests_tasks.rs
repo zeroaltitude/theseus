@@ -296,7 +296,7 @@ async fn a_task_runs_on_its_own_and_reports_once_to_the_place_and_the_parent() {
     assert_eq!(task.budget.limit_micros, 1_500_000);
     // The child's first call begins, and waits at the gate.
     let brief = r.entered.recv().await.unwrap();
-    assert!(brief.contains("You cannot start tasks"), "{brief}");
+    assert!(brief.contains("You may start tasks of your own"), "{brief}");
     assert!(brief.ends_with("CHILD: count to three"), "{brief}");
     let second = turn(&r.core, &parent, "SECOND what is 2 + 2?").await;
     assert_eq!(second.output, "Four.");
@@ -489,8 +489,8 @@ async fn a_request_for_more_than_the_parent_has_left_is_capped() {
     );
 }
 
-/// Depth one: a task's `task.create` is refused, it says why, and no
-/// grandchild is opened; the task finishes and reports as usual.
+/// With the depth limit at one, a task's `task.create` is refused, it says
+/// why, and no grandchild is opened; the task finishes and reports as usual.
 #[tokio::test]
 async fn a_task_cannot_start_tasks() {
     let r = rig(
@@ -507,7 +507,7 @@ async fn a_task_cannot_start_tasks() {
             }
             start("CHILD: nest a task", None)
         },
-        |_| {},
+        |c| c.kernel.task_depth = 1,
     );
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
@@ -533,7 +533,11 @@ async fn a_task_cannot_start_tasks() {
         })
         .unwrap();
     assert_eq!(refused.0, ResultStatus::Error);
-    assert!(refused.1.contains("depth one"), "{}", refused.1);
+    assert_eq!(
+        refused.1,
+        crate::task_lineage::depth_refusal(1, 1),
+        "the words name the depth reached"
+    );
     assert!(
         r.core.kernel.tasks(Some(&task.id)).unwrap().is_empty(),
         "no grandchild"

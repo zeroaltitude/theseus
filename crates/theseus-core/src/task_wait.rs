@@ -262,8 +262,8 @@ pub(crate) fn run(core: Arc<Core>, tc: &TurnCtx<'_>, input: &Value) -> AsyncMedi
         Ok(a) => a,
         Err(e) => return fail(e),
     };
-    if tc.task.is_some() {
-        return fail(task::DEPTH_REFUSAL);
+    if let Err(refusal) = crate::task_lineage::check_depth(tc.kernel, tc.execution_id) {
+        return fail(refusal);
     }
     let ids = match chosen(tc, a.tasks.as_deref()) {
         Ok(ids) => ids,
