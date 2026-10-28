@@ -52,6 +52,7 @@ fn confidential_session(r: &Rig) -> String {
         confidence: 0.8,
         band: Band::Confirm,
         at_ms: 1,
+        judgment: String::new(),
     });
     rec.data = Some(Box::new(flags));
     r.core.store.put_session(&a, &rec).unwrap();

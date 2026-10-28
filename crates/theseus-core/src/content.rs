@@ -198,6 +198,12 @@ pub struct Label {
     pub confidence: f64,
     pub band: Band,
     pub at_ms: u64,
+    /// The judgment (`jdg_…`) that raised it: the row `judge.label` names when
+    /// the operator calls it wrong, by removing it or by the chip's "wrong"
+    /// (store format 53, theseus-gyjyo.3). Empty for a label written before
+    /// then, which teaches nothing.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub judgment: String,
 }
 
 /// A label the operator removed, kept as history: a label that was raised and
@@ -674,6 +680,7 @@ mod tests {
             confidence: 0.8,
             band: flag.bar(),
             at_ms: 1,
+            judgment: String::new(),
         }
     }
 

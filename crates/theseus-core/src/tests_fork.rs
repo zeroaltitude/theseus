@@ -1039,6 +1039,7 @@ async fn fork_copies_content_labels_through_the_fork_point() {
         confidence: 0.8,
         band: Band::Confirm,
         at_ms: 9,
+        judgment: String::new(),
     };
     let set = |judged_through: &str| {
         let mut rec: SessionRecord = r.core.store.get_session(&s).unwrap().unwrap();

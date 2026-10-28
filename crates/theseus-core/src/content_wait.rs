@@ -222,6 +222,7 @@ pub(crate) mod judging {
                             confidence: 0.9,
                             band: flag.bar(),
                             at_ms: 1,
+                            judgment: String::new(),
                         });
                     }
                 }

@@ -44,6 +44,7 @@ pub(crate) fn label_view(l: &Label) -> LabelView {
         }
         .into(),
         at_ms: l.at_ms,
+        judgment: Some(l.judgment.clone()).filter(|j| !j.is_empty()),
     }
 }
 
@@ -265,6 +266,7 @@ mod tests {
             confidence: 0.9,
             band: Band::Act,
             at_ms: 1,
+            judgment: String::new(),
         }
     }
 

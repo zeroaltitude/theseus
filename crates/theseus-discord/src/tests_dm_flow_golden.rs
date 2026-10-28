@@ -309,6 +309,7 @@ async fn the_dm_task_flow_is_as_the_owner_approved_it() {
         confidence: 0.93,
         band: theseus_judge::band::Band::Act,
         at_ms: 1,
+        judgment: String::new(),
     };
     assert!(r.core.tell_label(&session, &label).unwrap());
     until(&r, "the label's message", || !labelled(&r).is_empty()).await;

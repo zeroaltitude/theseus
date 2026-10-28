@@ -814,6 +814,7 @@ async fn an_ineligible_coding_turn_runs_as_before() {
             confidence: 0.9,
             band: theseus_judge::band::Band::Confirm,
             at_ms: 1,
+            judgment: String::new(),
         });
         rec.data = Some(Box::new(flags));
         d.r.core.store.put_session(&labelled, &rec).unwrap();

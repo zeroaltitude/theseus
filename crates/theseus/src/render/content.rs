@@ -98,6 +98,7 @@ mod tests {
             confidence: 0.93,
             band: "act".into(),
             at_ms: 1_760_000_000_000,
+            judgment: None,
         }
     }
 

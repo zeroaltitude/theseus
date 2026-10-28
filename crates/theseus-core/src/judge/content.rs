@@ -1166,6 +1166,7 @@ fn landings_of(
                             confidence: *confidence,
                             band: a.band.band,
                             at_ms: now,
+                            judgment: j.id.clone(),
                         });
                     }
                 }

@@ -28,6 +28,7 @@ fn frozen() -> ContentFlags {
         confidence: 0.95,
         band: Band::Act,
         at_ms: 1,
+        judgment: String::new(),
     });
     f
 }
@@ -145,6 +146,7 @@ async fn without_injection_nothing_is_refused() {
         confidence: 0.8,
         band: Band::Confirm,
         at_ms: 1,
+        judgment: String::new(),
     });
     for flags in [None, Some(ContentFlags::default()), Some(other)] {
         for (tool, input) in stopped(&r) {
