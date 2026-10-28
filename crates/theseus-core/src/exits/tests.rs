@@ -379,7 +379,8 @@ fn a_value_in_wrapped_base64_leaves_by_name() {
         .collect();
     let wrapped = lines.join("\n");
     let x = encoded_exits(true);
-    let (t, found) = x.text(&format!("{wrapped}\nend"));
+    let said = format!("{wrapped}\nend");
+    let (t, found) = x.text(&said);
     assert!(t.contains("[redacted:demo_secret]"), "{t}");
     assert!(
         t.starts_with(lines[0]),
