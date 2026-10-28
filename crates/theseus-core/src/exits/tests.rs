@@ -80,7 +80,7 @@ fn a_shape_that_is_not_a_vault_value_goes_through_untouched() {
         LOOKALIKE,
         "AKIAIOSFODNN7EXAMPLE",
         "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----",
-        "postgres://app:hunter2pass@db.example.com/prod",
+        "postgres://app:hunter2pass%40db.example.com/prod",
         "password = hunter2",
         "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789",
     ];
