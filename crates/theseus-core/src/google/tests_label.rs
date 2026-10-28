@@ -21,6 +21,24 @@ use crate::session::SessionRecord;
 use crate::tests_route::{rig_parts, Rig as RouteRig};
 use crate::turn::TurnRequest;
 
+/// `[google]` bound to an account (nothing is ever called), the default
+/// provider as it is: for the rigs that only need the config to bind one.
+pub(crate) fn google_on(c: &mut crate::Config) {
+    c.google = crate::config::GoogleConfig {
+        account: super::tests::ACCOUNT.into(),
+        credentials: crate::config::GoogleCredentialNames::default(),
+        ..Default::default()
+    };
+    c.secrets.insert(
+        "google_client".into(),
+        "op://vault/google client/notesPlain".into(),
+    );
+    c.secrets.insert(
+        "google_refresh_token".into(),
+        "file:/tmp/unused-google-refresh-token".into(),
+    );
+}
+
 fn board() -> Arc<SecretBoard> {
     let b = SecretBoard::new(
         ["jev_api_key", "google_client", "google_refresh_token"].map(String::from),
@@ -174,6 +192,18 @@ fn result_of(core: &crate::Core, sid: &str, tool: &str) -> Node {
         .unwrap_or_else(|| panic!("no {tool} result in {sid}"))
 }
 
+/// Send `req` to the restricted provider as a call made for `sid`.
+async fn send(
+    core: &crate::Core,
+    sid: &str,
+    req: &crate::provider::ProviderRequest,
+) -> anyhow::Result<()> {
+    let zai = &core.runner.providers["zai"];
+    let mut sink = |_: crate::provider::Delta<'_>| {};
+    let made = crate::data_gate::for_session(sid, || zai.stream_message(req, &mut sink));
+    made.await.map(drop)
+}
+
 fn read_files() -> Vec<Scripted> {
     vec![
         call("c1", json!({"method": "drive.files.list"})),
@@ -245,7 +275,6 @@ async fn a_restricted_model_is_refused_by_the_label_and_sent_after_remove() {
     assert!(format!("{ended:?}").contains("data_gate"), "{ended:?}");
     assert!(r.zai.requests().is_empty(), "nothing went to the model");
     // The chokepoint's own word names the label.
-    let zai = &r.core.runner.providers["zai"];
     let req = crate::provider::ProviderRequest {
         model: "glm-5.3".into(),
         max_tokens: 16,
@@ -259,15 +288,11 @@ async fn a_restricted_model_is_refused_by_the_label_and_sent_after_remove() {
         extra: Default::default(),
         image_tokens: 0,
     };
-    let send = |req: &crate::provider::ProviderRequest| {
-        let mut sink = |_: crate::provider::Delta<'_>| {};
-        crate::data_gate::for_session(&sid, || zai.stream_message(req, &mut sink))
-    };
-    let refused = send(&req).await.unwrap_err().to_string();
+    let refused = send(&r.core, &sid, &req).await.unwrap_err().to_string();
     assert!(refused.contains("`confidential` label"), "{refused}");
     // The operator removes it, and every item is judged.
     r.core.unlabel_session(&sid, "confidential", cli()).unwrap();
-    let last = r.core.store.transcript(&sid).unwrap().pop().unwrap().id;
+    let last = r.core.store.transcript(&sid).unwrap().pop().unwrap().1.id;
     r.core
         .store
         .update_session(&sid, |rec| {
@@ -277,7 +302,9 @@ async fn a_restricted_model_is_refused_by_the_label_and_sent_after_remove() {
             Ok(vec![])
         })
         .unwrap();
-    send(&req).await.expect("after Remove it is sent");
+    send(&r.core, &sid, &req)
+        .await
+        .expect("after Remove it is sent");
     assert_eq!(r.zai.requests().len(), 1);
 }
 
