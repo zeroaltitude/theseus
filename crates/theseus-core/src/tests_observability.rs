@@ -6,7 +6,6 @@
 use serde_json::{json, Value};
 use theseus_judge::fake::FakeJev;
 
-use crate::catalog::ModelOrigin;
 use crate::content::{Flag, ItemKind};
 use crate::content_wait::judging::{Judging, Silent};
 use crate::provider::Scripted;
@@ -17,7 +16,7 @@ use crate::tests_dm_rig::{
     OPEN_A, PRIVATE,
 };
 use crate::tests_judge::kinds;
-use crate::tests_route::{call, decided, mode, rig, rig_parts, turn};
+use crate::tests_route::{call, decided, mode, rig, turn};
 
 fn calls(core: &crate::Core) -> Vec<Value> {
     kinds(&core.store, "provider.call")
