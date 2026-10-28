@@ -78,7 +78,7 @@ async fn cn_turn(core: &std::sync::Arc<crate::rpc::Core>, input: &str) -> Ran {
     Ran {
         took: t0.elapsed(),
         profile: one.profile.clone(),
-        session: one.session_id.clone(),
+        session: one.session_id,
     }
 }
 
@@ -198,7 +198,6 @@ fn content_call_timings(core: &std::sync::Arc<crate::rpc::Core>) -> Vec<(u64, u6
         .collect()
 }
 
-
 /// One arm of the A/B: six cn sessions at once against `permits` in-flight
 /// permits, with Jev answering in 400 ms. Returns how each turn went, and
 /// every `content.v3` call's timing once the sink has had a moment between
@@ -256,33 +255,43 @@ fn say(permits: usize, ran: &[Ran], timings: &[(u64, u64, u64)]) -> String {
     )
 }
 
-/// **The mechanism, measured as an A/B on the one knob** (theseus-oc9n4).
+/// **The mechanism, and the fix, measured as an A/B on the one knob**
+/// (theseus-oc9n4).
 ///
 /// The row's hypothesis was that the *landing* defers past the floor's wait.
 /// It does not: `judge::content`'s `land` writes at once, and the
 /// between-turns park it used to do was taken out by theseus-gyjyo.7. What is
 /// left, and what this holds, is the **queue in front of the call**: every
 /// judge call takes one of the client's `[judge] max_in_flight` permits, a
-/// content call takes one like any other, and the turns' own calls are in that
-/// queue too. A content ask queued at the top of a turn is then served only
-/// once the turns around it stop asking — which is why the live check saw the
-/// verdict land a fixed half-second after the turn **ended**, on turns of
-/// quite different lengths, rather than a fixed time after it was asked.
+/// content call used to take an ordinary one like any other, and the turns'
+/// own calls are in that queue too. A content ask queued at the top of a turn
+/// was then served only once the turns around it stopped asking — which is
+/// the shape the live check saw, the verdict landing a fixed half-second
+/// after the turn **ended**, on turns of quite different lengths, rather than
+/// a fixed time after it was asked.
 ///
 /// Two arms, identical but for the permit count: six cn sessions at once, Jev
-/// answering in 400 ms, a floor wait of 1.5 s. With permits to spare every
-/// turn's own message is judged inside the wait. With two permits for six
-/// sessions every turn spends the whole wait instead — **and that is the
-/// defect**: nothing was slow, nothing failed, and the one call the floor was
-/// waiting for simply never got to be made inside the window where its answer
-/// would have counted.
+/// answering in 400 ms, a floor wait of 1.5 s. The roomy arm has permits to
+/// spare and is the control; the tight arm saturates the ordinary pool.
 ///
-/// A red prints both arms with each content call's `queued_ms` beside its
-/// `http_ms`: a large `queued_ms` next to a small `http_ms` is the permit
-/// queue and nothing else.
+/// **What is held is the one thing the fix promises**: with the ordinary pool
+/// saturated, a content call still gets a permit *at once*, because
+/// `Urgency::Awaited` keeps a share back for the calls a turn is blocked on.
+/// Measured on `855aa7e6` before the fix, this arm's content calls queued
+/// **1556 ms and 1558 ms** against a 400 ms call, and only two of six were
+/// made at all; with the reserve they queue `[0, 401, 801, 1202]` — behind
+/// each other on the reserved permit and nothing else.
+///
+/// Six content calls of 400 ms through one reserved permit is 2.4 s of work
+/// against a 1.5 s wait, so some of these turns lose their wait even with the
+/// fix: that is capacity, which no ordering can buy back, and is why the
+/// turns' own times are printed but not asserted. What the ordering buys is
+/// the head of the queue, and that is what the assertion names.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn a_cn_turns_own_message_does_not_lose_the_floors_wait_to_the_permit_queue() {
     const WAIT: Duration = Duration::from_millis(1_500);
+    /// One fake Jev call, the unit a queue is counted in here.
+    const CALL: u64 = 400;
     let (roomy, roomy_t) = arm(64, WAIT).await;
     let (tight, tight_t) = arm(2, WAIT).await;
     let both = format!(
@@ -290,18 +299,41 @@ async fn a_cn_turns_own_message_does_not_lose_the_floors_wait_to_the_permit_queu
         say(64, &roomy, &roomy_t),
         say(2, &tight, &tight_t)
     );
-    // The control: with permits to spare, no turn spends its wait. A red here
-    // is the rig, not the defect.
+    // The control: with permits to spare, no turn spends its wait and no
+    // content call queues at all. A red here is the rig, not the defect.
     let roomy_lost = roomy.iter().filter(|x| x.took >= WAIT).count();
     assert_eq!(
         roomy_lost, 0,
         "the roomy arm lost {roomy_lost} turns: the rig, not the queue.\n{both}"
     );
-    let tight_lost = tight.iter().filter(|x| x.took >= WAIT).count();
-    assert_eq!(
-        tight_lost, 0,
-        "{tight_lost} cn turns spent their whole wait_ms with the permits tight, \
-         and none did with them roomy: the floor's wait was lost to the in-flight \
-         permit queue, not to a slow or failing Jev.\n{both}"
+    assert!(
+        roomy_t.iter().all(|t| t.0 < CALL),
+        "the roomy arm queued a content call: the rig, not the queue.\n{both}"
+    );
+    // The defect and its fix. With the ordinary pool saturated, the first
+    // content call must still be admitted at once off the reserved share;
+    // before the fix the *least* any of them queued was most of four calls.
+    assert!(
+        !tight_t.is_empty(),
+        "the tight arm made no content call at all.\n{both}"
+    );
+    let first = tight_t.iter().map(|t| t.0).min().unwrap_or(u64::MAX);
+    assert!(
+        first < CALL,
+        "with the ordinary permits saturated the readiest content call still \
+         queued {first} ms, more than one {CALL} ms call: the floor's wait is \
+         being spent on the in-flight permit queue and not on Jev.\n{both}"
+    );
+    // And each later one waits behind the content calls ahead of it, not
+    // behind the whole of the judge's traffic: six of them, one permit.
+    let worst = tight_t.iter().map(|t| t.0).max().unwrap_or(0);
+    // Those ahead of it, and the one ordinary call that may already hold the
+    // reserved permit's turn on the wire when it asks.
+    let bound = CALL * (tight_t.len() as u64 + 1);
+    assert!(
+        worst <= bound,
+        "a content call queued {worst} ms, past the {bound} ms the \
+         {} content calls ahead of it can account for.\n{both}",
+        tight_t.len()
     );
 }

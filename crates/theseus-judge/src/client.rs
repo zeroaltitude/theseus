@@ -841,6 +841,18 @@ pub enum Urgency {
     Shadow,
     /// Waits for a permit up to the deadline, which also bounds the call.
     Live { deadline_ms: u64 },
+    /// [`Urgency::Live`], and **a turn is blocked on the answer**: it may
+    /// take one of the permits kept back for such calls ([`RESERVED_SHARE`])
+    /// as well as an ordinary one, whichever frees first (theseus-oc9n4).
+    ///
+    /// The cn floor is the caller this exists for. It waits at most
+    /// `[content_based_security] wait_ms` for the content asks out for its
+    /// session and then goes on the labels it has, so a content call that
+    /// has not been *made* by the end of that window is a window spent for
+    /// nothing and a turn moved off its model. Without a share kept back,
+    /// that call queues behind every ordinary judge call, including ones no
+    /// one is waiting on.
+    Awaited { deadline_ms: u64 },
 }
 
 impl Urgency {
@@ -848,6 +860,37 @@ impl Urgency {
         Urgency::Live {
             deadline_ms: deadline.as_millis() as u64,
         }
+    }
+
+    /// [`Urgency::Awaited`]: live, and a turn is blocked on the answer.
+    pub fn awaited(deadline: Duration) -> Self {
+        Urgency::Awaited {
+            deadline_ms: deadline.as_millis() as u64,
+        }
+    }
+
+    /// How long this call may wait for a permit, and none for a shadow one.
+    fn deadline(self) -> Option<Duration> {
+        match self {
+            Urgency::Shadow => None,
+            Urgency::Live { deadline_ms } | Urgency::Awaited { deadline_ms } => {
+                Some(Duration::from_millis(deadline_ms))
+            }
+        }
+    }
+}
+
+/// One in `RESERVED_SHARE` of the in-flight permits is kept for the calls a
+/// turn is blocked on ([`Urgency::Awaited`]), rounded down but never to
+/// none, and never all of them: a client of one permit keeps none back and
+/// behaves as it always did.
+const RESERVED_SHARE: usize = 4;
+
+/// The permits kept back for awaited calls, out of `max_in_flight`.
+fn reserved_of(max_in_flight: usize) -> usize {
+    match max_in_flight {
+        0 | 1 => 0,
+        n => (n / RESERVED_SHARE).max(1).min(n - 1),
     }
 }
 
@@ -904,7 +947,14 @@ pub struct JevClient {
     url: String,
     config: ClientConfig,
     key: Arc<dyn KeySource>,
+    /// The permits any call may take: `max_in_flight` less the reserved
+    /// share.
     permits: Arc<Semaphore>,
+    /// The permits only an [`Urgency::Awaited`] call may take
+    /// ([`reserved_of`]). Empty on a client of one permit. The two together
+    /// are `max_in_flight`, so the ceiling is what it always was: this
+    /// divides the permits, it does not add any.
+    reserved: Arc<Semaphore>,
     shed: ShedMeter,
     reach: Reach,
 }
@@ -962,7 +1012,10 @@ impl JevClient {
         Ok(Self {
             http,
             url: format!("{}{PATH}", config.api_base.trim_end_matches('/')),
-            permits: Arc::new(Semaphore::new(config.max_in_flight)),
+            permits: Arc::new(Semaphore::new(
+                config.max_in_flight - reserved_of(config.max_in_flight),
+            )),
+            reserved: Arc::new(Semaphore::new(reserved_of(config.max_in_flight))),
             config,
             key,
             shed: ShedMeter::default(),
@@ -1033,11 +1086,13 @@ impl JevClient {
         Some((t0.elapsed(), self.warm()))
     }
 
-    /// Calls in flight now (health).
+    /// Calls in flight now (health): both pools', since the two together are
+    /// `max_in_flight`.
     pub fn in_flight(&self) -> usize {
         self.config
             .max_in_flight
             .saturating_sub(self.permits.available_permits())
+            .saturating_sub(self.reserved.available_permits())
     }
 
     /// Calls shed since the client was built.
@@ -1075,6 +1130,34 @@ impl JevClient {
             Urgency::Live { deadline_ms } => {
                 let d = Duration::from_millis(deadline_ms);
                 match tokio::time::timeout(d, self.permits.clone().acquire_owned()).await {
+                    Ok(Ok(p)) => Ok(p),
+                    _ => Err(CallError::Jev(JevError::Timeout {
+                        phase: TimeoutPhase::Queue,
+                        elapsed_ms: deadline_ms,
+                    })),
+                }
+            }
+            // A turn is blocked on this answer: it waits on the reserved
+            // pool and the ordinary one together and takes whichever frees
+            // first, so the longest it can wait for a permit is one
+            // reserved call's length and not the whole ordinary queue's.
+            // Dropping the loser is safe: tokio hands a permit granted to a
+            // cancelled waiter on to the next.
+            Urgency::Awaited { deadline_ms } => {
+                let d = Duration::from_millis(deadline_ms);
+                let (ordinary, reserved) = (self.permits.clone(), self.reserved.clone());
+                let got = tokio::time::timeout(d, async move {
+                    tokio::select! {
+                        // Ordinary first, so the scarce reserved permits are
+                        // spent only when the ordinary pool is full, which
+                        // is the one case they exist for.
+                        biased;
+                        p = ordinary.acquire_owned() => p,
+                        p = reserved.acquire_owned() => p,
+                    }
+                })
+                .await;
+                match got {
                     Ok(Ok(p)) => Ok(p),
                     _ => Err(CallError::Jev(JevError::Timeout {
                         phase: TimeoutPhase::Queue,
@@ -1121,12 +1204,9 @@ impl JevClient {
             called.timing.total_ms = ms(started.elapsed());
             return called;
         };
-        let budget = match urgency {
-            Urgency::Shadow => self.config.total,
-            Urgency::Live { deadline_ms } => self
-                .config
-                .total
-                .min(Duration::from_millis(deadline_ms).saturating_sub(queued)),
+        let budget = match urgency.deadline() {
+            None => self.config.total,
+            Some(deadline) => self.config.total.min(deadline.saturating_sub(queued)),
         };
         let sent = Instant::now();
         let outcome = tokio::time::timeout(budget, self.post(req, &key)).await;
@@ -1275,5 +1355,60 @@ fn classify(e: reqwest::Error) -> JevError {
     }
     JevError::Network {
         message: parts.join(": ").chars().take(300).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests_permits {
+    use super::*;
+
+    /// **The reserved share divides the permits, it never adds any**
+    /// (theseus-oc9n4): a quarter of them, rounded down but never to none,
+    /// and never all of them, so an ordinary call always has one to take
+    /// too. A client of one permit keeps none back and behaves as it did.
+    #[test]
+    fn the_reserved_share_divides_the_permits() {
+        for n in [1usize, 2, 3, 4, 5, 8, 16, 64] {
+            let kept = reserved_of(n);
+            assert!(kept < n, "{n}: the reserve took every permit");
+            assert!(
+                n == 1 || kept >= 1,
+                "{n}: nothing was kept for the calls a turn waits on"
+            );
+            assert!(kept <= n / RESERVED_SHARE.min(n).max(1) + 1, "{n}: {kept}");
+        }
+        assert_eq!(reserved_of(0), 0);
+        assert_eq!(reserved_of(1), 0, "one permit: nothing to divide");
+        assert_eq!(reserved_of(2), 1);
+        assert_eq!(reserved_of(8), 2, "the default: two of eight");
+        assert_eq!(reserved_of(64), 16);
+    }
+
+    /// A client's two pools add up to its `max_in_flight`, so the ceiling on
+    /// what Theseus asks of Jev at once is exactly what it was.
+    #[test]
+    fn the_two_pools_add_up_to_max_in_flight() {
+        struct NoKey;
+        impl KeySource for NoKey {
+            fn key(&self) -> Option<Zeroizing<String>> {
+                None
+            }
+        }
+        for n in [1usize, 2, 8, 64] {
+            let c = JevClient::new(
+                ClientConfig {
+                    max_in_flight: n,
+                    ..ClientConfig::default()
+                },
+                Arc::new(NoKey),
+            )
+            .unwrap();
+            assert_eq!(
+                c.permits.available_permits() + c.reserved.available_permits(),
+                n,
+                "max_in_flight {n}"
+            );
+            assert_eq!(c.in_flight(), 0, "max_in_flight {n}: none in flight yet");
+        }
     }
 }
