@@ -1357,6 +1357,35 @@ mod tests {
         assert_eq!(merged.unjudged, ["n9"]);
     }
 
+    /// A task starts with the parent's labels that keep a model of restricted
+    /// origin off it, and not with `injection` (theseus-gyjyo.5): a task starts
+    /// from a brief and has not read the transcript that tried to steer its
+    /// parent, so freezing it would leave the operator a task that refuses
+    /// every call. Its items are its own, so no judgment or removal comes.
+    #[test]
+    fn a_task_inherits_the_labels_that_keep_cn_off_and_not_injection() {
+        let mut parent = ContentFlags::default();
+        parent.raise(label(Flag::Secret));
+        parent.raise(label(Flag::Injection));
+        parent.judged_through = Some("n4".into());
+        parent.raise(label(Flag::Personal));
+        parent.remove(Flag::Personal, "x", "cli", 1);
+        assert_eq!(parent.removed.len(), 1);
+        let child = parent.inherited().expect("a label that disqualifies cn");
+        assert_eq!(child.labels.len(), 1, "{:?}", child.labels);
+        assert_eq!(child.labels[0].flag, Flag::Secret);
+        assert!(
+            !child.frozen(),
+            "a task of a frozen session starts unfrozen"
+        );
+        assert!(child.removed.is_empty() && child.judged_through.is_none());
+        // Frozen alone, a parent gives its task nothing.
+        let mut only = ContentFlags::default();
+        only.raise(label(Flag::Injection));
+        assert!(only.inherited().is_none());
+        assert!(ContentFlags::default().inherited().is_none());
+    }
+
     /// Its line for a person, with and without labels.
     #[test]
     fn the_line_says_the_labels_and_how_far_it_is_judged() {

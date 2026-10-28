@@ -302,18 +302,8 @@ async fn a_restricted_model_is_refused_by_the_label_and_sent_after_remove() {
     };
     let refused = send(&r.core, &sid, &req).await.unwrap_err().to_string();
     assert!(refused.contains("`confidential` label"), "{refused}");
-    // The operator removes it, and every item is judged.
+    // The operator removes it.
     r.core.unlabel_session(&sid, "confidential", cli()).unwrap();
-    let last = r.core.store.transcript(&sid).unwrap().pop().unwrap().1.id;
-    r.core
-        .store
-        .update_session(&sid, |rec| {
-            let mut f = rec.data.take().map(|b| *b).unwrap_or_default();
-            f.judged_through = Some(last.clone());
-            rec.data = Some(Box::new(f));
-            Ok(vec![])
-        })
-        .unwrap();
     send(&r.core, &sid, &req)
         .await
         .expect("after Remove it is sent");
@@ -505,4 +495,93 @@ async fn with_session_flags_off_a_google_read_raises_nothing() {
         .get_meta::<String>(&format!("google.private.{sid}"))
         .unwrap()
         .is_none());
+}
+
+/// Test 7. The label's entry time is the result node's, not the moment it
+/// lands: the time a Remove is compared against (`raise_after`). The label
+/// itself is stamped when it was raised, so the two differ, and a write site
+/// that passed the landing time for the entry time would let a Remove made
+/// between the result's write and its label's landing be overridden by it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_labels_entry_time_is_the_result_nodes_and_not_when_it_lands() {
+    let fake = Fake::start().await;
+    files(&fake);
+    let (r, _) = rig(None, &fake, read_files());
+    let sid = new_session(&r.core);
+    run_on(&r.core, &sid, "list my files", None).await.unwrap();
+    let node = result_of(&r.core, &sid, "google.call");
+    let later = node.created_at_ms + 60_000;
+    let (label, entered_ms) = super::private::label(&node, later).expect("a Google result");
+    assert_eq!(entered_ms, node.created_at_ms, "the node's entry time");
+    assert_eq!(
+        label.at_ms, later,
+        "the label's own stamp is when it landed"
+    );
+    // A result that is no Google result raises nothing.
+    let plain = Node::user(&sid, None, "test", "hello");
+    assert!(super::private::label(&plain, later).is_none());
+}
+
+/// Test 8. A Remove sticks against the pack's verdict on the same Google
+/// result. A Google result is both a deterministic label source and a content
+/// item the pack judges, and a pack that lands after the operator's Remove
+/// must not raise again from the item that entered before it (R3's C1, here on
+/// a Google node, where R3's tests use a name's). The pack is held until the
+/// Remove is made; its verdict is `confidential: yes`; it lands, and the flag
+/// stays off, with the one `content.labelled` row the write site made.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_remove_sticks_against_the_packs_verdict_on_the_same_google_result() {
+    use theseus_judge::fake::Scripted as Jev;
+    let jev = FakeJev::start().unwrap();
+    for q in ["injection", "secret", "confidential", "personal"] {
+        jev.script(
+            q,
+            Jev::Choice {
+                option: "no".into(),
+                confidence: 0.95,
+            },
+        );
+    }
+    crate::tests_route::mode(&jev, "trivial", 0.95);
+    // Only the call that reads the Google result's own text is held, and it
+    // finds the result confidential.
+    jev.script_when(
+        "Quarterly plan",
+        None,
+        "confidential",
+        Jev::Choice {
+            option: "yes".into(),
+            confidence: 0.95,
+        },
+    );
+    jev.hold_when("Quarterly plan");
+    let fake = Fake::start().await;
+    files(&fake);
+    let (r, _) = rig_tweaked(Some(&jev), &fake, read_files(), false, |c| {
+        // content.v2 live (the rigs turn it off), the rest as it is.
+        c.judge.packs.remove(crate::judge::content::PACK);
+        c.judge.total_secs = 10;
+    });
+    let sid = new_session(&r.core);
+    run_on(&r.core, &sid, "list my files", None).await.unwrap();
+    // The write site raised it; the pack's verdict is still held.
+    assert_eq!(flags(&r.core, &sid).labels.len(), 1);
+    assert!(super::tests::ledgered(&r.core, "content.judged").is_empty());
+    r.core.unlabel_session(&sid, "confidential", cli()).unwrap();
+    jev.release();
+    let start = Instant::now();
+    while super::tests::ledgered(&r.core, "content.judged").is_empty() {
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(20),
+            "the pack never landed"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let f = flags(&r.core, &sid);
+    assert!(f.labels.is_empty(), "the removed flag came back: {f:?}");
+    assert_eq!(f.removed.len(), 1);
+    let told = super::tests::ledgered(&r.core, "content.labelled");
+    assert_eq!(told.len(), 1, "only the write site's row: {told:?}");
+    assert_eq!(told[0]["source"], "google.call");
 }

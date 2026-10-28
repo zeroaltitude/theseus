@@ -311,6 +311,36 @@ async fn a_retry_opens_a_linked_task_that_runs_and_a_retry_of_a_retry_links_back
     let _ = parent;
 }
 
+/// A retry carries the labels of the task it retries (theseus-gyjyo.5): the
+/// task started under a parent that read a calendar, a Google label on it, and
+/// its retry is no way around the label. The retry's session is made from the
+/// old task's record, which used to walk up to its parent to find the mark.
+#[tokio::test]
+async fn a_retry_carries_the_labels_of_the_task_it_retries() {
+    let r = rig_with_a_failing_task();
+    let parent = parent_session(&r.core);
+    crate::test_support::label_session(&r.core, &parent, crate::content::Flag::Personal);
+    turn(&r.core, &parent, ASK).await;
+    let task = only_task(&r.core, &parent);
+    until("the task fails", || {
+        crate::tests_tasks::exec(&r.core, &task.id).state == ExecState::Failed
+    })
+    .await;
+    let failed = crate::tests_tasks::exec(&r.core, &task.id);
+    let labels = |sid: &str| {
+        let rec: crate::session::SessionRecord = r.core.store.get_session(sid).unwrap().unwrap();
+        rec.data.map(|d| d.labels).unwrap_or_default()
+    };
+    let old = labels(&failed.session_id);
+    assert_eq!(old.len(), 1, "the task carries its parent's label: {old:?}");
+    let retried: TaskRetryResult = r.core.retry_failed(&failed.id, None, &cli()).unwrap();
+    assert_eq!(
+        labels(&retried.task_id),
+        old,
+        "the retry carries the failed task's labels"
+    );
+}
+
 /// A retry carves no more than the failed task had, though the parent has
 /// far more left, and no more than the parent has when it has less.
 #[tokio::test]

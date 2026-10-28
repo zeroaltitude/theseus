@@ -457,6 +457,55 @@ mod tests {
         assert_eq!(sent.requests().len(), 1);
     }
 
+    /// A provider bound to a session is made for that session wherever it is
+    /// called (theseus-gyjyo.5): the background steps that hold a provider and
+    /// call it later, or on another task, read the session they were bound to
+    /// and not the caller's. A bound call of a labelled session to a restricted
+    /// model is refused, a clean one is sent, and the binding wins over an
+    /// ambient session in both directions, so no call is held by the wrong
+    /// session's labels (a leak) or lets the wrong one through.
+    #[tokio::test]
+    async fn a_bound_provider_is_made_for_its_session_wherever_it_is_called() {
+        let (cn, sent, plain, _dir) = gated("https://api.z.ai/api/anthropic");
+        let labelled = SessionRecord::new(SessionKind::Conversation, None);
+        cn.store
+            .as_ref()
+            .unwrap()
+            .put_session(&labelled.session_id, &labelled)
+            .unwrap();
+        let labelled = labelled.session_id;
+        label_it(&cn, &labelled);
+        let cn: Arc<dyn Provider> = Arc::new(cn);
+        let req = request("glm-5.3", "Draft a budget memo.");
+        let mut sink = |_: crate::provider::Delta<'_>| {};
+        let for_plain = bound(cn.clone(), &plain);
+        let for_labelled = bound(cn.clone(), &labelled);
+        // No ambient session: each is held by its own.
+        for_plain.stream_message(&req, &mut sink).await.unwrap();
+        assert_eq!(sent.requests().len(), 1, "a clean session's call is sent");
+        let said = for_labelled
+            .stream_message(&req, &mut sink)
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{said:#}").contains("`confidential` label"),
+            "{said:#}"
+        );
+        assert_eq!(sent.requests().len(), 1, "a labelled session's is not");
+        // An ambient session does not change whose call it is.
+        for_session(&labelled, || for_plain.stream_message(&req, &mut sink))
+            .await
+            .unwrap();
+        assert_eq!(sent.requests().len(), 2, "bound to the clean session");
+        for_session(&plain, || for_labelled.stream_message(&req, &mut sink))
+            .await
+            .unwrap_err();
+        assert_eq!(sent.requests().len(), 2, "bound to the labelled one");
+        // Unbound, the same provider is still refused for want of a session.
+        cn.stream_message(&req, &mut sink).await.unwrap_err();
+        assert_eq!(sent.requests().len(), 2);
+    }
+
     /// A call for no session, to a restricted model, is refused with nothing
     /// sent, whatever the request holds; a Claude model is sent it (the
     /// session is read only for a restricted one).
