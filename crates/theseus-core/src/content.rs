@@ -375,6 +375,24 @@ impl ContentFlags {
         true
     }
 
+    /// [`ContentFlags::raise`], unless the operator removed this flag at or
+    /// after `entered_ms`, when the item that would raise it entered the
+    /// session: an item that entered before a removal can never raise that
+    /// flag again, because the removal spoke for everything the session held
+    /// when it was made. It is read from `removed`, which is on the record and
+    /// is copied by a fork, so a restart, a fork and a sweep's re-offer all
+    /// find it. Only an item that entered after the removal raises it anew.
+    pub fn raise_after(&mut self, l: Label, entered_ms: u64) -> bool {
+        if self
+            .removed
+            .iter()
+            .any(|r| r.flag == l.flag && r.at_ms >= entered_ms)
+        {
+            return false;
+        }
+        self.raise(l)
+    }
+
     /// Remove `f`, keeping it as history. The label removed, when there was
     /// one; `None` means there was nothing to remove and nothing is written.
     pub fn remove(&mut self, f: Flag, by: &str, via: &str, at_ms: u64) -> Option<Label> {
@@ -693,9 +711,10 @@ pub fn pieces(text: &str, cap: usize) -> Vec<(u32, u32, String)> {
 /// a dollar.
 ///
 /// **What truncation would cost, if it ever happened:** the text past the bound
-/// is not seen and the item still counts as judged. The deterministic
-/// `[privacy] sensitive_names` tripwire still runs at the provider on the whole
-/// request, and a job's granted secrets are withheld by the wrapper's pipe
+/// is not seen and the item still counts as judged. The `[privacy]
+/// sensitive_names` source reads the whole item before it is split
+/// (`JudgeService::raise_names`), so a name past the bound still raises its
+/// label, and a job's granted secrets are withheld by the wrapper's pipe
 /// (`redact.rs`) before a node exists. Marking long items unjudged instead
 /// would take a session off China-origin models for good the first time it read
 /// a large file, which serves nobody.

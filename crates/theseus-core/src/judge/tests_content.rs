@@ -107,7 +107,7 @@ fn from_in(
     let mut n = Node::user(sid, Some("trn_1"), "cli", text);
     n.id = node.to_string();
     r.core.store.append(&[n.record().unwrap()]).unwrap();
-    ContentItem::new(node, kind, source, text)
+    ContentItem::new(node, kind, source, text, n.created_at_ms)
 }
 
 /// A tool result node planted in the session's transcript, as production has
@@ -1153,7 +1153,7 @@ async fn a_deterministic_label_lands_only_with_the_flags_on() {
             "google.calendar".into(),
             1,
         );
-        r.core.runner.judge.land_deterministic(&sid, vec![l]);
+        r.core.runner.judge.land_deterministic(&sid, vec![(l, 1)]);
         let f = flags(r, &sid);
         assert_eq!(f.has(Flag::Personal), lands);
         assert_eq!(rows(r, "content.labelled").len(), usize::from(lands));

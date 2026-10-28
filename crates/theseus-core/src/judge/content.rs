@@ -54,9 +54,6 @@ pub const PACK: &str = "content.v2";
 /// loop's results to join the batch.
 pub const COALESCE: Duration = Duration::from_millis(50);
 
-/// The most `(session, node)` pairs the names source remembers having read.
-const NAMES_SEEN_MAX: usize = 100_000;
-
 /// The longest a source line is kept.
 const SOURCE_CHARS: usize = 200;
 
@@ -70,15 +67,20 @@ pub struct ContentItem {
     /// arrived in. Shown to the operator, so never a secret.
     pub source: String,
     pub text: String,
+    /// When the node entered the session (its `created_at_ms`). In memory
+    /// only: a label this item raises is refused if the operator removed that
+    /// flag after this time (`ContentFlags::raise_after`).
+    pub entered_ms: u64,
 }
 
 impl ContentItem {
-    pub fn new(node: &str, kind: ItemKind, source: &str, text: &str) -> Self {
+    pub fn new(node: &str, kind: ItemKind, source: &str, text: &str, entered_ms: u64) -> Self {
         Self {
             node: node.into(),
             kind,
             source: source.into(),
             text: text.into(),
+            entered_ms,
         }
     }
 
@@ -94,7 +96,7 @@ impl ContentItem {
             return None;
         }
         let text = content::item_text(node)?;
-        Some(Self::new(&node.id, kind, source, text))
+        Some(Self::new(&node.id, kind, source, text, node.created_at_ms))
     }
 
     /// The item a tool result node is, or `None` for one that is not classified:
@@ -115,7 +117,7 @@ impl ContentItem {
             Some(e) => format!("{tool} {}", e.url),
             None => tool.clone(),
         };
-        Some(Self::new(&node.id, kind, &source, text))
+        Some(Self::new(&node.id, kind, &source, text, node.created_at_ms))
     }
 }
 
@@ -161,11 +163,6 @@ pub(crate) struct Point {
     /// The operator's private names, made once: the deterministic source
     /// (`content::deterministic::from_names`) reads it at every item's entry.
     matcher: OnceLock<theseus_judge::names::Names>,
-    /// The `(session, node)` pairs the names source has read, so an item offered
-    /// again (the sweep re-offers one whose ask failed) is not read again: a
-    /// label the operator removed is not raised a second time by the item that
-    /// raised it. Cleared whole at [`NAMES_SEEN_MAX`].
-    names_seen: Mutex<std::collections::HashSet<(String, String)>>,
     /// `[content_based_security] session_flags = false`: nothing is asked.
     off: AtomicBool,
     slots: Mutex<HashMap<String, Slot>>,
@@ -723,7 +720,7 @@ impl JudgeService {
                     None => {}
                 }
                 for label in &l.raised {
-                    if flags.raise(label.clone()) {
+                    if flags.raise_after(label.clone(), it.entered_ms) {
                         fresh.push((at, label));
                         rows.push(crate::fact::row(
                             &ContentLabelled {
@@ -770,44 +767,40 @@ impl JudgeService {
 impl JudgeService {
     /// The deterministic source for names (theseus-gyjyo.4): an item that holds
     /// one of `[privacy] sensitive_names` raises `confidential` at its entry,
-    /// before and whether or not the pack asks, and with no model call. At most
-    /// one label comes of a call, the first item's: a flag is on a session once.
+    /// before and whether or not the pack asks, and with no model call. A flag
+    /// is on a session once, so at most one label comes of a call: the first
+    /// that the session's removals do not refuse. An item the operator's Remove
+    /// came after raises nothing (`ContentFlags::raise_after`), however often
+    /// it is offered.
     fn raise_names(&self, session: &str, items: &[ContentItem]) {
         let Some(names) = self.content.matcher.get().filter(|n| !n.is_empty()) else {
             return;
         };
         let now = theseus_protocol::now_unix_ms();
-        let fresh: Vec<&ContentItem> = {
-            let mut seen = self
-                .content
-                .names_seen
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if seen.len() >= NAMES_SEEN_MAX {
-                seen.clear();
-            }
-            items
-                .iter()
-                .filter(|i| seen.insert((session.to_string(), i.node.clone())))
-                .collect()
-        };
-        let hit = fresh
-            .into_iter()
-            .find_map(|i| content::deterministic::from_names(names, &i.node, i.kind, &i.text, now));
-        if let Some(label) = hit {
-            self.land_deterministic(session, vec![label]);
+        let hits: Vec<(Label, u64)> = items
+            .iter()
+            .filter_map(|i| {
+                let label =
+                    content::deterministic::from_names(names, &i.node, i.kind, &i.text, now)?;
+                Some((label, i.entered_ms))
+            })
+            .collect();
+        if !hits.is_empty() {
+            self.land_deterministic(session, hits);
         }
     }
 
-    /// Write labels no model raised, in one frame with their `content.labelled`
-    /// rows, then tell the operator as a pack's label is told. A flag the
-    /// session already carries keeps its first label and writes nothing: a
-    /// removed one is raised again by the next item that earns it, as a pack's
-    /// is. The home of every `content::deterministic` source, and so the one
-    /// place `[content_based_security] session_flags = false` turns them all
-    /// off. The session's lock is taken here: do not call it from inside a
-    /// write of the same session's record.
-    pub fn land_deterministic(&self, session: &str, labels: Vec<Label>) {
+    /// Write labels no model raised, each with the time its item entered the
+    /// session, in one frame with their `content.labelled` rows, then tell the
+    /// operator as a pack's label is told. A flag the session already carries
+    /// keeps its first label and writes nothing, and one the operator removed
+    /// after the item entered is not raised by it (`ContentFlags::raise_after`);
+    /// a removed one is raised again only by an item that enters after the
+    /// removal, as a pack's is. The home of every `content::deterministic`
+    /// source, and so the one place `[content_based_security] session_flags =
+    /// false` turns them all off. The session's lock is taken here: do not call
+    /// it from inside a write of the same session's record.
+    pub fn land_deterministic(&self, session: &str, labels: Vec<(Label, u64)>) {
         if self.content.off.load(Ordering::Relaxed) {
             return;
         }
@@ -816,8 +809,8 @@ impl JudgeService {
             self.store.update_session(session, |rec| {
                 let mut flags = take_flags(rec);
                 let mut rows = Vec::new();
-                for label in &labels {
-                    if flags.raise(label.clone()) {
+                for (label, entered_ms) in &labels {
+                    if flags.raise_after(label.clone(), *entered_ms) {
                         fresh.push(label);
                         rows.push(crate::fact::row(&labelled(label), Some(session), None)?);
                     }
