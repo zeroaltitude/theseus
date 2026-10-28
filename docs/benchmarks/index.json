@@ -2827,6 +2827,101 @@
    "carried_from": null
   },
   {
+   "report": "2026-10-27-terminal-bench-codex-astra-max-k1",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "codex",
+   "variant": "codex",
+   "harness": "Codex, gpt-6-astra, MAX, hard 30x1",
+   "model": "openai/gpt-6-astra, pinned: one model, no routing and no fallback -- every priced call in this cell is billed to gpt-6-astra",
+   "date": "2026-10-27",
+   "commit": "harbor arm at d7eb4c27",
+   "dataset": "docs/benchmarks/2026-10-27-terminal-bench-codex-astra-max-k1.json",
+   "trials": 30,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.866667,
+     "lo": 0.703183,
+     "hi": 0.946904,
+     "k": 26,
+     "n": 30
+    },
+    "usd_per_trial": {
+     "value": 1.710552,
+     "lo": 1.156903,
+     "hi": 2.2642
+    },
+    "usd_total": {
+     "value": 51.316547
+    },
+    "usd_per_solve": {
+     "value": 1.973713
+    },
+    "agent_s_median": {
+     "value": 122.08
+    }
+   },
+   "arm_model": "openai/gpt-6-astra",
+   "provider": "openai",
+   "routing": "pinned",
+   "effort": [
+    "low",
+    "max"
+   ],
+   "k": 1,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
+  },
+  {
+   "report": "2026-10-27-terminal-bench-openclaw-astra-high-k1",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "high",
+   "arm": "openclaw",
+   "variant": "openclaw",
+   "harness": "OpenClaw 2026.9.8, gpt-6-astra, HIGH, 89x1",
+   "model": "openai/gpt-6-astra, pinned: one model, no routing and no fallback -- every priced call in this cell is billed to gpt-6-astra",
+   "date": "2026-10-27",
+   "commit": "harbor arm at d7eb4c27",
+   "dataset": "docs/benchmarks/2026-10-27-terminal-bench-openclaw-astra-high-k1.json",
+   "trials": 89,
+   "tasks": 89,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.820225,
+     "lo": 0.727747,
+     "hi": 0.886202,
+     "k": 73,
+     "n": 89
+    },
+    "usd_per_trial": {
+     "value": 1.964408,
+     "lo": 1.484864,
+     "hi": 2.443953
+    },
+    "usd_total": {
+     "value": 174.832352
+    },
+    "usd_per_solve": {
+     "value": 2.394964
+    },
+    "agent_s_median": {
+     "value": 151.22
+    }
+   },
+   "arm_model": "gpt-6-astra",
+   "provider": "openai",
+   "routing": "pinned",
+   "effort": [
+    "medium"
+   ],
+   "k": 1,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "harness"
+  },
+  {
    "report": "2026-10-27-terminal-bench-openclaw-sonnet-high-k1",
    "benchmark": "terminal-bench@2.0",
    "tier": "high",
@@ -2919,6 +3014,57 @@
    "task_set": "full",
    "subset_of": null,
    "framing": "harness"
+  },
+  {
+   "report": "2026-10-27-terminal-bench-theseus-1.0.3-max-k3",
+   "benchmark": "terminal-bench@2.0",
+   "tier": "max",
+   "arm": "theseus",
+   "variant": "theseus",
+   "harness": "Theseus as shipped (routed), 92e3dbed, MAX, hard 30x3",
+   "model": "anthropic/claude-sonnet-5-5 asked for; Jev routes, and the theseus-wf482 refusal fallback puts 813 of 1,861 calls on claude-sonnet-5",
+   "date": "2026-10-27",
+   "commit": "bench binaries 92e3dbed (all 90 trials' `agent/build-commit.txt` agree); harbor arm at d7eb4c27",
+   "dataset": "docs/benchmarks/2026-10-27-terminal-bench-theseus-1.0.3-max-k3.json",
+   "trials": 90,
+   "tasks": 30,
+   "metrics": {
+    "pass_rate": {
+     "value": 0.655556,
+     "lo": 0.552833,
+     "hi": 0.745542,
+     "k": 59,
+     "n": 90
+    },
+    "usd_per_trial": {
+     "value": 0.613393,
+     "lo": 0.467402,
+     "hi": 0.759383
+    },
+    "usd_total": {
+     "value": 55.205332
+    },
+    "usd_per_solve": {
+     "value": 0.935684
+    },
+    "agent_s_median": {
+     "value": 368.87
+    }
+   },
+   "arm_model": [
+    "claude-sonnet-5",
+    "claude-sonnet-5-5"
+   ],
+   "provider": "anthropic",
+   "routing": "routed",
+   "effort": [
+    "low",
+    "max"
+   ],
+   "k": 3,
+   "task_set": "full",
+   "subset_of": null,
+   "framing": "routed"
   }
  ]
 }
