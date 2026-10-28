@@ -272,7 +272,7 @@ impl Telemetry {
 
     /// A turn or call the data rule kept off a restricted-origin model, as
     /// `theseus.route.data_gate` (theseus-a1wvq.11): `what` is the caller
-    /// (`route`, `compaction`, ...), `why` a flag word (`confidential`), `unjudged` or another open one.
+    /// (`route`, `compaction`, ...), `why` a flag word (`confidential`), `never` or another open one.
     pub fn record_data_gate(&self, what: &str, why: &str) {
         let Some(s) = self.shared() else { return };
         s.metrics

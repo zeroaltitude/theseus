@@ -436,4 +436,87 @@ mod tests {
             );
         }
     }
+
+    /// A counter a test moves by hand: a stand-in for the judge's asks, with
+    /// the wake-up the real one gives, or without it.
+    struct Counted {
+        out: std::sync::atomic::AtomicUsize,
+        wake: std::sync::Arc<tokio::sync::Notify>,
+    }
+
+    impl Counted {
+        fn with(n: usize) -> std::sync::Arc<Self> {
+            std::sync::Arc::new(Self {
+                out: n.into(),
+                wake: Default::default(),
+            })
+        }
+
+        fn set(&self, n: usize) {
+            self.out.store(n, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    impl Verdicts for Counted {
+        fn outstanding(&self, _session: &str) -> usize {
+            self.out.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        fn settled(&self, _session: &str) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            let wake = self.wake.clone();
+            Box::pin(async move { wake.notified().await })
+        }
+    }
+
+    /// With nothing outstanding the wait is not even begun, and `Ready` (the
+    /// stand-in) never has anything outstanding.
+    #[tokio::test]
+    async fn a_session_with_no_ask_out_is_not_waited_for() {
+        let handle = Handle::default();
+        assert_eq!(handle.outstanding("ses_1"), 0);
+        let t = Instant::now();
+        assert!(handle.drained("ses_1", Duration::from_secs(30)).await);
+        assert!(t.elapsed() < Duration::from_secs(5));
+    }
+
+    /// An ask that never lands is waited for as long as `max` and no longer,
+    /// and then the answer is `false`: the caller goes on its labels. Zero
+    /// never waits and never asks the judge to hurry (no waiter is counted).
+    #[tokio::test]
+    async fn an_ask_that_never_lands_is_waited_for_max_and_no_longer() {
+        let handle = Handle::default();
+        let silent = std::sync::Arc::new(judging::Silent::default());
+        handle.set(silent.clone());
+        assert_eq!(handle.outstanding("ses_1"), 1);
+        assert!(!handle.drained("ses_1", Duration::ZERO).await);
+        assert!(silent.waits.lock().unwrap().is_empty(), "zero never waits");
+        let t = Instant::now();
+        assert!(!handle.drained("ses_1", Duration::from_millis(300)).await);
+        let took = t.elapsed();
+        assert!(took >= Duration::from_millis(300), "{took:?}");
+        assert!(took < Duration::from_secs(10), "{took:?}");
+        assert!(!silent.waits.lock().unwrap().is_empty());
+    }
+
+    /// The count coming down ends the wait early, with the wake-up or, if a
+    /// stand-in loses it, within one slice rather than the whole `max`.
+    #[tokio::test]
+    async fn the_count_reaching_zero_ends_the_wait() {
+        for woken in [true, false] {
+            let handle = Handle::default();
+            let counted = Counted::with(2);
+            handle.set(counted.clone());
+            let c = counted.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                c.set(0);
+                if woken {
+                    c.wake.notify_waiters();
+                }
+            });
+            let t = Instant::now();
+            assert!(handle.drained("ses_1", Duration::from_secs(60)).await);
+            assert!(t.elapsed() < Duration::from_secs(5), "woken {woken}");
+        }
+    }
 }
