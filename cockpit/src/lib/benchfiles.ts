@@ -6,7 +6,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { reportName, setsFrom, TASK_SETS } from '@/lib/bench'
-import { readManifest } from '@/lib/benchindex'
+import { datasetsUi, readManifest } from '@/lib/benchindex'
 import { frontierSets } from '@/lib/benchslices'
 import { readCatalogue } from '@/lib/benchtasks'
 
@@ -60,18 +60,17 @@ export function useBenchManifest() {
 }
 
 /** The task sets the page offers: the manifest's slices (theseus-s5qwv), each absorbing the hand-written `ui` block of
- *  a report it spans, then any `ui` block no slice holds (theseus-tyv41), then the built-ins. Importing only the `ui`
- *  key of each dataset fails the build for a dataset with none, so every dataset is read (lazily, once) and its block
- *  taken; until they are read the built-ins stand alone. */
+ *  a report it spans, then any `ui` block no slice holds (theseus-tyv41), then the built-ins. The blocks come from the
+ *  manifest's `dataset_ui` (theseus-2w02d), so the page no longer fetches every dataset to read two keys; a dataset the
+ *  manifest does not list is still read in full (lazily, once) and its block taken. Until they are read the built-ins
+ *  stand alone. */
 export function useBenchSets() {
   // Newest first, because a dataset's name opens with its date and `setsFrom` promises that order.
   const names = useMemo(() => [...FILES.json.keys()].sort().reverse(), [])
   const { manifest } = useBenchManifest()
   const q = useQuery({
     queryKey: ['bench', 'sets'], staleTime: Infinity, gcTime: Infinity,
-    queryFn: async () => setsFrom(await Promise.all(names.map(async (report) => {
-      try { return { report, ui: (JSON.parse((await loadFile(report, 'json')) ?? 'null') as { ui?: unknown } | null)?.ui } } catch { return { report } }
-    }))),
+    queryFn: async () => setsFrom(await datasetsUi(names, await loadFile('index', 'json').catch(() => undefined), (n) => loadFile(n, 'json'))),
   })
   const sets = useMemo(() => (q.data ? frontierSets(manifest.rows, q.data, TASK_SETS) : TASK_SETS), [q.data, manifest.rows])
   return { sets, loading: q.isPending }

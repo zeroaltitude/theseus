@@ -17,6 +17,11 @@ Anything else (the gate bench, the memory exam, the recall bench, the async fami
 named reason, never guessed at. A later report repeats or re-cuts the figures of earlier runs it compares against. A row is not a
 new measurement when its report marks its own arms "(this run)" and the row's label lacks it (`comparison`), or when
 its figures match an earlier row of the same (benchmark, tier, arm) exactly (`carried_from`, that report). Standard library only.
+
+The manifest also carries `dataset_ui` (theseus-2w02d): for each dataset it has read, by file name without `.json`, that
+dataset's top-level `ui` block, or null when it has none. The Benchmarks page takes its task sets from it instead of
+fetching every dataset; a dataset the manifest does not list is read in full, as before. `build` lists every dataset it
+reads (rows or not); `append` lists the one it adds. A dataset whose `ui` block is edited by hand needs `build` run again.
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ HERE = Path(__file__).resolve().parent
 DOCS = HERE.parent.parent / "docs" / "benchmarks"
 INDEX = "index.json"
 VERSION = 1
+UI_KEY = "dataset_ui"
 ABOUT = ("One row per measured arm of each published benchmark dataset in docs/benchmarks/, written by "
          "bench/report/manifest.py (draft.py appends a run's rows). A row with comparison or carried_from is not a "
          "new measurement. Sorted by date, report, variant.")
@@ -292,14 +298,25 @@ def finalize(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-def render(rows: list[dict[str, Any]]) -> str:
-    doc = {"version": VERSION, "about": ABOUT, "runs": finalize(rows)}
+def ui_of(data: Any) -> dict[str, Any] | None:
+    """A dataset's `ui` block, or None when it has none (the page ignores anything but an object)."""
+    ui = data.get("ui") if isinstance(data, dict) else None
+    return ui if isinstance(ui, dict) else None
+
+
+def render(rows: list[dict[str, Any]], ui: dict[str, Any] | None = None) -> str:
+    """The manifest's text. `ui` is `dataset_ui`; None leaves the key out (a manifest that lists no dataset's block)."""
+    doc: dict[str, Any] = {"version": VERSION, "about": ABOUT}
+    if ui is not None:
+        doc[UI_KEY] = dict(sorted(ui.items()))
+    doc["runs"] = finalize(rows)
     return json.dumps(doc, indent=1, ensure_ascii=False) + "\n"
 
 
 def build(directory: Path, log=print) -> str:
     """The whole manifest over every `<report>.json` in `directory`; one line per skipped file through `log`."""
     rows: list[dict[str, Any]] = []
+    ui: dict[str, Any] = {}
     for path in sorted(directory.glob("*.json")):
         if path.name == INDEX:
             continue
@@ -308,6 +325,7 @@ def build(directory: Path, log=print) -> str:
         except (OSError, ValueError) as e:
             log(f"skipped {path.name}: unreadable JSON ({e})")
             continue
+        ui[path.stem] = ui_of(data)
         try:
             got, why = rows_of(data, path.stem)
         except ManifestError as e:
@@ -316,14 +334,15 @@ def build(directory: Path, log=print) -> str:
         if why:
             log(f"skipped {path.name}: {why}")
         rows += got
-    return render(rows)
+    return render(rows, ui)
 
 
 def append(dataset: Path, index: Path | None = None, log=print) -> int:
     """Add or replace `dataset`'s rows in the manifest beside it. Returns the rows written (0 when it has none to give).
 
     A dataset with no pass rate is not an error (a gate bench has none); one that has them and cannot make a whole
-    row raises ManifestError, and the manifest is left as it was."""
+    row raises ManifestError, and the manifest is left as it was. The dataset's `ui` block goes into `dataset_ui`
+    with its rows (a manifest from before that key gains it, listing this dataset alone; the rest are read in full)."""
     index = index or dataset.parent / INDEX
     data = json.loads(dataset.read_text())
     new, why = rows_of(data, dataset.stem)
@@ -331,14 +350,17 @@ def append(dataset: Path, index: Path | None = None, log=print) -> int:
         log(f"manifest: {dataset.name} gives no rows: {why}")
         return 0
     rows: list[dict[str, Any]] = []
+    ui: dict[str, Any] = {}
     if index.exists():
         doc = json.loads(index.read_text())
         if doc.get("version") != VERSION or not isinstance(doc.get("runs"), list):
             raise ManifestError(f"{index}: not a version {VERSION} manifest; rebuild it with `manifest.py build`")
         rows = doc["runs"]
+        ui = doc[UI_KEY] if isinstance(doc.get(UI_KEY), dict) else {}
     name = new[0]["report"]
     rows = [r for r in rows if r["report"] != name] + new
-    index.write_text(render(rows))
+    ui[dataset.stem] = ui_of(data)
+    index.write_text(render(rows, ui))
     return len(new)
 
 
