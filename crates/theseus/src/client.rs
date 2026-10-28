@@ -273,8 +273,9 @@ pub fn tilde(path: &str, home: Option<String>) -> String {
 
 /// The session whose job this client runs in (theseus-b5cl): the
 /// `THESEUS_SESSION` every job's environment carries. A session this client
-/// opens, or a turn it sends, names it as `opened_from`, so it takes that
-/// session's hold of external text. None outside a job.
+/// opens, or a turn it sends, names it as `opened_from`, which the daemon
+/// records on `session.opened`; it holds nothing since the external-text hold
+/// went (theseus-gyjyo.8). None outside a job.
 pub fn job_session() -> Option<String> {
     job_session_in(std::env::var(theseus_protocol::JOB_SESSION_ENV).ok())
 }

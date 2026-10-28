@@ -785,7 +785,6 @@ async fn new_task_opens_a_modal_and_starts_a_task_homed_here() {
             r.ledger("task.started_by_owner")
         )
     });
-    assert!(held(&r, &session).is_none(), "no quote, no hold");
     // The modal's "long" reached the task (theseus-bh3t.1).
     let expect = r
         .core

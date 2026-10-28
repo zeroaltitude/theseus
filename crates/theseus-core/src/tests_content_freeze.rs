@@ -175,3 +175,47 @@ async fn a_local_read_never_reads_the_labels() {
     refusal(&r, tool, input, None, &reads);
     assert_eq!(reads.get(), 1, "a write asks, once");
 }
+
+/// R6 (theseus-gyjyo.8): removing the `injection` label is the one thing that lets a refused call run. On a
+/// real session record, read as the gate reads it: refused while the label is on, run once the operator's
+/// removal (`content.unlabel`, which Discord's `/trust` calls) has cleared it, and nothing else changed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn removing_the_label_is_what_lets_the_refused_call_run() {
+    use crate::session::SessionRecord;
+    use theseus_protocol::SessionKind;
+    let r = rig(None, 1, |_| {});
+    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+    rec.data = Some(Box::new(frozen()));
+    let sid = rec.session_id.clone();
+    r.core.store.put_session(&sid, &rec).unwrap();
+    let rt = &r.core.tools;
+    let tool = rt.registry.get("proc.run").unwrap().clone();
+    let input = json!({"argv": ["echo", "x"]});
+    let plan = tool.plan(&input, &rt.ctx).unwrap();
+    let mcp = || None;
+    let labels = || crate::content_wait::flags_of(&r.core.store, &sid);
+    let at = At {
+        place: PlaceView {
+            class: PlaceClass::Private,
+            ceiling: None,
+            voice: false,
+            draft: None,
+        },
+        labels: &labels,
+        mcp: &mcp,
+        glide: None,
+        routine: None,
+        session: Some(&sid),
+        ctx: &rt.ctx,
+    };
+    let why = rt
+        .refusal_at(&at, &*tool, &plan)
+        .expect("refused with the label on");
+    assert!(why.contains("theseus content remove"), "{why}");
+    r.core.unlabel_session(&sid, "injection", "test").unwrap();
+    assert_eq!(
+        rt.refusal_at(&at, &*tool, &plan),
+        None,
+        "the removal lets it run"
+    );
+}
