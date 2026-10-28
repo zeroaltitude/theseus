@@ -9,8 +9,8 @@
 export type PlaceCeiling = { 
 /**
  * No call here runs looser than this: `open`, `notify`, or `approve`.
- * A call's posture is the strictest of the config's, a tightening, this,
- * and an external-text hold; never a refusal.
+ * A call's posture is the strictest of the config's, a tightening, this;
+ * never a refusal.
  */
 posture_floor?: string, 
 /**
