@@ -634,6 +634,7 @@ impl Shared {
                     &s.routines,
                     &s.watches,
                     &s.projects,
+                    &[],
                 );
                 self.reply_ephemeral(i, t).await;
             }
