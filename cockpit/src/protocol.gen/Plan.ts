@@ -27,8 +27,8 @@ url?: string,
 summary: string, 
 /**
  * This call's class, when it is the call's and not the tool's (an
- * `aws.call` is a read or a write by its operation): the gate, the
- * external-text hold, and the reads that run together read it.
+ * `aws.call` is a read or a write by its operation): the gate and
+ * the reads that run together read it.
  */
 class?: ToolClass, 
 /**

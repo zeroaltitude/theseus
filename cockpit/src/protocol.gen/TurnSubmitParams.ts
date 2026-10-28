@@ -42,8 +42,8 @@ attachments?: Array<Attachment>,
  */
 reply_to?: string, 
 /**
- * The session whose job sent this turn (theseus-b5cl): the session the
- * turn opens or names takes its hold of external text.
+ * The session whose job sent this turn (theseus-b5cl): recorded where the
+ * turn opens a session; it holds nothing since the hold went.
  */
 opened_from?: string, 
 /**
