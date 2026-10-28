@@ -180,6 +180,10 @@ def summarize(name: str, trials: list[dict[str, Any]]) -> dict[str, Any]:
     recs = [t["record"] for t in trials]
     costs = [r.get("cost_usd") for r in recs]
     cost = sum(c for c in costs if c is not None)
+    # The same tokens at the providers' list prices (`LIST_PRICES`): a record's own, else priced here from
+    # its `by_model`, so every arm's dollars come from one table. A trial no table prices is counted, never guessed.
+    listed = [r["list_cost_usd"] if r.get("list_cost_usd") is not None else ef.list_price(r.get("by_model") or {})
+              for r in recs]
     tok = dict.fromkeys(CLASSES, 0)
     writes_kept = True
     for r in recs:
@@ -214,6 +218,8 @@ def summarize(name: str, trials: list[dict[str, Any]]) -> dict[str, Any]:
         "errors": sum(1 for t in trials if t["error"]),
         "cost_usd": round(cost, 6),
         "unpriced": sum(1 for c in costs if c is None),
+        "list_cost_usd": round(sum(c for c in listed if c is not None), 6),
+        "list_unpriced": sum(1 for c in listed if c is None),
         "cost_per_trial": cost / n if n else None,
         "solved_per_dollar": solved / cost if cost > 0 else None,
         "tokens": tok,

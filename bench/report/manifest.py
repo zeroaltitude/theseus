@@ -121,6 +121,10 @@ def _metrics(entry: dict[str, Any]) -> dict[str, Any] | None:
         if _num(entry.get(key)):
             m["usd_total"] = {"value": entry[key]}
             break
+    # The same tokens at the providers' list prices, beside the harness's own dollars: one table for every arm. A
+    # total with an unpriced trial in it is a floor, and is not published.
+    if _num(entry.get("list_cost_usd")) and not entry.get("list_unpriced"):
+        m["list_cost_usd"] = {"value": entry["list_cost_usd"]}
     if _num(entry.get("usd_solve")):
         m["usd_per_solve"] = {"value": entry["usd_solve"]}
     if _num(entry.get("agent_s_median")):
