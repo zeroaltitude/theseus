@@ -13,7 +13,7 @@ use super::tests::{
     cfg, closed_port, flushed, pipeline, result_with, s, sample_trace, tuning, two_loops_result,
     Receiver,
 };
-use super::Telemetry;
+use super::{spans, Telemetry};
 use crate::secrets::Secret;
 
 /// A 503 and then a 200: the batch is posted twice and taken once; nothing

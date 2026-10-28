@@ -11,8 +11,8 @@ use theseus_protocol::Usage;
 use tokio::io::AsyncWriteExt;
 
 use super::tests::{
-    attr, attrs_of, failed_trace, flushed, last_metrics, named, pipeline, point_with, points_of,
-    result_with, s, spans_of, tool_span, tuning, Receiver, STATUS_CODE_ERROR,
+    attr, attrs_of, failed_trace, failed_turn, flushed, last_metrics, named, pipeline, point_with,
+    points_of, result_with, s, spans_of, tool_span, tuning, Receiver, STATUS_CODE_ERROR,
 };
 use super::{spans, FailedTurn};
 
