@@ -368,7 +368,10 @@ async fn a_call_after_a_mid_turn_clock_line_writes_what_other_calls_write() {
     // Every request keeps the one before it, block for block.
     for pair in reqs.windows(2) {
         let (a, b) = (blocks(&pair[0]), blocks(&pair[1]));
-        assert!(a.len() <= b.len() && a[..] == b[..a.len()], "{a:#?}\n{b:#?}");
+        assert!(
+            a.len() <= b.len() && a[..] == b[..a.len()],
+            "{a:#?}\n{b:#?}"
+        );
         assert_eq!(
             serde_json::to_string(&(&pair[0].system, &pair[0].tools)).unwrap(),
             serde_json::to_string(&(&pair[1].system, &pair[1].tools)).unwrap(),
