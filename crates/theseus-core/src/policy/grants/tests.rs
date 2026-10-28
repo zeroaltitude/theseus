@@ -14,7 +14,6 @@ fn an_edits_grant_covers_the_three_edit_tools_under_its_root() {
     let g = SessionGrant {
         kind: KIND_EDITS.into(),
         root: Some(root.display().to_string()),
-        ..Default::default()
     };
     let at = |tool: &str, p: PathBuf| {
         let r = vec![theseus_tools::paths::canonical_best_effort(&p)];
@@ -62,7 +61,6 @@ fn an_edits_grant_never_names_the_root_or_the_home() {
     let g = |root: &str| SessionGrant {
         kind: KIND_EDITS.into(),
         root: Some(root.into()),
-        ..Default::default()
     };
     let r = vec![PathBuf::from("/etc/passwd")];
     let call = Call {
@@ -97,7 +95,6 @@ fn the_view_canonicalises_a_plans_paths() {
     let g = SessionGrant {
         kind: KIND_EDITS.into(),
         root: Some(root.display().to_string()),
-        ..Default::default()
     };
     let covered = |raw: PathBuf| {
         let plan = Plan {
@@ -105,7 +102,6 @@ fn the_view_canonicalises_a_plans_paths() {
                 path: raw,
                 access: Access::Write,
             }],
-            ..Default::default()
         };
         let (nargv, program, resources) = super::view(&plan);
         covers(

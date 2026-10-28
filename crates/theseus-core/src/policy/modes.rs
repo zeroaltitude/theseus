@@ -262,7 +262,6 @@ pub(crate) fn gate(
             let held = SessionGrant {
                 kind: KIND_EDITS.into(),
                 root: Some(root.display().to_string()),
-                ..Default::default()
             };
             let inside = rt.ctx.roots.iter().any(|r| paths::within(&root, r));
             if !EDIT_TOOLS.contains(&tool.name()) || !inside || !grants::covers(&held, &call) {
