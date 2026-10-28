@@ -803,8 +803,14 @@ impl JudgeService {
     /// rows, then tell the operator as a pack's label is told. A flag the
     /// session already carries keeps its first label and writes nothing: a
     /// removed one is raised again by the next item that earns it, as a pack's
-    /// is. The home of every `content::deterministic` source.
+    /// is. The home of every `content::deterministic` source, and so the one
+    /// place `[content_based_security] session_flags = false` turns them all
+    /// off. The session's lock is taken here: do not call it from inside a
+    /// write of the same session's record.
     pub fn land_deterministic(&self, session: &str, labels: Vec<Label>) {
+        if self.content.off.load(Ordering::Relaxed) {
+            return;
+        }
         let mut fresh: Vec<&Label> = Vec::new();
         let written = theseus_store::blocking(|| {
             self.store.update_session(session, |rec| {

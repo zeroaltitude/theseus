@@ -1019,3 +1019,32 @@ async fn a_removed_names_label_is_not_raised_again_by_the_same_item() {
     );
     assert!(flags(&r, &sid).has(Flag::Confidential));
 }
+
+/// `land_deterministic` is where every deterministic source honours
+/// `session_flags = false`, so a source that is not the names' (Google's, R4)
+/// is off with the mechanism too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deterministic_label_lands_only_with_the_flags_on() {
+    use crate::content::deterministic;
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let off = rig(&jev, |c| {
+        c.content_based_security.session_flags = false;
+        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
+    });
+    let on = rig(&jev, |_| {});
+    for (r, lands) in [(&off, false), (&on, true)] {
+        let sid = session(r);
+        let l = deterministic::label(
+            Flag::Personal,
+            "n1",
+            ItemKind::ToolResult,
+            "google.calendar".into(),
+            1,
+        );
+        r.core.runner.judge.land_deterministic(&sid, vec![l]);
+        let f = flags(r, &sid);
+        assert_eq!(f.has(Flag::Personal), lands);
+        assert_eq!(rows(r, "content.labelled").len(), usize::from(lands));
+    }
+}
