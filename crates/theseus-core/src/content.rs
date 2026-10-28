@@ -402,14 +402,24 @@ impl ContentFlags {
     }
 
     /// What a task (or a draft) carries from its parent at its start: the
-    /// parent's labels, as `fork` copies them (`fork::data_through`), so a child
-    /// of a session that read a calendar is no way around the label. Its items
-    /// are its own, so nothing of the parent's judgment or removals comes with
-    /// them. None when the parent carries no label.
+    /// parent's labels that keep a model of restricted origin off it
+    /// (`Flag::disqualifies_cn`), as `fork` copies them (`fork::data_through`),
+    /// so a child of a session that read a calendar is no way around the label.
+    /// Its items are its own, so nothing of the parent's judgment or removals
+    /// comes with them. `injection` stays behind: it says the parent's own
+    /// transcript tried to steer it, and a task that starts from a brief has
+    /// not read that transcript (a fork has, and copies it). None when the
+    /// parent carries no such label.
     pub fn inherited(&self) -> Option<Box<ContentFlags>> {
-        (!self.labels.is_empty()).then(|| {
+        let labels: Vec<Label> = self
+            .labels
+            .iter()
+            .filter(|l| l.flag.disqualifies_cn())
+            .cloned()
+            .collect();
+        (!labels.is_empty()).then(|| {
             Box::new(ContentFlags {
-                labels: self.labels.clone(),
+                labels,
                 ..Default::default()
             })
         })
