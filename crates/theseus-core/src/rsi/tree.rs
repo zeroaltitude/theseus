@@ -134,6 +134,11 @@ impl Notify {
         self
     }
 
+    /// Send one inform notice, the quiet kind; the halt has `send_halt`.
+    pub(crate) fn send(&self, text: String) {
+        (self.0)(text);
+    }
+
     /// Send the halt notice.
     pub(crate) fn send_halt(&self, text: String) {
         (self.1.as_ref().unwrap_or(&self.0))(text);
@@ -450,7 +455,7 @@ fn refresh_main(p: &Place, repo: &Path) {
                 "self door: fetch of {DOOR_REMOTE} failed, cutting from the base it has: {e:#}"
             );
             if let Some(n) = &p.notify {
-                (n.0)(format!(
+                n.send(format!(
                     "The self door could not reach {DOOR_REMOTE}: this tree is cut from the base the \
                      repo already had, which may be behind main, and it will be judged by that base's \
                      gate script. The next cut tries again. ({e:#})"
@@ -799,7 +804,7 @@ pub(super) async fn may_build_paced(
                 let reason = std::fs::read_to_string(&log).unwrap_or_default();
                 let (n, text) = (n.clone(), wait_notice(&tree.slug, waited, &reason));
                 // The sink writes a frame: the disk, not a runtime worker.
-                let _ = tokio::task::spawn_blocking(move || (n.0)(text)).await;
+                let _ = tokio::task::spawn_blocking(move || n.send(text)).await;
             }
         }
         clock.sleep(every).await;
