@@ -1777,12 +1777,14 @@ max_switches = 2                        # moves per task, up or down
 # enabled = true                        # off: words are messages, and the layer steers nothing
 # similarity = 0.5                      # the share of content words a close message has in common
 # max_entries = 64                      # the layer's bound, the oldest out
-# Sensitive names (theseus-oejh3, theseus-xs5ah): organisations, clients, projects and people
-# whose matter goes only to a model of US origin, an allowlist: `eu`, `cn` and `unknown` (any
-# model the catalog cannot place) are all refused. A message that names one is read by Jev as
-# private, runs on a profile of US origin (or on none: the turn then ends before any model
-# call), and every request to a model of another origin is checked for the names again, so
-# it fails closed. Matching is case-insensitive and on
+# Sensitive names (theseus-oejh3, theseus-gyjyo.4): organisations, clients, projects and people
+# that mark your employer's work. An item that holds one (a message you send, a tool result, a
+# file read, a page fetched) raises a `confidential` label on its session at the moment it
+# enters, with the word as the label's source and no model call. That is all it does: the label
+# is the one in `[content_based_security]` below, shown to you with its Remove button, read by
+# `cn_models` like any other, and gone when you remove it. Nothing refuses a request for a name,
+# so removing the label is the whole of your say. Jev's content pack is told the list too, as its
+# private names. Matching is case-insensitive and on
 # whole words, a name of several words as a run of them: `examplecorp` matches "ExampleCorp's
 # plan" and "examplecorp-internal" and not "examplecorpse" or "examplecorpinc" (so `examplecorpinc`
 # is listed for examplecorpinc.com), and `example-repo` matches as a unit, never the word
@@ -1807,8 +1809,7 @@ max_switches = 2                        # moves per task, up or down
 # session; `injection` means something tried to steer the assistant, and its session's calls
 # that act are refused until you clear the label (`theseus content remove <session> injection`,
 # or the button on the message). The injection question is never asked of your own messages. The
-# sensitive-names list above is unaffected: it is checked at the provider, deterministically,
-# whatever these say.
+# sensitive-names list above raises `confidential` the same way, with no model call.
 # [content_based_security]
 # session_flags = true                  # off: nothing is classified and no label is raised. A model
 #                                       # of restricted origin then has no labels to follow, so

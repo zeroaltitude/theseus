@@ -1,16 +1,16 @@
-//! `[privacy]` (theseus-oejh3): the one list of names whose matter goes only
-//! to a model of US origin (theseus-xs5ah). Route.v6's `data` question reads it
-//! as the private names, the pack-text check at start reads it, and a floor
-//! keeps a turn that names one off models of any other origin, `cn`, `eu` or
-//! `unknown` (`ModelOrigin::cleared_for_sensitive`). The
-//! matcher is `theseus_judge::names`. Every key has a default, so an owner's
-//! config names none unless it differs.
+//! `[privacy]` (theseus-oejh3, theseus-gyjyo.4): the operator's list of names that
+//! mark his employer's work. Route.v6's `data` question and Jev's content pack read it as the private names,
+//! the pack-text check at start reads it, and **an item that holds one raises a removable `confidential`
+//! label on its session at its entry** (`content::deterministic::from_names`), with no model call. A hit
+//! refuses nothing: the label follows `[content_based_security] cn_models` like any other, and the operator
+//! removes it. The matcher is `theseus_judge::names`. Every key has a default, so an owner's config names
+//! none unless it differs.
 //!
 //! - `sensitive_names`: organisations, clients, projects and people, empty by
-//!   default. Matching is case-insensitive on whole words.
+//!   default. Matching is case-insensitive on whole words. A hit raises a removable label, not a refusal.
 //! - `open_source_paths`: directories whose work is public (the pack is told an item from there is public). Written with
-//!   `~` as the owner would; read through `expanded_open_source_paths`. **Parsed and exposed only**: the labels rows (R3,
-//!   R9) read it (theseus-gyjyo.2).
+//!   `~` as the owner would; read through `expanded_open_source_paths`. **Parsed and exposed only**: the pack row (R9)
+//!   reads it (theseus-gyjyo.2).
 //!   Not `[places] public_paths`, which opens trees to a shared place's file tools; this one only tells the
 //!   classifier.
 //! - `redact_outbound`: the vault's values are substituted on copies that leave the machine, on by default. **Parsed

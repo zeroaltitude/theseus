@@ -82,29 +82,20 @@ fn listed_eu(c: &mut Config) {
     c.vouch_zai(crate::catalog::ModelOrigin::Eu);
 }
 
-/// A plain message runs on the first profile of the list, an EU one; a
-/// message that names a configured name runs on the second, of US origin.
+/// A plain message and a named one both run on the first profile of the list,
+/// an EU one: a name steers no route (theseus-gyjyo.4), the session's labels
+/// do, and a profile of EU origin is not restricted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sensitive_name_skips_restricted_profiles() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "routine_coding", 0.95);
-    let r = rig(Some(&jev), 1, listed_eu);
-    let res = turn(&r.core, None, PLAIN, None).await;
-    assert_eq!(res.profile, "glm53");
-    assert_eq!(r.zai.requests().len(), 1);
-    assert!(r.claude.requests().is_empty());
-
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "routine_coding", 0.95);
-    let r = rig(Some(&jev), 1, listed_eu);
-    let res = turn(&r.core, None, NAMED, None).await;
-    assert_eq!(res.profile, "sonnet");
-    assert!(
-        r.zai.requests().is_empty(),
-        "nothing went to the restricted model"
-    );
-    assert_eq!(r.claude.requests().len(), 1);
-    assert_eq!(decided(&r.core.store).len(), 1);
+async fn a_sensitive_name_does_not_steer_the_route() {
+    for text in [PLAIN, NAMED] {
+        let jev = FakeJev::start().unwrap();
+        mode(&jev, "routine_coding", 0.95);
+        let r = rig(Some(&jev), 1, listed_eu);
+        let res = turn(&r.core, None, text, None).await;
+        assert_eq!(res.profile, "glm53", "{text}");
+        assert_eq!(r.zai.requests().len(), 1, "{text}");
+        assert!(r.claude.requests().is_empty(), "{text}");
+    }
 }
 
 /// A name said earlier in the conversation is in the request a restricted
@@ -171,12 +162,10 @@ async fn a_sensitive_name_with_only_restricted_profiles_sends_nothing() {
     assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
 }
 
-/// The names go only to a model of US origin (theseus-xs5ah). With Claude
-/// served from a host vouched as EU, a named message has nowhere to run: the
-/// turn ends before any model call, though EU is not of restricted origin. A
-/// message that names nothing runs there as before.
+/// A named message runs on a model of EU origin: only a label keeps a session
+/// off a model, and only a model of restricted origin (theseus-gyjyo.4).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sensitive_name_never_runs_on_a_model_of_eu_origin() {
+async fn a_sensitive_name_runs_on_a_model_of_eu_origin() {
     let eu = |c: &mut Config| c.serve_default_from_eu();
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
@@ -185,15 +174,9 @@ async fn a_sensitive_name_never_runs_on_a_model_of_eu_origin() {
     let origin = cfg.profile_origin("sonnet", &r.core.runner.catalog);
     assert_eq!(origin, crate::catalog::ModelOrigin::Eu);
     let ended = try_turn(&r.core, NAMED).await;
-    let said = format!("{ended:?}");
-    assert!(said.contains("data_gate"), "{said}");
-    assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
-
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = rig_listed(Some(&jev), 1, eu);
-    let res = turn(&r.core, None, "Say hello.", None).await;
-    assert_eq!(r.claude.requests().len(), 1, "{}", res.output);
+    assert!(ended.is_ok(), "{ended:?}");
+    assert_eq!(r.claude.requests().len(), 1);
+    assert!(r.zai.requests().is_empty());
 }
 
 /// A configured name that an embedded pack's text holds is said at start by

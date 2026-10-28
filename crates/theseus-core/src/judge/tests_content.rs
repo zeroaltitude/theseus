@@ -1213,3 +1213,301 @@ async fn the_report_lists_content_with_one_labelled_case_after_a_remove() {
         });
     assert_eq!(pack.labeled, 1, "{pack:#?}");
 }
+
+// ------------------------------------------- theseus-gyjyo.4: names are a label source
+
+/// A name in `[privacy] sensitive_names` found in an item raises `confidential`
+/// on the session at the item's entry (`ask_content`), with the word as its
+/// source and no model call: the label is on the record when `ask_content`
+/// returns, while the judge's answers are held five seconds off, and the judge
+/// has been sent nothing. It carries no judgment, since none raised it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_name_in_an_item_raises_confidential_with_no_model_call() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    jev.set_latency(Duration::from_secs(5), Duration::from_secs(5));
+    let r = rig(&jev, |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into()]
+    });
+    let sid = session(&r);
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![from_in(
+            &r,
+            &sid,
+            "n1",
+            ItemKind::ToolResult,
+            "fs.grep src",
+            "Examplecorp's billing module",
+        )],
+    );
+    let f = flags(&r, &sid);
+    let l = f.label(Flag::Confidential).expect("a names hit is a label");
+    assert_eq!(l.source, "name: Examplecorp");
+    assert_eq!(l.node.as_deref(), Some("n1"));
+    assert_eq!(l.kind, ItemKind::ToolResult);
+    assert!((l.confidence - 1.0).abs() < f64::EPSILON, "{l:?}");
+    assert_eq!(l.band, theseus_judge::band::Band::Act);
+    assert!(!f.has(Flag::Secret) && !f.has(Flag::Personal) && !f.has(Flag::Injection));
+    assert!(jev.seen().is_empty(), "no judge traffic raised it");
+    let rows = rows(&r, "content.labelled");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["flag"], "confidential");
+}
+
+/// An item that names nothing raises nothing, and a second hit on a session
+/// that already carries `confidential` keeps the first label: one per flag.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_name_keeps_the_first_label_and_a_plain_item_raises_none() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    jev.set_latency(Duration::from_secs(5), Duration::from_secs(5));
+    let r = rig(&jev, |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into(), "Otherco".into()];
+    });
+    let sid = session(&r);
+    let judge = &r.core.runner.judge;
+    judge.ask_content(
+        &sid,
+        vec![item_in(
+            &r,
+            &sid,
+            "n1",
+            ItemKind::ToolResult,
+            "the billing module",
+        )],
+    );
+    assert!(flags(&r, &sid).label(Flag::Confidential).is_none());
+    judge.ask_content(
+        &sid,
+        vec![item_in(
+            &r,
+            &sid,
+            "n2",
+            ItemKind::ToolResult,
+            "Examplecorp notes",
+        )],
+    );
+    judge.ask_content(
+        &sid,
+        vec![item_in(
+            &r,
+            &sid,
+            "n3",
+            ItemKind::OperatorMessage,
+            "and Otherco too",
+        )],
+    );
+    let f = flags(&r, &sid);
+    let l = f.label(Flag::Confidential).unwrap();
+    assert_eq!(
+        (l.source.as_str(), l.node.as_deref()),
+        ("name: Examplecorp", Some("n2"))
+    );
+    assert_eq!(rows(&r, "content.labelled").len(), 1);
+}
+
+/// `session_flags = false` turns the whole mechanism off, a names hit included.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_name_raises_nothing_with_the_flags_off() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into()];
+        c.content_based_security.session_flags = false;
+        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
+    });
+    let sid = session(&r);
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![item_in(&r, &sid, "n1", ItemKind::ToolResult, "Examplecorp")],
+    );
+    assert!(flags(&r, &sid).label(Flag::Confidential).is_none());
+}
+
+/// An item offered again (the sweep re-offers one whose ask failed) does not
+/// raise a label the operator removed: the removal sticks until a new item
+/// names the word.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_removed_names_label_is_not_raised_again_by_the_same_item() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    jev.set_latency(Duration::from_secs(5), Duration::from_secs(5));
+    let r = rig(&jev, |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into()]
+    });
+    let sid = session(&r);
+    let judge = &r.core.runner.judge;
+    let item = item_in(&r, &sid, "n1", ItemKind::ToolResult, "Examplecorp notes");
+    judge.ask_content(&sid, vec![item.clone()]);
+    assert!(flags(&r, &sid).has(Flag::Confidential));
+    r.core
+        .store
+        .update_session(&sid, |rec| {
+            let mut f = rec.data.as_deref().cloned().unwrap_or_default();
+            f.remove(Flag::Confidential, "owner", "test", now_ms());
+            rec.data = Some(Box::new(f));
+            Ok(vec![])
+        })
+        .unwrap();
+    judge.ask_content(&sid, vec![item]);
+    assert!(
+        !flags(&r, &sid).has(Flag::Confidential),
+        "the removal stuck"
+    );
+    // A new item that names the word raises it again, as a pack's yes does: one
+    // that entered after the removal, which the clock must be seen to say.
+    std::thread::sleep(Duration::from_millis(5));
+    judge.ask_content(
+        &sid,
+        vec![item_in(
+            &r,
+            &sid,
+            "n2",
+            ItemKind::ToolResult,
+            "more Examplecorp",
+        )],
+    );
+    assert!(flags(&r, &sid).has(Flag::Confidential));
+}
+
+fn now_ms() -> u64 {
+    theseus_protocol::now_unix_ms()
+}
+
+/// The operator removes `flag` from the session, as the Remove button does.
+fn remove_flag(r: &Rig, sid: &str, flag: Flag) {
+    r.core
+        .store
+        .update_session(sid, |rec| {
+            let mut f = rec.data.as_deref().cloned().unwrap_or_default();
+            f.remove(flag, "owner", "test", now_ms());
+            rec.data = Some(Box::new(f));
+            Ok(vec![])
+        })
+        .unwrap();
+}
+
+/// Remove sticks against the pack (theseus-gyjyo.4, C1). The names label is
+/// raised at the item's entry and told; the pack's verdict on that same node is
+/// still out (Jev is slow) when the operator taps Remove. The pack is told the
+/// names are private and answers `yes` to `confidential`; the verdict lands
+/// after the tap and must not put the label back: an item that entered the
+/// session before the removal can never raise that flag again. One label row,
+/// one tell, and the flag stays off.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pack_verdict_does_not_undo_a_remove_made_while_it_was_out() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    yes(&jev, "confidential", 0.95);
+    jev.set_latency(Duration::from_millis(600), Duration::from_millis(600));
+    let r = rig(&jev, |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into()]
+    });
+    let sid = session(&r);
+    let told: std::sync::Arc<std::sync::Mutex<Told>> = Default::default();
+    let sink = told.clone();
+    let judge = &r.core.runner.judge;
+    judge.label_told(move |session, label| {
+        sink.lock()
+            .unwrap()
+            .push((session.to_string(), label.flag, label.node.clone()));
+    });
+    judge.ask_content(
+        &sid,
+        vec![item_in(
+            &r,
+            &sid,
+            "n1",
+            ItemKind::ToolResult,
+            "Examplecorp notes",
+        )],
+    );
+    assert!(flags(&r, &sid).has(Flag::Confidential), "raised at entry");
+    remove_flag(&r, &sid, Flag::Confidential);
+    let judged = until(&r, "content.judged", 1).await;
+    assert_eq!(judged.len(), 1, "the pack's verdict landed: {judged:?}");
+    assert!(
+        !flags(&r, &sid).has(Flag::Confidential),
+        "the pack's yes put the removed label back"
+    );
+    let labelled = rows(&r, "content.labelled");
+    assert_eq!(labelled.len(), 1, "{labelled:?}");
+    assert_eq!(told.lock().unwrap().len(), 1, "{:?}", told.lock().unwrap());
+}
+
+/// The same across a restart: a fresh service over the same store, offered the
+/// node again (the sweep re-offers an item whose ask failed), raises nothing,
+/// by the names source or by the pack. The removal is on the record, so no
+/// memory in the service is what holds it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restarted_service_does_not_raise_a_removed_label_for_the_same_item() {
+    use crate::judge::JudgeService;
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    yes(&jev, "confidential", 0.95);
+    let r = rig(&jev, |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into()]
+    });
+    let sid = session(&r);
+    let first = &r.core.runner.judge;
+    let item = item_in(&r, &sid, "n1", ItemKind::ToolResult, "Examplecorp notes");
+    first.ask_content(&sid, vec![item.clone()]);
+    until(&r, "content.judged", 1).await;
+    assert!(flags(&r, &sid).has(Flag::Confidential));
+    remove_flag(&r, &sid, Flag::Confidential);
+
+    let second = JudgeService::new(
+        first.config().clone(),
+        r.core.store.clone(),
+        first.secrets.clone(),
+        first.scrubber.clone(),
+    );
+    // As a daemon warms its ladder after serving, so its pack asks.
+    second.read_ladder();
+    second.ladder().adopt();
+    second.content_from(
+        theseus_judge::builders::DataNames {
+            open: vec![],
+            private: vec!["Examplecorp".into()],
+        },
+        true,
+        3,
+    );
+    second.ask_content(&sid, vec![item]);
+    until(&r, "content.judged", 2).await;
+    assert!(
+        !flags(&r, &sid).has(Flag::Confidential),
+        "a restart brought the removed label back"
+    );
+    assert_eq!(rows(&r, "content.labelled").len(), 1);
+}
+
+/// `land_deterministic` is where every deterministic source honours
+/// `session_flags = false`, so a source that is not the names' (Google's, R4)
+/// is off with the mechanism too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deterministic_label_lands_only_with_the_flags_on() {
+    use crate::content::deterministic;
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let off = rig(&jev, |c| {
+        c.content_based_security.session_flags = false;
+        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
+    });
+    let on = rig(&jev, |_| {});
+    for (r, lands) in [(&off, false), (&on, true)] {
+        let sid = session(r);
+        let l = deterministic::label(
+            Flag::Personal,
+            "n1",
+            ItemKind::ToolResult,
+            "google.calendar".into(),
+            1,
+        );
+        r.core.runner.judge.land_deterministic(&sid, vec![(l, 1)]);
+        let f = flags(r, &sid);
+        assert_eq!(f.has(Flag::Personal), lands);
+        assert_eq!(rows(r, "content.labelled").len(), usize::from(lands));
+    }
+}

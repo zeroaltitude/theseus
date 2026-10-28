@@ -10,25 +10,22 @@
 //!   closed, since nothing says what it carries. Nothing is proved per request;
 //!   the session either carries a label or it does not. Each refusal is a
 //!   `data_gate.blocked` row;
-//! - a request that holds one of `[privacy] sensitive_names`, or is made for a
-//!   session that read private content, to a model not of US origin
+//! - a request made for a session that read private content (Google's marker,
+//!   `google::private`), to a model not of US origin
 //!   (`ModelOrigin::cleared_for_sensitive`, an allowlist). No label lifts
-//!   this, and no label is needed for it: it is the deterministic backstop
-//!   that does not depend on a classifier being right.
+//!   this; it goes when Google raises a label instead (theseus-gyjyo.5).
+//!
+//! **A name in `[privacy] sensitive_names` is no part of this.** It raises a
+//! removable `confidential` label at the item's entry
+//! (`content::deterministic`, theseus-gyjyo.4), and the label is read as any
+//! is; no request is walked for a word.
 //!
 //! An unrestricted model's request costs one lookup of its model's origin,
-//! memoised per model; a US model's is passed on without a look at its text,
-//! and with no names configured no text is read at all. The session's record
-//! is read only for a restricted model. The matcher is `theseus_judge::names`;
-//! the walk is over each JSON string value of the system blocks, the messages
-//! and the tool definitions, never the serialized body, whose escapes (`\n`)
-//! would glue words together.
+//! memoised per model, and its text is never read. The session's record is
+//! read only for a restricted model.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
-
-use serde_json::Value;
-use theseus_judge::names::Names;
 
 use crate::catalog::{cleared_for_sensitive, origin_of, Catalog, ModelOrigin};
 use crate::config::Config;
@@ -62,7 +59,6 @@ struct Gated {
     inner: Arc<dyn Provider>,
     /// Its name in the config, which a refusal's row names.
     name: String,
-    names: Names,
     catalog: Arc<Catalog>,
     api_base: String,
     vouched: Option<ModelOrigin>,
@@ -77,7 +73,6 @@ impl Gated {
     fn new(
         name: &str,
         inner: Arc<dyn Provider>,
-        names: Names,
         catalog: Arc<Catalog>,
         (api_base, vouched): (String, Option<ModelOrigin>),
         store: Option<Store>,
@@ -86,7 +81,6 @@ impl Gated {
         Self {
             inner,
             name: name.into(),
-            names,
             catalog,
             api_base,
             vouched,
@@ -124,23 +118,20 @@ impl Gated {
                     word(origin)
                 )
             }
-            None if self.cleared(&req.model)
-                || !(crate::google::private::in_scope()
-                    || (!self.names.is_empty() && names_in(req, &self.names))) =>
-            {
+            None if self.cleared(&req.model) || !crate::google::private::in_scope() => {
                 return None;
             }
             None => {
                 self.counted("sensitive");
                 let level = crate::google::private::level_in_scope();
                 let held = if level == crate::google::private::Level::Sensitive {
-                    "its session read a sensitive calendar"
+                    "a sensitive calendar"
                 } else {
-                    "its session read private content"
+                    "private content"
                 };
                 format!(
-                    "this request names something in `[privacy] sensitive_names`, or {held}, \
-                     and its model is not of US origin; nothing was sent"
+                    "its session read {held}, and its model is not of US origin; \
+                     nothing was sent"
                 )
             }
         };
@@ -259,25 +250,6 @@ impl Provider for Gated {
     }
 }
 
-/// Every string value of `v` that holds a name.
-fn value_names(v: &Value, names: &Names) -> bool {
-    match v {
-        Value::String(s) => !names.hits(s).is_empty(),
-        Value::Array(a) => a.iter().any(|x| value_names(x, names)),
-        Value::Object(o) => o.values().any(|x| value_names(x, names)),
-        _ => false,
-    }
-}
-
-/// The request's system blocks, messages and tool definitions hold a name.
-pub fn names_in(req: &ProviderRequest, names: &Names) -> bool {
-    req.system
-        .iter()
-        .chain(&req.messages)
-        .chain(&req.tools)
-        .any(|v| value_names(v, names))
-}
-
 /// The providers, each behind the floor, always: a restricted model is refused
 /// whatever the config names. A refusal's row is written to `store`.
 pub fn guard(
@@ -287,7 +259,6 @@ pub fn guard(
     store: &Store,
     counter: &Counter,
 ) -> BTreeMap<String, Arc<dyn Provider>> {
-    let names = cfg.privacy.names();
     providers
         .into_iter()
         .map(|(name, inner)| {
@@ -296,7 +267,6 @@ pub fn guard(
             let gated: Arc<dyn Provider> = Arc::new(Gated::new(
                 &name,
                 inner,
-                names.clone(),
                 catalog.clone(),
                 (base, conf.and_then(|p| p.origin)),
                 Some(store.clone()),
@@ -316,20 +286,15 @@ mod tests {
 
     /// A gated provider over a real store holding one clean session, the
     /// fake behind it, the session's id, and the store's directory.
-    fn gated(
-        api_base: &str,
-        names: &[&str],
-    ) -> (Gated, Arc<FakeProvider>, String, tempfile::TempDir) {
+    fn gated(api_base: &str) -> (Gated, Arc<FakeProvider>, String, tempfile::TempDir) {
         let dir = crate::scratch::tempdir();
         let store = Store::open(dir.path()).unwrap();
         let rec = SessionRecord::new(SessionKind::Conversation, None);
         store.put_session(&rec.session_id, &rec).unwrap();
         let fake = Arc::new(FakeProvider::default());
-        let names: Vec<String> = names.iter().map(|n| (*n).to_string()).collect();
         let g = Gated::new(
             "fake",
             fake.clone(),
-            Names::new(&names),
             Arc::new(Catalog::builtin()),
             (api_base.into(), None),
             Some(store),
@@ -371,31 +336,56 @@ mod tests {
         }
     }
 
-    /// A restricted model is sent a clean session's request, and never a
-    /// sensitive name, with no label to say so: the tripwire is independent of
-    /// the labels. A US model is sent a named request.
+    /// The session carries a `confidential` label, as a names hit leaves it.
+    fn label_it(g: &Gated, sid: &str) {
+        use crate::content::{deterministic, ItemKind};
+        let label = deterministic::label(
+            crate::content::Flag::Confidential,
+            "nod_1",
+            ItemKind::ToolResult,
+            "name: Examplecorp".into(),
+            1,
+        );
+        g.store
+            .as_ref()
+            .unwrap()
+            .update_session(sid, |rec| {
+                let mut f = crate::content::ContentFlags::default();
+                f.raise(label);
+                rec.data = Some(Box::new(f));
+                Ok(vec![])
+            })
+            .unwrap();
+    }
+
+    /// The chokepoint reads no request for a name (theseus-gyjyo.4): a
+    /// restricted model is sent a request that names one when its session
+    /// carries no label, and is refused any request when it does, so the
+    /// label is what refuses. A US model is sent it either way.
     #[tokio::test]
-    async fn a_restricted_model_is_never_sent_a_sensitive_name() {
+    async fn a_restricted_model_is_refused_by_the_label_and_not_the_name() {
         let named = request("deepseek-v4", "Draft the Examplecorp's budget\nmemo.");
         let plain = request("deepseek-v4", "Draft a budget memo.");
-        let (cn, sent, sid, _dir) = gated("https://api.deepseek.com/anthropic", &["Examplecorp"]);
-        assert_eq!(send(&cn, &sid, &named).await, Err("data_gate".into()));
-        assert!(sent.requests().is_empty(), "nothing was sent");
+        let (cn, sent, sid, _dir) = gated("https://api.deepseek.com/anthropic");
         assert_eq!(
-            send(&cn, &sid, &plain).await,
+            send(&cn, &sid, &named).await,
             Ok(()),
-            "a clean session goes"
+            "no label, no refusal"
         );
         assert_eq!(sent.requests().len(), 1);
-        let (us, sent, sid, _dir) = gated("https://api.anthropic.com", &["Examplecorp"]);
+        label_it(&cn, &sid);
+        assert_eq!(send(&cn, &sid, &plain).await, Err("data_gate".into()));
+        assert_eq!(sent.requests().len(), 1, "nothing more was sent");
+        let (us, sent, sid, _dir) = gated("https://api.anthropic.com");
+        label_it(&us, &sid);
         let named = request("claude-sonnet-5-5", "Draft the Examplecorp's budget memo.");
         assert_eq!(send(&us, &sid, &named).await, Ok(()));
         assert_eq!(sent.requests().len(), 1, "an unrestricted model is sent it");
     }
 
     /// Kimi is gated exactly as GLM is (theseus-rgbtz): by its host and by its
-    /// name, a restricted model is sent a clean session's plain request and
-    /// never a sensitive name, and a Claude id asked of the Moonshot host is
+    /// name, a restricted model is sent a clean session's request and refused
+    /// a labelled session's, and a Claude id asked of the Moonshot host is
     /// gated the same way.
     #[tokio::test]
     async fn kimi_is_gated_exactly_as_glm_is() {
@@ -412,56 +402,36 @@ mod tests {
             ("https://proxy.example.com", "acme/kimi-k4"),
         ];
         for (base, model) in cases {
-            let named = request(model, "Draft the Examplecorp's budget\nmemo.");
             let plain = request(model, "Draft a budget memo.");
-            let (mut g, sent, sid, _dir) = gated(base, &["Examplecorp"]);
+            let (mut g, sent, sid, _dir) = gated(base);
             g.vouched = Some(ModelOrigin::Us);
-            assert_eq!(
-                send(&g, &sid, &named).await,
-                Err("data_gate".into()),
-                "{model}: a name"
-            );
-            assert!(sent.requests().is_empty(), "{model}: nothing was sent");
             assert_eq!(send(&g, &sid, &plain).await, Ok(()), "{model}: clean work");
             assert_eq!(sent.requests().len(), 1, "{model}");
+            label_it(&g, &sid);
+            assert_eq!(
+                send(&g, &sid, &plain).await,
+                Err("data_gate".into()),
+                "{model}: a label"
+            );
+            assert_eq!(sent.requests().len(), 1, "{model}: nothing more was sent");
         }
     }
 
-    /// A model of EU origin is not on the allowlist (theseus-xs5ah): a
-    /// provider the operator vouches `eu` for is refused a named request with
-    /// nothing sent, though the China-origin block alone would pass it; a
-    /// request that names nothing still goes.
+    /// A model that is not of restricted origin is sent a request that names
+    /// one of the operator's names, whether its host is vouched `eu` or `us`
+    /// for a family the catalog does not know: the US allowlist is not read for
+    /// a name (theseus-gyjyo.4).
     #[tokio::test]
-    async fn a_model_of_eu_origin_is_never_sent_a_sensitive_name() {
-        let (mut eu, sent, sid, _dir) = gated("https://api.example.eu/anthropic", &["Examplecorp"]);
-        eu.vouched = Some(ModelOrigin::Eu);
-        assert!(!ModelOrigin::Eu.restricted(), "not blocked as China origin");
-        let named = request("claude-sonnet-5-5", "Draft the Examplecorp's budget memo.");
-        assert_eq!(send(&eu, &sid, &named).await, Err("data_gate".into()));
-        assert!(sent.requests().is_empty(), "nothing was sent");
-        let plain = request("claude-sonnet-5-5", "Draft a budget memo.");
-        assert_eq!(send(&eu, &sid, &plain).await, Ok(()));
-        assert_eq!(sent.requests().len(), 1);
-    }
-
-    /// A host the operator vouches `us` for clears only a model the catalog
-    /// lists as of US origin (theseus-xs5ah): a family it does not know, served
-    /// by the same proxy, is refused a named request with nothing sent.
-    #[tokio::test]
-    async fn a_us_vouch_clears_no_model_the_catalog_does_not_list_as_us() {
-        let (mut proxy, sent, sid, _dir) =
-            gated("https://llm-proxy.example.com/v1", &["Examplecorp"]);
-        proxy.vouched = Some(ModelOrigin::Us);
+    async fn a_model_not_restricted_is_sent_a_named_request() {
         let named = |m: &str| request(m, "Draft the Examplecorp's budget memo.");
-        assert_eq!(
-            send(&proxy, &sid, &named("qwen-4-max")).await,
-            Err("data_gate".into())
-        );
-        assert!(sent.requests().is_empty(), "nothing was sent");
-        assert_eq!(
-            send(&proxy, &sid, &named("claude-sonnet-5-5")).await,
-            Ok(())
-        );
+        let (mut eu, sent, sid, _dir) = gated("https://api.example.eu/anthropic");
+        eu.vouched = Some(ModelOrigin::Eu);
+        assert!(!ModelOrigin::Eu.restricted());
+        assert_eq!(send(&eu, &sid, &named("claude-sonnet-5-5")).await, Ok(()));
+        assert_eq!(sent.requests().len(), 1);
+        let (mut proxy, sent, sid, _dir) = gated("https://llm-proxy.example.com/v1");
+        proxy.vouched = Some(ModelOrigin::Us);
+        assert_eq!(send(&proxy, &sid, &named("qwen-4-max")).await, Ok(()));
         assert_eq!(sent.requests().len(), 1);
     }
 
@@ -470,7 +440,7 @@ mod tests {
     /// session is read only for a restricted one).
     #[tokio::test]
     async fn a_call_for_no_session_is_refused_a_restricted_model_alone() {
-        let (cn, sent, _sid, _dir) = gated("https://api.z.ai/api/anthropic", &[]);
+        let (cn, sent, _sid, _dir) = gated("https://api.z.ai/api/anthropic");
         let plain = request("glm-5.3", "Draft a budget memo.");
         let mut sink = |_: crate::provider::Delta<'_>| {};
         let said = cn.stream_message(&plain, &mut sink).await.unwrap_err();
@@ -479,28 +449,9 @@ mod tests {
             "{said:#}"
         );
         assert!(sent.requests().is_empty());
-        let (us, sent, _sid, _dir) = gated("https://api.anthropic.com", &[]);
+        let (us, sent, _sid, _dir) = gated("https://api.anthropic.com");
         let ok = request("claude-sonnet-5-5", "Draft a budget memo.");
         us.stream_message(&ok, &mut sink).await.unwrap();
         assert_eq!(sent.requests().len(), 1);
-    }
-
-    /// A name in a tool result, a tool definition or the system is found, and a
-    /// name is found across an escaped line break, which the unescaped string
-    /// holds as a break and the serialized body as `\n`.
-    #[test]
-    fn every_string_of_the_request_is_walked() {
-        let names = Names::new(&["Big Co".to_string()]);
-        let mut r = request("m", "nothing");
-        assert!(!names_in(&r, &names));
-        r.system = vec![json!({"type": "text", "text": "for big\nco only"})];
-        assert!(names_in(&r, &names));
-        r.system = vec![];
-        r.tools = vec![json!({"name": "x", "description": "reads Big Co files"})];
-        assert!(names_in(&r, &names));
-        r.tools = vec![];
-        r.messages = vec![json!({"role": "user", "content": [
-            {"type": "tool_result", "tool_use_id": "t", "content": [{"type": "text", "text": "BIG  CO"}]}]})];
-        assert!(names_in(&r, &names));
     }
 }

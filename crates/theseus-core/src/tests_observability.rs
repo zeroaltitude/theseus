@@ -6,7 +6,6 @@
 use serde_json::{json, Value};
 use theseus_judge::fake::FakeJev;
 
-use crate::catalog::ModelOrigin;
 use crate::content::{Flag, ItemKind};
 use crate::content_wait::judging::{Judging, Silent};
 use crate::provider::Scripted;
@@ -17,7 +16,7 @@ use crate::tests_dm_rig::{
     OPEN_A, PRIVATE,
 };
 use crate::tests_judge::kinds;
-use crate::tests_route::{call, decided, mode, rig, rig_parts, turn};
+use crate::tests_route::{call, decided, mode, rig, turn};
 
 fn calls(core: &crate::Core) -> Vec<Value> {
     kinds(&core.store, "provider.call")
@@ -235,47 +234,6 @@ async fn a_data_gate_turn_counts_once_on_the_route_data_gate_metric() {
 
 fn count_is_one(n: &Value) -> bool {
     n == 1 || n == "1"
-}
-
-/// `sensitive`, end to end. A pinned profile served from an EU host is of no
-/// restricted origin, so only the names' floor keeps the turn off it: the
-/// default runs, the row says `sensitive`, and the counter counts it once. No
-/// label has a part in it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sensitive_name_gate_is_on_the_row_and_counted_once() {
-    let (rx, tel) = telemetry().await;
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = rig_parts(
-        Some(&jev),
-        1,
-        |c| {
-            c.privacy.sensitive_names = vec!["Examplecorp".into()];
-            c.serve_glm_unrestricted();
-            c.vouch_zai(ModelOrigin::Eu);
-        },
-        move |p| p.telemetry = Some(tel),
-    );
-    call(&r.core, "profile.use", json!({"name": "glm53"})).await;
-    let res = turn(
-        &r.core,
-        None,
-        "Rename the call sites in Examplecorp's billing module.",
-        Some("glm53"),
-    )
-    .await;
-    assert_eq!(res.profile, "default");
-    let d = decided(&r.core.store);
-    assert_eq!(d[0]["data_gate"], "sensitive", "{d:?}");
-    let data = res.route.unwrap().data.expect("data");
-    assert_eq!(data.footer().as_deref(), Some("data gate: sensitive"));
-    let counts = gate_counts(&r.core, &rx).await;
-    assert_eq!(counts.len(), 1, "{counts:?}");
-    assert_eq!(
-        (&counts[0].0, &counts[0].1),
-        (&json!("route"), &json!("sensitive"))
-    );
-    assert!(count_is_one(&counts[0].2), "{counts:?}");
 }
 
 /// theseus-4h85l: the provider chokepoint counts each refusal on

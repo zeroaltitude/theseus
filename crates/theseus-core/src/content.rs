@@ -20,9 +20,11 @@
 //!   the owner's standing rule points. [`Flag::Injection`] raises only at the
 //!   act band: raising it wrongly freezes a session until the operator clears
 //!   it, and a false freeze teaches the operator to ignore the control.
-//! - **The names tripwire is untouched.** `[privacy] sensitive_names` at the
-//!   chokepoint is deterministic and independent of every flag here. It is why
-//!   the low bar above is safe.
+//! - **A name is a label source, not a tripwire.** An item that holds one of
+//!   `[privacy] sensitive_names` raises `confidential` with the word as its
+//!   source, deterministically and with no model call ([`deterministic`]); the
+//!   operator removes it like any other, and nothing overrides him
+//!   (theseus-gyjyo.4). Nothing reads a request for a name any more.
 //! - **Labels are durable.** They live on `SessionRecord.data`, survive
 //!   compaction and restart, and only the operator removes one
 //!   (`content.unlabel`, `theseus content remove`, the one Discord message).
@@ -206,6 +208,63 @@ pub struct Label {
     pub judgment: String,
 }
 
+/// The label sources that need no model (theseus-gyjyo.4): free and exact, so
+/// each is a function of the item alone, raised at the item's entry
+/// (`JudgeService::ask_content`) beside the pack's `yes`, and landed by
+/// `JudgeService::land_deterministic`. A label from here is one the pack could
+/// have raised, with the bar met by construction (confidence 1, the act band),
+/// and it names no judgment: none raised it (`Label`'s judgment stays empty).
+///
+/// **This is the one home of them.** A new source adds a function here that
+/// builds its [`Label`] through [`label`], and lands it through
+/// `land_deterministic`; nothing else writes a label with no judge behind it.
+pub mod deterministic {
+    use theseus_judge::band::Band;
+    use theseus_judge::names::Names;
+
+    use super::{Flag, ItemKind, Label};
+
+    /// The prefix of a names label's source, then the word as configured.
+    pub const NAME_SOURCE: &str = "name: ";
+
+    /// A label no model raised: `flag`, from `node`, `kind` and the `source`
+    /// the operator is shown. Certain (confidence 1), at the act band.
+    pub fn label(flag: Flag, node: &str, kind: ItemKind, source: String, at_ms: u64) -> Label {
+        Label {
+            flag,
+            node: Some(node.into()),
+            kind,
+            source,
+            confidence: 1.0,
+            band: Band::Act,
+            at_ms,
+            // No model raised it, so there is no judgment to correct: removing
+            // this label teaches the classifier nothing (theseus-gyjyo.3's
+            // `Label.judgment`, empty for a label no model raised).
+            judgment: String::new(),
+        }
+    }
+
+    /// `confidential`, if `text` holds one of the operator's names: the first
+    /// in the list's order, as the source (`name: <word>`).
+    pub fn from_names(
+        names: &Names,
+        node: &str,
+        kind: ItemKind,
+        text: &str,
+        at_ms: u64,
+    ) -> Option<Label> {
+        let word = names.hits(text).into_iter().next()?;
+        Some(label(
+            Flag::Confidential,
+            node,
+            kind,
+            format!("{NAME_SOURCE}{word}"),
+            at_ms,
+        ))
+    }
+}
+
 /// A label the operator removed, kept as history: a label that was raised and
 /// cleared is a different thing from one that was never raised.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -324,6 +383,24 @@ impl ContentFlags {
         self.labels.push(l);
         self.labels.sort_by_key(|l| l.flag);
         true
+    }
+
+    /// [`ContentFlags::raise`], unless the operator removed this flag at or
+    /// after `entered_ms`, when the item that would raise it entered the
+    /// session: an item that entered before a removal can never raise that
+    /// flag again, because the removal spoke for everything the session held
+    /// when it was made. It is read from `removed`, which is on the record and
+    /// is copied by a fork, so a restart, a fork and a sweep's re-offer all
+    /// find it. Only an item that entered after the removal raises it anew.
+    pub fn raise_after(&mut self, l: Label, entered_ms: u64) -> bool {
+        if self
+            .removed
+            .iter()
+            .any(|r| r.flag == l.flag && r.at_ms >= entered_ms)
+        {
+            return false;
+        }
+        self.raise(l)
     }
 
     /// Remove `f`, keeping it as history. The label removed, when there was
@@ -644,9 +721,10 @@ pub fn pieces(text: &str, cap: usize) -> Vec<(u32, u32, String)> {
 /// a dollar.
 ///
 /// **What truncation would cost, if it ever happened:** the text past the bound
-/// is not seen and the item still counts as judged. The deterministic
-/// `[privacy] sensitive_names` tripwire still runs at the provider on the whole
-/// request, and a job's granted secrets are withheld by the wrapper's pipe
+/// is not seen and the item still counts as judged. The `[privacy]
+/// sensitive_names` source reads the whole item before it is split
+/// (`JudgeService::raise_names`), so a name past the bound still raises its
+/// label, and a job's granted secrets are withheld by the wrapper's pipe
 /// (`redact.rs`) before a node exists. Marking long items unjudged instead
 /// would take a session off China-origin models for good the first time it read
 /// a large file, which serves nobody.
