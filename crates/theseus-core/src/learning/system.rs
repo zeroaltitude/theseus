@@ -136,6 +136,19 @@ const CLASSIFY_OPEN_MS: u64 = 24 * 60 * 60 * 1000;
 /// session retires carrying it counts at once.
 const CONTENT_KEPT_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
+/// How long a label must have stood before a *retired* session's label counts
+/// as the owner having left it (theseus-gyjyo.3, at the R2 review). §6.2 says
+/// "a label still present 7 days after it was raised, **or when its session
+/// retires**", and the second leg is right in spirit: a session the owner has
+/// finished with is one he is not going to come back and correct. But in
+/// Discord a session is superseded by `/new`, which he types routinely, so
+/// without a floor a label raised two minutes before a `/new` becomes a
+/// positive at once, with no window to dispute it. Content's known problem is
+/// false positives, and a premature `yes` inflates exactly the number R9
+/// measures. A day is long enough that the label has been in his DM through
+/// one working session.
+const CONTENT_RETIRED_FLOOR_MS: u64 = 24 * 60 * 60 * 1000;
+
 /// The mark's key for the time the next run cuts at (theseus-gf8j).
 pub const CUT_KEY: &str = "cut_ms";
 
@@ -565,11 +578,22 @@ impl Core {
             .labels
             .iter()
             .filter(|l| l.judgment == j.id)
-            .filter(|l| retired || now >= l.at_ms.saturating_add(CONTENT_KEPT_MS))
+            .filter(|l| {
+                let stood = |ms: u64| now >= l.at_ms.saturating_add(ms);
+                (retired && stood(CONTENT_RETIRED_FLOOR_MS)) || stood(CONTENT_KEPT_MS)
+            })
             .filter(|l| {
                 !scope.labels.get(&j.id).is_some_and(|ls| {
                     ls.iter().any(|o| {
-                        o.source == "operator" && o.question.as_deref() == Some(l.flag.as_str())
+                        // A whole-judgment "wrong" (question `null`), which
+                        // the cockpit offers on every judgment and
+                        // `theseus judge label <id> wrong` writes, disputes
+                        // every flag of it. Without this, `replay::right`
+                        // takes the system `yes` -- it is first in ledger
+                        // order -- and grades the incumbent right on a
+                        // judgment the owner called wrong.
+                        o.source == "operator"
+                            && o.question.as_deref().is_none_or(|q| q == l.flag.as_str())
                     })
                 })
             })
@@ -582,8 +606,10 @@ impl Core {
                 about: None,
                 label: json!("yes"),
                 rule: "kept",
-                note: if retired {
-                    "the session retired still carrying the label".into()
+                note: if retired && now < l.at_ms.saturating_add(CONTENT_KEPT_MS) {
+                    "the session retired a day or more after the label was raised, \
+                     and still carried it"
+                        .into()
                 } else {
                     "the label stood a week, unremoved and undisputed".into()
                 },

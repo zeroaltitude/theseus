@@ -1012,7 +1012,11 @@ async fn a_label_left_standing_seven_days_is_a_system_positive() {
         .is_empty());
 }
 
-/// A label present when its session retires is the same positive, at once.
+/// A label present when its session retires is the same positive, once it has
+/// stood a day. The day is the floor the R2 review asked for: in Discord a
+/// session is superseded by `/new`, which the owner types routinely, so
+/// without it a label raised two minutes before a `/new` would become a
+/// positive with no window to dispute it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_label_present_when_its_session_retires_is_a_system_positive() {
     let jev = FakeJev::start().unwrap();
@@ -1033,9 +1037,17 @@ async fn a_label_present_when_its_session_retires_is_a_system_positive() {
             Ok(vec![])
         })
         .unwrap();
-    let got = r.core.system_labels("content", &scope, l.at_ms + 2);
+    let day = 24 * 60 * 60 * 1000;
+    assert!(
+        r.core
+            .system_labels("content", &scope, l.at_ms + day - 1)
+            .is_empty(),
+        "a session retired within the day of the label teaches nothing yet"
+    );
+    let got = r.core.system_labels("content", &scope, l.at_ms + day);
     assert_eq!(got.len(), 1, "{got:#?}");
     assert_eq!(got[0].rule, "kept");
+    assert!(got[0].note.contains("retired"), "{}", got[0].note);
 }
 
 /// What nobody can call right takes no positive: a removed label, a label the
@@ -1062,6 +1074,61 @@ async fn a_removed_or_disputed_or_anonymous_label_is_not_a_positive() {
         .is_empty());
     // Removed: nothing stands.
     r.core.unlabel_session(&sid, "secret", "cli").unwrap();
+    let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
+    assert!(r
+        .core
+        .system_labels("content", &scope, l.at_ms + week)
+        .is_empty());
+}
+
+/// A whole-judgment "wrong" -- the cockpit's button and `theseus judge label
+/// <id> wrong`, both of which record no question -- disputes every flag of
+/// that judgment. Without this, `replay::right` takes the system `yes` (it is
+/// first in ledger order) and grades the incumbent right on a judgment the
+/// owner called wrong.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_whole_judgment_wrong_disputes_the_flag_it_raised() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (_sid, l) = labelled(&r, &jev).await;
+    let week = 7 * 24 * 60 * 60 * 1000;
+    let p = theseus_protocol::learning::JudgeLabelParams {
+        judgment: l.judgment.clone(),
+        question: None,
+        label: serde_json::json!("wrong"),
+        note: None,
+        discord: None,
+    };
+    r.core.judge_label(&p, "cli").unwrap();
+    let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
+    assert!(
+        r.core
+            .system_labels("content", &scope, l.at_ms + week)
+            .is_empty(),
+        "the owner looked at the whole judgment and called it wrong"
+    );
+}
+
+/// A label that names no judgment -- every deterministic source raises one
+/// (R3's names, R4's Google) -- can never be a positive: nobody judged it, so
+/// nobody can be told they were right.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_label_that_names_no_judgment_is_never_a_positive() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (sid, l) = labelled(&r, &jev).await;
+    r.core
+        .store
+        .update_session(&sid, |rec| {
+            if let Some(f) = rec.data.as_deref_mut() {
+                for lab in &mut f.labels {
+                    lab.judgment = String::new();
+                }
+            }
+            Ok(vec![])
+        })
+        .unwrap();
+    let week = 7 * 24 * 60 * 60 * 1000;
     let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
     assert!(r
         .core
