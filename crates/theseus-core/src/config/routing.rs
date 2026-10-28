@@ -719,6 +719,37 @@ mod tests {
             .unwrap();
     }
 
+    /// `effort_floor_confidence` (theseus-l7i9k): unset (off) by default and
+    /// never written out unset; set, it is above `effort_confidence` and at
+    /// most 1, and the error says so.
+    #[test]
+    fn the_effort_floor_bar_is_off_unless_set_and_sits_above_the_effort_bar() {
+        let off = cfg("").unwrap();
+        assert!(!toml::to_string(&off)
+            .unwrap()
+            .contains("effort_floor_confidence"));
+        cfg("effort_floor_confidence = 0.6")
+            .unwrap()
+            .validate(|_| false)
+            .unwrap();
+        cfg("effort_floor_confidence = 1.0")
+            .unwrap()
+            .validate(|_| false)
+            .unwrap();
+        for bad in [
+            "effort_floor_confidence = 0.35",
+            "effort_floor_confidence = 0.2",
+            "effort_floor_confidence = 1.1",
+        ] {
+            let e = cfg(bad).unwrap().validate(|_| false);
+            assert!(
+                format!("{:#}", e.unwrap_err())
+                    .contains("routing.effort_floor_confidence must be above routing.effort_confidence"),
+                "{bad}"
+            );
+        }
+    }
+
     /// `dear_tier_max_tokens` (theseus-p8dy): 200,000 by default, at least 1.
     #[test]
     fn the_dear_tiers_context_guard_defaults_to_two_hundred_thousand_tokens() {
