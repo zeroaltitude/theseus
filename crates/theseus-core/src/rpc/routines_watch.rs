@@ -261,7 +261,6 @@ impl Core {
         if !e.state.is_terminal() {
             return Ok(false);
         }
-        self.forget_dropped(&e.session_id);
         let book = &self.runner.tools.routines;
         let Some(spec) = book.held().and_then(|m| m.get(routine).cloned()) else {
             return Ok(true);

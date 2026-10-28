@@ -38,7 +38,7 @@ use anyhow::{Context, Result};
 use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 
-use crate::record::{kinds, RecordKind};
+use crate::record::RecordKind;
 use crate::store::count_rows;
 pub use crate::wal::RecordLocation as Location;
 
@@ -69,19 +69,6 @@ pub struct IndexEntry {
     pub sums: Option<Sums>,
     /// The record's tags (`pages::tags_of`), each kept with its position.
     pub tags: Vec<String>,
-}
-
-impl IndexEntry {
-    /// The end of a META key (`kinds::TOMBSTONE`).
-    fn is_delete(&self) -> bool {
-        self.kind == kinds::TOMBSTONE
-    }
-
-    /// The key this record is the latest of: a tombstone's key is the one it
-    /// ends, which the record does not hold.
-    fn keyed(&self) -> Option<&str> {
-        self.key.as_deref().filter(|_| !self.is_delete())
-    }
 }
 
 /// One key's projection, as a build after serving puts it: (kind, key,
@@ -404,70 +391,6 @@ impl RedbIndex {
 
     /// Record a batch of entries. Non-durable unless `durable`.
     pub fn apply(&self, entries: &[IndexEntry], durable: bool) -> Result<()> {
-        if !entries.iter().any(IndexEntry::is_delete) {
-            return self.apply_run(entries, durable);
-        }
-        // A key's end is taken in order with the records around it: the
-        // records up to a run of tombstones (themselves counted, and
-        // keyless), then the keys the run ends, then the rest. A key written
-        // again after its end starts afresh, its birth the new record's.
-        // Only the last transaction is durable.
-        let mut start = 0;
-        while let Some(first) = entries[start..].iter().position(IndexEntry::is_delete) {
-            let first = start + first;
-            let end = first
-                + entries[first..]
-                    .iter()
-                    .take_while(|e| e.is_delete())
-                    .count();
-            self.apply_run(&entries[start..end], false)?;
-            let keys: Vec<&str> = entries[first..end]
-                .iter()
-                .filter_map(|e| e.key.as_deref())
-                .collect();
-            self.remove_meta_keys(&keys, durable && end == entries.len())?;
-            start = end;
-        }
-        if start < entries.len() {
-            self.apply_run(&entries[start..], durable)?;
-        }
-        Ok(())
-    }
-
-    /// Take `keys`, META keys, out of the key tables and the counts that hold
-    /// them (theseus-1kw2v). Nothing projects META, so it has no terms or sums.
-    fn remove_meta_keys(&self, keys: &[&str], durable: bool) -> Result<()> {
-        let mut txn = self.db.begin_write()?;
-        txn.set_durability(if durable {
-            Durability::Immediate
-        } else {
-            Durability::None
-        })?;
-        {
-            let mut byk = txn.open_table(BYKEY)?;
-            let mut born = txn.open_table(BORN)?;
-            let mut bybirth = txn.open_table(BYBIRTH)?;
-            let mut kc = txn.open_table(KEYCOUNTS)?;
-            for key in keys {
-                let kb = bykey(kinds::META, key);
-                if byk.remove(kb.as_slice())?.is_none() {
-                    continue;
-                }
-                if let Some(first) = born.remove(kb.as_slice())?.map(|v| v.value()) {
-                    bybirth.remove(bykind(kinds::META, first).as_slice())?;
-                }
-                let was = kc.get(kinds::META)?.map(|v| v.value());
-                if let Some(n) = was {
-                    kc.insert(kinds::META, n.saturating_sub(1))?;
-                }
-            }
-        }
-        txn.commit()?;
-        Ok(())
-    }
-
-    /// `apply`'s one transaction, for entries that end no key.
-    fn apply_run(&self, entries: &[IndexEntry], durable: bool) -> Result<()> {
         let mut txn = self.db.begin_write()?;
         txn.set_durability(if durable {
             Durability::Immediate
@@ -483,7 +406,7 @@ impl RedbIndex {
             let mut fresh = Vec::with_capacity(entries.len());
             for e in entries {
                 loc.insert(e.position, loc_bytes(e.loc).as_slice())?;
-                if let Some(k) = e.keyed() {
+                if let Some(k) = &e.key {
                     let kb = bykey(e.kind, k);
                     if byk.insert(kb.as_slice(), e.position)?.is_none() {
                         births.push((e.kind, e.position, kb));
@@ -540,11 +463,6 @@ impl RedbIndex {
     /// `byscope`, and `terms` across the tree. The rows are `apply`'s: a key
     /// that several entries name keeps the last one's.
     pub fn apply_bulk(&self, entries: &[IndexEntry]) -> Result<()> {
-        // Built in key order, a table at a time, which a key's end breaks:
-        // a replay that holds one goes in position order (theseus-1kw2v).
-        if entries.iter().any(IndexEntry::is_delete) {
-            return self.apply(entries, false);
-        }
         let mut txn = self.db.begin_write()?;
         txn.set_durability(Durability::None)?;
         {
@@ -1159,23 +1077,9 @@ impl RedbIndex {
             let mut tg = txn.open_table(TAGGED)?;
             let mut born = txn.open_table(BORN)?;
             let mut bybirth = txn.open_table(BYBIRTH)?;
-            let byk = txn.open_table(BYKEY)?;
             for (position, kind, at, tags, key) in records {
-                // A key the log ended is not born by the records it held
-                // (theseus-1kw2v): the end takes back a birth the walk gave
-                // it before, and only a key the index still has is born.
                 if let Some(k) = key {
-                    let kb = bykey(*kind, k);
-                    if *kind == kinds::TOMBSTONE {
-                        let kb = bykey(kinds::META, k);
-                        let first = born.get(kb.as_slice())?.map(|v| v.value());
-                        if let Some(first) = first.filter(|first| first < position) {
-                            born.remove(kb.as_slice())?;
-                            bybirth.remove(bykind(kinds::META, first).as_slice())?;
-                        }
-                    } else if byk.get(kb.as_slice())?.is_some() {
-                        put_born(&mut born, &mut bybirth, *position, &kb)?;
-                    }
+                    put_born(&mut born, &mut bybirth, *position, &bykey(*kind, k))?;
                 }
                 let was = clocks.get(kind).copied();
                 let at = was.map_or(*at, |c| c.max(*at));

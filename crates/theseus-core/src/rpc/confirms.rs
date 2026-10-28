@@ -560,7 +560,6 @@ impl Core {
                 return 0;
             }
         };
-        self.forget_noticed(&pending);
         let mut next = u64::MAX;
         let mut expired = 0;
         // A budget question holds until it is answered.

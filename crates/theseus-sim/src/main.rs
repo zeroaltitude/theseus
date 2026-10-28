@@ -833,36 +833,15 @@ fn emit_stdout(text: &str) -> Result<()> {
 }
 
 /// What a worker appends to, and the checkpoints it takes.
-///
-/// The store's own periodic checkpoint runs on its writer the moment it has
-/// answered a batch, before the appender that was answered has told anyone
-/// (theseus-tfnz0). A kill in between left the checkpoint claiming frames
-/// whose bytes no report covered, the crash test tore into them, and the
-/// store, rightly, refused to open: a position the checkpoint calls synced
-/// was synced, and cutting it loses acknowledged records. The store was not
-/// wrong and the harness was, so the worker takes the checkpoints itself, at
-/// the cadence it was given, only while no append is between its answer and
-/// its report: every frame a checkpoint claims is one the test already knows
-/// to be durable.
 struct Worker {
     store: WalStore,
-    /// Records between checkpoints (0 = never).
-    every: u64,
-    /// Records appended since the last checkpoint.
-    since: std::sync::atomic::AtomicU64,
-    /// Held shared from an append to its report, and alone by a checkpoint.
-    reporting: std::sync::RwLock<()>,
 }
 
 impl Worker {
     fn open(dir: &Path, checkpoint_every: u64) -> Result<Self> {
-        let store = WalStore::open(dir, WalConfig::default())?.with_checkpoint_every(0);
-        Ok(Self {
-            store,
-            every: checkpoint_every,
-            since: std::sync::atomic::AtomicU64::new(0),
-            reporting: std::sync::RwLock::new(()),
-        })
+        let store =
+            WalStore::open(dir, WalConfig::default())?.with_checkpoint_every(checkpoint_every);
+        Ok(Self { store })
     }
 
     /// Append random frames, and report each one's records once its append
@@ -874,40 +853,25 @@ impl Worker {
         }
     }
 
-    /// One batch: append it, report it through `emit`, and take the
-    /// checkpoint that is due. Returns the last position the batch was given.
+    /// One batch: append it, and report it through `emit`. Returns the last
+    /// position it was given.
     fn step(&self, rng: &mut StdRng, emit: impl Fn(&str) -> Result<()>) -> Result<u64> {
         use std::fmt::Write as _;
-        use std::sync::atomic::Ordering::Relaxed;
         let batch = random_batch(rng);
         let crcs: Vec<u32> = batch.iter().map(|r| crc32fast::hash(&r.payload)).collect();
         let kinds_: Vec<u16> = batch.iter().map(|r| r.kind).collect();
-        let records = batch.len() as u64;
-        let last = {
-            let _reporting = self.reporting.read().unwrap();
-            // Durable when this returns.
-            let positions = self.store.append(&batch)?;
-            // The WAL's length, before the records it covers: a report of a
-            // record is never ahead of the report of its bytes. With several
-            // writers it may count another's frame not yet synced, which only
-            // keeps a tear further back.
-            let wal_bytes = self.store.stats()?.wal_bytes;
-            let mut text = format!("D {wal_bytes}\n");
-            for ((p, crc), k) in positions.iter().zip(crcs).zip(kinds_) {
-                writeln!(text, "C {p} {crc} {k}")?;
-            }
-            emit(&text)?;
-            positions.last().copied().unwrap_or(0)
-        };
-        if self.every > 0 && self.since.fetch_add(records, Relaxed) + records >= self.every {
-            // Alone: no other writer's batch is answered and unreported.
-            let _reporting = self.reporting.write().unwrap();
-            if self.since.load(Relaxed) >= self.every {
-                self.store.checkpoint()?;
-                self.since.store(0, Relaxed);
-            }
+        let positions = self.store.append(&batch)?; // durable when this returns
+                                                    // The WAL's length, before the records it covers: a report of a
+                                                    // record is never ahead of the report of its bytes. With several
+                                                    // writers it may count another's frame not yet synced, which only
+                                                    // keeps a tear further back.
+        let wal_bytes = self.store.stats()?.wal_bytes;
+        let mut text = format!("D {wal_bytes}\n");
+        for ((p, crc), k) in positions.iter().zip(crcs).zip(kinds_) {
+            writeln!(text, "C {p} {crc} {k}")?;
         }
-        Ok(last)
+        emit(&text)?;
+        Ok(positions.last().copied().unwrap_or(0))
     }
 }
 
