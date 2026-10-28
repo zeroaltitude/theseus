@@ -112,6 +112,13 @@ impl Core {
         if let Some(why) = unrebuildable(pack.builder) {
             bail!("{} can't be backfilled: {why}", pack.name());
         }
+        if pack.builder == theseus_judge::pack::Builder::Content {
+            bail!(
+                "{} can't be backfilled: a content state is one item's, kept in the judgment's \
+                 blob, and no event of the record is its point",
+                pack.name()
+            );
+        }
         let core = Arc::downgrade(self);
         let rt = tokio::runtime::Handle::current();
         let (who_s, via) = (who.who(), who.via());
