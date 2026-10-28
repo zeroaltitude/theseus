@@ -1158,4 +1158,17 @@ mod tests {
         let (inc, cand, errors) = graded(vec![]);
         assert_eq!((inc, cand, errors), (None, None, false));
     }
+
+    /// The operator's label wins on its WEIGHT, not on being newer: here it is
+    /// the older row, and a system `yes` written after it still loses. Every
+    /// other case above has the operator later too, so without this one a
+    /// `resolve` that dropped weight and simply took the newest row would pass
+    /// them all. The order is the real one, not a contrivance: a system rule
+    /// can land well after the operator (`content.v1`'s "kept" label is
+    /// written a week after the flag it confirms).
+    #[test]
+    fn an_operator_no_beats_a_later_system_yes_on_weight_alone() {
+        let (inc, cand, errors) = graded(vec![row(1, json!(false), 1.0), row(2, json!(true), 0.5)]);
+        assert_eq!((inc, cand, errors), (Some(false), Some(true), true));
+    }
 }
