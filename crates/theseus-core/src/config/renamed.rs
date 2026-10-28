@@ -25,6 +25,10 @@ pub const RENAMED: &[(&str, &str)] = &[
     ("watches", "watch_for"),
     ("routing.data.private_topics", "privacy.sensitive_names"),
     ("self.sealed_dir", "self.sealed.dir"),
+    ("content.enabled", "content_based_security.session_flags"),
+    ("content.injection", "content_based_security.injection"),
+    ("content.wait_ms", "content_based_security.wait_ms"),
+    ("content.max_pieces", "content_based_security.max_pieces"),
 ];
 
 /// The message for the first old key `text` has, or none (also for text that is not TOML: its own error stands).
@@ -129,6 +133,22 @@ mod tests {
             "[self]\nsealed_dir = \"/srv/theseus-sealed\"\n",
             "`[self] sealed_dir` was renamed to `[self.sealed] dir`",
         ),
+        (
+            "[content]\nenabled = false\n",
+            "`[content] enabled` was renamed to `[content_based_security] session_flags`",
+        ),
+        (
+            "[content]\ninjection = \"notify\"\n",
+            "`[content] injection` was renamed to `[content_based_security] injection`",
+        ),
+        (
+            "[content]\nwait_ms = 1000\n",
+            "`[content] wait_ms` was renamed to `[content_based_security] wait_ms`",
+        ),
+        (
+            "[content]\nmax_pieces = 3\n",
+            "`[content] max_pieces` was renamed to `[content_based_security] max_pieces`",
+        ),
     ];
 
     #[test]
@@ -229,7 +249,8 @@ mod tests {
              [route]\nreplay_day_usd = 2.0\n\
              [persona]\nimport_files = [\"SOUL.md\"]\nown_boost = 1.5\n\
              [cache]\nkeep_warm_minutes = 50\n[threads]\nkeep_warm_hours = 2\n\
-             [watches]\nmax_days = 10\n"
+             [watches]\nmax_days = 10\n\
+             [content]\ninjection = \"notify\"\nwait_ms = 1000\nmax_pieces = 3\n"
         );
         let new = format!(
             "{secrets}\n[model]\non_max_loops = \"end\"\n\
@@ -241,7 +262,9 @@ mod tests {
              [persona_import]\nimport_files = [\"SOUL.md\"]\nown_boost = 1.5\n\
              [cache]\nttl = \"1h\"\nkeep_warm_hours = 12\nkeep_warm_every_minutes = 50\n\
              threads_keep_warm_hours = 2\n\
-             [watch_for]\nmax_days = 10\n"
+             [watch_for]\nmax_days = 10\n\
+             [content_based_security]\ninjection = \"notify\"\n\
+             wait_ms = 1000\nmax_pieces = 3\n"
         );
         assert!(Config::parse(&old).is_err());
         assert_eq!(resolved(&migrated(&old)), resolved(&new));

@@ -9,7 +9,7 @@
 //!   carries a label or it does not.
 //! - **Waiting** (design §4.3): a turn bound for a restricted profile whose
 //!   session has items not yet judged waits for their verdicts, at most
-//!   `[content] wait_ms`, on the judge's per-session notify
+//!   `[content_based_security] wait_ms`, on the judge's per-session notify
 //!   (`TurnRunner::verdicts`), then **goes to Claude**: the turn is never
 //!   blocked and never fails for want of a verdict. A turn bound for Claude
 //!   never waits.
@@ -44,7 +44,7 @@ pub(super) const REFUSED: &str =
 /// judged only some of the items leaves the rest to the next one, and a notify
 /// that answers at once (the stand-in's) must not spin.
 ///
-/// It bounds the *wait* as well as the reads, which `[content] wait_ms` is
+/// It bounds the *wait* as well as the reads, which `[content_based_security] wait_ms` is
 /// supposed to do alone: every landing wakes the loop, so eight failing ones
 /// end the wait early. That mattered before the sweep re-asked a stuck mark
 /// (theseus-8qgwo) and does not now — the first sweep queues the stuck item,
@@ -202,11 +202,12 @@ impl TurnRunner {
     }
 
     /// `cn_read`, and when items are not yet judged, a wait for their verdicts
-    /// of at most `[content] wait_ms`; what is still pending then is refused
+    /// of at most `[content_based_security] wait_ms`; what is still pending then is refused
     /// (`unjudged`). Only a request bound for a restricted profile asks.
     pub(super) async fn cn_wait(&self, t: &Turn<'_>) -> Cn {
         let sid = t.tc.session_id;
-        let deadline = Instant::now() + Duration::from_millis(self.cfg.content.wait_ms);
+        let deadline =
+            Instant::now() + Duration::from_millis(self.cfg.content_based_security.wait_ms);
         let mut cn = Self::cn_read(t);
         let mut swept = false;
         let mut reasked = false;
@@ -324,7 +325,7 @@ impl TurnRunner {
 
     /// A later loop on a restricted-origin model reads the session again
     /// before it compiles: a tool's result is an item, so its verdict is
-    /// waited for (at most `[content] wait_ms`), and a label raised since
+    /// waited for (at most `[content_based_security] wait_ms`), and a label raised since
     /// moves the turn to the `[model]` default with `data_gate`, as a plain
     /// route does, instead of failing it at the chokepoint.
     ///

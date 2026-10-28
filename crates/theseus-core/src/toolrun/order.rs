@@ -30,7 +30,7 @@ pub(crate) struct At<'a> {
     pub held: &'a dyn Fn() -> Result<Option<ExternalText>, String>,
     /// The call's session's content labels (theseus-9ymz0), read only when
     /// the injection freeze is asked about: a call that is a read, and any
-    /// call where `[content] injection` is `notify`, never reads the record.
+    /// call where `[content_based_security] injection` is `notify`, never reads the record.
     pub labels: &'a dyn Fn() -> Option<crate::content::ContentFlags>,
     pub mcp: &'a dyn Fn() -> Option<Posture>,
     pub glide: Option<&'a crate::glide::Resolved>,

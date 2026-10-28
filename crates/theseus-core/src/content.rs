@@ -419,7 +419,7 @@ impl ContentFlags {
 
 // ------------------------------------------------------------ the freeze
 
-/// `[content] injection`: what an `injection` label does to a call that acts.
+/// `[content_based_security] injection`: what an `injection` label does to a call that acts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InjectionMode {

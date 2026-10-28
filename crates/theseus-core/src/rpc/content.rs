@@ -76,7 +76,7 @@ pub(crate) fn label_notice(l: &Label, mode: InjectionMode) -> String {
         ),
         (Flag::Injection, InjectionMode::Notify) => format!(
             "⚑ **injection** — {what} tried to steer me. Nothing is refused here \
-             (`[content] injection = \"notify\"`); you can clear the flag."
+             (`[content_based_security] injection = \"notify\"`); you can clear the flag."
         ),
         (Flag::Secret, _) => format!(
             "⚑ **secret** — China-origin models are off for this session: {what} showed the \
@@ -119,7 +119,7 @@ impl Core {
             "kind": "content_label",
             "session_id": session_id,
             "flag": l.flag.as_str(),
-            "text": label_notice(l, self.cfg.content.injection),
+            "text": label_notice(l, self.cfg.content_based_security.injection),
         });
         let post =
             self.outbox

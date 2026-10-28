@@ -936,8 +936,8 @@ impl Core {
                 open: vec![],
                 private: cfg.privacy.sensitive_names.clone(),
             },
-            cfg.content.enabled,
-            cfg.content.max_pieces,
+            cfg.content_based_security.session_flags,
+            cfg.content_based_security.max_pieces,
         );
         if let Some(t) = telemetry {
             runner.judge.export_to(t.clone());
@@ -1040,7 +1040,7 @@ impl Core {
         // And a turn bound for a model of restricted origin waits on the judge
         // for its session's items. Until this is set the handle is `Ready`,
         // which answers at once, so such a turn would go to Claude without ever
-        // waiting and `[content] wait_ms` would mean nothing.
+        // waiting and `[content_based_security] wait_ms` would mean nothing.
         core.runner.verdicts.set(core.runner.judge.clone());
         // The judge's sink writes between turns, as the pass does.
         core.runner
