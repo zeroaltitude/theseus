@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="206" viewBox="0 0 720 206" role="img" aria-labelledby="t-cost-codex-astra-max t-cost-codex-astra-max-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-cost-codex-astra-max">Dollars a trial, Codex on gpt-6-astra</title>
+<desc id="t-cost-codex-astra-max-d">What does one Codex on gpt-6-astra trial cost?</desc>
+<rect width="720" height="206" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Dollars a trial, Codex on gpt-6-astra</text>
+<line x1="115.1" y1="48.0" x2="115.1" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="251.7" y1="48.0" x2="251.7" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="388.4" y1="48.0" x2="388.4" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="525.0" y1="48.0" x2="525.0" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="661.6" y1="48.0" x2="661.6" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="105.1" y="68.0" font-size="12" fill="#0b0b0b" text-anchor="end">median $/trial</text>
+<g><title>median $/trial · as billed, OpenAI table: $1.14</title>
+<path d="M115.1,55.0H423.8A4,4 0 0 1 427.8,59.0V69.0A4,4 0 0 1 423.8,73.0H115.1Z" fill="#898781"/>
+</g>
+<text x="432.8" y="68.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$1.14</text>
+<text x="105.1" y="100.0" font-size="12" fill="#0b0b0b" text-anchor="end">mean $/trial</text>
+<g><title>mean $/trial · as billed, OpenAI table: $1.71</title>
+<path d="M115.1,87.0H578.5A4,4 0 0 1 582.5,91.0V101.0A4,4 0 0 1 578.5,105.0H115.1Z" fill="#898781"/>
+</g>
+<text x="587.5" y="100.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$1.71</text>
+<text x="115.1" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.00</text>
+<text x="251.7" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.50</text>
+<text x="388.4" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$1.00</text>
+<text x="525.0" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$1.50</text>
+<text x="661.6" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$2.00</text>
+<line x1="115.1" y1="112.0" x2="661.6" y2="112.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="388.4" y="146.0" font-size="12" fill="#52514e" text-anchor="middle">dollars a trial</text>
+<text x="18.0" y="168.0" font-size="11" fill="#52514e">30 trials, 30 of which reached a priced call; the other 0 cost $0 and stay in the denominator. One basis only: this arm bills no</text>
+<text x="18.0" y="183.0" font-size="11" fill="#52514e">Sonnet, so the 10-25 cache-read move has nothing to move.</text>
+</svg>
