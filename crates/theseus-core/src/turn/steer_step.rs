@@ -43,7 +43,7 @@ impl TurnRunner {
     ) -> Option<Result<TurnSubmitResult>> {
         // A person's typed input, or the owner's into a task (theseus-slmj1):
         // anyone else's queues as it did.
-        let steerable = class == Class::Person || (class == Class::Task && req.sink.owner);
+        let steerable = class.is_typed(req.sink.owner);
         let text = req.input.as_ref().filter(|_| steerable)?;
         if req.prompt.is_some() {
             return None;

@@ -252,8 +252,14 @@ function statedPoint(slice: Slice, m: SliceMember, run: { id: string; label: str
  *  has to be short: the date, which is what tells two runs of one arm apart, and the variant only where one slice
  *  holds two of an arm's runs on the same day. The manifest's long `harness` line is the tip's and the table's. */
 function runOf(r: IndexRow, members: readonly SliceMember[]): { id: string; label: string } {
-  const sameDay = members.filter((m) => m.row.arm === r.arm && m.row.date === r.date).length > 1
-  return { id: `${r.report}|${r.variant}`, label: sameDay ? `${r.date}, ${r.variant}` : r.date }
+  const sameDay = members.filter((m) => m.row.arm === r.arm && m.row.date === r.date)
+  const id = `${r.report}|${r.variant}`
+  if (sameDay.length <= 1) return { id, label: r.date }
+  // The variant tells two of an arm's runs apart where the variant is what differs. Where it is not -- one harness
+  // measured on two models on one day, as OpenClaw was on 2026-10-27 -- every variant is the same string and naming
+  // them by it draws two dots with one name. The model is what differs there, so the model is what names them.
+  const byVariant = new Set(sameDay.map((m) => m.row.variant)).size === sameDay.length
+  return { id, label: `${r.date}, ${byVariant ? r.variant : (r.armModel ?? r.variant)}` }
 }
 
 /** A slice's points: one a member. Its own table where that table can name it and folds to the figure the manifest
