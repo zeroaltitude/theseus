@@ -23,17 +23,17 @@ use crate::routine::{plan, Env};
 use crate::test_support::{rows, until_within as until};
 use crate::{Config, Core};
 
-const TARGET: &str = "discord:dm:42";
+pub(crate) const TARGET: &str = "discord:dm:42";
 const BRIEF: &str = "Read the tide table and say when the next high tide is.";
 
 /// A stand-in model: it answers every turn with `Tide at 06:12.`, after
 /// `delay_ms` when that is set, and calls `routine_create` for the one turn the
 /// test scripts.
-struct Model {
-    requests: Mutex<Vec<ProviderRequest>>,
-    delay_ms: AtomicU64,
+pub(crate) struct Model {
+    pub(crate) requests: Mutex<Vec<ProviderRequest>>,
+    pub(crate) delay_ms: AtomicU64,
     call: Mutex<Option<Value>>,
-    text: Mutex<String>,
+    pub(crate) text: Mutex<String>,
 }
 
 fn answers_a_call(req: &ProviderRequest) -> bool {
@@ -74,9 +74,9 @@ impl Provider for Model {
     }
 }
 
-struct Rig {
-    core: Arc<Core>,
-    model: Arc<Model>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) model: Arc<Model>,
     driver: tokio::task::JoinHandle<()>,
     _dir: tempfile::TempDir,
 }
@@ -87,7 +87,7 @@ impl Drop for Rig {
     }
 }
 
-fn rig() -> Rig {
+pub(crate) fn rig() -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -121,7 +121,7 @@ fn cli() -> Client {
     Client::new("sock#1", Surface::Cli)
 }
 
-async fn rpc(core: &Arc<Core>, method: &str, params: Value) -> Result<Value, String> {
+pub(crate) async fn rpc(core: &Arc<Core>, method: &str, params: Value) -> Result<Value, String> {
     let (ours, theirs) = tokio::io::duplex(64 * 1024);
     let (sr, sw) = tokio::io::split(theirs);
     let srv = tokio::spawn(core.clone().serve_connection(sr, sw, cli()));
@@ -143,7 +143,7 @@ async fn rpc(core: &Arc<Core>, method: &str, params: Value) -> Result<Value, Str
     out
 }
 
-fn reports(core: &Core) -> Vec<Value> {
+pub(crate) fn reports(core: &Core) -> Vec<Value> {
     core.kernel
         .outbox_actions()
         .unwrap()
@@ -155,7 +155,7 @@ fn reports(core: &Core) -> Vec<Value> {
 }
 
 /// `routine.create` for a minute series.
-async fn made(core: &Arc<Core>, extra: Value) -> Value {
+pub(crate) async fn made(core: &Arc<Core>, extra: Value) -> Value {
     let mut p = json!({"title": "Tide check", "schedule": "every 1m", "brief": BRIEF});
     for (k, v) in extra.as_object().unwrap() {
         p[k] = v.clone();
@@ -165,7 +165,7 @@ async fn made(core: &Arc<Core>, extra: Value) -> Value {
 
 /// The routine's wake, set to fire in a second (a minute series is too slow to
 /// wait for: the wake's own snooze moves its next time).
-async fn due_soon(core: &Arc<Core>) {
+pub(crate) async fn due_soon(core: &Arc<Core>) {
     let wakes = rpc(core, "wake.list", json!({})).await.unwrap();
     let w = wakes["wakes"]
         .as_array()
@@ -182,7 +182,7 @@ async fn due_soon(core: &Arc<Core>) {
     .unwrap();
 }
 
-async fn runs(core: &Arc<Core>, id: &str) -> Vec<Value> {
+pub(crate) async fn runs(core: &Arc<Core>, id: &str) -> Vec<Value> {
     rpc(core, "routine.runs", json!({"id": id})).await.unwrap()["runs"]
         .as_array()
         .unwrap()
