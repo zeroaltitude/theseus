@@ -24,7 +24,7 @@ for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
 **v1 patch3 (version 1.0.3)** is the principles migration: the review of 2026-10-27 held the trust, privacy and content
 machinery against four of the owner's principles (a trusted machine, so notify and block only the irreversible; the
 session is the true record; models of restricted origin are the operator's control, by labels and not by proof; less
-code) and rebuilt it in eleven rows (Beads `theseus-gyjyo`). Part III Item 259 is the as-built record, with each row's
+code) and rebuilt it in twelve rows (Beads `theseus-gyjyo`). Part III Item 259 is the as-built record, with each row's
 divergence from the plan. What it changes:
 
 - **Four labels on a session** (`injection`, `secret`, `confidential`, `personal`), each removable with one tap, read by
@@ -64,7 +64,8 @@ divergence from the plan. What it changes:
 Where it stands: R0, R1 and R2 reached `main` on 2026-10-28 and are installed (#98); the other rows joined the
 principles lane, which merges to `main` once after a gate of the merged tree. What the owner still decides is listed
 at the end of Item 259 (Google content and a model of EU origin; the two exits the substitution cannot see; a locked
-approval card and the DM golden's `/trust` line; an AWS L1 job and the egress list).
+approval card and the DM golden's `/trust` line; an AWS L1 job and the egress list; whether a Remove of a names
+label holds against the next item naming the word).
 
 ## v1 patch2
 

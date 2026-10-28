@@ -25,7 +25,7 @@ on it. It sends it nowhere except as the next section says.
 Theseus reads every calendar the account can see (a calendar shared into the account appears with no config edit), or
 only those `[google] calendars` lists. A calendar of a workplace's domain (a Google Workspace domain, by the calendar's
 id or its owner) is `sensitive` with no config; `[google] sensitive_domains` names those domains instead, and a listed
-calendar can be marked `sensitive` too. Its events are read only into a conversation or note that runs on a model of US origin, are never
+calendar can be marked `sensitive` too. Its events are never
 offered to a shared place such as a Discord channel others can read, and are written to no log or ledger row: the
 record of a read holds the calendar's label and a status, never an event's title, place, guests or call link.
 Reading one raises a `personal` label on the conversation (next section), which keeps it off models of China or
@@ -83,8 +83,10 @@ shared place.
 messages are not rewritten, and a key that appears in them is in the store, on the owner's machine. What leaves the
 machine is different: the value of every secret Theseus itself read from the owner's secret store (and its base64,
 percent-encoded and JSON-escaped forms) is replaced by `[redacted:<name>]` in each request to a model provider, each
-Discord message, the text sent to Jev and each push line, so a provider never receives Theseus's own keys. Anything
-that only looks like a key, and a key Theseus never read from the store, is not recognised and goes as written; for a
+Discord message, the text sent to Jev and each push line. Anything
+that only looks like a key, and a key Theseus never read from the store, is not recognised and goes as written;
+a value of a secret the daemon does not hold at that moment (failed at its start, rotated, removed), or one cut in
+two by a size limit, is not recognised either; for a
 model of China or unknown origin the `secret` label is the guard. `theseus inspect` says which secret, by name, went
 in which request to which model. `[privacy] redact_outbound = false` turns the replacement off.
 
