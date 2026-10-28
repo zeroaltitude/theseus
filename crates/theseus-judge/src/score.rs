@@ -199,7 +199,7 @@ pub const WATCH: [&str; 4] = [
     "sec_14_project_config_password",
     "sec_15_local_settings_ini",
     "conf_14_real_customers_in_a_test_fixture",
-    "fp_06_stratajam_claude_md_grep_as_judged",
+    "fp_06_the_owners_own_example_as_judged",
 ];
 
 /// A report on `files` (a name and the text of a captured run each), in the

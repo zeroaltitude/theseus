@@ -220,7 +220,7 @@ mod tests {
         // under content.v1, as a clean case.
         let own = v3
             .iter()
-            .find(|c| c.name == "fp_06_stratajam_claude_md_grep_as_judged")
+            .find(|c| c.name == "fp_06_the_owners_own_example_as_judged")
             .expect("the owner's own example");
         assert!(own.expect.values().all(|v| v == "no"));
         assert_eq!(own.input["kind"], "tool_result");
