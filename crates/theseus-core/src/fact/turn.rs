@@ -97,7 +97,7 @@ impl Fact for TurnStarted<'_> {
                 Turn,
                 format!(
                     "Waited {} for the vault: {} needs its key, and every secret must be known \
-                     before a tool result is scrubbed.",
+                     before a request leaves.",
                     narrative::duration(self.secrets_us / 1000),
                     t.provider
                 ),

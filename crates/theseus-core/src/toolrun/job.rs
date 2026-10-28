@@ -1042,9 +1042,9 @@ impl ToolRuntime {
     }
 
     /// A job's result on its own frame, announced; then the job's raw output
-    /// goes (theseus-wz2). The file held what the job printed before the
-    /// scrubber saw it, a printed secret too; the node holds the scrubbed,
-    /// capped text, and nothing reads the file again. A restart between the
+    /// goes (theseus-wz2). The file held what the job printed, a printed
+    /// secret too; the node holds the same text, capped, and nothing reads the
+    /// file again. A restart between the
     /// two leaves the file, 0600 in the private spool.
     pub(super) fn answer_job(
         &self,

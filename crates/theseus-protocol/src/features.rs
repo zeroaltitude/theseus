@@ -13,7 +13,8 @@ pub struct Features {
     pub memory: String,
     /// Jev: routing live or in shadow, or `off` and why.
     pub jev: String,
-    /// The secret scrub: always on.
+    /// Outbound substitution: the vault's values replaced on what leaves, on
+    /// unless `[privacy] redact_outbound = false`.
     pub scrub: String,
     /// The budgets: the daemon's daily ceiling, and what a session's limit does.
     pub budgets: String,
