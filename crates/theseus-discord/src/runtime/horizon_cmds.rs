@@ -614,6 +614,21 @@ impl Shared {
         true
     }
 
+    /// The session of the place an interaction came from: its channel's, else
+    /// its author's DM's.
+    fn place_session(&self, i: &Interaction) -> Option<String> {
+        let channel = i.channel.as_ref()?.id.get();
+        let user = i.author()?.id.get();
+        let tx = {
+            let r = self.routes.lock().unwrap();
+            r.by_channel
+                .get(&channel)
+                .or_else(|| r.by_dm_user.get(&user))
+                .cloned()
+        }?;
+        self.session_of(&tx)
+    }
+
     async fn horizon_command(&self, i: &Interaction, c: &CommandData, who: &str) {
         let private = target_of(i).is_some_and(|t| self.is_private(&t));
         if !private {
@@ -627,6 +642,10 @@ impl Shared {
                     self.redraw_private_boards();
                 }
                 let s = self.tasks.future.snapshot();
+                let going = self
+                    .place_session(i)
+                    .map(|session| self.tasks.going_in(&session))
+                    .unwrap_or_default();
                 let t = agenda_text(
                     span,
                     theseus_protocol::now_unix_ms(),
@@ -634,7 +653,7 @@ impl Shared {
                     &s.routines,
                     &s.watches,
                     &s.projects,
-                    &[],
+                    &going,
                 );
                 self.reply_ephemeral(i, t).await;
             }

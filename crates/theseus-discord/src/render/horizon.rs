@@ -9,7 +9,8 @@ use theseus_protocol::routines::RoutineInfo;
 use theseus_protocol::usd;
 use theseus_protocol::watches::WatchInfo;
 use theseus_protocol::work::horizon::{AgendaLine, AgendaWhat};
-use theseus_protocol::work::WorkView;
+use theseus_protocol::work::progress_line::progress_line;
+use theseus_protocol::work::{WorkKind, WorkState, WorkView};
 
 use super::clip;
 use super::v2::{button, row, text, Look};
@@ -23,6 +24,8 @@ pub const COMING: usize = 5;
 pub const ROUTINES: usize = 3;
 /// How many projects the board tries first.
 pub const PROJECTS: usize = 3;
+/// How many tasks going `/agenda` names before it folds the rest.
+pub const GOING: usize = 6;
 
 /// What the board's future sections are drawn from.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -91,14 +94,33 @@ pub fn next_lines(lines: &[AgendaLine], n: usize) -> Vec<AgendaLine> {
 /// deferred task is an occurrence, `AgendaWhat::Starts`, and a routine's run is a task of its own), longest-running
 /// first. A task waiting on the owner is going: it holds a place on the timeline until it ends.
 pub fn going(views: &[WorkView]) -> Vec<WorkView> {
-    let _ = views;
-    Vec::new()
+    let mut v: Vec<WorkView> = views
+        .iter()
+        .filter(|v| {
+            v.kind == WorkKind::Task
+                && !v.state.ended()
+                && v.state != WorkState::Queued
+                && v.started_at_ms > 0
+                && v.next_at_ms.is_none()
+        })
+        .cloned()
+        .collect();
+    v.sort_by_key(|v| (v.started_at_ms, v.id.clone()));
+    v
 }
 
 /// One line of a task going: `▶ title · since <t:…:R> · $0.40 of $2`, the daemon's own progress line after it.
 pub fn going_line(v: &WorkView, now_ms: u64) -> String {
-    let _ = (v, now_ms);
-    String::new()
+    let mut s = format!(
+        "▶ {} · since <t:{}:R>",
+        clip(&v.title.replace('\n', " "), 50),
+        v.started_at_ms / 1000
+    );
+    if let Some(p) = progress_line(v, now_ms) {
+        s.push_str(" · ");
+        s.push_str(&clip(&p, 60));
+    }
+    s
 }
 
 /// `$0.86 of $10`.
@@ -288,8 +310,13 @@ pub fn agenda_text(
     };
     out.push(format!("**📅 Agenda** · {head}"));
     out.push("**⏰ Coming up**".into());
-    if coming.is_empty() {
+    if coming.is_empty() && going_now.is_empty() {
         out.push("nothing dated".into());
+    }
+    // New lines, ahead of what is coming (theseus-1t4q8): the tasks going now.
+    out.extend(going_now.iter().take(GOING).map(|v| going_line(v, now_ms)));
+    if going_now.len() > GOING {
+        out.push(format!("-# +{} more going · /task", going_now.len() - GOING));
     }
     out.extend(coming.iter().take(15).map(|l| coming_line(l, now_ms)));
     if coming.len() > 15 {
