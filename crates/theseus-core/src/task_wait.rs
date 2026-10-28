@@ -885,7 +885,7 @@ pub(crate) fn split_room(total: usize, n: usize, cap: usize) -> Vec<usize> {
 
 /// `r`'s text within `per` characters, and where its whole text is kept when
 /// it was cut.
-fn fit(
+pub(crate) fn fit(
     core: &Core,
     session: &str,
     r: &Report,

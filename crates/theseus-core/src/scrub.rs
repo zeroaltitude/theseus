@@ -353,6 +353,37 @@ mod tests {
         assert!(out.contains("ghp_short"), "too short to be a token");
     }
 
+    /// The scrubber knows what the vault gave it and nothing else: a key's or
+    /// a token's shape, a private-key block, a JWT, a connection URL's
+    /// password are text, as the tool printed them (the record is raw, and
+    /// a guess has no place in what leaves it).
+    #[test]
+    fn only_a_value_the_vault_gave_is_replaced_and_no_shape_is() {
+        let s = Scrubber::with_values(vec![("hunter2hunter2".into(), "db_password".into())]);
+        let text = "pw=hunter2hunter2 key=sk-ant-api03-abcdefghijklmnop end \
+                    ghp_inventedinventedinvented";
+        assert_eq!(
+            s.scrub(text),
+            (
+                "pw=[redacted:db_password] key=sk-ant-api03-abcdefghijklmnop end \
+                 ghp_inventedinventedinvented"
+                    .to_string(),
+                1
+            )
+        );
+        let none = Scrubber::default();
+        for kept in [
+            "Access key ID,Secret access key\nAKIAINVENTEDEXAMPLE7,wJalrXUtnFEMI/K7MDENG/bPxRfiCYINVENTEDKY\n",
+            "aws_secret_access_key = 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",
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\nINVENTEDINVENTEDINVENTED==\n-----END OPENSSH PRIVATE KEY-----",
+            "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpbnZlbnRlZCJ9.c2lnbmF0dXJlLWludmVudGVk\n",
+            "postgres://app:s3cr3t-invented@db.internal/app",
+            "ghp_x then ghp_inventedinventedinvented",
+        ] {
+            assert_eq!(none.scrub(kept), (kept.to_string(), 0), "{kept}");
+        }
+    }
+
     /// A value is scrubbed from the moment the board has it.
     #[test]
     fn values_come_from_the_board_as_they_resolve() {

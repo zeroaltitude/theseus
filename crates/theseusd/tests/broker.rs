@@ -447,13 +447,14 @@ fn a_program_run_by_its_own_argv_gets_its_secret_and_nothing_else_does() {
 
 /// A program that prints its own granted secret (theseus-l0d), as `gh auth
 /// token` does: it prints `GH_TOKEN` split across two writes, among other
-/// output on stdout and stderr, then waits to be let go. While it waits, its
-/// spool file holds everything it printed, byte for byte, with the value
-/// withheld; once it ends, no file under the state dir, no surface, and not
-/// the log holds the value, and the result's report counts the withheld
-/// value.
+/// output on stdout and stderr, then waits to be let go. The record is raw:
+/// while it waits, its spool file holds everything it printed, byte for byte,
+/// the value among it; once it ends, the result's node holds it as printed,
+/// read back out of the store, and the store's files hold it. The log holds
+/// no value (nothing writes job output there), and the report counts no
+/// withholding.
 #[test]
-fn a_program_that_prints_its_granted_secret_leaves_it_nowhere() {
+fn a_program_that_prints_its_granted_secret_leaves_it_in_the_record_as_printed() {
     let r = Rig::start();
     let value = format!("tv-github_token{MARK}");
     let release = r.path("release");
@@ -497,7 +498,7 @@ fn a_program_that_prints_its_granted_secret_leaves_it_nowhere() {
             s["session_id"].clone()
         }
     });
-    let want = "line one\nthe token: [redacted:github_token], done\non stderr\n";
+    let want = format!("line one\nthe token: {value}, done\non stderr\n");
     let results = r.path("state/spool/results");
     let out = r.wait("the job's output in the spool", || {
         let f = std::fs::read_dir(&results)
@@ -510,7 +511,7 @@ fn a_program_that_prints_its_granted_secret_leaves_it_nowhere() {
     assert_eq!(
         String::from_utf8_lossy(&out),
         want,
-        "the spool file, while the job runs"
+        "the spool file, while the job runs: what the job printed"
     );
     std::fs::write(&release, "").unwrap();
     let session = turn.join().unwrap();
@@ -519,11 +520,10 @@ fn a_program_that_prints_its_granted_secret_leaves_it_nowhere() {
         t.contains("released").then_some(t)
     });
     assert!(
-        text.contains("the token: [redacted:github_token], done"),
-        "{text}"
+        text.contains(&format!("the token: {value}, done")),
+        "the node, read back out of the store: {text}"
     );
-    assert!(!text.contains(&value));
-    // The result's node keeps the job's report, which counts the value.
+    // The result's node keeps the job's report, which counts nothing withheld.
     let nodes = r
         .call(
             "node.list",
@@ -531,23 +531,21 @@ fn a_program_that_prints_its_granted_secret_leaves_it_nowhere() {
         )
         .unwrap();
     let report = &nodes["nodes"][0]["detail"]["meta"]["detail"];
-    assert_eq!(report["withheld"], 1, "{nodes}");
-    // Nowhere: the store, the spool, the log, and every surface.
-    assert_eq!(
-        holding(&r.path("state"), value.as_bytes()),
-        Vec::<PathBuf>::new()
+    assert!(report.get("withheld").is_none(), "{nodes}");
+    // The store holds the node as printed; the log holds nothing of it.
+    assert!(
+        !holding(&r.path("state"), value.as_bytes()).is_empty(),
+        "the store's files hold the value the job printed"
     );
     assert_eq!(
         holding(&r.path("theseusd.log"), value.as_bytes()),
         Vec::<PathBuf>::new()
     );
-    for (method, params) in [
-        ("session.history", json!({"session_id": session})),
-        ("ledger.tail", json!({"n": 2000})),
-        ("narrative.watch", Value::Null),
-        ("health", Value::Null),
-    ] {
-        let got = r.call(method, params).unwrap_or_else(|e| e).to_string();
-        assert!(!got.contains(&value), "{method} holds the value");
-    }
+    let history = r
+        .call("session.history", json!({"session_id": session}))
+        .unwrap()
+        .to_string();
+    assert!(history.contains(&value), "the session shows what was printed");
+    let health = r.call("health", Value::Null).unwrap().to_string();
+    assert!(!health.contains(&value), "health holds no value");
 }
