@@ -295,6 +295,47 @@ impl Dynamic {
     pub fn items(&self, s: Source) -> &[Item] {
         self.sources.get(&s).map_or(&[], Vec::as_slice)
     }
+
+    /// The sources a pack's questions draw on: what its `only_when`,
+    /// `options_from` and `per` read.
+    pub fn needed(pack: &Pack) -> BTreeSet<Source> {
+        let mut out = BTreeSet::new();
+        for q in &pack.questions {
+            out.extend([q.only_when, q.options_from, q.per].into_iter().flatten());
+        }
+        out
+    }
+
+    /// What a judgment's record keeps of these sources (theseus-gyjyo.1): the
+    /// items of every source `pack`'s questions draw on, an empty list for one
+    /// the builder found nothing for, so a source missing from the record
+    /// means it was never recorded, not that it was empty.
+    pub fn recorded(&self, pack: &Pack) -> serde_json::Value {
+        let map: BTreeMap<Source, &[Item]> = Self::needed(pack)
+            .into_iter()
+            .map(|s| (s, self.items(s)))
+            .collect();
+        serde_json::to_value(map).unwrap_or_default()
+    }
+
+    /// The sources back from a judgment's record, for a candidate whose
+    /// questions draw on them. `Err`: the ones the record does not hold (all
+    /// of them when it holds none).
+    pub fn from_record(record: &serde_json::Value, pack: &Pack) -> Result<Dynamic, Vec<Source>> {
+        let held: BTreeMap<Source, Vec<Item>> = serde_json::from_value(record.clone())
+            .unwrap_or_default();
+        let missing: Vec<Source> = Self::needed(pack)
+            .into_iter()
+            .filter(|s| !held.contains_key(s))
+            .collect();
+        if !missing.is_empty() {
+            return Err(missing);
+        }
+        Ok(Dynamic {
+            sources: held,
+            assets: Vec::new(),
+        })
+    }
 }
 
 /// A question as one state asks it: its id (a per-item Noul's carries the
