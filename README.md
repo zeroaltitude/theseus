@@ -242,7 +242,7 @@ These hold whatever the model does:
 Theseus is at v1 patch2 (version 1.0.2), runs on Linux, and has one daily user. Its weak spots are measured and published
 alongside its wins: [the benchmarks](docs/benchmarks/omnibus.md) say where it loses, and
 **[the status page](docs/status.md)** says what works today and what comes next, including what is still rough in
-Jev's routing, the compiled context, voice, threads, personas. That page changes with every step;
+Jev's routing, the compiled context, voice, threads and personas. That page changes with every step;
 this one doesn't.
 
 **About the name.** Plutarch's ship of Theseus was kept by replacing its planks one at a time as they wore out.
