@@ -618,6 +618,8 @@ mod tests_sink_off_turn;
 #[cfg(test)]
 mod tests_situation;
 #[cfg(test)]
+mod tests_split_shadow;
+#[cfg(test)]
 mod tests_stack;
 #[cfg(test)]
 mod tests_standing;

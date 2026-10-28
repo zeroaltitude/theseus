@@ -103,6 +103,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (gate::SECURITY_PACK, PackMode::Live),
     (inbound::CLASSIFY_PACK, PackMode::Live),
     (inbound::ROLE_PACK, PackMode::Shadow),
+    (inbound::SPLIT_PACK, PackMode::Shadow),
     (inbound::ROUTE_PACK, PackMode::Live),
     (inbound::DIRECTIVE_PACK, PackMode::Live),
     (onto::ONTO_PACK, PackMode::Live),
