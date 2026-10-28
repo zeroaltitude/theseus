@@ -2,7 +2,9 @@
 
 ## Where to start
 
-1. **[The README](../README.md)**: what Theseus is, why it exists, and how to set it up.
+1. **[The README](../README.md)**: what Theseus is, why it exists, and how to set it up. Each of its features has
+   a page of its own under **[features/](features/README.md)**: how it is built, what is measured, what is still
+   rough, and what is coming.
 2. **[Status and roadmap](status.md)**: what works today, what is being wired in, what comes next, and when.
    It is updated with every step that lands.
 3. **[Technical overview](technical-overview.md)**: the core in depth. It covers the protocol, the store (a
