@@ -284,7 +284,7 @@ fn the_live_pack_is_content_v3_and_the_old_two_stay_embedded() {
     for old in ["content.v1", "content.v2", "content.v3"] {
         assert!(theseus_judge::pack::by_name(old).is_some(), "{old}");
     }
-    assert_eq!(crate::judge::wired_mode(PACK), crate::judge::PackMode::Live);
+    assert_eq!(crate::judge::wired_mode(PACK), crate::config::judge::PackMode::Live);
 }
 
 /// What the daemon knows about where an item sits reaches the state
