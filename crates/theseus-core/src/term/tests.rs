@@ -598,6 +598,39 @@ async fn cat_echoes_and_ctrl_c_ends_it() {
     assert_eq!(terms.close_session("s1", BY_SESSION_END).len(), 1);
 }
 
+/// A terminal whose program is `gh`, or a shell sent text that names it, is outside text from then on
+/// (a stranger's issue text): every screen is marked. No config lists it, and nothing holds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_terminal_that_runs_gh_is_marked_outside_text() {
+    let d = tempfile::tempdir().unwrap();
+    let terms = terms();
+    // A shell is not marked, until it is sent `gh`'s name.
+    let (o, ext) = call(&terms, "s1", OPEN, json!({"argv": ["sh"]}), d.path()).await;
+    let sh = id_of(&o);
+    assert!(ext.is_none());
+    call(
+        &terms,
+        "s1",
+        SEND,
+        json!({"terminal": sh, "text": "echo plain\n"}),
+        d.path(),
+    )
+    .await;
+    let (_, ext) = call(&terms, "s1", READ, json!({"terminal": sh}), d.path()).await;
+    assert!(ext.is_none(), "plain text marks nothing");
+    call(
+        &terms,
+        "s1",
+        SEND,
+        json!({"terminal": sh, "text": "gh issue view 1 || true\n"}),
+        d.path(),
+    )
+    .await;
+    let (o, ext) = call(&terms, "s1", READ, json!({"terminal": sh}), d.path()).await;
+    assert!(ext.is_some(), "{}", o.text);
+    assert_eq!(terms.close_session("s1", BY_SESSION_END).len(), 1);
+}
+
 /// At most four terminals a session; a fifth is refused with why, and
 /// another session still opens its own. A bad size or key is invalid input.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
