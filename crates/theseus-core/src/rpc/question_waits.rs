@@ -45,9 +45,7 @@ struct Noticed {
 /// expired: a call's. The `owner_ask` applies its default, and an extension's
 /// ack and a pack's promotion are declined as before.
 pub(crate) fn held_past_life(a: &Action) -> bool {
-    a.tool != crate::ask::OWNER_ASK
-        && a.tool != crate::extend::ACK
-        && a.tool != super::packs::PROMOTE
+    theseus_protocol::work::ask::held_tool(&a.tool)
 }
 
 /// A wait in words: `15 minutes`, `1 hour 30 minutes`, `2 hours`.
@@ -113,5 +111,23 @@ impl Core {
         tracing::info!(correlation_id = %a.correlation_id, tool = %a.tool, waited_ms = waited,
             "a question waits past its life; told, not cancelled");
         Ok(next)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The clients' shared list of expiring tools is the core's own three: a
+    /// new operator question kind that must expire is added to both, or this
+    /// fails (theseus-lrc3m, review C's F3).
+    #[test]
+    fn the_protocols_expiring_tools_are_the_cores() {
+        assert_eq!(
+            theseus_protocol::work::ask::EXPIRING_TOOLS,
+            [
+                crate::ask::OWNER_ASK,
+                crate::extend::ACK,
+                super::super::packs::PROMOTE
+            ]
+        );
     }
 }
