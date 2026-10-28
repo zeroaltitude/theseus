@@ -66,7 +66,8 @@ may_answer?: boolean,
  */
 preview?: ConfirmPreview, 
 /**
- * "Yes, and don't ask again" for this conversation (theseus-drjs).
+ * A plan question's other yes: approve, and move the conversation to
+ * edits mode (theseus-lyxy).
  */
 grant_offer?: GrantOffer, 
 /**
