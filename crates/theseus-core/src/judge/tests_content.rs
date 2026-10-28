@@ -1,4 +1,4 @@
-//! `content.v1` live (theseus-9ymz0): the ask, against the fake Jev. Items are
+//! `content.v2` live (theseus-9ymz0): the ask, against the fake Jev. Items are
 //! queued, asked in one decision point a batch, and landed between turns as
 //! labels on the session. The tests drive `ask_content` directly, so no turn
 //! (and no hook site) is in them.
@@ -42,7 +42,7 @@ fn yes(jev: &FakeJev, q: &str, confidence: f64) {
 
 fn rig(jev: &FakeJev, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
     rig_with(texts(1), Some(jev), |c| {
-        // The rigs turn content.v1 off, so their Jev counts stay theirs.
+        // The rigs turn content.v2 off, so their Jev counts stay theirs.
         c.judge.packs.remove(PACK);
         c.judge.total_secs = 5;
         tweak(c);

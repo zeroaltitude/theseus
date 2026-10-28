@@ -1,4 +1,4 @@
-//! `content.v1` (theseus-9ymz0): every item that enters a session is asked about
+//! `content.v2` (theseus-9ymz0; v2 theseus-78qay): every item that enters a session is asked about
 //! by itself, and what Jev finds becomes a durable label on the session
 //! (`crate::content`). The hook sites queue what they wrote (`ask_content`) and
 //! go on: nothing here is on a turn's path. This is `reply_data.rs`'s shape,
@@ -44,7 +44,11 @@ use crate::fact::content::{AnswerRow, ContentJudged, ContentLabelled, ContentUnj
 use crate::node::{Body, Node};
 
 /// The pack: the four content questions about one item.
-pub const PACK: &str = "content.v1";
+///
+/// v2 since theseus-78qay (the owner, 2026-10-27): a flag describes what an item
+/// REVEALS, not what it is ABOUT. v1 stays embedded, as the record of what the
+/// judgments before the bump were answered against.
+pub const PACK: &str = "content.v2";
 
 /// How long a session's queue waits, after its first item, for the rest of the
 /// loop's results to join the batch.

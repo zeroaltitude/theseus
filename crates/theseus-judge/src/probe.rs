@@ -68,6 +68,11 @@ struct Args {
     /// With `--eval`: run only these cases (comma-separated names).
     #[arg(long, value_delimiter = ',', requires = "eval")]
     only: Vec<String>,
+    /// With `--eval`: take the cases from another pack's labelled set, so two
+    /// versions of one pack can be scored on the same set (`--eval content.v1
+    /// --eval-set content.v2`). Labelled sets only (theseus-78qay).
+    #[arg(long, value_name = "PACK", requires = "eval")]
+    eval_set: Option<String>,
     /// Print every embedded pack's questions as Markdown, for review, and
     /// make no call.
     #[arg(long)]
@@ -173,7 +178,15 @@ async fn run(args: Args) -> Result<()> {
     let mut tally = Tally::default();
     if let Some(name) = &args.eval {
         let fake = fake_for_eval.take();
-        let r = run_eval(name, &args.only, client, fake.as_ref(), &mut tally).await;
+        let r = run_eval(
+            name,
+            args.eval_set.as_deref(),
+            &args.only,
+            client,
+            fake.as_ref(),
+            &mut tally,
+        )
+        .await;
         tally.print();
         return r;
     }
@@ -244,19 +257,38 @@ async fn run(args: Args) -> Result<()> {
     Ok(())
 }
 
-/// The eval set of `name`, one call per case.
+/// Which labelled set `--eval <name> [--eval-set <from>]` runs, or `None` when
+/// `name` has no labelled set and the older `eval::set` path serves it
+/// (theseus-78qay).
+fn labelled_set_for<'a>(name: &'a str, from: Option<&'a str>) -> Result<Option<&'a str>> {
+    let has = |p: &str| crate::eval_labelled::PACKS.contains(&p);
+    match from {
+        None => Ok(has(name).then_some(name)),
+        Some(f) if !has(f) => bail!(
+            "--eval-set takes a labelled set (have: {})",
+            crate::eval_labelled::PACKS.join(", ")
+        ),
+        Some(_) if !has(name) => bail!("--eval-set needs --eval to name a labelled set too"),
+        Some(f) => Ok(Some(f)),
+    }
+}
+
+/// The eval set of `name`, one call per case. `--eval-set` takes the cases from
+/// another pack's labelled set instead, so two versions of a pack can be scored
+/// on one set (theseus-78qay).
 async fn run_eval(
     name: &str,
+    from: Option<&str>,
     only: &[String],
     client: JevClient,
     fake: Option<&FakeJev>,
     tally: &mut Tally,
 ) -> Result<()> {
+    if let Some(from) = labelled_set_for(name, from)? {
+        return run_labelled_eval(name, from, only, client, fake, tally).await;
+    }
     if name == "heard.v1" {
         return run_heard_eval(only, client, fake, tally).await;
-    }
-    if crate::eval_labelled::PACKS.contains(&name) {
-        return run_labelled_eval(name, only, client, fake, tally).await;
     }
     let pack = eval::pack_of(name)?;
     let mut cases = eval::set(name)?;
@@ -424,13 +456,17 @@ async fn run_heard_eval(
 /// or missed, then the tally.
 async fn run_labelled_eval(
     name: &str,
+    from: &str,
     only: &[String],
     client: JevClient,
     fake: Option<&FakeJev>,
     tally: &mut Tally,
 ) -> Result<()> {
     let pack = eval::pack_of(name)?;
-    let mut cases = crate::eval_labelled::set(name)?;
+    let mut cases = crate::eval_labelled::set(from)?;
+    if from != name {
+        println!("== {name} over {from}'s set");
+    }
     if !only.is_empty() {
         cases.retain(|c| only.contains(&c.name));
     }
@@ -490,7 +526,7 @@ async fn run_labelled_eval(
         }
     }
     println!(
-        "== eval {name}: {} case(s); {met} expectation(s) met, {missed} missed, {unanswered} case(s) unanswered",
+        "== eval {name} over {from}'s set: {} case(s); {met} expectation(s) met, {missed} missed, {unanswered} case(s) unanswered",
         cases.len()
     );
     Ok(())

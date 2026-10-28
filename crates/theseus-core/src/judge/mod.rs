@@ -204,7 +204,7 @@ pub struct JudgeService {
     categorize: categorize::Point,
     /// `people.v1`'s live point (theseus-wy7y): its decisions.
     pub(crate) people: people::live::Point,
-    /// `content.v1`'s queues, one a session (theseus-9ymz0).
+    /// `content.v2`'s queues, one a session (theseus-9ymz0).
     pub(crate) content: content::Point,
     /// The card's exchange-end observer: its decisions (theseus-6f8t0).
     pub(crate) observing: crate::card::observe::Point,

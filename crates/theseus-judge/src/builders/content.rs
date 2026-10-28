@@ -1,4 +1,4 @@
-//! `content.v1` (theseus-9ymz0): one item that entered a session, asked about
+//! `content.v2` (theseus-9ymz0): one item that entered a session, asked about
 //! by itself: what it was, where it came from, and its text, scrubbed and
 //! capped. The pack's four questions read the same state. `injection` is not
 //! asked of the operator's own words: this builder sets the `untrusted` source
@@ -47,7 +47,7 @@ pub fn asks_injection(kind: &str) -> bool {
     !matches!(kind, OPERATOR_MESSAGE | TASK_BRIEF)
 }
 
-/// `content.v1`'s input: one item.
+/// `content.v2`'s input: one item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContentInput {
@@ -68,7 +68,7 @@ pub struct ContentInput {
     pub data_names: DataNames,
 }
 
-/// `content.v1`: the item's kind and source, which piece it is when it is one
+/// `content.v2`: the item's kind and source, which piece it is when it is one
 /// of several, the operator's names, and the text.
 pub fn content(i: &ContentInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     let c = Clipper::new(scrub);
@@ -124,7 +124,7 @@ mod tests {
     }
 
     fn asked(i: &ContentInput) -> Vec<String> {
-        let p = by_name("content.v1").unwrap();
+        let p = by_name("content.v2").unwrap();
         let prepared = prepare(&p, &Input::Content(i.clone()), &NoScrub).unwrap();
         p.ask(&prepared.dynamic).into_iter().map(|a| a.id).collect()
     }
@@ -135,7 +135,7 @@ mod tests {
     /// (`content::Flag::bar`), so no number here differs by question.
     #[test]
     fn the_pack_is_what_the_design_says() {
-        let p = by_name("content.v1").expect("content.v1 is embedded");
+        let p = by_name("content.v2").expect("content.v2 is embedded");
         assert_eq!(p.jev_model, "jev-1.13.0");
         assert_eq!(p.point, crate::pack::Point::Item);
         assert_eq!(p.builder, Builder::Content);
@@ -225,7 +225,7 @@ mod tests {
     /// only when given, and holds the text in a state of a fixed size.
     #[test]
     fn the_state_holds_the_item_its_kind_its_source_and_its_piece() {
-        let p = by_name("content.v1").unwrap();
+        let p = by_name("content.v2").unwrap();
         let mut i = input("tool_result");
         let v = prepare(&p, &Input::Content(i.clone()), &NoScrub)
             .unwrap()
@@ -264,7 +264,7 @@ mod tests {
     /// a piece the caller made (`PIECE_CHARS`) fits whole.
     #[test]
     fn a_piece_fits_the_state_whole() {
-        let p = by_name("content.v1").unwrap();
+        let p = by_name("content.v2").unwrap();
         let line = "the quick brown fox jumps over the lazy dog\n";
         let text: String = line.repeat(PIECE_CHARS / line.len());
         assert!(text.len() <= PIECE_CHARS);
@@ -315,7 +315,7 @@ mod tests {
                 text.replace("hunter2", "[hidden]")
             }
         }
-        let p = by_name("content.v1").unwrap();
+        let p = by_name("content.v2").unwrap();
         let mut i = input("tool_result");
         i.text = "password is hunter2".into();
         let built = prepare(&p, &Input::Content(i), &Hide).unwrap().state;
