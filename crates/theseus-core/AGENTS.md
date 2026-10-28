@@ -1925,7 +1925,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     **The table is `[content_based_security]`** (theseus-gyjyo.2; it was `[content]`, whose keys are each a hard error naming their
     new home in `config/renamed.rs`): `session_flags` (was `enabled`), `injection`, `wait_ms`, `max_pieces`, and three keys **parsed and exposed
     only**, read by later rows of the principles migration: `cn_models` (`always | follow_flags | never`), `context` (handed to the pack
-    verbatim), and `[privacy] public_paths` / `redact_outbound`. `session_flags = false` with `cn_models = "follow_flags"` refuses to start
+    verbatim), and `[privacy] open_source_paths` / `redact_outbound`. `session_flags = false` with `cn_models = "follow_flags"` refuses to start
     (`ContentBasedSecurityConfig::validate`): with nothing judged there are no labels to follow. Tests: `config/tests_content_based_security.rs`.
     **The data rule is on the record** (theseus-a1wvq.11; `tests_observability.rs`): the route row (`route.decided`) carries `cn`
     (`allowed`, `pending`, a flag's word, `unjudged`), `data_gate` only when the rule kept the turn off a restricted-origin model,

@@ -94,7 +94,7 @@ fn the_keys_the_later_rows_read_parse() {
     Config::parse(&doc(
         "[content_based_security]\ncontext = \"A personal assistant.\"\nmax_pieces = 3\n\
          wait_ms = 0\ninjection = \"notify\"\n\
-         [privacy]\npublic_paths = [\"~/projects/theseus\"]\nredact_outbound = false\n",
+         [privacy]\nopen_source_paths = [\"~/projects/theseus\"]\nredact_outbound = false\n",
     ))
     .unwrap_or_else(|e| panic!("{e:#}"));
 }

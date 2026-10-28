@@ -1599,6 +1599,7 @@ impl Config {
         self.ontology.validate()?;
         self.validate_data_floor()?;
         self.content_based_security.validate()?;
+        self.privacy.validate()?;
         self.import.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;

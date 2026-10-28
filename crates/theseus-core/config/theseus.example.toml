@@ -1806,8 +1806,10 @@ max_switches = 2                        # moves per task, up or down
 # name goes in your own config only, never in the repository.
 # [privacy]
 # sensitive_names = ["examplecorp", "examplecorpinc", "example-repo"]
-# public_paths = ["~/projects/example-open-source"]  # directories whose work is public; the classifier
-#                                       # is told an item from there is. Read by a later step
+# open_source_paths = ["~/projects/example-open-source"]  # directories whose work is public; the classifier
+#                                       # is told an item from there is. Read by a later step.
+#                                       # NOT [places] public_paths below, which opens trees to a
+#                                       # shared place's file tools. This one only tells the classifier.
 # redact_outbound = true                # the vault's values are replaced on copies that leave the
 #                                       # machine. Read by a later step
 
