@@ -24,47 +24,101 @@ use crate::content::ItemKind;
 
 /// Who put an item there, as the pack reads it.
 pub fn author_of(kind: ItemKind) -> &'static str {
-    let _ = kind;
-    unimplemented!()
+    match kind {
+        ItemKind::OperatorMessage => "owner",
+        ItemKind::PersonMessage => "person",
+        ItemKind::ToolResult
+        | ItemKind::FetchedPage
+        | ItemKind::SearchResult
+        | ItemKind::TaskBrief
+        | ItemKind::TaskReport => "tool",
+    }
 }
 
 /// `path` with `home` shown as `~`: `~/projects/example`, or the path as it was.
 pub fn home_shown(path: &str, home: Option<&Path>) -> String {
-    let _ = (path, home);
-    unimplemented!()
+    let Some(home) = home else {
+        return path.to_string();
+    };
+    match Path::new(path).strip_prefix(home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.to_string(),
+    }
 }
 
 /// `path` with `.` and `..` resolved by name, without touching the disk.
 pub fn lexical(path: &Path) -> PathBuf {
-    let _ = path;
-    unimplemented!()
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 /// Whether `path` is `tree` or inside it, by component.
 pub fn under(path: &Path, tree: &Path) -> bool {
-    let _ = (path, tree);
-    unimplemented!()
+    lexical(path).starts_with(lexical(tree))
 }
 
 /// The paths a `source` line names: each word that starts with `/` or `~/`, a
 /// trailing `:line` or punctuation dropped. A URL names none.
 pub fn paths_in(source: &str) -> Vec<String> {
-    let _ = source;
-    unimplemented!()
+    source
+        .split_whitespace()
+        .filter(|w| w.starts_with('/') || w.starts_with("~/"))
+        .map(|w| {
+            let w = w.trim_end_matches([',', ';', ')', '\'', '"']);
+            // `a.rs:12:` and `a.rs:12:5`: a path never ends in a number after a colon.
+            let mut end = w.len();
+            while let Some(i) = w[..end].rfind(':') {
+                if w[i + 1..end].chars().all(|c| c.is_ascii_digit()) {
+                    end = i;
+                } else {
+                    break;
+                }
+            }
+            w[..end].to_string()
+        })
+        .filter(|w| !w.is_empty())
+        .collect()
 }
 
 /// The paths a tool call's input names: the string values (and the strings of an
 /// array) under `path`, `paths`, `file`, `files`, `dir`, `cwd` and `root`.
 pub fn call_paths(input: &Value) -> Vec<String> {
-    let _ = input;
-    unimplemented!()
+    let mut out = Vec::new();
+    let Some(map) = input.as_object() else {
+        return out;
+    };
+    for key in ["path", "paths", "file", "files", "dir", "cwd", "root"] {
+        match map.get(key) {
+            Some(Value::String(s)) if !s.is_empty() => out.push(s.clone()),
+            Some(Value::Array(a)) => out.extend(
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string),
+            ),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Where a session speaks and works.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scene {
-    /// `private` or `shared`.
-    pub place: &'static str,
+    /// `private` or `shared`; none when the place cannot be read.
+    pub place: Option<&'static str>,
     /// The session's directory, absolute: its record's, else the daemon's.
     pub dir: Option<String>,
 }
@@ -79,22 +133,64 @@ pub struct Around {
 
 impl Around {
     pub fn new(open_source: Vec<PathBuf>, context: &str, home: Option<PathBuf>) -> Self {
-        let _ = (open_source, context, home);
-        unimplemented!()
+        Self {
+            open_source,
+            context: context.trim().to_string(),
+            home,
+        }
+    }
+
+    /// From the daemon's config: `[privacy] open_source_paths`,
+    /// `[content_based_security] context`, and `$HOME`.
+    pub fn from_config(cfg: &crate::Config) -> Self {
+        Self::new(
+            cfg.privacy.expanded_open_source_paths(),
+            &cfg.content_based_security.context,
+            std::env::var_os("HOME").map(PathBuf::from),
+        )
+    }
+
+    /// `path` as an absolute path: `~/` from home, a relative one from `dir`.
+    fn resolve(&self, path: &str, dir: Option<&str>) -> Option<PathBuf> {
+        if let Some(rest) = path.strip_prefix("~/") {
+            return self.home.as_ref().map(|h| h.join(rest));
+        }
+        let p = Path::new(path);
+        if p.is_absolute() {
+            return Some(p.to_path_buf());
+        }
+        dir.map(|d| Path::new(d).join(p))
+    }
+
+    fn open(&self, path: &Path) -> bool {
+        self.open_source.iter().any(|t| under(path, t))
     }
 
     /// Whether the operator lists the item's tree as open source (see the module
     /// note): `paths` are the ones the item names, each absolute, `~/`, or
     /// relative to `dir`; none names the session's directory.
     pub fn public(&self, dir: Option<&str>, paths: &[String]) -> bool {
-        let _ = (dir, paths);
-        unimplemented!()
+        if self.open_source.is_empty() {
+            return false;
+        }
+        if paths.is_empty() {
+            return dir.is_some_and(|d| self.open(Path::new(d)));
+        }
+        paths
+            .iter()
+            .all(|p| self.resolve(p, dir).is_some_and(|p| self.open(&p)))
     }
 
     /// `input` with the five fields set.
     pub fn apply(&self, input: &mut ContentInput, kind: ItemKind, scene: &Scene, paths: &[String]) {
-        let _ = (input, kind, scene, paths);
-        unimplemented!()
+        input.author = Some(author_of(kind).to_string());
+        input.place = scene.place.map(str::to_string);
+        input.project = scene
+            .dir
+            .as_deref()
+            .map(|d| home_shown(d, self.home.as_deref()));
+        input.public = self.public(scene.dir.as_deref(), paths);
+        input.context = (!self.context.is_empty()).then(|| self.context.clone());
     }
 }
 
@@ -246,7 +342,7 @@ mod tests {
             ..ContentInput::default()
         };
         let scene = Scene {
-            place: "private",
+            place: Some("private"),
             dir: Some("/home/owner/projects/lantern".into()),
         };
         around().apply(&mut i, ItemKind::ToolResult, &scene, &[]);
@@ -261,7 +357,7 @@ mod tests {
         // An empty paragraph is not stated; a shared place and an owner's words.
         let mut j = i.clone();
         let scene = Scene {
-            place: "shared",
+            place: Some("shared"),
             dir: None,
         };
         Around::new(vec![], "  ", None).apply(&mut j, ItemKind::OperatorMessage, &scene, &[]);

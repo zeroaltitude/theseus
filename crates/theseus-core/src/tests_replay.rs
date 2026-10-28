@@ -666,18 +666,30 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
 }
 
 const CONTENT_V2: &str = include_str!("../../theseus-judge/packs/content.v2.toml");
+const CONTENT_V3: &str = include_str!("../../theseus-judge/packs/content.v3.toml");
 
-/// A stored `content.v2` judgment of one item, the way the daemon writes it:
+/// A stored `content.v3` judgment of one item, the way the daemon writes it:
 /// the state's blob staged and named in the context, and, when `recorded`,
 /// the dynamic sources the pack's conditional question resolved against.
 fn content_judgment(c: &Core, id: &str, kind: &str, text: &str, recorded: bool) -> Judgment {
-    let pack = theseus_judge::pack::by_name("content.v2").unwrap();
+    content_judgment_by(c, "content.v3", id, kind, text, recorded)
+}
+
+/// The same, made by `pack` (`content.v2`'s states carry none of v3's fields).
+fn content_judgment_by(
+    c: &Core,
+    pack: &str,
+    id: &str,
+    kind: &str,
+    text: &str,
+    recorded: bool,
+) -> Judgment {
+    let pack = theseus_judge::pack::by_name(pack).unwrap();
     let input = Input::Content(theseus_judge::builders::ContentInput {
         text: text.into(),
         kind: kind.into(),
         source: "fetch https://example.test/page".into(),
-        piece: None,
-        data_names: Default::default(),
+        ..Default::default()
     });
     let p = theseus_judge::prepare(&pack, &input, &NoScrub).unwrap();
     let blob = c.store.blobs().put(p.state.json.as_bytes()).unwrap();
@@ -688,7 +700,7 @@ fn content_judgment(c: &Core, id: &str, kind: &str, text: &str, recorded: bool) 
     }
     let mut j = judgment(
         id,
-        "content.v2",
+        &pack.name(),
         &StateRecord::from(p.state.as_ref()),
         ["confidential", "injection", "personal", "secret"]
             .iter()
@@ -697,19 +709,19 @@ fn content_judgment(c: &Core, id: &str, kind: &str, text: &str, recorded: bool) 
             .collect(),
         context,
     );
-    j.version = 2;
+    j.version = pack.version;
     j.point = theseus_judge::pack::Point::Item;
     j.pack_sha256 = pack.sha256.clone();
     j
 }
 
-/// The candidate: `content.v2`'s text as the next version with one
+/// The candidate: `content.v3`'s text as the next version with one
 /// instruction reworded, which is how a hand-written candidate is made (a
 /// replay refuses the wired version and the incumbent itself, and a candidate
 /// that asks the same things is only rebanded, with no state sent). Its
 /// questions are the incumbent's, `injection` still conditional.
-fn content_v3() -> String {
-    CONTENT_V2.replacen("version = 2", "version = 3", 1).replacen(
+fn content_next() -> String {
+    CONTENT_V3.replacen("version = 3", "version = 4", 1).replacen(
         "Judge what this item reveals, not what it is about: does it reveal an organisation's",
         "Judge carefully what this item reveals, not what it is about: does it reveal an organisation's",
         1,
@@ -719,11 +731,11 @@ fn content_v3() -> String {
 /// The same candidate at a learned version (25f numbers a learned pack from
 /// `propose::LEARNED_FROM`, 101).
 fn content_learned() -> String {
-    content_v3().replacen("version = 3", "version = 101", 1)
+    content_next().replacen("version = 4", "version = 101", 1)
 }
 
 async fn replay_content(c: &Arc<Core>, ids: &[&str]) -> JudgeReplayResult {
-    replay_content_with(c, content_v3(), ids).await
+    replay_content_with(c, content_next(), ids).await
 }
 
 async fn replay_content_with(c: &Arc<Core>, pack: String, ids: &[&str]) -> JudgeReplayResult {
@@ -857,4 +869,93 @@ async fn a_content_judgment_with_no_record_of_its_sources_is_rebuilt_from_its_bl
     let sent = jev.seen()[0].body["state"].clone();
     let want: Value = serde_json::from_str(&stored).unwrap();
     assert_eq!(sent, want);
+}
+
+/// A judgment `content.v2` made carries none of v3's fields, and v3's state
+/// does (theseus-gyjyo.11): the candidate's state differs by builder, so the
+/// replay rebuilds it from the blob and gives it the five fields the daemon
+/// would give the item now -- the author from its kind, the paragraph from the
+/// config, the rest from the session when the record has it. Read at replay
+/// time, not as they stood when the item was judged: the module's note.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_v2_judgment_replayed_under_v3_is_rebuilt_with_the_five_fields() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(vec![], &jev, |c| {
+        c.content_based_security.context =
+            "An assistant. ~/projects/lantern is open source.".into();
+        c.privacy.open_source_paths = vec!["/home/owner/projects/lantern".into()];
+    });
+    let c = &r.core;
+    let mut rec =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    rec.dir = Some("/home/owner/projects/lantern".into());
+    c.store
+        .put_session("ses_x", &{
+            rec.session_id = "ses_x".into();
+            rec
+        })
+        .unwrap();
+    let old = content_judgment_by(
+        c,
+        "content.v2",
+        "jdg_v2",
+        "tool_result",
+        "A page about herons.",
+        true,
+    );
+    c.store.append(&[call_row(&old, 10)]).unwrap();
+    let out = replay_content(c, &["jdg_v2"]).await;
+    assert!(out.left_out.is_empty(), "{:?}", out.left_out);
+    assert_eq!(
+        (out.stored, out.rebuilt, out.called),
+        (0, 1, 1),
+        "v2's state is not v3's"
+    );
+    let sent = jev.seen()[0].body["state"].clone();
+    for (k, want) in [
+        ("author", json!("tool")),
+        ("public", json!(true)),
+        ("project", json!("/home/owner/projects/lantern")),
+        (
+            "context",
+            json!("An assistant. ~/projects/lantern is open source."),
+        ),
+    ] {
+        assert_eq!(sent[k], want, "{k}: {sent}");
+    }
+}
+
+/// A judgment `content.v3` made is served as it was sent, its five fields as
+/// they stood, whatever the session and the config say now.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_v3_judgment_is_replayed_with_its_fields_as_judged() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(vec![], &jev, |c| {
+        c.content_based_security.context = "Changed since.".into();
+    });
+    let c = &r.core;
+    let mut j = content_judgment(c, "jdg_v3", "tool_result", "A page about herons.", true);
+    // The stored state, with the fields as they stood when it was judged.
+    let pack = theseus_judge::pack::by_name("content.v3").unwrap();
+    let input = Input::Content(theseus_judge::builders::ContentInput {
+        text: "A page about herons.".into(),
+        kind: "tool_result".into(),
+        source: "fetch https://example.test/page".into(),
+        author: Some("tool".into()),
+        place: Some("private".into()),
+        project: Some("~/projects/lantern".into()),
+        public: true,
+        context: Some("As it stood.".into()),
+        ..Default::default()
+    });
+    let p = theseus_judge::prepare(&pack, &input, &NoScrub).unwrap();
+    j.state = StateRecord::from(p.state.as_ref());
+    j.context["blob"] = json!(c.store.blobs().put(p.state.json.as_bytes()).unwrap());
+    c.store.append(&[call_row(&j, 10)]).unwrap();
+    let out = replay_content(c, &["jdg_v3"]).await;
+    assert!(out.left_out.is_empty(), "{:?}", out.left_out);
+    assert_eq!((out.stored, out.rebuilt), (1, 0));
+    let sent = jev.seen()[0].body["state"].clone();
+    assert_eq!(sent["context"], "As it stood.", "{sent}");
+    assert_eq!(sent["project"], "~/projects/lantern");
 }

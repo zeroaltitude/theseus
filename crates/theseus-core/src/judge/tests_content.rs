@@ -276,6 +276,111 @@ async fn a_judgment_records_the_sources_its_conditional_question_resolved_agains
     );
 }
 
+/// The pack that is live is `content.v3` (theseus-gyjyo.11); v1 and v2 stay
+/// embedded for their stored judgments.
+#[test]
+fn the_live_pack_is_content_v3_and_the_old_two_stay_embedded() {
+    assert_eq!(PACK, "content.v3");
+    for old in ["content.v1", "content.v2", "content.v3"] {
+        assert!(theseus_judge::pack::by_name(old).is_some(), "{old}");
+    }
+    assert_eq!(crate::judge::wired_mode(PACK), crate::judge::PackMode::Live);
+}
+
+/// What the daemon knows about where an item sits reaches the state
+/// (theseus-gyjyo.11): who wrote it, the place, the session's directory, whether
+/// the operator lists the tree as open source, and the operator's paragraph.
+/// An item whose source names a path outside the listed trees is not public,
+/// whatever directory the session sits in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_judgment_states_who_wrote_it_where_it_sits_and_whether_the_tree_is_public() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |c| {
+        c.privacy.open_source_paths = vec!["/home/owner/projects/lantern".into()];
+        c.content_based_security.context =
+            "An assistant. ~/projects/lantern is open source; the company's work is not.".into();
+    });
+    let rec = {
+        let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+        rec.dir = Some("/home/owner/projects/lantern".into());
+        rec
+    };
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let sid = rec.session_id.clone();
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![
+            item_in(
+                &r,
+                &sid,
+                "n1",
+                ItemKind::OperatorMessage,
+                "count the herons",
+            ),
+            from_in(
+                &r,
+                &sid,
+                "n2",
+                ItemKind::ToolResult,
+                "fs.grep",
+                "README.md:1: # Lantern",
+            ),
+            from_in(
+                &r,
+                &sid,
+                "n3",
+                ItemKind::ToolResult,
+                "fs.read /home/owner/work/company/plan.md",
+                "the plan",
+            ),
+        ],
+    );
+    until(&r, "content.judged", 3).await;
+    let t0 = Instant::now();
+    let calls = loop {
+        let found: Vec<Value> = r
+            .core
+            .store
+            .scope_after("judge:content", 0)
+            .unwrap()
+            .into_iter()
+            .map(|rec| rec.decode::<crate::ledger::LedgerRow>().unwrap().data)
+            .collect();
+        if found.len() >= 3 || t0.elapsed() > Duration::from_secs(20) {
+            break found;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let state = |node: &str| -> Value {
+        let call = calls.iter().find(|d| d["context"]["node"] == node).unwrap();
+        let blob = call["context"]["blob"].as_str().unwrap();
+        let json = r
+            .core
+            .store
+            .blobs()
+            .base64(blob)
+            .and_then(|b| crate::blobs::decode(&b).ok())
+            .map(|b| String::from_utf8(b).unwrap())
+            .unwrap();
+        serde_json::from_str(&json).unwrap()
+    };
+    let (own, grep, other) = (state("n1"), state("n2"), state("n3"));
+    assert_eq!(own["author"], "owner");
+    assert_eq!(grep["author"], "tool");
+    assert_eq!(grep["place"], "private");
+    assert_eq!(grep["project"], "/home/owner/projects/lantern");
+    assert_eq!(grep["public"], true, "{grep}");
+    assert_eq!(
+        grep["context"],
+        "An assistant. ~/projects/lantern is open source; the company's work is not."
+    );
+    assert!(
+        other.get("public").is_none(),
+        "a file outside the tree is not public, in a session inside it: {other}"
+    );
+}
+
 /// Test 17. A loop's ten results go in one `ask_content`: one decision point,
 /// ten pieces in it, and every judgment names the same batch. Ten results
 /// queued one at a time inside the coalescing window join into one batch too.
