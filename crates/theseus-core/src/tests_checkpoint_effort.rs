@@ -23,8 +23,7 @@ use crate::Config;
 /// profile `live`, under the rig's own sections; Sonnet 5.5 takes no per-message effort, and every
 /// request is long enough for the sticky rule.
 fn sonnethi(c: &mut Config, live: &str) {
-    let text = Config::EXAMPLE_TOML
-        .replace("live = \"sonnet\"\n", &format!("live = \"{live}\"\n"));
+    let text = Config::EXAMPLE_TOML.replace("live = \"sonnet\"\n", &format!("live = \"{live}\"\n"));
     let (mut with, _) = Config::parse(&text).unwrap();
     with.server = c.server.clone();
     with.tools = c.tools.clone();
