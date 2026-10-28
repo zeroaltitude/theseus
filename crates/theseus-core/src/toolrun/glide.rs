@@ -1,7 +1,7 @@
 //! A glide's run (38b), the harness's side of `channel.post` and
 //! `channel.read` (`crate::glide`): its places resolved again, the place
-//! rule checked again, and its result node with its row, and its post or
-//! its hold, written in the one frame that settles the call.
+//! rule checked again, and its result node with its row, and its post,
+//! written in the one frame that settles the call.
 //!
 //! The check again is for a call that waited: a place the binding rebound
 //! while its question was open may have a stricter class by now, and a call

@@ -1129,8 +1129,6 @@ impl Lane {
         let mut note = render::card_note(&route, &card.line, elsewhere);
         let key = key_of_card(&q);
         let note_key = format!("approval:{q}");
-        // A call that waits because its session read external text gets the
-        // third button, which trusts the session again (theseus-9bp).
         let mut buttons = ask::card_buttons(&req, &q);
         // The card as one V2 message (theseus-2j2ka) when the bot may send one.
         let v2 = self.shared.v2_cards() && !req.options.is_empty();

@@ -91,7 +91,7 @@ mod tests {
         let page = result("n2", "http.fetch", 20, Some("https://site.test/a"));
         let search = result("n3", "web.search", 30, Some("tides"));
         assert!(!is_outside(&local) && is_outside(&page) && is_outside(&search));
-        assert_eq!(first(&[local.clone()]), None);
+        assert_eq!(first(std::slice::from_ref(&local)), None);
         assert_eq!(
             first(&[local, page, search]),
             Some(Outside {

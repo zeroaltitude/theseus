@@ -6,8 +6,7 @@
 //!
 //! 1. **The tool.** `extend.propose { name, dir, command, description,
 //!    tests?, network? }`, run by the harness: class `Run`, posture `notify`
-//!    in the template's `[policy.tools]`, and waiting under T1's hold like any
-//!    `Run` call. `dir` must be inside the workspace roots.
+//!    in the template's `[policy.tools]`, and judged like any `Run` call. `dir` must be inside the workspace roots.
 //! 2. **Freeze** (`freeze.rs`): `dir` is copied into
 //!    `<state>/extensions/<name>/<digest>/`, read-only, the digest a SHA-256
 //!    over the tree, so a later edit in the workspace changes nothing that

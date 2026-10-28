@@ -590,6 +590,6 @@ async fn a_call_naming_a_host_beyond_the_list_runs_with_a_notice_naming_it() {
     let marked = r
         .results(&res.session_id)
         .iter()
-        .any(|n| crate::external::is_outside(n));
+        .any(crate::external::is_outside);
     assert!(marked, "its result is still marked outside text");
 }

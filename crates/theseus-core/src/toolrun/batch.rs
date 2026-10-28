@@ -1,6 +1,6 @@
 //! A batch's gate (`proc.run`'s `steps`, theseus-7gir.3): each step is
 //! judged as the call it would be alone, through the whole order (the
-//! place's refusal, the floor, the lists, a grant's posture, the hold), and
+//! place's refusal, the floor, the lists, a grant's posture), and
 //! the batch takes the strictest. A refusal of any step refuses it; else the
 //! floor over approve over notify over open, its reason naming the step
 //! that set it. The proposal a confirmation binds is the whole call's input,

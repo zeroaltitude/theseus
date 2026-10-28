@@ -30,7 +30,7 @@ impl TurnRunner {
             })
             .collect();
         let title = match title_from(&prompt.text()) {
-            t if t.is_empty() => prompt.author.clone(),
+            t if t.is_empty() => prompt.author,
             t => t,
         };
         super::title_step::retitle(session, title, self.cfg.sessions.retitle_within_turns);

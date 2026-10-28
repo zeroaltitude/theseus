@@ -1488,7 +1488,7 @@ impl ToolRuntime {
         ran_at: Posture,
     ) -> Result<CallOutcome> {
         // A glide's post rides in its completion's frame, and a read from a
-        // shared place brings its hold there (38b).
+        // shared place is marked outside text there (38b).
         if crate::glide::is_glide(tool.name()) {
             return self.run_glide(tc, correlation_id, tool, call, ran_at);
         }

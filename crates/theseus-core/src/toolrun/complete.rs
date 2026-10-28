@@ -1,4 +1,4 @@
-//! A call's completion frame and the hold's narrative line. Split from
+//! A call's completion frame. Split from
 //! `toolrun.rs` at rewind's join (theseus-23rk), which gave the frame the
 //! records that ride in it.
 

@@ -5,7 +5,7 @@
 //! the call, which never waits on Jev.
 //!
 //! - **Which calls** ([`flagged`]): posture `open` (no notice of its own),
-//!   not made to wait by the external-text hold, and v3's judgment answered
+//!   and v3's judgment answered
 //!   by its pinned model, `risky` act-true (at least the pack's `act`, 0.90).
 //!   Only `risky` decides; a skipped, failed, or shed judgment posts none.
 //! - **Off the call's path.** The gate's spawned task posts it once the
