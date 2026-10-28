@@ -584,7 +584,7 @@ pub(crate) mod tests {
             limit_usd: 2.0,
             turn_usd: None,
         });
-        let after = agenda_text(Span::All, NOW, &lines, &[], &[], &[], &[live.clone()]);
+        let after = agenda_text(Span::All, NOW, &lines, &[], &[], &[], &[live]);
         let mut extra: Vec<&str> = after.lines().collect();
         let said: Vec<&str> = before.lines().collect();
         let line_going = extra
