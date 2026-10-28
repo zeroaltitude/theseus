@@ -107,7 +107,7 @@ fn it_names_each_requests_vault_secrets_and_whether_they_were_substituted() {
     let rows = vec![
         row(
             1,
-            json!({"op": "stream", "loop": 0, "names": ["anthropic_key", "db_password"], "count": 3, "substituted": true}),
+            json!({"op": "stream", "provider": "anthropic", "model": "claude-sonnet-5-5", "loop": 0, "names": ["anthropic_key", "db_password"], "count": 3, "substituted": true}),
         ),
         row(
             2,
@@ -115,7 +115,7 @@ fn it_names_each_requests_vault_secrets_and_whether_they_were_substituted() {
         ),
         row(
             3,
-            json!({"op": "stream", "loop": 1, "names": ["db_password"], "count": 1, "substituted": false}),
+            json!({"op": "stream", "provider": "anthropic", "model": "claude-sonnet-5-5", "loop": 1, "names": ["db_password"], "count": 1, "substituted": false}),
         ),
     ];
     let (out, err, seen) = run(&["inspect"], script(inspected(rows)));
@@ -123,12 +123,38 @@ fn it_names_each_requests_vault_secrets_and_whether_they_were_substituted() {
     let want = [
         format!("turn {T} of {S}: ended, 2 loops"),
         "loop 0  anthropic/claude-sonnet-5-5  compilation cmp_a1  digest dig0abc".into(),
-        "  carried anthropic_key, db_password (3 met): substituted before it left".into(),
+        "  carried anthropic_key, db_password (3 met) to anthropic/claude-sonnet-5-5: substituted before it left".into(),
         "loop 1  anthropic/claude-sonnet-5-5  compilation cmp_a1  digest dig1abc".into(),
-        "  carried db_password (1 met): SENT AS WRITTEN (redact_outbound is off)".into(),
+        "  carried db_password (1 met) to anthropic/claude-sonnet-5-5: SENT AS WRITTEN (redact_outbound is off)".into(),
     ];
     assert_eq!(out.lines().collect::<Vec<_>>(), want, "{err}");
     assert!(!out.contains("x_only"), "a token count is no request");
+}
+
+/// A compaction call runs on its own profile, which can be another model than
+/// the loop's answer: its line names the model the call went to, from its own
+/// row, and says it was a compaction call.
+#[test]
+fn a_compaction_call_names_its_own_model() {
+    let rows = vec![
+        row(
+            1,
+            json!({"op": "stream", "provider": "anthropic", "model": "claude-sonnet-5-5", "loop": 0, "names": ["anthropic_key"], "count": 1, "substituted": true}),
+        ),
+        row(
+            2,
+            json!({"op": "compaction", "provider": "openai", "model": "gpt-summary", "loop": 0, "names": ["db_password"], "count": 2, "substituted": true}),
+        ),
+    ];
+    let (out, _, _) = run(&["inspect"], script(inspected(rows)));
+    assert!(
+        out.contains("  carried db_password (2 met) in a compaction call to openai/gpt-summary: substituted before it left"),
+        "{out}"
+    );
+    assert!(
+        out.contains("  carried anthropic_key (1 met) to anthropic/claude-sonnet-5-5: substituted"),
+        "{out}"
+    );
 }
 
 /// A turn whose requests carried nothing says so, rather than printing nothing.

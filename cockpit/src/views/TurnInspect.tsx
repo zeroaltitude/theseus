@@ -9,7 +9,7 @@ import { ArrowLeft, ArrowRight, Brain, ChevronDown, ChevronRight, ClipboardCopy,
 import type { ContextExplainResult, InspectCall, InspectLoop, TurnInspectResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { cn, ms, short, stamp, tokens, us, usd } from '@/lib/format'
-import { blockWords, breakpointParts, cacheShare, callTiming, layout, loopDiff, rowsOfCall, signed, type Bar } from '@/lib/inspect'
+import { blockWords, breakpointParts, cacheShare, callTiming, layout, loopDiff, rowsOfCall, signed, where, type Bar } from '@/lib/inspect'
 import { Empty, Panel, Pill } from '@/components/ui'
 import { JsonView } from '@/components/JsonView'
 import { TurnFlame } from '@/components/TurnFlame'
@@ -278,7 +278,7 @@ function Response({ l, r }: { l: InspectLoop; r: TurnInspectResult }) {
         {a.request_id && <Kv k="request id">{a.request_id}</Kv>}
         {a.request_digest && <Kv k="request digest">{a.request_digest}</Kv>}
         {a.redacted.map((x, i) => (
-          <Kv key={i} k="vault secrets">{x.names.length ? x.names.join(', ') : `${x.count} value${x.count === 1 ? '' : 's'}`} · {x.substituted ? 'substituted before it left' : 'sent as written (redact_outbound is off)'}</Kv>
+          <Kv key={i} k="vault secrets">{x.names.length ? x.names.join(', ') : `${x.count} value${x.count === 1 ? '' : 's'}`} · {x.substituted ? 'substituted before it left' : 'sent as written (redact_outbound is off)'}{where(x)}</Kv>
         ))}
         {t && <Kv k="latency">call {us(t.call)}{t.firstByte != null ? ` · first byte ${us(t.firstByte)}` : ''}{t.firstToken != null ? ` · first token ${us(t.firstToken)}` : ''}{t.streaming != null ? ` · streaming ${us(t.streaming)}` : ''}</Kv>}
         {!t && timing && <Kv k="latency">{timing.total_ms != null ? `call ${ms(timing.total_ms)}` : ''}{timing.first_byte_ms != null ? ` · first byte ${ms(timing.first_byte_ms)}` : ''}{timing.first_token_ms != null ? ` · first token ${ms(timing.first_token_ms)}` : ''}</Kv>}

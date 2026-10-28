@@ -111,6 +111,14 @@ pub struct InspectAnswer {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct InspectRedacted {
+    /// Which request it was: `stream` (the loop's own call) or `compaction`
+    /// (the summary call that made room for it, which runs on its own
+    /// profile).
+    pub op: String,
+    /// Where the request went: the provider and model of THIS request, which
+    /// for a compaction call is not the loop's answer's.
+    pub provider: String,
+    pub model: String,
     /// The secrets' names, sorted. Empty for a surface that reads no private
     /// text (`withheld`): it learns how many and whether substituted.
     pub names: Vec<String>,

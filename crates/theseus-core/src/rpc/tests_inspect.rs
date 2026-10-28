@@ -376,9 +376,37 @@ fn an_answer_names_the_vault_secrets_its_request_carried() {
         1,
         false,
     );
+    // A compaction call runs on its own profile: its row says which model it
+    // went to, not the loop's.
+    row(
+        &core,
+        T0 + 920,
+        "request.redacted",
+        &s,
+        &t,
+        json!({"provider": "openai", "model": "gpt-summary", "names": ["db_password"], "count": 2,
+               "substituted": true, "op": "compaction", "loop": 0, "correlation_id": "act_c0"}),
+    );
     let r = inspect(&core, &s, &t, true);
     let a0 = r.loops[0].answer.as_ref().unwrap();
-    assert_eq!(a0.redacted.len(), 1, "{:?}", a0.redacted);
+    assert_eq!(a0.redacted.len(), 2, "{:?}", a0.redacted);
+    assert_eq!(
+        (
+            a0.redacted[0].op.as_str(),
+            a0.redacted[0].provider.as_str(),
+            a0.redacted[0].model.as_str()
+        ),
+        ("stream", "anthropic", "claude-sonnet-5")
+    );
+    assert_eq!(
+        (
+            a0.redacted[1].op.as_str(),
+            a0.redacted[1].provider.as_str(),
+            a0.redacted[1].model.as_str()
+        ),
+        ("compaction", "openai", "gpt-summary")
+    );
+    assert_eq!(a0.redacted[1].correlation_id.as_deref(), Some("act_c0"));
     assert_eq!(a0.redacted[0].names, ["anthropic_key", "db_password"]);
     assert_eq!(
         (a0.redacted[0].count, a0.redacted[0].substituted),

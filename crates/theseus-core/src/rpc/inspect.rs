@@ -325,7 +325,7 @@ fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], private: bo
             }
             "request.redacted" => {
                 // Only a model call's: a token count is no loop's request.
-                if let (Some(i), Some("stream")) =
+                if let (Some(i), Some(op @ ("stream" | "compaction"))) =
                     (row.data["loop"].as_u64(), row.data["op"].as_str())
                 {
                     let names = row.data["names"]
@@ -337,6 +337,12 @@ fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], private: bo
                         .entry(i as u32)
                         .or_default()
                         .push(InspectRedacted {
+                            op: op.to_string(),
+                            provider: row.data["provider"]
+                                .as_str()
+                                .unwrap_or_default()
+                                .to_string(),
+                            model: row.data["model"].as_str().unwrap_or_default().to_string(),
                             names: if private { names.collect() } else { vec![] },
                             count: row.data["count"].as_u64().unwrap_or(0),
                             substituted: row.data["substituted"].as_bool().unwrap_or(false),

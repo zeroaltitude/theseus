@@ -5,6 +5,17 @@
  */
 export type InspectRedacted = { 
 /**
+ * Which request it was: `stream` (the loop's own call) or `compaction`
+ * (the summary call that made room for it, which runs on its own
+ * profile).
+ */
+op: string, 
+/**
+ * Where the request went: the provider and model of THIS request, which
+ * for a compaction call is not the loop's answer's.
+ */
+provider: string, model: string, 
+/**
  * The secrets' names, sorted. Empty for a surface that reads no private
  * text (`withheld`): it learns how many and whether substituted.
  */

@@ -49,13 +49,17 @@ pub async fn inspect(
     Ok(())
 }
 
-/// Every `request.redacted` row of the turn that was a model call, as
-/// (loop, row data), in the order they were written. A request whose call
-/// failed has a row too, though no answer to carry it.
+/// Every `request.redacted` row of the turn that was a model call (the loop's
+/// own, or its compaction's), as (loop, row data), in the order they were
+/// written. A request whose call failed has a row too, though no answer to
+/// carry it.
 fn requests(r: &TurnInspectResult) -> Vec<(u32, &Value)> {
     r.rows
         .iter()
-        .filter(|x| x.kind == "request.redacted" && x.data["op"] == "stream")
+        .filter(|x| {
+            x.kind == "request.redacted"
+                && matches!(x.data["op"].as_str(), Some("stream" | "compaction"))
+        })
         .map(|x| (x.data["loop"].as_u64().unwrap_or(0) as u32, &x.data))
         .collect()
 }
@@ -88,7 +92,8 @@ fn loop_json(l: &theseus_protocol::inspect::InspectLoop, r: &TurnInspectResult) 
         "compilation_id": a.and_then(|a| a.compilation_id.as_deref()),
         "request_digest": a.and_then(|a| a.request_digest.as_deref()),
         "redacted": requests(r).into_iter().filter(|(i, _)| *i == l.loop_index)
-            .map(|(_, d)| json!({"names": d["names"], "count": d["count"],
+            .map(|(_, d)| json!({"op": d["op"], "provider": d["provider"], "model": d["model"],
+                 "names": d["names"], "count": d["count"],
                  "substituted": d["substituted"], "correlation_id": d["correlation_id"]}))
             .collect::<Vec<_>>(),
     })
@@ -122,20 +127,38 @@ pub(crate) fn lines(r: &TurnInspectResult) -> Vec<String> {
         ));
         for (_, d) in all.iter().filter(|(i, _)| *i == l.loop_index) {
             shown += 1;
-            out.push(format!("  carried {}: {}", secrets(d), sent(d)));
+            out.push(format!("  carried {}{}: {}", secrets(d), went(d), sent(d)));
         }
     }
     // A request whose loop wrote no answer (the call failed): still named.
     for (i, d) in &all {
         if !r.loops.iter().any(|l| l.loop_index == *i) {
             shown += 1;
-            out.push(format!("loop {i}  carried {}: {}", secrets(d), sent(d)));
+            out.push(format!(
+                "loop {i}  carried {}{}: {}",
+                secrets(d),
+                went(d),
+                sent(d)
+            ));
         }
     }
     if shown == 0 {
         out.push("no request carried a value the vault resolved.".into());
     }
     out
+}
+
+/// Where one request went, from its own row: a compaction call runs on its own
+/// profile, so the loop's answer is not the place to read it from.
+fn went(d: &Value) -> String {
+    let to = match (d["provider"].as_str(), d["model"].as_str()) {
+        (Some(p), Some(m)) if !p.is_empty() || !m.is_empty() => format!(" to {p}/{m}"),
+        _ => String::new(),
+    };
+    match d["op"].as_str() {
+        Some("compaction") => format!(" in a compaction call{to}"),
+        _ => to,
+    }
 }
 
 fn sent(d: &Value) -> &'static str {

@@ -180,12 +180,14 @@ test('a request that carried a vault secret is a mark beside its loop\'s provide
     { position: 4, at_ms: 10_200, kind: 'request.redacted', data: { op: 'stream', loop: 0, names: ['anthropic_key'], count: 2, substituted: true } },
     { position: 5, at_ms: 10_300, kind: 'request.redacted', data: { op: 'count_tokens', loop: null, names: ['x'], count: 1, substituted: true } },
     { position: 6, at_ms: 10_400, kind: 'request.redacted', data: { op: 'stream', loop: 1, names: ['db_password'], count: 1, substituted: false } },
+    { position: 7, at_ms: 10_450, kind: 'request.redacted', data: { op: 'compaction', provider: 'openai', model: 'gpt-summary', loop: 1, names: ['db_password'], count: 2, substituted: true } },
   ] as any
   const m = redactionMarks(rows, 10_000)
-  assert.equal(m.length, 2, 'a token count is no loop\'s request')
-  assert.deepEqual(m.map((b) => [b.lane, b.loop, b.start]), [['marks', 0, 200_000], ['marks', 1, 400_000]])
+  assert.equal(m.length, 3, 'a token count is no loop\'s request, a compaction call is')
+  assert.deepEqual(m.map((b) => [b.lane, b.loop, b.start]), [['marks', 0, 200_000], ['marks', 1, 400_000], ['marks', 1, 450_000]])
+  assert.equal(m[2].name, 'request.redacted: db_password (substituted) in a compaction call to openai/gpt-summary')
   assert.equal(m[0].name, 'request.redacted: anthropic_key (substituted)')
   assert.equal(m[1].name, 'request.redacted: db_password (sent as written)')
   const big = span('turn', 'turn', 0, 5_000_000, [span('loop 0', 'loop', 0, 5_000_000)])
-  assert.equal(layout(big, rows, null, 10_000).bars.filter((b) => b.name.startsWith('request.redacted')).length, 2)
+  assert.equal(layout(big, rows, null, 10_000).bars.filter((b) => b.name.startsWith('request.redacted')).length, 3)
 })
