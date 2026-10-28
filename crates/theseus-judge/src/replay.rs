@@ -20,11 +20,11 @@ use sha2::{Digest, Sha256};
 use crate::band::{band, Band};
 use crate::builders::{prepare, InboundInput, Input};
 use crate::builders::{
-    ATTRIBUTION_VERSION, CATEGORIZE_VERSION, CITATION_VERSION, COMPARE_VERSION,
-    CONTINUE_VERSION, FAMILIES_VERSION, HEARD_VERSION, INBOUND_VERSION, LOOP_VERSION,
-    MEMORY_VERSION, NAME_IT_VERSION, PEOPLE_SEEN_VERSION, PEOPLE_VERSION, PROBE_VERSION,
-    RECALL_CROSS_VERSION, RERANK_VERSION, SAME_KIND_VERSION, SAME_THING_VERSION, SECURITY2_VERSION,
-    SECURITY_VERSION, TWO_THINGS_VERSION,
+    ATTRIBUTION_VERSION, CATEGORIZE_VERSION, CITATION_VERSION, COMPARE_VERSION, CONTINUE_VERSION,
+    FAMILIES_VERSION, HEARD_VERSION, INBOUND_VERSION, LOOP_VERSION, MEMORY_VERSION,
+    NAME_IT_VERSION, PEOPLE_SEEN_VERSION, PEOPLE_VERSION, PROBE_VERSION, RECALL_CROSS_VERSION,
+    RERANK_VERSION, SAME_KIND_VERSION, SAME_THING_VERSION, SECURITY2_VERSION, SECURITY_VERSION,
+    TWO_THINGS_VERSION,
 };
 use crate::client::{Answer, Urgency};
 use crate::judge::{AnswerRecord, Ask, DecisionPoint, Judge, Mode, StateRecord};
@@ -98,7 +98,10 @@ pub fn builder_identity(pack: &Pack) -> (&'static str, u32) {
         Builder::NameIt => ("name_it", NAME_IT_VERSION),
         Builder::RecallCross => ("recall_cross", RECALL_CROSS_VERSION),
         Builder::Families => ("families", FAMILIES_VERSION),
-        Builder::Content => ("content", crate::builders::content_builder_version(pack.version)),
+        Builder::Content => (
+            "content",
+            crate::builders::content_builder_version(pack.version),
+        ),
     }
 }
 
@@ -582,10 +585,16 @@ mod tests {
             truncated: vec![],
             dropped: vec![],
         };
-        assert_eq!(stored_state_differs(&by_name("content.v1").unwrap(), &rec), None);
+        assert_eq!(
+            stored_state_differs(&by_name("content.v1").unwrap(), &rec),
+            None
+        );
         assert_eq!(stored_state_differs(&v2, &rec), None);
         let why = stored_state_differs(&by_name("content.v3").unwrap(), &rec).unwrap();
-        assert!(why.contains("version 1") && why.contains("version 2"), "{why}");
+        assert!(
+            why.contains("version 1") && why.contains("version 2"),
+            "{why}"
+        );
     }
 
     #[test]

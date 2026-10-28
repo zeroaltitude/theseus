@@ -77,10 +77,29 @@ struct Args {
     /// make no call.
     #[arg(long)]
     questions: bool,
+    /// Score captured `--eval` runs (the probe's own output, one file each) at
+    /// the bar the content flags raise at: precision and recall per flag, the
+    /// terminal-bench shapes, the watched cases, and what flipped between
+    /// consecutive runs. Makes no call and needs no key.
+    #[arg(long, value_name = "FILE", num_args = 1.., conflicts_with_all = ["eval", "pack", "discover", "l1"])]
+    score_at_bar: Vec<std::path::PathBuf>,
 }
 
 pub fn main() -> Result<()> {
     let args = Args::parse();
+    if !args.score_at_bar.is_empty() {
+        let files = args
+            .score_at_bar
+            .iter()
+            .map(|p| {
+                let text = std::fs::read_to_string(p)
+                    .with_context(|| format!("reading {}", p.display()))?;
+                Ok((p.display().to_string(), text))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        print!("{}", crate::score::report(&files));
+        return Ok(());
+    }
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;

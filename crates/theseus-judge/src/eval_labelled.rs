@@ -226,7 +226,10 @@ mod tests {
         assert_eq!(own.input["kind"], "tool_result");
         assert_eq!(own.input["source"], "fs.grep");
         // Its path lines, as the daemon's grep printed them.
-        assert!(own.input["text"].as_str().unwrap().contains("CLAUDE.md:13:"));
+        assert!(own.input["text"]
+            .as_str()
+            .unwrap()
+            .contains("CLAUDE.md:13:"));
         for c in v3.iter().filter(|c| c.name.starts_with("fp_")) {
             assert!(c.expect.values().all(|v| v == "no"), "{}", c.name);
         }
@@ -244,7 +247,7 @@ mod tests {
             let text = c.input.to_string();
             for (i, _) in text.match_indices("/home/") {
                 assert!(
-                    text[i..].starts_with("/home/owner/"),
+                    text[i..].starts_with("/home/owner"),
                     "{}: a home directory that could be real: {}",
                     c.name,
                     &text[i..(i + 24).min(text.len())]

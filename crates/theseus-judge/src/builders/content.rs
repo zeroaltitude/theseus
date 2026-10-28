@@ -122,6 +122,26 @@ pub fn content(i: &ContentInput, pack_version: u32, cap: u64, scrub: &dyn Scrub)
     b.scalar("kind", c.clip(&i.kind, KIND_CHARS))
         .scalar("source", c.clip(i.source.trim(), SOURCE_CHARS))
         .cut_if("source", c.cut());
+    if pack_version > 2 {
+        // v3's five (theseus-gyjyo.11), each only when the daemon knows it, so
+        // a missing one is absent rather than an empty string the pack must read.
+        for (key, value, max) in [
+            ("author", &i.author, AUTHOR_CHARS),
+            ("place", &i.place, PLACE_CHARS),
+            ("project", &i.project, PROJECT_CHARS),
+        ] {
+            if let Some(v) = value.as_deref().filter(|v| !v.trim().is_empty()) {
+                b.scalar(key, c.clip(v.trim(), max)).cut_if(key, c.cut());
+            }
+        }
+        if i.public {
+            b.scalar("public", true);
+        }
+        if let Some(v) = i.context.as_deref().filter(|v| !v.trim().is_empty()) {
+            b.scalar("context", c.clip(v.trim(), CONTEXT_CHARS))
+                .cut_if("context", c.cut());
+        }
+    }
     if let Some((n, of)) = i.piece.filter(|(_, of)| *of > 1) {
         b.scalar("piece", n).scalar("pieces", of);
     }
@@ -368,13 +388,9 @@ mod tests {
         let mut i = input("tool_result");
         i.context = Some(format!("password hunter2 {}", "word ".repeat(1000)));
         i.project = Some("~/projects/hunter2".into());
-        let built = prepare(
-            &by_name("content.v3").unwrap(),
-            &Input::Content(i),
-            &Hide,
-        )
-        .unwrap()
-        .state;
+        let built = prepare(&by_name("content.v3").unwrap(), &Input::Content(i), &Hide)
+            .unwrap()
+            .state;
         assert!(!built.json.contains("hunter2"), "{}", built.json);
         assert!(
             built.value()["context"].as_str().unwrap().chars().count() <= CONTEXT_CHARS + 1,
@@ -388,7 +404,11 @@ mod tests {
         assert_eq!(builder_version(1), CONTENT_VERSION);
         assert_eq!(builder_version(2), CONTENT_VERSION);
         assert_eq!(builder_version(3), CONTENT_V3_VERSION);
-        assert_eq!(builder_version(101), CONTENT_V3_VERSION, "a learned candidate of v3");
+        assert_eq!(
+            builder_version(101),
+            CONTENT_V3_VERSION,
+            "a learned candidate of v3"
+        );
         assert_ne!(CONTENT_VERSION, CONTENT_V3_VERSION);
     }
 

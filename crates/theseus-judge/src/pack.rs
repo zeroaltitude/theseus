@@ -2040,12 +2040,30 @@ mod tests {
         assert_eq!(v3.version, 3);
         assert_eq!(v3.id, v2.id);
         assert_eq!(
-            (v3.point, v3.builder, v3.baseline, v3.action, v3.state_cap_tokens, v3.sample),
-            (v2.point, v2.builder, v2.baseline, v2.action, v2.state_cap_tokens, v2.sample)
+            (
+                v3.point,
+                v3.builder,
+                v3.baseline,
+                v3.action,
+                v3.state_cap_tokens,
+                v3.sample
+            ),
+            (
+                v2.point,
+                v2.builder,
+                v2.baseline,
+                v2.action,
+                v2.state_cap_tokens,
+                v2.sample
+            )
         );
         assert_eq!(v3.rollback, v2.rollback);
         assert_eq!(v3.jev_model, v2.jev_model);
-        assert_eq!(q(&v3, "injection"), q(&v2, "injection"), "injection is v2's, byte for byte");
+        assert_eq!(
+            q(&v3, "injection"),
+            q(&v2, "injection"),
+            "injection is v2's, byte for byte"
+        );
         let means = |d: &QuestionDef, id: &str| {
             d.options
                 .iter()
@@ -2057,20 +2075,32 @@ mod tests {
         };
         for n in ["secret", "confidential", "personal"] {
             let (a, b) = (q(&v3, n), q(&v2, n));
-            assert_eq!(a.instructions, b.instructions, "{n}: the reveal rule stays as it was");
+            assert_eq!(
+                a.instructions, b.instructions,
+                "{n}: the reveal rule stays as it was"
+            );
             assert!(a.instructions.contains("not what it is about"), "{n}");
             assert_eq!(
                 (&a.decides, &a.thresholds, &a.no_match, &a.only_when),
                 (&b.decides, &b.thresholds, &b.no_match, &b.only_when),
                 "{n}"
             );
-            assert!(means(a, "yes").starts_with(&means(b, "yes")), "{n}: v3's yes drops v2's words");
+            assert!(
+                means(a, "yes").starts_with(&means(b, "yes")),
+                "{n}: v3's yes drops v2's words"
+            );
             let (no3, no2) = (means(a, "no"), means(b, "no"));
             assert!(no3.starts_with(&no2), "{n}: v3's no drops v2's words");
             // The cue for the fields this question reads, in words the state's keys
             // appear in, so the pack and the builder cannot drift apart.
-            assert!(no3.contains("`public`"), "{n}'s no does not say what `public` means: {no3}");
-            assert!(no3.contains("`context`"), "{n}'s no does not read `context`: {no3}");
+            assert!(
+                no3.contains("`public`"),
+                "{n}'s no does not say what `public` means: {no3}"
+            );
+            assert!(
+                no3.contains("`context`"),
+                "{n}'s no does not read `context`: {no3}"
+            );
         }
         // The clause that keeps `sec_14` and `sec_15` flagging is untouched, and v3
         // says outright that public does not mean clean.

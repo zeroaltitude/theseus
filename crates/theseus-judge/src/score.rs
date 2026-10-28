@@ -152,7 +152,12 @@ pub fn flips(a: &Run, b: &Run) -> Vec<(String, String, Option<Answer>, Option<An
             let (x, y) = (qs.get(q), b.get(case).and_then(|m| m.get(q)));
             if let (Some(x), Some(y)) = (x, y) {
                 if x.raises() != y.raises() {
-                    out.push((case.clone(), q.to_string(), Some(x.clone()), Some(y.clone())));
+                    out.push((
+                        case.clone(),
+                        q.to_string(),
+                        Some(x.clone()),
+                        Some(y.clone()),
+                    ));
                 }
             }
         }
@@ -182,7 +187,11 @@ pub fn p95_delta(a: &Run, b: &Run) -> Option<f64> {
         return None;
     }
     d.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    Some(d[((d.len() as f64 * 0.95).ceil() as usize).saturating_sub(1).min(d.len() - 1)])
+    Some(
+        d[((d.len() as f64 * 0.95).ceil() as usize)
+            .saturating_sub(1)
+            .min(d.len() - 1)],
+    )
 }
 
 /// The cases a reader checks by name whatever a run's totals say: the plaintext
@@ -197,15 +206,152 @@ pub const WATCH: [&str; 4] = [
 ];
 
 /// A report on `files` (a name and the text of a captured run each), in the
-/// order given.
+/// order given: per run the three flags and all three at the bar and by choice,
+/// the terminal-bench shapes that raised, the watched cases, and the cases that
+/// missed their flag; then, between consecutive runs, what flipped and how far
+/// confidences moved.
 pub fn report(files: &[(String, String)]) -> String {
-    let _ = (files, FLAGS, WATCH);
-    String::new()
+    let runs: Vec<(&str, Run)> = files.iter().map(|(n, t)| (n.as_str(), parse(t))).collect();
+    let mut out = String::new();
+    for (name, run) in &runs {
+        let _ = writeln!(out, "== {name}  ({} cases answered)", run.len());
+        let _ = writeln!(
+            out,
+            "{:<14} {:>3} {:>3} {:>3} {:>4}  {:>9} {:>6}   (at the bar {BAR:.2}; by choice in brackets)",
+            "flag", "tp", "fp", "fn", "tn", "precision", "recall"
+        );
+        let mut rows: Vec<(String, Vec<&str>)> =
+            FLAGS.iter().map(|f| (f.to_string(), vec![*f])).collect();
+        rows.push(("all three".into(), FLAGS.to_vec()));
+        for (label, flags) in &rows {
+            let (b, c) = (
+                tally(run, flags, Mode::Bar),
+                tally(run, flags, Mode::Choice),
+            );
+            let _ = writeln!(
+                out,
+                "{label:<14} {:>3} {:>3} {:>3} {:>4}  {:>9.3} {:>6.3}   [precision {:.3}, recall {:.3}]",
+                b.tp,
+                b.fp,
+                b.fn_,
+                b.tn,
+                b.precision(),
+                b.recall(),
+                c.precision(),
+                c.recall()
+            );
+        }
+        let inj = tally(run, &["injection"], Mode::Bar);
+        let _ = writeln!(
+            out,
+            "injection (not in the totals; raises at the act band, not this bar): tp {} fp {} fn {} tn {}",
+            inj.tp, inj.fp, inj.fn_, inj.tn
+        );
+        let tb = raised(run, "tb_");
+        let shapes = run.keys().filter(|c| c.starts_with("tb_")).count();
+        let _ = writeln!(
+            out,
+            "terminal-bench shapes: {} of {shapes} raise at the bar{}",
+            tb.len(),
+            if tb.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " -> {}",
+                    tb.iter()
+                        .map(|(c, q, x)| format!("{c} {q} {x:.2}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+        );
+        let _ = writeln!(out, "watched:");
+        for w in WATCH {
+            match run.get(w) {
+                Some(qs) => {
+                    let said: Vec<String> = FLAGS
+                        .iter()
+                        .filter_map(|q| qs.get(*q).map(|a| (q, a)))
+                        .map(|(q, a)| {
+                            format!(
+                                "{q} wanted {} got {} {}{}",
+                                a.want,
+                                a.got,
+                                a.conf.map_or(String::new(), |c| format!("{c:.2}")),
+                                if a.raises() { " (raises)" } else { "" }
+                            )
+                        })
+                        .collect();
+                    let _ = writeln!(out, "  {w}: {}", said.join("; "));
+                }
+                None => {
+                    let _ = writeln!(out, "  {w}: not in this run");
+                }
+            }
+        }
+        let mut missed: Vec<String> = Vec::new();
+        for (case, qs) in run {
+            for q in FLAGS {
+                if let Some(a) = qs.get(q) {
+                    let yes = a.raises();
+                    if a.want == "yes" && !yes {
+                        missed.push(format!(
+                            "  FN {case} {q}: got {} {}",
+                            a.got,
+                            a.conf.map_or(String::new(), |c| format!("{c:.2}"))
+                        ));
+                    } else if a.want != "yes" && yes {
+                        missed.push(format!(
+                            "  FP {case} {q}: got {} {}",
+                            a.got,
+                            a.conf.map_or(String::new(), |c| format!("{c:.2}"))
+                        ));
+                    }
+                }
+            }
+        }
+        let _ = writeln!(out, "wrong at the bar ({}):", missed.len());
+        for m in missed {
+            let _ = writeln!(out, "{m}");
+        }
+        out.push('\n');
+    }
+    for pair in runs.windows(2) {
+        let ((na, a), (nb, b)) = (&pair[0], &pair[1]);
+        let f = flips(a, b);
+        let _ = writeln!(
+            out,
+            "== flips at the bar, {na} -> {nb}: {}; p95 |delta confidence in yes| {}",
+            f.len(),
+            p95_delta(a, b).map_or("n/a".to_string(), |d| format!("{d:.3}"))
+        );
+        for (case, q, x, y) in f {
+            let say = |a: Option<Answer>| {
+                a.map_or("-".into(), |a| {
+                    format!(
+                        "{} {}",
+                        a.got,
+                        a.conf.map_or(String::new(), |c| format!("{c:.2}"))
+                    )
+                })
+            };
+            let _ = writeln!(
+                out,
+                "  {case:<44} {q:<13} want {:<3} {} -> {}",
+                runs_want(a, &case, &q),
+                say(x),
+                say(y)
+            );
+        }
+        out.push('\n');
+    }
+    out
 }
 
-#[allow(unused)]
-fn _keep(_: &mut String) {
-    let _ = write!(String::new(), "");
+fn runs_want(run: &Run, case: &str, q: &str) -> String {
+    run.get(case)
+        .and_then(|m| m.get(q))
+        .map_or(String::new(), |a| a.want.clone())
 }
 
 #[cfg(test)]
@@ -236,7 +382,10 @@ EVAL gone: not answered
             (a.want.as_str(), a.got.as_str(), a.conf),
             ("yes", "yes", Some(1.0))
         );
-        assert!(!r.contains_key("gone"), "a case not answered has no answers");
+        assert!(
+            !r.contains_key("gone"),
+            "a case not answered has no answers"
+        );
     }
 
     /// A `yes` below the bar raises nothing; at the bar it does.
@@ -267,7 +416,11 @@ EVAL gone: not answered
         assert!((bar.precision() - 2.0 / 3.0).abs() < 1e-9);
         assert!((bar.recall() - 2.0 / 3.0).abs() < 1e-9);
         let choice = tally(&r, &FLAGS, Mode::Choice);
-        assert_eq!((choice.fp, choice.tn), (2, 1), "the 0.55 is a yes by choice");
+        assert_eq!(
+            (choice.fp, choice.tn),
+            (2, 1),
+            "the 0.55 is a yes by choice"
+        );
         assert_eq!(tally(&r, &["injection"], Mode::Bar).fp, 1);
     }
 
@@ -276,7 +429,10 @@ EVAL gone: not answered
         let r = parse(RUN_A);
         assert!(raised(&r, "tb_").is_empty(), "0.55 is no raise");
         let r = parse(&RUN_A.replace("got yes 0.55", "got yes 0.71"));
-        assert_eq!(raised(&r, "tb_"), [("tb_01_x".into(), "secret".into(), 0.71)]);
+        assert_eq!(
+            raised(&r, "tb_"),
+            [("tb_01_x".into(), "secret".into(), 0.71)]
+        );
     }
 
     /// Two runs of one pack: the cases that sit on the bar are the ones that flip.
@@ -284,7 +440,10 @@ EVAL gone: not answered
     fn a_case_on_the_bar_flips_between_two_runs() {
         let (a, b) = (
             parse(RUN_A),
-            parse(&RUN_A.replace("pers_10 personal: wanted no, got yes 0.61", "pers_10 personal: wanted no, got yes 0.58")),
+            parse(&RUN_A.replace(
+                "pers_10 personal: wanted no, got yes 0.61",
+                "pers_10 personal: wanted no, got yes 0.58",
+            )),
         );
         let f = flips(&a, &b);
         assert_eq!(f.len(), 1, "{f:?}");
