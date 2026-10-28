@@ -233,8 +233,8 @@ These hold whatever the model does:
 | | Promise | What it means |
 |---|---|---|
 | 💵 | **Money is a gate.** | Every model call reserves its worst-case cost before it runs. Limits warn you; a runaway stops. |
-| 🌐 | **Reading the web stops the hands.** | After a session reads web text, anything that acts on the world waits for your approval. |
-| 🔑 | **Keys never reach the model.** | Secrets are scrubbed from everything it reads: `cat .env` shows `[redacted]`. |
+| 🌐 | **A label you can remove, not a refusal you can't.** | Text that tries to steer it, a name you listed, or anything from Google puts a label on the session, and you remove it with one tap. A steering label stops what acts until you do. |
+| 🔑 | **Its own keys are replaced on the way out.** | Every value the vault gave Theseus is replaced by its name in each request to a model and each Discord post; what is stored is never rewritten. A value of a secret the daemon no longer holds, or one a size limit cut in two, is not recognised. |
 | 📒 | **You can always ask why.** | Every turn, call, approval, and dollar goes into a tamper-evident ledger. |
 
 ## Where it stands

@@ -79,6 +79,15 @@ wrapped by `job-wrapper` (`crates/theseus-kernel/src/job.rs`). `theseus peek` an
 **judgment**: one typed question put to Jev, recorded with its probabilities, outcome and cost, in shadow before it
 acts. `theseus judge log` lists them.
 
+## L
+
+**label** (a content label): one of four flags on a session, `injection`, `secret`, `confidential` or `personal`, with what
+raised it. Jev's content pack raises them, and so do two free rules: a `[privacy] sensitive_names` word and a Google
+result. `secret`, `confidential` and `personal` keep the session off a model of restricted origin (`cn_models` reads
+them); `injection` refuses the session's calls that act until you remove it. Only you remove one, and a removal sticks
+(`crates/theseus-core/src/content.rs`). `theseus content SESSION`. Not the learning ledger's *labels* (your right, wrong
+or noise on a judgment), which a removed content label also writes.
+
 ## K
 
 **keep-warm**: after a conversation's last turn, one small request every `[cache] keep_warm_every_minutes` that reads the
