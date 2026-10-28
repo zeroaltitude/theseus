@@ -948,3 +948,44 @@ async fn a_turn_makes_at_most_three_retries_and_one_per_request() {
     assert_eq!(switches[0]["loop"], 6);
     assert!(res.output.ends_with("Four."), "{res:?}");
 }
+
+/// The latch under the default: three refusal episodes, each retried and each
+/// retry refusing too, still count as three, so the third stays on the
+/// fallback (theseus-keuap). The latch is the only thing that stops a genuine
+/// decline bouncing back to the model that declined it.
+#[tokio::test]
+async fn three_retried_refusal_episodes_still_latch_the_turn() {
+    let r = rig(vec![
+        read("toolu_a"),
+        refused("reasoning_extraction"),
+        refused("reasoning_extraction"),
+        read("toolu_b"),
+        refused("reasoning_extraction"),
+        refused("reasoning_extraction"),
+        read("toolu_c"),
+        refused("reasoning_extraction"),
+        refused("reasoning_extraction"),
+        read("toolu_d"),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!(
+        models(&r),
+        [
+            ROUTED, ROUTED, ROUTED, FALLBACK, ROUTED, ROUTED, FALLBACK, ROUTED, ROUTED, FALLBACK,
+            FALLBACK
+        ]
+    );
+    assert_eq!(rows(&r.core, &sid, "provider.refusal_retry").len(), 3);
+    let switches = rows(&r.core, &sid, "provider.fallback");
+    let flags: Vec<(u64, bool)> = switches
+        .iter()
+        .map(|w| (w["n"].as_u64().unwrap(), w["latched"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(flags, [(1, false), (2, false), (3, true)], "{switches:?}");
+    assert_eq!(rows(&r.core, &sid, "provider.routed_back").len(), 2);
+    let fell = res.fallback.as_ref().expect("it fell back");
+    assert_eq!((fell.refusals, fell.latched), (3, true), "{fell:?}");
+    assert_eq!(res.model, FALLBACK);
+}

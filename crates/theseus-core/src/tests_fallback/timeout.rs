@@ -135,3 +135,29 @@ async fn a_timeout_fallbacks_requests_keep_the_whole_transcript() {
         "{sent}"
     );
 }
+
+/// A refusal's retry cut at its whole-call bound goes to the fallback and
+/// stays there (theseus-keuap): the retry in flight ends with the switch, so
+/// the fallback's answer does not clear the request's fallback, and the
+/// request after it still names the fallback, with no `provider.routed_back`.
+#[tokio::test]
+async fn a_retry_cut_at_its_whole_call_bound_latches_on_the_fallback() {
+    let r = rig(vec![
+        refused("reasoning_extraction"),
+        cut(TimeoutPhase::Total),
+        read_call(),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!(res.model, FALLBACK, "{res:?}");
+    assert!(res.output.ends_with("Four."), "{}", res.output);
+    assert_eq!(models(&r), [ROUTED, ROUTED, FALLBACK, FALLBACK]);
+    assert_eq!(rows(&r.core, &sid, "provider.refusal_retry").len(), 1);
+    let switches = rows(&r.core, &sid, "provider.fallback");
+    assert_eq!(switches.len(), 1, "{switches:?}");
+    assert_eq!(switches[0]["category"], "timeout");
+    assert_eq!(switches[0]["latched"], true);
+    assert!(rows(&r.core, &sid, "provider.routed_back").is_empty());
+    assert!(res.fallback.as_ref().unwrap().latched, "{res:?}");
+}
