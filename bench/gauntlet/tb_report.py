@@ -40,18 +40,27 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "harbor"))
 from gatewindows import MST, parse, rows as gate_rows  # noqa: E402
+import price_basis as pb  # noqa: E402
 
 # Published baselines, for the comparison column. Read from the datasets in
 # docs/benchmarks, not retyped: see `--baseline`.
+#
+# `price_table` is the table the baseline's dollars were billed on (`price_basis.TABLES`),
+# DECLARED here because the published CSVs predate the digest: the Theseus 10-18 runs ran
+# before `theseus-rko44` moved the Sonnet 5.5 cache-read price on 2026-10-25. A baseline
+# with none is a baseline whose table is unknown, and no cost ratio is printed against it.
 BASELINES = {
     "theseus-high-v1": {
         "report": "2026-10-18-terminal-bench-v1-high", "arm": "theseus",
         "label": "Theseus as shipped (routed), v1 freeze 351159fc, HIGH, 89x3",
+        "price_table": pb.PRE_RKO44,
     },
     "theseus-max-v1": {
         "report": "2026-10-18-terminal-bench-v1-max", "arm": "theseus",
         "label": "Theseus as shipped (routed), v1 freeze, MAX, hard 30",
+        "price_table": pb.PRE_RKO44,
     },
     # The rivals that DO have a published terminal-bench@2.0 row. OpenHands,
     # Aider and OpenClaw have none -- they appear only on the old 28-trial
@@ -76,7 +85,7 @@ BASELINES = {
 # that arm's own prior run. These cells must say `--baseline <key>` to make a
 # cross-arm comparison deliberate, or `--no-baseline` to publish without one.
 ARMLESS = ("openhands", "aider", "openclaw")
-DOCS = Path.home() / "lanes/gauntlet/docs/benchmarks"
+DOCS = Path(os.environ.get("TB_DOCS") or Path(__file__).resolve().parents[2] / "docs" / "benchmarks")
 
 
 def wilson(k, n, z=1.96):
@@ -127,6 +136,11 @@ def baseline(key):
         # agent-ran denominator so pass rates are compared on one rule.
         won = sum(1 for r in rows if (r.get("reward") or "").strip() in ("1", "1.0"))
         ran = [r for r in rows if (r.get("agent_s") or "").strip()]
+        digest = pb.digest_of(meta["price_table"]) if meta.get("price_table") else None
+        out["rows"] = [{"price_digest": digest, "by_model": {},
+                        "dollars": float(r["dollars"])} for r in rows
+                       if r.get("dollars") not in (None, "", "None")]
+        out["price_digest"] = digest
         out["own"] = {
             "n": len(rows),
             "usd_median": round(st.median(money), 6) if money else None,
@@ -157,6 +171,10 @@ def trials(run_dir):
             "agent_s": round((parse(ae["finished_at"]) - parse(ae["started_at"])).total_seconds(), 2)
                        if ae.get("finished_at") and ae.get("started_at") else None,
             "dollars": eff.get("cost_usd"), "model_calls": eff.get("model_calls"),
+            # which table billed `dollars` (theseus-0j5k5): the record's own stamp, else
+            # measured from its tokens, never from the run's date
+            "price_digest": eff["price_digest"] if "price_digest" in eff else pb.stamp(eff)["price_digest"],
+            "by_model": eff.get("by_model") or {},
             "tool_calls": eff.get("tool_calls"),
             "input": (eff.get("tokens") or {}).get("input"),
             "cache_read": (eff.get("tokens") or {}).get("cache_read"),
@@ -177,6 +195,26 @@ def trials(run_dir):
                            if r.get("started_at") else None,
         })
     return out
+
+
+def cost_comparison(group, b, reprice_to=None):
+    """The cell's $/trial against the baseline's, median and mean, on ONE price basis.
+
+    `price_basis.compare` refuses a ratio across two price digests (a price change
+    mixed with a behaviour change: `theseus-rko44`, `theseus-0j5k5`); the refusal comes
+    back as `{"refused": <what it saw>}` and is printed and published, never skipped.
+    With `reprice_to`, both arms go onto that table from their per-model tokens.
+    None when there is no baseline with dollars to compare against."""
+    if not b or not b.get("rows"):
+        return None
+    arms = {"baseline": b["rows"],
+            "cell": [{"price_digest": t["price_digest"], "dollars": t["dollars"],
+                      "by_model": t["by_model"]} for t in group if t["dollars"] is not None]}
+    try:
+        return {name: pb.compare(arms, value=lambda r: r["dollars"], stat=stat, reprice_to=reprice_to)
+                for name, stat in (("median", st.median), ("mean", st.mean))}
+    except pb.CrossBasisError as e:
+        return {"refused": str(e)}
 
 
 def block(ts, label):
@@ -319,8 +357,18 @@ def main() -> int:
     setup_failed = [t for t in ts if t["exception"] and t["agent_s"] is None]
     ran = [t for t in ts if t not in setup_failed]
 
+    reprice_to = None
+    if "--reprice" in sys.argv:
+        reprice_to = sys.argv[sys.argv.index("--reprice") + 1]
+        if reprice_to not in pb.TABLES:
+            sys.exit(f"unknown --reprice {reprice_to!r}; have: {', '.join(pb.TABLES)}")
+    base = baseline(bkey)
+    cost_cmp = cost_comparison(clean if clean else ts, base, reprice_to)
+
     data = {
         "report": f"2026-10-26-{cell}", "suite": "terminal-bench@2.0", "date": "2026-10-26",
+        "price_digests": sorted({t["price_digest"] for t in ts if t["price_digest"]}),
+        "cost_comparison": cost_cmp,
         "cell": cell, "commit": sorted({t["build_commit"] for t in ts if t["build_commit"]}),
         "tasks": len(per_task), "trials": len(ts),
         "k_per_task": {str(k): v for k, v in sorted(ks.items())},
@@ -330,7 +378,7 @@ def main() -> int:
                     "gate_contaminated": block(gated, "trials inside a WSL join-gate window"),
                     "agent_ran": block(ran, "trials whose agent actually started"),
                     "setup_failed": block(setup_failed, "trials whose agent never started")},
-        "baseline": baseline(bkey),
+        "baseline": base,
         # Kept, never dropped: which contaminated replicate each rerun stands in
         # for, so the swap is auditable from the dataset alone.
         "replaced": [{"contaminated": r["out"]["trial"], "task": r["out"]["task"],
@@ -397,12 +445,18 @@ def main() -> int:
                   f"{100*bk/bn:.1f}% ({bk}/{bn})  [baseline drops {own['no_agent']} no-agent trials]")
             print(f"      raw        {100*al['value']:.1f}% ({al['k']}/{al['n']}) vs "
                   f"{100*rk/rn:.1f}% ({rk}/{rn})")
-        if money and own.get("usd_median"):
-            print(f"\n    LIKE FOR LIKE (clean trials against the baseline's own recomputed figures):")
-            print(f"      $/trial median {st.median(money):.4f} vs {own['usd_median']:.4f} "
-                  f"= {st.median(money)/own['usd_median']:.2f}x")
-            print(f"      $/trial mean   {st.mean(money):.4f} vs {own['usd_mean']:.4f} "
-                  f"= {st.mean(money)/own['usd_mean']:.2f}x")
+        if cost_cmp and "refused" in cost_cmp:
+            refused = cost_cmp["refused"]
+            print(f"\n    COST RATIO REFUSED (theseus-0j5k5): {refused}")
+            print("    Pass rate and time above are unaffected. Pass `--reprice <table>` when both "
+                  "arms carry per-model usage.")
+        elif cost_cmp:
+            m, a = cost_cmp["median"], cost_cmp["mean"]
+            how = (f"REPRICED onto {m['basis_name']} ({m['basis']})" if m["repriced"]
+                   else f"one price table, {m['basis_name'] or 'digest'} {m['basis']}")
+            print(f"\n    LIKE FOR LIKE (clean trials against the baseline's own recomputed figures; {how}):")
+            print(f"      $/trial median {m['cell']:.4f} vs {m['baseline']:.4f} = {m['ratio']:.2f}x")
+            print(f"      $/trial mean   {a['cell']:.4f} vs {a['baseline']:.4f} = {a['ratio']:.2f}x")
         if secs and own.get("agent_s_median"):
             print(f"      agent_s median {st.median(secs):.1f} vs {own['agent_s_median']:.1f} "
                   f"= {st.median(secs)/own['agent_s_median']:.2f}x")
@@ -451,7 +505,8 @@ def main() -> int:
         if cn["mis_runs"] or cn["unread"]:
             print("  A mis-run is not a result (theseus-9ymz0's owner). Exclude them from the "
                   "cell's pass rate, or rerun them, before publishing anything.")
-    return 0
+    # a refused ratio is a loud failure, after everything else has been written and printed
+    return 3 if cost_cmp and "refused" in cost_cmp else 0
 
 
 if __name__ == "__main__":
