@@ -169,7 +169,7 @@ mod tests {
         for bad in [
             "seal:maybe:x",
             "seal:yes:Bad Slug",
-            "earned:yes:ern_1",
+            "other:yes:x",
             "seal:yes",
         ] {
             assert!(parse(bad).is_none(), "{bad}");

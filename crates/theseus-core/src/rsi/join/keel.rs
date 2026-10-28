@@ -364,7 +364,7 @@ mod tests {
             ["policy"]
         );
         assert_eq!(
-            classes(&["crates/theseus-core/src/policy/earned.rs"], ""),
+            classes(&["crates/theseus-core/src/policy/modes.rs"], ""),
             ["policy"]
         );
     }
@@ -381,7 +381,7 @@ mod tests {
         }
         for p in [
             "crates/theseus-core/src/policy.rs",
-            "crates/theseus-core/src/policy/earned.rs",
+            "crates/theseus-core/src/policy/modes.rs",
             "crates/theseus-core/src/approval.rs",
             "crates/theseus-core/src/places.rs",
             "crates/theseus-core/src/ceiling.rs",

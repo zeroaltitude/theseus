@@ -74,8 +74,6 @@ pub enum Buttons {
     Reminder(String),
     /// A routine's or a watch's post: this wake, and the answers `(id, label)` it offers (theseus-j90w2).
     Horizon(String, Vec<(String, String)>),
-    /// An earned-autonomy card's candidates `(id, label)`, each with yes, no and the record (theseus-uttu).
-    Earned(Vec<(String, String)>),
     /// An expired card's "Ask again" for this question (theseus-27p6w).
     Again(String),
     /// A proposed seal's Seal this thread and Not needed, for this thread (theseus-f2g0).

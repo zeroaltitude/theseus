@@ -174,7 +174,7 @@ impl TurnRunner {
         // A conversation in plan mode loads the family that holds the plan's
         // tools (theseus-lyxy), since the refusal in plan mode names one of them.
         let mut extra: BTreeSet<String> = (!bare
-            && self.tools.earned.modes.mode_of(sid) == SessionMode::Plan)
+            && self.tools.modes.mode_of(sid) == SessionMode::Plan)
             .then(|| tools_defer::PLAN_FAMILY.to_string())
             .into_iter()
             .collect();

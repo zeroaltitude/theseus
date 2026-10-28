@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(parse("standing:undo:ask_1"), None);
         assert_eq!(parse("standing:keep:std_1"), None);
         assert_eq!(parse("standing:maybe:ask_1"), None);
-        assert_eq!(parse("earned:yes:ern_1"), None);
+        assert_eq!(parse("other:yes:x"), None);
         assert_eq!(parse("standing"), None);
     }
 

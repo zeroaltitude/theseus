@@ -98,7 +98,7 @@ async fn share_and_trash_always_ask_whatever_the_posture() {
         assert!(plan.authority.is_some(), "{plan:?}");
         let d = r.core.tools.policy.decide(t.as_ref(), &plan);
         assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
-        // Earned grants and a routine's grant loosen only a call the posture
+        // A mode and a routine's grant loosen only a call the posture
         // alone makes wait: this one is not.
         assert!(!r.core.tools.policy.posture_only(t.as_ref(), &plan));
     }

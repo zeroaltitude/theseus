@@ -58,7 +58,6 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::ontology_kinds::ROUTE.contains(&name)
         || name == method::JUDGE_LATENCY
         || super::rsi::OWN.contains(&name)
-        || super::earned::OWN.contains(&name)
         || super::wake_owner::OWN.contains(&name)
         || super::routines::OWN.contains(&name)
         || super::watch::OWN.contains(&name)
@@ -125,9 +124,6 @@ impl Core {
         }
         if super::rsi::OWN.contains(&name) {
             return self.rpc_self(name, params, conn);
-        }
-        if super::earned::OWN.contains(&name) {
-            return self.rpc_earned(name, params, conn);
         }
         if name.starts_with("standing.") {
             return self.rpc_standing(name, params, conn);

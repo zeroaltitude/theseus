@@ -51,11 +51,8 @@ pub(crate) struct At<'a> {
 pub(crate) enum Layer {
     /// The call's own policy: L1's, or L0's floor, lists, and posture.
     Policy,
-    /// An earned grant (theseus-uttu): the owner accepted what the record earned.
-    Earned,
-    /// A grant of the call's conversation (theseus-drjs): one answer's "don't
-    /// ask again", and its mode's (theseus-lyxy).
-    Scoped,
+    /// The call's conversation's mode (theseus-lyxy).
+    Mode,
     /// A granted secret's posture (theseus-dcy).
     Grant,
     /// A language server's first start on a root: by an `lsp.*` call (L2),
@@ -134,24 +131,10 @@ impl ToolRuntime {
         let decision =
             crate::rsi::own_tree::failing_open(self, at.session, tool, plan, bound.l1(), decision);
         seen(Layer::Policy, &decision);
-        let decision = crate::policy::earned::gate(
-            self,
-            at.place.class,
-            tool,
-            plan,
-            input,
-            bound.l1(),
-            decision,
-        );
-        seen(Layer::Earned, &decision);
-        // A grant of this conversation's (theseus-drjs), where an earned one
-        // would apply.
-        let decision =
-            crate::policy::grants::gate(self, at, tool, plan, input, bound.l1(), decision);
-        // The conversation's mode (theseus-lyxy), where a grant would apply.
+        // The conversation's mode (theseus-lyxy).
         let decision =
             crate::policy::modes::gate(self, at, tool, plan, input, bound.l1(), decision);
-        seen(Layer::Scoped, &decision);
+        seen(Layer::Mode, &decision);
         let decision = self.brokered(tool.name(), plan, input, decision);
         seen(Layer::Grant, &decision);
         // A call that starts a language server is a run too (L2).

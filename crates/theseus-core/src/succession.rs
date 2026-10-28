@@ -68,8 +68,6 @@ impl Core {
             None,
             json!({"superseded_by": new, "place": place}),
         );
-        // The old session's grants end with it (theseus-drjs).
-        let (ends, ended) = self.grant_end_rows(old, "superseded")?;
         // The old session's lock, then the new one's: no other writer takes
         // two, and the new one has run no turn.
         let written = self.store.with_session(old, |mut was| {
@@ -80,20 +78,14 @@ impl Core {
                     reason: RetiredReason::Superseded,
                     at_ms: now,
                 });
-                let mut records = vec![
+                Ok(vec![
                     moved,
                     NewRecord::json(kinds::LEDGER, None, &row)?,
                     NewRecord::json(kinds::SESSION, Some(old), &was)?,
-                ];
-                records.extend(ends);
-                Ok(records)
+                ])
             })
         })?;
-        let written = matches!(written, Some(Some(_)));
-        if written {
-            self.grants_ended(&ended);
-        }
-        Ok(written)
+        Ok(matches!(written, Some(Some(_))))
     }
 
     /// `session.retire`: the owner retires `id` by hand. One that is
@@ -118,8 +110,6 @@ impl Core {
             None,
             json!({"reason": RetiredReason::ByHand, "by": who.label}),
         );
-        // Its grants end with it, in its frame (theseus-drjs).
-        let (mut ends, ended) = self.grant_end_rows(id, "retired")?;
         let rec = self
             .store
             .update_session(id, |r| {
@@ -127,11 +117,9 @@ impl Core {
                     reason: RetiredReason::ByHand,
                     at_ms: now,
                 });
-                ends.insert(0, NewRecord::json(kinds::LEDGER, None, &row)?);
-                Ok(std::mem::take(&mut ends))
+                Ok(vec![NewRecord::json(kinds::LEDGER, None, &row)?])
             })?
             .ok_or_else(|| anyhow::anyhow!("no session {id}"))?;
-        self.grants_ended(&ended);
         Ok(rec)
     }
 

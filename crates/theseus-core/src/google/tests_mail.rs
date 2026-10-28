@@ -202,8 +202,8 @@ async fn a_send_asks_at_every_posture_and_no_grant_loosens_it() {
     turn(&r.core, &sid, "read it").await;
     r.core.trust_session(&sid, "test").unwrap();
     // The plan names the authority, so the decision is Approve with every line
-    // `open`, and the one question each loosening layer asks first (an earned
-    // grant, a conversation's grant, a mode, a routine's grant) is whether
+    // `open`, and the one question each loosening layer asks first (a
+    // mode, a routine's grant) is whether
     // only the tool's posture decides the call. Here it does not.
     let tool = r.core.tools.registry.get("gmail.send").unwrap().clone();
     let p = plan(&r, "gmail.send", send_of(&r, &id).await).unwrap();

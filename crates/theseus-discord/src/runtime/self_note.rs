@@ -253,7 +253,7 @@ mod tests {
             "snote:resume:x",
             "snote:resume:",
             "snote:wipe:x",
-            "earned:yes:x",
+            "other:yes:x",
         ] {
             assert!(parse(bad).is_none(), "{bad}");
         }

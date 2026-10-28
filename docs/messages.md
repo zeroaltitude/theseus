@@ -72,7 +72,6 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 | Ontology ask | `judge/onto/stage.rs` `ask_text` | Jev was not sure where a session belongs | DM, `onto_card` | Decision |
 | Jev notice | Discord `runtime/jev.rs` `notice_text` | Jev's notice on a call that ran | DM, `jev_notice` | Alert |
 | Jev notices paused | `judge/notice.rs` `paused_text` | the day's brake | DM, `jev_paused` | FYI |
-| Earned autonomy card | `rpc/earned.rs` `card_post` | the weekly read of approvals | DM, `earned_card` | Decision |
 | Seal card | `rpc/thread_seal.rs` `seal_text` | a thread looks embargoed | DM, `seal_card` | Decision |
 | Link card | `thread_link_seen.rs` `Pair::text` | another thread's notes answered twice | DM, `link_card` | Decision |
 | Retraction card | `retract.rs` `card_text` | a retracted note reached tasks | DM, `retraction` | Decision |

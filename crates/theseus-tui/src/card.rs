@@ -93,8 +93,8 @@ pub fn lines(
                     format!("  it waits because the session read {}", held_what(h)),
                 ));
             }
-            // "Yes, and don't ask again" (theseus-drjs): what it covers on a
-            // line of its own, short, so it stays whole on a narrow pane.
+            // A plan's other yes (theseus-lyxy): what it does on a line of
+            // its own, short, so it stays whole on a narrow pane.
             if let Some(o) = &c.grant_offer {
                 out.push((Tag::Plain, offer_line(o)));
             }
@@ -156,20 +156,13 @@ fn preview(c: &theseus_protocol::ConfirmRequest) -> Vec<(Tag, String)> {
 /// The most rows of a call's preview the card shows.
 const PREVIEW_ROWS: usize = 12;
 
-/// `  [a] don't ask again: python3 -m unittest, this conversation`.
+/// `  [e] approve the plan, and accept edits: file edits here run with a notice`:
+/// a plan question's other yes is a mode (theseus-lyxy).
 pub fn offer_line(o: &theseus_protocol::grants::GrantOffer) -> String {
-    // A plan's other yes is a mode, not a grant (theseus-lyxy).
-    if o.kind == theseus_protocol::grants::KIND_MODE {
-        return format!(
-            "  [{}] approve the plan, and accept edits: file edits here run with a notice",
-            o.key()
-        );
-    }
-    let what = match o.kind.as_str() {
-        theseus_protocol::grants::KIND_EDITS => format!("edits under {}", o.pattern),
-        _ => o.pattern.clone(),
-    };
-    format!("  [{}] don't ask again: {what}, this conversation", o.key())
+    format!(
+        "  [{}] approve the plan, and accept edits: file edits here run with a notice",
+        o.key()
+    )
 }
 
 /// A failure's card (theseus-7zgsm): what failed, what it cost, and the keys

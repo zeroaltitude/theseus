@@ -372,7 +372,7 @@ mod tests {
         }
         assert_eq!(parse("wake:maybe:wak_1"), None);
         assert_eq!(parse("wake:done:ses_1"), None);
-        assert_eq!(parse("earned:yes:ern_1"), None);
+        assert_eq!(parse("other:yes:x"), None);
     }
 
     /// What `when` suggests: all ten before anything is typed; what is typed

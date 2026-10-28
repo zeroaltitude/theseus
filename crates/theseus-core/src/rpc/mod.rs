@@ -53,7 +53,6 @@ mod card;
 mod card_stale;
 mod digest;
 mod digest_google;
-pub(crate) mod earned;
 mod forecast;
 mod grants;
 mod judge_latency;
@@ -833,10 +832,6 @@ impl Core {
             .tightened
             .load(&store)
             .context("reading the tool tightenings")?;
-        tools
-            .earned
-            .load(&store)
-            .context("reading the earned grants")?;
         tracing::info!(
             tools = tools.registry.len(),
             not_offered = ?tools.not_offered,
