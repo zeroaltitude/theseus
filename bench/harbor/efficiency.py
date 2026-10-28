@@ -37,6 +37,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
+import price_basis
+
 SCHEMA = "bench-efficiency/1"
 RECORD = "efficiency.json"
 SAMPLER_SUMMARY = "sampler.json"
@@ -1382,6 +1384,9 @@ def over_budget(rec: dict[str, Any]) -> bool | None:
 
 def write(logs: Path, rec: dict[str, Any]) -> Path:
     rec["over_budget"] = over_budget(rec)
+    # which price table billed `cost_usd` (theseus-0j5k5): a comparison of two records
+    # on different tables is a price change mixed with a behaviour change
+    rec.update(price_basis.stamp(rec))
     path = logs / RECORD
     path.write_text(json.dumps(rec, indent=2, sort_keys=True) + "\n")
     return path

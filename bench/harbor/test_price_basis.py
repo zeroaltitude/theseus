@@ -139,7 +139,9 @@ class Guard(unittest.TestCase):
         out = pb.compare({"round1": a, "round2": b}, value=lambda r: r["dollars"])
         self.assertEqual(out["basis"], pb.digest_of(pb.CURRENT))
         self.assertEqual(out["repriced"], False)
-        self.assertGreater(out["ratio"], 1.0)
+        # the second arm over the first: round2's one row against round1's mean
+        self.assertAlmostEqual(out["ratio"], b[0]["dollars"] / ((a[0]["dollars"] + a[1]["dollars"]) / 2))
+        self.assertLess(out["ratio"], 1.0)
         self.assertEqual(out["n"], {"round1": 2, "round2": 1})
 
     def test_the_positive_case_has_a_positive_count(self):
