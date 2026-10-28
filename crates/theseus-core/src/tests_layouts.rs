@@ -1506,3 +1506,18 @@ fn a_format_52_session_reads_its_labels_with_no_judgment() {
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     assert_eq!(moved["format"], 53);
 }
+
+/// PROBE (removed in the next commit): prints the format-53 session sample the
+/// current build serialises, a record holding the whole mark (`judged_through`
+/// and the `unjudged` worklist) beside a label that names its judgment.
+#[test]
+#[ignore]
+fn probe_print_the_format_53_session_with_a_mark() {
+    use crate::content::ContentFlags;
+    let mut s: SessionRecord = serde_json::from_str(SESSION_WITH_LABELS_AT_52).unwrap();
+    let mut flags: ContentFlags = *s.data.take().unwrap();
+    flags.labels[0].judgment = "jdg_0000000000000000000000000000048a".into();
+    flags.unjudged = vec!["msg_00000000000000000000000000000485".into()];
+    s.data = Some(Box::new(flags));
+    eprintln!("SAMPLE53:{}", serde_json::to_string(&s).unwrap());
+}

@@ -1540,3 +1540,134 @@ async fn a_deterministic_label_lands_only_with_the_flags_on() {
         assert_eq!(rows(r, "content.labelled").len(), usize::from(lands));
     }
 }
+
+// ---------------------------------------------------- the mark goes (R5b)
+
+/// The session bound to a DM place, as a notice needs: the one place where the
+/// owner is told what the judge could not do.
+const PLACE: &str = "discord:dm:7";
+
+fn session_with_a_place(r: &Rig) -> String {
+    let sid = session(r);
+    r.core.outbox.bind_place("dm:7", &sid).unwrap();
+    r.core
+        .runner
+        .place_rule
+        .bind_one(crate::places::BoundPlace {
+            target: PLACE.into(),
+            name: "DM".into(),
+            private: false,
+            ..Default::default()
+        });
+    sid
+}
+
+/// The notices the session's place has been posted and not yet delivered, by
+/// their text (no binding runs in the rig).
+fn notices(r: &Rig) -> Vec<String> {
+    r.core
+        .outbox
+        .open_for(PLACE)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "notice")
+        .filter_map(|a| crate::outbox::body_of(a)["text"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// Decision points asked so far (the retry makes a second one).
+fn points(r: &Rig) -> u64 {
+    r.core
+        .runner
+        .judge
+        .content
+        .points
+        .load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Wait until the session has no ask open.
+async fn drained(r: &Rig, sid: &str) {
+    assert!(
+        r.core
+            .runner
+            .verdicts
+            .drained(sid, Duration::from_secs(20))
+            .await,
+        "an ask was still open after 20 s"
+    );
+}
+
+/// **The re-ask, once** (theseus-gyjyo.7). An ask that fails is asked one more
+/// time, then rowed (`content.unjudged`, why `failed`) and told to the owner
+/// in the session's place, and the session goes on: nothing is raised, so it
+/// stays eligible for a model of restricted origin. This is the owner's trade
+/// (review §8, Q2): an item whose ask failed twice can reach such a model
+/// unlabelled, with a notice.
+///
+/// Exactly twice: a Jev that stays down costs two decision points for the
+/// item, not one and not a loop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_ask_is_asked_once_more_then_rowed_and_told() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    jev.set_mode(FakeMode::Down);
+    let r = rig(&jev, |_| {});
+    let sid = session_with_a_place(&r);
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![result_in(&r, &sid, "n1", "text the judge never reads")],
+    );
+    until(&r, "content.unjudged", 1).await;
+    drained(&r, &sid).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(points(&r), 2, "asked, then asked once more, and no more");
+    let unjudged = rows(&r, "content.unjudged");
+    assert_eq!(unjudged.len(), 1, "one row, after the second failure");
+    assert_eq!(unjudged[0]["node"], "n1");
+    assert_eq!(unjudged[0]["why"], "failed");
+    let told = notices(&r);
+    assert_eq!(told.len(), 1, "one notice: {told:?}");
+    assert!(
+        told[0].contains("could not be checked"),
+        "it says what happened: {}",
+        told[0]
+    );
+    let f = flags(&r, &sid);
+    assert!(f.labels.is_empty(), "nothing raised");
+    assert!(
+        f.disqualifies_cn().is_none(),
+        "the session stays eligible for a model of restricted origin"
+    );
+}
+
+/// An ask that fails once and answers the second time is judged as any other:
+/// no `content.unjudged` row and no notice, and a label it earns is raised.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_ask_that_fails_once_and_then_answers_is_judged_and_not_told() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    yes(&jev, "confidential", 0.95);
+    jev.set_mode(FakeMode::Down);
+    let r = rig(&jev, |_| {});
+    let sid = session_with_a_place(&r);
+    // The service comes back as soon as the first point has been asked.
+    let heal = {
+        let (jev, svc) = (jev.clone(), r.core.runner.judge.clone());
+        tokio::spawn(async move {
+            while svc.content.points.load(std::sync::atomic::Ordering::Relaxed) < 1 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            jev.set_mode(FakeMode::Up);
+        })
+    };
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![result_in(&r, &sid, "n1", "text the judge reads")],
+    );
+    until(&r, "content.judged", 1).await;
+    heal.await.unwrap();
+    drained(&r, &sid).await;
+    assert_eq!(points(&r), 2, "the second ask was the retry");
+    assert!(rows(&r, "content.unjudged").is_empty(), "no failure row");
+    assert!(notices(&r).is_empty(), "nothing to tell");
+    assert!(flags(&r, &sid).has(Flag::Confidential), "and it was judged");
+}
