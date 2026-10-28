@@ -234,7 +234,11 @@ impl Chat {
             .asked_expiry()
             .filter(|e| *e > self.now_ms)
             .map(|_| (self.now_ms / 1000 + 1) * 1000);
-        self.board.repaint_at = [f.next_ms, countdown].into_iter().flatten().min();
+        let waited = match self.current() {
+            Some(super::ask::Asked::Own(q)) => crate::held::next_change(&q, self.now_ms),
+            _ => None,
+        };
+        self.board.repaint_at = [f.next_ms, countdown, waited].into_iter().flatten().min();
     }
 
     /// The clock reached the footer's deadline: it changes, and finds the next.

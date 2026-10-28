@@ -1322,7 +1322,7 @@ async fn tab_walks_the_queue_longest_waiting_first() {
     );
 }
 
-/// The card: the tool and its input, the reason, the floor, the countdown,
+/// The card: the tool and its input, the reason, the floor, the wait,
 /// and the keys. `y` answers as the TUI, over the `cli` channel's method.
 #[tokio::test]
 async fn the_card_shows_the_question_and_y_approves_it_as_the_tui() {
@@ -1337,7 +1337,7 @@ async fn the_card_shows_the_question_and_y_approves_it_as_the_tui() {
     let mut rig = Rig::new(120, 20, script(world));
     rig.shows("ready  DM +1").await;
     rig.press(&[KeyCode::Tab]).await;
-    rig.shows("expires in 4:12").await;
+    rig.shows("waiting 0 s").await;
     let rows = pane(&rig.screen(), 120);
     // The pane's foot: a rule as wide as the pane (83 columns), then the card.
     // The countdown and the floor come before the reason, which a long path
@@ -1347,15 +1347,16 @@ async fn the_card_shows_the_question_and_y_approves_it_as_the_tui() {
         [
             "─".repeat(83),
             " ⏸ confirm proc.run: Run `scripts/gate.sh`".to_string(),
-            "   expires in 4:12 · FLOOR".to_string(),
+            "   waiting 0 s · FLOOR".to_string(),
             "   why: run the gate".to_string(),
             "   [y] approve  [n] decline".to_string(),
         ]
     );
-    // A second later, the countdown has moved.
+    // A second later, the wait has moved: a call's question is held, and has
+    // no deadline to count down to (theseus-lrc3m).
     NOW.with(|n| n.set(T0 + 99_000));
     rig.runner.draw().unwrap();
-    assert!(rig.screen().iter().any(|l| l.contains("expires in 4:11")));
+    assert!(rig.screen().iter().any(|l| l.contains("waiting 1 s")));
     rig.press(&[KeyCode::Char('t')]).await;
     assert!(
         rig.screen()[19].contains("nothing to trust"),
@@ -1391,7 +1392,7 @@ async fn a_long_reason_wraps_and_is_read_to_its_end() {
     let mut rig = Rig::new(120, 20, script(world));
     rig.shows("ready  DM +1").await;
     rig.press(&[KeyCode::Tab]).await;
-    rig.shows("expires in 4:12").await;
+    rig.shows("waiting 0 s").await;
     let rows = pane(&rig.screen(), 120);
     let why = rows.iter().position(|r| r.starts_with("   why: ")).unwrap();
     let keys = rows

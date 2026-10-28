@@ -112,8 +112,17 @@ impl Question<'_> {
 
     pub fn expires_at_ms(&self) -> u64 {
         match self {
-            Question::Whole(c) => c.expires_at_ms,
+            Question::Whole(c) => crate::held::deadline_of(c),
             Question::Brief(p) => p.expires_at_ms,
+        }
+    }
+
+    /// When a held question's label (`waiting 12 min`) next changes, if it is
+    /// one the card counts the wait of.
+    pub fn next_label_change(&self, now_ms: u64) -> Option<u64> {
+        match self {
+            Question::Whole(c) => crate::held::next_change(c, now_ms),
+            Question::Brief(_) => None,
         }
     }
 
