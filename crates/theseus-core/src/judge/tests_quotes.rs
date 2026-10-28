@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
+use serde_json::json;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 use theseus_protocol::task_start::TaskStartParams;
 
@@ -71,7 +71,7 @@ fn started(r: &Rig, who: Answerer, outside: bool) -> String {
         .session_id
 }
 
-async fn until_judged(r: &Rig, n: usize) -> Vec<Value> {
+async fn until_judged(r: &Rig, n: usize) -> Vec<crate::ledger::LedgerRow> {
     let t0 = Instant::now();
     loop {
         let found = kinds(&r.core.store, "content.judged");
