@@ -164,16 +164,7 @@ impl Tool for RoutineCreate {
         if let Some(c) = &new.carry {
             theseus_protocol::routines::Carry::parse(c).ok_or("carry is last_report or none")?;
         }
-        let mut next = vec![parsed.first_ms];
-        while next.len() < 3 {
-            match parsed
-                .repeat
-                .next_after(&self.zone, *next.last().unwrap_or(&now))
-            {
-                Some(t) => next.push(t),
-                None => break,
-            }
-        }
+        let next = crate::routine::occurrences(&parsed, &self.zone, 3);
         let run = new.budget_usd.unwrap_or(self.cfg.default_run_usd);
         let month = new.month_usd.unwrap_or(self.cfg.default_month_usd);
         if !(usd_ok(run) && usd_ok(month)) || run > month {

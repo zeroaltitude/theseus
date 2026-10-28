@@ -533,6 +533,37 @@ fn deliver_words(to: &str, speak: Speak) -> String {
     }
 }
 
+/// The first `n` occurrences of a read schedule, for the card: fewer when the
+/// series ends (a stop that is a time) before there are `n` of them.
+pub fn occurrences(parsed: &theseus_kernel::cron::Parsed, zone: &TimeZone, n: usize) -> Vec<u64> {
+    let mut out = vec![parsed.first_ms];
+    while out.len() < n {
+        match parsed.repeat.next_after(zone, *out.last().unwrap_or(&parsed.first_ms)) {
+            Some(t) => out.push(t),
+            None => break,
+        }
+    }
+    out
+}
+
+/// A schedule's shortest gap over its next few occurrences, which
+/// `catch_up: auto` reads; its nominal span when it has only one.
+fn period_of(parsed: &theseus_kernel::cron::Parsed, zone: &TimeZone) -> u64 {
+    let mut gap = u64::MAX;
+    let mut prev = parsed.first_ms;
+    for _ in 0..8 {
+        let Some(next) = parsed.repeat.next_after(zone, prev) else {
+            break;
+        };
+        gap = gap.min(next - prev);
+        prev = next;
+    }
+    match gap {
+        u64::MAX => parsed.repeat.every.nominal_ms(),
+        g => g,
+    }
+}
+
 /// Read and check a request. `by` and `created_in` go in the record.
 pub fn prepare(
     kernel: &Kernel,
@@ -598,35 +629,7 @@ pub fn prepare(
             ))
         }
     };
-    let period_ms = {
-        let mut gap = u64::MAX;
-        let mut prev = parsed.first_ms;
-        for _ in 0..8 {
-            match parsed.repeat.next_after(&kc.zone, prev) {
-                Some(next) => {
-                    gap = gap.min(next - prev);
-                    prev = next;
-                }
-                None => break,
-            }
-        }
-        if gap == u64::MAX {
-            parsed.repeat.every.nominal_ms()
-        } else {
-            gap
-        }
-    };
-    let mut next = vec![parsed.first_ms];
-    let mut prev = parsed.first_ms;
-    while next.len() < 3 {
-        match parsed.repeat.next_after(&kc.zone, prev) {
-            Some(t) => {
-                next.push(t);
-                prev = t;
-            }
-            None => break,
-        }
-    }
+    let next = occurrences(&parsed, &kc.zone, 3);
     let spec = RoutineSpec {
         title: title.to_string(),
         schedule: n.schedule.trim().to_string(),
@@ -639,7 +642,7 @@ pub fn prepare(
         start_ms,
         stop,
         deliver_to,
-        period_ms,
+        period_ms: period_of(&parsed, &kc.zone),
         created_ms: now,
         created_by: by.to_string(),
         created_in: created_in.map(str::to_string),
