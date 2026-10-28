@@ -71,7 +71,6 @@ pub const OPERATOR_KINDS: &[&str] = &[
     "self_join",
     "self_narrow",
     "self_narrow_red",
-    "earned_card",
     "retraction",
     "seal_card",
     "link_card",
