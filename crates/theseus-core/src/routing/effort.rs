@@ -48,6 +48,15 @@
 //!   floor and the bounds as a sure one does; the row says `applied_unsure`
 //!   only where the answer's own level ran, and the gate's, the floor's and
 //!   the bounds' reasons win where one of them moved it.
+//! - **Under `[routing] effort_floor_confidence` an answer applies nothing**
+//!   (theseus-l7i9k, regress R4; unset is off, and it ships off). The turn
+//!   runs at the profile's own effort and the row says `gated`, the answered
+//!   level still recorded. It sits after `fixed` and `no_effort` (which say
+//!   more) and before the gate, the floor and the bounds, so it stops all
+//!   three of `floored`, `applied_unsure` and `held_high_unsure` at once. On a
+//!   routed profile the profile's own effort IS the floor, so a `floored`
+//!   answer that is gated runs at the same level it would have: only its
+//!   reason changes.
 //! - **The rest are route.v2's**: on `unclear`, for a verdict in shadow or a
 //!   pinned turn, and for a late verdict (one asked for the session's last
 //!   message, which carries its mode, never its effort), the profile's own
@@ -102,6 +111,9 @@ pub enum EffortReason {
     /// Jev's level was under the routed profile's own effort, which the turn
     /// runs at instead (theseus-53ujg.3).
     Floored,
+    /// The answer's confidence was under `effort_floor_confidence`: it applies
+    /// nothing, and the profile's own effort stands (theseus-l7i9k).
+    Gated,
     /// Jev's level (`ran`) differs from the previous request's by one step on
     /// a long conversation, and the model has no per-message effort: the
     /// request keeps the previous level (`sent`), so its cache is read.
@@ -132,6 +144,7 @@ impl EffortReason {
             EffortReason::StickyUnsure => "sticky_unsure",
             EffortReason::StickyReverted => "sticky_reverted",
             EffortReason::Floored => "floored",
+            EffortReason::Gated => "gated",
         }
     }
 }
@@ -205,12 +218,16 @@ pub fn parse(level: &str) -> Option<Effort> {
 }
 
 /// The effort bars of `[routing]`: `effort_confidence`, the least an answer
-/// whose band is unsure applies at, and `high_effort_confidence`, which
-/// `xhigh` and `max` must pass.
+/// whose band is unsure applies at, `high_effort_confidence`, which `xhigh`
+/// and `max` must pass, and `effort_floor_confidence`, under which no answer
+/// applies when it is set.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bars {
     pub effort: f64,
     pub high: f64,
+    /// `[routing] effort_floor_confidence`: an answer under it applies
+    /// nothing (theseus-l7i9k). None is off.
+    pub floor: Option<f64>,
 }
 
 /// The effort rule. `acts` is whether the verdict acts on this turn: live,
@@ -247,6 +264,12 @@ pub fn decide(
     }
     if runs.fixed {
         return stand(EffortReason::Fixed);
+    }
+    // The floor bar (off by default): an answer under it moves nothing, not
+    // up by `applied_unsure`, `held_high_unsure` or the routed profile's
+    // floor, and not down.
+    if bars.floor.is_some_and(|f| answer.confidence < f) {
+        return stand(EffortReason::Gated);
     }
     let [lo, hi] = bounds;
     // The gate first: an xhigh on an unsure answer, or any xhigh or max at or
@@ -319,6 +342,7 @@ mod tests {
     const BAR: Bars = Bars {
         effort: 0.35,
         high: 0.70,
+        floor: None,
     };
 
     /// A sure answer at 0.9, an unsure one under `BAR.effort`.
@@ -660,6 +684,7 @@ mod tests {
     const LIVE: Bars = Bars {
         effort: 0.35,
         high: 0.40,
+        floor: None,
     };
 
     /// The Terminal-Bench case (theseus-7pm8t): Jev asked for `max` at 0.42
@@ -738,6 +763,7 @@ mod tests {
         let bars = Bars {
             effort: 0.35,
             high: 0.50,
+            floor: None,
         };
         let r = runs(None, false, true);
         let d = decide(FULL, bars, &at("xhigh", 0.42, false), r, true, false);
@@ -789,5 +815,102 @@ mod tests {
             sent: None,
         };
         assert!(d.applied());
+    }
+
+    /// `effort_floor_confidence` (theseus-l7i9k): under it an answer applies
+    /// nothing and the profile's own effort stands, for each of the three
+    /// reasons it exists to stop; at it, nothing changes; unset, off.
+    #[test]
+    fn an_answer_under_the_floor_bar_applies_nothing() {
+        let gated = Bars {
+            floor: Some(0.6),
+            ..BAR
+        };
+        let high = Some(Effort::High);
+        // (answer, runs, the reason without the bar)
+        let cases = [
+            (
+                at("max", 0.45, false),
+                runs(high, false, true),
+                EffortReason::AppliedUnsure,
+            ),
+            (
+                at("xhigh", 0.5, false),
+                runs(high, false, true),
+                EffortReason::HeldHighUnsure,
+            ),
+            (
+                at("medium", 0.55, false),
+                Runs {
+                    floor: high,
+                    ..runs(high, false, true)
+                },
+                EffortReason::Floored,
+            ),
+        ];
+        for (answer, r, was) in cases {
+            let off = decide(FULL, BAR, &answer, r, true, false);
+            assert_eq!(off.reason, was, "{answer:?}");
+            let on = decide(FULL, gated, &answer, r, true, false);
+            assert_eq!(
+                (on.reason, on.ran, on.sent),
+                (EffortReason::Gated, high, None),
+                "{answer:?}"
+            );
+            assert!(!on.applied());
+            assert_eq!(EffortReason::Gated.as_str(), "gated");
+        }
+        // The profile has no effort of its own: none stands.
+        let d = decide(
+            FULL,
+            gated,
+            &at("max", 0.45, false),
+            runs(None, false, true),
+            true,
+            false,
+        );
+        assert_eq!((d.reason, d.ran), (EffortReason::Gated, None));
+    }
+
+    /// At the bar, or over it, the answer goes through the rest as it did;
+    /// the reasons that say more (`fixed`, `no_effort`, `unsure`, `unclear`)
+    /// still come first.
+    #[test]
+    fn an_answer_at_the_floor_bar_and_the_reasons_before_it_are_unchanged() {
+        let gated = Bars {
+            floor: Some(0.6),
+            ..BAR
+        };
+        let r = runs(Some(Effort::High), false, true);
+        for (conf, sure) in [(0.6, true), (0.9, true)] {
+            let a = at("medium", conf, sure);
+            assert_eq!(
+                decide(FULL, gated, &a, r, true, false),
+                decide(FULL, BAR, &a, r, true, false),
+                "{conf}"
+            );
+        }
+        let under = at("low", 0.5, false);
+        for (r, want) in [
+            (runs(Some(Effort::High), true, true), EffortReason::Fixed),
+            (
+                runs(Some(Effort::High), false, false),
+                EffortReason::NoEffort,
+            ),
+        ] {
+            assert_eq!(decide(FULL, gated, &under, r, true, false).reason, want);
+        }
+        assert_eq!(
+            decide(FULL, gated, &at("low", 0.30, false), r, true, false).reason,
+            EffortReason::Unsure
+        );
+        assert_eq!(
+            decide(FULL, gated, &at("unclear", 0.2, false), r, true, false).reason,
+            EffortReason::Unclear
+        );
+        assert_eq!(
+            decide(FULL, gated, &under, r, false, false).reason,
+            EffortReason::Recorded
+        );
     }
 }

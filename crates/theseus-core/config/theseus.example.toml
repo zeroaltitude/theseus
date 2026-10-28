@@ -1687,6 +1687,17 @@ margin = 0.02                           # at the minimum sample, precision and r
 # bar), before the bounds clamp it. An answer of xhigh also needs a sure answer (above its
 # confirm bar): an unsure xhigh runs high as held_high_unsure at any confidence, while
 # max keeps the confidence bar alone.
+# effort_floor_confidence (unset: off, theseus-l7i9k) stops the three reasons the 1.0.3 build
+# added to the effort rule, floored, applied_unsure and held_high_unsure, which together put
+# 92% of one gauntlet's trials at high where 1.0.1's 70% sat: an answer under it applies
+# nothing, the profile's own effort stands, and the row says gated (the answered level still
+# recorded). It is off because its own check is a pass-rate comparison no bench has run, and
+# because on a routed profile the floor IS the profile's own effort, so a gated floored answer
+# runs at the level it would have: the saving is in the two unsure reasons alone. WHAT WOULD
+# TURN IT ON: a Theseus-only k=3 arm on the 1.0.3 gauntlet's Terminal-Bench cell with
+# effort_floor_confidence = 0.6, beside a same-build control arm on one price table, that
+# solves at least as many trials as its control and runs effort_ran=high on 70% to 92% of
+# trials at no higher mean cost per trial; otherwise it stays unset.
 [routing]
 enabled = true                          # acts only while [judge] is on
 rung = "live"                           # "shadow" records each verdict and routes nothing
@@ -1697,6 +1708,7 @@ switch_confidence = 0.6                 # a verdict routes only at this confiden
 effort_bounds = ["low", "max"]          # the lowest and highest effort Jev's answer may set
 high_effort_confidence = 0.40           # an xhigh or max answer applies only above this confidence; else the turn runs high
 effort_confidence = 0.35                # an effort answer under its confirm bar applies at this confidence or more (at most high_effort_confidence)
+#effort_floor_confidence = 0.6          # unset = off; an effort answer under this applies nothing (above effort_confidence, at most 1)
 dear_tier_max_tokens = 200000           # over this much context, sophisticated and review skip a profile dearer (per input token) than the next usable one
 # A running task's model ranges (theseus-ypnxt.9). A task you started with no profile asks
 # route.v8 about its recent state at a loop boundary when it fails, stalls, changes phase or

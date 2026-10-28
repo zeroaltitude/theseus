@@ -47,7 +47,9 @@ effort?: string,
  * keep the cache: `effort_applied` is the level sent), `sticky_unsure`
  * (that hold of an `applied_unsure` or `held_high_unsure` answer),
  * `sticky_reverted` (a later answer sure enough ended the hold early),
- * or `floored` (raised to the routed profile's own effort).
+ * `floored` (raised to the routed profile's own effort), or `gated`
+ * (the answer's confidence was under `effort_floor_confidence`: it
+ * applied nothing).
  */
 effort_reason?: string, 
 /**

@@ -129,7 +129,10 @@ async fn an_unsure_xhigh_under_the_bar_is_not_held_at_high() {
 /// only the reason does: the test pins that, because it is the finding.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_floored_answer_under_the_bar_stands_at_the_profiles_own_effort() {
-    for (bar, reason, applied) in [(None, "floored", json!(true)), (Some(0.8), "gated", json!(false))] {
+    for (bar, reason, applied) in [
+        (None, "floored", json!(true)),
+        (Some(0.8), "gated", json!(false)),
+    ] {
         let jev = FakeJev::start().unwrap();
         mode(&jev, "routine_coding", 0.95);
         effort(&jev, "medium", 0.62);

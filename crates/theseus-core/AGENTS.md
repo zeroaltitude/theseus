@@ -1822,7 +1822,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `[routing] effort_bounds`, only for a model whose catalog row takes effort; an answer below the question's confirm
     band still applies at `[routing] effort_confidence` (0.35) or more, as `applied_unsure` (theseus-7pm8t: an effort
     is not held to the model switch's bar); under it, `unclear`, a pin, shadow, or a late (carried) verdict leave the
-    profile's own. `apply_effort` sets it on the spec
+    profile's own. **`[routing] effort_floor_confidence`** (theseus-l7i9k, regress R4; unset = off, ships off): an answer
+    under it applies nothing, the profile's own effort stands, `effort_reason` is `gated`; it comes after `fixed` and
+    `no_effort` and stops `floored`, `applied_unsure` and `held_high_unsure` together (a gated `floored` runs at the same
+    level: the floor is the routed profile's own effort). The flip condition is in the template beside the knob. `apply_effort` sets it on the spec
     and the first compile's request (`compiler::output_config`), and takes that request's digest again, which the
     turn records and the overflow retry compares. `route.decided`'s `effort_*` fields and `TurnRoute`
     say which. Tests: `tests_route_effort.rs`, `routing::effort::tests`.
