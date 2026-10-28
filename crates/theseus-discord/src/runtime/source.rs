@@ -95,8 +95,12 @@ pub(super) fn parse(custom_id: &str) -> Option<(&str, &str)> {
 /// values are replaced here. The excerpt is masked before `excerpt_text` cuts
 /// it, so a value is not cut in two first, and the whole answer after, for
 /// the header.
-fn shown(_exits: &Exits, c: &Citation) -> String {
-    excerpt_text(c)
+fn shown(exits: &Exits, c: &Citation) -> String {
+    let masked = Citation {
+        excerpt: exits.text(&c.excerpt).0.into_owned(),
+        ..c.clone()
+    };
+    exits.text(&excerpt_text(&masked)).0.into_owned()
 }
 
 impl Shared {

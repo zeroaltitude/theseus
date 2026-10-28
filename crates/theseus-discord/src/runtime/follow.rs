@@ -157,8 +157,8 @@ impl Mirror {
     /// The text as it is posted: the vault's values replaced. The mirror
     /// posts with `create_message` and `update_message` directly, not through
     /// the courier, and what it holds is a tool's input and the model's words.
-    pub(super) fn sendable(&self, _exits: &Exits, v: &WorkView, end: Option<&str>) -> String {
-        self.text(v, end)
+    pub(super) fn sendable(&self, exits: &Exits, v: &WorkView, end: Option<&str>) -> String {
+        exits.text(&self.text(v, end)).0.into_owned()
     }
 
     pub(super) fn text(&self, v: &WorkView, end: Option<&str>) -> String {
