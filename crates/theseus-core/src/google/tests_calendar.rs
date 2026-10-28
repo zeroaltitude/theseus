@@ -336,10 +336,9 @@ async fn an_invitation_from_a_stranger_is_external() {
         "{text}"
     );
     // One event the account does not organize makes the whole listing outside text,
-    // marked by that event, and the session holds.
+    // marked by that event.
     assert_eq!(external.as_deref(), Some("calendar:inv7"));
-    let rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
-    assert!(rec.external.is_some(), "the session holds");
+    assert!(crate::external::read_any(&r.core.store, &sid));
 }
 
 #[tokio::test]

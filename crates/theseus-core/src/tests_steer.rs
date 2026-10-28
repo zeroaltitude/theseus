@@ -481,7 +481,6 @@ async fn only_a_persons_input_is_offered_to_the_running_turn() {
     prompt.prompt = Some(crate::mcp::prompts::PromptInput {
         author: "prompt:srv/p".into(),
         messages: vec![],
-        hold: None,
     });
     assert!(r
         .core

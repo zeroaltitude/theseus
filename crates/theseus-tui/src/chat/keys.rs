@@ -56,8 +56,6 @@ pub enum Ask {
     No,
     /// `v`: the whole call, in the transcript.
     Whole,
-    /// `t`: yes, and trust the session again after external text.
-    Trust,
     /// `a` (a command's prefix) or `e` (edits in this project): yes, and
     /// the question's grant offer. A question that offers the other, or none,
     /// ignores the key.
@@ -72,7 +70,6 @@ pub const ASK_KEYS: &[(char, Ask)] = &[
     ('y', Ask::Yes),
     ('n', Ask::No),
     ('v', Ask::Whole),
-    ('t', Ask::Trust),
     ('a', Ask::Grant),
     ('e', Ask::Grant),
     ('1', Ask::Choice(0)),

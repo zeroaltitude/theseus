@@ -10,13 +10,8 @@ export type ConfirmResolved = { session_id: string, correlation_id: string, appr
  */
 by?: string, 
 /**
- * An answer to a tool call: whether it trusted the session again
- * (theseus-9bp).
- */
-trust?: boolean, 
-/**
  * The answer's option (`work::AnswerOption.id`: `approve`, `decline`,
- * `reset`, `accept`, `ack`, `approve_trust`), whichever verb gave it.
+ * `reset`, `accept`, `ack`), whichever verb gave it.
  * Absent from a close that was no answer.
  */
 option?: string, 

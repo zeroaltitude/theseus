@@ -393,7 +393,7 @@ enum Cmd {
         /// as it is asked and answered (executions.watch).
         #[arg(long, conflicts_with = "session")]
         all: bool,
-        /// Answer from here: a question waiting asks `approve? [y/N/t/note]`, and any other line
+        /// Answer from here: a question waiting asks `approve? [y/N/note]`, and any other line
         /// is sent to the session as a message. Line mode, so it works in any terminal or pane.
         #[arg(long, conflicts_with = "all")]
         interactive: bool,
@@ -872,7 +872,7 @@ enum PolicyCmd {
     Untighten { tool: String },
     /// Why a call waits: each tool's result, layer by layer in the gate's order (the place and
     /// its ceiling, the class, the config's posture, a tightening, a granted secret, the
-    /// place's floor, T1's hold), and the conditions that depend on the call. For SESSION's
+    /// place's floor), and the conditions that depend on the call. For SESSION's
     /// place, or for the CLI and every bound place; with --tool, that tool in full.
     Explain {
         #[arg(long, value_name = "SESSION")]
@@ -880,21 +880,6 @@ enum PolicyCmd {
         /// A tool's canonical name (`proc.run`, `mcp:<server>/<tool>`).
         #[arg(long)]
         tool: Option<String>,
-    },
-    /// Trust SESSION again: it no longer holds the external text it read (a web page, a
-    /// search), so its calls that act run at their postures again. It loosens, so it counts
-    /// only where an approval would. SESSION is its id, or at least its last four characters.
-    Trust {
-        #[arg(value_name = "SESSION")]
-        session: String,
-    },
-    /// Dismiss the notice of SESSION's hold on external text: under `[policy] external_text =
-    /// "notify"` the hold has told you, and nothing waits on it. The hold and its record stay;
-    /// a later hold tells again. A hold that waits for you (ask mode) is answered or trusted
-    /// instead. Yours alone to run. SESSION is its id, or at least its last four characters.
-    Dismiss {
-        #[arg(value_name = "SESSION")]
-        session: String,
     },
 }
 

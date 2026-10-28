@@ -21,7 +21,6 @@ Two files: a.md and b.md.
   ? fs.write needs your confirmation (FLOOR): write outside the roots (/w)
       input: {"path":"/srv/motd","text":"hello"}
       approve: theseus answer act_k4 approve
-      approve, and trust the session again: theseus answer act_k4 approve_trust
       decline: theseus answer act_k4 decline
   $ The session reached its $1.00 limit; the next call needs $0.02
       reset and continue: theseus answer act_b5 reset

@@ -233,7 +233,6 @@ impl TurnRunner {
             start_at_ms: None,
             helper: None,
         };
-        let hold = session_hold(tc)?;
         // The brief is an item like any other, and the draft's session is
         // judged by it (theseus-9ymz0). It is kept out here so it can be queued
         // after its frame is written: without that the draft's own session is
@@ -275,24 +274,11 @@ impl TurnRunner {
                 let author = format!("session:{}", tc.session_id);
                 let text = draft::brief(draft::DRAFT_HEADER, &d.draft.asks);
                 let brief = Node::relayed(sid, None, crate::node::Origin::Agent, &author, &text);
-                let mut records = match &hold {
-                    Some(h) => {
-                        let taken = crate::external::taken(
-                            h,
-                            tc.session_id,
-                            crate::external::VIA_TASK,
-                            &brief.id,
-                            theseus_protocol::now_unix_ms(),
-                        );
-                        crate::external::hold(rec, crate::external::bare(taken), None)?
-                            .unwrap_or_default()
-                    }
-                    None => vec![NewRecord::json(
-                        theseus_store::kinds::SESSION,
-                        Some(sid),
-                        &rec,
-                    )?],
-                };
+                let mut records = vec![NewRecord::json(
+                    theseus_store::kinds::SESSION,
+                    Some(sid),
+                    &rec,
+                )?];
                 records.push(brief.record()?);
                 *briefed
                     .lock()
@@ -376,12 +362,4 @@ impl TurnRunner {
         t.tc.posts.lock().unwrap().push(post);
         Ok(())
     }
-}
-
-/// The parent's external-text hold, which a draft takes bare.
-fn session_hold(tc: &TurnCtx<'_>) -> Result<Option<theseus_protocol::ExternalText>> {
-    Ok(tc
-        .store
-        .get_session::<SessionRecord>(tc.session_id)?
-        .and_then(|r| r.external))
 }

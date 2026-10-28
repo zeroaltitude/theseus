@@ -66,30 +66,28 @@ pub(crate) fn offer(mut req: ConfirmRequest) -> ConfirmRequest {
 }
 
 /// The option an answer is, as `confirm.resolved` carries it.
-pub(crate) fn option_id(kind: QuestionKind, approve: bool, trust: bool) -> &'static str {
-    match (kind, approve, trust) {
-        (_, false, _) => "decline",
-        (QuestionKind::Budget, true, _) => "reset",
-        (QuestionKind::Change, true, _) => "accept",
-        (QuestionKind::Extension, true, _) => "ack",
-        (_, true, true) => "approve_trust",
-        (_, true, false) => "approve",
+pub(crate) fn option_id(kind: QuestionKind, approve: bool) -> &'static str {
+    match (kind, approve) {
+        (_, false) => "decline",
+        (QuestionKind::Budget, true) => "reset",
+        (QuestionKind::Change, true) => "accept",
+        (QuestionKind::Extension, true) => "ack",
+        (_, true) => "approve",
     }
 }
 
-/// How `option` of a question of `kind` is answered: whether it approves,
-/// and whether it trusts the session again. A question with options is
-/// answered by choosing one: it binds its confirm (`approves`) and trusts
-/// nothing; which option is `answer_ask`'s.
-pub(crate) fn route(kind: QuestionKind, option: &str) -> Result<(bool, bool), RpcFailure> {
+/// How `option` of a question of `kind` is answered: whether it approves. A
+/// question with options is answered by choosing one: it binds its confirm
+/// (`approves`); which option is `answer_ask`'s.
+pub(crate) fn route(kind: QuestionKind, option: &str) -> Result<bool, RpcFailure> {
     match kind {
         QuestionKind::Ask => match option.starts_with("choice:") {
-            true => Ok((true, false)),
+            true => Ok(true),
             false => Err(refused(format!(
                 "`{option}` is not a choice of a question with options: answer with its number"
             ))),
         },
-        _ => Ok((approves(option), option == "approve_trust")),
+        _ => Ok(approves(option)),
     }
 }
 
@@ -323,13 +321,7 @@ impl Core {
         if kind == QuestionKind::Ask {
             return self.answer_ask(p, who, conn, a);
         }
-        // A call that waits because its session read external text offers
-        // "approve and trust"; the transcript is not read to know, and the
-        // trust of a session that holds nothing changes nothing.
-        let options = answer_options(&theseus_protocol::work::Question {
-            external_text: true,
-            ..self.bare_question(a, kind)
-        });
+        let options = answer_options(&self.bare_question(a, kind));
         // Approve and take the question's grant (theseus-drjs): the offer
         // the daemon makes now, never one the answer names.
         if p.option == theseus_protocol::grants::APPROVE_GRANT && kind == QuestionKind::Approval {
@@ -342,7 +334,7 @@ impl Core {
                 ids(&options)
             )));
         };
-        let (approve, trust) = route(kind, &chosen.id)?;
+        let approve = route(kind, &chosen.id)?;
         if p.watch {
             self.bus.watch(&a.session_id, conn.client, conn.tx.clone());
         }
@@ -352,7 +344,6 @@ impl Core {
                 approve,
                 p.note.as_deref(),
                 who,
-                trust,
                 Default::default(),
             )
             .map_err(|e| match e.downcast::<Refusal>() {
@@ -404,7 +395,7 @@ impl Core {
             pattern: offered.pattern,
         };
         let done = self
-            .confirm_granting(&a.correlation_id, p.note.as_deref(), who, false, &answer)
+            .confirm_granting(&a.correlation_id, p.note.as_deref(), who, &answer)
             .map_err(|e| match e.downcast::<Refusal>() {
                 Ok(r) => RpcFailure {
                     code: error_code::REFUSED,
@@ -476,7 +467,6 @@ impl Core {
                 true,
                 text,
                 who,
-                false,
                 super::confirms::Rides {
                     extra: &[],
                     ask: Some((&option, record)),
@@ -518,7 +508,6 @@ impl Core {
             may_answer: true,
             tool: Some(a.tool.clone()),
             asked_at_ms: a.planned_at_ms,
-            external_text: false,
             choices: crate::ask::input_of(a)
                 .map(|i| i.choices())
                 .unwrap_or_default(),

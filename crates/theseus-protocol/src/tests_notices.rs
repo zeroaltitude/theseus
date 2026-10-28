@@ -106,7 +106,6 @@ fn ask(id: &str, asked: u64, expires: u64) -> Question {
         may_answer: true,
         tool: Some("fs.write".into()),
         asked_at_ms: asked,
-        external_text: false,
         choices: Vec::new(),
     };
     q.options = crate::work::answer_options(&q);

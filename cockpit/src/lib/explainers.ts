@@ -124,16 +124,12 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- Actions
   'actions.approvals': e(
     'Collect every tool call waiting for your decision.',
-    'One card per call: the session, the tool, what it would do and why it asked. Approve, approve and trust (stop asking for calls like this), or decline.',
+    'One card per call: the session, the tool, what it would do and why it asked. Approve or decline.',
     'The session is paused until you answer. A long list means work is blocked on you.'),
   'actions.calls': e(
     'Follow each tool call through its life.',
     'One row per call, newest first: planned, then authorized, dispatched and settled, with its tool, its session and its outcome. Pick an execution to narrow the list to its calls.',
     'A call stuck before “settled” may have been lost in a crash or may still be running. A denied or failed call explains why a turn went the way it did.'),
-  'actions.holds': e(
-    'List sessions that have read text from outside, and are held.',
-    'One row per held session: the tool that brought the text in (a web search or fetch), what it asked for, how long ago, and how it holds. “Trust” lets the session act again. When nothing is held it says every session is trusted.',
-    'Outside text can carry instructions meant to steer the model, so a session that read some waits for you before it acts. Trust it only when you have judged what it read.'),
   'actions.wakes': e(
     'Point to the wake-ups Theseus has set, which moved to the Agenda page.',
     'One line: how many wakes are set and when the next is due. Click it to open the Agenda, where each wake keeps every field it had here and its Cancel.',
@@ -164,7 +160,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'A task is only ever the running agent: what is stored and shown as work to do is a plan or a step. Also: a turn is one run of the model from a message to its reply, an ask is anything waiting on your answer, and a wake is a time Theseus starts work by itself.'),
   'ops.queue': e(
     'List everything that waits on you, in one place, the longest waiting first.',
-    'Each card is one thing to answer: an approval, a budget, a change to a step’s goal, a question, a failure, a seal, a hold on external text, or a message waiting for its thread. Its glyph and word say which; the bar under its top says how much of its time is left. Tab moves to the next; Enter lays out the whole card; y, t, n, 1 to 6, r and d answer the one under the cursor.',
+    'Each card is one thing to answer: an approval, a budget, a change to a step’s goal, a question, a failure, a seal, or a message waiting for its thread. Its glyph and word say which; the bar under its top says how much of its time is left. Tab moves to the next; Enter lays out the whole card; y, n, 1 to 6, r and d answer the one under the cursor.',
     'A question that waits holds its work. A new one slides in where its age puts it, so the cursor never jumps away from what you are reading.'),
   'ops.inspector': e(
     'Show the selection whole: its facts, its questions and its verbs.',
@@ -180,10 +176,6 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'It makes a stuck chain visible: a step waiting on another shows as an arrow into the one that holds it.'),
 
   // ---- Boundaries and Policy
-  'bounds.latch': e(
-    'Show the sessions held after reading outside text.',
-    'One row per held session with what it read, from where, and for how long. Trust releases it.',
-    'This is the guard against outside text steering the model. A long list of held sessions means an input source is feeding text in.'),
   'bounds.gate': e(
     'Show the approvals waiting and the rules you have tightened.',
     'The waiting approvals with their buttons, and below them every tightening (“ask like this in future”) with its undo.',

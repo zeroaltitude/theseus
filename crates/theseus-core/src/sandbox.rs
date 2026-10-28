@@ -12,8 +12,8 @@
 //!   the approve lists wait for it. A secret the broker grants its program
 //!   it takes at its launch, as at L0: the call runs at no looser a posture
 //!   than the secret's, so any approval comes before the launch (decision
-//!   15; theseus-w5op). A session holding external text still holds it, as
-//!   T1 holds any call that acts (20a lifts that for L1).
+//!   15; theseus-w5op). Hosts its call names beyond `[sandbox] egress` are a
+//!   notice that names them (`egress::gate`).
 //! - **The class is bound**: an L1 call's proposal names it, so the digest a
 //!   confirm binds covers it, and a confirmed call runs in the class its
 //!   proposal names, never in one worked out again. So is an L1 job's egress
@@ -206,9 +206,9 @@ pub fn bind_class(p: &mut Proposal, class: Class) {
     }
 }
 
-/// The gate's decision for a call, before the external-text hold, and what
-/// its proposal binds (the gate in `toolrun`): its class, and an L1 job's
-/// egress list, whose hosts beyond `[sandbox] egress` make it wait (18c). L1
+/// The gate's decision for a call, and what its proposal binds (the gate in
+/// `toolrun`): its class, and an L1 job's egress list, whose hosts beyond
+/// `[sandbox] egress` are a notice that names them (18c). L1
 /// runs at notify: the floor and the approve lists guard what an L1 job
 /// cannot reach, so neither is asked. The operator's own word about the
 /// tool still is (the owner, 2026-10-02, theseus-jfs6): a `[policy.tools]` line
@@ -377,7 +377,6 @@ fn l1_decision(
         notify: None,
         floor: false,
         granted: None,
-        external: None,
     }
 }
 
@@ -398,7 +397,6 @@ pub fn decision(tool: &str, why: &str, egress: &[String]) -> Decision {
         }),
         floor: false,
         granted: None,
-        external: None,
     }
 }
 

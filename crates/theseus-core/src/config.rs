@@ -687,17 +687,6 @@ pub struct PolicyConfig {
     /// `"server/tool"` (one tool), for tools named `mcp:<server>/<tool>`.
     #[serde(default)]
     pub mcp: BTreeMap<String, crate::policy::Posture>,
-    /// After a session reads external text (theseus-9bp): `ask` makes a call
-    /// that acts wait for approval; `notify` runs it, telling the owner once
-    /// per hold. Either holds until the operator trusts the session. Unset,
-    /// it follows `enforcement` (`external_mode`).
-    #[serde(default)]
-    pub external_text: Option<crate::external::Mode>,
-    /// Programs whose output is outside text (theseus-b5cl): a `proc.run` of
-    /// one holds its session as a fetch does (`external::Listed`). `["gh"]`
-    /// by default: `gh issue view` prints a stranger's text.
-    #[serde(default = "default_external_programs")]
-    pub external_programs: Vec<String>,
     /// Programs that host an agent (theseus-5rvss): a CLI answer from a
     /// process under one, or from one with no controlling terminal, is
     /// recorded as that agent's (`peer_proc`), and an agent never answers a
@@ -746,40 +735,10 @@ fn default_approve_argv() -> Vec<Vec<String>> {
         &["reboot"],
     ])
 }
-fn default_external_programs() -> Vec<String> {
-    vec!["gh".into()]
-}
 fn default_agent_processes() -> Vec<String> {
     ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
         .map(String::from)
         .to_vec()
-}
-
-impl PolicyConfig {
-    /// The mode in force for a hold: `external_text` when set, else
-    /// `enforcement` (`approve` asks; `notify` and `open` notify, since a
-    /// hold never goes silent: its floor is the one notice).
-    pub fn external_mode(&self) -> crate::external::Mode {
-        self.external_text
-            .unwrap_or_else(|| self.enforcement.into())
-    }
-
-    /// The key that decided [`Self::external_mode`], for a notice's setting.
-    pub fn external_key(&self) -> &'static str {
-        if self.external_text.is_some() {
-            "external_text"
-        } else {
-            "enforcement"
-        }
-    }
-
-    /// [`Self::external_mode`] and the key that decided it, for the runtime.
-    pub fn external_rule(&self) -> crate::external::Rule {
-        crate::external::Rule {
-            mode: self.external_mode(),
-            key: self.external_key(),
-        }
-    }
 }
 
 impl Default for PolicyConfig {
@@ -790,8 +749,6 @@ impl Default for PolicyConfig {
             approve_argv: default_approve_argv(),
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
-            external_text: None,
-            external_programs: default_external_programs(),
             agent_processes: default_agent_processes(),
             private_addresses: Default::default(),
             earned: None,

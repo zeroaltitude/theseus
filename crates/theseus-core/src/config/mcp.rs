@@ -75,8 +75,8 @@ pub struct McpServerConfig {
     /// server, which starts in the workspace's first root.
     #[serde(skip)]
     pub frozen: Option<std::path::PathBuf>,
-    /// Its results are outside text, which holds the session that reads one
-    /// (T1). `false` only for a server whose output is the operator's own.
+    /// Its results are marked as outside text (`external` on the node).
+    /// `false` only for a server whose output is the operator's own.
     #[serde(default = "yes")]
     pub external: bool,
     /// `false` keeps it configured and unstarted.

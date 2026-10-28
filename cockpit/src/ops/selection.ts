@@ -74,7 +74,7 @@ const living = (r: OpsRow) => alive(r) && !(r.view && isEndedState(r.view.state)
 export function itemsOf(rows: readonly OpsRow[], queue: readonly QueueItem[]): QueueItem[] {
   const sessions = new Set(rows.flatMap((r) => (r.sessionId ? [r.sessionId] : [])))
   const views = new Set(rows.flatMap((r) => (r.view ? [r.view.id] : [])))
-  return queue.filter((i) => (i.sessionId != null && sessions.has(i.sessionId) && i.kind !== 'hold') || (i.view != null && views.has(i.view.id)))
+  return queue.filter((i) => (i.sessionId != null && sessions.has(i.sessionId)) || (i.view != null && views.has(i.view.id)))
 }
 
 /** Each bulk verb, with the selected items that admit it and its count, or the reason none does. */

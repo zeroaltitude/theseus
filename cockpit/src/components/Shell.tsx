@@ -33,7 +33,6 @@ import { StateBadge } from './SessionLife'
 import { entered, groupOf, isOpen, NAV_GROUPS, parseChoices, pressed } from '@/lib/navgroups'
 import { paletteOrder, searchText, stateOf } from '@/lib/sessionState'
 import { OpsPalette } from '@/ops/PaletteGroups'
-import { TRUST_WORDS } from '@/ops/notices'
 import { useOpsPalette } from '@/ops/paletteStore'
 
 const NAV = [
@@ -421,7 +420,6 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
   const item = 'flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-ink data-[selected=true]:bg-live/10'
   const group = 'text-[11px] text-ink-faint [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5'
   const running = (el?.executions ?? []).filter((e) => e.state === 'running' || e.state === 'queued')
-  const held = (data?.sessions ?? []).filter((s) => s.external_text)
   const sessions = useMemo(() => paletteOrder(data?.sessions ?? []), [data])
   // On the Operations page ⇥ changes the scope of its verbs (theseus-jid7t.6).
   const opsOn = useOpsPalette((s) => s.feed !== null)
@@ -476,18 +474,12 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
             ])}
           </Command.Group>
         )}
-        {(running.length > 0 || held.length > 0) && (
+        {running.length > 0 && (
           <Command.Group heading="Act" className={group}>
             {running.map((e) => (
               <Command.Item key={`s-${e.execution_id}`} value={`stop ${title(e.session_id)}`} className={item}
                 onSelect={() => act(`Stop the running turn of ${title(e.session_id)}?`, 'execution.stop', { execution_id: e.execution_id })}>
                 <Pause size={14} className="text-wait" /> Stop <span className="truncate">{title(e.session_id)}</span>
-              </Command.Item>
-            ))}
-            {held.map((s) => (
-              <Command.Item key={`t-${s.session_id}`} value={`trust ${title(s.session_id)}`} className={item}
-                onSelect={() => act(s.external_waits === true ? `Trust ${title(s.session_id)} again? Its calls that act stop waiting.` : `Trust ${title(s.session_id)} again? ${TRUST_WORDS}.`, 'policy.trust', { session_id: s.session_id })}>
-                <ShieldCheck size={14} className="text-wait" /> Trust {s.external_waits === true ? '' : '(notice) '}<span className="truncate">{title(s.session_id)}</span>
               </Command.Item>
             ))}
           </Command.Group>

@@ -871,27 +871,14 @@ async fn the_receiving_thread_is_rewritten_at_its_next_recompile_not_before() {
     );
 }
 
-/// A split holds what its source holds (outside text), and a session opened
-/// for a split that did not happen is retired, not left looking like a
-/// conversation.
+/// A split goes on from its source, and a session opened for a split that did
+/// not happen is retired, not left looking like a conversation.
 #[tokio::test]
-async fn a_split_of_a_holding_thread_holds_and_an_unused_session_is_retired() {
+async fn a_split_leaves_its_source_going_and_an_unused_session_is_retired() {
     let r = rig(vec![Scripted::text("ok")]);
     let c = &r.core;
     let a = thread(c, "harbour");
     turn(c, &a, "Where is the weir?").await;
-    c.store
-        .update_session(&a, |rec| {
-            rec.external = Some(crate::external::read(
-                "n1",
-                "http.fetch",
-                "https://x.example/",
-                None,
-                1,
-            ));
-            Ok(vec![])
-        })
-        .unwrap();
     let p = pos_of(c, &a, "Where is the weir");
     let last = said(c, &a).last().unwrap().0;
     let res = c
@@ -905,11 +892,9 @@ async fn a_split_of_a_holding_thread_holds_and_an_unused_session_is_retired() {
             cli(),
         )
         .unwrap();
-    let sid = res.thread.thread.session_id.unwrap();
-    let rec: SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
     assert!(
-        rec.external.is_some(),
-        "the new thread holds what the source held"
+        res.thread.thread.session_id.is_some(),
+        "the split has its session"
     );
     let src: SessionRecord = c.store.get_session(&a).unwrap().unwrap();
     assert!(src.retired.is_none(), "the source goes on");

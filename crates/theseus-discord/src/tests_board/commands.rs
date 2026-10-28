@@ -785,7 +785,6 @@ async fn new_task_opens_a_modal_and_starts_a_task_homed_here() {
             r.ledger("task.started_by_owner")
         )
     });
-    assert!(held(&r, &session).is_none(), "no quote, no hold");
     // The modal's "long" reached the task (theseus-bh3t.1).
     let expect = r
         .core
@@ -801,12 +800,8 @@ async fn new_task_opens_a_modal_and_starts_a_task_homed_here() {
     .await;
 }
 
-fn held(r: &Rig, session: &str) -> Option<theseus_protocol::ExternalText> {
-    theseus_core::external::held(&r.core.store, session).unwrap()
-}
-
 #[tokio::test]
-async fn make_this_a_task_on_the_owners_own_message_holds_nothing() {
+async fn make_this_a_task_on_the_owners_own_message_is_offered_as_a_quote() {
     let r = survey_rig().await;
     let text = "the harbour log says the reef sensor died at noon";
     let iid = r
@@ -837,20 +832,16 @@ async fn make_this_a_task_on_the_owners_own_message_holds_nothing() {
         .unwrap();
     r.until("started", || said(&r, &sub).contains("Started"))
         .await;
-    let session = started(&r, "Survey-north").unwrap_or_else(|| {
+    started(&r, "Survey-north").unwrap_or_else(|| {
         panic!(
             "task.started_by_owner: {:?}",
             r.ledger("task.started_by_owner")
         )
     });
-    assert!(
-        held(&r, &session).is_none(),
-        "the owner's own words mark nothing"
-    );
 }
 
 #[tokio::test]
-async fn make_this_a_task_on_another_persons_message_holds_the_session_as_outside_text() {
+async fn make_this_a_task_on_another_persons_message_is_offered_as_outside_text() {
     let r = survey_rig().await;
     let text = "the harbour log says the reef sensor died at noon";
     let iid = r
@@ -882,14 +873,12 @@ async fn make_this_a_task_on_another_persons_message_holds_the_session_as_outsid
         .unwrap();
     r.until("started", || said(&r, &sub).contains("Started"))
         .await;
-    let session = started(&r, "Survey-north").unwrap_or_else(|| {
+    started(&r, "Survey-north").unwrap_or_else(|| {
         panic!(
             "task.started_by_owner: {:?}",
             r.ledger("task.started_by_owner")
         )
     });
-    let h = held(&r, &session).expect("the quote holds the session");
-    assert_eq!(h.via.as_deref(), Some(theseus_core::external::VIA_QUOTE));
 }
 
 #[tokio::test]

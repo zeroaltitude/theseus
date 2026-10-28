@@ -3,12 +3,12 @@
 // tool opening its layers in the gate's order and the conditions that depend on the call. Beside them, the tightenings
 // with their undo (the Boundaries board's list, shared), and a link to the approval channels in Systems.
 //
-// The reads are the push's: `policy.explain` is read again on a tightening, its undo, a trust, and a change of any
+// The reads are the push's: `policy.explain` is read again on a tightening, its undo, and a change of any
 // execution (a hold), never on a timer. State is in the address: `?session=`, `?place=` (the place opened), `?tool=`
 // (the tool opened), `?q=` and `?result=`. Under the time machine it shows the present, and its undo is off.
 import { useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { ChevronDown, ChevronRight, Link2, Lock, Search, ShieldCheck } from 'lucide-react'
+import { ChevronDown, ChevronRight, Lock, Search, ShieldCheck } from 'lucide-react'
 import type { ExplainCondition, ExplainLayer, Health, PlaceExplain, PolicyExplainResult, SessionInfo, ToolExplain } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
@@ -16,7 +16,7 @@ import { useHistoryRows } from '@/lib/history'
 import { useAsOf } from '@/lib/timemachine'
 import { ceilingWords } from '@/lib/ceiling'
 import { RESULTS, filterTools, isResult, placeSummary, sortTools, toolLine, type Result } from '@/lib/policyview'
-import { ago, cn, short } from '@/lib/format'
+import { cn, short } from '@/lib/format'
 import { Empty, Panel, Pill } from '@/components/ui'
 import { Tightenings } from '@/components/Tightenings'
 import type { Tone } from '@/lib/taxonomy'
@@ -89,7 +89,7 @@ export default function Policy() {
           {data && !places.length && <Empty>the daemon explains no place</Empty>}
           {places.map((p) => (
             <PlaceCard key={p.place} p={p} open={isOpen(p.place)} onToggle={() => togglePlace(p.place)} q={q} result={result}
-              openTool={openTool} onTool={(t) => put('tool', openTool === t ? null : t)} onSession={(sid) => nav(`/session/${sid}`)} now={now} title={title} />
+              openTool={openTool} onTool={(t) => put('tool', openTool === t ? null : t)} onSession={(sid) => nav(`/session/${sid}`)} title={title} />
           ))}
           {data && <div className="num px-1 text-[11px] text-ink-faint">each tool’s result is for a call inside {data.roots.length ? data.roots.join(', ') : 'the workspace roots'} that no condition matches{isFetching ? ' · reading…' : ''}</div>}
         </div>
@@ -104,9 +104,9 @@ export default function Policy() {
   )
 }
 
-function PlaceCard({ p, open, onToggle, q, result, openTool, onTool, onSession, now, title }: {
+function PlaceCard({ p, open, onToggle, q, result, openTool, onTool, onSession, title }: {
   p: PlaceExplain; open: boolean; onToggle: () => void; q: string; result: Result | null; openTool: string | null; onTool: (t: string) => void
-  onSession: (sid: string) => void; now: number; title: (s?: string | null) => string
+  onSession: (sid: string) => void; title: (s?: string | null) => string
 }) {
   const sum = useMemo(() => placeSummary(p), [p])
   const tools = useMemo(() => sortTools(filterTools(p.tools, q, result)), [p.tools, q, result])
@@ -126,9 +126,6 @@ function PlaceCard({ p, open, onToggle, q, result, openTool, onTool, onSession, 
       {p.session_id && (
         <div className="num flex flex-wrap items-center gap-x-3 px-3.5 pb-2 text-[11.5px] text-ink-dim">
           <button type="button" onClick={() => onSession(p.session_id!)} className="hover:text-live">session {title(p.session_id)}</button>
-          {p.hold
-            ? <span className="flex items-center gap-1 text-magenta"><Link2 size={12} /> holds outside text: read {p.hold.tool} {p.hold.query ? `“${p.hold.query}”` : p.hold.url} {ago(p.hold.since_ms, now)}, so its calls that act wait · <Link to="/boundaries" className="underline decoration-dotted hover:text-live">trust it on the boundaries board</Link></span>
-            : <span className="text-ok">trusted: no outside text held</span>}
         </div>
       )}
       {open && (

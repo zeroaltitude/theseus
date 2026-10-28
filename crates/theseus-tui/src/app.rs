@@ -1280,9 +1280,8 @@ impl App {
             KeyCode::Tab => return self.jump(true),
             KeyCode::BackTab => return self.jump(false),
             KeyCode::Char(c @ '1'..='6') => return self.choice_key(c),
-            KeyCode::Char('y') => return self.answer_key(true, false),
-            KeyCode::Char('t') => return self.answer_key(true, true),
-            KeyCode::Char('n') => return self.answer_key(false, false),
+            KeyCode::Char('y') => return self.answer_key(true),
+            KeyCode::Char('n') => return self.answer_key(false),
             KeyCode::Char('s') => self.arm(Arm::Stop),
             KeyCode::Char('S') => self.arm(Arm::StopAll),
             KeyCode::Char('c') => self.arm(Arm::Cancel),
@@ -1404,8 +1403,8 @@ impl App {
         vec![call(m, params, purpose)]
     }
 
-    /// `y`, `t`, or `n` on the card's question: `n` asks for a note first.
-    fn answer_key(&mut self, approve: bool, trust: bool) -> Vec<Effect> {
+    /// `y` or `n` on the card's question: `n` asks for a note first.
+    fn answer_key(&mut self, approve: bool) -> Vec<Effect> {
         if self.on_screen().is_none() {
             return Vec::new();
         }
@@ -1413,7 +1412,7 @@ impl App {
             self.flash = Some((Tag::Dim, "no question waits here".to_string()));
             return Vec::new();
         };
-        let (id, trusts) = (q.correlation_id().to_string(), q.trusts());
+        let id = q.correlation_id().to_string();
         if q.is_ask() {
             self.flash = Some((
                 Tag::Dim,
@@ -1429,14 +1428,7 @@ impl App {
             ));
             return Vec::new();
         }
-        let yes = if trust { "approve_trust" } else { q.yes() }.to_string();
-        if trust && !trusts {
-            self.flash = Some((
-                Tag::Dim,
-                "nothing to trust: the session holds no external text (y approves)".to_string(),
-            ));
-            return Vec::new();
-        }
+        let yes = q.yes().to_string();
         if !approve {
             self.note.clear();
             self.mode = Mode::Note(id);

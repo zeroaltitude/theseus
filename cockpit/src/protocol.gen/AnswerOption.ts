@@ -6,7 +6,7 @@ import type { Style } from "./Style";
  */
 export type AnswerOption = { 
 /**
- * `approve`, `approve_trust`, `decline`, `reset`, `accept`, `ack`, or
+ * `approve`, `decline`, `reset`, `accept`, `ack`, or
  * `choice:N`.
  */
 id: string, label: string, style: Style, 

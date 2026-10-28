@@ -8,7 +8,7 @@
 //! - It is `Run` and `NonRepeatable` unless the operator lists it in the
 //!   server's `read`, which makes it `Read` and `SafeToRepeat`. The server's
 //!   own hints are shown on every surface and loosen nothing: the server is
-//!   untrusted, and `Read` would let a call past T1's hold.
+//!   untrusted, and `Read` would let a call past the gate unasked.
 //! - Its result is outside text unless the server is `external = false`:
 //!   a session that reads one holds (T1). So is an error result, which is
 //!   the server's text too.

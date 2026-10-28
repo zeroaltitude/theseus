@@ -26,13 +26,11 @@ use super::super::Shared;
 /// How many messages a reply can find.
 const KEPT: usize = 256;
 
-/// One question a message holds: its id, its choices when it is an ask, and
-/// whether its card offers to trust the session again.
+/// One question a message holds: its id, and its choices when it is an ask.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Entry {
     pub question: String,
     pub choices: Vec<String>,
-    pub trust: bool,
 }
 
 #[derive(Default)]
@@ -120,7 +118,6 @@ pub(crate) fn read(text: &str, entries: &[Entry]) -> Said {
             };
         }
         return match words.as_slice() {
-            ["trust"] if one.trust => Said::Answer("approve_trust".into(), vec![0]),
             [w] => verb(w).map_or(Said::Ordinary, |o| Said::Answer(o.into(), vec![0])),
             _ => Said::Ordinary,
         };
@@ -274,7 +271,6 @@ mod tests {
         vec![Entry {
             question: "act_a".into(),
             choices: vec![],
-            trust: true,
         }]
     }
 
@@ -283,7 +279,6 @@ mod tests {
             .map(|i| Entry {
                 question: format!("act_{i}"),
                 choices: vec![],
-                trust: false,
             })
             .collect()
     }
@@ -296,10 +291,8 @@ mod tests {
         for no in ["no", "n", "Decline"] {
             assert_eq!(read(no, &card()), Said::Answer("decline".into(), vec![0]));
         }
-        assert_eq!(
-            read("trust", &card()),
-            Said::Answer("approve_trust".into(), vec![0])
-        );
+        // "trust" is no short form any more (R6, theseus-gyjyo.8).
+        assert_eq!(read("trust", &card()), Said::Ordinary);
         for other in [
             "yes, but wait",
             "yes please do",
@@ -317,7 +310,6 @@ mod tests {
         let ask = vec![Entry {
             question: "act_q".into(),
             choices: vec!["Careful".into(), "Ship it".into()],
-            trust: false,
         }];
         assert_eq!(read("2", &ask), Said::Answer("2".into(), vec![0]));
         assert_eq!(read("ship it", &ask), Said::Answer("2".into(), vec![0]));

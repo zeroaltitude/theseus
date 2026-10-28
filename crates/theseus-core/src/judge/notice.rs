@@ -5,7 +5,7 @@
 //! the call, which never waits on Jev.
 //!
 //! - **Which calls** ([`flagged`]): posture `open` (no notice of its own),
-//!   not made to wait by the external-text hold, and v3's judgment answered
+//!   and v3's judgment answered
 //!   by its pinned model, `risky` act-true (at least the pack's `act`, 0.90).
 //!   Only `risky` decides; a skipped, failed, or shed judgment posts none.
 //! - **Off the call's path.** The gate's spawned task posts it once the
@@ -73,10 +73,9 @@ pub fn paused_key(day: &str) -> String {
 
 /// The notice an open call's judgments earn, if any: `security.v3` live,
 /// answered by its pinned model, `risky` act-true, for a call that ran
-/// without anyone's say (posture `open`, the hold not raising it, no notice
-/// of its own).
+/// without anyone's say (posture `open`, no notice of its own).
 pub fn flagged(call: &GateCall, judgments: &[Judgment]) -> Option<JudgeNoticed> {
-    if call.posture != "open" || call.waited_on_hold() || call.notified {
+    if call.posture != "open" || call.notified {
         return None;
     }
     let j = judgments

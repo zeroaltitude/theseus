@@ -2,7 +2,7 @@
 // the session as a label until the owner removes it. `injection` freezes the session's writes, programs and sends;
 // `secret`, `confidential` and `personal` keep it off China-origin models. The daemon sends the labels on `session.list`
 // (`SessionInfo.labels`) and pushes `session.labelled` and `session.unlabelled`; the owner removes one with
-// `content.unlabel`, which the daemon judges as it judges `policy.trust`. Pure: `npm test` runs it
+// `content.unlabel`, which is the re-trust of the session. Pure: `npm test` runs it
 // (test/labels.test.ts); the deck's chips are drawn in `views/SessionDeck.tsx`.
 import type { ContentUnlabelParams, JudgeLabelParams, LabelView } from '@protocol'
 import type { Tone } from '@/lib/taxonomy'

@@ -1,12 +1,12 @@
-// Actions: where the operator acts. Waiting approvals (approve, approve and trust, decline), every tool call's
-// lifecycle (planned → authorized → dispatched → settled), the tools' postures (tighten, untighten), wakes, the
-// sessions that hold external text (trust), and the task graph (39b: its records as a tree, `?taskgraph=1` as a graph). `?execution=` narrows the calls to one execution, as picking one in the
+// Actions: where the operator acts. Waiting approvals (approve, decline), every tool call's
+// lifecycle (planned → authorized → dispatched → settled), the tools' postures (tighten, untighten), wakes,
+// and the task graph (39b: its records as a tree, `?taskgraph=1` as a graph). `?execution=` narrows the calls to one execution, as picking one in the
 // Observatory's table did.
 import { memo, useDeferredValue, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence } from 'motion/react'
-import { CalendarClock, CircleCheck, GitFork, History, Hourglass, OctagonX, ScanSearch, ShieldCheck, Siren, Workflow, Wrench, X } from 'lucide-react'
-import type { ActionInfo, ConfirmRequest, ExternalTextInfo, Health, SessionInfo, TaskArrangement, TaskInfo, TaskListResult, Tightening, ToolList } from '@protocol'
+import { CalendarClock, CircleCheck, GitFork, History, Hourglass, OctagonX, ScanSearch, ShieldCheck, Workflow, Wrench, X } from 'lucide-react'
+import type { ActionInfo, ConfirmRequest, Health, SessionInfo, TaskArrangement, TaskInfo, TaskListResult, Tightening, ToolList } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useWorld } from '@/lib/world'
@@ -58,9 +58,6 @@ export default function Actions() {
           </Panel>
         </div>
         <div className="flex min-w-0 flex-col gap-3">
-          <Panel help="actions.holds" title="External text holds" icon={<Siren size={13} />} bodyClassName="p-2">
-            <Holds holds={world?.holds ?? h?.external_text ?? []} past={past} />
-          </Panel>
           {!world && (
             <Panel help="actions.wakes" title="Wakes" icon={<Hourglass size={13} />} bodyClassName="p-2">
               <Link to="/agenda" className="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] text-live ring-1 ring-line hover:bg-white/[0.03]" data-testid="wakes-link">
@@ -226,36 +223,6 @@ const LifecycleRow = memo(function LifecycleRow({ a, now, nav }: { a: ActionInfo
     </div>
   )
 })
-
-function Holds({ holds, past }: { holds: ExternalTextInfo[]; past?: number }) {
-  const nav = useNavigate()
-  const tick = useTick(5000)
-  const now = past ?? tick
-  const { busy, run } = useAct()
-  if (!holds.length) return <Empty><span className="flex items-center gap-2"><ShieldCheck size={15} className="text-ok" /> every session {past ? 'was' : 'is'} trusted</span></Empty>
-  return (
-    <div className="flex flex-col gap-1.5">
-      {holds.map((x) => (
-        <div key={x.session_id} className="flex items-center gap-2 rounded-lg bg-wait/[0.04] px-3 py-2 ring-1 ring-wait/20">
-          <div className="min-w-0 flex-1">
-            <button onClick={() => nav(`/session/${x.session_id}`)} className="truncate text-left text-[12.5px] text-ink hover:text-live">{x.title || short(x.session_id)}{x.task ? ` · task ${x.task}` : ''}</button>
-            <div className="num truncate text-[11px] text-ink-faint" title={`${x.session_id}\nnode ${x.held.node_id}${x.since_local ? `\nsince ${x.since_local}` : ''}`}>
-              {x.held.tool} {x.held.query != null ? `"${x.held.query}"` : x.held.url} · {ago(x.held.since_ms, now)} · {holdHow(x.held)}
-            </div>
-          </div>
-          {!past && <Btn tone="wait" busy={busy === x.session_id} onClick={() => run(x.session_id, 'policy.trust', { session_id: x.session_id }, `Trust ${x.title || short(x.session_id)} again? Its calls that act stop waiting.`)}><ShieldCheck size={13} /> Trust</Btn>}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/** How a session came to hold external text, in the Observatory's words. */
-function holdHow(h: ExternalTextInfo['held']): string {
-  return h.via === 'task.create' ? `from the session that started it (${short(h.from_session)})`
-    : h.via === 'task.report' ? `from task ${short(h.from_session)}'s report`
-    : h.via === 'egress' ? 'an L1 job here reached these hosts' : 'read here'
-}
 
 function Postures({ tl, tightenings, past }: { tl?: ToolList; tightenings: Tightening[]; past?: number }) {
   const nav = useNavigate()

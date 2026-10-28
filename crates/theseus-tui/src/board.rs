@@ -158,12 +158,6 @@ impl Question<'_> {
             .nth(n.checked_sub(1)?)
             .map(|o| o.id.as_str())
     }
-
-    /// Approving it can trust its session again: it waits because the
-    /// session read external text.
-    pub fn trusts(&self) -> bool {
-        matches!(self, Question::Whole(c) if c.external_text.is_some())
-    }
 }
 
 /// How many sessions need you, work, failed, and are done until seen.

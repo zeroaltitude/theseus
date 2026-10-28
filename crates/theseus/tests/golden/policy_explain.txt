@@ -4,7 +4,7 @@ policy.explain
 --- stdout
 CLI (private)
   fs.read                open     posture: [policy.tools] "fs.read" = open
-  proc.run               approve  posture: enforcement = notify · hold: [policy] external_text = ask
+  proc.run               approve  posture: enforcement = notify · tightening: tightened by cli
 #lab (private, session ses_q7f3k2) · ceiling: floor approve
   proc.run               approve  posture: enforcement = notify · tightening: tightened by cli
 #pier (shared)

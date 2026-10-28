@@ -262,10 +262,8 @@ fn posture(core: &Core, sid: &str, path: &Path) -> String {
     let tool = theseus_tools::fs::Read;
     let input = json!({"path": path});
     let plan = tool.plan(&input, &core.tools.ctx).unwrap();
-    let held = || crate::external::held(&core.store, sid);
     let at = At {
         place: core.runner.view_of(sid),
-        held: &held,
         labels: &|| None,
         mcp: &|| None,
         glide: None,

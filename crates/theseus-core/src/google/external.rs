@@ -1,9 +1,9 @@
-//! What a Google result is, to the hold and to the data rule (the Google
+//! What a Google result is, to the marker and to the data rule (the Google
 //! design §4.1, §4.2). **Every** result is private. A result is also outside
 //! text (`theseus_tools::External`) unless it is the owner's own: anyone can
 //! email the owner, share a document, or invite them to an event, so a read
 //! returns a stable marker (`gmail:thread/<id>`, `drive:<id>`, `calendar:<id>`)
-//! and the session's hold does the rest. The owner-authored rule (§4.2) is one
+//! and the content pack reads it from there. The owner-authored rule (§4.2) is one
 //! metadata check per result: every `From` is the account, the event's
 //! organizer is the account, or the file is the account's own and not shared.
 //! A row never builds a Google `ToolOutput` any way but [`finish`].

@@ -3,12 +3,13 @@
 //! every call that acts, after the gate decides.
 //!
 //! - **Which calls** ([`judged`]): every call whose class is not `read`, and
-//!   every `http.fetch` and `web.search` in a session that holds external
-//!   text, the exfiltration path the hold leaves open by design (Q12).
+//!   every `http.fetch` and `web.search` in a session that has read outside
+//!   text (a result marked `external`: `external::first`), the exfiltration
+//!   path that leaves open by design (Q12).
 //! - **Off the call's path.** `ToolRuntime::start` plans the call and sends
 //!   its notice, then hands it here: on its path are the choice to judge and
 //!   the marks, nothing else. The state's build (the session's nodes, the
-//!   hold, the last calls, v3's recent reads), its scrub and cap, the blobs,
+//!   first outside text it read, the last calls, v3's recent reads), its scrub and cap, the blobs,
 //!   the reservation, the call, and the record are the spawned task's. The
 //!   gate never waits on it, so a judgment changes no call's treatment: it
 //!   is recorded and shown, and the one thing that acts on it is a notice,
@@ -23,8 +24,7 @@
 //!   call's judgments from its correlation id alone ([`JudgeService::of_call`]),
 //!   inside the sink's window as after it.
 //! - **The record** names the call (its correlation id), its posture and
-//!   why, and whether the hold made it wait, so the hold's asks can be set
-//!   beside the scores (theseus-hnc8).
+//!   why, and whether the session had read outside text.
 //! - **The score** of a notified call follows its notice: `security.v3`'s
 //!   `risky`, as `judge.scored`, to the turn's clients (best effort, as live
 //!   progress is; the `judge.call` row is the record).
@@ -39,7 +39,7 @@ use serde_json::{json, Value};
 use sha2::Digest;
 use theseus_judge::builders::{CallOutcome, HoldInput, ReadInput, SecurityInput, ToolCallInput};
 use theseus_judge::{Ask, DecisionPoint, Input, Judge, Outcome, Pack, Urgency};
-use theseus_protocol::{ExternalText, Plan, ToolClass};
+use theseus_protocol::{Plan, ToolClass};
 use theseus_store::Store as _;
 
 use super::{spend, JudgeService, ScrubWith};
@@ -63,8 +63,8 @@ const RECENT_READS: usize = 6;
 const READ_EXCERPT: usize = 2000;
 
 /// Whether the gate's call is judged (Q12): any call whose class is not
-/// `read`, and a fetch or a search in a session that holds external text.
-/// `holds` is read only for a fetch or a search.
+/// `read`, and a fetch or a search in a session that has read outside text
+/// (a result marked `external`). `holds` is read only for a fetch or a search.
 pub fn judged(class: ToolClass, tool: &str, holds: impl FnOnce() -> bool) -> bool {
     class != ToolClass::Read || (crate::web::NAMES.contains(&tool) && holds())
 }
@@ -100,17 +100,8 @@ pub struct GateCall {
     pub floor: bool,
     /// A notice was sent for it: its score follows on `judge.scored`.
     pub notified: bool,
-    /// The hold raised its posture (the decision names the hold).
-    pub hold_raised: bool,
     pub input: Value,
     pub plan: Plan,
-}
-
-impl GateCall {
-    /// The hold made it wait: the hold raised its posture, to `approve`.
-    pub fn waited_on_hold(&self) -> bool {
-        self.hold_raised && self.posture == "approve"
-    }
 }
 
 /// One dispatch's mark on the turn's trace: a zero-length `judge` span.
@@ -258,9 +249,7 @@ impl JudgeService {
             .into_iter()
             .map(|(_, n)| n)
             .collect();
-        let hold = crate::external::held(&self.store, &call.session_id)
-            .ok()
-            .flatten();
+        let hold = crate::external::first(&nodes);
         let now = theseus_protocol::now_unix_ms();
         let base = input(call, &nodes, hold.as_ref(), now);
         let scrub = ScrubWith(self.scrubber.clone());
@@ -286,8 +275,7 @@ impl JudgeService {
                 "loop": call.loop_index, "call": call.correlation_id, "tool_use_id": call.tool_use_id,
                 "tool": call.tool, "tool_class": call.class.as_str(), "posture": call.posture,
                 "posture_reason": call.reason, "floor": call.floor, "notified": call.notified,
-                "hold": hold.is_some(), "hold_raised": call.hold_raised,
-                "waited_on_hold": call.waited_on_hold(),
+                "hold": hold.is_some(),
                 "baseline": "posture", "decision": call.posture,
                 "class": if call.task { "task" } else { "tools" },
                 "blob": blob, "on_path_ms": 0, "root": self.root_of(&pack.name()),
@@ -412,12 +400,12 @@ async fn judge_gate(
 
 /// The pack's input for the call, from its session's nodes: the call
 /// (tool, class, posture and why, argv, paths, URL, other arguments), the
-/// operator's last ask, the hold, and the calls before it (the reads are
-/// added by the caller).
+/// operator's last ask, the first outside text the session read, and the calls
+/// before it (the reads are added by the caller).
 pub fn input(
     call: &GateCall,
     nodes: &[Node],
-    hold: Option<&ExternalText>,
+    hold: Option<&crate::external::Outside>,
     now_ms: u64,
 ) -> SecurityInput {
     let other = match &call.input {
@@ -452,7 +440,7 @@ pub fn input(
             host: reqwest::Url::parse(&h.url)
                 .ok()
                 .and_then(|u| u.host_str().map(str::to_string)),
-            minutes_ago: now_ms.saturating_sub(h.since_ms) / 60_000,
+            minutes_ago: now_ms.saturating_sub(h.at_ms) / 60_000,
         }),
         last_calls: last_calls(nodes, &call.tool_use_id),
         recent_reads: Vec::new(),
@@ -582,6 +570,73 @@ mod tests {
         assert!(judged(ToolClass::Read, "web.search", || true));
         assert!(!judged(ToolClass::Read, "web.search", || false));
         assert!(judged(ToolClass::Read, "http.fetch", || true));
+    }
+
+    /// R6 (theseus-gyjyo.8): Jev's security state still names the first outside text a session read, now
+    /// from the `external` marker on its result nodes (`external::first`), not from a hold on the record.
+    #[test]
+    fn the_security_state_reads_the_external_marker() {
+        let call = GateCall {
+            session_id: "ses_a".into(),
+            execution_id: "exe_a".into(),
+            turn_id: "turn_a".into(),
+            loop_index: Some(0),
+            task: false,
+            correlation_id: "act_1".into(),
+            tool_use_id: "tu_1".into(),
+            tool: "proc.run".into(),
+            class: ToolClass::Run,
+            posture: "notify".into(),
+            reason: String::new(),
+            floor: false,
+            notified: true,
+            input: Value::Null,
+            plan: Plan::default(),
+        };
+        let result = |tool: &str, url: Option<&str>, at: u64| {
+            let mut n = Node::harness_body(
+                "nod",
+                "ses_a",
+                "test",
+                Body::ToolResult {
+                    tool_use_id: format!("tu_{tool}"),
+                    tool: tool.into(),
+                    status: crate::node::ResultStatus::Ok,
+                    is_error: false,
+                    content: "text".into(),
+                    correlation_id: None,
+                    bytes_total: 4,
+                    truncated: false,
+                    full_ref: None,
+                    duration_ms: None,
+                    late: false,
+                    meta: Value::Null,
+                    image: None,
+                    external: url.map(|u| theseus_tools::External { url: u.into() }),
+                },
+            );
+            n.created_at_ms = at;
+            n
+        };
+        let now = 10 * 60_000;
+        let none = [result("fs.read", None, 60_000)];
+        assert!(
+            input(&call, &none, crate::external::first(&none).as_ref(), now)
+                .hold
+                .is_none()
+        );
+        let read = [
+            result("fs.read", None, 60_000),
+            result("http.fetch", Some("https://docs.example.org/a"), 5 * 60_000),
+            result("web.search", Some("tides"), 7 * 60_000),
+        ];
+        let hold = input(&call, &read, crate::external::first(&read).as_ref(), now)
+            .hold
+            .expect("the first marked result is named");
+        assert_eq!(
+            (hold.tool.as_str(), hold.host.as_deref(), hold.minutes_ago),
+            ("http.fetch", Some("docs.example.org"), 5)
+        );
     }
 
     #[test]

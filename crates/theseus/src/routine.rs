@@ -49,7 +49,7 @@ pub enum RoutineCmd {
         /// `always` (default), or `when-notable`: a report ending in NOTHING NEW only logs.
         #[arg(long)]
         speak: Option<String>,
-        /// The tools its runs use without asking, even after reading outside text, comma-separated
+        /// The tools its runs use without asking, comma-separated
         /// (`gog.gmail.search,web.fetch`; a post names its place: `"channel.post #digest"`). Any
         /// other call asks, and a run nobody answers by its deadline ends blocked, naming it.
         #[arg(long, value_delimiter = ',')]

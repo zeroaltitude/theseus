@@ -49,11 +49,11 @@ pub use tool::is_flow;
 pub const MAX_SECS: u64 = 600;
 
 /// A flow's own call at the gate: it only starts its steps, each of which is
-/// gated as the model's own call, so it asks nothing itself. The floor and
-/// the external-text hold still hold it, as they hold any call.
+/// gated as the model's own call, so it asks nothing itself. The floor still
+/// holds it, as it holds any call.
 pub(crate) fn quiet(d: crate::policy::Decision) -> crate::policy::Decision {
     use crate::policy::{Decision, Posture};
-    if d.floor || d.external.is_some() || d.posture == Posture::Open {
+    if d.floor || d.posture == Posture::Open {
         return d;
     }
     Decision {

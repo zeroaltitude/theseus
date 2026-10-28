@@ -51,7 +51,6 @@ export function synthInput(now: number, sessionsN = 200, nodesN = 10_000): ShipI
     const r = rnd()
     const state = r < 0.06 ? 'running' : r < 0.08 ? 'failed' : 'waiting'
     const level: 'working' | 'needs_you' | 'ready' | 'idle' = state === 'running' ? 'working' : r < 0.105 ? 'needs_you' : r < 0.6 ? 'ready' : 'idle'
-    const held = rnd() < 0.05
     // Nodes: turns of a user message, then loops of a model call and its tool calls and results.
     let left = sizes[i]
     let turn = 0
@@ -101,7 +100,6 @@ export function synthInput(now: number, sessionsN = 200, nodesN = 10_000): ShipI
       title: pick(TITLES), pending_confirms: level === 'needs_you' ? 1 : 0, parent_session_id: parent?.session_id,
       limit_usd: 5, attention: { level, label: level.replace('_', ' '), since_ms: at },
       labels: [],
-      external_text: held ? { since_ms: at, tool: 'web.search', url: 'example', node_id: '', query: 'tides' } : undefined,
     } as unknown as SessionInfo
     sessions.push(s)
     if (!isTask) conv.push(i)

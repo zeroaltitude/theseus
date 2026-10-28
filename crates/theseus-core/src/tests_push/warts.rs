@@ -434,10 +434,9 @@ fn last_frame(r: &Rig) -> Vec<(u16, String)> {
         .collect()
 }
 
-/// The open is one frame, counted from the WAL: on the plain path, and on
-/// the hold's path (a session a holding session's job opens).
+/// The open is one frame, counted from the WAL.
 #[tokio::test]
-async fn a_sessions_open_is_one_frame_on_either_path() {
+async fn a_sessions_open_is_one_frame() {
     use theseus_store::kinds::{EXECUTION, LEDGER, SESSION};
     let r = rig();
     let wal = r._dir.path().join("store");
@@ -464,51 +463,6 @@ async fn a_sessions_open_is_one_frame_on_either_path() {
             (SESSION, plain.session_id),
             (LEDGER, "session.opened".into()),
         ]
-    );
-    // A holding session, and one its job opens: it takes the hold in the
-    // open's one frame.
-    let mut holder = SessionRecord::new(SessionKind::Conversation, None);
-    holder.external = Some(
-        serde_json::from_value(json!({
-            "since_ms": 1, "tool": "http.fetch", "url": "https://pages.example/", "node_id": "nod_1"
-        }))
-        .unwrap(),
-    );
-    r.core
-        .store
-        .put_session(&holder.session_id, &holder)
-        .unwrap();
-    let before = count();
-    let held = r
-        .core
-        .open_session(SessionOpenParams {
-            label: Some("held".into()),
-            opened_from: Some(holder.session_id.clone()),
-            ..Default::default()
-        })
-        .unwrap();
-    assert_eq!(count() - before, 1, "the hold's open's frames");
-    assert_eq!(
-        last_frame(&r),
-        vec![
-            (EXECUTION, held.execution_id.clone().unwrap()),
-            (LEDGER, "execution.opened".into()),
-            (LEDGER, "session.opened".into()),
-            (LEDGER, "session.external_read".into()),
-            (SESSION, held.session_id.clone()),
-        ]
-    );
-    let stored = r
-        .core
-        .store
-        .get_session::<SessionRecord>(&held.session_id)
-        .unwrap()
-        .unwrap();
-    assert_eq!(stored.label.as_deref(), Some("held"));
-    assert_eq!(stored.execution_id, held.execution_id);
-    assert_eq!(
-        stored.external.and_then(|h| h.from_session),
-        Some(holder.session_id)
     );
 }
 

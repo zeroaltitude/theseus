@@ -78,8 +78,6 @@ proc_sync_secs = 900                    # set by the adapter
 enforcement = "open"
 allow_argv = []
 approve_argv = []
-external_text = "notify"
-external_programs = []
 private_addresses = "open"
 
 [sandbox]

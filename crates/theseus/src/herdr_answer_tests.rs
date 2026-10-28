@@ -63,14 +63,6 @@ fn the_keys_are_the_questions_own() {
     let call = q("act_1", "ses_a", 1, json!({}));
     let ks: Vec<(char, String)> = keys(&call).into_iter().map(|k| (k.key, k.option)).collect();
     assert_eq!(ks, [('y', "approve".into()), ('n', "decline".into())]);
-    let held = q(
-        "act_2",
-        "ses_a",
-        1,
-        json!({"external_text": {"since_ms": 1, "tool": "http.fetch", "url": "https://tide.example/", "node_id": ""}}),
-    );
-    let ks: Vec<char> = keys(&held).into_iter().map(|k| k.key).collect();
-    assert_eq!(ks, ['y', 't', 'n']);
     let ask = q(
         "act_3",
         "ses_a",
@@ -95,20 +87,14 @@ fn the_keys_are_the_questions_own() {
 /// empty line answers nothing.
 #[test]
 fn a_line_is_an_answer_a_note_or_nothing() {
-    let held = q(
-        "act_2",
-        "ses_a",
-        1,
-        json!({"external_text": {"since_ms": 1, "tool": "http.fetch", "url": "u", "node_id": ""}}),
-    );
-    let ks = keys(&held);
+    let call = q("act_2", "ses_a", 1, json!({}));
+    let ks = keys(&call);
     let ans = |option: &str, note: Option<&str>| Decision::Answer {
         option: option.into(),
         note: note.map(Into::into),
     };
     assert_eq!(decide("y", &ks), ans("approve", None));
     assert_eq!(decide(" Y \n", &ks), ans("approve", None));
-    assert_eq!(decide("t", &ks), ans("approve_trust", None));
     assert_eq!(decide("n", &ks), ans("decline", None));
     assert_eq!(
         decide("n not today", &ks),

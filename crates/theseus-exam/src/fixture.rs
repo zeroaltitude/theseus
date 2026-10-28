@@ -6,8 +6,7 @@
 //! input; its nodes, one turn per operator message (a tool node is the
 //! assistant's call, the call, and its result, in one loop); a `turn.ended`
 //! row per turn; and its record, with its place as its label (as the Discord
-//! binding labels one) and, when it fetched text, the hold that text gives it
-//! (T1). Times are the item's, not the writer's. The manifest names each node
+//! binding labels one). Times are the item's, not the writer's. The manifest names each node
 //! by its item's key, with the id and position the store gave it: what the
 //! oracle renders, and what a test compares with what a daemon serves.
 //!
@@ -233,7 +232,6 @@ fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
     let mut lp = 0u32;
     let mut turns = 0u64;
     let mut store_nodes = 0usize;
-    let mut hold: Option<(Value, String)> = None;
     let mut push_node = |records: &mut Vec<NewRecord>, n: &Node| -> Result<usize> {
         records.push(n.record()?);
         store_nodes += 1;
@@ -341,12 +339,6 @@ fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
                 i,
                 entry(&r, "tool_result", format!("{tool} result"), p),
             ));
-            if let (Some(url), None) = (&p.external, &hold) {
-                hold = Some((
-                    json!({"since_ms": at, "tool": tool, "url": url, "node_id": r.id}),
-                    t.clone(),
-                ));
-            }
             lp += 1;
         }
     }
@@ -365,21 +357,7 @@ fn build(exam: &Exam, owner: &str, s: &PastSession) -> Result<Built> {
     let mut exec = exec;
     exec.turns = turns;
     records[0] = NewRecord::json(kinds::EXECUTION, Some(&exec.id), &exec)?.scoped(&sid);
-    match hold {
-        Some((h, t)) => {
-            let h: theseus_protocol::ExternalText = serde_json::from_value(h)?;
-            let mut held = theseus_core::external::hold(rec, h, Some(&t))?
-                .expect("a fresh record holds nothing yet");
-            if let Some(row) = held.first_mut() {
-                // The product's own records, with the row at the past's time.
-                let mut r: LedgerRow = serde_json::from_slice(&row.payload)?;
-                r.at_unix_ms = end;
-                row.payload = serde_json::to_vec(&r)?;
-            }
-            records.extend(held);
-        }
-        None => records.push(NewRecord::json(kinds::SESSION, Some(&sid), &rec)?),
-    }
+    records.push(NewRecord::json(kinds::SESSION, Some(&sid), &rec)?);
     Ok(Built {
         records,
         keyed,
@@ -521,8 +499,6 @@ mod tests {
             );
             let nodes = store.session_nodes(&e.session_id).unwrap();
             assert_eq!(nodes.len(), e.nodes);
-            let fetched = past.nodes.iter().any(|n| n.external.is_some());
-            assert_eq!(rec.external.is_some(), fetched, "{}/{}", e.item, e.key);
             for (k, p) in past.nodes.iter().enumerate() {
                 let entry = &m.nodes[&Manifest::key(&e.item, &format!("{}.{}", e.key, k + 1))];
                 let (pos, node) = nodes.iter().find(|(_, n)| n.id == entry.node_id).unwrap();

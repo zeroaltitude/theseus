@@ -277,11 +277,11 @@ impl Watch {
 
     /// Wait until the question has been asked `n` times: the prompt's own
     /// line, two spaces and the prompt. The start's help line repeats the
-    /// prompt's words ("a question asks approve? [y/N/t/note]"), so a count of
+    /// prompt's words ("a question asks approve? [y/N/note]"), so a count of
     /// the words was one ahead, and a test typed its answer before the CLI
     /// asked again (theseus-jhie).
     fn wait_prompt(&self, n: usize) {
-        const PROMPT: &str = "  approve? [y/N/t/note]";
+        const PROMPT: &str = "  approve? [y/N/note]";
         wait_until(&format!("{n} × the prompt `{PROMPT}` on stderr"), || {
             let err = self.err.lock().unwrap();
             (err.lines().filter(|l| *l == PROMPT).count() >= n).then_some(())
@@ -560,7 +560,7 @@ fn interactive_answers_the_question_and_sends_messages() {
     let answers = d.wait_for("action.confirm", 1);
     assert_eq!(
         answers[0]["params"],
-        json!({"correlation_id": "act_m3", "approve": true, "trust": false, "note": null,
+        json!({"correlation_id": "act_m3", "approve": true, "note": null,
                "author": "theseus watch"})
     );
     d.push(
@@ -676,7 +676,7 @@ fn a_message_continues_the_session_on_the_profile_of_its_last_turn() {
 }
 
 /// A line that is not an answer word declines, with the line as the note; a
-/// refused answer is said and asked again; `t` approves and trusts.
+/// refused answer is said and asked again; `y` then approves.
 #[test]
 fn a_note_declines_and_a_refused_answer_is_asked_again() {
     let dir = tempfile::tempdir().unwrap();
@@ -715,17 +715,11 @@ fn a_note_declines_and_a_refused_answer_is_asked_again() {
         ),
         (json!(false), json!("use the staging port"))
     );
-    // The re-ask: typed before it, `t` would find no question open.
+    // The re-ask: typed before it, `y` would find no question open.
     w.wait_prompt(2);
-    w.type_line("t");
+    w.type_line("y");
     let both = d.wait_for("action.confirm", 2);
-    assert_eq!(
-        (
-            both[1]["params"]["approve"].clone(),
-            both[1]["params"]["trust"].clone()
-        ),
-        (json!(true), json!(true))
-    );
+    assert_eq!(both[1]["params"]["approve"], json!(true));
     drop(w.child.stdin.take());
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
@@ -1003,7 +997,7 @@ fn the_prompt_is_the_last_line_after_a_parked_turns_footer() {
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
     let lines: Vec<&str> = err.lines().filter(|l| !l.is_empty()).collect();
-    assert_eq!(lines.last(), Some(&"  approve? [y/N/t/note]"), "{err}");
+    assert_eq!(lines.last(), Some(&"  approve? [y/N/note]"), "{err}");
     let footer = lines
         .iter()
         .rposition(|l| l.contains("· session ses_q7f3k2]"));
@@ -1758,7 +1752,7 @@ fn one_question_one_prompt_in_a_pane() {
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
     let count = |f: &dyn Fn(&str) -> bool| err.lines().filter(|l| f(l)).count();
-    assert_eq!(count(&|l| l == "  approve? [y/N/t/note]"), 1, "{err}");
+    assert_eq!(count(&|l| l == "  approve? [y/N/note]"), 1, "{err}");
     assert_eq!(count(&|l| l.contains("[answer]")), 1, "{err}");
     assert_eq!(count(&|l| l.contains("proc.run")), 1, "one card: {err}");
 }
@@ -1838,7 +1832,7 @@ fn a_pane_says_its_prompt_once_when_events_print_below_the_question() {
     let (_, err) = w.finish();
     let count = err
         .lines()
-        .filter(|l| *l == "  approve? [y/N/t/note]")
+        .filter(|l| *l == "  approve? [y/N/note]")
         .count();
     assert_eq!(count, 1, "{err}");
 }

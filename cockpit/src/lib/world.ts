@@ -81,7 +81,6 @@ if (import.meta.env.DEV || import.meta.env.MODE === 'bench') {
         if (!x) { diffs.push(`session ${s.session_id}: not folded`); continue }
         if (x.turns !== s.turns) diffs.push(`session ${s.session_id}: turns folded ${x.turns}, live ${s.turns}`)
         if (Math.abs(x.cost_usd - s.cost_usd) > 0.0001) diffs.push(`session ${s.session_id}: cost folded ${x.cost_usd.toFixed(5)}, live ${s.cost_usd.toFixed(5)}`)
-        if (!!x.external_text !== !!s.external_text) diffs.push(`session ${s.session_id}: hold folded ${!!x.external_text}, live ${!!s.external_text}`)
       }
       const wc = new Set(w.confirms.map((c) => c.correlation_id))
       for (const c of cl.confirms) if (!wc.has(c.correlation_id)) diffs.push(`confirm ${c.correlation_id}: not folded`)

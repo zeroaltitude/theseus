@@ -17,8 +17,7 @@ use crate::render::Buttons;
 use crate::runtime::reply::answer;
 
 /// The buttons of a confirm card: an `owner_ask`'s options, a layer-1
-/// change's Accept and Decline, Approve with a third button to trust a
-/// session that read external text, else Approve and Decline.
+/// change's Accept and Decline, else Approve and Decline.
 pub(super) fn card_buttons(req: &theseus_protocol::ConfirmRequest, q: &str) -> Buttons {
     if req.tool == theseus_protocol::work::ask::OWNER_ASK {
         return Buttons::Ask(
@@ -28,8 +27,6 @@ pub(super) fn card_buttons(req: &theseus_protocol::ConfirmRequest, q: &str) -> B
     }
     if req.change.is_some() {
         Buttons::Accept(q.to_string())
-    } else if req.external_text.is_some() {
-        Buttons::ConfirmTrust(q.to_string())
     } else if let Some(o) = &req.grant_offer {
         // "Approve + this command for the conversation" (theseus-drjs).
         Buttons::ConfirmGrant(q.to_string(), o.clone())
@@ -76,7 +73,6 @@ impl Lane {
                         .flatten()
                         .filter_map(|c| c.as_str().map(str::to_string))
                         .collect(),
-                    trust: body["trust"][i] == true,
                 });
                 self.shared.replies.asked().plan(&key, entries.collect());
             }
@@ -106,9 +102,8 @@ impl Lane {
             .filter_map(|c| c.as_str().map(str::to_string))
             .collect();
         let card = body["card"].is_object();
-        let trust = body["card"]["trust"] == true;
         let buttons = match (card, choices.is_empty()) {
-            (true, _) => Buttons::Card(q.clone(), choices.clone(), trust),
+            (true, _) => Buttons::Card(q.clone(), choices.clone()),
             (false, true) => Buttons::Keep,
             (false, false) => Buttons::Ask(q.clone(), choices.clone()),
         };
@@ -117,7 +112,6 @@ impl Lane {
             let entry = answer::Entry {
                 question: q.clone(),
                 choices,
-                trust,
             };
             self.shared.replies.asked().plan(&key, vec![entry]);
         }

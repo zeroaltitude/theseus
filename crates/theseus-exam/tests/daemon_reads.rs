@@ -146,7 +146,6 @@ fn stored_fields(s: &Value) -> Value {
         "created_at_unix_ms": s["created_at_unix_ms"], "turns": s["turns"], "usage": s["usage"],
         "execution_id": s["execution_id"], "last_active_ms": s["last_active_ms"],
         "cost_usd": s["cost_usd"], "tool_calls": s["tool_calls"], "title": s["title"],
-        "external_text": s["external_text"],
     })
 }
 

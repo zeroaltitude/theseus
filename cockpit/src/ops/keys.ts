@@ -11,7 +11,7 @@ export type Ctx = 'dock' | 'answer' | 'choice' | 'grant' | 'failure' | 'task' | 
 
 export type Verb =
   | 'down' | 'up' | 'left' | 'right' | 'inspect' | 'open' | 'back' | 'next' | 'prev'
-  | 'approve' | 'approve_trust' | 'decline' | 'choice' | 'grant' | 'retry' | 'dismiss' | 'pause' | 'stop' | 'stop_all'
+  | 'approve' | 'decline' | 'choice' | 'grant' | 'retry' | 'dismiss' | 'pause' | 'stop' | 'stop_all'
   | 'cancel' | 'not_this' | 'cancel_wake' | 'follow' | 'new_task'
   | 'lens_graph' | 'lens_board' | 'lens_timeline' | 'lens_threads' | 'home' | 'search'
   | 'fold_queue' | 'fold_inspector' | 'fold_dock' | 'keys'
@@ -52,7 +52,6 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'next', keys: ['Tab'], ctx: 'page', words: 'the next thing that needs you' },
   { verb: 'prev', keys: ['shift+Tab'], ctx: 'page', words: 'the previous thing that needs you' },
   { verb: 'approve', keys: ['y'], ctx: 'answer', words: 'approve (reset, accept: the card’s first answer)', act: true },
-  { verb: 'approve_trust', keys: ['t'], ctx: 'answer', words: 'approve and trust the session again', act: true },
   { verb: 'decline', keys: ['n'], ctx: 'answer', words: 'decline: the note field opens; Enter sends', act: true },
   { verb: 'choice', keys: ['1', '2', '3', '4', '5', '6'], ctx: 'choice', words: 'answer with that choice', act: true },
   { verb: 'grant', keys: ['a', 'e'], ctx: 'grant', words: 'take the card’s grant (yes, and don’t ask again here)', act: true },
@@ -124,7 +123,7 @@ export const CTX_WORDS: Readonly<Record<Ctx, string>> = {
 }
 
 /** The verbs that act: off under the time machine. The table's, and the buttons' that no key presses. */
-export const BUTTON_ACTS = ['answer', 'trust', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark',
+export const BUTTON_ACTS = ['answer', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark',
   // ops-timeline (theseus-jid7t.5): an event's verbs that reach the daemon, and a drag with its Undo.
   'event_remind', 'event_prep', 'event_ask', 'drag', 'undo',
   // ops-act (theseus-jid7t.6): the Join pane, the menus, the session's life and the task sheets.

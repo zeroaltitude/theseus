@@ -176,7 +176,6 @@ struct ActIn {
     answer: Option<(String, Option<String>)>,
     /// The confirm row's words, when it came.
     detail: Option<String>,
-    external_text: bool,
     change: bool,
     floor: bool,
     expires_at_ms: Option<u64>,
@@ -656,7 +655,6 @@ impl WorkBoard {
             }
             "tool.confirm_requested" => {
                 ai.detail = s("reason").filter(|x| !x.is_empty()).map(str::to_string);
-                ai.external_text = !r.data["external_text"].is_null();
                 ai.change = !r.data["change"].is_null();
                 ai.floor |= r.data["floor"].as_bool().unwrap_or(false);
             }
@@ -865,7 +863,6 @@ impl WorkBoard {
                 asked: false,
                 answer: None,
                 detail: None,
-                external_text: false,
                 change: false,
                 floor: false,
                 expires_at_ms: None,

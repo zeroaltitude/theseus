@@ -1,16 +1,77 @@
-//! The operator's removal of a content label (theseus-9ymz0, design §6.3,
-//! tests 24 to 26): `content.unlabel` clears one flag from a session, as
-//! `policy.trust` clears a hold. It loosens, so it is judged as an answer is
-//! (`judge_act`): from the owner, from a private place, never from a job's
-//! process. The record and the `content.removed` row are one frame, and the
-//! session's watchers hear `session.unlabelled`.
+//! The operator's removal of a content label (theseus-9ymz0, design §6.3, tests 24 to 26):
+//! `content.unlabel` clears one flag from a session. It loosens, so it is judged as an answer is
+//! (`judge_act`): from the owner, from a private place, never from a job's process. The record and
+//! the `content.removed` row are one frame, and the session's watchers hear `session.unlabelled`.
+//! (These stood in `tests_external` beside the hold they were first written for; R6, theseus-gyjyo.8,
+//! moved them.)
 
-use super::*;
+use std::path::Path;
+use std::sync::Arc;
+
+use serde_json::{json, Value};
+use theseus_protocol::SessionKind;
+
 use crate::approval::Client;
 use crate::approval::Surface;
 use crate::content::{ContentFlags, Flag, ItemKind, Label};
-use crate::external::Mode;
+use crate::policy::Posture;
+use crate::provider::{
+    DeltaSink, FakeProvider, Provider, ProviderFuture, ProviderRequest, Scripted,
+};
+use crate::session::SessionRecord;
+use crate::store::Store;
+use crate::{Config, Core};
 use theseus_protocol::{method, Message};
+
+/// A stand-in model that says "ok" to every request.
+struct Model;
+
+impl Provider for Model {
+    fn name(&self) -> &str {
+        "fake"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a ProviderRequest,
+        on_delta: DeltaSink<'a>,
+    ) -> ProviderFuture<'a> {
+        Box::pin(async move {
+            FakeProvider::scripted(vec![Scripted::text("ok")])
+                .stream_message(req, on_delta)
+                .await
+        })
+    }
+}
+
+/// A core over the store in `dir`, posture open.
+pub(crate) fn core_in(dir: &Path) -> Arc<Core> {
+    let root = dir.join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut cfg = Config::example();
+    cfg.server.state_dir = dir.to_string_lossy().into_owned();
+    cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
+    cfg.tools.roots = vec![];
+    cfg.tools.proc_sync_secs = 10;
+    cfg.policy.enforcement = Posture::Open;
+    let store = Store::open(&dir.join("store")).unwrap();
+    Core::build(crate::rpc::Parts::for_tests(cfg, Arc::new(Model), store)).unwrap()
+}
+
+pub(crate) fn session(core: &Core) -> String {
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    rec.session_id
+}
+
+fn ledgered(core: &Core, kind: &str) -> Vec<Value> {
+    core.store
+        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, r)| r.kind == kind)
+        .map(|(_, r)| r.data)
+        .collect()
+}
 
 fn label(flag: Flag, at_ms: u64) -> Label {
     Label {
@@ -27,14 +88,7 @@ fn label(flag: Flag, at_ms: u64) -> Label {
 
 /// A core and a session carrying `injection` and `secret`.
 fn labelled(dir: &Path) -> (Arc<Core>, String) {
-    let core = core_tuned(
-        dir,
-        0,
-        |_| Scripted::text("ok"),
-        false,
-        (Mode::Notify, Posture::Open),
-        |_| {},
-    );
+    let core = core_in(dir);
     let sid = session(&core);
     let mut rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
     let mut flags = ContentFlags::default();
@@ -115,10 +169,10 @@ async fn removal_from_the_owner_clears_the_flag_writes_the_row_and_publishes() {
 
 /// Test 25. From a job's process (the MCP surface), or from a person in a
 /// shared place, the removal is refused by `judge_act` exactly as
-/// `policy.trust` is: the refusal is the session's row, nothing is removed and
+/// an approval is: the refusal is the session's row, nothing is removed and
 /// no `content.removed` row is written.
 #[tokio::test]
-async fn removal_from_a_jobs_process_is_refused_as_a_trust_is() {
+async fn removal_from_a_jobs_process_is_refused_as_an_answer_is() {
     let dir = tempfile::tempdir().unwrap();
     let (core, sid) = labelled(dir.path());
     assert!(crate::mcp_server::JUDGED.contains(&method::CONTENT_UNLABEL));
@@ -191,4 +245,36 @@ async fn removing_a_flag_that_is_not_there_is_an_error_and_writes_nothing() {
     assert!(e.to_string().contains("carries no secret label"), "{e}");
     assert_eq!(core.store.ledger_len().unwrap(), ledger);
     assert_eq!(ledgered(&core, "content.removed").len(), 1);
+}
+
+/// A request over a real protocol connection accepted as `client`.
+async fn rpc_as(
+    core: &Arc<Core>,
+    client: crate::approval::Client,
+    method: &str,
+    params: Value,
+) -> Result<Value, theseus_protocol::RpcError> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (ours, theirs) = tokio::io::duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(theirs);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, client));
+    let (cr, mut cw) = tokio::io::split(ours);
+    let req = theseus_protocol::Request::new(theseus_protocol::Id::Num(1), method, params);
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let mut lines = BufReader::new(cr).lines();
+    let out = loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let theseus_protocol::Message::Response(r) = serde_json::from_str(&l).unwrap() {
+            break match (r.result, r.error) {
+                (Some(v), _) => Ok(v),
+                (None, e) => Err(e.unwrap()),
+            };
+        }
+    };
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    let _ = srv.await;
+    out
 }

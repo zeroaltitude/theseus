@@ -737,22 +737,17 @@ impl ToolRuntime {
         Ok(Some(status))
     }
 
-    /// A job's completion and its result's node, taken in one frame (7.1),
-    /// with the session's hold when the result brings one, as `complete`
-    /// writes an in-process call's. Whether this took it: not when the drain
+    /// A job's completion and its result's node, taken in one frame (7.1), as
+    /// `complete` writes an in-process call's. Whether this took it: not when the drain
     /// or the reconciler had, or a cancel had settled the call.
     fn take_with_result(&self, tc: &TurnCtx<'_>, c: &Completion, node: &Node) -> Result<bool> {
         let sid = tc.session_id;
-        let (accepted, newly) =
-            crate::external::with_hold(tc.store, sid, Some(tc.turn_id), node, |frame| {
-                tc.kernel.take_completion_with(c, frame)
-            })?;
+        let accepted = tc.kernel.take_completion_with(c, vec![node.record()?])?;
         let took = matches!(
             accepted,
             Accepted::Settled { .. } | Accepted::ResolvedUnknown { .. }
         );
         if took {
-            self.held(tc, newly);
             self.queue_content(sid, std::slice::from_ref(node));
         }
         Ok(took)
@@ -983,15 +978,14 @@ impl ToolRuntime {
             ),
         };
         // A job that reached a host beyond `[sandbox] egress` brought back
-        // outside text (18c; theseus-gyin); so did a job of a program
-        // `[policy] external_programs` lists, unless its egress marked it
-        // already (theseus-b5cl).
+        // outside text (18c; theseus-gyin); so did a job of `gh`, whose output is a
+        // stranger's text, unless its egress marked it already (theseus-b5cl).
         let egress =
             crate::egress::marker(&detail, !out.is_empty(), &self.sandbox.cfg.egress, || {
                 confirm_proposal(store, a, None).map_or_else(|_| vec![], |p| egress::bound(&p))
             });
         let listed = match (&egress, input) {
-            (None, Some(i)) => crate::external::Listed::of(i, &self.external_programs),
+            (None, Some(i)) => crate::external::Listed::of(i),
             _ => None,
         };
         // An ask past `proc_timeout_max_secs` was cut; this call is told so (theseus-spntl).
@@ -999,12 +993,9 @@ impl ToolRuntime {
             .and_then(|i| super::proc_cap::asked_beyond(i, self.ctx.proc_timeout_max_secs))
             .map(|asked| super::proc_cap::note(asked, self.ctx.proc_timeout_max_secs));
         let header = format!(
-            "{}{}{}{header}",
+            "{}{}{header}",
             clamp.as_ref().map_or("", |(_, line)| line),
-            sandbox::result_lines(&detail),
-            listed
-                .as_ref()
-                .map_or_else(String::new, crate::external::Listed::line)
+            sandbox::result_lines(&detail)
         );
         // Where its output is, kept whole should the cap cut it (theseus-v73m).
         let kept = (!out.is_empty()).then(|| super::kept::Source {
@@ -1024,9 +1015,6 @@ impl ToolRuntime {
         let mut meta = json!({"exit_code": exit, "detail": detail});
         if let Some((note, _)) = clamp {
             meta[super::proc_cap::KEY] = note;
-        }
-        if let Some(l) = &listed {
-            meta[crate::external::PROGRAM_KEY] = json!(l.program);
         }
         crate::cancel::stopped_meta(&mut meta, status, a);
         ResultNode {

@@ -149,12 +149,9 @@ impl Chat {
 
     fn own_key(&mut self, q: &ConfirmRequest, key: char, which: Ask) -> Option<Vec<Effect>> {
         match which {
-            Ask::Yes => Some(self.confirm(q, true, None, false, false)),
-            Ask::Trust if q.external_text.is_some() => {
-                Some(self.confirm(q, true, None, true, false))
-            }
+            Ask::Yes => Some(self.confirm(q, true, None, false)),
             Ask::Grant if q.grant_offer.as_ref().is_some_and(|o| o.key() == key) => {
-                Some(self.confirm(q, true, None, false, true))
+                Some(self.confirm(q, true, None, true))
             }
             Ask::No => {
                 self.ask.note = true;
@@ -164,13 +161,13 @@ impl Chat {
                 self.show_whole(q);
                 Some(Vec::new())
             }
-            Ask::Trust | Ask::Grant | Ask::Choice(_) => None,
+            Ask::Grant | Ask::Choice(_) => None,
         }
     }
 
     /// A task's question: `y` and `n` for an approval, `1`..`6` for an
-    /// `ask`'s choices (the other kind's keys are text there), `t` when
-    /// external text holds the session, `v` for the call.
+    /// `ask`'s choices (the other kind's keys are text there), `v` for the
+    /// call.
     fn task_key(&mut self, t: &TaskQ, which: Ask) -> Option<Vec<Effect>> {
         let ask = t.kind == QuestionKind::Ask;
         match which {
@@ -193,7 +190,6 @@ impl Chat {
                 );
                 Some(self.answer_task(t, yes, None))
             }
-            Ask::Trust if t.external_text => Some(self.answer_task(t, "approve_trust", None)),
             Ask::Choice(n) if ask => {
                 let o = t
                     .options
@@ -214,7 +210,7 @@ impl Chat {
         let note = note.trim();
         let note = (!note.is_empty()).then(|| note.to_string());
         match self.current() {
-            Some(Asked::Own(q)) => self.confirm(&q, false, note, false, false),
+            Some(Asked::Own(q)) => self.confirm(&q, false, note, false),
             Some(Asked::Task(t)) => {
                 let decline = t
                     .options
@@ -234,7 +230,6 @@ impl Chat {
         q: &ConfirmRequest,
         approve: bool,
         note: Option<String>,
-        trust: bool,
         grant: bool,
     ) -> Vec<Effect> {
         let mut params = json!({
@@ -244,9 +239,6 @@ impl Chat {
         });
         if let Some(n) = note {
             params["note"] = json!(n);
-        }
-        if trust {
-            params["trust"] = json!(true);
         }
         if grant {
             if let Some(o) = &q.grant_offer {
@@ -504,9 +496,6 @@ fn more_words(more: usize) -> String {
 fn keys_line(q: &ConfirmRequest, more: usize) -> String {
     let yes = if q.budget.is_some() { "reset" } else { "yes" };
     let mut line = format!("  y {yes} · n no, say what instead · v whole call");
-    if q.external_text.is_some() {
-        line.push_str(" · t yes and trust");
-    }
     line.push_str(&more_words(more));
     line.push_str(" · esc type");
     line
