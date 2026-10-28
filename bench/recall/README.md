@@ -259,6 +259,9 @@ rule to a saved run ($0). The clock ticks from the pin, so a run past 15 hours i
 What this measures is still recall of what was said on a dated day, and a memory that weighs elapsed time (retention) now
 sees the script's days where it saw minutes. Untested live: whether the model API's TLS validation accepts a clock this
 far from the real one; a first pinned run should prove it on a smoke before a full run is spent.
+`python3 bench/recall/clock.py --smoke 2021-03-04` is the $0 proof that the pin takes on a host: it prints the host's
+date, a control arm's (the same path without the pin) and the pinned arm's, and exits 1 unless the pinned arm reads the
+pin and the control does not. It refuses a pin within a month of today, so a pin that did nothing cannot pass for one that worked.
 
 **Delivery.** Every fact's marker is looked for in the arm's transcript (Theseus's history, Claude Code's and Pi's
 session logs). A probe whose fact never reached the arm (it didn't run the script, say) is excluded and counted, never

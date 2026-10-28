@@ -19,6 +19,7 @@ day's remaining hours would roll past midnight and read another date: `enter` re
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import subprocess
 import sys
@@ -63,6 +64,47 @@ def machine_date(env: dict) -> str:
     return r.stdout.strip()
 
 
+def pin_env(base: dict, lib: str, spec: Path) -> dict:
+    """`base` with the pin in it: the library preloaded ahead of any other, and the spec file."""
+    out = dict(base)
+    out["LD_PRELOAD"] = lib + (":" + base["LD_PRELOAD"] if base.get("LD_PRELOAD") else "")
+    out["FAKETIME_TIMESTAMP_FILE"] = str(spec)
+    out["FAKETIME_NO_CACHE"] = "1"
+    return out
+
+
+def _host_date() -> str:
+    return time.strftime("%F")
+
+
+def smoke(pin: str, lib: str | None = None, workdir: Path | None = None,
+          runner: Callable[[dict], str] | None = None, host: Callable[[], str] = _host_date) -> dict:
+    """The pin at smoke level, with a control: read the date of a fresh process under the pin and of the
+    same process without it. `pin` (`YYYY-MM-DD`) must be at least a month from the host's date, so a pin
+    that did nothing cannot read as one that worked. Raises `ClockDrift` when the pinned arm does not read
+    the pin or the control does, and `ValueError` when the pin is too near the real date to tell."""
+    lib = lib or find_lib()
+    if lib is None:
+        raise SystemExit("smoke: no libfaketime found (set LIBFAKETIME_LIB or pass --faketime-lib)")
+    runner = runner if runner is not None else machine_date
+    real = host()
+    if abs((dt.date.fromisoformat(pin) - dt.date.fromisoformat(real)).days) < 30:
+        raise ValueError(f"the pin {pin} is within a month of the host's {real}: pick a date far from today")
+    workdir = Path(workdir) if workdir else Path.cwd()
+    workdir.mkdir(parents=True, exist_ok=True)
+    spec = workdir / "smoke.faketime.spec"
+    spec.write_text(f"@{pin} {pg.CLOCK_TIME}\n")
+    base = {"PATH": os.environ.get("PATH", "")}
+    pinned = runner(pin_env(base, lib, spec))
+    control = runner(dict(base))
+    if pinned != pin:
+        raise ClockDrift(f"the pinned arm reads {pinned}, not the pin {pin}: libfaketime did not take")
+    if control == pin:
+        raise ClockDrift(f"the control arm (no pin) also reads {pin}: the pin is not what moved the clock")
+    return {"pin": pin, "lib": lib, "host": real, "pinned": pinned, "control": control,
+            "proof": pinned == pin and control != pin}
+
+
 class Clock:
     def __init__(self, prog: pg.Progression, mode: str = "auto", lib: str | None = None,
                  workdir: Path | None = None, runner: Callable[[dict], str] | None = None,
@@ -98,13 +140,7 @@ class Clock:
 
     def env(self, base: dict) -> dict:
         """`base` with the pin in it: the library preloaded ahead of any other, and the spec file."""
-        out = dict(base)
-        if not self.pinned:
-            return out
-        out["LD_PRELOAD"] = self.lib + (":" + base["LD_PRELOAD"] if base.get("LD_PRELOAD") else "")
-        out["FAKETIME_TIMESTAMP_FILE"] = str(self.file)
-        out["FAKETIME_NO_CACHE"] = "1"
-        return out
+        return pin_env(base, self.lib, self.file) if self.pinned else dict(base)
 
     def enter(self, session: int) -> dict:
         """Pin the clock to `session`'s narrated date and read it back. Raises `ClockDrift` when the
@@ -124,3 +160,21 @@ class Clock:
                                  f"narrates {narrated}; the model would be graded for believing the machine")
         self.meta["sessions"].append(rec)
         return rec
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="Smoke-prove the clock pin: a pinned arm, an unpinned control, the host.")
+    ap.add_argument("--smoke", metavar="YYYY-MM-DD", required=True, help="the date to pin to (far from today)")
+    ap.add_argument("--faketime-lib", default=None)
+    a = ap.parse_args(argv)
+    import tempfile
+    with tempfile.TemporaryDirectory() as t:
+        r = smoke(a.smoke, lib=find_lib(a.faketime_lib), workdir=Path(t))
+    print(f"host    date: {r['host']}\ncontrol date: {r['control']}   (same path, no pin)\n"
+          f"pinned  date: {r['pinned']}   (pin {r['pin']}, {r['lib']})\nproof: {r['proof']}")
+    return 0 if r["proof"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
