@@ -53,7 +53,8 @@ fn only_a_coding_turn_holds_it() {
         "review",
         "other",
     ] {
-        let v = verdict(mode, 0.45);
+        // 0.35: over the floor's own bar and under every class's (trivial's is 0.4).
+        let v = verdict(mode, 0.35);
         let d = decide(&cfg, &profiles(), &ask(&v, "haiku", 10));
         assert_eq!(
             (d.profile.as_str(), d.reason, d.switch),
