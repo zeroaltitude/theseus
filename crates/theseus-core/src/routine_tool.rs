@@ -89,18 +89,16 @@ impl Tool for RoutineCreate {
     }
 
     fn description(&self) -> &'static str {
-        "Set up recurring, deferred or standing work. Reach for it on the shape of what is \
-         asked, not on any one word: watch this, keep an eye on that, remind me, check it \
-         hourly, every morning tell me, at 3 today, each Monday until Friday, keep me posted. A \
-         routine runs `brief` on `schedule` (`weekdays 08:00`, `every 30m`, `monthly 09:00`, or \
-         cron), each run a fresh task that does not see this conversation, reporting to the \
-         owner's DM. `start` moves the first run (`mon 9:00`, `in 2h`); `stop` ends the series \
-         (`after 3 runs`, or a time such as `fri 17:00`), and with no stop it runs until the \
-         owner pauses it. Each run is given the whole of the last run's report, so a brief that \
-         says what to look at reports what changed rather than the state again (`carry: none` \
-         turns that off). It waits for the owner's yes on one card. A run may spend `budget_usd` \
-         (default $0.50), the routine `month_usd` a month (default $10); a spent month skips \
-         runs. To wait on one thing a command can check, with no model and no money, use `watch`."
+        "Recurring or deferred work, reached for on the shape of the asking, not a keyword: \
+         watch this, keep an eye on it, remind me, check hourly, every morning tell me, at 3 \
+         today, until Friday, keep me posted. A routine runs `brief` on `schedule` (`weekdays \
+         08:00`, `every 30m`, `monthly 09:00`, or cron), each run a fresh task that does not see \
+         this conversation, reporting to the owner's DM. `start` moves the first run; `stop` \
+         (`after 3 runs`, or a time) ends the series, and with none it runs until paused. Each \
+         run is given the whole of the last run's report, so it reports the change. It waits for \
+         the owner's yes on one card. A run may spend `budget_usd` (default $0.50), the routine \
+         `month_usd` a month (default $10); a spent month skips runs. For a condition a command \
+         can check, with no model, use `watch`."
     }
 
     fn input_schema(&self) -> Value {
@@ -114,9 +112,9 @@ impl Tool for RoutineCreate {
                 "month_usd": {"type": "number", "exclusiveMinimum": 0},
                 "deliver_to": {"type": "string", "description": "`dm` (default), `none`, or a place."},
                 "speak": {"type": "string", "enum": ["always", "when_notable"], "description": "`when_notable`: a report ending NOTHING NEW is not posted."},
-                "start": {"type": "string", "description": "The first run is at or after this time (`mon 9:00`, `in 2h`, `2026-11-03 08:00`). Without one it is the schedule's next time."},
-                "stop": {"type": "string", "description": "Where the series ends: `after 3 runs`, or a time (`fri 17:00`). Without one it runs until the owner pauses it."},
-                "carry": {"type": "string", "enum": ["last_report", "none"], "description": "What each run is given of the one before it. `last_report` (default): the whole of its report, so this run reports the change."},
+                "start": {"type": "string", "description": "The first run is at or after this (`mon 9:00`, `in 2h`)."},
+                "stop": {"type": "string", "description": "Where it ends: `after 3 runs`, or a time (`fri 17:00`)."},
+                "carry": {"type": "string", "enum": ["last_report", "none"], "description": "`none`: a run is not given the last run's report."},
                 "grant": {"type": "array", "items": {"type": "string"}}
             },
             "required": ["title", "schedule", "brief"],
