@@ -134,7 +134,12 @@ impl Core {
                 return Ok(held);
             }
             let run = match tree::gate_with_benches(place, &made.t).await {
-                Ok(r) => r,
+                Ok(tree::Gated::Ran(r)) => r,
+                Ok(tree::Gated::Stopped(why)) => {
+                    closing(&made.t);
+                    let why = format!("stopped while main's gate on the revert waited: {why}");
+                    return Ok(self.revert_held(j, "gate", &why, false));
+                }
                 Err(e) => {
                     closing(&made.t);
                     let why = format!("main's gate on the revert did not run: {e:#}");
