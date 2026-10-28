@@ -362,7 +362,7 @@ fn the_live_pack_is_content_v3_and_the_old_two_stay_embedded() {
     }
     assert_eq!(
         crate::judge::wired_mode(PACK),
-        crate::config::judge::PackMode::Live
+        crate::config::PackMode::Live
     );
 }
 
