@@ -1,17 +1,24 @@
-# route.v9 (ROUTE, theseus-gezlj, 2026-10-26): route.v8 word for word (its five
-# questions, the `data` question's wording, both rollback rules, the state) but
-# for the `mode` question's two new kinds, the `reply_effort` question's
-# escape, and the description. Every change is the owner's own, from his
-# labelling of 2026-10-26 (07:19 to 08:11): item 1 "maybe there should be a
-# run-tool label; effort low is correct", items 18 and 28 "a tools category on
-# Haiku", item 4 "maybe the label for that one is commentary", item 37
-# "`unclear` is not an effort level: leave it or set it".
+# route.v9 (ROUTE, theseus-gezlj and theseus-tqomi, 2026-10-26): route.v8 word for
+# word (its questions but `data`, both rollback rules, the state) but for the
+# `mode` question's two new kinds and one added sentence, the `reply_effort`
+# question's escape, the description, and the `data` question, which is gone.
+# Every change is the owner's own, from labelling on 2026-10-26 (07:19 to
+# 08:11): item 1 "maybe there should be a run-tool label; effort low is
+# correct", items 18 and 28 "a tools category on Haiku", item 4 "maybe the label
+# for that one is commentary", item 37 "`unclear` is not an effort level: leave
+# it or set it", and (07:33) that the owner's open-ended review and comparison
+# questions, items 19, 23 and 27, are `sophisticated`, not `review` or `chat`.
 #   - `mode` gains `run_tool` ("run this command, script or tool and report it",
 #     no judgement about the result) and `commentary` (a remark or aside that
 #     asks for nothing). Both are listed BEFORE the kinds that swallowed these
 #     turns: `run_tool` ahead of `quick` and `routine_coding` (turns of the
 #     kind landed on `other` and `quick`), `commentary` ahead of `trivial` and
 #     `chat` (item 4 landed on `sophisticated`). The options are read in order.
+#   - `sophisticated` keeps v8's words and adds a sentence: comparing things on
+#     their merits, or asking open-endedly whether something is good,
+#     distinctive or solid, belongs here. That is the owner's rule for the Opus
+#     class (its profile list is `[routing.classes.sophisticated]`), and
+#     without it the rule has nothing new to catch.
 #   - `commentary` is what keeps the routing of `sophisticated` to Opus honest:
 #     without it a one-line appreciative remark that reads as `sophisticated`
 #     would run on Opus at high effort. The two ship together.
@@ -20,13 +27,16 @@
 #     already has. The no-match is `leave` too. What the turn does with it is
 #     what it did with `unclear` (the profile's own effort stands); only the
 #     name, and the row's `effort_reason`, change.
+#   - `data` is not asked. Since theseus-9ymz0 a session's labels decide whether
+#     a model of restricted origin may serve it (`crate::content`), and nothing
+#     reads a per-message `data` verdict, so asking it spent a Jev answer per
+#     message for no effect. v5 to v8 keep it for their history.
 #   - the description names the two kinds.
-# `data`, `persona`, `seal`, `personal` and both rollback rules are v8's word
-# for word, and so are the thresholds: nothing here loosens a floor. A new pack
-# version, as v2 to v8 were: a live pack's options never change in place; v5 to
-# v8 stay embedded for their history. v9 is embedded and replayable
-# (`theseus judge replay --pack-file`) and is NOT the acting pack: the owner
-# adopts it, as he adopted v8, when its replay is read.
+# `persona`, `seal`, `personal` and both rollback rules are v8's word for word,
+# and so are the thresholds: nothing here loosens a floor. A new pack version, as
+# v2 to v8 were: a live pack's options never change in place; v5 to v8 stay
+# embedded for their history. Until `ROUTE_PACK` names it, v9 is embedded and
+# replayable (`theseus judge replay --pack-file`) and is NOT the acting pack.
 # Names live in the operator's config (the state's `data_names`), never in this
 # file.
 id = "route"
@@ -38,7 +48,7 @@ state_cap_tokens = 3000
 sample = 1.0
 baseline = "session_profile"
 action = "route"
-description = "ROUTE: the interaction mode a message needs (nothing, a command or tool to run, a remark that asks for nothing, a quick answer, conversation, hard reasoning, hard programming, routine programming, a review), which picks the model its turn runs on, the effort its reply needs (low to max), which sets the effort that model runs at, which specialist should answer it, whether it warrants sealing its thread, and whether what the message carries may go to a model provider outside the owner's trust (open or private), and whether it reaches for the operator's personal details."
+description = "ROUTE: the interaction mode a message needs (nothing, a command or tool to run, a remark that asks for nothing, a quick answer, conversation, hard reasoning, hard programming, routine programming, a review), which picks the model its turn runs on, the effort its reply needs (low to max), which sets the effort that model runs at, which specialist should answer it, whether it warrants sealing its thread, and whether it reaches for the operator's personal details."
 
 [questions.mode]
 type = "choice"
@@ -53,7 +63,7 @@ options = [
   { id = "trivial", means = "It needs almost nothing: a thank-you, an acknowledgement such as ok or got it, a greeting, or a farewell." },
   { id = "quick", means = "A quick question or small request that a short, direct answer settles: a fact, a definition, a yes or no, a summary of something just said, or where to find something, with no deep thought and no programming." },
   { id = "chat", means = "Ongoing conversation that builds on the work in progress here: discussing it, explaining it, planning next steps, or giving an opinion, with no hard reasoning and no programming." },
-  { id = "sophisticated", means = "Hard reasoning that is not mainly programming: system design, weighing several approaches, research, analysis, or careful writing." },
+  { id = "sophisticated", means = "Hard reasoning that is not mainly programming: system design, weighing several approaches, research, analysis, or careful writing. Comparing two or more things on their merits belongs here, and so does an open-ended question about whether something is good, distinctive or solid." },
   { id = "deep_coding", means = "Hard or novel programming: designing or writing tricky code, or debugging a problem whose cause is unknown." },
   { id = "routine_coding", means = "Programming that is long but well understood: repeated mechanical edits, renames across many places, small fixes whose cause is already known, or following a clear plan already agreed." },
   { id = "review", means = "Verification of work already made: checking or reviewing code, a plan, or an argument for mistakes, a pre-merge review, testing whether something is right, or an answer to \"is this right?\" or \"check this\"." },
@@ -104,21 +114,6 @@ no_match = "no"
 options = [
   { id = "yes", means = "It carries an unfixed vulnerability or an embargo, a legal or personnel matter, a partner's data, or a credential: what follows should not be recalled outside this thread." },
   { id = "no", means = "It carries nothing of the kind." },
-]
-
-# v6's question, v8's wording of `open` and `unclear`. Asked of every message. It decides nothing for
-# the pack's promotion, and acts from the day the pack does.
-[questions.data]
-type = "choice"
-decides = false
-instructions = "Judged by what the person's new message and its context carry, not by the place it arrives in (a private place says who sees the conversation, not that its matter is private), may it be shared with an outside model provider that must never see private matter?"
-act = 0.90
-confirm = 0.60
-no_match = "unclear"
-options = [
-  { id = "open", means = "Yes: general knowledge or public matter, such as a general question, a self-contained exercise in programming, mathematics or science, or work on open-source software or on a project the state lists as open, with no sign of anything personal, private, confidential or secret in it. These are public signs: a public project, library, toolchain or dataset named; a fork or copy of public code; files under a public licence; a build, install, fix or training task on any of these. Not being shown who owns a working directory, repository or file is not a sign of private matter." },
-  { id = "private", means = "No: it shows private matter: a company's or organisation's non-public plans, people, customers, partners, code or data; anything the state lists as private; a person's own family, health, money or legal matters; anything confidential, under embargo or not yet public, such as an unfixed vulnerability; another person's personal data; or the value of a credential, key, token or password itself." },
-  { id = "unclear", means = "The message gives too little to tell what it carries, such as a bare instruction that points at nothing, or it mixes open and private matter, or it hints at private matter without settling it." },
 ]
 
 # v7's own (theseus-gasov). Asked of every message. It decides nothing for the

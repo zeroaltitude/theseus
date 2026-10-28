@@ -39,7 +39,7 @@ use crate::learn::RollbackRule;
 /// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
 /// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v9`
 /// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
-/// theseus-a1wvq and theseus-f9qa8; `run_tool` and `commentary`, theseus-gezlj), and `content.v1` (the four content
+/// theseus-a1wvq and theseus-f9qa8; `run_tool`, `commentary` and no `data` question, theseus-gezlj and theseus-tqomi), and `content.v1` (the four content
 /// flags, theseus-9ymz0). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
 pub const EMBEDDED: &[(&str, &str)] = &[
@@ -1438,7 +1438,6 @@ mod tests {
                 "route.v9",
                 &[
                     "Inbound Inbound SessionProfile Route",
-                    "data Choice [open private unclear]",
                     "mode Choice decides [run_tool commentary trivial quick chat sophisticated deep_coding routine_coding review other]",
                     "persona Choice from Personas + [prior] only_when Personas",
                     "personal Choice [none elicit expose]",
@@ -1892,19 +1891,27 @@ mod tests {
         assert_eq!(v8.description, v7.description);
     }
 
-    /// route.v9 (theseus-gezlj) is route.v8 word for word, but for the `mode`
-    /// question's two new kinds, `reply_effort`'s `leave` in place of
-    /// `unclear`, and the description. The new kinds sit before the ones that
-    /// swallowed their turns (options are read in order), and the questions
-    /// that decide nothing, the thresholds and both rollback rules are v8's.
+    /// route.v9 (theseus-gezlj, theseus-tqomi) is route.v8 word for word, but
+    /// for the `mode` question's two new kinds and the sentence added to
+    /// `sophisticated`, `reply_effort`'s `leave` in place of `unclear`, the
+    /// description, and no `data` question (nothing reads it since
+    /// theseus-9ymz0). The new kinds sit before the ones that swallowed their
+    /// turns (options are read in order), and the questions that decide
+    /// nothing, the thresholds and both rollback rules are v8's.
     #[test]
     fn route_v9_is_v8_but_two_kinds_and_leave() {
         let (v8, v9) = (by_name("route.v8").unwrap(), by_name("route.v9").unwrap());
-        for q in ["data", "persona", "seal", "personal"] {
+        for q in ["persona", "seal", "personal"] {
             assert_eq!(v9.question(q), v8.question(q), "{q} word for word");
         }
         let ids = |p: &Pack| p.questions.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
-        assert_eq!(ids(&v9), ids(&v8), "the same questions");
+        let v8_without_data: Vec<String> = ids(&v8).into_iter().filter(|id| id != "data").collect();
+        assert_eq!(
+            ids(&v9),
+            v8_without_data,
+            "v8's questions but for `data`: nothing reads its answer, so it is not asked"
+        );
+        assert!(v9.question("data").is_none());
         let opts = |q: &QuestionDef| q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>();
         let means = |q: &QuestionDef, id: &str| {
             q.options
@@ -1931,9 +1938,21 @@ mod tests {
                 "other"
             ]
         );
-        for id in opts(m8) {
-            assert_eq!(means(m9, &id), means(m8, &id), "{id} is v8's word for word");
+        for id in opts(m8).iter().filter(|id| *id != "sophisticated") {
+            assert_eq!(means(m9, id), means(m8, id), "{id} is v8's word for word");
         }
+        // The owner's rule of 2026-10-26 07:33: his open-ended review and
+        // comparison questions (labelled items 19, 23, 27) are `sophisticated`,
+        // not `review` or `chat`. The sentence is added to v8's, not a rewrite.
+        let (s8, s9) = (means(m8, "sophisticated"), means(m9, "sophisticated"));
+        assert!(s9.starts_with(&s8), "v8's words first: {s9}");
+        assert!(
+            s9.contains(
+                "Comparing two or more things on their merits belongs here, and so does an \
+                 open-ended question about whether something is good, distinctive or solid."
+            ),
+            "{s9}"
+        );
         let position = |id: &str| opts(m9).iter().position(|o| o == id).unwrap();
         assert!(position("run_tool") < position("quick"));
         assert!(position("run_tool") < position("routine_coding"));
