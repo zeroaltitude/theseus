@@ -1898,7 +1898,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `content.rs`, `content_wait.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/content_based_security.rs`, `fact/data.rs`): every item that
     enters a session (an operator's message, a tool result, a brief, a report) is classified once, by itself, and what is
     found is a durable label on `SessionRecord.data` (`ContentFlags`; store format 52, which reads an older record's open-view
-    state as no labels and nothing judged). `secret`, `confidential` and `personal` raise at the confirm band and disqualify
+    state as no labels and nothing judged; format 53, theseus-gyjyo.3, adds `Label.judgment`, the raising judgment's id, so the owner's taps
+    teach the classifier: `unlabel_session` writes a `judge.label` row (source `operator`, the flag's question `no`) in the removal's frame,
+    the cockpit chip's "wrong" and `theseus judge label` write the same row without removing the label, and `learning/system.rs`'s
+    `content` arm labels a label left standing a week, or present when its session retires, `yes` at weight 0.5). `secret`, `confidential` and `personal` raise at the confirm band and disqualify
     a model of restricted origin (`cn`, `unknown`) for the session; `injection` raises only at the act band, is never asked of the
     operator's own words, and freezes the session: `ToolRuntime::refusal_at` refuses every call that is not a local read
     of files and code (`content::local_read`) until the operator removes the label (`[content_based_security] injection = "notify"` only tells,

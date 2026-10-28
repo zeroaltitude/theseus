@@ -917,3 +917,299 @@ fn content_is_wired_live_with_no_action() {
     assert_eq!(p.point, theseus_judge::pack::Point::Item);
     assert_eq!(p.questions.len(), 4);
 }
+
+// ---------------------------------------------------------------------------
+// Labels teach (theseus-gyjyo.3): a label names its judgment, and the owner's
+// taps on it (Remove, "wrong") and his leaving it standing are labelled cases.
+// ---------------------------------------------------------------------------
+
+/// A session with one `secret` label raised from one item, and the label.
+async fn labelled(r: &Rig, jev: &FakeJev) -> (String, crate::content::Label) {
+    no(jev);
+    yes(jev, "secret", 0.95);
+    let sid = session(r);
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![item_in(r, &sid, "n1", ItemKind::ToolResult, "the plan")],
+    );
+    until(r, "content.labelled", 1).await;
+    // The sink writes the judgment's `judge.call` row a moment after the label.
+    until(r, "judge.call", 1).await;
+    let l = flags(r, &sid).label(Flag::Secret).cloned().expect("raised");
+    (sid, l)
+}
+
+/// The label names the judgment that raised it, and that is a judgment the
+/// ledger holds, answered `yes` to the label's question.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_label_names_the_judgment_that_raised_it() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (_, l) = labelled(&r, &jev).await;
+    assert!(l.judgment.starts_with("jdg_"), "judgment {:?}", l.judgment);
+    let row = r
+        .core
+        .judgment_row(&l.judgment)
+        .expect("a judgment the ledger holds");
+    assert_eq!(row.data["pack"], PACK);
+    let a = row.data["answers"]
+        .as_array()
+        .and_then(|a| a.iter().find(|a| a["def"] == "secret"))
+        .expect("it answered secret");
+    assert_eq!(a["answer"]["choice"], "yes");
+}
+
+/// A Remove writes the `judge.label` row in the frame that removes the label:
+/// one frame, and both records read out of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_remove_writes_its_judge_label_in_the_same_frame() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (sid, l) = labelled(&r, &jev).await;
+    let before = r.core.store.stats().unwrap().frames_appended;
+    r.core.unlabel_session(&sid, "secret", "cli").unwrap();
+    let frames = r.core.store.stats().unwrap().frames_appended - before;
+    assert_eq!(frames, 1, "the removal and its label are one frame");
+    // The removal, durable.
+    let f = flags(&r, &sid);
+    assert!(f.label(Flag::Secret).is_none());
+    assert_eq!(f.removed.len(), 1);
+    // The label, durable with it.
+    let rows = rows(&r, "judge.label");
+    assert_eq!(rows.len(), 1, "{rows:#?}");
+    let d = &rows[0];
+    assert_eq!(d["judgment"], l.judgment.as_str());
+    assert_eq!(d["pack"], PACK);
+    assert_eq!(d["question"], "secret");
+    assert_eq!(d["label"], "no", "answered yes when it should have been no");
+    assert_eq!(d["source"], "operator");
+    assert_eq!(d["note"], "removed by the owner via cli");
+    assert_eq!(d["weight"], 1.0);
+    // Keyed `lbl_<id>` and scoped as its judgment, so the learning ledger reads it.
+    let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
+    assert_eq!(scope.labels[&l.judgment].len(), 1);
+}
+
+/// A label that names no judgment (one raised before format 53) is removed as
+/// before and teaches nothing: no `judge.label` row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_label_with_no_judgment_is_removed_and_teaches_nothing() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (sid, _) = labelled(&r, &jev).await;
+    r.core
+        .store
+        .update_session(&sid, |rec| {
+            let mut f = rec.data.take().map(|b| *b).unwrap();
+            let mut old = f.label(Flag::Secret).cloned().unwrap();
+            f.remove(Flag::Secret, "x", "cli", 1);
+            old.judgment = String::new();
+            f.raise(old);
+            rec.data = Some(Box::new(f));
+            Ok(vec![])
+        })
+        .unwrap();
+    r.core.unlabel_session(&sid, "secret", "cli").unwrap();
+    assert!(flags(&r, &sid).label(Flag::Secret).is_none());
+    assert!(rows(&r, "judge.label").is_empty());
+}
+
+/// `theseus judge label` takes a content judgment: the same row an operator
+/// writes by hand, `no` to `secret`, through `judge.label`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn judge_label_takes_a_content_judgment() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (sid, l) = labelled(&r, &jev).await;
+    let p = theseus_protocol::learning::JudgeLabelParams {
+        judgment: l.judgment,
+        question: Some("secret".into()),
+        label: serde_json::json!("no"),
+        note: Some("miscategorised, leave it".into()),
+        discord: None,
+    };
+    let got = r.core.judge_label(&p, "cli").expect("a content judgment");
+    assert_eq!(got.pack, PACK);
+    assert_eq!(got.label, "no");
+    // The label stays: "wrong" is not a Remove.
+    assert!(flags(&r, &sid).label(Flag::Secret).is_some());
+    assert_eq!(rows(&r, "judge.label").len(), 1);
+}
+
+/// The implied positive: a label still standing 7 days after it was raised is
+/// a system label (weight 0.5) that the answer was right; sooner it is not,
+/// and a clock decides it, not a wait.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_label_left_standing_seven_days_is_a_system_positive() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (_, l) = labelled(&r, &jev).await;
+    let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
+    let day = 24 * 60 * 60 * 1000;
+    assert!(
+        r.core
+            .system_labels("content", &scope, l.at_ms + 7 * day - 1)
+            .is_empty(),
+        "a label a minute short of a week teaches nothing yet"
+    );
+    let got = r.core.system_labels("content", &scope, l.at_ms + 7 * day);
+    assert_eq!(got.len(), 1, "{got:#?}");
+    assert_eq!(got[0].judgment, l.judgment);
+    assert_eq!(got[0].question, "secret");
+    assert_eq!(got[0].label, serde_json::json!("yes"));
+    assert_eq!(got[0].rule, "kept");
+    // Only the question that raised: the `no` answers have no label to keep.
+    // Written once, as the other arms' are.
+    r.core.store.append(&[got[0].record().unwrap()]).unwrap();
+    let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
+    assert!(r
+        .core
+        .system_labels("content", &scope, l.at_ms + 8 * day)
+        .is_empty());
+}
+
+/// A label present when its session retires is the same positive, once it has
+/// stood a day. The day is the floor the R2 review asked for: in Discord a
+/// session is superseded by `/new`, which the owner types routinely, so
+/// without it a label raised two minutes before a `/new` would become a
+/// positive with no window to dispute it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_label_present_when_its_session_retires_is_a_system_positive() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (sid, l) = labelled(&r, &jev).await;
+    let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
+    assert!(r
+        .core
+        .system_labels("content", &scope, l.at_ms + 1)
+        .is_empty());
+    r.core
+        .store
+        .update_session(&sid, |rec| {
+            rec.retired = Some(theseus_protocol::SessionRetired {
+                reason: theseus_protocol::RetiredReason::ByHand,
+                at_ms: l.at_ms + 1,
+            });
+            Ok(vec![])
+        })
+        .unwrap();
+    let day = 24 * 60 * 60 * 1000;
+    assert!(
+        r.core
+            .system_labels("content", &scope, l.at_ms + day - 1)
+            .is_empty(),
+        "a session retired within the day of the label teaches nothing yet"
+    );
+    let got = r.core.system_labels("content", &scope, l.at_ms + day);
+    assert_eq!(got.len(), 1, "{got:#?}");
+    assert_eq!(got[0].rule, "kept");
+    assert!(got[0].note.contains("retired"), "{}", got[0].note);
+}
+
+/// What nobody can call right takes no positive: a removed label, a label the
+/// owner marked wrong and left, and a label that names no judgment.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_removed_or_disputed_or_anonymous_label_is_not_a_positive() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (sid, l) = labelled(&r, &jev).await;
+    let week = 7 * 24 * 60 * 60 * 1000;
+    // Disputed: "wrong", the label left standing.
+    let p = theseus_protocol::learning::JudgeLabelParams {
+        judgment: l.judgment.clone(),
+        question: Some("secret".into()),
+        label: serde_json::json!("no"),
+        note: None,
+        discord: None,
+    };
+    r.core.judge_label(&p, "cli").unwrap();
+    let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
+    assert!(r
+        .core
+        .system_labels("content", &scope, l.at_ms + week)
+        .is_empty());
+    // Removed: nothing stands.
+    r.core.unlabel_session(&sid, "secret", "cli").unwrap();
+    let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
+    assert!(r
+        .core
+        .system_labels("content", &scope, l.at_ms + week)
+        .is_empty());
+}
+
+/// A whole-judgment "wrong" -- the cockpit's button and `theseus judge label
+/// <id> wrong`, both of which record no question -- disputes every flag of
+/// that judgment. Without this, `replay::right` takes the system `yes` (it is
+/// first in ledger order) and grades the incumbent right on a judgment the
+/// owner called wrong.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_whole_judgment_wrong_disputes_the_flag_it_raised() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (_sid, l) = labelled(&r, &jev).await;
+    let week = 7 * 24 * 60 * 60 * 1000;
+    let p = theseus_protocol::learning::JudgeLabelParams {
+        judgment: l.judgment.clone(),
+        question: None,
+        label: serde_json::json!("wrong"),
+        note: None,
+        discord: None,
+    };
+    r.core.judge_label(&p, "cli").unwrap();
+    let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
+    assert!(
+        r.core
+            .system_labels("content", &scope, l.at_ms + week)
+            .is_empty(),
+        "the owner looked at the whole judgment and called it wrong"
+    );
+}
+
+/// A label that names no judgment -- every deterministic source raises one
+/// (R3's names, R4's Google) -- can never be a positive: nobody judged it, so
+/// nobody can be told they were right.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_label_that_names_no_judgment_is_never_a_positive() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (sid, l) = labelled(&r, &jev).await;
+    r.core
+        .store
+        .update_session(&sid, |rec| {
+            if let Some(f) = rec.data.as_deref_mut() {
+                for lab in &mut f.labels {
+                    lab.judgment = String::new();
+                }
+            }
+            Ok(vec![])
+        })
+        .unwrap();
+    let week = 7 * 24 * 60 * 60 * 1000;
+    let scope = crate::learning::read_scope(&r.core.store, "content").unwrap();
+    assert!(r
+        .core
+        .system_labels("content", &scope, l.at_ms + week)
+        .is_empty());
+}
+
+/// The nightly report lists `content` with the one labelled case a Remove made.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_report_lists_content_with_one_labelled_case_after_a_remove() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let (sid, _) = labelled(&r, &jev).await;
+    r.core.unlabel_session(&sid, "secret", "cli").unwrap();
+    let now = theseus_protocol::now_unix_ms();
+    let report = r.core.run_learning(now, "on_demand", |_| {}).unwrap();
+    let pack = report
+        .packs
+        .iter()
+        .find(|p| p.pack == PACK)
+        .unwrap_or_else(|| {
+            panic!(
+                "content in the report: {:?}",
+                report.packs.iter().map(|p| &p.pack).collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(pack.labeled, 1, "{pack:#?}");
+}

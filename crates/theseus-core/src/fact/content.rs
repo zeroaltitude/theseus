@@ -172,6 +172,7 @@ mod tests {
                 confidence: 0.71,
                 band: "confirm".into(),
                 at_ms: 5,
+                judgment: None,
             },
         }
     }
