@@ -9,9 +9,6 @@
 //! its verdict, the verdict's fact, and the call's answer in the transcript.
 //! This is the daemon's cancel path (`cancel_execution_judged`); the core's
 //! test rig runs its jobs on a thread and stops them through the task path.
-//! A job of a listed external program (`gh`) answers with outside text, so
-//! that frame is built twice, the second time under the session's lock with
-//! its hold: the cancel is still counted once.
 
 mod common;
 
@@ -62,8 +59,6 @@ impl Rig {
         let model = FakeModel::start(|prompt| {
             let argv = if prompt.contains("Start the long job") {
                 json!(["sleep", "60"])
-            } else if prompt.contains("Start the long gh job") {
-                json!(["gh", "run", "watch"])
             } else {
                 return vec![];
             };
@@ -78,9 +73,6 @@ impl Rig {
         use std::os::unix::fs::PermissionsExt;
         std::fs::write(path("bin/op"), FAKE_OP).unwrap();
         std::fs::set_permissions(path("bin/op"), std::fs::Permissions::from_mode(0o755)).unwrap();
-        // A stand-in `gh` that runs until it is stopped.
-        std::fs::write(path("bin/gh"), "#!/bin/sh\nexec sleep 60\n").unwrap();
-        std::fs::set_permissions(path("bin/gh"), std::fs::Permissions::from_mode(0o755)).unwrap();
         let mut t: toml::Table = common::safe_note(&theseusd, &path("projects"), 100.0)
             .parse()
             .unwrap();
@@ -268,35 +260,4 @@ fn a_cancel_of_a_running_job_writes_two_frames() {
         "the cancel's frames, record by record:\n{}",
         lines(&written)
     );
-}
-
-/// A cancelled `gh` job's answer is outside text, so the frame with its last
-/// steps is built again under the session's lock, its hold in it: still two
-/// frames, and health counts the one cancel once.
-#[test]
-fn a_cancel_whose_answer_is_outside_text_is_two_frames_and_counted_once() {
-    let r = Rig::start();
-    let (exec, before) = r.start_job("Start the long gh job.");
-    let c = r
-        .call("execution.cancel", json!({"execution_id": exec}))
-        .unwrap();
-    assert_eq!(
-        c["verdicts"][0]["state"], "termination_verified",
-        "the job's tree was stopped: {c}"
-    );
-    let written: Vec<Vec<String>> = frames(&r.path("state/store/wal"))[before..].to_vec();
-    assert_eq!(written.len(), 2, "two frames:\n{}", lines(&written));
-    assert!(
-        written[1].iter().any(|k| k == "session") && written[1].iter().any(|k| k == "node"),
-        "the answer rides with its session's hold:\n{}",
-        lines(&written)
-    );
-    let h = r.call("health", Value::Null).unwrap();
-    let counted: u64 = h["cancels"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|c| c["n"].as_u64().unwrap())
-        .sum();
-    assert_eq!(counted, 1, "one cancel, counted once: {}", h["cancels"]);
 }

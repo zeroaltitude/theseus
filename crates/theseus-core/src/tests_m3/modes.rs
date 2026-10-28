@@ -228,15 +228,22 @@ async fn auto_is_notify_for_what_only_the_posture_asked_and_the_floor_still_asks
             "an env",
             json!({"argv": ["echo", "hi"], "cwd": r.root, "env": {"A": "b"}}),
         ),
-        (
-            "an L1 job's egress",
-            json!({"argv": ["echo", "hi"], "cwd": r.root,
-                   "sandbox": {"egress": ["exfil.example:443"]}}),
-        ),
     ] {
         let d = ordered(&r, &sid, "proc.run", input, PlaceClass::Private, &dir);
         assert_eq!(d.posture, Posture::Approve, "{why}: {}", d.reason);
     }
+    // An L1 job's host beyond `[sandbox] egress` is a notice that names it, not a question (R6).
+    let d = ordered(
+        &r,
+        &sid,
+        "proc.run",
+        json!({"argv": ["echo", "hi"], "cwd": r.root,
+               "sandbox": {"egress": ["exfil.example:443"]}}),
+        PlaceClass::Private,
+        &dir,
+    );
+    assert_eq!(d.posture, Posture::Notify, "{}", d.reason);
+    assert!(d.reason.contains("exfil.example:443"), "{}", d.reason);
     let d = ordered(
         &r,
         &sid,

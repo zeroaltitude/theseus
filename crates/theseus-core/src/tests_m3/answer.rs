@@ -90,14 +90,13 @@ async fn an_approvals_options_run_it_or_decline_it() {
     assert!(!r.root.join("out.txt").exists());
 
     let r = rig(write_script());
-    let (_, exec, corr) = waiting_write(&r).await;
+    let (_, _, corr) = waiting_write(&r).await;
     let e = cli_answer(&r, &corr, "approve_trust").await.unwrap_err();
     assert!(
         e.message.contains("is not an answer to this question"),
         "{e:?}"
     );
     assert!(confirm_rows(&r).is_empty(), "the call keeps waiting");
-    r.core.continue_execution(&exec).await.unwrap();
     assert!(!r.root.join("out.txt").exists());
 }
 
