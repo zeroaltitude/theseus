@@ -20,11 +20,11 @@ use crate::tests_tasks::{
 use crate::Core;
 
 /// The call the parent's model makes, set by each test.
-type Call = Arc<Mutex<Value>>;
+pub(crate) type Call = Arc<Mutex<Value>>;
 
 /// A rig whose parent answers `ASK` with one `task_fan_out` call (id `f_1`),
 /// then says it is done; each helper answers as `child` says from its request.
-fn fan_rig(
+pub(crate) fn fan_rig(
     call: Call,
     child: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
     tweak: impl FnOnce(&mut crate::Config),
@@ -50,7 +50,7 @@ fn fan_rig(
     )
 }
 
-fn helpers(n: usize) -> Vec<Value> {
+pub(crate) fn helpers(n: usize) -> Vec<Value> {
     (1..=n)
         .map(|i| {
             json!({"title": format!("area {i}"), "brief": format!("AREA: read crate {i} for bugs"),
@@ -59,7 +59,7 @@ fn helpers(n: usize) -> Vec<Value> {
         .collect()
 }
 
-fn tasks_of(core: &Core, parent: &str) -> Vec<Execution> {
+pub(crate) fn tasks_of(core: &Core, parent: &str) -> Vec<Execution> {
     let rec: crate::session::SessionRecord = core.store.get_session(parent).unwrap().unwrap();
     core.kernel.tasks(rec.execution_id.as_deref()).unwrap()
 }
@@ -945,4 +945,59 @@ async fn a_fan_out_a_wake_makes_says_why_and_each_helper_carries_it() {
         );
     }
     the_objective_is_the_report_that_started_the_turn(&r2.core, &p2);
+}
+
+/// The clock lines a helper's session was given, as text.
+fn clock_lines(core: &Core, e: &Execution) -> Vec<String> {
+    nodes_of(core, &e.session_id)
+        .iter()
+        .filter(|n| n.author.as_deref() == Some(crate::turn::clock_step::CLOCK_AUTHOR))
+        .map(|n| serde_json::to_string(&n.body).unwrap())
+        .collect()
+}
+
+/// A fan-out that waits gives each helper a deadline of the wait's timeout less a minute
+/// (theseus-z9mze, switched on by the progress steer's fix, theseus-ikr75): its clock line counts
+/// down 4 minutes of the 5 the wait is, so it can write its report before the wait runs out.
+#[tokio::test]
+async fn a_waited_helper_counts_down_to_a_minute_before_its_wait_ends() {
+    let call: Call = Arc::new(Mutex::new(
+        json!({"helpers": helpers(2), "budget_usd": 6.0, "timeout_secs": 300}),
+    ));
+    let r = fan_rig(call, |_| Scripted::text("x.rs:1 — f — bug — fix"), |_| {});
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let tasks = tasks_of(&r.core, &parent);
+    assert_eq!(tasks.len(), 2);
+    for t in &tasks {
+        let lines = clock_lines(&r.core, t);
+        assert_eq!(lines.len(), 1, "{}: a clock line at its first loop", t.id);
+        assert!(lines[0].contains("of this turn's 4."), "{}", lines[0]);
+    }
+}
+
+/// Without a wait nothing bounds a helper, and a wait too short to leave a helper half a minute
+/// after its minute sets none: no clock line, as for any task.
+#[tokio::test]
+async fn an_unwaited_helper_and_a_short_wait_give_no_deadline() {
+    for call in [
+        json!({"helpers": helpers(2), "budget_usd": 6.0, "wait": false}),
+        json!({"helpers": helpers(2), "budget_usd": 6.0, "timeout_secs": 60}),
+    ] {
+        let r = fan_rig(
+            Arc::new(Mutex::new(call.clone())),
+            |_| Scripted::text("x.rs:1 — f — bug — fix"),
+            |_| {},
+        );
+        let parent = parent_session(&r.core);
+        turn(&r.core, &parent, ASK).await;
+        until("both helpers are done", || {
+            let t = tasks_of(&r.core, &parent);
+            t.len() == 2 && t.iter().all(|e| e.state.is_terminal())
+        })
+        .await;
+        for t in tasks_of(&r.core, &parent) {
+            assert!(clock_lines(&r.core, &t).is_empty(), "{call}: {}", t.id);
+        }
+    }
 }

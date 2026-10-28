@@ -366,9 +366,11 @@ pub(crate) fn run(
         return Box::pin(std::future::ready(Ok((out, None, None))));
     }
     let left = crate::turn::clock_step::left_in_force(tc.session_id);
+    let timeout = task_wait::clamp_timeout(&core.cfg, a.timeout_secs, left);
+    set_helper_deadlines(tc, &ids, timeout);
     let ask = WaitAsk {
         tasks: ids,
-        timeout: task_wait::clamp_timeout(&core.cfg, a.timeout_secs, left),
+        timeout,
         report_chars: a
             .report_chars
             .unwrap_or(task_wait::REPORT_CHARS)
@@ -381,6 +383,31 @@ pub(crate) fn run(
         tc.session_id.to_string(),
         ask,
     ))
+}
+
+/// How long before the wait runs out each helper must have reported: its time line counts down to
+/// the wait's timeout less this, and the progress check's stop asks for its report at 85 % of that.
+/// Switched on once the progress steer stopped nagging read-only work (theseus-ikr75): until then
+/// a helper told "the smallest step that can pass" at half its time did the wrong thing.
+pub const HELPER_REPORT_BEFORE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Give each waited helper a deadline of the wait's timeout less `HELPER_REPORT_BEFORE`, so it ends
+/// and reports inside the wait instead of being cut off by it. A wait too short to leave a helper
+/// half a minute after that sets none: those helpers run to their carve and the wait's timeout
+/// returns what they have.
+fn set_helper_deadlines(tc: &TurnCtx<'_>, ids: &[String], timeout: std::time::Duration) {
+    let Some(span) = timeout.checked_sub(HELPER_REPORT_BEFORE) else {
+        return;
+    };
+    if span < std::time::Duration::from_secs(30) {
+        return;
+    }
+    let at = std::time::Instant::now() + span;
+    for id in ids {
+        if let Some(e) = tc.kernel.execution(id).ok().flatten() {
+            crate::turn::clock_step::set_helper_deadline(&e.session_id, at);
+        }
+    }
 }
 
 /// A helper opened by this call.

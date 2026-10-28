@@ -110,8 +110,36 @@ pub(super) fn deadline_of(session: &str, arrived: Instant) -> Option<Deadline> {
         .filter(|d| d.at > Instant::now())
 }
 
+/// The moment a helper of a waited fan-out must have reported by, by its session
+/// (theseus-z9mze): its task's turns have no submit of their own to carry a deadline, so the
+/// call that opened it sets one for its session, and each turn of the session reads it as that
+/// turn's own, from the turn's arrival. The progress check's stop then asks a helper for its
+/// report before the wait that holds the parent runs out.
+static HELPER_DEADLINES: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+
+/// `session`'s turns must be done by `at`. Deadlines already passed are dropped as one is set.
+pub fn set_helper_deadline(session: &str, at: Instant) {
+    let mut map = HELPER_DEADLINES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let map = map.get_or_insert_with(HashMap::new);
+    map.retain(|_, t| *t > Instant::now());
+    map.insert(session.to_string(), at);
+}
+
+/// The helper deadline of `session`, when it has one that has not passed, as a turn that arrived
+/// at `arrived` holds it.
+fn helper_deadline(session: &str, arrived: Instant) -> Option<Deadline> {
+    let map = HELPER_DEADLINES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let at = *map.as_ref()?.get(session)?;
+    (at > Instant::now()).then_some(Deadline { from: arrived, at })
+}
+
 /// The deadline of the turn that arrived at `arrived`, taken: the entry goes,
-/// read and removed under one lock.
+/// read and removed under one lock. A helper's session, which no `turn.submit`
+/// gave one, has its call's (`set_helper_deadline`), which stays for its later turns.
 pub(super) fn take_deadline(session: &str, arrived: Instant) -> Option<Deadline> {
     let taken = {
         let mut map = DEADLINES.lock().unwrap_or_else(PoisonError::into_inner);
@@ -120,6 +148,7 @@ pub(super) fn take_deadline(session: &str, arrived: Instant) -> Option<Deadline>
                 .filter(|d| d.at > Instant::now())
         })
     };
+    let taken = taken.or_else(|| helper_deadline(session, arrived));
     in_force_set(session, taken);
     taken
 }
