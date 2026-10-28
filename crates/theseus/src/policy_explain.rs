@@ -85,9 +85,6 @@ fn heading(p: &PlaceExplain) -> String {
         }
         h.push_str(&format!(" · ceiling: {}", said.join(", ")));
     }
-    if let Some(x) = &p.hold {
-        h.push_str(&format!(" · holds external text ({} {})", x.tool, x.url));
-    }
     h.push('\n');
     h
 }

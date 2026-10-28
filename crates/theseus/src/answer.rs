@@ -2,7 +2,7 @@
 //! every question that waits for the owner. With no ID it lists everything waiting. ID is the
 //! question's id, whole or a unique end of at least four characters, or the session's or the
 //! execution's it waits in (the daemon resolves it, and an end that names two questions is
-//! refused, naming both); OPTION is one of its answers (`approve`, `approve_trust`, `decline`,
+//! refused, naming both); OPTION is one of its answers (`approve`, `decline`,
 //! `reset`, `accept`, `ack`, a reminder's `done`, or, for a question with options (`owner_ask`),
 //! its number from 1: `theseus answer <id> 2`, or `other --note <words>` for none of them). A
 //! reminder that fired is snoozed with `theseus answer <id> snooze [WHEN]`, the one spelling
@@ -24,7 +24,7 @@ pub struct AnswerArgs {
     /// or execution's. Without one, list everything waiting.
     #[arg(requires = "option")]
     pub question: Option<String>,
-    /// The answer: `approve`, `approve_trust`, `decline`, `reset`, `accept`, `ack`, a
+    /// The answer: `approve`, `decline`, `reset`, `accept`, `ack`, a
     /// reminder's `done` or `snooze`, or a question with options' number (from 1; `other --note
     /// <words>` for none of them). A wrong one is refused with the question's own.
     #[arg(requires = "question")]

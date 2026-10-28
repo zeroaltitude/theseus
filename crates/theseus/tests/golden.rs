@@ -206,18 +206,12 @@ fn turn_result(output: &str) -> Value {
     })
 }
 
-fn external() -> Value {
-    json!({"since_ms": 1_759_300_000_000u64, "tool": "http.fetch",
-           "url": "notes.example/today", "node_id": "nod_e1"})
-}
-
 fn confirm_tool() -> Value {
     json!({"correlation_id": "act_k4", "session_id": S, "execution_id": X,
            "tool": "fs.write", "input": {"path": "/srv/motd", "text": "hello"},
            "resource": "/srv/motd", "reason": "write outside the roots (/w)",
            "by": "operator", "requested_at_ms": 1_759_300_100_000u64,
-           "expires_at_ms": 1_759_301_000_000u64, "floor": true,
-           "external_text": external()})
+           "expires_at_ms": 1_759_301_000_000u64, "floor": true})
 }
 
 fn confirm_budget() -> Value {
@@ -229,7 +223,7 @@ fn confirm_budget() -> Value {
                       "lifetime_usd": 3.5}})
 }
 
-/// A question with no floor and no external text, which `confirm_tool` has.
+/// A question with no floor, which `confirm_tool` has.
 fn confirm_plain() -> Value {
     json!({"correlation_id": "act_m3", "session_id": S, "execution_id": X,
            "tool": "proc.run", "input": {"argv": ["tide", "--port", "lantern"]},
@@ -342,7 +336,7 @@ fn turn_notes() -> Vec<Value> {
         note(
             "confirm.resolved",
             json!({"session_id": S, "correlation_id": "act_k4",
-            "approved": true, "by": "the CLI", "trust": false}),
+            "approved": true, "by": "the CLI"}),
         ),
         note(
             "confirm.resolved",
@@ -371,12 +365,6 @@ fn turn_notes() -> Vec<Value> {
         ),
         note("policy.tightened", tighten_result(true, false)),
         note("policy.untightened", tighten_result(true, false)),
-        note(
-            "session.trusted",
-            json!({"session_id": S, "by": "the CLI", "who": "sock#3",
-            "via": "cli", "how": "policy.trust", "at_ms": 1_759_300_400_000u64,
-            "held": external()}),
-        ),
         note(
             "profile.changed",
             json!({"live": "quick", "previous": "deep", "by": "the CLI"}),
@@ -419,7 +407,7 @@ fn turn_notes() -> Vec<Value> {
 /// step 10a). They were written before its formatting moved into the
 /// library, so the move is held to them: a thinking run a call ends, a call
 /// with its argv and no pid yet, a call with no time, a reply line that ends
-/// itself, a question with no floor and no external text, a notice with no
+/// itself, a question with no floor, a notice with no
 /// grant and no call, the other words of a tightening and of its undo, an
 /// answer with no author, a recompile with no trigger, a failure retried
 /// once, and one with a class and no plan. A context's `append` outside
@@ -659,7 +647,6 @@ fn health() -> Value {
                                  {"kind": "dm", "label": "DM ana", "session_id": null}]}],
         "tightenings": [{"tool": "proc.run", "posture": "approve", "by": "the CLI",
                          "at_ms": 1_759_300_300_250u64}],
-        "external_text": [],
     })
 }
 
@@ -1079,11 +1066,11 @@ fn answer_lists_everything_waiting() {
 
 #[test]
 fn answer_follows_the_resumed_turn() {
-    let mut s = step("work.answer", resumed("act_k4", "approve_trust"));
+    let mut s = step("work.answer", resumed("act_k4", "approve"));
     s.before = vec![note(
         "confirm.resolved",
         json!({"session_id": S,
-        "correlation_id": "act_k4", "approved": true, "by": "the CLI", "trust": true}),
+        "correlation_id": "act_k4", "approved": true, "by": "the CLI"}),
     )];
     let mut ended = turn_result("Wrote it.");
     ended["continuation"] = json!(true);
@@ -1114,7 +1101,7 @@ fn answer_follows_the_resumed_turn() {
     ];
     golden(
         "answer_follow",
-        &run(&["answer", "act_k4", "approve_trust"], vec![s]),
+        &run(&["answer", "act_k4", "approve"], vec![s]),
     );
 }
 
@@ -1591,10 +1578,8 @@ fn tools_lists_postures_and_calls() {
 }
 
 #[test]
-fn policy_lists_tightens_untightens_and_trusts() {
-    let mut h = health();
-    h["external_text"] = json!([{"session_id": S, "title": "Tidy the notes",
-        "held": external(), "since_local": "14:02"}]);
+fn policy_lists_tightens_and_untightens() {
+    let h = health();
     golden(
         "policy_list",
         &run(
@@ -1606,7 +1591,7 @@ fn policy_lists_tightens_untightens_and_trusts() {
         "policy_list_json",
         &run(
             &["--json", "policy", "list"],
-            vec![step("tool.list", tools()), step("health", h.clone())],
+            vec![step("tool.list", tools()), step("health", h)],
         ),
     );
     for (name, args, method, r) in [
@@ -1649,30 +1634,6 @@ fn policy_lists_tightens_untightens_and_trusts() {
     ] {
         golden(name, &run(&args, vec![step(method, r)]));
     }
-    let trusted = json!({"session_id": S, "by": "the CLI", "who": "sock#3", "via": "cli",
-        "how": "policy.trust", "at_ms": 1_759_300_400_000u64, "held": external(),
-        "since_local": "14:02"});
-    golden(
-        "policy_trust",
-        &run(
-            &["policy", "trust", "f3k2"],
-            vec![
-                step("health", h.clone()),
-                step("policy.trust", trusted.clone()),
-            ],
-        ),
-    );
-    golden(
-        "policy_trust_json",
-        &run(
-            &["--json", "policy", "trust", S],
-            vec![step("health", h.clone()), step("policy.trust", trusted)],
-        ),
-    );
-    golden(
-        "policy_trust_unknown",
-        &run(&["policy", "trust", "zzzz"], vec![step("health", h)]),
-    );
 }
 
 #[test]
@@ -2313,9 +2274,7 @@ fn policy_explain_prints_each_place_and_a_tool_in_full() {
                   Some("tightened by cli"), "approve", true),
             layer("grant", "no secret is granted to a call like this", None, "approve", false),
             layer("floor", "#lab's ceiling sets a floor of approve", Some("#lab's posture_floor"),
-                  "approve", false),
-            layer("hold", "this session holds no external text",
-                  Some("[policy] external_text = ask"), "approve", false)],
+                  "approve", false)],
         "conditions": [
             {"layer": "floor", "when": "it touches Theseus's own binary or state, or the 1Password CLI or its token: at every posture",
              "entries": ["/w/state/store", "theseusd", "op"], "then": "approve"},
@@ -2327,18 +2286,16 @@ fn policy_explain_prints_each_place_and_a_tool_in_full() {
         "layers": [
             layer("place", "a private place: every tool is offered", None, "offered", false),
             layer("posture", "the config's posture for the tool",
-                  Some("[policy.tools] \"fs.read\" = open"), "open", false),
-            layer("hold", "a read (or a one-shot wake) keeps its posture after external text",
-                  Some("[policy] external_text = ask"), "open", false)],
+                  Some("[policy.tools] \"fs.read\" = open"), "open", false)],
         "result": "open", "reason": "fs.read — open ([policy.tools] \"fs.read\" = open)"});
     let proc_held = json!({"tool": "proc.run", "class": "run", "offered": true,
         "layers": [
             layer("posture", "the config's posture for the tool", Some("enforcement = notify"),
                   "notify", false),
-            layer("hold", "this session read external text (http.fetch tides.example/today), and a call that acts waits for approval after that (§3.9)",
-                  Some("[policy] external_text = ask"), "approve", true)],
+            layer("tightening", "tightened by cli (\"should have asked\"): it asks first until undone",
+                  Some("tightened by cli"), "approve", true)],
         "result": "approve",
-        "reason": "a call of proc.run: proc.run — approve (this session read external text)"});
+        "reason": "a call of proc.run: proc.run — approve (tightened by cli; the config says enforcement = notify)"});
     let refused = json!({"tool": "proc.run", "class": "run", "offered": false,
         "refused": "proc.run is not offered in a shared place: one others can read gets only the public tools",
         "layers": [layer("place", "a shared place: only the public tools, and the file tools under the public paths",

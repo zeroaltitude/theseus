@@ -313,12 +313,12 @@ fn a_plain_approval_still_goes_out_as_action_confirm() {
     let dir = tempfile::tempdir().unwrap();
     let d = Daemon::start(dir.path(), "waiting", vec![approval()]);
     let mut w = Pane::start(&d, &dir.path().join("state"));
-    w.wait_err("approve? [y/N/t/note]", 1);
+    w.wait_err("approve? [y/N/note]", 1);
     w.line("y");
     let answers = d.wait_for("action.confirm", 1);
     assert_eq!(
         answers[0]["params"],
-        json!({"correlation_id": "act_m3", "approve": true, "trust": false, "note": null,
+        json!({"correlation_id": "act_m3", "approve": true, "note": null,
                "author": "theseus watch"})
     );
     assert_eq!(d.count("work.answer"), 0);

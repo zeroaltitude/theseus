@@ -40,7 +40,6 @@ fn question() -> Question {
         asked_at_ms: 0,
         may_answer: true,
         tool: Some("fs.write".into()),
-        external_text: false,
         choices: vec![],
     }
 }

@@ -121,7 +121,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/answer.rs` (theseus-ds5os): `theseus answer ID OPTION [--note WORDS]`, one `work.answer` for every kind of question
   (a call, a spend limit, a layer-1 change, an extension's ack, a reminder). The id is sent as typed: the daemon resolves
   a whole id or a unique end of at least four characters, and an end naming two questions is refused naming both. The
-  option is one of the question's own (`approve`, `approve_trust`, `decline`, `reset`, `accept`, `ack`, or a reminder's
+  option is one of the question's own (`approve`, `decline`, `reset`, `accept`, `ack`, or a reminder's
   `done`, `snooze_10m`, `snooze_1h`, `tomorrow_9`); a wrong one is refused with the right ones. `work.answer` is in
   `client::OPERATORS`, so a job's shell is refused before anything is sent. With no id `theseus answer` lists what waits
   (`confirm.list`), and an answer follows the turn it resumes (`work.answer {watch}`, then `cmd::follow_resumed`) unless
@@ -414,7 +414,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - **Inside a job, it names the job's session.** `ask`, `sessions open`, and `watch --interactive`'s messages send
   the `THESEUS_SESSION` every job carries as `opened_from` (`client::job_session`), so a session that a holding
   session's job reaches holds its external text too (theseus-b5cl). And it refuses the operator's methods there
-  (`client::refuse_in_a_job`: an answer, an undo, a trust, a publish, the AWS bootstrap, the ontology's writes),
+  (`client::refuse_in_a_job`: an answer, an undo, a publish, the AWS bootstrap, the ontology's writes),
   before sending anything (theseus-zmgb, theseus-8kk.1). Both are light guards: a job can strip the variable.
 - **A move keeps the bytes.** A refactor here starts with goldens of today's output, and ends with every golden and
   every `--help` page byte-identical (Item 30; theseus-7yx's goldens before the library's move).

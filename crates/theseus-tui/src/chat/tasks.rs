@@ -36,7 +36,6 @@ pub(super) struct TaskQ {
     pub words: String,
     pub kind: QuestionKind,
     pub options: Vec<AnswerOption>,
-    pub external_text: bool,
     pub expires_at_ms: Option<u64>,
     /// The call in full, for `v`.
     pub detail: Vec<String>,
@@ -300,7 +299,6 @@ impl Chat {
                     words: q.prompt.lines().next().unwrap_or("").trim().to_string(),
                     kind: q.kind,
                     options,
-                    external_text: q.external_text,
                     expires_at_ms: q.expires_at_ms,
                     detail,
                 },
@@ -451,9 +449,6 @@ pub(super) fn keys_line(p: &TaskQ) -> String {
             .to_lowercase();
         parts.push(format!("[y] {yes}"));
         parts.push("[n] decline".to_string());
-        if p.external_text {
-            parts.push("[t] approve and trust".to_string());
-        }
     }
     parts.push("[v] view".to_string());
     parts.join(" · ")

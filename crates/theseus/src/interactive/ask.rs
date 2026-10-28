@@ -76,7 +76,7 @@ pub(super) fn said(q: &ConfirmRequest, line: &str) -> Said {
     }
     if matches!(
         line.to_ascii_lowercase().as_str(),
-        "" | "y" | "yes" | "n" | "no" | "t" | "trust"
+        "" | "y" | "yes" | "n" | "no"
     ) {
         return Said::Keys;
     }

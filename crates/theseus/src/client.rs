@@ -281,7 +281,7 @@ pub fn job_session() -> Option<String> {
 
 /// The methods only the operator makes, each with the command that makes it
 /// (theseus-zmgb): an answer to a waiting call, the undo of a tightening, a
-/// trust, a publish, the AWS bootstrap, the alerts' confirmation, the
+/// publish, the AWS bootstrap, the alerts' confirmation, the
 /// ontology's writes (theseus-8kk.1: guidance steers every session in its
 /// category), the answers to Jev's proposals (28b), which write them, a
 /// memory label (M6 30b: `wrong` keeps a node out of every session's
@@ -297,7 +297,7 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 110] = [
+pub const OPERATORS: [(&str, &str); 108] = [
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
     (method::GOOGLE_AUTH_FINISH, "theseus google auth"),
     (method::GOOGLE_REVOKE, "theseus google revoke"),
@@ -320,9 +320,7 @@ pub const OPERATORS: [(&str, &str); 110] = [
     (method::PROJECT_CREATE, "theseus project new"),
     (method::PROJECT_ATTACH, "theseus project attach"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
-    (method::POLICY_TRUST, "theseus policy trust"),
     (method::CONTENT_UNLABEL, "theseus content remove"),
-    (method::POLICY_NOTICE_SEEN, "theseus policy dismiss"),
     (method::PLACE_PUBLISH, "theseus publish"),
     (method::AWS_BOOTSTRAP, "theseus aws bootstrap"),
     (method::AWS_CONFIRM_ALERTS, "theseus aws confirm-alerts"),
