@@ -131,6 +131,11 @@ impl std::error::Error for BadMerge {}
 /// on when this was its last try.
 fn unspent(pass: &mut Pass, known: &mut Known, key: String, signal: &str, why: String) {
     if known.attempt(key, why.clone()) {
+        // The caller may be the error arm, which drops `pass` on its way out
+        // (`return Err(e)`), so the line below is the only thing that survives
+        // a give-up reached through an error. Say it here, where every path
+        // passes, rather than only in what `pass` carries.
+        tracing::warn!(signal, tries = known::TRIES, why = %why, "gave up on a red");
         pass.left.push((
             signal.into(),
             format!("gave up after {} tries: {why}", known::TRIES),
