@@ -2,7 +2,7 @@
 //! whose `[google]` points at the fake, with the secrets on its board), the
 //! check and its states, and a call's result (private, outside text, one row).
 //! `tests_auth` is the consent and the minting, `tests_gate` the asking and the
-//! send cap, `tests_private` the data rule.
+//! send cap, `tests_label` the label a result raises.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -273,7 +273,7 @@ async fn a_google_read_runs_marks_its_session_private_and_holds_it_as_outside_te
     // The session holds it, and is private from then on.
     let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     assert_eq!(rec.external.expect("a hold").tool, "google.call");
-    assert!(super::private::session(&r.core.store, &r.core.cfg, &sid));
+    assert_eq!(rec.data.as_deref().map(|f| f.labels.len()), Some(1));
     // One row, with no content in it.
     let rows = ledgered(&r.core, "google.called");
     assert_eq!(rows.len(), 1, "{rows:?}");

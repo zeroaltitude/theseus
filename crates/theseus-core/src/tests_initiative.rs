@@ -431,7 +431,6 @@ async fn the_day_cap_counts_what_the_voiced_notes_spent() {
         brief: "Tonight's memory pass wrote notes.",
         line: crate::initiative::lines::Line::Consolidation,
         n: 2,
-        private: false.into(),
     };
     let first = r.core.initiative_speak(&facts).await;
     assert!(first.voiced, "{first:?}");
@@ -598,65 +597,12 @@ async fn a_verdict_is_recorded_and_counted_and_the_last_one_stands() {
         .contains("no verdict"));
 }
 
-/// The finding quotes the notes the pass wrote, and those came from sessions:
-/// when one read a Google result the finding's one model call is held by the
-/// floor, and the note is its template (theseus-a1wvq.10). A finding drawn
-/// from sessions that read nothing is voiced on the same model.
-#[tokio::test]
-async fn a_finding_drawn_from_a_private_session_is_its_template() {
-    let r = rig(
-        Initiative::Chatty,
-        crate::tests_private_background::private_on,
-    );
-    let (private, plain) = (session(&r.core), session(&r.core));
-    for sid in [&private, &plain] {
-        turn(&r.core, sid, "hello").await;
-    }
-    crate::tests_private_background::mark(&r.core, &private);
-    let from = |sid: &str| {
-        let mut f = finding("Tide tables are kept in the harbour file.");
-        f.clusters[0].sources = vec![r.core.store.session_nodes(sid).unwrap()[0].1.id.clone()];
-        f
-    };
-    let calls = r.model.requests.lock().unwrap().len();
-    r.core.say_consolidation(&from(&private));
-    until("the template", || {
-        !rows(&r.core, "initiative.spoke").is_empty()
-    })
-    .await;
-    let spoke = rows(&r.core, "initiative.spoke");
-    assert_eq!(
-        spoke[0]["text"],
-        "🌊 Ondine: tonight's memory pass wrote one new note from what we talked about."
-    );
-    assert_eq!(r.model.requests.lock().unwrap().len(), calls, "no call");
-}
-
-#[tokio::test]
-async fn a_finding_drawn_from_plain_sessions_is_still_voiced() {
-    let r = rig(
-        Initiative::Chatty,
-        crate::tests_private_background::private_on,
-    );
-    let plain = session(&r.core);
-    turn(&r.core, &plain, "hello").await;
-    let mut f = finding("Tide tables are kept in the harbour file.");
-    f.clusters[0].sources = vec![r.core.store.session_nodes(&plain).unwrap()[0].1.id.clone()];
-    r.core.say_consolidation(&f);
-    until("a note", || !rows(&r.core, "initiative.spoke").is_empty()).await;
-    assert_eq!(
-        rows(&r.core, "initiative.spoke")[0]["text"],
-        "Two builds finished overnight and nothing needs you."
-    );
-}
-
 fn note_facts() -> crate::initiative::speak::Facts<'static> {
     crate::initiative::speak::Facts {
         kind: "morning",
         brief: "In the last day:\n- 9 tasks ended",
         line: crate::initiative::lines::Line::Morning,
         n: 9,
-        private: false.into(),
     }
 }
 

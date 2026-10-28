@@ -103,11 +103,11 @@ pub enum ModelOrigin {
 }
 
 /// The origins private data may go to (theseus-xs5ah, the owner: such data
-/// "must be routed to us-based models"): a session that read a Google result
-/// (until it is a label, theseus-gyjyo.5) and a motif drawn from private
-/// sessions (`rsi::mint::data_rule`). An allowlist, so an origin not listed
-/// here, `unknown` included, is refused. A name in `[privacy] sensitive_names`
-/// is not read against it: that raises a removable label (theseus-gyjyo.4).
+/// "must be routed to us-based models"): a motif drawn from private sessions
+/// (`rsi::mint::data_rule`), which is all that reads it now. An allowlist, so
+/// an origin not listed here, `unknown` included, is refused. A name in
+/// `[privacy] sensitive_names` and a Google result are not read against it:
+/// each raises a removable label (theseus-gyjyo.4, theseus-gyjyo.5).
 const SENSITIVE_ORIGINS: [ModelOrigin; 1] = [ModelOrigin::Us];
 
 impl ModelOrigin {

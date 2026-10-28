@@ -63,11 +63,11 @@ mod tests_drive;
 #[cfg(test)]
 mod tests_gate;
 #[cfg(test)]
+mod tests_label;
+#[cfg(test)]
 mod tests_mail;
 #[cfg(test)]
 mod tests_morning;
-#[cfg(test)]
-mod tests_private;
 #[cfg(test)]
 mod tests_sensitive;
 #[cfg(test)]

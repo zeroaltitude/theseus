@@ -42,14 +42,25 @@ impl ToolRuntime {
         let (accepted, newly) =
             crate::external::with_hold(tc.store, sid, Some(tc.turn_id), node, |mut frame| {
                 frame.extend(extra);
-                // A Google result makes its session private, in the frame that
-                // writes it (the Google design, §4.1).
-                frame.extend(crate::google::private::record(node, sid));
                 tc.kernel.accept_completion_with(c, frame)
             })?;
         self.held(tc, newly);
+        self.label_google(sid, node);
         self.queue_content(sid, std::slice::from_ref(node));
         Ok(accepted)
+    }
+
+    /// A Google result raises its label where it is written (theseus-gyjyo.5):
+    /// after the frame that wrote it, since landing takes the session's lock.
+    /// Nothing is raised with `session_flags` off (`land_deterministic`).
+    fn label_google(&self, session_id: &str, node: &Node) {
+        let Some(judge) = self.judge.get() else {
+            return;
+        };
+        let at = theseus_protocol::now_unix_ms();
+        if let Some(label) = crate::google::private::label(node, at) {
+            judge.land_deterministic(session_id, vec![label]);
+        }
     }
 
     /// Queue result nodes just written for content judgment (theseus-9ymz0):

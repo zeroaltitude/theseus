@@ -84,9 +84,8 @@ impl Core {
         self.task_start_as(p, who, false)
     }
 
-    /// `task_start`, with the task's session marked private from its first
-    /// turn when `private` (its quotes are the owner's Google content: its
-    /// model calls never go to a model of restricted origin).
+    /// `task_start`, with the task's session labelled `confidential` from its
+    /// first turn when `private` (its quotes are the owner's Google content).
     pub(crate) fn task_start_as(
         &self,
         p: &TaskStartParams,
@@ -354,6 +353,21 @@ impl Core {
         );
         rec.title = Some(d.title.to_string());
         rec.execution_id = Some(task.id.clone());
+        // A task carries its parent's labels from its first call
+        // (theseus-gyjyo.5), and a mail watch's, whose brief quotes the owner's
+        // mail, the label that mail raises.
+        rec.data = d.parent_rec.data.as_deref().and_then(|f| f.inherited());
+        if d.private {
+            let mut f = rec.data.take().unwrap_or_default();
+            f.raise(crate::content::deterministic::label(
+                crate::content::Flag::Confidential,
+                &d.brief_node.id,
+                crate::content::ItemKind::TaskBrief,
+                crate::google::private::source("mail.watch"),
+                d.now,
+            ));
+            rec.data = Some(f);
+        }
         // A task works where its parent does (theseus-aab7).
         rec.dir = d.parent_rec.dir.clone();
         rec.last_target = d.target.cloned();
@@ -375,19 +389,6 @@ impl Core {
             )?],
         };
         records.push(d.brief_node.record()?);
-        if d.private {
-            let key = crate::google::private::meta_key(&task.session_id);
-            records.push(NewRecord::json(kinds::META, Some(&key), &d.brief_node.id)?);
-        } else {
-            // A task of a private session is private from its first call: its
-            // brief and quotes came from there.
-            records.extend(crate::google::private::inherited(
-                &self.store,
-                &self.cfg,
-                d.common.home_session,
-                &task.session_id,
-            )?);
-        }
         if d.by_brief {
             records.push(crate::turn::brief_step::mark(&task.session_id)?);
         }

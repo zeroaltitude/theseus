@@ -287,6 +287,8 @@ impl Copy {
         rec.execution_id = Some(task.id.clone());
         rec.dir = self.old.dir.clone();
         rec.last_target = self.old.last_target.clone();
+        // A retry carries the labels of the task it retries (theseus-gyjyo.5).
+        rec.data = self.old.data.as_deref().and_then(|f| f.inherited());
         let author = format!("session:{}", task_of.parent_session);
         let mut arrangement = Node::arrangement(
             &task.session_id,

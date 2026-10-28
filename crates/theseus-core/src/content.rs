@@ -385,6 +385,46 @@ impl ContentFlags {
         true
     }
 
+    /// What the wire shows of the session's data (`session.info`, the work
+    /// board, a task's home): `sensitive` when it carries `personal` (which
+    /// never goes to a shared place), `private` when it carries any other label
+    /// that keeps a model of restricted origin off, else `open`.
+    pub fn mark(&self) -> theseus_protocol::ops::DataMark {
+        use theseus_protocol::ops::DataMark;
+        let has = |f: fn(Flag) -> bool| self.labels.iter().any(|l| f(l.flag));
+        if has(|f| f == Flag::Personal) {
+            DataMark::Sensitive
+        } else if has(Flag::disqualifies_cn) {
+            DataMark::Private
+        } else {
+            DataMark::Open
+        }
+    }
+
+    /// What a task (or a draft) carries from its parent at its start: the
+    /// parent's labels that keep a model of restricted origin off it
+    /// (`Flag::disqualifies_cn`), as `fork` copies them (`fork::data_through`),
+    /// so a child of a session that read a calendar is no way around the label.
+    /// Its items are its own, so nothing of the parent's judgment or removals
+    /// comes with them. `injection` stays behind: it says the parent's own
+    /// transcript tried to steer it, and a task that starts from a brief has
+    /// not read that transcript (a fork has, and copies it). None when the
+    /// parent carries no such label.
+    pub fn inherited(&self) -> Option<Box<ContentFlags>> {
+        let labels: Vec<Label> = self
+            .labels
+            .iter()
+            .filter(|l| l.flag.disqualifies_cn())
+            .cloned()
+            .collect();
+        (!labels.is_empty()).then(|| {
+            Box::new(ContentFlags {
+                labels,
+                ..Default::default()
+            })
+        })
+    }
+
     /// [`ContentFlags::raise`], unless the operator removed this flag at or
     /// after `entered_ms`, when the item that would raise it entered the
     /// session: an item that entered before a removal can never raise that
@@ -1325,6 +1365,35 @@ mod tests {
         turn.could_not_judge("n9");
         let merged = ContentFlags::merge(Some(stored), Some(&turn)).unwrap();
         assert_eq!(merged.unjudged, ["n9"]);
+    }
+
+    /// A task starts with the parent's labels that keep a model of restricted
+    /// origin off it, and not with `injection` (theseus-gyjyo.5): a task starts
+    /// from a brief and has not read the transcript that tried to steer its
+    /// parent, so freezing it would leave the operator a task that refuses
+    /// every call. Its items are its own, so no judgment or removal comes.
+    #[test]
+    fn a_task_inherits_the_labels_that_keep_cn_off_and_not_injection() {
+        let mut parent = ContentFlags::default();
+        parent.raise(label(Flag::Secret));
+        parent.raise(label(Flag::Injection));
+        parent.judged_through = Some("n4".into());
+        parent.raise(label(Flag::Personal));
+        parent.remove(Flag::Personal, "x", "cli", 1);
+        assert_eq!(parent.removed.len(), 1);
+        let child = parent.inherited().expect("a label that disqualifies cn");
+        assert_eq!(child.labels.len(), 1, "{:?}", child.labels);
+        assert_eq!(child.labels[0].flag, Flag::Secret);
+        assert!(
+            !child.frozen(),
+            "a task of a frozen session starts unfrozen"
+        );
+        assert!(child.removed.is_empty() && child.judged_through.is_none());
+        // Frozen alone, a parent gives its task nothing.
+        let mut only = ContentFlags::default();
+        only.raise(label(Flag::Injection));
+        assert!(only.inherited().is_none());
+        assert!(ContentFlags::default().inherited().is_none());
     }
 
     /// Its line for a person, with and without labels.

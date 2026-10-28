@@ -545,7 +545,6 @@ impl Core {
                 // the turn says where the message was written (`Early::said`).
                 capture: self.capture_wanted(p, conn) && crate::capture::owner_alone(class, place),
                 data_names: self.cfg.privacy.data_names(),
-                private_source: crate::google::private::session(&self.store, &self.cfg, home),
                 attachments: Vec::new(),
             });
             if let Some(mut e) = started {

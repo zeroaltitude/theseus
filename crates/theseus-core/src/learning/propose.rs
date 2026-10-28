@@ -149,9 +149,6 @@ struct Gathered {
     train: Vec<Seen>,
     holdout: Vec<Seen>,
     cases: Vec<ErrorCase>,
-    /// The sessions the cases' states were read from: the writer's request
-    /// holds their content together.
-    sessions: Vec<String>,
 }
 
 /// The owner's labels saying a train answer was wrong, in `train`'s order,
@@ -651,10 +648,6 @@ impl Core {
         prop.error_judgments = errors.iter().map(|e| e.seen.judgment.id.clone()).collect();
         prop.error_judgments.dedup();
         let cases: Vec<ErrorCase> = errors.iter().map(|e| self.error_case(e)).collect();
-        let sessions: Vec<String> = errors
-            .iter()
-            .filter_map(|e| e.seen.context("session").map(str::to_string))
-            .collect();
         drop(errors);
         Ok(Some(Gathered {
             parent,
@@ -664,7 +657,6 @@ impl Core {
             train: train.into_iter().cloned().collect(),
             holdout: holdout.into_iter().cloned().collect(),
             cases,
-            sessions,
         }))
     }
 
@@ -741,9 +733,6 @@ impl Core {
             .get(&target.provider)
             .cloned()
             .with_context(|| format!("the provider {:?} is not configured", target.provider))?;
-        // One request holds every case: private when any case's session is.
-        let provider =
-            crate::google::private::over_sessions(provider, &self.store, &self.cfg, &g.sessions);
         // The daemon's day ceiling (theseus-kp20) holds the call too.
         let hold = match self.runner.day_hold(need, "learning writer") {
             Ok(h) => h,

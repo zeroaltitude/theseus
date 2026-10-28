@@ -38,10 +38,7 @@ impl TurnRunner {
     /// Whether `profile` is usable now, for a session whose labels allow a
     /// model of restricted origin or not.
     pub(crate) fn profile_usable(&self, profile: &str, cn_ok: bool) -> bool {
-        let floor = super::data_step::Floor {
-            sensitive: false,
-            cn_ok,
-        };
+        let floor = super::data_step::Floor { cn_ok };
         self.route_profiles(floor)
             .get(profile)
             .is_some_and(|p| p.unusable.is_none())
@@ -106,7 +103,7 @@ impl TurnRunner {
                 // "drafted" notice and a failed draft in place of an answer.
                 let cn_ok = self.cfg.content_based_security.cn_models
                     != crate::config::content_based_security::CnModels::Never;
-                self.profile_usable(name, cn_ok) && !t.route.sensitive
+                self.profile_usable(name, cn_ok)
             })
             .cloned()
             .ok_or("draft_unusable")?;
@@ -257,6 +254,13 @@ impl TurnRunner {
                     crate::session::title_from(&d.draft.asks.join(" "))
                 ));
                 rec.execution_id = Some(task.id.clone());
+                // A draft carries its session's labels from its first call
+                // (theseus-b0ozi, LOW-5; theseus-gyjyo.5).
+                rec.data = tc
+                    .store
+                    .get_session::<SessionRecord>(tc.session_id)?
+                    .and_then(|r| r.data)
+                    .and_then(|f| f.inherited());
                 rec.dir = Some(d.draft.tree.clone());
                 rec.last_target = Some(d.profile.clone());
                 rec.task = Some(crate::session::TaskOf {
@@ -293,14 +297,6 @@ impl TurnRunner {
                 *briefed
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(brief);
-                // A draft of a private session is private from its first call
-                // (theseus-b0ozi, LOW-5).
-                records.extend(crate::google::private::inherited(
-                    tc.store,
-                    &self.cfg,
-                    tc.session_id,
-                    sid,
-                )?);
                 if let Some(target) = &d.draft.target {
                     records.push(tc.outbox.task_record(sid, target)?);
                 }

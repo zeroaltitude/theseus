@@ -30,15 +30,9 @@ async fn no_google_section_registers_nothing_and_reads_nothing() {
             "{name} is registered with no [google]"
         );
     }
-    // No phase, no secret read: the startup log has none, and the private check
-    // answers false without a store read it could not have made a row from.
+    // No phase, no secret read: the startup log has none.
     core.google_after_serving();
     assert!(!core.startup_log.has("google.check"));
-    assert!(!super::private::session(
-        &core.store,
-        &core.cfg,
-        "ses_anything"
-    ));
     // A plain turn's request has no Google in it: no tool, no word.
     let sid = session(&core);
     crate::test_support::turn(&core, &sid, "hello").await;

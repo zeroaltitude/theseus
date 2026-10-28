@@ -14,15 +14,13 @@
 //!   one whose session has no record that reads: those are about the caller,
 //!   not the content, and fail closed. Each refusal is a `data_gate.blocked`
 //!   row;
-//! - a request made for a session that read private content (Google's marker,
-//!   `google::private`), to a model not of US origin
-//!   (`ModelOrigin::cleared_for_sensitive`, an allowlist). No label lifts
-//!   this; it goes when Google raises a label instead (theseus-gyjyo.5).
 //!
-//! **A name in `[privacy] sensitive_names` is no part of this.** It raises a
-//! removable `confidential` label at the item's entry
-//! (`content::deterministic`, theseus-gyjyo.4), and the label is read as any
-//! is; no request is walked for a word.
+//! **Nothing else is read here.** A name in `[privacy] sensitive_names`
+//! (theseus-gyjyo.4) and a Google result (theseus-gyjyo.5) each raise a
+//! removable label where the item enters (`content::deterministic`), and the
+//! label is read as any is; no request is walked for a word, and no marker of
+//! Google's is read. So the operator who removes a Google label can send that
+//! session to a model of restricted origin: that is deliberate (P3).
 //!
 //! An unrestricted model's request costs one lookup of its model's origin,
 //! memoised per model, and its text is never read. The session's record is
@@ -31,7 +29,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 
-use crate::catalog::{cleared_for_sensitive, origin_of, Catalog, ModelOrigin};
+use crate::catalog::{origin_of, Catalog, ModelOrigin};
 use crate::config::content_based_security::CnModels;
 use crate::config::Config;
 use crate::content::ContentFlags;
@@ -50,9 +48,44 @@ tokio::task_local! {
 }
 
 /// Run `f`, the making of a provider call, for `session`. The floor reads it
-/// at the call, as `google::private::scoped`'s mark is read.
+/// at the call.
 pub fn for_session<R>(session: &str, f: impl FnOnce() -> R) -> R {
     CALLER.sync_scope(session.to_string(), f)
+}
+
+/// `provider`, whose every call is made for `session`: for the steps that hold
+/// the provider and call it later, or on another task, where a
+/// [`for_session`] around the call's creation would not reach. The session is
+/// set as each call is made, inside this wrapper.
+pub fn bound(provider: Arc<dyn Provider>, session: &str) -> Arc<dyn Provider> {
+    Arc::new(Bound {
+        inner: provider,
+        session: session.to_string(),
+    })
+}
+
+struct Bound {
+    inner: Arc<dyn Provider>,
+    session: String,
+}
+
+impl Provider for Bound {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a ProviderRequest,
+        on_delta: DeltaSink<'a>,
+    ) -> ProviderFuture<'a> {
+        for_session(&self.session, || self.inner.stream_message(req, on_delta))
+    }
+    fn warm(&self) -> WarmFuture<'_> {
+        self.inner.warm()
+    }
+    fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
+        for_session(&self.session, || self.inner.count_tokens(req))
+    }
 }
 
 /// Where a refusal is counted on `theseus.route.data_gate`: the core's
@@ -111,40 +144,17 @@ impl Gated {
         })
     }
 
-    fn cleared(&self, model: &str) -> bool {
-        cleared_for_sensitive(&self.api_base, self.vouched, model, self.catalog.get(model))
-    }
-
     /// The refusal, when the request may not go to this model.
     fn refuse(&self, req: &ProviderRequest) -> Option<anyhow::Error> {
         let origin = self.origin(&req.model);
-        let message = match self.cn_refusal(origin) {
-            Some((why, said)) => {
-                self.blocked(&req.model, origin, why);
-                self.counted(why);
-                format!(
-                    "{} is of restricted origin ({}) and {said}; nothing was sent",
-                    req.model,
-                    word(origin)
-                )
-            }
-            None if self.cleared(&req.model) || !crate::google::private::in_scope() => {
-                return None;
-            }
-            None => {
-                self.counted("sensitive");
-                let level = crate::google::private::level_in_scope();
-                let held = if level == crate::google::private::Level::Sensitive {
-                    "a sensitive calendar"
-                } else {
-                    "private content"
-                };
-                format!(
-                    "its session read {held}, and its model is not of US origin; \
-                     nothing was sent"
-                )
-            }
-        };
+        let (why, said) = self.cn_refusal(origin)?;
+        self.blocked(&req.model, origin, why);
+        self.counted(why);
+        let message = format!(
+            "{} is of restricted origin ({}) and {said}; nothing was sent",
+            req.model,
+            word(origin)
+        );
         Some(ProviderError::DataGate { message }.into())
     }
 
@@ -445,6 +455,55 @@ mod tests {
         proxy.vouched = Some(ModelOrigin::Us);
         assert_eq!(send(&proxy, &sid, &named("qwen-4-max")).await, Ok(()));
         assert_eq!(sent.requests().len(), 1);
+    }
+
+    /// A provider bound to a session is made for that session wherever it is
+    /// called (theseus-gyjyo.5): the background steps that hold a provider and
+    /// call it later, or on another task, read the session they were bound to
+    /// and not the caller's. A bound call of a labelled session to a restricted
+    /// model is refused, a clean one is sent, and the binding wins over an
+    /// ambient session in both directions, so no call is held by the wrong
+    /// session's labels (a leak) or lets the wrong one through.
+    #[tokio::test]
+    async fn a_bound_provider_is_made_for_its_session_wherever_it_is_called() {
+        let (cn, sent, plain, _dir) = gated("https://api.z.ai/api/anthropic");
+        let labelled = SessionRecord::new(SessionKind::Conversation, None);
+        cn.store
+            .as_ref()
+            .unwrap()
+            .put_session(&labelled.session_id, &labelled)
+            .unwrap();
+        let labelled = labelled.session_id;
+        label_it(&cn, &labelled);
+        let cn: Arc<dyn Provider> = Arc::new(cn);
+        let req = request("glm-5.3", "Draft a budget memo.");
+        let mut sink = |_: crate::provider::Delta<'_>| {};
+        let for_plain = bound(cn.clone(), &plain);
+        let for_labelled = bound(cn.clone(), &labelled);
+        // No ambient session: each is held by its own.
+        for_plain.stream_message(&req, &mut sink).await.unwrap();
+        assert_eq!(sent.requests().len(), 1, "a clean session's call is sent");
+        let said = for_labelled
+            .stream_message(&req, &mut sink)
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{said:#}").contains("`confidential` label"),
+            "{said:#}"
+        );
+        assert_eq!(sent.requests().len(), 1, "a labelled session's is not");
+        // An ambient session does not change whose call it is.
+        for_session(&labelled, || for_plain.stream_message(&req, &mut sink))
+            .await
+            .unwrap();
+        assert_eq!(sent.requests().len(), 2, "bound to the clean session");
+        for_session(&plain, || for_labelled.stream_message(&req, &mut sink))
+            .await
+            .unwrap_err();
+        assert_eq!(sent.requests().len(), 2, "bound to the labelled one");
+        // Unbound, the same provider is still refused for want of a session.
+        cn.stream_message(&req, &mut sink).await.unwrap_err();
+        assert_eq!(sent.requests().len(), 2);
     }
 
     /// A call for no session, to a restricted model, is refused with nothing

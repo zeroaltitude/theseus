@@ -224,6 +224,12 @@ impl TurnRunner {
                         SessionRecord::with_id(id.clone(), SessionKind::Task, Some("task".into()));
                     rec.title = Some(format!("First pass: {}", title_from(&d.asks.join(" "))));
                     rec.execution_id = Some(task.id.clone());
+                    // The first pass carries its draft's labels from its first call.
+                    rec.data = self
+                        .store
+                        .get_session::<SessionRecord>(&d.parent_session)?
+                        .and_then(|r| r.data)
+                        .and_then(|f| f.inherited());
                     rec.dir = Some(mark.tree.clone());
                     rec.last_target = Some(profile.clone());
                     rec.task = Some(TaskOf {
@@ -249,12 +255,6 @@ impl TurnRunner {
                         NewRecord::json(kinds::SESSION, Some(id), &rec)?,
                         brief.record()?,
                     ];
-                    records.extend(crate::google::private::inherited(
-                        &self.store,
-                        &self.cfg,
-                        &d.parent_session,
-                        id,
-                    )?);
                     records.push(NewRecord::json(kinds::META, Some(&mark_key(id)), &mark)?);
                     records.push(NewRecord::json(
                         kinds::META,
