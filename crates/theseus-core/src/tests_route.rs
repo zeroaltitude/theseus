@@ -47,6 +47,18 @@ fn routing_only(c: &mut Config) {
     ] {
         c.judge.packs.insert(p.into(), off());
     }
+    before_the_cn_rubric_tables(c);
+}
+
+/// The class tables before the cn rubric's §7.4 (theseus-tqomi): `sophisticated`
+/// on plain `opus` and `review` on `opushi`, which the tests of the route's
+/// machinery (the switch, the base, the effort, the hold) were written
+/// against: they want a larger model whose profile pins no effort. The defaults
+/// themselves are `config::routing`'s tests and
+/// `tests_route_down::the_default_tables_run_sophisticated_on_opushi_and_review_on_opus`.
+pub(crate) fn before_the_cn_rubric_tables(c: &mut Config) {
+    c.routing.classes.sophisticated.profiles = vec!["opus".into(), "fable".into()];
+    c.routing.classes.review.profiles = vec!["opushi".into(), "fable".into()];
 }
 
 /// The placements before Haiku 5.5 (theseus-3okf): a trivial detour to GLM

@@ -295,29 +295,28 @@ fn trivial() -> ClassProfiles {
 fn quick() -> ClassProfiles {
     list(&["haiku"])
 }
-/// Haiku 5.5 alone (theseus-gezlj; the owner, 2026-10-26: "does haiku do
-/// tools?"): it runs a command with the real tool set, and a config without
-/// it runs the turn on the session's own profile. The China-origin models the
-/// owner suggested for such turns are not named here: they wait on the data
-/// verdict and `theseus-ouqru`'s content screen for any tool output
-/// (`cn_profiles` can express it once they land).
+/// Haiku 5.5, then Sonnet 5.5 (theseus-gezlj, theseus-tqomi; the owner,
+/// 2026-10-26: "does haiku do tools?"): it runs a command with the real tool
+/// set, and a config without either runs the turn on the session's own
+/// profile. The China-origin models the owner suggested for such turns are not
+/// named here: they wait on `theseus-ouqru`'s content screen for any tool
+/// output (`cn_profiles` can express it once it lands).
 fn run_tool() -> ClassProfiles {
-    list(&["haiku"])
+    list(&["haiku", "sonnet"])
 }
 /// Haiku 5.5 alone (theseus-gezlj): a remark needs no more than a trivial
 /// turn does.
 fn commentary() -> ClassProfiles {
     list(&["haiku"])
 }
-/// Opus 5.5 first, then Fable 5.1. The owner, 2026-10-26: "i'd move to opus
-/// high -- i want real thought for comparative analysis"; Opus is the first
-/// usable profile here already (dropping `fable` would change only the
-/// fallback and what a correction to `fable` calls a `sophisticated` turn's
-/// mode, so it waits for his word). The class selects
-/// the model; Jev's own `reply_effort` still sets the effort, within
-/// `effort_bounds`: an `opus` medium and an `opus` high are both his words.
+/// Opus 5.5 at high effort, then Opus, then Sonnet 5.5 at high effort
+/// (theseus-tqomi; the cn rubric's §7.4; the owner, 2026-10-26: "i'd move to
+/// opus high -- i want real thought for comparative analysis"): a config
+/// without `opushi` runs on `opus`, and without that on `sonnethi`. The class
+/// selects the model; Jev's own `reply_effort` still sets the effort, within
+/// `effort_bounds`.
 fn sophisticated() -> ClassProfiles {
-    list(&["opus", "fable"])
+    list(&["opushi", "opus", "sonnethi"])
 }
 fn deep_coding() -> ClassProfiles {
     list(&["opus", "sonnet"])
@@ -328,10 +327,11 @@ fn deep_coding() -> ClassProfiles {
 fn routine_coding() -> ClassProfiles {
     list(&["haikuhi", "sonnet"])
 }
-/// Opus 5.5 at high effort, then Fable 5.1 (theseus-p8dy): a config without
-/// `opushi` reviews on `fable`, or the session's own.
+/// Opus 5.5, then Sonnet 5.5 at high effort (theseus-p8dy, then theseus-tqomi's
+/// cn rubric §7.4; the owner, 2026-10-26 07:33): a config without either
+/// reviews on the session's own.
 fn review() -> ClassProfiles {
-    list(&["opushi", "fable"])
+    list(&["opus", "sonnethi"])
 }
 
 impl Default for RoutingClasses {
@@ -575,12 +575,15 @@ mod tests {
         assert_eq!(d.classes.of("quick"), ["haiku"]);
         assert!(d.classes.of("chat").is_empty());
         assert_eq!(d.classes.of("other"), d.classes.of("chat"));
-        assert_eq!(d.classes.of("run_tool"), ["haiku"]);
+        assert_eq!(d.classes.of("run_tool"), ["haiku", "sonnet"]);
         assert_eq!(d.classes.of("commentary"), ["haiku"]);
-        assert_eq!(d.classes.of("sophisticated"), ["opus", "fable"]);
+        assert_eq!(
+            d.classes.of("sophisticated"),
+            ["opushi", "opus", "sonnethi"]
+        );
         assert_eq!(d.classes.of("deep_coding"), ["opus", "sonnet"]);
         assert_eq!(d.classes.of("routine_coding"), ["haikuhi", "sonnet"]);
-        assert_eq!(d.classes.of("review"), ["opushi", "fable"]);
+        assert_eq!(d.classes.of("review"), ["opus", "sonnethi"]);
         d.validate(|_| false).unwrap();
         assert_eq!(
             (
@@ -605,7 +608,10 @@ mod tests {
     fn one_mode_set_keeps_the_others_defaults() {
         let c = cfg("[classes.chat]\nprofiles = [\"sonnet\"]").unwrap();
         assert_eq!(c.classes.of("chat"), ["sonnet"]);
-        assert_eq!(c.classes.of("sophisticated"), ["opus", "fable"]);
+        assert_eq!(
+            c.classes.of("sophisticated"),
+            ["opushi", "opus", "sonnethi"]
+        );
         assert!(
             cfg("[classes.poetry]\nprofiles = []").is_err(),
             "no such mode"

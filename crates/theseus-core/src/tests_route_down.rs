@@ -109,22 +109,48 @@ async fn an_owners_pick_is_not_stepped_down() {
         .all(|d| d["switch"] == json!(false)));
 }
 
-/// route.v4's `review` (theseus-p8dy): a verification runs on `opushi` (Opus
-/// 5.5 at high effort, from the template), and on `fable` when the list's
-/// first profile is not configured (passed over as unusable).
+/// The defaults (theseus-p8dy, then theseus-tqomi's cn rubric §7.4): a
+/// verification runs on `opus` (the template's, no effort of its own) and a
+/// hard-reasoning turn on `opushi` (Opus 5.5 at high effort), each passing
+/// over a profile the config lacks: `review` to `sonnethi`, `sophisticated`
+/// to `opus` and then `sonnethi`. The rig's pin to the older tables is undone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_review_verdict_runs_on_opushi_and_then_fable() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "review", 0.95);
-    let r = rig(Some(&jev), 1, |_| {});
-    let one = turn(&r.core, None, "Check this change before I merge it.", None).await;
-    assert_eq!(one.profile, "opushi");
-    assert_eq!(one.route.unwrap().mode.as_deref(), Some("review"));
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "review", 0.95);
-    let r = rig(Some(&jev), 1, |c| {
-        c.routing.classes.review.profiles = vec!["nosuch".into(), "fable".into()];
-    });
-    let one = turn(&r.core, None, "Is this right?", None).await;
-    assert_eq!(one.profile, "fable");
+async fn the_default_tables_run_sophisticated_on_opushi_and_review_on_opus() {
+    for (kind, text, first, then) in [
+        (
+            "review",
+            "Check this change before I merge it.",
+            "opus",
+            "sonnethi",
+        ),
+        (
+            "sophisticated",
+            "Weigh two designs for a crash-safe write-ahead log.",
+            "opushi",
+            "opus",
+        ),
+    ] {
+        let jev = FakeJev::start().unwrap();
+        mode(&jev, kind, 0.95);
+        let r = rig(Some(&jev), 1, |c| c.routing.classes = Default::default());
+        let one = turn(&r.core, None, text, None).await;
+        assert_eq!(one.profile, first, "{kind}");
+        assert_eq!(one.route.unwrap().mode.as_deref(), Some(kind));
+        let jev = FakeJev::start().unwrap();
+        mode(&jev, kind, 0.95);
+        let r = rig(Some(&jev), 1, |c| {
+            c.routing.classes = Default::default();
+            let table = match kind {
+                "review" => &mut c.routing.classes.review.profiles,
+                _ => &mut c.routing.classes.sophisticated.profiles,
+            };
+            table.retain(|p| p != first);
+            assert_eq!(table.first().map(String::as_str), Some(then), "{kind}");
+        });
+        let one = turn(&r.core, None, text, None).await;
+        assert_eq!(
+            one.profile, then,
+            "{kind}: the first profile is passed over"
+        );
+    }
 }

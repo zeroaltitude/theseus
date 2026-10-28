@@ -152,13 +152,13 @@ effort = "high"
 thinking_display = "summarized"
 max_loops = 40
 
-# Sonnet 5.5 at high effort: deep_coding's first reviewer when its China-origin draft is turned on
-# (see the routing classes below). Commented, so a config without a draft carries no new profile.
-# [profiles.sonnethi]
-# provider = "anthropic"
-# model = "claude-sonnet-5-5"
-# effort = "high"
-# thinking_display = "summarized"
+# Sonnet 5.5 at high effort: the last profile of sophisticated and review (theseus-tqomi), and
+# deep_coding's first reviewer when its China-origin draft is turned on (see the routing classes below).
+[profiles.sonnethi]
+provider = "anthropic"
+model = "claude-sonnet-5-5"
+effort = "high"
+thinking_display = "summarized"
 
 # In no class list: GLM-5.3 costs more per coding task than Sonnet 5.5 ($0.34-0.47 against $0.30 a trial).
 [profiles.glm53]
@@ -1763,13 +1763,13 @@ max_switches = 2                        # moves per task, up or down
 # No China-origin model is named for either: a run_tool turn reads tool output, which waits on
 # the content screen (theseus-ouqru).
 # [routing.classes.run_tool]              # a command, script or tool to run, its result reported
-# profiles = ["haiku"]
+# profiles = ["haiku", "sonnet"]
 # [routing.classes.commentary]            # a remark or aside that asks for nothing
 # profiles = ["haiku"]
 # [routing.classes.chat]                  # conversation building on the work: the session's own
 # profiles = []
-# [routing.classes.sophisticated]
-# profiles = ["opus", "fable"]
+# [routing.classes.sophisticated]         # hard reasoning, and an open-ended comparison or "is it any good?" (route.v9)
+# profiles = ["opushi", "opus", "sonnethi"]
 # [routing.classes.deep_coding]
 # profiles = ["opus", "sonnet"]
 # Debugging with an unknown cause, and design, stay on Claude: vendor Terminal-Bench 4.0 has
@@ -1789,7 +1789,7 @@ max_switches = 2                        # moves per task, up or down
 # final = ["sonnet"]                    # a Claude profile; the first usable one reviews
 # first_pass = "dsflashmax"            # optional: a restricted-origin profile reads the draft's diff for bugs first; its findings go to the Claude review only
 # [routing.classes.review]                # verification: "check this", a pre-merge review, "is this right?"
-# profiles = ["opushi", "fable"]
+# profiles = ["opus", "sonnethi"]
 # Your corrections (theseus-q31l): in a private place, "that should have been on fable",
 # "use opus for that", "that needed more effort" or "rerun that on opus" labels the last
 # turn's route judgment as yours and moves the session there at once; so does a reaction

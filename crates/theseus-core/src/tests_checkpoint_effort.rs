@@ -4,7 +4,7 @@
 //! gate for `xhigh` and `max` still holds, and a checkpoint never lowers a
 //! turn's effort. And the floor: a profile a routing class chose never runs
 //! below its own effort. The rigs are `tests_turn_checkpoint`'s and
-//! `tests_route`'s, on the template with a `sonnethi` profile (Sonnet 5.5 at
+//! `tests_route`'s, on the template's `sonnethi` profile (Sonnet 5.5 at
 //! high) that takes no per-message effort, as `tests_effort_sticky`'s does.
 
 use std::sync::Arc;
@@ -19,17 +19,12 @@ use crate::tests_route::{decided, mode, rig, rig_parts, turn, Rig};
 use crate::tests_turn_checkpoint::{checkpoints, loops, ASK};
 use crate::Config;
 
-/// The template with `sonnethi` added (and the live profile `live`), under
-/// the rig's own sections; Sonnet 5.5 takes no per-message effort, and every
+/// The template's `sonnethi` (it carries one since theseus-tqomi) with the live
+/// profile `live`, under the rig's own sections; Sonnet 5.5 takes no per-message effort, and every
 /// request is long enough for the sticky rule.
 fn sonnethi(c: &mut Config, live: &str) {
     let text = Config::EXAMPLE_TOML
-        .replace("live = \"sonnet\"\n", &format!("live = \"{live}\"\n"))
-        .replace(
-            "[profiles.haikuhi]\n",
-            "[profiles.sonnethi]\nprovider = \"anthropic\"\nmodel = \"claude-sonnet-5-5\"\n\
-             effort = \"high\"\n\n[profiles.haikuhi]\n",
-        );
+        .replace("live = \"sonnet\"\n", &format!("live = \"{live}\"\n"));
     let (mut with, _) = Config::parse(&text).unwrap();
     with.server = c.server.clone();
     with.tools = c.tools.clone();
