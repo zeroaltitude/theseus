@@ -157,7 +157,10 @@ impl TurnRunner {
     /// The words the person and the parent said to this session, which name
     /// what the task asked for.
     fn task_words(&self, t: &Turn<'_>) -> String {
-        let nodes = t.tc.store.session_nodes(t.tc.session_id).unwrap_or_default();
+        let nodes =
+            t.tc.store
+                .session_nodes(t.tc.session_id)
+                .unwrap_or_default();
         nodes
             .into_iter()
             .filter(|(_, n)| n.origin != crate::node::Origin::Harness)
@@ -300,13 +303,34 @@ mod tests {
     #[test]
     fn the_task_names_a_path_as_a_token() {
         assert!(named_by_task("Produce ./a.out.", Path::new("/w/a.out")));
-        assert!(named_by_task("Build src/libfoo.so, then test.", Path::new("/w/libfoo.so")));
-        assert!(named_by_task("Ship any .so you need.", Path::new("/w/libbar.so")));
-        assert!(named_by_task("Output goes in build/.", Path::new("/w/build")));
-        assert!(named_by_task("Put it under src/build", Path::new("/w/build")));
-        assert!(!named_by_task("Build the project and run it.", Path::new("/w/build")));
+        assert!(named_by_task(
+            "Build src/libfoo.so, then test.",
+            Path::new("/w/libfoo.so")
+        ));
+        assert!(named_by_task(
+            "Ship any .so you need.",
+            Path::new("/w/libbar.so")
+        ));
+        assert!(named_by_task(
+            "Output goes in build/.",
+            Path::new("/w/build")
+        ));
+        assert!(named_by_task(
+            "Put it under src/build",
+            Path::new("/w/build")
+        ));
+        assert!(!named_by_task(
+            "Build the project and run it.",
+            Path::new("/w/build")
+        ));
         assert!(!named_by_task("Produce libfoo.so.", Path::new("/w/foo.so")));
-        assert!(!named_by_task("Use the .sock path.", Path::new("/w/libbar.so")));
-        assert!(!named_by_task("Write main.py.", Path::new("/w/__pycache__")));
+        assert!(!named_by_task(
+            "Use the .sock path.",
+            Path::new("/w/libbar.so")
+        ));
+        assert!(!named_by_task(
+            "Write main.py.",
+            Path::new("/w/__pycache__")
+        ));
     }
 }

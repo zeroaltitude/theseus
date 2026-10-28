@@ -431,7 +431,9 @@ async fn build_residue_alone_does_not_reopen_the_turn() {
     }
     let lines = res.harness_lines();
     assert!(
-        lines.iter().any(|l| l.starts_with("Files:") && l.contains("a.out")),
+        lines
+            .iter()
+            .any(|l| l.starts_with("Files:") && l.contains("a.out")),
         "{lines:?}"
     );
 }
@@ -458,7 +460,11 @@ async fn a_path_the_task_names_still_reopens_the_turn() {
             "mkdir -p build",
             "build",
         ),
-        ("Write src/main.rs.", "echo x > main; mkdir -p __pycache__", "main"),
+        (
+            "Write src/main.rs.",
+            "echo x > main; mkdir -p __pycache__",
+            "main",
+        ),
     ] {
         let r = rig(
             |root| {
@@ -478,7 +484,10 @@ async fn a_path_the_task_names_still_reopens_the_turn() {
         assert_eq!(res.loops, 4, "{ask}");
         let notes = r.notes(&sid);
         assert_eq!(notes.len(), 1, "{ask}: {notes:?}");
-        assert!(notes[0].contains(&r.path(&format!("src/{named}"))), "{notes:?}");
+        assert!(
+            notes[0].contains(&r.path(&format!("src/{named}"))),
+            "{notes:?}"
+        );
         assert_eq!(r.rows("turn.end_noted"), 1, "{ask}");
     }
 }
@@ -488,8 +497,7 @@ async fn a_path_the_task_names_still_reopens_the_turn() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unrun_edits_still_reopen_beside_residue() {
     let edit = |root: &Path| {
-        let input =
-            json!({"path": at(root, "src/main.py"), "old_string": "1", "new_string": "2"});
+        let input = json!({"path": at(root, "src/main.py"), "old_string": "1", "new_string": "2"});
         Scripted::tools("Editing.", &[("e1", "fs_edit", input)])
     };
     let r = rig(
@@ -509,8 +517,14 @@ async fn unrun_edits_still_reopen_beside_residue() {
     assert_eq!(r.fake.requests().len(), 5);
     let notes = r.notes(&sid);
     assert_eq!(notes.len(), 1, "{notes:?}");
-    assert!(notes[0].contains("Changed after the last command ran"), "{notes:?}");
-    assert!(!notes[0].contains("Left beside"), "residue is not the note's: {notes:?}");
+    assert!(
+        notes[0].contains("Changed after the last command ran"),
+        "{notes:?}"
+    );
+    assert!(
+        !notes[0].contains("Left beside"),
+        "residue is not the note's: {notes:?}"
+    );
     let note = res.files.unwrap().end_note.unwrap();
     assert_eq!(note.unrun, 1);
 }
@@ -534,7 +548,11 @@ async fn one_note_does_not_reopen_the_turn_twice() {
     );
     let sid = r.session(None);
     let res = r.turn(&sid, "Write src/main.c.").await;
-    assert_eq!(r.fake.requests().len(), 5, "the note's one extra loop, then the end");
+    assert_eq!(
+        r.fake.requests().len(),
+        5,
+        "the note's one extra loop, then the end"
+    );
     assert_eq!(r.notes(&sid).len(), 1);
     assert!(res.files.unwrap().end_note.unwrap().acted);
 }
