@@ -351,6 +351,32 @@ async fn a_plain_turn_keeps_the_sessions_labels() {
 async fn try_turn(core: &Arc<Core>, input: &str) -> anyhow::Result<TurnSubmitResult> {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
+    try_turn_in(core, rec, input).await
+}
+
+/// A session record carrying a `confidential` label, as a names hit leaves it,
+/// stored.
+fn labelled(core: &Core) -> SessionRecord {
+    let mut flags = ContentFlags::default();
+    flags.raise(crate::content::deterministic::label(
+        Flag::Confidential,
+        "nod_earlier",
+        crate::content::ItemKind::ToolResult,
+        "name: Examplecorp".into(),
+        1,
+    ));
+    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+    rec.data = Some(Box::new(flags));
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    rec
+}
+
+/// `try_turn` on `rec`, which is already stored.
+async fn try_turn_in(
+    core: &Arc<Core>,
+    rec: SessionRecord,
+    input: &str,
+) -> anyhow::Result<TurnSubmitResult> {
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
     let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
@@ -372,8 +398,10 @@ async fn try_turn(core: &Arc<Core>, input: &str) -> anyhow::Result<TurnSubmitRes
         .await
 }
 
-/// With the default itself restricted there is nowhere to run: the turn fails
-/// before any model call, routed or not, and both fakes record nothing.
+/// With the default itself restricted and a label on the session there is
+/// nowhere to run: the turn fails before any model call, routed or not, and
+/// both fakes record nothing. (Without a label it runs on the restricted
+/// default: only a label keeps a session off a model, theseus-gyjyo.6.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_usable_fallback_fails_the_turn_and_sends_nothing() {
     for routed in [true, false] {
@@ -383,7 +411,8 @@ async fn no_usable_fallback_fails_the_turn_and_sends_nothing() {
         // profiles on the default's provider once it is restricted.
         let cn = |p: &mut crate::rpc::Parts| p.cfg.serve_default_from_cn();
         let r = rig_parts(routed.then_some(&jev), 1, |_| {}, cn);
-        let ended = try_turn(&r.core, PLAIN).await;
+        let rec = labelled(&r.core);
+        let ended = try_turn_in(&r.core, rec, PLAIN).await;
         let said = format!("{ended:?}");
         assert!(
             said.contains("No model cleared for this request's data is usable"),
@@ -397,10 +426,11 @@ async fn no_usable_fallback_fails_the_turn_and_sends_nothing() {
 /// The code's `trivial` list no longer names `glm` (theseus-a1wvq.4); GLM
 /// comes in only by `cn_profiles`, and only for a session that may use a model
 /// of restricted origin: with its first profile unusable, a trivial verdict
-/// for a session not judged skips GLM to `cheapest`, which is Haiku's profile,
-/// never GLM.
+/// for a session carrying a label skips GLM to `cheapest`, which is Haiku's
+/// profile, never GLM; a session with no label is let take it (theseus-gyjyo.6:
+/// an item nobody judged no longer keeps a session off it).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_trivial_default_skips_glm() {
+async fn the_trivial_default_skips_glm_for_a_labelled_session() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.95);
     let r = rig_parts(
@@ -416,7 +446,8 @@ async fn the_trivial_default_skips_glm() {
     );
     let list = &r.core.runner.cfg.routing.classes.trivial.profiles;
     assert_eq!(list, &["haiku", "cheapest"], "the code's default");
-    let res = turn(&r.core, None, "Hi there!", None).await;
+    let rec = labelled(&r.core);
+    let res = turn(&r.core, Some(&rec.session_id), "Hi there!", None).await;
     assert_eq!(
         (res.profile.as_str(), res.model.as_str()),
         ("haikuhi", "claude-haiku-5-5"),
@@ -424,6 +455,9 @@ async fn the_trivial_default_skips_glm() {
         res.route
     );
     assert!(r.zai.requests().is_empty());
+    let res = turn(&r.core, None, "Hi there!", None).await;
+    assert_eq!(res.profile, "glm", "no label, so it may: {:?}", res.route);
+    assert_eq!(r.zai.requests().len(), 1);
 }
 
 /// A named message runs on a Claude served from a host vouched EU: the names'

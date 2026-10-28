@@ -1,8 +1,8 @@
 //! The provider chokepoint on content flags (theseus-9ymz0, design §4.2a and
 //! §11's tests 10 to 14): a request to a model of restricted origin goes out
 //! unless the session it is made for carries a label that disqualifies such a
-//! model, or has an item that was not judged; a request with no session is
-//! refused. The rig is `tests_route`'s: `anthropic` (Claude) and `zai` (GLM, a
+//! model (and `[content_based_security] cn_models` follows the flags); a
+//! request with no session is refused. The rig is `tests_route`'s: `anthropic` (Claude) and `zai` (GLM, a
 //! China-origin endpoint), each a fake that records its requests. The record's
 //! `data` is written as JSON so the same test reads against the layout it
 //! replaces.
@@ -126,11 +126,12 @@ async fn a_restricted_model_is_sent_a_session_with_no_label() {
     assert!(blocked(&r).is_empty(), "and nothing was refused");
 }
 
-/// Test 10, with items: every node the session carries has been judged, so
-/// the request goes; one the judge has not reached holds it back, and the row
-/// says so.
+/// Test 10, with items: whether the judge has reached them or not, the request
+/// goes. An item nobody has judged is no refusal (theseus-gyjyo.6): the
+/// chokepoint reads the session's labels and not its transcript, and the
+/// turn's wait is what gives an ask the time to raise one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_restricted_model_is_sent_only_what_was_judged() {
+async fn a_restricted_model_is_sent_judged_or_not() {
     let r = rig(None, 1, |_| {});
     let zai = &r.core.runner.providers["zai"];
     let sid = session_with(&r, None, &["Rename the call sites."], true);
@@ -138,15 +139,13 @@ async fn a_restricted_model_is_sent_only_what_was_judged() {
         .await
         .expect("every item was judged");
     assert_eq!(r.zai.requests().len(), 1);
-    // The same session, its item not yet judged.
+    // The same session, an item not yet judged.
     let sid = session_with(&r, None, &["And the tests."], false);
-    let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
+    send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
-        .unwrap_err();
-    assert_eq!(class, "data_gate", "{said}");
-    assert!(said.contains("judged"), "{said}");
-    assert_eq!(r.zai.requests().len(), 1, "the second was never sent");
-    assert_eq!(blocked(&r).len(), 1);
+        .expect("an item nobody judged is no label");
+    assert_eq!(r.zai.requests().len(), 2);
+    assert!(blocked(&r).is_empty());
 }
 
 /// Test 11: a session with `confidential` on it is refused a restricted
