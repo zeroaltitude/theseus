@@ -130,13 +130,15 @@ impl Fact for ContentRemoved<'_> {
 }
 
 /// `content.unjudged`: an item that could not be judged. Nothing is raised, and
-/// the session's `judged_through` does not advance past it.
+/// nothing is held for later: this row is the whole record of it (theseus-gyjyo.7;
+/// a failed ask was asked once more before it was written, and the owner is told
+/// once in the session's place).
 pub struct ContentUnjudged<'a> {
     pub node: &'a str,
     pub kind: ItemKind,
     pub source: &'a str,
-    /// `refused` (the day's budget), `failed` (the call), `unbuilt` (the state
-    /// or the client would not build).
+    /// `refused` (the day's budget), `failed` (the call, twice), `unbuilt` (the
+    /// state or the client would not build), `shadow` (the pack's mode).
     pub why: &'a str,
 }
 

@@ -24,11 +24,9 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
-use crate::content::ContentFlags;
 use crate::node::Body;
 use crate::policy::Posture;
 use crate::provider::Scripted;
-use crate::session::SessionRecord;
 use crate::tests_judge::{rig_on, Rig};
 use crate::tests_route::try_turn_attached;
 
@@ -70,23 +68,17 @@ fn late_ids(r: &Rig, sid: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether the judge's mark has reached `node`: the mark's node is `node` or a
-/// later one of the transcript.
-fn judged(r: &Rig, sid: &str, node: &str) -> bool {
-    let nodes = r.core.store.session_nodes(sid).unwrap();
-    let at = |id: &str| nodes.iter().position(|(_, n)| n.id == id);
-    let rec: SessionRecord = r.core.store.get_session(sid).unwrap().unwrap();
-    let flags: ContentFlags = rec.data.map(|b| *b).unwrap_or_default();
-    match (flags.judged_through.as_deref().and_then(at), at(node)) {
-        (Some(mark), Some(late)) => mark >= late,
-        _ => false,
-    }
+/// Whether the judge has asked about `node`: a `content.judged` row names it.
+fn judged(r: &Rig, node: &str) -> bool {
+    crate::tests_judge::judged_nodes(&r.core.store)
+        .iter()
+        .any(|n| n == node)
 }
 
 /// The job ends after its turn, and the continuation that reads its result
-/// leaves the result judged: in the session's flags, by the judge, not merely
-/// written. Read at the turn's return, the mark is for the judge's own
-/// asynchronous landing, so the wait is its own bound.
+/// leaves the result judged: asked about by the judge, not merely written. Read
+/// at the turn's return, the row is for the judge's own asynchronous landing,
+/// so the wait is its own bound.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_late_result_is_judged_once_its_continuation_has_taken_it() {
     let jev = FakeJev::start().unwrap();
@@ -144,10 +136,10 @@ async fn a_late_result_is_judged_once_its_continuation_has_taken_it() {
     assert_eq!(late.len(), 1, "the continuation wrote the late result");
 
     let t0 = Instant::now();
-    while !judged(&r, &sid, &late[0]) {
+    while !judged(&r, &late[0]) {
         assert!(
             t0.elapsed() < Duration::from_secs(20),
-            "the late result {} was never judged: the session's items stay unjudged",
+            "the late result {} was never asked about, so a label it earns is never raised",
             late[0]
         );
         tokio::time::sleep(Duration::from_millis(20)).await;

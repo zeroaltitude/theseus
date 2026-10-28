@@ -238,10 +238,10 @@ impl TurnRunner {
         };
         let hold = session_hold(tc)?;
         // The brief is an item like any other, and the draft's session is
-        // judged by it (theseus-9ymz0). It is kept out here so it can be queued
-        // after its frame is written: without that the draft's own session is
-        // never judged, so its first request finds an unjudged item, waits,
-        // times out and ends `draft_not_admitted` — no draft would ever run.
+        // asked about it (theseus-9ymz0). It is kept out here so it can be
+        // queued after its frame is written: without that the draft's own
+        // session would have no ask out for its brief, and a label the brief
+        // earns would arrive after the draft's first request.
         let briefed: std::sync::Mutex<Option<Node>> = std::sync::Mutex::new(None);
         let opened = tc
             .kernel

@@ -83,8 +83,7 @@ impl Core {
         // What the source read from outside holds the fork too: never less.
         rec.external.clone_from(&source.external);
         let found = |id: &str| self.store.get_node(id).ok().flatten().map(|(p, _)| p);
-        rec.data =
-            crate::fork::data_through(source.data.as_deref(), (at_position, &at_node.id), found);
+        rec.data = crate::fork::data_through(source.data.as_deref(), at_position, found);
         let now = theseus_protocol::now_unix_ms();
         let origin = ForkOrigin {
             session: source.session_id.clone(),

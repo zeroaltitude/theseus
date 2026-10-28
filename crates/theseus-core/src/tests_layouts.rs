@@ -1515,8 +1515,10 @@ fn a_format_52_session_reads_its_labels_with_no_judgment() {
     assert_eq!(flags.removed.len(), 1, "the removal reads");
     assert_eq!(
         serde_json::to_string(&read).unwrap(),
-        SESSION_WITH_LABELS_AT_52
-            .replace(r#","judged_through":"msg_00000000000000000000000000000486""#, ""),
+        SESSION_WITH_LABELS_AT_52.replace(
+            r#","judged_through":"msg_00000000000000000000000000000486""#,
+            ""
+        ),
         "and writes back every byte but the mark"
     );
     store.put_session(&read.session_id, &read).unwrap();
@@ -1559,7 +1561,11 @@ fn a_format_53_session_with_a_mark_reads_it_ignored_and_drops_it() {
         "with its judgment"
     );
     assert_eq!(flags.removed.len(), 1, "the removal reads");
-    assert_eq!(flags.disqualifies_cn(), Some(Flag::Secret), "on the label alone");
+    assert_eq!(
+        flags.disqualifies_cn(),
+        Some(Flag::Secret),
+        "on the label alone"
+    );
     let written = serde_json::to_string(&read).unwrap();
     assert!(
         !written.contains("judged_through") && !written.contains("unjudged"),
@@ -1571,5 +1577,8 @@ fn a_format_53_session_with_a_mark_reads_it_ignored_and_drops_it() {
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let back: SessionRecord = again.get_session(&old.session_id).unwrap().unwrap();
-    assert_eq!(back.data, read.data, "and the record reads the same after the write");
+    assert_eq!(
+        back.data, read.data,
+        "and the record reads the same after the write"
+    );
 }
