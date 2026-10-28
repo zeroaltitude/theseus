@@ -124,6 +124,9 @@ pub struct Rules {
     pub long_run_ms: u64,
     /// A question is reminded of once, at this share of its life: half.
     pub remind_at: f32,
+    /// The life a held question is reminded by, as it has no deadline of its
+    /// own (theseus-lrc3m): `[kernel] confirm_ttl_secs`'s default, 15 minutes.
+    pub held_life_ms: u64,
     pub finished: Finished,
     /// At most one Interrupt per root in this window: 10 s.
     pub burst_ms: u64,
@@ -157,6 +160,7 @@ impl Default for Rules {
         Self {
             long_run_ms: 300_000,
             remind_at: 0.5,
+            held_life_ms: 15 * 60_000,
             finished: Finished::LongRoots,
             burst_ms: 10_000,
             initiative: Initiative::Normal,
@@ -258,15 +262,20 @@ fn asker(v: &WorkView, q: &Question) -> String {
 }
 
 /// When a question's reminder is due: `remind_at` of its life after it was
-/// asked. None for a question that never expires.
+/// asked. A question held past its life has no deadline (theseus-v2dnc), so
+/// its life is the one it would have had (`Rules::held_life_ms`); a budget
+/// question holds without one and is not reminded of.
 pub fn remind_due(q: &Question, since_ms: u64, rules: &Rules) -> Option<u64> {
-    let expires = q.expires_at_ms.filter(|e| *e > 0)?;
     let asked = if q.asked_at_ms > 0 {
         q.asked_at_ms
     } else {
         since_ms
     };
-    let life = expires.saturating_sub(asked);
+    let life = match q.expires_at_ms.filter(|e| *e > 0) {
+        Some(expires) => expires.saturating_sub(asked),
+        None if q.kind != QuestionKind::Budget => rules.held_life_ms,
+        None => return None,
+    };
     Some(asked + (life as f64 * f64::from(rules.remind_at)) as u64)
 }
 
@@ -283,7 +292,7 @@ pub fn next_reminder(v: &WorkView, rules: &Rules) -> Option<u64> {
 /// | # | Transition | Urgency |
 /// |---|---|---|
 /// | 1 | a question appears, of any kind, at any depth | Interrupt |
-/// | 2 | a question reaches `remind_at` of its life unanswered (once) | Interrupt |
+/// | 2 | a question reaches `remind_at` of its life unanswered (once); a held one, which has no deadline, of the life it would have had (`Rules::held_life_ms`) | Interrupt |
 /// | 3 | it fails or blocks (needs you, no question) | Interrupt |
 /// | 4 | a wake fires, by its purpose: a reminder | Interrupt, with its four answers (`reminder_notice`); a check-in, a routine: Inform; a wake that says no purpose: Interrupt on a root conversation, a task's own Inform. A watch's end (`wake.noticed` with purpose `watch.met`, `watch.expired` or `watch.failing`): met Interrupt, with sound; gave up and failing Inform |
 /// | 5 | a root the owner flagged, or one that worked `long_run_ms`, goes to ready or idle | Interrupt, no sound |
@@ -396,15 +405,29 @@ fn asked(c: &Change, hm: &dyn Fn(u64) -> String) -> Option<Said> {
 fn reminder(c: &Change, rules: &Rules) -> Option<Said> {
     let (p, q) = (c.prev?, c.next_q?);
     let due = remind_due(q, c.next.state_since_ms, rules)?;
-    let expires = q.expires_at_ms.unwrap_or(u64::MAX);
+    let expires = q.expires_at_ms.filter(|e| *e > 0).unwrap_or(u64::MAX);
     if !(p.at_ms < due && due <= c.next.at_ms && c.next.at_ms < expires) {
         return None;
     }
-    let left = (expires - c.next.at_ms).div_ceil(60_000);
-    let line = format!(
-        "● still waiting, {left} min left: {}",
-        q.subject(&asker(c.next, q))
-    );
+    let subject = q.subject(&asker(c.next, q));
+    // A held question has no deadline to count down to: it says how long it
+    // has waited.
+    let line = if expires == u64::MAX {
+        let asked = if q.asked_at_ms > 0 {
+            q.asked_at_ms
+        } else {
+            c.next.state_since_ms
+        };
+        format!(
+            "● still waiting, asked {} ago: {subject}",
+            span(c.next.at_ms.saturating_sub(asked))
+        )
+    } else {
+        format!(
+            "● still waiting, {} min left: {subject}",
+            (expires - c.next.at_ms).div_ceil(60_000)
+        )
+    };
     said(Urgency::Interrupt, Why::Reminder, line, Some(q))
 }
 

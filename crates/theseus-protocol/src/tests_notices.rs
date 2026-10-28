@@ -199,6 +199,76 @@ fn row_2_a_question_is_reminded_of_once_at_half_its_life() {
     assert_eq!(next_reminder(&due, &Rules::default()), None);
 }
 
+/// A question held past its life has no deadline (theseus-v2dnc), and is still
+/// reminded of once, at half the life it would have had (theseus-lrc3m).
+fn held(id: &str, asked: u64) -> Question {
+    let mut q = ask(id, asked, 0);
+    q.expires_at_ms = None;
+    q.on_expiry = None;
+    q
+}
+
+#[test]
+fn row_2_a_held_question_is_reminded_of_once_at_half_the_life_it_would_have_had() {
+    let v = asking(
+        task("Beta summary", WorkState::Running, AT),
+        held("cor_1", AT),
+    );
+    let half = Rules::default().held_life_ms / 2;
+    assert_eq!(half, 7 * MIN + 30_000, "half of 15 min");
+    assert_eq!(
+        remind_due(v.question.as_ref().unwrap(), AT, &Rules::default()),
+        Some(AT + half)
+    );
+    assert_eq!(next_reminder(&v, &Rules::default()), Some(AT + half));
+    let mut early = v.clone();
+    early.at_ms = AT + 6 * MIN;
+    assert_eq!(run(Some(&v), &early), None, "before half the life");
+    let mut due = v;
+    due.at_ms = AT + half;
+    assert_eq!(
+        said(&run(Some(&early), &due)),
+        (
+            Urgency::Interrupt,
+            Why::Reminder,
+            "● still waiting, asked 7 min ago: Beta summary's fs.write"
+        )
+    );
+    let mut after = due.clone();
+    after.at_ms = AT + 8 * MIN;
+    assert_eq!(run(Some(&due), &after), None, "once");
+    assert_eq!(next_reminder(&due, &Rules::default()), None);
+}
+
+/// A held question's reminder falls back to the time the view's state began
+/// when the question carries no asked time, as an expiring one does.
+#[test]
+fn a_held_question_without_an_asked_time_counts_from_the_views_state() {
+    let mut q = held("cor_1", 0);
+    q.asked_at_ms = 0;
+    assert_eq!(
+        remind_due(&q, AT, &Rules::default()),
+        Some(AT + 7 * MIN + 30_000)
+    );
+}
+
+/// A budget question holds until answered, and is not reminded of: its owner
+/// is already told, and `budget.reset` has its own surface.
+#[test]
+fn a_budget_question_is_never_reminded_of() {
+    let mut q = held("cor_1", AT);
+    q.kind = QuestionKind::Budget;
+    assert_eq!(remind_due(&q, AT, &Rules::default()), None);
+}
+
+/// An expiring question keeps reminding by its own deadline, not the held
+/// life: the fallback is for a question with none.
+#[test]
+fn an_expiring_question_ignores_the_held_life() {
+    let q = ask("cor_1", AT, AT + 10 * MIN);
+    assert_eq!(remind_due(&q, AT, &Rules::default()), Some(AT + 5 * MIN));
+}
+
 /// Row 3: a failure, or a block with no question: Interrupt, once per
 /// transition.
 #[test]
