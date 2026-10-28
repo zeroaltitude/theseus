@@ -839,7 +839,15 @@ impl Lane {
             "card" => self.card(&body).await,
             "settle" => Ok(self.settled(&body)),
             "notice" => {
-                let channel = self.place_channel().await?;
+                // The operator lane has no place of its own: its notices go
+                // where approvals go, as `restarted`'s do (theseus-haw2b).
+                let (channel, extra) = match self.kind {
+                    "operator" => {
+                        let (channel, place) = self.operator_channel(&body).await?;
+                        (channel, json!({"place": place}))
+                    }
+                    _ => (self.place_channel().await?, json!({})),
+                };
                 let t = body["text"].as_str().unwrap_or("").to_string();
                 // A watch that is met speaks (theseus-j90w2): it pings as a
                 // reminder does and offers its answers.
@@ -858,7 +866,7 @@ impl Lane {
                 w.ping &= !body["quiet"].as_bool().unwrap_or(false);
                 Ok(Plan {
                     writes: vec![w],
-                    extra: json!({}),
+                    extra,
                 })
             }
             "failed" => self.failed_post(&body, corr).await,
@@ -2179,6 +2187,8 @@ pub(crate) fn mcp_note(body: &Value) -> String {
 mod tests_bound;
 #[cfg(test)]
 mod tests_catchup;
+#[cfg(test)]
+mod tests_operator;
 #[cfg(test)]
 mod tests_self_note;
 #[cfg(test)]
