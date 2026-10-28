@@ -116,6 +116,19 @@ test('a point is named with its harness and the date of the run that measured it
   for (const p of two) assert.match(p.runLabel, /^2026-10-10, theseus-/)
 })
 
+test('within a slice, same-day points of one arm never share a run label, whatever the manifest holds', () => {
+  // The invariant behind the single 2026-10-10 pair above, over every slice: a label is a bare date, or a date plus a
+  // suffix, and no two points of one arm on one day wear the same one. Two models' runs of one harness are two dots.
+  for (const s of slices) {
+    const seen = new Map<string, string>()
+    for (const p of slicePoints(s, files)) {
+      const key = `${p.harness}|${p.date}|${p.runLabel}`
+      assert.ok(!seen.has(key), `${s.id}: ${p.report} and ${seen.get(key)} are both drawn as "${p.harness}, ${p.runLabel}"`)
+      seen.set(key, p.report)
+    }
+  }
+})
+
 test('every slice is drawable on axes its own points measured, not only on the chart’s default pair', () => {
   for (const s of slices) {
     const ps = slicePoints(s, files)
