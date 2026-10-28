@@ -96,6 +96,24 @@ LIST_PRICES: dict[str, dict[str, float]] = {
     "gpt-6-astra": {"input": 10.0, "cache_read": 1.0, "cache_write": 12.5, "output": 50.0},
 }
 
+# The catalog's `max_output_tokens` per model (`catalog.rs`): the cap the kernel
+# reserves at the output price, since the bench profile carries no
+# `max_output_tokens` line of its own. A model without a row (the GPT ones are
+# not in the catalog) reserves `DEFAULT_MAX_OUTPUT_TOKENS`. A test compares the
+# rows with `catalog.rs` (theseus-xkzsn).
+DEFAULT_MAX_OUTPUT_TOKENS = 128_000
+MAX_OUTPUT_TOKENS: dict[str, int] = {
+    "claude-sonnet-5-5": 128_000,
+    "claude-opus-5-5": 128_000,
+    "claude-fable-5-1": 128_000,
+    "claude-haiku-5-5": 128_000,
+    "claude-sonnet-5": 128_000,
+    "claude-opus-5": 128_000,
+    "glm-5.3": 128_000,
+    "kimi-k3.1-pro": 131_072,
+    "deepseek-v4-pro": 384_000,
+}
+
 # Harbor's exception types for the verifier's own timeout (harbor.trial.errors):
 # the grader's, never the agent's failure (theseus-w052 3, `quiet.py`).
 GRADER_TIMEOUT_ERRORS = frozenset({"VerifierTimeoutError"})
