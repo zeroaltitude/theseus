@@ -568,9 +568,11 @@ async fn a_remove_sticks_against_the_packs_verdict_on_the_same_google_result() {
     assert_eq!(flags(&r.core, &sid).labels.len(), 1);
     assert!(super::tests::ledgered(&r.core, "content.judged").is_empty());
     r.core.unlabel_session(&sid, "confidential", cli()).unwrap();
-    jev.release();
     let start = Instant::now();
     while super::tests::ledgered(&r.core, "content.judged").is_empty() {
+        // The ask reaches Jev off the turn's path, some time after the turn:
+        // release whatever is held until it has landed.
+        jev.release();
         assert!(
             start.elapsed() < std::time::Duration::from_secs(20),
             "the pack never landed"
