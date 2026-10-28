@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="191" viewBox="0 0 720 191" role="img" aria-labelledby="t-cost-theseus-103-max-k3 t-cost-theseus-103-max-k3-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-cost-theseus-103-max-k3">Dollars a trial, Theseus 1.0.3 (routed)</title>
+<desc id="t-cost-theseus-103-max-k3-d">What does one Theseus 1.0.3 (routed) trial cost?</desc>
+<rect width="720" height="191" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Dollars a trial, Theseus 1.0.3 (routed)</text>
+<line x1="115.1" y1="48.0" x2="115.1" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="251.7" y1="48.0" x2="251.7" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="388.4" y1="48.0" x2="388.4" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="525.0" y1="48.0" x2="525.0" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="661.6" y1="48.0" x2="661.6" y2="112.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="105.1" y="68.0" font-size="12" fill="#0b0b0b" text-anchor="end">median $/trial</text>
+<g><title>median $/trial · as billed, $0.20/Mtok cache reads: $0.26</title>
+<path d="M115.1,55.0H289.5A4,4 0 0 1 293.5,59.0V69.0A4,4 0 0 1 289.5,73.0H115.1Z" fill="#2a78d6"/>
+</g>
+<text x="298.5" y="68.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.26</text>
+<text x="105.1" y="100.0" font-size="12" fill="#0b0b0b" text-anchor="end">mean $/trial</text>
+<g><title>mean $/trial · as billed, $0.20/Mtok cache reads: $0.61</title>
+<path d="M115.1,87.0H530.2A4,4 0 0 1 534.2,91.0V101.0A4,4 0 0 1 530.2,105.0H115.1Z" fill="#2a78d6"/>
+</g>
+<text x="539.2" y="100.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">$0.61</text>
+<text x="115.1" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.00</text>
+<text x="251.7" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.20</text>
+<text x="388.4" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.40</text>
+<text x="525.0" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.60</text>
+<text x="661.6" y="128.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.80</text>
+<line x1="115.1" y1="112.0" x2="661.6" y2="112.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="388.4" y="146.0" font-size="12" fill="#52514e" text-anchor="middle">dollars a trial</text>
+<text x="18.0" y="168.0" font-size="11" fill="#52514e">90 trials, 90 of which reached a priced call. This cell's 1048 claude-sonnet-5-5 calls fit the $0.20 table to 9e-07.</text>
+</svg>

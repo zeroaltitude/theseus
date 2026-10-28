@@ -1,0 +1,290 @@
+{
+ "report": "2026-10-27-terminal-bench-openclaw-astra-high-k1",
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-27",
+ "cell": "c5-openclaw-astra-high-k1",
+ "commit": "harbor arm at d7eb4c27",
+ "tasks": 89,
+ "trials": 89,
+ "k_per_task": {
+  "1": 89
+ },
+ "task_set": "full",
+ "summary": {
+  "openclaw": {
+   "label": "OpenClaw 2026.9.8, gpt-6-astra, HIGH, 89x1",
+   "trials": 89,
+   "solved": 73,
+   "tasks": 89,
+   "rate": 0.820225,
+   "wilson": [
+    0.727747,
+    0.886202
+   ],
+   "k": 1,
+   "effort": [
+    "medium"
+   ],
+   "routing": "pinned",
+   "provider": "openai",
+   "model": [
+    "gpt-6-astra"
+   ],
+   "usd_total": 174.832352,
+   "usd_trial": 1.964408,
+   "usd_trial_ci": [
+    1.484864,
+    2.443953
+   ],
+   "usd_trial_median": 1.25702,
+   "usd_solve": 2.394964,
+   "agent_s_median": 151.22,
+   "model_calls_median": 15,
+   "exceptions": {
+    "AgentSafetyRefusalError": 2,
+    "NonZeroAgentExitCodeError": 2
+   },
+   "billed_models": {
+    "gpt-6-astra": 87
+   }
+  }
+ },
+ "replaced": [],
+ "tier": "high",
+ "model": "openai/gpt-6-astra, pinned: one model, no routing and no fallback -- every priced call in this cell is billed to gpt-6-astra",
+ "agent": "OpenClaw 2026.9.8 (`openclaw_agent:MeasuredOpenClaw`)",
+ "commits": [],
+ "price_basis": {
+  "n": 89,
+  "n_priced": 87,
+  "as_billed": {
+   "median": 1.25702,
+   "mean": 1.964408,
+   "total": 174.832352
+  },
+  "note": "This arm bills every call to an OpenAI model, so the 2026-10-25 Sonnet 5.5 cache-read move (install #85, theseus-rko44) cannot apply to it and there is no second basis to quote. Its recorded dollars ARE the quote. Solving these trials against the Sonnet tables -- which is what the rival-cell tool does -- misses by $10.50 a trial at worst and means nothing; a cost figure from this cell is comparable with another OpenAI-billed cell and with nothing else until both are put on one table.",
+  "billed": "openai gpt-6-astra (the Sonnet cache-read move does not apply)",
+  "applies": false,
+  "rows": [
+   {
+    "basis": "as billed",
+    "label": "as billed (OpenAI table)",
+    "quote": true,
+    "median": 1.25702,
+    "mean": 1.964408,
+    "total": 174.832352
+   }
+  ]
+ },
+ "figures": [
+  {
+   "name": "pass-rate-openclaw-astra-high",
+   "form": "intervals",
+   "title": "Pass rate, OpenClaw 2026.9.8 on gpt-6-astra, 89 tasks x k=1, HIGH tier",
+   "question": "How much of this task set does OpenClaw 2026.9.8 on gpt-6-astra solve?",
+   "note": "95% Wilson intervals on trials. The agent-started row drops the trials whose agent never reached a model call; Harbor charges those to the arm as reward 0, so the raw row is the one that compares with every other arm.",
+   "x": {
+    "label": "trials passed",
+    "format": "pct",
+    "min": 0.0,
+    "max": 1.0
+   },
+   "rows": [
+    {
+     "label": "OpenClaw 2026.9.8 on gpt-6-astra",
+     "arm": "openclaw",
+     "group": "every trial (raw)",
+     "value": 0.8202,
+     "lo": 0.727747,
+     "hi": 0.886202,
+     "tip": "73 of 89"
+    },
+    {
+     "label": "OpenClaw 2026.9.8 on gpt-6-astra",
+     "arm": "openclaw",
+     "group": "trials whose agent started",
+     "value": 0.8391,
+     "lo": 0.747828,
+     "hi": 0.901654,
+     "tip": "73 of 87"
+    }
+   ],
+   "legend_labels": {
+    "openclaw": "OpenClaw 2026.9.8 on gpt-6-astra"
+   }
+  },
+  {
+   "name": "cost-openclaw-astra-high",
+   "form": "bars",
+   "title": "Dollars a trial, OpenClaw 2026.9.8 on gpt-6-astra",
+   "question": "What does one OpenClaw 2026.9.8 on gpt-6-astra trial cost?",
+   "note": "89 trials, 87 of which reached a priced call; the other 2 cost $0 and stay in the denominator. One basis only: this arm bills no Sonnet, so the 10-25 cache-read move has nothing to move.",
+   "categories": [
+    "median $/trial",
+    "mean $/trial"
+   ],
+   "value": {
+    "label": "dollars a trial",
+    "format": "usd",
+    "min": 0
+   },
+   "series": [
+    {
+     "arm": "openclaw",
+     "label": "as billed, OpenAI table",
+     "values": [
+      1.25702,
+      1.964408
+     ]
+    }
+   ]
+  }
+ ],
+ "groupings": {
+  "all": {
+   "label": "every trial",
+   "trials": 89,
+   "passed": 73,
+   "pass_rate": {
+    "value": 0.820225,
+    "lo": 0.727747,
+    "hi": 0.886202,
+    "k": 73,
+    "n": 89
+   },
+   "usd_total": {
+    "value": 174.832352
+   },
+   "usd_per_trial": {
+    "value": 2.009567
+   },
+   "usd_per_solve": {
+    "value": 2.394964
+   },
+   "agent_s_median": {
+    "value": 151.22
+   },
+   "model_calls_median": {
+    "value": 15
+   },
+   "exceptions": {
+    "AgentSafetyRefusalError": 2,
+    "NonZeroAgentExitCodeError": 2
+   },
+   "billed_models": {
+    "gpt-6-astra": 87
+   }
+  },
+  "clean": {
+   "label": "trials on a quiet host",
+   "trials": 89,
+   "passed": 73,
+   "pass_rate": {
+    "value": 0.820225,
+    "lo": 0.727747,
+    "hi": 0.886202,
+    "k": 73,
+    "n": 89
+   },
+   "usd_total": {
+    "value": 174.832352
+   },
+   "usd_per_trial": {
+    "value": 2.009567
+   },
+   "usd_per_solve": {
+    "value": 2.394964
+   },
+   "agent_s_median": {
+    "value": 151.22
+   },
+   "model_calls_median": {
+    "value": 15
+   },
+   "exceptions": {
+    "AgentSafetyRefusalError": 2,
+    "NonZeroAgentExitCodeError": 2
+   },
+   "billed_models": {
+    "gpt-6-astra": 87
+   }
+  },
+  "gate_contaminated": {
+   "label": "trials inside a WSL join-gate window",
+   "trials": 0,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.0,
+    "k": 0,
+    "n": 0
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {},
+   "billed_models": {}
+  },
+  "agent_ran": {
+   "label": "trials whose agent actually started",
+   "trials": 87,
+   "passed": 73,
+   "pass_rate": {
+    "value": 0.83908,
+    "lo": 0.747828,
+    "hi": 0.901654,
+    "k": 73,
+    "n": 87
+   },
+   "usd_total": {
+    "value": 174.832352
+   },
+   "usd_per_trial": {
+    "value": 2.009567
+   },
+   "usd_per_solve": {
+    "value": 2.394964
+   },
+   "agent_s_median": {
+    "value": 151.22
+   },
+   "model_calls_median": {
+    "value": 15
+   },
+   "exceptions": {
+    "AgentSafetyRefusalError": 2
+   },
+   "billed_models": {
+    "gpt-6-astra": 87
+   }
+  },
+  "setup_failed": {
+   "label": "trials whose agent never started",
+   "trials": 2,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.657628,
+    "k": 0,
+    "n": 2
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 2
+   },
+   "billed_models": {}
+  }
+ }
+}
