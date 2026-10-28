@@ -199,8 +199,7 @@ pub(crate) const ROUTINE_AT_54: &str = r#"{"session_id":"ses_0000000000000000000
 
 #[test]
 fn a_format_54_routine_reads_as_one_that_runs_until_it_is_paused() {
-    let s: theseus_protocol::routines::RoutineSpec =
-        serde_json::from_str(ROUTINE_AT_54).unwrap();
+    let s: theseus_protocol::routines::RoutineSpec = serde_json::from_str(ROUTINE_AT_54).unwrap();
     assert!(s.stop.is_none() && s.stopped_ms.is_none() && s.start_ms.is_none());
     assert_eq!(s.carry, theseus_protocol::routines::Carry::LastReport);
     assert_eq!(s.runs, 22);

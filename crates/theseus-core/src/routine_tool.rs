@@ -149,7 +149,12 @@ impl Tool for RoutineCreate {
         // what the owner's yes is really about (theseus-97b8c).
         let now = theseus_protocol::now_unix_ms();
         let ahead = self.max_ahead_ms;
-        let start_ms = match new.start.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let start_ms = match new
+            .start
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             Some(s) => Some(crate::wake_when::parse_when(s, now, &self.zone, ahead)?),
             None => None,
         };
