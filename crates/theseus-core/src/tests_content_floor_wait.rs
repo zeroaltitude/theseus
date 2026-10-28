@@ -178,3 +178,91 @@ async fn eight_concurrent_cn_turns_each_judge_their_own_message_inside_the_floor
     );
     assert_eq!(crate::tests_dm_rig::blocked(&r.core), 0);
 }
+
+/// Every `content.v3` call's timing, as its `judge.call` row recorded it:
+/// `(queued_ms, http_ms, total_ms)`. `queued_ms` is the time the call spent
+/// waiting for one of the judge client's in-flight permits
+/// (`[judge] max_in_flight`), which is the number that says whether a verdict
+/// was late because Jev was slow or because the call never got to be made.
+fn content_call_timings(core: &std::sync::Arc<crate::rpc::Core>) -> Vec<(u64, u64, u64)> {
+    core.store
+        .scope_after("judge:content", 0)
+        .unwrap()
+        .into_iter()
+        .filter_map(|r| r.decode::<crate::ledger::LedgerRow>().ok())
+        .filter_map(|r| {
+            let t = r.data.get("timing")?;
+            let n = |k: &str| t.get(k).and_then(serde_json::Value::as_u64).unwrap_or(0);
+            Some((n("queued_ms"), n("http_ms"), n("total_ms")))
+        })
+        .collect()
+}
+
+/// **The mechanism, measured** (theseus-oc9n4). The row's hypothesis was that
+/// the landing defers past the floor's wait. It does not: `judge::content`'s
+/// `land` writes at once, and the between-turns park it used to do was taken
+/// out by theseus-gyjyo.7. What is left, and what this holds, is the **queue
+/// in front of the call**: every judge call takes one of the client's
+/// `[judge] max_in_flight` permits, a content call takes one like any other,
+/// and a turn's own calls are in that queue too. So a content ask queued at
+/// the top of a turn can be served only once the turns around it stop asking
+/// — which is why the live check saw the verdict land a fixed half-second
+/// after the turn **ended**, on turns of quite different lengths, rather than
+/// a fixed time after it was asked.
+///
+/// The rig puts six cn sessions against two permits with a Jev that answers
+/// in 400 ms, so the queue in front of a content call is longer than the
+/// floor's wait. A red prints each call's `(queued_ms, http_ms, total_ms)`:
+/// a large `queued_ms` beside a small `http_ms` is the permit queue and
+/// nothing else.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn a_cn_turns_own_message_does_not_lose_the_floors_wait_to_the_permit_queue() {
+    const N: usize = 6;
+    const SHORT: Duration = Duration::from_millis(1_500);
+    let jev = FakeJev::start().unwrap();
+    clean(&jev);
+    crate::tests_route::mode(&jev, "trivial", 0.95);
+    jev.set_latency(Duration::from_millis(400), Duration::from_millis(400));
+    let r = rig_parts(
+        Some(&jev),
+        N * 2,
+        |c| {
+            crate::tests_route::restricted_placements(c);
+            c.judge.packs.remove(crate::judge::content::PACK);
+            c.judge.total_secs = 30;
+            // Two permits for six sessions: the contention the live check had
+            // with eight sessions and the default eight.
+            c.judge.max_in_flight = 2;
+            c.content_based_security.wait_ms = SHORT.as_millis() as u64;
+            c.model.retries.transient = 0;
+        },
+        |_| {},
+    );
+    let mut turns = Vec::new();
+    for i in 0..N {
+        let core = r.core.clone();
+        turns.push(tokio::spawn(async move {
+            cn_turn(&core, &format!("say hello back, number {i}")).await
+        }));
+    }
+    let mut ran = Vec::new();
+    for t in turns {
+        ran.push(t.await.expect("a cn turn's task panicked"));
+    }
+    let timings = content_call_timings(&r.core);
+    let worst = timings.iter().map(|t| t.0).max().unwrap_or(0);
+    let table: Vec<String> = ran
+        .iter()
+        .map(|x| format!("  {:?} on {}", x.took, x.profile))
+        .collect();
+    let lost: Vec<&Ran> = ran.iter().filter(|x| x.took >= SHORT).collect();
+    assert!(
+        lost.is_empty(),
+        "{} of {N} cn turns spent their whole wait_ms ({SHORT:?}).\nturns:\n{}\n\
+         content.v3 calls (queued_ms, http_ms, total_ms): {timings:?}\n\
+         worst queued_ms {worst}: a large one beside a small http_ms is the \
+         in-flight permit queue, not a slow Jev.",
+        lost.len(),
+        table.join("\n")
+    );
+}
