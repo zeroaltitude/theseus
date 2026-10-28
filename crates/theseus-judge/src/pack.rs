@@ -322,8 +322,8 @@ impl Dynamic {
     /// questions draw on them. `Err`: the ones the record does not hold (all
     /// of them when it holds none).
     pub fn from_record(record: &serde_json::Value, pack: &Pack) -> Result<Dynamic, Vec<Source>> {
-        let held: BTreeMap<Source, Vec<Item>> = serde_json::from_value(record.clone())
-            .unwrap_or_default();
+        let held: BTreeMap<Source, Vec<Item>> =
+            serde_json::from_value(record.clone()).unwrap_or_default();
         let missing: Vec<Source> = Self::needed(pack)
             .into_iter()
             .filter(|s| !held.contains_key(s))
@@ -2094,7 +2094,11 @@ mod tests {
         assert_eq!(none, serde_json::json!({"untrusted": []}));
         assert!(Dynamic::from_record(&none, &pack).is_ok());
         // A record of nothing, or of other sources, holds none of what it needs.
-        for rec in [serde_json::json!({}), serde_json::json!(null), serde_json::json!({"tasks": []})] {
+        for rec in [
+            serde_json::json!({}),
+            serde_json::json!(null),
+            serde_json::json!({"tasks": []}),
+        ] {
             assert_eq!(
                 Dynamic::from_record(&rec, &pack).unwrap_err(),
                 [Source::Untrusted]
