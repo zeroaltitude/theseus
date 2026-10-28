@@ -828,7 +828,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   under the home session's execution lock, the lock a split's and an unsplit's frames hold, so a split lands wholly
   before or after them. Tests: `rpc/tests_home_claim.rs`, `home_claim::tests`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
-  a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
+  what a turn hands it in `toolrun/turn_ctx.rs` (`TurnCtx`), the `ResultNode` a call site fills and the answers a call
+  writes back in `toolrun/result_node.rs`, and a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,
   never "(no output)": theseus-f7tz), a `proc.run` batch's steps in `toolrun/steps.rs` (each a job
   under the call's one correlation id, the next launched once one exits 0, the turn's wait held across them so

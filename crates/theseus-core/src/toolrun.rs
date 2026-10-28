@@ -12,7 +12,7 @@
 //! real result arrives as a late message when the job settles, even across a
 //! daemon restart (the spool keeps it).
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -20,23 +20,18 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_kernel::job::{spawn_detached, WrapperArgs};
-use theseus_kernel::{
-    Accepted, Action, Completion, Kernel, Outcome, Proposal, RetryClass, Spool, TurnGuard,
-};
+use theseus_kernel::{Accepted, Action, Completion, Outcome, Proposal, RetryClass, Spool};
 use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, LedgerKind, PolicyNotified};
 use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolCtx};
 
 use crate::broker::Broker;
-use crate::bus::EventSink;
 use crate::fact;
-use crate::ledger::LedgerRow;
-use crate::narrative::{self, Narrator};
+use crate::narrative;
 use crate::node::{Body, Node, ResultStatus};
 use crate::policy::{Decision, Posture, ToolPolicy};
 use crate::provider::ToolUse;
 use crate::sandbox::{self, Sandbox};
 use crate::scrub::Scrubber;
-use crate::store::Store;
 
 mod guarded;
 use guarded::guarded_paths;
@@ -66,10 +61,12 @@ mod parallel;
 mod peek;
 mod proc_cap;
 mod proposal;
+mod result_node;
 mod resume;
 mod self_pr;
 pub(crate) mod session_dir;
 mod steps;
+mod turn_ctx;
 pub mod waits;
 
 use mcp_floor::mcp_floor;
@@ -80,6 +77,8 @@ pub use late::LateCall;
 pub(crate) use late::{announce_cancelled, not_run_results};
 pub use peek::{last_line, newest, peek, Newest, Peek};
 pub use proposal::confirm_proposal;
+use result_node::{failure, not_run_answer, unanswered, Invalid, ResultNode};
+pub use turn_ctx::TurnCtx;
 pub use waits::{JobDone, JobWaits, Waiting};
 
 /// Starts a job. The real one spawns `theseusd job-wrapper` detached, whose
@@ -117,111 +116,6 @@ impl JobLauncher for InlineLauncher {
             done.wake();
         });
         Ok(std::process::id())
-    }
-}
-
-/// What a turn hands the tool layer for one call.
-pub struct TurnCtx<'a> {
-    pub kernel: &'a Kernel,
-    pub store: &'a Store,
-    pub guard: &'a TurnGuard,
-    pub session_id: &'a str,
-    pub execution_id: &'a str,
-    pub turn_id: &'a str,
-    pub loop_index: Option<u32>,
-    pub sink: &'a EventSink,
-    pub confirm_ttl_ms: u64,
-    pub narrator: &'a Narrator,
-    /// Where a card for a call that waits goes (theseus-q4v).
-    pub outbox: &'a crate::outbox::Outbox,
-    /// Posts whose records wait in `store` for the turn's next frame: the
-    /// turn indexes them once that is written.
-    pub posts: &'a std::sync::Mutex<Vec<Action>>,
-    /// What the turn runs against: a task it starts runs on it too (DD7).
-    pub target: Option<&'a crate::turn::Target>,
-    /// Where this session came from, when it is a task (DD7): its notices
-    /// name it, and it starts no tasks.
-    pub task: Option<&'a crate::session::TaskOf>,
-    /// The class of the place the turn's words go to (the place rule,
-    /// theseus-nbsh), fixed once it has taken its wakes and reports: a
-    /// shared place's calls are only the public tools (`places::refusal`).
-    pub class: crate::places::PlaceClass,
-    /// That place's ceiling (step 38a), taken with its class: a floor, and
-    /// the tools it offers (`ceiling.rs`).
-    pub ceiling: Option<&'static crate::ceiling::Ceiling>,
-    /// Set for a China-origin draft's session (`draft_view.rs`): its requests
-    /// take the stripped prefix, and its calls are gated in the draft's reach.
-    pub draft: Option<&'static crate::draft_view::DraftReach>,
-    /// The bound places, as a glide names them (38b).
-    pub places: crate::places::Places<'a>,
-    /// The session's directory, as its client sent it (theseus-aab7):
-    /// where its calls work (`ToolRuntime::ctx_in`). None: `[tools] cwd`.
-    pub dir: Option<&'a str>,
-    /// The conversation's pending wakes as the turn last knew them: what its
-    /// requests' commitments block shows (theseus-lherl), set by the turn's
-    /// read of its wakes and by each wake tool's frame.
-    pub commitments: &'a crate::commitments::Pending,
-    /// The threads, as `thread.note` writes them (`thread_context`).
-    pub threads: &'a crate::threads::Threads,
-}
-
-impl TurnCtx<'_> {
-    /// Where the turn's words go: its class and its ceiling.
-    pub fn place(&self) -> crate::ceiling::PlaceView {
-        crate::ceiling::PlaceView {
-            class: self.class,
-            ceiling: self.ceiling,
-            voice: false,
-            draft: self.draft,
-        }
-    }
-}
-
-impl TurnCtx<'_> {
-    /// Where this turn's facts go (`crate::fact`): its session and turn, its
-    /// clients, and its next frame.
-    pub fn rec(&self) -> crate::fact::Rec<'_> {
-        crate::fact::Rec {
-            narrator: self.narrator,
-            session: Some(self.session_id),
-            turn: Some(self.turn_id),
-            to: crate::fact::To::Sink(self.sink),
-            store: self.store,
-        }
-    }
-
-    /// Record a fact of this turn's on each of its channels.
-    pub fn record<F: crate::fact::Fact>(&self, f: &F) {
-        self.rec().record(f);
-    }
-
-    /// A ledger row for this turn. It is no state transition, so it rides in
-    /// the turn's next frame (theseus-qa0). A row that cannot be encoded is
-    /// logged, not fatal.
-    pub fn ledger(&self, kind: LedgerKind, data: Value) {
-        if let Err(e) = self
-            .ledger_record(kind, data)
-            .and_then(|r| self.store.defer(r))
-        {
-            tracing::warn!(error = %e, "ledger append failed");
-        }
-    }
-
-    /// A ledger row for this turn, as a record for a frame the caller builds.
-    pub fn ledger_record(&self, kind: LedgerKind, data: Value) -> Result<theseus_store::NewRecord> {
-        theseus_store::NewRecord::json(
-            theseus_store::kinds::LEDGER,
-            None,
-            &LedgerRow::new(kind, Some(self.session_id), Some(self.turn_id), data),
-        )
-    }
-
-    /// Tell the session's clients about a node this turn wrote.
-    pub fn node_written(&self, node: &Node) {
-        self.record(&crate::fact::turn::NodeWritten {
-            session_id: self.session_id,
-            node,
-        });
     }
 }
 
@@ -1972,104 +1866,6 @@ impl ToolRuntime {
         }
     }
 }
-/// An async call's failure, as its result: `unknown` when the tool says its
-/// outcome is (a connection that ended while it waited), and outside text
-/// when the tool says its words are (an MCP server's error result).
-#[allow(clippy::type_complexity)]
-fn failure(
-    message: String,
-    meta: Value,
-) -> (
-    ResultStatus,
-    String,
-    Value,
-    Option<theseus_tools::Media>,
-    Option<theseus_tools::External>,
-) {
-    let status = match meta.get("outcome_unknown").and_then(Value::as_bool) {
-        Some(true) => ResultStatus::Unknown,
-        _ => ResultStatus::Error,
-    };
-    let external = meta
-        .get("external")
-        .and_then(Value::as_str)
-        .map(|url| theseus_tools::External { url: url.into() });
-    (status, message, meta, None, external)
-}
-
-/// What a call that never ran tells the model: who declined it, that nobody
-/// answered its question in time, or why it was cancelled (its action's
-/// resolution).
-fn not_run_answer(a: &Action) -> (ResultStatus, String) {
-    // An expired question is no one's decline (theseus-830).
-    if let Some(answer) = crate::rpc::expired_answer(a) {
-        return answer;
-    }
-    // A decline records who declined; the model reads only the note.
-    match a.declined_note() {
-        Some(note) => (
-            ResultStatus::Declined,
-            format!("Not run: the operator declined this call ({note})."),
-        ),
-        None => (
-            ResultStatus::Cancelled,
-            format!(
-                "Not run: {}.",
-                a.resolution.as_deref().unwrap_or("cancelled")
-            ),
-        ),
-    }
-}
-
-/// A tool result to write: the call it answers, its status and text, and
-/// what else the call site knows. Name only what differs from `new`, as
-/// `ResultNode { late: true, ..ResultNode::new(…) }`.
-struct ResultNode<'a> {
-    tool_use_id: &'a str,
-    tool: &'a str,
-    status: ResultStatus,
-    /// Before it is scrubbed and capped.
-    text: String,
-    correlation_id: Option<&'a str>,
-    duration_ms: Option<u64>,
-    late: bool,
-    /// Bytes of the whole output; the text's own length when None.
-    bytes_total: Option<u64>,
-    meta: Value,
-    image: Option<crate::node::Attachment>,
-    /// Where its text came from, when that is outside Theseus (DD5).
-    external: Option<theseus_tools::External>,
-    /// The line its text ends with, past the cap: the native call a job of
-    /// the daemon's own CLI stands in for (`native::hint`, theseus-8c8s).
-    hint: Option<String>,
-    /// Where the output in its text is, kept whole when cut (theseus-v73m).
-    kept: Option<kept::Source>,
-}
-
-impl<'a> ResultNode<'a> {
-    fn new(
-        tool_use_id: &'a str,
-        tool: &'a str,
-        status: ResultStatus,
-        text: impl Into<String>,
-    ) -> Self {
-        Self {
-            tool_use_id,
-            tool,
-            status,
-            text: text.into(),
-            correlation_id: None,
-            duration_ms: None,
-            late: false,
-            bytes_total: None,
-            meta: Value::Null,
-            image: None,
-            external: None,
-            hint: None,
-            kept: None,
-        }
-    }
-}
 
 /// A call through the gate: the toollet's plan, the policy's decision, the
 /// proposal a confirm would bind, and the record its node keeps.
@@ -2081,48 +1877,9 @@ pub(crate) struct Gated {
     pub(crate) class: sandbox::Bound,
 }
 
-/// A call whose input the toollet refused, or that its place may not make
-/// (`refused`, the place rule); its gate record is still stored.
-struct Invalid {
-    record: Box<GateRecord>,
-    error: String,
-    refused: bool,
-}
-
 /// The gate record's reason, and the result's word, for a call its place
 /// may not make (the place rule, theseus-nbsh).
 pub const PLACE_REFUSAL: &str = "place";
-
-/// The last assistant message, and its `tool_use`s with no result yet.
-fn unanswered(nodes: &[(u64, crate::stub::Stub)]) -> Option<(&Node, Vec<ToolUse>)> {
-    use crate::stub::Kind;
-    let at = nodes
-        .iter()
-        .rposition(|(_, n)| n.kind == Kind::AssistantMessage)?;
-    let last = &nodes[at].1;
-    // A call's result follows the reply that holds it: only what came after
-    // is read, so a long session's earlier results stay stubs (step 33).
-    let answered: HashSet<&str> = nodes[at + 1..]
-        .iter()
-        .filter(|(_, n)| n.kind == Kind::ToolResult)
-        .filter_map(|(_, n)| match &n.body {
-            Body::ToolResult {
-                tool_use_id,
-                late: false,
-                ..
-            } => Some(tool_use_id.as_str()),
-            _ => None,
-        })
-        .collect();
-    let Body::AssistantMessage { blocks, .. } = &last.body else {
-        return None;
-    };
-    let pending = crate::provider::tool_uses_in(blocks)
-        .into_iter()
-        .filter(|u| !answered.contains(u.id.as_str()))
-        .collect();
-    Some((&**last, pending))
-}
 
 /// The tool runtime from config: registry, canonical roots, policy, limits,
 /// the job environment resolved once from the daemon's own, and the secret
