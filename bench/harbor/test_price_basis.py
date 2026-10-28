@@ -95,6 +95,40 @@ class Measure(unittest.TestCase):
         self.assertAlmostEqual(hi - r["dollars"], 4_000_000 * 0.10e-6, places=6)
 
 
+class MeasureMany(unittest.TestCase):
+    """A run's table, measured turn by turn: a whole-run sum does not fit either table
+    (long-window tiers and other items sit in the bill), but nearly every turn does."""
+
+    def turns(self, table, n=10):
+        by = {S55: usage(i=6, r=20_000, w=500, o=150)}
+        return [(by, billed(table, by)) for _ in range(n)]
+
+    def test_a_run_on_one_table_is_that_table(self):
+        for name in pb.TABLES:
+            got = pb.measure_many(self.turns(name))
+            self.assertEqual(got["digest"], pb.digest_of(name))
+            self.assertEqual(got["how"], "measured")
+            self.assertEqual(got["counts"], {pb.digest_of(name): 10})
+
+    def test_a_few_unmatched_turns_do_not_unseat_the_measured_ones(self):
+        turns = self.turns(pb.CURRENT) + [({S55: usage(r=20_000)}, 9.99)] * 2
+        got = pb.measure_many(turns)
+        self.assertEqual(got["digest"], pb.digest_of(pb.CURRENT))
+        self.assertEqual(got["unmatched"], 2)
+
+    def test_a_run_split_across_tables_is_mixed_and_has_no_digest(self):
+        got = pb.measure_many(self.turns(pb.PRE_RKO44, 4) + self.turns(pb.CURRENT, 4))
+        self.assertIsNone(got["digest"])
+        self.assertEqual(got["how"], "mixed")
+
+    def test_a_run_with_nothing_measurable_has_no_digest(self):
+        got = pb.measure_many([({S55: usage(i=10)}, 0.00002)] * 3)
+        self.assertEqual((got["digest"], got["how"]), (None, "ambiguous"))
+
+    def test_an_empty_run_is_not_a_basis(self):
+        self.assertEqual(pb.measure_many([])["how"], "unpriced")
+
+
 class Stamp(unittest.TestCase):
     def test_the_record_carries_its_digest(self):
         by = {S55: usage(i=10, r=4_000_000, w=1000, o=100)}

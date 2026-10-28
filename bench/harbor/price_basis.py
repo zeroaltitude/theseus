@@ -114,6 +114,32 @@ def measure(by_model: Mapping[str, Mapping[str, Any]], recorded: float | None,
     return None, "ambiguous" if fits else "unmatched"
 
 
+def measure_many(items: Iterable[tuple[Mapping[str, Mapping[str, Any]], float | None]]) -> dict[str, Any]:
+    """A run's table, from its turns' (by_model, recorded cost) pairs, one at a time. A
+    run's whole-bill sum fits neither table (a long-window tier and other items sit in it)
+    while nearly every turn fits one, so the verdict is the digest the measured turns share.
+    `how` is `measured` for one, `mixed` when the run straddles two tables (no digest),
+    `ambiguous` when no turn could tell and `unpriced` when there was nothing to read."""
+    counts: dict[str, int] = {}
+    n = unmatched = 0
+    for by_model, cost in items:
+        n += 1
+        d, how = measure(by_model, cost)
+        if d is not None:
+            counts[d] = counts.get(d, 0) + 1
+        elif how == "unmatched":
+            unmatched += 1
+    if not n:
+        how, digest = "unpriced", None
+    elif len(counts) == 1:
+        how, digest = "measured", next(iter(counts))
+    elif counts:
+        how, digest = "mixed", None
+    else:
+        how, digest = "ambiguous", None
+    return {"digest": digest, "how": how, "counts": counts, "unmatched": unmatched, "turns": n}
+
+
 def stamp(rec: Mapping[str, Any]) -> dict[str, Any]:
     """The keys `efficiency.write` adds to a record. A model's own bill is the
     one measured when Jev's dollars are in `cost_usd` (`model_cost_usd`)."""
