@@ -464,11 +464,31 @@ fn a_200_kb_transcript_of_ordinary_output_is_scanned_in_bounded_time() {
              "content": [{"type": "text", "text": text}]}]}));
     }
     assert!(wire(&req).len() > 200_000);
+    // What the exits did before the encodings: a `contains` of each value in
+    // each string. Printed beside the encoded scan for the report's cost line.
+    let texts: Vec<String> = req
+        .messages
+        .iter()
+        .filter_map(|m| m["content"][0]["content"][0]["text"].as_str())
+        .map(str::to_string)
+        .collect();
+    let values: Vec<String> = ('a'..='j')
+        .map(|c| format!("vault-value-{}", c.to_string().repeat(8)))
+        .collect();
+    let began = std::time::Instant::now();
+    let verbatim = texts
+        .iter()
+        .filter(|t| values.iter().any(|v| t.contains(v.as_str())))
+        .count();
+    let verbatim_took = began.elapsed();
+    assert_eq!(verbatim, 0);
     let began = std::time::Instant::now();
     let (sent, found) = x.request(&req);
     let took = began.elapsed();
     assert!(sent.is_none() && found.is_empty(), "{found:?}");
-    eprintln!("exits: 200 KB request, ten values, one request: {took:?}");
+    eprintln!(
+        "exits: 200 KB request, ten values, one request: {took:?} (the verbatim scan alone: {verbatim_took:?})"
+    );
     assert!(
         took < std::time::Duration::from_secs(5),
         "the encoded scan took {took:?}"

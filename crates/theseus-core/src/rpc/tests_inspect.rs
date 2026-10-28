@@ -423,8 +423,8 @@ fn an_answer_names_the_vault_secrets_its_request_carried() {
     // Another surface learns how many and whether, never which.
     let o = inspect(&core, &s, &t, false);
     let a = o.loops[0].answer.as_ref().unwrap();
-    assert_eq!(a.redacted.len(), 1);
-    assert!(a.redacted[0].names.is_empty());
+    assert_eq!(a.redacted.len(), 2);
+    assert!(a.redacted.iter().all(|r| r.names.is_empty()));
     assert_eq!(a.redacted[0].count, 3);
     assert!(!serde_json::to_string(&o).unwrap().contains("anthropic_key"));
     // A turn with no such row has none.
