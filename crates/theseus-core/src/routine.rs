@@ -359,6 +359,57 @@ pub fn stop_spent(stop: &RoutineStop, runs: u32, now_ms: u64) -> bool {
     stop.spent_after(runs) || stop.at_ms.is_some_and(|t| now_ms >= t)
 }
 
+/// Where a request's series begins and ends (theseus-97b8c), read and checked
+/// once so the owner's verb, the model's tool and the card all say the same.
+#[derive(Debug, Clone, Default)]
+pub struct Bounds {
+    /// The start: the first occurrence is the first at or after it.
+    pub start_ms: Option<u64>,
+    pub stop: Option<RoutineStop>,
+}
+
+/// The start a request asks for, before its schedule is read: the schedule is
+/// then read from there rather than from now.
+pub fn start_of(
+    n: &NewRoutine,
+    zone: &TimeZone,
+    now_ms: u64,
+    max_ahead_ms: u64,
+) -> Result<Option<u64>, String> {
+    match n.start.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => Ok(Some(crate::wake_when::parse_when(
+            s,
+            now_ms,
+            zone,
+            max_ahead_ms,
+        )?)),
+        None => Ok(None),
+    }
+}
+
+/// The stop a request asks for, once its first occurrence is known: a stop
+/// that comes before it would run nothing, and says so.
+pub fn stop_of(
+    n: &NewRoutine,
+    zone: &TimeZone,
+    now_ms: u64,
+    max_ahead_ms: u64,
+    first_ms: u64,
+) -> Result<Option<RoutineStop>, String> {
+    let Some(text) = n.stop.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let stop = parse_stop(text, now_ms, zone, max_ahead_ms)?;
+    if stop.at_ms.is_some_and(|at| at < first_ms) {
+        return Err(format!(
+            "the stop ({}) comes before the first run ({}): nothing would run",
+            stop.text,
+            when(zone, first_ms)
+        ));
+    }
+    Ok(Some(stop))
+}
+
 /// The stop as the card and the lists word it.
 fn stop_words(stop: Option<&RoutineStop>) -> String {
     match stop {
@@ -403,8 +454,7 @@ impl Prepared {
         run_usd: f64,
         month_usd: f64,
         zone: &TimeZone,
-        stop: Option<&RoutineStop>,
-        start_ms: Option<u64>,
+        bounds: &Bounds,
     ) -> String {
         let speak = Speak::parse(n.speak.as_deref().unwrap_or("")).unwrap_or_default();
         let to = n.deliver_to.as_deref().unwrap_or("dm");
@@ -413,9 +463,11 @@ impl Prepared {
             "Create routine \"{}\": {}{} (next: {}) · {} · up to {} a run, {} a month · {} · {}",
             n.title.trim(),
             at_words(&describe(repeat, zone)),
-            start_ms.map_or(String::new(), |m| format!(" from {}", when(zone, m))),
+            bounds
+                .start_ms
+                .map_or(String::new(), |m| format!(" from {}", when(zone, m))),
             next.join(", "),
-            stop_words(stop),
+            stop_words(bounds.stop.as_ref()),
             dollars(run_usd),
             dollars(month_usd),
             deliver_words(to, speak),
@@ -504,36 +556,19 @@ pub fn prepare(
     }
     let kc = kernel.config();
     let now = kernel.now_ms();
-    // The start moves the first occurrence: the series is read from there, so
-    // "every morning, from Monday" is one routine and not a reminder to make
-    // one later (theseus-97b8c).
-    let start_ms = match n.start.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(s) => Some(crate::wake_when::parse_when(
-            s,
-            now,
-            &kc.zone,
-            kc.wakes.max_ahead_ms,
-        )?),
-        None => None,
-    };
-    let from = start_ms.unwrap_or(now);
-    let mut parsed = parse_schedule(&n.schedule, &kc.zone, from, kc.min_repeat_ms)?;
-    let stop = match n.stop.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(s) => Some(parse_stop(s, now, &kc.zone, kc.wakes.max_ahead_ms)?),
-        None => None,
-    };
-    // A stop that is a time is the kernel's own `until` on the series; one that
-    // comes before the first occurrence would run nothing, and says so.
-    if let Some(at) = stop.as_ref().and_then(|s| s.at_ms) {
-        if at < parsed.first_ms {
-            return Err(format!(
-                "the stop ({}) comes before the first run ({}): nothing would run",
-                when(&kc.zone, at),
-                when(&kc.zone, parsed.first_ms)
-            ));
-        }
-        parsed.repeat.until_ms = Some(at);
-    }
+    // The start moves the first occurrence, so the series is read from there
+    // rather than from now; a stop that is a time becomes the series' own
+    // `until`, which the kernel already ends a series at (theseus-97b8c).
+    let ahead = kc.wakes.max_ahead_ms;
+    let start_ms = start_of(n, &kc.zone, now, ahead)?;
+    let mut parsed = parse_schedule(
+        &n.schedule,
+        &kc.zone,
+        start_ms.unwrap_or(now),
+        kc.min_repeat_ms,
+    )?;
+    let stop = stop_of(n, &kc.zone, now, ahead, parsed.first_ms)?;
+    parsed.repeat.until_ms = stop.as_ref().and_then(|s| s.at_ms);
     let carry = match &n.carry {
         Some(c) => Carry::parse(c).ok_or("carry is last_report or none")?,
         None => Carry::LastReport,
@@ -602,7 +637,7 @@ pub fn prepare(
         speak,
         carry,
         start_ms,
-        stop: stop.clone(),
+        stop,
         deliver_to,
         period_ms,
         created_ms: now,

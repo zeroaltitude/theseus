@@ -149,31 +149,18 @@ impl Tool for RoutineCreate {
         // what the owner's yes is really about (theseus-97b8c).
         let now = theseus_protocol::now_unix_ms();
         let ahead = self.max_ahead_ms;
-        let start_ms = match new
-            .start
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            Some(s) => Some(crate::wake_when::parse_when(s, now, &self.zone, ahead)?),
-            None => None,
-        };
+        let start_ms = crate::routine::start_of(&new, &self.zone, now, ahead)?;
         let mut parsed = theseus_kernel::cron::parse_schedule(
             &new.schedule,
             &self.zone,
             start_ms.unwrap_or(now),
             self.floor_ms,
         )?;
-        let stop = match new.stop.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            Some(s) => Some(crate::routine::parse_stop(s, now, &self.zone, ahead)?),
-            None => None,
+        let bounds = crate::routine::Bounds {
+            start_ms,
+            stop: crate::routine::stop_of(&new, &self.zone, now, ahead, parsed.first_ms)?,
         };
-        if let Some(at) = stop.as_ref().and_then(|s| s.at_ms) {
-            if at < parsed.first_ms {
-                return Err("the stop comes before the first run: nothing would run".into());
-            }
-            parsed.repeat.until_ms = Some(at);
-        }
+        parsed.repeat.until_ms = bounds.stop.as_ref().and_then(|s| s.at_ms);
         if let Some(c) = &new.carry {
             theseus_protocol::routines::Carry::parse(c).ok_or("carry is last_report or none")?;
         }
@@ -201,8 +188,7 @@ impl Tool for RoutineCreate {
             run,
             month,
             &self.zone,
-            stop.as_ref(),
-            start_ms,
+            &bounds,
         );
         Ok(Plan {
             summary: card,

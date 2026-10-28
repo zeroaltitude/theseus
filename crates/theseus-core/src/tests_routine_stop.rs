@@ -220,7 +220,7 @@ fn the_creation_card_names_the_start_and_the_stop() {
     let cfg = crate::Config::example();
     let tool = crate::routine_tool::RoutineCreate {
         zone: theseus_kernel::TimeZone::UTC,
-        cfg: cfg.routines.clone(),
+        cfg: cfg.routines,
         floor_ms: 60_000,
         max_ahead_ms: 400 * 86_400_000,
     };
