@@ -596,11 +596,18 @@ impl Core {
                 .rebuild_loop(&j.context)
                 .map(Input::Loop)
                 .map_err(|e| format!("{why_not_stored}, and it can't be rebuilt: {e}"))?,
-            theseus_judge::pack::Builder::Content => self
-                .stored_blob(j)
-                .and_then(|(_, json)| super::rebuild::content_input(&json))
-                .map(Input::Content)
-                .map_err(|e| format!("{why_not_stored}, and it can't be rebuilt: {e}"))?,
+            theseus_judge::pack::Builder::Content => {
+                // The five fields a v3 state adds are read now, from the
+                // session's record and the config (`rebuild::content_input`).
+                let around = crate::content_scene::Around::from_config(&self.cfg);
+                let scene = self.content_scene(j.context["session"].as_str().unwrap_or_default());
+                self.stored_blob(j)
+                    .and_then(|(_, json)| {
+                        super::rebuild::content_input(&json, Some((&around, &scene)))
+                    })
+                    .map(Input::Content)
+                    .map_err(|e| format!("{why_not_stored}, and it can't be rebuilt: {e}"))?
+            }
             _ => unreachable!("only loop's and content's input is rebuilt"),
         };
         let svc = &self.runner.judge;

@@ -65,7 +65,7 @@ impl Rig {
             j.insert("total_secs".into(), 5.into());
             // loop.v1 alone: the inbound point's packs (25a, 25e's route.v1)
             // are judged in theseus-core's tests_inbound and tests_route, and
-            // content.v2 in its tests_content (theseus-9ymz0). These tests count
+            // content.v3 in its tests_content (theseus-9ymz0). These tests count
             // the calls Jev is made, so a pack that asks about every item
             // entering a session would be counting its own.
             let packs = table(j, "packs");
@@ -75,7 +75,7 @@ impl Rig {
                 "route.v8",
                 "directive.v1",
                 "onto.v1",
-                "content.v2",
+                "content.v3",
             ] {
                 let mut off = toml::Table::new();
                 off.insert("rung".into(), "off".into());
@@ -178,7 +178,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             // Off in this rig: these tests count the calls Jev is made, and a
             // pack that asks about every item entering a session would be
             // counting its own (theseus-9ymz0).
-            "content.v2: off"
+            "content.v3: off"
         ])
     );
     assert_eq!(rig.rows("pack.mode").len(), 3, "one adoption row each");

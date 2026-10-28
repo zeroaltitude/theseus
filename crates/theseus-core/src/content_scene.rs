@@ -150,6 +150,11 @@ impl Around {
         )
     }
 
+    /// Whether the operator lists any tree as open source at all.
+    pub fn lists_any(&self) -> bool {
+        !self.open_source.is_empty()
+    }
+
     /// `path` as an absolute path: `~/` from home, a relative one from `dir`.
     fn resolve(&self, path: &str, dir: Option<&str>) -> Option<PathBuf> {
         if let Some(rest) = path.strip_prefix("~/") {
@@ -191,6 +196,35 @@ impl Around {
             .map(|d| home_shown(d, self.home.as_deref()));
         input.public = self.public(scene.dir.as_deref(), paths);
         input.context = (!self.context.is_empty()).then(|| self.context.clone());
+    }
+}
+
+impl crate::rpc::Core {
+    /// Where `session` speaks and works, as the pack's state says it: the place
+    /// rule's class of its target (a place that cannot be read counts as shared,
+    /// as the rest of the daemon reads it), and its directory as its tools
+    /// resolve it (`ToolRuntime::cwd_for`: the record's, else `[tools] cwd`).
+    pub fn content_scene(&self, session: &str) -> Scene {
+        use theseus_memory::recall::Place;
+        let place = match self.runner.place_of(session) {
+            Place::Private => "private",
+            _ => "shared",
+        };
+        let dir = self
+            .store
+            .get_session::<crate::session::SessionRecord>(session)
+            .ok()
+            .flatten()
+            .and_then(|r| r.dir);
+        Scene {
+            place: Some(place),
+            dir: Some(
+                self.tools
+                    .cwd_for(dir.as_deref())
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+        }
     }
 }
 

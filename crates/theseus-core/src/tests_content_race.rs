@@ -1,6 +1,6 @@
 //! Two items of one session, judged in two batches: the mark must reach both
 //! (theseus-8qgwo). The rig is `tests_content_late`'s -- the **real** judge
-//! against the fake Jev, with `content.v2` live -- because the defects here
+//! against the fake Jev, with `content.v3` live -- because the defects here
 //! live in `judge::content`'s own landing, which the floor's stand-in judge
 //! (`content_wait::judging`) replaces entirely and so cannot show.
 //!
@@ -80,7 +80,7 @@ fn clean(jev: &FakeJev) {
 
 fn rig(jev: &FakeJev, script: Vec<Scripted>) -> Rig {
     rig_on(script, Some(jev), |c| {
-        // content.v2 live (the judge rigs turn it off), the rest as they are.
+        // content.v3 live (the judge rigs turn it off), the rest as they are.
         c.judge.packs.remove(crate::judge::content::PACK);
         c.judge.total_secs = 5;
         c.tools.proc_sync_secs = 5;
@@ -275,7 +275,7 @@ async fn a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landin
         2,
         |c| {
             crate::tests_route::restricted_placements(c);
-            // content.v2 live: the judge rigs turn it off.
+            // content.v3 live: the judge rigs turn it off.
             c.judge.packs.remove(crate::judge::content::PACK);
             c.judge.total_secs = 10;
             // Generous, so a move to the default means the verdict never came

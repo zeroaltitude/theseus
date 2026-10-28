@@ -509,7 +509,7 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
             "heard.v1: live",
             "people.v1: live",
             "people_seen.v1: live",
-            "content.v2: off"
+            "content.v3: off"
         ]
     );
 }

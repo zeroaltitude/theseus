@@ -1,4 +1,4 @@
-//! `content.v2` live (theseus-9ymz0): the ask, against the fake Jev. Items are
+//! `content.v3` live (theseus-9ymz0): the ask, against the fake Jev. Items are
 //! queued, asked in one decision point a batch, and landed between turns as
 //! labels on the session. The tests drive `ask_content` directly, so no turn
 //! (and no hook site) is in them.
@@ -42,7 +42,7 @@ fn yes(jev: &FakeJev, q: &str, confidence: f64) {
 
 fn rig(jev: &FakeJev, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
     rig_with(texts(1), Some(jev), |c| {
-        // The rigs turn content.v2 off, so their Jev counts stay theirs.
+        // The rigs turn content.v3 off, so their Jev counts stay theirs.
         c.judge.packs.remove(PACK);
         c.judge.total_secs = 5;
         tweak(c);
@@ -276,6 +276,82 @@ async fn a_judgment_records_the_sources_its_conditional_question_resolved_agains
     );
 }
 
+/// A tool result's `source` is the tool's name, so the path a grep or a read
+/// named is only in its call (theseus-gyjyo.11): the judge finds the call in the
+/// transcript by the result's `tool_use_id`, and `public` follows the call's path
+/// whatever directory the session sits in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_calls_path_decides_public_when_the_source_names_none() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |c| {
+        c.privacy.open_source_paths = vec!["/home/owner/projects/lantern".into()];
+    });
+    // A session whose directory is the daemon's, which no listed tree holds.
+    let sid = session(&r);
+    let plant_call = |node: &str, path: &str| {
+        let call = Node::tool_call(
+            &sid,
+            Some("trn_1"),
+            Some(0),
+            Body::ToolCall {
+                tool_use_id: format!("tu_{node}"),
+                tool: "fs.grep".into(),
+                wire_name: "fs_grep".into(),
+                input: json!({"pattern": "AWS", "path": path}),
+                assistant_node: "asn_1".into(),
+                correlation_id: None,
+                gate: None,
+            },
+        );
+        r.core.store.append(&[call.record().unwrap()]).unwrap();
+    };
+    plant_call("n1", "/home/owner/projects/lantern/README.md");
+    plant_call("n2", "/home/owner/work/company/notes.md");
+    let items = vec![
+        result_in(&r, &sid, "n1", "README.md:1: # Lantern"),
+        result_in(&r, &sid, "n2", "notes.md:1: plans"),
+    ];
+    r.core.runner.judge.ask_content(&sid, items);
+    until(&r, "content.judged", 2).await;
+    let t0 = Instant::now();
+    let calls = loop {
+        let found: Vec<Value> = r
+            .core
+            .store
+            .scope_after("judge:content", 0)
+            .unwrap()
+            .into_iter()
+            .map(|rec| rec.decode::<crate::ledger::LedgerRow>().unwrap().data)
+            .collect();
+        if found.len() >= 2 || t0.elapsed() > Duration::from_secs(20) {
+            break found;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let public = |node: &str| -> Option<Value> {
+        let call = calls.iter().find(|d| d["context"]["node"] == node)?;
+        let blob = call["context"]["blob"].as_str()?;
+        let json = r
+            .core
+            .store
+            .blobs()
+            .base64(blob)
+            .and_then(|b| crate::blobs::decode(&b).ok())
+            .map(|b| String::from_utf8(b).unwrap())?;
+        serde_json::from_str::<Value>(&json)
+            .ok()?
+            .get("public")
+            .cloned()
+    };
+    assert_eq!(
+        public("n1"),
+        Some(json!(true)),
+        "the call named a public tree"
+    );
+    assert_eq!(public("n2"), None, "the call named a private one");
+}
+
 /// The pack that is live is `content.v3` (theseus-gyjyo.11); v1 and v2 stay
 /// embedded for their stored judgments.
 #[test]
@@ -284,7 +360,28 @@ fn the_live_pack_is_content_v3_and_the_old_two_stay_embedded() {
     for old in ["content.v1", "content.v2", "content.v3"] {
         assert!(theseus_judge::pack::by_name(old).is_some(), "{old}");
     }
-    assert_eq!(crate::judge::wired_mode(PACK), crate::config::judge::PackMode::Live);
+    assert_eq!(
+        crate::judge::wired_mode(PACK),
+        crate::config::judge::PackMode::Live
+    );
+}
+
+/// `jev-probe --score-at-bar` counts a flag as raised at `theseus_judge::score::BAR`.
+/// That is the code's bar (`Flag::bar`, the confirm band) and the pack's own confirm
+/// threshold for each of the three, so the scorer cannot drift from what raises.
+#[test]
+fn the_scorers_bar_is_the_bar_the_flags_raise_at() {
+    use theseus_judge::band::Band;
+    let pack = theseus_judge::pack::by_name(PACK).unwrap();
+    for f in [Flag::Secret, Flag::Confidential, Flag::Personal] {
+        assert_eq!(f.bar(), Band::Confirm, "{f:?}");
+        let confirm = pack.question(f.as_str()).unwrap().thresholds.confirm;
+        assert_eq!(confirm, theseus_judge::score::BAR, "{f:?}");
+        assert!(theseus_judge::score::FLAGS.contains(&f.as_str()), "{f:?}");
+    }
+    // `injection` raises at the act band, which the scorer leaves out.
+    assert_eq!(Flag::Injection.bar(), Band::Act);
+    assert!(!theseus_judge::score::FLAGS.contains(&"injection"));
 }
 
 /// What the daemon knows about where an item sits reaches the state
