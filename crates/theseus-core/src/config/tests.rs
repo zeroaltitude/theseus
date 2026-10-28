@@ -1388,6 +1388,14 @@ fn external_text_and_external_programs_fail_to_load_naming_the_injection_label()
         );
     }
     policy_only("enforcement = \"notify\"").unwrap();
-    assert!(!Config::EXAMPLE_TOML.contains("external_text"));
-    assert!(!Config::EXAMPLE_TOML.contains("external_programs"));
+    // No *setting* of either key, commented or not. The template may still name
+    // them in prose, and R10's upgrade note does: an operator who has one in his
+    // config needs to read what replaced it (theseus-gyjyo.12).
+    for l in Config::EXAMPLE_TOML.lines() {
+        let t = l.trim_start_matches('#').trim_start();
+        assert!(
+            !t.starts_with("external_text") && !t.starts_with("external_programs"),
+            "the template still sets a retired key: {l}"
+        );
+    }
 }
