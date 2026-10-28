@@ -9,7 +9,13 @@
 //!   hint (`tier.rs`): after the cached prefix, so no byte of it moves and no
 //!   other session's request changes. A turn that wrote no file (a question, a
 //!   lookup, a run of commands) never carries it, so the tails the DM task
-//!   flow's golden and the cache tests read stay as they were.
+//!   flow's golden and the cache tests read stay as they were. Nor does a
+//!   chat turn that writes one (theseus-uy5ts): it rides a `deep_coding` turn
+//!   and a headless or task turn ([`deliverable_here`]), and not an owner's
+//!   DM, channel or CLI turn whose tier was not coding, which has no task to
+//!   spell. On a `deep_coding` turn that edits both tails ride, 724 bytes, 242
+//!   estimated tokens a request after the first edit; a chat turn that
+//!   edits carries neither, so it is 110 tokens a request lighter than it was.
 //! - **A doubt the closing message names** (rqu7j): a turn that would end with
 //!   a message saying something was not checked, run or verified, with less
 //!   than [`CLOSE_OUT_SHARE`] of its time and of its spend used, goes on once,
@@ -41,6 +47,7 @@
 
 use super::progress_step as progress;
 use super::*;
+use crate::tools_defer::PlaceKind;
 
 /// The share of a turn's time, and of its spend, under which a doubt sends it
 /// back to work: past it the budget is for finishing, not for a new check.
@@ -173,11 +180,27 @@ fn cut_pairs(line: &str, mark: char) -> String {
     line.split(mark).step_by(2).collect::<Vec<_>>().join(" ")
 }
 
+/// Whether a turn that wrote a file is in the work the hint was cut for
+/// (theseus-uy5ts): a `deep_coding` turn anywhere (its tier says it is coding
+/// work), or a headless run or a task's session, whose place is a bench or a
+/// delegated build. Not a chat turn in a DM, a channel or the CLI that its
+/// tier did not call coding: the owner's ordinary file writing is not a task
+/// spelled by someone else. The hint is a help, so the one place it is cut
+/// from is the one with no task to spell.
+pub(super) fn deliverable_here(kind: PlaceKind, coding: bool) -> bool {
+    coding || matches!(kind, PlaceKind::Headless | PlaceKind::Task)
+}
+
 impl TurnRunner {
-    /// The tail hint of a turn that has written a file (theseus-eb4o4), once
-    /// per request.
-    pub(super) fn deliverable_hint(t: &Turn<'_>, compiled: &mut crate::compiler::Compiled) {
-        if progress::edited(t) {
+    /// The tail hint of a turn that has written a file, in coding or bench
+    /// work (theseus-eb4o4, theseus-uy5ts), once per request.
+    pub(super) fn deliverable_hint(&self, t: &Turn<'_>, compiled: &mut crate::compiler::Compiled) {
+        if !progress::edited(t) {
+            return;
+        }
+        let coding = t.route.injection.as_ref().is_some_and(|b| b.coding);
+        let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
+        if deliverable_here(kind, coding) {
             Self::attach_hint(compiled, DELIVERABLE_HINT);
         }
     }
@@ -232,6 +255,17 @@ mod tests {
             "",
         ] {
             assert!(!names_a_gap(said), "{said}");
+        }
+    }
+
+    /// The hint's gate (theseus-uy5ts): coding work anywhere, and a headless
+    /// run or a task's session whatever its tier; no ordinary chat turn.
+    #[test]
+    fn the_deliverable_hint_is_for_coding_and_bench_work() {
+        for kind in PlaceKind::ALL {
+            assert!(deliverable_here(kind, true), "{kind:?}, a coding turn");
+            let chat = !matches!(kind, PlaceKind::Headless | PlaceKind::Task);
+            assert_eq!(deliverable_here(kind, false), !chat, "{kind:?}, not coding");
         }
     }
 

@@ -91,7 +91,7 @@ impl TurnRunner {
         // The static fan-out cue's line, when it fired (theseus-z9mze.4).
         Self::fan_out_line(t, compiled);
         // A working turn's deliverable, called as the task spells it (theseus-eb4o4).
-        Self::deliverable_hint(t, compiled);
+        self.deliverable_hint(t, compiled);
         // The place's other threads, for a turn that asks across them (theseus-98bz.9);
         // their cards are the owner's material, so a draft has none (theseus-rcb2u).
         if shared {

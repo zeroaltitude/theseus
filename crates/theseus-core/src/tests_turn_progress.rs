@@ -22,6 +22,7 @@ use crate::provider::{FakeProvider, ProviderRequest, Scripted};
 use crate::rpc::{Core, Parts};
 use crate::session::SessionRecord;
 use crate::store::Store;
+use crate::tests_places::OWNER;
 use crate::turn::clock_step::set_deadline;
 use crate::turn::progress_step::PROGRESS_STOP;
 use crate::turn::TurnRequest;
@@ -77,8 +78,31 @@ impl Rig {
         (sid, res)
     }
 
+    /// One turn in a fresh session that speaks in `place` (`None`: no place
+    /// of its own, as a CLI or a headless run has none), with no deadline.
+    async fn turn_in(&self, place: Option<&str>) -> (String, TurnSubmitResult) {
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        self.core.store.put_session(&rec.session_id, &rec).unwrap();
+        let sid = rec.session_id.clone();
+        if let Some(place) = place {
+            self.core.outbox.bind_place(place, &sid).unwrap();
+        }
+        let res = self.run_as(rec, None, &format!("discord:{OWNER}")).await;
+        (sid, res)
+    }
+
     /// One turn of `rec`'s session whose request arrived at `arrived`.
     async fn run(&self, rec: SessionRecord, arrived: Option<Instant>) -> TurnSubmitResult {
+        self.run_as(rec, arrived, "test").await
+    }
+
+    /// The same, said by `author`.
+    async fn run_as(
+        &self,
+        rec: SessionRecord,
+        arrived: Option<Instant>,
+        author: &str,
+    ) -> TurnSubmitResult {
         let sid = rec.session_id.clone();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -95,7 +119,7 @@ impl Rig {
                 input: Some("Build the tide tables and make the check pass.".into()),
                 target,
                 sink: EventSink::new(self.core.bus.clone(), &sid, None),
-                author: "test".into(),
+                author: author.into(),
                 recompile: None,
                 attachments: vec![],
                 arrived,
@@ -699,6 +723,8 @@ async fn a_turn_that_wrote_a_file_is_told_to_call_it_as_the_task_spells_it() {
             Scripted::text("Done."),
         ]
     });
+    // A headless run is the shape the hint was cut for.
+    r.core.runner.failed_turns.leave_to_the_client();
     let (_, res) = r.turn(None).await;
     assert_eq!(res.loops, 3);
     let reqs = r.requests();
@@ -721,6 +747,35 @@ async fn a_turn_that_wrote_a_file_is_told_to_call_it_as_the_task_spells_it() {
     r.turn(None).await;
     for req in r.requests() {
         assert!(!messages(&req).contains(HINT));
+    }
+}
+
+/// The hint is for coding and bench work, not for the owner's chat
+/// (theseus-uy5ts): the same turn that wrote a file carries it in a headless
+/// run, and none in a DM or at the CLI, where the model's tier did not call
+/// it coding work.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_deliverable_hint_does_not_ride_the_owners_chat_turns() {
+    let dm = format!("dm:{OWNER}");
+    for place in [Some(dm.as_str()), None] {
+        let wrote = std::cell::RefCell::new(PathBuf::new());
+        // The owner's DM is a private place: the write answers there.
+        let r = rig_with(
+            |root| {
+                *wrote.borrow_mut() = root.to_path_buf();
+                vec![write(root, "w1"), Scripted::text("Done.")]
+            },
+            |c| c.places.owner = Some(vec![format!("discord:{OWNER}")]),
+        );
+        let (_, res) = r.turn_in(place).await;
+        assert_eq!(res.loops, 2, "{place:?}");
+        assert!(
+            wrote.borrow().join("tool.py").exists(),
+            "{place:?}: the write answered"
+        );
+        for req in r.requests() {
+            assert!(!messages(&req).contains(HINT), "{place:?}");
+        }
     }
 }
 
