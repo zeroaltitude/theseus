@@ -1891,13 +1891,22 @@ mod tests {
         assert_eq!(v8.description, v7.description);
     }
 
-    /// route.v9 (theseus-gezlj, theseus-tqomi) is route.v8 word for word, but
-    /// for the `mode` question's two new kinds and the sentence added to
-    /// `sophisticated`, `reply_effort`'s `leave` in place of `unclear`, the
-    /// description, and no `data` question (nothing reads it since
-    /// theseus-9ymz0). The new kinds sit before the ones that swallowed their
-    /// turns (options are read in order), and the questions that decide
-    /// nothing, the thresholds and both rollback rules are v8's.
+    /// A question's option ids, in order.
+    fn option_ids(q: &QuestionDef) -> Vec<String> {
+        q.options.iter().map(|o| o.id.clone()).collect()
+    }
+
+    /// What one option of a question says.
+    fn means_of(q: &QuestionDef, id: &str) -> String {
+        let o = q.options.iter().find(|o| o.id == id).unwrap();
+        o.means.clone().unwrap_or_default()
+    }
+
+    /// route.v9 (theseus-gezlj, theseus-tqomi) is route.v8 but for the `mode`
+    /// question (the next test), `reply_effort`'s `leave` in place of
+    /// `unclear` (and as its no-match), and no `data` question (nothing reads
+    /// it since theseus-9ymz0): the questions that decide nothing, the
+    /// thresholds, both rollback rules and the pack's frame are v8's.
     #[test]
     fn route_v9_is_v8_but_two_kinds_and_leave() {
         let (v8, v9) = (by_name("route.v8").unwrap(), by_name("route.v9").unwrap());
@@ -1912,19 +1921,35 @@ mod tests {
             "v8's questions but for `data`: nothing reads its answer, so it is not asked"
         );
         assert!(v9.question("data").is_none());
-        let opts = |q: &QuestionDef| q.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>();
-        let means = |q: &QuestionDef, id: &str| {
-            q.options
-                .iter()
-                .find(|o| o.id == id)
-                .unwrap()
-                .means
-                .clone()
-                .unwrap_or_default()
-        };
-        let (m8, m9) = (v8.question("mode").unwrap(), v9.question("mode").unwrap());
+        assert_eq!(v9.rollback, v8.rollback, "both rules, word for word");
+        assert_eq!(v9.version, 9);
+        let frame = |p: &Pack| (p.point, p.builder, p.baseline, p.action, p.state_cap_tokens);
+        assert_eq!(frame(&v9), frame(&v8));
+        assert!(v9.description.contains("a command or tool to run"));
+        assert!(v9.description.contains("a remark that asks for nothing"));
+        assert!(!v9.description.contains("open or private"));
+        let (e8, e9) = (q(&v8, "reply_effort"), q(&v9, "reply_effort"));
         assert_eq!(
-            opts(m9),
+            option_ids(e9),
+            ["low", "medium", "high", "xhigh", "max", "leave"]
+        );
+        for id in ["low", "medium", "high", "xhigh", "max"] {
+            assert_eq!(means_of(e9, id), means_of(e8, id), "{id} is v8's word");
+        }
+        let leave = means_of(e9, "leave");
+        assert!(leave.contains("keep the effort the session's profile already has"));
+        assert_eq!(e9.no_match.as_deref(), Some("leave"), "no `unclear` left");
+    }
+
+    /// route.v9's `mode`: two new kinds before the ones that swallowed their
+    /// turns (options are read in order), and one sentence added to
+    /// `sophisticated`; every other option, and the question's frame, are v8's.
+    #[test]
+    fn route_v9_mode_has_two_new_kinds_and_a_wider_sophisticated() {
+        let (v8, v9) = (by_name("route.v8").unwrap(), by_name("route.v9").unwrap());
+        let (m8, m9) = (q(&v8, "mode"), q(&v9, "mode"));
+        assert_eq!(
+            option_ids(m9),
             [
                 "run_tool",
                 "commentary",
@@ -1938,13 +1963,13 @@ mod tests {
                 "other"
             ]
         );
-        for id in opts(m8).iter().filter(|id| *id != "sophisticated") {
-            assert_eq!(means(m9, id), means(m8, id), "{id} is v8's word for word");
+        for id in option_ids(m8).iter().filter(|id| *id != "sophisticated") {
+            assert_eq!(means_of(m9, id), means_of(m8, id), "{id} is v8's word");
         }
-        // The owner's rule of 2026-10-26 07:33: his open-ended review and
+        // The owner's rule of 2026-10-26 07:33: open-ended review and
         // comparison questions (labelled items 19, 23, 27) are `sophisticated`,
         // not `review` or `chat`. The sentence is added to v8's, not a rewrite.
-        let (s8, s9) = (means(m8, "sophisticated"), means(m9, "sophisticated"));
+        let (s8, s9) = (means_of(m8, "sophisticated"), means_of(m9, "sophisticated"));
         assert!(s9.starts_with(&s8), "v8's words first: {s9}");
         assert!(
             s9.contains(
@@ -1953,64 +1978,23 @@ mod tests {
             ),
             "{s9}"
         );
-        let position = |id: &str| opts(m9).iter().position(|o| o == id).unwrap();
+        let position = |id: &str| option_ids(m9).iter().position(|o| o == id).unwrap();
         assert!(position("run_tool") < position("quick"));
         assert!(position("run_tool") < position("routine_coding"));
         assert!(position("commentary") < position("trivial"));
         assert!(position("commentary") < position("chat"));
-        assert!(means(m9, "run_tool").contains("command, script or tool to be run"));
-        assert!(means(m9, "commentary").contains("asks for nothing"));
-        assert_eq!(
+        assert!(means_of(m9, "run_tool").contains("command, script or tool to be run"));
+        assert!(means_of(m9, "commentary").contains("asks for nothing"));
+        let frame = |m: &QuestionDef| {
             (
-                &m9.instructions,
-                &m9.decides,
-                &m9.kind,
-                &m9.thresholds,
-                &m9.no_match
-            ),
-            (
-                &m8.instructions,
-                &m8.decides,
-                &m8.kind,
-                &m8.thresholds,
-                &m8.no_match
+                m.instructions.clone(),
+                m.decides,
+                m.kind,
+                m.thresholds,
+                m.no_match.clone(),
             )
-        );
-        let (e8, e9) = (
-            v8.question("reply_effort").unwrap(),
-            v9.question("reply_effort").unwrap(),
-        );
-        assert_eq!(opts(e9), ["low", "medium", "high", "xhigh", "max", "leave"]);
-        for id in ["low", "medium", "high", "xhigh", "max"] {
-            assert_eq!(means(e9, id), means(e8, id), "{id} is v8's word for word");
-        }
-        assert!(means(e9, "leave").contains("keep the effort the session's profile already has"));
-        assert_eq!(
-            e9.no_match.as_deref(),
-            Some("leave"),
-            "no `unclear` effort left"
-        );
-        assert!(!opts(e9).iter().any(|o| o == "unclear"));
-        assert_eq!(v9.rollback, v8.rollback, "both rules, word for word");
-        assert_eq!(v9.version, 9);
-        assert_eq!(
-            (
-                v9.point,
-                v9.builder,
-                v9.baseline,
-                v9.action,
-                v9.state_cap_tokens
-            ),
-            (
-                v8.point,
-                v8.builder,
-                v8.baseline,
-                v8.action,
-                v8.state_cap_tokens
-            )
-        );
-        assert!(v9.description.contains("a command or tool to run"));
-        assert!(v9.description.contains("a remark that asks for nothing"));
+        };
+        assert_eq!(frame(m9), frame(m8));
     }
 
     /// One question of a pack, or a panic naming it.
