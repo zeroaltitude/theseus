@@ -539,7 +539,7 @@ mod tests {
             ("hunter2hunter2".into(), "db_password".into()),
         ]);
         let lines = [
-            "   Compiling theseus-core v0.1.0 (/home/u/src/crates/theseus-core)\n",
+            "   Compiling theseus-core v0.1.0 (/work/src/crates/theseus-core)\n",
             "warning: unused import: `std::fmt` --> src/lib.rs:42:5 | 100% done\n",
             "[main 3fa9c2e] fix the thing\n 3 files changed, 41 insertions(+), 7 deletions(-)\n",
             "{\"level\":\"info\",\"msg\":\"GET /v1/items?id=42&page=3\",\"ms\":12}\n",

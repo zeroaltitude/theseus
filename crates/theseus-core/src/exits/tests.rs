@@ -452,7 +452,7 @@ fn a_200_kb_transcript_of_ordinary_output_is_scanned_in_bounded_time() {
         ]),
         true,
     );
-    let line = "   Compiling theseus-core v0.1.0 (/home/u/src/crates/theseus-core)\n\
+    let line = "   Compiling theseus-core v0.1.0 (/work/src/crates/theseus-core)\n\
                 warning: unused import: `std::fmt` at src/lib.rs:42:5 100% done\n\
                 {\"level\":\"info\",\"msg\":\"GET /v1/items?id=42&page=3\",\"ms\":12}\n\
                 aGVsbG8gd29ybGQ= and dGVzdA== then a path C:\\Users\\x\\file\n";
