@@ -47,8 +47,11 @@ pub fn asks_injection(kind: &str) -> bool {
     !matches!(kind, OPERATOR_MESSAGE | TASK_BRIEF)
 }
 
-/// `content.v2`'s input: one item.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// `content.v3`'s input: one item, and what the daemon knows about where it
+/// came from. The five fields after `data_names` are v3's (theseus-gyjyo.11):
+/// a v1 or v2 pack builds its state without them, so a case that carries them
+/// reaches those packs exactly as it did before.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContentInput {
     /// What entered the session, scrubbed by the caller's `Scrub`.
@@ -66,16 +69,79 @@ pub struct ContentInput {
     /// The operator's own names for open and private matter.
     #[serde(default, skip_serializing_if = "DataNames::is_empty")]
     pub data_names: DataNames,
+    /// Who put it there: `owner` (the operator's own words), `person` (anyone
+    /// else's message) or `tool` (what a tool, a page or a search returned).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Where the session speaks: `private` or `shared`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+    /// The session's directory, with the home directory shown as `~`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// The operator lists the item's tree as open source
+    /// (`[privacy] open_source_paths`). Only ever stated when true: a path not
+    /// on the list is not thereby private.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub public: bool,
+    /// `[content_based_security] context`, verbatim: the operator's own
+    /// paragraph on what the assistant works on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
 }
 
-/// `content.v2`: the item's kind and source, which piece it is when it is one
-/// of several, the operator's names, and the text.
-pub fn content(i: &ContentInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// The state builder's version for a pack of `pack_version`. `content.v1` and
+/// `content.v2` share the first (they differ only in wording), so a stored
+/// judgment of either is served to the other as it was sent; v3's state carries
+/// the five fields and so is a second.
+pub fn builder_version(pack_version: u32) -> u32 {
+    if pack_version <= 2 {
+        CONTENT_VERSION
+    } else {
+        CONTENT_V3_VERSION
+    }
+}
+
+const AUTHOR_CHARS: usize = 12;
+const PLACE_CHARS: usize = 12;
+const PROJECT_CHARS: usize = 160;
+const CONTEXT_CHARS: usize = 800;
+
+/// `content.v3`: the item's kind and source, who wrote it, where the session
+/// speaks and works, whether the operator calls that tree public, the
+/// operator's own paragraph, which piece it is when it is one of several, the
+/// operator's names, and the text. A pack of version 2 or less leaves the five
+/// fields out.
+pub fn content(i: &ContentInput, pack_version: u32, cap: u64, scrub: &dyn Scrub) -> Prepared {
     let c = Clipper::new(scrub);
-    let mut b = StateBuilder::new("content", CONTENT_VERSION, cap, scrub);
+    let mut b = StateBuilder::new("content", builder_version(pack_version), cap, scrub);
     b.scalar("kind", c.clip(&i.kind, KIND_CHARS))
         .scalar("source", c.clip(i.source.trim(), SOURCE_CHARS))
         .cut_if("source", c.cut());
+    if pack_version > 2 {
+        // v3's five (theseus-gyjyo.11), each only when the daemon knows it, so
+        // a missing one is absent rather than an empty string the pack must read.
+        for (key, value, max) in [
+            ("author", &i.author, AUTHOR_CHARS),
+            ("place", &i.place, PLACE_CHARS),
+            ("project", &i.project, PROJECT_CHARS),
+        ] {
+            if let Some(v) = value.as_deref().filter(|v| !v.trim().is_empty()) {
+                b.scalar(key, c.clip(v.trim(), max)).cut_if(key, c.cut());
+            }
+        }
+        if i.public {
+            b.scalar("public", true);
+        }
+        if let Some(v) = i.context.as_deref().filter(|v| !v.trim().is_empty()) {
+            b.scalar("context", c.clip(v.trim(), CONTEXT_CHARS))
+                .cut_if("context", c.cut());
+        }
+    }
     if let Some((n, of)) = i.piece.filter(|(_, of)| *of > 1) {
         b.scalar("piece", n).scalar("pieces", of);
     }
@@ -119,7 +185,7 @@ mod tests {
             kind: kind.into(),
             source: "fs.read notes/plan.md".into(),
             piece: None,
-            data_names: DataNames::default(),
+            ..ContentInput::default()
         }
     }
 
@@ -258,6 +324,92 @@ mod tests {
             .state
             .value();
         assert!(v.get("piece").is_none());
+    }
+
+    /// `content.v3`'s state carries the five fields the operator's daemon knows
+    /// (theseus-gyjyo.11) and a v2 pack's leaves them out, so a case that carries
+    /// them reaches v2 as it did before. `public` is stated only when true.
+    #[test]
+    fn the_v3_state_carries_the_five_fields_and_the_v2_state_does_not() {
+        let mut i = input("tool_result");
+        i.author = Some("tool".into());
+        i.place = Some("private".into());
+        i.project = Some("~/projects/example-app".into());
+        i.public = true;
+        i.context = Some("A personal assistant. ~/projects/example-app is open source.".into());
+        let build = |pack: &str| {
+            let p = by_name(pack).unwrap();
+            prepare(&p, &Input::Content(i.clone()), &NoScrub)
+                .unwrap()
+                .state
+        };
+        let v3 = build("content.v3");
+        let v = v3.value();
+        assert_eq!(v["author"], "tool");
+        assert_eq!(v["place"], "private");
+        assert_eq!(v["project"], "~/projects/example-app");
+        assert_eq!(v["public"], true);
+        assert_eq!(
+            v["context"],
+            "A personal assistant. ~/projects/example-app is open source."
+        );
+        assert_eq!(v3.builder_version, CONTENT_V3_VERSION);
+        for old in ["content.v1", "content.v2"] {
+            let s = build(old);
+            for absent in ["author", "place", "project", "public", "context"] {
+                assert!(s.value().get(absent).is_none(), "{old} holds {absent}");
+            }
+            assert_eq!(s.builder_version, CONTENT_VERSION, "{old}");
+        }
+        // Left unset, and `public` false, none is stated.
+        let bare = prepare(
+            &by_name("content.v3").unwrap(),
+            &Input::Content(input("tool_result")),
+            &NoScrub,
+        )
+        .unwrap()
+        .state
+        .value();
+        for absent in ["author", "place", "project", "public", "context"] {
+            assert!(bare.get(absent).is_none(), "{absent}");
+        }
+    }
+
+    /// The five fields are scrubbed like the rest, and the paragraph is cut so a
+    /// long one cannot crowd the item out of its state.
+    #[test]
+    fn the_operators_paragraph_is_scrubbed_and_cut() {
+        struct Hide;
+        impl Scrub for Hide {
+            fn scrub(&self, text: &str) -> String {
+                text.replace("hunter2", "[hidden]")
+            }
+        }
+        let mut i = input("tool_result");
+        i.context = Some(format!("password hunter2 {}", "word ".repeat(1000)));
+        i.project = Some("~/projects/hunter2".into());
+        let built = prepare(&by_name("content.v3").unwrap(), &Input::Content(i), &Hide)
+            .unwrap()
+            .state;
+        assert!(!built.json.contains("hunter2"), "{}", built.json);
+        assert!(
+            built.value()["context"].as_str().unwrap().chars().count() <= CONTEXT_CHARS + 1,
+            "the paragraph is cut"
+        );
+    }
+
+    /// Which builder version a pack's states carry.
+    #[test]
+    fn the_builder_version_is_the_packs() {
+        assert_eq!(builder_version(1), CONTENT_VERSION);
+        assert_eq!(builder_version(2), CONTENT_VERSION);
+        assert_eq!(builder_version(3), CONTENT_V3_VERSION);
+        assert_eq!(
+            builder_version(101),
+            CONTENT_V3_VERSION,
+            "a learned candidate of v3"
+        );
+        assert_ne!(CONTENT_VERSION, CONTENT_V3_VERSION);
     }
 
     /// A text past the cap is cut by the builder, never the state's size, and

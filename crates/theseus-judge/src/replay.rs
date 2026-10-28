@@ -20,11 +20,11 @@ use sha2::{Digest, Sha256};
 use crate::band::{band, Band};
 use crate::builders::{prepare, InboundInput, Input};
 use crate::builders::{
-    ATTRIBUTION_VERSION, CATEGORIZE_VERSION, CITATION_VERSION, COMPARE_VERSION, CONTENT_VERSION,
-    CONTINUE_VERSION, FAMILIES_VERSION, HEARD_VERSION, INBOUND_VERSION, LOOP_VERSION,
-    MEMORY_VERSION, NAME_IT_VERSION, PEOPLE_SEEN_VERSION, PEOPLE_VERSION, PROBE_VERSION,
-    RECALL_CROSS_VERSION, RERANK_VERSION, SAME_KIND_VERSION, SAME_THING_VERSION, SECURITY2_VERSION,
-    SECURITY_VERSION, TWO_THINGS_VERSION,
+    ATTRIBUTION_VERSION, CATEGORIZE_VERSION, CITATION_VERSION, COMPARE_VERSION, CONTINUE_VERSION,
+    FAMILIES_VERSION, HEARD_VERSION, INBOUND_VERSION, LOOP_VERSION, MEMORY_VERSION,
+    NAME_IT_VERSION, PEOPLE_SEEN_VERSION, PEOPLE_VERSION, PROBE_VERSION, RECALL_CROSS_VERSION,
+    RERANK_VERSION, SAME_KIND_VERSION, SAME_THING_VERSION, SECURITY2_VERSION, SECURITY_VERSION,
+    TWO_THINGS_VERSION,
 };
 use crate::client::{Answer, Urgency};
 use crate::judge::{AnswerRecord, Ask, DecisionPoint, Judge, Mode, StateRecord};
@@ -71,9 +71,12 @@ pub fn what_changes(incumbent: &Pack, candidate: &Pack) -> Change {
     }
 }
 
-/// A builder's name and version, as its states record them.
-pub fn builder_identity(b: Builder) -> (&'static str, u32) {
-    match b {
+/// A pack's builder's name and version, as its states record them. Most
+/// builders have one version for every pack that uses them; the content
+/// builder's is the pack's (`content.v3`'s state carries fields the earlier
+/// two do not).
+pub fn builder_identity(pack: &Pack) -> (&'static str, u32) {
+    match pack.builder {
         Builder::Probe => ("probe", PROBE_VERSION),
         Builder::Loop => ("loop", LOOP_VERSION),
         Builder::Security => ("security", SECURITY_VERSION),
@@ -95,7 +98,10 @@ pub fn builder_identity(b: Builder) -> (&'static str, u32) {
         Builder::NameIt => ("name_it", NAME_IT_VERSION),
         Builder::RecallCross => ("recall_cross", RECALL_CROSS_VERSION),
         Builder::Families => ("families", FAMILIES_VERSION),
-        Builder::Content => ("content", CONTENT_VERSION),
+        Builder::Content => (
+            "content",
+            crate::builders::content_builder_version(pack.version),
+        ),
     }
 }
 
@@ -103,7 +109,7 @@ pub fn builder_identity(b: Builder) -> (&'static str, u32) {
 /// when it can: the candidate's builder, its version, and its cap must each
 /// equal the judgment's.
 pub fn stored_state_differs(candidate: &Pack, state: &StateRecord) -> Option<String> {
-    let (name, version) = builder_identity(candidate.builder);
+    let (name, version) = builder_identity(candidate);
     if state.builder != name {
         return Some(format!(
             "the judgment's state was built by {}, the candidate's by {name}",
@@ -546,6 +552,49 @@ mod tests {
         rec.builder_version = LOOP_VERSION;
         rec.cap_tokens = 1;
         assert!(stored_state_differs(&inc, &rec).unwrap().contains("capped"));
+    }
+
+    /// A content state of a v1 or v2 judgment goes to the other of the two as it
+    /// was sent, since they share a builder; it does not go to v3, whose state
+    /// carries five more fields, so a replay of v2's judgments under v3 rebuilds
+    /// them (theseus-gyjyo.11).
+    #[test]
+    fn a_content_state_of_v2_is_served_to_v1_and_not_to_v3() {
+        use crate::builders::{prepare, ContentInput, Input};
+        use crate::state::NoScrub;
+        let v2 = by_name("content.v2").unwrap();
+        let built = prepare(
+            &v2,
+            &Input::Content(ContentInput {
+                text: "A page.".into(),
+                kind: "fetched_page".into(),
+                source: "http.fetch https://example.test/".into(),
+                ..ContentInput::default()
+            }),
+            &NoScrub,
+        )
+        .unwrap()
+        .state;
+        let rec = StateRecord {
+            sha256: built.sha256.clone(),
+            bytes: built.bytes,
+            tokens: built.tokens,
+            cap_tokens: built.cap_tokens,
+            builder: built.builder.clone(),
+            builder_version: built.builder_version,
+            truncated: vec![],
+            dropped: vec![],
+        };
+        assert_eq!(
+            stored_state_differs(&by_name("content.v1").unwrap(), &rec),
+            None
+        );
+        assert_eq!(stored_state_differs(&v2, &rec), None);
+        let why = stored_state_differs(&by_name("content.v3").unwrap(), &rec).unwrap();
+        assert!(
+            why.contains("version 1") && why.contains("version 2"),
+            "{why}"
+        );
     }
 
     #[test]

@@ -1039,6 +1039,25 @@ impl Core {
                 }
             });
         }
+        // What content.v3's state says about where an item sits: the operator's
+        // config (read once) and the session's place and directory (read from the
+        // core as each item is prepared). Same holder as the seam above: the judge
+        // service holds no core.
+        core.runner
+            .judge
+            .content_around(crate::content_scene::Around::from_config(&core.cfg));
+        {
+            let scene = Arc::downgrade(&core);
+            core.runner.judge.content_scene(move |session| {
+                scene.upgrade().map_or(
+                    crate::content_scene::Scene {
+                        place: None,
+                        dir: None,
+                    },
+                    |core| core.content_scene(session),
+                )
+            });
+        }
         // And a turn bound for a model of restricted origin waits on the judge
         // for its session's items. Until this is set the handle is `Ready`,
         // which answers at once, so such a turn would go to Claude without ever

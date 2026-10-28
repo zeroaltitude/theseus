@@ -47,7 +47,7 @@ fn clean(jev: &FakeJev) {
 
 fn rig(jev: &FakeJev, script: Vec<Scripted>) -> Rig {
     rig_on(script, Some(jev), |c| {
-        // content.v2 live (the judge rigs turn it off), the rest as they are.
+        // content.v3 live (the judge rigs turn it off), the rest as they are.
         c.judge.packs.remove(crate::judge::content::PACK);
         c.judge.total_secs = 5;
         c.tools.proc_sync_secs = 1;

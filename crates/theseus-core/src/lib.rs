@@ -35,6 +35,7 @@ pub mod config_gate;
 pub mod conns;
 pub mod consolidate;
 pub mod content;
+pub mod content_scene;
 pub mod content_wait;
 pub mod context_files;
 pub mod context_parts;

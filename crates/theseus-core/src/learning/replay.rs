@@ -596,11 +596,35 @@ impl Core {
                 .rebuild_loop(&j.context)
                 .map(Input::Loop)
                 .map_err(|e| format!("{why_not_stored}, and it can't be rebuilt: {e}"))?,
-            theseus_judge::pack::Builder::Content => self
-                .stored_blob(j)
-                .and_then(|(_, json)| super::rebuild::content_input(&json))
-                .map(Input::Content)
-                .map_err(|e| format!("{why_not_stored}, and it can't be rebuilt: {e}"))?,
+            theseus_judge::pack::Builder::Content => {
+                // The five fields a v3 state adds are read now, from the
+                // session's record and the config (`rebuild::content_input`).
+                let around = crate::content_scene::Around::from_config(&self.cfg);
+                let session = j.context["session"].as_str().unwrap_or_default();
+                let scene = self.content_scene(session);
+                // The paths the call behind the item named: its source line does not
+                // carry them, so the transcript does.
+                let paths = match (around.lists_any(), j.context["node"].as_str()) {
+                    (true, Some(node)) => self
+                        .runner
+                        .judge
+                        .call_paths_of(session, &[node])
+                        .remove(node)
+                        .unwrap_or_default(),
+                    _ => Vec::new(),
+                };
+                self.stored_blob(j)
+                    .and_then(|(_, json)| {
+                        let now = super::rebuild::Now {
+                            around: &around,
+                            scene: &scene,
+                            paths: &paths,
+                        };
+                        super::rebuild::content_input(&json, Some(now))
+                    })
+                    .map(Input::Content)
+                    .map_err(|e| format!("{why_not_stored}, and it can't be rebuilt: {e}"))?
+            }
             _ => unreachable!("only loop's and content's input is rebuilt"),
         };
         let svc = &self.runner.judge;

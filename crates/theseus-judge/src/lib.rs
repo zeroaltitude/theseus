@@ -46,6 +46,7 @@ pub mod price;
 pub mod propose;
 pub mod prove;
 pub mod replay;
+pub mod score;
 pub mod state;
 
 #[cfg(any(test, feature = "fake"))]

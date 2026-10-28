@@ -1,4 +1,4 @@
-//! `content.v2` (theseus-9ymz0; v2 theseus-78qay): every item that enters a session is asked about
+//! `content.v3` (theseus-9ymz0; v2 theseus-78qay, v3 theseus-gyjyo.11): every item that enters a session is asked about
 //! by itself, and what Jev finds becomes a durable label on the session
 //! (`crate::content`). The hook sites queue what they wrote (`ask_content`) and
 //! go on: nothing here is on a turn's path. This is `reply_data.rs`'s shape,
@@ -45,10 +45,13 @@ use crate::node::{Body, Node};
 
 /// The pack: the four content questions about one item.
 ///
-/// v2 since theseus-78qay (the owner, 2026-10-27): a flag describes what an item
-/// REVEALS, not what it is ABOUT. v1 stays embedded, as the record of what the
-/// judgments before the bump were answered against.
-pub const PACK: &str = "content.v2";
+/// v3 since theseus-gyjyo.11: the state carries who wrote the item, where the
+/// session speaks and works, whether the operator lists that tree as open
+/// source, and the operator's own paragraph (`content_scene`). v2 (theseus-78qay,
+/// the owner, 2026-10-27: a flag describes what an item REVEALS, not what it is
+/// ABOUT) and v1 stay embedded, as the record of what the judgments before each
+/// bump were answered against.
+pub const PACK: &str = "content.v3";
 
 /// How long a session's queue waits, after its first item, for the rest of the
 /// loop's results to join the batch.
@@ -156,6 +159,9 @@ struct Slot {
 /// A label told, as the core takes it: the session and the label.
 type Told = Box<dyn Fn(&str, &Label) + Send + Sync>;
 
+/// A session's place and directory, as the core reads them.
+type SceneOf = Box<dyn Fn(&str) -> crate::content_scene::Scene + Send + Sync>;
+
 /// The service's state for this point.
 #[derive(Default)]
 pub(crate) struct Point {
@@ -163,6 +169,12 @@ pub(crate) struct Point {
     /// The operator's private names, made once: the deterministic source
     /// (`content::deterministic::from_names`) reads it at every item's entry.
     matcher: OnceLock<theseus_judge::names::Names>,
+    /// The operator's config as the pack reads it (`[privacy] open_source_paths`,
+    /// `[content_based_security] context`), made once as the core is built.
+    around: OnceLock<crate::content_scene::Around>,
+    /// Where a session speaks and works, read from the core as an item is
+    /// prepared (`Core::content_scene`); set once as the core is built.
+    scene: std::sync::RwLock<Option<SceneOf>>,
     /// `[content_based_security] session_flags = false`: nothing is asked.
     off: AtomicBool,
     slots: Mutex<HashMap<String, Slot>>,
@@ -247,6 +259,26 @@ impl JudgeService {
         let _ = self.content.names.set(names);
         self.content.off.store(!enabled, Ordering::Relaxed);
         self.content.max_pieces.store(max_pieces, Ordering::Relaxed);
+    }
+
+    /// The operator's config as the pack reads it, set once as the core is
+    /// built.
+    pub fn content_around(&self, around: crate::content_scene::Around) {
+        let _ = self.content.around.set(around);
+    }
+
+    /// How a session's place and directory are read: the core hands over
+    /// `Core::content_scene`, set once as it is built. Without it an item is
+    /// asked with no place and no directory, which a test may want.
+    pub fn content_scene(
+        &self,
+        scene: impl Fn(&str) -> crate::content_scene::Scene + Send + Sync + 'static,
+    ) {
+        *self
+            .content
+            .scene
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::new(scene));
     }
 
     /// What to do once a label is written and told in the narrative: the core
@@ -600,6 +632,47 @@ impl crate::content_wait::Verdicts for JudgeService {
 }
 
 impl JudgeService {
+    /// The paths the calls behind some tool results named, by result node: a
+    /// result's `tool_use_id` finds its call in the session's transcript, and
+    /// the call's input names the path (`content_scene::call_paths`). A node the
+    /// transcript lacks, or whose call named none, is absent. One read of the
+    /// transcript, so a caller reads it once for a batch.
+    pub(crate) fn call_paths_of(
+        &self,
+        session: &str,
+        nodes: &[&str],
+    ) -> HashMap<String, Vec<String>> {
+        let mut out = HashMap::new();
+        if nodes.is_empty() {
+            return out;
+        }
+        let Ok(transcript) = self.store.transcript(session) else {
+            return out;
+        };
+        let mut wanted: HashMap<&str, &str> = HashMap::new();
+        for (_, n) in transcript.iter() {
+            if let Body::ToolResult { tool_use_id, .. } = &n.body {
+                if nodes.contains(&n.id.as_str()) {
+                    wanted.insert(tool_use_id.as_str(), n.id.as_str());
+                }
+            }
+        }
+        for (_, n) in transcript.iter() {
+            if let Body::ToolCall {
+                tool_use_id, input, ..
+            } = &n.body
+            {
+                if let Some(node) = wanted.get(tool_use_id.as_str()) {
+                    let paths = crate::content_scene::call_paths(input);
+                    if !paths.is_empty() {
+                        out.insert((*node).to_string(), paths);
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// The blocking half: every item's state (a piece each, a long item cut at
     /// line boundaries), their blobs staged, and one reservation for the batch,
     /// its frame left beside the call.
@@ -617,6 +690,31 @@ impl JudgeService {
             .map_err(|e| tracing::warn!(error = %format!("{e:#}"), "judge: the Jev client was not built"))
             .map_err(|_| Unasked::Nothing)?;
         let batch_id = format!("cbt_{}", uuid::Uuid::now_v7().simple());
+        let around = self.content.around.get().cloned().unwrap_or_default();
+        let scene = self
+            .content
+            .scene
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map(|f| f(session))
+            .unwrap_or(crate::content_scene::Scene {
+                place: None,
+                dir: None,
+            });
+        // The paths the calls behind the batch's tool results named, which the
+        // `source` line does not carry: one read of the transcript, and only when
+        // the operator lists a tree as open source.
+        let called = if around.lists_any() {
+            let nodes: Vec<&str> = items
+                .iter()
+                .filter(|i| i.kind == ItemKind::ToolResult)
+                .map(|i| i.node.as_str())
+                .collect();
+            self.call_paths_of(session, &nodes)
+        } else {
+            HashMap::new()
+        };
         let mut asks = Vec::new();
         let mut truncated = Vec::new();
         let max = self.content.max_pieces.load(Ordering::Relaxed).max(1);
@@ -628,14 +726,19 @@ impl JudgeService {
             if cut {
                 truncated.push(i);
             }
+            // The paths the item names: its source line's and its call's.
+            let mut paths = crate::content_scene::paths_in(&item.source);
+            paths.extend(called.get(&item.node).cloned().unwrap_or_default());
             for (n, of, text) in pieces {
-                let input = ContentInput {
+                let mut input = ContentInput {
                     text,
                     kind: item.kind.as_str().into(),
                     source: item.source.clone(),
                     piece: Some((n, of)),
                     data_names: names.clone(),
+                    ..ContentInput::default()
                 };
+                around.apply(&mut input, item.kind, &scene, &paths);
                 let state = theseus_judge::prepare(&pack, &Input::Content(input), &scrub)
                     .map_err(|_| Unasked::Nothing)?;
                 let blob = self.stage_blob(state.state.json.as_bytes());

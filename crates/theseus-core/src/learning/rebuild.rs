@@ -17,6 +17,8 @@ use theseus_judge::builders::{ContentInput, DataNames, LoopInput};
 use theseus_judge::pack::Builder;
 use theseus_protocol::LedgerKind;
 
+use crate::content::ItemKind;
+use crate::content_scene::{Around, Scene};
 use crate::judge::loop_end::{self, LoopEnd};
 use crate::ledger::LedgerRow;
 use crate::node::{Body, Node};
@@ -92,17 +94,30 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
     }
 }
 
-/// `content.v2`'s input read back from a state's blob (theseus-gyjyo.1): the
+/// What the daemon says about an item now, for a state that holds none of v3's
+/// fields: the config, the session's place and directory, and the paths the
+/// call behind it named.
+pub struct Now<'a> {
+    pub around: &'a Around,
+    pub scene: &'a Scene,
+    pub paths: &'a [String],
+}
+
+/// A content state's input read back from its blob (theseus-gyjyo.1): the
 /// item's kind, source, piece and text, and the operator's names, as the live
 /// point put them in. The text is what the state held, scrubbed and capped, so
 /// building from it again gives the same state when the candidate's cap is the
 /// same, and a state under the candidate's own cap when it is not.
 ///
-/// The seam for the fields a later state adds (`author`, `place`, `project`,
-/// `public`, `context`, the principles lane's row R9): they are not in a v2 blob, so they
-/// are read from the session's record here, beside the blob's own, and left
-/// unset when the blob predates them.
-pub fn content_input(state_json: &str) -> Result<ContentInput, String> {
+/// The five fields `content.v3` adds (`author`, `place`, `project`, `public`,
+/// `context`, theseus-gyjyo.11) are taken from the blob when it holds any, as
+/// judged. A blob that holds none (a v1 or v2 judgment's) gets them from `now`:
+/// the author from its kind, and the rest as the daemon would state them for
+/// that item today, from the session's record and the config. **Those are read
+/// at replay time, not as they stood when the item was judged**: a session that
+/// has since moved directory, or a config that has since changed, is asked
+/// about. `None` leaves them unset, which is what a v2 candidate wants.
+pub fn content_input(state_json: &str, now: Option<Now<'_>>) -> Result<ContentInput, String> {
     let v: Value = serde_json::from_str(state_json)
         .map_err(|e| format!("its state's blob is not JSON: {e}"))?;
     let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
@@ -117,7 +132,7 @@ pub fn content_input(state_json: &str) -> Result<ContentInput, String> {
             })
             .unwrap_or_default()
     };
-    Ok(ContentInput {
+    let mut input = ContentInput {
         text: s("text").ok_or("its state's blob holds no text")?,
         kind: s("kind").ok_or("its state's blob names no kind")?,
         source: s("source").unwrap_or_default(),
@@ -126,7 +141,25 @@ pub fn content_input(state_json: &str) -> Result<ContentInput, String> {
             open: names("open"),
             private: names("private"),
         },
-    })
+        ..ContentInput::default()
+    };
+    let judged_with_fields = ["author", "place", "project", "public", "context"]
+        .iter()
+        .any(|k| v.get(*k).is_some());
+    if judged_with_fields {
+        input.author = s("author");
+        input.place = s("place");
+        input.project = s("project");
+        input.public = v.get("public").and_then(Value::as_bool).unwrap_or(false);
+        input.context = s("context");
+    } else if let Some(now) = now {
+        let kind: ItemKind = serde_json::from_value(Value::String(input.kind.clone()))
+            .map_err(|_| format!("its state's kind {:?} is not an item kind", input.kind))?;
+        let mut paths = crate::content_scene::paths_in(&input.source);
+        paths.extend(now.paths.iter().cloned());
+        now.around.apply(&mut input, kind, now.scene, &paths);
+    }
+    Ok(input)
 }
 
 /// A turn's end, as its `turn.ended` row records it.
@@ -304,9 +337,10 @@ mod tests {
                 source: "fetch https://example.test/page".into(),
                 piece,
                 data_names: names,
+                ..ContentInput::default()
             };
             let stored = prepare(&pack, &Input::Content(input.clone()), &NoScrub).unwrap();
-            let back = content_input(&stored.state.json).unwrap();
+            let back = content_input(&stored.state.json, None).unwrap();
             assert_eq!(back, input, "{kind}");
             let again = prepare(&pack, &Input::Content(back), &NoScrub).unwrap();
             assert_eq!(again.state.json, stored.state.json, "{kind}");
@@ -314,13 +348,101 @@ mod tests {
         }
     }
 
+    /// A v3 state's five fields come back from its blob as they were judged, and
+    /// building from them again gives the same state.
+    #[test]
+    fn a_v3_state_is_rebuilt_with_the_fields_it_was_judged_with() {
+        let pack = by_name("content.v3").unwrap();
+        let input = ContentInput {
+            text: "A page about herons.".into(),
+            kind: "tool_result".into(),
+            source: "fs.grep".into(),
+            author: Some("tool".into()),
+            place: Some("shared".into()),
+            project: Some("~/projects/lantern".into()),
+            public: true,
+            context: Some("As judged.".into()),
+            ..ContentInput::default()
+        };
+        let stored = prepare(&pack, &Input::Content(input.clone()), &NoScrub).unwrap();
+        // The session and the config have changed since: they are not asked.
+        let around = Around::new(vec![], "Now.", None);
+        let scene = Scene {
+            place: Some("private"),
+            dir: Some("/elsewhere".into()),
+        };
+        let back = content_input(
+            &stored.state.json,
+            Some(Now {
+                around: &around,
+                scene: &scene,
+                paths: &[],
+            }),
+        )
+        .unwrap();
+        assert_eq!(back, input);
+        let again = prepare(&pack, &Input::Content(back), &NoScrub).unwrap();
+        assert_eq!(again.state.json, stored.state.json);
+    }
+
+    /// A v2 state has none: they are the daemon's reading now, the author from
+    /// the kind; with nothing given they stay unset, which a v2 candidate wants.
+    #[test]
+    fn a_v2_state_gets_the_fields_from_now_or_none() {
+        let v2 = by_name("content.v2").unwrap();
+        let input = ContentInput {
+            text: "Count the herons.".into(),
+            kind: "operator_message".into(),
+            source: "message".into(),
+            ..ContentInput::default()
+        };
+        let stored = prepare(&v2, &Input::Content(input.clone()), &NoScrub).unwrap();
+        assert_eq!(content_input(&stored.state.json, None).unwrap(), input);
+        let around = Around::new(
+            vec!["/home/owner/projects/lantern".into()],
+            "Now.",
+            Some("/home/owner".into()),
+        );
+        let scene = Scene {
+            place: Some("private"),
+            dir: Some("/home/owner/projects/lantern".into()),
+        };
+        let got = content_input(
+            &stored.state.json,
+            Some(Now {
+                around: &around,
+                scene: &scene,
+                paths: &[],
+            }),
+        )
+        .unwrap();
+        assert_eq!(got.author.as_deref(), Some("owner"));
+        assert_eq!(got.place.as_deref(), Some("private"));
+        assert_eq!(got.project.as_deref(), Some("~/projects/lantern"));
+        assert!(got.public);
+        assert_eq!(got.context.as_deref(), Some("Now."));
+        // A kind that is no item kind is refused with the reason, not guessed.
+        assert!(content_input(
+            r#"{"text":"x","kind":"carrier_pigeon"}"#,
+            Some(Now {
+                around: &around,
+                scene: &scene,
+                paths: &[]
+            })
+        )
+        .unwrap_err()
+        .contains("not an item kind"));
+    }
+
     #[test]
     fn a_blob_that_is_not_a_content_state_is_refused_with_the_reason() {
-        assert!(content_input("not json").unwrap_err().contains("not JSON"));
-        assert!(content_input(r#"{"kind":"tool_result"}"#)
+        assert!(content_input("not json", None)
+            .unwrap_err()
+            .contains("not JSON"));
+        assert!(content_input(r#"{"kind":"tool_result"}"#, None)
             .unwrap_err()
             .contains("no text"));
-        assert!(content_input(r#"{"text":"x"}"#)
+        assert!(content_input(r#"{"text":"x"}"#, None)
             .unwrap_err()
             .contains("no kind"));
     }
