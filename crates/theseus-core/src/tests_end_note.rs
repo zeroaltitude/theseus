@@ -387,3 +387,153 @@ async fn a_turns_files_are_dropped_at_its_end() {
     let second = r.turn(&sid, "Hi.").await;
     assert!(second.files.is_none(), "{:?}", second.files);
 }
+
+/// The residue a build leaves: a closed list of names (`end_note_step::RESIDUE`).
+const RESIDUE_SHELL: &str = "mkdir -p __pycache__ build .pytest_cache .venv; \
+     echo x > a.out; echo x > libx.so; echo x > mod.pyc";
+
+/// theseus-pp5hi: a turn that would end with only build residue beside its
+/// edits ends. Nothing reopens it, the end note's row is not written, and
+/// what the commands left is still said on the result's `Files:` line.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn build_residue_alone_does_not_reopen_the_turn() {
+    let r = rig(
+        |root| {
+            vec![
+                write(&at(root, "src/main.py"), "print(1)"),
+                run_in(&at(root, "src"), RESIDUE_SHELL),
+                Scripted::text("Done: src/main.py works."),
+                Scripted::text("A fourth answer no turn asks for."),
+            ]
+        },
+        |_| {},
+    );
+    let sid = r.session(None);
+    let res = r.turn(&sid, "Write src/main.py.").await;
+    assert_eq!(r.fake.requests().len(), 3, "no note, no extra call");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (3, "no_tool_calls"));
+    assert!(r.notes(&sid).is_empty() && r.rows("turn.end_noted") == 0);
+    let files = res.files.clone().expect("the facts stay");
+    for name in [
+        "__pycache__",
+        "build",
+        ".pytest_cache",
+        ".venv",
+        "a.out",
+        "libx.so",
+        "mod.pyc",
+    ] {
+        assert!(
+            files.left.paths.contains(&r.path(&format!("src/{name}"))),
+            "{name} is still said: {:?}",
+            files.left.paths
+        );
+    }
+    let lines = res.harness_lines();
+    assert!(
+        lines.iter().any(|l| l.starts_with("Files:") && l.contains("a.out")),
+        "{lines:?}"
+    );
+}
+
+/// The protection that matters most (theseus-pp5hi): a path the task's own
+/// words name is a deliverable, however residue-shaped, and a turn that would
+/// end beside it is told once, as before. Same for a leftover that is no
+/// residue at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_path_the_task_names_still_reopens_the_turn() {
+    for (ask, shell, named) in [
+        (
+            "Build the shared library src/libfoo.so from src/foo.c.",
+            "echo x > libfoo.so; mkdir -p __pycache__",
+            "libfoo.so",
+        ),
+        (
+            "Compile src/main.c so that ./a.out runs.",
+            "echo x > a.out",
+            "a.out",
+        ),
+        (
+            "Write src/main.rs, and leave the output under src/build/.",
+            "mkdir -p build",
+            "build",
+        ),
+        ("Write src/main.rs.", "echo x > main; mkdir -p __pycache__", "main"),
+    ] {
+        let r = rig(
+            |root| {
+                vec![
+                    write(&at(root, "src/main.c"), "int main(){}"),
+                    run_in(&at(root, "src"), shell),
+                    Scripted::text("Done."),
+                    Scripted::text("Still done."),
+                    Scripted::text("A fifth answer no turn asks for."),
+                ]
+            },
+            |_| {},
+        );
+        let sid = r.session(None);
+        let res = r.turn(&sid, ask).await;
+        assert_eq!(r.fake.requests().len(), 4, "{ask}: one note, one more call");
+        assert_eq!(res.loops, 4, "{ask}");
+        let notes = r.notes(&sid);
+        assert_eq!(notes.len(), 1, "{ask}: {notes:?}");
+        assert!(notes[0].contains(&r.path(&format!("src/{named}"))), "{notes:?}");
+        assert_eq!(r.rows("turn.end_noted"), 1, "{ask}");
+    }
+}
+
+/// Edits no command ran since are no residue: a turn that edited after its
+/// last command is told even when everything its commands left is residue.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unrun_edits_still_reopen_beside_residue() {
+    let edit = |root: &Path| {
+        let input =
+            json!({"path": at(root, "src/main.py"), "old_string": "1", "new_string": "2"});
+        Scripted::tools("Editing.", &[("e1", "fs_edit", input)])
+    };
+    let r = rig(
+        |root| {
+            vec![
+                write(&at(root, "src/main.py"), "print(1)"),
+                run_in(&at(root, "src"), RESIDUE_SHELL),
+                edit(root),
+                Scripted::text("Done."),
+                Scripted::text("Still done."),
+            ]
+        },
+        |_| {},
+    );
+    let sid = r.session(None);
+    let res = r.turn(&sid, "Write src/main.py.").await;
+    assert_eq!(r.fake.requests().len(), 5);
+    let notes = r.notes(&sid);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].contains("Changed after the last command ran"), "{notes:?}");
+    let note = res.files.unwrap().end_note.unwrap();
+    assert_eq!(note.unrun, 1);
+}
+
+/// One note is one note: a reopened turn whose model keeps working is not
+/// reopened again by what the next stop leaves.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_note_does_not_reopen_the_turn_twice() {
+    let r = rig(
+        |root| {
+            vec![
+                write(&at(root, "src/main.c"), "int main(){}"),
+                run_in(&at(root, "src"), "echo x > main"),
+                Scripted::text("Done."),
+                run_in(&at(root, "src"), "echo y > main2"),
+                Scripted::text("Done again."),
+                Scripted::text("A seventh answer no turn asks for."),
+            ]
+        },
+        |_| {},
+    );
+    let sid = r.session(None);
+    let res = r.turn(&sid, "Write src/main.c.").await;
+    assert_eq!(r.fake.requests().len(), 5, "the note's one extra loop, then the end");
+    assert_eq!(r.notes(&sid).len(), 1);
+    assert!(res.files.unwrap().end_note.unwrap().acted);
+}
