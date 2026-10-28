@@ -449,6 +449,8 @@ struct Turn<'a> {
     checkpoint: checkpoint_step::Checkpoints,
     /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
     fallback: Option<fallback_step::FellBack<'a>>,
+    /// The same-model retries of refusals (theseus-keuap).
+    again: fallback_step::Again,
     /// The stop judged live, and the one nudge (theseus-fh0u).
     nudge: nudge_step::Nudge,
     /// The one end note, and the drop of the turn's files at its end (theseus-53ujg.1).
@@ -588,6 +590,7 @@ impl<'a> Turn<'a> {
             route: route_step::RouteState::default(),
             checkpoint: checkpoint_step::Checkpoints::default(),
             fallback: None,
+            again: Default::default(),
             nudge: nudge_step::Nudge::default(),
             end_note: end_note_step::Held::of(execution_id),
             fill: fill_step::Fill::default(),

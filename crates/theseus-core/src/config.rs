@@ -1227,6 +1227,13 @@ pub struct Retries {
     /// catalog's `refusal_fallback_model` (theseus-7gir.18). On by default.
     #[serde(default = "default_true")]
     pub refusal: bool,
+    /// A refusal of a category that is not a genuine decline is made once
+    /// more on the same model before the fallback answers (theseus-keuap): a
+    /// refusal is often incidental, and the fallback is a weaker model. At
+    /// most one retry per refused request and three per turn. On by default;
+    /// `refusal = false` turns it off with the fallback.
+    #[serde(default = "default_true")]
+    pub refusal_retry: bool,
     /// The refusal categories that are a genuine decline (theseus-wf482). The
     /// fallback answers the refused request and the next goes back to the
     /// routed model; a refusal with one of these categories keeps the turn on
@@ -1254,6 +1261,7 @@ impl Default for Retries {
             backoff_ms: default_backoff_ms(),
             backoff_max_ms: default_backoff_max_ms(),
             refusal: true,
+            refusal_retry: true,
             hard_decline_categories: default_hard_decline_categories(),
         }
     }
