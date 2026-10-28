@@ -95,3 +95,38 @@ async fn with_redact_outbound_off_the_value_is_sent_as_written() {
         .unwrap();
     assert_eq!(last(&fake), format!("token {VALUE}"));
 }
+
+/// A notice card names the call it is about: a vault value in its command line
+/// or a field is replaced too, and a card without one is the same card.
+#[tokio::test]
+async fn a_notice_card_leaves_with_the_value_replaced() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let lane = lane(d.path(), &fake, true);
+    let card = NoticeCard {
+        title: "🔔 notified".into(),
+        color: 0,
+        description: format!("`proc.run` curl -H 'Authorization: {VALUE}' {LOOKALIKE}"),
+        fields: vec![
+            ("env".into(), format!("TOKEN={VALUE}")),
+            ("cwd".into(), "/work".into()),
+        ],
+        ask: None,
+    };
+    let out = mask_card(&lane.shared.core.exits, &card);
+    assert_eq!(
+        out.description,
+        format!("`proc.run` curl -H 'Authorization: [redacted:courier_token]' {LOOKALIKE}")
+    );
+    assert_eq!(
+        out.fields[0],
+        ("env".into(), "TOKEN=[redacted:courier_token]".into())
+    );
+    assert_eq!(out.fields[1], card.fields[1]);
+    let plain = NoticeCard {
+        description: "`fs.read` a.txt".into(),
+        fields: vec![],
+        ..card
+    };
+    assert_eq!(mask_card(&lane.shared.core.exits, &plain), plain);
+}
