@@ -54,6 +54,9 @@ pub const PACK: &str = "content.v2";
 /// loop's results to join the batch.
 pub const COALESCE: Duration = Duration::from_millis(50);
 
+/// The most `(session, node)` pairs the names source remembers having read.
+const NAMES_SEEN_MAX: usize = 100_000;
+
 /// The longest a source line is kept.
 const SOURCE_CHARS: usize = 200;
 
@@ -158,6 +161,11 @@ pub(crate) struct Point {
     /// The operator's private names, made once: the deterministic source
     /// (`content::deterministic::from_names`) reads it at every item's entry.
     matcher: OnceLock<theseus_judge::names::Names>,
+    /// The `(session, node)` pairs the names source has read, so an item offered
+    /// again (the sweep re-offers one whose ask failed) is not read again: a
+    /// label the operator removed is not raised a second time by the item that
+    /// raised it. Cleared whole at [`NAMES_SEEN_MAX`].
+    names_seen: Mutex<std::collections::HashSet<(String, String)>>,
     /// `[content_based_security] session_flags = false`: nothing is asked.
     off: AtomicBool,
     slots: Mutex<HashMap<String, Slot>>,
@@ -769,8 +777,22 @@ impl JudgeService {
             return;
         };
         let now = theseus_protocol::now_unix_ms();
-        let hit = items
-            .iter()
+        let fresh: Vec<&ContentItem> = {
+            let mut seen = self
+                .content
+                .names_seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if seen.len() >= NAMES_SEEN_MAX {
+                seen.clear();
+            }
+            items
+                .iter()
+                .filter(|i| seen.insert((session.to_string(), i.node.clone())))
+                .collect()
+        };
+        let hit = fresh
+            .into_iter()
             .find_map(|i| content::deterministic::from_names(names, &i.node, i.kind, &i.text, now));
         if let Some(label) = hit {
             self.land_deterministic(session, vec![label]);

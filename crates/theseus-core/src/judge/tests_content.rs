@@ -975,3 +975,47 @@ async fn a_name_raises_nothing_with_the_flags_off() {
     );
     assert!(flags(&r, &sid).label(Flag::Confidential).is_none());
 }
+
+/// An item offered again (the sweep re-offers one whose ask failed) does not
+/// raise a label the operator removed: the removal sticks until a new item
+/// names the word.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_removed_names_label_is_not_raised_again_by_the_same_item() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    jev.set_latency(Duration::from_secs(5), Duration::from_secs(5));
+    let r = rig(&jev, |c| {
+        c.privacy.sensitive_names = vec!["Examplecorp".into()]
+    });
+    let sid = session(&r);
+    let judge = &r.core.runner.judge;
+    let item = item_in(&r, &sid, "n1", ItemKind::ToolResult, "Examplecorp notes");
+    judge.ask_content(&sid, vec![item.clone()]);
+    assert!(flags(&r, &sid).has(Flag::Confidential));
+    r.core
+        .store
+        .update_session(&sid, |rec| {
+            let mut f = rec.data.as_deref().cloned().unwrap_or_default();
+            f.remove(Flag::Confidential, "owner", "test", 2);
+            rec.data = Some(Box::new(f));
+            Ok(vec![])
+        })
+        .unwrap();
+    judge.ask_content(&sid, vec![item]);
+    assert!(
+        !flags(&r, &sid).has(Flag::Confidential),
+        "the removal stuck"
+    );
+    // A new item that names the word raises it again, as a pack's yes does.
+    judge.ask_content(
+        &sid,
+        vec![item_in(
+            &r,
+            &sid,
+            "n2",
+            ItemKind::ToolResult,
+            "more Examplecorp",
+        )],
+    );
+    assert!(flags(&r, &sid).has(Flag::Confidential));
+}
