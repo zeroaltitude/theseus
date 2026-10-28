@@ -25,7 +25,13 @@ mod tests_calls;
 #[cfg(test)]
 mod tests_cancel;
 #[cfg(test)]
+mod tests_core;
+#[cfg(test)]
+mod tests_corrections;
+#[cfg(test)]
 mod tests_daemon_path;
+#[cfg(test)]
+mod tests_delivery;
 #[cfg(test)]
 mod tests_files;
 #[cfg(test)]
@@ -42,6 +48,8 @@ pub(crate) mod tests_resumed;
 mod tests_tools;
 #[cfg(test)]
 mod tests_voice;
+#[cfg(test)]
+mod tests_wire;
 
 use std::sync::Arc;
 use std::time::Duration;
