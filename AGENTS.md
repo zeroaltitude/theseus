@@ -133,10 +133,8 @@ Each is a requirement, with its spec section.
     once: a changed note rewrites the copy and restarts the daemon onto it; a note that changed again, one that does
     not load, or a vault that does not answer is said in health, and the copy keeps serving. The digest is a light
     check, not a boundary: a job that can write the copy can write the store while the daemon is down.
-  - External text holds a session: after a session reads web text, a call that acts waits until the operator trusts
-    it again. So does a `proc.run` of a program `[policy] external_programs` lists (`gh`), and a session that a
-    holding session's job opens or sends a turn to (its `THESEUS_SESSION`, sent as `opened_from`). Under default
-    trust these two are light guards, not boundaries: a job can strip its own environment (theseus-b5cl).
+  - Outside text is marked, not held: a result from a page, a search, an MCP server marked `external` or a job that
+    reached a host beyond `[sandbox] egress` carries the marker; the `injection` label is what stops a session.
   - Money is a gate: every call reserves its worst case before it runs.
 
 ## The principles discovered while building it

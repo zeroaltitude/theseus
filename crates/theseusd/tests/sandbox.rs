@@ -14,9 +14,10 @@
 //!   at L0 (theseus-w5op): its result's head names it, the value it prints
 //!   is withheld, and no file under the state dir nor the log holds it;
 //! - egress (18c): a listed host is reached through the job's proxy, with
-//!   its bytes in the completion and the ledger, and its session holds
-//!   nothing; a host its call named beyond the list, once approved, is
-//!   outside text, so its session holds it (theseus-gyin); an unlisted host,
+//!   its bytes in the completion and the ledger, and its result is not
+//!   outside text; a host its call named beyond the list runs with a notice
+//!   naming it, and its result is marked outside text (theseus-gyin; R6,
+//!   theseus-gyjyo.8); an unlisted host,
 //!   and names that resolve to loopback or to the metadata service, are
 //!   refused with their reasons, and a job that reached nothing leaves its
 //!   session clear;
@@ -942,14 +943,17 @@ impl Rig {
         l["sessions"].as_array().cloned().unwrap_or_default()
     }
 
-    /// Health's hold for `sid`, if it holds outside text.
-    fn hold(&self, sid: &str) -> Option<Value> {
-        let h = self.call("health", Value::Null).unwrap();
-        h["external_text"]
+    /// The first result of `sid` marked as outside text (`external`): its tool and what it is marked
+    /// with, if the session has one.
+    fn outside(&self, sid: &str) -> Option<Value> {
+        let h = self
+            .call("session.history", json!({"session_id": sid}))
+            .unwrap();
+        h["nodes"]
             .as_array()?
             .iter()
-            .find(|i| i["session_id"] == sid)
-            .map(|i| i["held"].clone())
+            .find(|n| n["detail"]["external"].is_object())
+            .map(|n| json!({"tool": n["detail"]["tool"], "url": n["detail"]["external"]["url"]}))
     }
 }
 
@@ -1001,7 +1005,10 @@ fn a_listed_host_is_reached_through_the_proxy_and_its_session_holds_nothing() {
     );
     let started = r.ledger("sandbox.started");
     assert_eq!(started[0]["egress"], json!([stand]));
-    assert!(r.hold(&sid).is_none(), "a listed host is not outside text");
+    assert!(
+        r.outside(&sid).is_none(),
+        "a listed host is not outside text"
+    );
     let health = r.call("health", Value::Null).unwrap();
     assert_eq!(health["sandbox"]["egress"], json!([stand]));
     assert_eq!(health["sandbox"]["egress_connections"], 1);
@@ -1029,16 +1036,15 @@ fn a_listed_host_is_reached_through_the_proxy_and_its_session_holds_nothing() {
         )
         .unwrap();
     assert_eq!(res["stop_reason"], "no_tool_calls", "{res}");
-    assert!(r.hold(&sid).is_none());
+    assert!(r.outside(&sid).is_none());
 }
 
-/// A host the call named beyond `[sandbox] egress` (18c): the call waits for
-/// the operator, and once approved its job reaches the host through its
-/// proxy. Only that approval let it reach the host, so what it brought back
-/// is outside text (theseus-gyin): its session holds it, the reason naming
-/// the egress, and the next call there that acts waits.
+/// A host the call named beyond `[sandbox] egress` (18c): the call runs, with a notice naming the host
+/// (R6, theseus-gyjyo.8), and its job reaches the host through its proxy. Only the call's own list let it
+/// reach the host, so what it brought back is marked outside text (theseus-gyin), and nothing else changes:
+/// the session holds nothing, and the next call there that acts runs at once.
 #[test]
-fn a_host_beyond_the_list_once_approved_is_outside_text() {
+fn a_host_beyond_the_list_runs_with_a_notice_and_is_outside_text() {
     let port = stand_in();
     let stand = format!("stand.test:{port}");
     let r = Rig::start(|_| {});
@@ -1062,36 +1068,34 @@ fn a_host_beyond_the_list_once_approved_is_outside_text() {
             json!({"session_id": sid, "input": "beyond", "author": "test", "attachments": []}),
         )
         .unwrap();
-    assert_eq!(res["stop_reason"], "awaiting_confirm", "{res}");
-    let pending = r.call("confirm.list", json!({"session_id": sid})).unwrap();
-    let corr = pending["confirms"][0]["correlation_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    r.call(
-        "action.confirm",
-        json!({"correlation_id": corr, "approve": true}),
-    )
-    .unwrap();
+    assert_ne!(res["stop_reason"], "awaiting_confirm", "it runs: {res}");
+    let notified = r.ledger("tool.notified");
+    assert!(
+        notified.iter().any(|n| n
+            .to_string()
+            .contains(&format!("it names hosts beyond [sandbox] egress: {stand}"))),
+        "the notice names the host: {notified:?}"
+    );
     let t0 = Instant::now();
     let h = loop {
-        if let Some(h) = r.hold(&sid) {
+        if let Some(h) = r.outside(&sid) {
             break h;
         }
         assert!(
             t0.elapsed() < Duration::from_secs(30),
-            "the session never held outside text:\n{}",
+            "the result was never marked outside text:\n{}",
             r.log()
         );
         std::thread::sleep(Duration::from_millis(20));
     };
     assert_eq!(
-        (h["tool"].as_str(), h["via"].as_str(), h["url"].as_str()),
-        (Some("proc.run"), Some("egress"), Some(stand.as_str()))
+        (h["tool"].as_str(), h["url"].as_str()),
+        (Some("proc.run"), Some(stand.as_str()))
     );
     let rows = r.ledger("sandbox.egress");
     assert_eq!(rows.len(), 1, "{rows:?}");
-    // The next call there that acts waits, with the reason naming the egress.
+    assert!(r.ledger("session.external_read").is_empty());
+    // The next call there that acts runs at once.
     r.asks("again", vec![connect_call(&[])]);
     let res = r
         .call(
@@ -1099,13 +1103,7 @@ fn a_host_beyond_the_list_once_approved_is_outside_text() {
             json!({"session_id": sid, "input": "again", "author": "test", "attachments": []}),
         )
         .unwrap();
-    assert_eq!(res["stop_reason"], "awaiting_confirm", "{res}");
-    let pending = r.call("confirm.list", json!({"session_id": sid})).unwrap();
-    let why = pending.to_string();
-    assert!(
-        why.contains(&format!("proc.run's egress to {stand}")),
-        "{why}"
-    );
+    assert_ne!(res["stop_reason"], "awaiting_confirm", "{res}");
 }
 
 /// Refusals through the wired path (design §2.4, §7's "no metadata
@@ -1142,7 +1140,7 @@ fn unlisted_and_private_hosts_are_refused_with_their_reasons_and_hold_nothing() 
     assert_eq!(rows.len(), 4, "{rows:?}");
     assert!(r.ledger("sandbox.egress").is_empty());
     assert!(
-        r.hold(&sid).is_none(),
+        r.outside(&sid).is_none(),
         "a job that reached nothing holds nothing"
     );
     let health = r.call("health", Value::Null).unwrap();
@@ -1493,5 +1491,5 @@ fn an_aws_granted_l1_job_holds_its_session_and_no_other_aws_credential() {
         (1, Some("sts.us-west-2.amazonaws.com")),
         "{reached:?}"
     );
-    assert!(r.hold(&sid).is_none(), "the operator listed the host");
+    assert!(r.outside(&sid).is_none(), "the operator listed the host");
 }

@@ -99,11 +99,6 @@ impl Rig {
                  esac\n"
             ),
         );
-        // `[policy] external_programs` lists `gh`: what it prints is outside text.
-        exe(
-            &path("projects/bin/gh"),
-            "#!/bin/sh\necho 'issue 7: a stranger wrote this'\n",
-        );
         let t = config(&theseusd, &path("projects"), &model.base);
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         let log = std::fs::File::create(path("theseusd.log")).unwrap();
@@ -506,104 +501,6 @@ fn an_acting_call_waits_and_the_cli_approves_it() {
         (st["state"] == "waiting" && st["waiting_on"] == "input").then_some(st)
     });
     assert_eq!(st["last_reply"], "Done.", "{st}");
-}
-
-/// A job's process that opens a session through MCP passes on its hold: a
-/// session that read `gh`'s output holds external text, its next call
-/// waits, the operator lets it run, and the job's `curl` opens a
-/// conversation through MCP, which holds that text too, from that session,
-/// by way of the job.
-#[test]
-fn a_jobs_process_that_opens_a_session_through_mcp_passes_on_its_hold() {
-    let r = Rig::start();
-    let gh = r.path("projects/bin/gh").display().to_string();
-    r.asks(
-        "read issue 7",
-        vec![("proc_run", json!({"argv": [gh, "issue", "view", "7"]}))],
-    );
-    let port = r.port();
-    let o = r.path(OUT);
-    let script = format!(
-        "u=http://127.0.0.1:{port}/mcp\n\
-         curl -sS -D {o}/h -o /dev/null -H 'authorization: Bearer {KEY}' -H 'content-type: application/json' \
-         -H 'accept: application/json, text/event-stream' --data '{INITIALIZE}' $u\n\
-         m=$(grep -i '^mcp-session-id:' {o}/h | tr -d '\\r' | cut -d' ' -f2)\n\
-         curl -sS -o {o}/open.json -H 'authorization: Bearer {KEY}' -H 'content-type: application/json' \
-         -H \"mcp-session-id: $m\" \
-         --data '{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{{\"name\":\"conversation_open\",\"arguments\":{{}}}}}}' $u\n\
-         touch {o}/open.done\n",
-        o = o.display()
-    );
-    // The stand-in numbers each response's calls from 0, so a read comes
-    // first: the job's call is `toolu_test_1`, which no earlier turn
-    // answered.
-    r.asks(
-        "open through mcp",
-        vec![
-            ("fs_list", json!({"path": "."})),
-            ("proc_run", json!({"argv": ["sh", "-c", script]})),
-        ],
-    );
-    let s = r.call("session.open", json!({"label": "reader"})).unwrap();
-    let reader = s["session_id"].as_str().unwrap().to_string();
-    let read = r
-        .call(
-            "turn.submit",
-            json!({"session_id": reader, "input": "read issue 7"}),
-        )
-        .unwrap();
-    assert_eq!(read["stop_reason"], "no_tool_calls", "{read}");
-    let held = r.call("health", Value::Null).unwrap()["external_text"].clone();
-    assert!(held.to_string().contains(&reader), "{held}");
-    let parked = r
-        .call(
-            "turn.submit",
-            json!({"session_id": reader, "input": "open through mcp"}),
-        )
-        .unwrap();
-    let id = parked["awaiting_confirm"]
-        .as_str()
-        .unwrap_or_else(|| panic!("the job waits: {parked}\n{}", r.log()))
-        .to_string();
-    let answered = r.cli(&["answer", &id, "approve", "--no-wait"]);
-    assert!(answered.status.success(), "{answered:?}");
-    let t0 = Instant::now();
-    while !o.join("open.done").exists() {
-        let actions = r.call("ledger.tail", json!({"n": 60})).unwrap()["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|r| {
-                format!("{} {}", r["kind"], r["data"])
-                    .chars()
-                    .take(300)
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(
-            t0.elapsed() < Duration::from_secs(30),
-            "no open in 30 s: {actions}\n{}",
-            r.log()
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let opened: Value =
-        serde_json::from_str(&std::fs::read_to_string(o.join("open.json")).unwrap())
-            .unwrap_or_else(|e| panic!("{e}\n{}", r.log()));
-    let sid = opened["result"]["structuredContent"]["session_id"]
-        .as_str()
-        .unwrap_or_else(|| panic!("{opened}"))
-        .to_string();
-    let h = r.call("health", Value::Null).unwrap();
-    let it = h["external_text"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["session_id"] == sid.as_str())
-        .unwrap_or_else(|| panic!("the MCP session holds nothing: {}", h["external_text"]));
-    assert_eq!(it["held"]["via"], "job", "{it}");
-    assert_eq!(it["held"]["from_session"], reader.as_str(), "{it}");
 }
 
 /// A wrong key gets 401, twice, with one `mcp_server.refused` row for the
