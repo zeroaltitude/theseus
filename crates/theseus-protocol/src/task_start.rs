@@ -72,9 +72,10 @@ pub struct TaskStartParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quotes: Vec<String>,
     /// The quotes are not the starter's own words: an email, another person's
-    /// message (theseus-nfhaf). Accepted and ignored since the external-text
-    /// hold went (theseus-gyjyo.8): it chose whether the task's session held
-    /// its quotes as web text, and a quote is an item like any other now.
+    /// message (theseus-nfhaf). They are queued in the task's session as a
+    /// person's message before its first turn, so the content pack asks the
+    /// injection question of them (an agent's quotes are asked whatever this
+    /// says; the owner's own are not).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub outside_quotes: bool,

@@ -282,8 +282,8 @@ async fn the_start_time_takes_one_form_inside_the_bounds() {
 }
 
 /// Quotes ride in the task's arrangement verbatim after the brief, and mark
-/// nothing: `outside_quotes` is accepted and ignored, so a quote an outside
-/// hand pasted writes no `session.external_read` row.
+/// nothing: a quote an outside hand pasted writes no `session.external_read`
+/// row and no hold (`judge::tests_quotes` is what asks of it).
 #[tokio::test]
 async fn quotes_ride_in_the_arrangement_and_mark_nothing() {
     let r = counting();

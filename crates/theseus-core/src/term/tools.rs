@@ -568,7 +568,7 @@ async fn send(terms: &Arc<Terms>, session: &str, input: &Value) -> AsyncResult {
     let a: SendArgs = parse(input).map_err(ToolFailure::new)?;
     let (bytes, text) = send_bytes(&a).map_err(ToolFailure::new)?;
     let t = terms
-        .send(session, &a.terminal, &bytes)
+        .send(session, &a.terminal, &bytes, &text)
         .map_err(ToolFailure::new)?;
     let mut what = Vec::new();
     if !text.is_empty() {

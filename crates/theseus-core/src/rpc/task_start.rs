@@ -15,8 +15,12 @@
 //!   model call; a plain turn is untouched.
 //! - **A deferred start** (`start_at_ms`, `start_after_ms`, or `start_when`) opens
 //!   it asleep in `Waiting{DueAt}`, as `task.create { start_at }` does.
-//! - **Quotes** become the task's arrangement (role `context`). They hold nothing:
-//!   the content pack asks of them what it asks of any item.
+//! - **Quotes** become the task's arrangement (role `context`). An arrangement is no
+//!   content item, so quotes that are outside text (`outside_quotes`, or an agent's)
+//!   are also queued as one item in the task's session, a person's message, before its
+//!   first turn: the pack asks of them what it asks of any other person's text, and an
+//!   `injection` it finds freezes the task's calls that act. The owner's own quotes
+//!   are the owner's own text and are not asked.
 //! - **Authority** is `judge_act(Act::Task)`: the owner, from a private place. A
 //!   shared place, an MCP client and a job's shell are refused, each told where
 //!   to start it instead.
@@ -93,6 +97,8 @@ impl Core {
         private: bool,
     ) -> Result<TaskStartResult, RpcFailure> {
         let who: Answerer = who.into();
+        // Quotes an outside hand wrote: an agent's, or the start said so (a mail, someone else's message).
+        let outside = who.agent.is_some() || p.outside_quotes;
         let what = format!("starting a task ({})", title_from(&p.brief));
         self.judge_act(&who, Act::Task { what: &what })
             .map_err(failure)?;
@@ -169,6 +175,9 @@ impl Core {
                 });
         let opened = opened.map_err(open_refusal)?;
         let task = &opened.task;
+        if let (true, Some(a)) = (outside, arrangement.as_ref()) {
+            self.queue_quotes(&task.session_id, a, &quotes, now);
+        }
         self.told(
             &opened,
             &common,
@@ -461,6 +470,20 @@ fn open_refusal(e: anyhow::Error) -> RpcFailure {
 }
 
 impl Core {
+    /// Queue quotes that are outside text for the content pack, in the task's session, as one person's
+    /// message: the arrangement holds them but is no item, so without this nothing would ask of them the
+    /// injection question. It is asked before the task's first turn and nothing waits on it here.
+    fn queue_quotes(&self, task_session: &str, arrangement: &Node, quotes: &[String], now: u64) {
+        let item = crate::judge::content::ContentItem::new(
+            &arrangement.id,
+            crate::content::ItemKind::PersonMessage,
+            "a quote the task was started with",
+            &quotes.join("\n\n"),
+            now,
+        );
+        self.runner.judge.ask_content(task_session, vec![item]);
+    }
+
     /// Once the open's frame is written: bind where the task reports, and
     /// announce the owner's row's sentence and the task graph's creation.
     fn told(

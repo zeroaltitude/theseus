@@ -851,7 +851,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   sweep (`Core::sweep_outputs`, with the spool's hourly sweep) deletes a retired session's copies, any past
   `[tools] outputs_keep_days`, and the oldest past `outputs_max_bytes`. `fs.read` has its own cap
   (`Tool::result_max_chars`, 100,000), cut as a contiguous head, never head and tail. Tests: `tests_kept.rs`. The gate's parts are
-  `policy.rs` (postures and the floor), `external.rs` (the `external` marker on a result node, and what reads it: `is_outside`, `first`, `read_any`; it holds nothing, R6, theseus-gyjyo.8), `broker.rs` (granted
+  `policy.rs` (postures and the floor), `external.rs` (the `external` marker on a result node, and what reads it: `is_outside`, `first`, `read_any`; `Listed`/`PROGRAMS` mark `gh`'s job and terminal output with no config; it holds nothing, R6, theseus-gyjyo.8), `broker.rs` (granted
   secrets), `approval.rs` (who answers, and from where), `peer.rs` (the web UI's other-uid check at accept), and `peer_proc.rs` (who is behind a CLI answer).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
   unless `[policy] private_addresses = "open"` (theseus-7gir.20, the bench profile's), which lifts both
@@ -2804,8 +2804,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   it never costs a turn). The carve is `task.create`'s: `budget_usd`, else a quarter of what the parent has left; an explicit
   budget over what it has left is refused with the numbers (not capped silently), nothing left carves nothing. `start_*` opens
   it asleep (`task.create`'s bounds, `task_start::bounded`; `start_when` is `wake.create`'s `when`, read in the daemon's zone).
-  `quotes` become one `Body::Arrangement` (role `context`) after the brief; they hold nothing (R6, theseus-gyjyo.8: `outside_quotes`
-  is accepted and ignored). Authority is
+  `quotes` become one `Body::Arrangement` (role `context`) after the brief; an arrangement is no content item, so quotes that are outside text (`outside_quotes`, or an
+  agent's) are also queued in the task's session as one `PersonMessage` item (`Core::queue_quotes`) before its first turn: the pack
+  asks the injection question of them and an `injection` freezes the task's acting calls (R6 fix, theseus-gyjyo.8; the owner's own
+  quotes are not asked; tests `judge/tests_quotes.rs`). Authority is
   `judge_act(Act::Task)`: the owner, from a private place; a shared place and an MCP client (`mcp_server::JUDGED`) are refused with
   where to start it instead, a job's shell by the CLI (`client::OPERATORS`). Tests: `tests_task_start.rs`, theseusd's
   `tests/task_start.rs`, the CLI's `tests/task_start.rs`.

@@ -17,6 +17,9 @@
 //!   judge it as they would the program's own run. `term.read` is a read.
 //!   `term.close` is a read too: it stops what this session started, as a
 //!   cancel does.
+//! - **External text.** A terminal whose program is `gh` (`external::Listed`, read from its argv as a
+//!   `proc.run`'s is), or one sent text that names it, is outside text from then on: every screen it
+//!   gives carries the `external` marker. Nothing holds.
 //! - **Lifetime.** At most `PER_SESSION` terminals a session whose programs
 //!   run (theseus-ggqf): one whose program has ended frees its slot, and its
 //!   last screen stays readable until `term.close`, or until an open finds
@@ -112,6 +115,9 @@ pub struct Terminal {
     pub cwd: PathBuf,
     pub opened_ms: u64,
     pub pty: pty::Pty,
+    /// The listed program that makes its screen outside text, once one is
+    /// known: its argv's, or one its keys named.
+    external: Mutex<Option<crate::external::Listed>>,
     /// The rows and the scroll count its last read returned.
     last: Mutex<(Vec<String>, u64)>,
     closed: AtomicBool,
@@ -123,6 +129,10 @@ impl Terminal {
     /// The program, by its file name.
     pub fn program(&self) -> String {
         program(&self.argv)
+    }
+
+    pub fn external(&self) -> Option<crate::external::Listed> {
+        self.external.lock().unwrap().clone()
     }
 
     /// Its program has ended: it holds no slot.
@@ -344,6 +354,7 @@ impl Terms {
         })
         .map_err(|e| format!("could not start {}: {e}", program(argv)))?;
         let id = format!("t{}", self.next.fetch_add(1, Ordering::Relaxed));
+        let external = crate::external::Listed::of(&json!({ "argv": argv }));
         let t = Arc::new(Terminal {
             id: id.clone(),
             session: session.into(),
@@ -351,6 +362,7 @@ impl Terms {
             cwd,
             opened_ms: theseus_protocol::now_unix_ms(),
             pty,
+            external: Mutex::new(external),
             last: Mutex::new((Vec::new(), 0)),
             closed: AtomicBool::new(false),
             sent_ms: AtomicU64::new(0),
@@ -362,8 +374,14 @@ impl Terms {
         Ok((t, reclaimed))
     }
 
-    /// Type `bytes` into a session's terminal.
-    pub fn send(&self, session: &str, id: &str, bytes: &[u8]) -> Result<Arc<Terminal>, String> {
+    /// Type `bytes` into a session's terminal; `text` is what of them was text, read for `gh`'s name.
+    pub fn send(
+        &self,
+        session: &str,
+        id: &str,
+        bytes: &[u8],
+        text: &str,
+    ) -> Result<Arc<Terminal>, String> {
         let t = self.of(session, id)?;
         if t.pty.shared.hung_up.load(Ordering::Relaxed) {
             return Err(format!(
@@ -371,6 +389,12 @@ impl Terms {
                  and term_close frees it",
                 t.program()
             ));
+        }
+        if !text.is_empty() {
+            let mut ext = t.external.lock().unwrap();
+            if ext.is_none() {
+                *ext = crate::external::Listed::in_text(text);
+            }
         }
         t.sent_ms
             .store(theseus_protocol::now_unix_ms(), Ordering::Relaxed);
@@ -704,7 +728,7 @@ pub fn snapshot(
     *last = (rows, scrolled);
     let meta = json!({"terminal": t.id, "program": t.program(), "cursor": [crow + 1, ccol + 1],
         "changed_rows": changed.iter().map(|i| i + 1).collect::<Vec<_>>(), "scrolled_off": off});
-    Ok((ToolOutput { text, meta }, None))
+    Ok((ToolOutput { text, meta }, t.external().map(|l| l.marker())))
 }
 
 /// Row numbers as runs: "rows 2-4, 7".

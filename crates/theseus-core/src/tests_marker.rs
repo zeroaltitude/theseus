@@ -117,7 +117,11 @@ async fn a_job_of_gh_is_marked_outside_text_and_holds_nothing() {
     let model = Arc::new(FakeProvider::scripted(vec![
         Scripted::tools(
             "",
-            &[("g1", "proc_run", json!({"argv": [bin.to_string_lossy(), "issue", "view", "1"]}))],
+            &[(
+                "g1",
+                "proc_run",
+                json!({"argv": [bin.to_string_lossy(), "issue", "view", "1"]}),
+            )],
         ),
         Scripted::tools("", &[("r1", "proc_run", json!({"argv": ["echo", "hi"]}))]),
         Scripted::text("Done."),
@@ -146,6 +150,9 @@ async fn a_job_of_gh_is_marked_outside_text_and_holds_nothing() {
         .iter()
         .find(|n| matches!(&n.body, Body::ToolResult { content, .. } if content.contains("hi")))
         .expect("the echo's result");
-    assert!(!crate::external::is_outside(echoed), "an unlisted program is not marked");
+    assert!(
+        !crate::external::is_outside(echoed),
+        "an unlisted program is not marked"
+    );
     assert!(ledgered(&core, "session.external_read").is_empty());
 }

@@ -979,11 +979,16 @@ impl ToolRuntime {
             ),
         };
         // A job that reached a host beyond `[sandbox] egress` brought back
-        // outside text (18c; theseus-gyin).
+        // outside text (18c; theseus-gyin); so did a job of `gh`, whose output is a
+        // stranger's text, unless its egress marked it already (theseus-b5cl).
         let egress =
             crate::egress::marker(&detail, !out.is_empty(), &self.sandbox.cfg.egress, || {
                 confirm_proposal(store, a, None).map_or_else(|_| vec![], |p| egress::bound(&p))
             });
+        let listed = match (&egress, input) {
+            (None, Some(i)) => crate::external::Listed::of(i),
+            _ => None,
+        };
         // An ask past `proc_timeout_max_secs` was cut; this call is told so (theseus-spntl).
         let clamp = input
             .and_then(|i| super::proc_cap::asked_beyond(i, self.ctx.proc_timeout_max_secs))
@@ -1017,7 +1022,7 @@ impl ToolRuntime {
             correlation_id: Some(&a.correlation_id),
             duration_ms,
             bytes_total: Some(total),
-            external: egress,
+            external: egress.or_else(|| listed.as_ref().map(crate::external::Listed::marker)),
             meta,
             hint: self.native_hint(input),
             kept,
