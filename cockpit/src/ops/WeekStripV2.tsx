@@ -6,18 +6,21 @@
 // its count, a ◆ marks a clash, and the thin cyan line is now. Drawn from the layout alone (`ops/timeline.ts`): no
 // read of its own. A drag says on its cursor what a drop would do, or why it is refused (`ops/drag.ts`).
 import { memo, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
-import { ChevronLeft, ChevronRight, Lock, MoonStar } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Lock, MoonStar, Repeat } from 'lucide-react'
 import { cn } from '@/lib/format'
 import { toneHex } from '@/lib/taxonomy'
 import { glyph, layout, toneOf, type Mark, type Placed, type Window } from '@/lib/agenda'
 import { markLine } from '@/lib/agendawords'
 import { eventFacts, hatch, hm, stateOf } from './calendar'
 import { centerHour, eventLayout, hourAt, heightOf, nightFold, openHours, ranBars, scrollFor, yOf, type AllDay, type Block, type CalEvent, type Clashes, type Ran } from './timeline'
+import { taskLayout, taskLine, type TaskBlock, type TaskPlaced } from './taskblocks'
 import { dropAt, dropOf, type Drop } from './drag'
 import type { CalendarWindow, RunRow, WorkView } from '@protocol'
 
 const FOLD_PX = 18
 const GUTTER = 22
+/** The share of a day's width the task lane takes when a day has task blocks (the events keep the rest). */
+const TASK_SHARE = 34
 
 export interface Hover { line: string }
 
@@ -47,6 +50,37 @@ const EventBlock = memo(function EventBlock({ b, y, h, selected, clash, why, dim
   )
 })
 
+/** A task beside the meetings, as a block of its own: a live one is solid in the live tone with a glowing, growing edge, a
+ *  finished one holds its span in its outcome's tone, a planned one (a deferred start, a routine's occurrence) is a dashed
+ *  outline in a faint fill, and a recurring one carries ↻. Dashed against the events' solid hatching, and in a signal
+ *  tone where an event is in a calendar's own material, so the two are never confused. */
+const TaskBlockView = memo(function TaskBlockView({ t, y, h, now, selected, clash, dim, onPick, onHover }: {
+  t: TaskPlaced; y: number; h: number; now: number; selected: boolean; clash: boolean; dim: boolean
+  onPick: (key: string) => void; onHover: (line: string | null) => void
+}) {
+  const b = t.block
+  const hex = toneHex[b.tone]
+  const line = taskLine(b, now)
+  return (
+    <button type="button" data-task-block={b.kind} data-live={b.live || undefined} data-recurring={b.recurring || undefined} data-planned={b.planned || undefined}
+      title={`${line}${clash ? '\n◆ falls inside a meeting' : ''}`} onClick={() => onPick(b.key)} onMouseEnter={() => onHover(line)} onMouseLeave={() => onHover(null)}
+      className={cn('absolute overflow-hidden rounded-[3px] px-1 text-left text-[10.5px] leading-tight text-ink', selected && 'z-10 ring-1 ring-gold')}
+      style={{
+        top: y, height: Math.max(h - 1, 6), left: `calc(${(t.lane / t.lanes) * 100}% + 1px)`, width: `calc(${100 / t.lanes}% - 2px)`,
+        background: b.planned ? `${hex}14` : `${hex}${b.live ? '33' : '22'}`,
+        outline: b.planned ? `1px dashed ${hex}aa` : undefined, boxShadow: `inset 2px 0 0 ${hex}${b.planned ? '88' : 'dd'}${b.live && !t.continues ? `, 0 2px 6px -1px ${hex}` : ''}`,
+        borderBottom: b.live && !t.continues ? `2px solid ${hex}` : undefined, opacity: dim ? 0.25 : undefined,
+      }}>
+      <span className="flex items-start gap-0.5">
+        {clash && <span className="shrink-0 text-wait" aria-label="clash">◆</span>}
+        {b.recurring && <Repeat size={8} className="mt-[2px] shrink-0" style={{ color: hex }} aria-label="recurring" />}
+        <span className={cn('min-w-0', b.planned && 'italic text-ink-dim', h > 26 ? 'line-clamp-2' : 'truncate')}>{b.title}</span>
+      </span>
+      {h > 30 && <span className="num block truncate text-[9.5px] text-ink-faint">{b.live ? (b.paused ? 'paused' : 'running') : b.kind === 'finished' ? b.state : b.planned ? hm(b.from_ms) : ''}{b.cost_usd != null ? ` · $${b.cost_usd.toFixed(2)}` : ''}</span>}
+    </button>
+  )
+})
+
 const Tick = memo(function Tick({ p, y, selected, clash, dim, onPick, onHover, onDrag }: {
   p: Placed; y: number; selected: boolean; clash: boolean; dim: boolean
   onPick: (key: string) => void; onHover: (line: string | null) => void; onDrag: (e: DragEvent, what: Mark) => void
@@ -65,6 +99,8 @@ const Tick = memo(function Tick({ p, y, selected, clash, dim, onPick, onHover, o
 export interface StripProps {
   window: Window; marks: readonly Mark[]; events: readonly CalEvent[]; cals: readonly CalendarWindow[]
   views: readonly WorkView[]; runs: Readonly<Record<string, readonly RunRow[]>>
+  /** The task blocks (`ops/taskblocks.ts`): tasks going, gone and planned, and a routine's occurrences. */
+  tasks?: readonly TaskBlock[]
   now: number; past: boolean; selected: string | null; clash: Clashes; redact: boolean
   /** A key that matches the search, or every key when there is none. */
   matches: (key: string) => boolean
@@ -81,19 +117,21 @@ export function WeekStripV2(p: StripProps) {
   const lay = useMemo(() => layout(marks, w), [marks, w])
   const ev = useMemo(() => eventLayout(events, w), [events, w])
   const ran = useMemo(() => ranBars(p.views, p.runs, w, now), [p.views, p.runs, w, now])
+  const placedTasks = useMemo(() => taskLayout(p.tasks ?? [], w), [p.tasks, w])
   const nf = useMemo(() => nightFold(w, marks, ev.blocks), [w, marks, ev.blocks])
   // All 24 hours show by default; folding the night is the owner's choice.
   const [foldNight, setFoldNight] = useState(false)
   const fold = !foldNight || (nf.early === 0 && nf.late === 24) ? null : nf
   const H = heightOf(fold, hourPx, FOLD_PX)
   const byDay = useMemo(() => {
-    const d = w.days.map(() => ({ ticks: [] as Placed[], blocks: [] as Block[], ran: [] as Ran[], allDay: [] as AllDay[] }))
+    const d = w.days.map(() => ({ ticks: [] as Placed[], blocks: [] as Block[], ran: [] as Ran[], allDay: [] as AllDay[], tasks: [] as TaskPlaced[] }))
     for (const x of lay.placed) d[x.day].ticks.push(x)
     for (const b of ev.blocks) d[b.day].blocks.push(b)
     for (const a of ev.allDay) d[a.day].allDay.push(a)
     for (const r of ran) d[r.day].ran.push(r)
+    for (const t of placedTasks) d[t.day].tasks.push(t)
     return d
-  }, [lay, ev, ran, w])
+  }, [lay, ev, ran, placedTasks, w])
   const bandRows = Math.max(0, ...byDay.map((d) => d.allDay.length))
   const lanes = p.cals.filter((c) => stateOf(c).draws === 'lane')
   const [cursor, setCursor] = useState<{ x: number; y: number; text: string; ok: boolean } | null>(null)
@@ -195,12 +233,21 @@ export function WeekStripV2(p: StripProps) {
                 {/* layer 2: the ran bars */}
                 {col.ran.map((r) => <div key={r.key} className="absolute left-0 w-[3px] rounded-r-sm" title={r.line} style={{ top: atY(r.top), height: Math.max(2, atY(r.bottom) - atY(r.top)), background: toneHex[r.tone] }} />)}
                 {/* layer 1: the events */}
-                <div className="absolute inset-y-0 left-[4px]" style={{ right: GUTTER }}>
+                <div className="absolute inset-y-0 left-[4px]" style={{ right: col.tasks.length ? `calc(${GUTTER}px + ${TASK_SHARE}%)` : GUTTER }}>
                   {col.blocks.map((b) => (
                     <EventBlock key={b.key} b={b} y={atY(b.top)} h={atY(b.bottom) - atY(b.top)} selected={p.selected === `ev:${b.key}`} clash={p.clash.keys.has(b.key)} why={p.clash.why.get(b.key)}
                       dim={!p.matches(`ev:${b.key}`)} redact={p.redact} onPick={p.onPick} onHover={p.onHover} onDrag={onDrag} />
                   ))}
                 </div>
+                {/* the task blocks, beside the events: a lane of their own at the column's right, left of the marks */}
+                {col.tasks.length > 0 && (
+                  <div className="absolute inset-y-0" style={{ right: GUTTER, width: `${TASK_SHARE}%` }} data-testid="task-lane">
+                    {col.tasks.map((t) => (
+                      <TaskBlockView key={`${t.key}:${t.day}`} t={t} y={atY(t.top)} h={atY(t.bottom) - atY(t.top)} now={now} selected={p.selected === t.key} clash={false}
+                        dim={!p.matches(t.key)} onPick={p.onPick} onHover={p.onHover} />
+                    ))}
+                  </div>
+                )}
                 {/* layer 3: the marks, with the watch bars at the column's edge */}
                 {lay.bars.filter((b) => b.day === d.index).map((b) => (
                   <button type="button" key={`${b.mark.key}:${b.day}`} data-mark="watch" title={markLine(b.mark)} onClick={() => p.onPick(b.mark.key)} draggable onDragStart={(e) => onDrag(e, b.mark)}

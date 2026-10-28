@@ -9,6 +9,7 @@
 import type { CalendarEvent, CalendarWindow, RunRow, WorkView } from '@protocol'
 import { DAY_MS, midnight, outcomeOf, verbsFor, wallHour, type Mark, type Tone, type Verb, type Window } from '../lib/agenda.ts'
 import { drawnEvents, eventFacts } from './calendar.ts'
+import { taskLine, type TaskBlock } from './taskblocks.ts'
 
 /** One calendar's event on the strip, with its calendar. */
 export interface CalEvent { ev: CalendarEvent; cal: CalendarWindow }
@@ -232,10 +233,14 @@ export function meetingCount(events: readonly CalEvent[], w: Pick<Window, 'from_
 // ---------------------------------------------------------------- the keys
 
 /** The order `j` and `k` step through: the marks and the timed events of the window, by time. */
-export function timelineOrder(marks: readonly Mark[], events: readonly CalEvent[], w: Pick<Window, 'from_ms' | 'to_ms'>): string[] {
+export function timelineOrder(marks: readonly Mark[], events: readonly CalEvent[], w: Pick<Window, 'from_ms' | 'to_ms'>, tasks: readonly TaskBlock[] = []): string[] {
+  // A task block that derives from a mark has its key already; one a mark does not stand for (a task that is going or
+  // went) is stepped to as well.
+  const marked = new Set(marks.map((m) => m.key))
   const at: Array<[number, string]> = [
     ...marks.filter((m) => m.at_ms >= w.from_ms && m.at_ms < w.to_ms).map((m) => [m.at_ms, m.key] as [number, string]),
     ...events.filter((e) => e.ev.start_ms < w.to_ms && e.ev.end_ms > w.from_ms).map((e) => [e.ev.start_ms, `ev:${e.ev.key}`] as [number, string]),
+    ...tasks.filter((t) => !marked.has(t.key) && t.from_ms >= w.from_ms && t.from_ms < w.to_ms).map((t) => [t.from_ms, t.key] as [number, string]),
   ]
   return at.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : 1)).map((x) => x[1])
 }
@@ -271,8 +276,14 @@ export function zoomDay(w: Window, focusAt: number | null, now: number): number 
 /** The table toggle's rows: the window's marks and events, by time, events redacted as the page is. */
 export interface TableRow { key: string; at_ms: number; what: string; calendar: string; line: string; clash: boolean }
 
-export function tableRows(marks: readonly Mark[], events: readonly CalEvent[], w: Pick<Window, 'from_ms' | 'to_ms'>, redact: boolean, c: Clashes, markLine: (m: Mark) => string): TableRow[] {
+export function tableRows(marks: readonly Mark[], events: readonly CalEvent[], w: Pick<Window, 'from_ms' | 'to_ms'>, redact: boolean, c: Clashes, markLine: (m: Mark) => string, tasks: readonly TaskBlock[] = [], now = 0): TableRow[] {
   const rows: TableRow[] = []
+  // A task a mark does not stand for (one that is going or went) is a row of its own; the others are their mark's.
+  const marked = new Set(marks.map((m) => m.key))
+  for (const t of tasks) {
+    if (marked.has(t.key) || t.to_ms < w.from_ms || t.from_ms >= w.to_ms) continue
+    rows.push({ key: t.key, at_ms: t.from_ms, what: `task ${t.kind}`, calendar: 'Theseus', line: taskLine(t, now), clash: false })
+  }
   for (const m of marks) {
     if (m.at_ms < w.from_ms || m.at_ms >= w.to_ms) continue
     rows.push({ key: m.key, at_ms: m.at_ms, what: m.kind, calendar: 'Theseus', line: markLine(m).split('\n')[0], clash: c.keys.has(m.key) })
