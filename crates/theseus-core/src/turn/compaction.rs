@@ -415,6 +415,7 @@ impl TurnRunner {
         // A summary of a private session is that session's request too.
         let private = self.session_level(t);
         let call = crate::exits::Call {
+            op: Some("compaction"),
             session: Some(t.tc.session_id.to_string()),
             turn: Some(t.tc.turn_id.to_string()),
             loop_index: Some(i),

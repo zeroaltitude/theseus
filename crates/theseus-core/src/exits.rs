@@ -6,7 +6,10 @@
 //! is *known*, so substituting it has no false positive, and sending
 //! Theseus's own key to a model is pointless. A string that merely looks
 //! like a key (`sk-...`, a PEM header, `password=`) is a guess, and a guess
-//! is never acted on here: it goes through untouched.
+//! is never acted on here: it goes through untouched. A value is found as the
+//! scrubber finds it (`scrub::Substitution`): verbatim, in base64, percent-
+//! encoded and JSON-escaped, because the record holds what a tool printed and
+//! `curl -v -u user:$TOKEN` prints the value encoded.
 //!
 //! The exits it covers:
 //! - the provider request, in `Substituting`, which wraps every provider
@@ -15,7 +18,8 @@
 //!   compiler's digest and the prompt cache see the same request as before;
 //! - the Discord courier's messages (`theseus-discord`'s `Lane::write`),
 //!   through `Exits::text`;
-//! - the Jev state and the push line already pass the scrubber.
+//! - the Jev state and the push line already pass the scrubber, which runs the
+//!   same pass.
 //!
 //! `[privacy] redact_outbound = false` sends the vault's values as written:
 //! the deliberate operator choice. The substitution is then not made, but a
@@ -25,7 +29,7 @@
 //! The substitution is deterministic: the same request and the same values
 //! give the same bytes, whatever the order the values resolved in (values are
 //! taken longest first, ties by name), so the provider's prompt cache is
-//! unaffected.
+//! unaffected. The encoded scan runs on every string of every request.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -37,11 +41,9 @@ use zeroize::Zeroizing;
 use crate::provider::{
     CountFuture, DeltaSink, Provider, ProviderFuture, ProviderRequest, WarmFuture,
 };
+use crate::scrub::{Substitution, MIN_VALUE};
 use crate::secrets::{SecretBoard, SecretState};
 use crate::store::Store;
-
-/// The shortest value substituted: a shorter one would match by chance.
-const MIN_VALUE: usize = 8;
 
 /// One value the vault resolved, and its name.
 type Known = (Zeroizing<String>, String);
@@ -86,9 +88,8 @@ impl Exits {
         self.on
     }
 
-    /// The values the vault has resolved, longest first so a value that holds
-    /// another is replaced whole, ties by name so the order never depends on
-    /// which resolved first; one name for a value two secrets share.
+    /// The values the vault has resolved, one name (the first in name order)
+    /// for a value two secrets share. `Substitution` orders them.
     fn known(&self) -> Vec<Known> {
         let mut out: Vec<Known> = Vec::new();
         for (name, state) in self.board.states().iter() {
@@ -100,7 +101,6 @@ impl Exits {
                 out.push((Zeroizing::new(v.to_string()), name.clone()));
             }
         }
-        out.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.1.cmp(&b.1)));
         out
     }
 
@@ -114,9 +114,10 @@ impl Exits {
         if known.is_empty() {
             return (None, found);
         }
+        let sub = substitution(&known);
         for v in parts(req) {
             scan(v, &mut |s| {
-                substitute(&known, s, &mut found);
+                substitute(&sub, s, &mut found);
             });
         }
         if found.is_empty() || !self.on {
@@ -125,7 +126,7 @@ impl Exits {
         let mut out = req.clone();
         let mut sink = Found::default();
         for v in parts_mut(&mut out) {
-            replace(v, &mut |s| substitute(&known, s, &mut sink));
+            replace(v, &mut |s| substitute(&sub, s, &mut sink));
         }
         (Some(out), found)
     }
@@ -134,28 +135,35 @@ impl Exits {
     pub fn text<'a>(&self, s: &'a str) -> (Cow<'a, str>, Found) {
         let known = self.known();
         let mut found = Found::default();
-        match substitute(&known, s, &mut found) {
+        match substitute(&substitution(&known), s, &mut found) {
             Some(out) if self.on => (Cow::Owned(out), found),
             _ => (Cow::Borrowed(s), found),
         }
     }
 }
 
-/// `s` with each known value replaced by `[redacted:<name>]`, noting each in
-/// `found`; `None` when it holds none. An exact match, never a shape.
-fn substitute(known: &[Known], s: &str, found: &mut Found) -> Option<String> {
-    if !known.iter().any(|(v, _)| s.contains(v.as_str())) {
+/// The known values, ready to be looked for in any number of strings.
+fn substitution(known: &[Known]) -> Substitution<'_> {
+    Substitution::new(
+        known
+            .iter()
+            .map(|(v, name)| (v.as_str(), name.as_str()))
+            .collect(),
+    )
+}
+
+/// `s` with each known value replaced by `[redacted:<name>]`, verbatim or
+/// encoded, noting each in `found`; `None` when it holds none. An exact
+/// value, never a shape.
+fn substitute(sub: &Substitution, s: &str, found: &mut Found) -> Option<String> {
+    let (out, counts) = sub.apply(s);
+    if counts.is_empty() {
         return None;
     }
-    let mut out = s.to_string();
-    for (v, name) in known {
-        let n = out.matches(v.as_str()).count();
-        if n > 0 {
-            *found.names.entry(name.clone()).or_default() += n as u32;
-            out = out.replace(v.as_str(), &format!("[redacted:{name}]"));
-        }
+    for (name, n) in counts {
+        *found.names.entry(name).or_default() += n;
     }
-    Some(out)
+    Some(out.into_owned())
 }
 
 /// The request's text-bearing values.
@@ -207,6 +215,9 @@ tokio::task_local! {
 /// Whose request it is, for its `request.redacted` row.
 #[derive(Debug, Clone, Default)]
 pub struct Call {
+    /// What the model call is, for the row's `op` (`compaction` for a
+    /// summary call); a plain model call is `stream`.
+    pub op: Option<&'static str>,
     pub session: Option<String>,
     pub turn: Option<String>,
     pub loop_index: Option<u32>,
@@ -301,7 +312,8 @@ impl Provider for Substituting {
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
         let (sent, found) = self.out.request(req);
-        self.note(req, &found, sent.is_some(), "stream");
+        let op = CALL.try_with(|c| c.op).ok().flatten().unwrap_or("stream");
+        self.note(req, &found, sent.is_some(), op);
         match sent {
             None => self.inner.stream_message(req, on_delta),
             Some(owned) => {

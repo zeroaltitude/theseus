@@ -3473,7 +3473,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the escaped span; theseus-ubp7), twice for JSON inside a JSON string, YAML's and Python repr's escapes among them
   (a run of `\xNN` that is one character's UTF-8 read as that character; theseus-nlvx), and base64 in a decoded text
   where an escape joins it (`\n` every 60 characters in a JSON string; theseus-cjyt; YAML's folded line break decodes
-  to nothing, theseus-d80h). It runs on copies that leave the machine and on the push guard, never on the record.
+  to nothing, theseus-d80h). It runs on copies that leave the machine and on the push guard, never on the record. `scrub::Substitution` is the one pass (verbatim, then the encodings, with the name of every span kept):
+  `Scrubber` and the exits (`exits.rs`: the provider request, the courier, "Show source", the follow mirror) both run it, so
+  a value printed as `Authorization: Basic …` leaves by name and writes its `request.redacted` row. A direct
+  `create_message` or interaction response outside `Lane::write` must mask its text with `core.exits.text`.
   There are no shape finders: a token the vault never gave is text. `scripts/scrub.sh` keeps its own shapes. Build
   test secrets from parts: GitHub refuses a push holding one whole. The broker hands a value only to the program it is granted to, run by its
   own argv, and never to one the call could make it run (`broker::launches`: the call's own environment, gh's

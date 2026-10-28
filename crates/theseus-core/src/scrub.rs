@@ -12,7 +12,15 @@
 //! The values are read from the secret board at each scrub, so a value is
 //! known here the moment it resolves (theseus-qa0). A turn waits for the
 //! board's first round to settle before any tool output passes through here.
+//!
+//! One pass does the work for every caller: [`Substitution`], the verbatim
+//! values and then their encodings, with the name of every span it replaced.
+//! `Scrubber` (Jev's state, the push line, the display sites) and the exits
+//! (the provider request, the courier: `exits.rs`) both run it, so what leaves
+//! the machine is held to the same standard whichever door it goes by.
 
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -35,10 +43,11 @@ pub struct Scrubber {
 }
 
 /// The shortest value scrubbed: a shorter one would match by chance.
-const MIN_VALUE: usize = 8;
+pub(crate) const MIN_VALUE: usize = 8;
 
-/// One replacement: a byte range of the text, and what stands in for it.
-type Span = (usize, usize, String);
+/// One replacement: a byte range of the text, and the name of the value it
+/// held.
+type Span<'a> = (usize, usize, &'a str);
 
 impl Scrubber {
     /// Scrub every value the board holds ready.
@@ -72,67 +81,105 @@ impl Scrubber {
                 }
             }
         }
-        // Longest first so a secret containing another is replaced whole.
-        values.sort_by_key(|e| std::cmp::Reverse(e.0.len()));
-        let mut out = text.to_string();
-        let mut n = 0u32;
-        for (v, name) in &values {
-            if out.contains(v) {
-                n += out.matches(v).count() as u32;
-                out = out.replace(v, &format!("[redacted:{name}]"));
-            }
-        }
-        n += encoded(&mut out, &values);
-        (out, n)
+        let (out, counts) = Substitution::new(values).apply(text);
+        (out.into_owned(), counts.values().sum())
     }
 }
 
-/// Replace each span with its stand-in, in one pass from the end. A span
-/// that overlaps an earlier one, or that does not fall on character
-/// boundaries, is left alone. How many were replaced.
-fn splice(out: &mut String, mut spans: Vec<Span>) -> u32 {
-    spans.sort_by_key(|s| (s.0, std::cmp::Reverse(s.1)));
+/// A set of values ready to be substituted in any number of strings: each
+/// value's base64 needles are worked out once, so a request of a few thousand
+/// strings pays for them once and not for each string.
+pub(crate) struct Substitution<'a> {
+    /// `(value, name)`, longest first so a secret containing another is
+    /// replaced whole, ties by name so a value two secrets share always gets
+    /// the same one.
+    values: Vec<(&'a str, &'a str)>,
+    needles: Vec<(String, &'a str)>,
+}
+
+impl<'a> Substitution<'a> {
+    /// `values` as `(value, name)`, each at least [`MIN_VALUE`] long.
+    pub(crate) fn new(mut values: Vec<(&'a str, &'a str)>) -> Self {
+        values.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.1.cmp(b.1)));
+        let needles = values
+            .iter()
+            .flat_map(|(v, name)| {
+                base64_needles(v.as_bytes())
+                    .into_iter()
+                    .map(move |s| (s, *name))
+            })
+            .collect();
+        Self { values, needles }
+    }
+
+    /// `text` with every value replaced by `[redacted:<name>]`, verbatim and
+    /// in each encoding, and how many times each name was met. Borrowed when
+    /// the text holds none. There is no pre-check on the verbatim value: an
+    /// encoded one does not contain it.
+    pub(crate) fn apply<'t>(&self, text: &'t str) -> (Cow<'t, str>, BTreeMap<String, u32>) {
+        let mut counts: BTreeMap<String, u32> = BTreeMap::new();
+        let mut out = Cow::Borrowed(text);
+        for (v, name) in &self.values {
+            let n = out.matches(v).count();
+            if n > 0 {
+                *counts.entry((*name).to_string()).or_default() += n as u32;
+                out = Cow::Owned(out.replace(v, &format!("[redacted:{name}]")));
+            }
+        }
+        let spans = encoded(&out, &self.values, &self.needles);
+        if let Some((spliced, names)) = splice(&out, spans) {
+            for name in names {
+                *counts.entry(name.to_string()).or_default() += 1;
+            }
+            out = Cow::Owned(spliced);
+        }
+        (out, counts)
+    }
+}
+
+/// `text` with each span replaced by its stand-in, in one pass from the end,
+/// and the name of each span kept. A span that overlaps an earlier one, or
+/// that does not fall on character boundaries, is left alone. `None` when no
+/// span was kept.
+fn splice<'a>(text: &str, mut spans: Vec<Span<'a>>) -> Option<(String, Vec<&'a str>)> {
+    spans.sort_by_key(|s| (s.0, std::cmp::Reverse(s.1), s.2));
     let mut kept: Vec<Span> = Vec::new();
     for s in spans {
         let clear = kept.last().is_none_or(|k| s.0 >= k.1);
-        if clear && s.0 < s.1 && out.is_char_boundary(s.0) && out.is_char_boundary(s.1) {
+        if clear && s.0 < s.1 && text.is_char_boundary(s.0) && text.is_char_boundary(s.1) {
             kept.push(s);
         }
     }
-    let n = kept.len() as u32;
-    for (a, b, with) in kept.into_iter().rev() {
-        out.replace_range(a..b, &with);
+    if kept.is_empty() {
+        return None;
     }
-    n
+    let names = kept.iter().map(|k| k.2).collect();
+    let mut out = text.to_string();
+    for (a, b, name) in kept.into_iter().rev() {
+        out.replace_range(a..b, &format!("[redacted:{name}]"));
+    }
+    Some((out, names))
 }
 
 // ---------------------------------------------------------------- encoded values
 
-/// Each value's base64, percent-encoded, and JSON-escaped forms.
-fn encoded(out: &mut String, values: &[(&str, &str)]) -> u32 {
-    let mut spans = Vec::new();
-    let needles: Vec<(String, &str)> = values
-        .iter()
-        .flat_map(|(v, name)| {
-            base64_needles(v.as_bytes())
-                .into_iter()
-                .map(move |s| (s, *name))
-        })
-        .collect();
-    for (a, b, name) in base64_spans(out, &needles, |_| true) {
-        spans.push((a, b, format!("[redacted:{name}]")));
-    }
+/// Where each value's base64, percent-encoded and JSON-escaped forms are in
+/// `out`.
+fn encoded<'a>(
+    out: &str,
+    values: &[(&str, &'a str)],
+    needles: &[(String, &'a str)],
+) -> Vec<Span<'a>> {
+    let mut spans = base64_spans(out, needles, |_| true);
     if out.contains('%') {
         for (v, name) in values {
             for (a, b) in percent_spans(out.as_bytes(), v.as_bytes()) {
-                spans.push((a, b, format!("[redacted:{name}]")));
+                spans.push((a, b, *name));
             }
         }
     }
-    for (a, b, name) in escaped::spans(out, values, &needles) {
-        spans.push((a, b, format!("[redacted:{name}]")));
-    }
-    splice(out, spans)
+    spans.extend(escaped::spans(out, values, needles));
+    spans
 }
 
 /// Where a needle matches in the text's base64 runs that `keep` takes (given
@@ -442,5 +489,79 @@ mod tests {
         }
         let (out, n) = s.scrub("100% done, 50%2F50");
         assert_eq!((out.as_str(), n), ("100% done, 50%2F50", 0));
+    }
+
+    /// The pass both doors run (`Scrubber`, and the exits' provider request and
+    /// courier): every span kept is named, verbatim or encoded, and the same
+    /// text and values give the same bytes and the same names whatever order
+    /// the values come in, a value two secrets share getting one name.
+    #[test]
+    fn the_shared_pass_names_every_span_and_ignores_the_order_values_come_in() {
+        let blob = b64(format!("user:{VALUE}").as_bytes());
+        let text = format!("a {VALUE} b Authorization: Basic {blob} c hunter2hunter2 d");
+        let values = [
+            (VALUE, "demo_secret"),
+            ("hunter2hunter2", "db_password"),
+            // The same value under a second name, and a value inside another.
+            ("hunter2hunter2", "also_db"),
+            ("hunter2hunter2-and-more", "longer"),
+        ];
+        let run = |order: &[usize]| {
+            let (out, counts) =
+                Substitution::new(order.iter().map(|i| values[*i]).collect()).apply(&text);
+            (out.into_owned(), counts)
+        };
+        let first = run(&[0, 1, 2, 3]);
+        assert_eq!(
+            first.0,
+            "a [redacted:demo_secret] b Authorization: Basic [redacted:demo_secret] c \
+             [redacted:also_db] d"
+        );
+        assert_eq!(
+            first.1,
+            BTreeMap::from([("also_db".into(), 1), ("demo_secret".into(), 2)])
+        );
+        for order in [[3, 2, 1, 0], [1, 3, 0, 2], [2, 0, 3, 1], [0, 2, 1, 3]] {
+            assert_eq!(run(&order), first, "{order:?}");
+        }
+        // Nothing in the text: it is borrowed, with no names.
+        let (out, counts) = Substitution::new(values.to_vec()).apply("ordinary words");
+        assert!(matches!(out, Cow::Borrowed(_)) && counts.is_empty());
+    }
+
+    /// The live exact-value pass and its encoded scan on ordinary output: a
+    /// scrubber that KNOWS a value finds nothing in a MiB of cargo, git and log
+    /// lines (no false positive), changes nothing, and takes a bounded time.
+    #[test]
+    fn a_mib_of_ordinary_output_scrubs_in_bounded_time() {
+        let s = Scrubber::with_values(vec![
+            (VALUE.into(), "demo_secret".into()),
+            ("hunter2hunter2".into(), "db_password".into()),
+        ]);
+        let lines = [
+            "   Compiling theseus-core v0.1.0 (/home/u/src/crates/theseus-core)\n",
+            "warning: unused import: `std::fmt` --> src/lib.rs:42:5 | 100% done\n",
+            "[main 3fa9c2e] fix the thing\n 3 files changed, 41 insertions(+), 7 deletions(-)\n",
+            "{\"level\":\"info\",\"msg\":\"GET /v1/items?id=42&page=3\",\"ms\":12}\n",
+            "diff --git a/src/a.rs b/src/a.rs\nindex 3fa9c2e..8d1b7a4 100644\n",
+            "aGVsbG8gd29ybGQ= dGVzdA== C:\\Users\\x\\file 50%2F50 caf\u{e9}\n",
+            "test result: ok. 128 passed; 0 failed; finished in 1.84s\n",
+        ];
+        let mut text = String::new();
+        while text.len() < 1 << 20 {
+            for l in lines {
+                text.push_str(l);
+            }
+        }
+        let began = std::time::Instant::now();
+        let (out, n) = s.scrub(&text);
+        let took = began.elapsed();
+        assert_eq!((n, out.len()), (0, text.len()));
+        assert_eq!(out, text);
+        eprintln!(
+            "scrub: {} bytes of ordinary output, two values: {took:?}",
+            text.len()
+        );
+        assert!(took < std::time::Duration::from_secs(20), "took {took:?}");
     }
 }

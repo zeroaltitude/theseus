@@ -667,16 +667,26 @@ impl TurnRunner {
         }
         let started = std::time::Instant::now();
         let mut quiet = |_: crate::provider::Delta<'_>| {};
-        let resp = match provider.stream_message(&b.request, &mut quiet).await {
-            Ok(r) => r,
-            Err(e) => {
-                drop(hold);
-                return stop(format!(
-                    "its call failed after {} ms: {e:#}",
-                    started.elapsed().as_millis()
-                ));
-            }
+        // The read's own row names its session, so `theseus inspect` can find
+        // it: a read resends the whole transcript every few minutes.
+        let call = crate::exits::Call {
+            op: Some("keep_warm"),
+            session: Some(sid.to_string()),
+            ..Default::default()
         };
+        let resp =
+            match crate::exits::for_call(call, || provider.stream_message(&b.request, &mut quiet))
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    drop(hold);
+                    return stop(format!(
+                        "its call failed after {} ms: {e:#}",
+                        started.elapsed().as_millis()
+                    ));
+                }
+            };
         let cost = self.priced(&resp, &b.target.model, need);
         let u = &resp.usage;
         let mut data = json!({

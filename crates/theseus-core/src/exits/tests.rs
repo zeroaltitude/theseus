@@ -103,8 +103,10 @@ fn the_substituted_request_is_byte_identical_across_runs_and_value_orders() {
     let first = wire(&exits(true).request(&req).0.unwrap());
     let second = wire(&exits(true).request(&req).0.unwrap());
     assert_eq!(first, second, "two runs differ");
-    // The board's values arrive in another order, in two names for one value
-    // and with one a prefix of another.
+    // The board's values are published in another order, in two names for one
+    // value and with one a prefix of another. (The board keeps them by name, so
+    // what the order of publishing could change is what `scrub::tests` shuffles
+    // directly: the order `Substitution` is given.)
     let a = Exits::new(
         board(&[
             ("b", "shared-value-aaaa"),
@@ -238,6 +240,7 @@ async fn the_provider_sends_the_substituted_copy_and_writes_the_row() {
     let (p, fake, store, _dir) = rig(true);
     let req = request(&format!("use {KEY}"));
     let call = Call {
+        op: None,
         session: Some("ses_a".into()),
         turn: Some("trn_a".into()),
         loop_index: Some(2),
