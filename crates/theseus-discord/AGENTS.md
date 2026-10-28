@@ -94,9 +94,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   **The needs-you cards** (theseus-suvpe; `[notify] dm_cards`, on; off, the DM gets the one post of before byte for byte):
   the core's `needs_you` post (an open question past `[notify]`'s line) goes to the owner's DM alone and is **one card per
   question**, in three plain lines from the request's structured fields (what it wants, why it asks, what yes does), with
-  `Buttons::Card`: Approve and Decline (and "Approve + trust session" where the session read web text), or an ask's options,
+  `Buttons::Card`: Approve and Decline, or an ask's options,
   and **Details** (`need:details:<question id>`, `runtime/ask.rs`), which shows the presser alone the whole request from
-  `confirm.list` as the presser (`render::question_details`). Approve, Decline and trust are the classic card's own
+  `confirm.list` as the presser (`render::question_details`). Approve and Decline are the classic card's own
   `confirm:` presses (`action.confirm` as the presser), an option is `ask:<n>:<id>` (`work.answer`); the core judges each.
   Several due in one pacer window are a header (`🔔 3 questions need you`, which pings) and a card each (posted silently,
   "2 of 3"); the cards after the first never ping, and the pacer's one post a window is the header. Every card is settled
@@ -447,7 +447,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   every message with `src/golden/dm_flow.txt`. Change the golden only with the owner's OK (`THESEUS_GOLDEN=write cargo nextest run -p theseus-discord dm_flow`).
 - **The one message a content label adds** (theseus-9ymz0, the only approved addition to that flow): when the core raises a label it calls `Core::tell_label`, a
   `content_label` post in the session's place; the courier renders it with one **Remove** button, `content:remove:<session>:<flag>` (`runtime/content.rs`:
-  `parse`, `buttons`, `content_press`). A press is `content.unlabel` as the presser, judged by `judge_act` as `/trust` is; a counted press settles the
+  `parse`, `buttons`, `content_press`). A press is `content.unlabel` as the presser, judged by `judge_act`, which `/trust` also goes through (it is this press for `injection`, typed); a counted press settles the
   message, a guest's is refused and told alone. The DM golden gets one section at its end for it (recorded apart, so every locked line is as it was);
   `tests_gateway/content.rs` drives the press.
 - **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
@@ -581,7 +581,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 ## Invariants
 
 - **What a person does goes through the protocol** (a message is `turn.submit`, a press `action.confirm`, `/stop`
-  `execution.stop`, `/trust` `policy.trust`), so the core judges Discord as it judges the CLI and the web UI. What
+  `execution.stop`, `/trust` a `content.unlabel`), so the core judges Discord as it judges the CLI and the web UI. What
   the binding delivers and reports, it reads and writes in the core directly: the outbox, the cards' questions, its
   ledger rows (Item 30).
 - **What must be seen is an outbox post**, written by the core when it happens: a reply, a card, a card's settle, a

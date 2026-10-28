@@ -43,42 +43,13 @@ fn detail(req: &ConfirmRequest) -> String {
 
 /// Why the call waits, in a sentence with no rule number.
 fn why_it_asks(req: &ConfirmRequest, p: &PlainWords) -> String {
-    let (Some(x), false) = (&req.external_text, req.floor) else {
-        return match req.floor {
-            true => p.held.clone(),
-            false => rule_clause(&req.reason),
-        };
-    };
-    let who = if req.task.is_some() {
-        "the task"
-    } else {
-        "the session"
-    };
-    if let (Some("task.report"), Some(from)) = (x.via.as_deref(), x.from_session.as_deref()) {
-        // A mark that came in a child's report names that task (theseus-nfhaf).
-        let short: String = from
-            .chars()
-            .rev()
-            .take(6)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        return format!(
-            "{who} took in text that task `{short}` read ({}) at <t:{}:t>",
-            x.tool,
-            x.since_ms / 1000
-        );
+    match req.floor {
+        true => p.held.clone(),
+        false => rule_clause(&req.reason),
     }
-    let read = match x.tool.as_str() {
-        "task.start" => "quoted outside text",
-        t if t.starts_with("http.") || t.starts_with("web.") => "read web text",
-        _ => "read outside text",
-    };
-    format!("{who} {read} at <t:{}:t>", x.since_ms / 1000)
 }
 
-/// A hold that is not the floor and not after outside text: the owner's own posture asks in the
+/// A hold that is not the floor: the owner's own posture asks in the
 /// owner-approved words; any other rule says its own clause, which the core reads from the reason
 /// (`needs_you::rule_clause`, so every surface says the same), so the card never gives a
 /// false reason.
@@ -106,10 +77,6 @@ pub fn card(req: &ConfirmRequest, p: &PlainWords, route: &Route, elsewhere: &str
         (r, _) => r,
     };
     let open = if req.floor { FLOOR_OPEN } else { OPEN };
-    let trust = match req.external_text {
-        Some(_) => " · **Approve + trust** also lets its next calls run as usual",
-        None => "",
-    };
     let who = if req.task.is_some() {
         "the task"
     } else {
@@ -125,7 +92,7 @@ pub fn card(req: &ConfirmRequest, p: &PlainWords, route: &Route, elsewhere: &str
         (e, None) => format!(" · you can also answer {e}"),
     };
     let content = format!(
-        "{open}{line}\nrisk: {risk} · why it asks: {}{}\n**Approve** runs this one call{trust} · \
+        "{open}{line}\nrisk: {risk} · why it asks: {}{}\n**Approve** runs this one call · \
          **Decline** refuses it; {who} is told and carries on\n-# {place}expires <t:{}:R>{or}",
         why_it_asks(req, p),
         preview::hunk(req),
@@ -164,15 +131,8 @@ pub(super) fn classic(
         "" => String::new(),
         e => format!(" · you can also answer {e}"),
     };
-    // A call that waits because its session read external text
-    // (theseus-9bp): the card's third button trusts the session again.
-    let trust = if req.external_text.is_some() {
-        " · **Approve + trust session** also lets its later calls run at their postures"
-    } else {
-        ""
-    };
     content.push_str(&format!(
-        "\n-# {asked_for}expires <t:{}:R>{trust}{also}",
+        "\n-# {asked_for}expires <t:{}:R>{also}",
         req.expires_at_ms / 1000
     ));
     CardText {

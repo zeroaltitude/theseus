@@ -11,10 +11,9 @@
 //!   private place). The message answers itself: a counted press clears its
 //!   buttons and says which; a refused one tells the presser alone, and the
 //!   buttons stay for an answer that counts.
-//! - **A needs-you card** (theseus-suvpe) has those buttons, or Approve,
-//!   Decline and, when it offers it, "Approve + trust session" (the classic
-//!   card's own `confirm:` ids, so a press is the one `action.confirm` path),
-//!   and **Details** (`need:details:<question id>`), which shows the presser
+//! - **A needs-you card** (theseus-suvpe) has those buttons, or Approve and
+//!   Decline (the classic card's own `confirm:` ids, so a press is the one
+//!   `action.confirm` path), and **Details** (`need:details:<question id>`), which shows the presser
 //!   alone the full request.
 
 use theseus_protocol::answer::{WorkAnswerParams, WorkAnswerResult};
@@ -91,11 +90,11 @@ pub(crate) fn buttons(question: &str, choices: &[String]) -> Vec<Component> {
         .collect()
 }
 
-/// A needs-you card's buttons: the question's options, or Approve and Decline
-/// (and trust), and Details last, in the last row that has room.
-pub(crate) fn card_buttons(question: &str, choices: &[String], trust: bool) -> Vec<Component> {
+/// A needs-you card's buttons: the question's options, or Approve and Decline,
+/// and Details last, in the last row that has room.
+pub(crate) fn card_buttons(question: &str, choices: &[String]) -> Vec<Component> {
     let mut rows = match choices.is_empty() {
-        true => super::confirm_buttons(question, trust),
+        true => super::confirm_buttons(question),
         false => buttons(question, choices),
     };
     let details = Component::Button(Button {
@@ -335,12 +334,12 @@ mod tests {
         // second row, else the same one.
         let rows = |n: usize| {
             let c: Vec<String> = (0..n).map(|i| format!("Option {i}")).collect();
-            card_buttons("act_1", &c, false)
+            card_buttons("act_1", &c)
         };
         assert_eq!(rows(2).len(), 1);
         assert_eq!(rows(5).len(), 2);
         assert_eq!(rows(6).len(), 2);
-        let Component::ActionRow(plain) = &card_buttons("act_1", &[], true)[0] else {
+        let Component::ActionRow(plain) = &card_buttons("act_1", &[])[0] else {
             panic!("a row")
         };
         let ids: Vec<_> = plain
@@ -355,7 +354,6 @@ mod tests {
             ids,
             [
                 "confirm:approve:act_1",
-                "confirm:trust:act_1",
                 "confirm:decline:act_1",
                 "need:details:act_1"
             ]

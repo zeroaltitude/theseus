@@ -3,16 +3,12 @@
 //! "notify"`, the task home on, a trusted guild with its forum. The owner's DM
 //! asks for two tasks. Each must be seen: a started notice in the DM, its
 //! forum post, its one quiet 🧵 line in the home, the live 📋 board there, and
-//! its notified calls' lines in its post. Twice: the DM unheld (the normal
-//! path), and the DM held by outside text, where the owner presses "Approve +
-//! trust" on the first task's card (the V2 card's
-//! `approve_trust`: the classic card's "Approve + trust session" is not
-//! posted where a V2 card can be, which is why theseus-e31an's repro waited
-//! for a card that never came).
+//! its notified calls' lines in its post. (The second walk, a DM held by outside
+//! text where the owner pressed "Approve + trust", went with the hold: R6,
+//! theseus-gyjyo.8.)
 
 use theseus_core::policy::Posture;
 use theseus_core::provider::Scripted;
-use theseus_protocol::ExternalText;
 use theseus_sim::fake_discord::Msg;
 
 use crate::render::board_v2;
@@ -69,37 +65,6 @@ fn started(r: &Rig) -> Vec<Msg> {
         .into_iter()
         .filter(|m| m.content.contains("🔔 started task"))
         .collect()
-}
-
-fn trust_card(r: &Rig) -> Option<Msg> {
-    r.posted(ANA_DM)
-        .into_iter()
-        .chain(home_record(r).map(|h| r.posted(h)).unwrap_or_default())
-        .find(|m| {
-            m.buttons
-                .iter()
-                .any(|b| b.custom_id.ends_with(":approve_trust"))
-        })
-}
-
-/// Hold the DM's session as if it had read outside text.
-fn hold_dm(r: &Rig) {
-    let dm = r
-        .core
-        .outbox
-        .place_session(&format!("dm:{ANA}"))
-        .unwrap()
-        .unwrap();
-    let mut rec: theseus_core::session::SessionRecord =
-        r.core.store.get_session(&dm).unwrap().unwrap();
-    rec.external = Some(ExternalText {
-        since_ms: theseus_protocol::now_unix_ms(),
-        tool: "http.fetch".into(),
-        url: "https://stranger.example.test/page".into(),
-        node_id: "nod_page".into(),
-        ..Default::default()
-    });
-    r.core.store.put_session(&dm, &rec).unwrap();
 }
 
 /// What the owner must see once both tasks run: two posts, each pointed at
@@ -162,37 +127,6 @@ async fn a_dm_under_notify_starts_two_tasks_and_both_are_seen() {
     replied(&r, ANA_DM, "Hi.").await;
     r.say((ANA, "ana"), None, ASK);
     replied(&r, ANA_DM, "Started both.").await;
-    both_seen(&r, forum, home).await;
-    calls_seen(&r, forum).await;
-    open_gate(&r);
-}
-
-/// The DM held: its first task.create asks; "Approve + trust session" lets
-/// both start, and both are seen as the unheld DM's are.
-#[tokio::test]
-async fn a_held_dms_trusted_tasks_are_both_seen() {
-    let r = walk(vec![
-        Scripted::text("Hi."),
-        start(&[REEF, BUOY]),
-        Scripted::text("Started both."),
-    ])
-    .await;
-    let forum = forum_up(&r).await;
-    let home = home_up(&r).await;
-    r.say((ANA, "ana"), None, "hello");
-    replied(&r, ANA_DM, "Hi.").await;
-    hold_dm(&r);
-    r.say((ANA, "ana"), None, ASK);
-    until(&r, "the trust card", || trust_card(&r).is_some()).await;
-    let card = trust_card(&r).unwrap();
-    let trust = card
-        .buttons
-        .iter()
-        .find(|b| b.custom_id.ends_with(":approve_trust"))
-        .unwrap()
-        .label
-        .clone();
-    r.press(&card.id, &trust, (ANA, "ana"));
     both_seen(&r, forum, home).await;
     calls_seen(&r, forum).await;
     open_gate(&r);

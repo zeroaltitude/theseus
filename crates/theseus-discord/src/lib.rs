@@ -6,7 +6,7 @@
 //!   connection (`rpc_client.rs`) on the Discord surface, so the core judges it
 //!   as it judges the web UI's and the CLI's: a message is a `turn.submit`, a
 //!   button press an `action.confirm`, `/stop` an `execution.stop`, "should
-//!   have asked" a `policy.tighten`, `/trust` a `policy.trust`, and the
+//!   have asked" a `policy.tighten`, `/trust` a `content.unlabel`, and the
 //!   listings and cancels of `/tasks`, `/wakes`, and `/cancel` theirs too. It
 //!   watches the sessions behind its places the same way (`session.watch`),
 //!   for live progress: a streamed reply as edited messages, the tool calls as

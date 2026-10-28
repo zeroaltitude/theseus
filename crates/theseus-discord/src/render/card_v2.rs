@@ -65,7 +65,7 @@ mod tests {
     use crate::render::v2::{custom_ids, texts, validate};
     use theseus_protocol::work::{answer_options, Question, QuestionKind, WorkKind, WorkRef};
 
-    fn question(kind: QuestionKind, external: bool, choices: usize) -> Question {
+    fn question(kind: QuestionKind, choices: usize) -> Question {
         Question {
             id: "act_01J0000000000000000abcdef".into(),
             kind,
@@ -85,31 +85,26 @@ mod tests {
             may_answer: true,
             tool: Some("fs.write".into()),
             asked_at_ms: 0,
-            external_text: external,
             choices: (0..choices).map(|i| format!("choice {i}")).collect(),
         }
     }
 
     #[test]
     fn the_buttons_are_the_questions_options_on_wa_ids() {
-        let q = question(QuestionKind::Approval, true, 0);
+        let q = question(QuestionKind::Approval, 0);
         let opts = answer_options(&q);
         let card = waiting(&q.id, "**Approve?** `fs.write` create", &opts);
         assert_eq!(validate(&card), Ok(()));
         assert_eq!(
             custom_ids(&card),
-            [
-                "wa:abcdef:approve",
-                "wa:abcdef:approve_trust",
-                "wa:abcdef:decline"
-            ]
+            ["wa:abcdef:approve", "wa:abcdef:decline"]
         );
         assert_eq!(texts(&card), ["**Approve?** `fs.write` create"]);
     }
 
     #[test]
     fn an_ask_with_many_choices_draws_one_select_and_stays_valid() {
-        let q = question(QuestionKind::Ask, false, 30);
+        let q = question(QuestionKind::Ask, 30);
         let card = waiting(&q.id, "Which one?", &answer_options(&q));
         assert_eq!(validate(&card), Ok(()));
         assert_eq!(custom_ids(&card), ["ws:abcdef"]);
