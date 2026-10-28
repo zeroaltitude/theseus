@@ -3314,6 +3314,105 @@ pub(crate) mod tests {
         );
     }
 
+    /// R6 (theseus-gyjyo.8): `/trust` is the Remove press for the `injection` label, and nothing
+    /// else. It removes that one label as the presser (`content.unlabel`), leaves the session's
+    /// other labels alone, tells a session without one so and writes nothing, and a person who is
+    /// not the owner is refused with the reason and the label stays.
+    #[tokio::test]
+    async fn trust_removes_the_injection_label_and_nothing_else() {
+        use theseus_core::content::{ContentFlags, Flag, ItemKind, Label};
+        let d = tempfile::tempdir().unwrap();
+        let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
+            c.discord.rest_proxy = Some("127.0.0.1:9".into());
+            c.places.owner = Some(vec![format!("discord:{OWNER}")]);
+        });
+        let mut rec = theseus_core::session::SessionRecord::new(
+            theseus_protocol::SessionKind::Conversation,
+            None,
+        );
+        let sid = rec.session_id.clone();
+        let label = |flag: Flag, at_ms: u64| Label {
+            flag,
+            node: Some("nod_e1".into()),
+            kind: ItemKind::FetchedPage,
+            source: "http.fetch notes.example/today".into(),
+            confidence: 0.93,
+            band: flag.bar(),
+            at_ms,
+            judgment: String::new(),
+        };
+        let mut flags = ContentFlags::default();
+        assert!(flags.raise(label(Flag::Injection, 11)));
+        assert!(flags.raise(label(Flag::Secret, 12)));
+        rec.data = Some(Box::new(flags));
+        core.store.put_session(&sid, &rec).unwrap();
+        let (mut place, _rx) = place_for_tests(&core, &sid);
+        let dm = |user: u64| {
+            Some(DiscordOrigin {
+                user_id: user.to_string(),
+                channel_id: "444444444444444444".into(),
+                guild_id: None,
+            })
+        };
+        let ledger = || {
+            core.store
+                .ledger_tail::<theseus_core::ledger::LedgerRow>(100_000)
+                .unwrap()
+        };
+        let rows = |kind: &str| -> Vec<Value> {
+            ledger()
+                .into_iter()
+                .filter(|(_, r)| r.kind == kind)
+                .map(|(_, r)| r.data)
+                .collect()
+        };
+        let flags_now = || -> ContentFlags {
+            let rec: theseus_core::session::SessionRecord =
+                core.store.get_session(&sid).unwrap().unwrap();
+            rec.data.map(|b| *b).unwrap_or_default()
+        };
+
+        // Someone who is not the owner: refused with the reason, and the label stays.
+        let answer = place
+            .control(Control::Trust(dm(MALLORY)), "discord:mallory")
+            .await;
+        assert_eq!(
+            answer,
+            format!(
+                "🔐 Your /trust did not count: discord:{MALLORY} is not an owner. The `injection` \
+                 label stays."
+            )
+        );
+        assert!(flags_now().has(Flag::Injection));
+        assert!(rows("content.removed").is_empty());
+
+        // The owner: the injection label goes, the secret one stays, one row says who.
+        let answer = place
+            .control(Control::Trust(dm(OWNER)), "discord:zeroaltitude")
+            .await;
+        assert_eq!(
+            answer,
+            "Removed the `injection` label (by discord:zeroaltitude): calls that act run again."
+        );
+        let now = flags_now();
+        assert!(!now.has(Flag::Injection) && now.has(Flag::Secret));
+        let removed = rows("content.removed");
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0]["flag"], "injection");
+
+        // Again: no injection label, so it says so and writes nothing.
+        let before = ledger().len();
+        let answer = place
+            .control(Control::Trust(dm(OWNER)), "discord:zeroaltitude")
+            .await;
+        assert_eq!(
+            answer,
+            "This conversation carries no `injection` label, so there is nothing to remove."
+        );
+        assert_eq!(ledger().len(), before);
+        assert!(flags_now().has(Flag::Secret));
+    }
+
     /// A slash command as the gateway delivers one, from `user`, in
     /// `channel`, in `guild` (None: a DM).
     pub(super) fn slash(

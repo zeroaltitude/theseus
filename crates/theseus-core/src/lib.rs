@@ -466,6 +466,8 @@ mod tests_output;
 #[cfg(test)]
 mod tests_outside_text;
 #[cfg(test)]
+mod tests_marker;
+#[cfg(test)]
 mod tests_overflow;
 #[cfg(test)]
 mod tests_owner_note;

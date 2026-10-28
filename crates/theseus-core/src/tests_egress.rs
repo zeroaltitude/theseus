@@ -572,3 +572,35 @@ async fn a_late_result_that_connected_out_holds_its_session_in_the_frame_that_ta
             && crate::external::is_outside(n)));
     assert_eq!(r.rows("sandbox.egress").len(), 1);
 }
+
+/// R6 (theseus-gyjyo.8): a host beyond `[sandbox] egress` no longer makes the
+/// call wait. It notifies, naming the host, and runs with the list it named;
+/// the result it brings back is still marked outside text.
+#[tokio::test]
+async fn a_call_naming_a_host_beyond_the_list_runs_with_a_notice_naming_it() {
+    let r = Rig::new(
+        vec![
+            run(json!({"argv": ["true"], "sandbox": {"egress": ["pypi.test:443"]}})),
+            Scripted::text("Ran."),
+        ],
+        beyond(),
+        |_, _| {},
+    );
+    let res = r.turn(None, "beyond the list").await;
+    assert_ne!(res.stop_reason, "awaiting_confirm", "it ran: {res:?}");
+    let why = r.reasons(&res.session_id).remove(0);
+    assert!(
+        why.contains("notify") && why.contains("pypi.test:443"),
+        "the notice names the host: {why}"
+    );
+    assert_eq!(
+        r.lists(),
+        [["api.tides.test:443", "*.crates.test:443", "pypi.test:443"]],
+        "the job got the operator's list and the host it named"
+    );
+    let marked = r
+        .results(&res.session_id)
+        .iter()
+        .any(|n| crate::external::is_outside(n));
+    assert!(marked, "its result is still marked outside text");
+}

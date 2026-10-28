@@ -1409,3 +1409,19 @@ fn max_wakes_defaults_to_twenty_everywhere() {
     assert_eq!(with(3), 3);
     assert_eq!(with(0), 1);
 }
+
+/// R6 (theseus-gyjyo.8): `[policy] external_text` and `[policy] external_programs` are gone, and
+/// a config that names either fails to load, with a message that says the `injection` label
+/// replaced them. A document with neither loads, and so does the template.
+#[test]
+fn external_text_and_external_programs_fail_to_load_naming_the_injection_label() {
+    let doc = |line: &str| format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[policy]\n{line}\n");
+    for line in ["external_text = \"notify\"", "external_text = \"ask\"", "external_programs = [\"gh\"]"] {
+        let e = format!("{:#}", Config::parse(&doc(line)).unwrap_err());
+        let key = line.split(' ').next().unwrap();
+        assert!(e.contains(key) && e.contains("`injection` label"), "{line}: {e}");
+    }
+    Config::parse(&doc("enforcement = \"notify\"")).unwrap();
+    assert!(!Config::EXAMPLE_TOML.contains("external_text"));
+    assert!(!Config::EXAMPLE_TOML.contains("external_programs"));
+}
