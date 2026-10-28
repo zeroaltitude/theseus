@@ -316,7 +316,10 @@ pub fn agenda_text(
     // New lines, ahead of what is coming (theseus-1t4q8): the tasks going now.
     out.extend(going_now.iter().take(GOING).map(|v| going_line(v, now_ms)));
     if going_now.len() > GOING {
-        out.push(format!("-# +{} more going · /task", going_now.len() - GOING));
+        out.push(format!(
+            "-# +{} more going · /task",
+            going_now.len() - GOING
+        ));
     }
     out.extend(coming.iter().take(15).map(|l| coming_line(l, now_ms)));
     if coming.len() > 15 {
@@ -629,7 +632,10 @@ pub(crate) mod tests {
         let ids: Vec<String> = going(&views).into_iter().map(|v| v.id).collect();
         assert_eq!(ids, ["tsk_needs", "tsk_run"], "oldest start first");
         let t = agenda_text(Span::All, NOW, &[], &[], &[], &[], &going(&views));
-        assert!(!t.contains("nothing dated"), "a task going is something: {t}");
+        assert!(
+            !t.contains("nothing dated"),
+            "a task going is something: {t}"
+        );
         assert_eq!(t.lines().filter(|l| l.starts_with("▶ ")).count(), 2, "{t}");
         let none = agenda_text(Span::All, NOW, &[], &[], &[], &[], &[]);
         assert!(none.contains("nothing dated"), "{none}");
@@ -639,11 +645,20 @@ pub(crate) mod tests {
     fn the_going_lines_are_capped_and_the_text_stays_in_two_thousand() {
         use theseus_protocol::work::WorkState;
         let many: Vec<WorkView> = (0..40)
-            .map(|i| task(&format!("tsk_{i:02}"), WorkState::Running, NOW - 60_000 * (i + 1)))
+            .map(|i| {
+                task(
+                    &format!("tsk_{i:02}"),
+                    WorkState::Running,
+                    NOW - 60_000 * (i + 1),
+                )
+            })
             .collect();
         let t = agenda_text(Span::All, NOW, &[], &[], &[], &[], &going(&many));
         assert!(t.chars().count() <= 2000, "{}", t.chars().count());
-        assert!(t.lines().filter(|l| l.starts_with("▶ ")).count() <= 8, "{t}");
+        assert!(
+            t.lines().filter(|l| l.starts_with("▶ ")).count() <= 8,
+            "{t}"
+        );
         assert!(t.contains("-# +"), "the rest is named, not dropped: {t}");
     }
 }
