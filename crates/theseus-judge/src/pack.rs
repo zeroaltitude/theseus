@@ -83,6 +83,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("families.v1", include_str!("../packs/families.v1.toml")),
     ("content.v1", include_str!("../packs/content.v1.toml")),
     ("content.v2", include_str!("../packs/content.v2.toml")),
+    ("content.v3", include_str!("../packs/content.v3.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -1549,11 +1550,11 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            31,
+            32,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
              onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1 \
-             and content.v1 to v2"
+             and content.v1 to v3"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -2021,6 +2022,66 @@ mod tests {
                 assert!(no.contains(w), "{n}'s no lacks {w:?}: {no}");
             }
         }
+    }
+
+    /// `content.v3` (theseus-gyjyo.11) keeps everything of `content.v2` but its
+    /// questions' wording: the same id, builder, point, cap, bars, rollback, and
+    /// `injection` byte for byte, with the reveal rule still in each revealing
+    /// question's `instructions` and `yes` still starting with v2's words. What
+    /// v3 adds goes in each `no`, as the explicit cues for the five new fields,
+    /// and it adds them, never replaces: v2's three near-misses and `sec_14`'s
+    /// ordinary-project clause stay.
+    #[test]
+    fn content_v3_keeps_v2s_shape_and_adds_the_field_cues_to_each_no() {
+        let (v2, v3) = (
+            by_name("content.v2").unwrap(),
+            by_name("content.v3").unwrap(),
+        );
+        assert_eq!(v3.version, 3);
+        assert_eq!(v3.id, v2.id);
+        assert_eq!(
+            (v3.point, v3.builder, v3.baseline, v3.action, v3.state_cap_tokens, v3.sample),
+            (v2.point, v2.builder, v2.baseline, v2.action, v2.state_cap_tokens, v2.sample)
+        );
+        assert_eq!(v3.rollback, v2.rollback);
+        assert_eq!(v3.jev_model, v2.jev_model);
+        assert_eq!(q(&v3, "injection"), q(&v2, "injection"), "injection is v2's, byte for byte");
+        let means = |d: &QuestionDef, id: &str| {
+            d.options
+                .iter()
+                .find(|o| o.id == id)
+                .unwrap()
+                .means
+                .clone()
+                .unwrap_or_default()
+        };
+        for n in ["secret", "confidential", "personal"] {
+            let (a, b) = (q(&v3, n), q(&v2, n));
+            assert_eq!(a.instructions, b.instructions, "{n}: the reveal rule stays as it was");
+            assert!(a.instructions.contains("not what it is about"), "{n}");
+            assert_eq!(
+                (&a.decides, &a.thresholds, &a.no_match, &a.only_when),
+                (&b.decides, &b.thresholds, &b.no_match, &b.only_when),
+                "{n}"
+            );
+            assert!(means(a, "yes").starts_with(&means(b, "yes")), "{n}: v3's yes drops v2's words");
+            let (no3, no2) = (means(a, "no"), means(b, "no"));
+            assert!(no3.starts_with(&no2), "{n}: v3's no drops v2's words");
+            // The cue for the fields this question reads, in words the state's keys
+            // appear in, so the pack and the builder cannot drift apart.
+            assert!(no3.contains("`public`"), "{n}'s no does not say what `public` means: {no3}");
+            assert!(no3.contains("`context`"), "{n}'s no does not read `context`: {no3}");
+        }
+        // The clause that keeps `sec_14` and `sec_15` flagging is untouched, and v3
+        // says outright that public does not mean clean.
+        assert!(means(q(&v3, "secret"), "no").contains("whatever directory it sits in"));
+        for n in ["secret", "confidential"] {
+            let no = means(q(&v3, n), "no");
+            assert!(no.contains("still"), "{n}: public is not clean: {no}");
+        }
+        assert!(means(q(&v3, "confidential"), "no").contains("`author`"));
+        assert!(means(q(&v3, "confidential"), "no").contains("`project`"));
+        assert_ne!(v3.description, v2.description);
     }
 
     /// No pack's text names an organisation: the matcher runs over every pack

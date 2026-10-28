@@ -8,7 +8,8 @@
 //!
 //! A pack's versions keep their own sets, and an older one's stays frozen as the
 //! record of what it was measured on. To compare two versions, run both over the
-//! newer set: `jev-probe --eval content.v1 --eval-set content.v2` (theseus-78qay).
+//! newer set: `jev-probe --eval content.v1 --eval-set content.v2` (theseus-78qay), and
+//! `jev-probe --score-at-bar` scores the runs.
 
 use std::collections::BTreeMap;
 
@@ -20,14 +21,16 @@ const RECALL_CROSS_V1: &str = include_str!("../fixtures/eval/recall_cross.v1.jso
 const FAMILIES_V1: &str = include_str!("../fixtures/eval/families.v1.json");
 const CONTENT_V1: &str = include_str!("../fixtures/eval/content.v1.json");
 const CONTENT_V2: &str = include_str!("../fixtures/eval/content.v2.json");
+const CONTENT_V3: &str = include_str!("../fixtures/eval/content.v3.json");
 
 /// The packs with a labelled set.
-pub const PACKS: [&str; 5] = [
+pub const PACKS: [&str; 6] = [
     "classify.v4",
     "recall_cross.v1",
     "families.v1",
     "content.v1",
     "content.v2",
+    "content.v3",
 ];
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,6 +53,7 @@ pub fn set(pack: &str) -> Result<Vec<LabelledCase>> {
         "families.v1" => FAMILIES_V1,
         "content.v1" => CONTENT_V1,
         "content.v2" => CONTENT_V2,
+        "content.v3" => CONTENT_V3,
         other => bail!("no labelled set for {other} (have: {})", PACKS.join(", ")),
     };
     serde_json::from_str(text).with_context(|| format!("fixtures/eval/{pack}.json"))
@@ -172,6 +176,83 @@ mod tests {
         assert_eq!(names.len(), v2.len(), "names are unique");
     }
 
+    /// `content.v3`'s set is v2's, case for case and in order, **verbatim**, plus
+    /// what its fields exist for (theseus-gyjyo.11): the false positives the owner
+    /// named as synthetic equivalents (`fp_`: his own public side project's README
+    /// and `CLAUDE.md` searched, GPL source and a fixture of placeholder people
+    /// inside a public tree, a listing that names `secret.txt`, and the item he
+    /// called miscategorised, with its text as the daemon judged it); ten clean
+    /// items from trees the operator lists as public (`pub_`); and ten true
+    /// positives inside public trees (`pubtp_`), the ones that matter more: a
+    /// pack that learns "public means clean" is worse than v2. Every new case
+    /// carries the new fields, so the pack is measured on what the daemon sends.
+    #[test]
+    fn content_v3s_set_keeps_every_v2_case_verbatim_and_adds_what_its_fields_are_for() {
+        let (v2, v3) = (set("content.v2").unwrap(), set("content.v3").unwrap());
+        for (a, b) in v2.iter().zip(v3.iter()) {
+            assert_eq!(a.name, b.name, "v3 reorders or drops v2's cases");
+            assert_eq!(a.why, b.why, "{}: v2's why changed", a.name);
+            assert_eq!(a.input, b.input, "{}: v2's input changed", a.name);
+            assert_eq!(a.expect, b.expect, "{}: v2's expectation changed", a.name);
+        }
+        let count = |prefix: &str| v3.iter().filter(|c| c.name.starts_with(prefix)).count();
+        assert_eq!(count("tb_"), 14, "the terminal-bench shapes stay");
+        assert_eq!(count("fp_"), 6);
+        assert_eq!(count("pub_"), 10);
+        assert_eq!(count("pubtp_"), 10);
+        assert_eq!(v3.len(), v2.len() + 26);
+        // The new cases state the fields; the public ones state `public`, and the
+        // true positives sit in public trees.
+        for c in v3.iter().skip(v2.len()) {
+            for field in ["author", "place", "project", "context"] {
+                assert!(c.input.get(field).is_some(), "{}: no {field}", c.name);
+            }
+        }
+        for c in v3.iter().filter(|c| c.name.starts_with("pubtp_")) {
+            assert_eq!(c.input["public"], true, "{}", c.name);
+            assert_eq!(c.expect.len(), 1, "{}: one flag", c.name);
+        }
+        for c in v3.iter().filter(|c| c.name.starts_with("pub_")) {
+            assert_eq!(c.input["public"], true, "{}", c.name);
+            assert!(c.expect.values().all(|v| v == "no"), "{}", c.name);
+        }
+        // The owner's own example: the item the daemon judged confidential at 0.70
+        // under content.v1, as a clean case.
+        let own = v3
+            .iter()
+            .find(|c| c.name == "fp_06_stratajam_claude_md_grep_as_judged")
+            .expect("the owner's own example");
+        assert!(own.expect.values().all(|v| v == "no"));
+        assert_eq!(own.input["kind"], "tool_result");
+        assert_eq!(own.input["source"], "fs.grep");
+        // Its path lines, as the daemon's grep printed them.
+        assert!(own.input["text"].as_str().unwrap().contains("CLAUDE.md:13:"));
+        for c in v3.iter().filter(|c| c.name.starts_with("fp_")) {
+            assert!(c.expect.values().all(|v| v == "no"), "{}", c.name);
+        }
+        let names: std::collections::BTreeSet<&str> = v3.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names.len(), v3.len(), "names are unique");
+    }
+
+    /// No new case carries the operator's own home directory: a path in one is
+    /// under a stand-in's (`/home/owner`), so the set can be published.
+    /// (`tests_public_names` holds the names themselves.)
+    #[test]
+    fn content_v3s_new_cases_carry_no_real_home_directory() {
+        let v3 = set("content.v3").unwrap();
+        for c in v3.iter().skip(set("content.v2").unwrap().len()) {
+            let text = c.input.to_string();
+            for (i, _) in text.match_indices("/home/") {
+                assert!(
+                    text[i..].starts_with("/home/owner/"),
+                    "{}: a home directory that could be real: {}",
+                    c.name,
+                    &text[i..(i + 24).min(text.len())]
+                );
+            }
+        }
+    }
+
     /// A flagged case expects its one flag `yes`, and nothing else; a clean case
     /// expects every question it is asked `no`. The operator's own words are
     /// never expected to answer `injection`, which is not asked of them.
@@ -180,7 +261,8 @@ mod tests {
         let both = set("content.v1")
             .unwrap()
             .into_iter()
-            .chain(set("content.v2").unwrap());
+            .chain(set("content.v2").unwrap())
+            .chain(set("content.v3").unwrap());
         for case in both {
             let flag = |f: &str| case.expect.get(f).map(String::as_str);
             // The exempt kinds come from the one list, never restated here:
@@ -191,7 +273,7 @@ mod tests {
             if !asked {
                 assert_eq!(flag("injection"), None, "{}: never asked", case.name);
             }
-            let flagged = ["inj_", "sec_", "conf_", "pers_"]
+            let flagged = ["inj_", "sec_", "conf_", "pers_", "pubtp_"]
                 .iter()
                 .any(|p| case.name.starts_with(p))
                 || case.name.ends_with("_flagged");
@@ -210,7 +292,7 @@ mod tests {
     /// but the reserved `.invalid` and `example` ones.
     #[test]
     fn content_v1s_set_holds_no_real_credential_shape() {
-        for text in [CONTENT_V1, CONTENT_V2] {
+        for text in [CONTENT_V1, CONTENT_V2, CONTENT_V3] {
             for prefix in [
                 "ghp_",
                 "gho_",
