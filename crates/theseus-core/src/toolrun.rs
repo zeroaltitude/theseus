@@ -356,8 +356,7 @@ pub struct ToolRuntime {
     /// "Should have asked" (theseus-sgh): the tools that ask first because
     /// someone pressed it, from the store. The gate reads them per call.
     pub tightened: crate::tighten::Tightenings,
-    /// The conversations' modes and plans (theseus-lyxy): the gate reads a
-    /// session's in one step.
+    /// The conversations' modes and plans (theseus-lyxy), read per call.
     pub modes: crate::policy::modes::Modes,
     /// The daemon's cores (theseus-a60): every in-process toollet runs under
     /// one of its permits.
@@ -1343,13 +1342,9 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         // Asked at its plan's time, and expiring then plus the TTL, as
         // `confirm.list`, the watch's snapshot, and the board say.
+        let approve = g.decision.posture == crate::policy::Posture::Approve;
         let mut req = crate::rpc::offer(ConfirmRequest {
-            grant_offer: crate::policy::grants::plan_offer(
-                tool,
-                tc.class,
-                g.decision.posture == crate::policy::Posture::Approve,
-                g.class.l1(),
-            ),
+            grant_offer: crate::policy::grants::plan_offer(tool, tc.class, approve, g.class.l1()),
             correlation_id: a.correlation_id.clone(),
             session_id: tc.session_id.into(),
             execution_id: tc.execution_id.into(),
