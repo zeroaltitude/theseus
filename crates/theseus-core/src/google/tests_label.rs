@@ -472,7 +472,12 @@ async fn with_session_flags_off_a_google_read_raises_nothing() {
             Scripted::text("Done."),
         ],
         false,
-        |c| c.content_based_security.session_flags = false,
+        |c| {
+            c.content_based_security.session_flags = false;
+            // With nothing judged there are no labels to follow: the config
+            // says what a model of restricted origin is sent.
+            c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Always;
+        },
     );
     let sid = new_session(&r.core);
     run_on(&r.core, &sid, "list my files", None).await.unwrap();
