@@ -492,6 +492,54 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   place); a counted one gets ✅. The reply's footer says `routed: <mode>` (or `correction`). There are no footer buttons
   on Discord: a reaction does the same without a button row under every reply. The gateway asks for both reaction
   intents (not privileged).
+- **A task's messages are one-tap controls** (theseus-bh3t.2, `runtime/task_react.rs`, a child of `runtime`; the module the
+  👎 entry below belongs to). A reaction on a message that carries a task acts on the task, from a private place, as the
+  owner's own press would: every call carries the reaction's `DiscordOrigin` and `discord:<user id>` as its `author`, so the
+  core judges the owner as it judges a button. **None of the seven is a model turn**: ⏸ ▶️ 🔁 📌 and 👎 are RPCs to the core, 🛑 posts a
+  question and 👀 starts a Follow mirror (neither calls the core), and the task 🔁's fallback begins runs its own turns as
+  any task does. Which message carries a task (`task_of_message`): any message in a task's thread or channel
+  (`TaskThreads::made_in`), a Follow mirror (`Follows::task_of`), and a task's first message in its thread and its report
+  line, which `TaskMsgs` keeps by message (256, oldest dropped). The board is one message for every task and `/task` Details
+  is ephemeral, so those stay buttons.
+  - **Pre-added, and tapped by hand.** `controls()` returns a fixed `[&str; 4]`: ⏸ (▶️ in its place while the task is
+    paused), 🛑, 👀, 📌, nothing at all once the task has ended. `add_controls` puts them on, in that order, one request each,
+    in a spawned task (the client's own rate limit, off every lane), on a task's first message in its thread (`threads.rs`
+    expects it under the key `note:<post>`; `noted` adds them when the write lands, and only when that channel is private,
+    since a shared place has nobody whose tap would act) and on its Follow mirror (`follow.rs`). When ⏸ or ▶️ changes the
+    task, `flip_controls` takes the other of the pair off and puts this one on, on every message that carries the task's
+    controls. **The owner taps 🔁 and 👎 by hand: the module adds neither**, so a message shows four
+    controls and the other two are known from this guide. (The pre-add is the bot's own reaction; `on_reaction` ignores the bot's own.)
+  - **What each calls.** ⏸ / ▶️ `task.pause` / `task.resume` (`TaskPauseParams`; ✅ even if the task was already in that
+    state, the pair flips only when the core says it `changed`). 🛑 **no call**: it posts the board's own Stop question
+    (`task_view::confirm_stop`, Components V2, a quiet reply to the reacted message) and answers an ended task with `…has
+    ended already.`; the Yes and No are the board's `tb:yes:` and `tb:no:` buttons, so only Yes stops the task and no ✅ is
+    added at the tap. 🔁 on a failed, cancelled or done task `task.retry` (`TaskRetryParams`, by the execution id); a
+    cancelled or done one the core refuses is begun again from its brief as a task of its own (`task.start`, `brief_of`, the
+    harness's header cut off), and a failed one's refusal is a refusal; on a task that is still going it is taken and does
+    nothing. 👀 no call to the core: `follow_in_dm` opens the owner's DM and starts a Follow mirror of the task there
+    (`follow`). 📌 `project.create` (the task's title, its brief as the objective) then `project.attach` of the task's
+    conversation; a task already in a project is refused with `📌 It is in project …`. 👎 `task.not_this`, only on a
+    self-started task: see the next entry, which this one does not repeat.
+  - **The order `on_reaction` tries its readers in** (`runtime/route.rs`): (1) the bot's own reaction, ignored; (2)
+    `task_reaction` (this module), whose `true` ends it; (3) a reply's turn (`Shared.replies`), without which nothing is left;
+    (4) the message's place session; (5) 👍/👎 on a reply, `initiative.rate`; (6) ⬆️/⬇️, `route.correct` `stronger`/`cheaper`;
+    (7) a persona's emoji, `route.correct` to `persona:<key>`. **`task_reaction` answers false** (and the reaction goes on to
+    (3)) for an emoji that is no control (`Verb::of`, which ignores the variation selector), for a message that carries no
+    task, and for a 👎 on a task the owner asked for (`started_itself`); everything else it takes, so it answers true even
+    when it does nothing.
+  - **A guest, a shared place.** The reactor must be one of `place_rule.owners` **and** the place (`place_of`: the DM, or
+    `discord:channel:<id>`) private. Anyone else's tap, or a tap in a shared place, is one `tracing::debug!` line and nothing
+    else: no call, no ✅, no reply, and it is still taken, so no other reader sees it (a guest's 👎 on a self-started task
+    never reaches the reply rating). A task the work model no longer shows is taken and ignored.
+  - **What the presser sees.** ✅ on the reacted message when the call went through; nothing for a 🛑 (its question is the
+    answer) or for a 🔁 on a task still going; on a refusal or an error one quiet reply to that message (`⚠️ <the core's
+    words>`, no ping, no mention), with the task unchanged.
+  - Tests: `tests_task_react.rs` (included as `tests_task_threads::react`): the four pre-added in order
+    (`the_bot_adds_the_controls_to_a_tasks_first_message_in_order`), pause, the flip and resume
+    (`pause_parks_a_running_task_without_a_report_and_resume_lets_it_report`), Stop's question and its Yes
+    (`stop_asks_in_the_place_and_only_yes_stops_the_task`), retry on a failed and on a cancelled task, follow, the pin, a guest
+    / an unknown emoji (`a_guest_an_unknown_emoji_and_a_shared_place_do_nothing`), a tap in a shared channel
+    (`in_a_shared_channel_a_tap_on_a_tasks_thread_does_nothing`), and the two 👎 tests the next entry names.
 - **👎 on a task that started itself is `task.not_this`** (theseus-o1h3f.2, `runtime/task_react.rs`, `Verb::NotThis`; the
   reaction-side of notify-work-feedback). It is the one control of that module's reactions that is a verdict and not a
   command, and it is **not** the card, standing or earned "Not this" above (those are buttons answering a proposal or an ask,
