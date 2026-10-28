@@ -53,8 +53,8 @@ impl Conn<'_> {
     /// `sock#32`; theseus-qiy), and the surface and the binding's Discord ids
     /// decide (the place rule, theseus-zmgb).
     /// Every such method builds it here, so whatever judges an answer judges
-    /// the others the same way, and an approval's trust and `policy.trust`
-    /// name the same one.
+    /// the others the same way, and a content label's removal names the same
+    /// one.
     pub fn answerer(
         &self,
         author: Option<String>,

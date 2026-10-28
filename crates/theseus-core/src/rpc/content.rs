@@ -1,5 +1,5 @@
 //! Removing a content label (theseus-9ymz0, design §6.3): the operator clears
-//! one flag from a session, as `policy.trust` clears a hold. A label is raised
+//! one flag from a session (Discord's `/trust` is this removal for `injection`). A label is raised
 //! by what entered the session and removed only by the operator, so a session
 //! that carries `injection` stays frozen, and one that carries `secret`,
 //! `confidential` or `personal` stays off the China-origin models, until this.

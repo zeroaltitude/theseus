@@ -1035,8 +1035,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   a screen by `term/vt.rs`, a small VT model whose module doc says what it leaves out. Async tools whose run needs
   its session, so `toolrun`'s async path runs a `term.*` call through `Terms::run`. `term.open` plans its argv and
   `term.send` its terminal's, so the gate judges both as that program's run; `term.read` and `term.close` are reads.
-  A listed external program's screen (or a terminal sent keys naming one: `Listed::in_text`) is outside text. At
-  most 4 a session whose programs run: an ended one frees its slot, its last screen readable until `term.close` or
+  At most 4 a session whose programs run: an ended one frees its slot, its last screen readable until `term.close` or
   until a full session's open reclaims the oldest (theseus-ggqf). Closed at its execution's end (`turn.rs`), a cancel
   and a `/stop` (`rpc/driver.rs`), and the daemon's stop (`finish_stop`). `term.close`, a cancel and a `/stop` hang
   up, wait the grace, and kill what lingers, a process that left the tree but holds the pty included. At the
@@ -2805,8 +2804,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   it never costs a turn). The carve is `task.create`'s: `budget_usd`, else a quarter of what the parent has left; an explicit
   budget over what it has left is refused with the numbers (not capped silently), nothing left carves nothing. `start_*` opens
   it asleep (`task.create`'s bounds, `task_start::bounded`; `start_when` is `wake.create`'s `when`, read in the daemon's zone).
-  `quotes` become one `Body::Arrangement` (role `context`) after the brief and hold the task's session as external text
-  (`external::VIA_QUOTE`, the web text's hold and policy; a parent that already holds passes its own). Authority is
+  `quotes` become one `Body::Arrangement` (role `context`) after the brief; they hold nothing (R6, theseus-gyjyo.8: `outside_quotes`
+  is accepted and ignored). Authority is
   `judge_act(Act::Task)`: the owner, from a private place; a shared place and an MCP client (`mcp_server::JUDGED`) are refused with
   where to start it instead, a job's shell by the CLI (`client::OPERATORS`). Tests: `tests_task_start.rs`, theseusd's
   `tests/task_start.rs`, the CLI's `tests/task_start.rs`.
