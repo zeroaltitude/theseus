@@ -1,7 +1,7 @@
 //! The turn's floor on content flags (theseus-9ymz0, design §4.2b, §4.3 and
 //! §11's tests 21 to 23): a turn bound for a model of restricted origin runs
 //! on it only when its session's labels allow it and every item was judged; it
-//! waits for the verdicts, at most `[content] wait_ms`, then goes to the
+//! waits for the verdicts, at most `[content_based_security] wait_ms`, then goes to the
 //! `[model]` default and completes; a turn bound for Claude never waits. The
 //! rig is `tests_route`'s: `anthropic` (Claude) and `zai` (GLM, a China-origin
 //! endpoint), each a fake that records its requests; `judging` stands a test's
@@ -215,12 +215,12 @@ async fn a_judged_clean_session_runs_on_the_restricted_model() {
 }
 
 /// Test 21: a turn bound for a restricted model with an item the judge has not
-/// reached waits for its verdict, at most `[content] wait_ms`, then runs on the
+/// reached waits for its verdict, at most `[content_based_security] wait_ms`, then runs on the
 /// `[model]` default with `Reason::DataGate`: it **completes**. Nothing goes to
 /// the restricted model, and nothing is refused at the chokepoint.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cn_turn_waits_for_its_verdict_then_goes_to_claude_and_completes() {
-    let r = rig(None, 2, |c| c.content.wait_ms = 300);
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 300);
     let silent = Arc::new(Silent::default());
     r.core.runner.verdicts.set(silent.clone());
     let started = Instant::now();
@@ -251,11 +251,11 @@ async fn a_cn_turn_waits_for_its_verdict_then_goes_to_claude_and_completes() {
     assert_eq!(blocked(&r.core), 0, "it never met the chokepoint");
 }
 
-/// `[content] wait_ms = 0` never waits: the unjudged item sends the turn to
+/// `[content_based_security] wait_ms = 0` never waits: the unjudged item sends the turn to
 /// Claude at once, and the notify is not asked.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_zero_wait_goes_to_claude_at_once() {
-    let r = rig(None, 2, |c| c.content.wait_ms = 0);
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 0);
     let silent = Arc::new(Silent::default());
     r.core.runner.verdicts.set(silent.clone());
     let res = turn(&r.core, None, PLAIN, Some("glm")).await;
@@ -269,7 +269,7 @@ async fn a_zero_wait_goes_to_claude_at_once() {
 /// slowed, and Claude is sent it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_claude_turn_never_waits() {
-    let r = rig(None, 2, |c| c.content.wait_ms = 60_000);
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 60_000);
     let silent = Arc::new(Silent::default());
     r.core.runner.verdicts.set(silent.clone());
     let started = Instant::now();
@@ -290,7 +290,7 @@ async fn a_claude_turn_never_waits() {
 /// judge that lands, runs on GLM, though the first did not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_session_behind_its_transcript_is_not_eligible_until_it_is_judged() {
-    let r = rig(None, 2, |c| c.content.wait_ms = 100);
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 100);
     let silent = Arc::new(Silent::default());
     r.core.runner.verdicts.set(silent.clone());
     let one = turn(&r.core, None, PLAIN, Some("glm")).await;
@@ -624,7 +624,7 @@ async fn turn_with_deadline(
 /// origin again. The clock's words are the harness's own and are no item.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deadline_does_not_take_the_session_off_the_restricted_model() {
-    let r = rig(None, 2, |c| c.content.wait_ms = 300);
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 300);
     faithful(&r);
     let with = turn_with_deadline(&r.core, None, PLAIN, Some("glm"), 840).await;
     assert_eq!(
@@ -662,9 +662,9 @@ async fn an_item_no_site_submitted_is_swept_up_rather_than_wedging_the_session()
     swept_not_wedged(300).await;
 }
 
-/// The same item, on `[content] wait_ms = 0` — a supported setting the config
+/// The same item, on `[content_based_security] wait_ms = 0` — a supported setting the config
 /// documents as "a cn request never waits" and a test of its own asserts
-/// (`config/content.rs`).
+/// (`config/content_based_security.rs`).
 ///
 /// The sweep ran *inside* the settle loop at first, and that loop's first act
 /// is to break on a zero wait: so on this setting the one path that makes the
@@ -679,7 +679,7 @@ async fn an_item_no_site_submitted_is_swept_up_rather_than_wedging_the_session()
 /// reach, however many turns come later.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_zero_wait_still_offers_the_item_no_site_submitted() {
-    let r = rig(None, 2, |c| c.content.wait_ms = 0);
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 0);
     faithful(&r);
     let one = turn(&r.core, None, PLAIN, Some("glm")).await;
     assert_eq!(one.profile, "default", "a zero wait goes to Claude at once");
@@ -721,7 +721,7 @@ fn planted_result(session: &str) -> crate::node::Node {
 }
 
 async fn swept_not_wedged(wait_ms: u64) {
-    let r = rig(None, 2, |c| c.content.wait_ms = wait_ms);
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = wait_ms);
     faithful(&r);
     let one = turn(&r.core, None, PLAIN, Some("glm")).await;
     assert_eq!(one.profile, "glm", "{:?}", one.route);

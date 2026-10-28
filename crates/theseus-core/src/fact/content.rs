@@ -35,7 +35,7 @@ pub struct ContentJudged<'a> {
     /// several pieces, the one that raised, else the first.
     pub answers: Vec<AnswerRow>,
     pub cost_micros: Option<u64>,
-    /// The item was longer than `[content] max_pieces` pieces, and what is
+    /// The item was longer than `[content_based_security] max_pieces` pieces, and what is
     /// past them was not read (`content::split`).
     pub truncated: bool,
 }

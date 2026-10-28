@@ -26,7 +26,7 @@ mod index;
 pub use index::IndexConfig;
 pub mod card;
 mod cockpit;
-pub mod content;
+pub mod content_based_security;
 mod data_floor;
 pub mod earned;
 pub(crate) mod import;
@@ -187,9 +187,13 @@ pub struct Config {
     /// `[privacy]`: the one list of sensitive names (theseus-oejh3), `config/privacy.rs`.
     #[serde(default, skip_serializing_if = "privacy::PrivacyConfig::is_default")]
     pub privacy: privacy::PrivacyConfig,
-    /// `[content]`: what a content flag does (theseus-9ymz0), `config/content.rs`.
-    #[serde(default, skip_serializing_if = "content::ContentConfig::is_default")]
-    pub content: content::ContentConfig,
+    /// `[content_based_security]`: what a content flag does, and the switch for models of restricted origin
+    /// (theseus-9ymz0, theseus-gyjyo.2), `config/content_based_security.rs`.
+    #[serde(
+        default,
+        skip_serializing_if = "content_based_security::ContentBasedSecurityConfig::is_default"
+    )]
+    pub content_based_security: content_based_security::ContentBasedSecurityConfig,
     /// `[mcp.servers.<name>]`: the MCP servers whose tools turns are offered
     /// (M7 36b), in `config::mcp`.
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
@@ -1594,6 +1598,8 @@ impl Config {
         self.card.validate()?;
         self.ontology.validate()?;
         self.validate_data_floor()?;
+        self.content_based_security.validate()?;
+        self.privacy.validate()?;
         self.import.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
@@ -2134,6 +2140,8 @@ pub fn expand_with(p: &str, var: impl Fn(&str) -> Option<String>) -> String {
 mod tests;
 #[cfg(test)]
 mod tests_card;
+#[cfg(test)]
+mod tests_content_based_security;
 #[cfg(test)]
 mod tests_fresh;
 #[cfg(test)]

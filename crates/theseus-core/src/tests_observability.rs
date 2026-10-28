@@ -101,7 +101,7 @@ async fn a_plain_turns_route_row_gains_only_where_it_ran() {
 async fn the_floor_move_names_its_why() {
     let jev = jev(&[]);
     mode(&jev, "chat", 0.95);
-    let (r, zai, _dir) = rig_with(&jev, None, |c| c.content.wait_ms = 50);
+    let (r, zai, _dir) = rig_with(&jev, None, |c| c.content_based_security.wait_ms = 50);
     call(&r.core, "profile.use", json!({"name": "dsflash"})).await;
     judging_with(&r, finds_private());
     say(&r.core, &dm(&r.core), PRIVATE, None).await;

@@ -155,13 +155,13 @@ type Told = Box<dyn Fn(&str, &Label) + Send + Sync>;
 #[derive(Default)]
 pub(crate) struct Point {
     names: OnceLock<DataNames>,
-    /// `[content] enabled = false`: nothing is asked.
+    /// `[content_based_security] session_flags = false`: nothing is asked.
     off: AtomicBool,
     slots: Mutex<HashMap<String, Slot>>,
     /// What the core does with a label once it is written: tell the operator's
     /// surfaces (`Core::tell_label`). Set by the core as it is built.
     told: std::sync::RwLock<Option<Told>>,
-    /// `[content] max_pieces`: the most pieces one item is read in.
+    /// `[content_based_security] max_pieces`: the most pieces one item is read in.
     max_pieces: std::sync::atomic::AtomicUsize,
     /// Decision points asked, for a test that counts them.
     #[cfg(test)]
@@ -229,7 +229,7 @@ struct Landing {
 
 impl JudgeService {
     /// The operator's names, which the state carries (`data_names`), and
-    /// whether the mechanism is on (`[content] enabled`): set once, as the core
+    /// whether the mechanism is on (`[content_based_security] session_flags`): set once, as the core
     /// is built.
     pub fn content_from(&self, names: DataNames, enabled: bool, max_pieces: usize) {
         let _ = self.content.names.set(names);
@@ -518,7 +518,7 @@ impl JudgeService {
 /// The judge standing behind the turn's wait (theseus-9ymz0, the join's seam).
 /// `content_wait::Ready` answers at once, so until this is set a turn bound for
 /// a model of restricted origin with unjudged items goes to Claude without
-/// waiting — safe, but it would make `[content] wait_ms` dead and every cn turn
+/// waiting — safe, but it would make `[content_based_security] wait_ms` dead and every cn turn
 /// a Claude turn. `Core::build` sets it.
 ///
 /// It honours the trait's contract: the wake-up is enabled **before** the
@@ -1215,7 +1215,7 @@ async fn land(
     // within `COALESCE`, Jev answers it while the turn is still running the
     // rest of the group, so no turn is waiting yet and this parks behind the
     // running turn — holding the group's later results in the queue. The turn
-    // then reaches the floor, waits its whole `[content] wait_ms` on a notify
+    // then reaches the floor, waits its whole `[content_based_security] wait_ms` on a notify
     // that cannot fire, and is refused. The landing waits for the turn to end
     // and the turn waits for the landing. Every one of the 25 shows the same
     // 30.007-30.014 s between its last tool result and the `data_gate` row:
