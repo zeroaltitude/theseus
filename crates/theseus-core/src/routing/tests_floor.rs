@@ -107,7 +107,14 @@ fn the_floor_never_steps_a_session_down_or_past_a_cap_or_onto_a_restricted_profi
     // Dearer than the place's cap.
     let ps = profiles();
     let cap = Some(ps["haiku"].short_cost.unwrap());
-    let d = decide(&cfg, &ps, &Ask { cap, ..ask(&v, "haiku", 10) });
+    let d = decide(
+        &cfg,
+        &ps,
+        &Ask {
+            cap,
+            ..ask(&v, "haiku", 10)
+        },
+    );
     assert_eq!((d.profile.as_str(), d.reason), ("haiku", Reason::Unsure));
     // Unusable.
     let mut ps = profiles();
@@ -117,7 +124,14 @@ fn the_floor_never_steps_a_session_down_or_past_a_cap_or_onto_a_restricted_profi
     // A China-origin model never answers a coding turn, cleared or not.
     let mut ps = profiles();
     ps.get_mut("sonnethi").unwrap().restricted = true;
-    let d = decide(&cfg, &ps, &Ask { cleared: true, ..ask(&v, "haiku", 10) });
+    let d = decide(
+        &cfg,
+        &ps,
+        &Ask {
+            cleared: true,
+            ..ask(&v, "haiku", 10)
+        },
+    );
     assert_eq!((d.profile.as_str(), d.reason), ("haiku", Reason::Unsure));
 }
 
@@ -174,7 +188,9 @@ fn the_floors_own_settings_are_checked_at_load() {
     assert!(ok(&floored("")).is_ok());
     let err = ok(&floored("min_confidence = 0")).unwrap_err().to_string();
     assert!(err.contains("coding_floor.min_confidence"), "{err}");
-    let err = ok(&floored("min_confidence = 0.6")).unwrap_err().to_string();
+    let err = ok(&floored("min_confidence = 0.6"))
+        .unwrap_err()
+        .to_string();
     assert!(
         err.contains("coding_floor.min_confidence") && err.contains("switch_confidence"),
         "a floor at the bar never fires: {err}"

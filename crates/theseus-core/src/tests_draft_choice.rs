@@ -10,8 +10,8 @@
 use serde_json::Value;
 use theseus_judge::fake::Scripted as Jev;
 
-use crate::tests_draft::{draft_edit, load, rig_with, ASK};
 use crate::tests_dm_rig::say;
+use crate::tests_draft::{draft_edit, load, rig_with, ASK};
 use crate::tests_route::decided;
 
 /// `tweak` for a rig whose operator lets Jev choose. Through the config's own
@@ -46,8 +46,16 @@ async fn with_the_switch_off_a_coding_turn_drafts_as_before_and_jev_is_not_asked
     d.plan.lock().unwrap().draft_call = Some(draft_edit());
     let sid = d.dm(&d.repo);
     let res = say(&d.r.core, &sid, ASK, None).await;
-    assert!(res.output.starts_with("Drafting on dsflash ("), "{}", res.output);
-    assert!(last_row(&d).get("draft_choice").is_none(), "{}", last_row(&d));
+    assert!(
+        res.output.starts_with("Drafting on dsflash ("),
+        "{}",
+        res.output
+    );
+    assert!(
+        last_row(&d).get("draft_choice").is_none(),
+        "{}",
+        last_row(&d)
+    );
 }
 
 /// On, Jev's sure `cheap` drafts, and the row says Jev chose it.
@@ -57,7 +65,11 @@ async fn a_sure_cheap_answer_drafts_and_the_row_says_jev_chose() {
     d.plan.lock().unwrap().draft_call = Some(draft_edit());
     let sid = d.dm(&d.repo);
     let res = say(&d.r.core, &sid, ASK, None).await;
-    assert!(res.output.starts_with("Drafting on dsflash ("), "{}", res.output);
+    assert!(
+        res.output.starts_with("Drafting on dsflash ("),
+        "{}",
+        res.output
+    );
     let row = last_row(&d);
     assert_eq!(row["draft_choice"], "cheap", "{row}");
     assert!(row.get("draft_skip").is_none(), "{row}");
@@ -72,7 +84,10 @@ async fn a_strong_answer_runs_the_class_profile_and_says_so() {
     let res = say(&d.r.core, &sid, ASK, None).await;
     assert_eq!(res.profile, "sonnet", "{:?}", res.route);
     assert!(d.tasks(&sid).is_empty(), "no draft");
-    assert!(d.zai.sent().is_empty(), "the China-origin model saw nothing");
+    assert!(
+        d.zai.sent().is_empty(),
+        "the China-origin model saw nothing"
+    );
     let row = last_row(&d);
     assert_eq!(row["draft_choice"], "strong", "{row}");
     assert_eq!(row["draft_skip"], "jev_declined", "{row}");
@@ -126,7 +141,8 @@ fn load_with_keys(keys: &str, routing: &str) -> Result<crate::Config, String> {
     let extra = "[providers.deepseek]\napi_base = \"https://api.deepseek.com/anthropic\"\n\
         api_key_secret = \"zai_api_key\"\n[profiles.dsflash]\nprovider = \"deepseek\"\n\
         model = \"deepseek-flash\"\n";
-    let base = crate::Config::EXAMPLE_TOML.replacen("\n[routing]\n", &format!("\n[routing]\n{keys}\n"), 1);
+    let base =
+        crate::Config::EXAMPLE_TOML.replacen("\n[routing]\n", &format!("\n[routing]\n{keys}\n"), 1);
     crate::Config::parse(&format!("{base}\n{extra}\n{routing}\n"))
         .map(|(cfg, _)| cfg)
         .map_err(|e| format!("{e:#}"))
@@ -150,7 +166,12 @@ fn the_switch_ships_off_and_needs_a_class_that_drafts() {
         "[routing.classes.routine_coding]\ncn_draft = \"dsflash\"\nfinal = [\"sonnet\"]",
     )
     .unwrap();
-    assert!(toml::to_string(&ok.routing).unwrap().contains("draft_by_jev = true"));
+    assert!(toml::to_string(&ok.routing)
+        .unwrap()
+        .contains("draft_by_jev = true"));
     let template = include_str!("../config/theseus.example.toml");
-    assert!(template.contains("# draft_by_jev = true"), "documented, commented");
+    assert!(
+        template.contains("# draft_by_jev = true"),
+        "documented, commented"
+    );
 }

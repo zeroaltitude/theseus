@@ -52,7 +52,10 @@ fn the_draft_question_is_asked_only_when_the_operator_lets_jev_choose() {
     let asked = p.ask(&on.dynamic);
     let ids: Vec<&str> = asked.iter().map(|a| a.id.as_str()).collect();
     assert!(ids.contains(&"draft"), "{ids:?}");
-    assert!(ids.contains(&"mode") && ids.contains(&"reply_effort"), "{ids:?}");
+    assert!(
+        ids.contains(&"mode") && ids.contains(&"reply_effort"),
+        "{ids:?}"
+    );
     // Every earlier pack is untouched.
     for old in ["route.v5", "route.v6", "route.v7", "route.v8"] {
         let old = by_name(old).unwrap();
@@ -70,7 +73,11 @@ fn the_draft_question_decides_nothing_and_fails_to_the_stronger_model() {
     assert_eq!(q.only_when, Some(draft_choice()));
     assert_eq!(q.no_match.as_deref(), Some("strong"));
     let ids: Vec<&str> = q.options.iter().map(|o| o.id.as_str()).collect();
-    assert_eq!(ids, ["cheap", "strong"], "read in order: the stronger one last");
+    assert_eq!(
+        ids,
+        ["cheap", "strong"],
+        "read in order: the stronger one last"
+    );
     assert_eq!((q.thresholds.act, q.thresholds.confirm), (0.90, 0.60));
 }
 
@@ -99,7 +106,10 @@ fn the_standing_orders_are_the_questions_words() {
     assert_eq!(instructions, &q.instructions);
     let text = format!("{instructions}\n{}", means(&a.question)).to_lowercase();
     for (needle, why) in [
-        ("not the default", "code is not first-pass-on-flash by default"),
+        (
+            "not the default",
+            "code is not first-pass-on-flash by default",
+        ),
         ("repository", "repo-level fixes are a strong point"),
         ("mechanical", "mechanical and automation edits are one"),
         ("tests", "writing tests is one"),
@@ -114,7 +124,15 @@ fn the_standing_orders_are_the_questions_words() {
         assert!(text.contains(needle), "{why}: `{needle}` is not in\n{text}");
     }
     // No vendor, model or company is named: the profile is the operator's.
-    for name in ["deepseek", "flash", "claude", "sonnet", "opus", "haiku", "anthropic"] {
+    for name in [
+        "deepseek",
+        "flash",
+        "claude",
+        "sonnet",
+        "opus",
+        "haiku",
+        "anthropic",
+    ] {
         assert!(!text.contains(name), "the question names `{name}`:\n{text}");
     }
 }

@@ -1920,7 +1920,8 @@ mod tests {
         }
         let ids = |p: &Pack| p.questions.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
         let v8_without_data: Vec<String> = ids(&v8).into_iter().filter(|id| id != "data").collect();
-        let v9_without_draft: Vec<String> = ids(&v9).into_iter().filter(|id| id != "draft").collect();
+        let v9_without_draft: Vec<String> =
+            ids(&v9).into_iter().filter(|id| id != "draft").collect();
         assert_eq!(
             v9_without_draft, v8_without_data,
             "v8's questions but for `data`: nothing reads its answer, so it is not asked; and `draft` (theseus-kqeih), asked only when the operator lets Jev choose"
