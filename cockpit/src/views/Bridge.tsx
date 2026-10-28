@@ -9,7 +9,7 @@
 import { useDeferredValue, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
-  Activity, Bot, Brain, Clock, Coins, Flame, Gauge, Hourglass, Radar, Rocket, ShieldCheck, Siren, Timer, Wrench,
+  Activity, Bot, Brain, Clock, Coins, Flame, Gauge, Hourglass, Radar, Rocket, ShieldCheck, Timer, Wrench,
 } from 'lucide-react'
 import { ContextRanks, Startup, TokenMix, ToolBoard, TurnsChart } from '@/components/instruments'
 import { STARTUP_LEGEND, TOKEN_LEGEND, TURNS_LEGEND, contextTable, startupTable, titleOf, tokenMixTable, turnsTable } from '@/components/instrumentTables'
@@ -31,7 +31,6 @@ import { ChartPanel, StatTile, Swatch, TipArea, TipBody, TipTarget, type LegendI
 import { textWidth, useWidth } from '@/lib/chartview'
 import { AttentionPill, Panel, Pill, Segmented } from '@/components/ui'
 import { useHistory, useTick } from '@/lib/hooks'
-import { noticeHint, seenHolds } from '@/ops/notices'
 
 const C = CHROME.dark
 const ACCENT = CATEGORICAL.dark[0]
@@ -72,11 +71,6 @@ export function Bridge() {
   const title = useMemo(() => titleOf(sessions), [sessions])
 
   const k = h?.kernel
-  // Under notify no hold makes a call wait: every listed hold is a notice (HealthResult.external_text_mode). Absent mode reads as ask.
-  const heldNotices = h?.external_text_mode === 'notify' ? h.external_text?.length ?? 0 : 0
-  const heldWaiting = (h?.external_text?.length ?? 0) - heldNotices
-  // Health lists the told holds too, so after Dismiss all the count stays: say how many of them the owner has seen.
-  const heldSeen = heldNotices ? seenHolds(h!.external_text, sessions) : 0
   const exStates = k?.executions_by_state ?? {}
   const running = exStates.running ?? 0
   const inFlight = Object.entries(k?.actions_by_state ?? {})
@@ -113,7 +107,7 @@ export function Bridge() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 2xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 2xl:grid-cols-7">
         <StatTile label="Executions running" icon={<Rocket size={12} />} value={running} format={(n) => n.toFixed(0)} tone={running ? 'live' : undefined}
           hint={Object.entries(exStates).filter(([s]) => s !== 'running').map(([s, n]) => `${n} ${s}`).join(' · ') || 'none other'}
           spark={runHist} onClick={() => nav('/fleet')} title="the executions running now, and the others by state; a click opens the fleet" />
@@ -130,9 +124,6 @@ export function Bridge() {
           hint={usage ? `${tokens(usage.cache_read_input_tokens)} read from cache` : undefined} onClick={() => nav('/economics')} />
         <StatTile label="Approvals waiting" icon={<ShieldCheck size={12} />} value={confirms.length} format={(n) => n.toFixed(0)}
           tone={confirms.length ? 'wait' : 'ok'} hint={confirms[0] ? `${confirms[0].tool} · ${ago(confirms[0].requested_at_ms)}` : 'nothing waits'} onClick={() => nav('/actions')} />
-        <StatTile label="External-text holds" icon={<Siren size={12} />} value={heldWaiting} format={(n) => n.toFixed(0)}
-          tone={heldWaiting ? 'wait' : 'ok'} hint={heldNotices ? noticeHint(heldNotices, heldSeen) : h?.external_text?.[0] ? `${h.external_text[0].held.tool} ${ago(h.external_text[0].held.since_ms)}` : 'every session trusted'}
-          onClick={() => nav('/boundaries')} title="holds that make a call wait (ask mode); under notify every listed hold is a notice, which waits on nothing" />
         <StatTile label="Wakes due" icon={<Hourglass size={12} />} value={h?.wakes?.length ?? 0} format={(n) => n.toFixed(0)} tone={h?.wakes?.length ? 'live' : undefined}
           hint={h?.wakes?.[0] ? `next ${h.wakes[0].due_local}` : 'none set'} onClick={() => nav('/ops?lens=timeline')} title="the wakes, routines and watches are on the Timeline; a click opens it" />
       </div>

@@ -1,6 +1,5 @@
 // The boundaries board (theseus-logs, round two): every line Theseus draws around its own work, as it stands, live.
 //
-// - The latch (T1): sessions holding text from outside, what they read and when, and the trust that lets them go.
 // - The gate: approvals waiting, and the tightenings ("should have asked"), each with its undo.
 // - The sandbox (17b): each L1 job live, with its command and how long it has run (`sandbox.usage`; an L1 job has no
 //   cgroup to gauge, theseus-gyin); each finished one with what it left in scratch; each cancelled one with 18a's verdict.
@@ -10,7 +9,7 @@
 import { useDeferredValue, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { Anchor, CircleCheck, Eye, KeyRound, Link2, Lock, OctagonX, Radar, ShieldCheck, ShieldHalf, Siren } from 'lucide-react'
+import { Anchor, CircleCheck, Eye, KeyRound, Lock, OctagonX, Radar, ShieldCheck, ShieldHalf } from 'lucide-react'
 import type { ActionInfo, ConfirmRequest, Health, LedgerEntry, NodeInfo, SandboxHealth, SandboxUsage, SessionInfo } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
@@ -18,7 +17,7 @@ import { useHistoryRows } from '@/lib/history'
 import { useWorld } from '@/lib/world'
 import { verdictWords } from '@/lib/verdict'
 import { decimalBytes, givenWords, jobsWords, l1Head, sandboxLine } from '@/lib/sandboxwords'
-import { ago, bytes, clock, cn, ms, short, stamp } from '@/lib/format'
+import { ago, bytes, clock, cn, ms, short } from '@/lib/format'
 import { Btn, Empty, Panel, Pill } from '@/components/ui'
 import { Tightenings } from '@/components/Tightenings'
 import { ceilingWords } from '@/lib/ceiling'
@@ -28,7 +27,7 @@ import { daylightColor } from '@/lib/daylight'
 type D = Record<string, any>
 
 const KINDS = new Set([
-  'session.external_read', 'session.trusted', 'content.labelled', 'content.removed', 'policy.tightened', 'policy.untightened', 'secret.granted', 'secret.withheld',
+  'content.labelled', 'content.removed', 'policy.tightened', 'policy.untightened', 'secret.granted', 'secret.withheld',
   'place.viewed', 'place.published', 'action.cancel_verified', 'action.cancel_uncertain', 'action.cancel_unsupported',
   'tool.job_started', 'sandbox.started', 'action.succeeded', 'action.failed', 'action.cancelled',
   // 18c's egress.
@@ -42,7 +41,7 @@ export default function Boundaries() {
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 2000)
   const { data: sl } = useRpc<{ sessions: SessionInfo[] }>('session.list', undefined, 5000)
   const { rows } = useHistoryRows()
-  // The time machine's moment (null while live): the holds, questions, tightenings, and verdicts are the fold's, and
+  // The time machine's moment (null while live): the questions, tightenings, and verdicts are the fold's, and
   // the log's rows stop at the moment. The live L1 jobs, the broker's grants, and the labels' and egress lists are
   // read from the daemon as it is now, and say so.
   const world = useDeferredValue(useWorld())
@@ -63,7 +62,6 @@ export default function Boundaries() {
     return (sid: string | null | undefined) => (sid ? m.get(sid) ?? short(sid) : '—')
   }, [sl])
 
-  const holds = world ? world.holds : h?.external_text ?? []
   const confirms = world ? world.confirms : cl?.confirms ?? []
   const tight = world ? world.tightenings : h?.tightenings ?? []
   // The live list can't be read back: in the past, the L1 jobs running then are counted from the fold.
@@ -84,7 +82,6 @@ export default function Boundaries() {
             {world ? `as it stood at ${clock(world.t)} · the live jobs, grants, and host lists are the daemon's now` : 'every line Theseus draws around its own work, as it stands'}
           </div>
         </div>
-        <Seal icon={<Link2 size={15} />} n={holds.length} word="chained" tone="#f472b6" hint="sessions holding outside text: their calls that act wait for you" />
         <Seal icon={<ShieldCheck size={15} />} n={confirms.length} word="asking" tone="#fbbf24" hint="approvals waiting for you" />
         <Seal icon={<Lock size={15} />} n={tight.length} word="tightened" tone="#fbbf24" hint="tools that ask first because someone pressed “Make actions like this ask in the future”" />
         <Seal icon={<ShieldHalf size={15} />} n={world ? l1Then : live.length} word={world ? 'in L1 then' : 'in L1 now'} tone="#5eead4" hint="sandboxed jobs running" />
@@ -93,14 +90,9 @@ export default function Boundaries() {
         <Seal icon={<Radar size={15} />} n={reachedOut} word="reached out" tone="#5eead4" hint="sandboxed jobs that connected out through their egress list (18c)" />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-        <Panel help="bounds.latch" title={<>The latch · sessions holding outside text · {holds.length}</>} icon={<Siren size={13} />} bodyClassName="p-2.5">
-          <Latch holds={holds} rows={mine} title={title} now={now} onOpen={(sid) => nav(`/session/${sid}`)} />
-        </Panel>
-        <Panel help="bounds.gate" title={<>The gate · approvals and tightenings</>} icon={<ShieldCheck size={13} />} bodyClassName="p-2.5">
-          <Gate confirms={confirms} tight={tight} rows={mine} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
-        </Panel>
-      </div>
+      <Panel help="bounds.gate" title={<>The gate · approvals and tightenings</>} icon={<ShieldCheck size={13} />} bodyClassName="p-2.5">
+        <Gate confirms={confirms} tight={tight} rows={mine} title={title} now={now} onOpen={(sid, cid) => nav(`/session/${sid}${cid ? `?call=${cid}` : ''}`)} />
+      </Panel>
 
       <Panel help="bounds.sandbox" title={<>The sandbox · L1 jobs, live and finished</>} icon={<ShieldHalf size={13} />} bodyClassName="p-2.5"
         actions={world ? <span className="num text-[11px] text-ink-faint">the settings are the daemon&rsquo;s now</span> : null}>
@@ -152,50 +144,6 @@ function useAct() {
   }
 }
 
-// ---------------------------------------------------------------- the latch
-
-function Latch({ holds, rows, title, now, onOpen }: { holds: Health['external_text']; rows: LedgerEntry[]; title: (s?: string | null) => string; now: number; onOpen: (sid: string) => void }) {
-  const act = useAct()
-  const log = rows.filter((r) => r.kind === 'session.external_read' || r.kind === 'session.trusted').slice(-8).reverse()
-  return (
-    <div className="flex flex-col gap-2">
-      {!holds.length && <Empty><span className="flex items-center gap-2"><ShieldCheck size={15} className="text-ok" /> every session is trusted: nothing holds outside text</span></Empty>}
-      {holds.map((x) => (
-        <div key={x.session_id} className="flex items-start gap-3 rounded-lg bg-magenta/[0.05] px-3 py-2.5 ring-1 ring-magenta/25">
-          <Link2 size={16} className="mt-0.5 shrink-0 text-magenta" />
-          <div className="min-w-0 flex-1">
-            <button type="button" onClick={() => onOpen(x.session_id)} className="truncate text-left text-[13px] font-medium text-ink hover:text-live">{x.title || title(x.session_id)}{x.task ? ` · task ${x.task}` : ''}</button>
-            <div className="num mt-0.5 truncate text-[11.5px] text-ink-dim" title={x.held.url}>
-              read <span className="text-tool">{x.held.tool}</span> {x.held.query ? `“${x.held.query}”` : x.held.url}
-            </div>
-            <div className="num text-[11px] text-ink-faint">
-              since {x.since_local || clock(x.held.since_ms)} · {ago(x.held.since_ms, now)}
-              {x.held.from_session && <> · from {title(x.held.from_session)}{x.held.via ? ` (${x.held.via})` : ''}</>}
-            </div>
-          </div>
-          <Btn tone="wait" onClick={() => act('policy.trust', { session_id: x.session_id }, `Trust ${x.title || title(x.session_id)} again? Its calls that act stop waiting.`)}><ShieldCheck size={13} /> Trust</Btn>
-        </div>
-      ))}
-      {!!log.length && (
-        <div className="mt-1">
-          <div className="ship-engraved mb-1 text-[9.5px]">The latch&rsquo;s log</div>
-          {log.map((r) => {
-            const d = (r.data ?? {}) as D
-            const held = r.kind === 'session.external_read'
-            return (
-              <div key={r.position} className="num flex items-baseline gap-2 py-[1px] text-[11px]">
-                <span className="w-28 shrink-0 text-ink-faint">{stamp(r.at_unix_ms)}</span>
-                <span className={held ? 'text-magenta' : 'text-ok'}>{held ? 'held' : 'trusted'}</span>
-                <span className="min-w-0 truncate text-ink-dim">{title(r.session_id)}{held ? ` · ${d.tool ?? ''} ${d.query ? `“${d.query}”` : d.url ?? ''}` : d.by ? ` · by ${d.by}` : ''}</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ---------------------------------------------------------------- the gate
 
 function Gate({ confirms, tight, rows, title, now, onOpen, disabled }: { confirms: ConfirmRequest[]; tight: Health['tightenings']; rows: LedgerEntry[]; title: (s?: string | null) => string; now: number; onOpen: (sid: string, cid?: string) => void; disabled?: boolean }) {
@@ -210,7 +158,6 @@ function Gate({ confirms, tight, rows, title, now, onOpen, disabled }: { confirm
             <div className="flex items-center gap-2">
               <span className="num text-[13px] font-semibold text-tool">{c.tool}</span>
               {c.floor && <Pill tone="fault">floor</Pill>}
-              {c.external_text && <Pill tone="wait">after outside text</Pill>}
               <span className="num ml-auto text-[11px] text-ink-faint">{title(c.session_id)} · {ago(c.requested_at_ms, now)}</span>
             </div>
             <div className="mt-0.5 line-clamp-2 text-[12px] text-ink-dim">{c.reason}</div>

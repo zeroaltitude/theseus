@@ -11,7 +11,7 @@
 //
 // Positions are deterministic and stable: a vessel keeps its slot when others arrive, and (given `placesSeen`) a
 // harbour keeps its place as its ships grow, so the map never reshuffles under the operator's eye. `asOf` is the seam for the time machine (a later round): it shows the fleet as it was.
-import type { Attention, ConfirmRequest, ExecutionInfo, ExternalText, NodeInfo, SessionInfo, SessionLink, SessionRetired, SessionState, TaskInfo } from '@protocol'
+import type { Attention, ConfirmRequest, ExecutionInfo, NodeInfo, SessionInfo, SessionLink, SessionRetired, SessionState, TaskInfo } from '@protocol'
 
 export type LightKind = 'user' | 'model' | 'call' | 'result'
 /** How a vessel is rigged: at anchor (nothing running), under sail (working), a lantern (waiting for the
@@ -78,7 +78,6 @@ export interface Vessel {
   limit?: number
   spent?: number
   reserved: number
-  hold?: ExternalText
   pendingConfirms: number
   created: number
   lastActive: number
@@ -183,7 +182,7 @@ export interface ShipModel {
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number }
   byId: Map<string, number>
   lightById: Map<string, number>
-  stats: { sessions: number; nodes: number; tasks: number; running: number; waiting: number; held: number; l1: number; external: number }
+  stats: { sessions: number; nodes: number; tasks: number; running: number; waiting: number; l1: number; external: number }
 }
 
 /** A cross-session link from `node.reach`: a node, and its copy in another session. */
@@ -339,7 +338,6 @@ export function buildModel(input: ShipInput): ShipModel {
       limit: e?.budget.limit_usd ?? s.limit_usd,
       spent: e?.budget.spent_usd,
       reserved: (e ? input.reserved.get(e.execution_id) : undefined) ?? e?.budget.reserved_usd ?? 0,
-      hold: s.external_text,
       pendingConfirms: pending,
       created: s.created_at_unix_ms,
       lastActive: s.last_active_ms,
@@ -577,7 +575,6 @@ export function buildModel(input: ShipInput): ShipModel {
       tasks: vessels.filter((v) => v.kind === 'task').length,
       running: vessels.filter((v) => v.rig === 'sail').length,
       waiting: vessels.filter((v) => v.rig === 'lantern').length,
-      held: vessels.filter((v) => v.hold).length,
       l1: l1Count,
       external: extCount,
     },

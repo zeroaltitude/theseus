@@ -5,7 +5,7 @@
 // this file keeps what is not a type: ProtocolClient and its helpers. Both
 // moved here from web/src/ when the Observatory retired (theseus-vm3n.6).
 
-import type { ExternalText, Id, Message, NodeReachResult, Notification, Request, RpcError } from './protocol.gen'
+import type { Id, Message, NodeReachResult, Notification, Request, RpcError } from './protocol.gen'
 
 export type * from './protocol.gen'
 export type {
@@ -16,15 +16,6 @@ export type {
   ToolListResult as ToolList,
   ProfileListResult as ProfileList,
 } from './protocol.gen'
-
-/// What a session read, as the hold's reason names it (theseus-qiy): a search by its
-/// query, `web.search "tokio JoinSet documentation"`, a job that connected out of L1 by
-/// its hosts, `proc.run's egress to api.github.com:443` (18c), anything else by its URL.
-export function heldWhat(h: ExternalText): string {
-  if (h.query != null) return `${h.tool} "${h.query}"`
-  // A job in L1 that connected out (M4 18c): the hosts it reached.
-  return h.via === 'egress' ? `${h.tool}'s egress to ${h.url}` : `${h.tool} ${h.url}`
-}
 
 /// A node's reach in words (theseus-n4m, step 12a), as `theseus reach` says it: `seen by 24 contexts in
 /// 2 sessions`, with the first and last exposure of the node and its copies (absent when nothing held it),

@@ -7,7 +7,7 @@ import { Link } from 'react-router'
 import { motion } from 'motion/react'
 import { CircleCheck, Hourglass } from 'lucide-react'
 import type { WorkView } from '@protocol'
-import { cn, clock, short } from '@/lib/format'
+import { cn, short } from '@/lib/format'
 import { useCalm } from '@/lib/calm'
 import { ConfirmCard } from '@/components/ConfirmCard'
 import { changeWords } from '@/lib/taskgraph'
@@ -20,15 +20,13 @@ import type { ButtonAct, Verb } from './keys'
 
 const TONE: Record<string, string> = { wait: 'text-wait', fault: 'text-fault', think: 'text-think', money: 'text-money', live: 'text-live' }
 
-export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, coming, arrivedKeys, events = [], notices }: {
+export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, coming, arrivedKeys, events = [] }: {
   items: readonly QueueItem[]; cursor: string | null; onCursor: (key: string) => void; open: string | null
   /** The item whose decline (or "something else") note is open, and its words. */
   note: { key: string; text: string } | null; onNote: (n: { key: string; text: string } | null) => void
   past: number | null; now: number; coming: readonly WorkView[]; arrivedKeys: ReadonlySet<string>
   /** The calendar's events in the next three hours, redacted as the page is (ops-timeline, theseus-jid7t.5). */
   events?: readonly ComingEvent[]
-  /** The Notices strip (ops/Notices.tsx): holds that wait on nothing. It scrolls with the list and is never counted. */
-  notices?: ReactNode
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="ops-queue">
@@ -38,7 +36,6 @@ export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, 
             <CircleCheck size={18} className="text-ok" /> {past ? 'nothing waited for you then' : 'nothing waits for you'}
           </div>
         )}
-        {notices}
         {items.map((i) => (
           <Item key={i.key} i={i} at={i.key === cursor} whole={i.key === open} onCursor={onCursor} note={note?.key === i.key ? note.text : null} onNote={onNote}
             past={past} now={now} fresh={arrivedKeys.has(i.key)} />
@@ -93,12 +90,10 @@ export function Answers({ i, whole, note, onNote, past }: { i: QueueItem; whole:
   return (
     <div className="mt-2 flex flex-col gap-1.5">
       {i.proposal && <div className="text-[11.5px] text-think">{changeWords(i.proposal.record)}</div>}
-      {i.hold && <div className="num text-[10.5px] text-ink-faint">since {clock(i.hold.external_text.since_ms)} · {i.hold.external_text.via ?? 'read here'} · its calls that act wait</div>}
       {i.ask && <div className="text-[11px] text-ink-dim">“{i.ask.message}”</div>}
       <div className="flex flex-wrap gap-1.5">
         {(i.confirm || i.proposal) && i.kind !== 'question' && <>
           {b('approve', { verb: 'approve' }, 'ok', <>y · {i.confirm?.budget ? 'Reset' : i.confirm?.change || i.proposal ? 'Accept' : 'Approve'}</>)}
-          {b('approve_trust', { verb: 'approve_trust' }, 'wait', 't · Approve and trust')}
           {i.confirm && grantKey(i.confirm) && b('grant', { verb: 'grant' }, 'ok', <>{grantKey(i.confirm)} · {i.confirm.grant_offer!.words}</>)}
           {note === null ? <ActBtn verb="decline" on={on} tone="fault" onClick={() => onNote({ key: i.key, text: '' })} title="decline, with a note the model sees">n · Decline…</ActBtn> : null}
         </>}
@@ -108,7 +103,6 @@ export function Answers({ i, whole, note, onNote, past }: { i: QueueItem; whole:
         {b('dismiss', { verb: 'dismiss' }, 'fault', 'd · Dismiss')}
         {b('seal', { verb: 'seal' }, 'wait', 'Seal')}
         {b('seal_dismiss', { verb: 'seal_dismiss' }, 'fault', 'Not now')}
-        {b('trust', { verb: 'trust' }, 'wait', 'Trust again')}
         {i.ask && [...i.ask.options, ...(i.ask.others ?? [])].map((o) => b('thread_answer', { verb: 'thread_answer', key: o.key }, 'live', o.label))}
         {i.kind === 'failure' && i.sessionId && <Link to={`/session/${i.sessionId}`} className="self-center text-[11.5px] text-live hover:underline">o · open</Link>}
       </div>

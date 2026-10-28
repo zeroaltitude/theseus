@@ -59,7 +59,6 @@ export function viewOf(m: ShipModel, keep: Set<string>): ShipModel {
       tasks: vessels.filter((v) => v.kind === 'task').length,
       running: vessels.filter((v) => v.rig === 'sail').length,
       waiting: vessels.filter((v) => v.rig === 'lantern').length,
-      held: vessels.filter((v) => v.hold).length,
       l1: lights.filter((l) => l.l1).length,
       external: lights.filter((l) => l.external).length,
     },

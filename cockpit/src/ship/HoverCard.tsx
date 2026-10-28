@@ -56,7 +56,6 @@ function VesselBody({ v, model }: { v: Vessel; model: ShipModel }) {
       </div>
       {parent && <div className="num text-[11px] text-ink-dim">started by the session “{parent.title.slice(0, 40)}”</div>}
       {!!tasks.length && <div className="num text-[11px] text-ink-dim">towing {count(tasks.length, 'task')}</div>}
-      {v.hold && <div className="num text-[11px] text-wait">read text from the web: {v.hold.tool} {v.hold.query ?? v.hold.url}</div>}
       <div className="mt-1 text-[10.5px] text-ink-faint">click to bring it alongside · double-click to fly in</div>
     </>
   )

@@ -20,7 +20,7 @@ test('every row of the inventory is in the table, once, and no other', () => {
   const ids = PARITY.map((r) => r.id)
   assert.equal(new Set(ids).size, ids.length, 'an id twice')
   assert.deepEqual([...ids].sort(), [...INVENTORY].sort())
-  assert.equal(INVENTORY.length, 60)
+  assert.equal(INVENTORY.length, 59)
   for (const r of PARITY) assert.ok(r.datum.length > 3, r.id)
 })
 

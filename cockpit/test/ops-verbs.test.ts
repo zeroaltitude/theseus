@@ -12,7 +12,7 @@ const EXPECT: Record<string, string> = {
   task_pause: 'task.pause task.resume|do', thread_pause: 'thread.pause thread.resume thread.done thread.reopen|do', routine_pause: 'routine.pause routine.resume|do',
   routine_run: 'routine.run_now|ask', routine_delete: 'routine.delete|ask', wake_snooze: 'wake.snooze|do', wake_pause: 'wake.pause wake.resume|do', wake_cancel: 'wake.cancel|ask',
   watch_cancel: 'wake.cancel|ask', stop: 'execution.stop|arm', stop_all: 'execution.stop|ask', cancel: 'task.cancel|arm', not_this: 'task.not_this|arm', job_stop: 'job.stop|arm', answer: 'work.answer|floor',
-  trust: 'policy.trust|ask', unlabel: 'content.unlabel|ask', retry: 'task.retry|do', dismiss: 'execution.dismiss|do', new_task: 'task.start|do', thread_new: 'thread.new|do', thread_edit: 'thread.edit|do',
+  unlabel: 'content.unlabel|ask', retry: 'task.retry|do', dismiss: 'execution.dismiss|do', new_task: 'task.start|do', thread_new: 'thread.new|do', thread_edit: 'thread.edit|do',
   thread_seal: 'thread.seal thread.unseal|ask', thread_merge: 'thread.merge thread.split|ask', thread_link: 'thread.link|do', thread_move: 'thread.move|do', attach: 'project.attach|do',
   mode: 'session.mode|do', mode_auto: 'session.mode|ask', nudge: 'session.nudge|do', recompile: 'session.recompile|do', fork: 'session.fork|do', retire: 'session.retire|ask',
   reopen: 'session.reopen|do', model_turn: 'turn.submit|do', model_sticky: 'session.profile|do', profile_live: 'profile.use|ask', rehome: 'task.rehome|ask', reschedule: 'task.reschedule|do',
