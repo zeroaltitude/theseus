@@ -282,10 +282,17 @@ impl Core {
             } else {
                 vec![]
             };
-            out.extend(
-                asks.into_iter()
-                    .filter_map(|a| self.confirm_request(a, &rec, &nodes)),
-            );
+            out.extend(asks.into_iter().filter_map(|a| {
+                let mut req = self.confirm_request(a, &rec, &nodes)?;
+                // A call's question never expires, it is held past its life
+                // (theseus-v2dnc), so the list says no deadline, as a budget
+                // question's does. Only here: `confirm_request` also feeds
+                // the Discord card, whose footer reads the time.
+                if super::question_waits::held_past_life(a) {
+                    req.expires_at_ms = 0;
+                }
+                Some(req)
+            }));
         }
         Ok(out)
     }
@@ -580,6 +587,20 @@ impl Core {
             // A call's question is told about and held, never declined
             // (theseus-v2dnc): the next notice is a life later.
             if super::question_waits::held_past_life(a) {
+                // Unless its session was retired (theseus-x29x3): no one is
+                // left to answer it, so it ends here, by the decline that
+                // also releases a reservation it holds.
+                if self.session_retired(&a.session_id) {
+                    let why = "its session was retired".to_string();
+                    match self.decline_expired(a, ttl, &why) {
+                        Ok(()) => expired += 1,
+                        Err(e) => {
+                            tracing::warn!(error = %format!("{e:#}"), correlation_id = %a.correlation_id, "a retired session's question could not end");
+                            next = next.min(now + 60_000);
+                        }
+                    }
+                    continue;
+                }
                 next = next.min(self.question_waits_or_soon(a, ttl, now));
                 continue;
             }

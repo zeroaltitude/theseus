@@ -145,3 +145,54 @@ async fn a_notice_leaves_the_next_one_scheduled() {
     assert_eq!(waiting(&r).len(), 1, "a sweep before it stages none");
     assert_eq!(r.core.tools.question_due.load(SeqCst), due);
 }
+
+/// theseus-x29x3: a retired session's held question ends at its life, by the
+/// decline that releases a reservation it holds, and is not noticed. A live
+/// session's stays held (the tests above). No real path reserves for a
+/// pending call (`plan_confirm` reserves nothing), so the reservation is
+/// written in by hand. Before, the sweep noticed it at every life and left
+/// it pending, its reservation held.
+#[tokio::test]
+async fn a_retired_sessions_held_question_ends_and_frees_its_reservation() {
+    use theseus_store::{kinds, NewRecord};
+    let (r, sid, corr, planned, ttl) = write_waits().await;
+    let mut a = r.core.kernel.action(&corr).unwrap().unwrap();
+    a.reservation_id = Some("rsv_held".into());
+    a.reserved_micros = 5_000;
+    let mut e = r.core.kernel.execution(&a.execution_id).unwrap().unwrap();
+    e.budget.reservations.insert("rsv_held".into(), 5_000);
+    e.budget.reserved_micros = 5_000;
+    r.core
+        .store
+        .append(&[
+            NewRecord::json(kinds::ACTION, Some(&corr), &a)
+                .unwrap()
+                .scoped(&a.session_id),
+            NewRecord::json(kinds::EXECUTION, Some(&e.id), &e)
+                .unwrap()
+                .scoped(&e.session_id),
+        ])
+        .unwrap();
+    let held = r.core.kernel.execution(&a.execution_id).unwrap().unwrap();
+    assert_eq!(held.budget.reserved_micros, 5_000, "the reservation is held");
+    r.core
+        .retire_session(&sid, &crate::approval::Answerer::from("cli"))
+        .unwrap();
+    // Before its life it waits as any question does.
+    assert_eq!(r.core.expire_questions(planned + ttl - 1), 0);
+    assert_eq!(r.core.kernel.pending_confirms().unwrap().len(), 1);
+    // At its life it ends: declined, its reservation released, no notice.
+    assert_eq!(r.core.expire_questions(planned + ttl), 1);
+    assert!(r.core.kernel.pending_confirms().unwrap().is_empty());
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(a.state, theseus_kernel::ActionState::Cancelled, "{a:?}");
+    assert!(a.resolution.as_deref().unwrap().contains("session was retired"));
+    let e = r.core.kernel.execution(&a.execution_id).unwrap().unwrap();
+    assert_eq!(e.budget.reserved_micros, 0, "{:?}", e.budget);
+    assert!(e.budget.reservations.is_empty(), "{:?}", e.budget);
+    assert_eq!(e.budget.spent_micros, 0, "released, not spent");
+    assert_eq!(e.budget.held_unknown_micros, 0, "released, not held");
+    assert_eq!(ledgered(&r, "action.expired").len(), 1);
+    assert!(waiting(&r).is_empty(), "an ended question is not noticed");
+    assert!(r.core.confirm_list().unwrap().is_empty());
+}
