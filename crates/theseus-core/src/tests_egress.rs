@@ -583,7 +583,10 @@ async fn a_call_naming_a_host_beyond_the_list_runs_with_a_notice_naming_it() {
             run(json!({"argv": ["true"], "sandbox": {"egress": ["pypi.test:443"]}})),
             Scripted::text("Ran."),
         ],
-        beyond(),
+        Ran {
+            egress: beyond(),
+            after: Duration::ZERO,
+        },
         |_, _| {},
     );
     let res = r.turn(None, "beyond the list").await;
