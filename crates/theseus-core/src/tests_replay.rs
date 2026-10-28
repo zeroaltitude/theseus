@@ -665,7 +665,6 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
     );
 }
 
-const CONTENT_V2: &str = include_str!("../../theseus-judge/packs/content.v2.toml");
 const CONTENT_V3: &str = include_str!("../../theseus-judge/packs/content.v3.toml");
 
 /// A stored `content.v3` judgment of one item, the way the daemon writes it:

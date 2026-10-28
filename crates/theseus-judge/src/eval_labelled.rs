@@ -201,6 +201,14 @@ mod tests {
         assert_eq!(count("pub_"), 10);
         assert_eq!(count("pubtp_"), 10);
         assert_eq!(v3.len(), v2.len() + 26);
+    }
+
+    /// The new cases state the fields (the public ones state `public`, and the true
+    /// positives sit in public trees), and the owner's own example is there as a
+    /// clean case with the text the daemon judged.
+    #[test]
+    fn content_v3s_new_cases_state_the_fields_and_hold_the_owners_example() {
+        let (v2, v3) = (set("content.v2").unwrap(), set("content.v3").unwrap());
         // The new cases state the fields; the public ones state `public`, and the
         // true positives sit in public trees.
         for c in v3.iter().skip(v2.len()) {
