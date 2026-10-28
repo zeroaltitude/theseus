@@ -865,8 +865,14 @@ async fn a_content_judgment_with_no_record_of_its_sources_is_rebuilt_from_its_bl
     let out = replay_content(c, &["jdg_old"]).await;
     assert!(out.left_out.is_empty(), "{:?}", out.left_out);
     assert_eq!((out.stored, out.rebuilt, out.called), (0, 1, 1));
-    // The state sent is the stored one, field for field.
-    let sent = jev.seen()[0].body["state"].clone();
+    // The state sent is the stored one, field for field, and now the five
+    // fields content.v3 adds, which a v3 candidate's state carries and the
+    // stored one (judged without them) did not: the author from the kind.
+    let mut sent = jev.seen()[0].body["state"].clone();
+    assert_eq!(sent["author"], "tool", "{sent}");
+    for added in ["author", "place", "project", "public", "context"] {
+        sent.as_object_mut().unwrap().remove(added);
+    }
     let want: Value = serde_json::from_str(&stored).unwrap();
     assert_eq!(sent, want);
 }
