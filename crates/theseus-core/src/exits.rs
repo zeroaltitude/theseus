@@ -31,11 +31,20 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use serde_json::Value;
+use zeroize::Zeroizing;
+
 use crate::provider::{
     CountFuture, DeltaSink, Provider, ProviderFuture, ProviderRequest, WarmFuture,
 };
-use crate::secrets::SecretBoard;
+use crate::secrets::{SecretBoard, SecretState};
 use crate::store::Store;
+
+/// The shortest value substituted: a shorter one would match by chance.
+const MIN_VALUE: usize = 8;
+
+/// One value the vault resolved, and its name.
+type Known = (Zeroizing<String>, String);
 
 #[cfg(test)]
 mod tests;
@@ -77,16 +86,116 @@ impl Exits {
         self.on
     }
 
+    /// The values the vault has resolved, longest first so a value that holds
+    /// another is replaced whole, ties by name so the order never depends on
+    /// which resolved first; one name for a value two secrets share.
+    fn known(&self) -> Vec<Known> {
+        let mut out: Vec<Known> = Vec::new();
+        for (name, state) in self.board.states().iter() {
+            let SecretState::Ready(v) = state else {
+                continue;
+            };
+            let v = v.expose().trim();
+            if v.len() >= MIN_VALUE && !out.iter().any(|(x, _)| x.as_str() == v) {
+                out.push((Zeroizing::new(v.to_string()), name.clone()));
+            }
+        }
+        out.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.1.cmp(&b.1)));
+        out
+    }
+
     /// `req` with the vault's values substituted, when it carries any and the
-    /// switch is on, and the secrets it carried either way.
+    /// switch is on, and the secrets it carried either way. Only the request's
+    /// text is read: its system blocks, messages, tool definitions and extra
+    /// fields, every string in them, as the model reads them.
     pub fn request(&self, req: &ProviderRequest) -> (Option<ProviderRequest>, Found) {
-        let _ = (&self.board, req);
-        (None, Found::default())
+        let known = self.known();
+        let mut found = Found::default();
+        if known.is_empty() {
+            return (None, found);
+        }
+        for v in parts(req) {
+            scan(v, &mut |s| {
+                substitute(&known, s, &mut found);
+            });
+        }
+        if found.is_empty() || !self.on {
+            return (None, found);
+        }
+        let mut out = req.clone();
+        let mut sink = Found::default();
+        for v in parts_mut(&mut out) {
+            replace(v, &mut |s| substitute(&known, s, &mut sink));
+        }
+        (Some(out), found)
     }
 
     /// `s` with the vault's values substituted, and the secrets it carried.
     pub fn text<'a>(&self, s: &'a str) -> (Cow<'a, str>, Found) {
-        (Cow::Borrowed(s), Found::default())
+        let known = self.known();
+        let mut found = Found::default();
+        match substitute(&known, s, &mut found) {
+            Some(out) if self.on => (Cow::Owned(out), found),
+            _ => (Cow::Borrowed(s), found),
+        }
+    }
+}
+
+/// `s` with each known value replaced by `[redacted:<name>]`, noting each in
+/// `found`; `None` when it holds none. An exact match, never a shape.
+fn substitute(known: &[Known], s: &str, found: &mut Found) -> Option<String> {
+    if !known.iter().any(|(v, _)| s.contains(v.as_str())) {
+        return None;
+    }
+    let mut out = s.to_string();
+    for (v, name) in known {
+        let n = out.matches(v.as_str()).count();
+        if n > 0 {
+            *found.names.entry(name.clone()).or_default() += n as u32;
+            out = out.replace(v.as_str(), &format!("[redacted:{name}]"));
+        }
+    }
+    Some(out)
+}
+
+/// The request's text-bearing values.
+fn parts(req: &ProviderRequest) -> impl Iterator<Item = &Value> {
+    req.system
+        .iter()
+        .chain(&req.messages)
+        .chain(&req.tools)
+        .chain(req.extra.values())
+}
+
+fn parts_mut(req: &mut ProviderRequest) -> impl Iterator<Item = &mut Value> {
+    req.system
+        .iter_mut()
+        .chain(req.messages.iter_mut())
+        .chain(req.tools.iter_mut())
+        .chain(req.extra.values_mut())
+}
+
+/// Every string of `v`.
+fn scan(v: &Value, f: &mut impl FnMut(&str)) {
+    match v {
+        Value::String(s) => f(s),
+        Value::Array(a) => a.iter().for_each(|x| scan(x, f)),
+        Value::Object(o) => o.values().for_each(|x| scan(x, f)),
+        _ => {}
+    }
+}
+
+/// Every string of `v`, replaced by what `f` gives for it.
+fn replace(v: &mut Value, f: &mut impl FnMut(&str) -> Option<String>) {
+    match v {
+        Value::String(s) => {
+            if let Some(n) = f(s) {
+                *s = n;
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(|x| replace(x, f)),
+        Value::Object(o) => o.values_mut().for_each(|x| replace(x, f)),
+        _ => {}
     }
 }
 
@@ -155,6 +264,33 @@ pub fn wrap(
         .collect()
 }
 
+impl Substituting {
+    /// The row that says which vault secrets a request carried and whether
+    /// they were substituted. Written at the call, where the turn's `Call` is
+    /// in scope, and never carrying a value.
+    fn note(&self, req: &ProviderRequest, found: &Found, substituted: bool, op: &str) {
+        let Some(store) = self.store.as_ref().filter(|_| !found.is_empty()) else {
+            return;
+        };
+        let call = CALL.try_with(Clone::clone).unwrap_or_default();
+        let fact = crate::fact::data::RequestRedacted {
+            provider: &self.name,
+            model: &req.model,
+            names: found.names(),
+            count: found.count(),
+            substituted,
+            op,
+            loop_index: call.loop_index,
+            correlation_id: call.correlation_id.as_deref(),
+        };
+        let written = crate::fact::row(&fact, call.session.as_deref(), call.turn.as_deref())
+            .and_then(|r| theseus_store::blocking(|| store.defer(r)));
+        if let Err(e) = written {
+            tracing::warn!(error = %e, "request.redacted: the row was not written");
+        }
+    }
+}
+
 impl Provider for Substituting {
     fn name(&self) -> &str {
         self.inner.name()
@@ -164,13 +300,28 @@ impl Provider for Substituting {
         req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
-        let _ = (&self.out, &self.store, &self.name);
-        self.inner.stream_message(req, on_delta)
+        let (sent, found) = self.out.request(req);
+        self.note(req, &found, sent.is_some(), "stream");
+        match sent {
+            None => self.inner.stream_message(req, on_delta),
+            Some(owned) => {
+                let inner = self.inner.clone();
+                Box::pin(async move { inner.stream_message(&owned, on_delta).await })
+            }
+        }
     }
     fn warm(&self) -> WarmFuture<'_> {
         self.inner.warm()
     }
     fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
-        self.inner.count_tokens(req)
+        let (sent, found) = self.out.request(req);
+        self.note(req, &found, sent.is_some(), "count_tokens");
+        match sent {
+            None => self.inner.count_tokens(req),
+            Some(owned) => {
+                let inner = self.inner.clone();
+                Box::pin(async move { inner.count_tokens(&owned).await })
+            }
+        }
     }
 }

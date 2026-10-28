@@ -1662,6 +1662,17 @@ impl Lane {
         if w.content.trim().is_empty() {
             return Ok(None);
         }
+        // The vault's own values never leave in a message (`[privacy]
+        // redact_outbound`, theseus-gyjyo R7b): a post, an edit and a live
+        // stream's text all come through here. A shape is not a value.
+        let masked = match self.shared.core.exits.text(&w.content).0 {
+            std::borrow::Cow::Owned(content) => Some(Write {
+                content,
+                ..w.clone()
+            }),
+            std::borrow::Cow::Borrowed(_) => None,
+        };
+        let w = masked.as_ref().unwrap_or(w);
         // A persona's text is signed (theseus-sjzm).
         let signed = self.sign(w).await;
         let w = signed.as_ref().map_or(w, |s| &s.write);
@@ -2179,6 +2190,8 @@ pub(crate) fn mcp_note(body: &Value) -> String {
 mod tests_bound;
 #[cfg(test)]
 mod tests_catchup;
+#[cfg(test)]
+mod tests_exits;
 #[cfg(test)]
 mod tests_self_note;
 #[cfg(test)]

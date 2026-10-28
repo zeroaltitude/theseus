@@ -333,6 +333,82 @@ fn each_loop_of_a_turn_has_its_compile_its_answer_and_its_calls() {
     );
 }
 
+/// A request that carried a vault secret (theseus-gyjyo R7b): the loop's answer
+/// names which, how many times, and whether it was substituted; a private
+/// reader gets the names, another the count alone. A token count is no loop's
+/// request, and a loop that sent none has an empty list.
+#[test]
+fn an_answer_names_the_vault_secrets_its_request_carried() {
+    let core = test_core("ok");
+    let (s, t) = build(&core, 2, 1);
+    let redacted = |at: u64, op: &str, loop_: Value, names: Value, n: u64, sub: bool| {
+        row(
+            &core,
+            at,
+            "request.redacted",
+            &s,
+            &t,
+            json!({"provider": "anthropic", "model": "claude-sonnet-5", "names": names, "count": n,
+                   "substituted": sub, "op": op, "loop": loop_, "correlation_id": "act_p0"}),
+        );
+    };
+    redacted(
+        T0 + 900,
+        "stream",
+        json!(0),
+        json!(["anthropic_key", "db_password"]),
+        3,
+        true,
+    );
+    redacted(
+        T0 + 950,
+        "count_tokens",
+        Value::Null,
+        json!(["tokens_only"]),
+        1,
+        true,
+    );
+    redacted(
+        T0 + 1_950,
+        "stream",
+        json!(1),
+        json!(["db_password"]),
+        1,
+        false,
+    );
+    let r = inspect(&core, &s, &t, true);
+    let a0 = r.loops[0].answer.as_ref().unwrap();
+    assert_eq!(a0.redacted.len(), 1, "{:?}", a0.redacted);
+    assert_eq!(a0.redacted[0].names, ["anthropic_key", "db_password"]);
+    assert_eq!(
+        (a0.redacted[0].count, a0.redacted[0].substituted),
+        (3, true)
+    );
+    assert_eq!(a0.redacted[0].correlation_id.as_deref(), Some("act_p0"));
+    let a1 = r.loops[1].answer.as_ref().unwrap();
+    assert_eq!(a1.redacted.len(), 1);
+    assert_eq!(a1.redacted[0].names, ["db_password"]);
+    assert!(!a1.redacted[0].substituted, "sent as written is said so");
+    assert!(!serde_json::to_string(&r.loops)
+        .unwrap()
+        .contains("tokens_only"));
+    // Another surface learns how many and whether, never which.
+    let o = inspect(&core, &s, &t, false);
+    let a = o.loops[0].answer.as_ref().unwrap();
+    assert_eq!(a.redacted.len(), 1);
+    assert!(a.redacted[0].names.is_empty());
+    assert_eq!(a.redacted[0].count, 3);
+    assert!(!serde_json::to_string(&o).unwrap().contains("anthropic_key"));
+    // A turn with no such row has none.
+    let (s2, t2) = build(&core, 1, 1);
+    assert!(inspect(&core, &s2, &t2, true).loops[0]
+        .answer
+        .as_ref()
+        .unwrap()
+        .redacted
+        .is_empty());
+}
+
 /// Another surface reads shapes and sizes, never thinking, texts, inputs or results.
 #[test]
 fn a_surface_that_reads_no_private_text_gets_the_shapes_alone() {

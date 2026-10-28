@@ -258,6 +258,7 @@ ledger_kinds! {
     RecallRan = "recall.ran",
     RecallShadow = "recall.shadow",
     Reconcile = "reconcile",
+    RequestRedacted = "request.redacted",
     SandboxEgress = "sandbox.egress",
     SandboxEgressRefused = "sandbox.egress_refused",
     SandboxStarted = "sandbox.started",

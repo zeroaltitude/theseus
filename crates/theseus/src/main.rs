@@ -42,6 +42,7 @@ mod herdr_sync;
 mod herdr_up;
 mod import;
 mod import_sync;
+mod inspect_cmd;
 mod interactive;
 mod jobout;
 mod judge_correct;
@@ -265,6 +266,15 @@ enum Cmd {
     Open {
         #[command(subcommand)]
         what: open::What,
+    },
+    /// One turn's requests and which vault secrets each carried, by name, and whether each was
+    /// substituted before it left (`request.redacted`, theseus-gyjyo R7b). `theseus inspect
+    /// [SESSION] [TURN]`: SESSION defaults to the most recently active, TURN to its last. The same
+    /// is in the cockpit's inspector (`theseus open turn`).
+    #[command(hide = true)]
+    Inspect {
+        session: Option<String>,
+        turn: Option<String>,
     },
     /// Where a node went (node.reach): the compilations and loops of its own session whose
     /// context held it, then its copies in other sessions over derived_from (a task's report in
@@ -1477,6 +1487,7 @@ async fn run(cli: Cli) -> Result<()> {
         },
         cmd @ Cmd::Census { .. } => census::cmd(c, json, cmd).await,
         Cmd::Open { what } => open::open(c, json, what).await,
+        Cmd::Inspect { session, turn } => inspect_cmd::inspect(c, json, session, turn).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         cmd @ Cmd::Fork { .. } => fork::cmd(c, json, cmd).await,
         cmd @ Cmd::Rewind { .. } => rewind_cmd::cmd(c, json, cmd).await,
