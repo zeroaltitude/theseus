@@ -1,15 +1,13 @@
-//! Secret scrubbing (spec §3.9): tool output is scrubbed before it reaches the
-//! model, the store, or a client. Every secret the vault has given is
+//! Exact-value substitution (spec §3.9): every secret the vault has given is
 //! replaced by `[redacted:<name>]` wherever it appears: verbatim, in base64
 //! (standard or URL-safe, at any offset inside a longer encoding, wrapped
 //! across lines or not), percent-encoded (review 2's H9), and with any of its
-//! characters JSON-escaped (theseus-ubp7, `escaped.rs`). Well-known
-//! shapes of secrets never resolved here are replaced by `[redacted:<shape>]`
-//! (`shapes.rs`): token prefixes (Anthropic, OpenAI, Stripe, Google, GitHub,
-//! Slack and others), AWS access key ids and the secret keys and session
-//! tokens beside them, private-key blocks, JWTs, and a connection URL's
-//! password; as written, and in the same encodings a value is looked for in
-//! (`decoded.rs`, theseus-oyrt).
+//! characters JSON-escaped (theseus-ubp7, `escaped.rs`).
+//!
+//! It runs on a copy that leaves the machine, never on the record: a node, a
+//! kept output, an imported episode and a watch's row are what the tool
+//! printed, so the operator can read what was exposed. Nothing is guessed
+//! here: a value the vault never gave is text, whatever its shape.
 //!
 //! The values are read from the secret board at each scrub, so a value is
 //! known here the moment it resolves (theseus-qa0). A turn waits for the
@@ -22,21 +20,13 @@ use base64::Engine as _;
 
 use crate::secrets::{SecretBoard, SecretState};
 
-#[cfg(test)]
-mod corpus;
-mod decoded;
 mod escaped;
-mod shapes;
-#[cfg(test)]
-mod tests_corpus;
 #[cfg(test)]
 mod tests_escaped;
 #[cfg(test)]
 mod tests_fold;
 #[cfg(test)]
 mod tests_nested;
-#[cfg(test)]
-mod tests_shapes;
 
 #[derive(Default)]
 pub struct Scrubber {
@@ -93,14 +83,6 @@ impl Scrubber {
             }
         }
         n += encoded(&mut out, &values);
-        drop(values);
-        drop(states);
-        for find in shapes::FINDERS {
-            let spans = find(&out);
-            n += splice(&mut out, spans);
-        }
-        let spans = decoded::spans(&out);
-        n += splice(&mut out, spans);
         (out, n)
     }
 }
@@ -343,14 +325,35 @@ fn percent_spans(t: &[u8], v: &[u8]) -> Vec<(usize, usize)> {
 mod tests {
     use super::*;
 
+    /// The scrubber knows what the vault gave it and nothing else: a key's or
+    /// a token's shape, a private-key block, a JWT, a connection URL's
+    /// password are text, as the tool printed them (the record is raw, and
+    /// a guess has no place in what leaves it).
     #[test]
-    fn exact_values_and_token_shapes_are_redacted() {
+    fn only_a_value_the_vault_gave_is_replaced_and_no_shape_is() {
         let s = Scrubber::with_values(vec![("hunter2hunter2".into(), "db_password".into())]);
-        let (out, n) = s.scrub("pw=hunter2hunter2 key=sk-ant-api03-abcdefghijklmnop end ghp_short");
-        assert_eq!(n, 2, "{out}");
-        assert!(out.contains("[redacted:db_password]"));
-        assert!(out.contains("[redacted:anthropic_key] end"));
-        assert!(out.contains("ghp_short"), "too short to be a token");
+        let text = "pw=hunter2hunter2 key=sk-ant-api03-abcdefghijklmnop end \
+                    ghp_inventedinventedinvented";
+        assert_eq!(
+            s.scrub(text),
+            (
+                "pw=[redacted:db_password] key=sk-ant-api03-abcdefghijklmnop end \
+                 ghp_inventedinventedinvented"
+                    .to_string(),
+                1
+            )
+        );
+        let none = Scrubber::default();
+        for kept in [
+            "Access key ID,Secret access key\nAKIAINVENTEDEXAMPLE7,wJalrXUtnFEMI/K7MDENG/bPxRfiCYINVENTEDKY\n",
+            "aws_secret_access_key = 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",
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\nINVENTEDINVENTEDINVENTED==\n-----END OPENSSH PRIVATE KEY-----",
+            "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpbnZlbnRlZCJ9.c2lnbmF0dXJlLWludmVudGVk\n",
+            &format!("postgres://app:s3cr3t-invented{}db.internal/app", '@'),
+            "ghp_x then ghp_inventedinventedinvented",
+        ] {
+            assert_eq!(none.scrub(kept), (kept.to_string(), 0), "{kept}");
+        }
     }
 
     /// A value is scrubbed from the moment the board has it.
@@ -439,127 +442,5 @@ mod tests {
         }
         let (out, n) = s.scrub("100% done, 50%2F50");
         assert_eq!((out.as_str(), n), ("100% done, 50%2F50", 0));
-    }
-
-    /// Review 2's H9: AWS access key ids, the secret key beside one, and a
-    /// secret key or session token after its label. All invented.
-    #[test]
-    fn aws_keys_are_withheld_by_shape() {
-        let s = Scrubber::default();
-        let id = "AKIAINVENTEDEXAMPLE7";
-        let secret = "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";
-        assert_eq!(secret.len(), 40);
-        let (out, n) = s.scrub(&format!("Access key ID,Secret access key\n{id},{secret}\n"));
-        assert_eq!(
-            (out.as_str(), n),
-            (
-                "Access key ID,Secret access key\n[redacted:aws_access_key_id],\
-                 [redacted:aws_secret_access_key]\n",
-                2
-            )
-        );
-        let sts = format!(
-            "{{\"Credentials\": {{\"AccessKeyId\": \"ASIAINVENTEDEXAMPLE2\", \"SecretAccessKey\": \
-             \"{secret}\", \"SessionToken\": \"IQoJb3JpZ2luX2VjEINVENTED/token+value==\"}}}}"
-        );
-        let (out, n) = s.scrub(&sts);
-        assert_eq!(n, 3, "{out}");
-        assert_eq!(
-            out,
-            "{\"Credentials\": {\"AccessKeyId\": \"[redacted:aws_access_key_id]\", \
-             \"SecretAccessKey\": \"[redacted:aws_secret_access_key]\", \"SessionToken\": \
-             \"[redacted:aws_session_token]\"}}"
-        );
-        for (line, says) in [
-            (
-                format!("aws_secret_access_key = {secret}"),
-                "aws_secret_access_key = [redacted:aws_secret_access_key]",
-            ),
-            (
-                format!("export AWS_SECRET_ACCESS_KEY='{secret}'"),
-                "export AWS_SECRET_ACCESS_KEY='[redacted:aws_secret_access_key]'",
-            ),
-            (
-                "AWS_SESSION_TOKEN=FwoGZXIvYXdzEINVENTEDsessiontoken".into(),
-                "AWS_SESSION_TOKEN=[redacted:aws_session_token]",
-            ),
-        ] {
-            assert_eq!(s.scrub(&line).0, says);
-        }
-        // Not keys: a word with the prefix, a hex hash beside an id, a label
-        // with no value after it, and the masked key `aws configure list` shows.
-        for kept in [
-            "AKIAS are not keys; ASIA is a continent",
-            "commit 4b825dc642cb6eb9a060e54bf8d69288fbee4904",
-            "set aws_secret_access_key in your profile",
-            "secret_key     ****************ABCD shared-credentials-file",
-        ] {
-            assert_eq!(s.scrub(kept), (kept.to_string(), 0), "{kept}");
-        }
-        let (out, _) = s.scrub(&format!("{id} 4b825dc642cb6eb9a060e54bf8d69288fbee4904"));
-        assert_eq!(
-            out,
-            "[redacted:aws_access_key_id] 4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        );
-    }
-
-    /// Review 2's H9: a private-key block, whole, and one cut before its END
-    /// line, up to the first line that is not a key's.
-    #[test]
-    fn a_private_key_block_is_withheld_whole_or_cut() {
-        let s = Scrubber::default();
-        let block = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\nINVENTEDINVENTEDINVENTED==\n-----END OPENSSH PRIVATE KEY-----";
-        let (out, n) = s.scrub(&format!("cat id:\n{block}\ndone"));
-        assert_eq!(
-            (out.as_str(), n),
-            ("cat id:\n[redacted:private_key]\ndone", 1)
-        );
-        let cut = "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\n\nMIIEowIBAAKCAQEAinvented\nb3BlbnNzaC1rZXktdjEAAAAA\n[… 4,000 characters not shown …]\ntail";
-        let (out, n) = s.scrub(cut);
-        assert_eq!(
-            (out.as_str(), n),
-            (
-                "[redacted:private_key]\n[… 4,000 characters not shown …]\ntail",
-                1
-            )
-        );
-        let public = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEinvented\n-----END PUBLIC KEY-----";
-        assert_eq!(
-            s.scrub(public),
-            (public.to_string(), 0),
-            "a public key is not secret"
-        );
-    }
-
-    /// Review 2's H9: a JWT, and a JWE's five parts.
-    #[test]
-    fn a_jwt_is_withheld() {
-        let s = Scrubber::default();
-        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpbnZlbnRlZCJ9.c2lnbmF0dXJlLWludmVudGVk";
-        let (out, n) = s.scrub(&format!("Authorization: Bearer {jwt}\n"));
-        assert_eq!(
-            (out.as_str(), n),
-            ("Authorization: Bearer [redacted:jwt]\n", 1)
-        );
-        let unsigned = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJpbnZlbnRlZCJ9.";
-        assert_eq!(s.scrub(unsigned).0, "[redacted:jwt]");
-        let jwe = "eyJhbGciOiJSU0EtT0FFUCJ9.aW52ZW50ZWRrZXk.aXZpbnZlbnRlZA.Y2lwaGVydGV4dA.dGFnaW52ZW50ZWQ";
-        assert_eq!(s.scrub(&format!("{jwe} x")).0, "[redacted:jwt] x");
-        for kept in [
-            "eyJustAWord.notatoken",
-            "version 1.2.3",
-            "eyJhbGciOiJIUzI1NiJ9 alone",
-        ] {
-            assert_eq!(s.scrub(kept), (kept.to_string(), 0), "{kept}");
-        }
-    }
-
-    /// A prefix too short to be a token no longer stops the scan for that
-    /// prefix: a real token after it is still withheld.
-    #[test]
-    fn a_short_prefix_match_does_not_stop_the_scan() {
-        let s = Scrubber::default();
-        let (out, n) = s.scrub("ghp_x then ghp_inventedinventedinvented");
-        assert_eq!((out.as_str(), n), ("ghp_x then [redacted:github_token]", 1));
     }
 }

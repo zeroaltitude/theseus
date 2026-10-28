@@ -1,8 +1,9 @@
 //! The daemon's half of `theseus import claude-code|codex` (theseus-o73y):
 //! the episodes the CLI makes (a `claude-code` or `codex` source, a `cli`
 //! place named by the project directory, the tool result outside text)
-//! through the whole core: scrubbed as they are written, so the store never
-//! holds a secret from an import (the WAL and the spool grepped); idempotent
+//! through the whole core: written as they came, so the store is the record
+//! of what the session said (a vault value in it is found by reading it, and
+//! the exits substitute it); idempotent
 //! by the episode's hash; a grown file's episode refused, never overwritten;
 //! erased by tag; never recalled in a shared place, and a tool result never
 //! in front of the model unless the config admits outside text.
@@ -21,7 +22,6 @@ use super::tests::{call, import, index_of, lines, live, sessions_of};
 use super::write;
 use super::{session_id_of, Integrity};
 use crate::node::Body;
-use crate::scrub::Scrubber;
 use crate::session::SessionRecord;
 use crate::tests_recall::{dropped_for, recalls, session, turn, PIER};
 
@@ -61,7 +61,7 @@ fn harness(source: &str, n: u64, extra: &[(&str, &str, &str)]) -> Value {
         .map(|(i, (a, integ, t))| {
             json!({"idx": i, "time": format!("2026-03-04T10:00:{:02}.000Z", i), "author": a,
                    "integrity": integ, "text": t, "unit": format!("s{n}.jsonl#L{}", i + 1),
-                   "sha256": "ab".repeat(32)})
+                   "sha256": hex::encode(<sha2::Sha256 as sha2::Digest>::digest(t.as_bytes()))})
         })
         .collect();
     let mut v = json!({
@@ -97,11 +97,13 @@ fn holds(dir: &Path, needle: &str) -> bool {
     false
 }
 
-/// The secret in a message never reaches the store: the shape's redaction
-/// stands in the text, the node, the session's title and the WAL hold none of
-/// it, and the text around it is kept. A second run writes nothing.
+/// The secret in a message is stored as it was said: the node, the session's
+/// title and the WAL hold it, and the text around it is kept. The message's
+/// `sha256` is the digest the CLI sent, which is now the digest of the stored
+/// text itself, so a later change in what the vault holds never moves it. A
+/// second run writes nothing.
 #[tokio::test]
-async fn a_harness_episode_is_scrubbed_before_it_is_written_and_a_second_run_writes_nothing() {
+async fn a_harness_episode_is_written_as_it_came_and_a_second_run_writes_nothing() {
     let r = live();
     let c = &r.core;
     let eps = [harness("claude-code", 1, &[]), harness("codex", 2, &[])];
@@ -114,22 +116,25 @@ async fn a_harness_episode_is_scrubbed_before_it_is_written_and_a_second_run_wri
         assert_eq!(imp.source, e["source"]);
         assert_eq!(imp.hash, e["hash"], "the episode's own hash is the key");
         let nodes = c.store.session_nodes(&sid).unwrap();
-        let Body::Imported { text, .. } = &nodes[1].1.body else {
+        let Body::Imported { text, sha256, .. } = &nodes[1].1.body else {
             panic!("{:?}", nodes[1])
         };
-        assert!(
-            text.starts_with(
-                "The tide log is in the boathouse ledger; the deploy key is [redacted:"
-            ),
-            "{text}"
+        assert_eq!(
+            text,
+            &format!(
+                "The tide log is in the boathouse ledger; the deploy key is {}",
+                token()
+            )
         );
-        assert!(!text.contains(&token()));
-        let Body::Imported { sha256, .. } = &nodes[1].1.body else {
-            unreachable!()
-        };
         assert_eq!(
             *sha256,
-            hex::encode(<sha2::Sha256 as sha2::Digest>::digest(text.as_bytes()))
+            e["messages"][1]["sha256"].as_str().unwrap(),
+            "the digest the CLI sent"
+        );
+        assert_eq!(
+            *sha256,
+            hex::encode(<sha2::Sha256 as sha2::Digest>::digest(text.as_bytes())),
+            "and it is the stored text's"
         );
     }
     assert!(
@@ -137,8 +142,8 @@ async fn a_harness_episode_is_scrubbed_before_it_is_written_and_a_second_run_wri
         "the grep reads the store's files"
     );
     assert!(
-        !holds(c.store.dir(), &token()),
-        "no secret in the WAL, the spool or the index"
+        holds(c.store.dir(), &token()),
+        "the WAL holds the key as written"
     );
 
     let before = c.store.stats().unwrap().frames_appended;
@@ -152,9 +157,9 @@ async fn a_harness_episode_is_scrubbed_before_it_is_written_and_a_second_run_wri
 }
 
 /// A value the vault holds, in the text and in its base64 and percent
-/// encodings, is scrubbed by name; the writer's scrubber is the daemon's.
+/// encodings, is stored as it was said: the daemon's scrubber is not asked.
 #[tokio::test]
-async fn a_vault_value_is_scrubbed_in_every_encoding() {
+async fn a_vault_value_is_stored_in_every_encoding_as_it_came() {
     use base64::Engine as _;
     let r = live();
     let c = &r.core;
@@ -181,8 +186,7 @@ async fn a_vault_value_is_scrubbed_in_every_encoding() {
         }],
         ..Default::default()
     };
-    let s = Scrubber::with_values(vec![(secret.into(), "reef_key".into())]);
-    let b = write::import_batch_scrubbed(&c.store, &p, "cli", || false, &s).unwrap();
+    let b = write::import_batch_unless(&c.store, &p, "cli", || false).unwrap();
     assert_eq!(b.result.imported, 1, "{:?}", b.result);
     let sid = session_id_of(e["episode_id"].as_str().unwrap());
     let all = serde_json::to_string(
@@ -195,16 +199,19 @@ async fn a_vault_value_is_scrubbed_in_every_encoding() {
     )
     .unwrap();
     for needle in [secret, b64.as_str(), enc.as_str()] {
-        assert!(!all.contains(needle), "{needle} in {all}");
-        assert!(!holds(c.store.dir(), needle), "{needle} on disk");
+        assert!(all.contains(needle), "{needle} not in {all}");
     }
-    assert!(all.contains("plain [redacted:reef_key] here"), "{all}");
+    assert!(
+        all.contains("plain marsh-kelp-vault-value-77 here"),
+        "{all}"
+    );
+    assert!(!all.contains("[redacted:"), "{all}");
 }
 
 /// A session file that grew since it was imported is the same episode with
 /// another hash whose stored messages are a prefix: only the new message is
 /// appended (theseus-pjmj7; it was refused before), and the new text is
-/// scrubbed as the first was.
+/// written as the first was.
 #[tokio::test]
 async fn a_grown_file_is_appended_to_not_overwritten() {
     let r = live();

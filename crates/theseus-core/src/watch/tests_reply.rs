@@ -110,7 +110,7 @@ fn rig(dir: &std::path::Path, drive: bool) -> Life {
 
 /// A reply from the named person fires; another person's does not. The notice
 /// goes to the owner's DM (private) and never into #ops, quotes the reply
-/// (scrubbed, the first 200 characters), and the row is marked outside text.
+/// (as it came, the first 200 characters), and the row is marked outside text.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reply_from_the_named_person_fires_and_another_persons_does_not() {
     let dir = tempfile::tempdir().unwrap();
@@ -149,7 +149,7 @@ async fn a_reply_from_the_named_person_fires_and_another_persons_does_not() {
     assert_eq!(met["external"], true);
     let value = met["value"].as_str().unwrap();
     assert!(value.starts_with("Berth four is yours at dawn"), "{value}");
-    assert!(!value.contains("ghp_"), "scrubbed: {value}");
+    assert!(value.contains("ghp_"), "the record is raw: {value}");
     assert!(value.chars().count() <= 201, "the first 200 characters");
     let all = posts(&l.core);
     assert_eq!(all.len(), 1, "{all:?}");
@@ -162,7 +162,11 @@ async fn a_reply_from_the_named_person_fires_and_another_persons_does_not() {
         all[0].1
     );
     assert!(all[0].1.contains("https://discord.com/channels/1/777/1003"));
-    assert!(!all[0].1.contains("ghp_"));
+    assert!(
+        all[0].1.contains("ghp_"),
+        "the post is the courier's to substitute: {}",
+        all[0].1
+    );
     assert!(
         l.core.watches.get(&id).is_none(),
         "met: gone from the board"

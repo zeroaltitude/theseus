@@ -285,15 +285,28 @@ fn a_push_goes_to_self_only_and_main_is_refused() {
     );
 }
 
-/// A token's shape in what the branch adds stops the push, and so does one
-/// in a commit message; nothing reaches the remote.
+/// A scrubber that holds `token` as the vault's resolved secret `deploy_key`,
+/// fed the way the daemon's is: through the secret board.
+fn knowing(token: &str) -> Scrubber {
+    use crate::secrets::{Secret, SecretBoard};
+    let board = SecretBoard::new(["deploy_key".to_string()], std::time::Instant::now());
+    board.publish(
+        [("deploy_key".to_string(), Ok(Secret::new(token.into())))].into(),
+        "fake",
+    );
+    Scrubber::from_board(board)
+}
+
+/// A value the vault holds, in what the branch adds or in a commit message,
+/// stops the push; nothing reaches the remote. (The daemon's scrubber guesses
+/// no shapes now: a token it was never given is `scripts/scrub.sh`'s to find,
+/// which main runs after it.)
 #[test]
-fn a_scrub_hit_stops_the_push() {
+fn a_vault_value_in_the_tree_stops_the_push() {
     let f = fixture();
-    let clean = Scrubber::default();
-    let scrub = |s: &str| clean.scrub(s).1;
-    // Built from parts: a whole one would be refused by the host on push.
     let token = format!("ghp_{}", "Zq7RkV2mW9xLpT4sNd8YbHc3FgJe6UaQo1Ki");
+    let known = knowing(&token);
+    let scrub = |s: &str| known.scrub(s).1;
     for (slug, file, msg) in [
         (
             "in a file",
@@ -314,6 +327,22 @@ fn a_scrub_hit_stops_the_push() {
         let up = git(&f.upstream, &["for-each-ref", "--format=%(refname)"]);
         assert_eq!(up, "refs/heads/main", "{slug}");
     }
+}
+
+/// A token the vault never gave the scrubber is not guessed at: the same
+/// tree, with a scrubber that does not know the value, pushes.
+#[test]
+fn a_token_the_scrubber_was_never_given_is_not_guessed() {
+    let f = fixture();
+    let token = format!("ghp_{}", "Zq7RkV2mW9xLpT4sNd8YbHc3FgJe6UaQo1Ki");
+    let known = knowing("some-other-secret-value");
+    let scrub = |s: &str| known.scrub(s).1;
+    let t = tree::open(&f.place, "unknown token", NOW).unwrap();
+    std::fs::write(t.dir.join("cfg.txt"), format!("token = \"{token}\"\n")).unwrap();
+    tree::commit(&f.place, &t, "self: add (x)", "body")
+        .unwrap()
+        .unwrap();
+    assert!(tree::push(&f.place, &t, "origin", &t.branch, &scrub).is_ok());
 }
 
 /// Main's own scrub check, when main has one, stops a push too.

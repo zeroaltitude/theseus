@@ -885,7 +885,7 @@ pub(crate) fn split_room(total: usize, n: usize, cap: usize) -> Vec<usize> {
 
 /// `r`'s text within `per` characters, and where its whole text is kept when
 /// it was cut.
-fn fit(
+pub(crate) fn fit(
     core: &Core,
     session: &str,
     r: &Report,
@@ -901,10 +901,7 @@ fn fit(
         .tools
         .outputs
         .path_for(session, &format!("task-{}", r.short))
-        .and_then(|to| {
-            let whole = core.tools.scrubber.scrub(text).0;
-            core.tools.outputs.keep_text(&whole, &to).ok().map(|()| to)
-        })
+        .and_then(|to| core.tools.outputs.keep_text(text, &to).ok().map(|()| to))
         .map(|p| p.display().to_string());
     if per == 0 {
         let n = text.lines().filter(|l| !l.trim().is_empty()).count();

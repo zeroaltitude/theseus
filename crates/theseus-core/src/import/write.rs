@@ -27,12 +27,12 @@
 //! These run on a blocking thread (the RPC's `spawn_blocking`), never on a
 //! runtime worker.
 
+use sha2::Digest as _;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
 use anyhow::Result;
-use sha2::Digest as _;
 use theseus_protocol::import::{
     ImportEpisodesParams, ImportEpisodesResult, ImportEraseResult, ImportListResult,
     ImportRejected, ImportTagInfo,
@@ -49,7 +49,6 @@ use super::{
 };
 use crate::fact;
 use crate::node::{Body, Node};
-use crate::scrub::Scrubber;
 use crate::session::SessionRecord;
 use crate::store::Store;
 
@@ -143,21 +142,7 @@ pub fn import_batch_unless(
     by: &str,
     stopping: impl Fn() -> bool,
 ) -> Result<Batch> {
-    import_batch_scrubbed(store, p, by, stopping, &Scrubber::default())
-}
-
-/// [`import_batch_unless`], an episode of a scrubbed source (`SCRUBBED_SOURCES`)
-/// scrubbed by `scrubber` as it is written, so the store never holds a
-/// secret from an import (theseus-o73y). The RPC passes the daemon's own,
-/// which holds the vault's resolved values.
-pub fn import_batch_scrubbed(
-    store: &Store,
-    p: &ImportEpisodesParams,
-    by: &str,
-    stopping: impl Fn() -> bool,
-    scrubber: &Scrubber,
-) -> Result<Batch> {
-    import_batch_cut(store, p, by, stopping, FRAME_RECORDS, scrubber)
+    import_batch_cut(store, p, by, stopping, FRAME_RECORDS)
 }
 
 /// [`import_batch_unless`], its frames cut past `cap` records: a test's
@@ -170,7 +155,7 @@ pub(super) fn import_batch_in(
     stopping: impl Fn() -> bool,
     cap: usize,
 ) -> Result<Batch> {
-    import_batch_cut(store, p, by, stopping, cap, &Scrubber::default())
+    import_batch_cut(store, p, by, stopping, cap)
 }
 
 fn import_batch_cut(
@@ -179,7 +164,6 @@ fn import_batch_cut(
     by: &str,
     stopping: impl Fn() -> bool,
     cap: usize,
-    scrubber: &Scrubber,
 ) -> Result<Batch> {
     let _one = ONE
         .lock()
@@ -221,13 +205,7 @@ fn import_batch_cut(
             file: &p.file,
             line: l.line,
         };
-        match take(
-            store,
-            e,
-            &at,
-            (&mut frame, &mut counts, &mut seen),
-            scrubber,
-        )? {
+        match take(store, e, &at, (&mut frame, &mut counts, &mut seen))? {
             Took::Skipped => {
                 out.skipped += 1;
                 continue;
@@ -307,10 +285,8 @@ fn take(
     e: Episode,
     at: &Place<'_>,
     (frame, counts, seen): (&mut Frame, &mut Counts<'_>, &mut BTreeMap<String, String>),
-    scrubber: &Scrubber,
 ) -> Result<Took> {
     let sid = session_id_of(&e.episode_id);
-    // The hash is the idempotency key, and the scrub leaves it: read it once.
     let this = e.hash.clone();
     let another = |h: &str, why: &str| {
         Took::Refused(format!(
@@ -339,7 +315,7 @@ fn take(
             return Ok(Took::Skipped);
         }
     }
-    let e = scrubbed(e, scrubber);
+    let e = digested(e);
     let Some(mut rec) = stored else {
         seen.insert(e.episode_id.clone(), e.hash.clone());
         let tag = e.import_tag.clone();
@@ -369,25 +345,14 @@ fn take(
     })
 }
 
-/// A harness or sync episode's text with every secret scrubbed (theseus-o73y): each
-/// message's, a summary's, and the place's name, since the CLI built them
-/// from raw files. The message's `sha256` is then the stored text's. The
-/// episode's `hash`, which the check took over what the CLI sent, stays: it
-/// is the idempotency key, a digest and no text. Any other source is as it
-/// came, its pipeline having removed credentials already.
-fn scrubbed(mut e: Episode, scrubber: &Scrubber) -> Episode {
-    if !episode::SCRUBBED_SOURCES.contains(&e.source.as_str()) {
-        return e;
-    }
-    for m in &mut e.messages {
-        m.text = scrubber.scrub(&m.text).0;
-        m.sha256 = hex::encode(sha2::Sha256::digest(m.text.as_bytes()));
-    }
-    if let Some(s) = &mut e.summary {
-        s.text = scrubber.scrub(&s.text).0;
-    }
-    if let Some(n) = &mut e.place.name {
-        *n = scrubber.scrub(n).0;
+/// A harness, sync or Vestige episode's message digests, computed over the
+/// text as it is stored (the record is raw, so this is the text the CLI read).
+/// The episode's `hash`, the idempotency key, stays as the check took it.
+fn digested(mut e: Episode) -> Episode {
+    if episode::DIGESTED_SOURCES.contains(&e.source.as_str()) {
+        for m in &mut e.messages {
+            m.sha256 = hex::encode(sha2::Sha256::digest(m.text.as_bytes()));
+        }
     }
     e
 }

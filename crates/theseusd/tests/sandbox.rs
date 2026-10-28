@@ -599,9 +599,9 @@ fn holding(under: &std::path::Path) -> Vec<PathBuf> {
 /// run-time socket): a program the broker grants a secret gets it in L1 at
 /// its launch, as at L0. A real L1 job's environment holds the value (its
 /// length is the fake `op`'s), its result's head names the grant, the value
-/// it prints is withheld (`[redacted:github_token]`), `secret.granted` says
-/// so with nothing withheld, and no file under the state dir nor the
-/// daemon's log holds the value. At L0 the same program gets it too.
+/// it prints is in its result as printed (the record is raw),
+/// `secret.granted` says so with nothing withheld, and the daemon's log
+/// holds no value. At L0 the same program gets it too.
 #[test]
 fn a_granted_program_in_l1_gets_its_grant_at_launch() {
     let r = Rig::start(|_| {});
@@ -619,7 +619,7 @@ fn a_granted_program_in_l1_gets_its_grant_at_launch() {
     );
     assert_eq!(said(text, "token"), "yes", "{text}");
     assert_eq!(said(text, "len"), VALUE.len().to_string(), "{text}");
-    assert_eq!(said(text, "printed"), "[redacted:github_token]", "{text}");
+    assert_eq!(said(text, "printed"), VALUE, "{text}");
     let granted = r.ledger("secret.granted");
     assert_eq!(granted.len(), 1, "{granted:?}");
     assert_eq!(
@@ -630,7 +630,10 @@ fn a_granted_program_in_l1_gets_its_grant_at_launch() {
     let l0 = r.turn("gh at L0", vec![gh(false)]);
     assert_eq!(said(&l0[0], "token"), "yes", "{}", l0[0]);
     let state = holding(&r.path("projects/state"));
-    assert!(state.is_empty(), "the value is in {state:?}");
+    assert!(
+        !state.is_empty(),
+        "the store holds the value the job printed"
+    );
     let log = std::fs::read_to_string(r.path("theseusd.log")).unwrap();
     assert!(!log.contains(VALUE), "the value is in the daemon's log");
 }

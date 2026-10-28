@@ -319,7 +319,6 @@ pub(crate) fn started<'a>(
         cwd: &spec.cwd,
         view,
         sandbox: &rt.sandbox,
-        scrubber: &rt.scrubber,
         given: &given,
     });
     Some(rt.sandbox.running(RunningJob {

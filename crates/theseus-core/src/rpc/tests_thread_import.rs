@@ -553,7 +553,7 @@ async fn the_import_is_the_owners_and_needs_threads_on() {
     assert!(r.core.thread_import(&bad, cli()).await.is_err());
 }
 
-/// A Vestige note is an episode of the `vestige` source, scrubbed as it is
+/// A Vestige note is an episode of the `vestige` source, stored as it is
 /// written, and the same note again is skipped.
 #[tokio::test]
 async fn a_vestige_note_imports_once() {
@@ -606,7 +606,7 @@ async fn a_vestige_note_imports_once() {
         .1;
     let text = format!("{:?}", node.body);
     assert!(
-        !text.contains(&secret) && text.contains("The skiff key is"),
-        "scrubbed: {text}"
+        text.contains(&format!("The skiff key is {secret}")),
+        "stored as it came: {text}"
     );
 }

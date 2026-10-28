@@ -188,7 +188,7 @@ impl Core {
         self.rpc_import(name, params, conn).await
     }
 
-    /// `import.episodes`: one batch, scrubbed as it is written (theseus-o73y).
+    /// `import.episodes`: one batch, written as it came.
     async fn import_episodes(
         self: Arc<Self>,
         params: Value,
@@ -200,7 +200,7 @@ impl Core {
         let core = self.clone();
         let b = blocking(move || {
             let stopping = || core.outbox.stopping();
-            write::import_batch_scrubbed(&core.store, &p, &by, stopping, &core.tools.scrubber)
+            write::import_batch_unless(&core.store, &p, &by, stopping)
         })
         .await?;
         if b.stopped {

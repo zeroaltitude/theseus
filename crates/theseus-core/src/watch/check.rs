@@ -1,8 +1,8 @@
 //! Running one check (theseus-f2r2b): a file read, a fetch, a command in L1.
 //! None of them is on a turn's thread: the file and the command run on the
 //! blocking pool, the fetch on the runtime, each bounded (30 s, 64 KiB of
-//! output) and scrubbed before the value is read, so a secret a command or a
-//! page printed is never a watch's value, row or message.
+//! output). A watch's value and rows are what the check read: the record is
+//! raw, and the courier that posts a message substitutes the vault's values.
 
 use std::io::Read;
 use std::sync::Arc;
@@ -13,7 +13,6 @@ use super::cond::{self, Condition, Observed};
 use super::spec::Check;
 use super::step::Entry;
 use crate::google::Google;
-use crate::scrub::Scrubber;
 use crate::web::Web;
 
 /// The longest a check runs.
@@ -28,7 +27,6 @@ pub type RunHook = Arc<dyn Fn(&[String]) -> ProbeRun + Send + Sync>;
 #[derive(Clone)]
 pub struct Tools {
     pub web: Arc<Web>,
-    pub scrubber: Arc<Scrubber>,
     pub run: RunHook,
     /// The account a mail watch reads; none without `[google]`.
     pub google: Option<Arc<Google>>,
@@ -44,15 +42,15 @@ pub async fn observe(
     let spec = &e.spec;
     match &spec.check {
         Check::File { path } => {
-            let (path, scrubber) = (path.clone(), tools.scrubber.clone());
-            blocking(move || file(&path, &scrubber)).await
+            let path = path.clone();
+            blocking(move || file(&path)).await
         }
         Check::Fetch { url, json } => {
             let (status, body) = tools.web.get_text(url, OUTPUT_BYTES, CHECK_SECS).await?;
             if !(200..300).contains(&status) {
                 return Err(format!("{url} answered HTTP {status}"));
             }
-            value_of(&tools.scrubber, &body, json.as_deref(), None)
+            value_of(&body, json.as_deref(), None)
         }
         // Never called for a reply (it is not due); a look would see nothing.
         Check::Reply { .. } => Ok(Observed::default()),
@@ -61,17 +59,12 @@ pub async fn observe(
                 .google
                 .as_deref()
                 .ok_or("mail watches need [google] with gmail")?;
-            super::mail::look(g, q, e.cursor.as_deref(), &tools.scrubber, rows).await
+            super::mail::look(g, q, e.cursor.as_deref(), rows).await
         }
         Check::Run { argv, json } => {
             let (argv, run) = (argv.clone(), tools.run.clone());
             let ran = blocking(move || Ok(run(&argv))).await?;
-            let scrubbed = ProbeRun {
-                stdout: tools.scrubber.scrub(&ran.stdout).0,
-                stderr: tools.scrubber.scrub(&ran.stderr).0,
-                ..ran
-            };
-            of_run(&scrubbed, &spec.cond, json.as_deref())
+            of_run(&ran, &spec.cond, json.as_deref())
         }
     }
 }
@@ -85,7 +78,7 @@ async fn blocking<T: Send + 'static>(
 }
 
 /// A file: missing is a value (`exists` is false), not a failure.
-fn file(path: &str, scrubber: &Scrubber) -> Result<Observed, String> {
+fn file(path: &str) -> Result<Observed, String> {
     let f = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Observed::default()),
@@ -97,7 +90,7 @@ fn file(path: &str, scrubber: &Scrubber) -> Result<Observed, String> {
         .map_err(|e| format!("{path}: {e}"))?;
     let text = String::from_utf8_lossy(&buf);
     Ok(Observed {
-        value: scrubber.scrub(&text).0.trim().to_string(),
+        value: text.trim().to_string(),
         code: None,
         exists: true,
         mail: None,
@@ -134,16 +127,10 @@ pub fn of_run(ran: &ProbeRun, cond: &Condition, json: Option<&str>) -> Result<Ob
     })
 }
 
-/// Text read as a value: scrubbed, then the JSON path applied.
-fn value_of(
-    scrubber: &Scrubber,
-    text: &str,
-    json: Option<&str>,
-    code: Option<i32>,
-) -> Result<Observed, String> {
-    let text = scrubber.scrub(text).0;
+/// Text read as a value, the JSON path applied.
+fn value_of(text: &str, json: Option<&str>, code: Option<i32>) -> Result<Observed, String> {
     let value = match json {
-        Some(path) => cond::json_value(&text, path)?,
+        Some(path) => cond::json_value(text, path)?,
         None => text.trim().to_string(),
     };
     Ok(Observed {

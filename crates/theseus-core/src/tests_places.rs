@@ -229,7 +229,22 @@ pub(crate) fn rig_scripted(
 type Script = Box<dyn Fn(&ProviderRequest) -> Scripted + Send + Sync>;
 
 fn rig_full(tweak: impl FnOnce(&mut Config), setup: impl FnOnce(&Store), script: Script) -> Rig {
-    rig_defer(tweak, setup, script, false)
+    rig_defer(tweak, setup, script, (false, None))
+}
+
+/// `rig_scripted`, its core's scrubber knowing `values` (each value, then the
+/// secret's name), as the daemon's does the vault's.
+pub(crate) fn rig_knowing(
+    tweak: impl FnOnce(&mut Config),
+    script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
+    values: Vec<(String, String)>,
+) -> Rig {
+    rig_defer(
+        tweak,
+        |_| {},
+        Box::new(script),
+        (false, Some(crate::scrub::Scrubber::with_values(values))),
+    )
 }
 
 /// `rig_scripted`, its tools deferred as a daemon's are (`tests_defer`).
@@ -237,14 +252,14 @@ pub(crate) fn rig_deferring(
     tweak: impl FnOnce(&mut Config),
     script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
 ) -> Rig {
-    rig_defer(tweak, |_| {}, Box::new(script), true)
+    rig_defer(tweak, |_| {}, Box::new(script), (true, None))
 }
 
 fn rig_defer(
     tweak: impl FnOnce(&mut Config),
     setup: impl FnOnce(&Store),
     script: Script,
-    deferring: bool,
+    (deferring, scrubber): (bool, Option<crate::scrub::Scrubber>),
 ) -> Rig {
     let dir = crate::scratch::tempdir();
     let root = dir.path().join("work");
@@ -263,6 +278,9 @@ fn rig_defer(
     let wanted = cfg.tools.defer.enabled;
     let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
     parts.cfg.tools.defer.enabled = deferring && wanted;
+    if let Some(s) = scrubber {
+        parts.scrubber = Arc::new(s);
+    }
     let core = Core::build(parts).unwrap();
     tokio::spawn(crate::harness::drive(core.clone()));
     Rig {

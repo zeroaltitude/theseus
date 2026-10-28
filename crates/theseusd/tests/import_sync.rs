@@ -3,8 +3,8 @@
 //! invented text, a planted secret built from parts): the first run asks for its
 //! start; a run takes the sessions (a DM, a channel, a cron run, a zstd event, a
 //! deleted session from the archive); a second run writes nothing; a session that
-//! grew is appended to and a new one comes in; health names the run; the secret is in
-//! none of the daemon's files; and the sync is refused inside a job. Skips without
+//! grew is appended to and a new one comes in; health names the run; the secret is stored
+//! as it came; and the sync is refused inside a job. Skips without
 //! python3.
 
 mod common;
@@ -139,14 +139,14 @@ fn a_sync_takes_what_changed_appends_what_grew_and_health_names_it() {
     assert!(health.contains("sync: "), "{health}");
     assert!(health.contains("5 new, 0 appended"), "{health}");
 
-    // The planted key is in none of the daemon's files; its text is.
+    // The record is raw: the planted key is in the daemon's files as it came, with its text.
     assert!(
         holds(&s.path("state"), "boathouse ledger"),
         "the grep reads the state"
     );
     assert!(
-        !holds(&s.path("state"), &token()),
-        "a secret reached the store"
+        holds(&s.path("state"), &token()),
+        "the store holds the key as the session said it"
     );
 
     // A second run writes nothing, and a cursor refuses another start.
@@ -172,7 +172,10 @@ fn a_sync_takes_what_changed_appends_what_grew_and_health_names_it() {
     );
     let (_, listed, _) = cli(&s, &["import", "list"]);
     assert!(listed.contains("6 sessions, 14 nodes"), "{listed}");
-    assert!(!holds(&s.path("state"), &token()));
+    assert!(
+        holds(&s.path("state"), &token()),
+        "the key stays as the session said it"
+    );
 }
 
 /// Inside a job the sync is refused before the exporter runs.

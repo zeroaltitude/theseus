@@ -3,7 +3,7 @@
 //! time: each file an imported session, the counts and the rejected lines on
 //! stdout, a second run writing nothing, a file that grew reported and not
 //! imported again, subagent files and empty files counted, the planted secret
-//! (built from parts) nowhere in the daemon's state, and the tag's erase.
+//! (built from parts) stored as the session said it, and the tag's erase.
 
 mod common;
 
@@ -121,7 +121,7 @@ fn holds(dir: &Path, needle: &str) -> bool {
 }
 
 #[test]
-fn both_imports_run_idempotent_scrubbed_and_erasable() {
+fn both_imports_run_idempotent_raw_and_erasable() {
     let s = Served::start(|_| {}, |_| {});
     let (claude, codex) = fixtures(s.dir.path());
     let tag = claude_part(&s, &claude);
@@ -150,14 +150,14 @@ fn claude_part(s: &Served, claude: &Path) -> String {
     assert!(listed.contains("2 sessions, 7 nodes"), "{listed}");
     let tag = listed.split(':').next().unwrap().to_string();
 
-    // The secret is in no file of the daemon's state; its text is.
+    // The record is raw: the key is in the daemon's state as it came, with its text.
     assert!(
         holds(&s.path("state"), "boathouse ledger"),
         "the grep reads the state"
     );
     assert!(
-        !holds(&s.path("state"), &token()),
-        "a secret reached the store"
+        holds(&s.path("state"), &token()),
+        "the store holds the key as the session said it"
     );
     assert!(
         !holds(&s.path("state"), "private musings"),
@@ -195,7 +195,10 @@ fn codex_and_erase(s: &Served, codex: &Path, tag: &str) {
         listed.contains("codex-") && listed.contains("codex 1"),
         "{listed}"
     );
-    assert!(!holds(&s.path("state"), &token()));
+    assert!(
+        holds(&s.path("state"), &token()),
+        "the key stays as the session said it"
+    );
 
     // Erase by tag: the claude-code tag's two sessions.
     let (code, out, err) = cli(s, &["import", "erase", "--tag", tag]);

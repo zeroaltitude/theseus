@@ -13,10 +13,15 @@ use super::tests::land;
 use super::tests_run::{git, load, result, Repo};
 use crate::approval::Answerer;
 use crate::provider::{ProviderRequest, Scripted};
-use crate::tests_places::{answers_a_call, rig_scripted, session, turn, Rig};
+use crate::tests_places::{answers_a_call, rig_knowing, session, turn, Rig};
 
 fn rig() -> (Rig, Repo) {
-    let r = rig_scripted(
+    rig_for(vec![])
+}
+
+/// `rig`, its core's scrubber knowing `values` as the vault's.
+fn rig_for(values: Vec<(String, String)>) -> (Rig, Repo) {
+    let r = rig_knowing(
         |c| {
             c.policy.tools.remove("proc.run");
             c.tools.defer.enabled = false;
@@ -31,6 +36,7 @@ fn rig() -> (Rig, Repo) {
                 )
             }
         },
+        values,
     );
     let repo = Repo::init(&r.root);
     (r, repo)
@@ -140,12 +146,12 @@ async fn the_digest_freezes_the_spec() {
     assert!(flows.read_frozen("repo_land", &info.digest).is_ok());
 }
 
-/// The scrubber over a spec: a value shaped like a secret is refused, and
-/// nothing is frozen or recorded.
+/// The scrubber over a spec: a value the vault holds is refused, and nothing
+/// is frozen or recorded.
 #[tokio::test]
-async fn a_secret_shaped_constant_never_reaches_a_stored_spec() {
-    let (r, _repo) = rig();
+async fn a_vault_value_in_a_constant_never_reaches_a_stored_spec() {
     let token = format!("{}{}", "ghp_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8");
+    let (r, _repo) = rig_for(vec![(token.clone(), "deploy_key".into())]);
     let mut spec = land(&repo_id(&r.root));
     spec["steps"][0]["args"] = json!({"argv": ["echo", token]});
     let path = r.root.parent().unwrap().join("secret.flow.json");
@@ -160,6 +166,20 @@ async fn a_secret_shaped_constant_never_reaches_a_stored_spec() {
     assert!(r.core.flow_list().is_empty());
     assert!(!rows_by_kind(&r).contains_key("flow.loaded"));
     assert!(!r.core.tools.flows.root().exists(), "nothing frozen");
+}
+
+/// The scrubber guesses no shape: a constant that merely looks like a token
+/// is the flow's own and loads.
+#[tokio::test]
+async fn a_token_shaped_constant_the_vault_never_gave_loads() {
+    let (r, _repo) = rig();
+    let token = format!("{}{}", "ghp_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8");
+    let mut spec = land(&repo_id(&r.root));
+    spec["steps"][0]["args"] = json!({"argv": ["echo", token]});
+    let path = r.root.parent().unwrap().join("shaped.flow.json");
+    std::fs::write(&path, spec.to_string()).unwrap();
+    r.core.flow_load(&path, "test", "test").unwrap();
+    assert_eq!(r.core.flow_list().len(), 1);
 }
 
 /// `theseus self revert flow:<name>` unloads it with `flow.retired` by the
