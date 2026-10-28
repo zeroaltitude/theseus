@@ -267,10 +267,12 @@ enum Cmd {
         #[command(subcommand)]
         what: open::What,
     },
-    /// One turn's requests and which vault secrets each carried, by name, and whether each was
-    /// substituted before it left (`request.redacted`, theseus-gyjyo R7b). `theseus inspect
-    /// [SESSION] [TURN]`: SESSION defaults to the most recently active, TURN to its last. The same
-    /// is in the cockpit's inspector (`theseus open turn`).
+    /// Which vault secrets a turn's requests carried, by name, and whether each was substituted.
+    ///
+    /// Per loop: the model, the compilation, the request's digest, and each request's secrets as
+    /// `request.redacted` wrote them. `theseus inspect [SESSION] [TURN]`: SESSION defaults to the
+    /// most recently active, TURN to its last. The cockpit's inspector (`theseus open turn`) shows
+    /// the same.
     #[command(hide = true)]
     Inspect {
         session: Option<String>,
