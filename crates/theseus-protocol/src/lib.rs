@@ -1801,6 +1801,12 @@ pub struct TaskInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub check: Option<TaskCheck>,
+    /// The fan-out call that opened this task as one of its helpers
+    /// (theseus-z9mze.6): the call's correlation id, which groups a call's
+    /// helpers. Absent for any other task, and from a daemon before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub fan_out: Option<String>,
 }
 
 /// `task.cancel`: stop a task and its jobs, as `execution.cancel` does; the

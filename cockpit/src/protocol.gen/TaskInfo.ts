@@ -68,4 +68,10 @@ arrangement?: TaskArrangement,
  * A check task's basis (M5 28a): what it checks, and why it is
  * independent of it.
  */
-check?: TaskCheck, };
+check?: TaskCheck, 
+/**
+ * The fan-out call that opened this task as one of its helpers
+ * (theseus-z9mze.6): the call's correlation id, which groups a call's
+ * helpers. Absent for any other task, and from a daemon before it.
+ */
+fan_out?: string, };

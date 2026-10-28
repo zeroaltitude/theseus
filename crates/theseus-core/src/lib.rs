@@ -354,6 +354,8 @@ mod tests_families;
 #[cfg(test)]
 mod tests_fan_out_cue;
 #[cfg(test)]
+mod tests_fan_out_ops;
+#[cfg(test)]
 mod tests_find_sticks;
 #[cfg(test)]
 mod tests_first_request;

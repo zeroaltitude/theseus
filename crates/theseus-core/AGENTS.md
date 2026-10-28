@@ -928,6 +928,23 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   of its carve it is told once to report (`helper_step::helper_note`); at its carve under a limit that asks it ends with the
   reason `budget` and no question (`helper_step::at_carve`, `join_step::task_end`). Under the default, a limit that notifies,
   a carve is a notice and nothing ends a helper until the kernel's hard stop. Tests: `tests_task_fan_out.rs`.
+  **A waited fan-out also bounds its helpers' time** (theseus-z9mze; `task_fan_out::set_helper_deadlines`, `clock_step::set_helper_deadline`):
+  each gets a deadline of the wait's timeout less a minute (none when that leaves under 30 s, or with `wait: false`), read by
+  `take_deadline` for every turn of the helper's session. The clock line counts down to it and the progress check's stop asks for
+  the report at 85 % of it; the steer does not nag read-only work since theseus-ikr75. **In-turn fan-out is refused on a turn with no
+  message of its own** (`input_node`: a helper's objective is a node of the transcript, quoted by id, and nothing stands in for one):
+  start the helpers with `task_create`, which can quote an earlier message. That is the owner-visible limit review C (theseus-ui8dx)
+  accepted; a synthetic arrangement piece was weighed and left out (a piece is testimony of what a person said, so one the model
+  writes would launder its own words as theirs).
+  **Ops reads a fan-out from the kernel's marks** (theseus-z9mze.6): `TaskInfo.fan_out` and `BudgetRow.fan_out` are `Execution::helper_of`
+  (one field: a helper is a task with it set), the wait writes `task.wait.started` and `task.wait.ended` (`fact/fan_out.rs`), and the
+  cockpit's Money tree draws one header per call from the rows it is sent (`lib/budgets.ts`: `fanOutHeaders`, `waitingOn`).
+  Tests: `tests_fan_out_ops.rs`, `cockpit/test/budgets.test.ts`.
+  **`split.v1` asks, in shadow, whether a message's work divides by area** (theseus-z9mze.5; `packs/split.v1.toml`,
+  `judge/inbound.rs::SPLIT_PACK`): one question in the inbound batch (no request of its own), acting on nothing. The static cue
+  (`turn/route_step/fan_out_cue.rs`) still decides; the answer is a `judge.call` row and the cue is a `fan_out.cue` row, and they
+  share `turn_id`: read the 2x3 table of `fired` against the answer from that join. A pack of its own, not a route version
+  (`route.v9` belongs to theseus-gezlj). Tests: `tests_split_shadow.rs`.
   **A silent job's wait returns at a beat** (theseus-53ujg.6; `[tools] job_wait_beat_secs`, 600, 0 off, else at
   most 3600 and tied to neither `proc_sync_secs` nor the cap, since the bench profile's 900 s foreground wait keeps it; `toolrun/jobs_tools/wait_facts.rs`): a job whose spool output file has not
   grown for that long in this wait (each look stats it; growth restarts the window) returns the wait early, with

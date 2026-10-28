@@ -351,6 +351,8 @@ facts![
     progress::TurnProgress<'static>,
     steer::TurnSteered<'static>,
     fan_out::FanOutCue<'static>,
+    fan_out::TaskWaitStarted<'static>,
+    fan_out::TaskWaitEnded<'static>,
     turn::EffortRefused<'static>,
     turn::BudgetAsked<'static>,
     turn::LoopEndedOnBudget<'static>,

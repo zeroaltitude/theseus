@@ -387,6 +387,8 @@ ledger_kinds! {
     TaskStaleRefused = "task.stale_refused",
     TaskStartedByOwner = "task.started_by_owner",
     TaskUpdated = "task.updated",
+    TaskWaitEnded = "task.wait.ended",
+    TaskWaitStarted = "task.wait.started",
     TermClosed = "term.closed",
     TermLeft = "term.left",
     TermOpened = "term.opened",

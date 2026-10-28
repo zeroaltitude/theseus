@@ -1368,6 +1368,7 @@ pub fn info(
         attention: None,
         arrangement: None,
         check: task_of.and_then(|t| t.check.clone()),
+        fan_out: e.helper_of().map(str::to_string),
     }
 }
 
