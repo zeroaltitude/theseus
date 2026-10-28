@@ -120,9 +120,8 @@ pub struct SessionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     /// Its content labels (theseus-9ymz0, `crate::content::ContentFlags`):
-    /// what was found in the items that entered it, and how far they were
-    /// judged. Absent reads as no labels and nothing judged, as in every
-    /// record written before it, and in one written before store format 52,
+    /// what was found in the items that entered it. Absent reads as no
+    /// labels, as in every record written before it, and in one written before store format 52,
     /// which held the open view's state here and reads the same way. A
     /// turn's write-back merges it (`ContentFlags::merge`). Boxed, as
     /// `routed`.

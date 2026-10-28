@@ -1071,7 +1071,7 @@ impl Core {
         }
         // And a turn bound for a model of restricted origin waits on the judge
         // for its session's items. Until this is set the handle is `Ready`,
-        // which answers at once, so such a turn would go to Claude without ever
+        // which answers at once, so such a turn would go on its labels without ever
         // waiting and `[content_based_security] wait_ms` would mean nothing.
         core.runner.verdicts.set(core.runner.judge.clone());
         // The judge's sink writes between turns, as the pass does.

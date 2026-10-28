@@ -1419,7 +1419,7 @@ async fn a_name_raises_nothing_with_the_flags_off() {
     assert!(flags(&r, &sid).label(Flag::Confidential).is_none());
 }
 
-/// An item offered again (the sweep re-offers one whose ask failed) does not
+/// An item offered twice (as a fork's or a retried task's copy may be) does not
 /// raise a label the operator removed: the removal sticks until a new item
 /// names the word.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1531,7 +1531,7 @@ async fn a_pack_verdict_does_not_undo_a_remove_made_while_it_was_out() {
 }
 
 /// The same across a restart: a fresh service over the same store, offered the
-/// node again (the sweep re-offers an item whose ask failed), raises nothing,
+/// node again (as a fork's or a retried task's copy may be), raises nothing,
 /// by the names source or by the pack. The removal is on the record, so no
 /// memory in the service is what holds it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1705,6 +1705,50 @@ async fn a_failed_ask_is_asked_once_more_then_rowed_and_told() {
     assert!(
         f.disqualifies_cn().is_none(),
         "the session stays eligible for a model of restricted origin"
+    );
+}
+
+/// **The notice says what is true of the session** (theseus-gyjyo.7, review
+/// J2). A session that already carries a label keeping a model of restricted
+/// origin off it, and whose Jev then goes down, is told that its other labels
+/// still keep those models off, and not that they are "still allowed".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_notice_of_a_labelled_session_says_its_labels_still_keep_cn_off() {
+    use crate::content::deterministic;
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    jev.set_mode(FakeMode::Down);
+    let r = rig(&jev, |_| {});
+    let sid = session_with_a_place(&r);
+    let l = deterministic::label(
+        Flag::Secret,
+        "n0",
+        ItemKind::ToolResult,
+        "fs.read".into(),
+        1,
+    );
+    r.core.runner.judge.land_deterministic(&sid, vec![(l, 1)]);
+    assert!(flags(&r, &sid).disqualifies_cn().is_some());
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![result_in(&r, &sid, "n1", "text the judge never reads")],
+    );
+    until(&r, "content.unjudged", 1).await;
+    drained(&r, &sid).await;
+    let told: Vec<String> = notices(&r)
+        .into_iter()
+        .filter(|t| t.contains("could not be checked"))
+        .collect();
+    assert_eq!(told.len(), 1, "one notice: {told:?}");
+    assert!(
+        told[0].contains("this session's other labels still keep China-origin models off"),
+        "{}",
+        told[0]
+    );
+    assert!(
+        !told[0].contains("still allowed"),
+        "the session is kept off, so it must not say they are allowed: {}",
+        told[0]
     );
 }
 

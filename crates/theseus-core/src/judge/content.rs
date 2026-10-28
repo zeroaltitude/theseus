@@ -8,7 +8,8 @@
 //! lock. A missing, late or refused outcome raises nothing and says why in a
 //! `content.unjudged` row. An ask that **failed** is asked once more; if that
 //! fails too the row is written and the owner is told once, in the session's
-//! place, and the session goes on: **an item whose ask failed twice can reach a
+//! place (once per session for a run of failures; a refusal or an unbuilt judge
+//! is not retried and is told at once), and the session goes on: **an item whose ask failed twice can reach a
 //! model of restricted origin unlabelled, with a notice** (the owner's trade,
 //! theseus-gyjyo.7). Nothing here proves a session judged; the session carries
 //! its labels and a turn goes on those.
@@ -589,21 +590,27 @@ impl JudgeService {
         if !matches!(written, Ok(Some(_))) {
             return;
         }
+        // Whether the session, as just written, carries a label that keeps a
+        // model of restricted origin off it: the notice says so either way.
+        let kept_off = matches!(&written, Ok(Some(rec))
+            if rec.data.as_deref().and_then(ContentFlags::disqualifies_cn).is_some());
         // What was raised is told after it is written, in the session's own words,
         // and to the operator's surfaces.
         for (_, label) in fresh {
             self.tell_label(session, label);
         }
-        self.tell_unjudged(session, landings);
+        self.tell_unjudged(session, landings, kept_off);
     }
 
     /// Tell the owner, once, that asks failed: after the retry, so the notice
     /// says what is true (nothing was judged, and nothing will be asked again).
-    /// Told once per run of failures, not once per item or per batch: a Jev
-    /// that stays down is one message, and the next batch that is judged
-    /// re-arms it. A `shadow` outcome is the pack's mode, not a failure, and
-    /// says nothing.
-    fn tell_unjudged(&self, session: &str, landings: &[Landing]) {
+    /// Told once per session for a run of failures, not once per item or per
+    /// batch: a Jev that stays down is one message in each session, and the next
+    /// batch of that session that is judged re-arms it. A refusal (the day's
+    /// budget) or an unbuilt judge is not retried and is told at once. A `shadow` outcome is the pack's mode, not a failure, and
+    /// says nothing. `kept_off` is whether the session already carries a label
+    /// that keeps models of restricted origin off it, which the notice says.
+    fn tell_unjudged(&self, session: &str, landings: &[Landing], kept_off: bool) {
         let failed: Vec<&Landing> = landings
             .iter()
             .filter(|l| matches!(l.unjudged, Some("failed" | "unbuilt" | "refused")))
@@ -624,7 +631,7 @@ impl JudgeService {
         if !tell {
             return;
         }
-        let text = unjudged_notice(&failed);
+        let text = unjudged_notice(&failed, kept_off);
         if let Some(told) = self
             .content
             .unjudged_told
@@ -638,9 +645,11 @@ impl JudgeService {
 }
 
 /// The notice a failed ask tells the owner: what was not checked, why, and
-/// what that means (no label was raised, so a model of restricted origin is
-/// still allowed for the session).
-fn unjudged_notice(failed: &[&Landing]) -> String {
+/// what that means for the session: the item raised no label, so it adds no
+/// reason to keep a model of restricted origin off; whether the session is kept
+/// off one is up to the labels it already carries (`kept_off`) and to
+/// `cn_models = "never"`.
+fn unjudged_notice(failed: &[&Landing], kept_off: bool) -> String {
     let n = failed.len();
     let first = failed[0];
     let why = match first.unjudged {
@@ -660,10 +669,19 @@ fn unjudged_notice(failed: &[&Landing]) -> String {
             first.item.source
         ),
     };
+    let then = match kept_off {
+        true => {
+            "Nothing was labelled for it; this session's other labels still keep China-origin \
+             models off."
+        }
+        false => {
+            "Nothing was labelled, so China-origin models are still allowed for this session, \
+             unless `cn_models = \"never\"` keeps them off."
+        }
+    };
     format!(
         "⚑ **unchecked** — {what} could not be checked for secrets, confidential matter or \
-         injection ({why}). Nothing was labelled, so China-origin models are still allowed \
-         for this session (`cn_models = \"never\"` keeps them off)."
+         injection ({why}). {then}"
     )
 }
 

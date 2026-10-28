@@ -1,8 +1,7 @@
 //! The turn's floor on content flags (theseus-9ymz0, design §4.2b, §4.3 and
 //! §11's tests 21 to 23): a turn bound for a model of restricted origin runs
-//! on it only when its session's labels allow it and every item was judged; it
-//! waits for the verdicts, at most `[content_based_security] wait_ms`, then goes to the
-//! `[model]` default and completes; a turn bound for Claude never waits. The
+//! on it when its session's labels allow it; it waits for the asks still out, at
+//! most `[content_based_security] wait_ms`, then goes on the labels it reads; a turn bound for Claude never waits. The
 //! rig is `tests_route`'s: `anthropic` (Claude) and `zai` (GLM, a China-origin
 //! endpoint), each a fake that records its requests; `judging` stands a test's
 //! judge behind the runner.

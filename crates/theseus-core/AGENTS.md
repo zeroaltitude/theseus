@@ -1910,11 +1910,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     **A failed ask** (`judge/content.rs`, theseus-gyjyo.7): an ask whose call failed is asked **once more** (after `REASK_PAUSE`, 200 ms),
     **inside the same open ask**, so the session's counter stays up across the retry; if that fails too the item is rowed `content.unjudged`
     (`why: failed`) and the owner is told once, in the session's place (`JudgeService::unjudged_told` -> `Core::tell_unjudged`, a `notice`
-    post; told once per run of failures, re-armed by the next batch that is judged), and the session goes on. **An item whose ask failed twice
+    post; told once per session for a run of failures, re-armed by the next batch of that session that is judged), and the session goes on. **An item whose ask failed twice
     can reach a model of restricted origin unlabelled, with a notice** (the owner's answer to review Q2); nothing is kept for a later
     re-ask, there is no mark and no sweep, and an item no write site offers is never asked about
     (`tests_content_floor::every_item_a_turn_writes_is_offered_for_judgment` is the guard). A refusal (`refused`) or an unbuilt state
-    (`unbuilt`) is not an ask that failed and is not retried. A landing writes at once (no park between turns).
+    (`unbuilt`) is not an ask that failed and is not retried; it is rowed and told at once, in the same one message, so on a day the judge's
+    budget runs out every active session hears it once. The notice says what is true of the session: when it already carries a label that
+    keeps a model of restricted origin off, it says those labels still do (`unjudged_notice`'s `kept_off`). A landing writes at once (no park between turns).
     **The chokepoint** (`data_gate.rs`, keel): a request to a model of restricted origin is refused (class `data_gate`,
     nothing sent, one `data_gate.blocked` row with a `why` word) when `[content_based_security] cn_models` is
     `follow_flags` and the session in `CALLER` (`for_session`) carries a disqualifying label; `always` sends whatever the

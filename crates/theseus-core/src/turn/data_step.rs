@@ -39,7 +39,6 @@ use crate::routing::{Decision, HoldNext, Reason};
 /// The profile the `[model]` section builds.
 pub(crate) const DEFAULT_PROFILE: &str = "default";
 
-
 /// Where a turn stands on its session's labels, as the floor reads it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum Cn {
