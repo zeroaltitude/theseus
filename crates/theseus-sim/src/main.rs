@@ -796,54 +796,118 @@ fn random_batch(rng: &mut StdRng) -> Vec<NewRecord> {
 }
 
 fn worker(dir: &Path, seed: u64, checkpoint_every: u64, writers: usize) -> Result<()> {
-    let store = WalStore::open(dir, WalConfig::default())?.with_checkpoint_every(checkpoint_every);
-    let base = seed ^ store.last_position();
+    let worker = Worker::open(dir, checkpoint_every)?;
+    let base = seed ^ worker.store.last_position();
     {
         let mut out = std::io::stdout().lock();
         writeln!(
             out,
             "R {} {} {}",
-            store.last_position(),
-            store.recovery().truncated_bytes,
-            store.stats()?.wal_bytes
+            worker.store.last_position(),
+            worker.store.recovery().truncated_bytes,
+            worker.store.stats()?.wal_bytes
         )?;
         out.flush()?;
     }
     // Each writer appends on its own thread, so their frames queue together
     // at the store's writer; the first is this thread.
-    let store = std::sync::Arc::new(store);
+    let worker = std::sync::Arc::new(worker);
     for w in 1..writers.max(1) {
-        let store = store.clone();
+        let worker = worker.clone();
         std::thread::spawn(move || {
-            if let Err(e) = append_until_killed(&store, base ^ ((w as u64) << 32)) {
+            if let Err(e) = worker.append_until_killed(base ^ ((w as u64) << 32), emit_stdout) {
                 eprintln!("worker writer {w}: {e:#}");
                 std::process::exit(1);
             }
         });
     }
-    append_until_killed(&store, base)
+    worker.append_until_killed(base, emit_stdout)
 }
 
-/// Append random frames, and report each one's records once its append has
-/// returned, which is when they are durable.
-fn append_until_killed(store: &WalStore, seed: u64) -> Result<()> {
-    let mut rng = StdRng::seed_from_u64(seed);
-    loop {
-        let batch = random_batch(&mut rng);
+/// One report, whole, on stdout.
+fn emit_stdout(text: &str) -> Result<()> {
+    let mut out = std::io::stdout().lock();
+    out.write_all(text.as_bytes())?;
+    out.flush()?;
+    Ok(())
+}
+
+/// What a worker appends to, and the checkpoints it takes.
+///
+/// The store's own periodic checkpoint runs on its writer the moment it has
+/// answered a batch, before the appender that was answered has told anyone
+/// (theseus-tfnz0). A kill in between left the checkpoint claiming frames
+/// whose bytes no report covered, the crash test tore into them, and the
+/// store, rightly, refused to open: a position the checkpoint calls synced
+/// was synced, and cutting it loses acknowledged records. The store was not
+/// wrong and the harness was, so the worker takes the checkpoints itself, at
+/// the cadence it was given, only while no append is between its answer and
+/// its report: every frame a checkpoint claims is one the test already knows
+/// to be durable.
+struct Worker {
+    store: WalStore,
+    /// Records between checkpoints (0 = never).
+    every: u64,
+    /// Records appended since the last checkpoint.
+    since: std::sync::atomic::AtomicU64,
+    /// Held shared from an append to its report, and alone by a checkpoint.
+    reporting: std::sync::RwLock<()>,
+}
+
+impl Worker {
+    fn open(dir: &Path, checkpoint_every: u64) -> Result<Self> {
+        let store = WalStore::open(dir, WalConfig::default())?.with_checkpoint_every(0);
+        Ok(Self {
+            store,
+            every: checkpoint_every,
+            since: std::sync::atomic::AtomicU64::new(0),
+            reporting: std::sync::RwLock::new(()),
+        })
+    }
+
+    /// Append random frames, and report each one's records once its append
+    /// has returned, which is when they are durable.
+    fn append_until_killed(&self, seed: u64, emit: impl Fn(&str) -> Result<()>) -> Result<()> {
+        let mut rng = StdRng::seed_from_u64(seed);
+        loop {
+            self.step(&mut rng, &emit)?;
+        }
+    }
+
+    /// One batch: append it, report it through `emit`, and take the
+    /// checkpoint that is due. Returns the last position the batch was given.
+    fn step(&self, rng: &mut StdRng, emit: impl Fn(&str) -> Result<()>) -> Result<u64> {
+        use std::fmt::Write as _;
+        use std::sync::atomic::Ordering::Relaxed;
+        let batch = random_batch(rng);
         let crcs: Vec<u32> = batch.iter().map(|r| crc32fast::hash(&r.payload)).collect();
         let kinds_: Vec<u16> = batch.iter().map(|r| r.kind).collect();
-        let positions = store.append(&batch)?; // durable when this returns
-                                               // The WAL's length, before the records it covers: a report of a
-                                               // record is never ahead of the report of its bytes. With several
-                                               // writers it may count another's frame not yet synced, which only
-                                               // keeps a tear further back.
-        let wal_bytes = store.stats()?.wal_bytes;
-        let mut out = std::io::stdout().lock();
-        writeln!(out, "D {wal_bytes}")?;
-        for ((p, crc), k) in positions.iter().zip(crcs).zip(kinds_) {
-            writeln!(out, "C {p} {crc} {k}")?;
+        let records = batch.len() as u64;
+        let last = {
+            let _reporting = self.reporting.read().unwrap();
+            // Durable when this returns.
+            let positions = self.store.append(&batch)?;
+            // The WAL's length, before the records it covers: a report of a
+            // record is never ahead of the report of its bytes. With several
+            // writers it may count another's frame not yet synced, which only
+            // keeps a tear further back.
+            let wal_bytes = self.store.stats()?.wal_bytes;
+            let mut text = format!("D {wal_bytes}\n");
+            for ((p, crc), k) in positions.iter().zip(crcs).zip(kinds_) {
+                writeln!(text, "C {p} {crc} {k}")?;
+            }
+            emit(&text)?;
+            positions.last().copied().unwrap_or(0)
+        };
+        if self.every > 0 && self.since.fetch_add(records, Relaxed) + records >= self.every {
+            // Alone: no other writer's batch is answered and unreported.
+            let _reporting = self.reporting.write().unwrap();
+            if self.since.load(Relaxed) >= self.every {
+                self.store.checkpoint()?;
+                self.since.store(0, Relaxed);
+            }
         }
-        out.flush()?;
+        Ok(last)
     }
 }
 
@@ -1163,6 +1227,96 @@ mod tests {
             }
             assert!(ledgers > 1000, "{ledgers}");
         }
+    }
+
+    /// The checkpoint a worker's store takes never claims a frame whose
+    /// report has not left (theseus-tfnz0). The crash test tears only past
+    /// the bytes a worker reported durable, so a checkpoint that ran ahead of
+    /// a report (the store's own ran on its writer the moment it answered,
+    /// before the appender printed a thing) named positions the test then
+    /// tore into, and the store, rightly, refused to open: the position was
+    /// synced, and its checkpoint said so. The report is held here, as a
+    /// kill would hold it, with the checkpoint due after every record.
+    #[test]
+    fn a_checkpoint_never_claims_a_frame_whose_report_has_not_left() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = Worker::open(dir.path(), 1).unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        // The scope owns the release: a failed assertion drops it, which
+        // lets the held report go, so a failure ends instead of hanging.
+        let w = &worker;
+        let last = std::thread::scope(move |s| {
+            let held = s.spawn(move || {
+                let mut rng = StdRng::seed_from_u64(7);
+                w.step(&mut rng, |_| {
+                    entered_tx.send(()).unwrap();
+                    let _ = release_rx.recv();
+                    Ok(())
+                })
+                .unwrap()
+            });
+            // The append has returned and its report is held.
+            entered_rx.recv().unwrap();
+            let last = w.store.last_position();
+            assert_claims_nothing_past_the_report(w, last);
+            release_tx.send(()).unwrap();
+            assert_eq!(held.join().unwrap(), last);
+            last
+        });
+        // Once it left, the checkpoint it was due is taken.
+        assert_eq!(worker.store.stats().unwrap().checkpoint, Some(last));
+    }
+
+    /// The same with writers side by side: one's report held, another's
+    /// batch answered and reported, and the checkpoint due after it must
+    /// still wait for the first's report.
+    #[test]
+    fn a_second_writers_checkpoint_waits_for_the_first_writers_report() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = Worker::open(dir.path(), 1).unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let w = &worker;
+        let last = std::thread::scope(move |s| {
+            let held = s.spawn(move || {
+                let mut rng = StdRng::seed_from_u64(7);
+                w.step(&mut rng, |_| {
+                    entered_tx.send(()).unwrap();
+                    let _ = release_rx.recv();
+                    Ok(())
+                })
+                .unwrap()
+            });
+            entered_rx.recv().unwrap();
+            let held_last = w.store.last_position();
+            let other = s.spawn(move || {
+                let mut rng = StdRng::seed_from_u64(8);
+                w.step(&mut rng, |_| Ok(())).unwrap()
+            });
+            assert_claims_nothing_past_the_report(w, held_last);
+            release_tx.send(()).unwrap();
+            assert_eq!(held.join().unwrap(), held_last);
+            other.join().unwrap()
+        });
+        assert_eq!(worker.store.stats().unwrap().checkpoint, Some(last));
+    }
+
+    /// Give a checkpoint the time to run ahead of `held`, the last position
+    /// whose report is held: it must not have.
+    fn assert_claims_nothing_past_the_report(worker: &Worker, held: u64) {
+        let mut claimed = 0;
+        for _ in 0..30 {
+            claimed = worker.store.stats().unwrap().checkpoint.unwrap_or(0);
+            if claimed >= held {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            claimed < held,
+            "the checkpoint claims position {claimed}, and the frame to {held} was never reported"
+        );
     }
 
     /// A tear never lands inside the length reported durable (theseus-4x6):
