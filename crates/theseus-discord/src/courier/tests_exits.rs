@@ -109,7 +109,9 @@ async fn an_encoded_vault_value_leaves_as_its_name() {
     .into_iter()
     .enumerate()
     {
-        lane.write(&post(&format!("k:enc{i}"), &said)).await.unwrap();
+        lane.write(&post(&format!("k:enc{i}"), &said))
+            .await
+            .unwrap();
         let out = last(&fake);
         assert!(out.contains("[redacted:courier_token]"), "{said} -> {out}");
         assert!(!out.contains(&leaked), "{said} -> {out}");

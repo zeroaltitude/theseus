@@ -381,7 +381,10 @@ fn a_value_in_wrapped_base64_leaves_by_name() {
     let x = encoded_exits(true);
     let (t, found) = x.text(&format!("{wrapped}\nend"));
     assert!(t.contains("[redacted:demo_secret]"), "{t}");
-    assert!(t.starts_with(lines[0]), "a line of filler only is kept: {t}");
+    assert!(
+        t.starts_with(lines[0]),
+        "a line of filler only is kept: {t}"
+    );
     assert_eq!(found.names(), ["demo_secret"]);
     let (sent, found) = x.request(&request(&format!("{wrapped}\nend")));
     assert!(wire(&sent.unwrap()).contains("[redacted:demo_secret]"));

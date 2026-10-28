@@ -247,12 +247,18 @@ fn a_value_a_tool_printed_in_base64_leaves_by_name_and_the_row_says_which() {
     );
     assert!(last.contains(&format!("[redacted:{NAME}]")), "{last}");
     let rows = redacted_rows(&d);
-    assert!(!rows.is_empty(), "no request.redacted row for an encoded value");
+    assert!(
+        !rows.is_empty(),
+        "no request.redacted row for an encoded value"
+    );
     assert_eq!(rows[0]["data"]["names"], json!([NAME]));
     assert_eq!(rows[0]["turn_id"], json!(turn));
     let history = d
         .call("session.history", json!({"session_id": session}))
         .unwrap()
         .to_string();
-    assert!(history.contains(BASIC), "the record holds what the tool printed");
+    assert!(
+        history.contains(BASIC),
+        "the record holds what the tool printed"
+    );
 }
