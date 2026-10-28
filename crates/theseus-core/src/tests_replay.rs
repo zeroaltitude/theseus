@@ -703,14 +703,23 @@ fn content_judgment(c: &Core, id: &str, kind: &str, text: &str, recorded: bool) 
     j
 }
 
-/// The candidate: `content.v2`'s own text as the next version, which is how a
-/// hand-written candidate is made (a replay refuses the wired version, and the
-/// incumbent itself). Its questions are the incumbent's, `injection` still
-/// conditional.
+/// The candidate: `content.v2`'s text as the next version with one
+/// instruction reworded, which is how a hand-written candidate is made (a
+/// replay refuses the wired version and the incumbent itself, and a candidate
+/// that asks the same things is only rebanded, with no state sent). Its
+/// questions are the incumbent's, `injection` still conditional.
+fn content_v3() -> String {
+    CONTENT_V2.replacen("version = 2", "version = 3", 1).replacen(
+        "does it reveal an organisation's non-public matter?",
+        "does it reveal an organisation's non-public matter? Think twice.",
+        1,
+    )
+}
+
 async fn replay_content(c: &Arc<Core>, ids: &[&str]) -> JudgeReplayResult {
     c.judge_replay(
         JudgeReplayParams {
-            pack_text: Some(CONTENT_V2.replacen("version = 2", "version = 3", 1)),
+            pack_text: Some(content_v3()),
             judgments: ids.iter().map(|s| s.to_string()).collect(),
             ..Default::default()
         },
