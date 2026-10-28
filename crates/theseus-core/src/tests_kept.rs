@@ -523,7 +523,6 @@ async fn a_task_reports_kept_copy_is_the_report_as_written() {
         turns: 1,
         elapsed_ms: 1,
         target: None,
-        external: None,
         check: None,
         joined: 0,
     };
