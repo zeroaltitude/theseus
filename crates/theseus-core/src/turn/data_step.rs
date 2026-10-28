@@ -13,11 +13,9 @@
 //!   (`TurnRunner::verdicts`), then **goes to Claude**: the turn is never
 //!   blocked and never fails for want of a verdict. A turn bound for Claude
 //!   never waits.
-//! - **Private content**: a session that read private content (Google's
-//!   marker) runs only on a profile of US origin
-//!   (`ModelOrigin::cleared_for_sensitive`); theseus-gyjyo.5 replaces it with a label.
-//!   A name in `[privacy] sensitive_names` is no part of the floor: it raises
-//!   a removable label at the item's entry (theseus-gyjyo.4).
+//! - **Nothing else**: a name in `[privacy] sensitive_names` (theseus-gyjyo.4)
+//!   and a Google result (theseus-gyjyo.5) are no part of the floor; each raises
+//!   a removable label where the item enters, and the labels are what this reads.
 //!
 //! The route skips every profile the floor refuses (`route_profiles`), so the
 //! next usable one in the mode's list runs; if the turn would still run on
@@ -37,9 +35,6 @@ use crate::routing::{Decision, HoldNext, Reason};
 
 /// The profile the `[model]` section builds.
 pub(crate) const DEFAULT_PROFILE: &str = "default";
-
-pub(super) const REFUSED: &str =
-    "this session read private content, and no profile of US origin is configured for it";
 
 /// How many times a wait for verdicts reads the record again: a wake-up that
 /// judged only some of the items leaves the rest to the next one, and a notify
@@ -103,69 +98,69 @@ pub(super) fn slots() -> Slots {
 /// What the floor keeps a turn off, as `route_profiles` reads it.
 #[derive(Clone, Copy)]
 pub(super) struct Floor {
-    /// The private-content floor: only a profile of US origin.
-    pub(super) sensitive: bool,
     /// The session's labels allow a profile of restricted origin.
     pub(super) cn_ok: bool,
 }
 
 impl super::route_step::RouteState {
-    /// The turn's floor: its private content and its labels.
+    /// The turn's floor: its labels.
     pub(super) fn floor(&self) -> Floor {
         Floor {
-            sensitive: self.sensitive,
             cn_ok: self.cn == Cn::Allowed || self.assume_cn,
         }
     }
 }
 
 impl TurnRunner {
-    /// The session has read a Google result (the Google design, §4.1): all
-    /// Workspace content is private, so the route skips every profile of
-    /// any origin but the allowlist's from now on. Nothing is read without `[google]`.
-    /// A turn whose recall admitted a private session's note is private
-    /// from then on (theseus-39dj0), before its frame writes the mark. A
-    /// task's turn is private while its parent, or any task above it, is,
-    /// however late it took the mark (theseus-y8k3u): reads only on a task's
-    /// turn, and none without `[google]`.
-    pub(super) fn private_session(&self, t: &Turn<'_>) -> bool {
-        t.recall.private
-            || crate::google::private::session(t.tc.store, &self.cfg, t.tc.session_id)
-            || t.tc.task.is_some_and(|k| {
-                crate::google::private::lineage(t.tc.store, &self.cfg, &k.parent_session)
-            })
-    }
-
-    /// The data level of the call the turn is about to make: its session's own
-    /// marks, a recall that admitted a marked session's note, and the task
-    /// lineage. The floors read it as private or above; the chokepoint
-    /// carries the level itself.
-    pub(super) fn session_level(&self, t: &Turn<'_>) -> crate::google::private::Level {
-        use crate::google::private::{self, Level};
-        let own = private::level(t.tc.store, &self.cfg, t.tc.session_id);
-        own.max(Level::from(self.private_session(t)))
-    }
-
-    /// Whether `profile` may not be sent private content: its origin is
-    /// not on the allowlist.
-    pub(super) fn uncleared_profile(&self, profile: &str) -> bool {
-        crate::data_mark::uncleared(&self.cfg, &self.catalog, profile)
-    }
-
     /// Whether `profile`'s model is of restricted origin (a profile that does
     /// not resolve is).
     pub(crate) fn restricted_profile(&self, profile: &str) -> bool {
         self.cfg.profile_origin(profile, &self.catalog).restricted()
     }
 
+    /// Why a session marked `mark` (`ContentFlags::mark`) cannot run on
+    /// `profile`, if it cannot: the profile does not resolve, or it is of
+    /// restricted origin and the session's labels keep such a model off. The
+    /// check `session.profile` makes and a model menu greys out by; the floor
+    /// below it is the same question.
+    pub(crate) fn profile_refusal(
+        &self,
+        mark: theseus_protocol::ops::DataMark,
+        profile: &str,
+    ) -> Option<String> {
+        if !self.cfg.all_profiles().contains_key(profile) {
+            return Some(format!("`{profile}` is not a configured profile"));
+        }
+        (mark != theseus_protocol::ops::DataMark::Open && self.restricted_profile(profile)).then(
+            || {
+                format!(
+                    "this conversation carries a label that keeps a model of restricted origin off it, and `{profile}` is one"
+                )
+            },
+        )
+    }
+
+    /// What an open session's restricted-origin profile cannot promise: the
+    /// floor moves a turn once a label lands, so the profile may not hold.
+    pub(crate) fn per_turn_note(
+        &self,
+        mark: theseus_protocol::ops::DataMark,
+        profile: &str,
+    ) -> Option<String> {
+        (mark == theseus_protocol::ops::DataMark::Open && self.restricted_profile(profile)).then(
+            || {
+                format!(
+                    "`{profile}` is a model of restricted origin: the floor decides each turn and may move a turn that is not cleared for it"
+                )
+            },
+        )
+    }
+
     /// Why the floor keeps the turn off `profile`, if it does.
     pub(super) fn floor_refuses(&self, floor: Floor, profile: &str) -> Option<String> {
-        if !floor.cn_ok && self.restricted_profile(profile) {
-            return Some(format!(
-                "`{profile}` is a model of restricted origin, and this session may not use one"
-            ));
-        }
-        (floor.sensitive && self.uncleared_profile(profile)).then(|| REFUSED.to_string())
+        (!floor.cn_ok && self.restricted_profile(profile)).then(|| {
+            format!("`{profile}` is a model of restricted origin, and this session may not use one")
+        })
     }
 
     /// The session's labels as the store holds them now, and whether its items
@@ -288,11 +283,7 @@ impl TurnRunner {
         if let Some(f) = Self::draft_stopped(t, &why, true) {
             return Err(f);
         }
-        let cn_moved = !floor.cn_ok && self.restricted_profile(ran);
-        t.route.gated = Some(match cn_moved {
-            true => t.route.cn.word(),
-            false => "sensitive",
-        });
+        t.route.gated = Some(t.route.cn.word());
         let usable = self
             .route_profiles(floor)
             .get(DEFAULT_PROFILE)

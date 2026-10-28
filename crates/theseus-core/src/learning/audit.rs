@@ -302,16 +302,6 @@ impl Core {
         Some(price.reserve_micros(request.max_tokens, est.tokens))
     }
 
-    /// `provider`, for a request that holds the state of `session`: the
-    /// session's Google mark holds the call (theseus-a1wvq.10).
-    fn held(
-        &self,
-        provider: &Arc<dyn crate::provider::Provider>,
-        session: Option<&str>,
-    ) -> Arc<dyn crate::provider::Provider> {
-        crate::google::private::over_sessions(provider.clone(), &self.store, &self.cfg, session)
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn audit_run(
         &self,
@@ -378,8 +368,8 @@ impl Core {
                 break;
             };
             r.asked += 1;
-            // The request is one judgment's state: its session's mark holds it.
-            let sent = send_on_runtime(rt, &self.held(&provider, s.context("session")), request);
+            // The request is one judgment's state.
+            let sent = send_on_runtime(rt, &provider, request);
             let cost = sent
                 .as_ref()
                 .map_or(need, |resp| self.runner.priced(resp, &target.model, need));

@@ -97,9 +97,6 @@ pub(super) struct RouteState {
     pub(super) steer: Option<Steering>,
     /// The message's content words, for a correction to find it by.
     pub(super) words: Vec<String>,
-    /// The session read private content (Google's marker): a profile not of US
-    /// origin is unusable for the turn (`data_step.rs`).
-    pub(super) sensitive: bool,
     /// Where the turn stands on its session's content labels
     /// (`data_step::Cn`): unchecked at the turn's start, which fails closed.
     pub(super) cn: super::data_step::Cn,
@@ -789,7 +786,6 @@ impl TurnRunner {
         (steering, verdict, reason): (&Option<Steering>, &Option<Verdict>, Option<Reason>),
         compiled: &Compiled,
     ) -> Result<Option<Decision>, Failure> {
-        t.route.sensitive |= self.private_session(t);
         let est_tokens = compiled.est_tokens;
         let decide = |t: &Turn<'_>| match (steering, verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),
@@ -1235,10 +1231,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn route_profiles_carry_each_profiles_origin() {
         let r = crate::tests_route::rig(None, 1, crate::tests_route::restricted_placements);
-        let cn_ok = super::super::data_step::Floor {
-            sensitive: false,
-            cn_ok: true,
-        };
+        let cn_ok = super::super::data_step::Floor { cn_ok: true };
         let ps = r.core.runner.route_profiles(cn_ok);
         assert_eq!(
             ps["glm"].unusable, None,

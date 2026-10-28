@@ -89,22 +89,6 @@ impl Job<'_> {
         self.earlier.iter().map(|(t, _)| t.clone()).collect()
     }
 
-    /// The sessions a call's request holds content from: the shown
-    /// clusters' episodes, and those of the earlier proposals it lists (the
-    /// model's words drawn from private sessions are private too).
-    fn sessions<'a>(&'a self, shown: &'a [ask::Shown]) -> impl Iterator<Item = &'a str> {
-        let shown_eps = shown
-            .iter()
-            .flat_map(|s| s.episodes.iter().map(|(_, i)| *i));
-        let earlier_eps = self
-            .earlier
-            .iter()
-            .flat_map(|(_, c)| self.clusters[*c].episodes.iter().copied());
-        shown_eps
-            .chain(earlier_eps)
-            .map(|i| self.scan.episodes[i].session_id.as_str())
-    }
-
     /// The proposals `parsed`'s statements make: one each, until the queue
     /// is full, and none that repeats a live record or any proposal's words
     /// (`dropped` counts those left out).
@@ -339,15 +323,7 @@ impl Core {
             }
         };
         let mut quiet = |_: crate::provider::Delta<'_>| {};
-        // The request holds every shown cluster's episodes: it is private
-        // when any episode's session is.
-        let provider = crate::google::private::over_sessions(
-            job.provider.clone(),
-            &self.store,
-            &self.cfg,
-            job.sessions(&shown),
-        );
-        let answered = provider.stream_message(&request, &mut quiet).await;
+        let answered = job.provider.stream_message(&request, &mut quiet).await;
         let cost = answered
             .as_ref()
             .map_or(need, |r| self.runner.priced(r, &job.target.model, need));

@@ -69,8 +69,6 @@ mod tests_mail;
 #[cfg(test)]
 mod tests_morning;
 #[cfg(test)]
-mod tests_private;
-#[cfg(test)]
 mod tests_sensitive;
 #[cfg(test)]
 mod tests_sheets_slides;

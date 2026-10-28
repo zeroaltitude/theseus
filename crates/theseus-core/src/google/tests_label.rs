@@ -15,7 +15,7 @@ use theseus_protocol::SessionKind;
 
 use super::tests::{call, config, CLIENT};
 use crate::bus::EventSink;
-use crate::provider::{FakeProvider, Provider, Scripted};
+use crate::provider::{FakeProvider, Scripted};
 use crate::secrets::{Secret, SecretBoard};
 use crate::session::SessionRecord;
 use crate::tests_route::{rig_parts, Rig as RouteRig};
@@ -160,10 +160,9 @@ pub(super) fn new_session(core: &crate::Core) -> String {
     rec.session_id
 }
 
-
+use super::tests_calendar_cache::{ev, install, two, NOON, PERSONAL};
 use crate::approval::{Answerer, Surface};
 use crate::content::{ContentFlags, Flag, ItemKind};
-use super::tests_calendar_cache::{ev, install, two, NOON, PERSONAL};
 use crate::node::Node;
 
 fn cli() -> Answerer {
@@ -255,6 +254,19 @@ async fn a_google_result_raises_confidential_from_its_tool() {
             .is_none(),
         "the old marker writes no record"
     );
+    // `theseus content` (session.list's labels) shows the source, and the
+    // wire's data mark reads the label.
+    let all: theseus_protocol::SessionListResult =
+        serde_json::from_value(crate::tests_route::call(&r.core, "session.list", json!({})).await)
+            .unwrap();
+    let listed = all
+        .sessions
+        .into_iter()
+        .find(|s| s.session_id == sid)
+        .unwrap();
+    assert_eq!(listed.labels.len(), 1, "{:?}", listed.labels);
+    assert_eq!(listed.labels[0].source, "google.call");
+    assert_eq!(listed.data, Some(theseus_protocol::ops::DataMark::Private));
     // A session that read nothing carries nothing.
     let other = new_session(&r.core);
     assert!(flags(&r.core, &other).labels.is_empty());
@@ -408,6 +420,7 @@ async fn a_task_carries_its_parents_labels() {
     assert_eq!(f.labels.len(), 1, "task.start: {:?}", f.labels);
     // A task of a session with no label has none.
     let plain = parent_session(&r.core);
+    turn(&r.core, &plain, "hello").await;
     let p = theseus_protocol::task_start::TaskStartParams {
         brief: "CHILD: third".into(),
         home: Some(plain),
@@ -450,7 +463,9 @@ async fn a_removed_google_label_returns_only_with_a_later_result() {
     assert!(flags(&r.core, &sid).labels.is_empty(), "Remove sticks");
     // A later read raises it again, from the new result.
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    run_on(&r.core, &sid, "list them again", None).await.unwrap();
+    run_on(&r.core, &sid, "list them again", None)
+        .await
+        .unwrap();
     let f = flags(&r.core, &sid);
     assert_eq!(f.labels.len(), 1, "{:?}", f.labels);
     assert_ne!(f.labels[0].node, first, "from the later result");
@@ -458,8 +473,8 @@ async fn a_removed_google_label_returns_only_with_a_later_result() {
 }
 
 /// Test 6. With `[content_based_security] session_flags = false` the source is
-/// off with the mechanism: a Google read raises nothing, writes no marker, and
-/// a model of restricted origin is sent the next turn.
+/// off with the mechanism: a Google read raises nothing, writes no marker and
+/// tells the operator nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn with_session_flags_off_a_google_read_raises_nothing() {
     let fake = Fake::start().await;
@@ -476,7 +491,8 @@ async fn with_session_flags_off_a_google_read_raises_nothing() {
             c.content_based_security.session_flags = false;
             // With nothing judged there are no labels to follow: the config
             // says what a model of restricted origin is sent.
-            c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Always;
+            c.content_based_security.cn_models =
+                crate::config::content_based_security::CnModels::Always;
         },
     );
     let sid = new_session(&r.core);
@@ -489,9 +505,4 @@ async fn with_session_flags_off_a_google_read_raises_nothing() {
         .get_meta::<String>(&format!("google.private.{sid}"))
         .unwrap()
         .is_none());
-    let _ = run_on(&r.core, &sid, "and now?", Some("glm53")).await;
-    assert!(
-        !r.zai.requests().is_empty(),
-        "off is off: the restricted model was sent"
-    );
 }

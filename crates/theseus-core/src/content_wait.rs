@@ -84,6 +84,24 @@ pub fn flags_of(store: &crate::store::Store, session: &str) -> Option<ContentFla
     rec.data.map(|b| *b)
 }
 
+/// What the wire shows of `session`'s data, read from its labels
+/// (`ContentFlags::mark`): `open` for a session with none or none that reads.
+pub fn mark_of(store: &crate::store::Store, session: &str) -> theseus_protocol::ops::DataMark {
+    try_mark_of(store, session).unwrap_or(theseus_protocol::ops::DataMark::Sensitive)
+}
+
+/// [`mark_of`], failing where it would hold the session at the top: a session
+/// record the store cannot read is an error. A session with no record is open.
+pub fn try_mark_of(
+    store: &crate::store::Store,
+    session: &str,
+) -> anyhow::Result<theseus_protocol::ops::DataMark> {
+    let rec = store.get_session::<crate::session::SessionRecord>(session)?;
+    Ok(rec
+        .and_then(|r| r.data)
+        .map_or(theseus_protocol::ops::DataMark::Open, |d| d.mark()))
+}
+
 /// Whether `node` is an item: what the judge classifies when it enters a
 /// session. An operator's message, a brief or a report, and a tool result; not
 /// the acknowledgement of a tool whose answer is Theseus's own fixed string,

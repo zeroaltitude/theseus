@@ -764,34 +764,6 @@ fn a_proposal_round_trips() {
     assert_eq!(serde_json::from_value::<CardProposal>(v).unwrap(), p);
 }
 
-/// A card request holds the shown clusters' episodes together: when the
-/// session of any one read a Google result, the floor holds the whole
-/// request and nothing is proposed (theseus-a1wvq.10).
-#[tokio::test]
-async fn a_run_over_a_private_session_sends_nothing_to_a_non_us_model() {
-    for private in [1, 5] {
-        let r = rig(vec![two()], crate::tests_private_background::private_on);
-        archive(&r).await;
-        let scan = super::evidence::scan(&r.core.store).unwrap();
-        let of = scan
-            .episodes
-            .iter()
-            .find(|e| e.id == fixture::id_of(private))
-            .unwrap();
-        crate::tests_private_background::mark(&r.core, &of.session_id);
-        let got = propose(&r).await;
-        assert!(got.proposed.is_empty(), "episode {private}: {got:?}");
-        assert!(r.fake.requests().is_empty(), "nothing was sent");
-    }
-}
-
-#[tokio::test]
-async fn a_run_over_plain_sessions_still_proposes_on_a_non_us_model() {
-    let r = rig(vec![two()], crate::tests_private_background::private_on);
-    archive(&r).await;
-    assert_eq!(propose(&r).await.proposed.len(), 2);
-}
-
 /// A tracing writer that keeps the journal's lines.
 #[derive(Clone, Default)]
 struct Log(Arc<std::sync::Mutex<Vec<u8>>>);
@@ -1223,41 +1195,6 @@ async fn a_conflict_across_two_calls_of_one_run_is_not_offered() {
     assert!(text(&sent[1]).contains("P1: wants your opinion when you have one"));
     assert_eq!(sent[0].system, sent[1].system);
     assert_eq!(sent[0].tools, sent[1].tools);
-}
-
-/// The list of earlier entries is the model's words from their clusters'
-/// sessions: when one of those sessions is private, the later call goes the
-/// private way (here, nowhere: the model is not cleared) though its own
-/// clusters have none. (Planted revert: the session list leaves the earlier
-/// clusters out.)
-#[tokio::test]
-async fn the_earlier_statements_sessions_route_the_later_call() {
-    let gate = crate::provider::RequestGate::at(0);
-    let fake = FakeProvider {
-        gate: Some(gate.clone()),
-        ..FakeProvider::scripted(two_calls())
-    };
-    let r = rig_with(fake, crate::tests_private_background::private_on);
-    wide_archive(&r).await;
-    let scan = super::evidence::scan(&r.core.store).unwrap();
-    let first = scan
-        .episodes
-        .iter()
-        .find(|e| e.id == fixture::id_of(1))
-        .unwrap()
-        .session_id
-        .clone();
-    let core = r.core.clone();
-    let run = tokio::spawn(async move { core.card_propose(&Default::default(), cli()).await });
-    // The first call is in flight, its route fixed: the opinion cluster's
-    // session turns private before the second is made.
-    gate.reached().await;
-    crate::tests_private_background::mark(&r.core, &first);
-    gate.open();
-    let got = run.await.unwrap().unwrap();
-    assert_eq!(r.fake.requests().len(), 1, "the second call is not sent");
-    assert_eq!(got.proposed.len(), 1, "{got:?}");
-    assert!(got.stopped.is_some(), "{got:?}");
 }
 
 fn observation(

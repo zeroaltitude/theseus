@@ -2444,8 +2444,7 @@ impl TurnRunner {
         // It never needs a confirm, so its plan, authorization, and dispatch
         // are one frame, with the loop's rows in front (theseus-qa0), and
         // a recall's node and edges (M6 30b).
-        let mut rides = std::mem::take(&mut t.recall.rides);
-        rides.extend(std::mem::take(&mut t.digest.mark));
+        let rides = std::mem::take(&mut t.recall.rides);
         t.recall.pending = None;
         let action = match t.tc.kernel.plan_and_dispatch(
             t.tc.guard,
@@ -2554,13 +2553,10 @@ impl TurnRunner {
         // between its plan and here, cuts it before anything was sent.
         let armed = self.stops.arm(t.tc.execution_id);
         let outcome = {
-            // The provider floor reads the session's mark as the call is made.
-            let private = self.session_level(t);
+            // The provider floor reads the session's labels as the call is made.
             let sid = t.tc.session_id;
             let mut stream = std::pin::pin!(crate::data_gate::for_session(sid, || {
-                crate::google::private::scoped(private, || {
-                    provider.stream_message(&compiled.request, &mut on_delta)
-                })
+                provider.stream_message(&compiled.request, &mut on_delta)
             }));
             let mut sent = false;
             loop {

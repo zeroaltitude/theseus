@@ -188,9 +188,8 @@ impl Core {
             .get(&target.provider)
             .cloned()
             .ok_or_else(|| format!("no provider {:?} for {profile}", target.provider))?;
-        // What the session said is sent: its mark holds the call.
-        let provider =
-            crate::google::private::for_session(provider, &self.store, &self.cfg, session);
+        // What the session said is sent: its labels hold the call.
+        let provider = crate::data_gate::bound(provider, session);
         let scrubber = self.runner.judge.scrubber.clone();
         let how = self.runner.catalog.forcing(&target.model);
         let request = request(&target.model, how, kind, said, &|t| scrubber.scrub(t).0);

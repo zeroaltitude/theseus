@@ -650,10 +650,13 @@ async fn a_stranger_thread_holds_the_session() {
     turn(&r.core, &sid, "read the thread").await;
     let rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     assert_eq!(rec.external.expect("a hold").tool, "gmail.read");
-    assert!(
-        super::private::session(&r.core.store, &r.core.cfg, &sid),
-        "and private"
-    );
+    let labels = rec
+        .data
+        .as_deref()
+        .map(|f| f.labels.clone())
+        .unwrap_or_default();
+    assert_eq!(labels.len(), 1, "and labelled: {labels:?}");
+    assert_eq!(labels[0].source, "google.gmail.read");
     // No token, however it was minted, reached a node or a row.
     let all = everything(&r.core, &[&sid]);
     assert!(!all.contains("ya29.") && !all.contains(theseus_google::fake::REFRESH_TOKEN));

@@ -412,10 +412,9 @@ impl TurnRunner {
         let started_ms = theseus_protocol::now_unix_ms();
         let started = Instant::now();
         let mut quiet = |_: crate::provider::Delta<'_>| {};
-        // A summary of a private session is that session's request too.
-        let private = self.session_level(t);
+        // A summary of a session is that session's request too.
         let answered = crate::data_gate::for_session(t.tc.session_id, || {
-            crate::google::private::scoped(private, || provider.stream_message(request, &mut quiet))
+            provider.stream_message(request, &mut quiet)
         })
         .await;
         let resp = match answered {

@@ -78,7 +78,6 @@ impl TurnRunner {
                 persona: self.persona_ctx(sid, class),
                 capture: false,
                 data_names: self.cfg.privacy.data_names(),
-                private_source: crate::google::private::session(t.tc.store, &self.cfg, sid),
                 attachments: Vec::new(),
             },
         );

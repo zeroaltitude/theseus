@@ -265,9 +265,6 @@ pub struct Inbound {
     /// The operator's names for open and private matter (`[routing.data]`),
     /// carried to the route pack's `data` question.
     pub data_names: DataNames,
-    /// The session has read a Google result (the Google design, §4.1): the
-    /// `data` answer is `private` by code, as a sensitive name makes it.
-    pub private_source: bool,
     /// The message's attachments, as the node holds them: `onto.v1` is
     /// shown the pictures (their bytes read from the blobs) and the text
     /// ones' first characters (theseus-p6zgq). Only a turn that has its

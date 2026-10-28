@@ -385,6 +385,36 @@ impl ContentFlags {
         true
     }
 
+    /// What the wire shows of the session's data (`session.info`, the work
+    /// board, a task's home): `sensitive` when it carries `personal` (which
+    /// never goes to a shared place), `private` when it carries any other label
+    /// that keeps a model of restricted origin off, else `open`.
+    pub fn mark(&self) -> theseus_protocol::ops::DataMark {
+        use theseus_protocol::ops::DataMark;
+        let has = |f: fn(Flag) -> bool| self.labels.iter().any(|l| f(l.flag));
+        if has(|f| f == Flag::Personal) {
+            DataMark::Sensitive
+        } else if has(Flag::disqualifies_cn) {
+            DataMark::Private
+        } else {
+            DataMark::Open
+        }
+    }
+
+    /// What a task (or a draft) carries from its parent at its start: the
+    /// parent's labels, as `fork` copies them (`fork::data_through`), so a child
+    /// of a session that read a calendar is no way around the label. Its items
+    /// are its own, so nothing of the parent's judgment or removals comes with
+    /// them. None when the parent carries no label.
+    pub fn inherited(&self) -> Option<Box<ContentFlags>> {
+        (!self.labels.is_empty()).then(|| {
+            Box::new(ContentFlags {
+                labels: self.labels.clone(),
+                ..Default::default()
+            })
+        })
+    }
+
     /// [`ContentFlags::raise`], unless the operator removed this flag at or
     /// after `entered_ms`, when the item that would raise it entered the
     /// session: an item that entered before a removal can never raise that

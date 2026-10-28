@@ -17,7 +17,6 @@ use theseus_store::{kinds, NewRecord};
 use super::lines::Line;
 use super::morning_google::Day;
 use super::speak::Facts;
-use crate::google::private::Level;
 use crate::rpc::Core;
 use crate::wake::local;
 
@@ -167,7 +166,6 @@ impl Core {
         let ontology = self.onto_night_lines(now);
         if let Some((brief, n)) = self.morning_facts(now, google.as_ref(), ontology.len() as u64) {
             let waiting = google.as_ref().is_some_and(|g| g.drafts > 0);
-            let level = google.as_ref().map_or(Level::Open, Day::level);
             let mut spoken = self
                 .initiative_speak(&Facts {
                     kind: "morning",
@@ -178,15 +176,13 @@ impl Core {
                         Line::Morning
                     },
                     n,
-                    // The brief holds the owner's Google content.
-                    private: level,
                 })
                 .await;
             if !ontology.is_empty() {
                 spoken.text = format!("{}\n\n{}", spoken.text, ontology.join("\n"));
             }
             // A sensitive calendar's events reach the DM and no ledger row.
-            let held = level == Level::Sensitive;
+            let held = google.as_ref().is_some_and(|g| g.sensitive);
             if let Err(e) = self.initiative_post_as("morning", &spoken, held) {
                 tracing::warn!(error = %format!("{e:#}"), "the morning note was not written");
             }
