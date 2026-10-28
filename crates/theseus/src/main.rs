@@ -1210,7 +1210,9 @@ enum JudgeCmd {
         id: String,
         /// The label. On the whole judgment: right, wrong, noise, or useful. On a question
         /// (`--question`): a yes-or-no question's true or false, a choice's option
-        /// (`progressing`) or `not:<option>`, a score's level, or right or wrong.
+        /// (`progressing`) or `not:<option>`, a score's level, or right or wrong. A content label's
+        /// judgment (`theseus content SESSION` names it) is a choice of `yes` or `no`, on the flag's
+        /// question (`--question secret`): `no` says the flag should not have been raised.
         label: String,
         /// The question it labels (`work_state`); none labels the whole judgment.
         #[arg(long, short)]

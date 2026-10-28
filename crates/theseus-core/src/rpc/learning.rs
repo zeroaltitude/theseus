@@ -155,6 +155,18 @@ impl Core {
         }
     }
 
+    /// The pack a judgment was of (`content.v2`), as its row says. A label
+    /// can be taken off a session before the judge's sink has written the
+    /// judgment's row (it writes between turns), so the content pack's current
+    /// version stands in: a label's scope is its pack's id (`judge:content`),
+    /// which no version changes.
+    pub(crate) fn judgment_pack(&self, judgment: &str) -> String {
+        self.judgment_row(judgment)
+            .ok()
+            .and_then(|r| r.data["pack"].as_str().map(str::to_string))
+            .unwrap_or_else(|| crate::judge::content::PACK.to_string())
+    }
+
     pub(super) fn rpc_judge_label(
         &self,
         p: JudgeLabelParams,

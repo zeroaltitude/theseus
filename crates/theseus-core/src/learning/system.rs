@@ -131,6 +131,11 @@ pub const MARGIN_MS: u64 = 60 * 60 * 1000;
 /// How long a classified turn may run before its label is settled.
 const CLASSIFY_OPEN_MS: u64 = 24 * 60 * 60 * 1000;
 
+/// How long a content label must stand, unremoved and undisputed, for the
+/// owner's silence to count as it having been right: a week. A label whose
+/// session retires carrying it counts at once.
+const CONTENT_KEPT_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
 /// The mark's key for the time the next run cuts at (theseus-gf8j).
 pub const CUT_KEY: &str = "cut_ms";
 
@@ -206,6 +211,7 @@ pub fn open_ms(pack_id: &str, s: &Seen, confirm_ttl_ms: u64) -> Option<u64> {
         "loop" if s.context("class") == Some("task") => Some(FALSE_COMPLETION_MS),
         "loop" => Some(CONTINUATION_MS),
         "classify" => Some(CLASSIFY_OPEN_MS),
+        "content" => Some(CONTENT_KEPT_MS),
         "security" => Some(confirm_ttl_ms),
         "route" => Some(CHOSEN_MS),
         _ => None,
@@ -275,6 +281,7 @@ impl Core {
                 "security" => self.security_labels(seen, scope, &mut reads),
                 "classify" => self.classify_labels(seen, now_ms, &mut reads),
                 "route" => self.route_labels(seen, scope),
+                "content" => self.content_labels(seen, scope, now_ms),
                 _ => Vec::new(),
             };
             out.extend(
@@ -531,6 +538,59 @@ impl Core {
 }
 
 impl Core {
+    /// `content.v2`'s rule (`kept`, theseus-gyjyo.3): a label the judgment
+    /// raised that is **still on its session** a week after it was raised, or
+    /// when the session retires, is the owner leaving a flag standing, so the
+    /// answer was right (`yes`, at the system's weight).
+    ///
+    /// Only a raised-and-kept label is evidence. A judged-`no` item has no
+    /// label, and nobody can say that answer was right, so it is not counted;
+    /// a removed label is gone (its removal wrote the negative); a label the
+    /// owner already called wrong, by the chip or by hand, is disputed, and his
+    /// word outweighs a silence; a label that names no judgment (raised before
+    /// store format 53) is nobody's to teach.
+    fn content_labels(&self, s: &Seen, scope: &Scope, now: u64) -> Vec<SystemLabel> {
+        let j = &s.judgment;
+        let Some(session) = s.context("session") else {
+            return vec![];
+        };
+        let Ok(Some(rec)) = self.store.get_session::<SessionRecord>(session) else {
+            return vec![];
+        };
+        let Some(flags) = rec.data.as_deref() else {
+            return vec![];
+        };
+        let retired = rec.retired.is_some();
+        flags
+            .labels
+            .iter()
+            .filter(|l| l.judgment == j.id)
+            .filter(|l| retired || now >= l.at_ms.saturating_add(CONTENT_KEPT_MS))
+            .filter(|l| {
+                !scope.labels.get(&j.id).is_some_and(|ls| {
+                    ls.iter().any(|o| {
+                        o.source == "operator" && o.question.as_deref() == Some(l.flag.as_str())
+                    })
+                })
+            })
+            .map(|l| SystemLabel {
+                id: system_key(&j.id, l.flag.as_str(), "kept"),
+                judgment: j.id.clone(),
+                pack: j.pack.clone(),
+                session: Some(session.to_string()),
+                question: l.flag.as_str().to_string(),
+                about: None,
+                label: json!("yes"),
+                rule: "kept",
+                note: if retired {
+                    "the session retired still carrying the label".into()
+                } else {
+                    "the label stood a week, unremoved and undisputed".into()
+                },
+            })
+            .collect()
+    }
+
     /// `route.v1`'s rule (`chosen`): the session's next judged message, a
     /// pinned one within [`CHOSEN_MS`] after a routed turn, labels its mode.
     fn route_labels(&self, s: &Seen, scope: &Scope) -> Vec<SystemLabel> {
