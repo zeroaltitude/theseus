@@ -824,7 +824,7 @@ mod tests {
     fn an_answer_under_the_floor_bar_applies_nothing() {
         let gated = Bars {
             floor: Some(0.6),
-            ..BAR
+            ..LIVE
         };
         let high = Some(Effort::High);
         // (answer, runs, the reason without the bar)
@@ -849,7 +849,7 @@ mod tests {
             ),
         ];
         for (answer, r, was) in cases {
-            let off = decide(FULL, BAR, &answer, r, true, false);
+            let off = decide(FULL, LIVE, &answer, r, true, false);
             assert_eq!(off.reason, was, "{answer:?}");
             let on = decide(FULL, gated, &answer, r, true, false);
             assert_eq!(
