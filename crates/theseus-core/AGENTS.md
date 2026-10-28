@@ -36,7 +36,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and again as it parks), its turn's connection watches the session, and `wake.at` says a wake due past the bound
   will not fire here; no other daemon reads it. The ask's own turn fixes the run's end, and a wake fires in the run
   when it is due by the end the run had when it was set, less `FIRE_MARGIN_MS` for the driver's tick (`OneShot::fires`):
-  the words and the result's `fires`, which the CLI follows, are one rule however long the turn ran. A refused request goes once to its model's fallback, the catalog's
+  the words and the result's `fires`, which the CLI follows, are one rule however long the turn ran. A refused request is first made once more on the model that
+  refused it (`[model.retries] refusal_retry`, on by default; at most one retry per request and three per turn, a `provider.refusal_retry` row each; theseus-keuap),
+  and only a refusal that survives that goes to its model's fallback, the catalog's
   `refusal_fallback_model` (Sonnet 5.5's: Sonnet 5), and the fallback answers that request, the next going back to the routed model unless the turn stays (a
   `[model.retries] hard_decline_categories` refusal, a timeout, or the third routed refusal in a row; theseus-wf482)
   (`turn/fallback_step.rs`,
