@@ -5,8 +5,8 @@
 //! hold it among the judged items: the real judge, against the fake Jev.
 //! Nothing here names `queue_content`: the test reads the classification, so a
 //! refactor that moves the call keeps it, and one that loses it fails it.
-//! (`content_wait::unjudged` fails closed, so a result nobody judged would
-//! refuse the next restricted-origin request, far from its cause.)
+//! (A result nobody judged is a label never raised: the next restricted-origin
+//! request is sent without it, far from its cause.)
 //!
 //! This pins the classification half of the row, and only that. The other half
 //! of the issue's sentence -- that the late result is judged *before the next

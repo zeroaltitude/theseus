@@ -778,10 +778,10 @@ impl TurnRunner {
     /// profiles when the request names a sensitive name (theseus-oejh3), and
     /// on one only for a session whose labels allow it (theseus-9ymz0).
     ///
-    /// The labels are read first, without a wait. Only when items are not yet
-    /// judged and the decision, made as if they were, would take a profile of
-    /// restricted origin does the turn wait for their verdicts and decide
-    /// again: a turn bound for Claude never waits.
+    /// The labels are read first, without a wait. Only when they allow a
+    /// profile of restricted origin and the decision takes one does the turn
+    /// wait for the content asks still out for its session and decide again on
+    /// the labels it then reads: a turn bound for Claude never waits.
     async fn decide_floored(
         &self,
         t: &mut Turn<'_>,
@@ -797,30 +797,35 @@ impl TurnRunner {
             _ => None,
         };
         use super::data_step::Cn;
-        t.route.cn = Self::cn_read(t);
+        t.route.cn = self.cn_read(t);
+        let base = t.target.profile.clone();
+        let named = |d: &Option<Decision>| {
+            self.restricted_profile(d.as_ref().map_or(base.as_str(), |d| d.profile.as_str()))
+        };
         let mut decision = decide(t);
-        if t.route.cn != Cn::Allowed {
+        if t.route.cn == Cn::Allowed {
+            // The labels allow a restricted profile. Where the decision takes
+            // one, the turn first waits for the asks still out for its
+            // session and reads the labels again: one that landed keeps the
+            // turn off it (a turn bound for Claude never waits).
+            if named(&decision) {
+                self.cn_settle(t).await;
+                if t.route.cn != Cn::Allowed {
+                    decision = decide(t);
+                    if !named(&decision) {
+                        t.route.gated = Some(t.route.cn.word());
+                    }
+                }
+            }
+        } else {
             // What the same decision would have named had the session's
             // labels allowed it: only where that is a restricted profile does
-            // the rule cost the turn a model (theseus-b80si), and only then
-            // does the turn wait for a verdict that has not come.
+            // the rule cost the turn a model (theseus-b80si).
             t.route.assume_cn = true;
             let wanted = decide(t);
             t.route.assume_cn = false;
-            let base = t.target.profile.clone();
-            let named = |d: &Option<Decision>| {
-                self.restricted_profile(d.as_ref().map_or(base.as_str(), |d| d.profile.as_str()))
-            };
-            if named(&wanted) {
-                if t.route.cn == Cn::Pending {
-                    self.cn_settle(t).await;
-                    if t.route.cn == Cn::Allowed {
-                        decision = decide(t);
-                    }
-                }
-                if t.route.cn != Cn::Allowed && !named(&decision) {
-                    t.route.gated = Some(t.route.cn.word());
-                }
+            if named(&wanted) && !named(&decision) {
+                t.route.gated = Some(t.route.cn.word());
             }
         }
         self.data_floor(t, decision)

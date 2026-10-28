@@ -135,16 +135,17 @@ const EVERY_CASE: [Case; 10] = [
     Case::RoutingOff,
 ];
 
-/// Every way a turn comes to be bound for a restricted profile, with the
-/// session's items not judged and no judge to wait for (the stand-in): it runs
-/// on the `[model]` default instead, with a `route.decided` row whose reason is
+/// Every way a turn comes to be bound for a restricted profile, its session
+/// carrying a label by the time it has waited for its asks: it runs on the
+/// `[model]` default instead, with a `route.decided` row whose reason is
 /// `data_gate`, and nothing reaches the restricted model. Ported from the open
 /// view's floor test, whose cases it keeps: only the reason for the move
-/// differs (the session's items, not a missing open verdict).
+/// differs (the session's label, not a missing open verdict; theseus-gyjyo.6).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_restricted_base_moves_to_the_fallback_with_data_gate() {
     for case in EVERY_CASE {
-        let (r, res) = bound_for_glm(case, None).await;
+        let labels = Judging::with(|_, _| vec![Flag::Confidential]);
+        let (r, res) = bound_for_glm(case, Some(labels)).await;
         // A hold or a trivial detour toward GLM meets routing's own gate first:
         // a mode's pick never yields a restricted profile for a session that
         // may not use one (theseus-a1wvq.4), so the verdict takes the mode's
@@ -214,56 +215,6 @@ async fn a_judged_clean_session_runs_on_the_restricted_model() {
     }
 }
 
-/// Test 21: a turn bound for a restricted model with an item the judge has not
-/// reached waits for its verdict, at most `[content_based_security] wait_ms`, then runs on the
-/// `[model]` default with `Reason::DataGate`: it **completes**. Nothing goes to
-/// the restricted model, and nothing is refused at the chokepoint.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_cn_turn_waits_for_its_verdict_then_goes_to_claude_and_completes() {
-    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 300);
-    let silent = Arc::new(Silent::default());
-    r.core.runner.verdicts.set(silent.clone());
-    let started = Instant::now();
-    let res = turn(&r.core, None, PLAIN, Some("glm")).await;
-    let took = started.elapsed();
-    assert!(took >= Duration::from_millis(300), "it waited: {took:?}");
-    assert!(took < Duration::from_secs(10), "and only so long: {took:?}");
-    assert_eq!(
-        (res.profile.as_str(), res.model.as_str()),
-        ("default", "claude-sonnet-5-5"),
-        "{:?}",
-        res.route
-    );
-    assert!(!res.output.is_empty(), "the turn completed: {res:?}");
-    let rows = decided(&r.core.store);
-    assert_eq!(rows.last().unwrap()["reason"], "data_gate", "{rows:?}");
-    assert_eq!(rows.last().unwrap()["data_gate"], "unjudged", "{rows:?}");
-    let data = res.route.unwrap().data.unwrap();
-    assert_eq!(
-        (data.cn.as_str(), data.gate.as_deref()),
-        ("unjudged", Some("unjudged"))
-    );
-    assert!(
-        !silent.waits.lock().unwrap().is_empty(),
-        "it waited on the notify"
-    );
-    assert!(r.zai.requests().is_empty(), "GLM was sent nothing");
-    assert_eq!(blocked(&r.core), 0, "it never met the chokepoint");
-}
-
-/// `[content_based_security] wait_ms = 0` never waits: the unjudged item sends the turn to
-/// Claude at once, and the notify is not asked.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_zero_wait_goes_to_claude_at_once() {
-    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 0);
-    let silent = Arc::new(Silent::default());
-    r.core.runner.verdicts.set(silent.clone());
-    let res = turn(&r.core, None, PLAIN, Some("glm")).await;
-    assert_eq!(res.profile, "default", "{:?}", res.route);
-    assert!(silent.waits.lock().unwrap().is_empty());
-    assert!(r.zai.requests().is_empty());
-}
-
 /// Test 22: a turn bound for Claude never waits, however long `wait_ms` is and
 /// whatever the judge is doing: the notify is not asked, the turn is not
 /// slowed, and Claude is sent it.
@@ -282,43 +233,6 @@ async fn a_claude_turn_never_waits() {
     );
     assert_eq!(r.claude.requests().len(), 1);
     assert!(r.zai.requests().is_empty());
-}
-
-/// Test 23: a session whose `judged_through` is behind its transcript (what a
-/// restart leaves, or a verdict that never came) is not cn-eligible, and
-/// becomes so once the outstanding items are judged: the second turn, on a
-/// judge that lands, runs on GLM, though the first did not.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_session_behind_its_transcript_is_not_eligible_until_it_is_judged() {
-    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 100);
-    let silent = Arc::new(Silent::default());
-    r.core.runner.verdicts.set(silent.clone());
-    let one = turn(&r.core, None, PLAIN, Some("glm")).await;
-    assert_eq!(one.profile, "default", "{:?}", one.route);
-    let flags: Option<ContentFlags> = crate::content_wait::flags_of(&r.core.store, &one.session_id);
-    assert!(
-        flags.is_none_or(|f| f.judged_through.is_none()),
-        "nothing was judged"
-    );
-    assert!(r.zai.requests().is_empty());
-    // The judge comes back: it lands the verdicts the first turn's items waited for.
-    let judge = Judging::clean();
-    judging_with(&r, judge.clone());
-    let two = turn(
-        &r.core,
-        Some(&one.session_id),
-        "And the tests.",
-        Some("glm"),
-    )
-    .await;
-    assert_eq!(two.profile, "glm", "{:?}", two.route);
-    assert_eq!(
-        r.zai.requests().len(),
-        1,
-        "GLM was sent the second turn alone"
-    );
-    let flags = crate::content_wait::flags_of(&r.core.store, &one.session_id).unwrap();
-    assert!(flags.judged_through.is_some(), "the mark moved");
 }
 
 /// A label the judge finds keeps the turn off the restricted model, with the
@@ -437,6 +351,32 @@ async fn a_plain_turn_keeps_the_sessions_labels() {
 async fn try_turn(core: &Arc<Core>, input: &str) -> anyhow::Result<TurnSubmitResult> {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
+    try_turn_in(core, rec, input).await
+}
+
+/// A session record carrying a `confidential` label, as a names hit leaves it,
+/// stored.
+fn labelled(core: &Core) -> SessionRecord {
+    let mut flags = ContentFlags::default();
+    flags.raise(crate::content::deterministic::label(
+        Flag::Confidential,
+        "nod_earlier",
+        crate::content::ItemKind::ToolResult,
+        "name: Examplecorp".into(),
+        1,
+    ));
+    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+    rec.data = Some(Box::new(flags));
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    rec
+}
+
+/// `try_turn` on `rec`, which is already stored.
+async fn try_turn_in(
+    core: &Arc<Core>,
+    rec: SessionRecord,
+    input: &str,
+) -> anyhow::Result<TurnSubmitResult> {
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
     let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
@@ -458,8 +398,10 @@ async fn try_turn(core: &Arc<Core>, input: &str) -> anyhow::Result<TurnSubmitRes
         .await
 }
 
-/// With the default itself restricted there is nowhere to run: the turn fails
-/// before any model call, routed or not, and both fakes record nothing.
+/// With the default itself restricted and a label on the session there is
+/// nowhere to run: the turn fails before any model call, routed or not, and
+/// both fakes record nothing. (Without a label it runs on the restricted
+/// default: only a label keeps a session off a model, theseus-gyjyo.6.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_usable_fallback_fails_the_turn_and_sends_nothing() {
     for routed in [true, false] {
@@ -469,7 +411,8 @@ async fn no_usable_fallback_fails_the_turn_and_sends_nothing() {
         // profiles on the default's provider once it is restricted.
         let cn = |p: &mut crate::rpc::Parts| p.cfg.serve_default_from_cn();
         let r = rig_parts(routed.then_some(&jev), 1, |_| {}, cn);
-        let ended = try_turn(&r.core, PLAIN).await;
+        let rec = labelled(&r.core);
+        let ended = try_turn_in(&r.core, rec, PLAIN).await;
         let said = format!("{ended:?}");
         assert!(
             said.contains("No model cleared for this request's data is usable"),
@@ -483,10 +426,11 @@ async fn no_usable_fallback_fails_the_turn_and_sends_nothing() {
 /// The code's `trivial` list no longer names `glm` (theseus-a1wvq.4); GLM
 /// comes in only by `cn_profiles`, and only for a session that may use a model
 /// of restricted origin: with its first profile unusable, a trivial verdict
-/// for a session not judged skips GLM to `cheapest`, which is Haiku's profile,
-/// never GLM.
+/// for a session carrying a label skips GLM to `cheapest`, which is Haiku's
+/// profile, never GLM; a session with no label is let take it (theseus-gyjyo.6:
+/// an item nobody judged no longer keeps a session off it).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_trivial_default_skips_glm() {
+async fn the_trivial_default_skips_glm_for_a_labelled_session() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.95);
     let r = rig_parts(
@@ -502,7 +446,8 @@ async fn the_trivial_default_skips_glm() {
     );
     let list = &r.core.runner.cfg.routing.classes.trivial.profiles;
     assert_eq!(list, &["haiku", "cheapest"], "the code's default");
-    let res = turn(&r.core, None, "Hi there!", None).await;
+    let rec = labelled(&r.core);
+    let res = turn(&r.core, Some(&rec.session_id), "Hi there!", None).await;
     assert_eq!(
         (res.profile.as_str(), res.model.as_str()),
         ("haikuhi", "claude-haiku-5-5"),
@@ -510,6 +455,9 @@ async fn the_trivial_default_skips_glm() {
         res.route
     );
     assert!(r.zai.requests().is_empty());
+    let res = turn(&r.core, None, "Hi there!", None).await;
+    assert_eq!(res.profile, "glm", "no label, so it may: {:?}", res.route);
+    assert_eq!(r.zai.requests().len(), 1);
 }
 
 /// A named message runs on a Claude served from a host vouched EU: the names'
@@ -675,7 +623,7 @@ async fn an_item_no_site_submitted_is_swept_up_rather_than_wedging_the_session()
 /// entitled to choose (the review of 2026-10-27, B1).
 ///
 /// What is asserted here is the **offer**, not the verdict: with a zero wait
-/// this turn is meant to go to Claude without waiting, and the test judge
+/// this turn goes on its labels without waiting, and the test judge
 /// lands only when a turn waits, so no mark can move inside this test. The
 /// offer is the whole of B1 — an item nobody offers is one no judge can ever
 /// reach, however many turns come later.
@@ -684,11 +632,11 @@ async fn a_zero_wait_still_offers_the_item_no_site_submitted() {
     let r = rig(None, 2, |c| c.content_based_security.wait_ms = 0);
     faithful(&r);
     let one = turn(&r.core, None, PLAIN, Some("glm")).await;
-    assert_eq!(one.profile, "default", "a zero wait goes to Claude at once");
+    assert_eq!(one.profile, "glm", "a zero wait goes on the labels at once");
     let node = planted_result(&one.session_id);
     r.core.store.append(&[node.record().unwrap()]).unwrap();
     let two = turn(&r.core, Some(&one.session_id), "And again.", Some("glm")).await;
-    assert_eq!(two.profile, "default", "still no wait, so still Claude");
+    assert_eq!(two.profile, "glm", "still no wait, and no label");
     assert!(
         r.core.runner.judge.content_swept().contains(&node.id),
         "nothing offered the planted result, so nothing ever can: {:?}",
@@ -806,4 +754,84 @@ async fn every_item_a_turn_writes_is_offered_for_judgment() {
             crate::node::Body::ToolResult { tool, .. } if tool == crate::task::CREATE)),
         "no task.create result was written"
     );
+}
+
+/// A turn pinned to GLM whose session has an ask still out waits `wait_ms` for
+/// it, and then **goes**: the label check at the end is the whole decision
+/// (theseus-gyjyo.6). Nothing says the session is clean, and nothing says it
+/// is not; no label is on it, so the request is sent. The route row says
+/// `allowed`, never `unjudged`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cn_turn_waits_for_the_outstanding_ask_then_goes() {
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 300);
+    let silent = Arc::new(Silent::default());
+    r.core.runner.verdicts.set(silent.clone());
+    let started = Instant::now();
+    let res = turn(&r.core, None, PLAIN, Some("glm")).await;
+    assert!(started.elapsed() >= Duration::from_millis(300), "it waited");
+    assert_eq!(res.profile, "glm", "{:?}", res.route);
+    assert_eq!(r.zai.requests().len(), 1, "GLM was sent it");
+    assert_eq!(blocked(&r.core), 0);
+    assert!(!silent.waits.lock().unwrap().is_empty());
+}
+
+/// `wait_ms = 0` never waits, and the turn goes on the labels it finds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_zero_wait_goes_on_the_labels_at_once() {
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 0);
+    let silent = Arc::new(Silent::default());
+    r.core.runner.verdicts.set(silent.clone());
+    let res = turn(&r.core, None, PLAIN, Some("glm")).await;
+    assert_eq!(res.profile, "glm", "{:?}", res.route);
+    assert!(silent.waits.lock().unwrap().is_empty(), "it never waited");
+}
+
+/// `cn_models = "never"`: the route skips every profile of restricted origin
+/// whatever the session carries, so a pin of GLM runs on the `[model]` default
+/// with `data_gate`, and the chokepoint is never asked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cn_models_never_skips_the_restricted_profile_in_the_route() {
+    use crate::config::content_based_security::CnModels;
+    let r = rig(None, 2, |c| {
+        c.content_based_security.cn_models = CnModels::Never;
+    });
+    judging_with(&r, Judging::clean());
+    let res = turn(&r.core, None, PLAIN, Some("glm")).await;
+    assert_eq!(res.profile, "default", "{:?}", res.route);
+    let rows = decided(&r.core.store);
+    assert_eq!(rows.last().unwrap()["reason"], "data_gate", "{rows:?}");
+    assert_eq!(rows.last().unwrap()["data_gate"], "never", "{rows:?}");
+    assert!(r.zai.requests().is_empty());
+    assert_eq!(
+        blocked(&r.core),
+        0,
+        "the route skipped it; nothing met the chokepoint"
+    );
+}
+
+/// `cn_models = "always"`: a labelled session's turn runs on GLM. Synthetic
+/// content only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cn_models_always_runs_a_labelled_session_on_the_restricted_profile() {
+    use crate::config::content_based_security::CnModels;
+    let r = rig(None, 2, |c| {
+        c.content_based_security.cn_models = CnModels::Always;
+    });
+    let mut flags = ContentFlags::default();
+    flags.raise(crate::content::deterministic::label(
+        Flag::Confidential,
+        "nod_earlier",
+        crate::content::ItemKind::ToolResult,
+        "name: Examplecorp".into(),
+        1,
+    ));
+    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+    rec.data = Some(Box::new(flags));
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let res = turn(&r.core, Some(&rec.session_id), PLAIN, Some("glm")).await;
+    assert_eq!(res.profile, "glm", "{:?}", res.route);
+    assert_eq!(r.zai.requests().len(), 1);
+    assert_eq!(blocked(&r.core), 0);
+    let flags = crate::content_wait::flags_of(&r.core.store, &res.session_id).unwrap();
+    assert!(flags.has(Flag::Confidential), "the label stands");
 }

@@ -15,7 +15,7 @@ pub struct DataGateBlocked<'a> {
     pub model: &'a str,
     /// `cn` or `unknown`.
     pub origin: &'a str,
-    /// What kept it: a flag's word (`confidential`), `unjudged`, `no_session`
+    /// What kept it: a flag's word (`confidential`), `never`, `no_session`
     /// or `no_record`.
     pub why: &'a str,
 }

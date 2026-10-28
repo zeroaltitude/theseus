@@ -1,38 +1,45 @@
-//! Waiting for a session's items to be judged (theseus-9ymz0, design §4.3).
+//! Waiting for a session's outstanding content asks (theseus-9ymz0, design
+//! §4.3; a counter since theseus-gyjyo.6).
 //!
-//! A turn bound for a model of restricted origin may go only when every item in
-//! its session has been judged (`ContentFlags::judged_through`), so it waits
-//! for the verdict, at most `[content_based_security] wait_ms`, and goes to Claude when the
-//! verdict does not come: the turn is never blocked and never fails for want of
-//! one. A turn bound for Claude never waits.
+//! A turn bound for a model of restricted origin waits, at most
+//! `[content_based_security] wait_ms`, for the asks still in flight for its
+//! session to land, and then **goes either way**: it reads the session's
+//! labels once more and is sent or kept off by them. Nothing is proved: an ask
+//! that never lands leaves a session with the labels it has. The turn is never
+//! blocked and never fails for want of a verdict, and a turn bound for Claude
+//! never waits.
 //!
-//! This module is the turn's side of that, and two things only:
-//! - [`unjudged`], pure: whether the transcript holds an item past what was
-//!   judged, which the chokepoint (`data_gate.rs`) and the turn's floor
-//!   (`turn/data_step.rs`) both read;
-//! - [`Verdicts`], the handle a turn waits on. The judge service's per-session
-//!   notify (`judge/content.rs`) is what stands behind it once the pack's lane
-//!   joins; [`Ready`] is the stand-in until then, and answers at once, so a
-//!   turn that finds items unjudged goes to Claude without waiting.
+//! What it waits on is a **number**, how many asks are out for the session
+//! ([`Verdicts::outstanding`]), not a position in its transcript, so none of
+//! the arithmetic of a mark comes with it. [`Handle::drained`] is the wait.
 
 use std::future::Future;
 use std::pin::Pin;
+use std::time::{Duration, Instant};
 
 use crate::content::ContentFlags;
 #[cfg(test)]
 use crate::node::Body;
 use crate::stub::Stub;
 
-/// What a turn waits on: the next time the judge may have moved a session's
-/// `judged_through`. The future may end early or never end; the caller bounds
-/// it with `[content_based_security] wait_ms` and reads the record again afterwards, so a
-/// wake-up that judged nothing costs one read.
-///
-/// **A wake-up that comes after this call must end the future, even if it
-/// comes before the future's first poll** (a `Notify`'s `notified()` enabled
-/// at once, or a permit): the turn takes the future, reads the record, and only
-/// then waits, so a verdict that lands in between is not slept through.
+/// What a turn waits on: the asks out for a session, and the next landing.
+/// The judge service's per-session notify (`judge/content.rs`) stands behind
+/// it; [`Ready`] is the stand-in until it exists.
 pub trait Verdicts: Send + Sync {
+    /// How many content asks are in flight for `session` now: queued or being
+    /// judged, not yet landed.
+    fn outstanding(&self, session: &str) -> usize;
+
+    /// The next time the count may have moved. The future may end early or
+    /// never end; the caller bounds it and reads the count again afterwards,
+    /// so a wake-up that changed nothing costs one read.
+    ///
+    /// **A wake-up that comes after this call must end the future, even if it
+    /// comes before the future's first poll** (a `Notify`'s `notified()` enabled
+    /// at once, or a permit): the turn takes the future, reads the count, and only
+    /// then waits, so a verdict that lands in between is not slept through. The
+    /// call also tells the judge a turn is blocked on this session, so a landing
+    /// parked behind the turn writes now.
     fn settled(&self, session: &str) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 }
 
@@ -41,6 +48,10 @@ pub trait Verdicts: Send + Sync {
 pub struct Ready;
 
 impl Verdicts for Ready {
+    fn outstanding(&self, _session: &str) -> usize {
+        0
+    }
+
     fn settled(&self, _session: &str) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(std::future::ready(()))
     }
@@ -65,15 +76,45 @@ impl Handle {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = v;
     }
 
-    pub fn settled(&self, session: &str) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let v = self
-            .0
+    fn get(&self) -> std::sync::Arc<dyn Verdicts> {
+        self.0
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-        v.settled(session)
+            .clone()
+    }
+
+    /// How many asks are out for `session`.
+    pub fn outstanding(&self, session: &str) -> usize {
+        self.get().outstanding(session)
+    }
+
+    /// Wait at most `max` for `session`'s outstanding asks to land; whether
+    /// none is out now. Zero never waits. Each read of the count is taken
+    /// **after** the wait is registered, so a landing between the two is not
+    /// slept through, and no single sleep is longer than [`SLICE`], so a
+    /// wake-up a stand-in lost costs a slice and not the wait.
+    pub async fn drained(&self, session: &str, max: Duration) -> bool {
+        let v = self.get();
+        let deadline = Instant::now() + max;
+        loop {
+            if v.outstanding(session) == 0 {
+                return true;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            let woken = v.settled(session);
+            if v.outstanding(session) == 0 {
+                return true;
+            }
+            let _ = tokio::time::timeout(left.min(SLICE), woken).await;
+        }
     }
 }
+
+/// The longest one sleep of [`Handle::drained`] is.
+const SLICE: Duration = Duration::from_millis(250);
 
 /// The session's content labels as the store holds them, or none: a session
 /// with no record, or with no labels, reads as none. One record read.
@@ -99,11 +140,12 @@ pub(crate) fn is_item(node: &Stub) -> bool {
     crate::content::item_text(node).is_some()
 }
 
-/// Whether `nodes` (a session's transcript, in order) hold an item the judge
-/// has not reached: any item after the node `flags.judged_through` names. With
-/// nothing judged yet every item counts; a mark the transcript does not hold
-/// (a forked or compacted-away node) counts as nothing judged, which fails
-/// closed. An empty transcript has no item.
+/// Whether `nodes` (a session's transcript, in order) hold an item past what
+/// `flags.judged_through` names. **No production code reads it**
+/// (theseus-gyjyo.6): the chokepoint and the turn's floor read labels, and the
+/// mark is written and left unread until R5b removes it; it stays here for the
+/// judge's landing tests, which assert where the mark stands.
+#[cfg(test)]
 pub fn unjudged(nodes: &[(u64, Stub)], flags: Option<&ContentFlags>) -> bool {
     let through = flags
         .and_then(|f| f.judged_through.as_deref())
@@ -243,6 +285,11 @@ pub(crate) mod judging {
     }
 
     impl Verdicts for Silent {
+        /// One ask that never lands.
+        fn outstanding(&self, _session: &str) -> usize {
+            1
+        }
+
         fn settled(&self, session: &str) -> Pin<Box<dyn Future<Output = ()> + Send>> {
             self.waits.lock().unwrap().push(session.to_string());
             Box::pin(std::future::pending())
@@ -250,6 +297,30 @@ pub(crate) mod judging {
     }
 
     impl Verdicts for Judging {
+        /// The items past the session's mark: the asks a real judge would
+        /// have out for them (of the nodes a hook site submitted, when
+        /// `faithful`).
+        fn outstanding(&self, session: &str) -> usize {
+            let Some(store) = self.store.get() else {
+                return 0;
+            };
+            let Ok(nodes) = store.transcript(session) else {
+                return 0;
+            };
+            let flags = flags_of(store, session);
+            let from = flags
+                .as_ref()
+                .and_then(|f| f.judged_through.as_deref())
+                .and_then(|id| nodes.iter().position(|(_, n)| n.id == id))
+                .map_or(0, |at| at + 1);
+            let submitted = self.real.get().map(|j| j.content_submitted());
+            nodes[from..]
+                .iter()
+                .filter(|(_, n)| is_item(n))
+                .filter(|(_, n)| submitted.as_ref().is_none_or(|s| s.contains(&n.id)))
+                .count()
+        }
+
         fn settled(&self, session: &str) -> Pin<Box<dyn Future<Output = ()> + Send>> {
             self.waits.lock().unwrap().push(session.to_string());
             self.land(session);
@@ -363,6 +434,89 @@ mod tests {
                 is_item(&stub),
                 built.is_some(),
             );
+        }
+    }
+
+    /// A counter a test moves by hand: a stand-in for the judge's asks, with
+    /// the wake-up the real one gives, or without it.
+    struct Counted {
+        out: std::sync::atomic::AtomicUsize,
+        wake: std::sync::Arc<tokio::sync::Notify>,
+    }
+
+    impl Counted {
+        fn with(n: usize) -> std::sync::Arc<Self> {
+            std::sync::Arc::new(Self {
+                out: n.into(),
+                wake: Default::default(),
+            })
+        }
+
+        fn set(&self, n: usize) {
+            self.out.store(n, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    impl Verdicts for Counted {
+        fn outstanding(&self, _session: &str) -> usize {
+            self.out.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        fn settled(&self, _session: &str) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            let wake = self.wake.clone();
+            Box::pin(async move { wake.notified().await })
+        }
+    }
+
+    /// With nothing outstanding the wait is not even begun, and `Ready` (the
+    /// stand-in) never has anything outstanding.
+    #[tokio::test]
+    async fn a_session_with_no_ask_out_is_not_waited_for() {
+        let handle = Handle::default();
+        assert_eq!(handle.outstanding("ses_1"), 0);
+        let t = Instant::now();
+        assert!(handle.drained("ses_1", Duration::from_secs(30)).await);
+        assert!(t.elapsed() < Duration::from_secs(5));
+    }
+
+    /// An ask that never lands is waited for as long as `max` and no longer,
+    /// and then the answer is `false`: the caller goes on its labels. Zero
+    /// never waits and never asks the judge to hurry (no waiter is counted).
+    #[tokio::test]
+    async fn an_ask_that_never_lands_is_waited_for_max_and_no_longer() {
+        let handle = Handle::default();
+        let silent = std::sync::Arc::new(judging::Silent::default());
+        handle.set(silent.clone());
+        assert_eq!(handle.outstanding("ses_1"), 1);
+        assert!(!handle.drained("ses_1", Duration::ZERO).await);
+        assert!(silent.waits.lock().unwrap().is_empty(), "zero never waits");
+        let t = Instant::now();
+        assert!(!handle.drained("ses_1", Duration::from_millis(300)).await);
+        let took = t.elapsed();
+        assert!(took >= Duration::from_millis(300), "{took:?}");
+        assert!(took < Duration::from_secs(10), "{took:?}");
+        assert!(!silent.waits.lock().unwrap().is_empty());
+    }
+
+    /// The count coming down ends the wait early, with the wake-up or, if a
+    /// stand-in loses it, within one slice rather than the whole `max`.
+    #[tokio::test]
+    async fn the_count_reaching_zero_ends_the_wait() {
+        for woken in [true, false] {
+            let handle = Handle::default();
+            let counted = Counted::with(2);
+            handle.set(counted.clone());
+            let c = counted.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                c.set(0);
+                if woken {
+                    c.wake.notify_waiters();
+                }
+            });
+            let t = Instant::now();
+            assert!(handle.drained("ses_1", Duration::from_secs(60)).await);
+            assert!(t.elapsed() < Duration::from_secs(5), "woken {woken}");
         }
     }
 }

@@ -7,14 +7,16 @@
 //!   label is ever raised. A model of restricted origin then has no labels to follow, so `cn_models` must say what
 //!   it does without them (`never` or `always`); `follow_flags` with the flags off refuses to start.
 //! - `cn_models`: `always`, `follow_flags` (the default) or `never`: whether a request to a model of restricted
-//!   origin is sent whatever the session carries, only when its labels allow it, or never. **Parsed and exposed
-//!   only**: nothing reads it until the chokepoint is rewired to it (theseus-gyjyo, R5a).
+//!   origin is sent whatever the session carries, only when its labels allow it, or never. Read by the provider
+//!   chokepoint (`data_gate.rs`, which reads the session's record and nothing else) and by the route
+//!   (`turn/data_step.rs`, which skips a profile `never` refuses).
 //! - `injection`: what an `injection` label does to a call that acts — `refuse` (the default) or `notify`. **The
 //!   bench daemon sets `notify`**, so a trial never freezes waiting for the operator to tap a button. The design
 //!   document calls the first one `freeze`; the spelling in an owner's config is `refuse`, and stays.
-//! - `wait_ms`: how long a turn bound for a model of restricted origin waits for an item's verdict before it goes to
-//!   Claude instead. A Claude turn never waits, whatever this says. Zero means it never waits, so an unjudged item
-//!   sends that one request to Claude at once.
+//! - `wait_ms`: how long a turn bound for a model of restricted origin waits for the content asks still out for its
+//!   session to land (`content_wait`, a counter of them). It then goes either way on the labels it reads: it is never
+//!   kept off a model for an ask that did not land. A Claude turn never waits, whatever this says. Zero means it
+//!   never waits.
 //! - `max_pieces`: the bound on how many pieces one long item is split into (`content::split`). Set so the largest
 //!   item that can exist — an `fs.read` at `FS_READ_MAX_CHARS`, 100,000 characters, which is 17 pieces of the pack's
 //!   6,000-character cap — fits whole, with room to spare. Past the bound an item is read from the start and its row

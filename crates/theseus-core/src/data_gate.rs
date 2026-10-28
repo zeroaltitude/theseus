@@ -3,13 +3,17 @@
 //! ([`guard`]), so one place covers every caller (the turn, compaction,
 //! keep-warm, replay, the background calls). It refuses, before a byte is sent:
 //!
-//! - a request to a model of restricted origin (`cn` or `unknown`) unless the
-//!   session it is made for has no label that disqualifies such a model
-//!   (`ContentFlags::disqualifies_cn`) and every item in it has been judged
-//!   (`content_wait::unjudged`). A request made for no session is refused: fail
-//!   closed, since nothing says what it carries. Nothing is proved per request;
-//!   the session either carries a label or it does not. Each refusal is a
-//!   `data_gate.blocked` row;
+//! - a request to a model of restricted origin (`cn` or `unknown`) that
+//!   `[content_based_security] cn_models` does not allow: `never` refuses it;
+//!   `follow_flags` (the default) refuses it when the session it is made for
+//!   carries a label that disqualifies such a model
+//!   (`ContentFlags::disqualifies_cn`); `always` sends it. **That is one read
+//!   of the session's record and nothing more**: the transcript is never read,
+//!   no item is proved judged, and no mark is looked at (theseus-gyjyo.6).
+//!   A request made for no session is refused whatever the mode, and so is
+//!   one whose session has no record that reads: those are about the caller,
+//!   not the content, and fail closed. Each refusal is a `data_gate.blocked`
+//!   row;
 //! - a request made for a session that read private content (Google's marker,
 //!   `google::private`), to a model not of US origin
 //!   (`ModelOrigin::cleared_for_sensitive`, an allowlist). No label lifts
@@ -22,12 +26,13 @@
 //!
 //! An unrestricted model's request costs one lookup of its model's origin,
 //! memoised per model, and its text is never read. The session's record is
-//! read only for a restricted model.
+//! read only for a restricted model under `follow_flags`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 
 use crate::catalog::{cleared_for_sensitive, origin_of, Catalog, ModelOrigin};
+use crate::config::content_based_security::CnModels;
 use crate::config::Config;
 use crate::content::ContentFlags;
 use crate::provider::{
@@ -67,6 +72,9 @@ struct Gated {
     /// Where a refusal's row is written (none in a unit test).
     store: Option<Store>,
     counter: Counter,
+    /// `[content_based_security] cn_models`: what a request to a model of
+    /// restricted origin is sent under.
+    cn_models: CnModels,
 }
 
 impl Gated {
@@ -77,6 +85,7 @@ impl Gated {
         (api_base, vouched): (String, Option<ModelOrigin>),
         store: Option<Store>,
         counter: Counter,
+        cn_models: CnModels,
     ) -> Self {
         Self {
             inner,
@@ -87,6 +96,7 @@ impl Gated {
             origins: RwLock::default(),
             store,
             counter,
+            cn_models,
         }
     }
 
@@ -138,12 +148,13 @@ impl Gated {
         Some(ProviderError::DataGate { message }.into())
     }
 
-    /// Why a request to a model of `origin` is refused for what its session
-    /// holds: the row's word, and the words for the refusal. None for a model
-    /// that is not restricted, and for a session with no label that keeps it
-    /// off one, every item of which was judged. Fails closed: a call made for
-    /// no session, a session with no record, or a record or transcript that
-    /// does not read is refused.
+    /// Why a request to a model of `origin` is refused: the row's word, and
+    /// the words for the refusal. None for a model that is not restricted, for
+    /// `always`, and under `follow_flags` for a session with no label that
+    /// keeps it off one. One read of the session's record, and nothing else:
+    /// no transcript, no proof that an item was judged. Fails closed on what
+    /// is about the caller: a call made for no session, and a session with no
+    /// record that reads.
     fn cn_refusal(&self, origin: ModelOrigin) -> Option<(&'static str, String)> {
         if !origin.restricted() {
             return None;
@@ -154,39 +165,38 @@ impl Gated {
                 "this request is not made for a session, so nothing says what it carries".into(),
             ));
         };
-        let read = self.store.as_ref().map(|store| {
-            theseus_store::blocking(|| {
-                let rec = store.get_session::<SessionRecord>(&session)?;
-                let nodes = store.transcript(&session)?;
-                Ok::<_, anyhow::Error>((rec, nodes))
-            })
-        });
-        let (rec, nodes) = match read {
-            Some(Ok((Some(rec), nodes))) => (rec, nodes),
-            _ => {
+        match self.cn_models {
+            CnModels::Always => return None,
+            CnModels::Never => {
                 return Some((
-                    "no_record",
-                    format!("its session {session} has no record that reads"),
+                    "never",
+                    "`[content_based_security] cn_models` is `never`".into(),
                 ))
             }
-        };
-        let flags = rec.data.as_deref();
-        if let Some(flag) = flags.and_then(ContentFlags::disqualifies_cn) {
-            return Some((
-                flag.as_str(),
-                format!(
-                    "its session carries a `{}` label: {}",
-                    flag.as_str(),
-                    flag.means()
-                ),
-            ));
+            CnModels::FollowFlags => {}
         }
-        crate::content_wait::unjudged(&nodes, flags).then(|| {
-            (
-                "unjudged",
-                "its session holds an item that has not been judged yet".into(),
-            )
-        })
+        let rec = self
+            .store
+            .as_ref()
+            .map(|store| theseus_store::blocking(|| store.get_session::<SessionRecord>(&session)));
+        let Some(Ok(Some(rec))) = rec else {
+            return Some((
+                "no_record",
+                format!("its session {session} has no record that reads"),
+            ));
+        };
+        let flag = rec
+            .data
+            .as_deref()
+            .and_then(ContentFlags::disqualifies_cn)?;
+        Some((
+            flag.as_str(),
+            format!(
+                "its session carries a `{}` label: {}",
+                flag.as_str(),
+                flag.means()
+            ),
+        ))
     }
 
     /// A refusal, counted by its class word (theseus-4h85l).
@@ -271,6 +281,7 @@ pub fn guard(
                 (base, conf.and_then(|p| p.origin)),
                 Some(store.clone()),
                 counter.clone(),
+                cfg.content_based_security.cn_models,
             ));
             (name, gated)
         })
@@ -299,6 +310,7 @@ mod tests {
             (api_base.into(), None),
             Some(store),
             Counter::default(),
+            CnModels::default(),
         );
         (g, fake, rec.session_id, dir)
     }

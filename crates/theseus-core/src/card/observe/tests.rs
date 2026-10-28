@@ -376,7 +376,18 @@ async fn a_china_origin_profile_is_refused_at_the_chokepoint() {
     // check: the chokepoint still holds.
     let r =
         crate::tests_route::rig_parts(None, EVERY, |_| {}, |p| p.cfg.card.profile = "glm".into());
-    let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    // The session carries a label: only a label keeps a session off a model of
+    // restricted origin (theseus-gyjyo.6).
+    let mut flags = crate::content::ContentFlags::default();
+    flags.raise(crate::content::deterministic::label(
+        crate::content::Flag::Confidential,
+        "nod_earlier",
+        crate::content::ItemKind::ToolResult,
+        "name: Examplecorp".into(),
+        1,
+    ));
+    let mut rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    rec.data = Some(Box::new(flags));
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
     let sid = rec.session_id;
     for i in 0..EVERY {

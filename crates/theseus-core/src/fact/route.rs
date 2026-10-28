@@ -69,8 +69,8 @@ pub struct Ran<'a> {
 /// The data rule on a turn's route row. `gate` is an open word: why the rule
 /// kept the turn off a restricted-origin profile, written only when it did.
 pub struct RouteData<'a> {
-    /// `allowed`, a flag's word, or `unjudged`: whether the session may use a
-    /// model of restricted origin, as the turn found it.
+    /// `allowed`, a flag's word, or `never` (`cn_models`): whether the session may
+    /// use a model of restricted origin, as the turn found its labels.
     pub cn: &'a str,
     pub gate: Option<&'a str>,
     /// Why a class with `cn_draft` did not draft (theseus-a1wvq.13).

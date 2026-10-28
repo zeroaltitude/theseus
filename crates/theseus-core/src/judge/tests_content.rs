@@ -880,6 +880,35 @@ async fn a_turns_wait_is_counted_from_the_call_and_released_on_drop() {
     assert!(!svc.content_awaited(&sid), "a dropped wait releases");
 }
 
+/// The counter a turn waits on (theseus-gyjyo.6) is the asks open for the
+/// session: one for each item queued, back to none when they land, and a
+/// number a turn can wait on without reading the transcript.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_outstanding_count_is_the_asks_open_for_the_session() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |_| {});
+    let sid = session(&r);
+    let svc = r.core.runner.judge.clone();
+    let handle = &r.core.runner.verdicts;
+    assert_eq!(handle.outstanding(&sid), 0, "nothing was asked");
+    assert!(handle.drained(&sid, Duration::ZERO).await, "no wait owed");
+    svc.ask_content(
+        &sid,
+        vec![
+            item_in(&r, &sid, "n1", ItemKind::ToolResult, "one"),
+            item_in(&r, &sid, "n2", ItemKind::ToolResult, "two"),
+        ],
+    );
+    assert_eq!(handle.outstanding(&sid), 2, "one ask for each item queued");
+    assert_eq!(handle.outstanding("ses_other"), 0, "per session");
+    assert!(
+        handle.drained(&sid, Duration::from_secs(15)).await,
+        "the landing ended the wait"
+    );
+    assert_eq!(handle.outstanding(&sid), 0, "and the count came down");
+}
+
 /// With `[content_based_security] session_flags = false`, the judge off, or the pack off, nothing is
 /// asked and nothing waits.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
