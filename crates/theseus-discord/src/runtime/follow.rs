@@ -464,8 +464,7 @@ mod tests {
         let mut m = Mirror::default();
         m.tool(format!("proc.run echo {VALUE}"));
         m.said(&format!("the token is {VALUE}"));
-        let v =
-            crate::runtime::task_channels::work_view("exe_01J0000000000000000a1b2c3", "running");
+        let v = crate::runtime::task_channels::work_view("exe_task_a1b2c3", "running");
         let text = m.sendable(&exits, &v, None);
         assert!(!text.contains(VALUE), "{text}");
         assert!(
