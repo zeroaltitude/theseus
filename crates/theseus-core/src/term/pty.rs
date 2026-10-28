@@ -486,34 +486,81 @@ fn members(g: u32) -> usize {
 }
 
 /// Whether `pid` is blocked waiting for input: in a read of its fd 0, or in
-/// a select, poll or epoll wait (`/proc/<pid>/syscall`). A shell at its
-/// prompt and a REPL at its line are (bash and python3's readline: pselect6
-/// on fd 0); one running, or waiting for a child (`wait4`) or a timer, is
-/// not. None where it cannot be read: another architecture, or no leave to
-/// read it (the program is the daemon's own child, so it has).
+/// a select, poll or epoll wait that watches a descriptor
+/// (`/proc/<pid>/syscall`, read by `waits_in`). A shell at its prompt and a
+/// REPL at its line are (bash and python3's readline: pselect6 on fd 0); one
+/// running, or waiting for a child (`wait4`) or a timer, is not. None where
+/// it cannot be read: another architecture, or no leave to read it (the
+/// program is the daemon's own child, so it has).
 fn waits_for_input(pid: u32) -> Option<bool> {
+    let s = std::fs::read_to_string(format!("/proc/{pid}/syscall")).ok()?;
+    waits_in(&s)
+}
+
+/// What a `/proc/<pid>/syscall` line says of the wait it is in. The line is
+/// the syscall's number, its six arguments, the stack pointer and the
+/// program counter, in hex; "running" instead of a number when the process
+/// is not in a syscall.
+///
+/// A select or poll is a wait for input only when it watches something:
+/// CPython before 3.11 sleeps in `time.sleep` with a `pselect6` of zero
+/// descriptors, and a program asleep is not waiting for a line. The
+/// arguments are read at the kernel's own layout (checked on x86_64 against
+/// a process parked in each call; aarch64 prints x0 to x5 the same way):
+/// - `select` and `pselect6` take `(nfds, readfds, writefds, exceptfds,
+///   timeout, ..)`: arg 0 is the count, args 1 to 3 the three sets, and a
+///   wait is a watch only with a count and at least one set (`select(5,
+///   NULL, NULL, NULL, t)` is a sleep too);
+/// - `poll` and `ppoll` take `(fds, nfds, ..)`: arg 1 is the count, arg 0
+///   the array, which is not read (that is `/proc/<pid>/mem`), so an array
+///   of `fd < 0` entries still counts;
+/// - the epoll waits take `(epfd, ..)`: arg 0 is the epoll descriptor, which
+///   is itself a watch set, so the call alone is a wait for input.
+///
+/// `read` counts only on fd 0 (arg 0).
+pub(super) fn waits_in(line: &str) -> Option<bool> {
     #[cfg(target_arch = "x86_64")]
     const READ: i64 = 0;
     #[cfg(target_arch = "x86_64")]
-    const WAITS: &[i64] = &[7, 23, 232, 270, 271, 281, 441];
+    const SELECTS: &[i64] = &[23, 270];
+    #[cfg(target_arch = "x86_64")]
+    const POLLS: &[i64] = &[7, 271];
+    #[cfg(target_arch = "x86_64")]
+    const EPOLLS: &[i64] = &[232, 281, 441];
     #[cfg(target_arch = "aarch64")]
     const READ: i64 = 63;
     #[cfg(target_arch = "aarch64")]
-    const WAITS: &[i64] = &[22, 72, 73, 441];
+    const SELECTS: &[i64] = &[72];
+    #[cfg(target_arch = "aarch64")]
+    const POLLS: &[i64] = &[73];
+    #[cfg(target_arch = "aarch64")]
+    const EPOLLS: &[i64] = &[22, 441];
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    return None;
+    {
+        let _ = line;
+        return None;
+    }
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
-        let s = std::fs::read_to_string(format!("/proc/{pid}/syscall")).ok()?;
-        let mut f = s.split_whitespace();
+        let mut f = line.split_whitespace();
         let Ok(nr) = f.next()?.parse::<i64>() else {
             // "running"
             return Some(false);
         };
-        let fd = f
-            .next()
-            .and_then(|a| u64::from_str_radix(a.trim_start_matches("0x"), 16).ok());
-        Some((nr == READ && fd == Some(0)) || WAITS.contains(&nr))
+        let args: Vec<u64> = f
+            .take(6)
+            .map_while(|a| u64::from_str_radix(a.trim_start_matches("0x"), 16).ok())
+            .collect();
+        let arg = |n: usize| args.get(n).copied();
+        Some(if nr == READ {
+            arg(0) == Some(0)
+        } else if SELECTS.contains(&nr) {
+            arg(0).is_some_and(|n| n > 0) && (1..4).any(|i| arg(i).is_some_and(|p| p != 0))
+        } else if POLLS.contains(&nr) {
+            arg(1).is_some_and(|n| n > 0)
+        } else {
+            EPOLLS.contains(&nr)
+        })
     }
 }
 

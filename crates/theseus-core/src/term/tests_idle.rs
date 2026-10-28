@@ -268,6 +268,62 @@ async fn a_repl_computing_is_not_idle() {
     terms.close_session("s1", BY_TOOL);
 }
 
+/// The syscall numbers `waits_in` reads, by architecture: read, then the
+/// select, poll and epoll calls (aarch64 has no `select` or `poll` of its own,
+/// so its first two are the `pselect6` and `ppoll` of the other columns).
+#[cfg(target_arch = "x86_64")]
+const NRS: [i64; 7] = [0, 23, 270, 7, 271, 232, 61];
+#[cfg(target_arch = "aarch64")]
+const NRS: [i64; 7] = [63, 72, 72, 73, 73, 22, 260];
+
+/// A `/proc/<pid>/syscall` line: the number, six arguments, the stack
+/// pointer and the program counter, as the kernel prints them.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+fn syscall_line(nr: i64, args: [u64; 6]) -> String {
+    let args: Vec<String> = args.iter().map(|a| format!("0x{a:x}")).collect();
+    format!("{nr} {} 0x7ffc755ca158 0x7f131cf1e9dd", args.join(" "))
+}
+
+/// The detector's own check, with no program in it, so that it does not
+/// depend on which `python3` is first in PATH (theseus-yr2g3): CPython before
+/// 3.11 sleeps in `time.sleep` with a `pselect6` of zero descriptors, and
+/// `a_repl_computing_is_not_idle` read idle on such a host, 125 ms into a 1 s
+/// sleep. The arguments are the ones the kernel printed for processes parked in
+/// each call (x86_64, 2026-10-26). A select or poll that watches nothing is a sleep, not a wait for
+/// input; one that watches a descriptor is.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[test]
+fn a_select_or_poll_that_watches_nothing_is_not_a_wait_for_input() {
+    use super::pty::waits_in;
+    let [read, select, pselect, poll, ppoll, epoll, wait] = NRS;
+    let set = 0x7209_fa31_7f30;
+    let fds = 0x79f5_01f1_7f10;
+    let timeout = 0x7d3d_286a_7690;
+    let waits = |nr, args| waits_in(&syscall_line(nr, args));
+    // time.sleep under CPython 3.10: pselect6(0, NULL, NULL, NULL, &ts, 0).
+    assert_eq!(waits(pselect, [0, 0, 0, 0, timeout, 0]), Some(false));
+    assert_eq!(waits(select, [0, 0, 0, 0, timeout, 0]), Some(false));
+    // A count with no set is a sleep too.
+    assert_eq!(waits(select, [5, 0, 0, 0, timeout, 0]), Some(false));
+    // The REPL's and the shell's prompt: pselect6(1, [0], NULL, NULL, ..).
+    assert_eq!(waits(pselect, [1, set, 0, 0, 0, 0]), Some(true));
+    assert_eq!(waits(select, [4, set, 0, 0, timeout, 0]), Some(true));
+    assert_eq!(waits(select, [4, 0, set, 0, timeout, 0]), Some(true));
+    // poll(fds, nfds, ms) and ppoll(fds, nfds, ts, ..): the count is arg 1.
+    assert_eq!(waits(poll, [fds, 0, 2000, 0, 0, 0]), Some(false));
+    assert_eq!(waits(poll, [fds, 1, 2000, 0, 0, 0]), Some(true));
+    assert_eq!(waits(ppoll, [fds, 0, timeout, 0, 0, 0]), Some(false));
+    assert_eq!(waits(ppoll, [fds, 1, timeout, 0, 0, 0]), Some(true));
+    // An epoll wait names its epoll descriptor in arg 0: a watch set already.
+    assert_eq!(waits(epoll, [3, fds, 64, 0, 0, 0]), Some(true));
+    // read: the terminal's input, fd 0, and nothing else.
+    assert_eq!(waits(read, [0, fds, 1024, 0, 0, 0]), Some(true));
+    assert_eq!(waits(read, [3, fds, 1024, 0, 0, 0]), Some(false));
+    // A child's wait, and a process not in a syscall.
+    assert_eq!(waits(wait, [0xffff_ffff, fds, 0xa, 0, 0, 0]), Some(false));
+    assert_eq!(waits_in("running\n"), Some(false));
+}
+
 /// A read's bound (the join's review: no test held it): `until_idle` alone
 /// may wait up to `[tools] proc_sync_secs`; with `quiet_ms` or `until`, or
 /// without `until_idle`, at most `MAX_WAIT_MS`; 10 s when no timeout is given.

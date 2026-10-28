@@ -1045,7 +1045,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and leaves the background running, as `proc.run` does (`term/left.rs`: booked, in health's `terminals_left`, a
   `term.left` row, ended by a later cancel or `/stop` of the session's execution or its parent's,
   `Core::end_terminals_left`). `term.read`'s `until_idle` waits for the program back in front (`tcgetpgrp`) and
-  waiting for input (`/proc/<pid>/syscall`: a read of fd 0, or a select or poll), looked at every 40 ms and never
+  waiting for input (`/proc/<pid>/syscall`: a read of fd 0, or a select or poll that watches a descriptor: a `time.sleep` under
+  CPython before 3.11 is a `pselect6` of none, theseus-yr2g3), looked at every 40 ms and never
   within 100 ms of a send. In memory only: the rows `term.opened`, `term.closed` and
   `term.left` (`fact/term.rs`) are the record. No broker grant reaches a terminal (`brokered`). Tests: `term/tests.rs` (goldens
   and real `sh`, `python3`, `cat`; a `/proc` scan for a test's own processes looks for a marker holding the run's
