@@ -974,8 +974,10 @@ impl TurnRunner {
     }
 
     /// Wait for the secrets a turn needs (theseus-qa0): its provider's key,
-    /// and the first round of every secret, since the scrubber must know
-    /// each value before any tool output passes through it. Both are
+    /// and the first round of every secret, since the exits must know each
+    /// value before any request leaves (the record holds a value raw; a
+    /// request is substituted from what the board holds ready now, and a
+    /// secret that is `Failed` is not known). Both are
     /// usually there already. Returns how long it waited, or why the turn
     /// cannot run. Fail closed: no provider call goes out without its key.
     async fn await_secrets(&self, target: &Target) -> Result<u64, SecretRefusal> {
@@ -2557,9 +2559,19 @@ impl TurnRunner {
             // The provider floor reads the session's mark as the call is made.
             let private = self.session_level(t);
             let sid = t.tc.session_id;
-            let mut stream = std::pin::pin!(crate::data_gate::for_session(sid, || {
-                crate::google::private::scoped(private, || {
-                    provider.stream_message(&compiled.request, &mut on_delta)
+            // The call the provider's substitution names in its row.
+            let call = crate::exits::Call {
+                op: None,
+                session: Some(sid.to_string()),
+                turn: Some(t.tc.turn_id.to_string()),
+                loop_index: Some(i),
+                correlation_id: Some(action.correlation_id.clone()),
+            };
+            let mut stream = std::pin::pin!(crate::exits::for_call(call, || {
+                crate::data_gate::for_session(sid, || {
+                    crate::google::private::scoped(private, || {
+                        provider.stream_message(&compiled.request, &mut on_delta)
+                    })
                 })
             }));
             let mut sent = false;

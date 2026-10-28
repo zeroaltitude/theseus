@@ -208,7 +208,8 @@ pub enum Body {
         tool: String,
         status: ResultStatus,
         is_error: bool,
-        /// What the model sees: scrubbed of secrets, capped.
+        /// What the model sees: the tool's output as printed, capped (the exits
+        /// replace the vault's values on the copy that leaves).
         content: String,
         #[serde(default)]
         correlation_id: Option<String>,

@@ -34,10 +34,7 @@ pub async fn open(conn: &mut Conn, json: bool, what: What) -> Result<()> {
         Some(s) => resolve::session(conn, &s).await?,
         None => crate::why::latest_session(conn).await?,
     };
-    let turn_id = match turn {
-        Some(t) => crate::why::find_started_turn(conn, &session_id, &t).await?,
-        None => last_turn(conn, &session_id).await?,
-    };
+    let turn_id = turn_of(conn, &session_id, turn).await?;
     let v = conn
         .request(
             method::TURN_INSPECT,
@@ -64,6 +61,19 @@ pub async fn open(conn: &mut Conn, json: bool, what: What) -> Result<()> {
         browse(&r.url);
     }
     Ok(())
+}
+
+/// The turn named (a whole id, or a unique start or end of one), else the
+/// session's last.
+pub(crate) async fn turn_of(
+    conn: &mut Conn,
+    session_id: &str,
+    turn: Option<String>,
+) -> Result<String> {
+    match turn {
+        Some(t) => crate::why::find_started_turn(conn, session_id, &t).await,
+        None => last_turn(conn, session_id).await,
+    }
 }
 
 /// The session's last turn: its newest `turn.started` row, which a turn that

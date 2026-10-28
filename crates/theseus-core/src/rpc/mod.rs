@@ -276,6 +276,9 @@ pub struct Core {
     /// Each secret's state. The daemon serves before they resolve, and each
     /// consumer waits for its own (theseus-qa0).
     pub secrets: Arc<SecretBoard>,
+    /// The vault's values as the exits substitute them: the provider request,
+    /// the Discord courier (`[privacy] redact_outbound`, theseus-gyjyo R7b).
+    pub exits: Arc<crate::exits::Exits>,
     /// The last start's phases, for health and the Observatory.
     pub startup_log: Arc<StartupLog>,
     /// The export pipeline, once built after serving, when its headers
@@ -780,6 +783,9 @@ impl Core {
         // The data floor: every provider, behind one check (restricted
         // origin, the sensitive names).
         let gate_counter = crate::data_gate::Counter::default();
+        // Every provider sends the vault's values substituted, inside the floor.
+        let exits = crate::exits::Exits::new(secrets.clone(), cfg.privacy.redact_outbound);
+        let providers = crate::exits::wrap(providers, &exits, &store);
         let providers = crate::data_gate::guard(providers, &cfg, &catalog, &store, &gate_counter);
         for (name, p) in cfg.all_profiles() {
             if catalog.get(&p.model).is_none() {
@@ -968,6 +974,7 @@ impl Core {
             tools,
             runner,
             secrets,
+            exits,
             startup_log,
             telemetry: telemetry_cell,
             gate_counter,

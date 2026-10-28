@@ -1,16 +1,14 @@
 //! What a question and a finished edit show of a call (theseus-z6au): the
 //! preview a `confirm.requested` carries, computed when the call is planned,
-//! and the diff a `tool.ended` carries, scrubbed as the model's copy is. The
+//! and the diff a `tool.ended` carries, which is the node's. The
 //! diffs themselves are theseus-tools' `change`, so a preview of an edit is the
 //! diff its run makes when the file did not change between.
 
-use serde_json::{json, Value};
-use theseus_protocol::diff::{cap, stat};
-use theseus_protocol::{ConfirmPreview, ToolDiff};
+use serde_json::Value;
+use theseus_protocol::ConfirmPreview;
 use theseus_tools::{Plan, ToolCtx};
 
 use crate::narrative;
-use crate::scrub::Scrubber;
 use crate::toolrun::ToolRuntime;
 
 /// A word as a shell would take it: bare when it is safe, else in single
@@ -95,9 +93,9 @@ impl ToolRuntime {
         Some(p)
     }
 
-    /// A call's main resource for the narrative, scrubbed of any secret value.
+    /// A call's main resource for the narrative, as it was asked for.
     pub(crate) fn subject(&self, tool: &str, plan: &Plan) -> String {
-        let s = match &plan.url {
+        match &plan.url {
             // A network call's subject is what it asks for (DD5).
             Some(url) => format!("{tool} {url}"),
             None => narrative::subject(
@@ -106,34 +104,6 @@ impl ToolRuntime {
                 plan.resources.first().map(|r| r.path.as_path()),
                 &self.ctx.cwd,
             ),
-        };
-        self.scrubber.scrub(&s).0
-    }
-}
-
-/// A result's meta with its diff scrubbed (the model's copy of the diff is
-/// scrubbed with the rest of the text; this is the event's) and counted again.
-pub(crate) fn scrub_diff(scrubber: &Scrubber, mut meta: Value) -> Value {
-    let Some(d) = meta.get("diff").filter(|d| d.is_object()) else {
-        return meta;
-    };
-    let Ok(mut diff) = serde_json::from_value::<ToolDiff>(d.clone()) else {
-        meta["diff"] = Value::Null;
-        return meta;
-    };
-    let (unified, changed) = scrubber.scrub(&diff.unified);
-    diff.path = scrubber.scrub(&diff.path).0;
-    if changed > 0 {
-        diff.unified = unified;
-        // Counts stay as the tool made them when the diff was cut; a
-        // redaction does not change a line's count.
-        if !diff.truncated {
-            (diff.added, diff.removed) = stat(&diff.unified);
         }
-        let (unified, cut) = cap(&diff.unified);
-        diff.truncated |= cut;
-        diff.unified = unified;
     }
-    meta["diff"] = json!(diff);
-    meta
 }

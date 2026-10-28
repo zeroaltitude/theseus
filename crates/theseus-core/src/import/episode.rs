@@ -32,9 +32,8 @@ pub const SOURCES: &[&str] = &[
 
 /// The sources `theseus import claude-code` and `theseus import codex` write
 /// (theseus-o73y): a developer's history from those harnesses. Apart from
-/// `SOURCES`, the pipeline's list, and the only ones whose text the daemon
-/// scrubs as it writes (`write::scrubbed`): the CLI made these episodes from
-/// raw session files, and only the daemon holds the vault's values.
+/// `SOURCES`, the pipeline's list: the CLI made these episodes from raw
+/// session files, and they are stored as they came.
 pub const HARNESS_SOURCES: &[&str] = &["claude-code", "codex"];
 
 /// The source the nightly OpenClaw sync writes (theseus-pjmj7): sessions read
@@ -46,10 +45,11 @@ pub const SYNC_SOURCE: &str = "openclaw-sync";
 /// Vestige dump's memories, one note an episode, read by the CLI from a file.
 pub const VESTIGE_SOURCE: &str = "vestige";
 
-/// The sources whose text the daemon scrubs as it writes: the harnesses', the
-/// sync's and the Vestige dump's, each made by a client from raw files that
-/// hold no vault value.
-pub const SCRUBBED_SOURCES: &[&str] = &["claude-code", "codex", SYNC_SOURCE, VESTIGE_SOURCE];
+/// The sources whose message digests the daemon computes itself, over the text
+/// it stores: the harnesses', the sync's and the Vestige dump's. A digest is
+/// what `append` compares to tell a rewritten message from a grown file, so
+/// it is the stored text's whatever the sender wrote.
+pub const DIGESTED_SOURCES: &[&str] = &["claude-code", "codex", SYNC_SOURCE, VESTIGE_SOURCE];
 
 pub const PLACE_KINDS: &[&str] = &[
     "dm",

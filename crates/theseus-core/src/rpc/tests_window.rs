@@ -107,15 +107,18 @@ fn pages_walk_the_window_each_row_once() {
 
 /// Every string of a row passes the scrubber, as a tool's output does.
 #[test]
-fn a_secret_shaped_string_is_scrubbed() {
-    let c = test_core("ok");
+fn a_value_the_vault_holds_is_scrubbed() {
+    let c = test_core_knowing(
+        "vault-held-ghp-abcdefghijklmnopqrstuvwxyz0123456789",
+        "gh_token",
+    );
     let s = open(&c);
     put(
         &c,
         1_000,
         "tool.job_started",
         Some(&s),
-        json!({"argv": ["curl", "-H", "Authorization: ghp_abcdefghijklmnopqrstuvwxyz0123456789"]}),
+        json!({"argv": ["curl", "-H", "Authorization: vault-held-ghp-abcdefghijklmnopqrstuvwxyz0123456789"]}),
     );
     let r = c
         .ledger_window(
@@ -133,8 +136,26 @@ fn a_secret_shaped_string_is_scrubbed() {
         .unwrap()
         .data
         .to_string();
-    assert!(!text.contains("ghp_abcdef"), "{text}");
-    assert!(text.contains("redacted"), "{text}");
+    assert!(!text.contains("vault-held-ghp-abcdef"), "{text}");
+    assert!(text.contains("[redacted:gh_token]"), "{text}");
+}
+
+/// A core whose scrubber knows `value` as the vault's secret `name`.
+fn test_core_knowing(value: &str, name: &str) -> std::sync::Arc<Core> {
+    use super::Parts;
+    use crate::provider::FakeProvider;
+    let dir = crate::scratch::dir("t");
+    let store = crate::store::Store::open(&dir.join("store")).unwrap();
+    let mut cfg = crate::Config::example();
+    cfg.server.state_dir = dir.to_string_lossy().into_owned();
+    Core::build(Parts {
+        scrubber: std::sync::Arc::new(crate::scrub::Scrubber::with_values(vec![(
+            value.into(),
+            name.into(),
+        )])),
+        ..Parts::for_tests(cfg, std::sync::Arc::new(FakeProvider::default()), store)
+    })
+    .unwrap()
 }
 
 /// A session narrows the window to its own rows and the daemon's.

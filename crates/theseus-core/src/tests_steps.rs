@@ -37,6 +37,16 @@ fn rig_on(
     tweak: impl FnOnce(&mut Config),
     launcher: Arc<dyn crate::toolrun::JobLauncher>,
 ) -> Rig {
+    rig_knowing(script, tweak, launcher, None)
+}
+
+/// `rig_on`, the daemon's scrubber knowing `value` when it is given.
+fn rig_knowing(
+    script: Vec<Scripted>,
+    tweak: impl FnOnce(&mut Config),
+    launcher: Arc<dyn crate::toolrun::JobLauncher>,
+    value: Option<&str>,
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -53,6 +63,12 @@ fn rig_on(
     let fake = Arc::new(FakeProvider::scripted(script));
     let mut p = crate::rpc::Parts::for_tests(cfg, fake, store);
     p.launcher = launcher;
+    if let Some(v) = value {
+        p.scrubber = Arc::new(crate::scrub::Scrubber::with_values(vec![(
+            v.into(),
+            "demo_secret".into(),
+        )]));
+    }
     let core = Core::build(p).unwrap();
     Rig {
         core,
@@ -209,6 +225,30 @@ async fn a_failed_step_stops_the_batch_and_its_one_result_names_each_step() {
     let corr = started[0]["correlation_id"].as_str().unwrap();
     let a = r.core.kernel.action(corr).unwrap().unwrap();
     assert_eq!(a.state, theseus_kernel::ActionState::Failed);
+}
+
+/// The record is raw at every site: a batch's earlier steps are as the last
+/// one's, so a value the first step prints is in the node as printed, and the
+/// node is not scrubbed in one step and raw in the next.
+#[tokio::test]
+async fn a_steps_output_is_in_the_node_as_printed_in_every_step() {
+    const VALUE: &str = "invented-secret-0f9a8b7c";
+    let batch = json!({"steps": [
+        {"argv": ["cat", "token.txt"]},
+        {"argv": ["cat", "token.txt"]},
+    ]});
+    let r = rig_knowing(
+        vec![run(batch), Scripted::text("Done.")],
+        |_| {},
+        Arc::new(crate::toolrun::InlineLauncher),
+        Some(VALUE),
+    );
+    std::fs::write(r.root.join("token.txt"), VALUE).unwrap();
+    let res = r.turn("run the batch").await;
+    let results = r.results(&res.session_id);
+    let (_, text, _) = &results[0];
+    assert_eq!(text.matches(VALUE).count(), 2, "{text}");
+    assert!(!text.contains("[redacted:"), "{text}");
 }
 
 /// Every step that exits 0 runs, and the batch succeeds with each step's

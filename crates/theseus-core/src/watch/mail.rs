@@ -15,7 +15,7 @@
 //!   `google.called` row (`rows`, recorded by the caller); a mail watch makes
 //!   no model call, ever.
 //! - **What a match carries** is a quote: sender, subject and the first 200
-//!   characters of the snippet, scrubbed, one line each. It is outside text.
+//!   characters of the snippet, one line each. It is outside text.
 
 use std::collections::BTreeSet;
 
@@ -26,7 +26,6 @@ use super::cond::Observed;
 use super::mail_auth;
 use super::reply::quote_of;
 use crate::google::{mail, mime, CallFailed, Google, Meta};
-use crate::scrub::Scrubber;
 
 /// The META key a watch's cursor is kept under (`<prefix><wake id>`).
 pub const CURSOR_PREFIX: &str = "watch.mail.";
@@ -122,12 +121,7 @@ struct Read {
 
 /// Read one match's metadata: none for the owner's own draft or sent mail
 /// (the guard that does not depend on the query's terms).
-async fn read_one(
-    g: &Google,
-    rows: &mut Vec<Value>,
-    id: String,
-    scrubber: &Scrubber,
-) -> Result<Option<Read>, String> {
+async fn read_one(g: &Google, rows: &mut Vec<Value>, id: String) -> Result<Option<Read>, String> {
     let query = [
         ("format", "metadata"),
         ("metadataHeaders", "From"),
@@ -155,13 +149,12 @@ async fn read_one(
     }
     let head = |n: &str| mime::header(&msg["payload"], n).unwrap_or_default();
     let (from, subject) = (head("From"), head("Subject"));
-    let said = |t: &str| quote_of(&scrubber.scrub(t).0);
     Ok(Some(Read {
         line: format!(
             "From: {} · Subject: {} · {}",
-            said(&from),
-            said(&subject),
-            said(msg["snippet"].as_str().unwrap_or(""))
+            quote_of(&from),
+            quote_of(&subject),
+            quote_of(msg["snippet"].as_str().unwrap_or(""))
         ),
         sender: sender_of(&from),
         authenticated: mail_auth::authenticated(&msg["payload"], &from),
@@ -173,7 +166,6 @@ pub async fn look(
     g: &Google,
     q: &str,
     cursor: Option<&str>,
-    scrubber: &Scrubber,
     rows: &mut Vec<Value>,
 ) -> Result<Observed, String> {
     let Some(start) = cursor else {
@@ -238,7 +230,7 @@ pub async fn look(
     }
     let (mut lines, mut senders, mut unverified) = (Vec::new(), Vec::new(), Vec::new());
     for id in matched {
-        if let Some(m) = read_one(g, rows, id, scrubber).await? {
+        if let Some(m) = read_one(g, rows, id).await? {
             lines.push(m.line);
             if !m.authenticated {
                 unverified.push(m.sender.clone());

@@ -219,10 +219,12 @@ fn the_jev_key_reaches_jev_alone() {
 }
 
 /// A task's shell can read the daemon's environment (`/proc/<pid>/environ`,
-/// the same user, L0): the scrubber holds both keys' values back from what the
-/// model and the record see, as it does the plain arm's one.
+/// the same user, L0): the record is raw, so the job's result holds both keys
+/// as it printed them, which is how the operator learns what a job could
+/// read. What leaves the machine is the exits' business: the provider request
+/// substitutes a value the vault gave (R7b), and asserts it in its own test.
 #[test]
-fn a_job_that_reads_the_daemons_environment_sees_neither_key() {
+fn a_job_that_reads_the_daemons_environment_leaves_both_keys_in_the_record() {
     let model = FakeModel::start(|prompt| {
         if prompt.contains("environ") {
             let script = "for f in /proc/[0-9]*/environ; do tr '\\0' '\\n' < $f 2>/dev/null; done \
@@ -243,17 +245,16 @@ fn a_job_that_reads_the_daemons_environment_sees_neither_key() {
         seen.contains("TYPESAFE_API_KEY"),
         "the job did not read the environment: {seen}"
     );
-    for (what, text) in [
-        ("model request", &seen),
-        ("history", &hist),
-        ("ask", &out),
-        ("stderr", &err),
-    ] {
-        assert!(
-            !text.contains(JEV) && !text.contains(KEY),
-            "a key's value is in the {what}"
-        );
-    }
+    assert!(
+        hist.contains(KEY) && hist.contains(JEV),
+        "the record shows what the job read: {hist}"
+    );
+    // What went to the model is the exits' copy: both keys are on the board
+    // (`env:` sources), so each leaves as its name.
+    assert!(
+        !seen.contains(KEY) && !seen.contains(JEV),
+        "a key reached the model: {seen}"
+    );
 }
 
 /// At the plain arm's $2 limit the money gate refuses the first call Jev

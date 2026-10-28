@@ -16,6 +16,9 @@ use twilight_model::http::interaction::{
     InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
 
+use theseus_core::exits::Exits;
+use theseus_protocol::cite::Citation;
+
 use super::Shared;
 use crate::render::cite::{excerpt_text, Source};
 
@@ -86,6 +89,20 @@ pub(super) fn parse(custom_id: &str) -> Option<(&str, &str)> {
     (!session.is_empty() && is_handle(handle)).then_some((session, handle))
 }
 
+/// What a press answers with. It goes out as an interaction response, which
+/// does not pass the courier's `Lane::write`, and the excerpt is recalled
+/// text, an imported episode among it, stored as it was written: the vault's
+/// values are replaced here. The excerpt is masked before `excerpt_text` cuts
+/// it, so a value is not cut in two first, and the whole answer after, for
+/// the header.
+fn shown(exits: &Exits, c: &Citation) -> String {
+    let masked = Citation {
+        excerpt: exits.text(&c.excerpt).0.into_owned(),
+        ..c.clone()
+    };
+    exits.text(&excerpt_text(&masked)).0.into_owned()
+}
+
 impl Shared {
     /// A "Show source" press: true when it was one, and answered.
     pub(super) async fn source_interaction(&self, i: &Interaction) -> bool {
@@ -107,7 +124,7 @@ impl Shared {
             .await
         {
             Ok(r) => match r.cites.first() {
-                Some(c) => excerpt_text(c),
+                Some(c) => shown(&self.core.exits, c),
                 None => format!("No source for `{handle}` can be shown here."),
             },
             Err(e) => format!("⚠️ The source could not be read: {}", e.message),
@@ -171,6 +188,35 @@ mod tests {
         assert_eq!(parse("src:ses_1:m:d4e5f6"), Some(("ses_1", "m:d4e5f6")));
         assert_eq!(parse("src:ses_1:d4e5f6"), None);
         assert_eq!(parse("confirm:approve:act_1"), None);
+    }
+
+    /// A recalled import holds a vault value as it was written; the press
+    /// answers with its name, and a lookalike is left as it is.
+    #[test]
+    fn a_source_excerpt_leaves_with_the_vaults_values_replaced() {
+        use std::time::Instant;
+        use theseus_core::secrets::{Secret, SecretBoard};
+        const VALUE: &str = "vault-token-4c8e1f7a92b3";
+        const LOOKALIKE: &str = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+        let board = SecretBoard::new(["courier_token".to_string()], Instant::now());
+        board.publish(
+            [("courier_token".to_string(), Ok(Secret::new(VALUE.into())))].into(),
+            "fake",
+        );
+        let exits = Exits::new(board, true);
+        let c = Citation {
+            handle: "m:a1b2c3".into(),
+            header: format!("imported from a harness, {VALUE}"),
+            excerpt: format!("the deploy key is {VALUE}\nand {LOOKALIKE}"),
+            ..Default::default()
+        };
+        let said = shown(&exits, &c);
+        assert!(!said.contains(VALUE), "{said}");
+        assert!(
+            said.contains("> the deploy key is [redacted:courier_token]"),
+            "{said}"
+        );
+        assert!(said.contains(LOOKALIKE), "{said}");
     }
 
     /// The offer's button joins the sources' row, or a row of its own when they fill it.

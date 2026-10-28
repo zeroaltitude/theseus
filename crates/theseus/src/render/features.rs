@@ -42,11 +42,11 @@ mod tests {
         let first = |h: &HealthResult| health_lines(h, 0)[0].text.clone();
         assert!(first(&health(None)).starts_with("theseusd 0.0.1 · protocol"));
         for line in [
-            "features: memory live (baseline) · Jev on, routing live · secret scrub always on \
+            "features: memory live (baseline) · Jev on, routing live · outbound substitution on \
              · budgets: daily ceiling $200",
             "features: memory live (baseline) · Jev off (no jev_api_key entry under [secrets]) \
-             · secret scrub always on · budgets: daily ceiling $200",
-            "features: memory off · Jev on, routing shadow · secret scrub always on \
+             · outbound substitution on · budgets: daily ceiling $200",
+            "features: memory off · Jev on, routing shadow · outbound substitution on \
              · budgets: daily ceiling $50",
         ] {
             let h = health(Some(json!({

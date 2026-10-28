@@ -187,10 +187,7 @@ impl ToolRuntime {
                 .and_then(|d| d.get("duration_ms"))
                 .and_then(Value::as_u64)
                 .unwrap_or(c.finished_at_ms.saturating_sub(c.started_at_ms));
-            let out = self
-                .scrubber
-                .scrub(&read_result_file(c.result_ref.as_deref()).text)
-                .0;
+            let out = read_result_file(c.result_ref.as_deref()).text;
             let out = match out.is_empty() {
                 true => "(no output)".to_string(),
                 false => tail_of(&out, room),

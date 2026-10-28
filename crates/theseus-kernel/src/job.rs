@@ -49,9 +49,10 @@ pub struct WrapperArgs {
     /// command keeps the wrapper's.
     pub umask: Option<u32>,
     /// The broker's grants (theseus-l0d): each variable that holds a granted
-    /// secret, and the secret's name. Names only: the values reach the
-    /// wrapper as its environment, and it withholds each from the job's raw
-    /// output (`crate::redact`).
+    /// secret, and the secret's name. Names only: the values reach the job as
+    /// its environment. An L1 job's result names the variables it was given;
+    /// nothing is withheld from its output, which is the record of what it
+    /// printed (`crate::redact` caps it and no more).
     pub redact: Vec<(String, String)>,
     /// The most bytes of the job's output its raw output file keeps
     /// (theseus-102, `[tools] job_output_max_bytes`). Past it the wrapper
@@ -372,29 +373,6 @@ pub fn run_wrapper(args: &WrapperArgs) -> Result<()> {
     run(args, Reap::Command, None).map(|_| ())
 }
 
-/// The values the broker granted this job, each with its secret's name
-/// (theseus-l0d): in process, from the environment the job was given; in a
-/// wrapper process, from the wrapper's own, which is the job's.
-fn granted(args: &WrapperArgs, reap: Reap) -> Vec<(String, Vec<u8>)> {
-    use std::os::unix::ffi::OsStringExt;
-    args.redact
-        .iter()
-        .filter_map(|(var, secret)| {
-            let value = match reap {
-                Reap::Command => args
-                    .env
-                    .iter()
-                    .find(|(k, _)| k == var)?
-                    .1
-                    .clone()
-                    .into_bytes(),
-                Reap::Descendants => std::env::var_os(var)?.into_vec(),
-            };
-            Some((secret.clone(), value))
-        })
-        .collect()
-}
-
 /// What a wrapper waits for while its command runs.
 #[derive(Clone, Copy)]
 pub(crate) enum Reap {
@@ -446,7 +424,7 @@ fn run(
     let started = now_unix_ms();
     let t0 = Instant::now();
     let out_path = spool.result_path(&args.correlation_id);
-    // The output before the scrubber sees it, which can hold a secret a
+    // The output as the job printed it, which can hold a secret a
     // program printed: the operator's alone, whatever the umask, and
     // whatever a file already there had (theseus-wz2). The core deletes it
     // once the result is absorbed.
@@ -462,14 +440,12 @@ fn run(
         f
     };
     // The command writes into a pipe, and a copy writes what it reads into
-    // the file: with each granted value withheld (theseus-l0d), and no more
-    // than the cap (theseus-102). Past the cap the copy reads on and counts,
-    // so a job that prints 20 GB runs as it would, and its file stays at the
-    // cap. Before the cap, a job without a grant wrote its file itself.
-    let redactor = crate::redact::Redactor::new(granted(args, reap));
+    // the file as it was written, and no more than the cap (theseus-102).
+    // Past the cap the copy reads on and counts, so a job that prints 20 GB
+    // runs as it would, and its file stays at the cap.
     let (read, write) = std::io::pipe()?;
     let err = write.try_clone()?;
-    let mut copier = crate::redact::Copier::spawn(read, out_file, redactor, args.output_max_bytes)?;
+    let mut copier = crate::redact::Copier::spawn(read, out_file, args.output_max_bytes)?;
     let mut detail = serde_json::json!({});
     if let Some(e) = subreaper_error {
         detail["subreaper_error"] = serde_json::Value::String(e);
@@ -498,9 +474,6 @@ fn run(
     // (`held`, theseus-gsn9), which the file takes only at the pipe's end.
     let (dropped, held) = match copier.wait(crate::redact::DRAIN) {
         Some(Ok(c)) => {
-            if c.withheld > 0 {
-                detail["withheld"] = serde_json::json!(c.withheld);
-            }
             if let Some(e) = c.write_error {
                 detail["output_error"] = serde_json::Value::String(e);
             }
@@ -1657,12 +1630,12 @@ mod tests {
     }
 
     /// A job that prints its own granted value (theseus-l0d), split across
-    /// two writes, among other output on stdout and stderr: its raw output
-    /// holds everything else, byte for byte, and the value withheld, and the
-    /// completion counts it. `--redact` round-trips through the command line,
-    /// names only.
+    /// two writes, among other output on stdout and stderr: its raw output is
+    /// the record of what it printed, every byte as written, the value among
+    /// them, and the completion counts no withholding. `--redact` round-trips
+    /// through the command line, names only.
     #[test]
-    fn a_granted_value_a_job_prints_never_reaches_its_raw_output() {
+    fn a_granted_value_a_job_prints_is_in_its_raw_output_as_printed() {
         let d = tempfile::tempdir().unwrap();
         let spool = Spool::open(d.path()).unwrap();
         // 26 bytes: two halves of 13.
@@ -1694,11 +1667,11 @@ mod tests {
         let out = std::fs::read(spool.result_path("act_grant")).unwrap();
         assert_eq!(
             String::from_utf8_lossy(&out),
-            "one\n[redacted:invented_grant] two\nthree\n"
+            format!("one\n{value} two\nthree\n")
         );
         let c = spool.read_completion("act_grant").unwrap().unwrap();
         let detail = c.detail.unwrap();
-        assert_eq!(detail["withheld"], 1, "{detail}");
+        assert!(detail.get("withheld").is_none(), "{detail}");
         assert_eq!(detail["bytes"], out.len() as u64, "{detail}");
         let parsed = parse_wrapper_args(
             [
@@ -1722,13 +1695,13 @@ mod tests {
         assert!(!format!("{args:?}").contains(value), "Debug names only");
     }
 
-    /// Review 2's R3 (theseus-102), with a grant: the file keeps the cap, its
-    /// value withheld. Since theseus-gsn9 the cap keeps both ends: the head,
+    /// Review 2's R3 (theseus-102), with a grant: the file keeps the cap, the
+    /// value as printed. Since theseus-gsn9 the cap keeps both ends: the head,
     /// a marker that counts the bytes dropped between, and the last bytes,
-    /// the value there withheld too, since it is kept. The command runs to
-    /// its end. `--output-max-bytes` round-trips.
+    /// the value there as printed too. The command runs to its end.
+    /// `--output-max-bytes` round-trips.
     #[test]
-    fn a_granted_job_that_prints_past_the_cap_keeps_both_ends_without_its_value() {
+    fn a_granted_job_that_prints_past_the_cap_keeps_both_ends_with_its_value_as_printed() {
         let d = tempfile::tempdir().unwrap();
         let spool = Spool::open(d.path()).unwrap();
         let value = "tv-invented_grant-5c1e9b7a";
@@ -1761,20 +1734,21 @@ mod tests {
         assert!(after.exists(), "the job ran to its end");
         let out = std::fs::read(spool.result_path("act_capped")).unwrap();
         // Printed: the value's line (27 bytes), a million zeros, the value's
-        // line again; withheld, 26 + 1,000,000 + 26. The cap of 4,096 keeps
-        // a head of 1,920 and an end of 2,048, with the marker between.
+        // line again: 1,000,054 bytes. The cap of 4,096 keeps a head of 1,920
+        // and an end of 2,048, with the marker between.
         let (head, tail) = crate::redact::split(4096);
         assert_eq!((head, tail), (1_920, 2_048));
-        let dropped = 1_000_052 - head - tail;
+        let dropped = 1_000_054 - head - tail;
         let marker = crate::redact::marker(dropped, tail);
         assert!(out.len() <= 4096, "{}", out.len());
         assert_eq!(out.len() as u64, head + marker.len() as u64 + tail);
-        let mark = b"[redacted:invented_grant]\n";
+        let mark = format!("{value}\n");
+        let mark = mark.as_bytes();
         assert_eq!(&out[..mark.len()], mark);
         assert!(out[mark.len()..head as usize].iter().all(|&b| b == 0));
         let (between, end) = out[head as usize..].split_at(marker.len());
         assert_eq!(between, marker.as_bytes());
-        assert_eq!(&end[end.len() - mark.len()..], mark, "the end, withheld");
+        assert_eq!(&end[end.len() - mark.len()..], mark, "the end, as printed");
         assert!(end[..end.len() - mark.len()].iter().all(|&b| b == 0));
         let c = spool.read_completion("act_capped").unwrap().unwrap();
         assert_eq!(c.outcome, Outcome::Succeeded);
@@ -1787,7 +1761,7 @@ mod tests {
             (&serde_json::json!(head), &serde_json::json!(tail)),
             "{detail}"
         );
-        assert_eq!(detail["withheld"], 2, "{detail}");
+        assert!(detail.get("withheld").is_none(), "{detail}");
         assert_eq!(detail["bytes"], out.len(), "{detail}");
         let parsed = parse_wrapper_args(
             [

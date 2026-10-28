@@ -18,14 +18,21 @@ use crate::rsi::mint::brief::{occurrence_id, read_check};
 
 /// An acting core with `mint` set.
 fn minting(mint: impl FnOnce(&mut crate::config::self_mint::SelfMintConfig)) -> Arc<Core> {
+    minting_knowing(mint, crate::scrub::Scrubber::default())
+}
+
+/// `minting`, its core's scrubber knowing the values it was given.
+fn minting_knowing(
+    mint: impl FnOnce(&mut crate::config::self_mint::SelfMintConfig),
+    scrubber: crate::scrub::Scrubber,
+) -> Arc<Core> {
     let base = acting(true);
     let mut cfg = (*base.cfg).clone();
     mint(&mut cfg.self_improve.mint);
-    let c = Core::build(Parts::for_tests(
-        cfg,
-        Arc::new(FakeProvider::default()),
-        base.store.clone(),
-    ))
+    let c = Core::build(Parts {
+        scrubber: Arc::new(scrubber),
+        ..Parts::for_tests(cfg, Arc::new(FakeProvider::default()), base.store.clone())
+    })
     .unwrap();
     c.self_resume(&Default::default(), &Answerer::from("the CLI"))
         .unwrap();
@@ -261,7 +268,11 @@ fn sh() -> Arc<crate::own_bench::whole::tests::Sh> {
 
 /// A started mint, ready to validate: its pending record and the core.
 fn started() -> (Arc<Core>, crate::rsi::mint::run::Pending) {
-    let c = minting(|m| m.per_night = 1);
+    started_with(crate::scrub::Scrubber::default())
+}
+
+fn started_with(scrubber: crate::scrub::Scrubber) -> (Arc<Core>, crate::rsi::mint::run::Pending) {
+    let c = minting_knowing(|m| m.per_night = 1, scrubber);
     let t = now();
     seed(&c, &repo(), t, None);
     let n = c.backlog_night(t).unwrap();
@@ -341,10 +352,13 @@ async fn a_validation_runs_its_tiers_writes_one_row_and_loads_nothing() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_secret_in_the_writers_description_is_never_frozen_or_recorded() {
+async fn a_vault_value_in_the_writers_description_is_never_frozen_or_recorded() {
     let _l = sh();
-    let (c, pending) = started();
     let key = format!("{}{}", "AKIA", "IOSFODNN7EXAMPL3");
+    let (c, pending) = started_with(crate::scrub::Scrubber::with_values(vec![(
+        key.clone(),
+        "deploy_key".into(),
+    )]));
     let e = c
         .mint_validate(
             &pending,

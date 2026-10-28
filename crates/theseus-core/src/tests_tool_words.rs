@@ -1,6 +1,6 @@
 //! A file tool's diff on `tool.ended` and a question's preview (theseus-z6au):
 //! the preview of an edit is the diff its run makes, a planted secret shows in
-//! neither, and the diff is capped.
+//! no question, the ended diff is the node's own, and the diff is capped.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -207,7 +207,7 @@ async fn a_preview_reads_the_file_as_it_is_when_planned() {
 }
 
 #[tokio::test]
-async fn a_planted_secret_shows_in_no_diff_and_no_preview() {
+async fn a_planted_secret_shows_in_no_preview_and_the_ended_diff_is_the_nodes() {
     let mut r = rig(
         |root, guarded| {
             vec![
@@ -250,18 +250,20 @@ async fn a_planted_secret_shows_in_no_diff_and_no_preview() {
         asked.len(),
         ended.len()
     );
-    for v in asked.iter().chain(&ended) {
+    for v in &asked {
         assert!(
             !v.to_string().contains(SECRET),
-            "a secret reached an event: {v}"
+            "a secret reached a question: {v}"
         );
     }
-    // The write's diff is there, with the value taken out.
+    // The write's diff is there, as the node holds it: the record is raw, and
+    // the `tool.ended` event is the node's. The question's preview is words
+    // for an approval, and stays scrubbed.
     let w = ended
         .iter()
         .find(|e| e["tool"] == "fs.write")
         .expect("the write ended");
-    assert!(ended_diff(w).unified.contains("+key = "));
+    assert!(ended_diff(w).unified.contains(&format!("+key = {SECRET}")));
 }
 
 #[tokio::test]

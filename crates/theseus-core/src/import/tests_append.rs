@@ -259,12 +259,12 @@ fn holds(dir: &std::path::Path, needle: &str) -> bool {
     false
 }
 
-/// A sync episode is scrubbed as it is written, and so is what is appended
-/// after it: the planted key is in neither the nodes nor a byte of the store
-/// (the WAL, the spool). The append's prefix check reads the stored,
-/// scrubbed digests, so the same first messages, scrubbed again, still match.
+/// A sync episode is written as it came, and so is what is appended after
+/// it: the key is in the node and in the store (the WAL). The append's prefix
+/// check reads the stored digests, which are the stored text's, so the same
+/// first messages sent again still match.
 #[tokio::test]
-async fn a_sync_episode_is_scrubbed_before_it_is_written_and_so_is_its_append() {
+async fn a_sync_episode_is_written_as_it_came_and_so_is_its_append() {
     let r = live();
     let c = &r.core;
     let first = sync(5, TAG, &[0, 1, 2]);
@@ -276,11 +276,10 @@ async fn a_sync_episode_is_scrubbed_before_it_is_written_and_so_is_its_append() 
     else {
         panic!()
     };
-    assert!(!text.contains(&token()), "{text}");
-    assert!(text.contains("The deploy key for the quay is"), "{text}");
-    assert_ne!(
-        sha256,
-        first["messages"][1]["sha256"].as_str().unwrap(),
+    assert_eq!(text, &raw, "the key is stored as it came");
+    assert_eq!(
+        *sha256,
+        hex::encode(<sha2::Sha256 as sha2::Digest>::digest(text.as_bytes())),
         "the stored digest is the stored text's"
     );
     // The same session grown, its first messages carrying the key again.
@@ -288,7 +287,10 @@ async fn a_sync_episode_is_scrubbed_before_it_is_written_and_so_is_its_append() 
     let got = import(c, lines(&[grown])).await;
     assert_eq!((got.appended, got.nodes), (1, 1), "{got:?}");
     assert!(got.rejected.is_empty(), "{:?}", got.rejected);
-    assert!(!holds(c.store.dir(), &token()), "the key reached the store");
+    assert!(
+        holds(c.store.dir(), &token()),
+        "the store holds the key as it came"
+    );
     assert!(
         holds(c.store.dir(), "boathouse ledger"),
         "the grep reads the store"

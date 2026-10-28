@@ -875,10 +875,11 @@ impl Rig {
 
 /// A job that prints its own granted value (theseus-l0d), through the
 /// wrapper process as the daemon runs it: split across two writes, among
-/// other output on stdout and stderr. Its spool file holds everything else,
-/// byte for byte, and the value withheld, and the completion counts it.
+/// other output on stdout and stderr. Its spool file is the record of what it
+/// printed: every byte as written, the value among them, and the completion
+/// counts no withholding.
 #[test]
-fn a_granted_value_the_job_prints_never_reaches_its_spool_file() {
+fn a_granted_value_the_job_prints_is_in_its_spool_file_as_printed() {
     let rig = Rig::new();
     let wrapper = rig.start_granted(
         "act_grant",
@@ -891,10 +892,10 @@ fn a_granted_value_the_job_prints_never_reaches_its_spool_file() {
     let out = std::fs::read(rig.spool.result_path("act_grant")).unwrap();
     assert_eq!(
         String::from_utf8_lossy(&out),
-        "one\n[redacted:invented_grant] two\nthree\n"
+        format!("one\n{GRANTED} two\nthree\n")
     );
     let detail = c.detail.unwrap();
-    assert_eq!(detail["withheld"], 1, "{detail}");
+    assert!(detail.get("withheld").is_none(), "{detail}");
     assert!(detail.get("output_open").is_none(), "{detail}");
     assert_eq!(detail["bytes"], out.len() as u64, "{detail}");
     wait_for("the wrapper's exit", || (!alive(wrapper)).then_some(()));
@@ -903,10 +904,10 @@ fn a_granted_value_the_job_prints_never_reaches_its_spool_file() {
 /// A descendant that keeps the job's output open past the command's exit
 /// does not hold the report: the completion comes once the command exits,
 /// saying the output is still open. What the descendant prints later still
-/// goes through the copy, its granted value withheld, until the wrapper,
-/// lingering for it, exits.
+/// goes through the copy, as printed, until the wrapper, lingering for it,
+/// exits.
 #[test]
-fn a_descendant_holding_the_output_neither_holds_the_report_nor_leaks_the_value() {
+fn a_descendant_holding_the_output_does_not_hold_the_report_and_its_late_print_is_kept() {
     let rig = Rig::new();
     let wrapper = rig.start_granted(
         "act_late",
@@ -926,6 +927,6 @@ fn a_descendant_holding_the_output_neither_holds_the_report_nor_leaks_the_value(
     wait_for("the wrapper's exit", || (!alive(wrapper)).then_some(()));
     assert_eq!(
         std::fs::read_to_string(rig.spool.result_path("act_late")).unwrap(),
-        "early\nlate [redacted:invented_grant]\n"
+        format!("early\nlate {GRANTED}\n")
     );
 }

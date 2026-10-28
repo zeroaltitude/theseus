@@ -266,7 +266,8 @@ async fn no_sends_at_all_when_the_cap_is_zero_and_a_refused_send_is_given_back()
 }
 
 #[tokio::test]
-async fn a_token_shaped_value_never_reaches_a_fact_or_a_log() {
+async fn a_token_shaped_value_in_an_error_body_is_recorded_as_the_tool_said_it_and_no_minted_token_is(
+) {
     let planted = "ya29.planted-by-the-fake-0123456789abcdefghij";
     let r = rig(vec![
         call(
@@ -282,11 +283,11 @@ async fn a_token_shaped_value_never_reaches_a_fact_or_a_log() {
     let sid = session(&r.core);
     turn(&r.core, &sid, "get it").await;
     let all = everything(&r.core, &[&sid]);
-    assert!(
-        !all.contains(planted),
-        "the planted token reached the record"
-    );
-    // Nor the access token the check minted, nor the refresh token, nor the client's secret.
+    // The record is raw: what Google's error body said is what the tool
+    // answered, a token-shaped string in it included (the scrubber guesses no
+    // shapes; a value the vault holds is substituted on the way out).
+    assert!(all.contains(planted), "the record holds the tool's answer");
+    // But not the access token the check minted, nor the refresh token, nor the client's secret.
     for secret in [
         "ya29.fake-access",
         theseus_google::fake::REFRESH_TOKEN,

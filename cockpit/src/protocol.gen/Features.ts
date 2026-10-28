@@ -14,7 +14,8 @@ memory: string,
  */
 jev: string, 
 /**
- * The secret scrub: always on.
+ * Outbound substitution: the vault's values replaced on what leaves, on
+ * unless `[privacy] redact_outbound = false`.
  */
 scrub: string, 
 /**
