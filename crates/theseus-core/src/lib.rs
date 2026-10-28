@@ -322,6 +322,8 @@ mod tests_dm_rig;
 #[cfg(test)]
 mod tests_draft;
 #[cfg(test)]
+mod tests_draft_choice;
+#[cfg(test)]
 mod tests_draft_first_pass;
 #[cfg(test)]
 mod tests_draft_hardening;

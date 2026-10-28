@@ -200,7 +200,17 @@ fn review_peek(p: &mut Plan, req: &ProviderRequest) {
 }
 
 pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
+    rig_with(tweak, |_| {})
+}
+
+/// `rig`, with the test's own say over what Jev answers (`on_jev` runs after
+/// the rig's `routine_coding` script).
+pub(crate) fn rig_with(
+    tweak: impl FnOnce(&mut crate::Config),
+    on_jev: impl FnOnce(&FakeJev),
+) -> Draft {
     let jev = jev();
+    on_jev(&jev);
     let tmp = tempfile::tempdir().unwrap();
     let work = tmp.path().join("work");
     let repo = repo(&work.join("acme"));
