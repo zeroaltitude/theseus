@@ -676,6 +676,7 @@ impl Core {
             let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
             let asks = pending.get(&e.id).cloned().unwrap_or_default();
             let mut info = crate::task::info(&e, rec.as_ref(), asks.len() as u32);
+            info.depth = self.kernel.task_depth(&e.id)? as u32;
             if target.is_some_and(|t| info.target.as_deref() != Some(t)) {
                 continue;
             }
@@ -835,6 +836,7 @@ impl Core {
         Ok(theseus_protocol::TaskCancelResult {
             task: theseus_protocol::TaskInfo {
                 arrangement: crate::task::arrangement_of(&self.store, rec.as_ref()),
+                depth: self.kernel.task_depth(&e.id)? as u32,
                 ..crate::task::info(&e, rec.as_ref(), 0)
             },
             cancelled_actions: cancelled,

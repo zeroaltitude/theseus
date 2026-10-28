@@ -337,7 +337,7 @@ pub struct Execution {
     pub queued_results: Vec<CorrelationId>,
     /// The execution that opened this one as a task (DD7, theseus-qn2): its
     /// spend counts against the parent's, and its end is reported there. A
-    /// task has no tasks of its own (depth one).
+    /// task's tasks sit below it, down to the depth limit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ExecutionId>,
     /// Channel or parent task this execution reports into (§3.2a).

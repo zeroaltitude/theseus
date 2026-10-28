@@ -94,7 +94,7 @@ impl fmt::Display for Sim2Counts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "sim2: {} stops: {} while a turn ran, {} calls told to stop, {} unsent declined, {} next inputs ran a turn; {} calls stopped alone, {} task stops refused · {} tasks opened: {} waking their parent, {} found again, {} refused at depth one; {} reports read: {} woke their parent, {} read together · {} wakes due in a turn queued by its end · {} posts staged in a turn's end, {} planned outside one; {} sent, {} sent again, {} refused, {} settled, {} second settles, {} crashes around a post · {} input turns held: {} cancelled before their admission, {} stopped, {} admitted to run · {} wakes moved by a turn",
+            "sim2: {} stops: {} while a turn ran, {} calls told to stop, {} unsent declined, {} next inputs ran a turn; {} calls stopped alone, {} task stops refused · {} tasks opened: {} waking their parent, {} found again, {} refused at the depth limit; {} reports read: {} woke their parent, {} read together · {} wakes due in a turn queued by its end · {} posts staged in a turn's end, {} planned outside one; {} sent, {} sent again, {} refused, {} settled, {} second settles, {} crashes around a post · {} input turns held: {} cancelled before their admission, {} stopped, {} admitted to run · {} wakes moved by a turn",
             self.stops,
             self.stops_in_turn,
             self.stopped_calls,

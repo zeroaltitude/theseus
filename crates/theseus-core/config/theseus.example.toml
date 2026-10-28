@@ -505,6 +505,7 @@ max_wakes = 20                          # check-ins (wake.at) one conversation m
 max_reminders = 100                     # reminders the whole daemon may hold at once, in every conversation; at least 1
 max_watches = 20                        # watches the daemon may hold (see [watch_for])
 steer_queued = true                     # a message sent while a turn runs interrupts its waits (job_wait, a command, a terminal) and joins the turn at its next loop; false: it waits for the turn to end
+task_depth = 10                         # levels of tasks below a conversation: a task may start tasks down to this depth (1 to 32); each child's brief names the root goal and its chain, and a brief that repeats an ancestor's is refused as a cycle
 
 # ---------------------------------------------------------------- tools
 # Toollets (fs.*, text.diff, git.diff/log, proc.run). The workspace is

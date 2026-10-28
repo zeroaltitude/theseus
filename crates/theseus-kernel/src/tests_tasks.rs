@@ -123,10 +123,13 @@ fn the_same_call_opens_its_task_once() {
     assert_eq!(exec(&w, &parent.id).budget.reserved_micros, 30_000);
 }
 
-/// A task cannot open tasks (depth one); nothing is written.
+/// With the depth limit at one, a task cannot open tasks; nothing is written.
 #[test]
-fn a_task_cannot_start_tasks() {
-    let w = world();
+fn a_task_cannot_start_tasks_when_the_limit_is_one() {
+    let w = world_with(KernelConfig {
+        task_depth_limit: 1,
+        ..Default::default()
+    });
     let (_, _g, task, _) = with_task(&w, 30_000);
     let tg = w.kernel.admit(&task.id).unwrap();
     let before = w.kernel.store().last_position();
@@ -137,12 +140,140 @@ fn a_task_cannot_start_tasks() {
     assert!(
         matches!(
             err.downcast_ref::<KernelError>(),
+            Some(KernelError::TaskDepth {
+                depth: 1,
+                limit: 1,
+                ..
+            })
+        ),
+        "{err:#}"
+    );
+    assert!(format!("{err}").contains("task depth 1"), "{err}");
+    assert_eq!(w.kernel.store().last_position(), before, "nothing written");
+}
+
+/// A chain of tasks opens down to the default limit, ten, and the eleventh
+/// is refused naming the depth reached (theseus-tecj5); the refusal writes
+/// nothing.
+#[test]
+fn a_chain_of_ten_tasks_opens_and_the_eleventh_is_refused() {
+    let w = world_with(KernelConfig {
+        admission_ceiling: 32,
+        ..Default::default()
+    });
+    let (_, _parent, mut guard) = running(&w);
+    let mut ids = Vec::new();
+    for level in 1..=10 {
+        let at = w.kernel.execution(&guard.execution_id).unwrap().unwrap();
+        let want = at.budget.available() / 2;
+        let t = w
+            .kernel
+            .open_task(&guard, &new_id("act"), want, None, false, |_| Ok(vec![]))
+            .unwrap_or_else(|e| panic!("level {level}: {e:#}"))
+            .task;
+        assert_eq!(w.kernel.task_depth(&t.id).unwrap(), level);
+        guard = w.kernel.admit(&t.id).unwrap();
+        ids.push(t.id);
+    }
+    let before = w.kernel.store().last_position();
+    let err = w
+        .kernel
+        .open_task(&guard, &new_id("act"), 1, None, false, |_| Ok(vec![]))
+        .unwrap_err();
+    assert!(
+        matches!(
+            err.downcast_ref::<KernelError>(),
+            Some(KernelError::TaskDepth {
+                depth: 10,
+                limit: 10,
+                ..
+            })
+        ),
+        "{err:#}"
+    );
+    let words = format!("{err}");
+    assert!(
+        words.contains("task depth 10") && words.contains("10 deep"),
+        "{words}"
+    );
+    assert_eq!(w.kernel.store().last_position(), before, "nothing written");
+}
+
+/// A loop in the parent links (a corrupt store) ends the walk at its bound,
+/// reads as too deep, and opens nothing.
+#[test]
+fn a_cycle_in_the_parent_chain_ends_the_depth_walk_and_refuses() {
+    let w = world();
+    let (_, _g, first, _) = with_task(&w, 30_000);
+    let mut a = first.clone();
+    a.id = format!("{}_a", first.id);
+    a.session_id = format!("{}_a", first.session_id);
+    let mut b = first.clone();
+    b.id = format!("{}_b", first.id);
+    b.session_id = format!("{}_b", first.session_id);
+    a.parent = Some(b.id.clone());
+    b.parent = Some(a.id.clone());
+    w.kernel
+        .commit(&[exec_record(&a).unwrap(), exec_record(&b).unwrap()])
+        .unwrap();
+    let ancestry = w.kernel.ancestry(&a.id).unwrap();
+    assert!(ancestry.cut);
+    assert_eq!(ancestry.chain.len(), 2, "each execution once");
+    assert_eq!(
+        w.kernel.task_depth(&a.id).unwrap(),
+        theseus_kernel_walk_max()
+    );
+    let err = w
+        .kernel
+        .open_task_owned(&a.id, &new_id("act"), 1_000, Default::default(), |_| {
+            Ok(vec![])
+        })
+        .unwrap_err();
+    assert!(
+        matches!(
+            err.downcast_ref::<KernelError>(),
             Some(KernelError::TaskDepth { .. })
         ),
         "{err:#}"
     );
-    assert!(format!("{err}").contains("depth one"), "{err}");
-    assert_eq!(w.kernel.store().last_position(), before);
+}
+
+/// A parent link to a record that is not in the store (nothing prunes an
+/// execution, so this is damage) reads as too deep, like a cycle, and opens
+/// nothing: a cut walk errs toward refusing (theseus-tecj5).
+#[test]
+fn a_missing_ancestor_ends_the_depth_walk_and_refuses() {
+    let w = world();
+    let (_, _g, first, _) = with_task(&w, 30_000);
+    let mut orphan = first.clone();
+    orphan.id = format!("{}_orphan", first.id);
+    orphan.session_id = format!("{}_orphan", first.session_id);
+    orphan.parent = Some(format!("{}_gone", first.id));
+    w.kernel.commit(&[exec_record(&orphan).unwrap()]).unwrap();
+    let ancestry = w.kernel.ancestry(&orphan.id).unwrap();
+    assert!(ancestry.cut);
+    assert_eq!(ancestry.chain.len(), 1, "the orphan, and nothing above it");
+    assert_eq!(
+        w.kernel.task_depth(&orphan.id).unwrap(),
+        theseus_kernel_walk_max()
+    );
+    let err = w
+        .kernel
+        .open_task_owned(&orphan.id, &new_id("act"), 1_000, Default::default(), |_| {
+            Ok(vec![])
+        })
+        .unwrap_err();
+    assert!(
+        matches!(
+            err.downcast_ref::<KernelError>(),
+            Some(KernelError::TaskDepth { .. })
+        ),
+        "{err:#}"
+    );
+}
+
+fn theseus_kernel_walk_max() -> usize {
+    crate::task_depth::WALK_MAX
 }
 
 /// A task's costs are its parent's spend too, in the same frame, and the

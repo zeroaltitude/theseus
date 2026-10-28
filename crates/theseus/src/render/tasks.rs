@@ -112,6 +112,25 @@ mod tests {
         );
     }
 
+    /// A task of a task says how deep it sits; a conversation's task says
+    /// nothing, as before (theseus-tecj5).
+    #[test]
+    fn a_task_line_names_its_depth_below_the_first_level() {
+        use crate::render::task_line;
+        let line = |depth| {
+            let t = TaskInfo {
+                short: "a1b2c3".into(),
+                state: "running".into(),
+                depth,
+                ..Default::default()
+            };
+            task_line(&t, 0).text
+        };
+        assert!(line(3).contains(" · depth 3"), "{}", line(3));
+        assert!(!line(1).contains("depth"), "{}", line(1));
+        assert!(!line(0).contains("depth"), "{}", line(0));
+    }
+
     #[test]
     fn a_checks_basis_is_shown_under_it() {
         let mut t = TaskInfo::default();

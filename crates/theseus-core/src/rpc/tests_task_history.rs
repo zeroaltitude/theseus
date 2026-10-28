@@ -74,11 +74,12 @@ async fn three() -> (Rig, [u64; 2]) {
 
 /// The keys of a task in the answer to a plain `task.list`, as read before the
 /// filters were added (a pinned copy of what it always said).
-const PINNED_TASK_KEYS: [&str; 18] = [
+const PINNED_TASK_KEYS: [&str; 19] = [
     "arrangement",
     "attention",
     "cost_usd",
     "created_at_ms",
+    "depth",
     "ended_reason",
     "execution_id",
     "limit_usd",

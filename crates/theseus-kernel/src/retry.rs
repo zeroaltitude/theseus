@@ -9,7 +9,7 @@
 //!   reports and wake, `retry_of` the failed one. Its limit is carved from
 //!   what the parent has left, never more than the failed one had, as
 //!   `open_task_at` carves, and it honours the same depth bound
-//!   (`tasks::depth_refusal`) though it writes its own records rather than
+//!   (`Kernel::depth_refusal`) though it writes its own records rather than
 //!   going through `carve_task`; the failed one is dismissed in the same frame, so
 //!   a crash leaves a failure with no retry or both. The core's records for
 //!   the new task (its session, its brief, its pieces) ride the frame
@@ -35,7 +35,7 @@ pub enum RetryError {
     #[error("{0}")]
     Refused(String),
 }
-use crate::tasks::{carve_key, depth_refusal, task_ids};
+use crate::tasks::{carve_key, task_ids};
 use crate::types::*;
 
 /// What `dismiss_execution` did.
@@ -189,7 +189,7 @@ impl Kernel {
         // the failed task's own parent, so it keeps the failed one's depth and
         // can pass a bound the failed one already passed; asking costs nothing
         // and leaves no open of a task that does not.
-        if let Some(e) = depth_refusal(&parent) {
+        if let Some(e) = self.depth_refusal(&parent)? {
             return Err(e.into());
         }
         // Never more than the failed one had, and no more than the parent has

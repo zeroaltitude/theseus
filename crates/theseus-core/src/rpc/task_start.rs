@@ -248,8 +248,9 @@ impl Core {
                 let rec = self.session(id)?;
                 if rec.kind == SessionKind::Task || rec.task.is_some() {
                     return Err(refused(
-                        "Not started: that session is itself a task, and a task cannot start \
-                         tasks (depth one). Start it under a conversation."
+                        "Not started: that session is itself a task, and the owner's start goes \
+                         under a conversation. A task starts tasks of its own with \
+                         `task.create`."
                             .into(),
                     ));
                 }
@@ -460,8 +461,8 @@ fn nodes_of(
 /// What a refused open says.
 fn open_refusal(e: anyhow::Error) -> RpcFailure {
     match e.downcast_ref::<KernelError>() {
-        Some(KernelError::TaskDepth { .. }) => {
-            refused("Not started: a task cannot start tasks (depth one).".into())
+        Some(KernelError::TaskDepth { depth, limit, .. }) => {
+            refused(crate::task_lineage::depth_words(*depth, *limit))
         }
         Some(KernelError::NothingToCarve { .. }) => refused(format!(
             "Not started: {e}. Start it under another conversation (`home`)."

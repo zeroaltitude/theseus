@@ -1028,7 +1028,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   ended task walked through), each with `task.cancel`'s effect in its own frame, then one `execution.stopped_all` row
   (`fact::driver::ExecutionStoppedAll`). The conversation's wakes stay; a sleeping deferred task is cancelled. It is an
   owner's act (`judge_act(Act::Session)`, so a shared place is refused and ledgered); the CLI refuses `stop --all` in a job
-  (`refuse_stop_all_in_a_job`). A plain `/stop` is unchanged: its tasks run on. Depth is one today (`TaskDepth`), so the
+  (`refuse_stop_all_in_a_job`). A plain `/stop` is unchanged: its tasks run on. Tasks may nest to `[kernel] task_depth` (10), so the
   nested walk is held by the kernel's `a_task_tree_lists_each_task_after_its_own_tasks`. Readers: `theseus stop --all`, the
   TUI's `S`, Discord's `/stop all:true`. Tests: `rpc/tests_stop_all.rs`, theseusd's `tests/tasks.rs`.
 - **Terminals** (theseus-n88g.4): `term/`. `term.open`, `term.send`, `term.read`, `term.close`: a program on a pty
@@ -1145,6 +1145,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   filters, and the answer names its windows. The re-title is `turn/title_step.rs` (in the turn's own session write,
   once, never a task's). Tests: `rpc/tests_session_states.rs`.
   `session.list {dir, with_text}` (theseus-6yka, `rpc/session_find.rs`): one directory's sessions, where a session's directory and the asked one have the same root (the nearest ancestor holding `.git`, else itself); the index's births are scanned a step at a time and the answer holds whole steps (it can hold more than `n`; its `older` goes back from the last), newest active first; `with_text` (alone, every directory's) adds `first_text`, `last_text` and `prompts`, read from the store's node pages, no model. `SessionInfo.started_on` is `discord` (the outbox has a target for it) or `cli` (a client gave it a directory). Tests: `rpc/tests_session_find.rs`.
+- **Task depth, the root goal and the cycle check** (theseus-tecj5; `task_lineage.rs`, `[kernel] task_depth`, 10, clamped 1 to 32;
+  no store format change: depth is derived by walking `parent` links, `theseus_kernel::task_depth`): the kernel's `open_task`
+  is the bound (`TaskDepth { depth, limit }`); the core checks the same rule first (`check_depth`, shared by `task.create`,
+  `task.fan_out` and `task.wait`) so a refusal names the depth reached (`depth_refusal`). A child below the first level has a
+  block in its brief's header paragraph (`Lineage::note`: depth, the root goal = the brief of the tree's first task cut at 600
+  characters, and the chain of short ids and titles; about 560 characters at depth 10 with short titles), and a proposed brief
+  equal after trimming to an ancestor task's brief is refused as a cycle (`cycle_refusal`, exact comparison, no model). The owner's
+  `task.start` still refuses a task as `home`. A routine cannot be set up by a task at any depth (`routine_tool.rs`). Tests:
+  `tests_task_lineage.rs`, the kernel's `tests_tasks.rs`. A carve is a quarter of what is left by default, so a deep tree's
+  tasks need a `budget_usd`: the fourth level of a $100 session holds under $2.
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and
   `telemetry/` (OTLP, metrics, spans).
 - **Facts**: `fact/` (theseus-j6qn, Review 2's C2). One type per thing that happened, which says in one place what
