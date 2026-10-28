@@ -119,6 +119,29 @@ class Build(Fixture):
         self.assertTrue(d["beta"]["comparison"])
 
 
+class ListPriced(Fixture):
+    def metrics(self, **entry):
+        doc = flat("2026-10-04-fixturebench-a", "2026-10-04", "full", {"a": (3, 4)})
+        doc["summary"]["a"].update(entry)
+        self.put("2026-10-04-fixturebench-a", doc)
+        rows, _ = self.build()
+        return rows["runs"][0]["metrics"]
+
+    def test_the_list_priced_total_is_published_beside_the_harnesss_and_leaves_it_alone(self):
+        m = self.metrics(usd_total=6.2, list_cost_usd=6.4, list_unpriced=0)
+        self.assertEqual(m["usd_total"], {"value": 6.2})
+        self.assertEqual(m["list_cost_usd"], {"value": 6.4})
+        self.assertAlmostEqual(m["list_cost_usd"]["value"] - m["usd_total"]["value"], 0.2)
+
+    def test_a_floor_is_not_published_as_a_total(self):
+        m = self.metrics(usd_total=6.2, list_cost_usd=3.2, list_unpriced=1)
+        self.assertNotIn("list_cost_usd", m)
+        self.assertEqual(m["usd_total"], {"value": 6.2})
+
+    def test_a_dataset_that_predates_the_field_gains_none(self):
+        self.assertNotIn("list_cost_usd", self.metrics())
+
+
 class Skips(Fixture):
     def test_what_cannot_be_read_is_skipped_with_a_reason_and_never_a_row(self):
         self.put("2026-03-01-fixture-a", flat("2026-03-01-fixture-a", "2026-03-01", "high", {"alpha": (6, 9)}))

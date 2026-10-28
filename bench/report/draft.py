@@ -386,6 +386,7 @@ def harbor(args: argparse.Namespace) -> int:
             "solved_any_attempt": sum(1 for x in by_task[k] if any(t["solved"] for t in by_task[k][x])),
             "task_mean_rate": interval(task_rates),
             "cost_usd": s["cost_usd"], "unpriced": s["unpriced"],
+            "list_cost_usd": s["list_cost_usd"], "list_unpriced": s["list_unpriced"],
             "cost_per_trial": interval([t["record"].get("cost_usd") for t in ts]),
             "agent_min_per_trial": interval([t["wall_s"] / 60 for t in ts if t["wall_s"] is not None]),
             "model_calls_per_trial": s["model_calls_per_trial"], "tool_calls_per_trial": s["tool_calls_per_trial"],
