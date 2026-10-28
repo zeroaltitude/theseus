@@ -204,7 +204,7 @@ pub fn refresh(core: &Core, reaper: &Reaper) -> Result<()> {
             core.rec(None).announce(&alert);
             if let Err(e) = core
                 .outbox
-                .to_operator(None, json!({"kind": "notice", "text": words(&alert)}))
+                .to_operator(None, json!({"kind": "hands_alert", "text": words(&alert)}))
             {
                 tracing::warn!(error = %format!("{e:#}"), "hands: the hour's notice was not written");
             }

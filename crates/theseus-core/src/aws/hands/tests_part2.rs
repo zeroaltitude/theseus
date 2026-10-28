@@ -511,7 +511,7 @@ async fn the_hours_alert_fires_once_an_hour() {
         .outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
-        .filter(|a| crate::outbox::kind_of(a) == "notice")
+        .filter(|a| crate::outbox::kind_of(a) == "hands_alert")
         .filter_map(|a| crate::outbox::body_of(a)["text"].as_str().map(String::from))
         .collect();
     assert!(
@@ -910,7 +910,7 @@ fn notices(core: &crate::Core) -> Vec<String> {
     core.outbox
         .open_for(crate::outbox::OPERATOR_TARGET)
         .iter()
-        .filter(|a| crate::outbox::kind_of(a) == "notice")
+        .filter(|a| crate::outbox::kind_of(a) == "hands_alert")
         .filter_map(|a| crate::outbox::body_of(a)["text"].as_str().map(String::from))
         .collect()
 }

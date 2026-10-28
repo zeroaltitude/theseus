@@ -287,7 +287,7 @@ impl Sink<'_> {
         self.rec.announce(r);
         if let Err(e) = self
             .outbox
-            .to_operator(None, json!({"kind": "notice", "text": entered(r)}))
+            .to_operator(None, json!({"kind": "hands_alert", "text": entered(r)}))
         {
             tracing::warn!(error = %format!("{e:#}"), "hands: runaway mode's notice was not written");
         }

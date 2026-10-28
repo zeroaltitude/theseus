@@ -63,8 +63,8 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 | Day ceiling / runaway line | `day_ceiling.rs` `notice_text`, `runaway_text` | a model call refused at the day's line | DM, `spend_ceiling` | Alert |
 | Day warning | `day_ceiling.rs` `warning_text` | today's spend passed the ceiling under notify | DM, `spend_ceiling` | Alert |
 | AWS month warning | `aws/month_warn.rs` `warning_text` | the month's AWS spend passed `monthly_warn_usd` | DM, `spend_ceiling` | Alert |
-| AWS hands hour alert | `aws/hands/watch.rs` `words` | hands spent past `hourly_alert_usd` | DM, `notice` | Alert |
-| AWS runaway mode | `aws/hands/runaway.rs` `entered` | spend reached `runaway_factor` × a line | DM, `notice` | Alert |
+| AWS hands hour alert | `aws/hands/watch.rs` `words` | hands spent past `hourly_alert_usd` | DM, `hands_alert` | Alert |
+| AWS runaway mode | `aws/hands/runaway.rs` `entered` | spend reached `runaway_factor` × a line | DM, `hands_alert` | Alert |
 | Google lapse | `google/tend.rs` `lapse_text` | Google refused the token's refresh | DM, `spend_ceiling` | Action |
 | Morning note, consolidation finding | `initiative/speak.rs` `headed` (from `initiative_post`) | the day's first tick after `morning_hour`; the night's consolidation | DM, `initiative` | FYI (the persona's words unchanged below) |
 | Posted digest | `initiative/digest.rs` `posted_text` | a `[discord] digest_at` slot with lines | DM, `digest` | FYI |
