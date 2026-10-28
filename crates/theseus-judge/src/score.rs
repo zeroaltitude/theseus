@@ -165,8 +165,9 @@ pub fn flips(a: &Run, b: &Run) -> Vec<(String, String, Option<Answer>, Option<An
     out
 }
 
-/// The 95th percentile of |Δ confidence| over the answers two runs share, for
-/// the revealing flags and `injection`: the noise a case on the bar flips in.
+/// The 95th percentile of |Δ confidence| over the answers two runs share: the
+/// noise a case on the bar flips in. `confidence` is Jev's own figure for the
+/// answer, whichever option it chose.
 pub fn p95_delta(a: &Run, b: &Run) -> Option<f64> {
     let mut d: Vec<f64> = Vec::new();
     for (case, qs) in a {
@@ -175,11 +176,7 @@ pub fn p95_delta(a: &Run, b: &Run) -> Option<f64> {
                 x.conf,
                 b.get(case).and_then(|m| m.get(q)).and_then(|y| y.conf),
             ) {
-                // An answer that moved from yes to no moves its confidence
-                // the other way: compare the confidence in `yes`.
-                let yes = |a: &Answer, c: f64| if a.got == "yes" { c } else { 1.0 - c };
-                let y = &b[case][q];
-                d.push((yes(x, cx) - yes(y, cy)).abs());
+                d.push((cx - cy).abs());
             }
         }
     }
@@ -321,7 +318,7 @@ pub fn report(files: &[(String, String)]) -> String {
         let f = flips(a, b);
         let _ = writeln!(
             out,
-            "== flips at the bar, {na} -> {nb}: {}; p95 |delta confidence in yes| {}",
+            "== flips at the bar, {na} -> {nb}: {}; p95 |delta confidence| {}",
             f.len(),
             p95_delta(a, b).map_or("n/a".to_string(), |d| format!("{d:.3}"))
         );
