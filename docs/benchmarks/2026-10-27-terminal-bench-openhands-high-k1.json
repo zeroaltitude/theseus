@@ -1,0 +1,298 @@
+{
+ "report": "2026-10-27-terminal-bench-openhands-high-k1",
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-27",
+ "cell": "c2-openhands-high-k1",
+ "commit": "harbor arm at 7b2f1565; openhands-sdk 1.53.0, litellm pinned <1.103.0",
+ "tasks": 89,
+ "trials": 89,
+ "k_per_task": {
+  "1": 89
+ },
+ "task_set": "full",
+ "summary": {
+  "openhands": {
+   "label": "OpenHands 1.53.0, HIGH, 89x1",
+   "trials": 89,
+   "solved": 64,
+   "tasks": 89,
+   "rate": 0.719101,
+   "wilson": [
+    0.618164,
+    0.801906
+   ],
+   "k": 1,
+   "effort": [
+    "medium"
+   ],
+   "routing": "pinned",
+   "provider": "anthropic",
+   "model": [
+    "claude-sonnet-5-5"
+   ],
+   "usd_total": 9.048909,
+   "usd_trial": 0.101673,
+   "usd_trial_ci": [
+    0.072486,
+    0.13086
+   ],
+   "usd_trial_median": 0.053244,
+   "usd_solve": 0.141389,
+   "agent_s_median": 56.75,
+   "model_calls_median": 6,
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 2,
+    "AgentTimeoutError": 4
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 83
+   }
+  }
+ },
+ "replaced": [],
+ "tier": "high",
+ "model": "anthropic/claude-sonnet-5-5, pinned: one model, no routing and no fallback -- every priced call in all three cells is billed to claude-sonnet-5-5",
+ "agent": "OpenHands 1.53.0 (`openhands_agent:MeasuredOpenHands`)",
+ "commits": [],
+ "price_basis": {
+  "note": "Sonnet 5.5 cache reads moved $0.10 -> $0.20/Mtok on 2026-10-25 (install #85). Which table an arm was billed on is measured from its own per-call records, not inferred from the run's date: a harness that carries its own price catalog can still bill the old entry after the move. Quote the $0.20 row, which is today's table and the one cell 1 is quoted on.",
+  "n": 89,
+  "n_priced": 83,
+  "billed": "0.10",
+  "residual": 5.000000000143778e-07,
+  "as_billed": {
+   "median": 0.053244,
+   "mean": 0.101673,
+   "total": 9.048909
+  },
+  "rows": [
+   {
+    "basis": "0.20",
+    "label": "cache reads at $0.20/Mtok",
+    "median": 0.0616,
+    "mean": 0.120088,
+    "total": 10.687797,
+    "quote": true
+   },
+   {
+    "basis": "0.10",
+    "label": "cache reads at $0.10/Mtok",
+    "median": 0.053244,
+    "mean": 0.101673,
+    "total": 9.048904,
+    "quote": false
+   }
+  ]
+ },
+ "figures": [
+  {
+   "name": "pass-rate-openhands",
+   "form": "intervals",
+   "title": "Pass rate, OpenHands 1.53.0, all 89 tasks once, HIGH tier",
+   "question": "How much of terminal-bench@2.0 does OpenHands 1.53.0 solve on one pass?",
+   "note": "95% Wilson intervals. The agent-started row drops the trials whose agent never reached a model call; Harbor charges those to the arm as reward 0, so the raw row is the one that compares with every other arm.",
+   "x": {
+    "label": "trials passed",
+    "format": "pct",
+    "min": 0.0,
+    "max": 1.0
+   },
+   "rows": [
+    {
+     "label": "OpenHands 1.53.0",
+     "arm": "other",
+     "group": "every trial (raw)",
+     "value": 0.7191,
+     "lo": 0.618164,
+     "hi": 0.801906,
+     "tip": "64 of 89"
+    },
+    {
+     "label": "OpenHands 1.53.0",
+     "arm": "other",
+     "group": "trials whose agent started",
+     "value": 0.7356,
+     "lo": 0.634434,
+     "hi": 0.816901,
+     "tip": "64 of 87"
+    }
+   ],
+   "legend_labels": {
+    "other": "OpenHands 1.53.0"
+   }
+  },
+  {
+   "name": "cost-basis-openhands",
+   "form": "bars",
+   "title": "Dollars a trial, OpenHands 1.53.0, at $0.20/Mtok Sonnet 5.5 cache reads",
+   "question": "What does one OpenHands 1.53.0 trial cost, on the table the other cells are quoted on?",
+   "note": "89 trials, 83 of which reached a priced call; the other 6 cost $0 and stay in the denominator. This cell's own records fit the $0.10/Mtok cache-read table to 5e-07. The report's PRICE BASIS table carries every basis; this plots the quoted one.",
+   "categories": [
+    "median $/trial",
+    "mean $/trial"
+   ],
+   "value": {
+    "label": "dollars a trial",
+    "format": "usd",
+    "min": 0
+   },
+   "series": [
+    {
+     "arm": "other",
+     "label": "cache reads at $0.20/Mtok",
+     "values": [
+      0.0616,
+      0.120088
+     ]
+    }
+   ]
+  }
+ ],
+ "groupings": {
+  "all": {
+   "label": "every trial",
+   "trials": 89,
+   "passed": 64,
+   "pass_rate": {
+    "value": 0.719101,
+    "lo": 0.618164,
+    "hi": 0.801906,
+    "k": 64,
+    "n": 89
+   },
+   "usd_total": {
+    "value": 9.048909
+   },
+   "usd_per_trial": {
+    "value": 0.109023
+   },
+   "usd_per_solve": {
+    "value": 0.141389
+   },
+   "agent_s_median": {
+    "value": 56.75
+   },
+   "model_calls_median": {
+    "value": 6
+   },
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 2,
+    "AgentTimeoutError": 4
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 83
+   }
+  },
+  "clean": {
+   "label": "trials on a quiet host",
+   "trials": 89,
+   "passed": 64,
+   "pass_rate": {
+    "value": 0.719101,
+    "lo": 0.618164,
+    "hi": 0.801906,
+    "k": 64,
+    "n": 89
+   },
+   "usd_total": {
+    "value": 9.048909
+   },
+   "usd_per_trial": {
+    "value": 0.109023
+   },
+   "usd_per_solve": {
+    "value": 0.141389
+   },
+   "agent_s_median": {
+    "value": 56.75
+   },
+   "model_calls_median": {
+    "value": 6
+   },
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 2,
+    "AgentTimeoutError": 4
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 83
+   }
+  },
+  "gate_contaminated": {
+   "label": "trials inside a WSL join-gate window",
+   "trials": 0,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.0,
+    "k": 0,
+    "n": 0
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {},
+   "billed_models": {}
+  },
+  "agent_ran": {
+   "label": "trials whose agent actually started",
+   "trials": 87,
+   "passed": 64,
+   "pass_rate": {
+    "value": 0.735632,
+    "lo": 0.634434,
+    "hi": 0.816901,
+    "k": 64,
+    "n": 87
+   },
+   "usd_total": {
+    "value": 9.048909
+   },
+   "usd_per_trial": {
+    "value": 0.109023
+   },
+   "usd_per_solve": {
+    "value": 0.141389
+   },
+   "agent_s_median": {
+    "value": 56.75
+   },
+   "model_calls_median": {
+    "value": 6
+   },
+   "exceptions": {
+    "AgentTimeoutError": 4
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 83
+   }
+  },
+  "setup_failed": {
+   "label": "trials whose agent never started",
+   "trials": 2,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.657628,
+    "k": 0,
+    "n": 2
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 2
+   },
+   "billed_models": {}
+  }
+ }
+}

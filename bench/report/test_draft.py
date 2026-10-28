@@ -78,6 +78,72 @@ class Models(unittest.TestCase):
         self.assertIsNone(draft.models_of([t(), t("unknown"), {"record": {}}]))
         self.assertIsNone(draft.models_of([]))
 
+    def test_a_fallbacks_answers_do_not_widen_a_pinned_arm(self):
+        """A trial a refusal's fallback answered part of calls two models; the arm is still the one it was routed to
+        (theseus-wf482), and the report counts the mixed trials beside it."""
+        plain = {"record": {"by_model": {"claude-a": {}}}}
+        mixed = {"record": {"by_model": {"claude-a": {}, "claude-b": {}}, "mixed_model": True,
+                            "fallback": {"model": "claude-b", "routed": "claude-a", "answers": 1}}}
+        whole = {"record": {"by_model": {"claude-b": {}}, "mixed_model": True,
+                            "fallback": {"model": "claude-b", "routed": "claude-a", "answers": 59}}}
+        self.assertEqual(draft.models_of([plain, mixed, whole]), "claude-a")
+        self.assertEqual(draft.mixed_trials([plain, mixed, whole]), 2)
+        self.assertEqual(draft.mixed_trials([plain]), 0)
+        # An old record has no mark: its models are what it called, as before.
+        old = {"record": {"by_model": {"claude-a": {}, "claude-b": {}}}}
+        self.assertEqual(draft.models_of([old]), ["claude-a", "claude-b"])
+        # A routed arm's own second model stays, beside the fallback's drop.
+        routed = {"record": {"by_model": {"claude-c": {}}}}
+        self.assertEqual(draft.models_of([mixed, routed]), ["claude-a", "claude-c"])
+
+
+class ListPriced(unittest.TestCase):
+    """One price table prices the page (theseus-rd425): an arm's list-priced
+    dollars are published beside the harness's own."""
+
+    # 1M input, 1M cache reads, 0.1M output of claude-sonnet-5-5 at list: 2.00 + 0.20 + 1.00.
+    USAGE = {"input": 1_000_000, "cache_read": 1_000_000, "cache_write": 0, "output": 100_000}
+
+    def arm(self, root: Path, name: str, rows: list[tuple[float, float | None, bool]]) -> Path:
+        """Trials of one arm: (harness cost, recorded list cost or None, by_model present)."""
+        job = root / name
+        for i, (cost, listed, by_model) in enumerate(rows):
+            trial(job, f"fix-git__{i}", "fix-git", 1, cost, "2026-10-04T10:00:00-07:00")
+            rec = {"schema": "bench-efficiency/1", "arm": name, "tokens": dict(self.USAGE), "cost_usd": cost,
+                   "by_model": {"claude-sonnet-5-5": dict(self.USAGE)} if by_model else {}}
+            if listed is not None:
+                rec["list_cost_usd"] = listed
+            (job / f"fix-git__{i}" / "agent" / "efficiency.json").write_text(json.dumps(rec))
+        return job
+
+    def summary(self, rows) -> dict:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            job = self.arm(root, "theseus", rows)
+            run(["harbor", "--suite", "terminal-bench@2.0", "--date", "2026-10-04", "--slug", "listed",
+                 "--arm", f"theseus={job}", "--model", "anthropic/claude-sonnet-5-5", "--out", str(root / "docs")])
+            data = json.loads((root / "docs" / "2026-10-04-terminal-bench-listed.json").read_text())
+            return data["summary"]["theseus"]
+
+    def test_the_total_at_list_prices_is_published_beside_the_harnesss(self):
+        # The harness priced a cache read at $0.10 a million, the list at $0.20: 1M reads differ by exactly $0.10.
+        th = self.summary([(3.10, 3.20, True), (3.10, 3.20, True)])
+        self.assertAlmostEqual(th["cost_usd"], 6.20)
+        self.assertAlmostEqual(th["list_cost_usd"], 6.40)
+        self.assertAlmostEqual(th["list_cost_usd"] - th["cost_usd"], 0.20)
+        self.assertEqual(th["list_unpriced"], 0)
+
+    def test_a_record_with_no_list_price_is_priced_from_its_models_tokens(self):
+        # Theseus's and Claude Code's records carry `by_model` but never `list_cost_usd`.
+        th = self.summary([(3.10, None, True)])
+        self.assertAlmostEqual(th["list_cost_usd"], 3.20)
+        self.assertEqual(th["list_unpriced"], 0)
+
+    def test_a_trial_that_cannot_be_priced_is_counted_and_never_guessed(self):
+        th = self.summary([(3.10, 3.20, True), (3.10, None, False)])
+        self.assertAlmostEqual(th["list_cost_usd"], 3.20, msg="a floor, said as such by its count")
+        self.assertEqual(th["list_unpriced"], 1)
+
 
 class Draft(unittest.TestCase):
     def setUp(self):

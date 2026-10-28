@@ -28,6 +28,10 @@ use crate::sandbox::Bound;
 pub(crate) struct At<'a> {
     pub place: PlaceView,
     pub held: &'a dyn Fn() -> Result<Option<ExternalText>, String>,
+    /// The call's session's content labels (theseus-9ymz0), read only when
+    /// the injection freeze is asked about: a call that is a read, and any
+    /// call where `[content_based_security] injection` is `notify`, never reads the record.
+    pub labels: &'a dyn Fn() -> Option<crate::content::ContentFlags>,
     pub mcp: &'a dyn Fn() -> Option<Posture>,
     pub glide: Option<&'a crate::glide::Resolved>,
     /// The call's session: a read of its own kept outputs reads as one
@@ -78,8 +82,8 @@ impl ToolRuntime {
         // The sealed holdout sets come first, in every place (theseus-pw1q.5).
         self.sealed
             .refusal(plan)
-            .or_else(|| match place.open {
-                Some(open) => open.refusal(tool, plan),
+            .or_else(|| match place.draft {
+                Some(reach) => reach.refusal(tool, plan),
                 None => crate::places::refusal(place.class, tool, plan, &self.public_roots),
             })
             .or_else(|| place.ceiling.and_then(|c| c.refusal(tool)))

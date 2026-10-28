@@ -1,0 +1,710 @@
+{
+ "report": "2026-10-26-bughunt-rs-theseus-k3",
+ "suite": "bughunt-rs",
+ "date": "2026-10-26",
+ "tier": "high",
+ "arms": [
+  {
+   "arm": "theseus",
+   "label": "Theseus as shipped, frozen 1.0.3 (92e3dbed)",
+   "date": "2026-10-26",
+   "trials": 3,
+   "bugs_per_trial": 3.3333333333333335,
+   "bug_trials_fixed": 10,
+   "bug_trials": 39,
+   "pass_rate": 0.2564102564102564,
+   "lo": 0.1456862584345219,
+   "hi": 0.41081956767841504,
+   "union_fixed": [
+    "a1",
+    "a2",
+    "a3",
+    "r8"
+   ],
+   "hidden_pass": 31,
+   "hidden_n": 78,
+   "usd_total": 22.76,
+   "usd_per_trial": 7.59,
+   "usd_per_bug": 2.28,
+   "model_calls_mean": 153.3,
+   "tool_calls_mean": 205.7,
+   "wall_s_mean": 907,
+   "exceptions": [],
+   "tests_touched": [],
+   "trials_detail": [
+    {
+     "round": "bh-tr-r1",
+     "trial": "hunt-core__sDQjJCs",
+     "n_fixed": 4,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "r8"
+     ],
+     "cost_usd": 8.445456,
+     "model_calls": 171,
+     "tool_calls": 233,
+     "wall_s": 976.252,
+     "build_commit": "92e3dbed47a466bec774148f201974ad0773cdaa",
+     "version": "theseus 1.0.2",
+     "by_model": {
+      "claude-sonnet-5-5": 171
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    },
+    {
+     "round": "bh-tr-r2",
+     "trial": "hunt-core__Wo7G7fU",
+     "n_fixed": 2,
+     "fixed": [
+      "a2",
+      "a3"
+     ],
+     "cost_usd": 6.190595,
+     "model_calls": 137,
+     "tool_calls": 179,
+     "wall_s": 938.752,
+     "build_commit": "92e3dbed47a466bec774148f201974ad0773cdaa",
+     "version": "theseus 1.0.2",
+     "by_model": {
+      "claude-sonnet-5-5": 137
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    },
+    {
+     "round": "bh-tr-r3",
+     "trial": "hunt-core__ZnT8pk3",
+     "n_fixed": 4,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "r8"
+     ],
+     "cost_usd": 8.120654,
+     "model_calls": 152,
+     "tool_calls": 205,
+     "wall_s": 805.753,
+     "build_commit": "92e3dbed47a466bec774148f201974ad0773cdaa",
+     "version": "theseus 1.0.2",
+     "by_model": {
+      "claude-sonnet-5": 5,
+      "claude-sonnet-5-5": 147
+     },
+     "fallback_category": "reasoning_extraction",
+     "fallback_to": "claude-sonnet-5"
+    }
+   ]
+  },
+  {
+   "arm": "theseus-1.0.1",
+   "label": "Theseus as shipped, 1.0.1 (round 1)",
+   "date": "2026-10-24",
+   "trials": 3,
+   "bugs_per_trial": 4.333333333333333,
+   "bug_trials_fixed": 13,
+   "bug_trials": 39,
+   "pass_rate": 0.3333333333333333,
+   "lo": 0.2063276610691516,
+   "hi": 0.4902289567975947,
+   "union_fixed": [
+    "a1",
+    "a2",
+    "a3",
+    "r10",
+    "r4",
+    "r7"
+   ],
+   "hidden_pass": 40,
+   "hidden_n": 78,
+   "usd_total": 47.16,
+   "usd_per_trial": 15.72,
+   "usd_per_bug": 3.63,
+   "model_calls_mean": 196.0,
+   "tool_calls_mean": 290.3,
+   "wall_s_mean": 1194,
+   "exceptions": [],
+   "tests_touched": [],
+   "trials_detail": [
+    {
+     "round": "bh-tr-r1",
+     "trial": "hunt-core__MWjxioZ",
+     "n_fixed": 4,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "r4"
+     ],
+     "cost_usd": 16.374187,
+     "model_calls": 207,
+     "tool_calls": 301,
+     "wall_s": 1258.252,
+     "build_commit": "c4fa7b3167ba7648a76a47912c6eda65d6a5f911",
+     "version": "theseus 1.0.1",
+     "by_model": {
+      "claude-sonnet-5-5": 207
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    },
+    {
+     "round": "bh-tr-r2",
+     "trial": "hunt-core__iKdDocQ",
+     "n_fixed": 4,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "r7"
+     ],
+     "cost_usd": 16.396455,
+     "model_calls": 195,
+     "tool_calls": 303,
+     "wall_s": 1266.752,
+     "build_commit": "c4fa7b3167ba7648a76a47912c6eda65d6a5f911",
+     "version": "theseus 1.0.1",
+     "by_model": {
+      "claude-sonnet-5-5": 195
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    },
+    {
+     "round": "bh-tr-r3",
+     "trial": "hunt-core__igGHYpw",
+     "n_fixed": 5,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "r10",
+      "r7"
+     ],
+     "cost_usd": 14.393539,
+     "model_calls": 186,
+     "tool_calls": 267,
+     "wall_s": 1056.001,
+     "build_commit": "c4fa7b3167ba7648a76a47912c6eda65d6a5f911",
+     "version": "theseus 1.0.1",
+     "by_model": {
+      "claude-sonnet-5-5": 186
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    }
+   ]
+  },
+  {
+   "arm": "claude-code",
+   "label": "Claude Code 2.1.290",
+   "date": "2026-10-24",
+   "trials": 3,
+   "bugs_per_trial": 9.666666666666666,
+   "bug_trials_fixed": 29,
+   "bug_trials": 39,
+   "pass_rate": 0.7435897435897436,
+   "lo": 0.589180432321585,
+   "hi": 0.8543137415654781,
+   "union_fixed": [
+    "a1",
+    "a2",
+    "a3",
+    "a4",
+    "r1",
+    "r10",
+    "r2",
+    "r4",
+    "r6",
+    "r7",
+    "r8"
+   ],
+   "hidden_pass": 60,
+   "hidden_n": 78,
+   "usd_total": 39.62,
+   "usd_per_trial": 13.21,
+   "usd_per_bug": 1.37,
+   "model_calls_mean": 311.7,
+   "tool_calls_mean": 375.3,
+   "wall_s_mean": 1761,
+   "exceptions": [
+    "bh-cc-r1: AgentTimeoutError",
+    "bh-cc-r2: AgentTimeoutError"
+   ],
+   "tests_touched": [
+    "bh-cc-r2"
+   ],
+   "trials_detail": [
+    {
+     "round": "bh-cc-r1",
+     "trial": "hunt-core__o4y7CJQ",
+     "n_fixed": 10,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "r1",
+      "r10",
+      "r2",
+      "r4",
+      "r6",
+      "r7",
+      "r8"
+     ],
+     "cost_usd": 12.799376199999998,
+     "model_calls": 333,
+     "tool_calls": 391,
+     "wall_s": 2162.251,
+     "build_commit": null,
+     "version": "2.1.290",
+     "by_model": {
+      "claude-sonnet-5-5": 333
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    },
+    {
+     "round": "bh-cc-r2",
+     "trial": "hunt-core__moGGiyd",
+     "n_fixed": 10,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "a4",
+      "r1",
+      "r10",
+      "r4",
+      "r6",
+      "r7",
+      "r8"
+     ],
+     "cost_usd": 14.578919099999998,
+     "model_calls": 375,
+     "tool_calls": 484,
+     "wall_s": 2162.251,
+     "build_commit": null,
+     "version": "2.1.290",
+     "by_model": {
+      "claude-sonnet-5-5": 375
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    },
+    {
+     "round": "bh-cc-r3",
+     "trial": "hunt-core__2qsaPoA",
+     "n_fixed": 9,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "a4",
+      "r1",
+      "r10",
+      "r4",
+      "r6",
+      "r8"
+     ],
+     "cost_usd": 12.239317799999995,
+     "model_calls": 227,
+     "tool_calls": 251,
+     "wall_s": 957.252,
+     "build_commit": null,
+     "version": "2.1.290",
+     "by_model": {
+      "claude-sonnet-5-5": 227
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    }
+   ]
+  },
+  {
+   "arm": "opencode",
+   "label": "OpenCode 1.18.35",
+   "date": "2026-10-24",
+   "trials": 3,
+   "bugs_per_trial": 10.333333333333334,
+   "bug_trials_fixed": 31,
+   "bug_trials": 39,
+   "pass_rate": 0.7948717948717948,
+   "lo": 0.6446572703687137,
+   "hi": 0.8922040980208888,
+   "union_fixed": [
+    "a1",
+    "a2",
+    "a3",
+    "a4",
+    "r1",
+    "r10",
+    "r2",
+    "r4",
+    "r6",
+    "r7",
+    "r8"
+   ],
+   "hidden_pass": 66,
+   "hidden_n": 78,
+   "usd_total": 55.44,
+   "usd_per_trial": 18.48,
+   "usd_per_bug": 1.79,
+   "model_calls_mean": 41.3,
+   "tool_calls_mean": 59.0,
+   "wall_s_mean": 2115,
+   "exceptions": [
+    "bh-oc-r2: AgentTimeoutError",
+    "bh-oc-r3: AgentTimeoutError"
+   ],
+   "tests_touched": [
+    "bh-oc-r2"
+   ],
+   "trials_detail": [
+    {
+     "round": "bh-oc-r1",
+     "trial": "hunt-core__EgFbRhN",
+     "n_fixed": 10,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "a4",
+      "r1",
+      "r10",
+      "r4",
+      "r6",
+      "r7",
+      "r8"
+     ],
+     "cost_usd": 12.51,
+     "model_calls": 60,
+     "tool_calls": 68,
+     "wall_s": 2022.752,
+     "build_commit": null,
+     "version": "1.18.35",
+     "by_model": {
+      "claude-sonnet-5-5": 60
+     },
+     "fallback_category": null,
+     "fallback_to": null,
+     "cost_usd_root_only": 2.10282
+    },
+    {
+     "round": "bh-oc-r2",
+     "trial": "hunt-core__xgSQM2K",
+     "n_fixed": 10,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "a4",
+      "r1",
+      "r10",
+      "r4",
+      "r6",
+      "r7",
+      "r8"
+     ],
+     "cost_usd": 15.75,
+     "model_calls": 6,
+     "tool_calls": 16,
+     "wall_s": 2160.501,
+     "build_commit": null,
+     "version": "1.18.35",
+     "by_model": {
+      "claude-sonnet-5-5": 6
+     },
+     "fallback_category": null,
+     "fallback_to": null,
+     "cost_usd_root_only": 0.241006
+    },
+    {
+     "round": "bh-oc-r3",
+     "trial": "hunt-core__i538tSm",
+     "n_fixed": 11,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "a4",
+      "r1",
+      "r10",
+      "r2",
+      "r4",
+      "r6",
+      "r7",
+      "r8"
+     ],
+     "cost_usd": 27.18,
+     "model_calls": 58,
+     "tool_calls": 93,
+     "wall_s": 2160.251,
+     "build_commit": null,
+     "version": "1.18.35",
+     "by_model": {
+      "claude-sonnet-5-5": 58
+     },
+     "fallback_category": null,
+     "fallback_to": null,
+     "cost_usd_root_only": 2.612684
+    }
+   ]
+  },
+  {
+   "arm": "codex",
+   "label": "Codex CLI 0.161.0 (gpt-6-astra)",
+   "date": "2026-10-24",
+   "trials": 3,
+   "bugs_per_trial": 7.666666666666667,
+   "bug_trials_fixed": 23,
+   "bug_trials": 39,
+   "pass_rate": 0.5897435897435898,
+   "lo": 0.4341834847334491,
+   "hi": 0.7292091056459953,
+   "union_fixed": [
+    "a1",
+    "a2",
+    "a3",
+    "r1",
+    "r10",
+    "r4",
+    "r6",
+    "r7",
+    "r9"
+   ],
+   "hidden_pass": 50,
+   "hidden_n": 78,
+   "usd_total": 37.63,
+   "usd_per_trial": 12.54,
+   "usd_per_bug": 1.64,
+   "model_calls_mean": 59.3,
+   "tool_calls_mean": 58.3,
+   "wall_s_mean": 490,
+   "exceptions": [],
+   "tests_touched": [
+    "bh-cx-r1",
+    "bh-cx-r2",
+    "bh-cx-r3"
+   ],
+   "trials_detail": [
+    {
+     "round": "bh-cx-r1",
+     "trial": "hunt-core__PbwSkhV",
+     "n_fixed": 9,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "r1",
+      "r10",
+      "r4",
+      "r6",
+      "r7",
+      "r9"
+     ],
+     "cost_usd": 13.653802500000003,
+     "model_calls": 67,
+     "tool_calls": 66,
+     "wall_s": 417.751,
+     "build_commit": null,
+     "version": "0.161.0",
+     "by_model": {
+      "openai/gpt-6-astra": 67
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    },
+    {
+     "round": "bh-cx-r2",
+     "trial": "hunt-core__rtJUkRA",
+     "n_fixed": 7,
+     "fixed": [
+      "a1",
+      "a2",
+      "a3",
+      "r10",
+      "r4",
+      "r6",
+      "r9"
+     ],
+     "cost_usd": 11.903342500000003,
+     "model_calls": 53,
+     "tool_calls": 52,
+     "wall_s": 415.252,
+     "build_commit": null,
+     "version": "0.161.0",
+     "by_model": {
+      "openai/gpt-6-astra": 53
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    },
+    {
+     "round": "bh-cx-r3",
+     "trial": "hunt-core__sZghduX",
+     "n_fixed": 7,
+     "fixed": [
+      "a2",
+      "a3",
+      "r1",
+      "r10",
+      "r4",
+      "r6",
+      "r9"
+     ],
+     "cost_usd": 12.068669000000002,
+     "model_calls": 58,
+     "tool_calls": 57,
+     "wall_s": 636.751,
+     "build_commit": null,
+     "version": "0.161.0",
+     "by_model": {
+      "openai/gpt-6-astra": 58
+     },
+     "fallback_category": null,
+     "fallback_to": null
+    }
+   ]
+  }
+ ],
+ "figures": [
+  {
+   "name": "bugs-by-arm",
+   "form": "intervals",
+   "title": "Bug-trials fixed of 39 (13 planted bugs x 3 rounds), with 95% Wilson intervals",
+   "question": "Did the 1.0.3 stops rows move what Theseus fixes on the Bug Hunt?",
+   "note": "Theseus 1.0.3 ran 2026-10-26 on an idle M1 Max, one trial at a time; every other arm is round 1's (2026-10-24, two at a time), not rerun. Bugs within a trial are not independent, so the interval is optimistic.",
+   "x": {
+    "label": "bug-trials fixed",
+    "format": "pct",
+    "min": 0,
+    "max": 1
+   },
+   "rows": [
+    {
+     "label": "Theseus as shipped, frozen 1.0.3 (92e3dbed)",
+     "arm": "theseus",
+     "value": 0.2564,
+     "lo": 0.1457,
+     "hi": 0.4108,
+     "tip": "10 of 39; 3.33 bugs a trial"
+    },
+    {
+     "label": "Theseus as shipped, 1.0.1 (round 1)",
+     "arm": "oracle",
+     "value": 0.3333,
+     "lo": 0.2063,
+     "hi": 0.4902,
+     "tip": "13 of 39; 4.33 bugs a trial"
+    },
+    {
+     "label": "Claude Code 2.1.290",
+     "arm": "claude-code",
+     "value": 0.7436,
+     "lo": 0.5892,
+     "hi": 0.8543,
+     "tip": "29 of 39; 9.67 bugs a trial"
+    },
+    {
+     "label": "OpenCode 1.18.35",
+     "arm": "other",
+     "value": 0.7949,
+     "lo": 0.6447,
+     "hi": 0.8922,
+     "tip": "31 of 39; 10.33 bugs a trial"
+    },
+    {
+     "label": "Codex CLI 0.161.0 (gpt-6-astra)",
+     "arm": "other",
+     "value": 0.5897,
+     "lo": 0.4342,
+     "hi": 0.7292,
+     "tip": "23 of 39; 7.67 bugs a trial"
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus as shipped, frozen 1.0.3 (92e3dbed)",
+    "oracle": "Theseus as shipped, 1.0.1 (round 1)",
+    "claude-code": "Claude Code 2.1.290",
+    "other": "OpenCode 1.18.35 and Codex CLI 0.161.0 (outside the house palette)"
+   }
+  },
+  {
+   "name": "pareto-bughunt",
+   "form": "scatter",
+   "front": "upper-left",
+   "title": "Bugs fixed a trial against dollars a trial, 13 planted Rust bugs",
+   "question": "What does each harness's bug count cost?",
+   "x": {
+    "label": "$ a trial",
+    "format": "usd"
+   },
+   "y": {
+    "label": "bugs fixed a trial (of 13)",
+    "min": 0,
+    "max": 13
+   },
+   "points": [
+    {
+     "label": "Theseus as shipped, frozen 1.0.3 (92e3dbed)",
+     "arm": "theseus",
+     "x": 7.59,
+     "y": 3.33,
+     "tip": "2.28 a bug"
+    },
+    {
+     "label": "Theseus as shipped, 1.0.1 (round 1)",
+     "arm": "oracle",
+     "x": 15.72,
+     "y": 4.33,
+     "tip": "3.63 a bug"
+    },
+    {
+     "label": "Claude Code 2.1.290",
+     "arm": "claude-code",
+     "x": 13.21,
+     "y": 9.67,
+     "tip": "1.37 a bug"
+    },
+    {
+     "label": "OpenCode 1.18.35",
+     "arm": "other",
+     "x": 18.48,
+     "y": 10.33,
+     "tip": "1.79 a bug"
+    },
+    {
+     "label": "Codex CLI 0.161.0 (gpt-6-astra)",
+     "arm": "other",
+     "x": 12.54,
+     "y": 7.67,
+     "tip": "1.64 a bug"
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus as shipped, frozen 1.0.3 (92e3dbed)",
+    "oracle": "Theseus as shipped, 1.0.1 (round 1)",
+    "claude-code": "Claude Code 2.1.290",
+    "other": "OpenCode 1.18.35 and Codex CLI 0.161.0 (outside the house palette)"
+   }
+  }
+ ],
+ "run": {
+  "host": "M1 Max (aarch64 Asahi, 10 cores, 30 GB)",
+  "image": "bughunt-rs-hunt-core:0.1-pilot (normalized mtimes, MTIME-CHECK PASS)",
+  "build_commit": "92e3dbed47a466bec774148f201974ad0773cdaa",
+  "parallel": 1,
+  "spend_stop_usd": 140,
+  "agent_timeout_s": 2160,
+  "trial_spend_cap_usd": 32,
+  "cap_removed": false,
+  "host_load1_median": 0.26,
+  "host_load1_p75": 0.62,
+  "host_load1_max": 11.8,
+  "mem_available_min_gb": 15.0,
+  "samples": 225
+ }
+}

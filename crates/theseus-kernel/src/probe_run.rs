@@ -10,11 +10,13 @@
 use std::io::Read;
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use serde_json::json;
 
 use crate::job::{Reap, WrapperArgs, L1};
 use crate::job_l1;
+use crate::patience::Patience;
 use crate::types::Outcome;
 
 /// What a probe's command did.
@@ -85,7 +87,15 @@ pub fn run_in(
     // command that prints without end costs a deadline and no memory.
     let readers = [out.0, err.0].map(|r| std::thread::spawn(move || head(r, max_bytes)));
     let mut detail = json!({});
-    let (outcome, note) = job_l1::run(&args, l1, Reap::Command, out.1, err.1, &mut detail);
+    let mut patience = Patience::clock(deadline_ms, Instant::now());
+    let (outcome, note) = job_l1::run(
+        &args,
+        l1,
+        Reap::Command,
+        (out.1, err.1),
+        &mut patience,
+        &mut detail,
+    );
     let [stdout, stderr] = readers.map(|h| h.join().unwrap_or_default());
     let code = detail["exit_code"].as_i64().map(|c| c as i32);
     let failed = match (&outcome, code) {
@@ -145,6 +155,12 @@ pub struct Logged {
     pub timed_out: bool,
     /// It could not start in L1, or could not be waited for: the reason.
     pub failed: Option<String>,
+    /// Wall time at which it passed its limit still printing, and was let
+    /// run on (theseus-x1zz8).
+    pub ran_past_limit_ms: Option<u64>,
+    /// How long it had printed nothing when its limit stopped it; none for a
+    /// job stopped at the ceiling, still printing.
+    pub silent_ms: Option<u64>,
 }
 
 /// Run `argv` in L1 with `env` as its whole environment, its output on
@@ -181,18 +197,39 @@ pub fn run_logged(
                 code: None,
                 timed_out: false,
                 failed: Some(format!("could not open the command's output: {e}")),
+                ran_past_limit_ms: None,
+                silent_ms: None,
             }
         }
     };
     let mut detail = json!({});
+    // The log's length is the job's sign of life: stopped when it has grown
+    // by nothing for the limit, with the clock's ceiling past it
+    // (theseus-x1zz8).
+    let sized = match log.try_clone() {
+        Ok(f) => f,
+        Err(e) => {
+            return Logged {
+                code: None,
+                timed_out: false,
+                failed: Some(format!("could not open the command's output: {e}")),
+                ran_past_limit_ms: None,
+                silent_ms: None,
+            }
+        }
+    };
+    let mut patience = Patience::silence(deadline_ms, Instant::now(), move || {
+        sized.metadata().map_or(0, |m| m.len())
+    });
     let (outcome, note) = job_l1::run(
         &args,
         l1,
         Reap::Command,
-        log.into(),
-        err.into(),
+        (log.into(), err.into()),
+        &mut patience,
         &mut detail,
     );
+    patience.note(&mut detail);
     let code = detail["exit_code"].as_i64().map(|c| c as i32);
     let timed_out = detail["timed_out"].as_bool().unwrap_or(false);
     let failed = match (&outcome, code) {
@@ -204,5 +241,9 @@ pub fn run_logged(
         code,
         timed_out,
         failed,
+        ran_past_limit_ms: detail
+            .pointer("/ran_past_limit_ms/noticed_at_ms")
+            .and_then(|v| v.as_u64()),
+        silent_ms: detail["silent_ms"].as_u64(),
     }
 }

@@ -125,6 +125,8 @@ impl Shared {
     ) -> bool {
         if let Some(press) = super::persona_soul::parse(custom_id) {
             self.persona_soul_press(i, press, who).await;
+        } else if let Some(press) = super::content::parse(custom_id) {
+            self.content_press(i, press, who, discord).await;
         } else if let Some(press) = super::self_note::parse(custom_id) {
             self.self_note_press(i, press, who).await;
         } else if let Some(press) = super::thread_ask::parse(custom_id) {

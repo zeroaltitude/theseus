@@ -16,9 +16,10 @@
 //!   holdout sets, out of Theseus's reach (`crate::rsi::sealed`): `dir` (unset:
 //!   none; absolute and apart from every place a job can reach, refused at load
 //!   by the key's name), `every_branch`, `item_usd` and `drift_every_days`.
-//! - `backlog_starts` (1) and `backlog_max_open` (20): the nightly backlog
-//!   (`crate::rsi::backlog`, theseus-pw1q.7) starts at most this many top
-//!   unmarked items a night, and keeps at most this many open.
+//! - `backlog_starts` (unset: the pipeline's free build slots) and
+//!   `backlog_max_open` (20): the nightly backlog (`crate::rsi::backlog`,
+//!   theseus-pw1q.7) starts at most this many top unmarked items a night
+//!   (a value set wins), and keeps at most this many open.
 //! - `repo` (theseus-pw1q.8): Theseus's own source checkout, which self
 //!   branches are cut from (its `origin/main`). Unset, the default: no self
 //!   branches, and `self.propose_change` says so.
@@ -78,8 +79,9 @@ pub struct SelfImproveConfig {
     #[serde(default)]
     pub sealed: SelfSealedConfig,
     /// Items the nightly backlog starts a night (0 files and ranks only).
-    #[serde(default = "default_backlog_starts")]
-    pub backlog_starts: u32,
+    /// Unset: the pipeline's free build slots ([`Self::night_starts`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backlog_starts: Option<u32>,
     /// Open items the backlog keeps; the lowest-ranked past it are dropped.
     #[serde(default = "default_backlog_max_open")]
     pub backlog_max_open: u32,
@@ -173,10 +175,6 @@ fn default_reviewer_profile() -> String {
     "fable".into()
 }
 
-fn default_backlog_starts() -> u32 {
-    1
-}
-
 fn default_backlog_max_open() -> u32 {
     20
 }
@@ -191,7 +189,7 @@ impl Default for SelfImproveConfig {
             repo: None,
             remote: None,
             sealed: SelfSealedConfig::default(),
-            backlog_starts: default_backlog_starts(),
+            backlog_starts: None,
             backlog_max_open: default_backlog_max_open(),
             exams_day_max: EXAMS_DAY_MAX,
             graduate_min_calls: GRADUATE_MIN_CALLS,
@@ -248,6 +246,15 @@ impl Default for SelfBudgetConfig {
 }
 
 impl SelfImproveConfig {
+    /// What the night may start: `backlog_starts` when set, else the
+    /// pipeline's free build slots (`pipeline_builds` less `building`).
+    pub fn night_starts(&self, building: usize) -> usize {
+        self.backlog_starts.map_or(
+            (self.pipeline_builds as usize).saturating_sub(building),
+            |n| n as usize,
+        )
+    }
+
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
@@ -548,7 +555,8 @@ mod tests {
     #[test]
     fn the_backlog_keys_default_to_one_start_and_twenty_open() {
         let none = Config::from_toml("").unwrap();
-        assert_eq!(none.self_improve.backlog_starts, 1);
+        assert_eq!(none.self_improve.backlog_starts, None);
+        assert_eq!(none.self_improve.night_starts(0), 1);
         assert_eq!(none.self_improve.backlog_max_open, 20);
         let t = Config::EXAMPLE_TOML;
         assert!(
@@ -556,9 +564,12 @@ mod tests {
             "the template names the backlog's keys with their defaults"
         );
         let cfg = Config::from_toml("[self]\nbacklog_starts = 0\nbacklog_max_open = 5\n").unwrap();
-        assert_eq!(cfg.self_improve.backlog_starts, 0);
+        assert_eq!(cfg.self_improve.backlog_starts, Some(0));
         assert_eq!(cfg.self_improve.backlog_max_open, 5);
         assert!(Config::from_toml("[self]\nbacklog_starts = -1\n").is_err());
+        let slots = Config::from_toml("[self]\npipeline_builds = 3\n").unwrap();
+        assert_eq!(slots.self_improve.night_starts(1), 2, "free slots, unset");
+        assert_eq!(cfg.self_improve.night_starts(1), 0, "a set value wins");
     }
 
     /// `[self] repo` and `remote` are unset by default (no self branches,

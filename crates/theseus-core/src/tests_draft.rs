@@ -1,9 +1,11 @@
 //! China-origin drafts reviewed by Claude (theseus-a1wvq.13). The rig is
 //! `tests_route`'s with `dsflash` (GLM's model on the `zai` fake, judged
 //! `cn`) as `routine_coding`'s `cn_draft` and the Claude `sonnet` as its
-//! `final`, `[routing.data] open_paths` at a temp dir holding a scratch git
-//! repository, the route pack acting with a `routine_coding` verdict whose
-//! data answer is `open` at the act band, and the driver taking the tasks.
+//! `final`, a temp dir holding a scratch git repository, the route pack acting
+//! with a `routine_coding` verdict, the driver taking the tasks, and a judge
+//! standing behind the runner that labels a secret or a confidential marker
+//! (theseus-9ymz0: no open view decides whether `dsflash` may run; the labels
+//! on the draft's own session do).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,20 +15,28 @@ use serde_json::{json, Value};
 use theseus_judge::fake::FakeJev;
 use theseus_protocol::SessionKind;
 
+use crate::content::{Flag, ItemKind};
+use crate::content_wait::judging::Judging;
 use crate::draft;
 use crate::provider::{
     DeltaSink, FakeProvider, Provider, ProviderFuture, ProviderRequest, Scripted,
 };
 use crate::session::SessionRecord;
 use crate::test_support::{ledger_rows_100k as rows, until_within};
-use crate::tests_open_request::{choice, say, OWNER};
+use crate::tests_dm_rig::{say, OWNER};
 use crate::tests_route::{decided, mode, rig_parts, Rig};
 use crate::tests_tasks::{answers_a_call, first_user, posts};
 
-/// The owner's coding ask, judged open.
+/// The owner's coding ask.
 pub(crate) const ASK: &str = "In notes.txt, change the word beta to gamma.";
-/// A message Jev judges private.
+/// An earlier message of the owner's, which no draft's brief or request holds.
 const PRIVATE: &str = "My Widgetco salary review is notes-mark-5521.";
+/// A line the test's judge labels `confidential`.
+const CONFIDENTIAL: &str = "Examplecorp-unannounced-roadmap";
+/// What the test's judge labels `secret` in a tool's result. It is no secret
+/// the scrubber knows (that would be withheld before a node exists), so the
+/// judge's rule stands for the model's own finding.
+const KEYFILE_MARK: &str = "KEYFILE-MARK-4471";
 
 /// A provider whose answer is a function of the request; every request kept.
 pub(crate) struct By {
@@ -234,7 +244,8 @@ pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
     });
     let claude = By::new(move |req| review_answer(&q, &owner_file, req));
     let (z, c) = (zai.clone(), claude.clone());
-    let (w, dd) = (work.clone(), tmp.path().to_path_buf());
+    let dd = tmp.path().to_path_buf();
+    let w = work.clone();
     let r = rig_parts(
         Some(&jev),
         8,
@@ -244,7 +255,6 @@ pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
             t.cn_draft = Some("dsflash".into());
             t.final_review = vec!["sonnet".into()];
             t.profiles = vec!["sonnet".into()];
-            cfg.routing.data.open_paths = vec![w.to_string_lossy().into_owned()];
             cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
             cfg.policy.enforcement = crate::policy::Posture::Notify;
             // The state dir is on the approve list, as `~/.theseus` is by
@@ -262,6 +272,18 @@ pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
         },
     );
     std::mem::forget(jev);
+    let judge = Judging::with(|kind, text| {
+        let mut flags = Vec::new();
+        if kind == ItemKind::ToolResult && text.contains(KEYFILE_MARK) {
+            flags.push(Flag::Secret);
+        }
+        if text.contains(CONFIDENTIAL) {
+            flags.push(Flag::Confidential);
+        }
+        flags
+    });
+    judge.attach(&r.core.store);
+    r.core.runner.verdicts.set(judge);
     Draft {
         r,
         zai,
@@ -273,18 +295,10 @@ pub(crate) fn rig(tweak: impl FnOnce(&mut crate::Config)) -> Draft {
     }
 }
 
-/// Jev: every message `routine_coding`, its data `open` at the act band, but
-/// `PRIVATE`, judged `private`.
+/// Jev: every message `routine_coding`.
 fn jev() -> FakeJev {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
-    jev.script_when(
-        &format!("\"message\":\"{PRIVATE}\""),
-        None,
-        "data",
-        choice("private", 0.95),
-    );
-    jev.script("data", choice("open", 0.95));
     jev
 }
 
@@ -393,7 +407,7 @@ async fn a_cn_coding_draft_is_never_reported_without_a_claude_review() {
     let tasks = d.tasks(&sid);
     assert_eq!(tasks.len(), 2, "the draft and its review");
     let (drafted, review) = (&tasks[0], &tasks[1]);
-    assert!(draft::is_draft(drafted));
+    assert!(draft::is_draft(&d.r.core.store, drafted));
     assert_eq!(drafted.last_target.as_ref().unwrap().profile, "dsflash");
     let check = review.task.as_ref().unwrap().check.clone().unwrap();
     assert_eq!(check.checked_task, drafted.session_id);
@@ -499,7 +513,7 @@ async fn a_draft_is_never_offered_a_program() {
             .filter_map(|t| t["name"].as_str().map(str::to_string))
             .collect()
     };
-    let program = |n: &String| crate::open_view::runs_tool(&n.replace('_', "."));
+    let program = |n: &String| crate::draft_view::runs_tool(&n.replace('_', "."));
     let sent = d.zai.sent();
     assert!(!sent.is_empty());
     for q in &sent {
@@ -519,8 +533,9 @@ async fn a_draft_is_never_offered_a_program() {
             .into_iter()
             .any(|(_, n)| format!("{:?}", n.body).contains("is not offered in an open request"));
     assert!(refused, "the gate refused the call");
-    // An ordinary open task in the same directory is offered them.
-    let mut p = crate::tests_open_request::open_task("List the files of the acme tree.", "dsflash");
+    // An ordinary task in the same directory is offered them.
+    let mut p =
+        crate::tests_task_brief::params("List the files of the acme tree.", Some("dsflash"));
     p.home = Some(sid.clone());
     let task =
         d.r.core
@@ -624,18 +639,13 @@ async fn a_draft_from_a_subdirectory_applies_at_the_top() {
     );
 }
 
-/// A secret the scrubber knows, built from parts at run time.
-fn secret() -> String {
-    format!("{}{}", "whsec_", "Qm7xK2pLr9TzV4nB8cD1fG6hJ3sW5yAe")
-}
-
-/// A draft that reads a file the screen fails (a secret in it) ends there:
-/// no request of its goes to the `[model]` default, and its review opens with
-/// "no usable draft".
+/// A draft that reads a file with a secret in it ends there: the judge labels
+/// the result, no later request of the draft goes to its model or to the
+/// `[model]` default, and its review opens with "no usable draft".
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_draft_stopped_by_the_screen_ends_and_is_reviewed() {
+async fn a_draft_stopped_by_a_label_ends_and_is_reviewed() {
     let d = rig(|_| {});
-    std::fs::write(d.repo.join("keys.txt"), format!("token {}\n", secret())).unwrap();
+    std::fs::write(d.repo.join("keys.txt"), format!("token {KEYFILE_MARK}\n")).unwrap();
     git(&d.repo, &["add", "-A"]);
     git(&d.repo, &["commit", "-q", "-m", "keys"]);
     d.plan.lock().unwrap().draft_call = Some(("fs_read".into(), json!({"path": "TREE/keys.txt"})));
@@ -789,18 +799,33 @@ fn skip_of(d: &Draft) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_ineligible_coding_turn_runs_as_before() {
     let d = rig(|_| {});
-    let elsewhere = tempfile::tempdir().unwrap();
-    let outside = repo(&elsewhere.path().join("widgetco"));
     let plain = d.work.join("plain");
     std::fs::create_dir_all(&plain).unwrap();
+    // A session whose labels keep a model of restricted origin off.
+    let labelled = d.dm(&d.repo);
+    {
+        let mut rec: SessionRecord = d.r.core.store.get_session(&labelled).unwrap().unwrap();
+        let mut flags = crate::content::ContentFlags::default();
+        flags.raise(crate::content::Label {
+            flag: Flag::Confidential,
+            node: None,
+            kind: ItemKind::ToolResult,
+            source: "fs.read /srv/notes.txt".into(),
+            confidence: 0.9,
+            band: theseus_judge::band::Band::Confirm,
+            at_ms: 1,
+            judgment: String::new(),
+        });
+        rec.data = Some(Box::new(flags));
+        d.r.core.store.put_session(&labelled, &rec).unwrap();
+    }
     let mut sid = String::new();
-    for (dir, text, word) in [
-        (outside.as_path(), ASK, "dir_not_open"),
-        (plain.as_path(), ASK, "not_git"),
-        (d.repo.as_path(), PRIVATE, "not_admitted"),
+    for (session, dir, word) in [
+        (None, plain.as_path(), "not_git"),
+        (Some(labelled), d.repo.as_path(), "labelled"),
     ] {
-        sid = d.dm(dir);
-        let res = say(&d.r.core, &sid, text, None).await;
+        sid = session.unwrap_or_else(|| d.dm(dir));
+        let res = say(&d.r.core, &sid, ASK, None).await;
         assert_eq!(res.profile, "sonnet", "{word}: {:?}", res.route);
         assert!(res.loops >= 1, "{word}");
         assert_eq!(skip_of(&d), word, "{:?}", decided(&d.r.core.store).last());
@@ -808,7 +833,7 @@ async fn an_ineligible_coding_turn_runs_as_before() {
     }
     // A task's own turn, under the last conversation, in the repository.
     d.drive();
-    let mut p = crate::tests_open_request::open_task("Rename beta in the acme tree.", "sonnet");
+    let mut p = crate::tests_task_brief::params("Rename beta in the acme tree.", None);
     p.home = Some(sid.clone());
     let task =
         d.r.core
@@ -822,20 +847,6 @@ async fn an_ineligible_coding_turn_runs_as_before() {
     .await;
     let _ = task;
     assert!(d.zai.sent().is_empty(), "nothing drafted");
-
-    // Open paths at a subdirectory of the repository: the draft's tree would
-    // be the whole repository, so the turn does not draft.
-    let d = rig(|c| {
-        let at = PathBuf::from(&c.routing.data.open_paths[0]).join("acme/sub");
-        c.routing.data.open_paths = vec![at.to_string_lossy().into_owned()];
-    });
-    let sub = d.repo.join("sub");
-    std::fs::create_dir_all(&sub).unwrap();
-    let sid = d.dm(&sub);
-    let res = say(&d.r.core, &sid, ASK, None).await;
-    assert_eq!(res.profile, "sonnet", "{:?}", res.route);
-    assert_eq!(skip_of(&d), "dir_not_open");
-    assert!(d.tasks(&sid).is_empty(), "no draft");
 
     // A class with no cn_draft.
     let d = rig(|c| {
@@ -853,15 +864,16 @@ async fn an_ineligible_coding_turn_runs_as_before() {
     );
 }
 
-/// The draft's brief is the open run alone: an earlier message judged
-/// private is in neither the brief nor any request to `dsflash`.
+/// The draft's brief is this turn's ask alone: an earlier message is in
+/// neither the brief nor any request to `dsflash`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_draft_brief_holds_only_the_open_run() {
+async fn the_draft_brief_holds_only_this_turns_ask() {
     let d = rig(|_| {});
     d.plan.lock().unwrap().draft_call = Some(draft_edit());
     let sid = d.dm(&d.repo);
-    let first = say(&d.r.core, &sid, PRIVATE, None).await;
-    assert_eq!(first.profile, "sonnet");
+    // An earlier message, already in the transcript: no draft is made of it.
+    let earlier = crate::node::Node::user(&sid, None, "test", PRIVATE);
+    d.r.core.store.append(&[earlier.record().unwrap()]).unwrap();
     let res = say(&d.r.core, &sid, ASK, None).await;
     assert_eq!(res.stop_reason, "drafted", "{:?}", res.route);
     d.drive();
@@ -878,9 +890,40 @@ async fn the_draft_brief_holds_only_the_open_run() {
         let body = serde_json::to_string(&json!({"m": q.messages, "s": q.system})).unwrap();
         assert!(
             !body.contains("notes-mark-5521"),
-            "the private message reached dsflash"
+            "the earlier message reached dsflash"
         );
     }
+}
+
+/// Test 28 of theseus-9ymz0: a brief that carries a confidential line raises
+/// `confidential` on the draft's own session (its brief is an item, judged like
+/// any other), and the draft's model is refused: nothing goes to `dsflash`,
+/// the draft ends as one that was never admitted, and its review opens with
+/// "no usable draft".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_brief_with_a_confidential_line_refuses_the_drafts_model() {
+    let d = rig(|_| {});
+    d.plan.lock().unwrap().draft_call = Some(draft_edit());
+    let sid = d.dm(&d.repo);
+    let ask = format!("{ASK} The context is the {CONFIDENTIAL}.");
+    let res = say(&d.r.core, &sid, &ask, None).await;
+    assert_eq!(res.stop_reason, "drafted", "{:?}", res.route);
+    d.drive();
+    let row = d.settled().await;
+    assert_eq!(row["draft_outcome"], "not_admitted", "{row}");
+    assert!(d.zai.sent().is_empty(), "nothing went to the draft's model");
+    let drafted = &d.tasks(&sid)[0];
+    let flags = crate::content_wait::flags_of(&d.r.core.store, &drafted.session_id)
+        .expect("the draft's own session carries labels");
+    assert!(flags.has(Flag::Confidential), "{flags:?}");
+    let review = &d.tasks(&sid)[1];
+    let nodes = d.r.core.store.session_nodes(&review.session_id).unwrap();
+    assert!(
+        nodes
+            .iter()
+            .any(|(_, n)| format!("{:?}", n.body).contains("no usable draft")),
+        "the claim says so"
+    );
 }
 
 /// The owner edits the same line while the draft runs: `git apply --check`

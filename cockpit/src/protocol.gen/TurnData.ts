@@ -5,13 +5,9 @@
  */
 export type TurnData = { 
 /**
- * Jev's data answer (`open`, `private`, `unclear`), when it gave one.
+ * Whether the session may use a model of restricted origin, as routing found it: `allowed`, the word of the flag that keeps it off one (`secret`, `confidential`, `personal`), `pending` while items are not yet judged, or `unjudged` when a wait for them ran out. Empty in a route from before content flags.
  */
-verdict?: string, 
-/**
- * `admitted` or `closed` as routing found the turn, `open` once a request of it carried a pass.
- */
-clearance: string, 
+cn: string, 
 /**
  * Why the data rule kept the turn off a restricted-origin model: an open word, absent when it did not.
  */

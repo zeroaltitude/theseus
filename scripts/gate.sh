@@ -194,6 +194,7 @@ gate_done=""
 on_exit() {
   local status=$?
   if [ "$part" = locked ]; then
+    [ "$status" -eq 0 ] || not_reached
     save_locked_record
     return
   fi
@@ -664,19 +665,44 @@ compiled_under_lock() {
   fi
 }
 
+# What a failed locked part never ran: a phase that fails ends the gate, so the ones after it have no verdict,
+# which the table alone does not say. `machine_order` is machine_checks's order, and the two are kept together.
+machine_order=("reader rule" "protocol types" lifecycle jobs turn size suite)
+not_reached() {
+  local name seen="" left=()
+  for name in "${machine_order[@]}"; do
+    if [ -n "$seen" ]; then left+=("$name"); fi
+    if [ "$name" = "$phase_now" ]; then seen=1; fi
+  done
+  # machine_order must stay in step with machine_checks: a phase in neither
+  # list silently prints no NOT RUN line at all (theseus-zsddv).
+  case "$phase_now" in
+    "" | "lock wait") ;;
+    *) [ -n "$seen" ] || echo "gate: BUG, the failed phase \"$phase_now\" is not in machine_order, so the NOT RUN list is missing" ;;
+  esac
+  if [ "${#left[@]}" -gt 0 ]; then
+    echo "gate: NOT RUN, no verdict, after the failure in $phase_now: ${left[*]}"
+  fi
+  compiled_under_lock
+}
+
 # The checks that need the machine to themselves, in order: the locked part, which holds the
 # lock across them, and whose binaries the compile phases built beforehand. The benches run
 # the test build's `theseusd`, `theseus-sim`, and `theseus-index` (the workspace's features,
 # which the features phase holds an install's to; see test_build).
+#
+# The suite is last: a phase that fails ends the gate, so the one that fails most (a timing test
+# under load) must not hide the checks after it, three of which a lane's gate makes (protocol
+# types, turn, size; theseus-zsddv). `compiled_under_lock` follows it, since it reads the suite's log.
 machine_checks() {
   phase "reader rule" registry
-  phase suite suite
   phase "protocol types" protocol_types
-  compiled_under_lock
   phase lifecycle lifecycle_bench
   phase jobs jobs_bench
   phase turn turn_step
   phase size size_step
+  phase suite suite
+  compiled_under_lock
 }
 
 # Take the lock around machine_checks, by running the gate again as the locked part. The wait,

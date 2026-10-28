@@ -42,7 +42,7 @@ impl ToolRuntime {
         if let Some(why) = self.sealed.refusal_of_input(input) {
             return Err(Turned::Place(why));
         }
-        if let Some(why) = own_record_only(at.place.open.is_some(), at.session, tool.name(), input)
+        if let Some(why) = own_record_only(at.place.draft.is_some(), at.session, tool.name(), input)
         {
             return Err(Turned::Place(why));
         }

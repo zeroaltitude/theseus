@@ -1,0 +1,307 @@
+{
+ "report": "2026-10-27-terminal-bench-openclaw-sonnet-high-k1",
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-27",
+ "cell": "c4-openclaw-sonnet-high-k1",
+ "commit": "harbor arm at d7eb4c27",
+ "tasks": 89,
+ "trials": 89,
+ "k_per_task": {
+  "1": 89
+ },
+ "task_set": "full",
+ "summary": {
+  "openclaw": {
+   "label": "OpenClaw 2026.9.8, HIGH, 89x1",
+   "trials": 89,
+   "solved": 66,
+   "tasks": 89,
+   "rate": 0.741573,
+   "wilson": [
+    0.641969,
+    0.821186
+   ],
+   "k": 1,
+   "effort": [
+    "medium"
+   ],
+   "routing": "pinned",
+   "provider": "anthropic",
+   "model": [
+    "claude-sonnet-5-5"
+   ],
+   "usd_total": 29.055803,
+   "usd_trial": 0.32647,
+   "usd_trial_ci": [
+    0.221894,
+    0.431045
+   ],
+   "usd_trial_median": 0.122186,
+   "usd_solve": 0.440239,
+   "agent_s_median": 94.26,
+   "model_calls_median": 9.5,
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 3,
+    "AgentTimeoutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 86
+   }
+  }
+ },
+ "replaced": [],
+ "tier": "high",
+ "model": "anthropic/claude-sonnet-5-5, pinned: one model, no routing and no fallback -- every priced call in all three cells is billed to claude-sonnet-5-5",
+ "agent": "OpenClaw 2026.9.8 (fc23bc8) (`openclaw_agent:MeasuredOpenClaw`)",
+ "commits": [],
+ "price_basis": {
+  "note": "Sonnet 5.5 cache reads moved $0.10 -> $0.20/Mtok on 2026-10-25 (install #85). Which table an arm was billed on is measured from its own per-call records, not inferred from the run's date: a harness that carries its own price catalog can still bill the old entry after the move. Quote the $0.20 row, which is today's table and the one cell 1 is quoted on.",
+  "n": 89,
+  "n_priced": 86,
+  "billed": "0.20",
+  "residual": 4.440892098500626e-16,
+  "as_billed": {
+   "median": 0.122186,
+   "mean": 0.32647,
+   "total": 29.055803
+  },
+  "rows": [
+   {
+    "basis": "0.20",
+    "label": "cache reads at $0.20/Mtok",
+    "median": 0.122186,
+    "mean": 0.32647,
+    "total": 29.055803,
+    "quote": true
+   },
+   {
+    "basis": "0.10",
+    "label": "cache reads at $0.10/Mtok",
+    "median": 0.098374,
+    "mean": 0.237247,
+    "total": 21.114954,
+    "quote": false
+   }
+  ]
+ },
+ "figures": [
+  {
+   "name": "pass-rate-openclaw",
+   "form": "intervals",
+   "title": "Pass rate, OpenClaw 2026.9.8, all 89 tasks once, HIGH tier",
+   "question": "How much of terminal-bench@2.0 does OpenClaw 2026.9.8 solve on one pass?",
+   "note": "95% Wilson intervals. The agent-started row drops the trials whose agent never reached a model call; Harbor charges those to the arm as reward 0, so the raw row is the one that compares with every other arm.",
+   "x": {
+    "label": "trials passed",
+    "format": "pct",
+    "min": 0.0,
+    "max": 1.0
+   },
+   "rows": [
+    {
+     "label": "OpenClaw 2026.9.8",
+     "arm": "openclaw",
+     "group": "every trial (raw)",
+     "value": 0.7416,
+     "lo": 0.641969,
+     "hi": 0.821186,
+     "tip": "66 of 89"
+    },
+    {
+     "label": "OpenClaw 2026.9.8",
+     "arm": "openclaw",
+     "group": "trials whose agent started",
+     "value": 0.7586,
+     "lo": 0.659008,
+     "hi": 0.83636,
+     "tip": "66 of 87"
+    }
+   ],
+   "legend_labels": {
+    "openclaw": "OpenClaw 2026.9.8"
+   }
+  },
+  {
+   "name": "cost-basis-openclaw",
+   "form": "bars",
+   "title": "Dollars a trial, OpenClaw 2026.9.8, at $0.20/Mtok Sonnet 5.5 cache reads",
+   "question": "What does one OpenClaw 2026.9.8 trial cost, on the table the other cells are quoted on?",
+   "note": "89 trials, 86 of which reached a priced call; the other 3 cost $0 and stay in the denominator. This cell's own records fit the $0.20/Mtok cache-read table to 4e-16. The report's PRICE BASIS table carries every basis; this plots the quoted one.",
+   "categories": [
+    "median $/trial",
+    "mean $/trial"
+   ],
+   "value": {
+    "label": "dollars a trial",
+    "format": "usd",
+    "min": 0
+   },
+   "series": [
+    {
+     "arm": "openclaw",
+     "label": "cache reads at $0.20/Mtok",
+     "values": [
+      0.122186,
+      0.32647
+     ]
+    },
+    {
+     "arm": "context",
+     "label": "cache reads at $0.10/Mtok",
+     "values": [
+      0.098374,
+      0.237247
+     ]
+    }
+   ]
+  }
+ ],
+ "groupings": {
+  "all": {
+   "label": "every trial",
+   "trials": 89,
+   "passed": 66,
+   "pass_rate": {
+    "value": 0.741573,
+    "lo": 0.641969,
+    "hi": 0.821186,
+    "k": 66,
+    "n": 89
+   },
+   "usd_total": {
+    "value": 29.055803
+   },
+   "usd_per_trial": {
+    "value": 0.337858
+   },
+   "usd_per_solve": {
+    "value": 0.440239
+   },
+   "agent_s_median": {
+    "value": 94.26
+   },
+   "model_calls_median": {
+    "value": 9.5
+   },
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 3,
+    "AgentTimeoutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 86
+   }
+  },
+  "clean": {
+   "label": "trials on a quiet host",
+   "trials": 89,
+   "passed": 66,
+   "pass_rate": {
+    "value": 0.741573,
+    "lo": 0.641969,
+    "hi": 0.821186,
+    "k": 66,
+    "n": 89
+   },
+   "usd_total": {
+    "value": 29.055803
+   },
+   "usd_per_trial": {
+    "value": 0.337858
+   },
+   "usd_per_solve": {
+    "value": 0.440239
+   },
+   "agent_s_median": {
+    "value": 94.26
+   },
+   "model_calls_median": {
+    "value": 9.5
+   },
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 3,
+    "AgentTimeoutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 86
+   }
+  },
+  "gate_contaminated": {
+   "label": "trials inside a WSL join-gate window",
+   "trials": 0,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.0,
+    "k": 0,
+    "n": 0
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {},
+   "billed_models": {}
+  },
+  "agent_ran": {
+   "label": "trials whose agent actually started",
+   "trials": 87,
+   "passed": 66,
+   "pass_rate": {
+    "value": 0.758621,
+    "lo": 0.659008,
+    "hi": 0.83636,
+    "k": 66,
+    "n": 87
+   },
+   "usd_total": {
+    "value": 29.055803
+   },
+   "usd_per_trial": {
+    "value": 0.337858
+   },
+   "usd_per_solve": {
+    "value": 0.440239
+   },
+   "agent_s_median": {
+    "value": 94.26
+   },
+   "model_calls_median": {
+    "value": 9.5
+   },
+   "exceptions": {
+    "AgentTimeoutError": 1,
+    "NonZeroAgentExitCodeError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 86
+   }
+  },
+  "setup_failed": {
+   "label": "trials whose agent never started",
+   "trials": 2,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.657628,
+    "k": 0,
+    "n": 2
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {
+    "NonZeroAgentExitCodeError": 2
+   },
+   "billed_models": {}
+  }
+ }
+}

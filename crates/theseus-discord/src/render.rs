@@ -88,10 +88,14 @@ pub enum Buttons {
     PersonaSoul(String),
     /// A self note's Drop for each started item `(id, title)` and its Halt (theseus-o1h3f.7).
     SelfNote(Vec<(String, String)>),
+    /// The self-halt note's Resume (theseus-6s7ll).
+    SelfResume,
     /// A capture's card (theseus-slvl.5): `(mode, id, everywhere)`, a kept record's Undo or an ask's keep and not.
     Standing(String, String, bool),
     /// A live owner-card question (theseus-6f8t0): `(ask, proposal id)`.
     CardQuestion(String, String),
+    /// A content label's one Remove button, for this `(session, flag)` (theseus-9ymz0).
+    ContentRemove(String, String),
     /// Accept and Decline (39b's layer-1 card): Approve's and Decline's ids.
     Accept(String),
     /// A reply's cited sources, for the session whose recall gave them, and the turn whose

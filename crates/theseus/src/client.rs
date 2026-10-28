@@ -297,7 +297,7 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 109] = [
+pub const OPERATORS: [(&str, &str); 111] = [
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
     (method::GOOGLE_AUTH_FINISH, "theseus google auth"),
     (method::GOOGLE_REVOKE, "theseus google revoke"),
@@ -322,6 +322,7 @@ pub const OPERATORS: [(&str, &str); 109] = [
     (method::POLICY_EARNED_ANSWER, "theseus policy earned accept"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::POLICY_TRUST, "theseus policy trust"),
+    (method::CONTENT_UNLABEL, "theseus content remove"),
     (method::POLICY_NOTICE_SEEN, "theseus policy dismiss"),
     (method::PLACE_PUBLISH, "theseus publish"),
     (method::AWS_BOOTSTRAP, "theseus aws bootstrap"),
@@ -417,6 +418,7 @@ pub const OPERATORS: [(&str, &str); 109] = [
     (method::THREAD_UNCLAIM, "theseus thread unclaim"),
     (method::TASK_START, "theseus task start"),
     (method::TASK_PAUSE, "theseus task pause"),
+    (method::TASK_NOT_THIS, "theseus task not-this"),
     (method::TASK_RESUME, "theseus task resume"),
     (method::SESSION_MODE, "theseus mode"),
     (method::SESSION_PROFILE, "theseus sessions model"),

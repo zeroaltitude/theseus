@@ -10,12 +10,14 @@ written by the drafting tool beside every run's data file.
 
 from __future__ import annotations
 
+import csv
 import importlib.util
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 HERE = Path(__file__).resolve().parent
 
@@ -115,6 +117,29 @@ class Build(Fixture):
         d = {r["variant"]: r for r in doc["runs"] if r["report"] == "2026-03-09-fixture-e"}
         self.assertNotIn("comparison", d["alpha"])
         self.assertTrue(d["beta"]["comparison"])
+
+
+class ListPriced(Fixture):
+    def metrics(self, **entry):
+        doc = flat("2026-10-04-fixturebench-a", "2026-10-04", "full", {"a": (3, 4)})
+        doc["summary"]["a"].update(entry)
+        self.put("2026-10-04-fixturebench-a", doc)
+        rows, _ = self.build()
+        return rows["runs"][0]["metrics"]
+
+    def test_the_list_priced_total_is_published_beside_the_harnesss_and_leaves_it_alone(self):
+        m = self.metrics(usd_total=6.2, list_cost_usd=6.4, list_unpriced=0)
+        self.assertEqual(m["usd_total"], {"value": 6.2})
+        self.assertEqual(m["list_cost_usd"], {"value": 6.4})
+        self.assertAlmostEqual(m["list_cost_usd"]["value"] - m["usd_total"]["value"], 0.2)
+
+    def test_a_floor_is_not_published_as_a_total(self):
+        m = self.metrics(usd_total=6.2, list_cost_usd=3.2, list_unpriced=1)
+        self.assertNotIn("list_cost_usd", m)
+        self.assertEqual(m["usd_total"], {"value": 6.2})
+
+    def test_a_dataset_that_predates_the_field_gains_none(self):
+        self.assertNotIn("list_cost_usd", self.metrics())
 
 
 class Skips(Fixture):
@@ -301,6 +326,45 @@ class Published(unittest.TestCase):
                 self.assertEqual(set(r) - {"comparison"}, before | added, name)
                 self.assertEqual(r["model"], data["model"], "no per-arm model in a published dataset: the prose stays")
                 self.assertEqual(r["trials"], data["summary"][r["variant"]]["trials"])
+
+    def test_every_published_rows_arm_key_names_the_harness_its_label_names(self):
+        """theseus-sjf5q: the Bug Hunt's OpenCode rows were keyed `openclaw` and its Codex CLI rows `pi`, so any
+        chart over them drew the wrong harness in the wrong colour. An arm key is the only thing the cockpit and
+        `charts.py` read a harness's name and colour from, so it has to agree with the label beside it."""
+        checked, wrong = 0, []
+
+        def hold(where: str, arm: Any, label: Any) -> None:
+            nonlocal checked
+            if not isinstance(arm, str) or not isinstance(label, str):
+                return
+            fam, names = manifest.family(arm), manifest.harnesses_named(label)
+            if fam in manifest.NEUTRAL_ARMS or not names:
+                return                                   # a role, or a label that names no harness
+            checked += 1
+            if fam not in names:
+                wrong.append(f"{where}: arm {arm!r} against label {label!r} ({'/'.join(sorted(names))})")
+
+        def walk(o: Any, where: str) -> None:
+            if isinstance(o, dict):
+                hold(where, o.get("arm"), o.get("label"))
+                for k, v in o.items():
+                    walk(v, f"{where}/{k}")
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v, f"{where}[]")
+
+        for p in sorted(DOCS.glob("*.json")):
+            if p.name == manifest.INDEX:
+                continue
+            walk(json.loads(p.read_text()), p.name)
+        for i, r in enumerate(json.loads((DOCS / manifest.INDEX).read_text())["runs"]):
+            hold(f"{manifest.INDEX} run {i}", r.get("arm"), r.get("harness"))   # the manifest says it as `harness`
+        for p in sorted(DOCS.glob("*.csv")):
+            rows = list(csv.DictReader(p.read_text().splitlines()))
+            for i, r in enumerate(rows):
+                hold(f"{p.name} row {i + 1}", r.get("arm"), r.get("label"))
+        self.assertEqual(wrong, [], "\n".join(wrong))
+        self.assertGreater(checked, 200, "the published datasets stopped reaching this check")
 
 
 class DraftHook(unittest.TestCase):

@@ -44,6 +44,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use theseus_kernel::children::{self, Kind};
+use theseus_kernel::patience::{Cut, Patience};
 
 use super::jail::{Jail, Job};
 
@@ -61,21 +62,81 @@ pub struct Place {
     /// Where the gate's inform notices go (a wait for may-build that has
     /// lasted a window). None in a test's place: no notice, never an error.
     pub notify: Option<Notify>,
+    /// Whether the owner's stop has landed, asked each minute of a wait for
+    /// may-build (and before the first ask). None in a test's place and for
+    /// every caller that has no stop to read: the wait is then as it always
+    /// was, for as long as the rule says no.
+    pub stop: Option<Stop>,
+}
+
+/// A stop check: why the build must stop now (the kill switch's halt, the
+/// session's execution stopped), or none. Read each minute of a wait for
+/// may-build; it never bounds the wait by a clock.
+#[derive(Clone)]
+pub struct Stop(Arc<dyn Fn() -> Option<String> + Send + Sync>);
+
+impl Stop {
+    pub fn new(f: impl Fn() -> Option<String> + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+
+    pub(super) fn check(&self) -> Option<String> {
+        (self.0)()
+    }
+}
+
+impl std::fmt::Debug for Stop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Stop")
+    }
+}
+
+/// A gate that did not run because the owner's stop landed while it waited
+/// for may-build. An error of its own, so a caller tells it from a gate that
+/// failed, and nothing reads it as a verdict.
+#[derive(Debug)]
+pub struct GateStopped(pub String);
+
+impl std::fmt::Display for GateStopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "stopped while waiting for may-build: {}", self.0)
+    }
+}
+
+impl std::error::Error for GateStopped {}
+
+/// How a wait for may-build ended.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Waited {
+    /// The rule said yes.
+    Yes,
+    /// The stop check fired, with its reason: the build must not go on.
+    Stopped(String),
 }
 
 /// A sink for one inform notice: its text in, a post to the operator out.
 /// The daemon's is built from the core's outbox (`pr.rs`, `Board::place`).
 #[derive(Clone)]
-pub struct Notify(Arc<dyn Fn(String) + Send + Sync>);
+pub struct Notify(
+    Arc<dyn Fn(String) + Send + Sync>,
+    Option<Arc<dyn Fn(String) + Send + Sync>>,
+);
 
 impl Notify {
     pub fn new(f: impl Fn(String) + Send + Sync + 'static) -> Self {
-        Self(Arc::new(f))
+        Self(Arc::new(f), None)
     }
 
-    /// Send one notice.
-    pub(crate) fn send(&self, text: String) {
-        (self.0)(text);
+    /// The sink for the halt notice alone: it pings and carries a Resume button
+    /// (theseus-6s7ll). A sink with none sends the halt as it sends any notice.
+    pub fn with_halt(mut self, f: impl Fn(String) + Send + Sync + 'static) -> Self {
+        self.1 = Some(Arc::new(f));
+        self
+    }
+
+    /// Send the halt notice.
+    pub(crate) fn send_halt(&self, text: String) {
+        (self.1.as_ref().unwrap_or(&self.0))(text);
     }
 }
 
@@ -125,9 +186,11 @@ pub struct GateRun {
     pub tail: String,
 }
 
-/// The longest gate run before it is stopped: a cold build of the whole
-/// workspace at nice 19 beside busy neighbours took about 22 minutes.
-pub const GATE_LIMIT: Duration = Duration::from_secs(2 * 3600);
+/// How long a gate run may print nothing before it is stopped (theseus-x1zz8):
+/// a cold build of the whole workspace at nice 19 beside busy neighbours took
+/// about 22 minutes, and one that still prints is let run on, to 24 times
+/// this (`theseus_kernel::patience`).
+pub const GATE_SILENCE: Duration = Duration::from_secs(2 * 3600);
 /// How often the operator is told that the gate is still waiting for main's
 /// may-build rule to say yes. It is a notice interval, not a deadline: the
 /// wait ends when the rule says yes, never on a clock (the owner, 2026-10-25
@@ -135,6 +198,13 @@ pub const GATE_LIMIT: Duration = Duration::from_secs(2 * 3600);
 /// theseus").
 pub const MAY_BUILD_WAIT: Duration = Duration::from_secs(30 * 60);
 const MAY_BUILD_EVERY: Duration = Duration::from_secs(60);
+/// How long one evaluation of the may-build rule may take. A hard clock, and
+/// deliberately so: the rule is a predicate polled in a loop, and the stop
+/// check and the operator's notice both live in that loop, outside the run.
+/// Bounding it on silence instead would let a rule script that prints - and
+/// one that runs `git fetch` does print - hold the loop open for 24 times
+/// this, and delay a stop aimed at the build by the same factor.
+const RULE_LIMIT: Duration = Duration::from_secs(120);
 /// How the gate says the keel stopped it (gate.sh's `phase` names).
 const KEEL_FAILED: &[&str] = &["gate: FAILED in keel", "gate: FAILED in door"];
 
@@ -166,8 +236,8 @@ impl Place {
         self.root().join("reports")
     }
 
-    /// `git -C <dir> <args>`, as a child of the daemon's, never prompting.
-    pub fn git(&self, dir: &Path, args: &[&str]) -> Result<Output> {
+    /// `git -C <dir> <args>` ready to spawn, never prompting.
+    pub(super) fn git_command(&self, dir: &Path, args: &[&str]) -> Command {
         let mut c = Command::new("git");
         c.arg("-C")
             .arg(dir)
@@ -179,6 +249,12 @@ impl Place {
         for (k, v) in &self.env {
             c.env(k, v);
         }
+        c
+    }
+
+    /// `git -C <dir> <args>`, as a child of the daemon's, never prompting.
+    pub fn git(&self, dir: &Path, args: &[&str]) -> Result<Output> {
+        let mut c = self.git_command(dir, args);
         let child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
             .context("git could not start")?;
         Ok(child.wait_with_output()?)
@@ -308,6 +384,13 @@ pub fn find(p: &Place, item: &str) -> Option<Tree> {
 /// add`s at once race for the repo's locks, and the loser leaves a tree half
 /// made (the self pipeline's builds start together, theseus-pw1q.16). The
 /// branch has no upstream (`--no-track`), so an open writes no config.
+///
+/// It guards the worktree list (`.git/worktrees/`) and the branch names an
+/// open picks, and nothing the fetch writes (`refs/remotes/origin/*`,
+/// `FETCH_HEAD`, the object store, which git locks itself). So the fetch is
+/// taken **outside** it ([`refresh_main`] runs before [`open`] locks it): a
+/// slow remote never holds up a [`close`], and an open reads `origin/main`
+/// once, after the fetch, whichever commit that is (theseus-6vlr4).
 static REPO: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The remote the door reads main from: the `origin/main` its refs name.
@@ -318,7 +401,28 @@ const DOOR_REMOTE: &str = "origin";
 const FETCH_FRESH: Duration = Duration::from_secs(60);
 
 /// When each repo's door last fetched, so a pass fetches once.
+///
+/// This lock guards only that list, and it is held across the fetch on
+/// purpose: it makes the fetch single-flight, so the cuts of a pass that
+/// start together wait for the one fetch and then all see it done, rather
+/// than each fetching. The wait is bounded by [`super::join::git::FETCH_LIMIT`]. The
+/// fetch cannot move out of it without a second marker (a fetch in flight)
+/// that does the same job; a bounded wait on one fetch is the cheaper answer.
 static FETCHED: std::sync::Mutex<Vec<(PathBuf, Instant)>> = std::sync::Mutex::new(Vec::new());
+
+/// The bound on the door's fetch: [`super::join::git::FETCH_LIMIT`]; a test's place
+/// shortens it with `THESEUS_SELF_FETCH_LIMIT_MS` in its own environment.
+fn fetch_limit(p: &Place) -> Duration {
+    let own = p
+        .env
+        .iter()
+        .find(|(k, _)| k == "THESEUS_SELF_FETCH_LIMIT_MS")
+        .and_then(|(_, v)| v.to_str()?.parse::<u64>().ok());
+    match own {
+        Some(ms) if cfg!(test) => Duration::from_millis(ms),
+        _ => super::join::git::FETCH_LIMIT,
+    }
+}
 
 /// Bring `origin/main` up to date before a tree is cut from it, so the
 /// branch's base and the gate blob [`Place::main_script`] resolves are main's
@@ -326,7 +430,10 @@ static FETCHED: std::sync::Mutex<Vec<(PathBuf, Instant)>> = std::sync::Mutex::ne
 /// (no network, a remote that is down) is an infrastructure fault and never
 /// a reason to stop the build: the door goes on with the base it has, says
 /// so (to the log and, through [`Place::notify`], to the owner), and tries
-/// again at the next cut. Called with [`REPO`] held.
+/// again at the next cut. The fetch is bounded ([`super::join::git::FETCH_LIMIT`]): a
+/// remote that does not answer fails it like any other fault, with its
+/// child killed and reaped, and the door goes on with the base it has. Called
+/// without [`REPO`] held.
 fn refresh_main(p: &Place, repo: &Path) {
     let mut seen = FETCHED
         .lock()
@@ -335,7 +442,7 @@ fn refresh_main(p: &Place, repo: &Path) {
     if seen.iter().any(|(r, _)| r == repo) {
         return;
     }
-    match super::join::git::fetch(p, DOOR_REMOTE) {
+    match super::join::git::fetch_within(p, DOOR_REMOTE, fetch_limit(p)) {
         Ok(()) => seen.push((repo.to_path_buf(), Instant::now())),
         Err(e) => {
             tracing::warn!(
@@ -357,6 +464,10 @@ fn refresh_main(p: &Place, repo: &Path) {
 /// pass), on a new `self/<date>-<slug>` branch (with `-2`, `-3`… when the
 /// name is taken).
 pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
+    let repo = std::fs::canonicalize(&p.repo)
+        .with_context(|| format!("[self] repo {} is not there", p.repo.display()))?;
+    // Before [`REPO`], so a slow remote holds no close of another tree.
+    refresh_main(p, &repo);
     let _one = REPO
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -365,9 +476,6 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
     if dir.exists() {
         bail!("a tree for {item} is open already at {}", dir.display());
     }
-    let repo = std::fs::canonicalize(&p.repo)
-        .with_context(|| format!("[self] repo {} is not there", p.repo.display()))?;
-    refresh_main(p, &repo);
     p.git_ok(&repo, &["rev-parse", "--verify", "origin/main^{commit}"])
         .context("[self] repo has no origin/main to branch from")?;
     std::fs::create_dir_all(p.trees())?;
@@ -529,7 +637,9 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
         .unwrap_or_default()
         .to_string();
     if let Some(may) = may {
-        may_build(p, tree, &may).await?;
+        if let Waited::Stopped(why) = may_build(p, tree, &may).await? {
+            return Err(GateStopped(why).into());
+        }
     }
     std::fs::create_dir_all(p.gates())?;
     let log = p
@@ -538,7 +648,17 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
     let t0 = Instant::now();
     let status = match p.jail()? {
         Some(j) => jailed(j, p, tree, &script, &log, benches).await?,
-        None => run_niced(p, tree, &script, &log, GATE_LIMIT, benches).await?,
+        None => {
+            run_niced(
+                p,
+                tree,
+                &script,
+                &log,
+                Bound::Silence(GATE_SILENCE),
+                benches,
+            )
+            .await?
+        }
     };
     let text = std::fs::read_to_string(&log).unwrap_or_default();
     let verdict = if status == Some(0) {
@@ -591,7 +711,7 @@ async fn jailed(
         argv,
         env,
         log,
-        limit: GATE_LIMIT,
+        limit: GATE_SILENCE,
     };
     jail.run(p, job)
         .await
@@ -638,8 +758,9 @@ impl Clock {
 /// long as it says no: its no is the machine busy (the owner gaming, trees
 /// compiling, a disk low), and the right answer to that is to wait, never to
 /// drop the item. Each [`MAY_BUILD_WAIT`] waited, one inform notice carries
-/// the rule's last words. `/stop` drops the future and with it the child.
-async fn may_build(p: &Place, tree: &Tree, script: &Path) -> Result<()> {
+/// the rule's last words. Nothing but the rule ends the wait except the
+/// place's stop check, read each minute: it ends it as [`Waited::Stopped`].
+async fn may_build(p: &Place, tree: &Tree, script: &Path) -> Result<Waited> {
     may_build_paced(
         p,
         tree,
@@ -658,13 +779,18 @@ pub(super) async fn may_build_paced(
     every: Duration,
     notice_every: Duration,
     clock: Clock,
-) -> Result<()> {
+) -> Result<Waited> {
     std::fs::create_dir_all(p.gates())?;
     let log = p.gates().join("may-build.log");
     let mut told = 0u32;
     loop {
-        if run_niced(p, tree, script, &log, Duration::from_secs(120), false).await? == Some(0) {
-            return Ok(());
+        if let Some(why) = p.stop.as_ref().and_then(Stop::check) {
+            return Ok(Waited::Stopped(why));
+        }
+        // A hard clock, not silence: the stop check and the operator notice
+        // both live outside this call (theseus-x1zz8 join review).
+        if run_niced(p, tree, script, &log, Bound::Clock(RULE_LIMIT), false).await? == Some(0) {
+            return Ok(Waited::Yes);
         }
         let waited = clock.elapsed();
         if waited >= notice_every * (told + 1) {
@@ -715,16 +841,39 @@ fn last_phase(log: &Path) -> Option<String> {
         .map(|l| l.chars().take(200).collect())
 }
 
+/// How a niced run is bounded (theseus-x1zz8, and its join review).
+///
+/// A build or a gate is bounded by `Silence`: it may take as long as it is
+/// making noise, because a long quiet spell is the failure and the wall clock
+/// says nothing about it. A **predicate** is bounded by `Clock`: the may-build
+/// rule is polled in a loop whose stop check and operator notice both sit
+/// outside this call, so a rule script that prints must not be able to hold
+/// the loop open past its own interval. Silence there would turn a 120 s
+/// window into a 48 minute one and delay a stop by the same factor.
+pub(super) enum Bound {
+    Silence(Duration),
+    Clock(Duration),
+}
+
+impl Bound {
+    fn limit(&self) -> Duration {
+        match self {
+            Self::Silence(d) | Self::Clock(d) => *d,
+        }
+    }
+}
+
 /// `bash <script>` in the tree at nice 19 (and the idle IO class where
-/// `ionice` is), its output to `log`, stopped past `limit`. Its exit code.
+/// `ionice` is), its output to `log`, stopped at its [`Bound`]. Its exit code.
 pub(super) async fn run_niced(
     p: &Place,
     tree: &Tree,
     script: &Path,
     log: &Path,
-    limit: Duration,
+    bound: Bound,
     benches: bool,
 ) -> Result<Option<i32>> {
+    let limit = bound.limit();
     let out = std::fs::File::create(log)?;
     let err = out.try_clone()?;
     let mut argv: Vec<OsString> = vec!["nice".into(), "-n".into(), "19".into()];
@@ -759,23 +908,49 @@ pub(super) async fn run_niced(
     let mut child = children::spawn(Kind::Owned, || c.spawn(), |c| c.id())
         .context("the gate could not start")?;
     let pid = child.id();
-    match tokio::time::timeout(limit, child.wait()).await {
-        Ok(s) => Ok(s?.code()),
-        Err(_) => {
-            // Its whole group: the build's children too.
-            if let Some(pid) = pid {
-                // SAFETY: a plain signal to the group this child leads.
-                unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+    // The log's length is the gate's sign of life: the same bound as a
+    // jailed run's, `theseus_kernel::patience` (theseus-x1zz8). A predicate
+    // keeps the hard clock instead, so its caller's loop stays responsive.
+    let ms = u64::try_from(limit.as_millis()).unwrap_or(u64::MAX);
+    let t0 = std::time::Instant::now();
+    let mut patience = match bound {
+        Bound::Clock(_) => Patience::clock(ms, t0),
+        Bound::Silence(_) => {
+            let sized = std::fs::File::open(log)?;
+            Patience::silence(ms, t0, move || sized.metadata().map_or(0, |m| m.len()))
+        }
+    };
+    loop {
+        match tokio::time::timeout(patience.sleep(), child.wait()).await {
+            Ok(s) => return Ok(s?.code()),
+            Err(_) => {
+                let Some(cut) = patience.check() else {
+                    continue;
+                };
+                // Its whole group: the build's children too.
+                if let Some(pid) = pid {
+                    // SAFETY: a plain signal to the group this child leads.
+                    unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+                }
+                let _ = child.wait().await;
+                let phase = last_phase(log).map_or_else(
+                    || "no `gate: ` line in its log yet".to_string(),
+                    |l| format!("`{l}`"),
+                );
+                let why = match cut {
+                    Cut::Ceiling(_) => format!(
+                        "was still printing at its ceiling, {} minutes,",
+                        patience.ceiling_ms() / 60_000
+                    ),
+                    // A predicate's bound is the clock, so say the clock: it may
+                    // have printed the whole way and still be past its window.
+                    Cut::Clock => format!("ran for its whole {} s", limit.as_secs()),
+                    Cut::Silent(_) => {
+                        format!("printed nothing for {} minutes", limit.as_secs() / 60)
+                    }
+                };
+                bail!("the gate {why} and was stopped; its log's last phase line: {phase}")
             }
-            let _ = child.wait().await;
-            let phase = last_phase(log).map_or_else(
-                || "no `gate: ` line in its log yet".to_string(),
-                |l| format!("`{l}`"),
-            );
-            bail!(
-                "the gate ran past {} minutes and was stopped; its log's last phase line: {phase}",
-                limit.as_secs() / 60
-            )
         }
     }
 }

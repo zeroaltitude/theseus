@@ -29,7 +29,7 @@ pub const API_VERSION: &str = "2023-06-01";
 /// the provider returned them (thinking blocks and their signatures must come
 /// back byte-for-byte, §4.4 and the preserved-thinking rules), and block kinds
 /// Theseus does not model yet pass through untouched.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ProviderRequest {
     pub model: String,
     pub max_tokens: u32,
@@ -60,49 +60,9 @@ pub struct ProviderRequest {
     /// never sent.
     #[serde(skip)]
     pub image_tokens: u64,
-    /// The leave to send this request to a model of restricted origin
-    /// (theseus-a1wvq.3, `crate::data`); never sent, so the body and the
-    /// digest are the same with it and without it.
-    #[serde(skip)]
-    pub data_pass: Option<crate::data::DataPass>,
 }
 
-/// A copy is another request: it carries no pass (`crate::data::DataPass`
-/// covers the one request it was minted for).
-impl Clone for ProviderRequest {
-    fn clone(&self) -> Self {
-        let Self {
-            model,
-            max_tokens,
-            system,
-            messages,
-            tools,
-            thinking,
-            output_config,
-            cache_control,
-            betas,
-            extra,
-            image_tokens,
-            data_pass: _,
-        } = self;
-        Self {
-            model: model.clone(),
-            max_tokens: *max_tokens,
-            system: system.clone(),
-            messages: messages.clone(),
-            tools: tools.clone(),
-            thinking: thinking.clone(),
-            output_config: output_config.clone(),
-            cache_control: cache_control.clone(),
-            betas: betas.clone(),
-            extra: extra.clone(),
-            image_tokens: *image_tokens,
-            data_pass: None,
-        }
-    }
-}
-
-/// Two requests are equal when what they send is: a pass is not part of it.
+/// Two requests are equal when what they send is.
 impl PartialEq for ProviderRequest {
     fn eq(&self, o: &Self) -> bool {
         (

@@ -34,7 +34,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use rand::rngs::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
-use theseus_store::{kinds, NewRecord, Store, WalConfig, WalStore};
+use theseus_store::{chain, kinds, NewRecord, Store, WalConfig, WalStore};
 
 mod discord_cli;
 mod fake_mcp;
@@ -781,6 +781,15 @@ fn random_batch(rng: &mut StdRng) -> Vec<NewRecord> {
             };
             let mut payload = vec![0u8; len];
             rng.fill_bytes(&mut payload);
+            // The store splices a hash-chain link into a ledger payload that
+            // is a JSON object (`{` ... `}`), so a random one that happens
+            // to look like one comes back changed, as designed, and the
+            // crash test would read that as a lost record (theseus-phsri).
+            // A byte set in place draws nothing more, so every seed keeps its
+            // stream.
+            if kind == kinds::LEDGER && chain::chainable(&payload) {
+                payload[0] = 0;
+            }
             NewRecord::bytes(kind, key.as_deref(), payload)
         })
         .collect()
@@ -1128,6 +1137,32 @@ mod tests {
         let mut all = std::fs::read(dir.join("wal/000000001.seg")).unwrap();
         all.extend(std::fs::read(dir.join("wal/000000002.seg")).unwrap());
         all
+    }
+
+    /// The workload's ledger payloads are never ones the store's hash chain
+    /// rewrites (theseus-phsri). The two streams are the ones a gate's crash
+    /// test drew, each holding a ledger payload that began with `{` and ended
+    /// with `}` (positions 1364 and 1301 from the store's last position at
+    /// the worker's start, 1085 and 779): the store spliced its link into
+    /// it, and the committed record came back with another CRC.
+    #[test]
+    fn the_workload_never_draws_a_ledger_payload_the_chain_would_rewrite() {
+        for (seed, last) in [(9u64, 1085u64), (2008, 779)] {
+            let mut rng = StdRng::seed_from_u64(seed ^ last);
+            let mut ledgers = 0u32;
+            for _ in 0..4000 {
+                for r in random_batch(&mut rng) {
+                    if r.kind == kinds::LEDGER {
+                        ledgers += 1;
+                        assert!(
+                            !chain::chainable(&r.payload),
+                            "seed {seed}, start {last}: ledger payload {ledgers} would be rewritten"
+                        );
+                    }
+                }
+            }
+            assert!(ledgers > 1000, "{ledgers}");
+        }
     }
 
     /// A tear never lands inside the length reported durable (theseus-4x6):

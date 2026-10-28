@@ -337,7 +337,7 @@ impl PlaceRule {
             voice: class == PlaceClass::Private
                 && target.is_some_and(|t| t.starts_with("discord:"))
                 && self.voice_bound.load(std::sync::atomic::Ordering::Relaxed),
-            open: None,
+            draft: None,
         }
     }
 

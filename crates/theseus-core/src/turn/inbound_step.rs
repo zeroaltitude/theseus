@@ -112,7 +112,7 @@ impl TurnRunner {
                     in_thread: !steered && self.scope_in_thread(t.tc.session_id),
                     persona: self.persona_ctx(t.tc.session_id, class),
                     capture,
-                    data_names: self.cfg.routing.data.names(&self.cfg.privacy),
+                    data_names: self.cfg.privacy.data_names(),
                     private_source: crate::google::private::session(
                         t.tc.store,
                         &self.cfg,

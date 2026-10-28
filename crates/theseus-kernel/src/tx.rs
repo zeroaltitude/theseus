@@ -9,9 +9,9 @@
 //! kernel.frame(&[execution ids], |k| { k.bind_confirm(..)?; k.wake(..)?; Ok(()) })
 //! ```
 //!
-//! - **The locks first.** `frame` locks every execution named, and each one's
-//!   parent, in id order (K1: `lock_family`'s rule, for any number), before
-//!   anything is read.
+//! - **The locks first.** `frame` locks every execution named, and every
+//!   execution above each of them, in id order (K1: `lock_family`'s rule, for
+//!   any number), before anything is read.
 //! - **Staged, then committed.** The closure gets a view of the kernel whose
 //!   transitions stage their records in memory instead of appending them, in
 //!   order, each reading what the earlier ones staged (`Staged`). When it
@@ -383,9 +383,9 @@ fn in_range(terms: &[String], lo: &str, hi: &str) -> u64 {
 impl Kernel {
     /// A kernel transaction (theseus-0owd; Review 2's C6): run `f` on a view
     /// of this kernel whose transitions stage their records, and commit what
-    /// they staged as one frame. It locks `ids` and each one's parent first,
-    /// in id order; a transition inside takes no lock of its own, and may
-    /// touch only those. `Ok`: the frame is committed (if anything was
+    /// they staged as one frame. It locks `ids` and every execution above
+    /// each of them first, in id order; a transition inside takes no lock of
+    /// its own, and may touch only those. `Ok`: the frame is committed (if anything was
     /// staged), indexed, and observed once, and then the locks are released.
     /// `Err`: nothing is written. On a view, it joins the outer transaction.
     pub fn frame<T>(&self, ids: &[&str], f: impl FnOnce(&Kernel) -> Result<T>) -> Result<T> {
@@ -404,14 +404,15 @@ impl Kernel {
             }
             return out;
         }
-        // The family: each execution and its parent, which never changes, so
-        // reading it outside the lock is sound (`lock_family`).
+        // The family: each execution and every execution above it, whose
+        // `parent` never changes, so reading the chain outside the lock is
+        // sound (`lock_family`). The whole chain, not just the parent,
+        // because a transition inside may carry a task's spend all the way up
+        // it (`carry_to_parent`, theseus-deaqt) and `Tx::require` refuses a
+        // write to an execution the transaction did not lock.
         let mut held: Vec<String> = Vec::with_capacity(ids.len() * 2);
         for id in ids {
-            held.push(id.to_string());
-            if let Some(p) = self.execution(id)?.and_then(|e| e.parent) {
-                held.push(p);
-            }
+            held.extend(self.family(id)?);
         }
         held.sort_unstable();
         held.dedup();

@@ -296,6 +296,57 @@ async fn a_guest_an_unknown_emoji_and_a_shared_place_do_nothing() {
     open_gate(&r);
 }
 
+const NOT_THIS: &str = "\u{1f44e}";
+
+/// The task's record says it started itself, as a `task.create` in a turn
+/// with no owner input would have written it.
+fn started_itself(r: &Rig) {
+    let id = theseus_core::task_graph::of_session(&task_session(r));
+    let mut t = theseus_core::task_graph::all(&r.core.store)
+        .unwrap()
+        .into_iter()
+        .find(|t| t.id == id)
+        .unwrap();
+    t.origin.self_started = true;
+    t.origin.because = Some("the reef survey was left unfinished".into());
+    r.core
+        .store
+        .append(&[theseus_core::task_graph::record(&t).unwrap()])
+        .unwrap();
+}
+
+fn preferences(r: &Rig) -> usize {
+    let all = r.core.runner.standing.all(&r.core.store).unwrap();
+    theseus_core::standing::live(&all, None, theseus_protocol::now_unix_ms())
+        .into_iter()
+        .filter(|p| p.source == theseus_protocol::task_not_this::SOURCE)
+        .count()
+}
+
+/// 👎 on a task that started itself cancels it and keeps one preference.
+#[tokio::test]
+async fn a_thumbs_down_on_a_task_that_started_itself_says_not_this() {
+    let (r, t, first) = working().await;
+    until(&r, "the controls", || r.fake.reactions(&first).len() == 4).await;
+    started_itself(&r);
+    react(&r, ANA, t.id, &first, NOT_THIS);
+    until(&r, "the task is cancelled", || state(&r) == "cancelled").await;
+    assert_eq!(preferences(&r), 1);
+    open_gate(&r);
+}
+
+/// 👎 on a task the owner asked for is no control: nothing happens to it.
+#[tokio::test]
+async fn a_thumbs_down_on_a_task_the_owner_asked_for_does_nothing() {
+    let (r, t, first) = working().await;
+    until(&r, "the controls", || r.fake.reactions(&first).len() == 4).await;
+    react(&r, ANA, t.id, &first, NOT_THIS);
+    quiet().await;
+    assert_eq!(state(&r), "running");
+    assert_eq!(preferences(&r), 0);
+    open_gate(&r);
+}
+
 #[tokio::test]
 async fn in_a_shared_channel_a_tap_on_a_tasks_thread_does_nothing() {
     let r = rig(

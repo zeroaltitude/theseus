@@ -245,6 +245,11 @@ async fn a_repl_computing_is_not_idle() {
     let py = id_of(&o);
     read_until(&terms, "s1", &py, ">>> ", d.path()).await;
     let text = "import time; time.sleep(1); print('sl' + 'ept')\n";
+    // From before the send, not by the wait's own count: that starts when the
+    // read does, which on a loaded machine is long after python began its
+    // second (882 ms seen), while python's sleep can only end a second after
+    // the send.
+    let sent = Instant::now();
     call(
         &terms,
         "s1",
@@ -259,7 +264,7 @@ async fn a_repl_computing_is_not_idle() {
         text.contains("\nslept\n") || text.contains("|slept"),
         "{text}"
     );
-    assert!(waited_ms(&text) >= 900, "{text}");
+    assert!(sent.elapsed() >= Duration::from_millis(1_000), "{text}");
     terms.close_session("s1", BY_TOOL);
 }
 
@@ -350,6 +355,7 @@ async fn a_message_queued_behind_the_turn_ends_a_terminals_wait() {
                 text: "stop it".into(),
                 attachments: vec![],
                 author: "test".into(),
+                owner: false,
                 surface: None,
                 reply_to: None,
                 arrived: Instant::now(),

@@ -17,12 +17,16 @@ test('the lead rule is one constant, and the two rules pick different rows for T
   assert.equal(manifest.reason, null)
   const t = high.find((s) => s.arm === 'theseus')!, largest = groupTasks(high)
   assert.equal(largest, 89)
+  // Since the 10-26 cell (all 89 tasks x 3) the newest row is also the comparable one, so the two rules agree here.
   const newest = leadRow(t, 'newest', largest)
-  assert.equal(newest.date, '2026-10-23')
-  assert.equal(newest.tasks, 6)
+  assert.equal(newest.date, '2026-10-26')
+  assert.equal(newest.tasks, 89)
   const comparable = leadRow(t, 'newest-comparable', largest)
-  assert.equal(comparable.tasks, 89)
-  assert.equal(comparable.date, '2026-10-21')
+  assert.equal(comparable, newest)
+  // They still part on a series whose newest row is short: the 10-23 retest ran 6 of the 89 tasks.
+  const short = { ...t, history: t.history.filter((r) => r.date <= '2026-10-23'), newest: t.history.find((r) => r.date === '2026-10-23')! }
+  assert.equal(leadRow(short, 'newest', largest).tasks, 6)
+  assert.equal(leadRow(short, 'newest-comparable', largest).tasks, 89)
   assert.ok(['newest', 'newest-comparable'].includes(LEAD))
   // An arm with no row at the largest count falls back to its newest.
   const c = high.find((s) => s.arm === 'codex')!
@@ -38,8 +42,26 @@ test('every row prints trials and tasks, and a short row carries its chip, under
       else assert.equal(l.chip, null)
     }
   }
+  // Theseus's newest high-tier row now covers all 89 tasks, so under either rule it carries no chip.
   const t = cardsOf(manifest, list, reports, 'newest').find((c) => c.id === 'terminal-bench@2.0:high')!.lines.find((l) => l.theseus)!
-  assert.equal(t.chip, '6 of 89 tasks')
+  assert.equal(t.chip, null)
+  // The max tier's newest row now covers all 30 too: the frozen 1.0.3 cell of 10-27 (theseus-gauntlet-1025 c7)
+  // superseded the 10-23 retest that ran 27 of them, so it carries no chip either.
+  const max = cardsOf(manifest, list, reports, 'newest').find((c) => c.id === 'terminal-bench@2.0:max')!.lines.find((l) => l.theseus)!
+  assert.equal(max.row.tasks, 30)
+  assert.equal(max.chip, null)
+  // No published lead row is short any more, so the chip itself is covered on a constructed series rather than left
+  // untested: drop the 10-27 cell and the max lead falls back to the retest, which ran 27 of the hard 30.
+  const earlier = (s: (typeof manifest.series)[number]) => s.history.filter((r) => r.date < '2026-10-27')
+  const without = {
+    ...manifest,
+    series: manifest.series.map((s) =>
+      s.benchmark === 'terminal-bench@2.0' && s.tier === 'max' && s.arm === 'theseus'
+        ? { ...s, history: earlier(s), newest: earlier(s).at(-1)! }
+        : s),
+  }
+  const short = cardsOf(without, list, reports, 'newest').find((c) => c.id === 'terminal-bench@2.0:max')!.lines.find((l) => l.theseus)!
+  assert.equal(short.chip, '27 of 30 tasks')
 })
 
 test('every GitHub address names a report that exists, in the one shape', () => {
@@ -64,19 +86,24 @@ test('the omnibus is pinned first, and a suite with no manifest row shows no num
   const ids = suites.map((c) => c.id)
   for (const want of ['gate-bench', 'memory-exam', 'retrieval', 'recall', 'async', 'context']) assert.ok(ids.includes(want), want)
   for (const c of suites) {
-    assert.equal(c.noMetric, NO_METRIC)
+    // Its run's own one-line finding stands in the metric's place; the old words are the last resort (theseus-s5qwv).
+    assert.equal(c.noMetric, c.finding ? null : NO_METRIC)
     assert.deepEqual(c.lines, [])
     assert.equal(c.arms, null)
   }
   assert.ok(!NO_METRIC.match(/\d/))
-  // Newest first after the pin.
-  for (let i = 2; i < cards.length; i++) assert.ok(cards[i - 1].asOf >= cards[i].asOf)
+  // Newest first after the pin, the runs from before their benchmark's tiers excepted: they read last.
+  const flow = cards.slice(1).filter((c) => !c.legacy)
+  for (let i = 1; i < flow.length; i++) assert.ok(flow[i - 1].asOf >= flow[i].asOf)
 })
 
 test('a manifest it cannot read leaves the suite cards, with no number', () => {
   const cards = cardsOf(readManifest('{'), list, reports)
-  assert.ok(cards.some((c) => c.id === 'terminal-bench' && c.kind === 'suite' && c.noMetric === NO_METRIC))
+  const tb = cards.find((c) => c.id === 'terminal-bench')!
+  assert.equal(tb.kind, 'suite')
+  assert.ok(tb.finding ?? tb.noMetric)
   assert.ok(cards.every((c) => c.lines.length === 0))
+  assert.ok(cards.every((c) => c.weak === null))
 })
 
 test('"every test" opens a set only where a task set reads one of the card’s reports', () => {

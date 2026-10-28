@@ -1,4 +1,4 @@
-//! Drop and Halt on the self notes (theseus-o1h3f.7): the owner's DM notes `self_digest` and
+//! Drop, Halt and Resume on the self notes (theseus-o1h3f.7): the owner's DM notes `self_digest` and
 //! `self_join` carry buttons, so a self-directed start can be answered where it is told.
 //! A digest gets one **Drop** for each item it says it started (at most [`MAX_DROPS`], the
 //! newest) and every note gets one **Halt**. A press is `self.drop` or `self.halt` as the
@@ -18,7 +18,7 @@ use twilight_model::http::interaction::InteractionResponseType;
 
 use super::{origin_of, Shared};
 
-/// A button's custom id: `snote:drop:<item>` or `snote:halt`.
+/// A button's custom id: `snote:drop:<item>`, `snote:halt` or `snote:resume`.
 const PREFIX: &str = "snote";
 /// The most Drop buttons a note carries: two rows of five at most, and Halt has a row of its own,
 /// so the message never passes Discord's five rows of five buttons.
@@ -30,6 +30,7 @@ const LINE: &str = "- started work on: ";
 pub(crate) enum Press {
     Drop(String),
     Halt,
+    Resume,
 }
 
 /// An item id as a custom id may carry it.
@@ -44,6 +45,7 @@ pub(crate) fn parse(custom_id: &str) -> Option<Press> {
     let rest = custom_id.strip_prefix(PREFIX)?.strip_prefix(':')?;
     match rest.split_once(':') {
         None if rest == "halt" => Some(Press::Halt),
+        None if rest == "resume" => Some(Press::Resume),
         Some(("drop", id)) if id_ok(id) => Some(Press::Drop(id.into())),
         _ => None,
     }
@@ -122,6 +124,15 @@ pub(crate) fn buttons(items: &[(String, String)]) -> Vec<Component> {
     rows
 }
 
+/// The halt note's one button: Resume (a press is the typed `resume self`'s own call) (theseus-6s7ll).
+pub(crate) fn resume_buttons() -> Vec<Component> {
+    vec![row(vec![button(
+        format!("{PREFIX}:resume"),
+        "Resume self-improvement".into(),
+        ButtonStyle::Success,
+    )])]
+}
+
 /// What the presser is told of a refusal or a failure (the sibling cards' shape).
 fn failed(what: &str, e: &crate::rpc_client::CallError) -> String {
     match e.code == theseus_protocol::error_code::REFUSED {
@@ -174,6 +185,7 @@ impl Shared {
             i.guild_id,
         );
         let text = match press {
+            Press::Resume => self.resume_self_words(discord, who).await,
             Press::Drop(item) => {
                 let r = self
                     .rpc
@@ -234,13 +246,35 @@ mod tests {
             Some(Press::Drop("tsk_a1".into()))
         );
         assert_eq!(parse("snote:halt"), Some(Press::Halt));
+        assert_eq!(parse("snote:resume"), Some(Press::Resume));
         for bad in [
             "snote:drop:",
             "snote:halt:x",
+            "snote:resume:x",
+            "snote:resume:",
             "snote:wipe:x",
             "earned:yes:x",
         ] {
             assert!(parse(bad).is_none(), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_resume {
+    use super::*;
+
+    #[test]
+    fn the_resume_note_has_one_button_on_the_id_that_parses_back() {
+        let rows = resume_buttons();
+        assert_eq!(rows.len(), 1);
+        let Component::ActionRow(row) = &rows[0] else {
+            panic!("a row")
+        };
+        let [Component::Button(b)] = row.components.as_slice() else {
+            panic!("one button")
+        };
+        assert_eq!(b.label.as_deref(), Some("Resume self-improvement"));
+        assert_eq!(parse(b.custom_id.as_deref().unwrap()), Some(Press::Resume));
     }
 }

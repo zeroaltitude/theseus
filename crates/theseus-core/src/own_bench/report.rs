@@ -217,7 +217,8 @@ pub fn cells(turns: &[Turn], judged: &[Judged]) -> Vec<RouteCell> {
 impl Core {
     /// Each turn's data rule from its `route.decided` rows since `since_ms`:
     /// the origin of the last row that names one (the model the turn ended
-    /// on), the first data answer, the first gate word. A row from before
+    /// on), the first data answer (a row before content flags) or its `cn`
+    /// word, the first gate word. A row from before
     /// the keys has none of them.
     fn route_data_since(&self, since_ms: u64) -> anyhow::Result<BTreeMap<String, Data>> {
         let mut out: BTreeMap<String, Data> = BTreeMap::new();
@@ -226,7 +227,11 @@ impl Core {
             let d = out.entry(turn).or_default();
             let word = |k: &str| r.data[k].as_str().map(str::to_string);
             d.origin = word("origin").or(d.origin.take());
-            d.verdict = d.verdict.take().or_else(|| word("data"));
+            d.verdict = d
+                .verdict
+                .take()
+                .or_else(|| word("data"))
+                .or_else(|| word("cn"));
             d.gate = d.gate.take().or_else(|| word("data_gate"));
             d.draft_skip = d.draft_skip.take().or_else(|| word("draft_skip"));
         }

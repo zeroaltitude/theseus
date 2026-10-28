@@ -43,7 +43,12 @@ export interface TaskRow {
   assessment: Assessment
 }
 
-/** The arm that stands for Theseus in a report: the arm keyed `theseus`, else the first of its family. */
+/** The arm that stands for Theseus in a report: the arm keyed `theseus`, else the first of its family.
+ *
+ *  The family, not `sameArm`, on purpose (theseus-yh48a): the table puts Theseus beside its rivals, so a listed ablation
+ *  (`theseus-batching`) stays a side of its own, shown in its own cell, but is not a rival to rank against: "Theseus
+ *  against Theseus + paragraph" is the question the arms chart asks, not this one. Under `sameArm` a set holding only the
+ *  ablation and a rival would have no Theseus side at all. `benchtasks.test.ts` pins both halves. */
 const pickTheseus = <T extends { arm: string }>(sides: T[]): T | undefined =>
   sides.find((s) => s.arm === 'theseus') ?? sides.find((s) => family(s.arm) === 'theseus')
 
@@ -57,6 +62,7 @@ export function taskRows(ps: readonly Point[]): TaskRow[] {
       return { arm: p.harness, name: harness(p.harness).name, k: v ? Math.round(v.v * v.n) : 0, n: v ? v.n : p.n, usd: p.values.usd?.v, wall: p.values['agent-s']?.v }
     })
     const theseus = pickTheseus(sides) ?? null
+    // Rivals are the other harnesses: a listed ablation is a side, not a rival (see `pickTheseus`).
     const others = sides.filter((s) => s !== theseus && family(s.arm) !== 'theseus')
     const best = others.reduce<Side | null>((b, s) => (!b || s.k * b.n > b.k * s.n || (s.k * b.n === b.k * s.n && s.k > b.k) ? s : b), null)
     const ordered = theseus ? [theseus, ...sides.filter((s) => s !== theseus)] : sides

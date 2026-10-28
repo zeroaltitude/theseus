@@ -79,6 +79,22 @@ def family(variant: str) -> str:
     return "theseus" if variant == "theseus" or variant.startswith("theseus-") else variant
 
 
+# What a label calls each harness. A row's arm key is how the cockpit and `charts.py` pick a harness's name and its
+# palette colour, so a key that names a different harness than its own label draws the wrong arm (theseus-sjf5q: the
+# Bug Hunt's OpenCode rows sat on `openclaw` and its Codex CLI rows on `pi`). `test_manifest.Published` holds every
+# published dataset to the agreement. The figure layer's neutrals say a role, not a harness, and are not held to it.
+HARNESS_NAMES = (("theseus", "Theseus"), ("claude-code", "Claude Code"), ("openclaw", "OpenClaw"),
+                 ("opencode", "OpenCode"), ("pi", "Pi"), ("codex", "Codex"), ("aider", "Aider"),
+                 ("openhands", "OpenHands"))
+NEUTRAL_ARMS = ("none", "oracle", "other", "context")
+
+
+def harnesses_named(label: str) -> set[str]:
+    """The harness keys a label names, by their product names as a report writes them: `Pi 1.0.4` is Pi, and
+    `OpenCode 1.18.35` is not OpenClaw. A label naming none (a retrieval arm's, a probe family's) yields nothing."""
+    return {key for key, name in HARNESS_NAMES if re.search(rf"\b{re.escape(name)}\b", label)}
+
+
 def _pass_rate(entry: dict[str, Any]) -> dict[str, Any] | None:
     """The entry's pass rate with its interval, in either shape; None when it holds none."""
     p = entry.get("pass")
@@ -105,6 +121,10 @@ def _metrics(entry: dict[str, Any]) -> dict[str, Any] | None:
         if _num(entry.get(key)):
             m["usd_total"] = {"value": entry[key]}
             break
+    # The same tokens at the providers' list prices, beside the harness's own dollars: one table for every arm. A
+    # total with an unpriced trial in it is a floor, and is not published.
+    if _num(entry.get("list_cost_usd")) and not entry.get("list_unpriced"):
+        m["list_cost_usd"] = {"value": entry["list_cost_usd"]}
     if _num(entry.get("usd_solve")):
         m["usd_per_solve"] = {"value": entry["usd_solve"]}
     if _num(entry.get("agent_s_median")):

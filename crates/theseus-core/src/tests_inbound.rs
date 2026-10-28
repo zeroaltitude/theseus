@@ -92,6 +92,10 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
     c.judge
         .packs
         .insert(crate::judge::rerank::RERANK_PACK.into(), off());
+    // content.v2 (theseus-9ymz0) judges every item a session takes in: `judge::tests_content` is its own.
+    c.judge
+        .packs
+        .insert(crate::judge::content::PACK.into(), off());
     // onto.v1 (theseus-xzxqv) rides this batch when it is on; `tests_onto` is its own.
     c.judge
         .packs
@@ -102,7 +106,7 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
 /// Health's lines once the turn's judged point has read the ladder: the
 /// three packs the owner put live stand as his adoption, under the
 /// config's ceiling (26a).
-const INBOUND_ALONE: [&str; 23] = [
+const INBOUND_ALONE: [&str; 24] = [
     "loop.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v4: live",
@@ -126,6 +130,7 @@ const INBOUND_ALONE: [&str; 23] = [
     "heard.v1: live",
     "people.v1: off",
     "people_seen.v1: off",
+    "content.v2: off",
 ];
 
 /// A person's message is judged by both packs in one request: the fake
@@ -269,8 +274,8 @@ async fn the_next_messages_state_reads_the_previous_message_and_the_reply() {
     assert_eq!(state["minutes_since_last_message"], 0);
 }
 
-/// The operator's names (`[routing.data]`) ride Jev's state as `data_names`
-/// (route.v8's `data` question, theseus-a1wvq.2); with none configured the
+/// The operator's names (`[privacy] sensitive_names`) ride Jev's state as
+/// `data_names` (route.v8's `data` question, theseus-a1wvq.2); with none configured the
 /// state has no such key, so it is the one before, byte for byte.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_operators_names_ride_the_state_only_when_configured() {
@@ -286,13 +291,11 @@ async fn the_operators_names_ride_the_state_only_when_configured() {
     let jev = FakeJev::start().unwrap();
     let r = rig_on(texts(1), Some(&jev), |c| {
         inbound_only(c);
-        c.routing.data.open_topics = vec!["Widgetco".into()];
         c.privacy.sensitive_names = vec!["Acme".into()];
     });
     turn(&r.core, None, "Summarise the Widgetco release notes.").await;
     until_inbound(&r.core.store, 1).await;
     let state = state_of(&r);
-    assert_eq!(state["data_names"]["open"], serde_json::json!(["Widgetco"]));
     assert_eq!(state["data_names"]["private"], serde_json::json!(["Acme"]));
 
     let jev = FakeJev::start().unwrap();

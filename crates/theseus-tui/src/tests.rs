@@ -1109,6 +1109,7 @@ async fn the_detail_pane_says_a_refusals_fallback_answered() {
             to: "claude-sonnet-5".into(),
             category: Some("cyber".into()),
             answered: true,
+            ..Default::default()
         }),
         ..Default::default()
     };

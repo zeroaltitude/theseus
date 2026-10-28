@@ -10,7 +10,7 @@
 START: run this as a background task, please
 --- 3 bot []
 Started.
--# sonnet · claude-sonnet-5-5 · 2 loops · 1 tool call · $0.0585 total ($0.0585 this reply) · <dur> · [inspect](<http://localhost:7433/session/<ses>/turn/<turn>>)
+-# sonnet · claude-sonnet-5-5 · 2 loops · 1 tool call · $0.0584 total ($0.0584 this reply) · <dur> · [inspect](<http://localhost:7433/session/<ses>/turn/<turn>>)
 --- 4 bot []
 (a reply)
 Starting.
@@ -67,3 +67,7 @@ risk: writes a file · why it asks: <tmp>/outside/reef.txt is protected: <tmp>/o
 📋 **Task `task-1` finished** · Reef-chart: chart the reef · <#<post>>
 Written.
 -# 2 turns · $0.0716 of $25 · <dur>
+=== the one message a content label adds (theseus-9ymz0), in the DM
+--- 1 bot []
+⚑ **injection** — this session is holding: a fetched page from `http.fetch https://example.com/x` tried to steer me, so writes, programs and sends are refused until you clear it.
+[Remove (2) content:remove:<ses>:injection]

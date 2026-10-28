@@ -1,23 +1,27 @@
-//! The provider chokepoint (theseus-oejh3, theseus-xs5ah, theseus-a1wvq.3):
-//! every provider is wrapped once, when the core is built ([`guard`]), so one
-//! place covers every caller (the turn, compaction, keep-warm, replay, the
-//! background calls). It refuses, before a byte is sent:
+//! The provider chokepoint (theseus-oejh3, theseus-xs5ah, theseus-a1wvq.3,
+//! theseus-9ymz0): every provider is wrapped once, when the core is built
+//! ([`guard`]), so one place covers every caller (the turn, compaction,
+//! keep-warm, replay, the background calls). It refuses, before a byte is sent:
 //!
-//! - a request to a model of restricted origin (`cn` or `unknown`) that does
-//!   not carry a [`DataPass`](crate::data::DataPass) covering its own digest.
-//!   Only an open request's own clearance mints one (theseus-a1wvq.8,
-//!   `turn/open_step.rs`); each refusal is a `data_gate.blocked` row;
+//! - a request to a model of restricted origin (`cn` or `unknown`) unless the
+//!   session it is made for has no label that disqualifies such a model
+//!   (`ContentFlags::disqualifies_cn`) and every item in it has been judged
+//!   (`content_wait::unjudged`). A request made for no session is refused: fail
+//!   closed, since nothing says what it carries. Nothing is proved per request;
+//!   the session either carries a label or it does not. Each refusal is a
+//!   `data_gate.blocked` row;
 //! - a request that holds one of `[privacy] sensitive_names`, or is made for a
 //!   session that read private content, to a model not of US origin
-//!   (`ModelOrigin::cleared_for_sensitive`, an allowlist). A pass never lifts
-//!   this.
+//!   (`ModelOrigin::cleared_for_sensitive`, an allowlist). No label lifts
+//!   this, and no label is needed for it: it is the deterministic backstop
+//!   that does not depend on a classifier being right.
 //!
 //! An unrestricted model's request costs one lookup of its model's origin,
 //! memoised per model; a US model's is passed on without a look at its text,
-//! and with no names configured no text is read at all. The digest is taken
-//! only for a restricted model. The matcher is `theseus_judge::names`; the
-//! walk is over each JSON string value of the system blocks, the messages and
-//! the tool definitions, never the serialized body, whose escapes (`\n`)
+//! and with no names configured no text is read at all. The session's record
+//! is read only for a restricted model. The matcher is `theseus_judge::names`;
+//! the walk is over each JSON string value of the system blocks, the messages
+//! and the tool definitions, never the serialized body, whose escapes (`\n`)
 //! would glue words together.
 
 use std::collections::{BTreeMap, HashMap};
@@ -28,9 +32,11 @@ use theseus_judge::names::Names;
 
 use crate::catalog::{cleared_for_sensitive, origin_of, Catalog, ModelOrigin};
 use crate::config::Config;
+use crate::content::ContentFlags;
 use crate::provider::{
     CountFuture, DeltaSink, Provider, ProviderError, ProviderFuture, ProviderRequest, WarmFuture,
 };
+use crate::session::SessionRecord;
 use crate::store::Store;
 
 /// The class of a request the floor refused.
@@ -108,39 +114,88 @@ impl Gated {
     /// The refusal, when the request may not go to this model.
     fn refuse(&self, req: &ProviderRequest) -> Option<anyhow::Error> {
         let origin = self.origin(&req.model);
-        let message = if origin.restricted()
-            && !req
-                .data_pass
-                .as_ref()
-                .is_some_and(|p| p.covers(&req.digest()))
-        {
-            self.blocked(&req.model, origin);
-            self.counted("restricted_origin");
-            format!(
-                "{} is of restricted origin ({}) and this request has no pass for its data; \
-                 nothing was sent",
-                req.model,
-                word(origin)
-            )
-        } else if self.cleared(&req.model)
-            || !(crate::google::private::in_scope()
-                || (!self.names.is_empty() && names_in(req, &self.names)))
-        {
-            return None;
-        } else {
-            self.counted("sensitive");
-            let level = crate::google::private::level_in_scope();
-            let held = if level == crate::google::private::Level::Sensitive {
-                "its session read a sensitive calendar"
-            } else {
-                "its session read private content"
-            };
-            format!(
-                "this request names something in `[privacy] sensitive_names`, or {held}, and its \
-                 model is not of US origin; nothing was sent"
-            )
+        let message = match self.cn_refusal(origin) {
+            Some((why, said)) => {
+                self.blocked(&req.model, origin, why);
+                self.counted(why);
+                format!(
+                    "{} is of restricted origin ({}) and {said}; nothing was sent",
+                    req.model,
+                    word(origin)
+                )
+            }
+            None if self.cleared(&req.model)
+                || !(crate::google::private::in_scope()
+                    || (!self.names.is_empty() && names_in(req, &self.names))) =>
+            {
+                return None;
+            }
+            None => {
+                self.counted("sensitive");
+                let level = crate::google::private::level_in_scope();
+                let held = if level == crate::google::private::Level::Sensitive {
+                    "its session read a sensitive calendar"
+                } else {
+                    "its session read private content"
+                };
+                format!(
+                    "this request names something in `[privacy] sensitive_names`, or {held}, \
+                     and its model is not of US origin; nothing was sent"
+                )
+            }
         };
         Some(ProviderError::DataGate { message }.into())
+    }
+
+    /// Why a request to a model of `origin` is refused for what its session
+    /// holds: the row's word, and the words for the refusal. None for a model
+    /// that is not restricted, and for a session with no label that keeps it
+    /// off one, every item of which was judged. Fails closed: a call made for
+    /// no session, a session with no record, or a record or transcript that
+    /// does not read is refused.
+    fn cn_refusal(&self, origin: ModelOrigin) -> Option<(&'static str, String)> {
+        if !origin.restricted() {
+            return None;
+        }
+        let Some(session) = CALLER.try_with(Clone::clone).ok() else {
+            return Some((
+                "no_session",
+                "this request is not made for a session, so nothing says what it carries".into(),
+            ));
+        };
+        let read = self.store.as_ref().map(|store| {
+            theseus_store::blocking(|| {
+                let rec = store.get_session::<SessionRecord>(&session)?;
+                let nodes = store.transcript(&session)?;
+                Ok::<_, anyhow::Error>((rec, nodes))
+            })
+        });
+        let (rec, nodes) = match read {
+            Some(Ok((Some(rec), nodes))) => (rec, nodes),
+            _ => {
+                return Some((
+                    "no_record",
+                    format!("its session {session} has no record that reads"),
+                ))
+            }
+        };
+        let flags = rec.data.as_deref();
+        if let Some(flag) = flags.and_then(ContentFlags::disqualifies_cn) {
+            return Some((
+                flag.as_str(),
+                format!(
+                    "its session carries a `{}` label: {}",
+                    flag.as_str(),
+                    flag.means()
+                ),
+            ));
+        }
+        crate::content_wait::unjudged(&nodes, flags).then(|| {
+            (
+                "unjudged",
+                "its session holds an item that has not been judged yet".into(),
+            )
+        })
     }
 
     /// A refusal, counted by its class word (theseus-4h85l).
@@ -152,13 +207,14 @@ impl Gated {
 
     /// The refusal's `data_gate.blocked` row, with the session the call is
     /// made for, when it is a session's.
-    fn blocked(&self, model: &str, origin: ModelOrigin) {
+    fn blocked(&self, model: &str, origin: ModelOrigin, why: &str) {
         let Some(store) = &self.store else { return };
         let session = CALLER.try_with(Clone::clone).ok();
         let fact = crate::fact::data::DataGateBlocked {
             provider: &self.name,
             model,
             origin: word(origin),
+            why,
         };
         let written = crate::fact::row(&fact, session.as_deref(), None)
             .and_then(|r| theseus_store::blocking(|| store.defer(r)));
@@ -256,8 +312,18 @@ mod tests {
     use super::*;
     use crate::provider::FakeProvider;
     use serde_json::json;
+    use theseus_protocol::SessionKind;
 
-    fn gated(api_base: &str, names: &[&str]) -> (Gated, Arc<FakeProvider>) {
+    /// A gated provider over a real store holding one clean session, the
+    /// fake behind it, the session's id, and the store's directory.
+    fn gated(
+        api_base: &str,
+        names: &[&str],
+    ) -> (Gated, Arc<FakeProvider>, String, tempfile::TempDir) {
+        let dir = crate::scratch::tempdir();
+        let store = Store::open(dir.path()).unwrap();
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        store.put_session(&rec.session_id, &rec).unwrap();
         let fake = Arc::new(FakeProvider::default());
         let names: Vec<String> = names.iter().map(|n| (*n).to_string()).collect();
         let g = Gated::new(
@@ -266,10 +332,10 @@ mod tests {
             Names::new(&names),
             Arc::new(Catalog::builtin()),
             (api_base.into(), None),
-            None,
+            Some(store),
             Counter::default(),
         );
-        (g, fake)
+        (g, fake, rec.session_id, dir)
     }
 
     fn request(model: &str, text: &str) -> ProviderRequest {
@@ -289,13 +355,14 @@ mod tests {
             betas: vec![],
             extra: Default::default(),
             image_tokens: 0,
-            data_pass: None,
         }
     }
 
-    async fn send(g: &Gated, req: &ProviderRequest) -> Result<(), String> {
+    /// Send `req` as a call made for `session`; the refusal's class if any.
+    async fn send(g: &Gated, session: &str, req: &ProviderRequest) -> Result<(), String> {
         let mut sink = |_: crate::provider::Delta<'_>| {};
-        match g.stream_message(req, &mut sink).await {
+        let made = for_session(session, || g.stream_message(req, &mut sink));
+        match made.await {
             Ok(_) => Ok(()),
             Err(e) => Err(match e.downcast_ref::<ProviderError>() {
                 Some(p) => p.class().to_string(),
@@ -304,36 +371,32 @@ mod tests {
         }
     }
 
-    /// A request to a restricted model goes only with a pass for its own
-    /// digest (theseus-a1wvq.3), and a pass never lifts a name: a named
-    /// request with one is refused with nothing sent (the fake records every
-    /// send); a US model is sent a named request and needs no pass.
+    /// A restricted model is sent a clean session's request, and never a
+    /// sensitive name, with no label to say so: the tripwire is independent of
+    /// the labels. A US model is sent a named request.
     #[tokio::test]
     async fn a_restricted_model_is_never_sent_a_sensitive_name() {
-        let mut named = request("deepseek-v4", "Draft the Examplecorp's budget\nmemo.");
-        let mut plain = request("deepseek-v4", "Draft a budget memo.");
-        let (cn, sent) = gated("https://api.deepseek.com/anthropic", &["Examplecorp"]);
-        assert_eq!(send(&cn, &plain).await, Err("data_gate".into()), "no pass");
-        named.data_pass = Some(crate::data::DataPass::for_test(&named.digest()));
-        assert_eq!(
-            send(&cn, &named).await,
-            Err("data_gate".into()),
-            "a pass lifts no name"
-        );
+        let named = request("deepseek-v4", "Draft the Examplecorp's budget\nmemo.");
+        let plain = request("deepseek-v4", "Draft a budget memo.");
+        let (cn, sent, sid, _dir) = gated("https://api.deepseek.com/anthropic", &["Examplecorp"]);
+        assert_eq!(send(&cn, &sid, &named).await, Err("data_gate".into()));
         assert!(sent.requests().is_empty(), "nothing was sent");
-        plain.data_pass = Some(crate::data::DataPass::for_test(&plain.digest()));
-        assert_eq!(send(&cn, &plain).await, Ok(()));
+        assert_eq!(
+            send(&cn, &sid, &plain).await,
+            Ok(()),
+            "a clean session goes"
+        );
         assert_eq!(sent.requests().len(), 1);
-        let (us, sent) = gated("https://api.anthropic.com", &["Examplecorp"]);
+        let (us, sent, sid, _dir) = gated("https://api.anthropic.com", &["Examplecorp"]);
         let named = request("claude-sonnet-5-5", "Draft the Examplecorp's budget memo.");
-        assert_eq!(send(&us, &named).await, Ok(()));
+        assert_eq!(send(&us, &sid, &named).await, Ok(()));
         assert_eq!(sent.requests().len(), 1, "an unrestricted model is sent it");
     }
 
     /// Kimi is gated exactly as GLM is (theseus-rgbtz): by its host and by its
-    /// name, a restricted model is sent nothing without a pass for the
-    /// request's digest, a pass lifts no sensitive name, and a Claude id
-    /// asked of the Moonshot host is gated the same way.
+    /// name, a restricted model is sent a clean session's plain request and
+    /// never a sensitive name, and a Claude id asked of the Moonshot host is
+    /// gated the same way.
     #[tokio::test]
     async fn kimi_is_gated_exactly_as_glm_is() {
         let cases = [
@@ -349,24 +412,17 @@ mod tests {
             ("https://proxy.example.com", "acme/kimi-k4"),
         ];
         for (base, model) in cases {
-            let mut named = request(model, "Draft the Examplecorp's budget\nmemo.");
-            let mut plain = request(model, "Draft a budget memo.");
-            let (mut g, sent) = gated(base, &["Examplecorp"]);
+            let named = request(model, "Draft the Examplecorp's budget\nmemo.");
+            let plain = request(model, "Draft a budget memo.");
+            let (mut g, sent, sid, _dir) = gated(base, &["Examplecorp"]);
             g.vouched = Some(ModelOrigin::Us);
             assert_eq!(
-                send(&g, &plain).await,
-                Err("data_gate".into()),
-                "{model}: no pass"
-            );
-            named.data_pass = Some(crate::data::DataPass::for_test(&named.digest()));
-            assert_eq!(
-                send(&g, &named).await,
+                send(&g, &sid, &named).await,
                 Err("data_gate".into()),
                 "{model}: a name"
             );
             assert!(sent.requests().is_empty(), "{model}: nothing was sent");
-            plain.data_pass = Some(crate::data::DataPass::for_test(&plain.digest()));
-            assert_eq!(send(&g, &plain).await, Ok(()), "{model}: open work");
+            assert_eq!(send(&g, &sid, &plain).await, Ok(()), "{model}: clean work");
             assert_eq!(sent.requests().len(), 1, "{model}");
         }
     }
@@ -377,14 +433,14 @@ mod tests {
     /// request that names nothing still goes.
     #[tokio::test]
     async fn a_model_of_eu_origin_is_never_sent_a_sensitive_name() {
-        let (mut eu, sent) = gated("https://api.example.eu/anthropic", &["Examplecorp"]);
+        let (mut eu, sent, sid, _dir) = gated("https://api.example.eu/anthropic", &["Examplecorp"]);
         eu.vouched = Some(ModelOrigin::Eu);
         assert!(!ModelOrigin::Eu.restricted(), "not blocked as China origin");
         let named = request("claude-sonnet-5-5", "Draft the Examplecorp's budget memo.");
-        assert_eq!(send(&eu, &named).await, Err("data_gate".into()));
+        assert_eq!(send(&eu, &sid, &named).await, Err("data_gate".into()));
         assert!(sent.requests().is_empty(), "nothing was sent");
         let plain = request("claude-sonnet-5-5", "Draft a budget memo.");
-        assert_eq!(send(&eu, &plain).await, Ok(()));
+        assert_eq!(send(&eu, &sid, &plain).await, Ok(()));
         assert_eq!(sent.requests().len(), 1);
     }
 
@@ -393,15 +449,39 @@ mod tests {
     /// by the same proxy, is refused a named request with nothing sent.
     #[tokio::test]
     async fn a_us_vouch_clears_no_model_the_catalog_does_not_list_as_us() {
-        let (mut proxy, sent) = gated("https://llm-proxy.example.com/v1", &["Examplecorp"]);
+        let (mut proxy, sent, sid, _dir) =
+            gated("https://llm-proxy.example.com/v1", &["Examplecorp"]);
         proxy.vouched = Some(ModelOrigin::Us);
         let named = |m: &str| request(m, "Draft the Examplecorp's budget memo.");
         assert_eq!(
-            send(&proxy, &named("qwen-4-max")).await,
+            send(&proxy, &sid, &named("qwen-4-max")).await,
             Err("data_gate".into())
         );
         assert!(sent.requests().is_empty(), "nothing was sent");
-        assert_eq!(send(&proxy, &named("claude-sonnet-5-5")).await, Ok(()));
+        assert_eq!(
+            send(&proxy, &sid, &named("claude-sonnet-5-5")).await,
+            Ok(())
+        );
+        assert_eq!(sent.requests().len(), 1);
+    }
+
+    /// A call for no session, to a restricted model, is refused with nothing
+    /// sent, whatever the request holds; a Claude model is sent it (the
+    /// session is read only for a restricted one).
+    #[tokio::test]
+    async fn a_call_for_no_session_is_refused_a_restricted_model_alone() {
+        let (cn, sent, _sid, _dir) = gated("https://api.z.ai/api/anthropic", &[]);
+        let plain = request("glm-5.3", "Draft a budget memo.");
+        let mut sink = |_: crate::provider::Delta<'_>| {};
+        let said = cn.stream_message(&plain, &mut sink).await.unwrap_err();
+        assert!(
+            format!("{said:#}").contains("not made for a session"),
+            "{said:#}"
+        );
+        assert!(sent.requests().is_empty());
+        let (us, sent, _sid, _dir) = gated("https://api.anthropic.com", &[]);
+        let ok = request("claude-sonnet-5-5", "Draft a budget memo.");
+        us.stream_message(&ok, &mut sink).await.unwrap();
         assert_eq!(sent.requests().len(), 1);
     }
 

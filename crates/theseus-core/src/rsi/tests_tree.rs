@@ -98,6 +98,7 @@ pub(super) fn fixture_full(gate: &str, may: Option<&str>) -> Fixture {
             env: hermetic(),
             jail: None,
             notify: None,
+            stop: None,
         },
         upstream,
         _dir: dir,
@@ -423,7 +424,8 @@ async fn waited(no: u32, sink: bool) -> (anyhow::Result<()>, Vec<String>) {
         tree::MAY_BUILD_WAIT,
         tree::Clock::simulated(),
     )
-    .await;
+    .await
+    .map(|w| assert_eq!(w, tree::Waited::Yes));
     let told = told.lock().unwrap().clone();
     (r, told)
 }
@@ -490,7 +492,7 @@ async fn a_stopped_gate_names_its_phase() {
             &t,
             &script,
             &log,
-            std::time::Duration::from_millis(700),
+            tree::Bound::Silence(std::time::Duration::from_millis(700)),
             false,
         )
         .await
@@ -499,10 +501,66 @@ async fn a_stopped_gate_names_its_phase() {
     }
 }
 
+/// A gate that keeps printing is not stopped at its limit: the limit is on
+/// silence, and the ceiling is far past it (theseus-x1zz8).
+#[tokio::test]
+async fn a_gate_still_printing_past_its_limit_runs_to_its_end() {
+    let f = fixture();
+    let t = tree::open(&f.place, "busy", NOW).unwrap();
+    let log = f.place.state.join("busy.log");
+    let script = f.place.state.join("busy.sh");
+    std::fs::write(
+        &script,
+        "#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo \"gate: phase $i\"; sleep 0.1; done\n",
+    )
+    .unwrap();
+    let code = tree::run_niced(
+        &f.place,
+        &t,
+        &script,
+        &log,
+        tree::Bound::Silence(std::time::Duration::from_millis(700)),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(code, Some(0));
+}
+
+/// The same script under `Bound::Clock` IS stopped at its limit, and says the
+/// clock rather than silence. This is the may-build rule's bound: a predicate
+/// that prints must not be able to hold its caller's loop - and so a stop
+/// aimed at the build - open for 24 times its window (theseus-x1zz8, join).
+#[tokio::test]
+async fn a_printing_predicate_under_a_clock_bound_is_still_stopped_at_its_limit() {
+    let f = fixture();
+    let t = tree::open(&f.place, "rule", NOW).unwrap();
+    let log = f.place.state.join("rule.log");
+    let script = f.place.state.join("rule.sh");
+    std::fs::write(
+        &script,
+        "#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo \"gate: phase $i\"; sleep 0.1; done\n",
+    )
+    .unwrap();
+    let e = tree::run_niced(
+        &f.place,
+        &t,
+        &script,
+        &log,
+        tree::Bound::Clock(std::time::Duration::from_millis(400)),
+        false,
+    )
+    .await
+    .unwrap_err();
+    let said = format!("{e:#}");
+    assert!(said.contains("ran for its whole"), "{said}");
+    assert!(!said.contains("printed nothing"), "{said}");
+}
+
 /// The two-hour backstop is generous and stays where it is.
 #[test]
 fn the_gate_limit_is_still_two_hours() {
-    assert_eq!(tree::GATE_LIMIT, std::time::Duration::from_secs(2 * 3600));
+    assert_eq!(tree::GATE_SILENCE, std::time::Duration::from_secs(2 * 3600));
 }
 
 /// Advance the upstream's main behind the repo's back: a commit that rewrites
@@ -607,4 +665,68 @@ fn a_pass_fetches_once_not_once_an_item() {
         git(&first.dir, &["rev-parse", "HEAD"]),
         "the second cut of a pass reused the pass's fetch"
     );
+}
+
+/// `may_build_paced` against a rule that never says yes, a stop check that
+/// answers from the number of its reads, and a simulated clock. The result,
+/// the rule's runs and the stop's reads.
+async fn waited_with_stop(
+    stop_at: Option<u32>,
+    no: u32,
+) -> (anyhow::Result<tree::Waited>, u32, u32) {
+    let f = fixture_full(GATE, Some("#!/bin/bash\n"));
+    let counter = f.place.state.join("count");
+    let reads = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let mut place = f.place.clone();
+    if let Some(at) = stop_at {
+        let seen = reads.clone();
+        place.stop = Some(tree::Stop::new(move || {
+            let n = seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            (n >= at).then(|| "the owner's stop".to_string())
+        }));
+    }
+    let t = tree::open(&place, "stop item", NOW).unwrap();
+    let script = f.place.state.join("may.sh");
+    std::fs::write(&script, may_script(&counter, no)).unwrap();
+    let r = tree::may_build_paced(
+        &place,
+        &t,
+        &script,
+        std::time::Duration::from_secs(60),
+        tree::MAY_BUILD_WAIT,
+        tree::Clock::simulated(),
+    )
+    .await;
+    let runs = std::fs::read_to_string(&counter)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0);
+    (r, runs, reads.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+/// A stop that lands in the middle of a wait ends it, as a stop and not as
+/// the rule's yes, though the rule would have said no for another 1,000 asks.
+#[tokio::test]
+async fn a_stop_ends_a_wait_and_is_not_the_rules_yes() {
+    let (r, runs, _) = waited_with_stop(Some(4), 1000).await;
+    assert_eq!(r.unwrap(), tree::Waited::Stopped("the owner's stop".into()));
+    assert_eq!(runs, 3, "the rule was asked on the ticks before the stop");
+}
+
+/// Noticed within one tick: the stop is read before each ask, so a stop that
+/// lands after the third ask ends the wait before a fourth.
+#[tokio::test]
+async fn a_stop_is_noticed_within_one_tick() {
+    let (r, runs, reads) = waited_with_stop(Some(3), 1000).await;
+    assert!(matches!(r.unwrap(), tree::Waited::Stopped(_)));
+    assert_eq!((runs, reads), (2, 3));
+}
+
+/// A wait with no stop check is as it was: it waits out the rule's no and
+/// ends on its yes.
+#[tokio::test]
+async fn a_wait_with_no_stop_check_waits_for_the_rule() {
+    let (r, runs, reads) = waited_with_stop(None, 90).await;
+    assert_eq!(r.unwrap(), tree::Waited::Yes);
+    assert_eq!((runs, reads), (91, 0));
 }

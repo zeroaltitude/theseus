@@ -80,6 +80,8 @@ export const PARITY: readonly ParityRow[] = [
     at: [[OPS, "a.lens === 'graph' && <GraphLens"], [GRAPH, 'memory.lay('], [ACTIONS, '<TaskGraphView'], ['src/components/TaskGraph.tsx', 'open in Operations']] },
   { id: 'X8', group: '1d', datum: 'tool postures', home: 'stays', at: [[ACTIONS, '<Postures']] },
   { id: 'X9', group: '1d', datum: 'the time machine’s banner and disabled acts', home: 'here', at: [[OPS, 'folded from the ledger. Acting needs the present'], ['src/ops/act.ts', 'enabled(verb, past)']] },
+  { id: 'X10', group: '1d', datum: 'content labels (theseus-9ymz0): a session’s labels as chips in its deck, each with the node it came from, and Remove (content.unlabel, asks first; the operator’s `theseus content remove`)', home: 'stays',
+    at: [['src/views/SessionDeck.tsx', 'chipsOf(s.labels)'], ['src/views/SessionDeck.tsx', 'unlabelCall(s.session_id, c.flag)'], ['src/lib/labels.ts', "method: 'content.unlabel'"]] },
   // 1e. The TUI's board and keys.
   { id: 'B1', group: '1e', datum: 'every session as a tree, questions waiting (the tree in the Graph lens’s lanes, a question a badge on its owner; every session on the Board, every question in the queue)', home: 'here',
     at: [[OPS, '<GraphLens'], ['src/ops/graph.ts', 'export function opsLayout('], ['src/ops/GraphNode.tsx', 'n.asks > 0'], [OPS, '<BoardLens']] },
@@ -116,7 +118,7 @@ export const INVENTORY: readonly string[] = [
   ...Array.from({ length: 12 }, (_, i) => `A${i + 1}`),
   ...Array.from({ length: 6 }, (_, i) => `T${i + 1}`),
   ...Array.from({ length: 6 }, (_, i) => `H${i + 1}`),
-  ...Array.from({ length: 9 }, (_, i) => `X${i + 1}`),
+  ...Array.from({ length: 10 }, (_, i) => `X${i + 1}`),
   ...Array.from({ length: 18 }, (_, i) => `B${i + 1}`),
   ...Array.from({ length: 8 }, (_, i) => `R${i + 1}`),
 ]

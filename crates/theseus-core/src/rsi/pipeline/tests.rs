@@ -78,7 +78,7 @@ pub(super) fn rig_with(slots: u32, day_usd: f64) -> Rig {
     cfg.server.disk_warn_mb = 0;
     cfg.self_improve.mode = SelfMode::Act;
     cfg.self_improve.repo = Some(f.place.repo.to_string_lossy().into_owned());
-    cfg.self_improve.backlog_starts = 0;
+    cfg.self_improve.backlog_starts = Some(0);
     cfg.self_improve.pipeline_builds = slots;
     cfg.self_improve.budget.day_usd = day_usd;
     let core = Core::build(crate::rpc::Parts::for_tests(

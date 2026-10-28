@@ -1022,56 +1022,55 @@ async fn a_fork_past_its_window_rings_over_the_prefix_and_its_own_turns() {
     assert!(said.iter().any(|t| t.starts_with("theta ")));
 }
 
-/// A fork's data state (theseus-a1wvq.5): `opened` and `taint` copied, and
-/// the open run cut at the fork point: `from..=` the point when `from` is at
-/// or before it, else none.
+/// A fork's content labels (theseus-9ymz0): the labels whose item the fork
+/// carries are copied, one raised by a node after the fork point is not, and
+/// the fork is judged as far as its source was, through the point at most.
 #[tokio::test]
-async fn fork_copies_data_state_through_the_fork_point() {
-    use crate::data::{DataState, DataWhy, OpenHow, OpenRun, Opened, Taint};
+async fn fork_copies_content_labels_through_the_fork_point() {
+    use crate::content::{ContentFlags, Flag, ItemKind, Label};
+    use theseus_judge::band::Band;
     let r = rig();
     let (s, nodes) = three_turns(&r).await;
-    let opened = Opened {
-        how: OpenHow::Task,
-        at_ms: 7,
-    };
-    let taint = Taint {
-        why: DataWhy::NotInRun,
-        node: Some(nodes[1].0.clone()),
+    let label = |flag: Flag, node: &str| Label {
+        flag,
+        node: Some(node.into()),
+        kind: ItemKind::ToolResult,
+        source: "fs.read /srv/notes.txt".into(),
+        confidence: 0.8,
+        band: Band::Confirm,
         at_ms: 9,
+        judgment: String::new(),
     };
-    let set = |from: usize| {
+    let set = |judged_through: &str| {
         let mut rec: SessionRecord = r.core.store.get_session(&s).unwrap().unwrap();
-        let run = OpenRun {
-            from: nodes[from].0.clone(),
-            through: nodes[5].0.clone(),
-        };
-        let state = DataState::new(Some(opened.clone()), Some(run), Some(taint.clone()));
-        rec.data = Some(Box::new(state));
+        let mut flags = ContentFlags::default();
+        flags.raise(label(Flag::Confidential, &nodes[1].0));
+        flags.raise(label(Flag::Secret, &nodes[4].0));
+        flags.judged_through = Some(judged_through.into());
+        rec.data = Some(Box::new(flags));
         r.core.store.put_session(&s, &rec).unwrap();
     };
     let data_of = |sid: &str| {
         let rec: SessionRecord = r.core.store.get_session(sid).unwrap().unwrap();
         rec.data.map(|d| *d)
     };
-    set(0);
+    // Judged past the point: the fork is judged through the point, and holds
+    // only the label its own nodes raised.
+    set(&nodes[5].0);
     let before = fork(&r.core, &s, &nodes[3].0);
-    let run = OpenRun {
-        from: nodes[0].0.clone(),
-        through: nodes[3].0.clone(),
-    };
-    let want = DataState::new(Some(opened.clone()), Some(run), Some(taint.clone()));
-    assert_eq!(data_of(&before.session_id), Some(want));
-    set(4);
-    let after = fork(&r.core, &s, &nodes[3].0);
-    let want = DataState::new(Some(opened.clone()), None, Some(taint.clone()));
+    let got = data_of(&before.session_id).expect("the fork carries labels");
+    assert!(got.has(Flag::Confidential), "its item is in the fork");
+    assert!(!got.has(Flag::Secret), "its item came after the point");
+    assert_eq!(got.judged_through.as_deref(), Some(nodes[3].0.as_str()));
+    // Judged only to an earlier node: the fork is judged no further.
+    set(&nodes[1].0);
+    let short = fork(&r.core, &s, &nodes[3].0);
+    let got = data_of(&short.session_id).unwrap();
+    assert_eq!(got.judged_through.as_deref(), Some(nodes[1].0.as_str()));
     assert_eq!(
-        data_of(&after.session_id),
-        Some(want),
-        "a run begun after the point"
-    );
-    assert_eq!(
-        data_of(&s).unwrap().run.unwrap().from,
-        nodes[4].0,
+        data_of(&s).unwrap().judged_through.as_deref(),
+        Some(nodes[1].0.as_str()),
         "the source is read only"
     );
+    assert!(data_of(&s).unwrap().has(Flag::Secret));
 }

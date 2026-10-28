@@ -1305,24 +1305,14 @@ impl TurnRunner {
     }
 
     /// Where a turn's recall reads `session_id`'s nodes: as `place_of` does,
-    /// or, for a turn in the open view (theseus-a1wvq.7), as open only when
-    /// its session is (`data.opened`), with its taint's time; anything else
-    /// is `Unknown`, which an open request draws on none of: a private
-    /// session, a record that cannot be read, and an imported episode (none
-    /// carries a `public` label yet).
-    pub fn drawn_place(&self, open: bool, session_id: &str) -> Place {
-        if !open {
-            return self.place_of(session_id);
-        }
-        if crate::import::is_imported(session_id) {
-            return Place::Unknown;
-        }
-        let rec = self
-            .store
-            .get_session::<crate::session::SessionRecord>(session_id);
-        match rec.ok().flatten().and_then(|r| r.data) {
-            Some(d) if d.opened.is_some() => Place::Open(d.taint.map(|t| t.at_ms)),
-            _ => Place::Unknown,
+    /// or, for a draft's turn (theseus-a1wvq.13), as `Unknown`, which a draft
+    /// draws on none of: the stripped view it carries holds nothing of any
+    /// other session, since no session is marked open any more
+    /// (theseus-9ymz0).
+    pub fn drawn_place(&self, draft: bool, session_id: &str) -> Place {
+        match draft {
+            true => Place::Unknown,
+            false => self.place_of(session_id),
         }
     }
 

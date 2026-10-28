@@ -21,8 +21,13 @@ export function summarize(r: LedgerEntry): string {
     case 'provider.error':
       return `${s('class')}${d.transient ? ' transient' : ''}${d.usage_unknown ? ' usage unknown' : ''} · ${s('message')}`
     case 'route.decided': return routeLine(r)
-    case 'provider.fallback':
-      return `${s('from')} refused${d.category ? ` (${s('category')})` : ''} · the request goes to ${s('to')}, once`
+    case 'provider.fallback': {
+      // A row from before theseus-wf482 has no `latched`: the request went once, and the turn stayed.
+      const then = d.latched === true ? ', and the turn stays there' : d.latched === false ? ', the next goes back' : ', once'
+      return `${s('from')} refused${d.category ? ` (${s('category')})` : ''} · the request goes to ${s('to')}${then}`
+    }
+    case 'provider.routed_back':
+      return `${s('after')} answered · back to ${s('to')}`
     case 'turn.nudged':
       return `nudged once: the reply said more work would follow (${s('by')} ${Number(d.p ?? 0).toFixed(2)}) · ${s('judgment')}`
     case 'loop.ended':

@@ -140,8 +140,18 @@ impl Place {
     /// Ask the core to release the switch as `by`; it counts only the
     /// owner's.
     pub(super) async fn resume_self(&self, origin: Option<DiscordOrigin>, by: &str) -> String {
+        self.shared.resume_self_words(origin, by).await
+    }
+}
+
+impl super::Shared {
+    /// The one resume, the typed words' and the halt note's button's (theseus-6s7ll).
+    pub(super) async fn resume_self_words(
+        &self,
+        origin: Option<DiscordOrigin>,
+        by: &str,
+    ) -> String {
         let r = self
-            .shared
             .rpc
             .call::<_, SelfSwitchResult>(
                 theseus_protocol::method::SELF_RESUME,

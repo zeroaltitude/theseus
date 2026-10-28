@@ -234,6 +234,7 @@ impl Core {
         let at = At {
             place: s.view,
             held: &held,
+            labels: &|| None,
             mcp: &mcp,
             glide: None,
             session: None,

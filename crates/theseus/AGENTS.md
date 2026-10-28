@@ -136,7 +136,16 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   (this verb) and `tasks` (the list) are separate subcommands. `task show ID` is one `task.list {id}` read drawn whole by
   `render/task_history.rs::show` (state, where it reports, a `model` line for where its brief put it and each move a checkpoint made, read from its session's `route.decided` rows by one more `ledger.tail`, theseus-ypnxt.9, brief, plan, children, spend, times, the whole report, and the commands that
   act on it now); `task pause ID` and `task resume ID` are `task.pause` and `task.resume` (in `client::OPERATORS`), printing what
-  changed, or the daemon's refusal of an ended task. `src/ops_cmd.rs` (theseus-5iqf8) holds the Operations page's three verbs, one call each, no model turn, all in `client::OPERATORS`: `task rehome ID HOME` (`task.rehome`; HOME a conversation or `thread:<slug>`), `task reschedule ID (--at WHEN | --in-time SPAN)` (`task.reschedule`, with `task start`'s `start_when`; prints the undo) and `sessions model SESSION (PROFILE | --off)` (`session.profile`; `--off` sends null; a `refused` answer prints its reason and exits 1). A test walks clap's tree for every `OPERATORS` command. Tests: `tests/task_start.rs` (a scripted daemon), `tests/task_history.rs`, `tests/ops_verbs.rs`.
+  changed, or the daemon's refusal of an ended task. `task not-this ID [REASON]` (theseus-o1h3f.2; this file, beside `pause` and
+  `resume`, not `ops_cmd.rs`; clap's `TaskCmd::NotThis`, `ID` as `task.cancel` takes it, a task's id or the end of it) is one
+  `task.not_this` call with no model turn (cancel the task, keep the one rolling preference against work like it, label the offer
+  that produced it; the core's `task.not_this` entry says how), in `client::OPERATORS`, so a job's shell is refused. It is the verb
+  of the owner's "not this" on a task, and no other "Not this" (a declined card proposal is `card decline`, a capture ask's
+  "Not this" is `standing answer`). It prints one line (`not_this_line`): `Not this: <short> is <state>. Preference <id> will keep Theseus from
+  starting work like it`, then ` (it replaces <id>)` when the call ended an earlier preference, then ` The offer that produced it is
+  labelled wrong.` when the answer's `labeled` is set; a task that had already ended is answered the same, never refused; `--json`
+  the whole result. Test: `task_start.rs`'s `not_this_names_the_task_the_preference_and_what_it_replaced` (the line, with and without
+  `replaced` and `labeled`). `src/ops_cmd.rs` (theseus-5iqf8) holds the Operations page's three verbs, one call each, no model turn, all in `client::OPERATORS`: `task rehome ID HOME` (`task.rehome`; HOME a conversation or `thread:<slug>`), `task reschedule ID (--at WHEN | --in-time SPAN)` (`task.reschedule`, with `task start`'s `start_when`; prints the undo) and `sessions model SESSION (PROFILE | --off)` (`session.profile`; `--off` sends null; a `refused` answer prints its reason and exits 1). A test walks clap's tree for every `OPERATORS` command. Tests: `tests/task_start.rs` (a scripted daemon), `tests/task_history.rs`, `tests/ops_verbs.rs`.
 - `src/open.rs` (theseus-x9swu): `theseus open turn [TURN] [--session S] [--print]`: `turn.inspect` for the link the daemon built from
   `[cockpit] public_url`, printed (stdout alone; `--json` the ids and the link) and opened with `$BROWSER`, `wslview`,
   `xdg-open` or `open` where one is found. The turn is found among the session's `turn.started` rows (`ledger.tail`), so a detour's turn, which compiles no context, opens too (theseus-v8h48); `why` stays on `context.explain`. The status line ends with ` · inspect <url>` when the result carries one. Tests:
@@ -385,6 +394,9 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/names.rs`: what a session is called in every client (theseus-0n1v): a task's title (the store labels every
   task `task`), a conversation's label else its title, else its kind and the end of its id. The CLI, the terminal
   UI and herdr's reporter all call it; never read `label` before `title` at a site.
+- `src/content_cmd.rs`, `src/render/content.rs` (theseus-9ymz0): `theseus content SESSION` lists a session's content labels (`session.list`'s `labels`: the flag,
+  when, what raised it and from where, and the command that clears it); `theseus content remove SESSION FLAG|--all` is one `content.unlabel` per label, the
+  owner's act (in `client::OPERATORS`, refused inside a job). `theseus sessions` adds a `⚑ flag,flag` column only for a labelled session. Tests: `tests/content_cli.rs`.
 - `src/resolve.rs`: the one id resolver (theseus-0n1v) for `history`, `watch`, `stop`, `cancel`, `wait`
   and `sessions explain`: a whole id, or a unique end of at least four characters; ambiguous, short and unknown names are
   refused, and `watch` of an unknown one exits 1. One read a resolution at most.

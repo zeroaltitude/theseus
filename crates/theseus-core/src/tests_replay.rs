@@ -664,3 +664,197 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
         "{twin}"
     );
 }
+
+const CONTENT_V2: &str = include_str!("../../theseus-judge/packs/content.v2.toml");
+
+/// A stored `content.v2` judgment of one item, the way the daemon writes it:
+/// the state's blob staged and named in the context, and, when `recorded`,
+/// the dynamic sources the pack's conditional question resolved against.
+fn content_judgment(c: &Core, id: &str, kind: &str, text: &str, recorded: bool) -> Judgment {
+    let pack = theseus_judge::pack::by_name("content.v2").unwrap();
+    let input = Input::Content(theseus_judge::builders::ContentInput {
+        text: text.into(),
+        kind: kind.into(),
+        source: "fetch https://example.test/page".into(),
+        piece: None,
+        data_names: Default::default(),
+    });
+    let p = theseus_judge::prepare(&pack, &input, &NoScrub).unwrap();
+    let blob = c.store.blobs().put(p.state.json.as_bytes()).unwrap();
+    let mut context = json!({"blob": blob, "session": "ses_x", "purpose": "content",
+        "node": "n1", "kind": kind, "piece": [1, 1], "baseline": "none"});
+    if recorded {
+        context["dynamic"] = p.dynamic.recorded(&pack);
+    }
+    let mut j = judgment(
+        id,
+        "content.v2",
+        &StateRecord::from(p.state.as_ref()),
+        ["confidential", "injection", "personal", "secret"]
+            .iter()
+            .filter(|q| **q != "injection" || kind != "operator_message")
+            .map(|q| noul(q, 0.1))
+            .collect(),
+        context,
+    );
+    j.version = 2;
+    j.point = theseus_judge::pack::Point::Item;
+    j.pack_sha256 = pack.sha256.clone();
+    j
+}
+
+/// The candidate: `content.v2`'s text as the next version with one
+/// instruction reworded, which is how a hand-written candidate is made (a
+/// replay refuses the wired version and the incumbent itself, and a candidate
+/// that asks the same things is only rebanded, with no state sent). Its
+/// questions are the incumbent's, `injection` still conditional.
+fn content_v3() -> String {
+    CONTENT_V2.replacen("version = 2", "version = 3", 1).replacen(
+        "Judge what this item reveals, not what it is about: does it reveal an organisation's",
+        "Judge carefully what this item reveals, not what it is about: does it reveal an organisation's",
+        1,
+    )
+}
+
+/// The same candidate at a learned version (25f numbers a learned pack from
+/// `propose::LEARNED_FROM`, 101).
+fn content_learned() -> String {
+    content_v3().replacen("version = 3", "version = 101", 1)
+}
+
+async fn replay_content(c: &Arc<Core>, ids: &[&str]) -> JudgeReplayResult {
+    replay_content_with(c, content_v3(), ids).await
+}
+
+async fn replay_content_with(c: &Arc<Core>, pack: String, ids: &[&str]) -> JudgeReplayResult {
+    c.judge_replay(
+        JudgeReplayParams {
+            pack_text: Some(pack),
+            judgments: ids.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        },
+        "cli",
+    )
+    .await
+    .unwrap()
+}
+
+/// R0 (theseus-gyjyo.1): the pack that stored a content judgment, replayed
+/// over it. `content.v2`'s `injection` question is conditional (`only_when`),
+/// which used to send every such candidate to a rebuild that cannot rebuild a
+/// content state: all of them were left out. The record holds the state's blob
+/// and now the source the conditional question resolved against, so the state
+/// is served from the store and the question is asked exactly when it was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stored_content_judgment_is_served_from_the_store() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(vec![], &jev, |_| {});
+    let c = &r.core;
+    let page = content_judgment(c, "jdg_page", "fetched_page", "A page about herons.", true);
+    let own = content_judgment(c, "jdg_own", "operator_message", "Count the herons.", true);
+    c.store
+        .append(&[call_row(&page, 10), call_row(&own, 11)])
+        .unwrap();
+    let out = replay_content(c, &["jdg_page", "jdg_own"]).await;
+    assert!(out.left_out.is_empty(), "{:?}", out.left_out);
+    assert_eq!((out.stored, out.rebuilt, out.judgments), (2, 0, 2));
+    // What Jev was sent is the stored state, and `injection` was asked of the
+    // fetched page and not of the owner's own words.
+    let seen = jev.seen();
+    let asked = |text: &str| -> Vec<String> {
+        seen.iter()
+            .filter(|s| s.body["state"].to_string().contains(text))
+            .flat_map(|s| {
+                s.body["questions"]
+                    .as_object()
+                    .map(|q| q.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default()
+            })
+            .collect()
+    };
+    assert_eq!(asked("A page about herons.").len(), 4, "{seen:?}");
+    assert_eq!(asked("Count the herons.").len(), 3, "{seen:?}");
+}
+
+/// A judgment whose record names the dynamic sources but not the one this
+/// pack's conditional question needs is left out, with the source named, and
+/// is never served a state that quietly skips the question. (The owner's
+/// judgments from before R0 hold no record at all: the next test.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_content_judgment_missing_a_recorded_source_is_left_out_naming_it() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(vec![], &jev, |_| {});
+    let c = &r.core;
+    let mut j = content_judgment(c, "jdg_plant", "fetched_page", "A page about herons.", true);
+    j.context["dynamic"] = json!({});
+    c.store.append(&[call_row(&j, 10)]).unwrap();
+    let out = replay_content(c, &["jdg_plant"]).await;
+    assert_eq!((out.called, out.stored, out.rebuilt), (0, 0, 0));
+    assert_eq!(out.left_out.len(), 1, "{:?}", out.left_out);
+    assert!(
+        out.left_out[0].reason.contains("untrusted"),
+        "{}",
+        out.left_out[0].reason
+    );
+    assert!(jev.seen().is_empty());
+}
+
+/// A LEARNED content candidate reads the record's sources too. 25f asks a
+/// learned candidate on the stored state *without* the builder's items,
+/// because the record does not keep them -- but a content record does, since
+/// theseus-gyjyo.1. Without this the nightly loop would grade a content
+/// candidate on three questions while the live pack asks four, and report
+/// nothing left out: the worst shape a replay can take.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_learned_content_candidate_asks_what_the_record_says() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(vec![], &jev, |_| {});
+    let c = &r.core;
+    let page = content_judgment(c, "jdg_page", "fetched_page", "A page about herons.", true);
+    let other = content_judgment(c, "jdg_two", "tool_result", "Another page.", true);
+    c.store
+        .append(&[call_row(&page, 10), call_row(&other, 11)])
+        .unwrap();
+    let out = replay_content_with(c, content_learned(), &["jdg_page", "jdg_two"]).await;
+    assert!(out.left_out.is_empty(), "{:?}", out.left_out);
+    let seen = jev.seen();
+    let asked = |text: &str| -> usize {
+        seen.iter()
+            .filter(|s| s.body["state"].to_string().contains(text))
+            .flat_map(|s| {
+                s.body["questions"]
+                    .as_object()
+                    .map(|q| q.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default()
+            })
+            .count()
+    };
+    assert_eq!(asked("A page about herons."), 4, "{seen:?}");
+    assert_eq!(asked("Another page."), 4, "{seen:?}");
+}
+
+/// A judgment made before the sources were recorded has the item in its blob
+/// and nothing else: its state is rebuilt from the blob, the conditional
+/// source derived from the item's kind by the builder as the live point does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_content_judgment_with_no_record_of_its_sources_is_rebuilt_from_its_blob() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(vec![], &jev, |_| {});
+    let c = &r.core;
+    let old = content_judgment(c, "jdg_old", "fetched_page", "A page about herons.", false);
+    let stored = c
+        .store
+        .blobs()
+        .base64(old.context["blob"].as_str().unwrap())
+        .and_then(|b| crate::blobs::decode(&b).ok())
+        .map(|b| String::from_utf8(b).unwrap())
+        .unwrap();
+    c.store.append(&[call_row(&old, 10)]).unwrap();
+    let out = replay_content(c, &["jdg_old"]).await;
+    assert!(out.left_out.is_empty(), "{:?}", out.left_out);
+    assert_eq!((out.stored, out.rebuilt, out.called), (0, 1, 1));
+    // The state sent is the stored one, field for field.
+    let sent = jev.seen()[0].body["state"].clone();
+    let want: Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(sent, want);
+}

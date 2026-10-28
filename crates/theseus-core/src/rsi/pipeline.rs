@@ -75,6 +75,8 @@ mod tender;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_fetch;
+#[cfg(test)]
 mod tests_notify;
 #[cfg(test)]
 mod tests_trees;

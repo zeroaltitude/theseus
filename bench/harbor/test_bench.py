@@ -1076,8 +1076,55 @@ class ListPrices(unittest.TestCase):
                 self.assertIsInstance(r, float, name)
                 self.assertGreater(r, 0, name)
             p = ef.LIST_PRICES[m]
-            worst = (tb.RESERVE_OUTPUT_TOKENS * p["output"] + tb.RESERVE_INPUT_TOKENS * p["input"]) / 1e6
+            cap = ef.MAX_OUTPUT_TOKENS.get(m, tb.RESERVE_OUTPUT_TOKENS)
+            worst = (cap * p["output"] + tb.RESERVE_INPUT_TOKENS * p["input"]) / 1e6
             self.assertGreaterEqual(tb.reservation_usd(m), worst, m)
+
+    def test_a_limit_leaves_room_for_one_reservation_at_the_models_own_output_cap(self):
+        """theseus-xkzsn: the kernel reserves the catalog's `max_output_tokens`
+        at the output price, not a flat 128,000. DeepSeek's is 384,000, so one
+        call reserves about $1.52 of output alone; a trial that has spent just
+        under the $2 budget must still be allowed that call."""
+        capped: dict[str, str] = {}
+        caps = {"deepseek-v4-pro": 384_000, "kimi-k3.1-pro": 131_072, "glm-5.3": 128_000}
+        for m, cap in caps.items():
+            p = ef.LIST_PRICES[m]
+            need = (cap * p["output"] + 128_000 * p["input"]) / 1e6
+            limit = tb.spend_limit_usd(m, capped)
+            self.assertGreaterEqual(limit, 1.99 + need, f"{m}: limit {limit} < 1.99 + reservation {need:.4f}")
+
+    def test_every_priced_model_has_an_output_cap_row_and_no_stray_ones(self):
+        self.assertEqual(set(ef.MAX_OUTPUT_TOKENS) - set(ef.LIST_PRICES), set())
+        for m in ef.LIST_PRICES:
+            if m.startswith("gpt-"):
+                continue   # not in the catalog: the 128,000 default
+            self.assertIn(m, ef.MAX_OUTPUT_TOKENS, m)
+
+    def test_the_output_caps_match_the_rust_catalog(self):
+        """The mirror is compared with `catalog.rs`'s `builtin()` rows by
+        source text, so a divergence fails here rather than in a run."""
+        src = (Path(__file__).resolve().parents[2] / "crates/theseus-core/src/catalog.rs")
+        if not src.exists():
+            self.skipTest("catalog.rs not in this tree")
+        text = src.read_text()
+        helper = {"deepseek": 384_000, "kimi": 131_072}   # the helper fns' literals
+        for fn, want in helper.items():
+            m = re.search(rf"fn {fn}\(.*?max_output_tokens: ([\d_]+),", text, re.S)
+            self.assertIsNotNone(m, fn)
+            self.assertEqual(int(m.group(1).replace("_", "")), want, fn)
+        rows = {"deepseek-v4-pro": r'"deepseek-v4-pro"\.into\(\),\s*deepseek\(',
+                "kimi-k3.1-pro": r'"kimi-k3\.1-pro"\.into\(\),\s*kimi\(',
+                "glm-5.3": r'"glm-5\.3"\.into\(\),.*?glm\(([\d_]+), ([\d_]+),'}
+        for model, pat in rows.items():
+            m = re.search(pat, text, re.S)
+            self.assertIsNotNone(m, model)
+            got = int(m.group(2).replace("_", "")) if model == "glm-5.3" else helper[model.split("-")[0]]
+            self.assertEqual(ef.MAX_OUTPUT_TOKENS[model], got, model)
+        for model in ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-haiku-5-5",
+                      "claude-sonnet-5", "claude-opus-5"):
+            m = re.search(rf'"{model}"\.into\(\),.*?claude\(\s*m, ([\d_]+),', text, re.S)
+            self.assertIsNotNone(m, model)
+            self.assertEqual(ef.MAX_OUTPUT_TOKENS[model], int(m.group(1).replace("_", "")), model)
 
     def test_one_dataset_of_a_cn_model_and_a_claude_model_prices_completely(self):
         by = {

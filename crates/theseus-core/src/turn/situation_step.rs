@@ -48,7 +48,10 @@ impl TurnRunner {
     ) -> Result<Option<Failure>> {
         let sid = t.tc.session_id;
         let reread = match compiled.compilation.strategy == compaction::STRATEGY {
-            true => Some(self.recall_view(t, t.tc.store.transcript(sid)?).0),
+            true => Some(
+                self.recall_view(t, t.tc.store.transcript(sid)?, &t.target.profile)
+                    .0,
+            ),
             false => None,
         };
         let checked = reread.as_deref().unwrap_or(nodes);

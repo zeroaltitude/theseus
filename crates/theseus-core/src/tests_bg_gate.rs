@@ -1,30 +1,31 @@
-//! Compaction obeys the per-request data rule (theseus-a1wvq.10): the rig is
-//! `tests_open_request`'s (a restricted `dsflash` on the `zai` fake, the only
-//! profile of `trivial`'s `cn_profiles`, the route pack live) on a small
+//! Compaction obeys the content labels (theseus-a1wvq.10, theseus-9ymz0): the
+//! rig is `tests_dm_rig`'s style (a restricted `dsflash` on the `zai` fake, the
+//! only profile of `trivial`'s `cn_profiles`, the route pack live) on a small
 //! window, and `glm` stays of restricted origin (the suite never serves it
 //! unrestricted).
 //!
-//! - an open session's summary of a range its run clears goes to its own
-//!   restricted model with a pass, joins the run, and the run is stored;
-//! - a restricted summary profile never reads a private session: the
-//!   `[model]` default writes the summary and the row says why;
-//! - a later loop's compaction over this turn's screened tool results
-//!   (theseus-a1wvq.9) clears them as the loop's own.
+//! - a session with no label, its items judged, has its summary written by its
+//!   own restricted model;
+//! - a restricted summary profile never reads a session labelled
+//!   `confidential`: the `[model]` default writes the summary and the row says
+//!   why.
 //!
 //! The consolidation, keep-warm and replay tests are in their own suites.
 
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use theseus_judge::fake::{FakeJev, Scripted as Jev};
+use theseus_judge::fake::FakeJev;
 use theseus_protocol::{SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
-use crate::data;
+use crate::content::Flag;
+use crate::content_wait::judging::Judging;
 use crate::node::Body;
-use crate::provider::{FakeProvider, ProviderRequest, Scripted};
+use crate::provider::ProviderRequest;
 use crate::session::SessionRecord;
 use crate::test_support::rows_2k;
+use crate::tests_dm_rig::{gate_counts, judging_with, telemetry};
 use crate::tests_judge::kinds;
 use crate::tests_route::{call, mode, rig_parts, Rig};
 use crate::turn::TurnRequest;
@@ -84,21 +85,11 @@ fn rig_with(
     )
 }
 
-/// Jev: every message `chat` at a low confidence (no detour, no switch), its
-/// data `open` at the act band when `open`, else `private`.
-fn jev(open: bool) -> FakeJev {
+/// Jev: every message `chat` at a low confidence (no detour, no switch).
+fn jev() -> FakeJev {
     let jev = FakeJev::start().unwrap();
-    let data = if open { "open" } else { "private" };
-    jev.script("data", choice(data, 0.95));
     mode(&jev, "chat", 0.2);
     jev
-}
-
-fn choice(option: &str, confidence: f64) -> Jev {
-    Jev::Choice {
-        option: option.into(),
-        confidence,
-    }
 }
 
 /// A session posting to the owner's DM.
@@ -111,12 +102,11 @@ fn dm(core: &Core) -> String {
     r.session_id
 }
 
-/// A session opened as an open task's is (`data.opened`), on `profile`.
-async fn open_session(r: &Rig, profile: &str) -> String {
+/// A fresh session, `profile` the live one.
+async fn session_on(r: &Rig, profile: &str) -> String {
     call(&r.core, "profile.use", json!({"name": profile})).await;
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
-    crate::tests_open_view::open(&r.core, &rec.session_id, None);
     rec.session_id
 }
 
@@ -182,22 +172,24 @@ fn compacted(core: &Core) -> Vec<Value> {
     rows_2k(core, "context.compacted")
 }
 
-fn open_messages() -> Vec<String> {
-    (0..12).map(|k| words(&format!("open{k}"), 6_000)).collect()
+fn messages(tag: &str) -> Vec<String> {
+    (0..12)
+        .map(|k| words(&format!("{tag}{k}"), 6_000))
+        .collect()
 }
 
-/// T23a, the key test. An open session on `dsflash` with `summary_profile =
-/// "session"`, every turn a no-tool answer, so its run is whole. When loop 0
-/// rings, the summary call goes to `dsflash` with a pass of its own (nothing
-/// is refused), a `Summary` node is written, the compaction's request goes
-/// to `dsflash` too, and the turn stores its run through its last node: the
-/// next turn is admitted on it.
+/// T23a, the key test. A session on `dsflash` with `summary_profile =
+/// "session"`, every turn a no-tool answer, no label on it, its items judged.
+/// When loop 0 rings, the summary call goes to `dsflash` (nothing is refused),
+/// a `Summary` node is written, and the compaction's request goes to `dsflash`
+/// too.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_open_tasks_compaction_carries_its_own_pass() {
-    let messages = open_messages();
-    let jev = jev(true);
+async fn a_cn_sessions_compaction_goes_to_its_own_model() {
+    let messages = messages("cn");
+    let jev = jev();
     let r = rig(&jev, |c| c.memory.summary_profile = "session".into());
-    let sid = open_session(&r, "dsflash").await;
+    judging_with(&r, Judging::clean());
+    let sid = session_on(&r, "dsflash").await;
     let res = until_rang(&r, &sid, &messages).await;
     assert_eq!(res.profile, "dsflash", "{:?}", res.route);
 
@@ -209,7 +201,7 @@ async fn an_open_tasks_compaction_carries_its_own_pass() {
         compacted(&r.core)
     );
     assert!(r.claude.requests().is_empty(), "nothing went elsewhere");
-    assert_eq!(blocked(&r.core), 0, "every call carried its pass");
+    assert_eq!(blocked(&r.core), 0, "nothing was refused");
     let nodes = r.core.store.transcript(&sid).unwrap();
     assert!(
         nodes
@@ -232,23 +224,21 @@ async fn an_open_tasks_compaction_carries_its_own_pass() {
             .is_some_and(|q| summary_calls(std::slice::from_ref(q)) == 1),
         "the compaction's own request followed the summary's"
     );
-
-    let last = nodes.last().unwrap().1.id.clone();
     let stored = record(&r.core, &sid).data.unwrap();
-    assert_eq!(stored.run.as_ref().unwrap().through, last);
-    assert!(data::admits_again(Some(&stored), Some(&last)).is_ok());
-    assert!(stored.taint.is_none());
+    assert!(stored.labels.is_empty(), "{stored:?}");
+    assert!(stored.judged_through.is_some(), "its items were judged");
 }
 
-/// T23b. A DM on a Claude profile, in the private view, whose
-/// `summary_profile` is `glm`, of restricted origin: `glm` is sent nothing,
-/// the `[model]` default writes the summary, and the row names it and says
-/// why. Nothing reaches the chokepoint's refusal.
+/// T23b. A DM on a Claude profile whose `summary_profile` is `glm`, of
+/// restricted origin, and whose session the judge labelled `confidential`:
+/// `glm` is sent nothing, the `[model]` default writes the summary, and the row
+/// names it and says why. Nothing reaches the chokepoint's refusal.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_restricted_summary_profile_in_a_private_session_falls_back() {
-    let messages: Vec<String> = (0..12).map(|k| words(&format!("dm{k}"), 6_000)).collect();
-    let jev = jev(false);
+async fn a_restricted_summary_profile_in_a_labelled_session_falls_back() {
+    let messages = messages("dm");
+    let jev = jev();
     let r = rig(&jev, |c| c.memory.summary_profile = "glm".into());
+    judging_with(&r, Judging::with(|_, _| vec![Flag::Confidential]));
     call(&r.core, "profile.use", json!({"name": "sonnet"})).await;
     let sid = dm(&r.core);
     let res = until_rang(&r, &sid, &messages).await;
@@ -268,117 +258,25 @@ async fn a_restricted_summary_profile_in_a_private_session_falls_back() {
         row["why"]
             .as_str()
             .unwrap()
-            .contains("data_gate: private_view"),
+            .contains("data_gate: confidential"),
         "{row}"
     );
 }
 
-/// The join of the tool screen (theseus-a1wvq.9) with this row: an open
-/// session on `dsflash` reads large files under `open_paths`, each passing
-/// the screen, until a later loop rings. The range it drops holds this
-/// turn's screened results, which are the loop's own, so the summary goes
-/// to `dsflash` with a pass, the turn stays there, and nothing is refused.
-/// The gate's range judged without the screened list would read
-/// `tool_result` and the ring would stand.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_later_loop_compacts_over_this_turns_screened_results() {
-    let open = tempfile::tempdir().unwrap();
-    let root = open.path().to_string_lossy().into_owned();
-    // Many short reads, each under the size a clearing pass stubs
-    // (`clearing::MIN_CHARS`), so only the ring and the summary make room
-    // (theseus-5lzox: a pass by tokens would clear a few big files instead).
-    let body: String = (0..20)
-        .map(|i| format!("{i}: the keeper logged the tide and the wind before the lamp was lit.\n"))
-        .collect();
-    let mut script = Vec::new();
-    for k in 0..16 {
-        let (mut texts, mut calls) = (Vec::new(), Vec::new());
-        for j in 0..8 {
-            let path = open.path().join(format!("log-{k:02}-{j}.txt"));
-            std::fs::write(&path, format!("log {k} {j}\n{body}")).unwrap();
-            texts.push((format!("f{k}_{j}"), path.to_string_lossy().into_owned()));
-        }
-        for (id, path) in &texts {
-            calls.push((id.as_str(), "fs_read", json!({"path": path})));
-        }
-        script.push(Scripted::tools(&format!("Reading logs {k}."), &calls));
-    }
-    script.push(Scripted::text("Every log agrees with the tide table."));
-    let zai = Arc::new(FakeProvider::scripted(script));
-    let z = zai.clone();
-    let jev = jev(true);
-    let r = rig_with(
-        &jev,
-        |c| {
-            c.memory.summary_profile = "session".into();
-            c.routing.data.open_paths = vec![root.clone()];
-            c.tools.projects_dir = Some(root.clone());
-            c.tools.cwd = Some(root.clone());
-        },
-        move |p| {
-            p.providers.insert("zai".into(), z);
-        },
-    );
-    let sid = open_session(&r, "dsflash").await;
-    let res = say(&r.core, &sid, "Read every log here and say if they agree.").await;
-    assert_eq!(res.profile, "dsflash", "{:?}", res.route);
-
-    let rows = compacted(&r.core);
-    assert!(
-        rows.iter()
-            .any(|row| row["outcome"] == "compaction" && row["profile"] == "dsflash"),
-        "a later loop compacted on dsflash: {rows:?}"
-    );
-    assert!(summary_calls(&zai.requests()) >= 1, "{rows:?}");
-    assert!(r.claude.requests().is_empty(), "nothing went elsewhere");
-    assert_eq!(blocked(&r.core), 0, "every call carried its pass");
-    let screened = r
-        .core
-        .store
-        .transcript(&sid)
-        .unwrap()
-        .iter()
-        .filter(|(_, n)| matches!(n.body, Body::ToolResult { .. }))
-        .count();
-    assert!(screened >= 2, "{screened} results");
-}
-
-/// theseus-pohih: the first loop's gate reads the stored run only for an open
-/// session, and asks whether it is open before it reads the record: a closed
-/// session's record is never read, though it holds a run.
-#[test]
-fn the_first_loop_gate_reads_no_record_for_a_closed_session() {
-    use crate::turn::compaction::gate::stored_run;
-    let run = data::OpenRun {
-        from: "nde_a".into(),
-        through: "nde_b".into(),
-    };
-    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
-    rec.data = Some(data::DataState::new(None, Some(run.clone()), None).into());
-    let reads = std::cell::Cell::new(0);
-    let read = || {
-        reads.set(reads.get() + 1);
-        Some(rec.clone())
-    };
-    assert_eq!(stored_run(false, read), None);
-    assert_eq!(reads.get(), 0, "a closed session's record was read");
-    assert_eq!(stored_run(true, read), Some(run));
-    assert_eq!(reads.get(), 1);
-}
-
 /// theseus-4h85l: each background path that refuses a restricted-origin model
 /// counts it on `theseus.route.data_gate`, by caller and why: a compaction
-/// (the private view's word), a consolidation, a keep-warm read and a replay.
+/// (the flag's word), a consolidation, a keep-warm read and a replay.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_background_refusals_are_counted() {
-    let (rx, tel) = crate::tests_data_footer::telemetry().await;
-    let messages: Vec<String> = (0..12).map(|k| words(&format!("dm{k}"), 6_000)).collect();
-    let jev = jev(false);
+    let (rx, tel) = telemetry().await;
+    let messages = messages("dm");
+    let jev = jev();
     let r = rig_with(
         &jev,
         |c| c.memory.summary_profile = "glm".into(),
         move |p| p.telemetry = Some(tel),
     );
+    judging_with(&r, Judging::with(|_, _| vec![Flag::Confidential]));
     call(&r.core, "profile.use", json!({"name": "sonnet"})).await;
     let sid = dm(&r.core);
     until_rang(&r, &sid, &messages).await;
@@ -397,7 +295,7 @@ async fn the_background_refusals_are_counted() {
     let kept = dm(&r.core);
     assert!(r.core.runner.keep_warm_prepare(&kept, "dsflash").is_err());
 
-    let mut got: Vec<(String, String)> = crate::tests_data_footer::gate_counts(&r.core, &rx)
+    let mut got: Vec<(String, String)> = gate_counts(&r.core, &rx)
         .await
         .into_iter()
         .map(|(what, why, _)| {
@@ -412,7 +310,7 @@ async fn the_background_refusals_are_counted() {
     assert_eq!(
         got,
         vec![
-            pair("compaction", "private_view"),
+            pair("compaction", "confidential"),
             pair("consolidation", "restricted_origin"),
             pair("keep_warm", "restricted_origin"),
             pair("replay", "restricted_origin"),

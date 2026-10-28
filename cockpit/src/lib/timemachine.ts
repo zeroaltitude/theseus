@@ -609,7 +609,7 @@ export function worldAt(f: Folder, t: number, live: { sessions: SessionInfo[]; t
     const e = fs?.execId ? execById.get(fs.execId) : ls.execution_id ? execById.get(ls.execution_id) : undefined
     const asks = asksBySession.get(ls.session_id) ?? []
     const info: SessionInfo = {
-      ...ls,
+      ...ls, // its `labels` are the present's: the fold does not rebuild them, and the deck says so under the time machine
       created_at_unix_ms: created,
       turns: fs?.turns ?? 0,
       usage: fs?.usage ?? zeroUsage(),

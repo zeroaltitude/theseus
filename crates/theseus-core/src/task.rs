@@ -78,10 +78,12 @@ pub const FAN_OUT: &str = "task.fan_out";
 /// The most of a report's text the parent's node carries, in characters.
 pub const REPORT_NODE_CHARS: usize = 8_000;
 
-/// `open` from a session that read a Google result (theseus-a1wvq.6): both
-/// task paths refuse it with these words.
-pub const PRIVATE_OPEN_REFUSAL: &str = "Not started: an open task carries nothing of a private \
-    conversation, and this one read private content. Start it without `open`.";
+/// `open` (theseus-a1wvq.6): an open task read its brief alone, compiled in the
+/// open view. That view is gone (theseus-9ymz0), so both task paths refuse it
+/// with these words.
+pub const OPEN_RETIRED: &str = "Not started: open tasks are retired. A task runs as any other \
+    does, and what keeps a session off a model outside the owner's trust is the labels on it. \
+    Start it without `open`.";
 
 /// What a task says to a model that asks it to start one (depth one).
 pub const DEPTH_REFUSAL: &str = "Refused: this session is itself a task, and a task cannot start \
@@ -143,7 +145,7 @@ struct Input {
     /// A check's model: a profile's name (M5 28a). Only a check takes one.
     #[serde(default)]
     profile: Option<String>,
-    /// An open task (theseus-a1wvq.6): its brief alone, no arrangement.
+    /// Retired with the open view: a task that sets it is refused.
     #[serde(default)]
     open: bool,
     /// A deferred task (theseus-rcgph): it opens asleep and starts then.
@@ -183,10 +185,10 @@ fn parse_kind(i: &Input) -> Result<theseus_protocol::tasks::TaskKind, String> {
 
 fn input_of(input: &Value) -> Result<Input, String> {
     let i: Input = parse(input)?;
+    if i.open {
+        return Err(OPEN_RETIRED.into());
+    }
     let Some(brief) = &i.brief else {
-        if i.open {
-            return Err("`open` is for a task session: give it a `brief`".into());
-        }
         if i.check_of.is_some() || i.profile.is_some() {
             return Err("a check (`check_of`) is a task session: give it a `brief`".into());
         }
@@ -211,12 +213,6 @@ fn input_of(input: &Value) -> Result<Input, String> {
     }
     if brief.trim().is_empty() {
         return Err("the brief is empty: say what the task should do".into());
-    }
-    if i.open && i.check_of.is_some() {
-        return Err("an open task cannot be a check: a check reads its task's claim, which is not judged open".into());
-    }
-    if i.open && i.arrangement.is_some() {
-        return Err("an open task carries only its brief: leave out `arrangement` and write what it needs into `brief`".into());
     }
     if i.profile.is_some() && i.check_of.is_none() {
         return Err(
@@ -360,7 +356,6 @@ impl Tool for TaskCreate {
                 "deps": {"type": "array", "items": {"type": "string"}, "description": "The tasks it waits on (tsk_…)."},
                 "check_of": {"type": "string", "description": "Check this task (its id or its end): one this conversation started that has reported."},
                 "profile": {"type": "string", "description": "A check's model: a configured profile's name (default: this conversation's). Only for `check_of`."},
-                "open": {"type": "boolean", "description": "Brief only, no arrangement; compiled without owner material; may leave Claude."},
                 "start_after": {"type": "string", "description": "Start this long from now: 2h, 1d (1 second to 365 days)."},
                 "kind": {"type": "string", "enum": ["item", "project", "milestone"], "description": "Without `brief`: `project` (`objective`, `milestones`, a weekly `review` or `none`, which waits for the owner's yes) or `milestone` (`parent` a project, `due`; the owner is reminded)."},
                 "due": {"type": "string", "description": "A date: `2026-11-03`, `fri 09:00`, `in 3d`."},
@@ -556,9 +551,6 @@ pub fn create<'a>(
         return Err(DEPTH_REFUSAL.into());
     }
     let own = crate::task_self::Own::read(tc, call_id, i.because.as_deref())?;
-    if i.open && crate::google::private::session_on(tc.store, google, tc.session_id) {
-        return Err(PRIVATE_OPEN_REFUSAL.into());
-    }
     let nodes = tc
         .store
         .transcript(tc.session_id)
@@ -583,10 +575,8 @@ pub fn create<'a>(
         )?),
         None => None,
     };
-    // An open task carries its brief alone (theseus-a1wvq.6).
     let (pieces, humans) = match &check {
         Some(c) => (c.pieces.clone(), 0),
-        None if i.open => (Vec::new(), 0),
         None => arranged(tc, &i, &nodes, holder.as_deref())?,
     };
     let left = parent.budget.available();
@@ -655,9 +645,12 @@ pub fn create<'a>(
                 model: t.model.clone(),
             });
             let author = format!("session:{}", tc.session_id);
-            let mut arrangement = (!i.open).then(|| {
-                Node::arrangement(&task.session_id, &author, pieces.clone(), i.fidelity_ack)
-            });
+            let mut arrangement = Some(Node::arrangement(
+                &task.session_id,
+                &author,
+                pieces.clone(),
+                i.fidelity_ack,
+            ));
             // A check runs on its profile, and reads its claim (M5 28a).
             if let Some(c) = &check {
                 if let Some(t) = &c.target {
@@ -679,25 +672,15 @@ pub fn create<'a>(
                 notify_done: i.notify_done,
             });
             let brief = Node::relayed(&task.session_id, None, Origin::Agent, &author, &text);
-            // A task never inherits its parent's open run: its brief is its
-            // only start (theseus-a1wvq.5).
-            rec.data = None;
-            let opened_row = i
-                .open
-                .then(|| crate::data::open_task(&mut rec, crate::data::OpenHow::Task, now))
-                .transpose()?;
             let mut records = match &parent_hold {
                 Some(h) => {
-                    let mut taken = crate::external::taken(
+                    let taken = crate::external::taken(
                         h,
                         tc.session_id,
                         crate::external::VIA_TASK,
                         &brief.id,
                         theseus_protocol::now_unix_ms(),
                     );
-                    if i.open {
-                        taken = crate::external::bare(taken);
-                    }
                     crate::external::hold(rec, taken, None)?.unwrap_or_default()
                 }
                 None => vec![NewRecord::json(
@@ -706,7 +689,6 @@ pub fn create<'a>(
                     &rec,
                 )?],
             };
-            records.extend(opened_row);
             records.push(brief.record()?);
             // A task of a private session is private from its first call, as
             // task.start's (theseus-a1wvq.10).
@@ -800,16 +782,14 @@ pub fn create<'a>(
             pieces: pieces.len(),
             starts_at_ms: start,
         });
-        if !i.open {
-            tc.record(&crate::fact::arrangement::TaskArranged {
-                short: &s,
-                session_id: &task.session_id,
-                pieces: &pieces,
-                fidelity_ack: i.fidelity_ack,
-                humans,
-                brief_chars: brief.trim().chars().count(),
-            });
-        }
+        tc.record(&crate::fact::arrangement::TaskArranged {
+            short: &s,
+            session_id: &task.session_id,
+            pieces: &pieces,
+            fidelity_ack: i.fidelity_ack,
+            humans,
+            brief_chars: brief.trim().chars().count(),
+        });
         if let Some(c) = &check {
             tc.record(&crate::fact::check::TaskCheckOpened {
                 short: &s,
@@ -877,20 +857,16 @@ pub fn create<'a>(
             task.session_id
         )
     };
-    let text = if i.open {
-        format!("{text}\n\nIt is an open task: it reads its brief alone.")
-    } else {
-        format!(
-            "{text}\n\nIts arrangement, {}, which it reads whole after the brief:\n{}{}",
-            crate::narrative::count(pieces.len() as u64, "piece", "pieces"),
-            crate::arrangement::resolved_lines(&pieces),
-            if i.fidelity_ack {
-                "\nThe fidelity check was acknowledged (`fidelity_ack`), and the task's lines say so."
-            } else {
-                ""
-            }
-        )
-    };
+    let text = format!(
+        "{text}\n\nIts arrangement, {}, which it reads whole after the brief:\n{}{}",
+        crate::narrative::count(pieces.len() as u64, "piece", "pieces"),
+        crate::arrangement::resolved_lines(&pieces),
+        if i.fidelity_ack {
+            "\nThe fidelity check was acknowledged (`fidelity_ack`), and the task's lines say so."
+        } else {
+            ""
+        }
+    );
     let meta = json!({
         "task_id": task.session_id,
         "short": s,
@@ -972,11 +948,7 @@ fn graph_record(
             return Err(format!("no task is named `{d}` (deps name tasks by id)"));
         }
     }
-    // An open task has no pieces: its objective is its brief.
-    let objective = i
-        .objective
-        .as_deref()
-        .or(i.open.then_some(i.brief.as_deref()).flatten());
+    let objective = i.objective.as_deref();
     let (objective, acceptance) = g::tools::from_pieces(pieces, objective, &i.acceptance, title);
     let mut origin = g::TaskOrigin {
         session: tc.session_id.into(),
@@ -1489,7 +1461,10 @@ pub fn cancelled_report(
     }
     let rec: Option<SessionRecord> = store.get_session(&e.session_id)?;
     // A draft's cancel is told by its review (theseus-a1wvq.13).
-    if rec.as_ref().is_some_and(crate::draft::is_draft) {
+    if rec
+        .as_ref()
+        .is_some_and(|r| crate::draft::is_draft(store, r))
+    {
         return Ok((vec![], None));
     }
     let Some(target) = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone()) else {

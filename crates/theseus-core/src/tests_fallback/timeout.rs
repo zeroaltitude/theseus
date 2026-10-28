@@ -36,6 +36,9 @@ async fn a_whole_call_timeout_goes_to_the_fallback_and_finishes() {
             to: "claude-sonnet-5".into(),
             category: Some("timeout".into()),
             answered: true,
+            answers: 1,
+            refusals: 1,
+            latched: true,
         })
     );
     let reqs = r.fake.requests();
@@ -48,7 +51,7 @@ async fn a_whole_call_timeout_goes_to_the_fallback_and_finishes() {
         switch,
         [
             json!({"from": "claude-sonnet-5-5", "to": "claude-sonnet-5", "category": "timeout",
-                "loop": 0, "refused": null})
+                "loop": 0, "refused": null, "n": 1, "latched": true})
         ]
     );
     assert!(rows(&r.core, &sid, "provider.refusal").is_empty());

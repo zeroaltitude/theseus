@@ -33,6 +33,12 @@ struct Said<'a> {
     noticed: bool,
 }
 
+/// Whether a turn's author is Theseus's own pipeline (`self:backlog`, `self:mint`, `self:review`):
+/// a prefix, so a stage added later is covered.
+pub(super) fn is_self(author: &str) -> bool {
+    author.starts_with("self:")
+}
+
 impl TurnRunner {
     /// The kind of place a session's turn speaks in, for the loaded set.
     pub(crate) fn place_kind(&self, session_id: &str, task: bool) -> PlaceKind {
@@ -69,9 +75,10 @@ impl TurnRunner {
             bare,
             ceiling: t.route.injection.as_ref().map(|b| b.admit_ceiling),
             // The turn's own read of "no input" (`Turn::continuation`: the wake, the task
-            // report, the routine's run), never the session's kind: a task session's typed
-            // turn is a person's.
-            noticed: t.continuation,
+            // report, the routine's run) or its author's (the pipeline's own turns carry an
+            // objective as input), never the session's kind: a task session's typed turn is a
+            // person's (theseus-lmyvl).
+            noticed: t.continuation || t.self_authored,
         };
         spec.defer = self.deferral_in(t.tc.session_id, kind, (&*spec, counted), said);
     }

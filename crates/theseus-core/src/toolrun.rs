@@ -149,9 +149,9 @@ pub struct TurnCtx<'a> {
     /// That place's ceiling (step 38a), taken with its class: a floor, and
     /// the tools it offers (`ceiling.rs`).
     pub ceiling: Option<&'static crate::ceiling::Ceiling>,
-    /// Open when its session is (theseus-a1wvq.7): its requests take the
-    /// open view's content and tools, and its calls are gated in it.
-    pub open: Option<&'static crate::open_view::Open>,
+    /// Set for a China-origin draft's session (`draft_view.rs`): its requests
+    /// take the stripped prefix, and its calls are gated in the draft's reach.
+    pub draft: Option<&'static crate::draft_view::DraftReach>,
     /// The bound places, as a glide names them (38b).
     pub places: crate::places::Places<'a>,
     /// The session's directory, as its client sent it (theseus-aab7):
@@ -172,7 +172,7 @@ impl TurnCtx<'_> {
             class: self.class,
             ceiling: self.ceiling,
             voice: false,
-            open: self.open,
+            draft: self.draft,
         }
     }
 }
@@ -735,8 +735,8 @@ impl ToolRuntime {
                 })
                 .collect::<Vec<_>>(),
         );
-        if let Some(open) = place.open {
-            return open.note(&postures, &ceiling_note);
+        if let Some(reach) = place.draft {
+            return reach.note(&postures, &ceiling_note);
         }
         if class == crate::places::PlaceClass::Shared {
             let files = match self.public_roots.is_empty() {
@@ -871,15 +871,6 @@ impl ToolRuntime {
         self.write_result(tc, &self.result_node(tc, r))
     }
 
-    fn announce_end(tc: &TurnCtx<'_>, node: &Node) {
-        tc.record(&fact::tool::ToolEnded {
-            session_id: tc.session_id,
-            turn_id: tc.turn_id,
-            node,
-        });
-        tc.node_written(node);
-    }
-
     /// Write a result node on its own frame and announce it, with the hold
     /// it brings its session in that frame when it is outside text (a job
     /// that connected out of L1, 18c).
@@ -894,6 +885,7 @@ impl ToolRuntime {
             })?;
         Self::announce_end(tc, node);
         self.held(tc, newly);
+        self.queue_content(tc.session_id, std::slice::from_ref(node));
         Ok(status)
     }
 
@@ -1135,6 +1127,7 @@ impl ToolRuntime {
         let at = order::At {
             place: tc.place(),
             held: &held,
+            labels: &|| crate::content_wait::flags_of(tc.store, tc.session_id),
             mcp: &mcp,
             glide: glide.as_ref().and_then(|g| g.as_ref().ok()),
             session: Some(tc.session_id),
@@ -1650,6 +1643,12 @@ impl ToolRuntime {
         crate::project::remind::after(self, tc, &edit.changes);
         self.plan_moved(tc, &edit.changes);
         Self::announce_end(tc, &node);
+        // A harness tool's result is an item like any other tool's
+        // (theseus-sh1n3): this site wrote one and queued nothing, so a
+        // `task.create` result — or a wake's, a plan's, an `rsi.evidence`'s —
+        // was counted unjudged for ever and took its session off every model
+        // of restricted origin.
+        self.queue_content(tc.session_id, std::slice::from_ref(&node));
         Ok(CallOutcome::Done { status })
     }
 
@@ -1911,8 +1910,8 @@ impl ToolRuntime {
                 true => u64::MAX,
                 false => e.budget.available(),
             });
-        // An open session's reads may reach a model outside the trust: held too.
-        let shared = tc.class != crate::places::PlaceClass::Private || tc.open.is_some();
+        // A draft's reads reach a model outside the trust: held too.
+        let shared = tc.class != crate::places::PlaceClass::Private || tc.draft.is_some();
         self.files.run(
             &nodes,
             tc.store.blobs_handle(),

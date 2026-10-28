@@ -42,8 +42,9 @@ JEV_KEY_ENV = "TYPESAFE_API_KEY"
 # (`THESEUS_BENCH_SPEND_LIMIT`, `[kernel] spend_limit_usd`) is what stops a
 # trial, and the kernel reserves a call's worst case before it runs: the
 # output cap at the output price plus the input estimate at the input price
-# (`Catalog::reserve_micros`), and no profile caps its output (128,000
-# tokens). So a trial that has spent $1.99 would be refused the call that
+# (`Catalog::reserve_micros`), and no profile caps its output, so the cap is the
+# model's own (128,000 tokens; DeepSeek's is 384,000 and Kimi's 131,072, in
+# `efficiency.MAX_OUTPUT_TOKENS`). So a trial that has spent $1.99 would be refused the call that
 # takes it past $2.00 by the reservation alone, and stop early. The default
 # limit is therefore the budget plus one maximum reservation at the arm's
 # model (`spend_limit_usd`): 128,000 output tokens and, for the input, as many
@@ -52,7 +53,7 @@ JEV_KEY_ENV = "TYPESAFE_API_KEY"
 # and $5.25 for Opus 5.5 (2.56 + 0.51 = 3.07, so 3.25). A trial past
 # $2.00 of real spend is named in its report (`efficiency.OVER_BUDGET_USD`).
 TRIAL_BUDGET_USD = 2.0
-RESERVE_OUTPUT_TOKENS = 128_000
+RESERVE_OUTPUT_TOKENS = 128_000   # the cap of a model without a row in `efficiency.MAX_OUTPUT_TOKENS`
 RESERVE_INPUT_TOKENS = 128_000
 RESERVE_STEP_USD = 0.25
 # The routed arm's default clears Fable's reserve with room for what the
@@ -123,14 +124,16 @@ def key_env(provider: str) -> str:
 
 
 def reservation_usd(model: str) -> float:
-    """One maximum reservation at `model`: its output cap at its output
-    price plus `RESERVE_INPUT_TOKENS` at its input price (the bench's list
-    prices, `efficiency.LIST_PRICES`, the catalog's numbers), rounded up to
+    """One maximum reservation at `model`: its output cap (the catalog's
+    `max_output_tokens`, `efficiency.MAX_OUTPUT_TOKENS`, else
+    `RESERVE_OUTPUT_TOKENS`) at its output price plus `RESERVE_INPUT_TOKENS`
+    at its input price (the bench's list prices, `efficiency.LIST_PRICES`, the catalog's numbers), rounded up to
     `RESERVE_STEP_USD`."""
     p = ef.LIST_PRICES.get(model.split("/")[-1])
     if p is None:
         raise ValueError(f"no list price for {model}: add it to efficiency.LIST_PRICES")
-    raw = (RESERVE_OUTPUT_TOKENS * p["output"] + RESERVE_INPUT_TOKENS * p["input"]) / 1e6
+    cap = ef.MAX_OUTPUT_TOKENS.get(model.split("/")[-1], RESERVE_OUTPUT_TOKENS)
+    raw = (cap * p["output"] + RESERVE_INPUT_TOKENS * p["input"]) / 1e6
     return round(-(-raw // RESERVE_STEP_USD) * RESERVE_STEP_USD, 2)
 
 

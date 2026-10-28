@@ -320,9 +320,23 @@ def overlaps(trials: list[dict[str, Any]]) -> None:
 
 def models_of(trials: list[dict[str, Any]]) -> str | list[str] | None:
     """The models an arm's trials called (their records' `by_model`, the unnamed `unknown` left out): the one name
-    for a pinned arm, a sorted list for a routed one, None when no record names a model (theseus-uhc2d)."""
-    names = {m for t in trials for m in (t["record"].get("by_model") or {}) if m and m != "unknown"}
+    for a pinned arm, a sorted list for a routed one, None when no record names a model (theseus-uhc2d). A trial a
+    refusal's fallback answered part of (`mixed_model`, theseus-wf482) names the model it was routed to, not the
+    fallback, which would widen a pinned arm into two models; `mixed_trials` counts those."""
+    names: set[str] = set()
+    for t in trials:
+        rec = t["record"]
+        called = {m for m in (rec.get("by_model") or {}) if m and m != "unknown"}
+        fb = rec.get("fallback") if rec.get("mixed_model") else None
+        if isinstance(fb, dict) and fb.get("routed"):
+            called = (called - {fb.get("model")}) | {fb["routed"]}
+        names |= called
     return None if not names else next(iter(names)) if len(names) == 1 else sorted(names)
+
+
+def mixed_trials(trials: list[dict[str, Any]]) -> int:
+    """How many of an arm's trials ran part of their calls on a refusal's fallback (their records' `mixed_model`)."""
+    return sum(1 for t in trials if t["record"].get("mixed_model"))
 
 
 def harbor(args: argparse.Namespace) -> int:
@@ -365,12 +379,14 @@ def harbor(args: argparse.Namespace) -> int:
         s = eff.summarize(k, ts)
         summary[k] = {
             "label": label_of(k, labels), "model": models_of(ts), "provider": manifest.provider_of(models_of(ts)),
+            "mixed_model_trials": mixed_trials(ts),
             "trials": len(ts), "tasks": len(by_task[k]),
             "pass": rate(solved, len(ts)),
             "solved_every_attempt": sum(1 for x in by_task[k] if all(t["solved"] for t in by_task[k][x])),
             "solved_any_attempt": sum(1 for x in by_task[k] if any(t["solved"] for t in by_task[k][x])),
             "task_mean_rate": interval(task_rates),
             "cost_usd": s["cost_usd"], "unpriced": s["unpriced"],
+            "list_cost_usd": s["list_cost_usd"], "list_unpriced": s["list_unpriced"],
             "cost_per_trial": interval([t["record"].get("cost_usd") for t in ts]),
             "agent_min_per_trial": interval([t["wall_s"] / 60 for t in ts if t["wall_s"] is not None]),
             "model_calls_per_trial": s["model_calls_per_trial"], "tool_calls_per_trial": s["tool_calls_per_trial"],

@@ -34,17 +34,19 @@ pub mod config_copy;
 pub mod config_gate;
 pub mod conns;
 pub mod consolidate;
+pub mod content;
+pub mod content_wait;
 pub mod context_files;
 pub mod context_parts;
 pub mod correction;
 pub mod cpu;
 pub mod crash;
-pub mod data;
 pub mod data_gate;
 mod data_mark;
 pub mod day_ceiling;
 pub mod disk;
 pub mod draft;
+pub mod draft_view;
 pub mod egress;
 pub mod engage;
 pub mod extend;
@@ -83,7 +85,6 @@ pub mod node;
 pub mod node_cache;
 pub mod one_shot;
 pub mod ontology;
-pub mod open_view;
 pub mod outbound;
 pub mod outbox;
 pub mod outputs;
@@ -269,8 +270,6 @@ mod tests_checkpoint_effort;
 #[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
-mod tests_cn_follow;
-#[cfg(test)]
 mod tests_coding_hint;
 #[cfg(test)]
 mod tests_commitments;
@@ -281,6 +280,20 @@ mod tests_config;
 #[cfg(test)]
 mod tests_consolidate;
 #[cfg(test)]
+mod tests_content_cut;
+#[cfg(test)]
+mod tests_content_floor;
+#[cfg(test)]
+mod tests_content_freeze;
+#[cfg(test)]
+mod tests_content_gate;
+#[cfg(test)]
+mod tests_content_kind;
+#[cfg(test)]
+mod tests_content_late;
+#[cfg(test)]
+mod tests_content_race;
+#[cfg(test)]
 mod tests_context;
 #[cfg(test)]
 mod tests_continuations;
@@ -289,15 +302,7 @@ mod tests_continue;
 #[cfg(test)]
 mod tests_continue_slow;
 #[cfg(test)]
-mod tests_data_floor;
-#[cfg(test)]
-mod tests_data_footer;
-#[cfg(test)]
 mod tests_data_gate;
-#[cfg(test)]
-mod tests_data_state;
-#[cfg(test)]
-mod tests_data_verdict;
 #[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
@@ -313,6 +318,8 @@ mod tests_disk_watch;
 #[cfg(test)]
 mod tests_dispatch;
 #[cfg(test)]
+mod tests_dm_rig;
+#[cfg(test)]
 mod tests_draft;
 #[cfg(test)]
 mod tests_draft_first_pass;
@@ -320,6 +327,8 @@ mod tests_draft_first_pass;
 mod tests_draft_hardening;
 #[cfg(test)]
 mod tests_draft_home;
+#[cfg(test)]
+mod tests_draft_reach;
 #[cfg(test)]
 mod tests_effort_beta;
 #[cfg(test)]
@@ -342,6 +351,10 @@ mod tests_failures;
 mod tests_fallback;
 #[cfg(test)]
 mod tests_families;
+#[cfg(test)]
+mod tests_fan_out_cue;
+#[cfg(test)]
+mod tests_find_sticks;
 #[cfg(test)]
 mod tests_first_request;
 #[cfg(test)]
@@ -447,11 +460,7 @@ mod tests_ontology_bind;
 #[cfg(test)]
 mod tests_ontology_undo;
 #[cfg(test)]
-mod tests_open_request;
-#[cfg(test)]
 mod tests_open_task;
-#[cfg(test)]
-mod tests_open_view;
 #[cfg(test)]
 mod tests_output;
 #[cfg(test)]
@@ -481,7 +490,11 @@ mod tests_private_authored;
 #[cfg(test)]
 mod tests_private_background;
 #[cfg(test)]
+mod tests_private_lineage;
+#[cfg(test)]
 mod tests_private_recall;
+#[cfg(test)]
+mod tests_private_view;
 #[cfg(test)]
 mod tests_proc_cap;
 #[cfg(test)]
@@ -524,8 +537,6 @@ mod tests_registry;
 mod tests_reminders;
 #[cfg(test)]
 mod tests_replay;
-#[cfg(test)]
-mod tests_reply_data;
 #[cfg(test)]
 mod tests_rerank;
 #[cfg(test)]
@@ -586,6 +597,8 @@ mod tests_security;
 mod tests_self_budget;
 #[cfg(test)]
 mod tests_self_card;
+#[cfg(test)]
+mod tests_self_turns;
 #[cfg(test)]
 mod tests_send_path;
 #[cfg(test)]
@@ -668,8 +681,6 @@ mod tests_term;
 mod tests_thinking_writer;
 #[cfg(test)]
 mod tests_tiering;
-#[cfg(test)]
-mod tests_tool_screen;
 #[cfg(test)]
 mod tests_tool_words;
 #[cfg(test)]

@@ -134,6 +134,9 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`tools`**: the toollets: class, backend, what policy does with each, calls so far. `theseus tools`.
 - **`policy`**: "should have asked": make a tool ask first, undo it, or list every tool's posture and what set it.
   `theseus policy tighten proc.run`; `policy explain`, `trust`, `earned`, `grants`.
+- **`content`**: a session's content labels: `injection` stops its calls that act, and `secret`, `confidential` and
+  `personal` keep it off a China-origin model, until you remove them. `theseus content SESSION` lists them;
+  `theseus content remove SESSION FLAG` (or `--all`) removes one, and is yours alone to run.
 - **`mcp`**: the MCP servers the config attaches: state, tools, postures. `theseus mcp`; `mcp restart NAME`.
 - **`extend`**: extensions: proposals with their state and frozen digest, and the loaded ones. `theseus extend list`;
   `extend revoke NAME`.

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="254" viewBox="0 0 720 254" role="img" aria-labelledby="t-pass-rate-openhands t-pass-rate-openhands-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-pass-rate-openhands">Pass rate, OpenHands 1.53.0, all 89 tasks once, HIGH tier</title>
+<desc id="t-pass-rate-openhands-d">How much of terminal-bench@2.0 does OpenHands 1.53.0 solve on one pass?</desc>
+<rect width="720" height="254" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Pass rate, OpenHands 1.53.0, all 89 tasks once, HIGH tier</text>
+<line x1="141.1" y1="46.0" x2="141.1" y2="160.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="225.8" y1="46.0" x2="225.8" y2="160.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="310.4" y1="46.0" x2="310.4" y2="160.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="395.0" y1="46.0" x2="395.0" y2="160.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="479.7" y1="46.0" x2="479.7" y2="160.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="564.3" y1="46.0" x2="564.3" y2="160.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="18.0" y="63.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">every trial (raw)</text>
+<text x="18.0" y="119.0" font-size="12" fill="#ffffff" stroke="#1a1a19" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">trials whose agent started</text>
+<text x="127.1" y="90.0" font-size="12" fill="#ffffff" text-anchor="end">OpenHands 1.53.0</text>
+<g><title>OpenHands 1.53.0: 71.9%  [61.8%, 80.2%] (64 of 89)</title>
+<line x1="402.7" y1="86.0" x2="480.5" y2="86.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="402.7" y1="81.0" x2="402.7" y2="91.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="480.5" y1="81.0" x2="480.5" y2="91.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="445.4" cy="86.0" r="12" fill="transparent"/>
+<circle cx="445.4" cy="86.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="90.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">71.9%  [61.8%, 80.2%]</text>
+<text x="127.1" y="146.0" font-size="12" fill="#ffffff" text-anchor="end">OpenHands 1.53.0</text>
+<g><title>OpenHands 1.53.0: 73.6%  [63.4%, 81.7%] (64 of 87)</title>
+<line x1="409.6" y1="142.0" x2="486.8" y2="142.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="409.6" y1="137.0" x2="409.6" y2="147.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="486.8" y1="137.0" x2="486.8" y2="147.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="452.4" cy="142.0" r="12" fill="transparent"/>
+<circle cx="452.4" cy="142.0" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="146.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">73.6%  [63.4%, 81.7%]</text>
+<line x1="141.1" y1="160.0" x2="564.3" y2="160.0" stroke="#383835" stroke-width="1"/>
+<text x="141.1" y="176.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="225.8" y="176.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="310.4" y="176.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="395.0" y="176.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="479.7" y="176.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="564.3" y="176.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="352.7" y="194.0" font-size="12" fill="#c3c2b7" text-anchor="middle">trials passed</text>
+<text x="18.0" y="216.0" font-size="11" fill="#c3c2b7">95% Wilson intervals. The agent-started row drops the trials whose agent never reached a model call; Harbor charges those</text>
+<text x="18.0" y="231.0" font-size="11" fill="#c3c2b7">to the arm as reward 0, so the raw row is the one that compares with every other arm.</text>
+</svg>

@@ -130,6 +130,26 @@ pub(crate) const SESSION_BEFORE_PROJECT: &str = r#"{"session_id":"ses_0000000000
 /// hand, in the layout the build before theseus-a1wvq.5 writes.
 pub(crate) const SESSION_BEFORE_DATA: &str = r#"{"session_id":"ses_00000000000000000000000000000481","kind":"conversation","label":null,"created_at_unix_ms":1790000000481,"turns":3,"last_turn_id":"turn_00000000000000000000000000000483","usage":{"input_tokens":900,"output_tokens":140,"cache_read_input_tokens":300,"cache_creation_input_tokens":60},"execution_id":"exe_00000000000000000000000000000481","compilation_id":"cmp_00000000000000000000000000000482","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000489,"cost_usd":0.0091,"tool_calls":1,"title":"Chart the breakwater","dir":"/work/harbour","project":"tsk_00000000000000000000000000000480"}"#;
 
+/// A session as format 51 wrote it, holding the open view's data state
+/// (`data`: opened, run, taint; format 49, theseus-a1wvq.5), before content
+/// labels took the field over (format 52, theseus-9ymz0). It reads as a record
+/// with no labels and nothing judged, and writes back its other fields byte
+/// for byte; the three open-view fields are gone. **Generated, not typed**:
+/// the build before theseus-9ymz0 serialised this exact record from its own
+/// `DataState` (`probe-old-data`, ARM lane cfcut, 2026-10-26), and the text is
+/// what it printed.
+pub(crate) const SESSION_WITH_OPEN_VIEW_DATA: &str = r#"{"session_id":"ses_00000000000000000000000000000481","kind":"conversation","label":null,"created_at_unix_ms":1790000000481,"turns":3,"last_turn_id":"turn_00000000000000000000000000000483","usage":{"input_tokens":900,"output_tokens":140,"cache_read_input_tokens":300,"cache_creation_input_tokens":60},"execution_id":"exe_00000000000000000000000000000481","compilation_id":"cmp_00000000000000000000000000000482","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000489,"cost_usd":0.0091,"tool_calls":1,"title":"Chart the breakwater","dir":"/work/harbour","project":"tsk_00000000000000000000000000000480","data":{"opened":{"how":"task","at_ms":1790000000490},"run":{"from":"msg_00000000000000000000000000000484","through":"msg_00000000000000000000000000000486"},"taint":{"why":"sealed","at_ms":1790000000491}}}"#;
+
+/// A session as format 52 wrote it, its `data` holding content labels (one
+/// raised, one raised and removed, `judged_through`), before a label named its
+/// judgment (`judgment`, format 53, theseus-gyjyo.3). It reads with no judgment
+/// on the label, which then teaches nothing, and writes back byte for byte (an
+/// empty judgment is not written). **Generated, not typed**: the build before
+/// theseus-gyjyo.3 (209f9c52) serialised this record from its own
+/// `ContentFlags` (an integration probe over `theseus-core`'s public types,
+/// 2026-10-27), and the text is what it printed.
+pub(crate) const SESSION_WITH_LABELS_AT_52: &str = r#"{"session_id":"ses_00000000000000000000000000000481","kind":"conversation","label":null,"created_at_unix_ms":1790000000481,"turns":3,"last_turn_id":"turn_00000000000000000000000000000483","usage":{"input_tokens":900,"output_tokens":140,"cache_read_input_tokens":300,"cache_creation_input_tokens":60},"execution_id":"exe_00000000000000000000000000000481","compilation_id":"cmp_00000000000000000000000000000482","last_target":{"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5"},"last_active_ms":1790000000489,"cost_usd":0.0091,"tool_calls":1,"title":"Chart the breakwater","dir":"/work/harbour","project":"tsk_00000000000000000000000000000480","data":{"labels":[{"flag":"secret","node":"msg_00000000000000000000000000000484","kind":"tool_result","source":"fs.read /srv/notes.txt","confidence":0.8,"band":"confirm","at_ms":1790000000490}],"removed":[{"flag":"confidential","by":"the CLI","via":"cli","at_ms":1790000000495}],"judged_through":"msg_00000000000000000000000000000486"}}"#;
+
 /// A kind row as format 45 wrote it, an `onto:kind:` META record: the topic
 /// seed, before a kind's retirement, examples and mined sources
 /// (`retired_ms`, `examples`, `mined_from`, format 46, theseus-e3mjc). It
@@ -160,6 +180,18 @@ fn a_format_50_card_proposal_reads_as_an_add_and_writes_back_byte_for_byte() {
 }
 
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::SESSION,
+        layout: "a session at format 52 (theseus-9ymz0's content labels): before a label named its judgment (53, theseus-gyjyo.3)",
+        bytes: SESSION_WITH_LABELS_AT_52,
+        kept: Kept::All,
+    },
+    Sample {
+        kind: kinds::SESSION,
+        layout: "a session at format 51 (theseus-a1wvq.5's data state: opened, run, taint): before content labels took `data` over (52, theseus-9ymz0), which reads it as no labels",
+        bytes: SESSION_WITH_OPEN_VIEW_DATA,
+        kept: Kept::AllBut(&["/data/opened", "/data/run", "/data/taint"]),
+    },
     Sample {
         kind: kinds::META,
         layout: "a card proposal at format 50 (theseus-utfnl's; unchanged since 43): before its ask, record, observations and posted time (51, theseus-6f8t0)",
@@ -661,7 +693,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -713,7 +745,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -768,7 +800,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -841,7 +873,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -927,7 +959,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -992,7 +1024,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -1039,7 +1071,7 @@ fn a_format_46_store_opens_with_its_nodes_and_takes_a_moved_range() {
     );
     store.append(&[note.record().unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let nodes = again.transcript(&sid).unwrap();
@@ -1117,7 +1149,7 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
         .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let all = crate::standing::Board::default().all(&again).unwrap();
@@ -1161,7 +1193,7 @@ fn a_format_40_pre_image_reads_and_writes_back_byte_for_byte() {
 }
 
 /// A store of format 39, which holds a session and no pre-image: the build
-/// opens it, takes a pre-image, and moves the manifest to 49, which an older
+/// opens it, takes a pre-image, and moves the manifest to this build's format, which an older
 /// build then refuses. The record reads back through its scope.
 #[test]
 fn a_format_39_store_opens_and_takes_a_pre_image() {
@@ -1183,7 +1215,7 @@ fn a_format_39_store_opens_and_takes_a_pre_image() {
     let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
     store.append(&[p.record(0).unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
@@ -1260,7 +1292,7 @@ fn a_format_33_store_opens_with_no_headers_and_takes_one() {
         ])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let lib = crate::prefix::Library::default();
@@ -1312,7 +1344,7 @@ fn format_33_extension_and_hands_records_read_and_write_back_byte_for_byte() {
 }
 
 /// A store of format 33 opens, reads its extensions with no hands, takes an
-/// extension's hands book, and moves the manifest to 49, which an older
+/// extension's hands book, and moves the manifest to this build's format, which an older
 /// build then refuses.
 #[test]
 fn a_format_33_store_opens_with_no_hands_and_takes_them() {
@@ -1334,7 +1366,7 @@ fn a_format_33_store_opens_with_no_hands_and_takes_them() {
         .put_meta(&crate::extend::broker::book_key("tidewc"), &book)
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 51);
+    assert_eq!(moved["format"], 53);
 }
 
 /// A task from before projects reads as a plain item, with no date and no
@@ -1358,37 +1390,119 @@ fn a_format_44_task_reads_as_an_item_and_a_project_round_trips() {
     assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_PROJECT);
 }
 
-/// A format-47 session reads with no data state (the private view, no open
-/// run: no migration) and writes back byte for byte; one with a state round
+/// A format-47 session reads with no content labels (nothing judged, no
+/// label: no migration) and writes back byte for byte; one with labels round
 /// trips, and a write-back's merge of a record with none keeps none.
 #[test]
-fn a_format_47_session_reads_with_no_data_state_and_takes_one() {
-    use crate::data::{DataState, DataWhy, OpenHow, OpenRun, Opened, Taint};
+fn a_format_47_session_reads_with_no_labels_and_takes_some() {
+    use crate::content::{ContentFlags, Flag, ItemKind, Label};
     let mut s: SessionRecord = serde_json::from_str(SESSION_BEFORE_DATA).unwrap();
     assert!(s.data.is_none());
     assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_DATA);
     let turn = s.clone();
     s.take_turns_fields(&turn);
     assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_BEFORE_DATA);
-    s.data = Some(Box::new(DataState::new(
-        Some(Opened {
-            how: OpenHow::Task,
-            at_ms: 1_790_000_000_490,
-        }),
-        Some(OpenRun {
-            from: "msg_00000000000000000000000000000484".into(),
-            through: "msg_00000000000000000000000000000486".into(),
-        }),
-        Some(Taint {
-            why: DataWhy::Sealed,
-            node: None,
-            at_ms: 1_790_000_000_491,
-        }),
-    )));
+    let mut flags = ContentFlags::default();
+    flags.raise(Label {
+        flag: Flag::Secret,
+        node: Some("msg_00000000000000000000000000000484".into()),
+        kind: ItemKind::ToolResult,
+        source: "fs.read /srv/notes.txt".into(),
+        confidence: 0.8,
+        band: theseus_judge::band::Band::Confirm,
+        at_ms: 1_790_000_000_490,
+        judgment: String::new(),
+    });
+    flags.judged_through = Some("msg_00000000000000000000000000000486".into());
+    s.data = Some(Box::new(flags));
     let text = serde_json::to_string(&s).unwrap();
-    assert!(text.ends_with(r#","data":{"opened":{"how":"task","at_ms":1790000000490},"run":{"from":"msg_00000000000000000000000000000484","through":"msg_00000000000000000000000000000486"},"taint":{"why":"sealed","at_ms":1790000000491}}}"#), "{text}");
+    assert!(
+        text.contains(r#","data":{"labels":[{"flag":"secret","node":"msg_00000000000000000000000000000484","kind":"tool_result""#)
+            && text.ends_with(r#""judged_through":"msg_00000000000000000000000000000486"}}"#),
+        "{text}"
+    );
     assert_eq!(
         serde_json::from_str::<SessionRecord>(&text).unwrap().data,
         s.data
     );
+}
+
+/// Test 29 of theseus-9ymz0: a store of format 51 holds a session whose `data`
+/// is the open view's (the generated sample): the build opens it, reads the
+/// record with empty content flags (no label, nothing judged: a stale open run
+/// proves nothing under this rule), and its first write moves the manifest to
+/// 52, which an older build then refuses.
+#[test]
+fn a_format_51_session_reads_its_open_view_data_as_empty_content_flags() {
+    use crate::content::ContentFlags;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    let old: SessionRecord = serde_json::from_str(SESSION_WITH_OPEN_VIEW_DATA).unwrap();
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        store
+            .append(&[theseus_store::NewRecord::bytes(
+                kinds::SESSION,
+                Some(&old.session_id),
+                SESSION_WITH_OPEN_VIEW_DATA.as_bytes().to_vec(),
+            )])
+            .unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 51, "engine": "redb"}"#).unwrap();
+    let store = crate::store::Store::open(&path).unwrap();
+    let read: SessionRecord = store.get_session(&old.session_id).unwrap().unwrap();
+    let flags = read.data.as_deref().expect("the old layout reads");
+    assert_eq!(*flags, ContentFlags::default(), "no labels, nothing judged");
+    assert_eq!(flags.disqualifies_cn(), None);
+    assert!(!flags.frozen());
+    assert_eq!(flags.judged_through, None);
+    assert_eq!(
+        read.title.as_deref(),
+        Some("Chart the breakwater"),
+        "the rest reads"
+    );
+    // The first write moves the manifest.
+    store.put_session(&read.session_id, &read).unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 53);
+}
+
+/// Test of theseus-gyjyo.3: a store of format 52 holds a session whose labels
+/// name no judgment (the generated sample): the build opens it, reads the
+/// labels with an empty judgment (so they teach nothing), and its first write
+/// moves the manifest to 53, which an older build then refuses.
+#[test]
+fn a_format_52_session_reads_its_labels_with_no_judgment() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store");
+    let old: SessionRecord = serde_json::from_str(SESSION_WITH_LABELS_AT_52).unwrap();
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        store
+            .append(&[theseus_store::NewRecord::bytes(
+                kinds::SESSION,
+                Some(&old.session_id),
+                SESSION_WITH_LABELS_AT_52.as_bytes().to_vec(),
+            )])
+            .unwrap();
+    }
+    let manifest = path.join("MANIFEST.json");
+    std::fs::write(&manifest, r#"{"format": 52, "engine": "redb"}"#).unwrap();
+    let store = crate::store::Store::open(&path).unwrap();
+    let read: SessionRecord = store.get_session(&old.session_id).unwrap().unwrap();
+    let flags = read.data.as_deref().expect("the old layout reads");
+    let secret = flags
+        .label(crate::content::Flag::Secret)
+        .expect("the label reads");
+    assert_eq!(secret.judgment, "", "no judgment: it teaches nothing");
+    assert_eq!(flags.removed.len(), 1, "the removal reads");
+    assert_eq!(
+        serde_json::to_string(&read).unwrap(),
+        SESSION_WITH_LABELS_AT_52,
+        "and writes back byte for byte"
+    );
+    store.put_session(&read.session_id, &read).unwrap();
+    let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(moved["format"], 53);
 }

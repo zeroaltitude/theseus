@@ -544,7 +544,7 @@ impl Core {
                 // The owner's own words: `directive.v1` rides this call, and
                 // the turn says where the message was written (`Early::said`).
                 capture: self.capture_wanted(p, conn) && crate::capture::owner_alone(class, place),
-                data_names: self.cfg.routing.data.names(&self.cfg.privacy),
+                data_names: self.cfg.privacy.data_names(),
                 private_source: crate::google::private::session(&self.store, &self.cfg, home),
                 attachments: Vec::new(),
             });

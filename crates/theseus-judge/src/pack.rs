@@ -39,7 +39,8 @@ use crate::learn::RollbackRule;
 /// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
 /// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v9`
 /// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
-/// theseus-a1wvq and theseus-f9qa8; `run_tool` and `commentary`, theseus-gezlj). Older versions
+/// theseus-a1wvq and theseus-f9qa8; `run_tool` and `commentary`, theseus-gezlj), and `content.v1` (the four content
+/// flags, theseus-9ymz0). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
@@ -64,7 +65,6 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v7", include_str!("../packs/route.v7.toml")),
     ("route.v8", include_str!("../packs/route.v8.toml")),
     ("route.v9", include_str!("../packs/route.v9.toml")),
-    ("reply_data.v1", include_str!("../packs/reply_data.v1.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
     ("heard.v1", include_str!("../packs/heard.v1.toml")),
@@ -83,6 +83,8 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         include_str!("../packs/recall_cross.v1.toml"),
     ),
     ("families.v1", include_str!("../packs/families.v1.toml")),
+    ("content.v1", include_str!("../packs/content.v1.toml")),
+    ("content.v2", include_str!("../packs/content.v2.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -106,6 +108,9 @@ pub enum Point {
     Replay,
     /// A voice call's engine waits for it, live (theseus-s3dwj).
     Voice,
+    /// One item that entered a session, asked off the turn's path and landed
+    /// between turns (`content.v1`, theseus-9ymz0).
+    Item,
 }
 
 /// The state builder a pack names (a closed set, in code).
@@ -153,6 +158,9 @@ pub enum Builder {
     /// `families.v1`'s: the message and the tool families its request hides
     /// (theseus-xlri5).
     Families,
+    /// `content.v1`'s: one item that entered a session, and what it was and
+    /// where it came from (theseus-9ymz0).
+    Content,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -261,6 +269,10 @@ pub enum Source {
     /// first ten, and the next ten (a per-item Noul asks at most ten).
     Families,
     MoreFamilies,
+    /// One item when the item is not the operator's own words (`content.v1`'s
+    /// `injection` is asked only then, theseus-9ymz0): the builder sets it
+    /// from the item's kind, so the rule is the code's, not the wording's.
+    Untrusted,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is
@@ -284,6 +296,47 @@ pub struct Dynamic {
 impl Dynamic {
     pub fn items(&self, s: Source) -> &[Item] {
         self.sources.get(&s).map_or(&[], Vec::as_slice)
+    }
+
+    /// The sources a pack's questions draw on: what its `only_when`,
+    /// `options_from` and `per` read.
+    pub fn needed(pack: &Pack) -> BTreeSet<Source> {
+        let mut out = BTreeSet::new();
+        for q in &pack.questions {
+            out.extend([q.only_when, q.options_from, q.per].into_iter().flatten());
+        }
+        out
+    }
+
+    /// What a judgment's record keeps of these sources (theseus-gyjyo.1): the
+    /// items of every source `pack`'s questions draw on, an empty list for one
+    /// the builder found nothing for, so a source missing from the record
+    /// means it was never recorded, not that it was empty.
+    pub fn recorded(&self, pack: &Pack) -> serde_json::Value {
+        let map: BTreeMap<Source, &[Item]> = Self::needed(pack)
+            .into_iter()
+            .map(|s| (s, self.items(s)))
+            .collect();
+        serde_json::to_value(map).unwrap_or_default()
+    }
+
+    /// The sources back from a judgment's record, for a candidate whose
+    /// questions draw on them. `Err`: the ones the record does not hold (all
+    /// of them when it holds none).
+    pub fn from_record(record: &serde_json::Value, pack: &Pack) -> Result<Dynamic, Vec<Source>> {
+        let held: BTreeMap<Source, Vec<Item>> =
+            serde_json::from_value(record.clone()).unwrap_or_default();
+        let missing: Vec<Source> = Self::needed(pack)
+            .into_iter()
+            .filter(|s| !held.contains_key(s))
+            .collect();
+        if !missing.is_empty() {
+            return Err(missing);
+        }
+        Ok(Dynamic {
+            sources: held,
+            assets: Vec::new(),
+        })
     }
 }
 
@@ -1516,10 +1569,11 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            31,
+            32,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v9, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
-             onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1 and reply_data.v1"
+             onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1 \
+             and content.v1 to v2"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -1940,45 +1994,155 @@ mod tests {
         assert!(v9.description.contains("a remark that asks for nothing"));
     }
 
-    /// reply_data.v1 (theseus-a1wvq.15) asks route.v7's `data` question of one
-    /// reply: the same choices, thresholds and no-match, the open and private
-    /// words verbatim, and only the subject changed.
+    /// One question of a pack, or a panic naming it.
+    fn q<'a>(p: &'a Pack, n: &str) -> &'a QuestionDef {
+        p.question(n).unwrap_or_else(|| panic!("{n}"))
+    }
+
+    /// Everything about `content.v2` that is not its wording is `content.v1`'s
+    /// (theseus-78qay): the same id, builder, point, cap, sample, baseline and
+    /// action, the same four questions deciding at the same bars, and the same
+    /// rollback rules. `injection` is byte-identical, since its `no` already said
+    /// that discussing prompt injection is not attempting one.
     #[test]
-    fn reply_data_v1_is_route_v7s_data_question_about_a_reply() {
-        let (route, reply) = (
-            by_name("route.v7").unwrap(),
-            by_name("reply_data.v1").unwrap(),
+    fn content_v2_keeps_v1s_shape_and_its_injection_question() {
+        let (v1, v2) = (
+            by_name("content.v1").unwrap(),
+            by_name("content.v2").unwrap(),
         );
-        let ids: Vec<_> = reply.questions.iter().map(|q| q.id.as_str()).collect();
-        assert_eq!(ids, ["data"], "the one question");
-        let (r, d) = (
-            route.question("data").unwrap(),
-            reply.question("data").unwrap(),
-        );
+        assert_eq!(v2.version, 2);
+        assert_eq!(v2.id, v1.id);
         assert_eq!(
-            (&d.decides, &d.kind, &d.thresholds, &d.no_match),
-            (&r.decides, &r.kind, &r.thresholds, &r.no_match)
+            (
+                v2.point,
+                v2.builder,
+                v2.baseline,
+                v2.action,
+                v2.state_cap_tokens,
+                v2.sample
+            ),
+            (
+                v1.point,
+                v1.builder,
+                v1.baseline,
+                v1.action,
+                v1.state_cap_tokens,
+                v1.sample
+            )
         );
-        let means = |q: &QuestionDef, id: &str| {
-            q.options.iter().find(|o| o.id == id).unwrap().means.clone()
-        };
-        for id in ["open", "private"] {
-            assert_eq!(means(d, id), means(r, id), "{id} verbatim");
+        let ids = |p: &Pack| p.questions.iter().map(|q| q.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&v2), ids(&v1));
+        for n in ["confidential", "injection", "personal", "secret"] {
+            let (a, b) = (q(&v2, n), q(&v1, n));
+            assert_eq!(
+                (
+                    &a.decides,
+                    &a.kind,
+                    &a.thresholds,
+                    &a.no_match,
+                    &a.only_when
+                ),
+                (
+                    &b.decides,
+                    &b.kind,
+                    &b.thresholds,
+                    &b.no_match,
+                    &b.only_when
+                ),
+                "{n}"
+            );
+            assert!(a.decides, "{n}");
         }
-        assert_eq!(
-            means(d, "unclear"),
-            means(r, "unclear").map(|m| m.replace("The message", "The reply"))
+        assert_eq!(q(&v2, "injection"), q(&v1, "injection"));
+        assert_eq!(v2.rollback, v1.rollback, "both rules, word for word");
+        assert_ne!(v2.description, v1.description, "it reveals, not shows");
+    }
+
+    /// `content.v2`'s one idea, added and nothing taken away (theseus-78qay, the
+    /// owner 2026-10-27: a flag describes what an item REVEALS, not what it is
+    /// ABOUT). Each of the three revealing questions carries the rule in its
+    /// `instructions` and names the three near-misses in its `no`.
+    #[test]
+    fn content_v2_adds_the_reveal_rule_and_changes_nothing_else() {
+        let (v1, v2) = (
+            by_name("content.v1").unwrap(),
+            by_name("content.v2").unwrap(),
         );
-        assert!(d.instructions.contains("this reply") && !d.instructions.contains("message"));
-        assert_eq!(
-            (reply.point, reply.builder, reply.state_cap_tokens),
-            (route.point, route.builder, route.state_cap_tokens)
-        );
-        assert_eq!(
-            reply.action,
-            Action::None,
-            "it acts through no rollback rule"
-        );
+        let means = |d: &QuestionDef, id: &str| {
+            d.options
+                .iter()
+                .find(|o| o.id == id)
+                .unwrap()
+                .means
+                .clone()
+                .unwrap_or_default()
+        };
+        // Each revealing question carries the reveal rule in the question itself,
+        // where the text being judged cannot argue with it. It does NOT ask whether
+        // the party is real: a first draft did, and on the live set it cost recall
+        // 1.000 -> 0.623, because one item rarely shows whose anything is and Jev
+        // answered "cannot tell" as "no". The rule that holds is reveal-versus-about,
+        // and the near-misses are named in `no`, where they are observable.
+        for n in ["secret", "confidential", "personal"] {
+            let (a, b) = (q(&v2, n), q(&v1, n));
+            assert_ne!(a.instructions, b.instructions, "{n}: v2 rewords it");
+            assert!(
+                a.instructions.contains("not what it is about"),
+                "{n}: {}",
+                a.instructions
+            );
+            assert!(
+                !a.instructions.contains("real"),
+                "{n}: `real` cost recall; the rule is reveal-versus-about: {}",
+                a.instructions
+            );
+            // `yes` keeps v1's words and then adds; `no` grows, never shrinks.
+            assert!(
+                means(a, "yes").starts_with(&means(b, "yes")),
+                "{n}: v2's yes drops words v1's had"
+            );
+            assert!(means(a, "no").len() > means(b, "no").len(), "{n}");
+        }
+        // And each `no` names the three near-misses v1 flagged on.
+        for (n, words) in [
+            (
+                "secret",
+                &[
+                    "about credentials",
+                    "exercise's own answer",
+                    "working output",
+                    // Scoped to the exercise, never to the tree: a password in an
+                    // ordinary project's configuration is a credential. A review of
+                    // 2026-10-27 found the unscoped version, and the set now holds
+                    // `sec_14` and `sec_15` against it.
+                    "whatever directory it sits in",
+                ][..],
+            ),
+            (
+                "confidential",
+                &[
+                    "topic of confidentiality",
+                    "self-contained technical exercise",
+                    "invented organisation names",
+                    // A real organisation's own test suite is a test suite; its
+                    // fixtures are not exempt for that reason (`conf_14`).
+                    "actual customers",
+                ][..],
+            ),
+            (
+                "personal",
+                &[
+                    "topic of privacy",
+                    "Placeholder identities",
+                    "benchmark task",
+                ][..],
+            ),
+        ] {
+            let no = means(q(&v2, n), "no");
+            for w in words {
+                assert!(no.contains(w), "{n}'s no lacks {w:?}: {no}");
+            }
+        }
     }
 
     /// No pack's text names an organisation: the matcher runs over every pack
@@ -2013,5 +2177,54 @@ mod tests {
         }
         let planted = format!("{}\nExampleCorp's private plans", EMBEDDED[0].1);
         assert_eq!(hits(&planted, &names), ["examplecorp"]);
+    }
+
+    /// A judgment's record of its dynamic sources (theseus-gyjyo.1): every
+    /// source the pack's questions draw on, an empty one included, and only
+    /// those; read back for a pack that needs the same, and refused, naming
+    /// them, for one that needs another.
+    #[test]
+    fn recorded_sources_round_trip_and_name_what_is_missing() {
+        let pack = by_name("content.v2").unwrap();
+        assert_eq!(
+            Dynamic::needed(&pack).into_iter().collect::<Vec<_>>(),
+            [Source::Untrusted]
+        );
+        let held = Dynamic {
+            sources: BTreeMap::from([
+                (
+                    Source::Untrusted,
+                    vec![Item {
+                        key: "untrusted".into(),
+                        text: "not the operator's own words".into(),
+                    }],
+                ),
+                (Source::Tasks, vec![]),
+            ]),
+            assets: vec![],
+        };
+        let rec = held.recorded(&pack);
+        assert_eq!(
+            rec,
+            serde_json::json!({"untrusted": [{"key": "untrusted",
+                "text": "not the operator's own words"}]})
+        );
+        let back = Dynamic::from_record(&rec, &pack).unwrap();
+        assert_eq!(back.items(Source::Untrusted), held.items(Source::Untrusted));
+        // Nothing found is recorded as an empty list, which is a source held.
+        let none = Dynamic::default().recorded(&pack);
+        assert_eq!(none, serde_json::json!({"untrusted": []}));
+        assert!(Dynamic::from_record(&none, &pack).is_ok());
+        // A record of nothing, or of other sources, holds none of what it needs.
+        for rec in [
+            serde_json::json!({}),
+            serde_json::json!(null),
+            serde_json::json!({"tasks": []}),
+        ] {
+            assert_eq!(
+                Dynamic::from_record(&rec, &pack).unwrap_err(),
+                [Source::Untrusted]
+            );
+        }
     }
 }

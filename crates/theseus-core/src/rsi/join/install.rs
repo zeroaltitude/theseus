@@ -79,7 +79,7 @@ fn build(p: &Place, tree: &Tree, merge: &str) -> Result<()> {
             argv,
             env: vec![("THESEUS_COMMIT".into(), merge.into())],
             log: &log,
-            limit: BUILD_LIMIT,
+            limit: BUILD_SILENCE,
         },
     )?;
     if code != Some(0) {
@@ -95,7 +95,7 @@ fn build(p: &Place, tree: &Tree, merge: &str) -> Result<()> {
 }
 
 /// The longest an install's build may take.
-const BUILD_LIMIT: std::time::Duration = std::time::Duration::from_secs(2 * 3600);
+const BUILD_SILENCE: std::time::Duration = std::time::Duration::from_secs(2 * 3600);
 
 fn shell(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))

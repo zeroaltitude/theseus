@@ -66,8 +66,14 @@ impl Sandbox {
             home(".npm"),
             home(".cache/theseus"),
         ];
-        let ro_paths: Vec<PathBuf> = std::iter::once(home(".rustup"))
+        // The view's own read-only binds, apart from the operator's
+        // `[sandbox] ro_paths`, which the mask filter below must not see.
+        let own_ro: Vec<PathBuf> = std::iter::once(home(".rustup"))
             .chain(b.ro.iter().cloned())
+            .collect();
+        let ro_paths: Vec<PathBuf> = own_ro
+            .iter()
+            .cloned()
             .chain(base.ro_paths)
             .filter(|p| !workspace.contains(p))
             .collect();
@@ -78,12 +84,14 @@ impl Sandbox {
         // approve list's `~/.theseus`, which holds the gate, the tree and the
         // build tree) would cover the binds themselves, and the gate would
         // find no script. What the directory holds that must stay hidden is
-        // listed on its own (the store, the spool, the sealed sets).
+        // listed on its own (the store, the spool, the sealed sets). Only the
+        // view's own binds count: a configured `ro_paths` entry inside a
+        // masked directory must not un-mask it (theseus-i3h47).
         let hidden: Vec<PathBuf> = base
             .hidden
             .into_iter()
             .filter(|h| {
-                !(rw.iter().chain(&ro_paths).chain(&workspace))
+                !(rw.iter().chain(&own_ro).chain(&workspace))
                     .any(|bound| bound != h && bound.starts_with(h))
             })
             .collect();

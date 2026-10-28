@@ -100,6 +100,7 @@ export function synthInput(now: number, sessionsN = 200, nodesN = 10_000): ShipI
       execution_id: eid, execution_state: state, last_active_ms: at, cost_usd: sizes[i] * 0.0003, tool_calls: calls,
       title: pick(TITLES), pending_confirms: level === 'needs_you' ? 1 : 0, parent_session_id: parent?.session_id,
       limit_usd: 5, attention: { level, label: level.replace('_', ' '), since_ms: at },
+      labels: [],
       external_text: held ? { since_ms: at, tool: 'web.search', url: 'example', node_id: '', query: 'tides' } : undefined,
     } as unknown as SessionInfo
     sessions.push(s)

@@ -292,7 +292,7 @@ impl Run<'_> {
             &self.b.head[..self.b.head.len().min(12)]
         );
         let dropped = prior + 1 >= MAX_CONFLICTS;
-        let text = if dropped {
+        let mut text = if dropped {
             conflict_dropped_card(&self.b.branch, &item, why)
         } else {
             conflict_card(&self.b.branch, &item, why)
@@ -322,6 +322,7 @@ impl Run<'_> {
         // item 29): close this tree, so `self_tree_open` opens a new one off
         // origin/main instead of finding this one.
         let (p, c) = (self.place.clone(), item.clone());
+        let mut numbers = json!({"held": true, "conflict": true, "dropped": dropped});
         if let Err(e) = blocking(move || {
             if let Some(t) = tree::find(&p, &c) {
                 tree::close(&p, &t)?;
@@ -330,15 +331,17 @@ impl Run<'_> {
         })
         .await
         {
+            // The log keeps the error. The owner gets what it means: the next
+            // build may find this stale tree and cut from its old base
+            // (theseus-51sfw). The conflict's card and stop still go out.
             tracing::warn!(error = %format!("{e:#}"),
                 "self-join: the conflicted tree was not closed");
+            text.push('\n');
+            text.push_str(&tree_not_closed_line(&item));
+            numbers["tree_closed"] = json!(false);
         }
         self.card(text);
-        self.stop(
-            "merge",
-            why,
-            json!({"held": true, "conflict": true, "dropped": dropped}),
-        );
+        self.stop("merge", why, numbers);
         Ok(())
     }
 
@@ -476,5 +479,14 @@ pub(crate) fn conflict_dropped_card(branch: &str, item: &str, why: &str) -> Stri
             "{why}. The item was dropped, not rebuilt again; nothing waits for you. Bring it \
              back with `{cmd}`."
         ),
+    )
+}
+
+/// The line a conflict's note adds when its tree could not be closed.
+pub(crate) fn tree_not_closed_line(item: &str) -> String {
+    format!(
+        "The tree of {item} could not be closed, so its next build may reuse that stale tree \
+         and cut from an old base, not the new main. Remove the tree if a build starts from \
+         old code."
     )
 }

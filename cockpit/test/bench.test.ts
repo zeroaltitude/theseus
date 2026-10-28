@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import {
-  allSets, answerFirst, atAGlance, axes, axesOf, FALLBACK_AXES, harness, setsFrom, sections, figureTable, frontier, linkTo, modelOf, parseCsv, points, property, readIndex,
+  answerFirst, atAGlance, axes, axesOf, FALLBACK_AXES, harness, setsFrom, sections, figureTable, fold, frontier, linkTo, modelOf, parseCsv, points, property, readIndex,
   readerMarkdown, reportName, runs, selectMedian, staircase, TASK_SETS, unequal, wilson, interval, median, EFFORT, type Point, type Property,
 } from '../src/lib/bench.ts'
 
@@ -236,6 +236,19 @@ test('an axis is offered only where two points measured it; one measured by one 
   assert.deepEqual(one.map((o) => [o.p.id, o.who]), [['rss', ['Theseus']]])
 })
 
+test('a table that records no verdict has no pass rate, where a blank verdict is still a failure', () => {
+  const pass = property('pass')!
+  // The column is there and the cell is blank: the trial did not pass, and the rate counts it, as the reports do.
+  assert.equal(pass.read({ reward: '' }), 0)
+  assert.equal(pass.read({ reward: '1.0' }), 1)
+  assert.equal(pass.read({ solved: '0', reward: '1.0' }), 0)
+  // No verdict column at all: that run scored something else (Bug Hunt counts bugs fixed a trial), and a pass rate
+  // of 0% it never measured must not be put in its mouth.
+  assert.equal(pass.read({ bugs_fixed: '4', of: '13' }), undefined)
+  assert.equal(fold(pass, [{ bugs_fixed: '4' }, { bugs_fixed: '2' }]), undefined)
+  assert.equal(fold(pass, [{ reward: '' }, { reward: '1.0' }])!.v, 0.5)
+})
+
 test('the Wilson interval', () => {
   const w = wilson(128, 178)
   assert.ok(Math.abs(w.lo - 0.648985) < 1e-5 && Math.abs(w.hi - 0.77996) < 1e-5)
@@ -252,7 +265,6 @@ test('the datasets with a ui block make the two 2026-10-18 Terminal-Bench sets, 
   const gen = generated()
   assert.deepEqual(gen.map((s) => s.id), ['tb-v1-high', 'tb-v1-max'])
   assert.deepEqual(gen.map((s) => s.report), ['2026-10-18-terminal-bench-v1-high', '2026-10-18-terminal-bench-v1-max'])
-  assert.deepEqual(allSets(datasets().map((d) => ({ report: d.report, ui: d.raw.ui }))).map((s) => s.id), ['tb-v1-high', 'tb-v1-max', ...TASK_SETS.map((s) => s.id)])
   // The codex-only dataset has one arm and no block: it is not a set.
   assert.ok(!gen.some((s) => s.report.includes('codex')))
 })

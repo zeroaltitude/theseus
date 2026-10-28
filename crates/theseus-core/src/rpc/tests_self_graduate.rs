@@ -34,7 +34,7 @@ fn core_with(mode: SelfMode, starts: u32) -> Arc<Core> {
     let mut cfg = (*base.cfg).clone();
     cfg.self_improve.mode = mode;
     cfg.server.disk_warn_mb = 0;
-    cfg.self_improve.backlog_starts = starts;
+    cfg.self_improve.backlog_starts = Some(starts);
     // A started item opens a tree (theseus-qh2tt): a throwaway repo, kept
     // for the process.
     let repo = crate::rsi::tests_tree::fixture();

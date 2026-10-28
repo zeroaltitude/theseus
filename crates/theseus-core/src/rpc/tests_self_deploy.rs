@@ -37,7 +37,7 @@ pub(super) fn core(
     cfg.self_improve.mode = mode;
     cfg.self_improve.mint.retire_after_days = 14;
     cfg.self_improve.mint.per_night = 5;
-    cfg.self_improve.backlog_starts = 0;
+    cfg.self_improve.backlog_starts = Some(0);
     cfg.initiative.morning_hour = 0;
     cfg.server.disk_warn_mb = 0;
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
@@ -539,7 +539,7 @@ async fn a_planted_motif_is_mined_deployed_called_and_told() {
             c.self_improve.mode = SelfMode::Act;
             c.self_improve.mint.mine = true;
             c.self_improve.mint.per_night = 1;
-            c.self_improve.backlog_starts = 0;
+            c.self_improve.backlog_starts = Some(0);
             c.self_improve.mint.retire_after_days = 14;
             c.policy.tools.remove("proc.run");
             c.tools.defer.enabled = false;

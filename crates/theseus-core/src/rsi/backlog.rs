@@ -30,8 +30,9 @@
 //! allows, is not made (it would be the first spend outside a turn, and the
 //! budget's `reserve` is self-budget's).
 //!
-//! **Starting.** Up to `[self] backlog_starts` top unmarked items a night
-//! move to running: a session whose execution's principal is the reserved
+//! **Starting.** Up to `[self] backlog_starts` top unmarked items a night (unset:
+//! the pipeline's free build slots, `[self] pipeline_builds` less the builds in
+//! flight, theseus-awycv) move to running: a session whose execution's principal is the reserved
 //! `"self"` (so the budget counts it, and it holds no owner handle), a
 //! `self.backlog.started` row, and one line to the owner's DM. The first turn
 //! tells the model to call `self.propose_change { item, issue, why }`, the
@@ -471,6 +472,21 @@ impl Core {
         Ok(())
     }
 
+    /// The builds in flight, as the pipeline counts them: the length of its
+    /// `building` queue, not the items marked in progress, so a build that went
+    /// green or whose turn ended holds no slot. None while the ledger's index
+    /// is built, when the pipeline starts nothing either.
+    fn pipeline_building(&self) -> Result<Option<usize>> {
+        let Some(repo) = self.cfg.self_improve.repo.clone() else {
+            // No tree to build in: the start itself refuses.
+            return Ok(Some(0));
+        };
+        let place = self.tools.self_pr.place(&repo);
+        let queues =
+            theseus_store::blocking(|| self.pipeline_queues(&place, super::pipeline::GRACE))?;
+        Ok(queues.map(|q| q.building.len()))
+    }
+
     /// One night of the backlog at `now_ms`: the module's doc.
     pub fn backlog_night(&self, now_ms: u64) -> Result<Night> {
         let g = gate(&self.self_ctx());
@@ -523,7 +539,17 @@ impl Core {
         // While the pipeline runs, it starts the items (theseus-pw1q.16).
         let starts = match self.rsi.pipeline.runs() {
             true => 0,
-            false => cfg.backlog_starts as usize,
+            false => match cfg.backlog_starts {
+                Some(_) => cfg.night_starts(0),
+                None => {
+                    // The sweep's endings are written first: the pipeline's
+                    // queues read the record, and count the builds in flight
+                    // as it does (theseus-awycv).
+                    self.backlog_write(&mut w)?;
+                    self.pipeline_building()?
+                        .map_or(0, |building| cfg.night_starts(building))
+                }
+            },
         };
         self.backlog_start(&mut w, starts, &mut night, None)?;
         self.backlog_mint_start(&mut w, &mut night)?;

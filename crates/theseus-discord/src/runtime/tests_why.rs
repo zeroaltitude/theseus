@@ -30,6 +30,10 @@ fn core_at(dir: &std::path::Path, rest: &str, script: Vec<Scripted>) -> Arc<Core
     cfg.tools.projects_dir = Some(work.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.policy.enforcement = theseus_core::policy::Posture::Approve;
+    // The memory pass writes its own frame a moment after a turn (`QUIET`,
+    // `WINDOW`), which a read's "no frame, no row" would count as the read's
+    // when a loaded host takes that long to get from the snapshot to the check.
+    cfg.memory.mode = theseus_core::config::MemoryMode::Off;
     cfg.discord.rest_proxy = Some(rest.to_string());
     cfg.discord.gateway_proxy = Some("ws://127.0.0.1:9".into());
     let store = theseus_core::store::Store::open(&dir.join("store")).unwrap();

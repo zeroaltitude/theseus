@@ -102,12 +102,20 @@ impl Jail {
             code,
             timed_out,
             failed,
+            silent_ms,
+            ..
         } = probe_run::run_logged(&view, &argv, &j.tree.dir, env, log, ms);
         if timed_out {
-            bail!(
-                "the build ran past {} minutes and was stopped",
-                j.limit.as_secs() / 60
-            );
+            match silent_ms {
+                Some(_) => bail!(
+                    "the build printed nothing for {} minutes and was stopped",
+                    j.limit.as_secs() / 60
+                ),
+                None => bail!(
+                    "the build was still printing at its ceiling, {} minutes, and was stopped",
+                    j.limit.as_secs() * u64::from(theseus_kernel::patience::CEILING_FACTOR) / 60
+                ),
+            }
         }
         match (code, failed) {
             (Some(c), _) => Ok(Some(c)),

@@ -1031,7 +1031,6 @@ fn render_kept(
         betas,
         extra,
         image_tokens: rendered.image_tokens,
-        data_pass: None,
     };
     let tail_from = effort::place(&mut req, &rendered.efforts, spec, entry, rendered.tail_from);
     Rendered {

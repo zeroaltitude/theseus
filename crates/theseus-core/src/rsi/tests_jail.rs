@@ -202,6 +202,30 @@ fn only_a_bind_below_a_mask_drops_it_and_the_prefix_is_component_wise() {
     assert_eq!(sb.job_view().hidden, view.hidden);
 }
 
+/// An operator's `[sandbox] ro_paths` entry is config the filter has not
+/// seen: one that points inside a masked directory must not un-mask the
+/// directory for a self build (theseus-i3h47). Only the view's own binds,
+/// the gate among them, drop a mask.
+#[test]
+fn a_configured_ro_path_inside_a_mask_does_not_unmask_it_in_a_self_build() {
+    let p = PathBuf::from;
+    let cfg = crate::sandbox::SandboxConfig {
+        ro_paths: vec!["/state/store/shared".into()],
+        ..Default::default()
+    };
+    let sb = Sandbox::new(&cfg, &[p("/work")], &[p("/state/store")], &[]);
+    let ro = [p("/state/self/gates/gate-abc.sh")];
+    let view = sb.self_build_view(&build(&ro, Path::new("/home/op")));
+    // The entry is still bound, and the directory above it still hidden.
+    assert!(view.ro_paths.contains(&p("/state/store/shared")));
+    let state: Vec<&PathBuf> = view
+        .hidden
+        .iter()
+        .filter(|h| h.starts_with("/state"))
+        .collect();
+    assert_eq!(state, [&p("/state/store")]);
+}
+
 /// The command's environment is the one list: cargo told it is offline, no
 /// compiler wrapper, the build tree, and nothing of the daemon's own.
 #[test]
@@ -236,6 +260,7 @@ fn a_jails_job_gets_its_view_and_its_variables() {
         )],
         jail: None,
         notify: None,
+        stop: None,
     };
     let tree = Tree {
         slug: "t".into(),

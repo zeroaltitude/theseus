@@ -6,6 +6,7 @@ use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Value};
+use theseus_protocol::method::TASK_NOT_THIS;
 use theseus_protocol::{error_code, method, Id, Message, Request, Response};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -339,6 +340,7 @@ impl Core {
             method::POLICY_UNTIGHTEN => route(params, |p| self.policy_untighten(p, conn)),
             method::POLICY_TRUST => route(params, |p| self.policy_trust(p, conn)),
             method::POLICY_NOTICE_SEEN => route(params, |p| self.policy_notice_seen(p, conn)),
+            method::CONTENT_UNLABEL => route(params, |p| self.content_unlabel(p, conn)),
             method::PLACE_PUBLISH => route(params, |p| self.place_publish(p, conn)),
             method::TASK_START => route(params, |p| self.task_start_rpc(p, conn)),
             method::HANDS_LIST => route(params, |p| self.rpc_hands_list(&p)),
@@ -360,7 +362,7 @@ impl Core {
             method::EXECUTION_STOP => reply(self.execution_stop(parse(params)?, conn).await?),
             // Its filters are optional: no params lists every task.
             method::TASK_LIST => route(or_empty(params), |p| self.task_list(p)),
-            method::TASK_CANCEL => reply(self.task_cancel(parse(params)?, conn).await?),
+            m @ (method::TASK_CANCEL | TASK_NOT_THIS) => self.task_stop(m, params, conn).await,
             m @ (method::TASK_PAUSE | method::TASK_RESUME) => self.rpc_task_pause(m, params, conn),
             method::TASK_REHOME => self.rpc_task_rehome(params, conn),
             method::TASK_RESCHEDULE => self.rpc_task_reschedule(params, conn),

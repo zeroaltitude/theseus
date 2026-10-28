@@ -291,8 +291,36 @@ async fn the_dm_task_flow_is_as_the_owner_approved_it() {
     })
     .await;
 
+    // The one approved addition (theseus-9ymz0, design §11 test 30): a content
+    // label raised on the DM's session is one message in the DM with one
+    // button. It is recorded apart, after everything the owner locked, so the
+    // golden differs from before by this block and by nothing else.
+    let session = r
+        .core
+        .outbox
+        .place_session(&format!("dm:{ANA}"))
+        .unwrap()
+        .expect("the DM's session");
+    let label = theseus_core::content::Label {
+        flag: theseus_core::content::Flag::Injection,
+        node: None,
+        kind: theseus_core::content::ItemKind::FetchedPage,
+        source: "http.fetch https://example.com/x".into(),
+        confidence: 0.93,
+        band: theseus_judge::band::Band::Act,
+        at_ms: 1,
+        judgment: String::new(),
+    };
+    assert!(r.core.tell_label(&session, &label).unwrap());
+    until(&r, "the label's message", || !labelled(&r).is_empty()).await;
+
     let got = record(&r, forum, home, &asked);
     check(&got);
+}
+
+/// The DM's messages that are the content label's.
+fn labelled(r: &Rig) -> Vec<Msg> {
+    with_button(r, ANA_DM, "content:")
 }
 
 /// Every place's messages, normalized, as one text.
@@ -331,6 +359,13 @@ fn record(r: &Rig, forum: u64, home: u64, asked: &Msg) -> String {
     // The bot's lines in the DM after the owner's message (the reply, the "started task"
     // line, the call's notice) land in whatever order the lanes win; they are sorted.
     let mut dm = r.fake.messages(ANA_DM);
+    // The content label's message is recorded in its own section below.
+    let note = dm.iter().position(|m| {
+        m.buttons
+            .iter()
+            .any(|b| b.custom_id.starts_with("content:"))
+    });
+    let note = note.map(|i| dm.remove(i));
     let from = dm
         .iter()
         .position(|m| m.author != BOT_ID.to_string())
@@ -350,6 +385,11 @@ fn record(r: &Rig, forum: u64, home: u64, asked: &Msg) -> String {
     got.push_str("=== the approval card, as it asked\n");
     got.push_str(&block(&mut n, "card", asked));
     got.push_str(&place(&mut n, "the task home", &r.fake.messages(home)));
+    got.push_str(&place(
+        &mut n,
+        "the one message a content label adds (theseus-9ymz0), in the DM",
+        &note.into_iter().collect::<Vec<_>>(),
+    ));
     got
 }
 

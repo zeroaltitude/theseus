@@ -1,0 +1,268 @@
+task,trial,reward,exception,effort,agent_s,dollars,model_calls,tool_calls,input,cache_read,cache_write,output,over_budget,billed_models,gates,started_mst
+adaptive-rejection-sampler,adaptive-rejection-sampler__rKkTtaF,1,,medium,206.54,0.445758,15,20,2808,459443,43916,23610,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,11:32:04
+adaptive-rejection-sampler,adaptive-rejection-sampler__uezYVST,1,,medium,254.04,0.523251,15,18,2811,483325,47073,30117,False,claude-sonnet-5-5,,15:28:37
+adaptive-rejection-sampler,adaptive-rejection-sampler__wiVYWfT,0,,medium,281.88,0.538053,24,21,4444,593668,56611,26665,False,"claude-sonnet-5,claude-sonnet-5-5",,19:22:57
+bn-fit-modify,bn-fit-modify__5wiKmXW,1,,medium,124.59,0.150114,12,9,1933,135451,12421,8648,False,"claude-sonnet-5,claude-sonnet-5-5",,17:34:28
+bn-fit-modify,bn-fit-modify__9DEmnTm,1,,medium,67.81,0.092458,11,10,1322,114376,7680,4636,False,claude-sonnet-5-5,,13:41:46
+bn-fit-modify,bn-fit-modify__CWCM4Zc,1,,medium,67.3,0.0935,10,9,1201,105586,7788,4912,False,claude-sonnet-5-5,,21:19:47
+break-filter-js-from-html,break-filter-js-from-html__NSPEyA2,1,,medium,559.61,0.568427,25,26,4378,672593,37891,32771,False,"claude-sonnet-5,claude-sonnet-5-5",,18:23:52
+break-filter-js-from-html,break-filter-js-from-html__hPZuqaS,1,,medium,350.13,0.46703,21,21,3992,403969,45695,26169,False,"claude-sonnet-5,claude-sonnet-5-5",,10:15:47
+break-filter-js-from-html,break-filter-js-from-html__ojTSMeV,1,,medium,385.27,0.52351,21,21,3230,614486,36786,29988,False,"claude-sonnet-5,claude-sonnet-5-5",,14:30:19
+build-cython-ext,build-cython-ext__NiK9mY5,1,,medium,237.89,0.558422,26,34,4056,776298,100919,13986,False,"claude-sonnet-5,claude-sonnet-5-5",,21:24:27
+build-cython-ext,build-cython-ext__T8SJqiY,1,,medium,322.31,0.717515,36,49,6466,1528498,82630,18754,False,"claude-sonnet-5,claude-sonnet-5-5",,17:41:56
+build-cython-ext,build-cython-ext__eL5rGYf,1,,medium,341.13,0.716509,40,51,7187,1559061,64716,22385,False,"claude-sonnet-5,claude-sonnet-5-5",,13:48:32
+build-pmars,build-pmars__8D3R8ip,0,,medium,48.62,0.011213,15,14,34,250755,26631,7082,False,claude-haiku-5-5,,18:06:37
+build-pmars,build-pmars__cmyha9E,1,,medium,31.36,0.006735,12,11,26,125963,16667,3590,False,claude-haiku-5-5,,14:10:41
+build-pmars,build-pmars__efQCArC,1,,medium,33.65,0.007331,11,10,24,120998,18508,4444,False,claude-haiku-5-5,,21:44:36
+build-pov-ray,build-pov-ray__bekwken,1,,medium,143.22,0.0293,33,33,1402,1059849,51931,17059,False,claude-haiku-5-5,,19:48:04
+build-pov-ray,build-pov-ray__tWBj7qw,1,,medium,91.3,0.020582,22,23,50,683946,49091,9475,False,claude-haiku-5-5,gate-3 p3s-75t4q-c,12:02:18
+build-pov-ray,build-pov-ray__vRVJkGK,1,,medium,94.47,0.015516,21,21,48,479879,36872,7527,False,claude-haiku-5-5,,16:07:21
+caffe-cifar-10,caffe-cifar-10__PEbcbXq,0,,medium,1157.47,0.043834,6,5,20,48782,5438,1947,False,claude-sonnet-5-5,,15:14:07
+caffe-cifar-10,caffe-cifar-10__fqypx22,0,,medium,1055.81,0.04047,5,4,18,39615,5137,1879,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,11:09:15
+caffe-cifar-10,caffe-cifar-10__qsYBgBm,0,,medium,930.79,0.051393,8,7,28,75906,4002,2496,False,claude-sonnet-5-5,,19:13:35
+cancel-async-tasks,cancel-async-tasks__V7RERez,1,,medium,79.69,0.08992,9,12,1671,92789,6965,4937,False,claude-sonnet-5-5,,21:16:15
+cancel-async-tasks,cancel-async-tasks__h9XRSnt,1,,medium,83.94,0.083116,8,10,1463,82075,6432,4665,False,claude-sonnet-5-5,,17:33:35
+cancel-async-tasks,cancel-async-tasks__ksBcYZB,1,,medium,32.45,0.051065,5,7,854,43922,3684,3042,False,claude-sonnet-5-5,,13:40:14
+chess-best-move,chess-best-move__BemTDVh,0,,medium,19.32,0.023986,3,2,8,24024,1987,1366,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,11:40:33
+chess-best-move,chess-best-move__MSfQwDB,1,,medium,26.42,0.039891,3,2,8,24024,3167,2661,False,claude-sonnet-5-5,,19:32:37
+chess-best-move,chess-best-move__VMyHefu,0,,medium,21.64,0.030001,3,2,8,24024,2433,1856,False,claude-sonnet-5-5,,15:38:32
+circuit-fibsqrt,circuit-fibsqrt__JJFFj2U,1,,medium,1068.87,1.282918,17,14,2846,1011011,96741,83103,False,"claude-sonnet-5,claude-sonnet-5-5",,16:59:29
+circuit-fibsqrt,circuit-fibsqrt__MiZFpfn,1,,medium,740.56,0.936401,16,13,2982,746244,86080,56400,False,"claude-sonnet-5,claude-sonnet-5-5",,12:56:17
+circuit-fibsqrt,circuit-fibsqrt__YFaX2Tr,1,,medium,1668.22,1.938918,27,24,5116,2133628,223257,94080,False,"claude-sonnet-5,claude-sonnet-5-5",,20:30:31
+cobol-modernization,cobol-modernization__AKGE3rV,1,,medium,153.93,0.312396,15,16,2464,217853,48353,14093,False,"claude-sonnet-5,claude-sonnet-5-5",,15:44:34
+cobol-modernization,cobol-modernization__RrRXYTN,1,,medium,394.96,0.601538,19,19,2927,481721,57188,35353,False,"claude-sonnet-5,claude-sonnet-5-5",gate-2 p3s-75t4q-b,11:42:25
+cobol-modernization,cobol-modernization__hX88kNR,1,,medium,149.54,0.340977,22,26,4078,509839,29285,15475,False,claude-sonnet-5-5,,19:33:18
+code-from-image,code-from-image__BwyAGEp,1,,medium,17.48,0.032007,5,5,770,44519,2862,1357,False,claude-sonnet-5-5,,13:17:41
+code-from-image,code-from-image__DdfNCn4,1,,medium,18.63,0.025192,4,3,481,34644,2568,1023,False,claude-sonnet-5-5,,17:18:34
+code-from-image,code-from-image__WVRe7JA,1,,medium,12.24,0.023342,4,3,481,34669,2515,851,False,claude-sonnet-5-5,,20:54:48
+compile-compcert,compile-compcert__CqY3AdS,1,,medium,1278.88,0.078674,12,12,34,112854,12611,2305,False,claude-sonnet-5-5,gate-3 p3s-75t4q-c,11:51:27
+compile-compcert,compile-compcert__sbPdwZH,1,,medium,941.7,0.092878,16,15,44,153230,13271,2741,False,claude-sonnet-5-5,,19:39:51
+compile-compcert,compile-compcert__wpfCRHh,1,,medium,1970.32,0.143657,22,22,64,249900,20743,3935,False,claude-sonnet-5-5,,15:54:19
+configure-git-webserver,configure-git-webserver__5WwxTvi,0,,medium,94.6,0.069288,9,7,24,86129,5193,3794,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,11:33:08
+configure-git-webserver,configure-git-webserver__AYmC9yf,0,,medium,79.14,0.044744,6,5,16,59947,4722,2003,False,claude-sonnet-5-5,,15:36:11
+configure-git-webserver,configure-git-webserver__wFnkM6e,0,,medium,80.43,0.066296,8,6,22,85525,6920,3086,False,claude-sonnet-5-5,,19:28:45
+constraints-scheduling,constraints-scheduling__7Kx2udn,1,,medium,94.27,0.140955,5,3,595,47404,16013,8945,False,"claude-sonnet-5,claude-sonnet-5-5",,21:49:37
+constraints-scheduling,constraints-scheduling__hUEV5Hx,1,,medium,132.85,0.219098,11,8,1895,153135,28135,11291,False,"claude-sonnet-5,claude-sonnet-5-5",,18:12:41
+constraints-scheduling,constraints-scheduling__siwPHqs,1,,medium,12.86,0.048728,3,2,8,20103,12199,1340,False,claude-sonnet-5-5,,14:17:29
+count-dataset-tokens,count-dataset-tokens__St2RrZE,1,,medium,59.2,0.005372,8,8,18,92367,15676,2689,False,claude-haiku-5-5,,12:53:54
+count-dataset-tokens,count-dataset-tokens__upwQ2Jd,1,,medium,67.1,0.005411,7,8,18,80189,16267,2822,False,claude-haiku-5-5,,16:55:57
+count-dataset-tokens,count-dataset-tokens__vLEKDe8,1,,medium,83.56,0.004801,6,6,16,63966,15431,2514,False,claude-haiku-5-5,,20:28:17
+crack-7z-hash,crack-7z-hash__rUSXodt,1,,medium,78.67,0.007773,15,15,34,168154,16121,4794,False,claude-haiku-5-5,,19:28:57
+crack-7z-hash,crack-7z-hash__yyo73nF,0,,medium,698.34,0.391873,35,33,3133,1029544,47497,5838,False,"claude-sonnet-5,claude-sonnet-5-5",,15:36:24
+crack-7z-hash,crack-7z-hash__zFZSEnp,1,,medium,163.17,0.007064,13,13,208,143734,15727,4176,False,claude-haiku-5-5,gate-2 p3s-75t4q-b,11:40:19
+custom-memory-heap-crash,custom-memory-heap-crash__BbacsHr,1,,medium,143.14,0.272344,23,25,3695,472454,26773,10111,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,11:31:07
+custom-memory-heap-crash,custom-memory-heap-crash__KKBMYPS,1,,medium,154.6,0.289065,24,27,3648,492537,29233,10758,False,claude-sonnet-5-5,,19:22:44
+custom-memory-heap-crash,custom-memory-heap-crash__awkc9k9,1,,medium,188.57,0.406063,20,20,2973,498238,61641,14443,False,"claude-sonnet-5,claude-sonnet-5-5",,15:27:38
+db-wal-recovery,db-wal-recovery__L8Hn6B7,1,,medium,19.7,0.034687,5,4,602,44859,3221,1559,False,claude-sonnet-5-5,,19:40:21
+db-wal-recovery,db-wal-recovery__LGxzcNo,1,,medium,15.06,0.028048,4,3,481,34493,2942,1206,False,claude-sonnet-5-5,,15:55:55
+db-wal-recovery,db-wal-recovery__z2ydmcB,1,,medium,22.71,0.053389,5,4,602,37456,10816,1678,False,claude-sonnet-5-5,,11:51:29
+distribution-search,distribution-search__MtUipDp,1,,medium,23.66,0.034209,4,3,481,35179,2950,1821,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,11:11:37
+distribution-search,distribution-search__vPNKZsk,1,,medium,231.4,0.307822,16,13,2231,281070,24199,18463,False,"claude-sonnet-5,claude-sonnet-5-5",,19:14:24
+distribution-search,distribution-search__zetrnpv,1,,medium,29.36,0.048648,6,4,720,56318,3730,2589,False,claude-sonnet-5-5,,15:17:03
+dna-assembly,dna-assembly__9EVmfo4,1,,medium,107.61,0.198252,12,10,30,223644,18048,10669,False,claude-sonnet-5-5,,21:56:06
+dna-assembly,dna-assembly__HQTNUei,1,,medium,118.74,0.19393,10,9,24,169939,20750,10646,False,claude-sonnet-5-5,,14:23:06
+dna-assembly,dna-assembly__mDzLkWS,1,,medium,194.28,0.215962,16,15,42,233119,17193,12383,False,claude-sonnet-5-5,,18:20:32
+dna-insert,dna-insert__7ufb6YZ,0,,medium,51.09,0.086696,8,7,965,100823,9281,4021,False,claude-sonnet-5-5,,21:54:39
+dna-insert,dna-insert__Esfnrue,0,,medium,64.8,0.096716,11,10,1328,117542,7458,5038,False,claude-sonnet-5-5,,18:14:42
+dna-insert,dna-insert__U2ib5AT,1,,medium,47.09,0.081986,8,7,965,74759,5874,4922,False,claude-sonnet-5-5,,14:21:57
+extract-elf,extract-elf__H4LtBqx,1,,medium,71.35,0.094847,9,10,1584,108909,8897,4639,False,claude-sonnet-5-5,,17:14:58
+extract-elf,extract-elf__dwbEG4i,0,,medium,242.61,0.337377,16,13,2567,331346,31063,18673,False,"claude-sonnet-5,claude-sonnet-5-5",,13:16:19
+extract-elf,extract-elf__ukvZRJG,1,,medium,40.37,0.070434,7,8,1180,78309,7486,3262,False,claude-sonnet-5-5,,20:53:12
+extract-moves-from-video,extract-moves-from-video__B96acFM,0,,medium,825.54,0.119562,11,11,32,121033,19267,4571,False,claude-sonnet-5-5,,16:53:39
+extract-moves-from-video,extract-moves-from-video__QJqTxNG,0,,medium,943.4,0.124696,15,13,38,169514,18138,4377,False,claude-sonnet-5-5,,20:22:59
+extract-moves-from-video,extract-moves-from-video__doiQjnz,0,,medium,762.09,0.174392,19,19,574,268428,21489,6374,False,claude-sonnet-5-5,gate-4 p3s-75t4q-d,12:40:44
+feal-differential-cryptanalysis,feal-differential-cryptanalysis__C9FmyAq,1,,medium,62.15,0.113778,10,12,1624,110908,8379,6622,False,claude-sonnet-5-5,,21:10:35
+feal-differential-cryptanalysis,feal-differential-cryptanalysis__QknbkW5,1,,medium,677.29,0.884033,18,18,2541,692815,70438,56252,False,"claude-sonnet-5,claude-sonnet-5-5",,17:26:24
+feal-differential-cryptanalysis,feal-differential-cryptanalysis__igbc5W6,1,,medium,56.03,0.091352,6,10,1059,68320,9318,5129,False,claude-sonnet-5-5,,13:31:17
+feal-linear-cryptanalysis,feal-linear-cryptanalysis__WUvmDcU,1,,medium,818.2,1.156815,14,15,2411,838606,103155,72482,False,"claude-sonnet-5,claude-sonnet-5-5",,15:10:52
+feal-linear-cryptanalysis,feal-linear-cryptanalysis__hNccjpo,1,,medium,145.96,0.285993,10,10,1786,239597,25913,16860,False,claude-sonnet-5-5,,19:11:17
+feal-linear-cryptanalysis,feal-linear-cryptanalysis__zasj6NH,0,,medium,1351.15,1.849444,33,33,10544,2480449,132284,99883,False,"claude-sonnet-5,claude-sonnet-5-5",gate-2 p3s-75t4q-b,11:04:44
+filter-js-from-html,filter-js-from-html__9jRAVx8,0,,medium,249.13,0.77199,87,87,7729,2141043,29338,24583,False,claude-sonnet-5-5,,21:09:20
+filter-js-from-html,filter-js-from-html__MyGd8mr,0,TheseusTurnCutError,medium,819.62,2.664374,200,200,17982,9451371,72457,53190,True,claude-sonnet-5-5,,13:30:09
+filter-js-from-html,filter-js-from-html__eRCp8XH,0,,medium,87.88,0.142815,12,12,913,163580,9610,8257,False,claude-sonnet-5-5,,17:25:15
+financial-document-processor,financial-document-processor__SFjH5nT,1,,medium,40.57,0.237646,6,19,14,169811,69993,2800,False,claude-sonnet-5-5,,13:24:31
+financial-document-processor,financial-document-processor__YXj3o4T,1,,medium,39.54,0.254153,8,20,18,232145,70677,3024,False,claude-sonnet-5-5,,17:22:00
+financial-document-processor,financial-document-processor__kQgLHG4,1,,medium,48.7,0.25201,7,19,16,221729,70206,3143,False,claude-sonnet-5-5,,21:01:35
+fix-code-vulnerability,fix-code-vulnerability__5i6eNaX,1,,medium,78.35,0.196646,17,19,2531,260494,33383,5444,False,"claude-sonnet-5,claude-sonnet-5-5",,13:21:45
+fix-code-vulnerability,fix-code-vulnerability__nzLPHbR,1,,medium,39.86,0.08811,9,13,1506,112893,11749,3179,False,claude-sonnet-5-5,,17:20:46
+fix-code-vulnerability,fix-code-vulnerability__pss679n,1,,medium,90.28,0.232491,16,17,2244,239420,44708,6688,False,"claude-sonnet-5,claude-sonnet-5-5",,21:00:31
+fix-git,fix-git__jNJQdZ3,1,,medium,14.69,0.044153,6,5,14,43142,10073,948,False,claude-sonnet-5-5,,16:01:28
+fix-git,fix-git__kgx2Sj3,1,,medium,18.22,0.048653,7,6,16,53307,10679,1034,False,claude-sonnet-5-5,,11:57:01
+fix-git,fix-git__rBBYzsV,1,,medium,18.57,0.047926,6,5,14,45295,10936,1066,False,claude-sonnet-5-5,,19:43:00
+fix-ocaml-gc,fix-ocaml-gc__XXHzq7Q,1,,medium,861.02,0.906562,30,34,4985,1670275,122953,25346,False,"claude-sonnet-5,claude-sonnet-5-5",,13:45:23
+fix-ocaml-gc,fix-ocaml-gc__ZEfH3kq,1,,medium,405.08,0.283091,18,23,3009,524695,44037,6083,False,claude-sonnet-5-5,,21:21:05
+fix-ocaml-gc,fix-ocaml-gc__s67tc24,1,,medium,960.42,0.649523,31,39,5285,1246356,95445,14841,False,"claude-sonnet-5,claude-sonnet-5-5",,17:40:38
+gcode-to-text,gcode-to-text__7aaQGtt,1,,medium,239.45,0.057599,7,7,18,73520,7325,2356,False,claude-sonnet-5-5,gate-4 p3s-75t4q-d,12:46:27
+gcode-to-text,gcode-to-text__CuEhpcU,1,,medium,82.41,0.17056,16,19,36,252607,18813,7119,False,claude-sonnet-5-5,,16:53:40
+gcode-to-text,gcode-to-text__QTRmxCv,1,,medium,47.6,0.081369,10,12,22,115255,9478,3340,False,claude-sonnet-5-5,,20:24:19
+git-leak-recovery,git-leak-recovery__NAadYQS,1,,medium,13.12,0.019388,4,3,10,32905,1662,790,False,claude-sonnet-5-5,,17:41:01
+git-leak-recovery,git-leak-recovery__dDM7ks5,1,,medium,10.86,0.020733,4,3,10,33274,1978,838,False,claude-sonnet-5-5,,21:23:29
+git-leak-recovery,git-leak-recovery__usDUtVt,1,,medium,20.43,0.029917,5,4,602,42514,2374,1345,False,claude-sonnet-5-5,,13:47:14
+git-multibranch,git-multibranch__WsWJnRo,1,,medium,23.99,0.046701,5,5,12,49312,5249,2269,False,claude-sonnet-5-5,gate-3 p3s-75t4q-c,12:02:27
+git-multibranch,git-multibranch__ZmZSjvJ,1,,medium,21.97,0.038535,4,4,10,37514,4335,1927,False,claude-sonnet-5-5,,19:48:22
+git-multibranch,git-multibranch__bcFtnu5,1,,medium,25.12,0.036006,5,4,12,43674,2704,1959,False,claude-sonnet-5-5,,16:07:32
+gpt2-codegolf,gpt2-codegolf__ES4FLjP,0,,medium,182.82,0.238445,12,14,2028,190638,20912,14238,False,claude-sonnet-5-5,,18:20:39
+gpt2-codegolf,gpt2-codegolf__FAzHPJK,0,,medium,617.05,0.828014,21,18,3491,750608,59653,51973,False,"claude-sonnet-5,claude-sonnet-5-5",,14:28:40
+gpt2-codegolf,gpt2-codegolf__urfiLmx,1,,medium,188.28,0.328228,12,14,2028,225715,33335,19396,False,claude-sonnet-5-5,,10:15:47
+headless-terminal,headless-terminal__4UkAUEA,1,,medium,69.52,0.12043,11,16,1913,128574,10393,6344,False,claude-sonnet-5-5,,11:54:05
+headless-terminal,headless-terminal__d9h7sXw,1,,medium,60.72,0.10132,9,12,1506,97171,9045,5510,False,claude-sonnet-5-5,,15:59:25
+headless-terminal,headless-terminal__nf7i3tn,1,,medium,117.25,0.18321,17,22,3140,244681,15315,8749,False,claude-sonnet-5-5,,19:40:55
+hf-model-inference,hf-model-inference__HZPPN7H,1,,medium,78.07,0.006226,9,9,551,85368,13656,4869,False,claude-haiku-5-5,,19:37:17
+hf-model-inference,hf-model-inference__T6YW3P3,1,,medium,158.06,0.01006,10,11,639,118211,20466,9222,False,claude-haiku-5-5,,15:52:24
+hf-model-inference,hf-model-inference__XZC2phj,1,,medium,66.88,0.006784,10,9,642,100100,14126,5393,False,claude-haiku-5-5,,11:49:09
+install-windows-3.11,install-windows-3.11__2HR8R4p,0,,medium,1445.92,0.526271,43,56,126,1187869,43525,17427,False,claude-sonnet-5-5,gate-3 p3s-75t4q-c;gate-4 p3s-75t4q-d,12:18:55
+install-windows-3.11,install-windows-3.11__KQKP8iL,1,,medium,1141.24,0.640623,51,51,6120,1342466,48906,23276,False,claude-sonnet-5-5,,20:06:26
+install-windows-3.11,install-windows-3.11__MPnnF5H,0,,medium,1126.74,0.455427,37,51,110,901120,39758,17145,False,claude-sonnet-5-5,,16:33:59
+kv-store-grpc,kv-store-grpc__J7BhtSP,1,,medium,46.56,0.006073,9,9,554,81960,13073,4613,False,claude-haiku-5-5,,16:29:50
+kv-store-grpc,kv-store-grpc__XnhfhgJ,0,,medium,38.0,0.007188,9,13,554,90917,14977,5618,False,claude-haiku-5-5,,20:02:43
+kv-store-grpc,kv-store-grpc__piXkt7Q,1,,medium,49.78,0.007288,9,11,554,87050,14287,6254,False,claude-haiku-5-5,gate-3 p3s-75t4q-c;gate-4 p3s-75t4q-d,12:18:37
+large-scale-text-editing,large-scale-text-editing__8sxn5Y6,1,,medium,67.96,0.043196,5,5,602,43878,3413,2374,False,claude-sonnet-5-5,,17:59:25
+large-scale-text-editing,large-scale-text-editing__cJVZqQz,1,,medium,264.69,0.282802,19,16,3425,303497,19676,16371,False,"claude-sonnet-5,claude-sonnet-5-5",,21:39:07
+large-scale-text-editing,large-scale-text-editing__knTYcVd,1,,medium,52.73,0.039941,5,4,602,43942,2975,2157,False,claude-sonnet-5-5,,14:05:28
+largest-eigenval,largest-eigenval__9dfnHDJ,1,,medium,123.63,0.271384,14,18,2441,262394,24198,15187,False,claude-sonnet-5-5,,10:31:45
+largest-eigenval,largest-eigenval__LaNhrJt,1,,medium,146.11,0.212916,17,15,2687,257618,16401,11319,False,"claude-sonnet-5,claude-sonnet-5-5",,18:41:49
+largest-eigenval,largest-eigenval__jQVbM7p,1,,medium,98.82,0.157884,16,20,2851,218992,12751,7456,False,claude-sonnet-5-5,,14:46:41
+llm-inference-batching-scheduler,llm-inference-batching-scheduler__Bs9MdcL,1,,medium,419.9,0.269997,14,17,2438,300749,26189,13722,False,claude-sonnet-5-5,,18:22:39
+llm-inference-batching-scheduler,llm-inference-batching-scheduler__M79whBg,1,,medium,863.09,1.219841,38,40,6848,1949856,94329,57531,False,"claude-sonnet-5,claude-sonnet-5-5",,14:29:58
+llm-inference-batching-scheduler,llm-inference-batching-scheduler__eDngvnS,1,,medium,225.46,0.260662,16,18,2845,348299,24820,12097,False,claude-sonnet-5-5,,10:15:47
+log-summary-date-ranges,log-summary-date-ranges__S2DgDHu,1,,medium,45.89,0.009342,10,10,642,164139,24000,6586,False,claude-haiku-5-5,,10:27:18
+log-summary-date-ranges,log-summary-date-ranges__sxzce9Z,1,,medium,30.92,0.006337,8,7,374,96496,16852,3890,False,claude-haiku-5-5,,14:44:46
+log-summary-date-ranges,log-summary-date-ranges__yTYeJsg,1,,medium,22.53,0.006094,6,5,14,75398,19367,3708,False,claude-haiku-5-5,,18:40:40
+mailman,mailman__7Vr9fMS,1,,medium,118.8,0.137021,9,9,22,163401,19794,5337,False,claude-sonnet-5-5,,13:04:06
+mailman,mailman__kijW77L,1,,medium,180.63,0.15743,14,12,36,233469,23000,5145,False,claude-sonnet-5-5,,20:45:32
+mailman,mailman__rHn2REY,1,,medium,279.71,0.193323,15,15,40,321782,22995,6927,False,claude-sonnet-5-5,,17:06:57
+make-doom-for-mips,make-doom-for-mips__JpiH3Gv,0,,medium,454.32,1.09849,33,54,5818,2189951,109141,37255,False,claude-sonnet-5-5,,20:09:05
+make-doom-for-mips,make-doom-for-mips__bx7tMYJ,0,,medium,692.38,1.793568,44,80,7569,3650975,171950,61257,False,"claude-sonnet-5,claude-sonnet-5-5",gate-4 p3s-75t4q-d,12:24:25
+make-doom-for-mips,make-doom-for-mips__iLcRHzw,0,AgentTimeoutError,medium,901.21,0.800802,30,49,5284,1528612,78997,28432,False,claude-sonnet-5-5,,16:35:12
+make-mips-interpreter,make-mips-interpreter__EHdAdhT,1,,medium,644.79,1.149876,25,29,3813,1271406,130189,56019,False,"claude-sonnet-5,claude-sonnet-5-5",gate-4 p3s-75t4q-d,12:48:15
+make-mips-interpreter,make-mips-interpreter__LhEjJ7q,1,,medium,900.29,1.992305,43,55,7204,3714221,181862,77622,False,"claude-sonnet-5,claude-sonnet-5-5",,16:54:07
+make-mips-interpreter,make-mips-interpreter__nU6Hni5,1,,medium,902.54,1.641225,42,49,6995,2786588,140047,71619,False,"claude-sonnet-5,claude-sonnet-5-5",,20:27:11
+mcmc-sampling-stan,mcmc-sampling-stan__3vqzwsA,1,,medium,965.29,0.165442,19,20,3457,235984,18718,6249,False,claude-sonnet-5-5,,21:02:25
+mcmc-sampling-stan,mcmc-sampling-stan__dBH9dnn,1,,medium,465.08,0.114758,13,13,2311,165850,12963,4283,False,claude-sonnet-5-5,,13:27:28
+mcmc-sampling-stan,mcmc-sampling-stan__jgoSLae,1,,medium,749.24,0.161824,18,18,3330,309395,16521,4996,False,claude-sonnet-5-5,,17:24:37
+merge-diff-arc-agi-task,merge-diff-arc-agi-task__YKxZzRg,1,,medium,92.37,0.16263,14,16,2006,176301,15336,8311,False,"claude-sonnet-5,claude-sonnet-5-5",,10:24:31
+merge-diff-arc-agi-task,merge-diff-arc-agi-task__dc8JCUc,1,,medium,63.19,0.116724,13,16,1903,155174,9335,5667,False,claude-sonnet-5-5,,18:34:21
+merge-diff-arc-agi-task,merge-diff-arc-agi-task__nC3xufc,1,,medium,110.6,0.206184,18,18,2902,274451,18696,9677,False,"claude-sonnet-5,claude-sonnet-5-5",,14:39:50
+model-extraction-relu-logits,model-extraction-relu-logits__9CizcSC,1,,medium,71.41,0.106901,10,13,1789,113758,8580,5799,False,claude-sonnet-5-5,,21:31:35
+model-extraction-relu-logits,model-extraction-relu-logits__Sf28g6p,1,,medium,74.68,0.103827,10,10,1876,116043,8228,5530,False,claude-sonnet-5-5,,17:51:05
+model-extraction-relu-logits,model-extraction-relu-logits__WPMFveR,1,,medium,155.88,0.292258,25,32,4942,459793,22687,13144,False,claude-sonnet-5-5,,13:58:00
+modernize-scientific-stack,modernize-scientific-stack__4TEyKFh,1,,medium,25.39,0.005781,7,12,283,66659,14727,3828,False,claude-haiku-5-5,,19:00:47
+modernize-scientific-stack,modernize-scientific-stack__7s9BRLu,1,,medium,24.62,0.006013,6,12,281,55721,14705,3799,False,claude-haiku-5-5,,10:51:13
+modernize-scientific-stack,modernize-scientific-stack__BG4y7CY,1,,medium,41.36,0.008471,10,15,642,116877,19086,5820,False,claude-haiku-5-5,,15:00:37
+mteb-leaderboard,mteb-leaderboard__Bthi5d2,0,,medium,379.55,0.162673,16,15,42,296840,19018,5377,False,claude-sonnet-5-5,,12:56:58
+mteb-leaderboard,mteb-leaderboard__G32qsf4,1,,medium,500.22,0.053307,9,9,28,84770,4162,2449,False,claude-sonnet-5-5,,20:34:48
+mteb-leaderboard,mteb-leaderboard__QHXmX8h,0,,medium,168.38,0.203015,25,24,58,352193,16889,8733,False,claude-sonnet-5-5,,17:01:17
+mteb-retrieve,mteb-retrieve__VuvJPyo,0,,medium,86.97,0.004413,7,5,20,59268,12324,2701,False,claude-haiku-5-5,,19:16:43
+mteb-retrieve,mteb-retrieve__mhHHPTg,0,,medium,63.1,0.003779,5,4,12,37508,11912,2160,False,claude-haiku-5-5,gate-2 p3s-75t4q-b,11:19:06
+mteb-retrieve,mteb-retrieve__qANTPNv,0,,medium,44.97,0.004135,6,5,14,47413,11994,2443,False,claude-haiku-5-5,,15:21:15
+multi-source-data-merger,multi-source-data-merger__QdzqExc,1,,medium,20.15,0.034399,3,2,8,25054,3245,2049,False,claude-sonnet-5-5,,15:33:17
+multi-source-data-merger,multi-source-data-merger__jJK6Dtz,1,,medium,17.06,0.030745,3,2,8,25054,2939,1760,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,11:32:54
+multi-source-data-merger,multi-source-data-merger__k6LDyi4,1,,medium,17.17,0.032975,3,2,8,25054,3193,1920,False,claude-sonnet-5-5,,19:24:16
+nginx-request-logging,nginx-request-logging__5hyJDSY,1,,medium,37.95,0.004662,3,2,8,24920,15349,3431,False,claude-haiku-5-5,,21:34:13
+nginx-request-logging,nginx-request-logging__SJrDEnh,1,,medium,47.12,0.007606,7,10,372,91769,19633,5245,False,claude-haiku-5-5,,17:51:57
+nginx-request-logging,nginx-request-logging__drJXpMa,1,,medium,50.88,0.009571,9,13,376,133212,22631,7099,False,claude-haiku-5-5,,13:58:05
+openssl-selfsigned-cert,openssl-selfsigned-cert__455pGZu,1,,medium,27.99,0.006654,7,7,547,90816,18347,4461,False,claude-haiku-5-5,,18:12:11
+openssl-selfsigned-cert,openssl-selfsigned-cert__nWyVBJo,1,,medium,36.47,0.008784,8,11,549,111591,21260,6573,False,claude-haiku-5-5,,21:49:24
+openssl-selfsigned-cert,openssl-selfsigned-cert__shmCSVv,1,,medium,30.73,0.006473,6,5,367,73158,17462,4940,False,claude-haiku-5-5,,14:16:07
+overfull-hbox,overfull-hbox__YsUHcpk,1,,medium,73.48,0.091201,9,9,22,124793,11342,3648,False,claude-sonnet-5-5,,19:34:28
+overfull-hbox,overfull-hbox__tcPUyZg,1,,medium,27.65,0.049104,4,3,10,42771,8667,1815,False,claude-sonnet-5-5,,15:44:37
+overfull-hbox,overfull-hbox__uVFaneL,1,,medium,134.36,0.094257,8,8,20,114653,12164,3969,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,11:43:29
+password-recovery,password-recovery__NMAtpGq,1,,medium,21.69,0.034513,6,6,14,53441,3354,1438,False,claude-sonnet-5-5,,18:45:28
+password-recovery,password-recovery__YKdkU7U,1,,medium,32.04,0.056126,9,9,20,92150,6331,2058,False,claude-sonnet-5-5,,10:37:54
+password-recovery,password-recovery__ayqKXYX,1,,medium,386.35,0.653449,27,29,569,674795,80694,31265,False,"claude-sonnet-5,claude-sonnet-5-5",,14:48:29
+path-tracing,path-tracing__cXanH7n,1,,medium,516.23,1.05166,28,29,3986,1511748,110480,46267,False,"claude-sonnet-5,claude-sonnet-5-5",gate-2 p3s-75t4q-b,10:58:28
+path-tracing,path-tracing__oDzvP6T,1,,medium,401.65,0.823631,26,25,3675,1095676,96487,35314,False,"claude-sonnet-5,claude-sonnet-5-5",,19:03:59
+path-tracing,path-tracing__oLpFX2E,1,,medium,618.98,1.38214,39,40,6646,2574310,115001,56296,False,"claude-sonnet-5,claude-sonnet-5-5",,15:03:36
+path-tracing-reverse,path-tracing-reverse__MVcsEtR,1,,medium,862.29,1.714477,27,25,3954,1807192,235134,75467,False,"claude-sonnet-5,claude-sonnet-5-5",gate-2 p3s-75t4q-b,10:39:52
+path-tracing-reverse,path-tracing-reverse__cZiViWW,1,,medium,657.75,1.227223,26,23,4420,1563193,132085,57249,False,"claude-sonnet-5,claude-sonnet-5-5",,18:49:11
+path-tracing-reverse,path-tracing-reverse__mcVZX4P,1,,medium,848.8,1.559337,31,30,4170,2201580,145341,74425,False,"claude-sonnet-5,claude-sonnet-5-5",,14:52:41
+polyglot-c-py,polyglot-c-py__M9EhzYe,1,,medium,33.29,0.056921,7,8,1345,65860,3847,3049,False,claude-sonnet-5-5,,21:13:47
+polyglot-c-py,polyglot-c-py__mCk6sG8,1,,medium,29.39,0.051334,6,6,1140,55226,3656,2800,False,claude-sonnet-5-5,,17:30:31
+polyglot-c-py,polyglot-c-py__xT7RJbR,1,,medium,35.08,0.064983,7,7,1345,67761,4347,3691,False,claude-sonnet-5-5,,13:35:45
+polyglot-rust-c,polyglot-rust-c__M4tjGmu,1,,medium,57.37,0.121577,8,9,1550,85529,15013,6262,False,claude-sonnet-5-5,,15:51:12
+polyglot-rust-c,polyglot-rust-c__qRLniqX,1,,medium,61.82,0.104101,11,11,2162,123617,6623,5719,False,claude-sonnet-5-5,,11:46:24
+polyglot-rust-c,polyglot-rust-c__riDRKop,1,,medium,49.17,0.078149,7,7,1345,73930,5647,4556,False,claude-sonnet-5-5,,19:35:00
+portfolio-optimization,portfolio-optimization__4EB2kkm,1,,medium,471.76,0.491281,24,26,4351,625096,46975,23807,False,"claude-sonnet-5,claude-sonnet-5-5",,14:48:55
+portfolio-optimization,portfolio-optimization__R54ZWyH,1,,medium,257.99,0.202508,15,17,2553,244345,26360,8139,False,claude-sonnet-5-5,,10:39:22
+portfolio-optimization,portfolio-optimization__pWvuSnK,1,,medium,489.56,0.479361,20,20,3539,484839,42309,26760,False,"claude-sonnet-5,claude-sonnet-5-5",,18:48:43
+protein-assembly,protein-assembly__GKAgrrw,0,,medium,470.89,0.775055,25,24,3558,836853,70789,42040,False,"claude-sonnet-5,claude-sonnet-5-5",,13:16:27
+protein-assembly,protein-assembly__RAHrbUg,0,AgentSafetyRefusalError,medium,437.68,0.657223,20,18,2786,508174,62817,39044,False,"claude-sonnet-5,claude-sonnet-5-5",,20:54:23
+protein-assembly,protein-assembly__gCRUTvc,0,AgentSafetyRefusalError,medium,322.98,0.451241,18,17,2390,362965,42846,26452,False,"claude-sonnet-5,claude-sonnet-5-5",,17:16:41
+prove-plus-comm,prove-plus-comm__Cx8FN8G,1,,medium,31.76,0.067861,9,9,551,74463,11025,2329,False,claude-sonnet-5-5,,15:09:55
+prove-plus-comm,prove-plus-comm__bzmAJn7,1,,medium,36.09,0.068115,9,9,551,72873,10795,2423,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,11:02:09
+prove-plus-comm,prove-plus-comm__gLBmvzy,1,,medium,117.86,0.195228,32,31,2730,395071,16864,6496,False,claude-sonnet-5-5,,19:05:02
+pypi-server,pypi-server__BL2PSEJ,1,,medium,30.91,0.004233,6,9,370,56717,5308,3624,False,claude-haiku-5-5,,15:25:17
+pypi-server,pypi-server__WtNBtkp,1,,medium,57.02,0.005834,9,9,640,95246,7027,5113,False,claude-haiku-5-5,,19:19:25
+pypi-server,pypi-server__sjUnRYv,1,,medium,55.41,0.004373,7,10,461,67561,5313,3485,False,claude-haiku-5-5,gate-2 p3s-75t4q-b,11:25:30
+pytorch-model-cli,pytorch-model-cli__5mdmaUk,1,,medium,150.2,0.278502,29,36,5513,498302,28462,9328,False,claude-sonnet-5-5,,10:31:25
+pytorch-model-cli,pytorch-model-cli__FYDqdFE,1,,medium,96.15,0.22489,24,24,4491,404540,17233,8985,False,claude-sonnet-5-5,,14:46:33
+pytorch-model-cli,pytorch-model-cli__w7bsf9t,1,,medium,287.06,0.528294,29,35,5208,713697,48076,25232,False,"claude-sonnet-5,claude-sonnet-5-5",,18:41:30
+pytorch-model-recovery,pytorch-model-recovery__QADCSr6,1,,medium,31.63,0.052744,4,4,481,39354,6523,2685,False,claude-sonnet-5-5,,13:50:48
+pytorch-model-recovery,pytorch-model-recovery__RBxZghS,1,,medium,56.68,0.057243,5,5,602,52832,6848,2750,False,claude-sonnet-5-5,,21:28:16
+pytorch-model-recovery,pytorch-model-recovery__XyX5xCz,1,,medium,78.14,0.069337,7,6,841,77280,6788,3426,False,claude-sonnet-5-5,,17:42:57
+qemu-alpine-ssh,qemu-alpine-ssh__XSZSLAk,0,NonZeroAgentExitCodeError,,,,,,,,,,,,,16:29:31
+qemu-alpine-ssh,qemu-alpine-ssh__beScfm8,0,NonZeroAgentExitCodeError,,,,,,,,,,,,,20:02:22
+qemu-alpine-ssh,qemu-alpine-ssh__n2tXmNR,0,NonZeroAgentExitCodeError,,,,,,,,,,,,gate-3 p3s-75t4q-c,12:18:28
+qemu-startup,qemu-startup__DAgfP6E,0,NonZeroAgentExitCodeError,,,,,,,,,,,,,19:47:42
+qemu-startup,qemu-startup__KNnVtnj,0,NonZeroAgentExitCodeError,,,,,,,,,,,,,12:01:16
+qemu-startup,qemu-startup__eWRyRS8,0,NonZeroAgentExitCodeError,,,,,,,,,,,,,16:07:10
+query-optimize,query-optimize__Lb6EXkv,0,,medium,205.12,0.041454,4,4,478,37505,4753,2034,False,claude-sonnet-5-5,,13:13:08
+query-optimize,query-optimize__WSkkJ5X,1,,medium,186.01,0.039595,4,5,559,37566,4617,1854,False,claude-sonnet-5-5,,17:12:49
+query-optimize,query-optimize__zpGZkBN,1,,medium,188.07,0.043179,4,4,475,37090,4887,2182,False,claude-sonnet-5-5,,20:46:40
+raman-fitting,raman-fitting__8HEZZDC,0,,medium,86.73,0.108917,14,13,32,152816,8258,5588,False,claude-sonnet-5-5,,13:04:57
+raman-fitting,raman-fitting__KxYZm8j,0,,medium,79.25,0.102354,14,13,32,148389,8529,4954,False,claude-sonnet-5-5,,20:45:43
+raman-fitting,raman-fitting__acWaMkL,0,,medium,139.47,0.086297,11,10,28,111254,8117,4236,False,claude-sonnet-5-5,,17:12:20
+regex-chess,regex-chess__AX2Migt,1,,medium,3368.97,3.977858,65,62,12643,6913655,480567,136024,True,"claude-sonnet-5,claude-sonnet-5-5",,14:53:50
+regex-chess,regex-chess__ZhCRaaS,1,,medium,581.39,0.775689,12,12,2103,492850,67669,50186,False,claude-sonnet-5-5,,18:52:09
+regex-chess,regex-chess__x5ZXvpV,1,,medium,1958.89,0.826651,18,16,3496,647219,119968,38825,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,10:47:14
+regex-log,regex-log__PCbzd7i,1,,medium,35.58,0.042935,4,3,478,35400,3107,2642,False,claude-sonnet-5-5,,13:28:31
+regex-log,regex-log__QeCBAuF,1,,medium,19.6,0.031931,2,1,239,15781,1938,2282,False,claude-sonnet-5-5,,17:25:14
+regex-log,regex-log__jenBXG7,1,,medium,18.7,0.030694,2,1,239,15781,1931,2160,False,claude-sonnet-5-5,,21:07:20
+reshard-c4-data,reshard-c4-data__eQQSgZf,1,,medium,127.15,0.328559,17,25,3221,507070,37080,12590,False,claude-sonnet-5-5,,14:30:41
+reshard-c4-data,reshard-c4-data__nqVhc2E,1,,medium,301.89,0.199013,13,17,2395,201203,17208,10900,False,claude-sonnet-5-5,,18:29:06
+reshard-c4-data,reshard-c4-data__sH2ge3W,1,,medium,283.52,0.280194,13,17,2479,386073,31656,11709,False,claude-sonnet-5-5,,10:15:47
+rstan-to-pystan,rstan-to-pystan__7R2yG5G,1,,medium,478.06,0.198367,15,17,2305,239920,25927,7918,False,claude-sonnet-5-5,,18:07:30
+rstan-to-pystan,rstan-to-pystan__MXiWkm4,1,,medium,1235.2,0.632797,31,29,4773,1239045,70806,19580,False,"claude-sonnet-5,claude-sonnet-5-5",,21:45:04
+rstan-to-pystan,rstan-to-pystan__vLYH2je,1,,medium,857.67,0.202473,12,14,2028,161529,36594,7301,False,claude-sonnet-5-5,,14:11:28
+sam-cell-seg,sam-cell-seg__V7aMf98,0,,medium,730.65,0.716654,27,27,4543,936858,77676,32332,False,"claude-sonnet-5,claude-sonnet-5-5",,21:28:20
+sam-cell-seg,sam-cell-seg__eraHXGa,0,,medium,437.77,0.225063,15,16,2385,254483,20674,11599,False,claude-sonnet-5-5,,17:48:23
+sam-cell-seg,sam-cell-seg__fyF6E2s,0,,medium,764.74,0.755972,32,32,5639,1158060,72893,32805,False,"claude-sonnet-5,claude-sonnet-5-5",,13:53:18
+sanitize-git-repo,sanitize-git-repo__E4Qotk2,1,,medium,66.68,0.012973,9,10,20,161058,33334,11585,False,claude-haiku-5-5,,14:10:34
+sanitize-git-repo,sanitize-git-repo__h2HZoXu,0,,medium,105.44,0.027958,21,36,1373,844948,57503,18114,False,claude-haiku-5-5,,18:05:58
+sanitize-git-repo,sanitize-git-repo__nze6Wzp,1,,medium,76.88,0.024345,17,20,38,687580,63301,14545,False,claude-haiku-5-5,,21:44:12
+schemelike-metacircular-eval,schemelike-metacircular-eval__KPeBQW5,1,AgentTimeoutError,medium,2401.85,0.829159,19,21,3283,530556,164792,30259,False,claude-sonnet-5-5,,16:02:13
+schemelike-metacircular-eval,schemelike-metacircular-eval__f6UaWKS,1,,medium,1071.45,1.512121,23,29,3736,1323567,148528,86625,False,"claude-sonnet-5,claude-sonnet-5-5",,19:45:21
+schemelike-metacircular-eval,schemelike-metacircular-eval__njeVroH,1,,medium,740.03,1.05929,30,40,4821,1393834,98958,52110,False,"claude-sonnet-5,claude-sonnet-5-5",gate-3 p3s-75t4q-c,11:57:31
+sparql-university,sparql-university__LMWgzbg,1,,medium,161.37,0.310214,15,14,2204,317141,35830,15094,False,"claude-sonnet-5,claude-sonnet-5-5",,14:03:37
+sparql-university,sparql-university__bcW4a7s,1,,medium,44.15,0.093313,9,9,1506,122044,10725,3770,False,claude-sonnet-5-5,,17:59:09
+sparql-university,sparql-university__wAVczYt,1,,medium,46.92,0.115629,8,8,1385,102976,18802,4395,False,claude-sonnet-5-5,,21:37:32
+sqlite-db-truncate,sqlite-db-truncate__sEbKAU3,1,,medium,22.67,0.041318,5,4,602,43328,3408,2220,False,claude-sonnet-5-5,,21:39:46
+sqlite-db-truncate,sqlite-db-truncate__soFk5JS,1,,medium,76.69,0.143495,8,6,1120,113869,20782,6550,False,"claude-sonnet-5,claude-sonnet-5-5",,18:01:20
+sqlite-db-truncate,sqlite-db-truncate__wJWexTo,1,,medium,127.49,0.205002,10,8,1358,99298,30204,10564,False,"claude-sonnet-5,claude-sonnet-5-5",,14:10:24
+sqlite-with-gcov,sqlite-with-gcov__McNiM5U,1,,medium,59.14,0.005445,9,8,20,89842,14939,2914,False,claude-haiku-5-5,,14:16:05
+sqlite-with-gcov,sqlite-with-gcov__THazBkQ,1,,medium,44.87,0.005097,8,7,18,72339,15146,2723,False,claude-haiku-5-5,,18:08:44
+sqlite-with-gcov,sqlite-with-gcov__woLNsYy,1,,medium,57.56,0.004633,7,6,16,59123,13073,2772,False,claude-haiku-5-5,,21:49:16
+torch-pipeline-parallelism,torch-pipeline-parallelism__8gfxwpk,1,,medium,141.8,0.15742,15,17,2811,206146,12014,7868,False,claude-sonnet-5-5,,16:45:10
+torch-pipeline-parallelism,torch-pipeline-parallelism__XEwknMe,1,,medium,168.76,0.162469,16,16,3016,211887,11988,8238,False,claude-sonnet-5-5,gate-4 p3s-75t4q-d,12:25:12
+torch-pipeline-parallelism,torch-pipeline-parallelism__zZPJFjH,1,,medium,412.74,0.271039,23,27,4439,389810,19907,13187,False,claude-sonnet-5-5,,20:14:39
+torch-tensor-parallelism,torch-tensor-parallelism__6BR3WQq,1,,medium,171.59,0.193838,15,22,2898,222030,17506,9749,False,claude-sonnet-5-5,,19:03:27
+torch-tensor-parallelism,torch-tensor-parallelism__ZzkSrH6,1,,medium,148.04,0.176181,16,15,3097,209477,19236,7826,False,claude-sonnet-5-5,,15:01:01
+torch-tensor-parallelism,torch-tensor-parallelism__r7LGxBc,1,,medium,139.92,0.128828,13,15,2488,164427,9724,6490,False,claude-sonnet-5-5,gate-2 p3s-75t4q-b,10:55:05
+train-fasttext,train-fasttext__44VeEhg,1,,medium,1538.19,0.112502,14,13,44,138314,13732,4872,False,claude-sonnet-5-5,,19:53:26
+train-fasttext,train-fasttext__4WsNsam,0,,medium,1608.84,0.182847,10,9,34,182423,42503,3882,False,claude-sonnet-5-5,,16:13:27
+train-fasttext,train-fasttext__fWg2CWP,0,,medium,2381.55,0.290955,10,9,36,187484,82398,4611,False,claude-sonnet-5-5,gate-3 p3s-75t4q-c;gate-4 p3s-75t4q-d,12:08:51
+tune-mjcf,tune-mjcf__MnVYJ3N,1,,medium,284.57,0.103007,9,9,1074,110056,9533,5366,False,claude-sonnet-5-5,gate-4 p3s-75t4q-d,12:36:02
+tune-mjcf,tune-mjcf__f2XwdKC,1,,medium,86.24,0.065716,6,5,720,61404,6269,3537,False,claude-sonnet-5-5,,20:19:31
+tune-mjcf,tune-mjcf__qELRzaG,1,,medium,114.83,0.069765,7,7,841,75242,6524,3566,False,claude-sonnet-5-5,,16:48:26
+video-processing,video-processing__9QbyDNX,0,,medium,924.37,1.6965,51,61,8893,3127219,130238,72247,False,"claude-sonnet-5,claude-sonnet-5-5",,19:55:41
+video-processing,video-processing__ULRqPbf,0,,medium,567.05,0.962915,31,53,4764,1442921,81683,45733,False,"claude-sonnet-5,claude-sonnet-5-5",gate-3 p3s-75t4q-c;gate-4 p3s-75t4q-d,12:10:03
+video-processing,video-processing__dESqwZp,0,,medium,586.34,0.994885,35,46,5489,1556907,89281,44553,False,"claude-sonnet-5,claude-sonnet-5-5",,16:15:31
+vulnerable-secret,vulnerable-secret__HDrrSUJ,1,,medium,126.66,0.229123,18,19,2896,270341,26089,10229,False,"claude-sonnet-5,claude-sonnet-5-5",,14:22:54
+vulnerable-secret,vulnerable-secret__PkP8oZm,1,,medium,43.15,0.078551,10,9,1440,110814,9119,2963,False,"claude-sonnet-5,claude-sonnet-5-5",,21:55:31
+vulnerable-secret,vulnerable-secret__bdVnnHX,1,,medium,89.44,0.156447,17,14,2270,235827,15638,6431,False,"claude-sonnet-5,claude-sonnet-5-5",,18:17:53
+winning-avg-corewars,winning-avg-corewars__FaQwjes,0,,medium,1788.1,3.033232,66,63,11316,5973188,167158,139110,True,claude-sonnet-5,,10:24:53
+winning-avg-corewars,winning-avg-corewars__hcA2WzA,0,,medium,2340.35,5.990998,134,138,26184,17677035,233030,180698,True,claude-sonnet-5,,18:36:42
+winning-avg-corewars,winning-avg-corewars__v4ZAn5P,1,,medium,76.31,0.112249,11,10,1322,148792,10659,5182,False,claude-sonnet-5-5,,14:43:26
+write-compressor,write-compressor__gJroRPH,1,,medium,636.48,0.880838,25,22,4727,1125797,57461,50000,False,"claude-sonnet-5,claude-sonnet-5-5",,10:23:41
+write-compressor,write-compressor__x4BY4qb,1,,medium,359.34,0.417952,9,7,1404,187099,32119,29635,False,"claude-sonnet-5,claude-sonnet-5-5",,14:37:54
+write-compressor,write-compressor__zmBhUJu,1,,medium,438.63,0.509032,10,7,1604,253410,40000,35409,False,"claude-sonnet-5,claude-sonnet-5-5",,18:29:15

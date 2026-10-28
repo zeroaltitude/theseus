@@ -190,6 +190,7 @@ fn gated(core: &Core, sid: &str, tool: &dyn Tool, input: &Value) -> Option<(Stri
     let at = At {
         place: view,
         held: &held,
+        labels: &|| None,
         mcp: &|| None,
         glide: None,
         session: Some(sid),

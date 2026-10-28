@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="254" viewBox="0 0 720 254" role="img" aria-labelledby="t-pass-rate-openclaw t-pass-rate-openclaw-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-pass-rate-openclaw">Pass rate, OpenClaw 2026.9.8, all 89 tasks once, HIGH tier</title>
+<desc id="t-pass-rate-openclaw-d">How much of terminal-bench@2.0 does OpenClaw 2026.9.8 solve on one pass?</desc>
+<rect width="720" height="254" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Pass rate, OpenClaw 2026.9.8, all 89 tasks once, HIGH tier</text>
+<line x1="150.2" y1="46.0" x2="150.2" y2="160.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="233.1" y1="46.0" x2="233.1" y2="160.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="315.9" y1="46.0" x2="315.9" y2="160.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="398.7" y1="46.0" x2="398.7" y2="160.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="481.5" y1="46.0" x2="481.5" y2="160.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="564.3" y1="46.0" x2="564.3" y2="160.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="18.0" y="63.0" font-size="12" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">every trial (raw)</text>
+<text x="18.0" y="119.0" font-size="12" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="3" stroke-linejoin="round" paint-order="stroke" font-weight="600">trials whose agent started</text>
+<text x="136.2" y="90.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenClaw 2026.9.8</text>
+<g><title>OpenClaw 2026.9.8: 74.2%  [64.2%, 82.1%] (66 of 89)</title>
+<line x1="416.1" y1="86.0" x2="490.3" y2="86.0" stroke="#eda100" stroke-width="2" stroke-linecap="round"/>
+<line x1="416.1" y1="81.0" x2="416.1" y2="91.0" stroke="#eda100" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="490.3" y1="81.0" x2="490.3" y2="91.0" stroke="#eda100" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="457.3" cy="86.0" r="12" fill="transparent"/>
+<circle cx="457.3" cy="86.0" r="5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="90.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">74.2%  [64.2%, 82.1%]</text>
+<text x="136.2" y="146.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenClaw 2026.9.8</text>
+<g><title>OpenClaw 2026.9.8: 75.9%  [65.9%, 83.6%] (66 of 87)</title>
+<line x1="423.1" y1="142.0" x2="496.6" y2="142.0" stroke="#eda100" stroke-width="2" stroke-linecap="round"/>
+<line x1="423.1" y1="137.0" x2="423.1" y2="147.0" stroke="#eda100" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="496.6" y1="137.0" x2="496.6" y2="147.0" stroke="#eda100" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="464.4" cy="142.0" r="12" fill="transparent"/>
+<circle cx="464.4" cy="142.0" r="5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="146.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">75.9%  [65.9%, 83.6%]</text>
+<line x1="150.2" y1="160.0" x2="564.3" y2="160.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="150.2" y="176.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="233.1" y="176.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="315.9" y="176.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="398.7" y="176.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="481.5" y="176.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="564.3" y="176.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="357.3" y="194.0" font-size="12" fill="#52514e" text-anchor="middle">trials passed</text>
+<text x="18.0" y="216.0" font-size="11" fill="#52514e">95% Wilson intervals. The agent-started row drops the trials whose agent never reached a model call; Harbor charges those</text>
+<text x="18.0" y="231.0" font-size="11" fill="#52514e">to the arm as reward 0, so the raw row is the one that compares with every other arm.</text>
+</svg>

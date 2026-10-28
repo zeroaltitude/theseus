@@ -13,7 +13,9 @@ use crate::config::MemoryMode;
 use crate::node::Body;
 use crate::recall::{Ask, AskFuture};
 use crate::tests_recall::{rig_with, session, turn, Rig};
+use crate::tests_rerank::{recalls, rig as rerank_rig};
 use crate::Core;
+use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
 const ASKED: &str = "host:db-prod.example.test";
 const NEAR: &str = "host:db-stage.example.test";
@@ -145,4 +147,66 @@ async fn a_recall_of_another_host_names_it_in_the_frozen_header() {
     assert_eq!(got_asked, base_asked, "the asked host's header moved");
     let note = "about host db-stage.example.test, not the asked host db-prod.example.test";
     assert_eq!(got_near, format!("{base_near}, {note}"), "{got_near}");
+}
+
+/// The note survives a live rerank (theseus-5o3av): `Memory::refill` rebuilds
+/// the admitted items through `fill`, which makes no note, so it sets the
+/// neighbour note again. The other host's chunk is the same kind as the asked
+/// one's, so only the note tells them apart; the frozen header on the Recall
+/// node, after Jev's order was applied, still carries it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_live_rerank_keeps_the_neighbour_note_in_the_frozen_header() {
+    let jev = FakeJev::start().unwrap();
+    jev.script("helps.1", Jev::Noul(0.97));
+    jev.script("helps.2", Jev::Noul(0.10));
+    let r = rerank_rig(Some(&jev), |c| {
+        c.memory.mode = MemoryMode::Live;
+        c.memory.recall_max_items = 2;
+        // A loaded machine's local Jev may take more than 200 ms.
+        c.memory.rerank_wait_ms = 600;
+    });
+    let c = &r.core;
+    let asked = session(c, None, &["db-prod.example.test listens on port 5432."]);
+    let near = session(c, None, &["db-stage.example.test listens on port 5433."]);
+    let here = session(c, None, &["hello"]);
+    c.runner.memory.set_ask(scored(
+        c,
+        vec![
+            pick(&asked, 0.0180, &[ASKED], &[ASKED]),
+            pick(&near, 0.0170, &[NEAR], &[]),
+        ],
+    ));
+    turn(c, &here, "Which port does db-prod.example.test listen on?").await;
+    // The refill ran: the manifest says Jev's order was applied.
+    let m = &recalls(c, &here)[0];
+    let rr = m.rerank.as_ref().expect("the manifest's rerank");
+    assert!(
+        rr.applied,
+        "Jev's order was applied, so the refill ran: {rr:?}"
+    );
+    assert_eq!(m.admitted.len(), 2, "both chunks are admitted: {m:?}");
+    let items = c
+        .store
+        .session_nodes(&here)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::Recall { items, .. } => Some(items),
+            _ => None,
+        })
+        .expect("a Recall node");
+    let header_of = |sid: &str| {
+        items
+            .iter()
+            .find(|i| i.session_id == sid)
+            .map(|i| i.header.clone())
+            .expect("an item of the session")
+    };
+    let note = "about host db-stage.example.test, not the asked host db-prod.example.test";
+    assert!(header_of(&near).ends_with(note), "{}", header_of(&near));
+    assert!(
+        !header_of(&asked).contains("not the asked"),
+        "{}",
+        header_of(&asked)
+    );
 }

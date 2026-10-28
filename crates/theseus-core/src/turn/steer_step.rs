@@ -43,7 +43,7 @@ impl TurnRunner {
     ) -> Option<Result<TurnSubmitResult>> {
         // A person's typed input, or the owner's into a task (theseus-slmj1):
         // anyone else's queues as it did.
-        let steerable = class == Class::Person || (class == Class::Task && req.sink.owner);
+        let steerable = class.is_typed(req.sink.owner);
         let text = req.input.as_ref().filter(|_| steerable)?;
         if req.prompt.is_some() {
             return None;
@@ -55,6 +55,7 @@ impl TurnRunner {
                 text: text.clone(),
                 attachments: req.attachments.clone(),
                 author: req.author.clone(),
+                owner: req.sink.owner,
                 surface: req.sink.surface.clone(),
                 reply_to: req.reply_to.clone(),
                 arrived,
@@ -104,9 +105,9 @@ impl TurnRunner {
                 t.reply_to = Some(id.clone());
             }
             waited_ms = waited_ms.max(m.arrived.elapsed().as_millis() as u64);
-            nodes.push((node, m.author.clone()));
+            nodes.push((node, m.author.clone(), m.owner));
         }
-        let ids: Vec<String> = nodes.iter().map(|(n, _)| n.id.clone()).collect();
+        let ids: Vec<String> = nodes.iter().map(|(n, _, _)| n.id.clone()).collect();
         // The row and the nodes are one frame: written together or not at
         // all, so a crash leaves each message delivered once or not yet.
         let fact = fact::steer::TurnSteered {
@@ -121,9 +122,11 @@ impl TurnRunner {
         if t.tc.task.is_some() {
             steers.join(sid, u32::try_from(nodes.len()).unwrap_or(u32::MAX));
         }
-        for (node, author) in &nodes {
+        for (node, author, owner) in &nodes {
             t.tc.node_written(node);
             self.inbound_point(t, node, author, true);
+            let kind = self.message_kind(sid, *owner);
+            self.content_message(sid, node, kind, "operator steer");
         }
         Ok(())
     }

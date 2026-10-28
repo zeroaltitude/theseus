@@ -17,10 +17,17 @@
 //! to add or remove an id. Readers that write nothing take no lock, and their
 //! view can be one frame stale.
 //!
-//! A transition that touches two executions takes both in id order
-//! (`lock_all`): a task and its parent (DD7), opening the task and carving its
-//! budget, each of its settles, and its end. So two such transitions naming
-//! the same pair in either order cannot deadlock. A kernel transaction
+//! A transition that touches several executions takes them all in id order
+//! (`lock_all`): a task and every execution above it (DD7, theseus-deaqt),
+//! opening the task and carving its budget, each of its settles — whose cost
+//! is the spend of each of them — and its end. So two such transitions naming
+//! the same ids in any order cannot deadlock, and a chain of any length is no
+//! different: the ids are sorted in the one call, a thread waits only for an
+//! id greater than every id it holds, and the check below makes a second call
+//! while one is held a panic rather than a wait, so the wait-for graph cannot
+//! have a cycle. **The rule, for anything added later: name every execution
+//! you may write in the one `lock_all` — never a lock inside a lock.** A
+//! kernel transaction
 //! (`Kernel::frame`, theseus-0owd) takes every lock its transitions need
 //! first, in the same order, and they take none of their own. A lock is never taken twice on one thread: a transition
 //! that calls another which locks the same execution would wait on itself, so

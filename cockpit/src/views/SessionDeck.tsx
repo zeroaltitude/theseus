@@ -28,6 +28,7 @@ import { flatten, spanColor, timeByKind, type Flat } from '@/lib/spans'
 import { useTick } from '@/lib/hooks'
 import { judged, line, marksOf } from '@/lib/judgment'
 import { useAsOf } from '@/lib/timemachine'
+import { chipsOf, unlabelCall, wrongCall } from '@/lib/labels'
 import { Echart } from '@/components/Echart'
 import { Flame } from '@/components/Flame'
 import { ChartTable, Legend, Swatch, TableToggle, TipArea, TipBody, TipTarget, type LegendItem } from '@/components/ChartPanel'
@@ -231,13 +232,14 @@ function Follow({ children, deps }: { children: React.ReactNode; deps: unknown[]
 function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: ExecutionInfo; onBack: () => void }) {
   const now = useTick(5000)
   const [busy, setBusy] = useState<string | null>(null)
-  const act = async (label: string, method: string, params: unknown) => {
-    if (!window.confirm(`${label} ${short(s.session_id)}?`)) return
+  const act = async (label: string, method: string, params: unknown, ask?: string) => {
+    if (!window.confirm(ask ?? `${label} ${short(s.session_id)}?`)) return
     setBusy(label)
     try { await call(method, params) } catch (e: any) { window.alert(e?.message ?? String(e)) } finally { setBusy(null) }
   }
   const b = exec?.budget
   const u = s.usage
+  const chips = chipsOf(s.labels)
   return (
     <div className="panel relative z-20 flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
       <button onClick={onBack} className="rounded-md p-1 text-ink-faint hover:bg-white/5 hover:text-ink"><ArrowLeft size={16} /></button>
@@ -251,6 +253,30 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
         </div>
         {s.title_was?.length ? <div className="truncate text-[11px] text-ink-faint" title={s.title_was.join(' · ')}>was: {s.title_was.join(' · ')}</div> : null}
         <SessionLinks by={s.superseded_by} replaces={s.supersedes} />
+        {chips.length > 0 && (
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {chips.map((c) => {
+              const w = wrongCall(s.session_id, c)
+              return (
+              <Pill key={c.flag} tone={c.tone} title={c.title}>
+                <span className="num">{c.text}</span>
+                {w && (
+                  <button
+                    title={`The ${c.flag} label is miscategorised; leave it`} aria-label={`Mark the ${c.flag} label wrong`} disabled={busy === `Wrong ${c.flag}`}
+                    onClick={() => void act(`Wrong ${c.flag}`, w.method, w.params, w.ask)}
+                    className="ml-1 rounded px-1 text-[10px] hover:bg-white/10 disabled:opacity-50"
+                  >wrong</button>
+                )}
+                <button
+                  title={`Remove the ${c.flag} label`} aria-label={`Remove the ${c.flag} label`} disabled={busy === `Remove ${c.flag}`}
+                  onClick={() => { const u = unlabelCall(s.session_id, c.flag); void act(`Remove ${c.flag}`, u.method, u.params, u.ask) }}
+                  className="ml-0.5 rounded p-0.5 hover:bg-white/10 disabled:opacity-50"
+                ><X size={10} /></button>
+              </Pill>
+              )
+            })}
+          </div>
+        )}
         <div className="num mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-ink-faint">
           <button onClick={() => navigator.clipboard?.writeText(s.session_id)} className="inline-flex items-center gap-1 hover:text-ink"><Copy size={10} />{s.session_id}</button>
           {s.label && <span>{s.label}</span>}
@@ -556,8 +582,17 @@ function Judgments({ trace, rows }: { trace: Span | null | undefined; rows: Rows
   )
 }
 
+/** The compilation whose manifest is open lives in the address, under `?comp=` (theseus-gi8o2): the model-call
+ *  drawer's "its manifest, in the Context tab" link names one, and it is a place worth sending someone to, so it
+ *  survives a reload and can be pasted. The row scrolls itself into view when the address names it, because a long
+ *  lineage puts it well below the fold. */
 function ContextTab({ comps, rows, session }: { comps: CompilationInfo[]; rows: Rows; session: SessionHistory['session'] }) {
-  const [open, setOpen] = useState<string | null>(null)
+  const [params, setParams] = useSearchParams()
+  const open = params.get('comp')
+  const setOpen = (id: string | null) =>
+    setParams((p) => { if (id) p.set('comp', id); else p.delete('comp'); return p }, { replace: true })
+  const asked = useRef<HTMLDivElement | null>(null)
+  useEffect(() => { asked.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }) }, [open])
   const [contextTableOn] = useTableView('deckcontext')
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -569,7 +604,8 @@ function ContextTab({ comps, rows, session }: { comps: CompilationInfo[]; rows: 
       <ContextFiles files={((comps.find((c) => c.current)?.manifest as { context_files?: ContextFileRef[] } | undefined)?.context_files) ?? []} />
       <div className="panel-title flex items-center gap-1.5"><GitBranch size={12} /> compilation lineage</div>
       {comps.map((c) => (
-        <div key={c.compilation_id} className={cn('rounded-lg ring-1 ring-inset', c.current ? 'bg-think/5 ring-think/30' : 'ring-line')}>
+        <div key={c.compilation_id} ref={open === c.compilation_id ? asked : undefined}
+          className={cn('rounded-lg ring-1 ring-inset', open === c.compilation_id ? 'bg-live/5 ring-live/50' : c.current ? 'bg-think/5 ring-think/30' : 'ring-line')}>
           <button onClick={() => setOpen(open === c.compilation_id ? null : c.compilation_id)} className="w-full px-3 py-2 text-left">
             <div className="flex items-center gap-2 text-[12px]">
               <span className="num text-think">{short(c.compilation_id)}</span>

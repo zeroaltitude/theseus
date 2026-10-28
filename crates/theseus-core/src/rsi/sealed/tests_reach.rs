@@ -75,6 +75,7 @@ fn judge(core: &Core, tool: &dyn Tool, input: &Value) -> Result<String, String> 
     let at = At {
         place: PlaceView::from(PlaceClass::Private),
         held: &held,
+        labels: &|| None,
         mcp: &|| None,
         glide: None,
         session: None,

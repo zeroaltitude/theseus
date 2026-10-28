@@ -449,6 +449,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   drew to the DM in the instant between the state and this message may leave one more there (not handled). A lane that has no board of its own (a restart: its id went with the process) looks once among the DM's pins for the bot's board, V2 or text, and removes it (theseus-bs8dl; `Lane::earlier_board`); the rig reaches the binding's own state through `task_home::daemon_for_tests`.
 - **The DM task flow is locked** (the owner, 2026-10-22; theseus-hd8l2): `tests_dm_flow_golden.rs` drives one DM task end to end and compares
   every message with `src/golden/dm_flow.txt`. Change the golden only with the owner's OK (`THESEUS_GOLDEN=write cargo nextest run -p theseus-discord dm_flow`).
+- **The one message a content label adds** (theseus-9ymz0, the only approved addition to that flow): when the core raises a label it calls `Core::tell_label`, a
+  `content_label` post in the session's place; the courier renders it with one **Remove** button, `content:remove:<session>:<flag>` (`runtime/content.rs`:
+  `parse`, `buttons`, `content_press`). A press is `content.unlabel` as the presser, judged by `judge_act` as `/trust` is; a counted press settles the
+  message, a guest's is refused and told alone. The DM golden gets one section at its end for it (recorded apart, so every locked line is as it was);
+  `tests_gateway/content.rs` drives the press.
 - **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
   not in `ask` (`render::board`'s `mode`; no key, no command: Discord only shows it), and a `session.mode` notification
   redraws that board (`runtime/board.rs::routed`). A place with no task has no board, so shows none.
@@ -487,6 +492,26 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   place); a counted one gets ✅. The reply's footer says `routed: <mode>` (or `correction`). There are no footer buttons
   on Discord: a reaction does the same without a button row under every reply. The gateway asks for both reaction
   intents (not privileged).
+- **👎 on a task that started itself is `task.not_this`** (theseus-o1h3f.2, `runtime/task_react.rs`, `Verb::NotThis`; the
+  reaction-side of notify-work-feedback). It is the one control of that module's reactions that is a verdict and not a
+  command, and it is **not** the card, standing or earned "Not this" above (those are buttons answering a proposal or an ask,
+  `card:not:`, `standing:not:`, `earned:no:`): it is `task.not_this` on a *task*, which cancels it, keeps the one rolling
+  preference against work like it and labels the offer (the core's `task.not_this` entry). `on_reaction` (`runtime/route.rs`)
+  asks `task_reaction` first. A 👎 (U+1F44E; not ⬇️, which is `route.correct`) counts only on a message that carries a task
+  (`task_of_message`: a message in a task's thread or channel, a Follow mirror, a task's first message or its report line)
+  **and** only when that task started itself, which `started_itself` reads from the task's graph record
+  (`TaskOrigin.self_started`, which `task_self.rs` sets when the turn that made the `task.create` call held no message of the owner's or an MCP prompt: a wake's, a report's or a routine's turn; the self backlog's tasks carry it too). On any other task, or on a message
+  that carries none, `task_reaction` answers false and the 👎 goes on to the next reader, the 👍/👎 verdict on a reply
+  (`initiative.rate`); the tests hold that on a task the owner asked for nothing happens to it. It is never pre-added: the bot
+  adds ⏸ 🛑 👀 📌 (▶️ for ⏸ while paused) and no 👎, so the owner taps the reaction by hand. From a guest, or in a shared place
+  (`is_private`), the tap is a debug line and nothing else, and it is still taken (no other reader sees it); the core judges the
+  owner too, since the call carries the reaction's `DiscordOrigin` and `discord:<user id>` as its `author`. The call has no
+  `reason`. What the presser sees: ✅ on the message they reacted to when it went through (a task that had already ended is
+  answered, and gets the ✅ too), and on a refusal or an error one quiet reply to that message (`⚠️ <the core's words>`, no ping),
+  with the task unchanged. The binding posts nothing else for it. The
+  core, the CLI (`theseus task not-this`) and the cockpit (Ops, `u` twice) take it on any task; only this reaction is limited to
+  self-started ones, so that a thumbs-down on a task the owner asked for is never a cancel. Tests: `tests_task_react.rs`
+  (`a_thumbs_down_on_a_task_that_started_itself_says_not_this`, `a_thumbs_down_on_a_task_the_owner_asked_for_does_nothing`).
 
 - **Reply watches** (theseus-rlnbf, `runtime/reply.rs`): each message the bot hears, a place of ours or not, is told to the
   core's `watch_reply_seen` first in `on_message`, before routing; it reads only (one atomic load with no reply watch

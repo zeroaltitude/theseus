@@ -685,7 +685,14 @@ const BULK: usize = 4096;
 /// 51 = live learning (theseus-6f8t0): the META records `card.obs.<id>` (an owner
 /// observation) and `card.observe.<session>` (the observer's mark), a card proposal's
 /// `ask`, `record`, `observations` and `posted_ms`, and the ledger kind `card.observed`.
-const MANIFEST_FORMAT: u32 = 51;
+/// 52 = content flags replace the open view (theseus-9ymz0): a SESSION record's `data` is now a
+/// session's content labels (`labels`, `removed`, `judged_through`) where it held the open view's
+/// state (`opened`, `run`, `taint`), which reads as no labels and nothing judged; and the ledger kinds
+/// the labels write.
+/// 53 = a label names its judgment (theseus-gyjyo.3): a content label in a SESSION record's `data`
+/// carries `judgment`, the raising judgment's id, which a removal or a "wrong" press labels in
+/// `judge.label`. A record from before reads it absent, and its label teaches nothing.
+const MANIFEST_FORMAT: u32 = 53;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

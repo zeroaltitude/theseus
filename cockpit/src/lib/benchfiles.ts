@@ -5,8 +5,9 @@
 // nothing written. A new report shows after the next install.
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { allSets, reportName, TASK_SETS } from '@/lib/bench'
+import { reportName, setsFrom, TASK_SETS } from '@/lib/bench'
 import { readManifest } from '@/lib/benchindex'
+import { frontierSets } from '@/lib/benchslices'
 import { readCatalogue } from '@/lib/benchtasks'
 
 type Load = () => Promise<string>
@@ -58,20 +59,22 @@ export function useBenchManifest() {
   return { loading: file.isPending, manifest: useMemo(() => readManifest(file.data), [file.data]) }
 }
 
-/** The task sets the page offers (theseus-tyv41): the datasets' own `ui` blocks, then the built-ins. Importing only
- *  the `ui` key of each dataset fails the build for a dataset with none, so every dataset is read (lazily, once) and
- *  its block taken; until they are read the built-ins stand alone. */
+/** The task sets the page offers: the manifest's slices (theseus-s5qwv), each absorbing the hand-written `ui` block of
+ *  a report it spans, then any `ui` block no slice holds (theseus-tyv41), then the built-ins. Importing only the `ui`
+ *  key of each dataset fails the build for a dataset with none, so every dataset is read (lazily, once) and its block
+ *  taken; until they are read the built-ins stand alone. */
 export function useBenchSets() {
-  // Newest first, because a dataset's name opens with its date and `allSets` promises that order — and the page
-  // opens on the first set it is offered. Ascending left the default pinned to the oldest generated set for good.
+  // Newest first, because a dataset's name opens with its date and `setsFrom` promises that order.
   const names = useMemo(() => [...FILES.json.keys()].sort().reverse(), [])
+  const { manifest } = useBenchManifest()
   const q = useQuery({
     queryKey: ['bench', 'sets'], staleTime: Infinity, gcTime: Infinity,
-    queryFn: async () => allSets(await Promise.all(names.map(async (report) => {
+    queryFn: async () => setsFrom(await Promise.all(names.map(async (report) => {
       try { return { report, ui: (JSON.parse((await loadFile(report, 'json')) ?? 'null') as { ui?: unknown } | null)?.ui } } catch { return { report } }
     }))),
   })
-  return { sets: q.data ?? TASK_SETS, loading: q.isPending }
+  const sets = useMemo(() => (q.data ? frontierSets(manifest.rows, q.data, TASK_SETS) : TASK_SETS), [q.data, manifest.rows])
+  return { sets, loading: q.isPending }
 }
 
 /** The task catalogue, `docs/benchmarks/tasks.json` (theseus-hbh4m): written locally by `bench/report/tasks.py`, so a build may not hold it; then there are no descriptions and the page is whole without them. */

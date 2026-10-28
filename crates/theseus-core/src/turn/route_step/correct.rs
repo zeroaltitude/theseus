@@ -202,10 +202,10 @@ impl TurnRunner {
         via: &str,
         provenance: String,
     ) -> anyhow::Result<Correcting> {
-        // Outside a turn: no clearance (closed); the names' floor is the turn's.
+        // Outside a turn: no model of restricted origin; the names' floor is the turn's.
         let floor = crate::turn::data_step::Floor {
             sensitive: false,
-            cleared: false,
+            cn_ok: false,
         };
         let resolved =
             correction::resolve(to, &last, &self.cfg.routing, &self.route_profiles(floor));
@@ -434,7 +434,6 @@ impl TurnRunner {
             effort: None,
             persona: None,
             seal: None,
-            data: None,
             personal: None,
         };
         let a = routing::Ask {
@@ -445,7 +444,7 @@ impl TurnRunner {
             from: None,
             images: t.route.images,
             cap,
-            cleared: t.route.floor().cleared,
+            cleared: t.route.floor().cn_ok,
         };
         match &s.steer {
             Steer::Profile(p) => routing::steer_to(&self.cfg.routing, &profiles, &a, p, at_once),

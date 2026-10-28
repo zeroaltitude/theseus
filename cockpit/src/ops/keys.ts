@@ -12,7 +12,7 @@ export type Ctx = 'dock' | 'answer' | 'choice' | 'grant' | 'failure' | 'task' | 
 export type Verb =
   | 'down' | 'up' | 'left' | 'right' | 'inspect' | 'open' | 'back' | 'next' | 'prev'
   | 'approve' | 'approve_trust' | 'decline' | 'choice' | 'grant' | 'retry' | 'dismiss' | 'pause' | 'stop' | 'stop_all'
-  | 'cancel' | 'cancel_wake' | 'follow' | 'new_task'
+  | 'cancel' | 'not_this' | 'cancel_wake' | 'follow' | 'new_task'
   | 'lens_graph' | 'lens_board' | 'lens_timeline' | 'lens_threads' | 'home' | 'search'
   | 'fold_queue' | 'fold_inspector' | 'fold_dock' | 'keys'
   | 'model_menu' | 'mode_menu' | 'compose' | 'parent' | 'last_turn' | 'scroll_up' | 'scroll_down' | 'scroll_end' | 'self_changes' | 'thread_picker' | 'palette' | 'dock_pause'
@@ -62,6 +62,7 @@ export const KEYS: readonly KeyDef[] = [
   { verb: 'stop', keys: ['s'], ctx: 'running', words: 'twice: stop the running turn', act: true, twice: true },
   { verb: 'stop_all', keys: ['S'], ctx: 'running', words: 'stop, and cancel every task under it (asks)', act: true },
   { verb: 'cancel', keys: ['c'], ctx: 'task', words: 'twice: cancel the task', act: true, twice: true },
+  { verb: 'not_this', keys: ['u'], ctx: 'task', words: 'twice: not this: cancel the task, and tell Theseus not to start work like it', act: true, twice: true },
   { verb: 'cancel_wake', keys: ['x'], ctx: 'wake', words: 'on a wake: cancel it (asks), the TUI’s x', act: true },
   { verb: 'new_task', keys: ['N'], ctx: 'page', words: 'new task (its home: the conversation under the cursor)', act: true },
   // ops-act (theseus-jid7t.6): the acting keys. Where the TUI and the web differ, the overlay says which wins.

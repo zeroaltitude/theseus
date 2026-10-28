@@ -6,7 +6,12 @@
 //! forced. Every tree lives under `<state>/self/trees/` with its own build
 //! tree, as self-pr's do, and is removed by `rsi::tree::close`.
 
-use anyhow::{bail, Result};
+use std::os::unix::process::CommandExt;
+use std::sync::mpsc;
+use std::time::Duration;
+
+use anyhow::{bail, Context, Result};
+use theseus_kernel::children::{self, Kind};
 
 use crate::rsi::tree::{self, Place, Tree};
 
@@ -46,10 +51,82 @@ pub fn main_of(p: &Place, remote: &str) -> Result<String> {
     )
 }
 
-/// Fetch `remote`, never prompting.
+/// The longest one fetch may take (theseus-6vlr4). Git has no total or
+/// connect bound of its own: `http.lowSpeedTime` counts only once a transfer
+/// has begun, and an ssh remote's `ConnectTimeout` is the user's config, so a
+/// black-holed connection waits on the kernel's timeouts, minutes. A fetch of
+/// a repository this size is seconds, so a minute is a remote that is not
+/// answering; the callers go on with the refs they have (the door says so) or
+/// fail (a revert, a join), and try again at their next step.
+pub const FETCH_LIMIT: Duration = Duration::from_secs(60);
+
+/// Fetch `remote`, never prompting, for at most [`FETCH_LIMIT`].
 pub fn fetch(p: &Place, remote: &str) -> Result<()> {
-    p.git_ok(&p.repo, &["fetch", "-q", remote])?;
+    fetch_within(p, remote, FETCH_LIMIT)
+}
+
+/// [`fetch`] with its own bound. When the bound fires the fetch **fails**, and
+/// git's whole process group is killed and reaped: `git fetch` runs a
+/// transport helper (`git-remote-https`, `ssh`) that outlives a signal sent
+/// to git alone, so the child leads its own group and the group gets the
+/// SIGKILL. The wait is a timed receive on a watcher thread, not a poll.
+pub fn fetch_within(p: &Place, remote: &str, limit: Duration) -> Result<()> {
+    let args = ["fetch", "-q", remote];
+    let mut c = p.git_command(&p.repo, &args);
+    c.process_group(0);
+    let mut child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
+        .context("git could not start")?;
+    let pid = child.id();
+    // The pipes are drained on threads of their own, so the wait below is on the child alone: a
+    // descendant that left the killed group and holds a pipe open cannot hold the fetch past its
+    // bound (theseus-6vlr4 join fix).
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    let (done, finished) = mpsc::channel::<()>();
+    let watcher = std::thread::spawn(move || {
+        let timed_out = finished.recv_timeout(limit) == Err(mpsc::RecvTimeoutError::Timeout);
+        if timed_out {
+            // SAFETY: a plain signal to the group this child leads. The pid
+            // is ours: the child is still unreaped here unless it exited in
+            // the instant the bound fired, and the group then holds nothing.
+            unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+        }
+        timed_out
+    });
+    // Reaps the child, which the kill ends.
+    let status = child.wait();
+    drop(done);
+    let timed_out = watcher.join().unwrap_or(false);
+    if timed_out {
+        // The readers are left to end on their own when the last holder of a pipe closes it.
+        drop((stdout, stderr));
+        bail!(
+            "git fetch {remote} did not finish in {}s and was killed",
+            limit.as_secs_f64()
+        );
+    }
+    let status = status?;
+    let _ = stdout.join();
+    let stderr = stderr.join().unwrap_or_default();
+    if !status.success() {
+        bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&stderr).trim()
+        );
+    }
     Ok(())
+}
+
+/// Read a child's pipe to its end on a thread of its own.
+fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut r) = pipe {
+            let _ = r.read_to_end(&mut buf);
+        }
+        buf
+    })
 }
 
 /// The paths the branch changes against `base` (added, changed, deleted).

@@ -30,8 +30,10 @@
 //! A person's wait is the exception: a typed message is never failed by the
 //! window. When the queue has not moved for it, the waiter goes on waiting
 //! and one quiet notice names the turns holding the slots and for how long,
-//! once per stuck episode (it ends when the queue moves). Wakes and task
-//! turns fail as before.
+//! once per stuck episode (it ends when the queue moves). A typed message is
+//! a conversation's person input, or the owner's input into a task
+//! ([`Class::is_typed`]; theseus-fzaep): the owner's queues in the task class
+//! but is not failed. Wakes and every other task turn fail as before.
 //!
 //! The kernel counts no ceiling for a turn this queue admitted
 //! (`Kernel::admit_queued`): a turn that lent its slot still holds its turn
@@ -93,6 +95,15 @@ impl Class {
             (_, true) => Class::Person,
             (_, false) => Class::Wake,
         }
+    }
+
+    /// Whether a turn of this class is a person's typed input: a conversation's
+    /// `Person` turn, or the owner's input into a task (`owner`:
+    /// `EventSink::owner`, theseus-slmj1). The one meaning of "typed input" that
+    /// steering (`steered`) and the never-failed wait share (theseus-fzaep);
+    /// every other task turn is not.
+    pub fn is_typed(self, owner: bool) -> bool {
+        self == Class::Person || (self == Class::Task && owner)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -554,6 +565,19 @@ impl Admission {
     /// that had one). Fails only when no turn was admitted for the stuck
     /// window while it waited, and never a person's.
     pub async fn take(self: &Arc<Self>, class: Class, front: bool) -> Result<Slot, Stuck> {
+        self.take_as(class, front, class == Class::Person).await
+    }
+
+    /// `take`, with the never-failed rule given: `typed` is a person's typed
+    /// input (`Class::is_typed`), which the window never fails. The owner's
+    /// input into a task is one: it queues in the task class (its rank, its
+    /// limit), and only its failure is a person's (theseus-fzaep).
+    pub async fn take_as(
+        self: &Arc<Self>,
+        class: Class,
+        front: bool,
+        typed: bool,
+    ) -> Result<Slot, Stuck> {
         let mut since = Instant::now();
         let (ticket, joined) = self.join(class, front);
         let mut rx = match joined {
@@ -584,7 +608,7 @@ impl Admission {
                 g.keep();
                 return Ok(self.slot(class, ticket));
             }
-            if class == Class::Person {
+            if typed {
                 // A person's wait is never failed: it stays in its queue, its
                 // receiver open, and waits another window. One notice an
                 // episode, which the queue's next movement ends.
@@ -713,12 +737,18 @@ impl TurnRunner {
         arrived: StdInstant,
         wait: bool,
         class: Class,
+        owner: bool,
         frames: &mut u64,
     ) -> Result<Option<(TurnGuard, Slot)>> {
         let queue = &self.tools.admission;
+        // A person's typed input, or the owner's into a task, is never failed
+        // by the stuck window (`take`'s rule, here for the wait on the
+        // execution's own turn too; theseus-fzaep). Any other task turn, and a
+        // wake, fail as before.
+        let typed = class.is_typed(owner);
         let mut front = false;
         loop {
-            let mut slot = queue.take(class, front).await.map_err(|stuck| {
+            let mut slot = queue.take_as(class, front, typed).await.map_err(|stuck| {
                 turn_error(
                     "admission_stuck",
                     "",
@@ -758,10 +788,10 @@ impl TurnRunner {
                         return Ok(None);
                     }
                     let window = self.cfg.kernel.admission_stuck();
-                    // A person's wait is never failed (`take`'s rule): their
-                    // next typed message waits for their own previous turn.
-                    if tokio::time::timeout(window, ended).await.is_err() && class != Class::Person
-                    {
+                    // A typed wait is never failed (`take`'s rule): the next
+                    // typed message waits for its own previous turn, in a task
+                    // as in a conversation when it is the owner's.
+                    if tokio::time::timeout(window, ended).await.is_err() && !typed {
                         return Err(turn_error(
                             "admission_stuck",
                             "",

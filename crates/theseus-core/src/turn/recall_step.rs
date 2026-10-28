@@ -223,7 +223,7 @@ impl TurnRunner {
                 tracing::warn!(error = %format!("{e:#}"), "recall: the labels cannot be read; none is applied");
                 BTreeSet::new()
             });
-        let place = match t.tc.open {
+        let place = match t.tc.draft {
             Some(_) => theseus_memory::Place::Open(None),
             None => self.place_of(t.tc.session_id),
         };
@@ -295,12 +295,12 @@ impl TurnRunner {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
         let scene = self.scene(t, "shadow", MemoryArm::Baseline, &begun.said);
-        let open = t.tc.open.is_some();
+        let draft = t.tc.draft.is_some();
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
             &begun,
             answer,
-            |s| self.drawn_place(open, s),
+            |s| self.drawn_place(draft, s),
             |ids| crate::recall::links(&self.store, ids),
             false,
         );
@@ -453,7 +453,7 @@ impl TurnRunner {
     /// model or in shadow as the session's arm says. Its node's id, when
     /// it admitted something in front of the model.
     pub(super) async fn recall_assembled(&self, t: &mut Turn<'_>) -> Option<String> {
-        if !self.memory.on() {
+        if !self.memory.on() || self.restricted_profile(&t.target.profile) {
             return None;
         }
         t.recall.assembled = true;
@@ -650,9 +650,23 @@ impl TurnRunner {
     }
 
     /// The transcript a loop compiles, with the turn's pending `Recall` node
-    /// after every node, and the sources its recalls render.
-    pub(super) fn recall_view(&self, t: &Turn<'_>, nodes: Transcript) -> (Transcript, Sources) {
+    /// after every node, and the sources its recalls render. A request bound
+    /// for a model of restricted origin (`profile`) carries no `Recall` node
+    /// at all: a note is drawn from other sessions, whose labels are not this
+    /// one's, so what it holds is not this session's to send there
+    /// (theseus-9ymz0, the review's B1). The notes stay in the transcript for
+    /// the next request that may carry them.
+    pub(super) fn recall_view(
+        &self,
+        t: &Turn<'_>,
+        nodes: Transcript,
+        profile: &str,
+    ) -> (Transcript, Sources) {
         let mut nodes = nodes;
+        if self.restricted_profile(profile) {
+            nodes.retain(|(_, n)| n.kind != crate::stub::Kind::Recall);
+            return (nodes, Sources::new());
+        }
         if let Some(n) = &t.recall.pending {
             // Once the plan frame wrote it, the transcript holds it.
             if !nodes.iter().any(|(_, m)| m.id == n.id) {

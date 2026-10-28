@@ -449,6 +449,21 @@ impl Core {
                     self.ontology_never_undo(&p, who).map_err(failure)
                 })
             }
+            method::ONTOLOGY_PERSON_NOT_SAME => route(
+                params,
+                |p: theseus_protocol::OntologyPersonNotSameParams| {
+                    let who = conn.answerer(p.author.clone(), p.discord.clone());
+                    self.ontology_person_not_same(&p, who).map_err(failure)
+                },
+            ),
+            method::ONTOLOGY_PERSON_NOT_SAME_LIST => route(or_empty(params), |p| {
+                self.ontology_person_not_same_list(&p)
+                    .map_err(RpcFailure::invalid)
+            }),
+            method::ONTOLOGY_PERSON_CANDIDATES => route(or_empty(params), |p| {
+                self.ontology_person_candidates(&p)
+                    .map_err(RpcFailure::invalid)
+            }),
             _ => route(params, |p| self.rpc_ontology_membership_set(p, conn)),
         }
     }

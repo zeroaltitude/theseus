@@ -101,6 +101,7 @@ mod tests {
             to: "claude-sonnet-5".into(),
             category: None,
             answered: true,
+            ..Default::default()
         });
         r.nudged.as_mut().unwrap().acted = false;
         let lines = r.harness_lines();

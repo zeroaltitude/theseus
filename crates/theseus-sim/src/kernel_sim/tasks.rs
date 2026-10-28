@@ -44,7 +44,10 @@ impl World {
                     | (Some(KernelError::NothingToCarve { .. }), false)
             )
         };
-        let a_task = parent.kind == SessionKind::Task || parent.parent.is_some();
+        // The bound itself, never a second copy of it: a step that moves the
+        // depth bound moves `tasks::depth_refusal` and this expectation
+        // follows (theseus-rrqmr).
+        let a_task = theseus_kernel::tasks::depth_refusal(&parent).is_some();
         let t = match opened {
             Err(e) if refused(&e, a_task) => {
                 if self.kernel.store().last_position() != at {

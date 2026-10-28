@@ -1,0 +1,1 @@
+{"kind":"fetched_page","source":"http.fetch the public release notes of the Widgetco client","piece":2,"pieces":3,"data_names":{"open":["Widgetco"],"private":["Acme"]},"text":"Release notes, version 2.3.0\n\n- Faster startup.\n- Fixed a crash when the export dialog is resized.\n\nTo upgrade, run the installer and restart the service.\n"}

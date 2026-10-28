@@ -34,7 +34,7 @@ pub(super) fn core_with(mode: SelfMode, mine: bool) -> Arc<Core> {
     // The miner's night alone starts nothing (the mint start has its own
     // tests, `tests_self_mint`).
     cfg.self_improve.mint.per_night = 0;
-    cfg.self_improve.backlog_starts = 1;
+    cfg.self_improve.backlog_starts = Some(1);
     cfg.server.disk_warn_mb = 0;
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
     Core::build(Parts::for_tests(

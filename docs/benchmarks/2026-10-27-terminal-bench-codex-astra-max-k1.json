@@ -1,0 +1,278 @@
+{
+ "report": "2026-10-27-terminal-bench-codex-astra-max-k1",
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-27",
+ "cell": "c6-codex-max-k1",
+ "commit": "harbor arm at d7eb4c27",
+ "tasks": 30,
+ "trials": 30,
+ "k_per_task": {
+  "1": 30
+ },
+ "task_set": "subset:30",
+ "summary": {
+  "codex": {
+   "label": "Codex, gpt-6-astra, MAX, hard 30x1",
+   "trials": 30,
+   "solved": 26,
+   "tasks": 30,
+   "rate": 0.866667,
+   "wilson": [
+    0.703183,
+    0.946904
+   ],
+   "k": 1,
+   "effort": [
+    "low",
+    "max"
+   ],
+   "routing": "pinned",
+   "provider": "openai",
+   "model": [
+    "openai/gpt-6-astra"
+   ],
+   "usd_total": 51.316547,
+   "usd_trial": 1.710552,
+   "usd_trial_ci": [
+    1.156903,
+    2.2642
+   ],
+   "usd_trial_median": 1.144115,
+   "usd_solve": 1.973713,
+   "agent_s_median": 122.08,
+   "model_calls_median": 11.0,
+   "exceptions": {},
+   "billed_models": {
+    "openai/gpt-6-astra": 30
+   }
+  }
+ },
+ "replaced": [],
+ "tier": "max",
+ "model": "openai/gpt-6-astra, pinned: one model, no routing and no fallback -- every priced call in this cell is billed to gpt-6-astra",
+ "agent": "Codex (`codex_agent:MeasuredCodex`)",
+ "commits": [],
+ "price_basis": {
+  "n": 30,
+  "n_priced": 30,
+  "as_billed": {
+   "median": 1.144115,
+   "mean": 1.710552,
+   "total": 51.316547
+  },
+  "note": "This arm bills every call to an OpenAI model, so the 2026-10-25 Sonnet 5.5 cache-read move (install #85, theseus-rko44) cannot apply to it and there is no second basis to quote. Its recorded dollars ARE the quote. Solving these trials against the Sonnet tables -- which is what the rival-cell tool does -- misses by $10.50 a trial at worst and means nothing; a cost figure from this cell is comparable with another OpenAI-billed cell and with nothing else until both are put on one table.",
+  "billed": "openai gpt-6-astra (the Sonnet cache-read move does not apply)",
+  "applies": false,
+  "rows": [
+   {
+    "basis": "as billed",
+    "label": "as billed (OpenAI table)",
+    "quote": true,
+    "median": 1.144115,
+    "mean": 1.710552,
+    "total": 51.316547
+   }
+  ]
+ },
+ "figures": [
+  {
+   "name": "pass-rate-codex-astra-max",
+   "form": "intervals",
+   "title": "Pass rate, Codex on gpt-6-astra, 30 tasks x k=1, MAX tier",
+   "question": "How much of this task set does Codex on gpt-6-astra solve?",
+   "note": "95% Wilson intervals on trials. The agent-started row drops the trials whose agent never reached a model call; Harbor charges those to the arm as reward 0, so the raw row is the one that compares with every other arm.",
+   "x": {
+    "label": "trials passed",
+    "format": "pct",
+    "min": 0.0,
+    "max": 1.0
+   },
+   "rows": [
+    {
+     "label": "Codex on gpt-6-astra",
+     "arm": "other",
+     "group": "every trial (raw)",
+     "value": 0.8667,
+     "lo": 0.703183,
+     "hi": 0.946904,
+     "tip": "26 of 30"
+    },
+    {
+     "label": "Codex on gpt-6-astra",
+     "arm": "other",
+     "group": "trials whose agent started",
+     "value": 0.8667,
+     "lo": 0.703183,
+     "hi": 0.946904,
+     "tip": "26 of 30"
+    }
+   ],
+   "legend_labels": {
+    "other": "Codex on gpt-6-astra"
+   }
+  },
+  {
+   "name": "cost-codex-astra-max",
+   "form": "bars",
+   "title": "Dollars a trial, Codex on gpt-6-astra",
+   "question": "What does one Codex on gpt-6-astra trial cost?",
+   "note": "30 trials, 30 of which reached a priced call; the other 0 cost $0 and stay in the denominator. One basis only: this arm bills no Sonnet, so the 10-25 cache-read move has nothing to move.",
+   "categories": [
+    "median $/trial",
+    "mean $/trial"
+   ],
+   "value": {
+    "label": "dollars a trial",
+    "format": "usd",
+    "min": 0
+   },
+   "series": [
+    {
+     "arm": "other",
+     "label": "as billed, OpenAI table",
+     "values": [
+      1.144115,
+      1.710552
+     ]
+    }
+   ]
+  }
+ ],
+ "groupings": {
+  "all": {
+   "label": "every trial",
+   "trials": 30,
+   "passed": 26,
+   "pass_rate": {
+    "value": 0.866667,
+    "lo": 0.703183,
+    "hi": 0.946904,
+    "k": 26,
+    "n": 30
+   },
+   "usd_total": {
+    "value": 51.316547
+   },
+   "usd_per_trial": {
+    "value": 1.710552
+   },
+   "usd_per_solve": {
+    "value": 1.973713
+   },
+   "agent_s_median": {
+    "value": 122.08
+   },
+   "model_calls_median": {
+    "value": 11.0
+   },
+   "exceptions": {},
+   "billed_models": {
+    "openai/gpt-6-astra": 30
+   }
+  },
+  "clean": {
+   "label": "trials on a quiet host",
+   "trials": 30,
+   "passed": 26,
+   "pass_rate": {
+    "value": 0.866667,
+    "lo": 0.703183,
+    "hi": 0.946904,
+    "k": 26,
+    "n": 30
+   },
+   "usd_total": {
+    "value": 51.316547
+   },
+   "usd_per_trial": {
+    "value": 1.710552
+   },
+   "usd_per_solve": {
+    "value": 1.973713
+   },
+   "agent_s_median": {
+    "value": 122.08
+   },
+   "model_calls_median": {
+    "value": 11.0
+   },
+   "exceptions": {},
+   "billed_models": {
+    "openai/gpt-6-astra": 30
+   }
+  },
+  "gate_contaminated": {
+   "label": "trials inside a WSL join-gate window",
+   "trials": 0,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.0,
+    "k": 0,
+    "n": 0
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {},
+   "billed_models": {}
+  },
+  "agent_ran": {
+   "label": "trials whose agent actually started",
+   "trials": 30,
+   "passed": 26,
+   "pass_rate": {
+    "value": 0.866667,
+    "lo": 0.703183,
+    "hi": 0.946904,
+    "k": 26,
+    "n": 30
+   },
+   "usd_total": {
+    "value": 51.316547
+   },
+   "usd_per_trial": {
+    "value": 1.710552
+   },
+   "usd_per_solve": {
+    "value": 1.973713
+   },
+   "agent_s_median": {
+    "value": 122.08
+   },
+   "model_calls_median": {
+    "value": 11.0
+   },
+   "exceptions": {},
+   "billed_models": {
+    "openai/gpt-6-astra": 30
+   }
+  },
+  "setup_failed": {
+   "label": "trials whose agent never started",
+   "trials": 0,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.0,
+    "k": 0,
+    "n": 0
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {},
+   "billed_models": {}
+  }
+ }
+}

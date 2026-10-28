@@ -137,7 +137,28 @@ impl ToolRuntime {
         self.refusal(at.place, tool.name(), plan)
             .or_else(|| plan_refusal(self, at, tool, plan))
             .or_else(|| helper_refusal(self, at, tool))
+            .or_else(|| content_refusal(self, at, tool, plan))
     }
+}
+
+/// The `injection` label's refusal (theseus-9ymz0, `content::refusal`), in
+/// words the model can act on: while the session is frozen, a call is refused
+/// unless it is a local read of files and code (`content::local_read`): a
+/// write, a program, and anything that leaves the machine, a fetch or a
+/// search included. A local read, and every call in `notify` mode (the bench
+/// daemon's, `[content_based_security] injection`), never reads the session's labels.
+fn content_refusal(rt: &ToolRuntime, at: &At<'_>, tool: &dyn Tool, plan: &Plan) -> Option<String> {
+    let class = plan.class.unwrap_or(tool.class());
+    if class == ToolClass::Read && crate::content::local_read(tool.name()) {
+        return None;
+    }
+    at.session?;
+    let mode = rt.jobs.core()?.cfg.content_based_security.injection;
+    if mode == crate::content::InjectionMode::Notify {
+        return None;
+    }
+    let flags = (at.labels)();
+    crate::content::refusal(flags.as_ref(), mode, class, tool.name())
 }
 
 /// A helper's refusal (theseus-z9mze.3): it reads and reports, so a call to a

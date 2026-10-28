@@ -1,0 +1,356 @@
+{
+ "report": "2026-10-27-terminal-bench-theseus-1.0.3-max-k3",
+ "suite": "terminal-bench@2.0",
+ "date": "2026-10-27",
+ "cell": "c7-theseus-max-k3",
+ "commit": "bench binaries 92e3dbed (all 90 trials' `agent/build-commit.txt` agree); harbor arm at d7eb4c27",
+ "tasks": 30,
+ "trials": 90,
+ "k_per_task": {
+  "3": 30
+ },
+ "task_set": "subset:30",
+ "summary": {
+  "theseus": {
+   "label": "Theseus as shipped (routed), 92e3dbed, MAX, hard 30x3",
+   "trials": 90,
+   "solved": 59,
+   "tasks": 30,
+   "rate": 0.655556,
+   "wilson": [
+    0.552833,
+    0.745542
+   ],
+   "k": 3,
+   "effort": [
+    "low",
+    "max"
+   ],
+   "routing": "routed",
+   "provider": "anthropic",
+   "model": [
+    "claude-sonnet-5",
+    "claude-sonnet-5-5"
+   ],
+   "usd_total": 55.205332,
+   "usd_trial": 0.613393,
+   "usd_trial_ci": [
+    0.467402,
+    0.759383
+   ],
+   "usd_trial_median": 0.261051,
+   "usd_solve": 0.935684,
+   "agent_s_median": 368.87,
+   "model_calls_median": 16.0,
+   "exceptions": {
+    "AgentSafetyRefusalError": 3,
+    "TheseusTurnCutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 55,
+    "claude-sonnet-5,claude-sonnet-5-5": 33,
+    "claude-sonnet-5": 2
+   }
+  }
+ },
+ "baseline": {
+  "report": "2026-10-18-terminal-bench-v1-max",
+  "arm": "theseus",
+  "label": "Theseus as shipped (routed), v1 freeze, MAX, hard 30",
+  "pass_rate": {
+   "value": 0.6777777777777778,
+   "lo": 0.5756664407220551,
+   "hi": 0.765333712728014,
+   "k": 61,
+   "n": 90
+  },
+  "usd_per_trial": {
+   "value": 0.24519364444444444,
+   "lo": 0.18738052222222223,
+   "hi": 0.31059403333333335
+  },
+  "usd_total": {
+   "value": 22.067428
+  },
+  "usd_per_solve": {
+   "value": 0.36176111475409833
+  },
+  "agent_s_median": {
+   "value": 96.25
+  },
+  "trials": 90,
+  "tasks": 30,
+  "own": {
+   "n": 90,
+   "usd_median": 0.101651,
+   "usd_mean": 0.245194,
+   "agent_s_median": 96.25,
+   "model_calls_median": 8.0,
+   "pass_raw": [
+    61,
+    90
+   ],
+   "pass_agent_ran": [
+    61,
+    90
+   ],
+   "no_agent": 0
+  }
+ },
+ "replaced": [],
+ "tier": "max",
+ "model": "anthropic/claude-sonnet-5-5 asked for; Jev routes, and the theseus-wf482 refusal fallback puts 813 of 1,861 calls on claude-sonnet-5",
+ "agent": "Theseus as shipped, routed (`theseus_agent:TheseusRouted`)",
+ "commits": [
+  "92e3dbed47a466bec774148f201974ad0773cdaa"
+ ],
+ "price_basis": {
+  "n": 90,
+  "n_priced": 90,
+  "as_billed": {
+   "median": 0.261051,
+   "mean": 0.613393,
+   "total": 55.205332
+  },
+  "note": "Sonnet 5.5 cache reads moved $0.10 -> $0.20/Mtok on 2026-10-25 (install #85, theseus-rko44). Which table an arm was billed on is measured from its own per-call records, not inferred from the run's date. This cell's 1,048 claude-sonnet-5-5 calls fit the $0.20 table to $9.0e-07 and miss the $0.10 table by $1.8e-02, so it is billed on today's table -- the one cell 1 is quoted on.",
+  "billed": "0.20",
+  "applies": true,
+  "sonnet_5_5_calls": 1048,
+  "residual": 9.000000000050634e-07,
+  "residual_other": 0.01760769999999999,
+  "rows": [
+   {
+    "basis": "0.20",
+    "label": "cache reads at $0.20/Mtok (today's table, as billed)",
+    "quote": true,
+    "median": 0.261051,
+    "mean": 0.613393,
+    "total": 55.205332
+   },
+   {
+    "basis": "0.10",
+    "label": "cache reads at $0.10/Mtok (the pre-10-25 table)",
+    "quote": false,
+    "median": 0.249551,
+    "mean": 0.587493,
+    "total": 52.874408
+   }
+  ]
+ },
+ "figures": [
+  {
+   "name": "pass-rate-theseus-103-max-k3",
+   "form": "intervals",
+   "title": "Pass rate, Theseus 1.0.3 (routed), 30 tasks x k=3, MAX tier",
+   "question": "How much of this task set does Theseus 1.0.3 (routed) solve?",
+   "note": "95% Wilson intervals on trials. The agent-started row drops the trials whose agent never reached a model call; Harbor charges those to the arm as reward 0, so the raw row is the one that compares with every other arm.",
+   "x": {
+    "label": "trials passed",
+    "format": "pct",
+    "min": 0.0,
+    "max": 1.0
+   },
+   "rows": [
+    {
+     "label": "Theseus 1.0.3 (routed)",
+     "arm": "theseus",
+     "group": "every trial (raw)",
+     "value": 0.6556,
+     "lo": 0.552833,
+     "hi": 0.745542,
+     "tip": "59 of 90"
+    },
+    {
+     "label": "Theseus 1.0.3 (routed)",
+     "arm": "theseus",
+     "group": "trials whose agent started",
+     "value": 0.6556,
+     "lo": 0.552833,
+     "hi": 0.745542,
+     "tip": "59 of 90"
+    }
+   ],
+   "legend_labels": {
+    "theseus": "Theseus 1.0.3 (routed)"
+   }
+  },
+  {
+   "name": "cost-theseus-103-max-k3",
+   "form": "bars",
+   "title": "Dollars a trial, Theseus 1.0.3 (routed)",
+   "question": "What does one Theseus 1.0.3 (routed) trial cost?",
+   "note": "90 trials, 90 of which reached a priced call. This cell's 1048 claude-sonnet-5-5 calls fit the $0.20 table to 9e-07.",
+   "categories": [
+    "median $/trial",
+    "mean $/trial"
+   ],
+   "value": {
+    "label": "dollars a trial",
+    "format": "usd",
+    "min": 0
+   },
+   "series": [
+    {
+     "arm": "theseus",
+     "label": "as billed, $0.20/Mtok cache reads",
+     "values": [
+      0.261051,
+      0.613393
+     ]
+    }
+   ]
+  }
+ ],
+ "groupings": {
+  "all": {
+   "label": "every trial",
+   "trials": 90,
+   "passed": 59,
+   "pass_rate": {
+    "value": 0.655556,
+    "lo": 0.552833,
+    "hi": 0.745542,
+    "k": 59,
+    "n": 90
+   },
+   "usd_total": {
+    "value": 55.205332
+   },
+   "usd_per_trial": {
+    "value": 0.613393
+   },
+   "usd_per_solve": {
+    "value": 0.935684
+   },
+   "agent_s_median": {
+    "value": 368.87
+   },
+   "model_calls_median": {
+    "value": 16.0
+   },
+   "exceptions": {
+    "AgentSafetyRefusalError": 3,
+    "TheseusTurnCutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 55,
+    "claude-sonnet-5,claude-sonnet-5-5": 33,
+    "claude-sonnet-5": 2
+   }
+  },
+  "clean": {
+   "label": "trials on a quiet host",
+   "trials": 90,
+   "passed": 59,
+   "pass_rate": {
+    "value": 0.655556,
+    "lo": 0.552833,
+    "hi": 0.745542,
+    "k": 59,
+    "n": 90
+   },
+   "usd_total": {
+    "value": 55.205332
+   },
+   "usd_per_trial": {
+    "value": 0.613393
+   },
+   "usd_per_solve": {
+    "value": 0.935684
+   },
+   "agent_s_median": {
+    "value": 368.87
+   },
+   "model_calls_median": {
+    "value": 16.0
+   },
+   "exceptions": {
+    "AgentSafetyRefusalError": 3,
+    "TheseusTurnCutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 55,
+    "claude-sonnet-5,claude-sonnet-5-5": 33,
+    "claude-sonnet-5": 2
+   }
+  },
+  "gate_contaminated": {
+   "label": "trials inside a WSL join-gate window",
+   "trials": 0,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.0,
+    "k": 0,
+    "n": 0
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {},
+   "billed_models": {}
+  },
+  "agent_ran": {
+   "label": "trials whose agent actually started",
+   "trials": 90,
+   "passed": 59,
+   "pass_rate": {
+    "value": 0.655556,
+    "lo": 0.552833,
+    "hi": 0.745542,
+    "k": 59,
+    "n": 90
+   },
+   "usd_total": {
+    "value": 55.205332
+   },
+   "usd_per_trial": {
+    "value": 0.613393
+   },
+   "usd_per_solve": {
+    "value": 0.935684
+   },
+   "agent_s_median": {
+    "value": 368.87
+   },
+   "model_calls_median": {
+    "value": 16.0
+   },
+   "exceptions": {
+    "AgentSafetyRefusalError": 3,
+    "TheseusTurnCutError": 1
+   },
+   "billed_models": {
+    "claude-sonnet-5-5": 55,
+    "claude-sonnet-5,claude-sonnet-5-5": 33,
+    "claude-sonnet-5": 2
+   }
+  },
+  "setup_failed": {
+   "label": "trials whose agent never started",
+   "trials": 0,
+   "passed": 0,
+   "pass_rate": {
+    "value": 0.0,
+    "lo": 0.0,
+    "hi": 0.0,
+    "k": 0,
+    "n": 0
+   },
+   "usd_total": {
+    "value": 0
+   },
+   "usd_per_trial": null,
+   "usd_per_solve": null,
+   "agent_s_median": null,
+   "model_calls_median": null,
+   "exceptions": {},
+   "billed_models": {}
+  }
+ }
+}

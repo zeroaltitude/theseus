@@ -345,7 +345,10 @@ async fn an_unfollow_and_a_closed_connection_end_a_follower() {
 
 /// A client that stops reading is told what it lost (`events.lost` naming the
 /// job's stream), and recovers by peeking: the peek's size is where it
-/// follows from, and no chunk it then hears begins before it. `cap` lowers the
+/// follows from, the follow's answer reports an offset at or past that size,
+/// and a chunk arrives beginning exactly at that offset. What the client hears
+/// *before* its peek's end is not checked here, and is not promised: the
+/// product lets a client drop a chunk that begins before it. `cap` lowers the
 /// connection's own backlog cap (the queue then drops what it cannot hold);
 /// with none, the follower's own limit (`ROOM` messages) is what holds.
 async fn a_slow_client_recovers(job: &str, cap: Option<usize>) {
@@ -384,19 +387,26 @@ async fn a_slow_client_recovers(job: &str, cap: Option<usize>) {
     assert!(lost.params["dropped"].as_u64().unwrap() > 0);
     // It peeks, and follows on from what the peek says.
     let p = peek_until(&mut slow, &job, |p| p.bytes > 0).await;
-    slow.call(method::ACTION_OUTPUT, json!({"id": job, "from": p.bytes}))
+    let follow = slow
+        .call(method::ACTION_OUTPUT, json!({"id": job, "from": p.bytes}))
         .await;
-    // The old follower was ended by the new follow, so every chunk it queued
-    // came before the answer (a client drops those: they begin before its
-    // peek's end); the ones after are the new follower's.
-    slow.notes.clear();
-    let chunk = slow
-        .until("a chunk after the peek", |n| {
-            n.method == notify::ACTION_OUTPUT_CHUNK
-        })
-        .await;
-    let c: ActionOutputChunk = serde_json::from_value(chunk.params).unwrap();
-    assert!(c.offset >= p.bytes, "{} < {}", c.offset, p.bytes);
+    let from = follow.result.unwrap()["offset"].as_u64().unwrap();
+    assert!(from >= p.bytes, "{from} < {}", p.bytes);
+    // The old follower is ended by the new follow, but an abort takes effect
+    // at its next await: a chunk it was already sending can land after the
+    // answer, so no clearing of the notes separates the two followers by
+    // time. What is told apart is instead the chunk at the answer's own
+    // offset. No stale chunk can carry it: every chunk the old follower
+    // queued began strictly before the length the peek observed. That chunk
+    // is the new follower's in every ordinary interleaving, though not
+    // necessarily -- if the old follower had skipped to EOF (`ROOM`) at
+    // exactly the peek's end, its next chunk begins there too. It carries the
+    // same bytes either way, so the property holds whichever sent it.
+    // Waiting for it cannot pass with no chunk: `until` fails when none comes.
+    slow.until("the new follower's first chunk", |n| {
+        n.method == notify::ACTION_OUTPUT_CHUNK && n.params["offset"].as_u64() == Some(from)
+    })
+    .await;
 }
 
 const CHATTY: &str =

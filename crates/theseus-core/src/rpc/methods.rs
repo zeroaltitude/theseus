@@ -695,6 +695,11 @@ impl Core {
             i.external_told = crate::external::told(&self.store, &r.session_id, h);
         }
         i.started_on = self.started_on(r);
+        i.labels = r
+            .data
+            .as_deref()
+            .map(|f| f.labels.iter().map(super::content::label_view).collect())
+            .unwrap_or_default();
         i.data = Some(crate::data_mark::session_mark(
             &self.store,
             &self.cfg,

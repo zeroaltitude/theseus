@@ -68,3 +68,26 @@ test('the catalogue is read like the manifest: an untrusted file gives no descri
   assert.equal(ok.tasks.get('b')!.difficulty, undefined)
   assert.equal(ok.tasks.get('b')!.tags, undefined)
 })
+
+// theseus-yh48a: a listed ablation is a side of the per-task table, never a rival, and can stand for Theseus only when
+// no plain Theseus ran. The slice mirrors 2026-10-03-harbor-worth-spike (theseus, theseus-batching, claude-code).
+const thrice = (arm: string, reward: number) => [1, 2, 3].map(() => `t,${arm},${reward.toFixed(1)},0.1`)
+const ablationSet = (rows: string[]) => {
+  const csv = ['task,arm,reward,dollars', ...rows].join('\n')
+  const set = { id: 'spike', report: 'x', keep: () => true, arm: (r: Record<string, string>) => r.arm, run: () => ({ id: 'r', label: 'r' }) } as never
+  return taskRows(points(set, csv, undefined, undefined, '2026-10-03', 'task'))
+}
+
+test('a listed ablation is a side but not a rival: Theseus is judged against other harnesses', () => {
+  const [r] = ablationSet([...thrice('theseus', 1), ...thrice('theseus-batching', 1), ...thrice('claude-code', 0)])
+  assert.deepEqual(r.sides.map((x) => x.arm), ['theseus', 'claude-code', 'theseus-batching'])
+  assert.equal(r.theseus?.arm, 'theseus')
+  assert.equal(r.best?.arm, 'claude-code')
+  assert.equal(r.assessment.word, WORDS.only)
+})
+
+test('with only an ablation and a rival, the ablation still stands for Theseus', () => {
+  const [r] = ablationSet([...thrice('theseus-batching', 1), ...thrice('claude-code', 0)])
+  assert.equal(r.theseus?.arm, 'theseus-batching')
+  assert.equal(r.best?.arm, 'claude-code')
+})

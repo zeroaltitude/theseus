@@ -309,6 +309,7 @@ async fn the_dm_tags_a_threads_reply_and_points_at_it_from_the_thread() {
     );
     assert!(pointer.silent(), "a pointer is history, not news");
     let sid = session_of(&r, "tides").unwrap();
+    booked(&r, &sid, 1).await;
     assert_eq!(turns(&r, &sid), 1);
     assert!(
         r.core
@@ -328,6 +329,7 @@ async fn the_dm_tags_a_threads_reply_and_points_at_it_from_the_thread() {
     let second = holding(&r, ANA_DM, "tide two").unwrap();
     assert!(second.content.starts_with("-# → Title of tides\n"));
     assert_eq!(second.reply_to.as_deref(), Some(again.as_str()));
+    booked(&r, &sid, 2).await;
     assert_eq!(turns(&r, &sid), 2);
     r.until("the second pointer", || {
         holding(&r, LAB, "-# from the DM: and again").is_some()

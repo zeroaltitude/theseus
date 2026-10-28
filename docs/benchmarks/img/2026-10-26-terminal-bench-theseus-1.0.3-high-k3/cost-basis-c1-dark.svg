@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="284" viewBox="0 0 720 284" role="img" aria-labelledby="t-cost-basis-c1 t-cost-basis-c1-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-cost-basis-c1">Dollars a trial, both arms priced on one table ($0.20/Mtok Sonnet 5.5 cache reads)</title>
+<desc id="t-cost-basis-c1-d">What does 1.0.3's trial cost against v1's, like for like?</desc>
+<rect width="720" height="284" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Dollars a trial, both arms priced on one table ($0.20/Mtok Sonnet 5.5 cache</text>
+<text x="18.0" y="52.0" font-size="15" fill="#ffffff" font-weight="600">reads)</text>
+<rect x="18.0" y="64.0" width="14" height="12" rx="3" fill="#3987e5"/>
+<text x="40.0" y="74.0" font-size="12" fill="#c3c2b7">frozen 1.0.3 (92e3dbed)</text>
+<rect x="203.0" y="64.0" width="14" height="12" rx="3" fill="#898781"/>
+<text x="225.0" y="74.0" font-size="12" fill="#c3c2b7">v1 freeze (351159fc)</text>
+<line x1="115.1" y1="94.0" x2="115.1" y2="190.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="250.0" y1="94.0" x2="250.0" y2="190.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="385.0" y1="94.0" x2="385.0" y2="190.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="519.9" y1="94.0" x2="519.9" y2="190.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="654.8" y1="94.0" x2="654.8" y2="190.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="105.1" y="122.0" font-size="12" fill="#ffffff" text-anchor="end">median $/trial</text>
+<g><title>median $/trial · frozen 1.0.3 (92e3dbed): $0.12</title>
+<path d="M115.1,101.0H273.6A4,4 0 0 1 277.6,105.0V113.0A4,4 0 0 1 273.6,117.0H115.1Z" fill="#3987e5"/>
+</g>
+<text x="282.6" y="113.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">$0.12</text>
+<g><title>median $/trial · v1 freeze (351159fc): $0.054</title>
+<path d="M115.1,119.0H184.4A4,4 0 0 1 188.4,123.0V131.0A4,4 0 0 1 184.4,135.0H115.1Z" fill="#898781"/>
+</g>
+<text x="193.4" y="131.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">$0.054</text>
+<text x="105.1" y="170.0" font-size="12" fill="#ffffff" text-anchor="end">mean $/trial</text>
+<g><title>mean $/trial · frozen 1.0.3 (92e3dbed): $0.33</title>
+<path d="M115.1,149.0H559.5A4,4 0 0 1 563.5,153.0V161.0A4,4 0 0 1 559.5,165.0H115.1Z" fill="#3987e5"/>
+</g>
+<text x="568.5" y="161.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">$0.33</text>
+<g><title>mean $/trial · v1 freeze (351159fc): $0.12</title>
+<path d="M115.1,167.0H271.8A4,4 0 0 1 275.8,171.0V179.0A4,4 0 0 1 271.8,183.0H115.1Z" fill="#898781"/>
+</g>
+<text x="280.8" y="179.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">$0.12</text>
+<text x="115.1" y="206.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.00</text>
+<text x="250.0" y="206.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.10</text>
+<text x="385.0" y="206.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.20</text>
+<text x="519.9" y="206.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.30</text>
+<text x="654.8" y="206.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.40</text>
+<line x1="115.1" y1="190.0" x2="654.8" y2="190.0" stroke="#383835" stroke-width="1"/>
+<text x="385.0" y="224.0" font-size="12" fill="#c3c2b7" text-anchor="middle">dollars a trial</text>
+<text x="18.0" y="246.0" font-size="11" fill="#c3c2b7">229 clean 1.0.3 trials against 259 v1 trials. The two runs were billed on different price tables; these are both repriced at</text>
+<text x="18.0" y="261.0" font-size="11" fill="#c3c2b7">$0.20. The as-billed numbers mix the tables and are in the report's table, not plotted.</text>
+</svg>

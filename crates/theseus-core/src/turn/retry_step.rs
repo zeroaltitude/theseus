@@ -52,7 +52,7 @@ impl TurnRunner {
         spec: &mut RequestSpec,
         slot: &'a OnceLock<Target>,
     ) -> Result<bool> {
-        let r = self.cfg.model.retries;
+        let r = &self.cfg.model.retries;
         let whole = is_whole_call(failure);
         if whole
             && failure.transient

@@ -16,7 +16,6 @@ use serde::{Deserialize, Serialize};
 use super::{Effort, PackMode};
 
 pub use super::routing_checkpoints::TaskCheckpoints;
-pub use super::routing_data::RoutingData;
 
 /// The profile name that means the usable profile cheapest for a short
 /// turn at catalog prices (reserved: no profile may take it).
@@ -75,9 +74,6 @@ pub struct RoutingConfig {
     /// The owner's corrections of routing (theseus-q31l).
     #[serde(default)]
     pub corrections: CorrectionsConfig,
-    /// The owner's data rule (theseus-a1wvq): the names Jev reads.
-    #[serde(default)]
-    pub data: RoutingData,
     /// A running task's model ranges (theseus-ypnxt.9).
     #[serde(default)]
     pub task_checkpoints: TaskCheckpoints,
@@ -409,7 +405,6 @@ impl Default for RoutingConfig {
             dear_tier_max_tokens: dear_tier_max_tokens(),
             classes: RoutingClasses::default(),
             corrections: CorrectionsConfig::default(),
-            data: RoutingData::default(),
             task_checkpoints: TaskCheckpoints::default(),
         }
     }

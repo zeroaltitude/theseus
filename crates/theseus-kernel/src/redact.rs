@@ -412,6 +412,9 @@ pub struct Copier {
     dropped: Arc<AtomicU64>,
     /// What the ring holds so far, not yet in the file (theseus-gsn9).
     held: Arc<AtomicU64>,
+    /// Every byte read from the pipe so far, kept or dropped: the job's sign
+    /// of life (theseus-x1zz8).
+    read: Arc<AtomicU64>,
 }
 
 impl Copier {
@@ -432,6 +435,8 @@ impl Copier {
         let (tx, done) = mpsc::channel();
         let dropped = Arc::new(AtomicU64::new(0));
         let held = Arc::new(AtomicU64::new(0));
+        let read = Arc::new(AtomicU64::new(0));
+        let counted = read.clone();
         let (head, tail) = split(max_bytes);
         let mut sink = Capped {
             file: to,
@@ -459,6 +464,7 @@ impl Copier {
                                 return Err(e);
                             }
                         };
+                        counted.fetch_add(n as u64, Ordering::Relaxed);
                         if sink.full() {
                             sink.drop_bytes(n as u64);
                         } else if redactor.is_empty() {
@@ -490,7 +496,14 @@ impl Copier {
             ended: None,
             dropped,
             held,
+            read,
         })
+    }
+
+    /// The count of bytes read so far, shared with the copy's thread: it
+    /// only grows while the job prints.
+    pub fn read_counter(&self) -> Arc<AtomicU64> {
+        self.read.clone()
     }
 
     /// Wait at most `bound` for the copy to end; its result once it has: what

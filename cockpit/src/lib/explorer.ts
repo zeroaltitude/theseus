@@ -220,6 +220,31 @@ export function episodeHref(session: string): string {
   return `/context?episode=${encodeURIComponent(session)}`
 }
 
+// ---------------------------------------------------------------- the session deck's own addresses (theseus-gi8o2)
+//
+// These four are whole addresses, not edits to the address the presser happens to be on. The model-call drawer and the
+// transcript are both drawn on more than one page (the Ship and the deck; the deck and the Operations page's join
+// pane), and a control that writes a key only one of its pages reads does nothing at all on the others. That is how
+// "its manifest, in the Context tab" came to be dead on the Ship: it set `?tab=context`, which only the deck reads.
+// A whole address goes to the one page that answers it, from wherever it is pressed, and it can be an `<a href>`.
+
+/** The session deck, on its Context tab, with one compilation's manifest open: the model-call drawer's manifest link,
+ *  from the Ship or from the deck itself. `msg` and `call` are deliberately absent, so the drawer that was covering
+ *  the manifest is closed by the going. */
+export function manifestHref(session: string, compilation: string): string {
+  return `/session/${encodeURIComponent(session)}?tab=context&comp=${encodeURIComponent(compilation)}`
+}
+
+/** The session deck with a model call's drawer open: the transcript's inspect button, where no drawer is drawn. */
+export function inspectMsgHref(session: string, node: string): string {
+  return `/session/${encodeURIComponent(session)}?msg=${encodeURIComponent(node)}`
+}
+
+/** The session deck with a tool call's drawer open, for the same reason. */
+export function inspectCallHref(session: string, call: string): string {
+  return `/session/${encodeURIComponent(session)}?call=${encodeURIComponent(call)}`
+}
+
 /** A moment with its year, in UTC: an episode's span can be years back (`2025-06-26 22:34 UTC`). */
 export function when(ms: number): string {
   return Number.isFinite(ms) && ms > 0 ? `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC` : '—'

@@ -17,6 +17,7 @@ use theseus_protocol::tasks::TaskState;
 use super::tests::test_core;
 use super::{Core, Parts};
 use crate::approval::{Answerer, Refusal, Surface};
+use crate::fact::rsi_pr::SelfBranchBuilt;
 use crate::ledger::LedgerRow;
 use crate::provider::FakeProvider;
 use crate::test_support::rows;
@@ -27,12 +28,19 @@ const DAY: u64 = 86_400_000;
 const HOUR: u64 = 3_600_000;
 
 fn core_with(mode: SelfMode, starts: u32, max_open: u32) -> Arc<Core> {
+    core_starting(mode, Some(starts), 1, max_open)
+}
+
+/// [`core_with`] with `backlog_starts` as the config has it (unset: the
+/// pipeline's free slots) and `pipeline_builds` slots.
+fn core_starting(mode: SelfMode, starts: Option<u32>, slots: u32, max_open: u32) -> Arc<Core> {
     let base = test_core("the tide is out");
     let mut cfg = (*base.cfg).clone();
     cfg.self_improve.mode = mode;
     // The host's disk is no test's business: 0 never warns.
     cfg.server.disk_warn_mb = 0;
     cfg.self_improve.backlog_starts = starts;
+    cfg.self_improve.pipeline_builds = slots;
     cfg.self_improve.backlog_max_open = max_open;
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
     // A started item opens a tree (theseus-qh2tt): the repo is a throwaway
@@ -655,6 +663,122 @@ fn an_item_filed_under_the_old_words_lists_in_plain_ones() {
         .unwrap();
     let old = listed(&c).into_iter().find(|i| i.id == item.id).unwrap();
     assert_eq!(old.title, "Turns failing with timeout");
+}
+
+/// The night starts as many items as the pipeline has free build slots
+/// (theseus-o1h3f.6), and a `backlog_starts` the config sets still wins.
+#[test]
+fn the_night_starts_as_many_as_the_pipeline_has_free_slots() {
+    let night_of = |starts: Option<u32>, slots: u32| {
+        let c = core_starting(SelfMode::Act, starts, slots, 20);
+        c.self_resume(&SelfResumeParams::default(), &cli()).unwrap();
+        let t0 = theseus_protocol::now_unix_ms();
+        seed_day(&c, t0);
+        for _ in 0..3 {
+            seed(
+                &c,
+                "action.failed",
+                json!({"producer": "proc", "duration_ms": 10}),
+                t0 - HOUR,
+            );
+        }
+        c.backlog_night(tick()).unwrap().started.len()
+    };
+    assert_eq!(night_of(None, 1), 1, "one free slot: one start");
+    assert_eq!(night_of(None, 2), 2, "two free slots: two starts");
+    assert_eq!(night_of(Some(1), 2), 1, "a set value wins over the slots");
+    assert_eq!(night_of(Some(0), 2), 0, "0 files and ranks only");
+}
+
+/// A build in flight takes one of the free slots: with three slots and two
+/// items running, a night with two more ready causes starts one, not two
+/// (theseus-awycv).
+#[test]
+fn a_build_in_flight_takes_a_slot_from_the_night() {
+    let c = core_starting(SelfMode::Act, None, 3, 20);
+    c.self_resume(&SelfResumeParams::default(), &cli()).unwrap();
+    let t0 = theseus_protocol::now_unix_ms();
+    seed_day(&c, t0);
+    let n1 = tick();
+    // The day holds two unmarked causes, and three slots are free.
+    let first = c.backlog_night(n1).unwrap();
+    assert_eq!(first.started.len(), 2, "no build in flight: {first:?}");
+    let running = |c: &Core| {
+        listed(c)
+            .iter()
+            .filter(|i| i.state == "in_progress")
+            .count()
+    };
+    assert_eq!(running(&c), 2);
+    // Two more causes the next day: the one free slot starts one of them.
+    for producer in ["proc", "fs"] {
+        for k in 0..3 {
+            seed(
+                &c,
+                "action.failed",
+                json!({"producer": producer, "duration_ms": 10}),
+                n1 + (3 + k) * HOUR,
+            );
+        }
+    }
+    let second = c.backlog_night(n1 + DAY).unwrap();
+    assert_eq!(
+        second.started.len(),
+        1,
+        "one slot free of three: {second:?}"
+    );
+    assert_eq!(running(&c), 3);
+}
+
+/// The night's free slots are the pipeline's own: an item `in_progress`
+/// whose build has gone green since it started is reviewing, not building,
+/// and does not hold a slot (theseus-awycv). With three slots and two items
+/// started, one going green leaves two free, so the next night starts both
+/// of its two ready, not one.
+#[test]
+fn a_green_build_frees_its_slot_for_the_night() {
+    let c = core_starting(SelfMode::Act, None, 3, 20);
+    c.self_resume(&SelfResumeParams::default(), &cli()).unwrap();
+    let t0 = theseus_protocol::now_unix_ms();
+    seed_day(&c, t0);
+    let n1 = tick();
+    let first = c.backlog_night(n1).unwrap();
+    assert_eq!(first.started.len(), 2, "no build in flight: {first:?}");
+    let building: Vec<_> = listed(&c)
+        .into_iter()
+        .filter(|i| i.state == "in_progress")
+        .map(|i| i.id)
+        .collect();
+    assert_eq!(building.len(), 2);
+    // One of them builds green: its branch waits on a review.
+    c.rec(None).record(&SelfBranchBuilt {
+        item: &building[0],
+        issue: "theseus-sail1",
+        branch: "self/20261026-sail-1",
+        head: Some(&format!("{:0>40}", 1)),
+        gate: "green",
+        report: None,
+        cost_usd: 1.25,
+        stopped_at: None,
+        why: "Trim the sails.",
+        numbers: Value::Null,
+    });
+    for producer in ["proc", "fs"] {
+        for k in 0..3 {
+            seed(
+                &c,
+                "action.failed",
+                json!({"producer": producer, "duration_ms": 10}),
+                n1 + (3 + k) * HOUR,
+            );
+        }
+    }
+    let second = c.backlog_night(n1 + DAY).unwrap();
+    assert_eq!(
+        second.started.len(),
+        2,
+        "one build in flight of three slots, the other in review: {second:?}"
+    );
 }
 
 mod infra;

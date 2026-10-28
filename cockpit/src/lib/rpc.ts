@@ -100,7 +100,9 @@ export function bindPush(queries: QueryClient) {
     // A task record changed (39b): `task.list`'s records are read again with the rest.
     if (method === 'execution.changed' || method === 'confirm.requested' || method === 'confirm.resolved' || method === 'task.changed' || method === 'events.lost'
       // A tightening, its undo, and a trust change what `policy.explain` says (42b); `health`'s list follows on its poll.
-      || method === 'policy.tightened' || method === 'policy.untightened' || method === 'session.trusted') again()
+      // A label raised or removed (theseus-9ymz0) changes what a session may do, and `session.list`'s `labels`.
+      || method === 'policy.tightened' || method === 'policy.untightened' || method === 'session.trusted'
+      || method === 'session.labelled' || method === 'session.unlabelled') again()
   })
 }
 

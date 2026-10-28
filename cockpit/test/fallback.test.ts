@@ -6,12 +6,24 @@ import type { TurnFallback } from '@protocol'
 import { fallbackLine, modelName } from '../src/lib/fallback.ts'
 
 test("a fallback's line says who declined and who answered", () => {
-  const f: TurnFallback = { from: 'claude-sonnet-5-5', to: 'claude-sonnet-5', category: 'cyber', answered: true }
+  const f: TurnFallback = { from: 'claude-sonnet-5-5', to: 'claude-sonnet-5', category: 'cyber', answered: true, answers: 0, refusals: 0, latched: false }
   assert.equal(fallbackLine(f, 'end_turn'), 'Sonnet 5.5 declined (cyber); Sonnet 5 answered.')
   f.answered = false
   assert.equal(fallbackLine(f, 'refusal'), 'Sonnet 5.5 declined (cyber), and so did Sonnet 5.')
   delete f.category
   assert.equal(fallbackLine(f, 'budget'), 'Sonnet 5.5 declined; the request went to Sonnet 5.')
+  // A turn that went back and forth, and one that stayed (theseus-wf482).
+  const many: TurnFallback = { ...f, category: 'reasoning_extraction', answered: true, answers: 2, refusals: 2 }
+  assert.equal(fallbackLine(many, 'end_turn'), 'Sonnet 5.5 declined (reasoning_extraction) twice; Sonnet 5 answered twice.')
+  // Latched on its last switch, but it ended on that one answer: nothing to stay for, so the line does not say it did.
+  assert.equal(
+    fallbackLine({ ...many, answers: 1, refusals: 3, latched: true }, 'end_turn'),
+    'Sonnet 5.5 declined (reasoning_extraction) 3 times; Sonnet 5 answered.',
+  )
+  assert.equal(
+    fallbackLine({ ...many, answers: 4, refusals: 1, latched: true }, 'end_turn'),
+    'Sonnet 5.5 declined (reasoning_extraction); Sonnet 5 answered 4 times, and the turn stayed there.',
+  )
   for (const [id, name] of [
     ['claude-opus-5-5', 'Opus 5.5'],
     ['claude-haiku-4-5-20251001', 'Haiku 4.5'],

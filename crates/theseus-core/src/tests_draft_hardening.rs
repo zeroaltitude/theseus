@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::draft::{self, meta_key};
+use crate::tests_dm_rig::{say, try_say};
 use crate::tests_draft::{draft_edit, git, rig, Draft, ASK};
-use crate::tests_open_request::{say, try_say};
 
 /// A draft run to its end, and its draft session and review.
 async fn finished(d: &Draft) -> (String, String, String) {

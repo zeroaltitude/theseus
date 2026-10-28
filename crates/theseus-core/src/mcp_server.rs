@@ -68,7 +68,7 @@ pub const ALLOWED: [&str; 8] = [
 /// The owner's acts, which reach their one judgment (`Core::judge_act`) and
 /// are refused there, ledgered as `approval.refused` with `via: mcp`, so a
 /// refusal is recorded as every other surface's is.
-pub const JUDGED: [&str; 10] = [
+pub const JUDGED: [&str; 11] = [
     method::ACTION_CONFIRM,
     method::WORK_ANSWER,
     method::POLICY_EARNED_ANSWER,
@@ -77,6 +77,7 @@ pub const JUDGED: [&str; 10] = [
     method::POLICY_UNTIGHTEN,
     method::POLICY_TRUST,
     method::POLICY_NOTICE_SEEN,
+    method::CONTENT_UNLABEL,
     method::PLACE_PUBLISH,
     method::TASK_START,
 ];

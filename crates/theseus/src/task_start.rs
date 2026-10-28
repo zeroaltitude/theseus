@@ -8,6 +8,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
 use theseus_client::render::{task_history, task_tree};
 use theseus_client::Conn;
+use theseus_protocol::task_not_this::{TaskNotThisParams, TaskNotThisResult};
 use theseus_protocol::task_pause::{TaskPauseParams, TaskPauseResult};
 use theseus_protocol::task_start::{ReportTo, TaskStartParams, TaskStartResult};
 use theseus_protocol::{
@@ -40,6 +41,15 @@ pub enum TaskCmd {
     Resume {
         /// The task: its id, or the end of it (four characters at least).
         id: String,
+    },
+    /// Say "not this" to a task: it is cancelled, one standing preference (the last one's replacement)
+    /// tells Theseus not to start work like it on its own, and the offer that produced it is labelled
+    /// wrong. `theseus task not-this a1b2c3 "too noisy"`. Yours alone (refused inside a job).
+    NotThis {
+        /// The task: its id, or the end of it (four characters at least).
+        id: String,
+        /// Why, in your words; it rides the preference.
+        reason: Option<String>,
     },
     /// Send a task's report to another home, no model turn: a conversation, or `thread:<slug>`.
     /// Its budget stays carved from its original parent. Yours alone (refused inside a job).
@@ -106,6 +116,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: TaskCmd) -> Result<()> {
         TaskCmd::Show { id } => show(conn, json, &id).await,
         TaskCmd::Pause { id } => hold(conn, json, &id, true).await,
         TaskCmd::Resume { id } => hold(conn, json, &id, false).await,
+        TaskCmd::NotThis { id, reason } => not_this(conn, json, &id, reason).await,
         TaskCmd::Rehome { id, home } => crate::ops_cmd::rehome(conn, json, &id, &home).await,
         TaskCmd::Reschedule { id, at, in_time } => {
             crate::ops_cmd::reschedule(conn, json, &id, start_when(at, in_time)).await
@@ -171,6 +182,38 @@ async fn hold(conn: &mut Conn, json: bool, id: &str, pause: bool) -> Result<()> 
         println!("{}", hold_line(&r, id));
         Ok(())
     })
+}
+
+/// `theseus task not-this ID [REASON]`: `task.not_this`. A task that has ended is answered the same.
+async fn not_this(conn: &mut Conn, json: bool, id: &str, reason: Option<String>) -> Result<()> {
+    let p = TaskNotThisParams {
+        task: id.to_string(),
+        reason,
+        author: None,
+        discord: None,
+    };
+    let v = conn.request(method::TASK_NOT_THIS, p).await?;
+    output(json, v, |r: TaskNotThisResult| {
+        println!("{}", not_this_line(&r));
+        Ok(())
+    })
+}
+
+/// What `not-this` did, in words.
+fn not_this_line(r: &TaskNotThisResult) -> String {
+    let short = task_tree::short_id(&r.task.task_id);
+    let mut line = format!(
+        "Not this: {short} is {}. Preference {} will keep Theseus from starting work like it",
+        r.task.state, r.preference.id
+    );
+    if let Some(old) = &r.replaced {
+        line.push_str(&format!(" (it replaces {old})"));
+    }
+    line.push('.');
+    if r.labeled.is_some() {
+        line.push_str(" The offer that produced it is labelled wrong.");
+    }
+    line
 }
 
 /// What `pause` or `resume` did, in words.
@@ -341,5 +384,44 @@ mod tests {
             "{l:?}"
         );
         assert!(l[0].contains("no model turn"), "{l:?}");
+    }
+
+    #[test]
+    fn not_this_names_the_task_the_preference_and_what_it_replaced() {
+        let rec = |id: &str| theseus_protocol::StandingRecord {
+            id: id.into(),
+            kind: theseus_protocol::StandingKind::Preference,
+            text: "Not this".into(),
+            scope: theseus_protocol::StandingScope::Everywhere,
+            since_ms: 1,
+            until_ms: None,
+            source: "task.not_this".into(),
+            ends: None,
+        };
+        let mut r = TaskNotThisResult {
+            task: serde_json::from_value(serde_json::json!({
+                "task_id": "ses_0000a1b2c3", "short": "a1b2c3", "execution_id": "exe_1",
+                "parent_session_id": "ses_p", "parent_execution_id": "exe_p",
+                "state": "cancelled", "spent_usd": 0.0, "limit_usd": 1.0, "cost_usd": 0.0,
+                "turns": 1, "created_at_ms": 1, "updated_at_ms": 2
+            }))
+            .unwrap(),
+            preference: rec("std_0001"),
+            replaced: None,
+            labeled: None,
+        };
+        let l = not_this_line(&r);
+        assert!(
+            l.contains("a1b2c3 is cancelled") && l.contains("std_0001"),
+            "{l}"
+        );
+        assert!(!l.contains("replaces") && !l.contains("labelled"), "{l}");
+        r.replaced = Some("std_0000".into());
+        r.labeled = Some("jdg_1".into());
+        let l = not_this_line(&r);
+        assert!(
+            l.contains("replaces std_0000") && l.contains("labelled wrong"),
+            "{l}"
+        );
     }
 }

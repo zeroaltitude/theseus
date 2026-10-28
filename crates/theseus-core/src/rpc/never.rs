@@ -9,6 +9,9 @@
 //!   kept in the file;
 //! - `person`: a person's name, which joins `Core::not_people` as
 //!   `[people] not_people` does;
+//! - `pair`: two people who are not one (theseus-jrffh), its name the two
+//!   ids as `same::pair_key` joins them; `ontology.person.not_same` writes
+//!   it and the automatic merge and the proposals read it;
 //! - `session`: for a new topic that has no name yet, the session itself:
 //!   never propose a new topic for it.
 //!
@@ -22,8 +25,9 @@ use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 use theseus_protocol::{
     method, OntologyNever, OntologyNeverListParams, OntologyNeverListResult,
-    OntologyNeverUndoParams, OntologyNeverUndoResult, OntologyProposalNeverParams,
-    OntologyProposalNeverResult,
+    OntologyNeverUndoParams, OntologyNeverUndoResult, OntologyPersonNotSame,
+    OntologyPersonNotSameListParams, OntologyPersonNotSameListResult, OntologyPersonNotSameParams,
+    OntologyProposalNeverParams, OntologyProposalNeverResult,
 };
 use theseus_store::{kinds, NewRecord, Store as _};
 
@@ -31,6 +35,7 @@ use super::confirms::Act;
 use super::Core;
 use crate::approval::Answerer;
 use crate::judge::people::fold;
+use crate::judge::people::same::pair_key;
 
 /// The META keys' prefix.
 const PREFIX: &str = "ontology.never.";
@@ -55,6 +60,7 @@ pub(crate) struct Never {
 fn wire_key(kind: &str, name: &str) -> String {
     match kind {
         "session" => format!("session:{}", name.trim()),
+        "pair" => format!("pair:{}", name.trim()),
         _ => format!("{kind}:{}", fold(name)),
     }
 }
@@ -71,6 +77,19 @@ fn info(n: &Never) -> OntologyNever {
         who: n.who.clone(),
         at_ms: n.at_ms,
         note: n.note.clone(),
+    }
+}
+
+fn pair_info(n: &Never, undone: bool) -> OntologyPersonNotSame {
+    let (a, b) = n.name.split_once('|').unwrap_or((&n.name, ""));
+    OntologyPersonNotSame {
+        key: wire_key(&n.kind, &n.name),
+        a: a.into(),
+        b: b.into(),
+        who: n.who.clone(),
+        at_ms: n.at_ms,
+        note: n.note.clone(),
+        undone,
     }
 }
 
@@ -141,6 +160,87 @@ impl Core {
             .filter(|n| n.kind == "person")
             .map(|n| n.name)
             .collect()
+    }
+
+    /// The people pairs recorded as not the same, as `pair_key` writes them.
+    pub(crate) fn not_same_pairs(&self) -> HashSet<String> {
+        self.nevers_stored()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n.kind == "pair")
+            .map(|n| n.name)
+            .collect()
+    }
+
+    /// `ontology.person.not_same`: the pair of people recorded as not one
+    /// (or, with `undo`, the record taken back), judged as the other
+    /// ontology writes are. Both must be held people.
+    pub fn ontology_person_not_same(
+        &self,
+        p: &OntologyPersonNotSameParams,
+        who: impl Into<Answerer>,
+    ) -> Result<OntologyPersonNotSame> {
+        let who = who.into();
+        let what = format!("{} and {} are not the same person", p.a.trim(), p.b.trim());
+        self.judge_act(
+            &who,
+            Act::Ontology {
+                method: method::ONTOLOGY_PERSON_NOT_SAME,
+                what: &what,
+            },
+        )?;
+        let o = self.runner.ontology.snapshot(&self.store)?;
+        let a = super::ontology::resolve(&o, theseus_ontology::person::KIND, &p.a)?;
+        let b = super::ontology::resolve(&o, theseus_ontology::person::KIND, &p.b)?;
+        for id in [&a, &b] {
+            if o.category(id)
+                .is_none_or(|c| c.kind() != theseus_ontology::person::KIND)
+            {
+                bail!("{id} is no held person: `theseus ontology categories` lists them");
+            }
+        }
+        if a == b {
+            bail!("{a} is one person: a \"not the same\" takes two");
+        }
+        let name = pair_key(&a.to_string(), &b.to_string());
+        let wire = wire_key("pair", &name);
+        let meta = meta_key(&wire);
+        if p.undo {
+            let mut never = self
+                .store
+                .get_meta::<Never>(&meta)?
+                .filter(|n| n.undone_ms.is_none())
+                .ok_or_else(|| anyhow!("{a} and {b} are not recorded as different people"))?;
+            never.undone_ms = Some(theseus_protocol::now_unix_ms());
+            self.store.put_meta(&meta, &never)?;
+            return Ok(pair_info(&never, true));
+        }
+        let never = Never {
+            kind: "pair".into(),
+            name,
+            who: who.who(),
+            via: who.via(),
+            at_ms: theseus_protocol::now_unix_ms(),
+            note: p.note.clone(),
+            undone_ms: None,
+        };
+        self.store.put_meta(&meta, &never)?;
+        Ok(pair_info(&never, false))
+    }
+
+    /// `ontology.person.not_same_list`: a read.
+    pub fn ontology_person_not_same_list(
+        &self,
+        _: &OntologyPersonNotSameListParams,
+    ) -> Result<OntologyPersonNotSameListResult> {
+        Ok(OntologyPersonNotSameListResult {
+            pairs: self
+                .nevers_stored()?
+                .iter()
+                .filter(|n| n.kind == "pair")
+                .map(|n| pair_info(n, false))
+                .collect(),
+        })
     }
 
     /// What a listed proposal asks never to be proposed: a person's name, a
@@ -253,7 +353,7 @@ impl Core {
         )?;
         let (kind, name) = key
             .split_once(':')
-            .filter(|(k, _)| matches!(*k, "topic" | "person" | "session"))
+            .filter(|(k, _)| matches!(*k, "topic" | "person" | "session" | "pair"))
             .ok_or_else(|| {
                 anyhow!("{key:?} is not a never's key: `theseus ontology never` lists them")
             })?;

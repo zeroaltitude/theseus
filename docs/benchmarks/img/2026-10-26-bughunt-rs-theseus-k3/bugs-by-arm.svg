@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="334" viewBox="0 0 720 334" role="img" aria-labelledby="t-bugs-by-arm t-bugs-by-arm-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-bugs-by-arm">Bug-trials fixed of 39 (13 planted bugs x 3 rounds), with 95% Wilson intervals</title>
+<desc id="t-bugs-by-arm-d">Did the 1.0.3 stops rows move what Theseus fixes on the Bug Hunt?</desc>
+<rect width="720" height="334" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">Bug-trials fixed of 39 (13 planted bugs x 3 rounds), with 95% Wilson intervals</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#2a78d6"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">Theseus as shipped, frozen 1.0.3 (92e3dbed)</text>
+<circle cx="334.2" cy="50.0" r="5" fill="#52514e"/>
+<text x="349.2" y="54.0" font-size="12" fill="#52514e">Theseus as shipped, 1.0.1 (round 1)</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#eb6834"/>
+<text x="40.0" y="74.0" font-size="12" fill="#52514e">Claude Code 2.1.290</text>
+<circle cx="190.4" cy="70.0" r="5" fill="#898781"/>
+<text x="205.4" y="74.0" font-size="12" fill="#52514e">OpenCode 1.18.35 and Codex CLI 0.161.0 (outside the house palette)</text>
+<line x1="301.2" y1="92.0" x2="301.2" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="353.8" y1="92.0" x2="353.8" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="406.5" y1="92.0" x2="406.5" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="459.1" y1="92.0" x2="459.1" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="511.7" y1="92.0" x2="511.7" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<line x1="564.3" y1="92.0" x2="564.3" y2="240.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="287.2" y="114.0" font-size="12" fill="#0b0b0b" text-anchor="end">Theseus as shipped, frozen 1.0.3 (92e3dbed)</text>
+<g><title>Theseus as shipped, frozen 1.0.3 (92e3dbed): 25.6%  [14.6%, 41.1%] (10 of 39; 3.33 bugs a trial)</title>
+<line x1="339.5" y1="110.0" x2="409.3" y2="110.0" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<line x1="339.5" y1="105.0" x2="339.5" y2="115.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="409.3" y1="105.0" x2="409.3" y2="115.0" stroke="#2a78d6" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="368.7" cy="110.0" r="12" fill="transparent"/>
+<circle cx="368.7" cy="110.0" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="114.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">25.6%  [14.6%, 41.1%]</text>
+<text x="287.2" y="142.0" font-size="12" fill="#0b0b0b" text-anchor="end">Theseus as shipped, 1.0.1 (round 1)</text>
+<g><title>Theseus as shipped, 1.0.1 (round 1): 33.3%  [20.6%, 49.0%] (13 of 39; 4.33 bugs a trial)</title>
+<line x1="355.5" y1="138.0" x2="430.2" y2="138.0" stroke="#52514e" stroke-width="2" stroke-linecap="round"/>
+<line x1="355.5" y1="133.0" x2="355.5" y2="143.0" stroke="#52514e" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="430.2" y1="133.0" x2="430.2" y2="143.0" stroke="#52514e" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="388.9" cy="138.0" r="12" fill="transparent"/>
+<circle cx="388.9" cy="138.0" r="5" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="142.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">33.3%  [20.6%, 49.0%]</text>
+<text x="287.2" y="170.0" font-size="12" fill="#0b0b0b" text-anchor="end">Claude Code 2.1.290</text>
+<g><title>Claude Code 2.1.290: 74.4%  [58.9%, 85.4%] (29 of 39; 9.67 bugs a trial)</title>
+<line x1="456.2" y1="166.0" x2="526.0" y2="166.0" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/>
+<line x1="456.2" y1="161.0" x2="456.2" y2="171.0" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="526.0" y1="161.0" x2="526.0" y2="171.0" stroke="#eb6834" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="496.9" cy="166.0" r="12" fill="transparent"/>
+<circle cx="496.9" cy="166.0" r="5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="170.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">74.4%  [58.9%, 85.4%]</text>
+<text x="287.2" y="198.0" font-size="12" fill="#0b0b0b" text-anchor="end">OpenCode 1.18.35</text>
+<g><title>OpenCode 1.18.35: 79.5%  [64.5%, 89.2%] (31 of 39; 10.33 bugs a trial)</title>
+<line x1="470.8" y1="194.0" x2="536.0" y2="194.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="470.8" y1="189.0" x2="470.8" y2="199.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="536.0" y1="189.0" x2="536.0" y2="199.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="510.4" cy="194.0" r="12" fill="transparent"/>
+<circle cx="510.4" cy="194.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="198.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">79.5%  [64.5%, 89.2%]</text>
+<text x="287.2" y="226.0" font-size="12" fill="#0b0b0b" text-anchor="end">Codex CLI 0.161.0 (gpt-6-astra)</text>
+<g><title>Codex CLI 0.161.0 (gpt-6-astra): 59.0%  [43.4%, 72.9%] (23 of 39; 7.67 bugs a trial)</title>
+<line x1="415.5" y1="222.0" x2="493.1" y2="222.0" stroke="#898781" stroke-width="2" stroke-linecap="round"/>
+<line x1="415.5" y1="217.0" x2="415.5" y2="227.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="493.1" y1="217.0" x2="493.1" y2="227.0" stroke="#898781" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="456.4" cy="222.0" r="12" fill="transparent"/>
+<circle cx="456.4" cy="222.0" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/>
+</g>
+<text x="578.3" y="226.0" font-size="11" fill="#52514e" style="font-variant-numeric: tabular-nums">59.0%  [43.4%, 72.9%]</text>
+<line x1="301.2" y1="240.0" x2="564.3" y2="240.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="301.2" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="353.8" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="406.5" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="459.1" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">60%</text>
+<text x="511.7" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">80%</text>
+<text x="564.3" y="256.0" font-size="11" fill="#52514e" text-anchor="middle" style="font-variant-numeric: tabular-nums">100%</text>
+<text x="432.8" y="274.0" font-size="12" fill="#52514e" text-anchor="middle">bug-trials fixed</text>
+<text x="18.0" y="296.0" font-size="11" fill="#52514e">Theseus 1.0.3 ran 2026-10-26 on an idle M1 Max, one trial at a time; every other arm is round 1's (2026-10-24, two at a</text>
+<text x="18.0" y="311.0" font-size="11" fill="#52514e">time), not rerun. Bugs within a trial are not independent, so the interval is optimistic.</text>
+</svg>

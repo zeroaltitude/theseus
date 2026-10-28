@@ -79,9 +79,9 @@ pub struct TaskStartParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub outside_quotes: bool,
-    /// An open task: its session starts from the brief alone and is compiled
-    /// in the open view; its data may go to a model of any origin once its
-    /// content is judged open.
+    /// Retired with the open view (theseus-9ymz0): a start that sets it is
+    /// refused. What keeps a session off a model outside the owner's trust is
+    /// the content labels on it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub open: bool,

@@ -4,7 +4,7 @@
 // as a kernel action. Gathered from the assistant node and its `provider.call` row. It lives in the address
 // (`?msg=<node_id>` on a session's page).
 import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Bot, Brain, ChevronRight, Wrench } from 'lucide-react'
@@ -12,6 +12,7 @@ import type { CatalogList, CompilationInfo, LedgerEntry, SessionHistory } from '
 import { useRpc } from '@/lib/rpc'
 import { useLedger } from '@/lib/derive'
 import { cn, ms, stamp, tokens, usd } from '@/lib/format'
+import { manifestHref } from '@/lib/explorer'
 import type { Tone } from '@/lib/taxonomy'
 
 /** A tone as its CSS token: the Ship's night island and the day's paper each read their own (theseus-hnof.5). */
@@ -96,7 +97,11 @@ export function ModelInspector({ sessionId }: { sessionId: string }) {
                 <span className="text-ink-faint">nodes included</span><span className="num text-ink">{comp.includes.toLocaleString()}</span>
                 <span className="text-ink-faint">as of</span><span className="num text-ink-dim">position {comp.as_of.toLocaleString()}</span>
                 <span />
-                <button onClick={() => setParams((q) => { q.set('tab', 'context'); return q }, { replace: true })} className="justify-self-start text-[11px] text-live hover:underline">its manifest, in the Context tab →</button>
+                {/* A whole address, not an edit to this page's (theseus-gi8o2): this drawer is drawn on the Ship as
+                    well as on the deck, and `?tab=context` is a key only the deck reads, so on the Ship the old
+                    button did nothing at all. `?comp=` opens this compilation's own manifest on arrival. */}
+                <Link to={manifestHref(sessionId, comp.compilation_id)} title="the session deck's Context tab, with this compilation's manifest open"
+                  className="justify-self-start text-[11px] text-live hover:underline">its manifest, in the Context tab →</Link>
               </div>
             ) : <div className="text-[12px] text-ink-faint">{d.compilation_id ? `compilation …${String(d.compilation_id).slice(-10)} (not among the session's newest 50)` : 'no compilation recorded'}</div>}
           </Section>

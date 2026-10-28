@@ -35,6 +35,14 @@ test('a provider error says its class and whether it may be tried again', () => 
 test("a refusal's fallback names the model that refused and the one it goes to (theseus-7gir.18)", () => {
   assert.equal(summarize(row('provider.fallback', { from: 'claude-sonnet-5-5', to: 'claude-sonnet-5', category: 'cyber', loop: 0, refused: 'msg_1' })),
     'claude-sonnet-5-5 refused (cyber) · the request goes to claude-sonnet-5, once')
+  // One row per switch, and one per return (theseus-wf482).
+  const sw = { from: 'claude-sonnet-5-5', to: 'claude-sonnet-5', category: 'reasoning_extraction', loop: 1, refused: 'msg_2', n: 1 }
+  assert.equal(summarize(row('provider.fallback', { ...sw, latched: false })),
+    'claude-sonnet-5-5 refused (reasoning_extraction) · the request goes to claude-sonnet-5, the next goes back')
+  assert.equal(summarize(row('provider.fallback', { ...sw, n: 3, latched: true })),
+    'claude-sonnet-5-5 refused (reasoning_extraction) · the request goes to claude-sonnet-5, and the turn stays there')
+  assert.equal(summarize(row('provider.routed_back', { to: 'claude-sonnet-5-5', loop: 2, after: 'claude-sonnet-5' })),
+    'claude-sonnet-5 answered · back to claude-sonnet-5-5')
 })
 
 test('a family with no case of its own reads by its outcome', () => {

@@ -37,6 +37,7 @@ import {
 } from '@/lib/healthwords'
 import type { Tone } from '@/lib/taxonomy'
 import { LiveDot } from './ui'
+import { HomeMark } from './HomeMark'
 import { DiskAttention } from './DiskSpool'
 import { PlankStrip } from './brass'
 import { ShipsWheel } from '@/components/ShipsWheel'
@@ -86,10 +87,12 @@ function Heartbeat({ world }: { world: World | null }) {
     <header className="brass-bar relative flex h-12 shrink-0 items-center gap-4 overflow-hidden whitespace-nowrap px-4">
       <div className="absolute inset-x-0 top-0 h-px live-sweep" />
       <div className="absolute inset-x-0 bottom-0" title="Each new plank is a ledger row of the last minute"><PlankStrip lit={lit} height={4} /></div>
-      <div className="flex shrink-0 items-baseline gap-2" title={h ? `theseus ${h.version} · protocol ${h.protocol}` : undefined}>
+      {/* The wordmark goes home (theseus-j4cjc): the version rides inside the anchor, so the whole mark is the press. */}
+      <HomeMark title={`back to the start${h ? ` · theseus ${h.version} · protocol ${h.protocol}` : ''}`}
+        className="flex shrink-0 items-baseline gap-2 transition hover:brightness-125">
         <span className="wordmark text-[15px]">THESEUS</span>
         <span className="num text-[11px] text-ink-faint">{h ? `v${h.version}` : '…'}</span>
-      </div>
+      </HomeMark>
       <ProfileChip then={world ? { profile: g?.profile ?? null, t: world.t } : null} />
       {g ? (
         g.uptimeSecs !== null

@@ -15,14 +15,32 @@ export type IndexRow = {
   usdPerTrial: Interval | null
   /** A comparison arm the report drew against, or a row repeating an earlier report's figures: not a new measurement. */
   carried: boolean
+  /** The report this row repeats, where it names one: the run that did the measuring (theseus-s5qwv). */
+  carriedFrom: string | null
+  /** Which of the benchmark's tasks it ran (`full`, `subset:6`): two task sets are not one comparison. */
+  taskSet: string | null
+  /** Attempts a task. */
+  k: number | null
+  /** The model this arm ran, where the row names one apart from its peers'. */
+  armModel: string | null
+  /** The effort levels the row records, as it spells them. */
+  effort: string[]
+  /** The rest of the row's folded figures, where it states them: dollars a solved trial, and the median agent time. */
+  usdPerSolve: number | null
+  agentS: number | null
 }
 
 /** The newest measurement of one (benchmark, tier, arm), and the measurements before it, oldest to newest. */
 export type Series = { key: string; benchmark: string; tier: string | null; arm: string; newest: IndexRow; history: IndexRow[] }
 
-export type Manifest = { rows: IndexRow[]; series: Series[]; reason: string | null }
+/** A run this reader cannot score, named rather than dropped in silence (theseus-s5qwv): Bug Hunt RS counts bugs
+ *  fixed a trial and states no pass rate at all. A benchmark that measures something else is not a broken manifest,
+ *  and must not cost the page every other card: it is set aside here and gets its card from its report. */
+export type Skipped = { report: string; benchmark: string; arm: string; why: string }
 
-const EMPTY = (reason: string): Manifest => ({ rows: [], series: [], reason })
+export type Manifest = { rows: IndexRow[]; series: Series[]; reason: string | null; skipped: Skipped[] }
+
+const EMPTY = (reason: string): Manifest => ({ rows: [], series: [], reason, skipped: [] })
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const isStr = (v: unknown): v is string => typeof v === 'string' && v.length > 0
@@ -33,17 +51,26 @@ function interval(v: unknown): Interval | null {
   return isObj(v) && isNum(v.value) && isNum(v.lo) && isNum(v.hi) ? { value: v.value, lo: v.lo, hi: v.hi } : null
 }
 
-/** A row, or the first thing wrong with it. */
-function rowOf(raw: unknown): IndexRow | string {
-  if (!isObj(raw)) return 'is not an object'
+/** A metric that states a figure and no interval (`usd_per_solve`, `agent_s_median`). */
+const value = (v: unknown): number | null => (isObj(v) && isNum(v.value) ? v.value : null)
+
+/** A row this reader cannot score: whole as a row, but stating no pass rate at all. Its own words, for `Skipped.why`.
+ *  A `pass_rate` that is *there* and broken is a different thing and stays a fault of the manifest: `index.json` is
+ *  hand-edited, and a `lo`/`low` slip must not quietly drop a cell while the page says all is well. */
+const NO_PASS = 'states no `metrics.pass_rate`: this reader scores a pass rate and that run measures something else'
+
+/** A row; `{ bad }` for a manifest that is wrong, `{ aside }` for a whole row of a run this reader cannot score. */
+function rowOf(raw: unknown): IndexRow | { bad: string } | { aside: string } {
+  if (!isObj(raw)) return { bad: 'is not an object' }
   for (const f of ['report', 'benchmark', 'arm', 'variant', 'harness', 'date', 'dataset'] as const) {
-    if (!isStr(raw[f])) return `has no \`${f}\``
+    if (!isStr(raw[f])) return { bad: `has no \`${f}\`` }
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw.date as string)) return `has a \`date\` that is not YYYY-MM-DD`
-  if (!isNum(raw.trials)) return 'has no `trials`'
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw.date as string)) return { bad: 'has a `date` that is not YYYY-MM-DD' }
+  if (!isNum(raw.trials)) return { bad: 'has no `trials`' }
   const m = raw.metrics
-  const p = isObj(m) && isObj(m.pass_rate) ? m.pass_rate : null
-  if (!p || !isNum(p.value) || !isNum(p.lo) || !isNum(p.hi) || !isNum(p.k) || !isNum(p.n)) return 'has no whole `metrics.pass_rate`'
+  if (!isObj(m) || m.pass_rate === undefined) return { aside: NO_PASS }
+  const p = isObj(m.pass_rate) ? m.pass_rate : null
+  if (!p || !isNum(p.value) || !isNum(p.lo) || !isNum(p.hi) || !isNum(p.k) || !isNum(p.n)) return { bad: 'has no whole `metrics.pass_rate`' }
   return {
     report: raw.report as string, benchmark: raw.benchmark as string, tier: orNull(raw.tier, isStr),
     arm: raw.arm as string, variant: raw.variant as string, harness: raw.harness as string,
@@ -52,6 +79,13 @@ function rowOf(raw: unknown): IndexRow | string {
     pass: { value: p.value, lo: p.lo, hi: p.hi, k: p.k, n: p.n },
     usdPerTrial: isObj(m) ? interval(m.usd_per_trial) : null,
     carried: raw.comparison === true || isStr(raw.carried_from),
+    carriedFrom: orNull(raw.carried_from, isStr),
+    taskSet: orNull(raw.task_set, isStr),
+    k: orNull(raw.k, isNum),
+    armModel: orNull(raw.arm_model, isStr),
+    effort: Array.isArray(raw.effort) ? raw.effort.filter(isStr) : isStr(raw.effort) ? [raw.effort] : [],
+    usdPerSolve: value(m.usd_per_solve),
+    agentS: value(m.agent_s_median),
   }
 }
 
@@ -87,12 +121,18 @@ export function readManifest(text: string | null | undefined): Manifest {
   if (doc.version !== 1) return EMPTY(`the manifest is version ${String(doc.version)}; this build reads version 1`)
   if (!Array.isArray(doc.runs)) return EMPTY('the manifest has no `runs` list')
   const rows: IndexRow[] = []
+  const skipped: Skipped[] = []
   for (const [i, raw] of doc.runs.entries()) {
     const r = rowOf(raw)
-    if (typeof r === 'string') return EMPTY(`manifest row ${i} ${r}`)
+    if ('bad' in r) return EMPTY(`manifest row ${i} ${r.bad}`)
+    if ('aside' in r) {
+      const o = raw as Record<string, unknown>
+      skipped.push({ report: String(o.report), benchmark: String(o.benchmark), arm: String(o.arm), why: r.aside })
+      continue
+    }
     rows.push(r)
   }
-  return { rows, series: seriesOf(rows), reason: null }
+  return { rows, series: seriesOf(rows), reason: null, skipped }
 }
 
 /** A series' points for a small line: x and y in a w by h box, y from the lowest to the highest pass rate (a flat series centres). */

@@ -572,6 +572,23 @@ fn policy_and_trust() {
         "at_ms": 1_759_300_400_000u64, "held": external(), "since_local": "14:02"}))
     .unwrap();
     wire("session_trusted", &line(notify::SESSION_TRUSTED, trusted));
+    let label = json!({"flag": "injection", "node": "nod_e1", "kind": "fetched_page",
+        "source": "http.fetch notes.example/today", "confidence": 0.93, "band": "act",
+        "at_ms": 1_759_300_300_000u64});
+    let labelled: theseus_protocol::LabelRaised =
+        serde_json::from_value(json!({"session_id": S, "label": label})).unwrap();
+    wire(
+        "session_labelled",
+        &line(notify::SESSION_LABELLED, labelled),
+    );
+    let unlabelled: theseus_protocol::UnlabelResult = serde_json::from_value(json!({
+        "session_id": S, "flag": "injection", "by": "the CLI", "who": "sock#3", "via": "cli",
+        "how": "content.unlabel", "at_ms": 1_759_300_400_000u64, "label": label}))
+    .unwrap();
+    wire(
+        "session_unlabelled",
+        &line(notify::SESSION_UNLABELLED, unlabelled),
+    );
     wire(
         "profile_changed",
         &line(
@@ -1313,7 +1330,7 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
         assert_eq!(again, line, "{}", path.display());
         n += 1;
     }
-    assert_eq!(n, 46);
+    assert_eq!(n, 48);
 }
 
 /// Every line of a real daemon's capture (`theseus --json watch`, its path in

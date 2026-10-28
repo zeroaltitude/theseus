@@ -2,6 +2,7 @@
 import type { Attention } from "./Attention";
 import type { DataMark } from "./DataMark";
 import type { ExternalText } from "./ExternalText";
+import type { LabelView } from "./LabelView";
 import type { SessionKind } from "./SessionKind";
 import type { SessionLink } from "./SessionLink";
 import type { SessionRetired } from "./SessionRetired";
@@ -86,6 +87,11 @@ dir?: string,
  * client gave it a directory, else absent.
  */
 started_on?: string, data?: DataMark, 
+/**
+ * The content labels it carries (theseus-9ymz0), in the flags' order. Empty
+ * when it carries none, and from a daemon before them.
+ */
+labels?: Array<LabelView>, 
 /**
  * With `session.list`'s `with_text`: the words of its first user
  * message and of its last message, cut short; and `prompts`, the head

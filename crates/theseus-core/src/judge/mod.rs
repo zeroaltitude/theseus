@@ -33,6 +33,7 @@ pub mod categorize;
 pub mod citation;
 pub mod compare;
 pub mod compile;
+pub mod content;
 pub mod cross;
 pub mod families;
 pub mod gate;
@@ -47,7 +48,6 @@ pub mod notice;
 pub mod offer;
 pub mod onto;
 pub mod people;
-mod reply_data;
 pub mod rerank;
 mod seal;
 pub mod sink;
@@ -56,6 +56,8 @@ pub mod spend;
 pub mod stop;
 #[cfg(test)]
 mod tests_ahead;
+#[cfg(test)]
+mod tests_content;
 #[cfg(test)]
 mod tests_heard;
 #[cfg(test)]
@@ -120,6 +122,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (heard::PACK, PackMode::Live),
     (people::PACK, PackMode::Live),
     (people::seen::SEEN_PACK, PackMode::Live),
+    (content::PACK, PackMode::Live),
 ];
 
 /// The mode `WIRED` gives `pack` (shadow for one it does not list).
@@ -201,6 +204,8 @@ pub struct JudgeService {
     categorize: categorize::Point,
     /// `people.v1`'s live point (theseus-wy7y): its decisions.
     pub(crate) people: people::live::Point,
+    /// `content.v2`'s queues, one a session (theseus-9ymz0).
+    pub(crate) content: content::Point,
     /// The card's exchange-end observer: its decisions (theseus-6f8t0).
     pub(crate) observing: crate::card::observe::Point,
     rerank_deadline: rerank::RerankDeadline,
@@ -303,6 +308,7 @@ impl JudgeService {
             categorize: Default::default(),
             people: Default::default(),
             observing: Default::default(),
+            content: Default::default(),
             rerank_deadline: rerank::RerankDeadline::default(),
             #[cfg(test)]
             route_answers: Default::default(),

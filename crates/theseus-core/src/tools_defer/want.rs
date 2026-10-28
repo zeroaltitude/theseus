@@ -107,6 +107,8 @@ pub enum By {
     Named,
     /// Jev judged it relevant to the message (`families.v1`).
     Jev,
+    /// A static cue admitted it (theseus-z9mze.4: the fan-out cue, `turn/route_step/fan_out_cue.rs`).
+    Cue,
 }
 
 impl By {
@@ -115,6 +117,7 @@ impl By {
             By::Asked => "asked",
             By::Named => "named",
             By::Jev => "jev",
+            By::Cue => "cue",
         }
     }
 }
@@ -180,6 +183,25 @@ pub fn extra(
         });
     }
     out
+}
+
+/// The family a cue admits (theseus-z9mze.4), held to the same ceiling as every other admission:
+/// nothing when it is not hideable, is already loaded, is not in the request's tools, or does not fit.
+pub fn cued(
+    family: &str,
+    catalog: &[Value],
+    loaded: &BTreeSet<String>,
+    fit: &Fit,
+) -> Option<Admitted> {
+    let hidden = super::hidden_of(catalog, &[])
+        .into_iter()
+        .any(|h| h.family == family);
+    (family::hideable(family) && hidden && !loaded.contains(family) && fits(fit, loaded, family))
+        .then(|| Admitted {
+            family: family.to_string(),
+            tokens: fit.tokens(family),
+            by: By::Cue,
+        })
 }
 
 /// Whether `family` joins `loaded` with the whole first request still at or
@@ -286,6 +308,53 @@ mod tests {
         ] {
             assert!(!asks_for_task(no), "{no}");
         }
+    }
+
+    /// theseus-z9mze.4: the cue is a fourth way in, and the other three admit as before.
+    #[test]
+    fn a_cue_is_a_fourth_way_in_and_the_other_three_admit_as_before() {
+        let catalog = vec![
+            def("fs_read", 100),
+            def("aws_whoami", 600),
+            def("task_create", 600),
+            def("memory_lookup", 300),
+            def("task_fan_out", 600),
+        ];
+        let loaded: BTreeSet<String> = ["files".to_string()].into();
+        let mut fit = fit_of(PlaceKind::Dm, &catalog, 0);
+        fit.ceiling = 15_000;
+        let got = super::extra(
+            "start a background task, then run aws_whoami",
+            &[("memory".to_string(), 0.9)],
+            &catalog,
+            &loaded,
+            &fit,
+        );
+        let by: Vec<(&str, By)> = got.iter().map(|a| (a.family.as_str(), a.by)).collect();
+        assert_eq!(
+            by,
+            [
+                ("tasks", By::Asked),
+                ("aws", By::Named),
+                ("memory", By::Jev)
+            ]
+        );
+        assert_eq!(
+            [By::Asked, By::Named, By::Jev, By::Cue].map(By::as_str),
+            ["asked", "named", "jev", "cue"]
+        );
+        // The cue admits the helpers family, by its own word, under the same ceiling.
+        let c = cued(family::HELPERS, &catalog, &loaded, &fit).unwrap();
+        assert_eq!((c.family.as_str(), c.by), ("helpers", By::Cue));
+        assert_eq!(c.tokens, fit.tokens("helpers"));
+        // Nothing for a family already loaded, one the request lacks, one never hidden, or one
+        // that does not fit.
+        let with: BTreeSet<String> = ["files".to_string(), "helpers".to_string()].into();
+        assert!(cued(family::HELPERS, &catalog, &with, &fit).is_none());
+        assert!(cued(family::HELPERS, &catalog[..4], &loaded, &fit).is_none());
+        assert!(cued(family::OTHER, &catalog, &loaded, &fit).is_none());
+        fit.ceiling = 1;
+        assert!(cued(family::HELPERS, &catalog, &loaded, &fit).is_none());
     }
 
     #[test]

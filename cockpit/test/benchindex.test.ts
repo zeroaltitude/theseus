@@ -53,15 +53,36 @@ test('a manifest it cannot trust is empty, with a named reason, and never throws
     [JSON.stringify({ version: 1 }), /no `runs`/],
     [manifest([row('r', '2026-03-01', 3), { report: 'x' }]), /row 1 has no `benchmark`/],
     [manifest([row('r', 'March', 3)]), /row 0 .*date/],
-    [manifest([row('r', '2026-03-01', 3, { metrics: { pass_rate: { value: 'high' } } })]), /row 0 has no whole `metrics.pass_rate`/],
     [manifest([row('r', '2026-03-01', 3, { trials: '9' })]), /row 0 has no `trials`/],
     [manifest([null]), /row 0 is not an object/],
+    // A `pass_rate` that is there and broken is a fault of the manifest, not a run measured another way. The file is
+    // hand-edited, so a `lo`/`low` slip is the realistic case, and it must not quietly drop a cell from the page.
+    [manifest([row('r', '2026-03-01', 3, { metrics: { pass_rate: { value: 'high' } } })]), /row 0 has no whole `metrics.pass_rate`/],
+    [manifest([row('r', '2026-03-01', 3, { metrics: { pass_rate: { value: 0.8, low: 0.7, hi: 0.9, k: 8, n: 10 } } })]), /row 0 has no whole `metrics.pass_rate`/],
   ]
   for (const [text, why] of bad) {
     const m = readManifest(text as string)
-    assert.deepEqual([m.rows, m.series], [[], []], String(text))
+    assert.deepEqual([m.rows, m.series, m.skipped], [[], [], []], String(text))
     assert.match(m.reason ?? '', why)
   }
+})
+
+test('a whole row that states no pass rate is set aside by name, and never costs the manifest its other rows', () => {
+  // theseus-s5qwv: Bug Hunt RS counts bugs fixed a trial. Before this one row emptied the whole manifest and the
+  // Benchmarks page lost every card it had.
+  const m = readManifest(manifest([
+    row('good', '2026-03-01', 3),
+    row('bugs', '2026-03-02', 3, { benchmark: 'bughunt-rs', metrics: { bugs_fixed_per_trial: { value: 3.33 } } }),
+  ]))
+  assert.equal(m.reason, null)
+  assert.equal(m.rows.length, 1)
+  assert.equal(m.rows[0].report, 'good')
+  assert.deepEqual(m.skipped.map((s) => [s.report, s.benchmark]), [['bugs', 'bughunt-rs']])
+  assert.match(m.skipped[0].why, /pass_rate/)
+  // Only an absent pass rate is set aside. A row with no `metrics` at all states none either.
+  const none = readManifest(manifest([row('r', '2026-03-01', 3, { metrics: undefined })]))
+  assert.equal(none.reason, null)
+  assert.equal(none.skipped.length, 1)
 })
 
 test('the sparkline puts the lowest rate at the foot and the highest at the top, and centres a flat one', () => {
@@ -71,22 +92,27 @@ test('the sparkline puts the lowest rate at the foot and the highest at the top,
   assert.deepEqual(sparkline([], 40, 8), [])
 })
 
-test('the committed manifest parses, and its newest Terminal-Bench rows for Theseus are the 2026-10-23 retest', () => {
+test('the committed manifest parses, and its newest Terminal-Bench rows for Theseus are the newest cells', () => {
   const text = readFileSync(new URL('../../docs/benchmarks/index.json', import.meta.url), 'utf8')
   const m = readManifest(text)
   assert.equal(m.reason, null)
   assert.ok(m.rows.length > 40)
   const tb = m.series.filter((s) => s.benchmark === 'terminal-bench@2.0')
   const theseus = (tier: string) => tb.find((s) => s.arm === 'theseus' && s.tier === tier)!
-  assert.equal(theseus('max').newest.report, '2026-10-23-terminal-bench-retest-max')
-  assert.equal(theseus('high').newest.report, '2026-10-23-terminal-bench-retest-high-timeouts')
-  for (const tier of ['max', 'high']) {
-    const n = theseus(tier).newest
-    assert.equal(n.date, '2026-10-23')
-    assert.match(n.commit ?? '', /^fe56a164/)
-  }
+  // The max tier gained the frozen 1.0.3 cell on 10-27, all 30 tasks x 3 (theseus-gauntlet-1025 cell c7).
+  assert.equal(theseus('max').newest.report, '2026-10-27-terminal-bench-theseus-1.0.3-max-k3')
+  assert.equal(theseus('max').newest.date, '2026-10-27')
+  assert.equal(theseus('max').newest.tasks, 30)
+  assert.equal(theseus('max').newest.trials, 90)
+  assert.match(theseus('max').newest.commit ?? '', /92e3dbed/)
+  // The high tier gained the frozen 1.0.3 cell on 10-26, all 89 tasks x 3 (theseus-cfttq).
+  assert.equal(theseus('high').newest.report, '2026-10-26-terminal-bench-theseus-1.0.3-high-k3')
+  assert.equal(theseus('high').newest.date, '2026-10-26')
+  assert.equal(theseus('high').newest.tasks, 89)
+  assert.equal(theseus('high').newest.trials, 267)
   // The history reaches back through the 10-21 rerun to the v1 run, one point a report.
-  assert.deepEqual(theseus('max').history.map((r) => r.date), ['2026-10-18', '2026-10-21', '2026-10-23'])
+  assert.deepEqual(theseus('max').history.map((r) => r.date), ['2026-10-18', '2026-10-21', '2026-10-23', '2026-10-27'])
+  assert.deepEqual(theseus('high').history.map((r) => r.date), ['2026-10-18', '2026-10-21', '2026-10-23', '2026-10-26'])
   // The rivals were not run again on 10-23: their newest measurement is the v1 run's, not a re-cut of it.
   assert.equal(tb.find((s) => s.arm === 'claude-code' && s.tier === 'max')!.newest.date, '2026-10-18')
   // Every series' newest is its history's last.

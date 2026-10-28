@@ -715,8 +715,8 @@ impl Kernel {
     /// An action, read under its execution's lock: read once to learn its
     /// execution, which never changes, then lock that and read it again, so
     /// that what the caller decides comes from the read inside the lock. A
-    /// task's action locks the parent too (`lock_family`): what it settles
-    /// is the parent's spend as well (DD7).
+    /// task's action locks every execution above it too (`lock_family`): what
+    /// it settles is their spend as well (DD7, theseus-deaqt).
     pub(crate) fn locked_action(
         &self,
         correlation_id: &str,
@@ -731,42 +731,44 @@ impl Kernel {
         Ok(Some((lock, a)))
     }
 
-    /// Lock an execution for a transition that may reach its parent: a task
-    /// (DD7) and its parent together, in id order, since a task's spend
-    /// and its end are written into the parent in the same frame; any other
-    /// execution alone. The parent is read outside the lock, which is sound
-    /// because an execution's parent never changes.
-    pub(crate) fn lock_family(&self, execution_id: &str) -> Result<ExecLock<'_>> {
-        let parent = self.execution(execution_id)?.and_then(|e| e.parent);
-        Ok(match parent {
-            Some(p) => self.lock(&[execution_id, &p]),
-            None => self.lock(&[execution_id]),
-        })
+    /// `execution_id` and every execution above it, nearest first, up to the
+    /// conversation; a conversation is its own whole family. Read outside any
+    /// lock, which is sound because an execution's `parent` is written once,
+    /// when it is opened, and never changed. A chain that names an id twice,
+    /// which only a corrupt store could hold, stops there instead of looping.
+    pub(crate) fn family(&self, execution_id: &str) -> Result<Vec<String>> {
+        let mut out = vec![execution_id.to_string()];
+        let mut seen: HashSet<String> = HashSet::new();
+        seen.insert(execution_id.to_string());
+        let mut at = execution_id.to_string();
+        while let Some(p) = self.execution(&at)?.and_then(|e| e.parent) {
+            if !seen.insert(p.clone()) {
+                break;
+            }
+            out.push(p.clone());
+            at = p;
+        }
+        Ok(out)
     }
 
-    /// A task's change reaches its parent (DD7): under both locks, which the
-    /// caller holds (`lock_family`), the parent is read, `carry` applies, and
-    /// the parent's record joins `frame` when it changed. `spent_before` is
-    /// the task's spend before the change. Nothing for an execution with no
-    /// parent.
-    pub(crate) fn carry_to_parent(
-        &self,
-        child: &Execution,
-        spent_before: Micros,
-        frame: &mut Vec<NewRecord>,
-    ) -> Result<Option<Execution>> {
-        let Some(pid) = &child.parent else {
-            return Ok(None);
-        };
-        let Some(mut parent) = self.execution(pid)? else {
-            return Ok(None);
-        };
-        if crate::tasks::carry(&mut parent, child, spent_before) {
-            parent.updated_at_ms = self.now_ms();
-            frame.push(exec_record(&parent)?);
-            return Ok(Some(parent));
-        }
-        Ok(None)
+    /// Lock an execution for a transition that may reach the executions above
+    /// it: a task (DD7) and **every** execution above it, up to the
+    /// conversation, in id order, since a task's settled spend is the spend of
+    /// each of them and is written into all of them in the one frame
+    /// (`carry_to_parent`, theseus-deaqt), and its end releases the carve in
+    /// each of them too (`task_ended`); any other execution alone. The chain
+    /// is read outside the lock (`family`).
+    ///
+    /// **The ordering rule: name every execution you may write in the one
+    /// `lock_all` call (`lock`, `lock_family`, or `Kernel::frame`), never a
+    /// lock inside a lock.** That is why a family of any length cannot
+    /// deadlock, and `locks.rs`'s module doc argues it: one call, sorted ids,
+    /// and a second call while a lock is held panics instead of waiting, so a
+    /// thread waits only for an id greater than every id it holds.
+    pub(crate) fn lock_family(&self, execution_id: &str) -> Result<ExecLock<'_>> {
+        let family = self.family(execution_id)?;
+        let ids: Vec<&str> = family.iter().map(String::as_str).collect();
+        Ok(self.lock(&ids))
     }
 
     /// `locked_action`, for a transition that needs the action to exist.

@@ -10,7 +10,7 @@ use theseus_core::approval::Answerer;
 use theseus_core::config::self_improve::SelfMode;
 use theseus_core::ledger::LedgerRow;
 use theseus_core::provider::{FakeProvider, Provider};
-use theseus_protocol::rsi::{SelfBacklogParams, SelfResumeParams};
+use theseus_protocol::rsi::{SelfBacklogParams, SelfHaltParams, SelfResumeParams};
 use theseus_protocol::LedgerKind;
 use theseus_sim::fake_discord::Msg;
 
@@ -32,7 +32,7 @@ async fn rig() -> Rig {
         &[],
         |c| {
             c.self_improve.mode = SelfMode::Act;
-            c.self_improve.backlog_starts = 0;
+            c.self_improve.backlog_starts = Some(0);
             c.places.owner = Some(vec![format!("discord:{ANA}")]);
         },
     )
@@ -275,4 +275,83 @@ async fn presses_drop_and_halt_as_the_presser_and_are_idempotent() {
         told(&r, &p, "🛑 Self-improvement was already halted"),
     )
     .await;
+}
+
+fn cli() -> Answerer {
+    Answerer {
+        label: "the CLI".into(),
+        surface: theseus_core::approval::Surface::Cli,
+        discord: None,
+        agent: None,
+    }
+}
+
+/// The self-halt note (theseus-6s7ll): the core's words byte for byte, one Resume button and
+/// no other, and a ping (planted: no arm for the kind, an empty row, or `quiet` carried over).
+#[tokio::test]
+async fn the_halt_note_pings_and_carries_one_resume_button() {
+    let r = rig().await;
+    let text = "Self builds are halted, and they need you.";
+    stage(&r, "self_halt", text);
+    let m = note(&r, text).await;
+    assert_eq!(m.content, text);
+    let got: Vec<(&str, &str)> = m
+        .buttons
+        .iter()
+        .map(|b| (b.label.as_str(), b.custom_id.as_str()))
+        .collect();
+    assert_eq!(got, [("Resume self-improvement", "snote:resume")]);
+    assert!(!m.silent(), "the halt note pings");
+}
+
+/// The guard on the exception: the digest and the join note carry no Resume (passes at the
+/// base too; not a red-first test; the quiet default's guard is the core's).
+#[tokio::test]
+async fn no_other_self_note_gets_a_resume() {
+    let r = rig().await;
+    let text = digest(&fake_items(2));
+    stage(&r, "self_digest", &text);
+    let m = note(&r, &text).await;
+    assert!(m.buttons.iter().all(|b| b.custom_id != "snote:resume"));
+    let join = "Joined a change.";
+    stage(&r, "self_join", join);
+    let m = note(&r, join).await;
+    assert!(m.buttons.iter().all(|b| b.custom_id != "snote:resume"));
+}
+
+/// A Resume press is `self.resume` as the presser, the typed words' own path: a guest's is
+/// refused, the owner's resumes, and a second press (or one after resuming elsewhere) says it
+/// was not halted and changes nothing (planted: no arm in `parse`, or a second call that errs).
+#[tokio::test]
+async fn a_resume_press_resumes_once_and_a_second_press_is_harmless() {
+    let r = rig().await;
+    r.core
+        .self_halt(&SelfHaltParams::default(), &cli())
+        .unwrap();
+    assert!(r.core.self_state().halted);
+    let text = "Self builds are halted, and they need you.";
+    stage(&r, "self_halt", text);
+    let m = note(&r, text).await;
+    let label = "Resume self-improvement";
+
+    let copy = forge(&r, LAB, "snote:resume", "Resume").await;
+    let p = r.press(&copy, "Resume", (BEN, "ben"));
+    r.until("ben is refused", told(&r, &p, "🛑")).await;
+    assert!(
+        r.core.self_state().halted,
+        "a guest's press changes nothing"
+    );
+
+    let p = r.press(&m.id, label, (ANA, "ana"));
+    r.until("resumed", told(&r, &p, "▶️ Self-improvement resumed"))
+        .await;
+    assert!(!r.core.self_state().halted);
+
+    let p = r.press(&m.id, label, (ANA, "ana"));
+    r.until(
+        "already resumed",
+        told(&r, &p, "▶️ Self-improvement was not halted"),
+    )
+    .await;
+    assert!(!r.core.self_state().halted);
 }

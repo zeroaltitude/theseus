@@ -21,6 +21,8 @@ pub mod card;
 pub mod census;
 pub mod check;
 pub mod cite;
+pub mod content;
+pub use content::{ContentUnlabelParams, LabelRaised, LabelView, UnlabelResult};
 pub mod context;
 mod cost;
 pub mod cred;
@@ -96,6 +98,7 @@ pub mod standing;
 pub mod standing_proposals;
 mod submit;
 pub mod surface;
+pub mod task_not_this;
 pub mod task_pause;
 pub mod task_start;
 pub mod tasks;
@@ -261,6 +264,10 @@ pub mod method {
         /// Trust a session again (theseus-9bp): it no longer holds external text, so its calls that act go back to
         /// their postures. It loosens, so it takes the same trusted answer as an approval.
         POLICY_TRUST = "policy.trust",
+        /// Remove a content label from a session (theseus-9ymz0, `content::ContentUnlabelParams`): an `injection` label
+        /// stops its calls that act, and a `secret`, `confidential` or `personal` one keeps it off a China-origin model,
+        /// until the operator removes it. It loosens, so it takes the same trusted answer as `policy.trust`.
+        CONTENT_UNLABEL = "content.unlabel",
         /// The owner has seen a hold's notice (theseus-g00vv): the hold stays, and its notice counts as told. Owner only, from a private place, as `policy.trust`.
         POLICY_NOTICE_SEEN = "policy.notice_seen",
         /// Publish an item into a place's conversation (the place rule, theseus-nbsh): the owner's act, from a private place.
@@ -287,14 +294,14 @@ pub mod method {
         INITIATIVE_RATE = "initiative.rate", INITIATIVE_WEEK = "initiative.week", // a thumbs up or down on what Theseus said first; the week (theseus-slvl.9)
         VOICE_SHOW = "voice.show", VOICE_AUDITION = "voice.audition", STANDING_LIST = "standing.list", STANDING_ADD = "standing.add", STANDING_REVOKE = "standing.revoke", STANDING_PROPOSALS = "standing.proposals", STANDING_KEEP = "standing.keep", STANDING_DISMISS = "standing.dismiss", STANDING_ANSWER = "standing.answer",
         ONTOLOGY_UNDO = "ontology.undo", ONTOLOGY_KIND_ADD = "ontology.kind.add", ONTOLOGY_KIND_RETIRE = "ontology.kind.retire", JUDGE_LATENCY = "judge.latency", // Jev's writes taken back, the kinds table's two writes (theseus-xzxqv), and a point's latency by day
-        ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all", ONTOLOGY_PROPOSAL_NEVER = "ontology.proposal.never", ONTOLOGY_NEVER_LIST = "ontology.never.list", ONTOLOGY_NEVER_UNDO = "ontology.never.undo",
+        ONTOLOGY_PROPOSAL_REJECT = "ontology.proposal.reject", ONTOLOGY_PROPOSAL_ACCEPT_ALL = "ontology.proposal.accept_all", ONTOLOGY_PERSON_MERGE = "ontology.person.merge", ONTOLOGY_PROPOSAL_REJECT_ALL = "ontology.proposal.reject_all", ONTOLOGY_PROPOSAL_NEVER = "ontology.proposal.never", ONTOLOGY_NEVER_LIST = "ontology.never.list", ONTOLOGY_NEVER_UNDO = "ontology.never.undo", ONTOLOGY_PERSON_NOT_SAME = "ontology.person.not_same", ONTOLOGY_PERSON_NOT_SAME_LIST = "ontology.person.not_same_list", ONTOLOGY_PERSON_CANDIDATES = "ontology.person.candidates",
         /// How often a task's forecast held (theseus-zz752, `forecast::ForecastCalibrationParams`). A read.
         FORECAST_CALIBRATION = "forecast.calibration",
         /// Tasks (DD7): the child sessions conversations started, with state and spend.
         TASK_LIST = "task.list",
         /// Stop a task and its jobs; the place hears it once.
         TASK_CANCEL = "task.cancel", TASK_PAUSE = "task.pause", TASK_RESUME = "task.resume", // the owner holds a task at its next loop, and lets it go on
-        TASK_REHOME = "task.rehome",
+        TASK_REHOME = "task.rehome", TASK_NOT_THIS = "task.not_this", // the owner says "not this" to a task: cancel it, one rolling preference, label its offer
         TASK_RESCHEDULE = "task.reschedule",
         /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).
         TASK_START = "task.start",
@@ -474,6 +481,12 @@ pub mod notify {
         /// The operator trusted a session again (theseus-9bp), to the session's
         /// watchers. The params are a `TrustResult`.
         SESSION_TRUSTED = "session.trusted",
+        /// The operator removed a content label from a session (theseus-9ymz0), to the session's watchers. The params are
+        /// an `UnlabelResult`.
+        SESSION_UNLABELLED = "session.unlabelled",
+        /// A content label was raised on a session (theseus-9ymz0), to the session's watchers. The params are a
+        /// `LabelRaised`.
+        SESSION_LABELLED = "session.labelled",
         /// One line of the narrative, to every `narrative.watch` subscriber.
         /// Unlike the others it is not a ledger row: the narrative is never stored.
         NARRATIVE_LINE = "narrative.line",
@@ -1993,6 +2006,10 @@ pub struct SessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub data: Option<ops::DataMark>,
+    /// The content labels it carries (theseus-9ymz0), in the flags' order. Empty
+    /// when it carries none, and from a daemon before them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<content::LabelView>,
     /// With `session.list`'s `with_text`: the words of its first user
     /// message and of its last message, cut short; and `prompts`, the head
     /// and the tail of each of its newest user messages, for a search.

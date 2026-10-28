@@ -220,7 +220,7 @@ async fn rigged(main: Vec<Scores>, other: Vec<Scores>) -> (Rig, Arc<Canned>) {
             input: 1,
             output: 1,
         },
-        |cfg| cfg.self_improve.backlog_starts = 0,
+        |cfg| cfg.self_improve.backlog_starts = Some(0),
     )
     .await;
     for (i, fam) in ["fact", "route"].into_iter().enumerate() {

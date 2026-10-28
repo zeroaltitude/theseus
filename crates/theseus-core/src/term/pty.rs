@@ -36,6 +36,9 @@ pub struct Shared {
     /// Bytes the program wrote, and bytes sent to it.
     pub bytes_out: AtomicU64,
     pub bytes_in: AtomicU64,
+    /// The reader has a chunk it took off the master and has not yet put on
+    /// the screen: output the program wrote that no look can see yet.
+    pub feeding: AtomicBool,
 }
 
 /// A running program and its pty's master.
@@ -158,6 +161,7 @@ impl Pty {
             last_output_ms: AtomicU64::new(theseus_protocol::now_unix_ms()),
             bytes_out: AtomicU64::new(0),
             bytes_in: AtomicU64::new(0),
+            feeding: AtomicBool::new(false),
         });
         let replies = writer.try_clone()?;
         let feed = shared.clone();
@@ -210,7 +214,32 @@ impl Pty {
     /// for a moment, and a REPL computing never gives it up; so it must also
     /// be waiting for input (`waits_for_input`), where that can be read.
     pub fn idle(&self) -> bool {
-        self.foreground() == Some(self.pid) && waits_for_input(self.pid).unwrap_or(true)
+        self.foreground() == Some(self.pid)
+            && waits_for_input(self.pid).unwrap_or(true)
+            && self.drained()
+    }
+
+    /// Everything the program wrote is on the screen: nothing unread in the
+    /// master, and no chunk the reader holds. A program that prints and goes
+    /// back to its read is waiting for input before the reader thread, on a
+    /// loaded machine, has seen what it printed; a look then would read
+    /// "idle" with the output missing from the screen. Looked at after the
+    /// program's own state, so output written before it began to wait is
+    /// counted.
+    ///
+    /// The window is narrower, not closed: between the kernel handing the
+    /// reader its bytes and the `feeding` store below, both halves of this
+    /// read clear. Closing it needs the reader to publish a monotone
+    /// counter, or an idle confirmed on two looks, which costs latency
+    /// against the `< 100 ms` bounds in `tests_idle.rs` (theseus-o1jnt,
+    /// OWNER CALL).
+    fn drained(&self) -> bool {
+        use std::os::fd::AsRawFd;
+        let m = self.master.lock().unwrap_or_else(|p| p.into_inner());
+        let mut unread: libc::c_int = 0;
+        // SAFETY: an ioctl that reads the count of unread bytes into an int.
+        let r = unsafe { libc::ioctl(m.as_raw_fd(), libc::FIONREAD, &mut unread) };
+        (r != 0 || unread == 0) && !self.shared.feeding.load(Ordering::SeqCst)
     }
 
     /// Stop the program and everything it started: a hang-up and SIGTERM to
@@ -558,6 +587,7 @@ fn read_loop(mut master: File, mut replies: File, shared: &Shared) {
         match master.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
+                shared.feeding.store(true, Ordering::SeqCst);
                 let answer = {
                     let mut s = shared.screen.lock().unwrap_or_else(|p| p.into_inner());
                     s.feed(&buf[..n]);
@@ -571,6 +601,7 @@ fn read_loop(mut master: File, mut replies: File, shared: &Shared) {
                     .last_output_ms
                     .store(theseus_protocol::now_unix_ms(), Ordering::Relaxed);
                 shared.version.send_modify(|v| *v += 1);
+                shared.feeding.store(false, Ordering::SeqCst);
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => break,

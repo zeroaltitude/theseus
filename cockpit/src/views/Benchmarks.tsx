@@ -11,9 +11,10 @@ import { useEffect, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ArrowLeftRight, FlaskConical, ListOrdered, Trophy } from 'lucide-react'
 import {
-  axes, axesOf, axisName, inverted, family, frontier, harness, showsName, theseusOf, interval, points, property, readIndex, reportTitle, runs, staircase, SMALL, unequal, UNEQUAL,
-  type Note, type Placed, type Point, type Property, type TaskSet,
+  armsOf, axes, axesOf, axisName, inverted, family, frontier, harness, showsName, CROWDED, theseusOf, interval, points, property, readIndex, reportTitle, runs, sameArm, staircase, SMALL, unequal, UNEQUAL,
+  type Note, type Placed, type Point, type Property, type TaskSet, type Unit,
 } from '@/lib/bench'
+import { benchmarkName, isSlice, setById, setReports, slicePoints, undrawn } from '@/lib/benchslices'
 import { REPORTS, useBenchFile, useBenchFiles, useBenchManifest, useBenchSets, useTaskCatalogue } from '@/lib/benchfiles'
 import { LEAD, sparkline, type Series } from '@/lib/benchindex'
 import { byFraming, FRAMING_WORDS, FRAMINGS, framingOf, modelLabel, plannedArms } from '@/lib/benchframing'
@@ -27,7 +28,6 @@ import { CATEGORICAL, CHROME, FONTS, MARK, OTHER, TIP_FRAME, baseAxis, niceStep,
 import { tip } from '@/lib/viztip'
 import { useMode } from '@/lib/mode'
 import { daylightColor } from '@/lib/daylight'
-import { cn } from '@/lib/format'
 import { Echart } from '@/components/Echart'
 import { ChartPanel, Swatch, type Column } from '@/components/ChartPanel'
 import { Panel } from '@/components/ui'
@@ -61,20 +61,29 @@ export default function Benchmarks() {
   const list = useMemo(() => runs(REPORTS, index, new Map([...(extra.data ?? new Map<string, string>())].map(([n, md]) => [n, reportTitle(md) ?? n]))), [index, extra.data])
 
   const { sets: SETS, loading: setsLoading } = useBenchSets()
-  // The task sets' files: the reports' tables, data files and words.
-  const setReports = useMemo(() => [...new Set(SETS.map((s) => s.report))], [SETS])
-  const csv = useBenchFiles(setReports, 'csv'), json = useBenchFiles(setReports, 'json'), md = useBenchFiles(setReports, 'md')
+  // The task sets' files: every report they read — a slice spans the runs that measured its task set, not one.
+  const reports = useMemo(() => [...new Set(SETS.flatMap(setReports))], [SETS])
+  const csv = useBenchFiles(reports, 'csv'), json = useBenchFiles(reports, 'json'), md = useBenchFiles(reports, 'md')
+  const files = useMemo(() => (csv.data && json.data && md.data ? { csv: csv.data, json: json.data, md: md.data } : null), [csv.data, json.data, md.data])
+  /** A set's points, however it reads them: a slice gathers its members' runs, a built-in folds its own table. */
+  const pointsOf = useMemo(() => (s: TaskSet, by: Unit = 'arm') => !files ? []
+    : isSlice(s) ? slicePoints(s, files, by)
+      : points(s, files.csv.get(s.report) ?? '', files.json.get(s.report), files.md.get(s.report), s.report.slice(0, 10), by), [files])
   const all = useMemo(() => {
-    const [c, j, m] = [csv.data, json.data, md.data]
-    if (!c || !j || !m || setsLoading) return null
-    return new Map(SETS.map((s) => [s.id, points(s, c.get(s.report) ?? '', j.get(s.report), m.get(s.report), s.report.slice(0, 10))]))
-  }, [csv.data, json.data, md.data, SETS, setsLoading])
+    if (!files || setsLoading) return null
+    return new Map(SETS.map((s) => [s.id, pointsOf(s)]))
+  }, [files, SETS, setsLoading, pointsOf])
 
-  const set = SETS.find((s) => s.id === params.get('set')) ?? SETS[0]
+  const set = setById(SETS, params.get('set')) ?? SETS[0]
+  const { manifest } = useBenchManifest()
+  const missing = useMemo(() => undrawn(SETS, list, manifest.skipped), [SETS, list, manifest.skipped])
   const ps = useMemo(() => all?.get(set.id) ?? [], [all, set.id])
   const { usable, one } = useMemo(() => axes(ps), [ps])
-  // The axes in the address when this task set measured them, else its own; never one property on both.
-  const pickAxis = (k: 'x' | 'y', d: string) => usable.find((p) => p.id === params.get(k)) ?? property(d)!
+  // The axes in the address when this task set measured them, else its own where it measured those, else the first it
+  // did measure; never one property on both. A set that priced no trial (the 10-13 runs, Harbor) opens on an axis it
+  // has rather than on an empty chart: a default is only a default where the points carry it.
+  const pickAxis = (k: 'x' | 'y', d: string) =>
+    usable.find((p) => p.id === params.get(k)) ?? usable.find((p) => p.id === d) ?? usable[0] ?? property(d)!
   const px = pickAxis('x', axesOf(set)[0])
   const asked = pickAxis('y', axesOf(set)[1])
   const py = asked !== px ? asked : property(axesOf(set)[1]) !== px ? property(axesOf(set)[1])! : usable.find((p) => p !== px) ?? asked
@@ -94,14 +103,8 @@ export default function Benchmarks() {
   // The task table (`?tasks=on`) and its drawer (`?task=<id>`): per-task points, counted within this set's one report.
   const tasksOn = params.get('tasks') === 'on' || !!params.get('task')
   const catalogue = useTaskCatalogue()
-  const taskTable = useMemo(() => {
-    const [c, j, m] = [csv.data, json.data, md.data]
-    return tasksOn && c && j && m && ps.length ? taskRows(points(set, c.get(set.report) ?? '', j.get(set.report), m.get(set.report), set.report.slice(0, 10), 'task')) : []
-  }, [tasksOn, csv.data, json.data, md.data, set, ps.length])
-  const cloud = useMemo(() => {
-    const [c, j, m] = [csv.data, json.data, md.data]
-    return c && j && m && ps.length ? points(set, c.get(set.report) ?? '', j.get(set.report), m.get(set.report), set.report.slice(0, 10), unit) : []
-  }, [csv.data, json.data, md.data, set, ps.length, unit])
+  const taskTable = useMemo(() => (tasksOn && ps.length ? taskRows(pointsOf(set, 'task')) : []), [tasksOn, pointsOf, set, ps.length])
+  const cloud = useMemo(() => (ps.length ? pointsOf(set, unit) : []), [pointsOf, set, ps.length, unit])
   // Every property's intervals for this task set, worked out while the page is idle, so a pick of any axis draws at
   // once (a bootstrap of 178 trials is tens of milliseconds; each value's is kept once worked out).
   useEffect(() => {
@@ -140,7 +143,7 @@ export default function Benchmarks() {
         icon={<Trophy size={14} />}
         empty={!all ? 'Reading the runs…' : ps.length < 2 ? 'This task set has fewer than two points.' : undefined}
         table={frontierTable(ps, placed, px, py, usable, set)}
-        actions={<SetPicker sets={SETS} value={set.id} onChange={pickSet} />}>
+        actions={<SetPicker sets={SETS} value={set.id} onChange={pickSet} missing={missing} />}>
         <div className="flex h-full flex-col">
           <AxisRow px={px} py={py} usable={usable} one={one}
             onX={(id) => put('x', id)} onY={(id) => put('y', id)} onSwap={() => setParams((p) => { p.set('x', py.id); p.set('y', px.id); return p }, { replace: true })} />
@@ -205,7 +208,7 @@ function Cards({ list }: { list: ReturnType<typeof runs> }) {
   const arms = useBenchFile('arms', 'json')
   const planned = useMemo(() => plannedArms(arms.data), [arms.data])
   if (loading) return null
-  return <BenchIndex cards={cards} reason={manifest.reason} planned={planned} />
+  return <BenchIndex cards={cards} reason={manifest.reason} planned={planned} skipped={manifest.skipped} />
 }
 
 const plainArms = (s: string) => s.replace(/`/g, '')
@@ -281,16 +284,42 @@ function Spark({ s }: { s: Series }) {
 
 // ---------------------------------------------------------------- the pickers
 
-function SetPicker({ sets, value, onChange }: { sets: readonly TaskSet[]; value: string; onChange: (id: string) => void }) {
+/** The task set, as a pulldown (theseus-s5qwv): a chip a set wrapped into a second row and still named only the seven
+ *  sets a `ui` block or a built-in made. Every set the manifest describes is here, grouped by its benchmark and
+ *  measured newest first; and under them, named rather than hidden, the benchmarks the frontier cannot draw because
+ *  they measured no rival arm to put a point beside. */
+function SetPicker({ sets, value, onChange, missing }: {
+  sets: readonly TaskSet[]; value: string; onChange: (id: string) => void
+  missing: { suite: string; runs: string[]; why: string }[]
+}) {
+  const groups: { name: string; sets: TaskSet[] }[] = []
+  for (const s of sets) {
+    const name = isSlice(s) ? benchmarkName(s.benchmark) : 'measured across runs'
+    const g = groups.find((x) => x.name === name)
+    if (g) g.sets.push(s); else groups.push({ name, sets: [s] })
+  }
+  const arms = (s: TaskSet) => (isSlice(s) ? ` — ${new Set(s.members.map((m) => m.row.arm)).size} harnesses, ${s.members.length} runs` : '')
   return (
-    <div className="flex flex-wrap items-center rounded-md bg-black/30 p-0.5 ring-1 ring-line" role="tablist" aria-label="task set">
-      {sets.map((s) => (
-        <button key={s.id} type="button" role="tab" aria-selected={s.id === value} title={s.label} onClick={() => onChange(s.id)}
-          className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors', s.id === value ? 'bg-live/15 text-live shadow-[0_0_10px_-2px_rgba(34,211,238,0.5)]' : 'text-ink-faint hover:text-ink')}>
-          {s.short}
-        </button>
-      ))}
-    </div>
+    <label className="flex min-w-0 items-center gap-1.5 text-[11px] text-ink-faint">
+      <span className="font-display text-[10px] font-bold uppercase tracking-[0.12em] text-gold/90">set</span>
+      <select aria-label="task set" value={value} onChange={(e) => onChange(e.target.value)}
+        className="max-w-[46ch] truncate rounded-md bg-white/5 px-2 py-1 text-[12px] text-ink outline-none ring-1 ring-line focus:ring-live/40">
+        {groups.map((g) => (
+          <optgroup key={g.name} label={g.name}>
+            {g.sets.map((s) => <option key={s.id} value={s.id} title={s.label}>{s.short}{arms(s)}</option>)}
+          </optgroup>
+        ))}
+        {missing.length > 0 && (
+          <optgroup label="published, and not drawn here — open them in the run list below">
+            {missing.map((m) => (
+              <option key={m.suite} value={value} disabled>
+                {m.suite} · {m.runs.length} report{m.runs.length === 1 ? '' : 's'} · {m.why}
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+    </label>
   )
 }
 
@@ -343,7 +372,7 @@ function Verdict({ placed, ps, px, py, many }: { placed: Placed[]; ps: Point[]; 
       ? <>Theseus is <b className="font-semibold text-ink">on the frontier</b>{theseus.length === 2 ? ' in both of its points' : theseus.length > 2 ? ` in all ${theseus.length} of its points` : ''}: no harness measured here beats it on both {py.short} and {px.short}.</>
       : on.length
         ? <>Theseus is on the frontier in {on.length} of its {theseus.length} points; {who(off!.point)} is dominated by {whos(off!.dominators)}.</>
-        : <>Theseus is <b className="font-semibold text-ink">behind the frontier</b> here: {theseus.length > 1 ? `none of its ${theseus.length} points is on it; the nearest, ` : ''}{who(theseus[0].point)} is dominated by {whos(theseus[0].dominators)}, each as good or better on both {py.short} and {px.short}.</>
+        : <>Theseus is <b className="font-semibold text-ink">behind the frontier</b> here: {theseus.length > 1 ? `none of its ${theseus.length} points is on it; for one, ` : ''}{who(theseus[0].point)} is dominated by {whos(theseus[0].dominators)}, each as good or better on both {py.short} and {px.short}.</>
   }
   return (
     <div className="px-2 pb-1 text-[12px] text-ink-dim">
@@ -366,10 +395,10 @@ function FrontierChart({ placed, px, py, many, cloud, onPick }: {
   const option = useMemo<EChartsOption>(() => {
     const vaxis = valueAxis(), axis = baseAxis()
     const xlog = logFor(placed.map((p) => p.x)), ylog = logFor(placed.map((p) => p.y))
-    const keys = [...new Set(placed.map((p) => family(p.point.harness)))]
+    const keys = armsOf(placed)
     const item = (p: Placed) => {
       const color = harnessColor(p.point.harness)
-      const showName = showsName(p)
+      const showName = showsName(p, placed.length > CROWDED)
       return {
         value: [p.x, p.y], id: p.point.id, name: pointName(p.point, many),
         symbol: unequal(p.point) ? 'diamond' : 'circle',
@@ -466,7 +495,7 @@ function FrontierChart({ placed, px, py, many, cloud, onPick }: {
         ...keys.map((k) => ({
           type: 'scatter' as const, name: harness(k).name, z: 3, silent: true,
           itemStyle: { color: harnessColor(k) },
-          data: placed.filter((p) => family(p.point.harness) === k).map(item),
+          data: placed.filter((p) => sameArm(p.point.harness) === k).map(item),
           labelLayout: { hideOverlap: false, moveOverlap: 'shiftY' as const },
         })),
         // The hit targets: 24 px round every point, so a point is easy to find with the pointer and to click.
@@ -524,9 +553,9 @@ function pointTip(p: Placed, px: Property, py: Property, many: boolean): HTMLEle
 function Key({ placed, px, py }: { placed: Placed[]; px: Property; py: Property }) {
   const day = useMode((s) => s.mode) === 'light'
   const ink = day ? daylightColor(C.secondary) : C.secondary
-  const keys = [...new Set(placed.map((p) => family(p.point.harness)))]
+  const keys = armsOf(placed)
   // The legend in framing blocks (derived from the data): the controlled comparison first, then Theseus over every model, then the model-varying arms.
-  const blocks = byFraming(keys, (k) => framingOf(placed.find((p) => family(p.point.harness) === k)!.point))
+  const blocks = byFraming(keys, (k) => framingOf(placed.find((p) => sameArm(p.point.harness) === k)!.point))
   return (
     <ul className="flex flex-wrap items-center gap-x-3.5 gap-y-1 px-2 pt-1 text-[11px] text-ink-dim" aria-label="legend">
       {blocks.map((b) => (

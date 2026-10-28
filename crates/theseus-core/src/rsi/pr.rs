@@ -158,26 +158,42 @@ impl Board {
                 .clone(),
             jail: self.jail(),
             notify: self.notify(),
+            stop: None,
         }
     }
 
     /// The gate's inform notices go to the operator's DM through the core's
-    /// outbox, quietly (a badge and the digest, never a ping).
+    /// outbox, quietly (a badge and the digest, never a ping); the halt's
+    /// notice alone is its own kind, which pings (theseus-6s7ll).
     fn notify(&self) -> Option<tree::Notify> {
         let core = self.core.get()?.clone();
-        Some(tree::Notify::new(move |text| {
+        let stage = move |halt: bool, text: String| {
             let Some(core) = core.upgrade() else { return };
             let sent = (|| -> anyhow::Result<()> {
-                let body = json!({"kind": "notice", "text": text, "quiet": true});
-                let (post, frame) = core.outbox.stage_to_operator(None, body)?;
+                let (post, frame) = core
+                    .outbox
+                    .stage_to_operator(None, notice_body(halt, text))?;
                 core.store.append(&frame)?;
                 core.outbox.posted(&post);
                 Ok(())
             })();
             if let Err(e) = sent {
-                tracing::warn!(error = %format!("{e:#}"), "self build: the may-build notice was not posted");
+                tracing::warn!(error = %format!("{e:#}"), "self build: the notice was not posted");
             }
-        }))
+        };
+        let halt = stage.clone();
+        Some(
+            tree::Notify::new(move |text| stage(false, text))
+                .with_halt(move |text| halt(true, text)),
+        )
+    }
+}
+
+/// The body of a self build's notice: quiet, or for the halt a `self_halt` post that pings.
+pub(super) fn notice_body(halt: bool, text: String) -> serde_json::Value {
+    match halt {
+        true => json!({"kind": "self_halt", "text": text}),
+        false => json!({"kind": "notice", "text": text, "quiet": true}),
     }
 }
 
@@ -320,7 +336,8 @@ pub async fn propose(
             ));
         }
     }
-    let place = board.place(&repo);
+    let mut place = board.place(&repo);
+    place.stop = Some(stop_of(&core, tc.execution_id));
     let (p, item) = (place.clone(), i.item.clone());
     let found = blocking(move || Ok(tree::find(&p, &item))).await?;
     let Some(mut t) = found else {
@@ -391,6 +408,19 @@ fn stopped(core: &Core) -> Option<String> {
     }
 }
 
+/// The stop check of a self build's wait for may-build: the kill switch (the
+/// same one asked between phases) or a `/stop` of this call's execution.
+pub(super) fn stop_of(core: &Arc<Core>, execution_id: &str) -> tree::Stop {
+    let (core, exec) = (Arc::downgrade(core), execution_id.to_string());
+    tree::Stop::new(move || {
+        let core = core.upgrade()?;
+        stopped(&core).or_else(|| {
+            let e = core.kernel.execution(&exec).ok()??;
+            e.stopped.map(|s| format!("stopped by {}", s.by))
+        })
+    })
+}
+
 /// The attempt's phases after the tree is open: commit, gate, report, push.
 async fn attempt(
     core: &Core,
@@ -398,6 +428,17 @@ async fn attempt(
     tc: &TurnCtx<'_>,
     a: &mut Attempt<'_>,
 ) -> Result<(String, Value), String> {
+    // The stop check reaches the wait through one line of wiring in
+    // `propose` (`place.stop = Some(stop_of(..))`), and both halves of the
+    // mechanism are tested apart from it. This is the seam: the place handed
+    // on to `tree::gate` below, and from there to the wait, must carry the
+    // check (theseus-rexxp join fix).
+    #[cfg(test)]
+    assert!(
+        place.stop.is_some(),
+        "propose hands the gate a place with no stop check: the owner's stop \
+         would end no wait"
+    );
     if let Some(why) = stopped(core) {
         return halted(a, COMMIT, &why);
     }
@@ -430,6 +471,9 @@ async fn attempt(
     let run = match tree::gate(place, &a.tree).await {
         Ok(r) => r,
         Err(e) => {
+            if let Some(tree::GateStopped(why)) = e.downcast_ref() {
+                return halted(a, GATE, why);
+            }
             a.verdict = "failed";
             return Err(format!("The gate did not run: {e:#}"));
         }

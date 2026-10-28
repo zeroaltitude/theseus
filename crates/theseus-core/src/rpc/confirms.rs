@@ -1010,6 +1010,13 @@ pub(crate) enum Act<'a> {
     /// session's row, as a trust's is (theseus-tx1vj). `what` names it:
     /// `Dismissing the notice of session ses_…`.
     Dismiss { session: &'a str, what: &'a str },
+    /// The owner's removal of a content label (theseus-9ymz0,
+    /// `content.unlabel`): it lets a frozen session act again, or lets one
+    /// that is off the China-origin models use them, so a job's process that
+    /// could remove one would clear its own. A session's own act, so its
+    /// refusal is the session's row, as a trust's is. `what` names it:
+    /// `Removing injection from session ses_…`.
+    Unlabel { session: &'a str, what: &'a str },
     /// A standing record's addition or revoke (theseus-a7vi): the owner's
     /// orders ride every prompt of their scope, so a job's process that wrote
     /// one would steer every session. `what` names it: `the revoke of std_…`.
@@ -1099,6 +1106,7 @@ impl Act<'_> {
             Act::Import { method, .. } => method,
             Act::Session { method, .. } => method,
             Act::Dismiss { .. } => theseus_protocol::method::POLICY_NOTICE_SEEN,
+            Act::Unlabel { .. } => theseus_protocol::method::CONTENT_UNLABEL,
             Act::Standing { method, .. } => method,
             Act::Routine { method, .. } => method,
             Act::Thread { method, .. } => method,

@@ -47,6 +47,7 @@
 //!   verdict, and does not wait for it.
 
 mod correct;
+mod fan_out_cue;
 
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -99,23 +100,15 @@ pub(super) struct RouteState {
     /// The message names one of `[privacy] sensitive_names`: a profile not of
     /// US origin is unusable for the turn (`data_step.rs`).
     pub(super) sensitive: bool,
-    /// The turn's input judged open, and its open run, or why not
-    /// (theseus-a1wvq.8, `data::admits`). Unchecked at the turn's start; it
-    /// never mints a pass: each request's own `data::clearance` does.
-    pub(super) admitted: super::open_step::Admitted,
-    /// The ids of the result nodes this turn screened and passed
-    /// (`screen_step.rs`): carried as the loop's own.
-    pub(super) screened: Vec<String>,
+    /// Where the turn stands on its session's content labels
+    /// (`data_step::Cn`): unchecked at the turn's start, which fails closed.
+    pub(super) cn: super::data_step::Cn,
     /// Why the floor moved the turn off a restricted-origin profile, for its
     /// route row (`data_step`, theseus-a1wvq.11).
     pub(super) gated: Option<&'static str>,
     /// While the counterfactual decision runs (`decide_floored`), the turn's
-    /// floor reads it as admitted open.
-    pub(super) assume_cleared: bool,
-    /// Whether the decision the turn would have made as a cleared ask names a
-    /// restricted-origin profile: set when the turn was not admitted and
-    /// decided, else `data_gate_why` walks the mode's list.
-    pub(super) cleared_pick: Option<bool>,
+    /// floor reads the session's labels as allowing a restricted profile.
+    pub(super) assume_cn: bool,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
@@ -147,6 +140,8 @@ pub(super) struct RouteState {
     /// model call (`draft_step.rs`).
     pub(super) draft_skip: Option<&'static str>,
     pub(super) drafted: Option<String>,
+    /// The static fan-out cue fired for this turn (theseus-z9mze.4), so its tail line rides.
+    pub(super) fan_out: bool,
 }
 
 /// Where an effort is decided: the session (its base profile), whether the
@@ -448,11 +443,8 @@ impl TurnRunner {
         // inline, the turn's future overflowed a 2 MiB stack in debug builds.
         let Some(rx) = t.route.wait.take().filter(|_| i == 0) else {
             // A turn that asked no route meets the data floor here.
-            if i == 0 {
-                self.data_admit_unrouted(t, session);
-            }
             let floored = match i {
-                0 => match self.floor_unrouted(t, session, spec, provider, slot)? {
+                0 => match Box::pin(self.floor_unrouted(t, session, spec, provider, slot)).await? {
                     Ok(d) => d,
                     Err(f) => return Ok(Err(f)),
                 },
@@ -577,7 +569,7 @@ impl TurnRunner {
         // A steered turn runs where the owner said: it waits for no verdict.
         let steering = t.route.steer.take().filter(|_| live);
         t.route.defer_persist = live;
-        let max_wait = self.route_wait(t);
+        let max_wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
         let compile = Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i));
         let wait = (live && !unreachable && steering.is_none()) || self.judge.pins_wait();
         let (compiled, w) = beside(compile, &mut rx, max_wait, wait).await;
@@ -589,7 +581,7 @@ impl TurnRunner {
         let timed = Timed::of(&w, late, t.started);
         let got = w.got;
         t.route.defer_persist = false;
-        let compiled = match compiled? {
+        let mut compiled = match compiled? {
             Ok(c) => c,
             Err(f) => {
                 let seen = (got, live, unreachable);
@@ -607,7 +599,7 @@ impl TurnRunner {
             unreachable,
         );
         let ask = (&steering, &verdict, reason);
-        let decision = match self.decide_floored(t, session, ask, (live, late), &compiled) {
+        let decision = match self.decide_floored(t, session, ask, &compiled).await {
             Ok(d) => d,
             Err(f) => return Ok(Err(f)),
         };
@@ -630,6 +622,9 @@ impl TurnRunner {
             steering.as_ref(),
         );
         self.note_routed(t, verdict.as_ref(), decision.as_ref());
+        let class = verdict.as_ref().filter(|_| reason.is_none());
+        self.fan_out_cue(t, spec, class.map(|v| v.mode.as_str()));
+        Self::fan_out_line(t, &mut compiled);
         if self.draft_open(t, drafting) {
             self.drop_first(t, &compiled);
             return Ok(Ok(compiled));
@@ -759,7 +754,7 @@ impl TurnRunner {
                 let judge = self.judge.clone();
                 let s = sid.to_string();
                 // A brief's late verdict picks nothing, now or for a later message.
-                let keep = !t.route.brief && !t.data.brief;
+                let keep = !t.route.brief;
                 tokio::spawn(async move {
                     if let Ok(Answered {
                         verdict: Some(v), ..
@@ -781,38 +776,52 @@ impl TurnRunner {
 
     /// The decision the turn's verdict (or steer) makes, kept off restricted
     /// profiles when the request names a sensitive name (theseus-oejh3), and
-    /// on one only for a turn its verdict admits open (theseus-a1wvq.8; a
-    /// steered turn has none).
-    fn decide_floored(
+    /// on one only for a session whose labels allow it (theseus-9ymz0).
+    ///
+    /// The labels are read first, without a wait. Only when items are not yet
+    /// judged and the decision, made as if they were, would take a profile of
+    /// restricted origin does the turn wait for their verdicts and decide
+    /// again: a turn bound for Claude never waits.
+    async fn decide_floored(
         &self,
         t: &mut Turn<'_>,
         session: &SessionRecord,
         (steering, verdict, reason): (&Option<Steering>, &Option<Verdict>, Option<Reason>),
-        (live, late): (bool, bool),
         compiled: &Compiled,
     ) -> Result<Option<Decision>, Failure> {
-        let judged = verdict
-            .as_ref()
-            .filter(|_| steering.is_none() && reason.is_none());
-        self.data_admit(t, session, judged, live, late);
         t.route.sensitive |= self.sensitive_request(&compiled.request) || self.private_session(t);
         let est_tokens = compiled.est_tokens;
         let decide = |t: &Turn<'_>| match (steering, verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),
-            // An open task's brief asked for its data alone picks nothing.
-            (None, Some(_), None) if t.data.brief && !t.route.brief => None,
             (None, Some(v), None) => Some(self.decide_route(t, session, v, est_tokens)),
             _ => None,
         };
-        let decision = decide(t);
-        // What the same decision, cleared, would have named: the word on the
-        // route row says the data rule cost the turn that model, not the
-        // mode's list (theseus-b80si).
-        if decision.is_some() && !t.route.floor().cleared {
-            t.route.assume_cleared = true;
-            let cleared = decide(t);
-            t.route.assume_cleared = false;
-            t.route.cleared_pick = cleared.map(|d| self.restricted_profile(&d.profile));
+        use super::data_step::Cn;
+        t.route.cn = Self::cn_read(t);
+        let mut decision = decide(t);
+        if t.route.cn != Cn::Allowed {
+            // What the same decision would have named had the session's
+            // labels allowed it: only where that is a restricted profile does
+            // the rule cost the turn a model (theseus-b80si), and only then
+            // does the turn wait for a verdict that has not come.
+            t.route.assume_cn = true;
+            let wanted = decide(t);
+            t.route.assume_cn = false;
+            let base = t.target.profile.clone();
+            let named = |d: &Option<Decision>| {
+                self.restricted_profile(d.as_ref().map_or(base.as_str(), |d| d.profile.as_str()))
+            };
+            if named(&wanted) {
+                if t.route.cn == Cn::Pending {
+                    self.cn_settle(t).await;
+                    if t.route.cn == Cn::Allowed {
+                        decision = decide(t);
+                    }
+                }
+                if t.route.cn != Cn::Allowed && !named(&decision) {
+                    t.route.gated = Some(t.route.cn.word());
+                }
+            }
         }
         self.data_floor(t, decision)
     }
@@ -849,7 +858,7 @@ impl TurnRunner {
                     from,
                     images: t.route.images,
                     cap,
-                    cleared: t.route.floor().cleared,
+                    cleared: t.route.floor().cn_ok,
                 },
             )
         };
@@ -893,16 +902,11 @@ impl TurnRunner {
         let applied = e
             .filter(EffortDecision::applied)
             .and_then(|e| e.sent.or(e.ran));
-        let mode = verdict.map(|v| v.mode.as_str());
-        let gate = self.data_gate_why(t, mode);
+        let gate = t.route.gated.take();
         if let Some(why) = gate {
             self.judge.record_data_gate("route", why);
         }
-        let answered = verdict.and_then(|v| v.data.as_deref());
-        // Jev's admission: the floor's `private_view` turns an admitted turn
-        // closed for the request, not for the verdict.
-        let admitted = t.route.admitted.0.is_ok() || gate == Some("private_view");
-        let clearance = if admitted { "admitted" } else { "closed" };
+        let cn = t.route.cn.word();
         let ran = self.ran_of(&profile);
         let origin = ran.origin;
         t.record(&fact::route::RouteDecided {
@@ -934,17 +938,12 @@ impl TurnRunner {
                 .map(super::tier::InjectionBudget::row),
             ran,
             data: Some(fact::route::RouteData {
-                verdict: answered.map(|a| (a.choice.as_str(), a.confidence)),
-                clearance,
+                cn,
                 gate,
                 draft_skip: t.route.draft_skip,
             }),
         });
         let prior = t.route.result.take();
-        let opened = prior
-            .as_ref()
-            .and_then(|r| r.data.as_ref())
-            .is_some_and(|d| d.clearance == "open");
         let persona_shown = prior.and_then(|r| r.persona);
         t.route.result = Some(TurnRoute {
             mode: verdict.map(|v| v.mode.clone()),
@@ -956,8 +955,7 @@ impl TurnRunner {
             effort_applied: applied.map(|e| effort::name(e).into()),
             persona: persona_shown,
             data: Some(TurnData {
-                verdict: answered.map(|a| a.choice.clone()),
-                clearance: if opened { "open" } else { clearance }.into(),
+                cn: cn.into(),
                 gate: gate.map(Into::into),
                 origin: origin.into(),
             }),
@@ -1041,6 +1039,9 @@ impl TurnRunner {
         self.stand(t, &mut s);
         self.thread_spec(&mut s, t.tc.session_id, session.compilation_id.as_deref());
         self.defer_tools(t, &mut s);
+        if t.route.fan_out {
+            self.defer_cued(t, &mut s);
+        }
         *spec = s;
         if d.switch {
             session.last_target = Some(TargetRef::from(target));
@@ -1080,9 +1081,6 @@ impl TurnRunner {
         spec: &RequestSpec,
         i: u32,
     ) -> Result<Result<Compiled, Failure>> {
-        if let Some(run) = self.open_detour(t) {
-            return self.compile_open_detour(t, session, &run, i);
-        }
         let sid = t.tc.session_id;
         let nodes = t.tc.store.transcript(sid)?;
         let from = detour_start(&nodes, self.cfg.routing.trivial_context_turns);
@@ -1101,7 +1099,7 @@ impl TurnRunner {
             .cloned()
             .collect();
         let (nodes, sources) = match t.route.detour_recall {
-            true => self.recall_view(t, nodes),
+            true => self.recall_view(t, nodes, &spec.profile),
             false => (nodes, crate::recall::render::Sources::default()),
         };
         // The owner's standing records ride a detour too (theseus-a7vi): they
@@ -1139,8 +1137,11 @@ impl TurnRunner {
         tail.persona = compiled.est_tokens.saturating_sub(before);
         // The project the conversation serves, last of all as `tail_blocks`
         // does (theseus-v4u66): a cheap turn about it is as wrong without it.
-        let project =
-            crate::project::slice::attach(&self.store, &self.kernel, session, &mut compiled);
+        let project = (!self.restricted_profile(&spec.profile))
+            .then(|| {
+                crate::project::slice::attach(&self.store, &self.kernel, session, &mut compiled)
+            })
+            .flatten();
         // The board notes this request's loaded set (theseus-zs6mm).
         self.defer_noted(t, &detour, &compiled);
         let last = self.store.last_position();
@@ -1234,11 +1235,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn route_profiles_carry_each_profiles_origin() {
         let r = crate::tests_route::rig(None, 1, crate::tests_route::restricted_placements);
-        let cleared = super::super::data_step::Floor {
+        let cn_ok = super::super::data_step::Floor {
             sensitive: false,
-            cleared: true,
+            cn_ok: true,
         };
-        let ps = r.core.runner.route_profiles(cleared);
+        let ps = r.core.runner.route_profiles(cn_ok);
         assert_eq!(
             ps["glm"].unusable, None,
             "the floor lets a cleared turn use it"
@@ -1268,7 +1269,6 @@ mod tests {
             turn: "turn_1".into(),
             persona: None,
             seal: None,
-            data: None,
             personal: None,
         }
     }

@@ -792,7 +792,32 @@ impl Lane {
         }
     }
 
+    /// A content label's message (theseus-9ymz0): its words as the core wrote
+    /// them, in the session's place, with the one Remove button.
+    async fn content_label_post(&mut self, body: &Value, corr: &str) -> Result<Plan, SendErr> {
+        let channel = self.place_channel().await?;
+        let session = body["session_id"].as_str().unwrap_or("").to_string();
+        let flag = body["flag"].as_str().unwrap_or("").to_string();
+        Ok(Plan {
+            writes: vec![Write {
+                key: format!("content:{corr}"),
+                channel,
+                content: body["text"].as_str().unwrap_or("").to_string(),
+                buttons: Buttons::ContentRemove(session, flag),
+                reply_to: None,
+                message: None,
+                mentions: vec![],
+                ping: self.pings(Event::Note),
+            }],
+            extra: json!({}),
+        })
+    }
+
     /// A post's writes, by its kind.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "shape budget: a post kind is one arm; split it"
+    )]
     async fn plan(&mut self, a: &Action) -> Result<Plan, SendErr> {
         let body = body_of(a).clone();
         let corr = &a.correlation_id;
@@ -814,7 +839,15 @@ impl Lane {
             "card" => self.card(&body).await,
             "settle" => Ok(self.settled(&body)),
             "notice" => {
-                let channel = self.place_channel().await?;
+                // The operator lane has no place of its own: its notices go
+                // where approvals go, as `restarted`'s do (theseus-haw2b).
+                let (channel, extra) = match self.kind {
+                    "operator" => {
+                        let (channel, place) = self.operator_channel(&body).await?;
+                        (channel, json!({"place": place}))
+                    }
+                    _ => (self.place_channel().await?, json!({})),
+                };
                 let t = body["text"].as_str().unwrap_or("").to_string();
                 // A watch that is met speaks (theseus-j90w2): it pings as a
                 // reminder does and offers its answers.
@@ -833,10 +866,12 @@ impl Lane {
                 w.ping &= !body["quiet"].as_bool().unwrap_or(false);
                 Ok(Plan {
                     writes: vec![w],
-                    extra: json!({}),
+                    extra,
                 })
             }
             "failed" => self.failed_post(&body, corr).await,
+            // A content label (theseus-9ymz0): the one message the locked DM flow gains.
+            "content_label" => self.content_label_post(&body, corr).await,
             "report" => self.report_post(&body, corr).await,
             "offer" => Ok(self.offer_post(&body)),
             // A hands group's one line (step 40 part 2): under its group's
@@ -903,6 +938,8 @@ impl Lane {
             | "onto_card" | "home_size" | "link_card" | "persona_soul" | "card_question" => {
                 self.jev_post(a, &body).await
             }
+            // The self-build halt's note, to the owner's DM alone, pinging (theseus-6s7ll).
+            "self_halt" => self.jev_post(a, &body).await,
             "jev_labeled" => Ok(self.jev_labeled(&body)),
             // An open question pinged the owner's DM (theseus-j7cje).
             "needs_you" => self.needs_you_post(&body).await,
@@ -1495,6 +1532,12 @@ impl Lane {
                 format!("self:{}", a.correlation_id),
                 Buttons::SelfNote(crate::runtime::self_note::items_of(k, body)),
             ),
+            // The self-build halt: pings, and carries Resume (theseus-6s7ll).
+            "self_halt" => (
+                body["text"].as_str().unwrap_or("").to_string(),
+                format!("self:{}", a.correlation_id),
+                Buttons::SelfResume,
+            ),
             // A live owner-card question (theseus-6f8t0).
             "card_question" => {
                 let (ask, id) = crate::runtime::card_question::card_of(body);
@@ -1776,6 +1819,8 @@ impl Lane {
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
             Buttons::PersonaSoul(key) => crate::runtime::persona_soul::buttons(key),
             Buttons::SelfNote(items) => crate::runtime::self_note::buttons(items),
+            Buttons::SelfResume => crate::runtime::self_note::resume_buttons(),
+            Buttons::ContentRemove(s, f) => crate::runtime::content::buttons(s, f),
             Buttons::Again(q) => crate::runtime::again_buttons(q),
             Buttons::Standing(mode, id, wide) => crate::runtime::capture_buttons(mode, id, *wide),
             Buttons::CardQuestion(ask, id) => crate::runtime::card_question::buttons(ask, id),
@@ -1854,6 +1899,8 @@ impl Lane {
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
             Buttons::PersonaSoul(key) => Some(crate::runtime::persona_soul::buttons(key)),
             Buttons::SelfNote(items) => Some(crate::runtime::self_note::buttons(items)),
+            Buttons::SelfResume => Some(crate::runtime::self_note::resume_buttons()),
+            Buttons::ContentRemove(s, f) => Some(crate::runtime::content::buttons(s, f)),
             Buttons::Again(q) => Some(crate::runtime::again_buttons(q)),
             Buttons::Standing(mode, id, wide) => {
                 Some(crate::runtime::capture_buttons(mode, id, *wide))
@@ -2140,6 +2187,8 @@ pub(crate) fn mcp_note(body: &Value) -> String {
 mod tests_bound;
 #[cfg(test)]
 mod tests_catchup;
+#[cfg(test)]
+mod tests_operator;
 #[cfg(test)]
 mod tests_self_note;
 #[cfg(test)]

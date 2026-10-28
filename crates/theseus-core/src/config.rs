@@ -26,6 +26,7 @@ mod index;
 pub use index::IndexConfig;
 pub mod card;
 mod cockpit;
+pub mod content_based_security;
 mod data_floor;
 pub mod earned;
 pub(crate) mod import;
@@ -47,7 +48,6 @@ mod routines;
 pub(crate) mod routing;
 mod routing_checkpoints;
 pub(crate) mod routing_cn;
-mod routing_data;
 pub mod self_improve;
 pub mod self_mint;
 mod self_sealed;
@@ -187,6 +187,13 @@ pub struct Config {
     /// `[privacy]`: the one list of sensitive names (theseus-oejh3), `config/privacy.rs`.
     #[serde(default, skip_serializing_if = "privacy::PrivacyConfig::is_default")]
     pub privacy: privacy::PrivacyConfig,
+    /// `[content_based_security]`: what a content flag does, and the switch for models of restricted origin
+    /// (theseus-9ymz0, theseus-gyjyo.2), `config/content_based_security.rs`.
+    #[serde(
+        default,
+        skip_serializing_if = "content_based_security::ContentBasedSecurityConfig::is_default"
+    )]
+    pub content_based_security: content_based_security::ContentBasedSecurityConfig,
     /// `[mcp.servers.<name>]`: the MCP servers whose tools turns are offered
     /// (M7 36b), in `config::mcp`.
     #[serde(default, skip_serializing_if = "McpConfig::is_empty")]
@@ -1205,7 +1212,7 @@ pub struct ModelConfig {
 /// 503 is made again inside its turn, where the model can still answer it. 0:
 /// none; the turn fails and the session's driver retries it later
 /// (theseus-ljr). A headless run ends with its turn, so it has no later retry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Retries {
     #[serde(default)]
@@ -1220,8 +1227,19 @@ pub struct Retries {
     /// catalog's `refusal_fallback_model` (theseus-7gir.18). On by default.
     #[serde(default = "default_true")]
     pub refusal: bool,
+    /// The refusal categories that are a genuine decline (theseus-wf482). The
+    /// fallback answers the refused request and the next goes back to the
+    /// routed model; a refusal with one of these categories keeps the turn on
+    /// the fallback instead, so a safety decline never bounces back to the
+    /// model that declined it. Any other refusal does so only at its third in
+    /// a row.
+    #[serde(default = "default_hard_decline_categories")]
+    pub hard_decline_categories: Vec<String>,
 }
 
+fn default_hard_decline_categories() -> Vec<String> {
+    ["cyber", "bio", "general_harms"].map(String::from).into()
+}
 fn default_backoff_ms() -> u64 {
     2_000
 }
@@ -1236,6 +1254,7 @@ impl Default for Retries {
             backoff_ms: default_backoff_ms(),
             backoff_max_ms: default_backoff_max_ms(),
             refusal: true,
+            hard_decline_categories: default_hard_decline_categories(),
         }
     }
 }
@@ -1579,6 +1598,8 @@ impl Config {
         self.card.validate()?;
         self.ontology.validate()?;
         self.validate_data_floor()?;
+        self.content_based_security.validate()?;
+        self.privacy.validate()?;
         self.import.validate()?;
         self.validate_voice()?;
         self.validate_mcp_server()?;
@@ -2119,6 +2140,8 @@ pub fn expand_with(p: &str, var: impl Fn(&str) -> Option<String>) -> String {
 mod tests;
 #[cfg(test)]
 mod tests_card;
+#[cfg(test)]
+mod tests_content_based_security;
 #[cfg(test)]
 mod tests_fresh;
 #[cfg(test)]
