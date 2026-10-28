@@ -61,6 +61,8 @@ mod tests_content;
 #[cfg(test)]
 mod tests_heard;
 #[cfg(test)]
+mod tests_quotes;
+#[cfg(test)]
 mod tests_reserve;
 pub mod warm;
 
