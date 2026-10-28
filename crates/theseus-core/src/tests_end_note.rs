@@ -510,6 +510,7 @@ async fn unrun_edits_still_reopen_beside_residue() {
     let notes = r.notes(&sid);
     assert_eq!(notes.len(), 1, "{notes:?}");
     assert!(notes[0].contains("Changed after the last command ran"), "{notes:?}");
+    assert!(!notes[0].contains("Left beside"), "residue is not the note's: {notes:?}");
     let note = res.files.unwrap().end_note.unwrap();
     assert_eq!(note.unrun, 1);
 }
