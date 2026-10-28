@@ -1,16 +1,16 @@
-arm,label,date,round,trial,bugs_fixed,of,fixed,usd,model_calls,tool_calls,wall_s,version,build_commit,models_billed,fallback_category,fallback_to
-theseus,"Theseus as shipped, frozen 1.0.3 (92e3dbed)",2026-10-26,bh-tr-r1,hunt-core__sDQjJCs,4,13,a1 a2 a3 r8,8.4455,171,233,976.3,theseus 1.0.2,92e3dbed,claude-sonnet-5-5:171,,
-theseus,"Theseus as shipped, frozen 1.0.3 (92e3dbed)",2026-10-26,bh-tr-r2,hunt-core__Wo7G7fU,2,13,a2 a3,6.1906,137,179,938.8,theseus 1.0.2,92e3dbed,claude-sonnet-5-5:137,,
-theseus,"Theseus as shipped, frozen 1.0.3 (92e3dbed)",2026-10-26,bh-tr-r3,hunt-core__ZnT8pk3,4,13,a1 a2 a3 r8,8.1207,152,205,805.8,theseus 1.0.2,92e3dbed,claude-sonnet-5:5 claude-sonnet-5-5:147,reasoning_extraction,claude-sonnet-5
-theseus-1.0.1,"Theseus as shipped, 1.0.1 (round 1)",2026-10-24,bh-tr-r1,hunt-core__MWjxioZ,4,13,a1 a2 a3 r4,16.3742,207,301,1258.3,theseus 1.0.1,c4fa7b31,claude-sonnet-5-5:207,,
-theseus-1.0.1,"Theseus as shipped, 1.0.1 (round 1)",2026-10-24,bh-tr-r2,hunt-core__iKdDocQ,4,13,a1 a2 a3 r7,16.3965,195,303,1266.8,theseus 1.0.1,c4fa7b31,claude-sonnet-5-5:195,,
-theseus-1.0.1,"Theseus as shipped, 1.0.1 (round 1)",2026-10-24,bh-tr-r3,hunt-core__igGHYpw,5,13,a1 a2 a3 r10 r7,14.3935,186,267,1056.0,theseus 1.0.1,c4fa7b31,claude-sonnet-5-5:186,,
-claude-code,Claude Code 2.1.290,2026-10-24,bh-cc-r1,hunt-core__o4y7CJQ,10,13,a1 a2 a3 r1 r10 r2 r4 r6 r7 r8,12.7994,333,391,2162.3,2.1.290,,claude-sonnet-5-5:333,,
-claude-code,Claude Code 2.1.290,2026-10-24,bh-cc-r2,hunt-core__moGGiyd,10,13,a1 a2 a3 a4 r1 r10 r4 r6 r7 r8,14.5789,375,484,2162.3,2.1.290,,claude-sonnet-5-5:375,,
-claude-code,Claude Code 2.1.290,2026-10-24,bh-cc-r3,hunt-core__2qsaPoA,9,13,a1 a2 a3 a4 r1 r10 r4 r6 r8,12.2393,227,251,957.3,2.1.290,,claude-sonnet-5-5:227,,
-opencode,OpenCode 1.18.35,2026-10-24,bh-oc-r1,hunt-core__EgFbRhN,10,13,a1 a2 a3 a4 r1 r10 r4 r6 r7 r8,12.51,60,68,2022.8,1.18.35,,claude-sonnet-5-5:60,,
-opencode,OpenCode 1.18.35,2026-10-24,bh-oc-r2,hunt-core__xgSQM2K,10,13,a1 a2 a3 a4 r1 r10 r4 r6 r7 r8,15.75,6,16,2160.5,1.18.35,,claude-sonnet-5-5:6,,
-opencode,OpenCode 1.18.35,2026-10-24,bh-oc-r3,hunt-core__i538tSm,11,13,a1 a2 a3 a4 r1 r10 r2 r4 r6 r7 r8,27.18,58,93,2160.3,1.18.35,,claude-sonnet-5-5:58,,
-codex,Codex CLI 0.161.0 (gpt-6-astra),2026-10-24,bh-cx-r1,hunt-core__PbwSkhV,9,13,a1 a2 a3 r1 r10 r4 r6 r7 r9,13.6538,67,66,417.8,0.161.0,,openai/gpt-6-astra:67,,
-codex,Codex CLI 0.161.0 (gpt-6-astra),2026-10-24,bh-cx-r2,hunt-core__rtJUkRA,7,13,a1 a2 a3 r10 r4 r6 r9,11.9033,53,52,415.3,0.161.0,,openai/gpt-6-astra:53,,
-codex,Codex CLI 0.161.0 (gpt-6-astra),2026-10-24,bh-cx-r3,hunt-core__sZghduX,7,13,a2 a3 r1 r10 r4 r6 r9,12.0687,58,57,636.8,0.161.0,,openai/gpt-6-astra:58,,
+arm,label,date,round,trial,bugs_fixed,of,fixed,usd,model_calls,tool_calls,wall_s,version,build_commit,models_billed,fallback_category,fallback_to,price_digest,price_basis
+theseus,"Theseus as shipped, frozen 1.0.3 (92e3dbed)",2026-10-26,bh-tr-r1,hunt-core__sDQjJCs,4,13,a1 a2 a3 r8,8.4455,171,233,976.3,theseus 1.0.2,92e3dbed,claude-sonnet-5-5:171,,,8414028cd0f7,measured
+theseus,"Theseus as shipped, frozen 1.0.3 (92e3dbed)",2026-10-26,bh-tr-r2,hunt-core__Wo7G7fU,2,13,a2 a3,6.1906,137,179,938.8,theseus 1.0.2,92e3dbed,claude-sonnet-5-5:137,,,8414028cd0f7,measured
+theseus,"Theseus as shipped, frozen 1.0.3 (92e3dbed)",2026-10-26,bh-tr-r3,hunt-core__ZnT8pk3,4,13,a1 a2 a3 r8,8.1207,152,205,805.8,theseus 1.0.2,92e3dbed,claude-sonnet-5:5 claude-sonnet-5-5:147,reasoning_extraction,claude-sonnet-5,8414028cd0f7,measured
+theseus-1.0.1,"Theseus as shipped, 1.0.1 (round 1)",2026-10-24,bh-tr-r1,hunt-core__MWjxioZ,4,13,a1 a2 a3 r4,16.3742,207,301,1258.3,theseus 1.0.1,c4fa7b31,claude-sonnet-5-5:207,,,dc6b41397353,measured
+theseus-1.0.1,"Theseus as shipped, 1.0.1 (round 1)",2026-10-24,bh-tr-r2,hunt-core__iKdDocQ,4,13,a1 a2 a3 r7,16.3965,195,303,1266.8,theseus 1.0.1,c4fa7b31,claude-sonnet-5-5:195,,,dc6b41397353,measured
+theseus-1.0.1,"Theseus as shipped, 1.0.1 (round 1)",2026-10-24,bh-tr-r3,hunt-core__igGHYpw,5,13,a1 a2 a3 r10 r7,14.3935,186,267,1056.0,theseus 1.0.1,c4fa7b31,claude-sonnet-5-5:186,,,dc6b41397353,measured
+claude-code,Claude Code 2.1.290,2026-10-24,bh-cc-r1,hunt-core__o4y7CJQ,10,13,a1 a2 a3 r1 r10 r2 r4 r6 r7 r8,12.7994,333,391,2162.3,2.1.290,,claude-sonnet-5-5:333,,,,unmeasured
+claude-code,Claude Code 2.1.290,2026-10-24,bh-cc-r2,hunt-core__moGGiyd,10,13,a1 a2 a3 a4 r1 r10 r4 r6 r7 r8,14.5789,375,484,2162.3,2.1.290,,claude-sonnet-5-5:375,,,,unmeasured
+claude-code,Claude Code 2.1.290,2026-10-24,bh-cc-r3,hunt-core__2qsaPoA,9,13,a1 a2 a3 a4 r1 r10 r4 r6 r8,12.2393,227,251,957.3,2.1.290,,claude-sonnet-5-5:227,,,,unmeasured
+opencode,OpenCode 1.18.35,2026-10-24,bh-oc-r1,hunt-core__EgFbRhN,10,13,a1 a2 a3 a4 r1 r10 r4 r6 r7 r8,12.51,60,68,2022.8,1.18.35,,claude-sonnet-5-5:60,,,,unmeasured
+opencode,OpenCode 1.18.35,2026-10-24,bh-oc-r2,hunt-core__xgSQM2K,10,13,a1 a2 a3 a4 r1 r10 r4 r6 r7 r8,15.75,6,16,2160.5,1.18.35,,claude-sonnet-5-5:6,,,,unmeasured
+opencode,OpenCode 1.18.35,2026-10-24,bh-oc-r3,hunt-core__i538tSm,11,13,a1 a2 a3 a4 r1 r10 r2 r4 r6 r7 r8,27.18,58,93,2160.3,1.18.35,,claude-sonnet-5-5:58,,,,unmeasured
+codex,Codex CLI 0.161.0 (gpt-6-astra),2026-10-24,bh-cx-r1,hunt-core__PbwSkhV,9,13,a1 a2 a3 r1 r10 r4 r6 r7 r9,13.6538,67,66,417.8,0.161.0,,openai/gpt-6-astra:67,,,,unmeasured
+codex,Codex CLI 0.161.0 (gpt-6-astra),2026-10-24,bh-cx-r2,hunt-core__rtJUkRA,7,13,a1 a2 a3 r10 r4 r6 r9,11.9033,53,52,415.3,0.161.0,,openai/gpt-6-astra:53,,,,unmeasured
+codex,Codex CLI 0.161.0 (gpt-6-astra),2026-10-24,bh-cx-r3,hunt-core__sZghduX,7,13,a2 a3 r1 r10 r4 r6 r9,12.0687,58,57,636.8,0.161.0,,openai/gpt-6-astra:58,,,,unmeasured
