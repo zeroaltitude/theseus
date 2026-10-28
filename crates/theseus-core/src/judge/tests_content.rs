@@ -1114,6 +1114,9 @@ async fn a_restarted_service_does_not_raise_a_removed_label_for_the_same_item() 
         first.secrets.clone(),
         first.scrubber.clone(),
     );
+    // As a daemon warms its ladder after serving, so its pack asks.
+    second.read_ladder();
+    second.ladder().adopt();
     second.content_from(
         theseus_judge::builders::DataNames {
             open: vec![],
