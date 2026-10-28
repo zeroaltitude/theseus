@@ -1139,9 +1139,11 @@ async fn a_removed_or_disputed_or_anonymous_label_is_not_a_positive() {
 
 /// A whole-judgment "wrong" -- the cockpit's button and `theseus judge label
 /// <id> wrong`, both of which record no question -- disputes every flag of
-/// that judgment. Without this, `replay::right` takes the system `yes` (it is
-/// first in ledger order) and grades the incumbent right on a judgment the
-/// owner called wrong.
+/// that judgment, so a system label the owner has already contradicted is
+/// never written. Not because replay would otherwise mis-grade it:
+/// `resolve` weighs the operator's 1.0 over the system's 0.5 whatever the
+/// ledger order, and `replay::right` only ever sees that resolved row
+/// (theseus-3h8pe was filed on the older wording here).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_whole_judgment_wrong_disputes_the_flag_it_raised() {
     let jev = FakeJev::start().unwrap();

@@ -588,10 +588,13 @@ impl Core {
                         // A whole-judgment "wrong" (question `null`), which
                         // the cockpit offers on every judgment and
                         // `theseus judge label <id> wrong` writes, disputes
-                        // every flag of it. Without this, `replay::right`
-                        // takes the system `yes` -- it is first in ledger
-                        // order -- and grades the incumbent right on a
-                        // judgment the owner called wrong.
+                        // every flag of it: a system label the owner has
+                        // already contradicted should not be written at all.
+                        // Not because replay would otherwise mis-grade it --
+                        // `resolve` weighs the operator's 1.0 over the
+                        // system's 0.5 whatever the ledger order, and
+                        // `replay::right` only ever sees that resolved row
+                        // (theseus-3h8pe was filed on the older wording here).
                         o.source == "operator"
                             && o.question.as_deref().is_none_or(|q| q == l.flag.as_str())
                     })

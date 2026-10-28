@@ -100,6 +100,13 @@ pub fn absolute_labels(
 
 /// Whether a judgment's answer to `q` was right by its absolute label:
 /// none when the label settles nothing of it.
+///
+/// `labels` is always [`absolute_labels`]' output, which has already called
+/// [`resolve`] once per question — so taking the first row that names `q` is
+/// taking the resolved one, and a later operator label outweighs a system one
+/// before this ever runs. Hand it raw `read_scope` rows and that stops being
+/// true (theseus-3h8pe, which read this function without its callers; the
+/// `tests` below lock the behaviour it feared).
 fn right(labels: &[LabelRow], q: &str, a: &AnswerRecord) -> Option<bool> {
     let l = labels.iter().find(|l| l.question.as_deref() == Some(q))?;
     let t = truth(&l.label, a)?;
@@ -1041,4 +1048,127 @@ pub fn fell(inc: &[QuestionReport], cand: &[QuestionReport]) -> Vec<ReplayClassF
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use theseus_judge::band::band;
+    use theseus_judge::client::Answer;
+
+    use super::*;
+
+    fn noul(p: f64) -> AnswerRecord {
+        let answer = Answer::Noul { noul: p };
+        AnswerRecord {
+            question: "risky".into(),
+            def: "risky".into(),
+            about: None,
+            band: band(
+                &answer,
+                theseus_judge::Thresholds {
+                    act: 0.9,
+                    confirm: 0.6,
+                },
+            ),
+            answer,
+        }
+    }
+
+    fn seen(a: &AnswerRecord) -> Seen {
+        let judgment = serde_json::from_value(json!({
+            "id": "jdg_a", "pack": "security.v1", "version": 1, "pack_sha256": "00",
+            "point": "inbound", "mode": "live", "model": "jev-1.13.0",
+            "answered_by": "jev-1.13.0", "model_drift": false,
+            "state": {"sha256": "00", "bytes": 10, "tokens": 3, "cap_tokens": 3000,
+                "builder": "inbound", "builder_version": 1, "truncated": [], "dropped": []},
+            "questions": 1, "answers": [a], "call": null,
+            "timing": {"queued_ms": 0, "http_ms": 9, "total_ms": 9},
+            "usage": null, "cost_micros": 1, "reserve_micros": 1,
+            "outcome": {"outcome": "answered"}, "circuit": null, "rate_limit": {},
+            "context": {},
+        }))
+        .unwrap();
+        Seen {
+            position: 1,
+            at_ms: 1,
+            judgment,
+        }
+    }
+
+    fn row(position: u64, label: Value, weight: f64) -> LabelRow {
+        LabelRow {
+            position,
+            at_ms: position,
+            id: format!("lbl_{position}"),
+            judgment: "jdg_a".into(),
+            pack: "security.v1".into(),
+            question: Some("risky".into()),
+            about: None,
+            label,
+            source: if weight < 1.0 { "system" } else { "operator" }.into(),
+            weight,
+        }
+    }
+
+    /// What replay grades, from the labels as `read_scope` hands them: the
+    /// incumbent's answer (lean true), and a candidate's (lean false).
+    fn graded(raw: Vec<LabelRow>) -> (Option<bool>, Option<bool>, bool) {
+        let (inc, cand) = (noul(0.8), noul(0.2));
+        let s = seen(&inc);
+        let abs = absolute_labels(
+            std::slice::from_ref(&s),
+            &HashMap::from([("jdg_a".to_string(), raw)]),
+        );
+        let ls = abs.get("jdg_a").map_or(&[][..], Vec::as_slice);
+        (
+            right(ls, "risky", &inc),
+            right(ls, "risky", &cand),
+            has_error(&s, &abs),
+        )
+    }
+
+    /// A system `yes` (0.5) and a later operator `no` (1.0) on one question:
+    /// replay grades the incumbent wrong and the candidate right, as the
+    /// report does (`resolve`), so `--errors` keeps the judgment and the
+    /// tally counts it fixed. `right()` takes the first row by question
+    /// because `absolute_labels` has already resolved to one.
+    #[test]
+    fn a_later_operator_no_beats_a_system_yes_in_replay() {
+        let (inc, cand, errors) = graded(vec![row(1, json!(true), 0.5), row(2, json!(false), 1.0)]);
+        assert_eq!((inc, cand, errors), (Some(false), Some(true), true));
+    }
+
+    /// The same two labels with the operator agreeing still grade the
+    /// incumbent right, so the case above is not met by grading everything
+    /// wrong; and an operator `yes` over a system `no` flips the other way.
+    #[test]
+    fn an_agreeing_operator_still_grades_the_incumbent_right() {
+        let (inc, cand, errors) = graded(vec![row(1, json!(true), 0.5), row(2, json!(true), 1.0)]);
+        assert_eq!((inc, cand, errors), (Some(true), Some(false), false));
+        let (inc, cand, errors) = graded(vec![row(1, json!(false), 0.5), row(2, json!(true), 1.0)]);
+        assert_eq!((inc, cand, errors), (Some(true), Some(false), false));
+    }
+
+    /// Position breaks a tie only between equal weights; an unlabelled
+    /// judgment grades nothing either way.
+    #[test]
+    fn the_newest_of_equal_weight_counts_and_no_label_grades_nothing() {
+        let (inc, _, _) = graded(vec![row(1, json!(true), 1.0), row(2, json!(false), 1.0)]);
+        assert_eq!(inc, Some(false));
+        let (inc, cand, errors) = graded(vec![]);
+        assert_eq!((inc, cand, errors), (None, None, false));
+    }
+
+    /// The operator's label wins on its WEIGHT, not on being newer: here it is
+    /// the older row, and a system `yes` written after it still loses. Every
+    /// other case above has the operator later too, so without this one a
+    /// `resolve` that dropped weight and simply took the newest row would pass
+    /// them all. The order is the real one, not a contrivance: a system rule
+    /// can land well after the operator (`content.v1`'s "kept" label is
+    /// written a week after the flag it confirms).
+    #[test]
+    fn an_operator_no_beats_a_later_system_yes_on_weight_alone() {
+        let (inc, cand, errors) = graded(vec![row(1, json!(false), 1.0), row(2, json!(true), 0.5)]);
+        assert_eq!((inc, cand, errors), (Some(false), Some(true), true));
+    }
 }
