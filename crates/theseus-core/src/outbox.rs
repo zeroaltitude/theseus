@@ -49,6 +49,41 @@ pub const SHOWN_PREFIX: &str = "thread.shown.";
 pub const WAKE_TARGET_PREFIX: &str = "wake.target.";
 /// Where approvals go, whichever DM that is.
 pub const OPERATOR_TARGET: &str = "discord:operator";
+/// Every kind the core stages to [`OPERATOR_TARGET`] (`to_operator`,
+/// `stage_to_operator`). The Discord binding's guard test drives one of each
+/// through the operator lane and wants every one to plan a write, so a kind
+/// added here that routes nowhere fails there (theseus-haw2b). A new kind
+/// staged to the operator goes in this list.
+pub const OPERATOR_KINDS: &[&str] = &[
+    "notice",
+    "restarted",
+    "disk",
+    "mcp_changed",
+    "mcp_prompt_changed",
+    "needs_you",
+    "jev_notice",
+    "jev_paused",
+    "jev_labeled",
+    "spend_ceiling",
+    "self_digest",
+    "self_halt",
+    "self_keel",
+    "self_join",
+    "self_narrow",
+    "self_narrow_red",
+    "earned_card",
+    "retraction",
+    "seal_card",
+    "link_card",
+    "initiative",
+    "standing_card",
+    "digest",
+    "privacy_warning",
+    "onto_card",
+    "home_size",
+    "persona_soul",
+    "card_question",
+];
 /// The downstream key of a post that creates messages: Discord's nonce.
 pub const NONCE_KEY: &str = "discord.nonce";
 

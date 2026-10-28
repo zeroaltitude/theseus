@@ -417,7 +417,7 @@ impl Shared {
 
     /// The DM `user`, labelled `label`, among the bound ones: once, however
     /// often its bind is tried.
-    fn add_dm(&self, user: u64, label: String) {
+    pub(crate) fn add_dm(&self, user: u64, label: String) {
         let mut r = self.routes.lock().unwrap();
         match r.dms.iter_mut().find(|(u, _)| *u == user) {
             Some(d) => d.1 = label,
