@@ -106,6 +106,34 @@ fn named_by_task(prompt: &str, path: &Path) -> bool {
         })
 }
 
+/// The words the person and the parent said to this session, which name
+/// what the task asked for.
+fn task_words(t: &Turn<'_>) -> String {
+    let store = t.tc.store;
+    let nodes = store.session_nodes(t.tc.session_id).unwrap_or_default();
+    nodes
+        .into_iter()
+        .filter(|(_, n)| n.origin != crate::node::Origin::Harness)
+        .filter_map(|(_, n)| match n.body {
+            Body::UserMessage { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// What the turn left that a task would want kept: everything but the
+/// closed list of build residue, and residue the task names.
+fn kept(t: &Turn<'_>, left: Vec<PathBuf>) -> Vec<PathBuf> {
+    if !left.iter().any(|p| is_residue(p)) {
+        return left;
+    }
+    let words = task_words(t);
+    left.into_iter()
+        .filter(|p| !is_residue(p) || named_by_task(&words, p))
+        .collect()
+}
+
 /// New files the turn's commands left that still exist in a directory its
 /// file tools wrote to, and the files written after its last command ended.
 fn facts_of(execution_id: &str) -> Facts {
@@ -154,36 +182,6 @@ impl TurnRunner {
         }
     }
 
-    /// The words the person and the parent said to this session, which name
-    /// what the task asked for.
-    fn task_words(&self, t: &Turn<'_>) -> String {
-        let nodes =
-            t.tc.store
-                .session_nodes(t.tc.session_id)
-                .unwrap_or_default();
-        nodes
-            .into_iter()
-            .filter(|(_, n)| n.origin != crate::node::Origin::Harness)
-            .filter_map(|(_, n)| match n.body {
-                Body::UserMessage { text, .. } => Some(text),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    /// What the turn left that a task would want kept: everything but the
-    /// closed list of build residue, and residue the task names.
-    fn kept(&self, t: &Turn<'_>, left: Vec<PathBuf>) -> Vec<PathBuf> {
-        if !left.iter().any(|p| is_residue(p)) {
-            return left;
-        }
-        let words = self.task_words(t);
-        left.into_iter()
-            .filter(|p| !is_residue(p) || named_by_task(&words, p))
-            .collect()
-    }
-
     /// After the stop nudge declined: true when the turn goes on once more,
     /// told what it would have left. `i` is the loop's index.
     pub(super) fn end_note(&self, t: &mut Turn<'_>, i: u32) -> Result<bool> {
@@ -195,7 +193,7 @@ impl TurnRunner {
             return Ok(false);
         }
         let mut facts = facts_of(t.tc.execution_id);
-        facts.left = self.kept(t, facts.left);
+        facts.left = kept(t, facts.left);
         if (facts.left.is_empty() && facts.unrun.is_empty()) || !self.may_continue(t)? {
             return Ok(false);
         }
