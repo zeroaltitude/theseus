@@ -441,7 +441,7 @@ async fn a_quick_question_detours_to_haiku_and_the_next_prefix_is_byte_identical
     jev.script(
         "reply_effort",
         Jev::Choice {
-            option: "unclear".into(),
+            option: "leave".into(),
             confidence: 0.95,
         },
     );

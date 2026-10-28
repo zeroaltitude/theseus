@@ -726,9 +726,9 @@ async fn a_canary_judgment_records_its_arm() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_three_live_packs_are_adopted_once_after_serving() {
     let dir = tempfile::tempdir().unwrap();
-    let live = ["route.v8", "rerank.v1", "security.v3"];
+    let live = ["route.v9", "rerank.v1", "security.v3"];
     let why = |p: &str| match p {
-        "route.v8" => "the owner's decision of 2026-10-23",
+        "route.v9" => "the owner's labels of 2026-10-26, theseus-tqomi",
         _ => "decision of 2026-10-04",
     };
     let c = core_at(dir.path(), None, |_| {});

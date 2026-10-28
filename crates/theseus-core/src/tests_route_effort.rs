@@ -78,11 +78,11 @@ async fn a_sure_effort_reaches_the_request_of_a_model_that_takes_it() {
     let route = jev
         .seen()
         .into_iter()
-        .find(|s| s.body["questions"].get("route.v8/mode").is_some())
+        .find(|s| s.body["questions"].get("route.v9/mode").is_some())
         .expect("the route pack's request");
     assert!(
         route.body["questions"]
-            .get("route.v8/reply_effort")
+            .get("route.v9/reply_effort")
             .is_some(),
         "the effort, in the same request: {}",
         route.body["questions"]
@@ -139,7 +139,7 @@ async fn every_loop_of_the_turn_carries_the_effort() {
         [Some("medium".to_string()), Some("medium".to_string())],
         "both loops"
     );
-    effort(&jev, "unclear", 0.95);
+    effort(&jev, "leave", 0.95);
     turn(&r.core, Some(&res.session_id), "And in winter?", None).await;
     // The profile leaves effort to the model, and Sonnet 5.5 takes
     // per-message effort (the 2026-10-17 probe, theseus-rwpbg.4): the turn
@@ -250,13 +250,13 @@ async fn the_bounds_clamp_the_effort() {
 }
 
 /// Below the question's confirm bar (0.60) and `effort_confidence` (0.35),
-/// on `unclear`, and for a profile that fixes its effort, the profile's own
+/// on `leave` (`unclear` before route.v9), and for a profile that fixes its effort, the profile's own
 /// effort stands: routine programming on `haikuhi` keeps its `high`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn below_the_bar_unclear_or_fixed_the_profiles_own_effort_stands() {
     for (level, confidence, fixed, reason) in [
         ("low", 0.30, false, "unsure"),
-        ("unclear", 0.95, false, "unclear"),
+        ("leave", 0.95, false, "leave"),
         ("low", 0.95, true, "fixed"),
     ] {
         let jev = FakeJev::start().unwrap();
