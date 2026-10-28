@@ -838,7 +838,7 @@ impl Lane {
             "reply" => self.reply_in_place(&body).await,
             "card" => self.card(&body).await,
             "settle" => Ok(self.settled(&body)),
-            "notice" => {
+            "notice" | "hands_alert" => {
                 // The operator lane has no place of its own: its notices go
                 // where approvals go, as `restarted`'s do (theseus-haw2b).
                 let (channel, extra) = match self.kind {
@@ -852,7 +852,14 @@ impl Lane {
                 // A watch that is met speaks (theseus-j90w2): it pings as a
                 // reminder does and offers its answers.
                 let met = body["purpose"].as_str() == Some("watch.met");
-                let event = if met { Event::Reminder } else { Event::Note };
+                // An AWS spend alert (theseus-haw2b) is a reminder too, and never quiet:
+                // `Reminder` is in no category, so no `silent` list reaches it.
+                let alert = kind_of(a) == "hands_alert";
+                let event = if met || alert {
+                    Event::Reminder
+                } else {
+                    Event::Note
+                };
                 let mut w = text(t, format!("note:{corr}"), channel, reply_to, event);
                 if met {
                     let answers = crate::runtime::horizon_answers(&body);
@@ -863,7 +870,7 @@ impl Lane {
                     self.shared.tasks_future_dirty();
                 }
                 // A pointer (theseus-sjzm) is history, not news: no ping.
-                w.ping &= !body["quiet"].as_bool().unwrap_or(false);
+                w.ping &= alert || !body["quiet"].as_bool().unwrap_or(false);
                 Ok(Plan {
                     writes: vec![w],
                     extra,

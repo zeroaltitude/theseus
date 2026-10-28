@@ -24,11 +24,24 @@ const CHANNEL: u64 = 900_000_000_000_000_042;
 fn lane_of(
     dir: &std::path::Path,
     fake: &FakeDiscord,
+    lane: (&str, &'static str, Option<u64>),
+    dm: bool,
+) -> Lane {
+    lane_silent(dir, fake, lane, dm, vec![])
+}
+
+/// As `lane_of`, with `[discord] silent` naming `silent`: the operator lane has no place settings
+/// of its own, so the global list is the only one that reaches it.
+fn lane_silent(
+    dir: &std::path::Path,
+    fake: &FakeDiscord,
     (target, kind, channel): (&str, &'static str, Option<u64>),
     dm: bool,
+    silent: Vec<theseus_core::config::discord::Category>,
 ) -> Lane {
     let core = crate::runtime::tests::core_with(dir, SecretBoard::new([], Instant::now()), |c| {
         c.discord.rest_proxy = Some(fake.addr.clone());
+        c.discord.silent = silent;
         c.places.owner = Some(vec![format!("discord:{USER}")]);
     });
     let shared = crate::runtime::shared_for_tests(&core);
@@ -170,4 +183,43 @@ async fn a_channel_lane_still_posts_its_notice_in_its_own_channel() {
     let plan = lane.plan(&a).await.unwrap();
     assert_eq!(plan.writes[0].channel, CHANNEL);
     assert_eq!(plan.extra, json!({}));
+}
+
+/// The two AWS spend-safety alerts (a runaway, an hour's spend) cannot be silenced: with
+/// `silent = ["notices"]` an ordinary notice posts without a ping, and a `hands_alert` still pings,
+/// in the owner's DM, even when its body says `quiet` (theseus-haw2b). The control is the notice:
+/// a suite that passed with the control loud would pass a mutation that ignores `silent` everywhere.
+#[tokio::test]
+async fn a_hands_alert_pings_where_notices_are_silent() {
+    use theseus_core::config::discord::Category;
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane_silent(
+        d.path(),
+        &fake,
+        (OPERATOR_TARGET, "operator", None),
+        true,
+        vec![Category::Notices],
+    );
+    let control = planned(&mut lane, "notice").await.unwrap();
+    assert!(!control.writes[0].ping, "a notice is silent here");
+
+    let alert = planned(&mut lane, "hands_alert").await.unwrap();
+    assert_eq!(alert.writes.len(), 1);
+    assert_eq!(alert.writes[0].channel, DM);
+    assert!(
+        alert.writes[0].ping,
+        "an AWS alert pings where notices are silent"
+    );
+    assert_eq!(
+        alert.writes[0].content, "A hands_alert.",
+        "worded as a notice is"
+    );
+    assert_eq!(alert.extra["place"], "the owner");
+
+    let mut quiet = body_of("hands_alert");
+    quiet["quiet"] = json!(true);
+    let a = lane.shared.core.outbox.to_operator(None, quiet).unwrap();
+    let plan = lane.plan(&a).await.unwrap();
+    assert!(plan.writes[0].ping, "no `quiet` mutes an AWS alert");
 }

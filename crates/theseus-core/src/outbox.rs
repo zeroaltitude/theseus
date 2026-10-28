@@ -56,6 +56,7 @@ pub const OPERATOR_TARGET: &str = "discord:operator";
 /// staged to the operator goes in this list.
 pub const OPERATOR_KINDS: &[&str] = &[
     "notice",
+    "hands_alert",
     "restarted",
     "disk",
     "mcp_changed",

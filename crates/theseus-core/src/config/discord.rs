@@ -37,7 +37,7 @@ pub enum Category {
     /// A finished or cancelled task's report, and a hands group's line.
     Reports,
     /// The notices: a bind, a publish, a budget's or the hours' line, Jev's
-    /// notices, and glides.
+    /// notices, and glides. Not the AWS spend-safety alerts, which no list silences.
     Notices,
     /// The restart notice, MCP's changes, and low free space or its return.
     Ops,

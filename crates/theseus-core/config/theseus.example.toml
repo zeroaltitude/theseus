@@ -935,7 +935,8 @@ silent = []                             # categories of message that post withou
                                         # started), "tool_lines" (and notice embeds), "reports" (a task's end, a
                                         # hands line), "notices" (a bind, budgets, Jev, glides), "ops" (a restart,
                                         # MCP, low disk). A closed card, the task board and a loop's thinking alone
-                                        # never ping
+                                        # never ping, and the two AWS spend-safety alerts (a runaway account, an
+                                        # hour past its line) always ping: no category reaches them
 ping_window_secs = 0                    # at most one ping per place in this many seconds (a place may set its own); 0 is off
 live_board = true                       # the task board: one pinned message that follows your tasks, edited and never posted anew (so it never pings); false, or a bot that cannot send Components V2, keeps the plain-text board
 task_channels = true                    # a private text channel for each task of 2+ plan steps, or started `expect = long`, or still working after the minutes below, in a category the bot makes (`⚙️ Theseus tasks`); you steer the task there. Needs exactly one `private = true` guild in the bindings file and the bot's Manage Channels and Manage Roles (the bot says so in your DM when it lacks them); without them tasks go on as threads and the Follow mirror
