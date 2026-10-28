@@ -146,14 +146,14 @@ impl ToolRuntime {
 /// unless it is a local read of files and code (`content::local_read`): a
 /// write, a program, and anything that leaves the machine, a fetch or a
 /// search included. A local read, and every call in `notify` mode (the bench
-/// daemon's, `[content] injection`), never reads the session's labels.
+/// daemon's, `[content_based_security] injection`), never reads the session's labels.
 fn content_refusal(rt: &ToolRuntime, at: &At<'_>, tool: &dyn Tool, plan: &Plan) -> Option<String> {
     let class = plan.class.unwrap_or(tool.class());
     if class == ToolClass::Read && crate::content::local_read(tool.name()) {
         return None;
     }
     at.session?;
-    let mode = rt.jobs.core()?.cfg.content.injection;
+    let mode = rt.jobs.core()?.cfg.content_based_security.injection;
     if mode == crate::content::InjectionMode::Notify {
         return None;
     }

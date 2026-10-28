@@ -667,7 +667,7 @@ async fn a_long_item_is_asked_in_pieces_and_the_bound_is_visible() {
     assert!(flags(&r, &sid).has(Flag::Secret), "the union of the pieces");
     assert_eq!(jev.seen().len(), 4, "one request a piece");
 
-    // Past `[content] max_pieces`: read as far as the bound, and said so. The
+    // Past `[content_based_security] max_pieces`: read as far as the bound, and said so. The
     // default (20) fits the largest item that can exist, so the test sets its
     // own small bound rather than building a 20-piece item for nothing.
     let svc = &r.core.runner.judge;
@@ -827,7 +827,7 @@ async fn a_turns_wait_is_counted_from_the_call_and_released_on_drop() {
     assert!(!svc.content_awaited(&sid), "a dropped wait releases");
 }
 
-/// With `[content] enabled = false`, the judge off, or the pack off, nothing is
+/// With `[content_based_security] session_flags = false`, the judge off, or the pack off, nothing is
 /// asked and nothing waits.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn with_it_off_nothing_is_asked() {
@@ -837,7 +837,10 @@ async fn with_it_off_nothing_is_asked() {
         let r = rig_with(texts(1), Some(&jev), |c| {
             if how == "config" {
                 c.judge.packs.remove(PACK);
-                c.content.enabled = false;
+                c.content_based_security.session_flags = false;
+                // With the flags off `follow_flags` has no labels to read and the config refuses to start.
+                c.content_based_security.cn_models =
+                    crate::config::content_based_security::CnModels::Never;
             }
         });
         let sid = session(&r);

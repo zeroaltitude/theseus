@@ -1774,7 +1774,7 @@ max_switches = 2                        # moves per task, up or down
 # DeepSeek Flash drafts routine coding, tests, mechanical refactors and planned features at about
 # a sixth of Sonnet's cost per trial; Sonnet always reviews and fixes the draft before anything is
 # applied. It needs the DeepSeek key and a session directory that is a git tree, and a session
-# whose labels (`[content]` below) allow a China-origin model. The draft runs no programs; its
+# whose labels (`[content_based_security]` below) allow a China-origin model. The draft runs no programs; its
 # reviewer runs the tests.
 # cn_draft = "dsflash"                  # one China-origin profile, only on routine_coding and deep_coding
 # final = ["sonnet"]                    # a Claude profile; the first usable one reviews
@@ -1806,20 +1806,31 @@ max_switches = 2                        # moves per task, up or down
 # name goes in your own config only, never in the repository.
 # [privacy]
 # sensitive_names = ["examplecorp", "examplecorpinc", "example-repo"]
+# public_paths = ["~/projects/example-open-source"]  # directories whose work is public; the classifier
+#                                       # is told an item from there is. Read by a later step
+# redact_outbound = true                # the vault's values are replaced on copies that leave the
+#                                       # machine. Read by a later step
 
-# Content flags (theseus-9ymz0): every item that enters a session — each message you send,
-# each tool result, each page fetched and each file read — is classified once by Jev, and what
-# it finds becomes a label on the session that survives compaction and restart. `secret`,
-# `confidential` and `personal` disqualify a model of restricted origin for that session;
-# `injection` means something tried to steer the assistant, and its session's calls that act
-# are refused until you clear the label (`theseus content remove <session> injection`, or the
-# button on the message). The injection question is never asked of your own messages. The
+# Content-based security (theseus-9ymz0, theseus-gyjyo.2; this table was `[content]`, and the old
+# name is an error that says where each key went): every item that enters a session — each
+# message you send, each tool result, each page fetched and each file read — is classified once
+# by Jev, and what it finds becomes a label on the session that survives compaction and restart.
+# `secret`, `confidential` and `personal` disqualify a model of restricted origin for that
+# session; `injection` means something tried to steer the assistant, and its session's calls
+# that act are refused until you clear the label (`theseus content remove <session> injection`,
+# or the button on the message). The injection question is never asked of your own messages. The
 # sensitive-names list above is unaffected: it is checked at the provider, deterministically,
 # whatever these say.
-# [content]
-# enabled = true                        # off: nothing is classified, and a model of restricted
-#                                       # origin is then refused every request, since nothing
-#                                       # has judged what the session carries
+# [content_based_security]
+# session_flags = true                  # off: nothing is classified and no label is raised. A model
+#                                       # of restricted origin then has no labels to follow, so
+#                                       # cn_models must say what it does: "follow_flags" with this
+#                                       # off refuses to start. Write "never" to keep those models
+#                                       # off, or "always" to send to them without labels
+# cn_models = "follow_flags"            # a request to a model of restricted origin: "always" sends it
+#                                       # whatever the session carries, "follow_flags" refuses it
+#                                       # when the session's labels disqualify it, "never" refuses
+#                                       # it. Read by a later step; today the labels decide
 # injection = "refuse"                  # or "notify": the label is raised and told, nothing is
 #                                       # refused. A benchmark daemon sets this, so a trial
 #                                       # never waits for you to tap a button
@@ -1830,6 +1841,9 @@ max_switches = 2                        # moves per task, up or down
 #                                       # bounds how many are read. 20 fits the largest item that
 #                                       # can exist (a 100,000-character file read) whole. Past the
 #                                       # bound an item is read from the start and says `truncated`
+# context = ""                          # one paragraph on what the assistant is and which of its
+#                                       # work is public, given to the classifier as written. Read
+#                                       # by a later step; empty says nothing
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and

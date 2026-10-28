@@ -118,7 +118,9 @@ async fn a_frozen_session_refuses_what_acts_and_everything_that_leaves_the_machi
 /// In `notify` mode, the bench daemon's, the same calls are refused by nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn notify_mode_refuses_nothing() {
-    let r = rig(None, 1, |c| c.content.injection = InjectionMode::Notify);
+    let r = rig(None, 1, |c| {
+        c.content_based_security.injection = InjectionMode::Notify
+    });
     let reads = Cell::new(0);
     for (tool, input) in stopped(&r) {
         assert_eq!(

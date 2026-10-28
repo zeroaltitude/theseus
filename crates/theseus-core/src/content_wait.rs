@@ -2,7 +2,7 @@
 //!
 //! A turn bound for a model of restricted origin may go only when every item in
 //! its session has been judged (`ContentFlags::judged_through`), so it waits
-//! for the verdict, at most `[content] wait_ms`, and goes to Claude when the
+//! for the verdict, at most `[content_based_security] wait_ms`, and goes to Claude when the
 //! verdict does not come: the turn is never blocked and never fails for want of
 //! one. A turn bound for Claude never waits.
 //!
@@ -25,7 +25,7 @@ use crate::stub::Stub;
 
 /// What a turn waits on: the next time the judge may have moved a session's
 /// `judged_through`. The future may end early or never end; the caller bounds
-/// it with `[content] wait_ms` and reads the record again afterwards, so a
+/// it with `[content_based_security] wait_ms` and reads the record again afterwards, so a
 /// wake-up that judged nothing costs one read.
 ///
 /// **A wake-up that comes after this call must end the future, even if it
@@ -235,7 +235,7 @@ pub(crate) mod judging {
     }
 
     /// A judge that never answers: a turn that waits on it waits its whole
-    /// `[content] wait_ms`. It counts the waits, by session.
+    /// `[content_based_security] wait_ms`. It counts the waits, by session.
     #[derive(Default)]
     pub(crate) struct Silent {
         pub waits: std::sync::Mutex<Vec<String>>,

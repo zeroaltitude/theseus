@@ -1895,13 +1895,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     **route.v8** (theseus-f9qa8) is the acting route pack; its `data` question is asked and read by nothing since
     theseus-9ymz0 (the labels on a session replaced it; route.v9 drops it, theseus-gezlj).
   - **Content flags and the restricted-origin floor** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17;
-    `content.rs`, `content_wait.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/content.rs`, `fact/data.rs`): every item that
+    `content.rs`, `content_wait.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/content_based_security.rs`, `fact/data.rs`): every item that
     enters a session (an operator's message, a tool result, a brief, a report) is classified once, by itself, and what is
     found is a durable label on `SessionRecord.data` (`ContentFlags`; store format 52, which reads an older record's open-view
     state as no labels and nothing judged). `secret`, `confidential` and `personal` raise at the confirm band and disqualify
     a model of restricted origin (`cn`, `unknown`) for the session; `injection` raises only at the act band, is never asked of the
     operator's own words, and freezes the session: `ToolRuntime::refusal_at` refuses every call that is not a local read
-    of files and code (`content::local_read`) until the operator removes the label (`[content] injection = "notify"` only tells,
+    of files and code (`content::local_read`) until the operator removes the label (`[content_based_security] injection = "notify"` only tells,
     the bench daemon's). Nothing is proved per request: the session carries a label or it does not.
     **The chokepoint** (`data_gate.rs`, keel): a request to a model of restricted origin is refused (class `data_gate`,
     nothing sent, one `data_gate.blocked` row with a `why` word) unless the session in `CALLER` (`for_session`) has no
@@ -1910,7 +1910,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     restricted model; `[privacy] sensitive_names` is checked after it, unchanged and independent of every label.
     **The turn's floor** (`turn/data_step.rs`): `Floor { sensitive, cn_ok }`, `cn_ok` from `RouteState.cn` (`Cn`: allowed,
     pending, or no with the flag's word), read from the store, not the turn's copy. A turn bound for a restricted profile whose
-    session has unjudged items waits on `TurnRunner::verdicts` for at most `[content] wait_ms` and then goes to the `[model]`
+    session has unjudged items waits on `TurnRunner::verdicts` for at most `[content_based_security] wait_ms` and then goes to the `[model]`
     default with `Reason::DataGate`: it never blocks and never fails for want of a verdict; a Claude turn never waits
     (`decide_floored` decides as if allowed, and waits only when that names a restricted profile). A later loop on a restricted
     profile reads the session again before it compiles (`cn_move`), so a label raised since moves it; a compaction's restricted
@@ -1922,6 +1922,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     reviewer_profile`, `[initiative] profile`, `[ontology] name_profile`, `[memory] synth_profile`) and a China-origin `[judge]
     api_base`. Tests: `tests_content_gate.rs`, `tests_content_floor.rs`, `tests_content_freeze.rs`, `tests_data_gate.rs`,
     `data_gate.rs`, `config/data_floor.rs`.
+    **The table is `[content_based_security]`** (theseus-gyjyo.2; it was `[content]`, whose keys are each a hard error naming their
+    new home in `config/renamed.rs`): `session_flags` (was `enabled`), `injection`, `wait_ms`, `max_pieces`, and three keys **parsed and exposed
+    only**, read by later rows of the principles migration: `cn_models` (`always | follow_flags | never`), `context` (handed to the pack
+    verbatim), and `[privacy] public_paths` / `redact_outbound`. `session_flags = false` with `cn_models = "follow_flags"` refuses to start
+    (`ContentBasedSecurityConfig::validate`): with nothing judged there are no labels to follow. Tests: `config/tests_content_based_security.rs`.
     **The data rule is on the record** (theseus-a1wvq.11; `tests_observability.rs`): the route row (`route.decided`) carries `cn`
     (`allowed`, `pending`, a flag's word, `unjudged`), `data_gate` only when the rule kept the turn off a restricted-origin model,
     and, always, `provider`, `model` and `origin` of the profile it runs on; `provider.call` carries `origin`. `data_gate` is an

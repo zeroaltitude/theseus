@@ -19,7 +19,7 @@
 //! was. Across the whole cell, 1,181 of 1,387 tool-call loops were single-call
 //! and **not one of those ever failed** — 83 of them ran inside the 25 failing
 //! trials themselves and survived. Every one of the 25 waited **30.007 to
-//! 30.014 s**, one uninterrupted `[content] wait_ms`, and in every one every
+//! 30.014 s**, one uninterrupted `[content_based_security] wait_ms`, and in every one every
 //! judgment that exists reads `outcome: answered`. **Nothing failed. A verdict
 //! was simply never asked for.**
 //!
@@ -280,7 +280,7 @@ async fn a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landin
             c.judge.total_secs = 10;
             // Generous, so a move to the default means the verdict never came
             // rather than that the fake Jev was slow.
-            c.content.wait_ms = 5_000;
+            c.content_based_security.wait_ms = 5_000;
             c.tools.proc_sync_secs = 5;
             c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
             c.model.retries.transient = 0;
@@ -318,7 +318,7 @@ async fn a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landin
 /// **The wedge itself** (theseus-8qgwo): a content batch that fails *mid-turn*
 /// puts its node on `ContentFlags::unjudged`, and from that moment nothing
 /// will ever ask for it again while the turn lasts -- so a turn pinned to a
-/// model of restricted origin waits its whole `[content] wait_ms` and is then
+/// model of restricted origin waits its whole `[content_based_security] wait_ms` and is then
 /// refused, however healthy the judge has since become.
 ///
 /// **This is not what cell 8 died of** — no content call failed there (every
@@ -334,7 +334,7 @@ async fn a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landin
 /// session is off every model of restricted origin for the rest of that turn,
 /// and until something else queues an item.
 ///
-/// Cell 8's profile sets `[content] wait_ms = 30000`, so a turn in this state
+/// Cell 8's profile sets `[content_based_security] wait_ms = 30000`, so a turn in this state
 /// burns a full thirty seconds waiting on a verdict nothing asked for.
 ///
 /// The rig holds the result's own content call until the judge's own
@@ -372,7 +372,7 @@ async fn a_failed_content_call_mid_turn_is_asked_again_rather_than_wedging() {
             // The held call gives up here; the floor has far longer to notice
             // and ask again, as cell 8's profile does.
             c.judge.total_secs = 3;
-            c.content.wait_ms = 30_000;
+            c.content_based_security.wait_ms = 30_000;
             c.tools.proc_sync_secs = 5;
             c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
             c.model.retries.transient = 0;
@@ -464,7 +464,7 @@ async fn a_restricted_default_is_not_a_fallback_on_a_later_loop() {
             c.copy_profile("default", "glm");
             c.judge.packs.remove(crate::judge::content::PACK);
             c.judge.total_secs = 2;
-            c.content.wait_ms = 1_000;
+            c.content_based_security.wait_ms = 1_000;
             c.tools.proc_sync_secs = 5;
             c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
             c.model.retries.transient = 0;
