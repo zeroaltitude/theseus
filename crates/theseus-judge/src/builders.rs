@@ -968,15 +968,7 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     );
     threads_dynamic(&mut dynamic, i, threads, &clip);
     persona::dynamic(&mut dynamic, i, &clip, in_thread);
-    if i.draft_choice {
-        dynamic.sources.insert(
-            Source::DraftChoice,
-            vec![Item {
-                key: "draft".into(),
-                text: "The operator lets Jev choose which coding requests a cheaper drafting model makes the first pass of.".into(),
-            }],
-        );
-    }
+    draft_choice_dynamic(&mut dynamic, i);
     onto::dynamic(&mut dynamic, i, &clip);
     dynamic.sources.insert(
         Source::Roles,
@@ -992,6 +984,20 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     Prepared {
         state: Arc::new(b.build()),
         dynamic,
+    }
+}
+
+/// `route.v9`'s `draft` question is asked only when the operator lets Jev
+/// choose (theseus-kqeih): one item, or none.
+fn draft_choice_dynamic(dynamic: &mut Dynamic, i: &InboundInput) {
+    if i.draft_choice {
+        dynamic.sources.insert(
+            Source::DraftChoice,
+            vec![Item {
+                key: "draft".into(),
+                text: "The operator lets Jev choose which coding requests a cheaper drafting model makes the first pass of.".into(),
+            }],
+        );
     }
 }
 
