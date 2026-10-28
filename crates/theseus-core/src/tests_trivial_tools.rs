@@ -81,16 +81,16 @@ async fn a_quick_detour_keeps_its_tools() {
 /// keeps its place's tools, the command tool among them, though its message
 /// names none; a `commentary` one carries `tools_find` alone, as a trivial one
 /// does, and its row says so. The fake Jev answers from the acting pack's own
-/// options, so this proof needs route.v9 to be the acting pack. It is ignored
-/// until it is, and `--run-ignored all` shows it failing on route.v8: a proof
-/// that returned `Ok` without asserting anything was a pass by an empty set.
+/// options, so this proof needs route.v9 to be the acting pack, and it fails
+/// loudly on a pack that is not: it was ignored while route.v8 acted (where it
+/// failed with "the acting pack (route.v8) names no run_tool"), after a first
+/// version that returned `Ok` without asserting, a pass by an empty set.
 ///
 /// Beyond the offered tools it pins the two things that make them so: the
 /// `[routing.classes.run_tool]` table the rig resolved (Haiku, then Sonnet, the
 /// cn rubric's §7.4) and `BARE_DETOURS`' membership (`commentary` in it,
 /// `run_tool` out, or the turn would be offered `tools_find` alone).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "runs once route.v9 is the acting pack (theseus-tqomi)"]
 async fn a_run_tool_detour_keeps_its_tools_and_a_commentary_one_carries_tools_find() {
     let acting = theseus_judge::pack::by_name(crate::judge::inbound::ROUTE_PACK).unwrap();
     for kind in ["run_tool", "commentary"] {

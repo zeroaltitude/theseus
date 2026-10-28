@@ -106,7 +106,7 @@ model = "claude-sonnet-5-5"
 # max_output_tokens = 64000             # omitted: the catalog ceiling (128000 for Sonnet 5.5)
 # system = ""
 # effort = "xhigh"                      # the recommended level for coding and agentic work
-# effort_fixed = false                  # true: effort stands whatever route.v8 answers ([routing])
+# effort_fixed = false                  # true: effort stands whatever route.v9 answers ([routing])
 thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
@@ -1692,7 +1692,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 # tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
 
 # ---------------------------------------------------------------- routing
-# Jev's model per task class (M5 25e). While [judge] is on, route.v8 asks at each
+# Jev's model per task class (M5 25e). While [judge] is on, route.v9 asks at each
 # message you send which task class it needs (beside classify.v4 and role.v1), and
 # the turn runs on that class's first usable profile: configured, its key settled, its
 # model priced, and able to read the turn's images; else the next; else the session's
@@ -1703,7 +1703,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 # messages in a row agree (a switch leaves the cache cold). A turn whose profile, provider
 # or model you chose (`theseus ask -P/-p/-m`, the cockpit's picker) is never routed, and
 # a place's profile (its ceiling) is its cap: nothing routes to a dearer model there.
-# In the same request route.v8 asks the effort the reply needs (low, medium, high, xhigh,
+# In the same request route.v9 asks the effort the reply needs (low, medium, high, xhigh,
 # max), and the turn's model runs at it when its catalog row takes effort, over the
 # profile's own effort unless the profile sets effort_fixed = true, and clamped to
 # effort_bounds. An answer below its confirm bar still applies at effort_confidence or
@@ -1727,7 +1727,7 @@ high_effort_confidence = 0.40           # an xhigh or max answer applies only ab
 effort_confidence = 0.35                # an effort answer under its confirm bar applies at this confidence or more (at most high_effort_confidence)
 dear_tier_max_tokens = 200000           # over this much context, sophisticated and review skip a profile dearer (per input token) than the next usable one
 # A running task's model ranges (theseus-ypnxt.9). A task you started with no profile asks
-# route.v8 about its recent state at a loop boundary when it fails, stalls, changes phase or
+# route.v9 about its recent state at a loop boundary when it fails, stalls, changes phase or
 # is about to report, and moves up to the class's profile (only Jev elevates) or back down
 # to its own base after two agreeing verdicts, never below it. A task started with a profile
 # is pinned. One verdict per min_loops_between loops; at most max_switches moves, and a step

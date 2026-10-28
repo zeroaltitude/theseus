@@ -1892,9 +1892,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     to us-based models"): `ModelOrigin::cleared_for_sensitive` admits only `us`, and never a `restricted` origin (`cn`,
     `unknown`), so the China-origin block stays the floor beneath it; the route, the chokepoint and a private motif's
     model (`rsi::mint::data_rule`) all read it. Tests: `tests_data_gate.rs`, `data_gate.rs`, `tests_route_data.rs`.
-    **route.v8** (theseus-f9qa8) is the acting route pack; its `data` question is asked and read by nothing since
-    theseus-9ymz0 (the labels on a session replaced it; route.v9 drops it, theseus-gezlj).
-    **route.v9** (theseus-gezlj, theseus-tqomi; the owner's labels of 2026-10-26) is v8 but for the `mode` question's two
+    **route.v9** (theseus-gezlj, theseus-tqomi; the owner's labels of 2026-10-26) is the acting route pack (`ROUTE_PACK`; the
+    ladder adopts it on the first start that finds it, `ladder::adopt::ADOPTED`), v8 but for the `mode` question's two
     new kinds, `run_tool` (a command, script or tool to run and its result reported) and `commentary` (a remark that asks for
     nothing), both listed before the kinds that swallowed their turns; one sentence added to `sophisticated` (comparing things
     on their merits, or asking open-endedly whether something is good, distinctive or solid, belongs there: the owner's rule
@@ -1908,7 +1907,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `leave` (`routing::effort::EffortReason::Leave`). No China-origin model is named for either new class: a `run_tool` turn
     reads tool output, which waits on theseus-ouqru's content screen. The end-to-end proof,
     `tests_trivial_tools::a_run_tool_detour_keeps_its_tools_and_a_commentary_one_carries_tools_find`, pins the class table, the
-    `BARE_DETOURS` membership and the offered tools, and needs route.v9 to be the acting pack (`ROUTE_PACK`).
+    `BARE_DETOURS` membership and the offered tools. A correction recorded under route.v8 no longer steers (`SAME_MODE`
+    names no route.v8 under v9: the `mode` question's words differ).
   - **Content flags and the restricted-origin floor** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17;
     `content.rs`, `content_wait.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/content_based_security.rs`, `fact/data.rs`): every item that
     enters a session (an operator's message, a tool result, a brief, a report) is classified once, by itself, and what is

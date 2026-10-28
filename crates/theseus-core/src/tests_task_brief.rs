@@ -1,6 +1,6 @@
 //! A task's model (theseus-ypnxt.7): `task.start` with no profile inherited the
 //! parent's `last_target`, and a task's first turn (the driver's, with no
-//! message of its own) asked route.v8 nothing, so the routed arm was never
+//! message of its own) asked route.v9 nothing, so the routed arm was never
 //! what a task paid. The rig is `tests_route`'s, with the driver running the
 //! tasks and a fake Jev scripted for the brief's class.
 
@@ -91,7 +91,7 @@ pub(crate) const BRIEF: &str = "Fix the typo in the quay notice.";
 /// nothing (`assert_eq!(ran_on(&r), "claude-fable-5-1")`, `decided` empty,
 /// `jev.connections() == 0`). Now the brief's verdict, routine coding, picks
 /// the class's first usable profile, which is the task's base; one request
-/// asks it, route.v8's alone. A routine-coding brief starts on `haikuhi`, and
+/// asks it, route.v9's alone. A routine-coding brief starts on `haikuhi`, and
 /// its checkpoints move it up (the owner, 2026-10-18: start cheap, escalate;
 /// theseus-31pgz, theseus-ypnxt.9); a trivial brief runs on Haiku, below.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -106,7 +106,7 @@ async fn a_task_with_no_profile_runs_on_the_profile_its_briefs_class_picks() {
         rec.routed.is_none(),
         "the class's profile is the base, not a move"
     );
-    assert_eq!(jev.connections(), 1, "one request: route.v8 alone");
+    assert_eq!(jev.connections(), 1, "one request: route.v9 alone");
     let d = decided(&r.core.store);
     assert_eq!(d.len(), 1);
     assert_eq!(

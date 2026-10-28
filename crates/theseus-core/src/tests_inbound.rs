@@ -111,7 +111,7 @@ const INBOUND_ALONE: [&str; 24] = [
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v4: live",
     "role.v1: shadow",
-    "route.v8: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-23))",
+    "route.v9: off (the config's ceiling; on the ladder: live (owner: the owner's labels of 2026-10-26, theseus-tqomi))",
     "directive.v1: live",
     "onto.v1: off",
     "same_thing.v1: live",
@@ -275,7 +275,7 @@ async fn the_next_messages_state_reads_the_previous_message_and_the_reply() {
 }
 
 /// The operator's names (`[privacy] sensitive_names`) ride Jev's state as
-/// `data_names` (route.v8's `data` question, theseus-a1wvq.2); with none configured the
+/// `data_names` (route.v9's `data` question, theseus-a1wvq.2); with none configured the
 /// state has no such key, so it is the one before, byte for byte.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_operators_names_ride_the_state_only_when_configured() {
@@ -390,7 +390,7 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     assert_eq!(
         marks(&res.trace).len(),
         4,
-        "judged: the inbound point's three marks (route.v8's, 25e), and loop.v1's at the turn's end (23b)"
+        "judged: the inbound point's three marks (route.v9's, 25e), and loop.v1's at the turn's end (23b)"
     );
     let own = res.trace.as_ref().unwrap().attrs["frames"].as_u64();
     assert_eq!(own, Some(4), "the turn's own frames");

@@ -490,7 +490,7 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v4: off",
             "role.v1: off",
-            "route.v8: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-23))",
+            "route.v9: off (the config's ceiling; on the ladder: live (owner: the owner's labels of 2026-10-26, theseus-tqomi))",
         "directive.v1: off",
         "onto.v1: off",
         "same_thing.v1: live",

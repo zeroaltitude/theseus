@@ -61,12 +61,13 @@ pub const OFFER_QUESTION: &str = "offer_task";
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.
-/// The acting route pack: `route.v8` since theseus-f9qa8 (2026-10-23), v7's
-/// questions with the `data` question's `open` and `unclear` options reworded
-/// (v7 itself since theseus-a1wvq, 2026-10-19), live at once with route.v1's
-/// rollback rules; `route.v7` to `route.v5` stay embedded for their history,
-/// and the ladder never runs them again.
-pub const ROUTE_PACK: &str = "route.v8";
+/// The acting route pack: `route.v9` since theseus-tqomi (2026-10-28), v8's
+/// questions but for `data` (nothing has read its answer since theseus-9ymz0),
+/// with the `run_tool` and `commentary` kinds (theseus-gezlj), `sophisticated`
+/// extended to open-ended comparison, and `leave` for `unclear`. Live at once
+/// with route.v1's rollback rules; `route.v8` to `route.v5` stay embedded for
+/// their history, and the ladder never runs them again.
+pub const ROUTE_PACK: &str = "route.v9";
 /// DIRECTIVE (theseus-slvl.5), at `inbound`, batched with `classify.v1` and
 /// `role.v1` (no request of its own), live: asked only for the owner's own
 /// message in a place only the owner writes in (`Inbound.capture`).
