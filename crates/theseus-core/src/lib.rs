@@ -35,6 +35,7 @@ pub mod config_gate;
 pub mod conns;
 pub mod consolidate;
 pub mod content;
+pub mod content_scene;
 pub mod content_wait;
 pub mod context_files;
 pub mod context_parts;
@@ -42,13 +43,13 @@ pub mod correction;
 pub mod cpu;
 pub mod crash;
 pub mod data_gate;
-mod data_mark;
 pub mod day_ceiling;
 pub mod disk;
 pub mod draft;
 pub mod draft_view;
 pub mod egress;
 pub mod engage;
+pub mod exits;
 pub mod extend;
 pub mod external;
 pub mod fact;
@@ -344,8 +345,6 @@ mod tests_engage;
 #[cfg(test)]
 mod tests_explain;
 #[cfg(test)]
-mod tests_external;
-#[cfg(test)]
 mod tests_failures;
 #[cfg(test)]
 mod tests_fallback;
@@ -420,6 +419,8 @@ mod tests_m3;
 #[cfg(test)]
 mod tests_manifest_harness;
 #[cfg(test)]
+mod tests_marker;
+#[cfg(test)]
 mod tests_mcp_memory;
 #[cfg(test)]
 mod tests_memory_arm;
@@ -488,17 +489,9 @@ mod tests_places;
 #[cfg(test)]
 mod tests_private_authored;
 #[cfg(test)]
-mod tests_private_background;
-#[cfg(test)]
-mod tests_private_lineage;
-#[cfg(test)]
-mod tests_private_recall;
-#[cfg(test)]
 mod tests_private_view;
 #[cfg(test)]
 mod tests_proc_cap;
-#[cfg(test)]
-mod tests_profile_floor;
 #[cfg(test)]
 mod tests_progress;
 #[cfg(test)]
@@ -698,11 +691,17 @@ mod tests_turn_reserve;
 #[cfg(test)]
 mod tests_turn_retry;
 #[cfg(test)]
+mod tests_unlabel;
+#[cfg(test)]
 mod tests_wait_cost;
+#[cfg(test)]
+mod tests_waiting_split;
 #[cfg(test)]
 mod tests_wakes;
 #[cfg(test)]
 mod tests_web_offer;
+#[cfg(test)]
+mod tests_wire_mark;
 #[cfg(test)]
 mod tests_work;
 #[cfg(test)]

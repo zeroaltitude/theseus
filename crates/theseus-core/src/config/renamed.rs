@@ -31,11 +31,37 @@ pub const RENAMED: &[(&str, &str)] = &[
     ("content.max_pieces", "content_based_security.max_pieces"),
 ];
 
+/// Every key this build retired outright, and what replaced it. Like a renamed key, one of these fails the load,
+/// where the retired-keys list's warns (theseus-gyjyo.8): the `injection` label replaced the external-text hold,
+/// and a config that still names it would otherwise believe a mechanism is there that is not.
+pub const RETIRED: &[(&str, &str)] = &[
+    (
+        "policy.external_text",
+        "the `injection` label replaced it: reading outside text no longer holds a session, and a session that \
+         carries `injection` refuses the calls that act until the operator removes the label \
+         (`[content_based_security] injection`)",
+    ),
+    (
+        "policy.external_programs",
+        "the `injection` label replaced it: no program's output holds a session any more; the content pack asks \
+         of every result what it asks of a page, and `injection` is what stops a session (`[content_based_security] \
+         injection`)",
+    ),
+];
+
 /// The message for the first old key `text` has, or none (also for text that is not TOML: its own error stands).
 pub fn explain(text: &str) -> Option<String> {
     let doc: Table = text.parse().ok()?;
-    RENAMED.iter().find_map(|(old, new)| {
+    let retired = RETIRED.iter().find_map(|(old, why)| {
         let table = found(&doc, &old.split('.').collect::<Vec<_>>())?;
+        Some(format!("{} was retired: {why}", show(old, table)))
+    });
+    retired.or_else(|| renamed_in(&doc))
+}
+
+fn renamed_in(doc: &Table) -> Option<String> {
+    RENAMED.iter().find_map(|(old, new)| {
+        let table = found(doc, &old.split('.').collect::<Vec<_>>())?;
         Some(format!(
             "{} was renamed to {}",
             show(old, table),

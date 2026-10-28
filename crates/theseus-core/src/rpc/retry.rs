@@ -174,7 +174,7 @@ impl Core {
 }
 
 /// What a retry copies from the failed task: its session record, its brief's
-/// words, its pieces and claim, its task record, and its parent's hold.
+/// words, its pieces and claim, and its task record.
 struct Copy {
     old: SessionRecord,
     task_of: TaskOf,
@@ -183,7 +183,6 @@ struct Copy {
     fidelity_ack: bool,
     claim: Option<crate::check::Claim>,
     graph_old: Option<crate::task_graph::TaskRecord>,
-    parent_hold: Option<theseus_protocol::ExternalText>,
 }
 
 impl Core {
@@ -226,10 +225,6 @@ impl Core {
         let graph_old = crate::task_graph::all(&self.store)?
             .into_iter()
             .find(|t| t.session.as_deref() == Some(failed.session_id.as_str()));
-        let parent_hold = self
-            .store
-            .get_session::<SessionRecord>(&task_of.parent_session)?
-            .and_then(|r| r.external);
         Ok(Copy {
             old,
             task_of,
@@ -238,7 +233,6 @@ impl Core {
             fidelity_ack,
             claim,
             graph_old,
-            parent_hold,
         })
     }
 }
@@ -265,8 +259,7 @@ impl Copy {
         Ok(Some(crate::task_graph::record(&graph)?))
     }
 
-    /// The records the new task's frame carries: its session (holding
-    /// external text as its parent does), its brief, its arrangement and the
+    /// The records the new task's frame carries: its session, its brief, its arrangement and the
     /// edges to its pieces, where it reports, its task record, and the
     /// `task.retried` row.
     fn records(
@@ -287,6 +280,8 @@ impl Copy {
         rec.execution_id = Some(task.id.clone());
         rec.dir = self.old.dir.clone();
         rec.last_target = self.old.last_target.clone();
+        // A retry carries the labels of the task it retries (theseus-gyjyo.5).
+        rec.data = self.old.data.as_deref().and_then(|f| f.inherited());
         let author = format!("session:{}", task_of.parent_session);
         let mut arrangement = Node::arrangement(
             &task.session_id,
@@ -315,23 +310,11 @@ impl Copy {
             note,
         );
         let brief = Node::relayed(&task.session_id, None, Origin::Agent, &author, &text);
-        let mut records = match &self.parent_hold {
-            Some(h) => {
-                let taken = crate::external::taken(
-                    h,
-                    &task_of.parent_session,
-                    crate::external::VIA_TASK,
-                    &brief.id,
-                    theseus_protocol::now_unix_ms(),
-                );
-                crate::external::hold(rec, taken, None)?.unwrap_or_default()
-            }
-            None => vec![NewRecord::json(
-                theseus_store::kinds::SESSION,
-                Some(&rec.session_id),
-                &rec,
-            )?],
-        };
+        let mut records = vec![NewRecord::json(
+            theseus_store::kinds::SESSION,
+            Some(&rec.session_id),
+            &rec,
+        )?];
         records.push(brief.record()?);
         records.push(arrangement.record()?);
         let pieces = self

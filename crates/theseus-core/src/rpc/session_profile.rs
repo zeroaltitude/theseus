@@ -13,8 +13,10 @@
 //!   pinned; the floor moves a refused base as it moves any, `moved_to` saying
 //!   so (`turn/data_step.rs`). A turn fixes its model once it starts, so a
 //!   running task takes the hold at its next turn, never mid-call.
-//! - **The refusal** is `data_mark::profile_refusal`, the floor's own
-//!   question: nothing is written and the answer says why.
+//! - **The refusal** is the floor's own question (`TurnRunner::profile_refusal`): a
+//!   profile that does not resolve, or of restricted origin for a session that
+//!   carries a label that keeps one off. Nothing is written and the answer says
+//!   why.
 //! - **Authority** is `session.retire`'s: the owner, from a private place.
 
 use std::sync::Arc;
@@ -134,14 +136,12 @@ impl Core {
         };
         let next = match p.profile.as_deref() {
             Some(name) => {
-                let mark = crate::data_mark::session_mark(&self.store, &self.cfg, sid);
-                let catalog = &self.runner.catalog;
-                if let Some(why) = crate::data_mark::profile_refusal(&self.cfg, catalog, mark, name)
-                {
+                let mark = crate::content_wait::mark_of(&self.store, sid);
+                if let Some(why) = self.runner.profile_refusal(mark, name) {
                     done.refused = Some(why);
                     return Ok(done);
                 }
-                done.note = crate::data_mark::per_turn_note(&self.cfg, catalog, mark, name);
+                done.note = self.runner.per_turn_note(mark, name);
                 Some(Sticky {
                     profile: name.to_string(),
                     was: held

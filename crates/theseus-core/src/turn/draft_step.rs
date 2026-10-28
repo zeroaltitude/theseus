@@ -38,10 +38,7 @@ impl TurnRunner {
     /// Whether `profile` is usable now, for a session whose labels allow a
     /// model of restricted origin or not.
     pub(crate) fn profile_usable(&self, profile: &str, cn_ok: bool) -> bool {
-        let floor = super::data_step::Floor {
-            sensitive: false,
-            cn_ok,
-        };
+        let floor = super::data_step::Floor { cn_ok };
         self.route_profiles(floor)
             .get(profile)
             .is_some_and(|p| p.unusable.is_none())
@@ -97,7 +94,17 @@ impl TurnRunner {
             .tools
             .profiles
             .get(name)
-            .filter(|_| self.profile_usable(name, true) && !t.route.sensitive)
+            .filter(|_| {
+                // `cn_models = "never"` takes a profile of restricted origin out
+                // of routing (theseus-gyjyo.6), and that has to include the
+                // draft's own profile: without this the turn opens a draft task
+                // and ends `drafted` with no model call, and the draft's first
+                // request is then refused by its floor, so the owner gets a
+                // "drafted" notice and a failed draft in place of an answer.
+                let cn_ok = self.cfg.content_based_security.cn_models
+                    != crate::config::content_based_security::CnModels::Never;
+                self.profile_usable(name, cn_ok)
+            })
             .cloned()
             .ok_or("draft_unusable")?;
         let reviewer = reviewers
@@ -226,12 +233,11 @@ impl TurnRunner {
             start_at_ms: None,
             helper: None,
         };
-        let hold = session_hold(tc)?;
         // The brief is an item like any other, and the draft's session is
-        // judged by it (theseus-9ymz0). It is kept out here so it can be queued
-        // after its frame is written: without that the draft's own session is
-        // never judged, so its first request finds an unjudged item, waits,
-        // times out and ends `draft_not_admitted` — no draft would ever run.
+        // asked about it (theseus-9ymz0). It is kept out here so it can be
+        // queued after its frame is written: without that the draft's own
+        // session would have no ask out for its brief, and a label the brief
+        // earns would arrive after the draft's first request.
         let briefed: std::sync::Mutex<Option<Node>> = std::sync::Mutex::new(None);
         let opened = tc
             .kernel
@@ -247,6 +253,13 @@ impl TurnRunner {
                     crate::session::title_from(&d.draft.asks.join(" "))
                 ));
                 rec.execution_id = Some(task.id.clone());
+                // A draft carries its session's labels from its first call
+                // (theseus-b0ozi, LOW-5; theseus-gyjyo.5).
+                rec.data = tc
+                    .store
+                    .get_session::<SessionRecord>(tc.session_id)?
+                    .and_then(|r| r.data)
+                    .and_then(|f| f.inherited());
                 rec.dir = Some(d.draft.tree.clone());
                 rec.last_target = Some(d.profile.clone());
                 rec.task = Some(crate::session::TaskOf {
@@ -261,36 +274,15 @@ impl TurnRunner {
                 let author = format!("session:{}", tc.session_id);
                 let text = draft::brief(draft::DRAFT_HEADER, &d.draft.asks);
                 let brief = Node::relayed(sid, None, crate::node::Origin::Agent, &author, &text);
-                let mut records = match &hold {
-                    Some(h) => {
-                        let taken = crate::external::taken(
-                            h,
-                            tc.session_id,
-                            crate::external::VIA_TASK,
-                            &brief.id,
-                            theseus_protocol::now_unix_ms(),
-                        );
-                        crate::external::hold(rec, crate::external::bare(taken), None)?
-                            .unwrap_or_default()
-                    }
-                    None => vec![NewRecord::json(
-                        theseus_store::kinds::SESSION,
-                        Some(sid),
-                        &rec,
-                    )?],
-                };
+                let mut records = vec![NewRecord::json(
+                    theseus_store::kinds::SESSION,
+                    Some(sid),
+                    &rec,
+                )?];
                 records.push(brief.record()?);
                 *briefed
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(brief);
-                // A draft of a private session is private from its first call
-                // (theseus-b0ozi, LOW-5).
-                records.extend(crate::google::private::inherited(
-                    tc.store,
-                    &self.cfg,
-                    tc.session_id,
-                    sid,
-                )?);
                 if let Some(target) = &d.draft.target {
                     records.push(tc.outbox.task_record(sid, target)?);
                 }
@@ -370,12 +362,4 @@ impl TurnRunner {
         t.tc.posts.lock().unwrap().push(post);
         Ok(())
     }
-}
-
-/// The parent's external-text hold, which a draft takes bare.
-fn session_hold(tc: &TurnCtx<'_>) -> Result<Option<theseus_protocol::ExternalText>> {
-    Ok(tc
-        .store
-        .get_session::<SessionRecord>(tc.session_id)?
-        .and_then(|r| r.external))
 }

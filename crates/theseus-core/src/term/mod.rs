@@ -13,15 +13,13 @@
 //! - **The gate.** `term.open` is a Run-class act, judged as `proc.run` is,
 //!   by its program and arguments (its plan names its argv and its working
 //!   directory). `term.send` counts as running the terminal's program: its
-//!   plan names that argv, so the floor, the approve and allow lists, and the
-//!   external-text hold judge it as they would the program's own run.
-//!   `term.read` is a read. `term.close` is a read too: it stops what this
-//!   session started, as a cancel does, and so never waits on a hold.
-//! - **External text.** A terminal whose program `[policy] external_programs`
-//!   lists (`external::Listed`, read from its argv as a `proc.run`'s is), or
-//!   one sent text that names a listed program (`gh` typed into a shell), is
-//!   outside text from then on: every screen it gives is marked, and holds
-//!   its session (`via: program`).
+//!   plan names that argv, so the floor and the approve and allow lists
+//!   judge it as they would the program's own run. `term.read` is a read.
+//!   `term.close` is a read too: it stops what this session started, as a
+//!   cancel does.
+//! - **External text.** A terminal whose program is `gh` (`external::Listed`, read from its argv as a
+//!   `proc.run`'s is), or one sent text that names it, is outside text from then on: every screen it
+//!   gives carries the `external` marker. Nothing holds.
 //! - **Lifetime.** At most `PER_SESSION` terminals a session whose programs
 //!   run (theseus-ggqf): one whose program has ended frees its slot, and its
 //!   last screen stays readable until `term.close`, or until an open finds
@@ -172,7 +170,6 @@ impl Terminal {
             cols,
             opened_at_unix_ms: self.opened_ms,
             running: self.pty.exited().is_none(),
-            external: self.external().map(|l| l.program),
             bytes_out: s.bytes_out.load(Ordering::Relaxed),
             bytes_in: s.bytes_in.load(Ordering::Relaxed),
             last_output_unix_ms: s.last_output_ms.load(Ordering::Relaxed),
@@ -245,8 +242,6 @@ pub struct Terms {
     /// The environment each program gets: the job environment (`[tools]
     /// proc_env`, resolved at the start), its session, and `TERM`.
     pub env: Vec<(String, String)>,
-    /// `[policy] external_programs`.
-    pub external_programs: Vec<String>,
     /// `[tools.term] keep_background` (theseus-ggqf).
     pub keep_background: bool,
     /// The longest `until_idle` alone waits: `[tools] proc_sync_secs`, or
@@ -263,12 +258,11 @@ pub struct Terms {
 pub const TERM: &str = "xterm";
 
 impl Terms {
-    pub fn new(env: Vec<(String, String)>, external_programs: Vec<String>) -> Self {
+    pub fn new(env: Vec<(String, String)>) -> Self {
         Self {
             map: Mutex::new(BTreeMap::new()),
             next: AtomicU64::new(1),
             env,
-            external_programs,
             keep_background: crate::config::term::KEEP_BACKGROUND,
             idle_max_ms: MAX_WAIT_MS,
             left: left::Book::default(),
@@ -360,8 +354,7 @@ impl Terms {
         })
         .map_err(|e| format!("could not start {}: {e}", program(argv)))?;
         let id = format!("t{}", self.next.fetch_add(1, Ordering::Relaxed));
-        let external =
-            crate::external::Listed::of(&json!({ "argv": argv }), &self.external_programs);
+        let external = crate::external::Listed::of(&json!({ "argv": argv }));
         let t = Arc::new(Terminal {
             id: id.clone(),
             session: session.into(),
@@ -381,8 +374,7 @@ impl Terms {
         Ok((t, reclaimed))
     }
 
-    /// Type `bytes` into a session's terminal; `text` is what of them was
-    /// text, read for a listed program's name.
+    /// Type `bytes` into a session's terminal; `text` is what of them was text, read for `gh`'s name.
     pub fn send(
         &self,
         session: &str,
@@ -401,7 +393,7 @@ impl Terms {
         if !text.is_empty() {
             let mut ext = t.external.lock().unwrap();
             if ext.is_none() {
-                *ext = crate::external::Listed::in_text(text, &self.external_programs);
+                *ext = crate::external::Listed::in_text(text);
             }
         }
         t.sent_ms
@@ -676,10 +668,6 @@ pub fn snapshot(
         }
     };
     let mut text = String::new();
-    let ext = t.external();
-    if let Some(l) = &ext {
-        text.push_str(&l.line());
-    }
     text.push_str(&format!(
         "Terminal {} ({}), {}x{}, cursor at row {}, column {}{}; {state}.",
         t.id,
@@ -739,14 +727,8 @@ pub fn snapshot(
     });
     *last = (rows, scrolled);
     let meta = json!({"terminal": t.id, "program": t.program(), "cursor": [crow + 1, ccol + 1],
-        "changed_rows": changed.iter().map(|i| i + 1).collect::<Vec<_>>(), "scrolled_off": off,
-        crate::external::PROGRAM_KEY: ext.as_ref().map(|l| l.program.clone())});
-    let mut meta = meta;
-    if ext.is_none() {
-        meta.as_object_mut()
-            .map(|m| m.remove(crate::external::PROGRAM_KEY));
-    }
-    Ok((ToolOutput { text, meta }, ext.map(|l| l.marker())))
+        "changed_rows": changed.iter().map(|i| i + 1).collect::<Vec<_>>(), "scrolled_off": off});
+    Ok((ToolOutput { text, meta }, t.external().map(|l| l.marker())))
 }
 
 /// Row numbers as runs: "rows 2-4, 7".

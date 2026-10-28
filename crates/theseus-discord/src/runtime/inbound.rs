@@ -33,7 +33,7 @@ pub(super) struct Inbound {
 
 impl Inbound {
     /// Who wrote it and where, as the core judges an answer (a typed
-    /// `/trust`, T1b).
+    /// `/trust`).
     pub(super) fn origin(&self) -> DiscordOrigin {
         DiscordOrigin {
             user_id: self.author_id.to_string(),

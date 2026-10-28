@@ -77,7 +77,7 @@ test('a turn says its state on its bench, and its calls when there is room', () 
 test('a nameplate, a harbour and an oar say what they are in one line', () => {
   const v = { kind: 'conversation', rig: 'anchor', state: 'waiting', turns: 17, cost: 0.0069 } as any
   assert.equal(plateLine(v), 'idle · 17 turns · $0.0069')
-  assert.equal(plateLine({ ...v, rig: 'sail', turns: 1, cost: 0, hold: {} }), 'working · 1 turn · $0 · holds web text')
+  assert.equal(plateLine({ ...v, rig: 'sail', turns: 1, cost: 0 }), 'working · 1 turn · $0')
   assert.equal(harbourLine(1, 4), ' · 1 session · 4 tasks')
   assert.equal(harbourLine(3, 0), ' · 3 sessions')
   assert.equal(oarTag('fs.read', { word: 'ok' }), 'fs.read')

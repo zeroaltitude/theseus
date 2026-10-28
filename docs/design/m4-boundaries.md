@@ -9,6 +9,8 @@ Appendix B, Appendix F, P6, Part III B1, J1, Z1, and A4 item 10). Code read at `
 
 > **Read with the decisions of 2026-10-03.** The simplification review cut or replaced parts of this design, and each such section below opens with a banner. Labels, held posts, quiet loops, graduation, and the disclosure simulator (19a to 19d) gave way to the place rule (the cut-list's Tier 2; the spec's Part III, Item 76). Integrity by labels (20a), the fomites (20b), and the Advisory were dropped for integrity's light pieces (Tier 1.1; Item 74). The delegated cgroup and the start-time probe were removed (Tier 4; Item 77), and run-time credential requests (18d) gave way to grants at launch (Tier 3; Item 71). Don't build from a bannered section.
 
+> **Superseded in part (2026-10-28, theseus-gyjyo.8; the spec's Part III, Item 259).** T1's hold on outside text, `policy.trust`, `session.external_read`, `session.trusted`, the latch rows, and `[policy] external_text` and `external_programs` (§2.1's T1 row, the integrity and latch sections, §5's question 4 and the config table) are gone. The `external` marker on a result stays and holds nothing; the `injection` content label is the one place a read of outside text can stop a later call; a host a call names beyond `[sandbox] egress` runs with a notice. Read the sections below as the record of the design, not of the code.
+
 ## Outline
 
 0. The short version

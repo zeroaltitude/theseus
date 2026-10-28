@@ -275,7 +275,6 @@ impl Core {
             persona: Default::default(),
             capture: false,
             data_names: Default::default(),
-            private_source: false,
             attachments: Vec::new(),
         };
         let mut input = inbound::input(&upto, &msg, Vec::new());

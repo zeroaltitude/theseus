@@ -41,22 +41,19 @@ use crate::node_cache::NodeCache;
 
 /// The index's projection for a daemon's store (theseus-lv2): the kernel's
 /// terms for each execution and action, and for each session the numbers
-/// health adds up (sessions, turns, the five token counts, the cost), the
-/// term `e` while it holds external text, and an imported session's book
-/// terms (`books::session_terms`, theseus-civ0). A change to what these say
-/// renames it, and every store builds them again once, after serving
-/// (`projection.core.4`: `r`, a session retired by the owner or by a
-/// supersession, theseus-g00vv; before it, the kernel's `ot`, a task not
-/// ended, theseus-id8d).
+/// health adds up (sessions, turns, the five token counts, the cost), and an
+/// imported session's book terms (`books::session_terms`, theseus-civ0). A
+/// change to what these say renames it, and every store builds them again
+/// once, after serving (`projection.core.5`: no `e`, a session that held
+/// external text, which the hold's removal ended, theseus-gyjyo.8; before it,
+/// `r`, a session retired by the owner or by a supersession, theseus-g00vv;
+/// before that, the kernel's `ot`, a task not ended, theseus-id8d).
 pub static PROJECTION: Projection = Projection {
-    name: "projection.core.4",
+    name: "projection.core.5",
     kinds: &[kinds::EXECUTION, kinds::ACTION, kinds::SESSION],
     terms: terms_of,
     sums: sums_of,
 };
-
-/// The term of a session that holds external text (health's list of them).
-pub const EXTERNAL: &str = "e";
 
 /// The term of a session whose record says it was retired (health's split of
 /// the executions at rest on input).
@@ -66,17 +63,12 @@ fn terms_of(kind: RecordKind, payload: &[u8]) -> Vec<String> {
     #[derive(serde::Deserialize)]
     struct Held {
         #[serde(default)]
-        external: Option<serde::de::IgnoredAny>,
-        #[serde(default)]
         retired: Option<serde::de::IgnoredAny>,
     }
     match kind {
         kinds::SESSION => {
             let mut terms = Vec::new();
             if let Ok(h) = serde_json::from_slice::<Held>(payload) {
-                if h.external.is_some() {
-                    terms.push(EXTERNAL.to_string());
-                }
                 if h.retired.is_some() {
                     terms.push(RETIRED.to_string());
                 }
@@ -1474,7 +1466,7 @@ pub(crate) mod tests {
         let m: serde_json::Value =
             serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
                 .unwrap();
-        assert_eq!(m["format"], 53, "the write moved it: {m}");
+        assert_eq!(m["format"], 54, "the write moved it: {m}");
         let store = Store::open(d.path()).unwrap();
         let into = store.scope_after("in:msg_first", 0).unwrap();
         assert_eq!(into.len(), 1);

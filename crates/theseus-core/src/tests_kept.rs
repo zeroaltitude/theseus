@@ -1,5 +1,5 @@
 //! A capped result's whole output, kept and named (theseus-v73m): a job's
-//! output past the result cap is kept, scrubbed, under the session's
+//! output past the result cap is kept, as it was printed, under the session's
 //! outputs, the cut line names the file and the lines it left out, and
 //! `fs_read` reads them without an approval; nothing else of the state dir
 //! becomes readable; the sweep honours retirement, age and the total; and
@@ -23,9 +23,10 @@ use crate::test_support::turn;
 use crate::toolrun::order::At;
 use crate::{Config, Core};
 
-/// The value the job prints, which the scrubber knows: it must reach no
-/// kept file, no node, and no spool file.
-const PLANTED: &str = "invented-secret-0f9a8b7c6d5e4f3a";
+/// The value the job prints, which the scrubber knows: the record is raw, so
+/// it is in the kept file and in the node as the job printed it (the exits
+/// substitute it, the store does not).
+const PLANTED: &str = "invented-secret-0f9a8b7c";
 
 struct Rig {
     core: Arc<Core>,
@@ -36,6 +37,10 @@ struct Rig {
 }
 
 fn rig(script: Vec<Scripted>) -> Rig {
+    rig_with(script, |_| {})
+}
+
+fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().canonicalize().unwrap();
     let root = state.join("work");
@@ -49,6 +54,7 @@ fn rig(script: Vec<Scripted>) -> Rig {
     // The gate's stops are what the read of a kept output must not meet.
     cfg.policy.enforcement = Posture::Approve;
     cfg.policy.tools.insert("proc.run".into(), Posture::Open);
+    tweak(&mut cfg);
     let store = Store::open(&state.join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script));
     let mut p = crate::rpc::Parts::for_tests(cfg, fake.clone(), store);
@@ -122,7 +128,7 @@ fn cut(text: &str) -> (usize, String) {
 }
 
 #[tokio::test]
-async fn a_capped_command_keeps_its_whole_scrubbed_output_and_fs_read_reads_the_middle() {
+async fn a_capped_command_keeps_its_whole_raw_output_and_fs_read_reads_the_middle() {
     let r = rig(vec![Scripted::text("Ran it.")]);
     r.fake
         .script
@@ -163,7 +169,7 @@ async fn a_capped_command_keeps_its_whole_scrubbed_output_and_fs_read_reads_the_
         text.contains(&format!("not shown: they are lines {offset}-")),
         "{text}"
     );
-    // The whole output, scrubbed.
+    // The whole output, as printed: the value the vault gave is in it.
     let whole = std::fs::read_to_string(&kept).unwrap();
     assert_eq!(whole.lines().count(), 4000);
     assert_eq!(
@@ -172,7 +178,12 @@ async fn a_capped_command_keeps_its_whole_scrubbed_output_and_fs_read_reads_the_
     );
     assert_eq!(
         whole.lines().nth(9),
-        Some("line 10: token [redacted:demo_secret]")
+        Some(format!("line 10: token {PLANTED}").as_str())
+    );
+    // The node, read back out of the store, shows it too.
+    assert!(
+        text.contains(&format!("line 10: token {PLANTED}")),
+        "the node is the record of what the job printed: {text}"
     );
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(
@@ -205,21 +216,30 @@ async fn a_capped_command_keeps_its_whole_scrubbed_output_and_fs_read_reads_the_
         read.contains("  2117\tline 2117: FAILED tide_pools::the_middle_case\n"),
         "{read}"
     );
-    // The planted secret is in no kept file, no node, and no spool file:
-    // nothing under the state dir but the work dir that holds it.
-    for f in files(&r.state)
-        .into_iter()
-        .filter(|f| !f.starts_with(&r.root))
-    {
-        let bytes = std::fs::read(&f).unwrap();
-        assert!(
-            !bytes
+    // The record is raw: the value is in the kept file and in the store's
+    // frames (the WAL holds the node), and nothing masked it on the way.
+    let held = |under: &Path| {
+        files(under).into_iter().any(|f| {
+            std::fs::read(&f)
+                .unwrap()
                 .windows(PLANTED.len())
-                .any(|w| w == PLANTED.as_bytes()),
-            "{} holds the secret",
-            f.display()
-        );
-    }
+                .any(|w| w == PLANTED.as_bytes())
+        })
+    };
+    assert!(held(&state_outputs(&r)), "the kept file holds the value");
+    assert!(
+        held(&r.state.join("store")),
+        "the store holds the node's value"
+    );
+    assert!(
+        !whole.contains("[redacted:"),
+        "nothing in the whole output was masked"
+    );
+}
+
+/// The kept outputs' directory.
+fn state_outputs(r: &Rig) -> PathBuf {
+    r.state.join("outputs")
 }
 
 /// Every file under `dir`.
@@ -242,10 +262,8 @@ fn posture(core: &Core, sid: &str, path: &Path) -> String {
     let tool = theseus_tools::fs::Read;
     let input = json!({"path": path});
     let plan = tool.plan(&input, &core.tools.ctx).unwrap();
-    let held = || crate::external::held(&core.store, sid);
     let at = At {
         place: core.runner.view_of(sid),
-        held: &held,
         labels: &|| None,
         mcp: &|| None,
         glide: None,
@@ -431,4 +449,88 @@ fn the_outputs_keys_default_to_a_week_and_two_gib() {
     let cfg: crate::config::ToolsConfig =
         toml::from_str("outputs_keep_days = 2\noutputs_max_bytes = 1024\n").unwrap();
     assert_eq!((cfg.outputs_keep_days, cfg.outputs_max_bytes), (2, 1024));
+}
+
+/// A result too short to be cut is the record of what the tool printed: its
+/// node holds the value as written, and carries no `redactions` count (the
+/// meta field is optional and nothing writes it now).
+#[tokio::test]
+async fn a_result_node_holds_the_value_as_printed_and_counts_no_redactions() {
+    let r = rig(vec![Scripted::text("Read it.")]);
+    std::fs::write(r.root.join("token.txt"), PLANTED).unwrap();
+    r.fake.script.lock().unwrap().push_front(Scripted::tools(
+        "",
+        &[("t1", "proc_run", json!({"argv": ["cat", "token.txt"]}))],
+    ));
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "read the token file").await;
+    let (_, _, text, truncated, _) = results(&r.core, &sid).remove(0);
+    assert!(!truncated);
+    assert!(text.contains(PLANTED), "{text}");
+    assert!(!text.contains("[redacted:"), "{text}");
+    let meta = r
+        .core
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            Body::ToolResult { meta, .. } => Some(meta),
+            _ => None,
+        })
+        .unwrap();
+    assert!(meta.get("redactions").is_none(), "{meta}");
+}
+
+/// The ledger's narrative line for a job names it as it was asked for: the
+/// gate's `why` and the started line's subject are not scrubbed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_narrative_names_a_job_as_it_was_asked_for() {
+    let r = rig_with(vec![Scripted::text("Printed.")], |c| c.narrative = true);
+    r.fake.script.lock().unwrap().push_front(Scripted::tools(
+        "",
+        &[("t1", "proc_run", json!({"argv": ["echo", PLANTED]}))],
+    ));
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "print it").await;
+    let lines = r.core.narrator.tail();
+    assert!(
+        lines.iter().any(|l| l.text.contains(PLANTED)),
+        "the line says what ran: {lines:#?}"
+    );
+    assert!(
+        lines.iter().all(|l| !l.text.contains("[redacted:")),
+        "{lines:#?}"
+    );
+}
+
+/// A task report's kept whole copy is the report as it was written.
+#[tokio::test]
+async fn a_task_reports_kept_copy_is_the_report_as_written() {
+    let r = rig(vec![]);
+    let sid = session(&r.core);
+    let report = crate::task::Report {
+        task: "tsk_x".into(),
+        short: "x1".into(),
+        execution_id: "exe_x".into(),
+        title: None,
+        outcome: "complete",
+        node: None,
+        text: Some(format!("found the key {PLANTED}\n{}", "more\n".repeat(400))),
+        reason: None,
+        spent_micros: 0,
+        limit_micros: 0,
+        turns: 1,
+        elapsed_ms: 1,
+        target: None,
+        check: None,
+        joined: 0,
+    };
+    let (_, cut, kept) = crate::task_wait::fit(&r.core, &sid, &report, 200);
+    assert!(cut);
+    let whole = std::fs::read_to_string(kept.expect("kept")).unwrap();
+    assert!(
+        whole.contains(&format!("found the key {PLANTED}")),
+        "{whole}"
+    );
 }

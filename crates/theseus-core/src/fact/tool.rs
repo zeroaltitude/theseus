@@ -4,8 +4,7 @@ use serde_json::{json, Value};
 use theseus_kernel::Action;
 use theseus_protocol::NarrativePart::{Approval, Job, Tool};
 use theseus_protocol::{
-    notify, ConfirmRequest, ConfirmResolved, Event, ExternalText, GateRecord, LedgerKind,
-    PolicyNotified,
+    notify, ConfirmRequest, ConfirmResolved, Event, GateRecord, LedgerKind, PolicyNotified,
 };
 
 use super::{Fact, Say};
@@ -14,7 +13,6 @@ use crate::narrative;
 use crate::node::{Body, Node, ResultStatus};
 use crate::policy::Posture;
 use crate::provider::ToolUse;
-use crate::scrub::Scrubber;
 use crate::toolrun::{Gated, ToolRuntime};
 
 /// The gate's record of a call, shown to the session's clients before it
@@ -62,7 +60,6 @@ impl Fact for GateDecided<'_> {
             g.plan.argv.as_deref(),
             &rt.posture_now(tool).setting,
         );
-        let why = rt.scrubber.scrub(&why).0;
         say.line(
             Tool,
             match g.decision.posture {
@@ -230,8 +227,6 @@ pub struct JobStarted<'a> {
     pub granted: Option<&'a str>,
     pub withheld: &'a [String],
     pub bound_ms: u64,
-    /// For the narrative's subject, which may name a secret's value.
-    pub scrubber: &'a Scrubber,
     /// Its class (M4 17b): an L1 job's row and notification say so, and
     /// the notification names its egress list (18c).
     pub class: &'a crate::sandbox::Bound,
@@ -278,14 +273,7 @@ impl Fact for JobStarted<'_> {
             Tool,
             format!(
                 "{} started as job {} (pid {}{}){}; the turn waits up to {} for it.",
-                self.scrubber
-                    .scrub(&narrative::subject(
-                        self.tool,
-                        Some(self.argv),
-                        None,
-                        self.cwd
-                    ))
-                    .0,
+                narrative::subject(self.tool, Some(self.argv), None, self.cwd),
                 narrative::short(self.correlation_id),
                 self.pid,
                 if self.l1() { ", in L1" } else { "" },
@@ -375,20 +363,6 @@ impl Fact for AwsSessionMinted<'_> {
 
     fn row(&self) -> Value {
         self.row.clone()
-    }
-}
-
-/// The session took a hold on external text (theseus-9bp): a result it
-/// read, or a task's report that carried one. A call that acts now waits,
-/// or is notified.
-pub struct HoldTaken<'a> {
-    pub hold: &'a ExternalText,
-    pub mode: crate::external::Mode,
-}
-
-impl Fact for HoldTaken<'_> {
-    fn narrate(&self, say: &mut Say<'_>) {
-        say.line(Approval, crate::external::narrated(self.hold, self.mode));
     }
 }
 
@@ -563,7 +537,7 @@ impl Fact for ToolEnded<'_> {
                 .get("verified")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            // What a file tool changed, scrubbed as its result was (theseus-z6au).
+            // What a file tool changed, as its result holds it (theseus-z6au).
             diff: meta
                 .get("diff")
                 .and_then(|d| serde_json::from_value(d.clone()).ok()),
@@ -839,25 +813,6 @@ impl Fact for TaskStarted<'_> {
                     Some(t) => format!("to {t}"),
                     None => "in this session".to_string(),
                 }
-            ),
-        );
-    }
-}
-
-/// A task started from a session that holds external text holds it too
-/// (theseus-9bp): its calls that act wait until the operator trusts it.
-pub struct TaskHoldsExternal<'a> {
-    pub short: &'a str,
-}
-
-impl Fact for TaskHoldsExternal<'_> {
-    fn narrate(&self, say: &mut Say<'_>) {
-        say.line(
-            Approval,
-            format!(
-                "Task {} holds this session's external text from its start, so its calls that \
-                 act wait for approval too, until the operator trusts it.",
-                self.short
             ),
         );
     }

@@ -298,19 +298,17 @@ async fn v_writes_the_whole_call_into_the_transcript() {
 #[tokio::test(start_paused = true)]
 async fn the_grant_keys_follow_the_offer() {
     let mut q = edit_question(UNIFIED);
-    q.grant_offer = Some(theseus_protocol::grants::GrantOffer::edits(
-        "/home/ada/work",
-    ));
+    q.grant_offer = Some(theseus_protocol::grants::GrantOffer::mode_edits());
     let mut r = Rig::with(100, 30, script()).await;
     r.ready().await;
     asked(&mut r, q).await;
     assert!(
         r.text()
-            .contains("e  yes, and don't ask again for edits under /home/ada/work"),
+            .contains("e  yes, and move this conversation to edits mode"),
         "{}",
         r.text()
     );
-    // `a` is the command's key: this question offers edits.
+    // `a` is no key of this offer: it offers edits mode.
     r.press(KeyCode::Char('a')).await;
     assert!(r.daemon.asked("action.confirm").is_empty());
     assert!(
@@ -323,7 +321,7 @@ async fn the_grant_keys_follow_the_offer() {
     r.asked("action.confirm", 1).await;
     let a = &r.daemon.asked("action.confirm")[0];
     assert_eq!(a["approve"], true);
-    assert_eq!(a["grant"]["pattern"], "/home/ada/work");
+    assert_eq!(a["grant"]["pattern"], "edits");
 }
 
 // ------------------------------------------------------------ the stop

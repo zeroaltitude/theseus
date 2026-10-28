@@ -10,7 +10,7 @@
 //!   its insert and remove, so a restart rebuilds it with the watches
 //!   (`Core::watch_load`) and nothing else needs reading.
 //! - **A match** is one frame, as any met watch is (`watch.met`, the message's
-//!   id, its author and its first 200 characters scrubbed), and a notice in a
+//!   id, its author and its first 200 characters), and a notice in a
 //!   private place: the watch's own place when that is private, else the
 //!   owner's Home (never the shared place the reply was written in).
 //! - **Outside text.** What a stranger wrote is quoted, marked `external` in
@@ -164,9 +164,9 @@ impl Entry {
     }
 }
 
-/// `text` as a quote: scrubbed, one line, at most `QUOTE_CHARS`.
-pub(super) fn quote_of(scrubbed: &str) -> String {
-    let one: String = scrubbed.split_whitespace().collect::<Vec<_>>().join(" ");
+/// `text` as a quote: one line, at most `QUOTE_CHARS`.
+pub(super) fn quote_of(text: &str) -> String {
+    let one: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let q: String = one.chars().take(QUOTE_CHARS).collect();
     if q.chars().count() < one.chars().count() {
         format!("{q}…")
@@ -190,7 +190,7 @@ impl Core {
                 m.message_id.to_string(),
                 m.link.clone(),
             );
-            let quote = quote_of(&self.tools.scrubber.scrub(m.text).0);
+            let quote = quote_of(m.text);
             drop(tokio::task::spawn_blocking(move || {
                 if let Some(c) = weak.upgrade() {
                     c.watch_reply_met(&wake_id, &author, &id, &quote, link.as_deref());
@@ -215,14 +215,7 @@ impl Core {
         };
         let Some((before, step)) = self.watches.with(wake_id, |e| {
             let before = e.clone();
-            let step = e.replied(
-                now,
-                &name,
-                &self.tools.scrubber.scrub(author).0,
-                message_id,
-                quote,
-                link,
-            );
+            let step = e.replied(now, &name, author, message_id, quote, link);
             (before, step)
         }) else {
             return;

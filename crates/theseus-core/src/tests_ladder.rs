@@ -663,7 +663,7 @@ async fn max_mode_shadow_caps_every_pack_after_a_restart() {
     drop(c);
     let c = core_at(dir.path(), None, |cfg| {
         cfg.judge.max_mode = PackMode::Shadow;
-        // The rigs turn content.v2 off; the ceiling is asked of every wired pack.
+        // The rigs turn content.v3 off; the ceiling is asked of every wired pack.
         cfg.judge.packs.remove(crate::judge::content::PACK);
     });
     c.warm_ladder();

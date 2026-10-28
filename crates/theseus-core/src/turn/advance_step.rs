@@ -119,8 +119,8 @@ mod tests {
 
     #[test]
     fn a_say_is_scrubbed_before_it_is_cut() {
-        let s = Scrubber::default();
         let t = token();
+        let s = Scrubber::with_values(vec![(t.clone(), "gh_token".into())]);
         let say = say_of(&format!("Calling the API with {t} now"), &s).unwrap();
         assert!(!say.contains(&t), "{say}");
         assert!(!say.contains("a1B2c3D4"), "{say}");

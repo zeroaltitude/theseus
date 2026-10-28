@@ -638,9 +638,12 @@ judge_wait_ms = 200                     # the most a turn waits for that judgmen
 # reached), checks that the account is the one named here, and stores the
 # refresh token in the [secrets] entry named below (an op:// item or a mode-600
 # file; never an env: entry). The access token lives in memory only. Every
-# Google result marks its session private, so none of it reaches a model of
-# restricted origin; mail, shared files and invited events are outside text,
-# which holds the session as a fetched page does. Every send, delete, share,
+# Google result raises a `confidential` label on its session (a result of a
+# sensitive calendar raises `personal`) at the moment it is written, with no
+# model call: the label is the one in `[content_based_security]` below, shown to
+# you with its Remove button, and it keeps a model of restricted origin off the
+# session until you remove it. Mail, shared files and invited events are also
+# marked as outside text, which holds nothing. Every send, delete, share,
 # permission change and invitation asks you, at every posture. With no
 # account, no Google tool exists, and nothing Google runs. `theseus google
 # status` shows the scopes granted and the tools on; `theseus google revoke`
@@ -652,7 +655,7 @@ judge_wait_ms = 200                     # the most a turn waits for that judgmen
 # trusted_senders = ["dana@example.test"]   # whose mail may start a task through a mail watch (then: task), only when Gmail authenticated the sender (DMARC pass, or DKIM aligned with the From); else the watch only notices; empty: a mail watch only notices
 # credentials = { client = "google_client", refresh_token = "google_refresh_token" }   # [secrets] names (these, by default)
 # endpoint = "http://127.0.0.1:7499"    # tests and scratch daemons only: a stand-in for Google on this machine
-# calendars = ["primary", { id = "team.cal@example.test", label = "Team", color = "#5fa08d", sensitive = true }]   # the calendars read (default: every calendar the account's list holds, read again with the list; set, it narrows); colour: Google's own, else a palette; sensitive: its events reach only a model of US origin, never a shared place or the ledger
+# calendars = ["primary", { id = "team.cal@example.test", label = "Team", color = "#5fa08d", sensitive = true }]   # the calendars read (default: every calendar the account's list holds, read again with the list; set, it narrows); colour: Google's own, else a palette; sensitive: a read of it raises `personal` instead of `confidential`, and its events never reach a shared place or the ledger
 # sensitive_domains = ["corp.example.test"]   # the domains whose calendars (by id or owner) are sensitive with no config (default: every Google Workspace domain, that is any but the consumer ones and Google's own calendar ids)
 
 # ---------------------------------------------------------------- policy
@@ -677,23 +680,6 @@ judge_wait_ms = 200                     # the most a turn waits for that judgmen
 enforcement = "notify"                  # open | notify | approve: what every tool and MCP inherits (built-in default: open)
 allow_argv = [["ls"], ["pwd"]]          # proc.run runs these (open) when every path argument is inside the roots (no git: its config can run programs; use git.diff / git.log)
 approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"]]  # proc.run waits for your approval on these (op and theseusd are on the floor)
-# After a session reads web text (http.fetch, web.search), every call that acts
-# (writes, proc.run, task.create) is held, the allow list's too, until you trust
-# the session again (`theseus policy trust <session>`, /trust on Discord, or
-# "Approve + trust session" on the card). Reads keep their postures, and so does
-# wake.at: the reminder's turn runs in the same session, so what it does is still
-# held. `external_text` is optional: unset, it follows `enforcement` (approve
-# asks; notify and open notify, since a hold never goes silent). With ask, each
-# call waits for your approval; with notify, each runs and you are told once per
-# hold, at its first call that acts. This template shows ask.
-external_text = "ask"                   # ask | notify (unset: follows enforcement)
-# A program whose output is a stranger's text holds its session the same way:
-# `gh issue view` prints an issue's body, which anyone could have written. A
-# proc.run counts when its program is listed, or when it runs a shell or a
-# launcher (sh -c, env, xargs, ...) whose command names a listed program. It
-# is a cheap guard, not a boundary: a job can still bring outside text in by
-# other ways.
-external_programs = ["gh"]              # program names, matched by file name (built-in default: ["gh"])
 # A program that hosts an agent. `theseus answer` from a process under one, or
 # from a process with no controlling terminal, is recorded and shown as that
 # agent's answer ("answered by an agent (claude)"), never as yours, and an
@@ -706,20 +692,6 @@ agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
 # reach it. "open" judges it as any other address, redirects and DNS answers
 # included: only for a run with no one to approve, such as the bench profile.
 # private_addresses = "ask"             # ask | open
-
-# Earned autonomy: it asks you less every week, and shows the record that earned
-# each "don't ask". Once a week a card in your DM offers what you approved every
-# time, and never declined, as a grant: the command (a prefix of its argv, such as
-# `cargo nextest run -p theseus-store`, or a file tool in a workspace root) then
-# runs with a notice instead of asking. Never silently: a grant is your yes, from
-# a private place. It never passes the floor, the approve lists, the roots, a
-# shared place, or the external-text hold. "Should have asked" on its notice, or
-# `theseus policy revoke <id>`, ends it. `theseus policy earned` shows the number.
-[policy.earned]
-enabled = true                          # propose grants from the record (built-in default: true)
-every_days = 7                          # at most one card in this many days
-min_approvals = 20                      # approved at least this often in the window, with no decline
-window_days = 7                         # the window the approvals are counted in
 
 # Per-tool postures, one line for every tool (keep it that way as tools are
 # added). A set line overrides enforcement; a commented one inherits it.
@@ -777,8 +749,7 @@ window_days = 7                         # the window the approvals are counted i
 # terminals (a program on a pty: a REPL, an editor, a pager): term.open is
 # judged as proc.run is, by its program and arguments, and term.send as a run
 # of its terminal's program, so the floor and the approve and allow lists
-# apply to both; a listed external program's screen holds the session.
-# term.read and term.close are reads, and never wait on that hold
+# apply to both. term.read and term.close are reads.
 # "term.open" = "notify"
 # "term.send" = "notify"
 "term.read" = "open"
@@ -825,9 +796,9 @@ window_days = 7                         # the window the approvals are counted i
 # gw-mail: the gmail.* lines
 # "gmail.search" = "notify"      # reads take [policy] enforcement; "open" reads mail unasked
 # "gmail.read" = "notify"        # saving attachments writes files, so that asks like a write
-# "gmail.draft" = "notify"       # a draft reaches no one until it is sent, so the outside-text hold does not stop it
+# "gmail.draft" = "notify"       # a draft reaches no one until it is sent
 # "gmail.send" = "approve"       # sends an existing draft, and asks the owner every time whatever this line says
-# "gmail.label" = "notify"       # trash asks whatever this line says; in a session that read mail, every label asks
+# "gmail.label" = "notify"       # trash asks whatever this line says
 #
 # gw-drive: the drive.* lines
 # drive.find and drive.read inherit enforcement; drive.write keeps Drive's own
@@ -1305,7 +1276,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # the 1st of the local month; a spent month skips its runs and says so once.
 # `theseus routine add "weekdays 08:00" "Summarize ..." --budget 0.50 --to dm`.
 # A routine's runs use the tools in its grant (`--grant gmail.search,web.fetch`)
-# without asking, even after reading outside text; any other call asks, and a
+# without asking; any other call asks, and a
 # question nobody answers by the run's deadline ends the run blocked, naming the
 # tool, in one notice. `theseus routine try <id>` runs it once while you watch.
 # [routines]
@@ -1589,13 +1560,12 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # refuses any other host, and any name that resolves to this machine, your
 # network, or a cloud's metadata service; health's sandbox line counts its
 # connections and refusals. A call may name more hosts (proc.run's sandbox:
-# { egress: [...] }): it then waits for your approval, which lets that job
-# reach those hosts and no other. Two things to know before you list any:
+# { egress: [...] }): it then runs with a notice that names them, and the job
+# reaches those hosts and no other. Two things to know before you list any:
 #   - what a job brings back from a host listed here is not outside text: you
-#     chose the host, so its session does not hold it. A job that reached a
-#     host its call named beyond this list does: its session then holds it,
-#     as after a fetched page, and each later call that acts waits for your
-#     approval until you trust the session again;
+#     chose the host. A job that reached a host its call named beyond this list
+#     brings back outside text: its result carries the `external` marker, which
+#     holds nothing, and is classified like any item;
 #   - every host listed is a way out for anything the job can read: the
 #     workspace, ro_paths, and what the call gives it.
 # Rust's registry and GitHub, for builds that fetch their dependencies:
@@ -1791,12 +1761,14 @@ max_switches = 2                        # moves per task, up or down
 # enabled = true                        # off: words are messages, and the layer steers nothing
 # similarity = 0.5                      # the share of content words a close message has in common
 # max_entries = 64                      # the layer's bound, the oldest out
-# Sensitive names (theseus-oejh3, theseus-xs5ah): organisations, clients, projects and people
-# whose matter goes only to a model of US origin, an allowlist: `eu`, `cn` and `unknown` (any
-# model the catalog cannot place) are all refused. A message that names one is read by Jev as
-# private, runs on a profile of US origin (or on none: the turn then ends before any model
-# call), and every request to a model of another origin is checked for the names again, so
-# it fails closed. Matching is case-insensitive and on
+# Sensitive names (theseus-oejh3, theseus-gyjyo.4): organisations, clients, projects and people
+# that mark your employer's work. An item that holds one (a message you send, a tool result, a
+# file read, a page fetched) raises a `confidential` label on its session at the moment it
+# enters, with the word as the label's source and no model call. That is all it does: the label
+# is the one in `[content_based_security]` below, shown to you with its Remove button, read by
+# `cn_models` like any other, and gone when you remove it. Nothing refuses a request for a name,
+# so removing the label is the whole of your say. Jev's content pack is told the list too, as its
+# private names. Matching is case-insensitive and on
 # whole words, a name of several words as a run of them: `examplecorp` matches "ExampleCorp's
 # plan" and "examplecorp-internal" and not "examplecorpse" or "examplecorpinc" (so `examplecorpinc`
 # is listed for examplecorpinc.com), and `example-repo` matches as a unit, never the word
@@ -1807,11 +1779,16 @@ max_switches = 2                        # moves per task, up or down
 # [privacy]
 # sensitive_names = ["examplecorp", "examplecorpinc", "example-repo"]
 # open_source_paths = ["~/projects/example-open-source"]  # directories whose work is public; the classifier
-#                                       # is told an item from there is. Read by a later step.
-#                                       # NOT [places] public_paths below, which opens trees to a
-#                                       # shared place's file tools. This one only tells the classifier.
-# redact_outbound = true                # the vault's values are replaced on copies that leave the
-#                                       # machine. Read by a later step
+#                                       # is told an item from there is (absolute or ~/ paths; an item
+#                                       # that names paths counts only if every one is under a listed
+#                                       # tree). NOT [places] public_paths below, which opens trees to
+#                                       # a shared place's file tools. This one only tells the classifier
+# redact_outbound = true                # the vault's values (and their base64, percent-encoded and
+#                                       # JSON-escaped forms) are replaced by [redacted:<name>] on the
+#                                       # copies that leave for a model, Discord or Jev: a request, a
+#                                       # post, the Jev state, a push line. What is stored is never
+#                                       # rewritten. false sends them as written; `theseus inspect`
+#                                       # names the secrets a request carried either way
 
 # Content-based security (theseus-9ymz0, theseus-gyjyo.2; this table was `[content]`, and the old
 # name is an error that says where each key went): every item that enters a session — each
@@ -1821,8 +1798,10 @@ max_switches = 2                        # moves per task, up or down
 # session; `injection` means something tried to steer the assistant, and its session's calls
 # that act are refused until you clear the label (`theseus content remove <session> injection`,
 # or the button on the message). The injection question is never asked of your own messages. The
-# sensitive-names list above is unaffected: it is checked at the provider, deterministically,
-# whatever these say.
+# sensitive-names list above and a Google result (`[google]`) raise `confidential` the same way, with no
+# model call.
+# Reading outside text holds nothing any more: `[policy] external_text` and `external_programs` were
+# retired with the external-text hold, and a config that names either fails to load, naming this table.
 # [content_based_security]
 # session_flags = true                  # off: nothing is classified and no label is raised. A model
 #                                       # of restricted origin then has no labels to follow, so
@@ -1832,20 +1811,22 @@ max_switches = 2                        # moves per task, up or down
 # cn_models = "follow_flags"            # a request to a model of restricted origin: "always" sends it
 #                                       # whatever the session carries, "follow_flags" refuses it
 #                                       # when the session's labels disqualify it, "never" refuses
-#                                       # it. Read by a later step; today the labels decide
+#                                       # it and routing skips such a profile altogether
 # injection = "refuse"                  # or "notify": the label is raised and told, nothing is
 #                                       # refused. A benchmark daemon sets this, so a trial
 #                                       # never waits for you to tap a button
 # wait_ms = 4000                        # how long a turn bound for a model of restricted origin
-#                                       # waits for an item's verdict before going to Claude
-#                                       # instead; a Claude turn never waits. 0 never waits
+#                                       # waits for this session's outstanding content asks to
+#                                       # land, so a label its own items earn is read before the
+#                                       # request goes. It goes either way when the wait is up; a
+#                                       # Claude turn never waits. 0 never waits
 # max_pieces = 20                       # a long item is split at 6,000 characters a piece; this
 #                                       # bounds how many are read. 20 fits the largest item that
 #                                       # can exist (a 100,000-character file read) whole. Past the
 #                                       # bound an item is read from the start and says `truncated`
 # context = ""                          # one paragraph on what the assistant is and which of its
-#                                       # work is public, given to the classifier as written. Read
-#                                       # by a later step; empty says nothing
+#                                       # work is public, given to the classifier as written (cut at
+#                                       # 800 characters); empty says nothing
 
 # ---------------------------------------------------------------- mcp
 # MCP servers (M7 36b): only a server named here is started or reached, and
@@ -1854,8 +1835,7 @@ max_switches = 2                        # moves per task, up or down
 # The gate names each tool mcp:<server>/<tool>, and its posture comes from
 # the policy.mcp lines, then enforcement. A tool is run-class and never
 # repeated unless you list it in read; a server's own hints are shown, and
-# never loosen anything. Results are outside text: a session that reads one
-# holds, as after a fetched page, until you trust it again (external = false
+# never loosen anything. Results are marked as outside text (external = false
 # only for a server whose output is your own). A server starts after the
 # daemon serves, never before; a restart offers the tools it listed last time
 # at once, and a call waits for its own server alone. A crash restarts after
@@ -1867,7 +1847,7 @@ max_switches = 2                        # moves per task, up or down
 # env = { GITHUB_PERSONAL_ACCESS_TOKEN = "github_token" }   # variable = [secrets] name; each call then runs at no looser a posture than the secret's
 # read = ["get_issue", "list_pull_requests"]   # the tools you call read-class (default none)
 # sandbox = "l0"                        # where it runs: l0 (default), or l1: below the sandbox's init, in the view a job gets
-# external = true                       # its results hold the session (default true)
+# external = true                       # its results are marked as outside text (default true)
 # enabled = true                        # false keeps it configured and unstarted
 # start_timeout_secs = 30               # the longest a start, and a call waiting for one, waits
 # call_timeout_secs = 110               # the longest one call waits (at most 115, under the 120 s in-process deadline)

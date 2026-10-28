@@ -20,9 +20,11 @@
 //!   the owner's standing rule points. [`Flag::Injection`] raises only at the
 //!   act band: raising it wrongly freezes a session until the operator clears
 //!   it, and a false freeze teaches the operator to ignore the control.
-//! - **The names tripwire is untouched.** `[privacy] sensitive_names` at the
-//!   chokepoint is deterministic and independent of every flag here. It is why
-//!   the low bar above is safe.
+//! - **A name is a label source, not a tripwire.** An item that holds one of
+//!   `[privacy] sensitive_names` raises `confidential` with the word as its
+//!   source, deterministically and with no model call ([`deterministic`]); the
+//!   operator removes it like any other, and nothing overrides him
+//!   (theseus-gyjyo.4). Nothing reads a request for a name any more.
 //! - **Labels are durable.** They live on `SessionRecord.data`, survive
 //!   compaction and restart, and only the operator removes one
 //!   (`content.unlabel`, `theseus content remove`, the one Discord message).
@@ -206,6 +208,63 @@ pub struct Label {
     pub judgment: String,
 }
 
+/// The label sources that need no model (theseus-gyjyo.4): free and exact, so
+/// each is a function of the item alone, raised at the item's entry
+/// (`JudgeService::ask_content`) beside the pack's `yes`, and landed by
+/// `JudgeService::land_deterministic`. A label from here is one the pack could
+/// have raised, with the bar met by construction (confidence 1, the act band),
+/// and it names no judgment: none raised it (`Label`'s judgment stays empty).
+///
+/// **This is the one home of them.** A new source adds a function here that
+/// builds its [`Label`] through [`label`], and lands it through
+/// `land_deterministic`; nothing else writes a label with no judge behind it.
+pub mod deterministic {
+    use theseus_judge::band::Band;
+    use theseus_judge::names::Names;
+
+    use super::{Flag, ItemKind, Label};
+
+    /// The prefix of a names label's source, then the word as configured.
+    pub const NAME_SOURCE: &str = "name: ";
+
+    /// A label no model raised: `flag`, from `node`, `kind` and the `source`
+    /// the operator is shown. Certain (confidence 1), at the act band.
+    pub fn label(flag: Flag, node: &str, kind: ItemKind, source: String, at_ms: u64) -> Label {
+        Label {
+            flag,
+            node: Some(node.into()),
+            kind,
+            source,
+            confidence: 1.0,
+            band: Band::Act,
+            at_ms,
+            // No model raised it, so there is no judgment to correct: removing
+            // this label teaches the classifier nothing (theseus-gyjyo.3's
+            // `Label.judgment`, empty for a label no model raised).
+            judgment: String::new(),
+        }
+    }
+
+    /// `confidential`, if `text` holds one of the operator's names: the first
+    /// in the list's order, as the source (`name: <word>`).
+    pub fn from_names(
+        names: &Names,
+        node: &str,
+        kind: ItemKind,
+        text: &str,
+        at_ms: u64,
+    ) -> Option<Label> {
+        let word = names.hits(text).into_iter().next()?;
+        Some(label(
+            Flag::Confidential,
+            node,
+            kind,
+            format!("{NAME_SOURCE}{word}"),
+            at_ms,
+        ))
+    }
+}
+
 /// A label the operator removed, kept as history: a label that was raised and
 /// cleared is a different thing from one that was never raised.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -222,11 +281,17 @@ pub struct Removed {
 ///
 /// A record written before this (store format 51 and earlier) held the open
 /// view's `DataState` here. Every field below is `#[serde(default)]` and
-/// nothing is denied, so such a record reads as **no labels and nothing
-/// judged** — which is the right reading: a stale open-run proof means nothing
-/// under this rule, and the first item to enter the session judges it.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(from = "Stored")]
+/// nothing is denied, so such a record reads as **no labels**: a stale open-run
+/// proof means nothing under this rule.
+///
+/// **There is no mark** (store format 54, theseus-gyjyo.7). A record written
+/// before it also carried how far the session was judged and a worklist of the
+/// nodes a failed ask left behind. Nothing reads either now, serde ignores
+/// them, and the next write drops them: a session that held a mark is **not**
+/// treated as partly judged, because nothing asks whether a session is
+/// judged. What it carries is its labels, and a turn bound for a model of
+/// restricted origin goes on those.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ContentFlags {
     /// At most one label per flag: a second raise of a flag already present
     /// keeps the first, so the label names the item that first brought it.
@@ -234,60 +299,6 @@ pub struct ContentFlags {
     pub labels: Vec<Label>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub removed: Vec<Removed>,
-    /// The last node whose content was judged, in transcript order. A request
-    /// to a model of restricted origin whose session has nodes past this one is
-    /// not yet judged, and waits (`turn/data_step.rs`) or goes to Claude.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub judged_through: Option<String>,
-    /// Nodes that could not be judged (Jev failed, the reservation was
-    /// refused, the pack was in shadow): a record for the operator and a
-    /// worklist for a re-ask. It does **not** gate the mark — the transcript
-    /// does, through [`ContentFlags::judged_run`] — so a stale or lost entry
-    /// here can never make a session look more judged than it is.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unjudged: Vec<String>,
-    /// `judged_through` as this copy was read from the store, which a write
-    /// back compares against (`merge`): compare and set. Never stored.
-    #[serde(skip)]
-    read: Option<String>,
-}
-
-/// `ContentFlags` as stored: reading it remembers what it read, as the open
-/// view's `DataState` did for its run.
-#[derive(Deserialize)]
-struct Stored {
-    #[serde(default)]
-    labels: Vec<Label>,
-    #[serde(default)]
-    removed: Vec<Removed>,
-    #[serde(default)]
-    judged_through: Option<String>,
-    #[serde(default)]
-    unjudged: Vec<String>,
-}
-
-impl From<Stored> for ContentFlags {
-    fn from(s: Stored) -> Self {
-        Self {
-            read: s.judged_through.clone(),
-            labels: s.labels,
-            removed: s.removed,
-            judged_through: s.judged_through,
-            unjudged: s.unjudged,
-        }
-    }
-}
-
-/// Equal when what is stored is.
-impl PartialEq for ContentFlags {
-    fn eq(&self, o: &Self) -> bool {
-        (
-            &self.labels,
-            &self.removed,
-            &self.judged_through,
-            &self.unjudged,
-        ) == (&o.labels, &o.removed, &o.judged_through, &o.unjudged)
-    }
 }
 
 impl Eq for ContentFlags {}
@@ -326,6 +337,64 @@ impl ContentFlags {
         true
     }
 
+    /// What the wire shows of the session's data (`session.info`, the work
+    /// board, a task's home): `sensitive` when it carries `personal` (which
+    /// never goes to a shared place), `private` when it carries any other label
+    /// that keeps a model of restricted origin off, else `open`.
+    pub fn mark(&self) -> theseus_protocol::ops::DataMark {
+        use theseus_protocol::ops::DataMark;
+        let has = |f: fn(Flag) -> bool| self.labels.iter().any(|l| f(l.flag));
+        if has(|f| f == Flag::Personal) {
+            DataMark::Sensitive
+        } else if has(Flag::disqualifies_cn) {
+            DataMark::Private
+        } else {
+            DataMark::Open
+        }
+    }
+
+    /// What a task (or a draft) carries from its parent at its start: the
+    /// parent's labels that keep a model of restricted origin off it
+    /// (`Flag::disqualifies_cn`), as `fork` copies them (`fork::data_through`),
+    /// so a child of a session that read a calendar is no way around the label.
+    /// Its items are its own, so nothing of the parent's judgment or removals
+    /// comes with them. `injection` stays behind: it says the parent's own
+    /// transcript tried to steer it, and a task that starts from a brief has
+    /// not read that transcript (a fork has, and copies it). None when the
+    /// parent carries no such label.
+    pub fn inherited(&self) -> Option<Box<ContentFlags>> {
+        let labels: Vec<Label> = self
+            .labels
+            .iter()
+            .filter(|l| l.flag.disqualifies_cn())
+            .cloned()
+            .collect();
+        (!labels.is_empty()).then(|| {
+            Box::new(ContentFlags {
+                labels,
+                ..Default::default()
+            })
+        })
+    }
+
+    /// [`ContentFlags::raise`], unless the operator removed this flag at or
+    /// after `entered_ms`, when the item that would raise it entered the
+    /// session: an item that entered before a removal can never raise that
+    /// flag again, because the removal spoke for everything the session held
+    /// when it was made. It is read from `removed`, which is on the record and
+    /// is copied by a fork, so a restart, a fork and a sweep's re-offer all
+    /// find it. Only an item that entered after the removal raises it anew.
+    pub fn raise_after(&mut self, l: Label, entered_ms: u64) -> bool {
+        if self
+            .removed
+            .iter()
+            .any(|r| r.flag == l.flag && r.at_ms >= entered_ms)
+        {
+            return false;
+        }
+        self.raise(l)
+    }
+
     /// Remove `f`, keeping it as history. The label removed, when there was
     /// one; `None` means there was nothing to remove and nothing is written.
     pub fn remove(&mut self, f: Flag, by: &str, via: &str, at_ms: u64) -> Option<Label> {
@@ -340,52 +409,10 @@ impl ContentFlags {
         Some(l)
     }
 
-    /// Whether `node`, and everything before it, has been judged.
-    pub fn judged(&self, node: &str) -> bool {
-        self.judged_through.as_deref() == Some(node)
-    }
-
-    /// Record that `node` could not be judged. Idempotent. This is a record
-    /// for the operator and for a re-ask to work from; it is **not** what
-    /// stops the mark — see [`ContentFlags::judged_run`], which is gated by
-    /// the transcript itself.
-    pub fn could_not_judge(&mut self, node: &str) {
-        if !self.unjudged.iter().any(|n| n == node) {
-            self.unjudged.push(node.into());
-        }
-    }
-
-    /// Advance the mark to `node`, where `span` is **every transcript node
-    /// after the current mark up to and including `node`**, in order, and
-    /// `judged_now` is the set this landing actually judged. The mark moves
-    /// only when every node of the span was judged. Returns whether it moved.
-    ///
-    /// The span comes from the transcript, which is why this holds **across a
-    /// restart with no in-memory state at all**. If an item was skipped, the
-    /// span from the mark will always contain it again, and a later landing
-    /// that judged only the newest item cannot carry the mark over it. An
-    /// earlier draft of this gated on a stored list of skipped nodes instead;
-    /// that was a worse primitive, because it needed the caller to pass a run
-    /// it had not judged in order to clear it, and it got the re-ask case
-    /// wrong. The transcript is already the durable record; nothing else has
-    /// to be.
-    pub fn judged_run(&mut self, span: &[String], judged_now: &[String], node: &str) -> bool {
-        if span.is_empty()
-            || span.last().map(String::as_str) != Some(node)
-            || !span.iter().all(|n| judged_now.contains(n))
-        {
-            return false;
-        }
-        self.unjudged.retain(|n| !span.contains(n));
-        self.judged_through = Some(node.into());
-        true
-    }
-
     /// A write back merged into the stored labels, never over them: a stored
     /// label always wins (a turn's copy cannot clear one, only the operator
-    /// can), a stored removal is kept, and `judged_through` is taken only while
-    /// the stored one is still the one this copy read, or already this copy's:
-    /// compare and set, as the open view's run was.
+    /// can) and a stored removal is kept. A label the turn's copy raised that
+    /// the stored record does not hold is added.
     pub fn merge(
         stored: Option<Box<ContentFlags>>,
         turn: Option<&ContentFlags>,
@@ -397,29 +424,18 @@ impl ContentFlags {
         for l in &turn.labels {
             s.raise(l.clone());
         }
-        for n in &turn.unjudged {
-            s.could_not_judge(n);
-        }
-        if s.judged_through == turn.read || s.judged_through == turn.judged_through {
-            s.judged_through.clone_from(&turn.judged_through);
-        }
         (s != ContentFlags::default()).then(|| Box::new(s))
     }
 
     /// Its line for a person (`inspect`, the CLI).
     pub fn line(&self) -> String {
-        let labels = match self.labels.is_empty() {
+        match self.labels.is_empty() {
             true => "no labels".to_string(),
             false => {
                 let each: Vec<&str> = self.labels.iter().map(|l| l.flag.as_str()).collect();
                 each.join(", ")
             }
-        };
-        let judged = self
-            .judged_through
-            .as_deref()
-            .map_or("nothing judged".to_string(), |n| format!("judged to {n}"));
-        format!("{labels}; {judged}")
+        }
     }
 }
 
@@ -565,20 +581,17 @@ pub fn harness_own(origin: Origin, author: Option<&str>) -> bool {
 /// **The one definition of an item** (theseus-sh1n3): the text the content
 /// pack classifies, or `None` for a node that is no item.
 ///
-/// Everything reads this and nothing re-states it: the blocker the chokepoint
-/// and the floor share (`content_wait::is_item`, which builds the mark's span
-/// too) and the submitter (`ContentItem::of_message`, `of_result`). They were
-/// two statements of one rule until 2026-10-27, and they had drifted in the
-/// one way that matters: a node the blocker counted and the submitter never
-/// built stayed unjudged for ever, so **every** request of that session to a
-/// model of restricted origin was refused for the session's whole life, in
-/// silence. The turn clock's node was one such node and a `task.create` result
-/// another. Keep them one function.
+/// Everything reads this and nothing re-states it: the submitter
+/// (`ContentItem::of_message`, `of_result`) builds an item from it, so what is
+/// asked about is one set, whatever site wrote the node. (Until theseus-gyjyo.7
+/// the floor counted items past a mark from a second statement of the rule, and
+/// the two drifted: the turn clock's node and a `task.create` result were
+/// counted and never built.)
 ///
 /// An item is a user-role message that is not the harness's own words
 /// ([`harness_own`]), or a tool result whose text the harness did not write
 /// itself ([`judges`]). A node with no text is no item: there would be nothing
-/// to ask about, and counted it would stand in the mark's way for good.
+/// to ask about.
 pub fn item_text(node: &Node) -> Option<&str> {
     let text = match &node.body {
         Body::UserMessage { text, .. } => match harness_own(node.origin, node.author.as_deref()) {
@@ -644,9 +657,10 @@ pub fn pieces(text: &str, cap: usize) -> Vec<(u32, u32, String)> {
 /// a dollar.
 ///
 /// **What truncation would cost, if it ever happened:** the text past the bound
-/// is not seen and the item still counts as judged. The deterministic
-/// `[privacy] sensitive_names` tripwire still runs at the provider on the whole
-/// request, and a job's granted secrets are withheld by the wrapper's pipe
+/// is not seen and the item still counts as judged. The `[privacy]
+/// sensitive_names` source reads the whole item before it is split
+/// (`JudgeService::raise_names`), so a name past the bound still raises its
+/// label, and a job's granted secrets are withheld by the wrapper's pipe
 /// (`redact.rs`) before a node exists. Marking long items unjudged instead
 /// would take a session off China-origin models for good the first time it read
 /// a large file, which serves nobody.
@@ -758,41 +772,28 @@ mod tests {
         assert_eq!(f.removed[0].by, "the owner");
     }
 
-    /// A turn's write back can add a label and move `judged_through`, but a
-    /// stored label always wins and a stale `judged_through` is dropped.
+    /// A turn's write back can add a label, but a stored label always wins
+    /// and a stored removal is kept: the turn's copy cannot clear one.
     #[test]
     fn a_write_back_never_clears_a_stored_label() {
         let stored = {
             let mut f = ContentFlags::default();
             f.raise(label(Flag::Confidential));
-            f.judged_through = Some("n5".into());
+            f.remove(Flag::Confidential, "the owner", "cli", 9);
+            f.raise(label(Flag::Personal));
             Box::new(f)
         };
-        // A turn that read the session before the label, and judged further.
-        let turn = ContentFlags {
-            judged_through: Some("n7".into()),
-            ..Default::default()
-        };
-        let merged = ContentFlags::merge(Some(stored.clone()), Some(&turn)).unwrap();
-        assert!(merged.has(Flag::Confidential), "the stored label survives");
-        assert_eq!(
-            merged.judged_through.as_deref(),
-            Some("n5"),
-            "the turn never saw n5, so its claim to have judged through n7 would skip what \
-             came between: the stored mark stands and the turn's is dropped"
-        );
-        // One that read the stored state: its advance is taken.
-        let read: ContentFlags = serde_json::from_value(serde_json::to_value(&*stored).unwrap())
-            .expect("a stored copy reads back");
-        let mut turn = read.clone();
-        turn.judged_through = Some("n7".into());
-        let merged = ContentFlags::merge(Some(stored.clone()), Some(&turn)).unwrap();
-        assert_eq!(merged.judged_through.as_deref(), Some("n7"));
+        // A turn that read the session before the label and the removal.
+        let merged =
+            ContentFlags::merge(Some(stored.clone()), Some(&ContentFlags::default())).unwrap();
+        assert!(merged.has(Flag::Personal), "the stored label survives");
+        assert_eq!(merged.removed.len(), 1, "and so does the removal");
         // And a turn's own new label is added beside the stored one.
-        let mut turn = read;
+        let mut turn = ContentFlags::default();
         turn.raise(label(Flag::Secret));
         let merged = ContentFlags::merge(Some(stored), Some(&turn)).unwrap();
-        assert!(merged.has(Flag::Secret) && merged.has(Flag::Confidential));
+        assert!(merged.has(Flag::Secret) && merged.has(Flag::Personal));
+        assert_eq!(ContentFlags::merge(None, None), None);
     }
 
     /// A record written before this held the open view's `DataState` here. It
@@ -809,7 +810,37 @@ mod tests {
         assert_eq!(f, ContentFlags::default());
         assert_eq!(f.disqualifies_cn(), None, "a stale proof allows nothing");
         assert!(!f.frozen());
-        assert_eq!(f.judged_through, None, "and nothing counts as judged");
+    }
+
+    /// A record written before the mark went (store format 53 and earlier)
+    /// held `judged_through` and the `unjudged` worklist beside its labels. It
+    /// reads with both ignored: the labels are the whole of what it says, a
+    /// session that was judged only part of the way is not treated as partly
+    /// judged (nothing asks), and the next write leaves both out.
+    #[test]
+    fn a_record_that_carried_the_mark_reads_it_ignored_and_drops_it() {
+        let old = serde_json::json!({
+            "labels": [{"flag": "secret", "node": "n3", "kind": "tool_result",
+                "source": "fs.read x", "confidence": 0.9, "band": "confirm", "at_ms": 5}],
+            "judged_through": "n2",
+            "unjudged": ["n3", "n4"],
+        });
+        let f: ContentFlags = serde_json::from_value(old).expect("the old layout reads");
+        assert_eq!(f.labels.len(), 1, "its label reads");
+        assert_eq!(f.disqualifies_cn(), Some(Flag::Secret));
+        let written = serde_json::to_value(&f).unwrap();
+        assert!(written.get("judged_through").is_none(), "{written}");
+        assert!(written.get("unjudged").is_none(), "{written}");
+        // A record whose only content was the mark is no content at all.
+        let only: ContentFlags =
+            serde_json::from_value(serde_json::json!({"judged_through": "n9", "unjudged": ["n8"]}))
+                .unwrap();
+        assert_eq!(only, ContentFlags::default());
+        assert_eq!(
+            only.disqualifies_cn(),
+            None,
+            "nothing is judged-through to read"
+        );
     }
 
     /// The freeze refuses every class but a read, says the one remedy, and is
@@ -1081,9 +1112,8 @@ mod tests {
     /// The other side of the same decision: the harness's own words are no
     /// item, nor is our own fixed acknowledgement of a tool, a node with no
     /// text, or anything that is neither a message nor a result. A node
-    /// wrongly counted here is one the judge is never asked about, so
-    /// `judged_through` can never pass it and the session is off every
-    /// restricted-origin model for good — the clock node, until this row.
+    /// wrongly counted here is one the judge would be asked about for nothing:
+    /// the clock node, until theseus-sh1n3.
     #[test]
     fn the_harness_own_words_are_no_item() {
         for (why, n) in &exempt_kinds() {
@@ -1193,71 +1223,42 @@ mod tests {
         }
     }
 
-    /// The mark moves only over a span every node of which was judged, and the
-    /// span comes from the transcript — so the guarantee survives a restart
-    /// with no in-memory state at all. The restart case is the one that
-    /// matters: the process forgets which item it gave up on, and the
-    /// transcript remembers for it.
+    /// A task starts with the parent's labels that keep a model of restricted
+    /// origin off it, and not with `injection` (theseus-gyjyo.5): a task starts
+    /// from a brief and has not read the transcript that tried to steer its
+    /// parent, so freezing it would leave the operator a task that refuses
+    /// every call. Its items are its own, so no judgment or removal comes.
     #[test]
-    fn the_mark_never_carries_over_an_item_nothing_judged_even_after_a_restart() {
-        let n = |s: &str| s.to_string();
-        let mut f = ContentFlags::default();
-        // n1 judged.
-        assert!(f.judged_run(&[n("n1")], &[n("n1")], "n1"));
-        assert_eq!(f.judged_through.as_deref(), Some("n1"));
-
-        // n2 could not be judged; n3 was. The span from the mark is [n2, n3],
-        // and n2 was not judged, so the mark stays.
-        f.could_not_judge("n2");
-        f.could_not_judge("n2");
-        assert_eq!(f.unjudged, ["n2"], "idempotent");
-        assert!(!f.judged_run(&[n("n2"), n("n3")], &[n("n3")], "n3"));
-        assert_eq!(f.judged_through.as_deref(), Some("n1"));
-
-        // THE RESTART. Everything the judging process knew is gone; only what
-        // was stored comes back. A fresh landing judges only the newest item,
-        // n5 — and the span from the mark still holds n2, n3, n4.
-        let mut back: ContentFlags =
-            serde_json::from_value(serde_json::to_value(&f).unwrap()).expect("round trip");
-        assert!(!back.judged_run(&[n("n2"), n("n3"), n("n4"), n("n5")], &[n("n5")], "n5"));
-        assert_eq!(
-            back.judged_through.as_deref(),
-            Some("n1"),
-            "the transcript remembers the skipped item for the process that forgot it"
+    fn a_task_inherits_the_labels_that_keep_cn_off_and_not_injection() {
+        let mut parent = ContentFlags::default();
+        parent.raise(label(Flag::Secret));
+        parent.raise(label(Flag::Injection));
+        parent.raise(label(Flag::Personal));
+        parent.remove(Flag::Personal, "x", "cli", 1);
+        assert_eq!(parent.removed.len(), 1);
+        let child = parent.inherited().expect("a label that disqualifies cn");
+        assert_eq!(child.labels.len(), 1, "{:?}", child.labels);
+        assert_eq!(child.labels[0].flag, Flag::Secret);
+        assert!(
+            !child.frozen(),
+            "a task of a frozen session starts unfrozen"
         );
-
-        // A re-ask that covers the whole span moves the mark and clears the record.
-        assert!(back.judged_run(
-            &[n("n2"), n("n3"), n("n4"), n("n5")],
-            &[n("n2"), n("n3"), n("n4"), n("n5")],
-            "n5"
-        ));
-        assert_eq!(back.judged_through.as_deref(), Some("n5"));
-        assert!(back.unjudged.is_empty(), "the re-ask cleared the record");
-
-        // Malformed spans move nothing: empty, or not ending at `node`.
-        let before = back.judged_through.clone();
-        assert!(!back.judged_run(&[], &[], "n6"));
-        assert!(!back.judged_run(&[n("n6"), n("n7")], &[n("n6"), n("n7")], "n6"));
-        assert_eq!(back.judged_through, before);
-
-        // A turn's write-back carries a new record up, and never drops a stored one.
-        let stored = Box::new(back.clone());
-        let mut turn = back;
-        turn.could_not_judge("n9");
-        let merged = ContentFlags::merge(Some(stored), Some(&turn)).unwrap();
-        assert_eq!(merged.unjudged, ["n9"]);
+        assert!(child.removed.is_empty());
+        // Frozen alone, a parent gives its task nothing.
+        let mut only = ContentFlags::default();
+        only.raise(label(Flag::Injection));
+        assert!(only.inherited().is_none());
+        assert!(ContentFlags::default().inherited().is_none());
     }
 
-    /// Its line for a person, with and without labels.
+    /// Its line for a person: the labels, or none.
     #[test]
-    fn the_line_says_the_labels_and_how_far_it_is_judged() {
+    fn the_line_says_the_labels() {
         let f = ContentFlags::default();
-        assert_eq!(f.line(), "no labels; nothing judged");
+        assert_eq!(f.line(), "no labels");
         let mut f = f;
         f.raise(label(Flag::Secret));
         f.raise(label(Flag::Injection));
-        f.judged_through = Some("n4".into());
-        assert_eq!(f.line(), "injection, secret; judged to n4");
+        assert_eq!(f.line(), "injection, secret");
     }
 }

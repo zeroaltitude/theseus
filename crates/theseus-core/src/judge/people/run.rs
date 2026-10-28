@@ -126,8 +126,8 @@ impl Core {
     /// its row written.
     pub(crate) async fn propose_people(&self, s: Session<'_>) -> Result<Pass, String> {
         let (target, provider) = self.people_extractor()?;
-        // The lines are this session's: its mark holds the call.
-        let provider = crate::google::private::for_session(provider, &self.store, &self.cfg, s.sid);
+        // The lines are this session's: its labels hold the call.
+        let provider = crate::data_gate::bound(provider, s.sid);
         let request = self.people_request(&target.model, s.title, &s.lines);
         let need = self
             .audit_reserve(&request)

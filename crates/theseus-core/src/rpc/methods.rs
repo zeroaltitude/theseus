@@ -37,8 +37,6 @@ struct SessionTotals {
     turns: u64,
     usage: Usage,
     cost_usd: f64,
-    /// The sessions that hold external text.
-    holding: Vec<SessionRecord>,
 }
 
 impl Core {
@@ -93,19 +91,7 @@ impl Core {
             narrative: self.narrator.on(),
             context: self.context_status(),
             tightenings: self.tools.tightened.all(),
-            earned: Some(self.tools.earned.grants()).filter(|g| !g.is_empty()),
             wakes: self.wakes(None, None).unwrap_or_default(),
-            external_text: crate::external::listed(
-                &totals.holding,
-                theseus_protocol::now_unix_ms(),
-                |r| {
-                    r.execution_id
-                        .as_deref()
-                        .and_then(|id| self.kernel.execution(id).ok().flatten())
-                        .is_some_and(|e| crate::external::ended(e.state))
-                },
-            ),
-            external_text_mode: self.tools.external.mode.as_str().into(),
             web: self.web_refusals.status(self.cfg.web.dev_origin.as_deref()),
             disk: self.tools.disk.status(),
             binary: crate::binary::status(),
@@ -157,15 +143,7 @@ impl Core {
         use theseus_store::Store as _;
         let inner = self.store.inner();
         let projected = inner.totals(theseus_store::kinds::SESSION).ok().flatten();
-        let holding = inner
-            .latest_by_terms(
-                theseus_store::kinds::SESSION,
-                crate::store::EXTERNAL,
-                &format!("{}\u{1}", crate::store::EXTERNAL),
-            )
-            .ok()
-            .flatten();
-        if let (Some(t), Some(holding)) = (projected, holding) {
+        if let Some(t) = projected {
             let n = |i: usize| u64::try_from(t[i]).unwrap_or(u64::MAX);
             // The keys hold every import's sessions, erased ones too; the
             // tags' records (a few, never a session) say how many.
@@ -186,7 +164,6 @@ impl Core {
                     cache_creation_1h_input_tokens: n(6),
                 },
                 cost_usd: crate::store::cost_usd(t[7]),
-                holding: holding.iter().filter_map(|r| r.decode().ok()).collect(),
             };
         }
         let sessions = self
@@ -212,10 +189,6 @@ impl Core {
             turns: sessions.iter().map(|s| s.turns).sum(),
             usage,
             cost_usd: sessions.iter().map(|s| s.cost_usd).sum(),
-            holding: sessions
-                .into_iter()
-                .filter(|s| s.external.is_some())
-                .collect(),
         }
     }
 
@@ -314,20 +287,15 @@ impl Core {
         authority: Authority,
         limit_micros: Option<theseus_kernel::Micros>,
     ) -> Result<SessionRecord> {
-        // A session that a holding session's job opens holds what that one
-        // holds, from the frame that writes it (theseus-b5cl). Read before
-        // anything is opened, so a record that cannot be read leaves nothing.
-        let now = theseus_protocol::now_unix_ms();
         let persona = self.chosen_persona(p.persona.as_deref())?;
-        let inherited = crate::external::from_job(&self.store, p.opened_from.as_deref(), now)?;
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
         // Its directory rides in the frame that creates it (theseus-aab7).
         rec.dir =
             crate::toolrun::session_dir::checked(p.dir.as_deref()).map_err(anyhow::Error::msg)?;
         // The execution, its row, the session's record, and `session.opened`
-        // in one frame (theseus-q5af), with the hold's row and record on the
-        // hold's path: a watcher that hears the execution's first view and
-        // asks for its session finds the record, its label included.
+        // in one frame (theseus-q5af): a watcher that hears the execution's
+        // first view and asks for its session finds the record, its label
+        // included.
         let exec = self.kernel.frame(&[], |k| {
             let exec =
                 k.open_execution(&rec.session_id, rec.kind, authority, limit_micros, None)?;
@@ -340,20 +308,14 @@ impl Core {
                 LedgerRow::new(LedgerKind::SessionOpened, Some(&rec.session_id), None, data);
             let opened =
                 theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, &opened)?;
-            let frame = match &inherited {
-                None => vec![
-                    theseus_store::NewRecord::json(
-                        theseus_store::kinds::SESSION,
-                        Some(&rec.session_id),
-                        &rec,
-                    )?,
-                    opened,
-                ],
-                // The row that opens it, then the hold's row and the record.
-                Some(h) => std::iter::once(opened)
-                    .chain(crate::external::hold(rec.clone(), h.clone(), None)?.unwrap_or_default())
-                    .collect(),
-            };
+            let frame = vec![
+                theseus_store::NewRecord::json(
+                    theseus_store::kinds::SESSION,
+                    Some(&rec.session_id),
+                    &rec,
+                )?,
+                opened,
+            ];
             k.stage(&frame)?;
             Ok(exec)
         })?;
@@ -374,46 +336,7 @@ impl Core {
         if let Some(name) = &persona {
             self.set_session_persona(&rec.session_id, name)?;
         }
-        let Some(h) = inherited else {
-            return Ok(rec);
-        };
-        rec.external = Some(h.clone());
-        self.session_rec(&rec.session_id)
-            .record(&crate::fact::tool::HoldTaken {
-                hold: &h,
-                mode: self.tools.external.mode,
-            });
         Ok(rec)
-    }
-
-    /// A turn that a holding session's job sends to another session
-    /// (`opened_from`, theseus-b5cl): that session takes the sender's hold,
-    /// in a frame of its own before the turn writes the input, so no crash
-    /// leaves the input without it. Nothing when it holds one already, or the
-    /// sender holds none.
-    fn take_from_job(&self, session_id: &str, from: Option<&str>) -> Result<()> {
-        if from == Some(session_id) {
-            return Ok(());
-        }
-        let now = theseus_protocol::now_unix_ms();
-        let Some(h) = crate::external::from_job(&self.store, from, now)? else {
-            return Ok(());
-        };
-        let newly = self.store.with_session(session_id, |rec| {
-            let Some(frame) = crate::external::hold(rec, h.clone(), None)? else {
-                return Ok(false);
-            };
-            self.store.append(&frame)?;
-            Ok(true)
-        })?;
-        if newly == Some(true) {
-            self.session_rec(session_id)
-                .record(&crate::fact::tool::HoldTaken {
-                    hold: &h,
-                    mode: self.tools.external.mode,
-                });
-        }
-        Ok(())
     }
 
     /// Every live session record, the most recently active first: imported
@@ -689,22 +612,17 @@ impl Core {
             .as_deref()
             .and_then(|id| self.kernel.execution(id).ok().flatten());
         i.execution_state = e.as_ref().map(|e| e.state.as_str().to_string());
-        if let Some(h) = &i.external_text {
-            i.external_waits =
-                crate::external::waits(self.tools.external.mode, e.as_ref().map(|e| e.state));
-            i.external_told = crate::external::told(&self.store, &r.session_id, h);
-        }
         i.started_on = self.started_on(r);
         i.labels = r
             .data
             .as_deref()
             .map(|f| f.labels.iter().map(super::content::label_view).collect())
             .unwrap_or_default();
-        i.data = Some(crate::data_mark::session_mark(
-            &self.store,
-            &self.cfg,
-            &r.session_id,
-        ));
+        i.data = Some(
+            r.data
+                .as_deref()
+                .map_or(theseus_protocol::ops::DataMark::Open, |f| f.mark()),
+        );
         let asks = r
             .execution_id
             .as_deref()
@@ -979,10 +897,7 @@ impl Core {
                     p.speaking.as_ref().map(|s| s.discord.clone()),
                 ),
             )?,
-            (Some(id), None) => {
-                self.take_from_job(id, p.opened_from.as_deref())?;
-                self.session(id)?
-            }
+            (Some(id), None) => self.session(id)?,
             (None, None) => self.open_session(SessionOpenParams {
                 opened_from: p.opened_from.clone(),
                 dir: dir.clone(),
@@ -1205,7 +1120,9 @@ impl Core {
                 origin: Some(
                     crate::data_gate::word(self.cfg.profile_origin(name, &self.catalog)).into(),
                 ),
-                cleared: Some(crate::data_mark::cleared(&self.cfg, &self.catalog, name)),
+                // Cleared for a session that carries a label: not of restricted
+                // origin, which is all a label keeps a session off.
+                cleared: Some(!self.cfg.profile_origin(name, &self.catalog).restricted()),
                 effort: p
                     .effort
                     .and_then(|e| serde_json::to_value(e).ok())
@@ -1556,13 +1473,12 @@ impl Core {
                 "a grant goes with an approval: approve {} to take it",
                 p.correlation_id
             )),
-            Some(g) => self.confirm_granting(&p.correlation_id, p.note.as_deref(), who, p.trust, g),
+            Some(g) => self.confirm_granting(&p.correlation_id, p.note.as_deref(), who, g),
             None => self.confirm_action_with(
                 &p.correlation_id,
                 p.approve,
                 p.note.as_deref(),
                 who,
-                p.trust,
                 Default::default(),
             ),
         }

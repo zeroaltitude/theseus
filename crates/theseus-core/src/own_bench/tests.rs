@@ -516,24 +516,6 @@ fn a_reply_is_the_wires_own_type_and_serialises_as_it_always_did() {
     );
 }
 
-/// A replay sends the turn's own request again: the mark of the turn's
-/// session holds it (theseus-a1wvq.10).
-#[tokio::test]
-async fn a_replay_of_a_private_sessions_turn_is_refused_by_the_floor() {
-    let rig = crate::tests_recall::rig_with_secrets(
-        MemoryMode::Off,
-        board(),
-        crate::tests_private_background::private_on,
-    );
-    script(&rig, &[ORIGINAL, REPLAYED]);
-    let (sid, t) = asked(&rig).await;
-    crate::tests_private_background::mark(&rig.core, &sid);
-    let sent = rig.model.requests().len();
-    let refused = rig.core.turn_replay(params(&sid, &t, "haiku"), "cli").await;
-    assert!(refused.is_err(), "{refused:?}");
-    assert_eq!(rig.model.requests().len(), sent, "nothing was sent");
-}
-
 /// A replay to a profile of restricted origin is refused in words before the
 /// rebuild, in both scopes: nothing is sent, no `turn.replayed` row and no
 /// blocked row is written, and a replay of the same turn to a profile of US

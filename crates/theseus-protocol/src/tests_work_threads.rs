@@ -90,7 +90,6 @@ fn asking(mut v: WorkView) -> WorkView {
         may_answer: true,
         tool: Some("proc.run".into()),
         asked_at_ms: 1,
-        external_text: false,
         choices: vec![],
     });
     v

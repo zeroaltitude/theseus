@@ -44,6 +44,16 @@ impl Drop for Life {
 /// One life of the daemon over the store in `dir`, with a DM bound; the
 /// driver runs when `drive` says so.
 pub(super) fn life(dir: &Path, drive: bool, tweak: impl FnOnce(&mut Config)) -> Life {
+    life_knowing(dir, drive, tweak, crate::scrub::Scrubber::default())
+}
+
+/// `life`, its core's scrubber knowing the values it was given.
+fn life_knowing(
+    dir: &Path,
+    drive: bool,
+    tweak: impl FnOnce(&mut Config),
+    scrubber: crate::scrub::Scrubber,
+) -> Life {
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
@@ -51,7 +61,11 @@ pub(super) fn life(dir: &Path, drive: bool, tweak: impl FnOnce(&mut Config)) -> 
     tweak(&mut cfg);
     let store = Store::open(&dir.join("store")).unwrap();
     let model = Arc::new(FakeProvider::scripted(vec![]));
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    let core = Core::build(crate::rpc::Parts {
+        scrubber: Arc::new(scrubber),
+        ..crate::rpc::Parts::for_tests(cfg, model.clone(), store)
+    })
+    .unwrap();
     core.bind_places(vec![crate::places::BoundPlace {
         target: TARGET.into(),
         name: "DM @owner".into(),
@@ -292,32 +306,28 @@ async fn twenty_unchanged_checks_write_no_frame() {
     assert!(l.model.requests().is_empty());
 }
 
-/// A secret a file held is never a watch's value, row, state or message.
+/// A watch's value, row and state are what the check read: a value the vault
+/// holds is in them as written (the record is raw; the courier that posts
+/// the message substitutes it on its way out).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_secret_in_a_checks_output_is_scrubbed_everywhere() {
+async fn a_secret_in_a_checks_output_is_the_watchs_value_as_read() {
     let dir = tempfile::tempdir().unwrap();
-    let l = life(dir.path(), false, |_| {});
+    let token = "vault-held-ghp-a1B2c3D4e5a1B2c3D4e5";
+    let scrubber = crate::scrub::Scrubber::with_values(vec![(token.into(), "gh_token".into())]);
+    let l = life_knowing(dir.path(), false, |_| {}, scrubber);
     dm_session(&l.core);
-    let token = format!("{}{}", "ghp_", "a1B2c3D4e5".repeat(4));
     let file = dir.path().join("log");
     std::fs::write(&file, format!("token {token} seen")).unwrap();
     let made = watch_file(&l.core, &file, "contains seen", json!({})).await;
     let id = made["watch"]["wake_id"].as_str().unwrap().to_string();
     look(&l.core, &id).await;
-    // Met on the scrubbed text: the message carries the value, scrubbed.
     let (_, text) = posts(&l.core).remove(0);
-    assert!(text.contains("[redacted:"), "{text}");
-    let everywhere = format!(
-        "{}{}{}",
-        serde_json::to_string(&rows(&l.core, "watch.met")).unwrap(),
-        serde_json::to_string(&l.core.kernel.watch_state(&id).unwrap()).unwrap(),
-        text
-    );
-    assert!(
-        !everywhere.contains(&token),
-        "the secret reached a row, the state or a post"
-    );
-    assert!(everywhere.contains("[redacted:"));
+    let met = serde_json::to_string(&rows(&l.core, "watch.met")).unwrap();
+    let state = serde_json::to_string(&l.core.kernel.watch_state(&id).unwrap()).unwrap();
+    assert!(met.contains(token), "the row: {met}");
+    assert!(state.contains(token), "the state: {state}");
+    assert!(text.contains(token), "the message: {text}");
+    assert!(!format!("{met}{state}{text}").contains("[redacted:"));
 }
 
 /// Three failures in a row inform once, and a longer pause follows each.

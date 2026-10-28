@@ -2,7 +2,7 @@
 //! `channel.read` on the place rule. Each path: allowed; asks first, then
 //! approved and posted once; asks first, then declined and nothing posted;
 //! a place not bound here; a read from a shared place marked as outside
-//! text, which then holds the session; a post's destination's floor; and
+//! text, which holds nothing back; a post's destination's floor; and
 //! the ledger rows. The rule's whole matrix is `places`' table test, and
 //! the post's delivery through Discord's lane is `theseus-discord`'s.
 
@@ -12,7 +12,6 @@ use crate::approval::{Answerer, Surface};
 use crate::node::{Body, ResultStatus};
 use crate::places::BoundPlace;
 use crate::provider::{ProviderRequest, Scripted};
-use crate::session::SessionRecord;
 use crate::tests_places::{
     answers_a_call, last_user, rig_scripted, rows, session, turn, Rig, ALICE, OWNER,
 };
@@ -344,11 +343,11 @@ async fn a_place_not_bound_here_fails_with_words() {
 
 /// A read from a shared place into a private one runs, and what it brings
 /// is outside text: its result is marked so (by the place's name), its first
-/// line says it, the session takes T1's hold, and its `glide.read` row says
-/// `outside`. After it, a post from that session waits (T1's hold), even
-/// into a private place.
+/// line says it, and its `glide.read` row says `outside`. Nothing holds the
+/// session: a post from it into a private place runs at the place rule's
+/// word, as it would after any read.
 #[tokio::test]
-async fn a_read_from_a_shared_place_is_outside_text_and_holds_the_session() {
+async fn a_read_from_a_shared_place_is_outside_text_and_holds_nothing() {
     let r = rig();
     let hall = session(&r.core, Some(&format!("channel:{HALL}")));
     turn(&r.core, &hall, "the tide turns at six").await;
@@ -368,18 +367,7 @@ async fn a_read_from_a_shared_place_is_outside_text_and_holds_the_session() {
         "{text}"
     );
     assert!(lines[2].ends_with("Theseus: Hello."), "{text}");
-    let held = r
-        .core
-        .store
-        .get_session::<SessionRecord>(&cli)
-        .unwrap()
-        .unwrap()
-        .external
-        .expect("the session holds outside text");
-    assert_eq!(
-        (held.tool.as_str(), held.url.as_str()),
-        ("channel.read", "#hall")
-    );
+    assert!(crate::external::read_any(&r.core.store, &cli));
     let read = &rows(&r.core, "glide.read")[0];
     assert_eq!(read["outside"], true, "{read}");
     assert_eq!(read["messages"], 2);
@@ -405,15 +393,10 @@ async fn a_read_from_a_shared_place_is_outside_text_and_holds_the_session() {
         reach.descendants[0].node_id,
         read["node_id"].as_str().unwrap()
     );
-    // T1's hold: a post now waits, even into the owner's DM.
+    // No hold: a post now runs, into the owner's DM.
     let res = turn(&r.core, &cli, "POST DM @owner :: what the hall said").await;
-    assert!(res.awaiting_confirm.is_some(), "{res:?}");
-    let reasons = asked(&r.core, &cli);
-    assert!(
-        reasons[0].contains("this session read external text (channel.read #hall"),
-        "{reasons:?}"
-    );
-    assert_eq!(all_glides(&r.core), 0);
+    assert_eq!(res.awaiting_confirm, None, "{res:?}");
+    assert_eq!(all_glides(&r.core), 1, "posted once");
 }
 
 /// A read of a private place from a shared one asks first, and nothing of

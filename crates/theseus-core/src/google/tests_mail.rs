@@ -1,7 +1,8 @@
 //! Gmail through the whole core, against the fake's mailbox (the Google
 //! design §3.1 rows 1 to 5, §4.2, and the owner's decision that every send
 //! asks): the five tools, a send bound to the draft the card showed, the
-//! draft's exemption from the hold, and what a read marks as outside text.
+//! a draft that runs after a stranger's mail was read, and what a read marks as
+//! outside text.
 
 use serde_json::{json, Value};
 use theseus_google::fake::gmail::MsgSpec;
@@ -198,12 +199,11 @@ async fn a_send_asks_at_every_posture_and_no_grant_loosens_it() {
     let id = reply_draft(&r, json!({})).await;
     assert_eq!(id, "r1");
     let sid = session(&r.core);
-    // The session reads mail and the owner trusts it away: as clean as a session gets.
+    // The session reads mail, which marks the result and holds nothing.
     turn(&r.core, &sid, "read it").await;
-    r.core.trust_session(&sid, "test").unwrap();
     // The plan names the authority, so the decision is Approve with every line
-    // `open`, and the one question each loosening layer asks first (an earned
-    // grant, a conversation's grant, a mode, a routine's grant) is whether
+    // `open`, and the one question each loosening layer asks first (a
+    // mode, a routine's grant) is whether
     // only the tool's posture decides the call. Here it does not.
     let tool = r.core.tools.registry.get("gmail.send").unwrap().clone();
     let p = plan(&r, "gmail.send", send_of(&r, &id).await).unwrap();
@@ -636,10 +636,10 @@ async fn a_cards_body_is_its_first_lines() {
     );
 }
 
-// ------------------------------------------------------------------ the hold
+// ------------------------------------------------------------------ the marker
 
 #[tokio::test]
-async fn a_stranger_thread_holds_the_session() {
+async fn a_stranger_thread_marks_its_result_as_outside_text() {
     let r = rig(vec![
         Scripted::tools("", &[("c1", "gmail_read", json!({"id": "t1"}))]),
         Scripted::text("Read."),
@@ -648,12 +648,25 @@ async fn a_stranger_thread_holds_the_session() {
     stranger_thread(&r);
     let sid = session(&r.core);
     turn(&r.core, &sid, "read the thread").await;
+    let nodes: Vec<_> = r
+        .core
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .into_iter()
+        .map(|(_, n)| n)
+        .collect();
+    let first = crate::external::first(&nodes).expect("the result is marked");
+    assert_eq!(first.tool, "gmail.read");
+    assert!(ledgered(&r.core, "session.external_read").is_empty());
     let rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
-    assert_eq!(rec.external.expect("a hold").tool, "gmail.read");
-    assert!(
-        super::private::session(&r.core.store, &r.core.cfg, &sid),
-        "and private"
-    );
+    let labels = rec
+        .data
+        .as_deref()
+        .map(|f| f.labels.clone())
+        .unwrap_or_default();
+    assert_eq!(labels.len(), 1, "and labelled: {labels:?}");
+    assert_eq!(labels[0].source, "google.gmail.read");
     // No token, however it was minted, reached a node or a row.
     let all = everything(&r.core, &[&sid]);
     assert!(!all.contains("ya29.") && !all.contains(theseus_google::fake::REFRESH_TOKEN));
@@ -695,7 +708,7 @@ async fn a_thread_the_account_wrote_alone_is_not_external() {
 }
 
 #[tokio::test]
-async fn a_draft_runs_under_the_hold_and_a_label_asks() {
+async fn a_draft_runs_with_no_card_after_a_stranger_thread_was_read() {
     let r = rig(vec![
         Scripted::tools("", &[("c1", "gmail_read", json!({"id": "t1"}))]),
         Scripted::tools(
@@ -706,33 +719,15 @@ async fn a_draft_runs_under_the_hold_and_a_label_asks() {
                 json!({"reply_to": "m1", "body": "On it."}),
             )],
         ),
-        Scripted::tools(
-            "",
-            &[(
-                "c3",
-                "gmail_label",
-                json!({"ids": ["t1"], "remove": ["INBOX", "UNREAD"]}),
-            )],
-        ),
+        Scripted::text("Drafted."),
     ])
     .await;
     stranger_thread(&r);
     let sid = session(&r.core);
-    let res = turn(&r.core, &sid, "read it, draft a reply, then archive it").await;
-    // The read held the session; the draft still ran, with no card...
+    let res = turn(&r.core, &sid, "read it and draft a reply").await;
+    assert!(res.awaiting_confirm.is_none(), "{res:?}");
     assert_eq!(r.fake.mail().draft_ids().len(), 1, "{res:?}");
-    // ...and the label, which an injected mail could use to hide itself, waited.
-    assert!(res.awaiting_confirm.is_some(), "{res:?}");
-    assert!(
-        r.fake.mail().labels_of("m1").contains(&"INBOX".to_string()),
-        "nothing was archived"
-    );
-    let asked = ledgered(&r.core, "tool.confirm_requested");
-    assert_eq!(asked.len(), 1, "{asked:?}");
-    assert!(
-        asked[0]["reason"].as_str().unwrap().contains("external"),
-        "{asked:?}"
-    );
+    assert!(ledgered(&r.core, "tool.confirm_requested").is_empty());
 }
 
 // ------------------------------------------------------------------ reading
@@ -884,7 +879,7 @@ async fn search_lists_a_row_a_thread_and_marks_strangers() {
     // Only the account's own mail: not outside text.
     let (_, ext) = ok(run(&r, "gmail.search", json!({"q": "milk"})).await);
     assert!(ext.is_none());
-    // Nothing found: nothing to hold a session for.
+    // Nothing found: nothing to mark.
     let (out, ext) = ok(run(&r, "gmail.search", json!({"q": "zzz-nothing"})).await);
     assert!(
         out.text.starts_with("0 thread(s)") && ext.is_none(),

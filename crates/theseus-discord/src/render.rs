@@ -59,11 +59,9 @@ pub enum Buttons {
     Confirm(String),
     /// One button per option of an `owner_ask` question (theseus-j7cje).
     Ask(String, Vec<String>),
-    /// A needs-you card (theseus-suvpe): the question's choices, else Approve (and
-    /// trust when `bool`) and Decline, and always Details.
-    Card(String, Vec<String>, bool),
-    /// Approve, "Approve + trust session", and Decline (theseus-9bp): external text.
-    ConfirmTrust(String),
+    /// A needs-you card (theseus-suvpe): the question's choices, else Approve
+    /// and Decline, and always Details.
+    Card(String, Vec<String>),
     /// Approve, the question's grant, and Decline (theseus-drjs).
     ConfirmGrant(String, theseus_protocol::grants::GrantOffer),
     /// A "Should I have asked?" select menu (theseus-sgh): an option per notified tool, `MAX_ASKED`.
@@ -74,8 +72,6 @@ pub enum Buttons {
     Reminder(String),
     /// A routine's or a watch's post: this wake, and the answers `(id, label)` it offers (theseus-j90w2).
     Horizon(String, Vec<(String, String)>),
-    /// An earned-autonomy card's candidates `(id, label)`, each with yes, no and the record (theseus-uttu).
-    Earned(Vec<(String, String)>),
     /// An expired card's "Ask again" for this question (theseus-27p6w).
     Again(String),
     /// A proposed seal's Seal this thread and Not needed, for this thread (theseus-f2g0).

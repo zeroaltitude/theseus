@@ -1,20 +1,26 @@
-//! Secret scrubbing (spec §3.9): tool output is scrubbed before it reaches the
-//! model, the store, or a client. Every secret the vault has given is
+//! Exact-value substitution (spec §3.9): every secret the vault has given is
 //! replaced by `[redacted:<name>]` wherever it appears: verbatim, in base64
 //! (standard or URL-safe, at any offset inside a longer encoding, wrapped
 //! across lines or not), percent-encoded (review 2's H9), and with any of its
-//! characters JSON-escaped (theseus-ubp7, `escaped.rs`). Well-known
-//! shapes of secrets never resolved here are replaced by `[redacted:<shape>]`
-//! (`shapes.rs`): token prefixes (Anthropic, OpenAI, Stripe, Google, GitHub,
-//! Slack and others), AWS access key ids and the secret keys and session
-//! tokens beside them, private-key blocks, JWTs, and a connection URL's
-//! password; as written, and in the same encodings a value is looked for in
-//! (`decoded.rs`, theseus-oyrt).
+//! characters JSON-escaped (theseus-ubp7, `escaped.rs`).
+//!
+//! It runs on a copy that leaves the machine, never on the record: a node, a
+//! kept output, an imported episode and a watch's row are what the tool
+//! printed, so the operator can read what was exposed. Nothing is guessed
+//! here: a value the vault never gave is text, whatever its shape.
 //!
 //! The values are read from the secret board at each scrub, so a value is
 //! known here the moment it resolves (theseus-qa0). A turn waits for the
 //! board's first round to settle before any tool output passes through here.
+//!
+//! One pass does the work for every caller: [`Substitution`], the verbatim
+//! values and then their encodings, with the name of every span it replaced.
+//! `Scrubber` (Jev's state, the push line, the display sites) and the exits
+//! (the provider request, the courier: `exits.rs`) both run it, so what leaves
+//! the machine is held to the same standard whichever door it goes by.
 
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -22,21 +28,13 @@ use base64::Engine as _;
 
 use crate::secrets::{SecretBoard, SecretState};
 
-#[cfg(test)]
-mod corpus;
-mod decoded;
 mod escaped;
-mod shapes;
-#[cfg(test)]
-mod tests_corpus;
 #[cfg(test)]
 mod tests_escaped;
 #[cfg(test)]
 mod tests_fold;
 #[cfg(test)]
 mod tests_nested;
-#[cfg(test)]
-mod tests_shapes;
 
 #[derive(Default)]
 pub struct Scrubber {
@@ -45,10 +43,11 @@ pub struct Scrubber {
 }
 
 /// The shortest value scrubbed: a shorter one would match by chance.
-const MIN_VALUE: usize = 8;
+pub(crate) const MIN_VALUE: usize = 8;
 
-/// One replacement: a byte range of the text, and what stands in for it.
-type Span = (usize, usize, String);
+/// One replacement: a byte range of the text, and the name of the value it
+/// held.
+type Span<'a> = (usize, usize, &'a str);
 
 impl Scrubber {
     /// Scrub every value the board holds ready.
@@ -82,75 +81,105 @@ impl Scrubber {
                 }
             }
         }
-        // Longest first so a secret containing another is replaced whole.
-        values.sort_by_key(|e| std::cmp::Reverse(e.0.len()));
-        let mut out = text.to_string();
-        let mut n = 0u32;
-        for (v, name) in &values {
-            if out.contains(v) {
-                n += out.matches(v).count() as u32;
-                out = out.replace(v, &format!("[redacted:{name}]"));
-            }
-        }
-        n += encoded(&mut out, &values);
-        drop(values);
-        drop(states);
-        for find in shapes::FINDERS {
-            let spans = find(&out);
-            n += splice(&mut out, spans);
-        }
-        let spans = decoded::spans(&out);
-        n += splice(&mut out, spans);
-        (out, n)
+        let (out, counts) = Substitution::new(values).apply(text);
+        (out.into_owned(), counts.values().sum())
     }
 }
 
-/// Replace each span with its stand-in, in one pass from the end. A span
-/// that overlaps an earlier one, or that does not fall on character
-/// boundaries, is left alone. How many were replaced.
-fn splice(out: &mut String, mut spans: Vec<Span>) -> u32 {
-    spans.sort_by_key(|s| (s.0, std::cmp::Reverse(s.1)));
+/// A set of values ready to be substituted in any number of strings: each
+/// value's base64 needles are worked out once, so a request of a few thousand
+/// strings pays for them once and not for each string.
+pub(crate) struct Substitution<'a> {
+    /// `(value, name)`, longest first so a secret containing another is
+    /// replaced whole, ties by name so a value two secrets share always gets
+    /// the same one.
+    values: Vec<(&'a str, &'a str)>,
+    needles: Vec<(String, &'a str)>,
+}
+
+impl<'a> Substitution<'a> {
+    /// `values` as `(value, name)`, each at least [`MIN_VALUE`] long.
+    pub(crate) fn new(mut values: Vec<(&'a str, &'a str)>) -> Self {
+        values.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.1.cmp(b.1)));
+        let needles = values
+            .iter()
+            .flat_map(|(v, name)| {
+                base64_needles(v.as_bytes())
+                    .into_iter()
+                    .map(move |s| (s, *name))
+            })
+            .collect();
+        Self { values, needles }
+    }
+
+    /// `text` with every value replaced by `[redacted:<name>]`, verbatim and
+    /// in each encoding, and how many times each name was met. Borrowed when
+    /// the text holds none. There is no pre-check on the verbatim value: an
+    /// encoded one does not contain it.
+    pub(crate) fn apply<'t>(&self, text: &'t str) -> (Cow<'t, str>, BTreeMap<String, u32>) {
+        let mut counts: BTreeMap<String, u32> = BTreeMap::new();
+        let mut out = Cow::Borrowed(text);
+        for (v, name) in &self.values {
+            let n = out.matches(v).count();
+            if n > 0 {
+                *counts.entry((*name).to_string()).or_default() += n as u32;
+                out = Cow::Owned(out.replace(v, &format!("[redacted:{name}]")));
+            }
+        }
+        let spans = encoded(&out, &self.values, &self.needles);
+        if let Some((spliced, names)) = splice(&out, spans) {
+            for name in names {
+                *counts.entry(name.to_string()).or_default() += 1;
+            }
+            out = Cow::Owned(spliced);
+        }
+        (out, counts)
+    }
+}
+
+/// `text` with each span replaced by its stand-in, in one pass from the end,
+/// and the name of each span kept. A span that overlaps an earlier one, or
+/// that does not fall on character boundaries, is left alone. `None` when no
+/// span was kept.
+fn splice<'a>(text: &str, mut spans: Vec<Span<'a>>) -> Option<(String, Vec<&'a str>)> {
+    spans.sort_by_key(|s| (s.0, std::cmp::Reverse(s.1), s.2));
     let mut kept: Vec<Span> = Vec::new();
     for s in spans {
         let clear = kept.last().is_none_or(|k| s.0 >= k.1);
-        if clear && s.0 < s.1 && out.is_char_boundary(s.0) && out.is_char_boundary(s.1) {
+        if clear && s.0 < s.1 && text.is_char_boundary(s.0) && text.is_char_boundary(s.1) {
             kept.push(s);
         }
     }
-    let n = kept.len() as u32;
-    for (a, b, with) in kept.into_iter().rev() {
-        out.replace_range(a..b, &with);
+    if kept.is_empty() {
+        return None;
     }
-    n
+    let names = kept.iter().map(|k| k.2).collect();
+    let mut out = text.to_string();
+    for (a, b, name) in kept.into_iter().rev() {
+        out.replace_range(a..b, &format!("[redacted:{name}]"));
+    }
+    Some((out, names))
 }
 
 // ---------------------------------------------------------------- encoded values
 
-/// Each value's base64, percent-encoded, and JSON-escaped forms.
-fn encoded(out: &mut String, values: &[(&str, &str)]) -> u32 {
-    let mut spans = Vec::new();
-    let needles: Vec<(String, &str)> = values
-        .iter()
-        .flat_map(|(v, name)| {
-            base64_needles(v.as_bytes())
-                .into_iter()
-                .map(move |s| (s, *name))
-        })
-        .collect();
-    for (a, b, name) in base64_spans(out, &needles, |_| true) {
-        spans.push((a, b, format!("[redacted:{name}]")));
-    }
+/// Where each value's base64, percent-encoded and JSON-escaped forms are in
+/// `out`.
+fn encoded<'a>(
+    out: &str,
+    values: &[(&str, &'a str)],
+    needles: &[(String, &'a str)],
+) -> Vec<Span<'a>> {
+    let mut spans = base64_spans(out, needles, |_| true);
     if out.contains('%') {
         for (v, name) in values {
             for (a, b) in percent_spans(out.as_bytes(), v.as_bytes()) {
-                spans.push((a, b, format!("[redacted:{name}]")));
+                spans.push((a, b, *name));
             }
         }
     }
-    for (a, b, name) in escaped::spans(out, values, &needles) {
-        spans.push((a, b, format!("[redacted:{name}]")));
-    }
-    splice(out, spans)
+    spans.extend(escaped::spans(out, values, needles));
+    spans
 }
 
 /// Where a needle matches in the text's base64 runs that `keep` takes (given
@@ -343,14 +372,35 @@ fn percent_spans(t: &[u8], v: &[u8]) -> Vec<(usize, usize)> {
 mod tests {
     use super::*;
 
+    /// The scrubber knows what the vault gave it and nothing else: a key's or
+    /// a token's shape, a private-key block, a JWT, a connection URL's
+    /// password are text, as the tool printed them (the record is raw, and
+    /// a guess has no place in what leaves it).
     #[test]
-    fn exact_values_and_token_shapes_are_redacted() {
+    fn only_a_value_the_vault_gave_is_replaced_and_no_shape_is() {
         let s = Scrubber::with_values(vec![("hunter2hunter2".into(), "db_password".into())]);
-        let (out, n) = s.scrub("pw=hunter2hunter2 key=sk-ant-api03-abcdefghijklmnop end ghp_short");
-        assert_eq!(n, 2, "{out}");
-        assert!(out.contains("[redacted:db_password]"));
-        assert!(out.contains("[redacted:anthropic_key] end"));
-        assert!(out.contains("ghp_short"), "too short to be a token");
+        let text = "pw=hunter2hunter2 key=sk-ant-api03-abcdefghijklmnop end \
+                    ghp_inventedinventedinvented";
+        assert_eq!(
+            s.scrub(text),
+            (
+                "pw=[redacted:db_password] key=sk-ant-api03-abcdefghijklmnop end \
+                 ghp_inventedinventedinvented"
+                    .to_string(),
+                1
+            )
+        );
+        let none = Scrubber::default();
+        for kept in [
+            "Access key ID,Secret access key\nAKIAINVENTEDEXAMPLE7,wJalrXUtnFEMI/K7MDENG/bPxRfiCYINVENTEDKY\n",
+            "aws_secret_access_key = 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",
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\nINVENTEDINVENTEDINVENTED==\n-----END OPENSSH PRIVATE KEY-----",
+            "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpbnZlbnRlZCJ9.c2lnbmF0dXJlLWludmVudGVk\n",
+            &format!("postgres://app:s3cr3t-invented{}db.internal/app", '@'),
+            "ghp_x then ghp_inventedinventedinvented",
+        ] {
+            assert_eq!(none.scrub(kept), (kept.to_string(), 0), "{kept}");
+        }
     }
 
     /// A value is scrubbed from the moment the board has it.
@@ -441,125 +491,77 @@ mod tests {
         assert_eq!((out.as_str(), n), ("100% done, 50%2F50", 0));
     }
 
-    /// Review 2's H9: AWS access key ids, the secret key beside one, and a
-    /// secret key or session token after its label. All invented.
+    /// The pass both doors run (`Scrubber`, and the exits' provider request and
+    /// courier): every span kept is named, verbatim or encoded, and the same
+    /// text and values give the same bytes and the same names whatever order
+    /// the values come in, a value two secrets share getting one name.
     #[test]
-    fn aws_keys_are_withheld_by_shape() {
-        let s = Scrubber::default();
-        let id = "AKIAINVENTEDEXAMPLE7";
-        let secret = "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";
-        assert_eq!(secret.len(), 40);
-        let (out, n) = s.scrub(&format!("Access key ID,Secret access key\n{id},{secret}\n"));
+    fn the_shared_pass_names_every_span_and_ignores_the_order_values_come_in() {
+        let blob = b64(format!("user:{VALUE}").as_bytes());
+        let text = format!("a {VALUE} b Authorization: Basic {blob} c hunter2hunter2 d");
+        let values = [
+            (VALUE, "demo_secret"),
+            ("hunter2hunter2", "db_password"),
+            // The same value under a second name, and a value inside another.
+            ("hunter2hunter2", "also_db"),
+            ("hunter2hunter2-and-more", "longer"),
+        ];
+        let run = |order: &[usize]| {
+            let (out, counts) =
+                Substitution::new(order.iter().map(|i| values[*i]).collect()).apply(&text);
+            (out.into_owned(), counts)
+        };
+        let first = run(&[0, 1, 2, 3]);
         assert_eq!(
-            (out.as_str(), n),
-            (
-                "Access key ID,Secret access key\n[redacted:aws_access_key_id],\
-                 [redacted:aws_secret_access_key]\n",
-                2
-            )
+            first.0,
+            "a [redacted:demo_secret] b Authorization: Basic [redacted:demo_secret] c \
+             [redacted:also_db] d"
         );
-        let sts = format!(
-            "{{\"Credentials\": {{\"AccessKeyId\": \"ASIAINVENTEDEXAMPLE2\", \"SecretAccessKey\": \
-             \"{secret}\", \"SessionToken\": \"IQoJb3JpZ2luX2VjEINVENTED/token+value==\"}}}}"
-        );
-        let (out, n) = s.scrub(&sts);
-        assert_eq!(n, 3, "{out}");
         assert_eq!(
-            out,
-            "{\"Credentials\": {\"AccessKeyId\": \"[redacted:aws_access_key_id]\", \
-             \"SecretAccessKey\": \"[redacted:aws_secret_access_key]\", \"SessionToken\": \
-             \"[redacted:aws_session_token]\"}}"
+            first.1,
+            BTreeMap::from([("also_db".into(), 1), ("demo_secret".into(), 2)])
         );
-        for (line, says) in [
-            (
-                format!("aws_secret_access_key = {secret}"),
-                "aws_secret_access_key = [redacted:aws_secret_access_key]",
-            ),
-            (
-                format!("export AWS_SECRET_ACCESS_KEY='{secret}'"),
-                "export AWS_SECRET_ACCESS_KEY='[redacted:aws_secret_access_key]'",
-            ),
-            (
-                "AWS_SESSION_TOKEN=FwoGZXIvYXdzEINVENTEDsessiontoken".into(),
-                "AWS_SESSION_TOKEN=[redacted:aws_session_token]",
-            ),
-        ] {
-            assert_eq!(s.scrub(&line).0, says);
+        for order in [[3, 2, 1, 0], [1, 3, 0, 2], [2, 0, 3, 1], [0, 2, 1, 3]] {
+            assert_eq!(run(&order), first, "{order:?}");
         }
-        // Not keys: a word with the prefix, a hex hash beside an id, a label
-        // with no value after it, and the masked key `aws configure list` shows.
-        for kept in [
-            "AKIAS are not keys; ASIA is a continent",
-            "commit 4b825dc642cb6eb9a060e54bf8d69288fbee4904",
-            "set aws_secret_access_key in your profile",
-            "secret_key     ****************ABCD shared-credentials-file",
-        ] {
-            assert_eq!(s.scrub(kept), (kept.to_string(), 0), "{kept}");
-        }
-        let (out, _) = s.scrub(&format!("{id} 4b825dc642cb6eb9a060e54bf8d69288fbee4904"));
-        assert_eq!(
-            out,
-            "[redacted:aws_access_key_id] 4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        );
+        // Nothing in the text: it is borrowed, with no names.
+        let (out, counts) = Substitution::new(values.to_vec()).apply("ordinary words");
+        assert!(matches!(out, Cow::Borrowed(_)) && counts.is_empty());
     }
 
-    /// Review 2's H9: a private-key block, whole, and one cut before its END
-    /// line, up to the first line that is not a key's.
+    /// The live exact-value pass and its encoded scan on ordinary output: a
+    /// scrubber that KNOWS a value finds nothing in a MiB of cargo, git and log
+    /// lines (no false positive), changes nothing, and takes a bounded time.
     #[test]
-    fn a_private_key_block_is_withheld_whole_or_cut() {
-        let s = Scrubber::default();
-        let block = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\nINVENTEDINVENTEDINVENTED==\n-----END OPENSSH PRIVATE KEY-----";
-        let (out, n) = s.scrub(&format!("cat id:\n{block}\ndone"));
-        assert_eq!(
-            (out.as_str(), n),
-            ("cat id:\n[redacted:private_key]\ndone", 1)
-        );
-        let cut = "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\n\nMIIEowIBAAKCAQEAinvented\nb3BlbnNzaC1rZXktdjEAAAAA\n[… 4,000 characters not shown …]\ntail";
-        let (out, n) = s.scrub(cut);
-        assert_eq!(
-            (out.as_str(), n),
-            (
-                "[redacted:private_key]\n[… 4,000 characters not shown …]\ntail",
-                1
-            )
-        );
-        let public = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEinvented\n-----END PUBLIC KEY-----";
-        assert_eq!(
-            s.scrub(public),
-            (public.to_string(), 0),
-            "a public key is not secret"
-        );
-    }
-
-    /// Review 2's H9: a JWT, and a JWE's five parts.
-    #[test]
-    fn a_jwt_is_withheld() {
-        let s = Scrubber::default();
-        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpbnZlbnRlZCJ9.c2lnbmF0dXJlLWludmVudGVk";
-        let (out, n) = s.scrub(&format!("Authorization: Bearer {jwt}\n"));
-        assert_eq!(
-            (out.as_str(), n),
-            ("Authorization: Bearer [redacted:jwt]\n", 1)
-        );
-        let unsigned = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJpbnZlbnRlZCJ9.";
-        assert_eq!(s.scrub(unsigned).0, "[redacted:jwt]");
-        let jwe = "eyJhbGciOiJSU0EtT0FFUCJ9.aW52ZW50ZWRrZXk.aXZpbnZlbnRlZA.Y2lwaGVydGV4dA.dGFnaW52ZW50ZWQ";
-        assert_eq!(s.scrub(&format!("{jwe} x")).0, "[redacted:jwt] x");
-        for kept in [
-            "eyJustAWord.notatoken",
-            "version 1.2.3",
-            "eyJhbGciOiJIUzI1NiJ9 alone",
-        ] {
-            assert_eq!(s.scrub(kept), (kept.to_string(), 0), "{kept}");
+    fn a_mib_of_ordinary_output_scrubs_in_bounded_time() {
+        let s = Scrubber::with_values(vec![
+            (VALUE.into(), "demo_secret".into()),
+            ("hunter2hunter2".into(), "db_password".into()),
+        ]);
+        let lines = [
+            "   Compiling theseus-core v0.1.0 (/work/src/crates/theseus-core)\n",
+            "warning: unused import: `std::fmt` --> src/lib.rs:42:5 | 100% done\n",
+            "[main 3fa9c2e] fix the thing\n 3 files changed, 41 insertions(+), 7 deletions(-)\n",
+            "{\"level\":\"info\",\"msg\":\"GET /v1/items?id=42&page=3\",\"ms\":12}\n",
+            "diff --git a/src/a.rs b/src/a.rs\nindex 3fa9c2e..8d1b7a4 100644\n",
+            "aGVsbG8gd29ybGQ= dGVzdA== C:\\Users\\x\\file 50%2F50 caf\u{e9}\n",
+            "test result: ok. 128 passed; 0 failed; finished in 1.84s\n",
+        ];
+        let mut text = String::new();
+        while text.len() < 1 << 20 {
+            for l in lines {
+                text.push_str(l);
+            }
         }
-    }
-
-    /// A prefix too short to be a token no longer stops the scan for that
-    /// prefix: a real token after it is still withheld.
-    #[test]
-    fn a_short_prefix_match_does_not_stop_the_scan() {
-        let s = Scrubber::default();
-        let (out, n) = s.scrub("ghp_x then ghp_inventedinventedinvented");
-        assert_eq!((out.as_str(), n), ("ghp_x then [redacted:github_token]", 1));
+        let began = std::time::Instant::now();
+        let (out, n) = s.scrub(&text);
+        let took = began.elapsed();
+        assert_eq!((n, out.len()), (0, text.len()));
+        assert_eq!(out, text);
+        eprintln!(
+            "scrub: {} bytes of ordinary output, two values: {took:?}",
+            text.len()
+        );
+        assert!(took < std::time::Duration::from_secs(20), "took {took:?}");
     }
 }

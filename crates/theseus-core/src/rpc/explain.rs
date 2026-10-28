@@ -8,7 +8,7 @@
 //! It is built on the gate's own functions, never a copy of its order: the
 //! place's refusal and the order (`toolrun::order`) run here on a call inside
 //! the roots, with what the gate would read of the place (`TurnRunner::view_of`,
-//! the session's hold, an MCP client's floor), and each layer's row is the
+//! an MCP client's floor), and each layer's row is the
 //! decision the order handed its watcher there. FAST (§9): it reads records
 //! (a session's, its place's, its execution's) and the config, never the
 //! history.
@@ -17,8 +17,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use theseus_protocol::{
-    error_code, ExplainCondition, ExplainLayer, ExternalText, PlaceClass, PlaceExplain,
-    PolicyExplainParams, PolicyExplainResult, ToolExplain,
+    error_code, ExplainCondition, ExplainLayer, PlaceClass, PlaceExplain, PolicyExplainParams,
+    PolicyExplainResult, ToolExplain,
 };
 use theseus_tools::{Access, Backend, Plan, Resource, Tool, ToolClass};
 
@@ -28,14 +28,13 @@ use crate::ceiling::PlaceView;
 use crate::policy::{Decision, Posture};
 use crate::toolrun::order::{At, Layer};
 
-/// One place as the gate reads it, with its session's hold when a session
-/// is named or the place runs on one.
+/// One place as the gate reads it, with its session when a session is named
+/// or the place runs on one.
 struct Scene {
     place: String,
     name: String,
     view: PlaceView,
     session_id: Option<String>,
-    hold: Result<Option<ExternalText>, String>,
     mcp: Option<Posture>,
 }
 
@@ -63,7 +62,6 @@ impl Core {
                     class: s.view.class,
                     ceiling: s.view.ceiling.map(|c| c.wire.clone()),
                     session_id: s.session_id,
-                    hold: s.hold.ok().flatten(),
                 })
                 .collect(),
             roots: self
@@ -134,13 +132,12 @@ impl Core {
             name,
             view,
             session_id: Some(session_id.to_string()),
-            hold: crate::external::held_untold(&self.store, session_id, self.tools.external.mode),
             mcp,
         })
     }
 
-    /// The CLI, then every place the binding bound, each with the hold of
-    /// the session it runs on, if one does.
+    /// The CLI, then every place the binding bound, each with the session it
+    /// runs on, if one does.
     fn every_scene(&self) -> Vec<Scene> {
         let rule = &self.runner.place_rule;
         let mut scenes = vec![Scene {
@@ -148,7 +145,6 @@ impl Core {
             name: "CLI".into(),
             view: rule.place(&self.cfg, None),
             session_id: None,
-            hold: Ok(None),
             mcp: None,
         }];
         for p in rule.health(&self.cfg).places {
@@ -159,16 +155,11 @@ impl Core {
                 .place
                 .strip_prefix("discord:")
                 .and_then(|k| self.outbox.place_session(k).ok().flatten());
-            let hold = match &session {
-                Some(s) => crate::external::held_untold(&self.store, s, self.tools.external.mode),
-                None => Ok(None),
-            };
             scenes.push(Scene {
                 view: rule.place(&self.cfg, Some(&p.place)),
                 place: p.place,
                 name: p.name,
                 session_id: session,
-                hold,
                 mcp: None,
             });
         }
@@ -225,15 +216,12 @@ impl Core {
                 reason: format!("{}: {why}", crate::toolrun::PLACE_REFUSAL),
             };
         }
-        let hold = s.hold.clone();
-        let held = move || hold.clone();
         let mcp = s.mcp;
         let mcp = move || mcp;
         // A glide's other place is its call's (38b): `glide`'s condition
         // says what the rule does there.
         let at = At {
             place: s.view,
-            held: &held,
             labels: &|| None,
             mcp: &mcp,
             glide: None,
@@ -325,8 +313,7 @@ impl Core {
             Layer::Lsp
             | Layer::SharedFetch
             | Layer::Glide
-            | Layer::Earned
-            | Layer::Scoped
+            | Layer::Mode
             | Layer::Routine => {
                 return None
             }
@@ -340,11 +327,6 @@ impl Core {
                     .ceiling
                     .filter(|c| c.floor.is_some())
                     .map(|c| format!("{}'s posture_floor", c.place)),
-            )],
-            Layer::Hold => vec![row(
-                "hold",
-                hold_says(s, tool, rt.external.mode),
-                Some(format!("[policy] {} = {}", rt.external.key, rt.external.mode.as_str())),
             )],
             Layer::McpClient => vec![row(
                 "mcp_client",
@@ -457,21 +439,6 @@ fn probe(rt: &crate::toolrun::ToolRuntime, view: PlaceView, tool: &dyn Tool) -> 
             _ => None,
         },
         ..Default::default()
-    }
-}
-
-/// What T1's hold says of a call of `tool` in the scene's session.
-fn hold_says(s: &Scene, tool: &dyn Tool, mode: crate::external::Mode) -> String {
-    if crate::external::exempt(tool.class(), tool.name(), &serde_json::Value::Null) {
-        return "a read (or a one-shot wake) keeps its posture after external text".into();
-    }
-    match (&s.hold, &s.session_id) {
-        (Ok(Some(h)), _) => crate::external::why_at(h, mode, theseus_protocol::now_unix_ms()),
-        (Err(e), _) => format!(
-            "its session's record could not be read to check for external text, so a call that acts waits: {e}"
-        ),
-        (Ok(None), Some(_)) => "this session holds no external text".into(),
-        (Ok(None), None) => "no session here holds external text".into(),
     }
 }
 

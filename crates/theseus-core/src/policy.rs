@@ -45,7 +45,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use theseus_tools::{paths, Access, Plan, Tool};
 
-pub mod earned;
 pub mod grants;
 pub mod modes;
 
@@ -139,10 +138,6 @@ pub struct Decision {
     /// What the secret broker gives the call, by name: `gh got GH_TOKEN`
     /// (theseus-dcy). Its tool line and its notice say so.
     pub granted: Option<String>,
-    /// The call waits (or is notified) because its session read external
-    /// text (theseus-9bp): what it read. Set only when that is what raised
-    /// the posture, so its card can offer to trust the session again.
-    pub external: Option<theseus_protocol::ExternalText>,
 }
 
 impl Decision {
@@ -155,7 +150,6 @@ impl Decision {
             notify: self.notify.clone(),
             floor: self.floor,
             granted: self.granted.clone(),
-            external: self.external.clone(),
             // The gate names an L1 call's class (M4 17b).
             class: None,
         }
@@ -168,7 +162,6 @@ impl Decision {
             notify: None,
             floor: false,
             granted: None,
-            external: None,
         }
     }
 
@@ -604,7 +597,7 @@ impl ToolPolicy {
 
     /// Whether only the tool's posture would decide this call: nothing the
     /// floor, a layer-1 change, the approve lists or an AWS rule asks for
-    /// comes first. An earned grant (`earned`) loosens that alone.
+    /// comes first. An edits mode (`modes`) loosens that alone.
     pub(crate) fn posture_only(&self, tool: &dyn Tool, plan: &Plan) -> bool {
         let (resources, nargv, args) = self.view(plan);
         self.preempted(tool, plan, &resources, &nargv, &args, None)

@@ -11,7 +11,6 @@ policy.explain
     tightening  approve  ↑ tightened by cli ("should have asked"): it asks first until undone (tightened by cli)
     grant       approve  no secret is granted to a call like this
     floor       approve  #lab's ceiling sets a floor of approve (#lab's posture_floor)
-    hold        approve  this session holds no external text ([policy] external_text = ask)
     if floor: it touches Theseus's own binary or state, or the 1Password CLI or its token: at every posture → approve: /w/state/store, theseusd, op
     if allow_argv: its argv starts with an entry of the allow list, and every path argument is inside the roots → open: ls, pwd
     reason: a call of proc.run: proc.run — approve (tightened by cli; the config says enforcement = notify)

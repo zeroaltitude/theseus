@@ -97,9 +97,6 @@ pub(super) struct RouteState {
     pub(super) steer: Option<Steering>,
     /// The message's content words, for a correction to find it by.
     pub(super) words: Vec<String>,
-    /// The message names one of `[privacy] sensitive_names`: a profile not of
-    /// US origin is unusable for the turn (`data_step.rs`).
-    pub(super) sensitive: bool,
     /// Where the turn stands on its session's content labels
     /// (`data_step::Cn`): unchecked at the turn's start, which fails closed.
     pub(super) cn: super::data_step::Cn,
@@ -778,10 +775,10 @@ impl TurnRunner {
     /// profiles when the request names a sensitive name (theseus-oejh3), and
     /// on one only for a session whose labels allow it (theseus-9ymz0).
     ///
-    /// The labels are read first, without a wait. Only when items are not yet
-    /// judged and the decision, made as if they were, would take a profile of
-    /// restricted origin does the turn wait for their verdicts and decide
-    /// again: a turn bound for Claude never waits.
+    /// The labels are read first, without a wait. Only when they allow a
+    /// profile of restricted origin and the decision takes one does the turn
+    /// wait for the content asks still out for its session and decide again on
+    /// the labels it then reads: a turn bound for Claude never waits.
     async fn decide_floored(
         &self,
         t: &mut Turn<'_>,
@@ -789,7 +786,6 @@ impl TurnRunner {
         (steering, verdict, reason): (&Option<Steering>, &Option<Verdict>, Option<Reason>),
         compiled: &Compiled,
     ) -> Result<Option<Decision>, Failure> {
-        t.route.sensitive |= self.sensitive_request(&compiled.request) || self.private_session(t);
         let est_tokens = compiled.est_tokens;
         let decide = |t: &Turn<'_>| match (steering, verdict, reason) {
             (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),
@@ -797,30 +793,35 @@ impl TurnRunner {
             _ => None,
         };
         use super::data_step::Cn;
-        t.route.cn = Self::cn_read(t);
+        t.route.cn = self.cn_read(t);
+        let base = t.target.profile.clone();
+        let named = |d: &Option<Decision>| {
+            self.restricted_profile(d.as_ref().map_or(base.as_str(), |d| d.profile.as_str()))
+        };
         let mut decision = decide(t);
-        if t.route.cn != Cn::Allowed {
+        if t.route.cn == Cn::Allowed {
+            // The labels allow a restricted profile. Where the decision takes
+            // one, the turn first waits for the asks still out for its
+            // session and reads the labels again: one that landed keeps the
+            // turn off it (a turn bound for Claude never waits).
+            if named(&decision) {
+                self.cn_settle(t).await;
+                if t.route.cn != Cn::Allowed {
+                    decision = decide(t);
+                    if !named(&decision) {
+                        t.route.gated = Some(t.route.cn.word());
+                    }
+                }
+            }
+        } else {
             // What the same decision would have named had the session's
             // labels allowed it: only where that is a restricted profile does
-            // the rule cost the turn a model (theseus-b80si), and only then
-            // does the turn wait for a verdict that has not come.
+            // the rule cost the turn a model (theseus-b80si).
             t.route.assume_cn = true;
             let wanted = decide(t);
             t.route.assume_cn = false;
-            let base = t.target.profile.clone();
-            let named = |d: &Option<Decision>| {
-                self.restricted_profile(d.as_ref().map_or(base.as_str(), |d| d.profile.as_str()))
-            };
-            if named(&wanted) {
-                if t.route.cn == Cn::Pending {
-                    self.cn_settle(t).await;
-                    if t.route.cn == Cn::Allowed {
-                        decision = decide(t);
-                    }
-                }
-                if t.route.cn != Cn::Allowed && !named(&decision) {
-                    t.route.gated = Some(t.route.cn.word());
-                }
+            if named(&wanted) && !named(&decision) {
+                t.route.gated = Some(t.route.cn.word());
             }
         }
         self.data_floor(t, decision)
@@ -1235,10 +1236,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn route_profiles_carry_each_profiles_origin() {
         let r = crate::tests_route::rig(None, 1, crate::tests_route::restricted_placements);
-        let cn_ok = super::super::data_step::Floor {
-            sensitive: false,
-            cn_ok: true,
-        };
+        let cn_ok = super::super::data_step::Floor { cn_ok: true };
         let ps = r.core.runner.route_profiles(cn_ok);
         assert_eq!(
             ps["glm"].unusable, None,

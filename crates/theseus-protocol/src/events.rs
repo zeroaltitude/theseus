@@ -11,8 +11,8 @@ use serde_json::Value;
 use crate::gate::{GateRecord, Notice};
 use crate::{
     notify, ConfirmRequest, EventsLost, ExecutionView, LoopEnded, LoopStarted, Message, ModelDelta,
-    NarrativeLine, Notification, ProfileChanged, TightenResult, TrustResult, TurnFailed,
-    TurnStarted, TurnSubmitResult,
+    NarrativeLine, Notification, ProfileChanged, TightenResult, TurnFailed, TurnStarted,
+    TurnSubmitResult,
 };
 
 /// `tool.proposed`: the model asked for a call, and what the gate made of it.
@@ -408,13 +408,8 @@ pub struct ConfirmResolved {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub by: Option<String>,
-    /// An answer to a tool call: whether it trusted the session again
-    /// (theseus-9bp).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub trust: Option<bool>,
     /// The answer's option (`work::AnswerOption.id`: `approve`, `decline`,
-    /// `reset`, `accept`, `ack`, `approve_trust`), whichever verb gave it.
+    /// `reset`, `accept`, `ack`), whichever verb gave it.
     /// Absent from a close that was no answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -555,7 +550,6 @@ events! {
     PolicyNotified(PolicyNotified) = notify::POLICY_NOTIFIED,
     PolicyTightened(TightenResult) = notify::POLICY_TIGHTENED,
     PolicyUntightened(TightenResult) = notify::POLICY_UNTIGHTENED,
-    SessionTrusted(TrustResult) = notify::SESSION_TRUSTED,
     SessionUnlabelled(crate::content::UnlabelResult) = notify::SESSION_UNLABELLED,
     SessionLabelled(crate::content::LabelRaised) = notify::SESSION_LABELLED,
     NarrativeLine(NarrativeLine) = notify::NARRATIVE_LINE,
@@ -609,7 +603,6 @@ impl Event {
             Event::NodeWritten(e) => Some(&e.session_id),
             Event::TurnFailed(e) => Some(&e.session_id),
             Event::PolicyNotified(e) => Some(&e.session_id),
-            Event::SessionTrusted(e) => Some(&e.session_id),
             Event::SessionUnlabelled(e) => Some(&e.session_id),
             Event::SessionLabelled(e) => Some(&e.session_id),
             Event::NarrativeLine(e) => e.session_id.as_deref(),
@@ -667,7 +660,6 @@ impl Event {
             | Event::NodeWritten(_)
             | Event::PolicyTightened(_)
             | Event::PolicyUntightened(_)
-            | Event::SessionTrusted(_)
             | Event::SessionUnlabelled(_)
             | Event::SessionLabelled(_)
             | Event::ExecutionChanged(_)

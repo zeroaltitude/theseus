@@ -976,55 +976,6 @@ async fn a_form_rejections_retry_that_passes_is_kept() {
     assert!(again.clusters.is_empty(), "{again:?}");
 }
 
-/// A cluster's sources are read from several sessions: when any one of them
-/// read a Google result the synthesis request holds private content, and the
-/// floor refuses it to a model that is not of US origin, whichever of the
-/// sources it is (theseus-a1wvq.10). Nothing is sent; the cluster fails.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_private_source_keeps_a_synthesis_off_a_non_us_model() {
-    for private in 0..FACTS.len() {
-        let r = rig(
-            MemoryMode::Shadow,
-            None,
-            crate::tests_private_background::private_on,
-        );
-        let c = &r.core;
-        let facts = kestrel(c).await;
-        crate::tests_private_background::mark(c, &facts[private]);
-        let calls = r.model.requests().len();
-        r.model
-            .script
-            .lock()
-            .unwrap()
-            .push_back(Scripted::text(SYNTHESIS));
-        let out = consolidate(c, false).await;
-        assert_eq!(out.clusters.len(), 1, "source {private}: {out:?}");
-        assert_eq!(out.clusters[0].outcome, "failed", "source {private}");
-        assert_eq!(r.model.requests().len(), calls, "nothing was sent");
-        assert!(syntheses(c).is_empty());
-    }
-}
-
-/// The negative: sources that read nothing are synthesized on the same model.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn plain_sources_are_still_synthesized_on_a_non_us_model() {
-    let r = rig(
-        MemoryMode::Shadow,
-        None,
-        crate::tests_private_background::private_on,
-    );
-    let c = &r.core;
-    kestrel(c).await;
-    r.model
-        .script
-        .lock()
-        .unwrap()
-        .push_back(Scripted::text(SYNTHESIS));
-    let out = consolidate(c, false).await;
-    assert_eq!(out.clusters.len(), 1, "{out:?}");
-    assert_eq!(out.clusters[0].outcome, "unchecked", "{out:?}");
-}
-
 /// A core whose `zai` fake records what reaches the restricted profiles
 /// (`glm` is of restricted origin: the suite never serves it unrestricted).
 fn rig_zai(tweak: impl FnOnce(&mut crate::Config)) -> (Rig, Arc<crate::provider::FakeProvider>) {

@@ -99,9 +99,6 @@ export interface Waiting extends Plate {
   approvals: number
   budgets: number
   others: number
-  /** Sessions that hold text from outside: their next call that acts waits for your approval (the old gate's second
-   *  needle). Said in the caption and the lines, not counted in the number: nothing is asked yet. */
-  holds: number
 }
 export interface Slow extends Plate {
   /** The longest of what runs now, in ms; null when nothing runs. */
@@ -1156,7 +1153,6 @@ function waiting(input: WatchInput, look: Look): Waiting {
   const asking = new Set(qs.map((c) => c.session_id))
   // Others that need you: a session the daemon says needs you (blocked, failed, at its limit) with no question listed.
   const others = (model?.vessels ?? []).filter((v) => v.attention?.level === 'needs_you' && !asking.has(v.id))
-  const holds = (model?.vessels ?? []).filter((v) => v.hold)
   const approvals = qs.filter((c) => !c.budget).length
   const budgets = qs.length - approvals
   // Worst first: the soonest to expire, then the budget questions (they hold until answered), the longest waiting first.
@@ -1192,29 +1188,19 @@ function waiting(input: WatchInput, look: Look): Waiting {
       tone: 'wait', title: `"${v.title}" needs you: ${v.attention?.label ?? ''}.`, to: { session: v.id },
     })
   }
-  for (const v of holds) {
-    const h = v.hold!
-    const what = h.query ? `"${h.query}"` : h.url.replace(/^\w+:\/\//, '')
-    lines.push({
-      id: `hold:${v.id}`, tag: 'holds', text: `read ${h.tool} ${what}`, detail: `since ${span(now - h.since_ms)} · ${v.title}`, tone: 'idle',
-      title: `"${v.title}" holds text from outside: it read ${h.tool} ${what} ${span(now - h.since_ms)} ago. Its next call that acts waits for your approval until you trust it again.`,
-      to: { session: v.id, node: h.node_id || undefined },
-    })
-  }
   const n = qs.length + others.length
   const ready = input.confirms !== undefined
-  const held = holds.length ? `; ${count(holds.length, 'session holds', 'sessions hold')} web text` : ''
   const parts = [
     approvals ? count(approvals, 'approval', 'approvals') : '', budgets ? count(budgets, 'budget question', 'budget questions') : '',
     others.length ? count(others.length, 'session that needs you', 'sessions that need you') : '',
   ].filter(Boolean)
   return {
-    key: 'waiting', question: 'Waiting for you', approvals, budgets, others: others.length, holds: holds.length,
+    key: 'waiting', question: 'Waiting for you', approvals, budgets, others: others.length,
     value: ready ? String(n) : '…', unit: n ? 'waiting' : 'none',
-    caption: !ready ? 'reading the questions…' : `${n ? `waiting for your answer: ${andList(parts)}` : 'nothing waits for your answer'}${held}`,
-    tone: n ? 'wait' : 'idle', pulse: `${n}|${holds.length}`,
+    caption: !ready ? 'reading the questions…' : `${n ? `waiting for your answer: ${andList(parts)}` : 'nothing waits for your answer'}`,
+    tone: n ? 'wait' : 'idle', pulse: String(n),
     lines: lines.slice(0, LINES), more: Math.max(0, lines.length - LINES),
-    focus: setOf([...qs.map((c) => c.session_id), ...others.map((v) => v.id), ...holds.map((v) => v.id)], qs.map((c) => look.call.get(c.correlation_id)?.id)),
+    focus: setOf([...qs.map((c) => c.session_id), ...others.map((v) => v.id)], qs.map((c) => look.call.get(c.correlation_id)?.id)),
     link: { to: '/actions', label: 'Actions' },
   }
 }

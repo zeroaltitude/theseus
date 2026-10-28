@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ExternalText, PlaceCeiling, PlaceClass};
+use crate::{PlaceCeiling, PlaceClass};
 
 /// `policy.explain`'s params: one session's place, or every place; one
 /// tool, or every tool the daemon has.
@@ -49,10 +49,6 @@ pub struct PlaceExplain {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
-    /// T1's hold: what the session read, so its calls that act wait.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub hold: Option<ExternalText>,
     pub tools: Vec<ToolExplain>,
 }
 
@@ -86,7 +82,7 @@ pub struct ToolExplain {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExplainLayer {
     /// The layer's name: `place`, `ceiling`, `class`, `posture`,
-    /// `tightening`, `grant`, `lsp`, `floor`, `hold`, `mcp_client`.
+    /// `tightening`, `grant`, `lsp`, `floor`, `mcp_client`.
     pub layer: String,
     /// What it says, in words.
     pub says: String,
@@ -153,7 +149,6 @@ mod tests {
                 }],
                 ceiling: None,
                 session_id: None,
-                hold: None,
             }],
             roots: vec!["/w".into()],
         };

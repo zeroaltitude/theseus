@@ -1,8 +1,8 @@
 //! `[google] calendars`: the calendars the daemon reads (the Operations page,
 //! theseus-jid7t.1). An entry is a calendar id, or a table that also names its
-//! label, its colour, and whether it is **sensitive**: its events never reach
-//! a model that is not of US origin, a shared place, or the ledger
-//! (`google::private`). Unset, the daemon reads every calendar the account's
+//! label, its colour, and whether it is **sensitive**: a read of it raises a
+//! `personal` label (`google::private`), and its events never reach a shared
+//! place or the ledger. Unset, the daemon reads every calendar the account's
 //! `calendarList` holds (`google::calendar_cache`), so a calendar shared with
 //! the account appears with no config edit; set, the list narrows it.
 //!

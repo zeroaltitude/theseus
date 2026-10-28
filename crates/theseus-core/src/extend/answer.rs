@@ -101,7 +101,6 @@ impl Core {
             note,
             by,
             via,
-            trust: false,
             option: answer.option(),
         };
         let acked = ExtendAcked {
@@ -170,7 +169,6 @@ impl Core {
             session_id: a.session_id.clone(),
             execution_id: a.execution_id.clone(),
             resumes: false,
-            granted: None,
         })
     }
 }

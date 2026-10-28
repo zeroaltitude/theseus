@@ -2,7 +2,7 @@
 //! screen for a herdr popup. It shows one waiting question whole (the task and its short id, where
 //! it came from, the model, the spend against its limit, when it was asked and when it expires, the
 //! call and why and its input) and takes the answer from the keys the question's own `options` give:
-//! `y` approves, `t` approves and trusts the session again, `n` declines (any other words decline
+//! `y` approves, `n` declines (any other words decline
 //! with the words as the note), `1`..`6` pick an `ask` question's choices. The answer is one
 //! `work.answer` with author `herdr`.
 //!
@@ -121,12 +121,11 @@ pub struct Key {
     pub takes_note: bool,
 }
 
-/// The key of an option: `y` approves (or resets, accepts, acknowledges, is done), `t` approves and
-/// trusts, `n` declines, a choice or a snooze is its number.
+/// The key of an option: `y` approves (or resets, accepts, acknowledges, is done), `n` declines, a
+/// choice or a snooze is its number.
 fn key_of(option: &str, position: usize) -> char {
     match option {
         "approve" | "reset" | "accept" | "ack" | "done" => 'y',
-        "approve_trust" => 't',
         "decline" => 'n',
         _ => char::from_digit((position + 1).min(9) as u32, 10).unwrap_or('1'),
     }
@@ -152,9 +151,6 @@ fn options_of(c: &ConfirmRequest) -> Vec<AnswerOption> {
         out.push(option("accept", "Accept", false));
     } else {
         out.push(option("approve", "Approve", false));
-        if c.external_text.is_some() {
-            out.push(option("approve_trust", "Approve and trust", false));
-        }
     }
     out.push(option("decline", "Decline", true));
     out
@@ -233,7 +229,6 @@ pub fn decide(line: &str, keys: &[Key]) -> Decision {
             return match word {
                 "yes" => keys.iter().find(|k| k.key == 'y'),
                 "no" => keys.iter().find(|k| k.key == 'n'),
-                "trust" => keys.iter().find(|k| k.key == 't'),
                 _ => None,
             };
         };
@@ -336,12 +331,6 @@ pub fn card(c: &ConfirmRequest, ctx: &Context, now_ms: u64) -> Vec<String> {
     }
     if c.floor {
         out.push("  the floor asks: it touches Theseus's own state or the vault".to_string());
-    }
-    if let Some(e) = &c.external_text {
-        out.push(format!(
-            "  the session read outside text ({}): `t` approves and trusts it again",
-            clip(&format!("{} {}", e.tool, e.url), 60)
-        ));
     }
     out.push(String::new());
     let ks = keys(c);

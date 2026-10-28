@@ -19,12 +19,6 @@ author?: string,
  */
 discord?: DiscordOrigin, 
 /**
- * Approve, and trust the session again (theseus-9bp): it no longer holds
- * external text, so its calls that act go back to their postures. Only
- * with `approve`; the answer's judgment covers it.
- */
-trust?: boolean, 
-/**
- * Approve, and take the question's grant offer (theseus-drjs).
+ * Approve, and take the question's offer (a plan's edits mode).
  */
 grant?: GrantAnswer, };

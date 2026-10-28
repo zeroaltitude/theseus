@@ -61,8 +61,12 @@ pub const RECALL_CROSS_VERSION: u32 = 1;
 /// `families.v1`'s builder (module `families`, theseus-xlri5).
 pub const FAMILIES_VERSION: u32 = 1;
 
-/// `content.v2`'s builder (module `content`, theseus-9ymz0).
+/// `content.v1`'s and `content.v2`'s builder (module `content`, theseus-9ymz0).
 pub const CONTENT_VERSION: u32 = 1;
+/// `content.v3`'s: the state gains `author`, `place`, `project`, `public` and
+/// `context` (theseus-gyjyo.11). `content::builder_version` says which a pack's
+/// is.
+pub const CONTENT_V3_VERSION: u32 = 2;
 
 /// The most a builder keeps of each list.
 pub const LOOP_CALLS: usize = 8;
@@ -517,7 +521,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::NameIt(i) => sweep_names::name_it(i, cap, scrub),
         Input::RecallCross(i) => cross::cross(i, cap, scrub),
         Input::Families(i) => families::families(i, cap, scrub),
-        Input::Content(i) => content::content(i, cap, scrub),
+        Input::Content(i) => content::content(i, pack.version, cap, scrub),
     })
 }
 
@@ -729,7 +733,10 @@ mod sweep_names;
 
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use compare::{CompareInput, CompareReply};
-pub use content::{asks_injection, ContentInput, OPERATOR_MESSAGE, PIECE_CHARS};
+pub use content::{
+    asks_injection, builder_version as content_builder_version, ContentInput, OPERATOR_MESSAGE,
+    PIECE_CHARS,
+};
 pub use cross::{CrossInput, CrossNote, CROSS_NOTES};
 pub use families::{FamiliesInput, FamilyItem, FamilyTool, FAMILIES_MAX, FAMILY_TOOLS};
 pub use heard::{HeardInput, HeardOverlap, SAID};

@@ -24,7 +24,7 @@ async fn until_ended(terms: &Arc<Terms>, id: &str) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ended_terminals_free_their_slots_and_the_oldest_is_reclaimed() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let mut ended = Vec::new();
     for i in 0..PER_SESSION {
         let (o, _) = call(

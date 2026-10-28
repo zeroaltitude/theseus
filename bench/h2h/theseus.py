@@ -74,8 +74,6 @@ approve_paths = []
 enforcement = "open"
 allow_argv = []
 approve_argv = []
-external_text = "notify"
-external_programs = []
 private_addresses = "open"
 
 [sandbox]

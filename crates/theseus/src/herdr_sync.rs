@@ -63,8 +63,8 @@ pub enum HerdrCmd {
     /// `theseus watch <session> --interactive`, and exit; with `--follow`, keep it so.
     Up(crate::herdr_up::UpArgs),
     /// The answer card, for a herdr popup: the question the focused pane (`--pane`) holds, else the
-    /// one that has waited longest, with the keys its options give (y approve, t approve and trust,
-    /// n decline, other words decline with a note, 1..6 an ask question's choices).
+    /// one that has waited longest, with the keys its options give (y approve, n decline,
+    /// other words decline with a note, 1..6 an ask question's choices).
     Answer {
         /// The focused pane: its `confirm` token names the question.
         #[arg(long, value_name = "PANE")]

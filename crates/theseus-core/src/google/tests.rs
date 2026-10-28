@@ -2,7 +2,7 @@
 //! whose `[google]` points at the fake, with the secrets on its board), the
 //! check and its states, and a call's result (private, outside text, one row).
 //! `tests_auth` is the consent and the minting, `tests_gate` the asking and the
-//! send cap, `tests_private` the data rule.
+//! send cap, `tests_label` the label a result raises.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -230,7 +230,7 @@ async fn the_client_secret_without_a_client_id_fails_the_check_and_never_echoes_
 }
 
 #[tokio::test]
-async fn a_google_read_runs_marks_its_session_private_and_holds_it_as_outside_text() {
+async fn a_google_read_runs_marks_its_session_private_and_its_result_as_outside_text() {
     let r = rig(vec![
         call(
             "c1",
@@ -270,10 +270,10 @@ async fn a_google_read_runs_marks_its_session_private_and_holds_it_as_outside_te
         result.2.expect("outside text").url,
         "google:drive.files.list"
     );
-    // The session holds it, and is private from then on.
+    // The marker is all there is: no row, no hold. The session is labelled from then on.
+    assert!(ledgered(&r.core, "session.external_read").is_empty());
     let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
-    assert_eq!(rec.external.expect("a hold").tool, "google.call");
-    assert!(super::private::session(&r.core.store, &r.core.cfg, &sid));
+    assert_eq!(rec.data.as_deref().map(|f| f.labels.len()), Some(1));
     // One row, with no content in it.
     let rows = ledgered(&r.core, "google.called");
     assert_eq!(rows.len(), 1, "{rows:?}");

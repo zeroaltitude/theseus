@@ -16,7 +16,8 @@ use crate::tests_tasks::{
 };
 use crate::tests_work::Watcher;
 
-/// A token shape the scrubber knows, built from parts.
+/// A token-shaped string, built from parts: the scrubber guesses no shapes,
+/// so a say that carries one shows it as written.
 fn token() -> String {
     format!("{}{}", "ghp_", "a1B2c3D4".repeat(5))
 }
@@ -163,10 +164,7 @@ async fn a_task_with_three_plan_items_reads_0_of_3_then_3_of_3_with_its_own_line
     assert_eq!(said[0], "Laying out the plan first.", "{said:?}");
     assert!(said.iter().all(|s| !s.contains("second line")), "{said:?}");
     let all = said.join("\n");
-    assert!(
-        !all.contains(&token()) && !all.contains("a1B2c3D4"),
-        "{all}"
-    );
+    assert!(all.contains(&token()), "shown as written: {all}");
     assert!(all.contains("Running the tests with"), "{all}");
     let long = said
         .iter()

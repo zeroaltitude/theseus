@@ -785,6 +785,24 @@ fn cn_draft_only_on_coding_classes() {
     assert!(e.contains("cn_drafts"), "{e}");
 }
 
+/// `cn_models = "never"` keeps a coding turn off its `cn_draft` profile
+/// (theseus-gyjyo.6, found by the R5a review). The draft gate used to skip
+/// only for a label's word, so `never` passed it and the turn opened a draft
+/// task and ended `drafted` with no model call; the draft's own first request
+/// was then refused by its floor, and the owner got a "drafted" notice and a
+/// failed draft in place of an answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn never_does_not_draft() {
+    let d = rig(|c| {
+        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never
+    });
+    let sid = d.dm(&d.repo);
+    let res = say(&d.r.core, &sid, ASK, None).await;
+    assert_ne!(res.stop_reason, "drafted", "{:?}", res.route);
+    assert_eq!(skip_of(&d), "draft_unusable");
+    assert!(d.tasks(&sid).is_empty(), "no draft under never");
+}
+
 /// The route row's `draft_skip` of `sid`'s last turn.
 fn skip_of(d: &Draft) -> Value {
     decided(&d.r.core.store)
@@ -831,7 +849,9 @@ async fn an_ineligible_coding_turn_runs_as_before() {
         assert_eq!(skip_of(&d), word, "{:?}", decided(&d.r.core.store).last());
         assert!(d.tasks(&sid).is_empty(), "{word}: no draft");
     }
-    // A task's own turn, under the last conversation, in the repository.
+    // A task's own turn, under the last conversation, in the repository: it
+    // carries that conversation's label (theseus-gyjyo.5), which says so first.
+    let before = decided(&d.r.core.store).len();
     d.drive();
     let mut p = crate::tests_task_brief::params("Rename beta in the acme tree.", None);
     p.home = Some(sid.clone());
@@ -840,12 +860,16 @@ async fn an_ineligible_coding_turn_runs_as_before() {
             .task_start(&p, crate::tests_task_brief::cli())
             .unwrap();
     until_within("the task's route row", 30, || {
-        decided(&d.r.core.store)
-            .iter()
-            .any(|r| r["draft_skip"] == "in_task")
+        decided(&d.r.core.store).len() > before
     })
     .await;
     let _ = task;
+    assert_eq!(
+        skip_of(&d),
+        "labelled",
+        "{:?}",
+        decided(&d.r.core.store).last()
+    );
     assert!(d.zai.sent().is_empty(), "nothing drafted");
 
     // A class with no cn_draft.

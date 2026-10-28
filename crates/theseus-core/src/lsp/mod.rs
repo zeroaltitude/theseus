@@ -1094,7 +1094,6 @@ pub(crate) fn judge_start(
             n
         }),
         granted: d.granted,
-        external: d.external,
         ..s
     }
 }

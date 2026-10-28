@@ -3,7 +3,8 @@
 //! so health, `theseusd check` and the tests agree.
 //!
 //! Memory: recall's mode and arm. Jev: routing live or in shadow, or off
-//! and why (no key). The secret scrub: always. Budgets: the daemon's daily
+//! and why (no key). Outbound substitution: the vault's values replaced on what
+//! leaves, on unless `[privacy] redact_outbound = false`. Budgets: the daemon's daily
 //! ceiling, and what a session's limit does.
 
 use theseus_protocol::features::Features;
@@ -17,7 +18,12 @@ use crate::Config;
 pub fn of(cfg: &Config, key: Option<&str>) -> Features {
     let memory = memory_words(cfg);
     let jev = jev_words(cfg, key);
-    let scrub = "secret scrub always on".to_string();
+    let scrub = if cfg.privacy.redact_outbound {
+        "outbound substitution on"
+    } else {
+        "outbound substitution OFF (the vault's values leave as written)"
+    }
+    .to_string();
     let budgets = format!(
         "budgets: daily ceiling ${}",
         cfg.kernel.daily_spend_ceiling_usd
@@ -83,7 +89,7 @@ mod tests {
         let f = of(&cfg(SET, ""), Some("ready"));
         assert_eq!(
             f.line,
-            "features: memory live (baseline) · Jev on, routing live · secret scrub always on \
+            "features: memory live (baseline) · Jev on, routing live · outbound substitution on \
              · budgets: daily ceiling $200"
         );
         assert_eq!(f.line.lines().count(), 1);
@@ -112,6 +118,12 @@ mod tests {
             failed.jev,
             "Jev on, routing live, key failed: the vault said no"
         );
+        let open = of(&cfg(SET, "[privacy]\nredact_outbound = false"), None);
+        assert_eq!(
+            open.scrub,
+            "outbound substitution OFF (the vault's values leave as written)"
+        );
+        assert!(open.line.contains(&open.scrub), "{}", open.line);
         let ceiling = of(&cfg(SET, "[kernel]\ndaily_spend_ceiling_usd = 50"), None);
         assert!(ceiling.budgets.ends_with("$50"), "{}", ceiling.budgets);
     }

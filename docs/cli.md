@@ -17,7 +17,7 @@ the words mean.
   approval, 7 refused, 8 cut by a limit, 9 stopped. `wait` exits 4 when it times out.
 - Ids: a session, task, wake, job or node is named by its whole id or by a unique end of it (four characters at least;
   six for a wake or a node).
-- Writes that change what Theseus does for the owner (answers, undo of a tightening, trust, publish, the standing
+- Writes that change what Theseus does for the owner (answers, undo of a tightening, removing a content label, publish, the standing
   orders, threads, routines, projects) are refused inside a job, whose shell carries `THESEUS_SESSION`; the operator
   runs them from their own shell.
 
@@ -118,6 +118,8 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   `--exact` asks the provider's token counter.
 - **`open`**: open a turn in the cockpit's inspector (flame graph, each loop's request and thinking, each tool call).
   `theseus open turn [TURN]`.
+- **`inspect`**: which vault secrets a turn's requests carried, by name, per loop, with the model, and whether each was
+  substituted before the request left (`[privacy] redact_outbound`). `theseus inspect [SESSION] [TURN]`.
 - **`reach`**: where a node went: the compilations that held it and its copies in other sessions. `theseus reach NODE`.
 - **`fork`**: a new session from any moment of another, by reference; the original is never written to.
   `theseus fork NODE`.
@@ -133,10 +135,12 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 
 - **`tools`**: the toollets: class, backend, what policy does with each, calls so far. `theseus tools`.
 - **`policy`**: "should have asked": make a tool ask first, undo it, or list every tool's posture and what set it.
-  `theseus policy tighten proc.run`; `policy explain`, `trust`, `earned`, `grants`.
+  `theseus policy tighten proc.run`; `policy explain`.
 - **`content`**: a session's content labels: `injection` stops its calls that act, and `secret`, `confidential` and
-  `personal` keep it off a China-origin model, until you remove them. `theseus content SESSION` lists them;
-  `theseus content remove SESSION FLAG` (or `--all`) removes one, and is yours alone to run.
+  `personal` keep it off a China-origin model, until you remove them. A sensitive word you listed, a Google result and
+  Jev each raise them. `theseus content SESSION` lists them, each with its source and how to call it wrong;
+  `theseus content remove SESSION FLAG` (or `--all`) removes one, and is yours alone to run. In Discord, `/trust`
+  removes the conversation's `injection` label and nothing else.
 - **`mcp`**: the MCP servers the config attaches: state, tools, postures. `theseus mcp`; `mcp restart NAME`.
 - **`extend`**: extensions: proposals with their state and frozen digest, and the loaded ones. `theseus extend list`;
   `extend revoke NAME`.

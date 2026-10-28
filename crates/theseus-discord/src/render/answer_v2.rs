@@ -180,7 +180,6 @@ mod tests {
             may_answer: true,
             tool: Some("owner_ask".into()),
             asked_at_ms: 0,
-            external_text: false,
             choices: (0..n).map(|i| format!("choice {i}")).collect(),
         }
     }

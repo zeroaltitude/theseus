@@ -62,7 +62,7 @@ Each step prints one line per thing it checks or does, and the commands it runs 
    hook, `KillMode=process`. When the unit already matches the plan and its daemon answers, there is nothing to
    do; when a binary changed under it, a restart runs the new one.
 7. **Health**: `theseus health` on the daemon's socket, once its secrets have resolved. Its first line names which
-   killer features are on: memory, Jev (routing live or shadow, or off and why), the secret scrub, and the budgets.
+   killer features are on: memory, Jev (routing live or shadow, or off and why), outbound substitution of the vault's values, and the budgets.
 
 ## The first run, and the next
 

@@ -32,8 +32,8 @@ browser, and it does real work with real tools: it edits code, runs commands, re
 the background. It is one Rust daemon and a small client. It calls Anthropic's Claude models directly, and any
 model served through the same API.
 
-Twelve things set it apart. Each one below says what you see, and how we know it works. The first six are measured.
-The next two are what the rest stand on, and we have started to prove them. The last four are newer: they are on, and
+Eleven things set it apart. Each one below says what you see, and how we know it works. The first six are measured.
+The next two are what the rest stand on, and we have started to prove them. The last three are newer: they are on, and
 each one says plainly where it is still rough.
 
 <p align="center"><img src="docs/assets/planks.svg" alt="" width="100%"></p>
@@ -212,26 +212,6 @@ Five personas are set up on the owner's daemon. For a message that names no pers
 shadow: its pick is recorded, and the persona that answered last keeps answering until the pick is shown to be right.
 The personality exam (`bench/personality/`) is built and not yet published.
 
-## 12. It asks less as it learns you
-
-**What you see.** Once a week it reads its record for commands you approved again and again and never turned down:
-20 approvals of the same command (say `cargo test`) in 7 days. It offers them back to you on one card in your DM. Say
-yes, and that command runs with a notice instead of a question. Press "should have asked" on a notice, and it asks
-again, for good. It never gives itself anything. A grant never covers a shell, a hard limit, or a shared channel,
-and anyone can revoke one. `theseus policy earned` shows how often it interrupts you, week by week, and how many of
-those questions the grants saved.
-
-**Proof.** Tests walk each step (`crates/theseus-core/src/policy/earned/tests_find.rs`,
-`crates/theseus-core/src/tests_m3/earned.rs`):
-- twenty approvals make an offer, and nineteen don't;
-- a yes from a shared channel doesn't count;
-- a granted command runs with a notice, and the grant survives a restart;
-- "not this one" is remembered;
-- "should have asked" ends the grant.
-
-It is on in the owner's daemon and counting: 29 questions in 58 active hours over four weeks, too few repeats for a
-first card yet.
-
 <p align="center"><img src="docs/assets/planks.svg" alt="" width="100%"></p>
 
 ## How it works
@@ -253,8 +233,8 @@ These hold whatever the model does:
 | | Promise | What it means |
 |---|---|---|
 | 💵 | **Money is a gate.** | Every model call reserves its worst-case cost before it runs. Limits warn you; a runaway stops. |
-| 🌐 | **Reading the web stops the hands.** | After a session reads web text, anything that acts on the world waits for your approval. |
-| 🔑 | **Keys never reach the model.** | Secrets are scrubbed from everything it reads: `cat .env` shows `[redacted]`. |
+| 🌐 | **A label you can remove, not a refusal you can't.** | Text that tries to steer it, a name you listed, or anything from Google puts a label on the session, and you remove it with one tap. A steering label stops what acts until you do. |
+| 🔑 | **Its own keys are replaced on the way out.** | Every value the vault gave Theseus is replaced by its name in each request to a model and each Discord post; what is stored is never rewritten. A value of a secret the daemon no longer holds, or one a size limit cut in two, is not recognised. |
 | 📒 | **You can always ask why.** | Every turn, call, approval, and dollar goes into a tamper-evident ledger. |
 
 ## Where it stands
@@ -262,7 +242,7 @@ These hold whatever the model does:
 Theseus is at v1 patch2 (version 1.0.2), runs on Linux, and has one daily user. Its weak spots are measured and published
 alongside its wins: [the benchmarks](docs/benchmarks/omnibus.md) say where it loses, and
 **[the status page](docs/status.md)** says what works today and what comes next, including what is still rough in
-Jev's routing, the compiled context, voice, threads, personas and earned autonomy. That page changes with every step;
+Jev's routing, the compiled context, voice, threads and personas. That page changes with every step;
 this one doesn't.
 
 **About the name.** Plutarch's ship of Theseus was kept by replacing its planks one at a time as they wore out.

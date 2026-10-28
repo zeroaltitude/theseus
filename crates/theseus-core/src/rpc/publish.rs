@@ -115,9 +115,10 @@ impl Core {
         })
     }
 
-    /// A node of a session that read a sensitive calendar never goes to a
-    /// shared place, whoever asks (theseus-jid7t.1). The refusal names no
-    /// calendar and no event.
+    /// A node of a session that carries a `personal` label (a sensitive
+    /// calendar raises one, theseus-gyjyo.5) never goes to a shared place,
+    /// whoever asks (theseus-jid7t.1). The refusal names no calendar and no
+    /// event.
     fn sensitive_stays_private(&self, p: &PlacePublishParams, class: PlaceClass) -> Result<()> {
         let Some(id) = p.node_id.as_deref().filter(|_| class == PlaceClass::Shared) else {
             return Ok(());
@@ -125,10 +126,11 @@ impl Core {
         let Some((_, n)) = self.store.get_node(id)? else {
             return Ok(());
         };
-        let level = crate::google::private::level(&self.store, &self.cfg, &n.session_id);
-        if level == crate::google::private::Level::Sensitive {
+        if crate::content_wait::mark_of(&self.store, &n.session_id)
+            == theseus_protocol::ops::DataMark::Sensitive
+        {
             bail!(
-                "{id} is from a session that read a sensitive calendar, and sensitive content \
+                "{id} is from a session that carries a `personal` label, and personal content \
                  never goes to a shared place"
             );
         }

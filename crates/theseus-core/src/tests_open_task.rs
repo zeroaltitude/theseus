@@ -107,12 +107,12 @@ fn the_wire_leaves_open_out_until_it_is_set() {
     assert_eq!(open, r#"{"brief":"Count the boats","open":true}"#);
 }
 
-/// A task's record starts with no labels, whatever its parent's: its brief is an
-/// item like any other, judged on its own; and the task's report leaves the
-/// parent's labels as they were (ported from the open view's
-/// `a_task_never_inherits_its_parents_run`).
+/// A task's record starts with its parent's labels (theseus-gyjyo.5, as a fork's
+/// does; this said the opposite until then), its brief an item like any other,
+/// judged on its own; and the task's report leaves the parent's labels as they
+/// were.
 #[tokio::test]
-async fn a_task_never_inherits_its_parents_labels() {
+async fn a_task_inherits_its_parents_labels() {
     use crate::content::{ContentFlags, Flag, ItemKind, Label};
     let r = crate::tests_tasks::rig(
         |_| crate::provider::Scripted::text("Counted 14 boats."),
@@ -152,7 +152,15 @@ async fn a_task_never_inherits_its_parents_labels() {
         .get_session(&started.session_id)
         .unwrap()
         .unwrap();
-    assert!(task.data.is_none(), "{:?}", task.data);
+    // It carries the parent's labels from its first call (theseus-gyjyo.5; a
+    // task of a labelled session is no way around the label), and the report
+    // that came back changed nothing of the parent's.
+    assert_eq!(
+        task.data.as_deref().map(|d| d.labels.clone()),
+        Some(flags.labels.clone()),
+        "{:?}",
+        task.data
+    );
     let parent: crate::session::SessionRecord =
         r.core.store.get_session(&home.session_id).unwrap().unwrap();
     assert!(crate::tests_tasks::exec(&r.core, &home.execution_id)

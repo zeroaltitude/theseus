@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 257 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM)) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 259 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits)) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -583,3 +583,231 @@ shared place: the observed list, Add, Pattern and Stale, End it, under $0.05) ru
 lock for card proposal writes (theseus-kxb8d), a no-expiry read for the Edit modal's words (theseus-5pypl), and whether
 three morning questions should buzz once each or one per pacer window are follow-ups; `owner.ask` (theseus-mqret) and
 the learning bench (theseus-92q5b) are 1.0.3.
+
+### Item 259. The principles migration: four labels, two deterministic sources, one switch, and a record that is raw (theseus-gyjyo, rows R0 to R10; the owner's decisions of 2026-10-27 22:02 to 22:47; v1 patch3's `integ/principles` lane; R0, R1 and R2 joined `main` 2026-10-28 and installed as #98, `3ef994dd`; R8, R3, R7, R5a, R4, R9 and R6 joined the lane, which merges once, after a gate of the merged tree)
+
+**Why.** The principles review of 2026-10-27 (measured on `209f9c52`, with every number counted on the tree) put the owner's
+principles against the code and found it disagreed with all three. The owner's principles are four: **P1**, Theseus
+runs on a machine its owner set up and trusts, so it categorizes, measures and notifies, and blocks only what cannot be
+undone (money and the repo); **P2**, the session is the true record, so nothing in the store is rewritten; **P3**, a
+model of restricted origin is operator control: a label the operator can see and remove, not a proof the operator
+cannot discharge; **P4**, less code. The code did otherwise. The stored record was redacted at seven sites by a scrubber
+whose five shape finders guessed what a secret looked like and caused every false positive in the thirteen
+Terminal-Bench losses. The chokepoint for restricted models read the whole transcript on every request to prove every
+node had been judged, and that proof's mark (`judged_through` and the span, the CAS merge, the worklist, the sweep, the
+landing's park) was where every defect of the week before lived. And the sensitive-names tripwire and the Google
+"private" marker were two rules the operator could not remove. One fact nobody had seen: on the owner's daemon no
+model of China origin was routed at all (`[routing.classes]` names no `cn_profiles` and no `cn_draft`), so the whole
+apparatus had only ever acted on an explicit `-P glm` pick and on benchmark cells.
+
+The owner's answers to the review's five questions (2026-10-27 22:45 to 22:47) took each recommendation: **the record
+is raw** and the vault's values are substituted by name only on copies that leave the machine; **an item Jev could not
+judge** proceeds, with a notice; **sensitive names** become a removable label source; **the sandbox stays**;
+**earned autonomy and scoped grants go**. The injection freeze (his own design of 10-26), the drafts flow (a China-origin
+model drafts and a Claude model reviews), the money backstops, the keel and the push guard stay. The migration is eleven
+rows, each a builder (red tests first) and a fresh review, joined as plain merges; the 6,900 production and 9,200 test
+lines the review predicted gone were the plan, and the rows' own counts are below.
+
+**The design as built.** Read this as the single statement of what Theseus now does about trust, privacy and content;
+the rows below say how each part arrived. It supersedes every earlier Item on these mechanisms (the table at the end
+names them).
+
+*Four labels.* A session carries at most one label per flag: `injection`, `secret`, `confidential`, `personal`
+(`content.rs`, which is pure: no store, no judge). A `Label` names its flag, the node that raised it, the item's kind,
+a source the operator is shown (a tool and a resource, or a place), a confidence and band, the time, and the id of the
+judgment that raised it (empty when no model did). Labels live on `SessionRecord.data`, survive compaction and restart,
+and only the operator removes one (`content.unlabel`, `theseus content remove SESSION FLAG`, the one Discord message's
+Remove button, the cockpit's chip); a removal is kept beside them as `removed` history (who, through which surface,
+when). The three content flags raise at the confirm band, and `injection` raises only at the act band: a wrong content
+label costs a session its cheap model, the safe direction, while a wrong injection label freezes a session and teaches
+the operator to ignore the control. `secret`, `confidential` and `personal` keep a session off a model of restricted
+origin; `injection` does not. **A Remove sticks** (`ContentFlags::raise_after`): an item that entered the session before
+the operator's removal of a flag can never raise that flag again, whichever source asks, because the removal spoke for
+everything the session held when it was made; only an item that enters after it raises the flag anew. It is read from
+`removed`, which is on the record and which a fork copies, so a restart, a fork and a re-offered item all find it. A task
+(`task.create`, `task.start`, a retry, a routine's run, a draft and its first pass) starts with the labels of its parent
+that disqualify restricted models (`ContentFlags::inherited`: the removals and the judgment ids stay behind, and so does
+`injection`, which says the parent's own transcript tried to steer it and which a task started from a brief has not
+read). A fork copies the whole record, `injection` included.
+
+*Three label sources, two of them free.* **Jev's content pack** (`content.v3`; v1 and v2 stay embedded for their stored
+judgments): every item that enters a session (the owner's message, another person's message in a shared place, any tool
+result, a fetched page, a search, a task's brief, a task's report) is asked the four questions once, off the turn's
+path, by `JudgeService::ask_content`; the injection question is never asked of the owner's own message or a task brief.
+A `yes` at the flag's bar raises the label. **Names**: an item holding one of `[privacy] sensitive_names` raises
+`confidential` with the source `name: <word>`, deterministically, at its entry, with no model call, for every item kind,
+the owner's own message included. **Google**: a result of a Google tool raises `confidential` (a sensitive calendar's
+result raises `personal`) at the write site, `toolrun/complete.rs`, with the source `google.<tool>`
+(`google.calendar.events`, `google.call`); `google/private.rs` is 62 lines (it was 517). The two deterministic sources
+have one home, `content::deterministic` (`label`, `from_names`), land through `JudgeService::land_deterministic`, and are
+off when `session_flags` is off. A deterministic label has confidence 1, the act band and no judgment id, so removing it
+teaches the classifier nothing. Each label is told to the operator once, as the one Discord message with its Remove
+button (the locked DM flow, byte for byte), and written as a `content.labelled` row.
+
+*One switch.* `[content_based_security] cn_models = always | follow_flags | never`. The chokepoint
+(`data_gate.rs::guard`, wrapped round every provider once, so the turn, compaction, keep-warm, replay and every background
+call share it) refuses a request to a model whose origin is restricted (`cn` or `unknown`) when `follow_flags` finds a
+disqualifying label on the session it is made for, `never` refuses it always, and `always` sends it. **That is one read
+of the session's record and nothing else**: no transcript read (a test reads the store's own counter and asserts it did
+not move), no proof that anything was judged, no mark. What it still refuses is about the caller, not the content: a
+request made for no session, and a session whose record does not read. The route (`turn/data_step.rs`) reads the same
+labels: a profile `never` refuses is skipped, and a turn whose labels allow a restricted profile *and* whose decision
+takes one waits at most `wait_ms` for the content asks still outstanding for its session (`content_wait.rs`, a counter;
+a lost wake-up costs one 250 ms slice, not the wait), reads the labels again, and **goes either way on what they say
+then**; a session already carrying a label never waits, a Claude turn never waits, `0` never waits. A content ask
+that fails is asked once more; if it fails again the item is rowed `content.unjudged`, the session's place is told
+once, and the session goes on unlabelled for it. The route row's `cn`
+word is `allowed`, a flag's word, `never` or `no_record` (it was `pending` and `unjudged`). `session_flags = false` with
+`cn_models = "follow_flags"` refuses to start, because with nothing judged there are no labels to follow.
+
+*The injection freeze.* With an `injection` label on a session, every call except a local read of files and code
+(`fs.`, `git.`, `text.`, `task.read`, `tools.find`: an allowlist) is refused in words the model can act on, until the
+operator removes the label (`policy/modes.rs::content_refusal`; `[content_based_security] injection = refuse | notify`,
+and the bench daemon's is `notify`). This is the only place Theseus still blocks on a classifier, at the act bar, by the
+owner's choice. **`/trust` removes the `injection` label and nothing else.** What replaced the external-text hold is the
+`external` **marker**, which stays on a node (a page, a search, an MCP server marked external, a job that reached a host
+beyond `[sandbox] egress`, a Google result, and, from a built-in list, a `gh` program's output) and is read by the
+content pack's source, Jev's security state, the index and recall's filter, consolidation (a cluster with an external
+source is never synthesized) and egress's "outside text". The marker holds nothing and waits for no one. Quotes a task
+was started with, when the owner marked them outside text or an agent started the task, are queued as one
+`PersonMessage` item, which asks the injection question, so a mail watch quoting an email, Discord's "make this a task" on
+another person's message and the `/task` modal's "read as outside text" are classified like any other outside text.
+
+*The record is raw, and the exits substitute.* Nothing Theseus stores is rewritten: tool result nodes (and their
+`diff` meta), the kept whole-output files, the job spool file, imported episodes, the ledger's narrative lines and the
+watch rows, a task report's kept copy, a batch's earlier steps. The scrubber (`scrub.rs`) knows exact values only: what
+the vault resolved and its encodings (verbatim, base64 at any offset in either alphabet and wrapped, percent-encoded,
+JSON-escaped), found by one pass (`Substitution`) that both the record-facing callers and the exits share. The five shape
+finders and the decoded-shape pass are gone. On the copies that leave for a model provider, for Discord and for Jev each value is replaced by
+`[redacted:<name>]`: the provider request (`exits.rs::Substituting` wraps every provider, and substitutes the copy it
+sends, never the compiler's request, so the digest and the prompt cache see the same bytes), every Discord post, edit
+and live stream (`Lane::write`, a notice card's title, description and fields, "Show source", the follow mirror), the
+Jev state and the push line. A request that carried a vault value writes one `request.redacted` row (the secret's name,
+how many times, the model, the loop, whether it was substituted), shown by `theseus inspect [SESSION] [TURN]` and the
+cockpit's turn inspector. `[privacy] redact_outbound = false` sends the values as written and the row still names them
+with `substituted: false`. **A string that merely looks like a key is a guess and goes through untouched, everywhere.**
+The scrubbers that remain on the owner's own screens and prompts (peek, the digest, the ledger window, the work board,
+push lines, the end note, an approval question's preview) are exact-value only too. The push guard stands: a tree whose
+file or commit message holds a vault value is refused. For a model of restricted origin the `secret` label is the guard
+for a key the vault never saw.
+
+*The classifier's loop.* A replay serves a stored content judgment from its blob (R0), a Remove writes a `judge.label`
+row in the same frame (R2), a label left standing a week is a system label (R2), and `content.v3` is measured on a frozen
+set and on the owner's own history (R9), so the nightly `judge learn` reads the owner's taps against the stored states.
+
+*What is gone.* `policy/earned/*`, `policy/grants/*` but `covers` (the edits mode's rule), the weekly card,
+`policy.earned`, `policy.grants`, `policy.revoke`, `theseus policy earned|revoke|grants`; the external-text hold
+(`external.rs` 1,198 lines to 242, 140 of them production -- 104 at R6's first build, before its fix put back
+`gh`'s marking -- `rpc/trust.rs`, `policy.trust`, `policy.notice_seen`, `session.trusted`,
+`confirm{trust}`, the "Approve + trust session" button, `theseus policy trust|dismiss`, the cockpit's hold tiles and
+Trust again, `[policy] external_text`, `[policy] external_programs`); the Google marker's records, scopes, lineage and
+recall follow, and `data_mark.rs`; the chokepoint's transcript read, `unjudged`, the names walk, `in_scope` and the US
+allowlist's use there; `scrub/shapes.rs`, `scrub/decoded.rs`, their corpus and `planted_secrets.rs`; `redact.rs`'s
+withholding (the cap and the ring stay). What stays on purpose: `ModelOrigin::cleared_for_sensitive`, one reader,
+`rsi::mint::data_rule` (whether that rule stays is the owner's); `pack_names.rs` (the embedded packs' text is checked
+against the names list at start, a public-repo guard); `routing_cn.rs` and `data_floor.rs` (load-time checks in words:
+cn profiles only in `trivial`, `cn_draft` only in coding classes, background calls over the owner's whole store never
+name a cn profile); the sandbox crate; places and ceilings; approvals; the keel, the money lines and the push guard.
+
+**The config surface, and what the loader says.**
+
+```toml
+[content_based_security]        # replaces [content]; every key defaults, so an owner's config names only what differs
+session_flags = true            # Jev judges every item; off: nothing is classified and no label is raised
+cn_models = "follow_flags"      # always | follow_flags | never
+injection = "refuse"            # refuse | notify  (the design's word is "freeze"; the spelling in a config is refuse)
+wait_ms = 4000                  # how long a turn bound for a restricted model waits for outstanding asks; 0 never waits
+max_pieces = 20                 # a long item is split at 6,000 characters a piece; this bounds the pieces read
+context = ""                    # one paragraph on what the assistant is and which of its work is public, to the pack as written (cut at 800 characters)
+
+[privacy]
+sensitive_names = []            # a hit raises `confidential` on the session: a label, removable, no model call
+open_source_paths = []          # absolute or ~/ paths; the pack is told an item from there is public. NOT [places] public_paths
+redact_outbound = true          # the vault's values are replaced on copies that leave the machine
+```
+
+The old keys are hard errors that say where each went: ``[content] enabled`` was renamed to
+``[content_based_security] session_flags`` (and `injection`, `wait_ms`, `max_pieces` to themselves);
+``[policy] external_text`` and ``[policy] external_programs`` "was retired: the `injection` label replaced it"
+(`config/renamed.rs`, `RETIRED`); a `[privacy] open_source_paths` entry that is not absolute or `~/` is refused, as
+`[places] public_paths` refuses one; and `session_flags = false` with `cn_models = "follow_flags"` is refused with the
+two ways out. A bare `[content]` table with no key gets the generic unknown-field error. A `[policy.earned]` section
+loads, is ignored and is warned of. The owner's own config had no `[content]` table, so it loads on the defaults; **the
+line `external_text = "notify"` under `[policy]` must go before the R6 build installs**, or the daemon refuses to start.
+`open_source_paths` and `context` are the owner's to write: until he does, `public` and `context` are never sent to the
+pack, and `content.v3` runs on its wording alone.
+
+**What the owner sees.** The Discord DM is the one label message with its Remove button, unchanged; a names label reads
+like any other, and says its source ("your message from `name: <word>`"). No "held: a call that acts waits" post, no
+`/trust` prompt, no weekly card. `/trust` says what it removed, or that the conversation carries no `injection` label.
+The cockpit's session chips are unchanged and gain "wrong", which writes the learning label. The Ops view shows
+`request.redacted` beside a provider call that carried a vault value, and the turn inspector says which secret, to which
+model. `theseus content SESSION` lists labels, and for each says how to call it wrong; `theseus inspect` is new and
+hidden, like `open` and `reach`.
+
+**Store format and ledger.** One bump from R2: `MANIFEST_FORMAT` 52 to 53 (`Label.judgment`, optional, so an old record
+reads with it empty and writes back byte for byte), with a generated layout sample. R5b's bump to 54 removes
+`judged_through` and `unjudged` from `ContentFlags`; an old record reads with them ignored and the first write drops them.
+Neither moved a golden of the two the standing rule names. R6 removed `SessionRecord.external` and
+`GateDecision.external` without a bump (neither record denies unknown fields, and the layout machinery reads a removal)
+and moved the session index's projection `projection.core.4` to `.5`. R7 and R8 changed no stored record: `redactions` in
+a node's free-form meta stopped being written, `SessionGrant` was never stored. New ledger kind `request.redacted`; the
+kinds `session.external_read`, `session.trusted`, `policy.granted`, `policy.grant_ended` and the four
+`policy.earned_*` are no longer written, and old rows still read (kinds are strings).
+
+**Each row, and where it diverged from the plan.**
+
+| row | what shipped | where it differed from the review, and why the code won |
+|---|---|---|
+| **R0** replay serves content (`lane/pr-r0-replay`, joined `main` `e3b6af10`; +458/-32, 7 files) | `Dynamic::recorded` writes the pack's dynamic sources beside the state blob; `replay_state` serves a stored content judgment, or rebuilds one from its blob (`rebuild::content_input`); `judge backfill` refuses a content pack. **28 of 28** of the owner's content judgments replay, for $0.0025 | The review's second shape (carry `untrusted` as a state scalar) was not taken: it edits `content.v2`'s questions, a new pack version, and changes every stored sha256. `--pack-file <the embedded v2>` cannot be run (a replay refuses the wired version and the incumbent): the workflow is copy, bump, edit; a candidate that only bumps the version is rebanded and exercises nothing. The store held 28 content judgments, not 18. Join fix J1, found by review: a *learned* candidate (version 101 and up) was asked the stored state without the recorded sources, so it was never asked `injection` of a page, a tool result or a person's message while the live pack asks all three, and the replay reported nothing left out; a content record keeps its items, so it now reads them |
+| **R1** `[content_based_security]` (`lane/pr-r1-config`, joined `main` `45848bea`; 22 files, +476/-192) | The table, `CnModels`, the start check, the four renamed-key rows; `[privacy]` gains `open_source_paths` and `redact_outbound` | `max_pieces` is kept (the listing omits it). `injection` keeps `refuse`, not `freeze`: each word names what happens to a call, and nothing writes the other. The Rust field is renamed with the table. **`[privacy] public_paths` was renamed `open_source_paths` at the join review**: `[places] public_paths` already exists and opens trees to a shared place's file tools, so one table header out of place would have opened the owner's working trees, untracked files included, to every guest, with nothing to say so; the two lists stay separate, and the new one is validated like the old. Found and filed: the gauntlet harness's cn profile writes `[content]` (theseus-gwceh); `term::tests_idle` is red on any host whose python is 3.10 or older, a real defect of `term.read until_idle` (theseus-3ni3t) |
+| **R2** labels teach (`lane/pr-r2-labels-teach`, joined `main` `3ef994dd`; 30 files, +556/-30; store 53) | `Label.judgment`; `content.unlabel` writes a `judge.label` row (source `operator`, the flag's question answered wrong, weight 1.0, key `lbl_<id>`) in the same frame as the removal; a `content` arm in `learning/system.rs` (`kept`: a label still standing 7 days after it was raised, or when its session retires, is a system `yes` at weight 0.5; a removed, disputed or anonymous label is skipped); the chip's "wrong"; `theseus judge label` takes a content judgment | Two review joins. A whole-judgment "wrong" (the cockpit and the CLI offer it on every judgment, with no question) now disputes the label's flags; before, the owner could call a judgment wrong, leave the label, and a week later the arm wrote a `yes` anyway. **The "session retires" leg departs from the review's §6.2**: it needs the label to have stood a day, because in Discord a session is superseded by `/new`, and a label raised two minutes before one would otherwise become a positive with no window to dispute it, in the direction (false positives) the pack's known problem runs. Replay's `right` took the first matching label, not the resolved one: filed and fixed on `main` (theseus-3h8pe). No scratch-daemon live check; the in-process rig drives the same path |
+| **R3** names as a label source (`lane/pr-r3-names`, in the lane at `bcf1c7b4`; +559/-314, 16 files, then a fix) | `deterministic::label`/`from_names` and `land_deterministic`; `names_in`, the request walk, the route floor's `sensitive` leg and the names' use of the US allowlist deleted | **The first build did not let a Remove stick**: the names label raised at entry, and the pack's verdict on the same item landed later and answered `yes` too (`content.v2`'s `confidential` reads "or anything the state lists as private", which is the names list), so the label came back 19 ms after the tap. The review sent it back; the fix is `raise_after` and needs no format bump, and it covers every flag, not only `confidential`. `cleared_for_sensitive` stays: `rsi::mint::data_rule` reads it, and that rule is no part of this area. The chokepoint's `sensitive` arm was halved, not deleted, until R4: deleting it whole would have let a session that read a Google result reach a restricted model for one row. The label is not told in the review's §1.3 words. Accepted, and measured by test: a name in a context file or standing record, with no item in the session naming it, no longer stops a request; a model of EU origin is no longer refused for a name. Open: the label's source shows the word in a shared place's post |
+| **R4** Google as a label source (`lane/pr-r4-google` and `lane/pr-r4-join`, in the lane at `5539d603`; 79 files, +1,026/-3,298) | The write-site label; the marker's records, task-locals, lineage, recall follow and `data_mark.rs` deleted; 49 tests deleted, each testing only the marker; the six label tests | **`marked` and `marked_sensitive` stay**: they are the channel from the unchanged Google tools to the write site. `data_mark.rs` is more than a mirror: its mark is a wire type (`DataMark`, `SessionInfo.data`, `ProfileInfo.cleared`), which survives, derived from labels (`personal` is `sensitive`; any other disqualifying label is `private`). The source is `google.calendar.events` and `google.call`, not `google.calendar`. **The floor on Google content was an allowlist (US only), so it refused EU as well as `cn` and `unknown`, and a label keeps off only the last two: Google content is now kept off a model of EU origin by nothing**; nothing changes on the owner's config today (Anthropic and zai, no EU model), and it takes effect the day one is added; that reverses a standing owner rule of 10-18 that the review did not surface (Beads theseus-xs5ah). The join fixed two sites the deleted lineage walk used to cover, a retried task and a routine's run, each starting without its parent's labels (the routine's parent is `spec.created_in`; the review's code read the routine's own session, which never carries a label), and decided against inheriting `injection`. Recall, the place digest and `memory.lookup` no longer carry a mark. No scratch-daemon check: no standalone Google fake exists |
+| **R5a** the switch and the counter (`lane/pr-r5a-switch`, in the lane at `f04c3d2a`; 16 files, about +660/-340) | `cn_refusal` reads the record only; `never` refuses at the chokepoint too and skips the profile in the route; `always` skips the record read; `cn_wait` is read, wait, read; the draft gate skips under `never` | The "outstanding-ask counter" already existed (`Slot::open`); the row exposed it as `Verdicts::outstanding`. The sweep stayed in `cn_wait` for one row, because deleting it there would have lost the only re-ask of a mark a failed batch left stuck. `always` still refuses a request made for no session. Review join J1, a real defect reproduced at the head: `never` is not a flag, so a coding turn opened a draft task and ended `drafted` with no model call, and the draft's own first request was then refused |
+| **R5b** the mark goes (`lane/pr-r5b-mark`; store 54; +518/-1,068 production) | `judged_through`, `judged_run`, the CAS merge, `unjudged` as a worklist, `ask_unsubmitted`, the sweep, the landing's park and its `awaiting` notify, `fork::data_through`'s mark half deleted; a failed ask is asked once more (200 ms later, inside the open count), then rowed `content.unjudged` and told once per run of failures in the session's place: "⚑ unchecked — … could not be checked … Nothing was labelled, so China-origin models are still allowed for this session"; the session goes on | The cn-wedge2 race tests are rewritten as counter tests, not deleted, and each says what it now tests. The retry is the same judge asking again, so an open circuit breaker refuses it at once: "once more" means one more decision point, not always one more request on the wire. `refused` and `unbuilt` are told but not retried. **The price, stated**: an item no write site offers is never asked about, in silence (`every_item_a_turn_writes_is_offered_for_judgment` is its only guard), and an item whose ask fails twice can reach a restricted model with no label, with a notice. Removing the park makes the content landing frame (the `content.*` rows and the `session` record) land during a turn, so the judge bench counts it as the judge's (`perf/judge.rs::is_judges`). `data` on a session with no labels is `None`; `inspect`'s data line loses its `judged to <node>` tail. A fork taken while a check is still out on its source never gets that check's label, silently: the sweep that used to cover it went with the mark (R5b's review F1, theseus-sz6z9, a follow-up). |
+| **R6** the hold goes (`lane/pr-r6-hold`, `lane/pr-r6-join`, in the lane at `1058b2c4`; 295 files, +1,804/-7,839 before the fix) | See "What is gone"; `/trust` is `content.unlabel injection`; `egress::gate` becomes a notice (an L1 job naming a host beyond the list runs, and the notice names the host); the retired keys fail the load | The review sized the hold's files at 1,634 production lines down to about 60; **the marker is not the hold**, and it stays at every place the plan named, so `external.rs` is 104 lines, not 60. The hold had two jobs nobody listed and the first build took both away: an outside quote in a task became a `Body::Arrangement`, which is no content item, so nothing classified it; and `external_programs` defaulted to `["gh"]`, so retiring the key stopped marking `gh`'s output (a stranger's issue text could then reach long-term memory). Both fixed with red tests. `tests_outside_text.rs` is not a hold test (it tests the readers of outside text) and stays; two other files moved. **Egress is not simplified** (498 to 504 lines): only the wait became a notice. The approval card's locked golden changed beyond removals (its fixture was the outside-quote ask, which cannot exist; the layout is kept on the posture ask), and the DM golden's line 8 still reads "`/trust` trusts the conversation again after it reads web text"; both need the owner's OK. An AWS-credentialed L1 job that names a host beyond `[sandbox] egress` now runs with a notice, and the old guarantee in the core's guide ("containment is the broker's grants and the egress list") no longer holds for a call-named host: the owner's decision. The bench profiles and `bench/h2h/theseus.py` set the retired keys and were fixed; the gauntlet tree's copies are not |
+| **R7** raw record, substitution at the exits (`lane/pr-r7a-raw-record`, `lane/pr-r7b-exits`, one fix branch, in the lane at `37af2377`; R7a -3,162/+704 over 51 files, R7b about +693 production, the fix +845/-120 over 33) | See "The record is raw"; `theseus inspect`; `request.redacted` | **R7a alone is unsafe** (the record raw and nothing substituting on the way out) and R7b alone is safe, so the halves join together or not at all. The first review found a blocker: R7b's exits substituted verbatim only, so `curl -v -u deploy:$TOKEN` printed `Authorization: Basic …`, the value reached the model and Discord encoded, with no `request.redacted` row, and "what key did we send?" would have answered none; fixed by one shared pass (`Substitution`) and the `contains` pre-check deleted. Substitution sits at the provider boundary, not `render_request` (which runs several times a compile and feeds the digest). `theseus inspect` did not exist and was added. Seven record sites were listed and there were more (a node's `meta.diff`, the sandbox fact, a tool's subject, a watch's reply and mail lines, a batch's earlier steps). The "about 1 ms for 200 KB" is the verbatim pass; with the encodings it is 7.8 ms in release, and under 20 ms for the worst inputs built. **Two owner decisions, stated and not fixed**: a vault value whose secret the running daemon does not hold now (failed at this start, rotated, removed, or an AWS value from an earlier process) leaves as written and writes no `request.redacted` row; and a value cut by a cap, a clip or a split between the record and the exit leaks its visible half. The recommendation: accept both, name them, and record the secret's name on the node at save time as a follow-up. Open: the cockpit's ledger window still hides a vault value (a display scrubber); `JobArgs.redact` keeps its name; JSON object keys are not scanned |
+| **R8** earned autonomy and scoped grants go (`lane/pr-r8-earned`, in the lane at `72abfc75`; 100 files, +521/-6,593) | See "What is gone" | The review sized the `policy/` layers; the full reach includes `rpc/earned.rs` (746), the daemon end to end, the protocol and Discord halves and the cockpit's types. `notice_press`, the DM-button dispatcher for Jev, standing, question, remind, seal and link cards, lived inside the deleted Discord `earned.rs` and moved to its own file with every branch in the same order. `policy.grants` and `theseus policy grants|revoke` went too, with nothing left to list. `SessionGrant` stays as a two-field struct (`kind`, `root`) that `covers` takes. With scoped grants gone, F10's S5a and S5b score 0 by design: deliberate, not a regression. If the owner ever moves to `enforcement = approve`, the weekly card is the first thing to want back (`git log -- crates/theseus-core/src/policy/earned`). `outbox.rs` still listed the `earned_card` kind and a test that drives every operator kind failed on it; fixed in the lane |
+| **R9** `content.v3` (`lane/pr-r9-content-v3`, in the lane at `1a069b8e`; 26 files, +4,307/-80, most of it v2's text copied) | `ContentInput` gains `author`, `place`, `project`, `public`, `context`, filled in one place (`content_scene.rs`, from `prepare_content`); `PACK` flips to `content.v3`; the set is v2's 125 cases verbatim plus 26; `jev-probe --score-at-bar` replaces the offline scorer | Precision at the raising bar **0.956 against v2's 0.875, recall 0.985 against 0.955**, identical across two runs; `sec_14` and `sec_15` 1.00 in all four; `conf_14` (a real company's own test fixture holding its actual customers, missed by v1 at 0.50 and v2 at 0.28 against a 0.60 bar) raised at 0.76 and 0.74 (Beads theseus-znxfh folds into this set); `tb_11` and `tb_14` stay flagged, the price the owner accepted for `sec_14`. **The gain is the wording, not the five fields**: with the fields stripped from the 26 new cases zero answers changed at the bar; the fields buy margin (about +30% input tokens). And the owner's example (`fs.grep` over a public side project) was *already* not raised by v2 (it said yes at 0.32 to 0.40, under the bar); only v1 ever raised it. `public` is true only for an item whose own paths are all under a listed tree, read from the call's `path`, `paths`, `file`, `filename`, `dir` and the rest (a tool result's `source` is the tool's name alone), and an item that names none takes the session's directory; it errs toward false because it is read as the operator's word. `place` is computed and sent and no question reads it yet; `injection` is v2's byte for byte. The wording was iterated against the set, so `conf_14` and a customer list in a public repo's fixtures are a fix to a known case; the independent checks are the replay over the owner's own judgments (30 of them, none left out, $0.0033; one label raised before, none now) and, once the labels accrue, the nightly report. A builder version of 2 applies to v3 and to any learned pack (101 and up); `theseus judge replay content.v2` is refused on the owner's store ("already recorded under another text"), which says the installed v2 text and the file in the tree differ |
+| **R10** docs (`lane/pr-r10-docs`) | This Item; `docs/status.md`; the config template's final pass; `docs/privacy.md`, the CLI and herdr guides and the README's promises; the design document's superseded note; Beads `theseus-6rugt` closed as will not do, `theseus-mjowe` as done by R1, `theseus-znxfh` as folded into R9's set | Writes no code. Where a doc and the code disagreed the code won; stale comments in code are listed in the row's report, not fixed |
+
+**What this Item supersedes.** Part I's "External text" section (§3.9) and Items 10, 11, 74 and 84 (the T1 hold, `/trust`,
+the integrity lane's latch, a wake held after outside text) describe a hold that is gone; the `external` marker they
+introduced stays. Part I's "Scrubbing" section and Items 19, 44, 204 and 226 describe a scrubber that rewrote the record,
+withheld a granted value from the spool and guessed shapes; only the exact-value passes and their encodings survive, and
+they run at the exits. Item 250's single list of sensitive names (a request-level floor) is now a label source. Items 62 and 77's egress (a host a call names beyond `[sandbox] egress` "waits for your approval" and
+holds the session) is now a notice, and the job's result is still marked outside text. The open view (theseus-a1wvq.3 to .17), the content flags'
+first form (theseus-9ymz0, 2026-10-26: judged-through mark, settle loop, the chokepoint's proof), the Google private
+marker, earned autonomy and its weekly card, and the interim external-text floor (theseus-9bp) never had Items of their
+own; this Item is their record, and their end.
+
+**How it was proven.** Every code row was built red first (R8's deletions partly), reviewed by a fresh Opus context that read the code rather than the
+report (and ran mutation plants where it could), and joined with the control habit that proved the most valuable of the
+lane: **a single red in a full-suite gate gets its module run alone on the lane and on a control cut from the same
+base before anything else**, and the numbers go in the join line. The M1 Max was too loaded for one gate to be evidence on
+the row's own reds (three gates each reddened one different test, each of which passed ten of ten alone, on the lane and
+on the control), and the control habit twice caught a break neither row's tests could see (R8 removed a Discord arm that
+main's later test drove; a join fix of R9's `public` rule broke a replay test that rebuilt a message with no paths). The
+reviews' findings that mattered most: R3's Remove that undid itself; R7's blocker (an encoded value reaching the provider
+unrecorded); R6's two jobs the hold did and nobody listed; R9's review correcting the row's headline (the wording, not the fields);
+R1's `public_paths` collision. Each row's report, red and green runs and review are kept with the lane's records. Not verified live:
+R2, R4 and R7's CLI against a scratch daemon of its own (the rigs drive the real core, store and chokepoint in process);
+the cockpit's chip was not screenshotted.
+
+**Left open, and the owner's.** (1) Google content and a model of EU origin (R4), above. (2) The two exits the owner is
+asked to accept (R7). (3) The locked approval card and the DM golden's line 8 (R6). (4) The AWS L1 job and the egress
+list (R6). (5) Whether a names label in a shared place should show the word. (6) `open_source_paths` and `context` in
+`/etc/theseus/theseus.toml`, the owner's values; and the `[privacy]` comment there. (7) The rest of the gauntlet tree
+(`~/lanes/gauntlet`, `bench/theseus-bench*.toml`, `bench/h2h/theseus.py`) still carries the retired keys: any bench run
+that pairs a post-R6 binary with it dies at daemon start (theseus-gwceh). (8) The cockpit's profile floor table and its
+words still say "US origin" (`cockpit/src/ops/floor.ts`, `test/fixtures/profile_floor.json`). (9) `theseus-6rugt`, to
+rewrite a node after a `secret` label, is **will not do**: it is the opposite of "the session is the true record", and
+the `secret` label is the guard for a model of restricted origin.
+(10) A Remove of a names label lasts only until the next item that names the word, so in an employer repo it
+returns on the next read of a file naming the employer: quiet the names source for the session, a per-session
+allow, or as built (R3's O1, which this lane's conductor called the deepest question it raised). (11) A session
+whose items named a word before R3's install carries no label for it, and it has lost the walk that used to stop
+it (R3's O3). (12) A retired session's label counts as agreement after a day rather than at once: a departure
+from the review's section 6.2, taken by the conductor and the owner's to veto (R2). (13) The config spells the
+injection freeze `refuse`; `freeze` is the owner's own word for it, and no config writes either today (R1).

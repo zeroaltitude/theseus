@@ -169,7 +169,9 @@ async fn interactive_watchers_count_and_uncount() {
 async fn a_shared_places_watch_sees_no_private_title() {
     use crate::places::BoundPlace;
     use crate::tests_places::{session, turn as say, LAB};
-    let r = rig();
+    // A token, built from parts so this file holds none whole.
+    let token = ["ghp_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"].concat();
+    let r = rig_seeing(vec![(token.clone(), "gh_token".into())]);
     r.core.bind_places(vec![BoundPlace {
         target: format!("discord:channel:{LAB}"),
         name: "#lab".into(),
@@ -178,8 +180,6 @@ async fn a_shared_places_watch_sees_no_private_title() {
     }]);
     let shared = session(&r.core, Some(&format!("channel:{LAB}")));
     let private = session(&r.core, None);
-    // A token, built from parts so this file holds none whole.
-    let token = ["ghp_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"].concat();
     say(&r.core, &shared, &format!("deploy with {token} today")).await;
     say(
         &r.core,
@@ -248,7 +248,7 @@ fn a_guarded_scope_scrubs_and_cannot_answer() {
     use crate::push::WorkScope;
     use theseus_protocol::work::{AnswerOption, Question, QuestionKind, Style, WorkRef, WorkState};
     let token = ["ghp_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"].concat();
-    let scrubber = crate::scrub::Scrubber::default();
+    let scrubber = crate::scrub::Scrubber::with_values(vec![(token.clone(), "gh_token".into())]);
     let who = WorkRef {
         id: "exe_1".into(),
         kind: WorkKind::Task,
@@ -283,7 +283,6 @@ fn a_guarded_scope_scrubs_and_cannot_answer() {
         may_answer: true,
         tool: Some("proc.run".into()),
         asked_at_ms: 1,
-        external_text: false,
         choices: vec![],
     });
     let guarded = WorkScope {

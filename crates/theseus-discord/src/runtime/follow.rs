@@ -25,6 +25,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use theseus_core::approval::{Client, Surface};
+use theseus_core::exits::Exits;
 use theseus_protocol::work::WorkView;
 use theseus_protocol::{Event, SessionRef};
 use tokio::time::Instant;
@@ -153,6 +154,13 @@ impl Mirror {
     }
 
     /// The message: the head, the lines, the stream's tail; `end` seals it.
+    /// The text as it is posted: the vault's values replaced. The mirror
+    /// posts with `create_message` and `update_message` directly, not through
+    /// the courier, and what it holds is a tool's input and the model's words.
+    pub(super) fn sendable(&self, exits: &Exits, v: &WorkView, end: Option<&str>) -> String {
+        exits.text(&self.text(v, end)).0.into_owned()
+    }
+
     pub(super) fn text(&self, v: &WorkView, end: Option<&str>) -> String {
         let mut t = format!(
             "{} **{}** `…{}`",
@@ -283,7 +291,11 @@ impl Shared {
             };
             let ended = view.state.ended();
             mirror.channel = self.task_threads.channel_of(task);
-            let text = mirror.text(&view, ended.then(|| report_line(&view)).as_deref());
+            let text = mirror.sendable(
+                &self.core.exits,
+                &view,
+                ended.then(|| report_line(&view)).as_deref(),
+            );
             let due = ended
                 || (dirty
                     && (message.is_none() || self.cmds.follows.may_edit(target, Instant::now())));
@@ -435,6 +447,34 @@ mod tests {
         assert_eq!(m.lines.front().unwrap(), "fs.read file4");
         m.said(&"x".repeat(2000));
         assert_eq!(m.stream.chars().count(), STREAM_CHARS);
+    }
+
+    /// The mirror posts what the model said and the tools it called, outside
+    /// the courier: a vault value in either leaves as its name.
+    #[test]
+    fn the_mirror_posts_the_vaults_values_replaced() {
+        use theseus_core::secrets::{Secret, SecretBoard};
+        const VALUE: &str = "vault-token-4c8e1f7a92b3";
+        let board = SecretBoard::new(["courier_token".to_string()], std::time::Instant::now());
+        board.publish(
+            [("courier_token".to_string(), Ok(Secret::new(VALUE.into())))].into(),
+            "fake",
+        );
+        let exits = Exits::new(board, true);
+        let mut m = Mirror::default();
+        m.tool(format!("proc.run echo {VALUE}"));
+        m.said(&format!("the token is {VALUE}"));
+        let v = crate::runtime::task_channels::work_view("exe_task_a1b2c3", "running");
+        let text = m.sendable(&exits, &v, None);
+        assert!(!text.contains(VALUE), "{text}");
+        assert!(
+            text.contains("proc.run echo [redacted:courier_token]"),
+            "{text}"
+        );
+        assert!(
+            text.contains("the token is [redacted:courier_token]"),
+            "{text}"
+        );
     }
 
     #[test]

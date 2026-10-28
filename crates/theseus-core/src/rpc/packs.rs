@@ -584,7 +584,6 @@ impl Core {
             note,
             by,
             via,
-            trust: false,
             option: (by != super::confirms::EXPIRY).then_some(if approve {
                 "approve"
             } else {
@@ -623,7 +622,6 @@ impl Core {
             session_id: a.session_id.clone(),
             execution_id: a.execution_id.clone(),
             resumes: false,
-            granted: None,
         })
     }
 }
@@ -650,7 +648,6 @@ pub fn promotion_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Co
         floor: false,
         budget: None,
         task: crate::task::task_ref(session),
-        external_text: None,
         change: None,
         options: Vec::new(),
         may_answer: None,

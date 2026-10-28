@@ -17,13 +17,32 @@ use std::path::Path;
 use serde_json::Value;
 use theseus_core::node::{Body, Node};
 
+/// What this build no longer has in a stored node, which a re-encode drops: the gate decision's `external`,
+/// the external-text hold's mark (theseus-gyjyo.8). Everything else must come back as it was.
+fn without_dropped(mut stored: Value) -> Value {
+    if let Some(d) = stored
+        .pointer_mut("/body/gate/decision")
+        .and_then(Value::as_object_mut)
+    {
+        d.remove("external");
+    }
+    stored
+}
+
 /// A stored node's bytes, decoded and encoded again, which must be the same
-/// bytes, whatever the node's kind. `Ok(true)` for a tool-call node, whose gate
-/// is also held alone; `Ok(false)` for any other.
+/// bytes, whatever the node's kind, but for what this build no longer has
+/// (`without_dropped`). `Ok(true)` for a tool-call node, whose gate is also
+/// held alone; `Ok(false)` for any other.
 fn reencode(payload: &[u8]) -> Result<bool, String> {
     let node: Node = serde_json::from_slice(payload).map_err(|e| format!("decode: {e}"))?;
     let again = serde_json::to_vec(&node).map_err(|e| format!("encode: {e}"))?;
-    if again != payload {
+    let stored_value: Value = serde_json::from_slice(payload).unwrap();
+    let dropped = without_dropped(stored_value.clone());
+    let same = match dropped == stored_value {
+        true => again == payload,
+        false => serde_json::from_slice::<Value>(&again).unwrap() == dropped,
+    };
+    if !same {
         return Err(format!(
             "re-encoded differently:\n stored {}\n again  {}",
             String::from_utf8_lossy(payload),
@@ -34,7 +53,7 @@ fn reencode(payload: &[u8]) -> Result<bool, String> {
         return Ok(false);
     };
     // The gate alone, in its canonical form: its keys sorted, as stored.
-    let stored: Value = serde_json::from_slice(payload).unwrap();
+    let stored = dropped;
     let gate = serde_json::to_value(gate).unwrap().to_string();
     assert_eq!(gate, stored["body"]["gate"].to_string(), "the gate alone");
     Ok(true)

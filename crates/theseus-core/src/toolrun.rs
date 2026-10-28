@@ -356,19 +356,14 @@ pub struct ToolRuntime {
     /// "Should have asked" (theseus-sgh): the tools that ask first because
     /// someone pressed it, from the store. The gate reads them per call.
     pub tightened: crate::tighten::Tightenings,
-    /// Earned grants (theseus-uttu): what the owner accepted from the record.
-    pub earned: crate::policy::earned::Earned,
+    /// The conversations' modes and plans (theseus-lyxy), read per call.
+    pub modes: crate::policy::modes::Modes,
     /// The daemon's cores (theseus-a60): every in-process toollet runs under
     /// one of its permits.
     pub cpu: Arc<crate::cpu::CpuPool>,
     /// The secret broker (theseus-dcy): what a job's program and a toollet
     /// are given from the board.
     pub broker: Arc<Broker>,
-    /// The hold's rule after external text (theseus-9bp, theseus-nsqqo).
-    pub external: crate::external::Rule,
-    /// Programs whose output is outside text (theseus-b5cl, `[policy]
-    /// external_programs`): a job that runs one marks its result external.
-    pub external_programs: Vec<String>,
     /// The most a job's raw output file keeps (theseus-102, `[tools]
     /// job_output_max_bytes`).
     pub output_max_bytes: u64,
@@ -395,9 +390,6 @@ pub struct ToolRuntime {
     pub watches: Arc<crate::watch::Board>,
     /// `[watch_for]`, for the tool's bounds.
     pub watches_cfg: crate::config::WatchesConfig,
-    /// The `[google]` table: whether a session's Google mark is read, for
-    /// `task.create` (theseus-a1wvq.6).
-    pub google_cfg: crate::config::GoogleConfig,
     /// The finished tasks a new task's forecast is made from, and the work
     /// board's view of it (theseus-zz752).
     pub forecasts: Arc<crate::forecast::Book>,
@@ -566,11 +558,9 @@ impl ToolRuntime {
             calls: Mutex::new(BTreeMap::new()),
             fit_notes: Default::default(),
             tightened: Default::default(),
-            earned: Default::default(),
+            modes: Default::default(),
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
-            external: Default::default(),
-            external_programs: Vec::new(),
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
             disk: Arc::new(crate::disk::Disk::new(tmp.clone(), 0, 0)),
             aws: None,
@@ -581,7 +571,6 @@ impl ToolRuntime {
             leases: crate::task_graph::lease::Leases::new(30 * 60_000),
             watches: Default::default(),
             watches_cfg: Default::default(),
-            google_cfg: Default::default(),
             forecasts: Default::default(),
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
@@ -592,7 +581,7 @@ impl ToolRuntime {
             outputs: crate::outputs::Outputs::off(),
             admission: crate::turn::admission::Admission::new(8, Duration::from_secs(600)),
             mcp: Default::default(),
-            terms: Arc::new(crate::term::Terms::new(Vec::new(), Vec::new())),
+            terms: Arc::new(crate::term::Terms::new(Vec::new())),
             lsp: None,
             judge: Default::default(),
             lookup: Default::default(),
@@ -808,7 +797,7 @@ impl ToolRuntime {
             .or_default() += 1;
     }
 
-    /// The node for a result, its text scrubbed of secret values and capped.
+    /// The node for a result, its text as the tool printed it, capped.
     fn result_node(&self, tc: &TurnCtx<'_>, r: ResultNode<'_>) -> Node {
         self.result_node_in(tc.session_id, Some(tc.turn_id), tc.loop_index, r)
     }
@@ -823,9 +812,8 @@ impl ToolRuntime {
         r: ResultNode<'_>,
     ) -> Node {
         let r = self.fit_noted(r);
-        let (scrubbed, redactions) = self.scrubber.scrub(&r.text);
         // What the cap leaves out: kept, or the tool's to say (theseus-v73m).
-        let (content, truncated, full_ref) = self.capped(session_id, &r, &scrubbed);
+        let (content, truncated, full_ref) = self.capped(session_id, &r, &r.text);
         // A job of the daemon's own CLI names the native call that does it,
         // after the cap so no cut takes it (theseus-8c8s).
         let content = match &r.hint {
@@ -838,10 +826,6 @@ impl ToolRuntime {
             Some(line) if !r.late => format!("{content}\n{line}"),
             _ => content,
         };
-        let mut meta = crate::tool_words::scrub_diff(&self.scrubber, r.meta);
-        if redactions > 0 {
-            meta["redactions"] = json!(redactions);
-        }
         Node::tool_result(
             session_id,
             turn_id,
@@ -855,11 +839,11 @@ impl ToolRuntime {
                 correlation_id: r.correlation_id.map(str::to_string),
                 bytes_total: r.bytes_total.unwrap_or(r.text.len() as u64),
                 truncated,
-                // The scrubbed whole output a cut result keeps (theseus-v73m).
+                // The whole output a cut result keeps (theseus-v73m).
                 full_ref,
                 duration_ms: r.duration_ms,
                 late: r.late,
-                meta,
+                meta: r.meta,
                 image: r.image,
                 external: r.external,
             },
@@ -871,20 +855,14 @@ impl ToolRuntime {
         self.write_result(tc, &self.result_node(tc, r))
     }
 
-    /// Write a result node on its own frame and announce it, with the hold
-    /// it brings its session in that frame when it is outside text (a job
-    /// that connected out of L1, 18c).
+    /// Write a result node on its own frame and announce it.
     fn write_result(&self, tc: &TurnCtx<'_>, node: &Node) -> Result<ResultStatus> {
         let status = match &node.body {
             Body::ToolResult { status, .. } => *status,
             _ => ResultStatus::Error,
         };
-        let (_, newly) =
-            crate::external::with_hold(tc.store, tc.session_id, Some(tc.turn_id), node, |f| {
-                tc.store.append(&f)
-            })?;
+        tc.store.append(&[node.record()?])?;
         Self::announce_end(tc, node);
-        self.held(tc, newly);
         self.queue_content(tc.session_id, std::slice::from_ref(node));
         Ok(status)
     }
@@ -1041,7 +1019,7 @@ impl ToolRuntime {
             return Vec::new();
         };
         let class = g.plan.class.unwrap_or(tool.class());
-        let holds = || matches!(crate::external::held(tc.store, tc.session_id), Ok(Some(_)));
+        let holds = || crate::external::read_any(tc.store, tc.session_id);
         if !crate::judge::gate::judged(class, tool.name(), holds) {
             return Vec::new();
         }
@@ -1060,7 +1038,6 @@ impl ToolRuntime {
             reason: d.reason.clone(),
             floor: d.floor,
             notified,
-            hold_raised: d.external.is_some(),
             input: call.input.clone(),
             plan: g.plan.clone(),
         };
@@ -1117,7 +1094,6 @@ impl ToolRuntime {
         let glide = (planned.is_ok() && crate::glide::is_glide(tool.name()))
             .then(|| crate::glide::resolve(tc, tool.name(), &call.input));
         // The order is `order.rs`, which `policy.explain` runs too (42a).
-        let held = || crate::external::held_untold(tc.store, tc.session_id, self.external.mode);
         let mcp = || mcp_floor(tc);
         // A routine's run: its grant, from the book in memory; any other
         // session pays one `Option` test (theseus-52tut).
@@ -1126,7 +1102,6 @@ impl ToolRuntime {
             .and_then(|t| self.routines.grant_for(tc.kernel, tc.store, t));
         let at = order::At {
             place: tc.place(),
-            held: &held,
             labels: &|| crate::content_wait::flags_of(tc.store, tc.session_id),
             mcp: &mcp,
             glide: glide.as_ref().and_then(|g| g.as_ref().ok()),
@@ -1324,7 +1299,6 @@ impl ToolRuntime {
                 let mut records = vec![node(a)?];
                 if let Some(p) = Self::notified(tc, call, tool.name(), &a.correlation_id, g) {
                     records.push(tc.rec().row(&fact::tool::ToolNotified { notice: &p })?);
-                    records.extend(crate::external::told_row(tc.session_id, &g.decision)?);
                 }
                 Ok(records)
             })
@@ -1342,8 +1316,9 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         // Asked at its plan's time, and expiring then plus the TTL, as
         // `confirm.list`, the watch's snapshot, and the board say.
+        let approve = g.decision.posture == crate::policy::Posture::Approve;
         let mut req = crate::rpc::offer(ConfirmRequest {
-            grant_offer: crate::policy::grants::offered(self, tc, tool, &call.input, &g),
+            grant_offer: crate::policy::grants::plan_offer(tool, tc.class, approve, g.class.l1()),
             correlation_id: a.correlation_id.clone(),
             session_id: tc.session_id.into(),
             execution_id: tc.execution_id.into(),
@@ -1362,7 +1337,6 @@ impl ToolRuntime {
                 short: crate::task::short(tc.session_id),
                 title: None,
             }),
-            external_text: g.decision.external,
             change: crate::task_graph::tools::change_of(tc.store, tool, &call.input),
             preview: self.preview(tc.dir, tool, &call.input),
             ..Default::default()
@@ -1505,7 +1479,7 @@ impl ToolRuntime {
         ran_at: Posture,
     ) -> Result<CallOutcome> {
         // A glide's post rides in its completion's frame, and a read from a
-        // shared place brings its hold there (38b).
+        // shared place is marked outside text there (38b).
         if crate::glide::is_glide(tool.name()) {
             return self.run_glide(tc, correlation_id, tool, call, ran_at);
         }
@@ -1521,7 +1495,7 @@ impl ToolRuntime {
                 &call.input,
                 correlation_id,
                 (&self.profiles, (&self.routines, &self.projects)),
-                (&self.forecasts, &self.google_cfg),
+                &self.forecasts,
             )
             .map(|c| edit.take(c)),
             crate::project_tool::ATTACH => crate::project_tool::attach(tc, &call.input),
@@ -2274,7 +2248,7 @@ pub fn build_runtime(
     };
     // Terminals (theseus-n88g.4): each program gets the job environment.
     let terms = Arc::new(
-        crate::term::Terms::new(proc_env.clone(), cfg.policy.external_programs.clone())
+        crate::term::Terms::new(proc_env.clone())
             .configured(t.term.keep_background, t.proc_sync_secs),
     );
     if t.enabled {
@@ -2358,11 +2332,9 @@ pub fn build_runtime(
         fit_notes: Default::default(),
         // Read from the store when the core starts (`Core::build`).
         tightened: Default::default(),
-        earned: Default::default(),
+        modes: Default::default(),
         cpu,
         broker: Arc::new(broker),
-        external: cfg.policy.external_rule(),
-        external_programs: cfg.policy.external_programs.clone(),
         output_max_bytes: t.job_output_max_bytes,
         outputs: crate::outputs::Outputs::new(
             state.join("outputs"),
@@ -2383,7 +2355,6 @@ pub fn build_runtime(
         leases: crate::task_graph::lease::Leases::new(cfg.kernel.task_lease_ms()),
         watches: Default::default(),
         watches_cfg: cfg.watch_for.clone(),
-        google_cfg: cfg.google.clone(),
         forecasts: Default::default(),
         sandbox,
         stops: Default::default(),

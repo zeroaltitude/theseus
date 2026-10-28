@@ -1,8 +1,8 @@
 //! The provider chokepoint on content flags (theseus-9ymz0, design §4.2a and
 //! §11's tests 10 to 14): a request to a model of restricted origin goes out
 //! unless the session it is made for carries a label that disqualifies such a
-//! model, or has an item that was not judged; a request with no session is
-//! refused. The rig is `tests_route`'s: `anthropic` (Claude) and `zai` (GLM, a
+//! model (and `[content_based_security] cn_models` follows the flags); a
+//! request with no session is refused. The rig is `tests_route`'s: `anthropic` (Claude) and `zai` (GLM, a
 //! China-origin endpoint), each a fake that records its requests. The record's
 //! `data` is written as JSON so the same test reads against the layout it
 //! replaces.
@@ -77,20 +77,13 @@ fn label(flag: Flag) -> Label {
 }
 
 /// A session record holding `flags` (as JSON, whatever the record's `data` is
-/// typed as) and a user node for each of `said`, written to the store. With
-/// `judged`, the mark stands at the last node: every item was judged.
-fn session_with(r: &Rig, flags: Option<ContentFlags>, said: &[&str], judged: bool) -> String {
+/// typed as) and a user node for each of `said`, written to the store.
+fn session_with(r: &Rig, flags: Option<ContentFlags>, said: &[&str]) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     let nodes: Vec<Node> = said
         .iter()
         .map(|t| Node::user(&rec.session_id, Some("trn_1"), "cli", t))
         .collect();
-    let mut flags = flags;
-    if judged {
-        let mut f = flags.take().unwrap_or_default();
-        f.judged_through = nodes.last().map(|n| n.id.clone());
-        flags = Some(f);
-    }
     let mut v = serde_json::to_value(&rec).unwrap();
     if let Some(f) = &flags {
         v["data"] = serde_json::to_value(f).unwrap();
@@ -117,7 +110,7 @@ fn blocked(r: &Rig) -> Vec<Value> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_restricted_model_is_sent_a_session_with_no_label() {
     let r = rig(None, 1, |_| {});
-    let sid = session_with(&r, None, &[], false);
+    let sid = session_with(&r, None, &[]);
     let zai = &r.core.runner.providers["zai"];
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
@@ -126,27 +119,26 @@ async fn a_restricted_model_is_sent_a_session_with_no_label() {
     assert!(blocked(&r).is_empty(), "and nothing was refused");
 }
 
-/// Test 10, with items: every node the session carries has been judged, so
-/// the request goes; one the judge has not reached holds it back, and the row
-/// says so.
+/// Test 10, with items: whether the judge has reached them or not, the request
+/// goes. An item nobody has judged is no refusal (theseus-gyjyo.6): the
+/// chokepoint reads the session's labels and not its transcript, and the
+/// turn's wait is what gives an ask the time to raise one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_restricted_model_is_sent_only_what_was_judged() {
+async fn a_restricted_model_is_sent_judged_or_not() {
     let r = rig(None, 1, |_| {});
     let zai = &r.core.runner.providers["zai"];
-    let sid = session_with(&r, None, &["Rename the call sites."], true);
+    let sid = session_with(&r, None, &["Rename the call sites."]);
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
         .expect("every item was judged");
     assert_eq!(r.zai.requests().len(), 1);
-    // The same session, its item not yet judged.
-    let sid = session_with(&r, None, &["And the tests."], false);
-    let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
+    // The same session, an item not yet judged.
+    let sid = session_with(&r, None, &["And the tests."]);
+    send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
-        .unwrap_err();
-    assert_eq!(class, "data_gate", "{said}");
-    assert!(said.contains("judged"), "{said}");
-    assert_eq!(r.zai.requests().len(), 1, "the second was never sent");
-    assert_eq!(blocked(&r).len(), 1);
+        .expect("an item nobody judged is no label");
+    assert_eq!(r.zai.requests().len(), 2);
+    assert!(blocked(&r).is_empty());
 }
 
 /// Test 11: a session with `confidential` on it is refused a restricted
@@ -159,7 +151,7 @@ async fn a_restricted_model_is_refused_a_session_with_a_cn_label() {
     for flag in [Flag::Secret, Flag::Confidential, Flag::Personal] {
         let mut f = ContentFlags::default();
         f.raise(label(flag));
-        let sid = session_with(&r, Some(f), &[], false);
+        let sid = session_with(&r, Some(f), &[]);
         let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
             .await
             .unwrap_err();
@@ -181,7 +173,7 @@ async fn an_injection_label_does_not_keep_a_restricted_model_off() {
     let r = rig(None, 1, |_| {});
     let mut f = ContentFlags::default();
     f.raise(label(Flag::Injection));
-    let sid = session_with(&r, Some(f), &[], false);
+    let sid = session_with(&r, Some(f), &[]);
     let zai = &r.core.runner.providers["zai"];
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
@@ -211,50 +203,86 @@ async fn a_restricted_model_is_refused_a_call_with_no_session() {
     assert!(r.zai.requests().is_empty());
 }
 
-/// Test 13: the names tripwire is independent of every label. A request that
-/// holds a sensitive name is refused for a model not of US origin with no label
-/// on its session, a restricted model's included; and a Claude is sent it.
+/// Test 13: a names hit is a label, not a refusal (theseus-gyjyo.4). An item
+/// that holds a sensitive name raises `confidential` on its session at its
+/// entry, with no judge behind it; the label is what refuses a restricted
+/// model the session's next request, the chokepoint walks no request for the
+/// name, and after the operator removes the label the same request is sent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_names_tripwire_needs_no_label() {
+async fn a_names_hit_is_a_label() {
     let named = "Rename the call sites in Examplecorp's billing module.";
     let r = rig(None, 1, |c| {
         c.privacy.sensitive_names = vec!["Examplecorp".into()];
     });
-    let sid = session_with(&r, None, &[], false);
+    let sid = session_with(&r, None, &[]);
+    let node = Node::user(&sid, Some("trn_1"), "cli", named);
+    r.core.store.append(&[node.record().unwrap()]).unwrap();
+    let item = crate::judge::content::ContentItem::of_message(
+        &node,
+        ItemKind::OperatorMessage,
+        "operator message",
+    )
+    .unwrap();
+    r.core.runner.judge.ask_content(&sid, vec![item]);
+    let rec = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&sid)
+        .unwrap()
+        .unwrap();
+    let flags = rec.data.as_deref().cloned().unwrap_or_default();
+    assert_eq!(
+        flags.label(Flag::Confidential).map(|l| l.source.as_str()),
+        Some("name: Examplecorp")
+    );
+    // The label refuses the restricted model, and says so by the label.
     let zai = &r.core.runner.providers["zai"];
-    let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", named))
+    let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
         .unwrap_err();
     assert_eq!(class, "data_gate", "{said}");
-    assert!(said.contains("sensitive_names"), "{said}");
+    assert!(said.contains("`confidential` label"), "{said}");
+    assert!(!said.contains("sensitive_names"), "{said}");
     assert!(r.zai.requests().is_empty());
-    // The same session, unnamed text: no label, so it goes.
-    send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
-        .await
+    // The operator removes it.
+    r.core
+        .store
+        .update_session(&sid, |rec| {
+            let mut f = rec.data.as_deref().cloned().unwrap_or_default();
+            f.remove(Flag::Confidential, "owner", "test", 2);
+            rec.data = Some(Box::new(f));
+            Ok(vec![])
+        })
         .unwrap();
-    // A US model is sent the named request.
-    let claude = &r.core.runner.providers["anthropic"];
-    send_for(claude, Some(&sid), &request("claude-sonnet-5-5", named))
+    send_for(zai, Some(&sid), &request("glm-5.3", named))
         .await
-        .unwrap();
-    assert_eq!(r.claude.requests().len(), 1);
+        .expect("nothing overrides the operator: the named request is sent");
+    assert_eq!(r.zai.requests().len(), 1);
+    // A request that names a word, in a session no item of which did, is not
+    // stopped at the chokepoint: the accepted residual (the review's P1 trade).
+    let other = session_with(&r, None, &[]);
+    send_for(zai, Some(&other), &request("glm-5.3", named))
+        .await
+        .expect("the request walk is gone");
+    assert_eq!(r.zai.requests().len(), 2);
 }
 
-/// The tripwire holds for a model that is not restricted but not US either.
+/// A model of EU origin is no longer refused for a name: the US allowlist went
+/// with the request walk (theseus-gyjyo.4). Only a label keeps a session off a
+/// model, and only a model of restricted origin.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_names_tripwire_holds_for_a_model_of_eu_origin() {
+async fn a_name_does_not_refuse_a_model_of_eu_origin() {
     let named = "Rename the call sites in Examplecorp's billing module.";
     let r = rig(None, 1, |c| {
         c.privacy.sensitive_names = vec!["Examplecorp".into()];
         c.serve_default_from_eu();
     });
-    let sid = session_with(&r, None, &[], false);
+    let sid = session_with(&r, None, &[]);
     let claude = &r.core.runner.providers["anthropic"];
-    let (class, said) = send_for(claude, Some(&sid), &request("claude-sonnet-5-5", named))
+    send_for(claude, Some(&sid), &request("claude-sonnet-5-5", named))
         .await
-        .unwrap_err();
-    assert_eq!(class, "data_gate", "{said}");
-    assert!(r.claude.requests().is_empty());
+        .expect("a model of EU origin is sent it");
+    assert_eq!(r.claude.requests().len(), 1);
 }
 
 /// Test 14: a label does not affect a request to a model of US origin.
@@ -264,7 +292,7 @@ async fn a_label_does_not_touch_a_us_model() {
     let mut f = ContentFlags::default();
     f.raise(label(Flag::Confidential));
     f.raise(label(Flag::Secret));
-    let sid = session_with(&r, Some(f), &[], false);
+    let sid = session_with(&r, Some(f), &[]);
     let claude = &r.core.runner.providers["anthropic"];
     send_for(claude, Some(&sid), &request("claude-sonnet-5-5", PLAIN))
         .await
@@ -274,4 +302,115 @@ async fn a_label_does_not_touch_a_us_model() {
         blocked(&r).is_empty(),
         "an unrestricted model writes no row"
     );
+}
+
+/// The chokepoint reads labels and nothing else (theseus-gyjyo.6): a request
+/// to a model of restricted origin costs one read of the session's record and
+/// no read of its transcript, whether it is sent or refused. A session with an
+/// item nobody has judged is sent (the item's label, if it earns one, is what
+/// would refuse the next request), and the store's own counter of full
+/// transcript reads does not move.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_chokepoint_reads_no_transcript() {
+    let r = rig(None, 1, |_| {});
+    let zai = &r.core.runner.providers["zai"];
+    let unjudged = session_with(&r, None, &["One.", "Two.", "Three."]);
+    let mut f = ContentFlags::default();
+    f.raise(label(Flag::Secret));
+    let labelled = session_with(&r, Some(f), &["One.", "Two."]);
+    let before = r.core.store.transcript_reads();
+    send_for(zai, Some(&unjudged), &request("glm-5.3", PLAIN))
+        .await
+        .expect("an item nobody judged is no refusal: only a label is");
+    let (class, said) = send_for(zai, Some(&labelled), &request("glm-5.3", PLAIN))
+        .await
+        .unwrap_err();
+    assert_eq!(class, "data_gate", "{said}");
+    assert!(said.contains("`secret` label"), "{said}");
+    assert_eq!(
+        r.core.store.transcript_reads(),
+        before,
+        "the chokepoint read a transcript"
+    );
+    assert_eq!(r.zai.requests().len(), 1);
+    let rows = blocked(&r);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["why"], "secret");
+}
+
+/// `cn_models = "always"` sends a labelled session's request to a model of
+/// restricted origin: the operator said so, and the label is still on the
+/// session for the next time he changes his mind. Synthetic content only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cn_models_always_sends_a_labelled_session() {
+    use crate::config::content_based_security::CnModels;
+    let r = rig(None, 1, |c| {
+        c.content_based_security.cn_models = CnModels::Always;
+    });
+    let mut f = ContentFlags::default();
+    f.raise(label(Flag::Confidential));
+    let sid = session_with(&r, Some(f), &["Synthetic words."]);
+    let zai = &r.core.runner.providers["zai"];
+    send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
+        .await
+        .expect("always sends, whatever the labels say");
+    assert_eq!(r.zai.requests().len(), 1);
+    assert!(blocked(&r).is_empty(), "{:?}", blocked(&r));
+    let rec = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&sid)
+        .unwrap()
+        .unwrap();
+    assert!(rec
+        .data
+        .as_deref()
+        .is_some_and(|f| f.has(Flag::Confidential)));
+}
+
+/// `cn_models = "never"` refuses a model of restricted origin at the
+/// chokepoint as well as in the route, for every caller: a pin or a
+/// background call that gets past routing is stopped here, session clean or
+/// not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cn_models_never_refuses_a_clean_session() {
+    use crate::config::content_based_security::CnModels;
+    let r = rig(None, 1, |c| {
+        c.content_based_security.cn_models = CnModels::Never;
+    });
+    let sid = session_with(&r, None, &[]);
+    let zai = &r.core.runner.providers["zai"];
+    let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
+        .await
+        .unwrap_err();
+    assert_eq!(class, "data_gate", "{said}");
+    assert!(said.contains("cn_models"), "{said}");
+    assert!(r.zai.requests().is_empty());
+    assert_eq!(blocked(&r)[0]["why"], "never");
+    // A model that is not restricted is sent it all the same.
+    let claude = &r.core.runner.providers["anthropic"];
+    send_for(claude, Some(&sid), &request("claude-sonnet-5-5", PLAIN))
+        .await
+        .unwrap();
+}
+
+/// What R1's refuse-to-start message promises (theseus-gyjyo.2): with the
+/// mechanism off there are no labels to follow, and `cn_models = "always"`
+/// is how an operator "sends to them without labels", `"never"` how he keeps
+/// them off. Both are the chokepoint's words now, not only the config's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn with_session_flags_off_always_sends_and_never_refuses() {
+    use crate::config::content_based_security::CnModels;
+    for (mode, sent) in [(CnModels::Always, true), (CnModels::Never, false)] {
+        let r = rig(None, 1, |c| {
+            c.content_based_security.session_flags = false;
+            c.content_based_security.cn_models = mode;
+            c.content_based_security.validate().unwrap();
+        });
+        let sid = session_with(&r, None, &["Synthetic words."]);
+        let zai = &r.core.runner.providers["zai"];
+        let got = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN)).await;
+        assert_eq!(got.is_ok(), sent, "{mode:?}: {got:?}");
+        assert_eq!(r.zai.requests().len(), usize::from(sent), "{mode:?}");
+    }
 }

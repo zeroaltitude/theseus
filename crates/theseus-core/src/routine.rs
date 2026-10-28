@@ -864,6 +864,17 @@ fn run_plan(
     );
     rec.title = Some(format!("{} #{run_no}", spec.title));
     rec.execution_id = Some(due.task_id.clone());
+    // A run carries the labels of the session that made the routine
+    // (`created_in`; `spec.session_id` is the routine's own, which reads nothing),
+    // as that session has them now (theseus-gyjyo.5).
+    rec.data = spec
+        .created_in
+        .as_deref()
+        .map(|s| env.store.get_session::<SessionRecord>(s))
+        .transpose()?
+        .flatten()
+        .and_then(|r| r.data)
+        .and_then(|f| f.inherited());
     rec.task = Some(TaskOf {
         parent_session: spec.session_id.clone(),
         parent_execution: spec.execution_id.clone(),

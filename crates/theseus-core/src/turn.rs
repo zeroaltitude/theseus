@@ -974,8 +974,10 @@ impl TurnRunner {
     }
 
     /// Wait for the secrets a turn needs (theseus-qa0): its provider's key,
-    /// and the first round of every secret, since the scrubber must know
-    /// each value before any tool output passes through it. Both are
+    /// and the first round of every secret, since the exits must know each
+    /// value before any request leaves (the record holds a value raw; a
+    /// request is substituted from what the board holds ready now, and a
+    /// secret that is `Failed` is not known). Both are
     /// usually there already. Returns how long it waited, or why the turn
     /// cannot run. Fail closed: no provider call goes out without its key.
     async fn await_secrets(&self, target: &Target) -> Result<u64, SecretRefusal> {
@@ -2250,97 +2252,58 @@ impl TurnRunner {
         let tc = &t.tc;
         let mut nodes = Vec::new();
         let mut reports = Vec::new();
-        let mut held = None;
-        // A report from a task that holds external text brings the hold to
-        // this session, in the frame that writes the report, under the
-        // session record's lock (theseus-9bp): the report may carry what the
-        // task read.
         // A held turn's admission rides the frame that takes them, when there
         // are any (theseus-2uby).
         let turn = &*t;
-        let mut take = |rec: Option<SessionRecord>| {
-            tc.kernel.frame(&[tc.execution_id], |k| {
-                let e = k.execution(tc.execution_id)?;
-                if e.is_some_and(|e| !(e.reports.is_empty() && e.report_wakes.is_empty())) {
-                    self.admit_in(k, turn)?;
-                }
-                k.take_reports(tc.guard, |ids| {
-                    let mut records = Vec::new();
-                    let mut rec = rec;
-                    for id in ids {
-                        let Some(r) = crate::task::load_report(&self.store, &self.kernel, id)?
-                        else {
-                            continue;
-                        };
-                        let n = Node::relayed(
-                            tc.session_id,
-                            Some(tc.turn_id),
-                            crate::node::Origin::Harness,
-                            &format!("task:{}", r.short),
-                            &r.node_text(),
+        let taken = tc.kernel.frame(&[tc.execution_id], |k| {
+            let e = k.execution(tc.execution_id)?;
+            if e.is_some_and(|e| !(e.reports.is_empty() && e.report_wakes.is_empty())) {
+                self.admit_in(k, turn)?;
+            }
+            k.take_reports(tc.guard, |ids| {
+                let mut records = Vec::new();
+                for id in ids {
+                    let Some(r) = crate::task::load_report(&self.store, &self.kernel, id)? else {
+                        continue;
+                    };
+                    let n = Node::relayed(
+                        tc.session_id,
+                        Some(tc.turn_id),
+                        crate::node::Origin::Harness,
+                        &format!("task:{}", r.short),
+                        &r.node_text(),
+                    );
+                    records.push(n.record()?);
+                    // The first transmission edge (12a, theseus-n4m): the
+                    // relayed node copies the task's last message, so
+                    // `node.reach` follows it from there. A task that did
+                    // not finish relays no message, and has no edge.
+                    if let Some(last) = &r.node {
+                        records.push(
+                            crate::graph::Edge::new(
+                                crate::graph::EdgeKind::DerivedFrom,
+                                &n.id,
+                                last,
+                                crate::graph::VIA_REPORT,
+                            )
+                            .record()?,
                         );
-                        records.push(n.record()?);
-                        // The first transmission edge (12a, theseus-n4m): the
-                        // relayed node copies the task's last message, so
-                        // `node.reach` follows it from there. A task that did
-                        // not finish relays no message, and has no edge.
-                        if let Some(last) = &r.node {
-                            records.push(
-                                crate::graph::Edge::new(
-                                    crate::graph::EdgeKind::DerivedFrom,
-                                    &n.id,
-                                    last,
-                                    crate::graph::VIA_REPORT,
-                                )
-                                .record()?,
-                            );
-                        }
-                        if let Some(h) = &r.external {
-                            if let Some(before) = rec.take() {
-                                let h = crate::external::taken(
-                                    h,
-                                    &r.task,
-                                    crate::external::VIA_REPORT,
-                                    &n.id,
-                                    theseus_protocol::now_unix_ms(),
-                                );
-                                if let Some(more) =
-                                    crate::external::hold(before, h.clone(), Some(tc.turn_id))?
-                                {
-                                    records.extend(more);
-                                    held = Some(h);
-                                }
-                            }
-                        }
-                        nodes.push(n);
-                        reports.push(r);
                     }
-                    // Where the reply to them goes if the session posts nowhere
-                    // by then, kept past this turn (theseus-4lx).
-                    if let Some(target) = reports.iter().find_map(|r| r.target.as_deref()) {
-                        records.push(tc.outbox.wake_target_record(tc.session_id, target)?);
-                    }
-                    Ok(records)
-                })
+                    nodes.push(n);
+                    reports.push(r);
+                }
+                // Where the reply to them goes if the session posts nowhere
+                // by then, kept past this turn (theseus-4lx).
+                if let Some(target) = reports.iter().find_map(|r| r.target.as_deref()) {
+                    records.push(tc.outbox.wake_target_record(tc.session_id, target)?);
+                }
+                Ok(records)
             })
-        };
-        let taken = match tc
-            .store
-            .with_session(tc.session_id, |rec| take(Some(rec)))?
-        {
-            Some(taken) => taken,
-            None => take(None)?,
-        };
+        })?;
         for n in &nodes {
             tc.node_written(n);
         }
         self.content_nodes(tc.session_id, &nodes, ItemKind::TaskReport, "task report");
-        if let Some(h) = &held {
-            tc.record(&fact::tool::HoldTaken {
-                hold: h,
-                mode: self.tools.external.mode,
-            });
-        }
         for r in reports
             .iter()
             .filter(|r| taken.woke.contains(&r.execution_id))
@@ -2444,8 +2407,7 @@ impl TurnRunner {
         // It never needs a confirm, so its plan, authorization, and dispatch
         // are one frame, with the loop's rows in front (theseus-qa0), and
         // a recall's node and edges (M6 30b).
-        let mut rides = std::mem::take(&mut t.recall.rides);
-        rides.extend(std::mem::take(&mut t.digest.mark));
+        let rides = std::mem::take(&mut t.recall.rides);
         t.recall.pending = None;
         let action = match t.tc.kernel.plan_and_dispatch(
             t.tc.guard,
@@ -2554,11 +2516,18 @@ impl TurnRunner {
         // between its plan and here, cuts it before anything was sent.
         let armed = self.stops.arm(t.tc.execution_id);
         let outcome = {
-            // The provider floor reads the session's mark as the call is made.
-            let private = self.session_level(t);
+            // The provider floor reads the session's labels as the call is made.
             let sid = t.tc.session_id;
-            let mut stream = std::pin::pin!(crate::data_gate::for_session(sid, || {
-                crate::google::private::scoped(private, || {
+            // The call the provider's substitution names in its row.
+            let call = crate::exits::Call {
+                op: None,
+                session: Some(sid.to_string()),
+                turn: Some(t.tc.turn_id.to_string()),
+                loop_index: Some(i),
+                correlation_id: Some(action.correlation_id.clone()),
+            };
+            let mut stream = std::pin::pin!(crate::exits::for_call(call, || {
+                crate::data_gate::for_session(sid, || {
                     provider.stream_message(&compiled.request, &mut on_delta)
                 })
             }));
@@ -2680,7 +2649,6 @@ impl TurnRunner {
                 lifetime_usd: lifetime,
             }),
             task: crate::task::task_ref(session),
-            external_text: None,
             change: None,
             ..Default::default()
         });

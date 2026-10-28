@@ -17,11 +17,6 @@ program: string, pid: number, rows: number, cols: number, opened_at_unix_ms: num
  */
 running: boolean, 
 /**
- * The listed program that makes its screen outside text, when one does
- * (`[policy] external_programs`).
- */
-external?: string, 
-/**
  * Bytes its program wrote, and bytes typed into it.
  */
 bytes_out: number, bytes_in: number, last_output_unix_ms: number, };

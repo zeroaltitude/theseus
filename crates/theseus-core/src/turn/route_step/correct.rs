@@ -202,11 +202,8 @@ impl TurnRunner {
         via: &str,
         provenance: String,
     ) -> anyhow::Result<Correcting> {
-        // Outside a turn: no model of restricted origin; the names' floor is the turn's.
-        let floor = crate::turn::data_step::Floor {
-            sensitive: false,
-            cn_ok: false,
-        };
+        // Outside a turn: no model of restricted origin; the labels' floor is the turn's.
+        let floor = crate::turn::data_step::Floor { cn_ok: false };
         let resolved =
             correction::resolve(to, &last, &self.cfg.routing, &self.route_profiles(floor));
         let asked = resolved.question != "persona" || last.persona_asked;

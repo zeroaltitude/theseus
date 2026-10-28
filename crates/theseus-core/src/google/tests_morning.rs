@@ -435,9 +435,9 @@ mod calendars {
         );
     }
 
-    /// A sensitive calendar in the brief makes the note's call US-only: a model
-    /// of China origin and one of EU origin are never asked, a US one is, and
-    /// the note's ledger row holds no text.
+    /// A sensitive calendar in the brief: a model of China origin is never
+    /// asked (the call is made for no session, which the chokepoint refuses to
+    /// one), a US one is, and the note's ledger row holds no text.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_sensitive_calendar_makes_the_brief_us_only() {
         // The US model is asked, and its words reach the DM and no ledger row.
@@ -460,15 +460,6 @@ mod calendars {
             |c| c.initiative.profile = Some("glm53".into()),
             false,
         )
-        .await;
-        spoken(&m).await;
-        assert!(m.zai.requests().is_empty() && m.model.requests().is_empty());
-        // EU origin: the same.
-        let (m, _) = rigged(said(), |c| {
-            c.serve_glm_unrestricted();
-            c.vouch_zai(crate::catalog::ModelOrigin::Eu);
-            c.initiative.profile = Some("glm53".into());
-        })
         .await;
         spoken(&m).await;
         assert!(m.zai.requests().is_empty() && m.model.requests().is_empty());

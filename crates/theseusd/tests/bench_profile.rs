@@ -342,7 +342,6 @@ fn the_bench_profile_loads_and_opens_every_tool() {
     assert!(cfg.policy.tools.is_empty(), "{:?}", cfg.policy.tools);
     assert!(cfg.policy.mcp.is_empty() && cfg.policy.aws.is_empty());
     assert!(cfg.policy.allow_argv.is_empty() && cfg.policy.approve_argv.is_empty());
-    assert!(cfg.policy.external_programs.is_empty());
     // A private address is judged as any other (theseus-7gir.20).
     assert_eq!(cfg.policy.private_addresses, PrivateAddresses::Open);
     assert_eq!(cfg.tools.roots, ["/"]);

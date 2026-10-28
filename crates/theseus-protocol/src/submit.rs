@@ -13,7 +13,7 @@ pub struct SessionOpenParams {
     #[serde(default)]
     pub label: Option<String>,
     /// The session whose job opened this one (`JOB_SESSION_ENV`, theseus-b5cl):
-    /// one opened from a session that holds external text holds it too.
+    /// recorded on `session.opened`; it holds nothing since the hold went.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub opened_from: Option<String>,
@@ -67,8 +67,8 @@ pub struct TurnSubmitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub reply_to: Option<String>,
-    /// The session whose job sent this turn (theseus-b5cl): the session the
-    /// turn opens or names takes its hold of external text.
+    /// The session whose job sent this turn (theseus-b5cl): recorded where the
+    /// turn opens a session; it holds nothing since the hold went.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub opened_from: Option<String>,

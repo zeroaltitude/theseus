@@ -1,5 +1,5 @@
 //! Removing a content label (theseus-9ymz0, design §6.3): the operator clears
-//! one flag from a session, as `policy.trust` clears a hold. A label is raised
+//! one flag from a session (Discord's `/trust` is this removal for `injection`). A label is raised
 //! by what entered the session and removed only by the operator, so a session
 //! that carries `injection` stays frozen, and one that carries `secret`,
 //! `confidential` or `personal` stays off the China-origin models, until this.
@@ -122,6 +122,22 @@ impl Core {
             "flag": l.flag.as_str(),
             "text": label_notice(l, self.cfg.content_based_security.injection),
         });
+        let post =
+            self.outbox
+                .post_for(session_id, rec.execution_id.as_deref().unwrap_or(""), body)?;
+        Ok(post.is_some())
+    }
+
+    /// Tell the operator that asks about a session's content failed twice
+    /// (theseus-gyjyo.7): one `notice` post in the session's place, with the
+    /// words the judge wrote. No post when the session has no place; the
+    /// `content.unjudged` row is the record either way.
+    pub fn tell_unjudged(&self, session_id: &str, text: &str) -> Result<bool> {
+        let rec = self
+            .store
+            .get_session::<SessionRecord>(session_id)?
+            .ok_or_else(|| anyhow!("no session is named {session_id}"))?;
+        let body = json!({"kind": "notice", "text": text});
         let post =
             self.outbox
                 .post_for(session_id, rec.execution_id.as_deref().unwrap_or(""), body)?;

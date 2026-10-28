@@ -213,14 +213,6 @@ pub fn is_own_record(input: &Value, session: &str) -> bool {
         .is_some_and(|id| id == own || (id.len() >= 6 && own.ends_with(id)))
 }
 
-/// Whether a call is a task's own close: `task.close` of the record of the
-/// very session that makes it (theseus-ay0yx). The record is the task's own, so
-/// the hold on a session that read outside text does not wait on the owner for
-/// it.
-pub fn is_own_close(tool: &str, input: &Value, session: &str) -> bool {
-    tool == CLOSE && is_own_record(input, session)
-}
-
 /// What the gate's card says of a layer-1 call: the change, before and
 /// after, as far as the input says it.
 fn authority_of(name: &str, input: &Value) -> Option<String> {

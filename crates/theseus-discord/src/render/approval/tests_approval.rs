@@ -27,11 +27,6 @@ fn request(extra: Value) -> ConfirmRequest {
     serde_json::from_value(v).unwrap()
 }
 
-fn outside_text() -> Value {
-    json!({"external_text": {"since_ms": 1_790_000_000_000_u64 - 3_600_000, "tool": "task.start",
-        "url": "quoted text", "node_id": ""}})
-}
-
 fn with_diff(extra: Value) -> Value {
     let mut v = extra;
     v["preview"] = json!({"kind": "diff", "body": DIFF});
@@ -39,21 +34,24 @@ fn with_diff(extra: Value) -> Value {
 }
 
 /// The owner-approved layout, 2026-10-22 (theseus-ono8g); the Discord task flow is
-/// locked: change this golden only with the owner's OK.
+/// locked: change this golden only with the owner's OK. The variant it was approved
+/// with asked because the task quoted outside text, and said "Approve + trust" for it;
+/// the hold behind both is gone (R6, theseus-gyjyo.8), so the same layout now shows
+/// the posture ask, and only those two words differ from what the owner approved.
 #[test]
 fn the_approval_card_reads_as_the_owner_approved_it() {
-    let req = request(with_diff(outside_text()));
+    let req = request(with_diff(json!({})));
     let c = card(&req, &Route::Here, "with `theseus answer`");
     let expected = "\
 ✋ **Approve?** task `490f10` · *[walkthrough] harbour summary* wants to **write** `~/projects/walkthrough/out/harbour.md` (new file, 227 bytes)
-risk: writes a file · why it asks: the task quoted outside text at <t:1789996400:t>
+risk: writes a file · why it asks: you set this kind of call to ask first
 ```diff
 b/out/harbour.md:1
 @@ -0,0 +1,2 @@
 +# Harbour
 +Calm water.
 ```
-**Approve** runs this one call · **Approve + trust** also lets its next calls run as usual · **Decline** refuses it; the task is told and carries on
+**Approve** runs this one call · **Decline** refuses it; the task is told and carries on
 -# expires <t:1790000000:R> · or `theseus answer 490f10 approve`";
     assert_eq!(c.content, expected);
     assert_eq!(
@@ -62,7 +60,7 @@ b/out/harbour.md:1
     );
 }
 
-/// A plain posture ask: no outside text, so no trust button and no trust clause.
+/// A plain posture ask, without a diff.
 #[test]
 fn a_posture_ask_has_no_trust_button_clause() {
     let c = card(&request(json!({})), &Route::Here, "");
@@ -84,7 +82,7 @@ fn an_approval_card_names_no_spec_clause() {
         "reason": "fetch http://10.0.0.5/notes: http.fetch — approve (§4.2: 10.0.0.5 is a private address, \
                    and a private address waits for approval; this is a shared place, so the page joins a \
                    conversation others can read)"});
-    for extra in [json!({}), outside_text(), floor, private] {
+    for extra in [json!({}), floor, private] {
         let c = card(&request(extra), &Route::Here, "with `theseus answer`");
         assert!(
             !c.content.contains('§') && !c.line.contains('§'),

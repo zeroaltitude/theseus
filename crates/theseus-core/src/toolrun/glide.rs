@@ -1,7 +1,7 @@
 //! A glide's run (38b), the harness's side of `channel.post` and
 //! `channel.read` (`crate::glide`): its places resolved again, the place
-//! rule checked again, and its result node with its row, and its post or
-//! its hold, written in the one frame that settles the call.
+//! rule checked again, and its result node with its row, and its post,
+//! written in the one frame that settles the call.
 //!
 //! The check again is for a call that waited: a place the binding rebound
 //! while its question was open may have a stricter class by now, and a call
@@ -219,22 +219,14 @@ impl ToolRuntime {
             more.push(edge.record()?);
         }
         let c = completion(correlation_id, tool, &node, started, &meta, t0);
-        let (accepted, newly) = crate::external::with_hold(
-            tc.store,
-            tc.session_id,
-            Some(tc.turn_id),
-            &node,
-            |mut frame| {
-                frame.append(&mut more);
-                tc.kernel.accept_completion_with(&c, frame)
-            },
-        )?;
+        let mut frame = vec![node.record()?];
+        frame.append(&mut more);
+        let accepted = tc.kernel.accept_completion_with(&c, frame)?;
         if !written(&accepted) {
             return self.not_moved(tc, correlation_id, tool, call, "read");
         }
         tc.rec().announce(&read);
         Self::announce_end(tc, &node);
-        self.held(tc, newly);
         Ok(CallOutcome::Done {
             status: ResultStatus::Ok,
         })

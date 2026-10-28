@@ -105,7 +105,6 @@ impl Core {
                     crate::cpu::CpuPool::new(1),
                     self.cfg.policy.private_addresses,
                 ),
-                scrubber: self.tools.scrubber.clone(),
                 run: hook.unwrap_or_else(|| {
                     Arc::new(move |argv: &[String]| {
                         theseus_kernel::probe_run::run(

@@ -48,7 +48,6 @@ id, where it came from, the model, the spend against its limit, when it was aske
 call, why it asks, and its input. Its keys come from the question's own answers:
 
 - `y` approves (or resets a spend limit, accepts a change, acknowledges an extension);
-- `t` approves and trusts the session again, when it read outside text;
 - `n` declines, and any other words decline with the words as the note (the model reads why);
 - `1`..`6` pick an ask question's choices;
 - `tab` shows the next question that waits ("2 more wait: … [tab] next"), `q` closes.

@@ -6,13 +6,12 @@
 //! - **`channel.post { to, text }`** posts into another bound place: one
 //!   outbox post (`glide:<correlation id>`), written in the frame that
 //!   settles the call, which that place's lane sends once, in its order.
-//!   Class `Write`, so T1's hold makes it wait, and its posture is no looser
-//!   than the destination's floor (38a).
+//!   Class `Write`, and its posture is no looser than the destination's
+//!   floor (38a).
 //! - **`channel.read { from, last? }`** brings the named place's last
 //!   `last` messages (20 by default) into this session as one node, the
 //!   call's result, marked `borrowed from #x`. From a shared place it is
-//!   outside text, as a fetched page is (`External`), so the session takes
-//!   T1's hold. Class `Read`.
+//!   outside text, as a fetched page is (`External`), Class `Read`.
 //! - **The rule** is the place rule's (`places::glide_rule`): the gate runs
 //!   it after the place's floor (`toolrun/order.rs`), and the run checks it
 //!   again. Into a private place a glide always may; out of a private place,
@@ -143,8 +142,8 @@ impl Tool for ChannelPost {
     }
 
     fn class(&self) -> ToolClass {
-        // It says something where others read it, so T1's hold makes it wait:
-        // a page could steer a post elsewhere.
+        // It says something where others read it: a page could steer a post
+        // elsewhere.
         ToolClass::Write
     }
 

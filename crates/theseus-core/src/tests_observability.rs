@@ -6,7 +6,6 @@
 use serde_json::{json, Value};
 use theseus_judge::fake::FakeJev;
 
-use crate::catalog::ModelOrigin;
 use crate::content::{Flag, ItemKind};
 use crate::content_wait::judging::{Judging, Silent};
 use crate::provider::Scripted;
@@ -17,7 +16,7 @@ use crate::tests_dm_rig::{
     OPEN_A, PRIVATE,
 };
 use crate::tests_judge::kinds;
-use crate::tests_route::{call, decided, mode, rig, rig_parts, turn};
+use crate::tests_route::{call, decided, mode, rig, turn};
 
 fn calls(core: &crate::Core) -> Vec<Value> {
     kinds(&core.store, "provider.call")
@@ -73,8 +72,8 @@ async fn route_decided_records_cn_gate_provider_model_origin() {
 }
 
 /// A plain Claude turn whose mode lists no restricted profile gains the
-/// provider, model and origin, a `cn` word, and no `data_gate`: its items
-/// were not yet judged, which it never waited for.
+/// provider, model and origin, a `cn` word, and no `data_gate`: no label
+/// keeps its session off a restricted model, and it never waited for any.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_plain_turns_route_row_gains_only_where_it_ran() {
     let jev = FakeJev::start().unwrap();
@@ -85,18 +84,18 @@ async fn a_plain_turns_route_row_gains_only_where_it_ran() {
     assert_eq!(d["origin"], "us", "{d}");
     assert_eq!(d["model"], res.model.as_str(), "{d}");
     assert_eq!(d["provider"], res.provider.as_str(), "{d}");
-    assert_eq!(d["cn"], "pending", "{d}");
+    assert_eq!(d["cn"], "allowed", "{d}");
     assert!(d.get("data_gate").is_none(), "{d}");
     let t = res.route.unwrap().data.expect("data");
     assert_eq!(
         (t.origin.as_str(), t.gate, t.cn.as_str()),
-        ("us", None, "pending")
+        ("us", None, "allowed")
     );
 }
 
 /// The floor moving a turn off its restricted base writes the why as
-/// `data_gate`: a flag's word for a session labelled, `unjudged` for one whose
-/// items the judge never reached in time.
+/// `data_gate`: a flag's word for a session labelled. A session whose ask never
+/// lands in time is not moved: it goes on the labels it has (theseus-gyjyo.6).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_floor_move_names_its_why() {
     let jev = jev(&[]);
@@ -118,12 +117,9 @@ async fn the_floor_move_names_its_why() {
         .set(std::sync::Arc::new(Silent::default()));
     say(&r.core, &dm(&r.core), OPEN_A, None).await;
     let d = decided(&r.core.store).pop().unwrap();
-    assert_eq!(
-        (d["reason"].as_str(), d["data_gate"].as_str()),
-        (Some("data_gate"), Some("unjudged")),
-        "{d}"
-    );
-    assert!(zai.requests().is_empty());
+    assert!(d.get("data_gate").is_none(), "no label, no move: {d}");
+    assert_eq!(d["cn"], "allowed", "{d}");
+    assert_eq!(zai.requests().len(), 1, "it waited 50 ms, then went");
 }
 
 /// A DM request's call says it went to a `cn` model; a Claude call says its
@@ -237,47 +233,6 @@ fn count_is_one(n: &Value) -> bool {
     n == 1 || n == "1"
 }
 
-/// `sensitive`, end to end. A pinned profile served from an EU host is of no
-/// restricted origin, so only the names' floor keeps the turn off it: the
-/// default runs, the row says `sensitive`, and the counter counts it once. No
-/// label has a part in it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sensitive_name_gate_is_on_the_row_and_counted_once() {
-    let (rx, tel) = telemetry().await;
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = rig_parts(
-        Some(&jev),
-        1,
-        |c| {
-            c.privacy.sensitive_names = vec!["Examplecorp".into()];
-            c.serve_glm_unrestricted();
-            c.vouch_zai(ModelOrigin::Eu);
-        },
-        move |p| p.telemetry = Some(tel),
-    );
-    call(&r.core, "profile.use", json!({"name": "glm53"})).await;
-    let res = turn(
-        &r.core,
-        None,
-        "Rename the call sites in Examplecorp's billing module.",
-        Some("glm53"),
-    )
-    .await;
-    assert_eq!(res.profile, "default");
-    let d = decided(&r.core.store);
-    assert_eq!(d[0]["data_gate"], "sensitive", "{d:?}");
-    let data = res.route.unwrap().data.expect("data");
-    assert_eq!(data.footer().as_deref(), Some("data gate: sensitive"));
-    let counts = gate_counts(&r.core, &rx).await;
-    assert_eq!(counts.len(), 1, "{counts:?}");
-    assert_eq!(
-        (&counts[0].0, &counts[0].1),
-        (&json!("route"), &json!("sensitive"))
-    );
-    assert!(count_is_one(&counts[0].2), "{counts:?}");
-}
-
 /// theseus-4h85l: the provider chokepoint counts each refusal on
 /// `theseus.route.data_gate`, by `chokepoint` and its why word: a call made for
 /// no session, here.
@@ -320,7 +275,7 @@ async fn a_us_model_that_wins_anyway_shows_no_data_gate() {
     let res = say(&r.core, &dm(&r.core), PRIVATE, None).await;
     let d = &decided(&r.core.store)[0];
     assert_eq!(res.profile, "haiku", "{d}");
-    assert_eq!(d["cn"], "pending", "the judge was never waited for: {d}");
+    assert_eq!(d["cn"], "allowed", "the judge was never waited for: {d}");
     assert!(d.get("data_gate").is_none(), "{d}");
     let data = res.route.unwrap().data.expect("data");
     assert_eq!((data.gate.clone(), data.footer()), (None, None));

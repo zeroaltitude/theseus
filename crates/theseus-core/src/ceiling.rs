@@ -4,7 +4,7 @@
 //! place is offered no tool the place rule withholds.
 //!
 //! - **The floor** (`posture_floor`): a call's posture is the strictest of
-//!   the config's, a tightening, the floor, and T1's hold. It is never a
+//!   the config's, a tightening, and the floor. It is never a
 //!   refusal: a floor of `approve` makes every call wait.
 //! - **The tools** (`tools`): the families offered (`fs`, `git`, `web`, …,
 //!   the name before a tool's first dot) and MCP servers (`mcp:<server>`,
@@ -394,7 +394,6 @@ mod tests {
             notify: None,
             floor: false,
             granted: None,
-            external: None,
         };
         let d = notify.floor(open.clone(), "fs.read", "read a file");
         assert_eq!(d.posture, Posture::Notify);

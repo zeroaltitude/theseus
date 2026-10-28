@@ -61,6 +61,8 @@ mod tests_content;
 #[cfg(test)]
 mod tests_heard;
 #[cfg(test)]
+mod tests_quotes;
+#[cfg(test)]
 mod tests_reserve;
 pub mod warm;
 
@@ -155,7 +157,8 @@ impl KeySource for BoardKey {
 }
 
 /// The core's scrubber, as the builders take it: every state is scrubbed of
-/// the board's values and the shapes of secrets before it leaves.
+/// the board's values (verbatim and encoded; no shape is guessed) before it
+/// leaves.
 struct ScrubWith(Arc<Scrubber>);
 
 impl theseus_judge::Scrub for ScrubWith {

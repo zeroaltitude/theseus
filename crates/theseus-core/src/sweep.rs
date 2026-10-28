@@ -1,7 +1,7 @@
 //! The spool's sweep (theseus-2ij): raw job output that no result will absorb.
 //!
 //! Since H3 (theseus-wz2) a job's raw output, `spool/results/<id>.out`, which
-//! is what it printed before the scrubber saw it, is deleted once the node
+//! is what it printed, a printed secret too, is deleted once the node
 //! that holds its result is written. Three kinds were left behind: the output
 //! of a job whose execution was cancelled or ended while it ran, which no turn
 //! absorbs; the output whose node was written when the daemon died before the

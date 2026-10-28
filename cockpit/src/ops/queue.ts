@@ -1,7 +1,7 @@
 // The needs-you queue (theseus-jid7t.3): one list of everything waiting on the owner, the longest waiting first (the
 // TUI's tab order), each item answered in place. Pure: `npm test` runs it (test/ops-queue.test.ts). The page passes in
-// what it already holds: `confirm.list`'s questions, the work board's views, the task records, the thread groups, the
-// sessions that hold external text, and the router's questions the push brought.
+// what it already holds: `confirm.list`'s questions, the work board's views, the task records, the thread groups, and
+// the router's questions the push brought.
 //
 // - A tool approval, a budget ask and a task change are `confirm.list`'s; each is one card, answered by `work.answer`.
 // - A task change proposed and not yet in the list (its record's `proposal`) is a change too, by its card's id.
@@ -9,13 +9,12 @@
 //   question as its confirm, so it is not listed twice.
 // - A failure is a task's or conversation's view that failed and still asks for someone (`execution.dismiss` clears
 //   it): retry, dismiss or open. Under the time machine it is an execution that ended failed, blocked or out of budget.
-// - A seal recommended and not yet answered, a session held by external text, a message the router holds while it
-//   asks which thread it is for.
+// - A seal recommended and not yet answered, a message the router holds while it asks which thread it is for.
 // The cursor is an item's key, never an index: a new item slides in where its age puts it and the cursor stays on the
 // item it was on (`keepCursor`).
-import type { ConfirmRequest, ExecutionInfo, ExternalText, TaskRecord, ThreadAsk, ThreadGroup, WorkView } from '@protocol'
+import type { ConfirmRequest, ExecutionInfo, TaskRecord, ThreadAsk, ThreadGroup, WorkView } from '@protocol'
 
-export type ItemKind = 'approval' | 'budget' | 'change' | 'question' | 'failure' | 'seal' | 'hold' | 'ask'
+export type ItemKind = 'approval' | 'budget' | 'change' | 'question' | 'failure' | 'seal' | 'ask'
 
 export interface QueueItem {
   key: string
@@ -32,7 +31,6 @@ export interface QueueItem {
   view?: WorkView
   execution?: ExecutionInfo
   thread?: ThreadGroup
-  hold?: { session_id: string; title: string; external_text: ExternalText }
   ask?: ThreadAsk
   proposal?: { record: TaskRecord }
 }
@@ -42,9 +40,6 @@ export interface QueueInput {
   views: readonly WorkView[]
   records?: readonly TaskRecord[]
   groups?: readonly ThreadGroup[]
-  /** The holds that wait (ask mode, a live session): `holdsOf(sessions).waiting`. A hold that makes nothing wait is a
-   *  notice (`ops/notices.ts`), never an item. */
-  holds?: ReadonlyArray<{ session_id: string; title: string; external_text: ExternalText }>
   /** The router's open questions, each with when the page heard it. */
   asks?: ReadonlyArray<{ ask: ThreadAsk; heard_ms: number }>
   /** Under the time machine: the executions as they stood (the board holds no views then). */
@@ -115,12 +110,6 @@ export function queueOf(q: QueueInput): QueueItem[] {
   for (const g of q.groups ?? []) {
     if (!g.seal_pending) continue
     out.push({ key: `s:${g.slug}`, kind: 'seal', since: g.last_active_ms, owner: g.title, title: `Seal it: ${g.seal_pending}`, sessionId: g.session_id, thread: g })
-  }
-  for (const h of q.holds ?? []) {
-    out.push({
-      key: `h:${h.session_id}`, kind: 'hold', since: h.external_text.since_ms, owner: h.title, sessionId: h.session_id, hold: h,
-      title: `Trust it again: it read ${h.external_text.tool} ${h.external_text.query != null ? `"${h.external_text.query}"` : h.external_text.url}`,
-    })
   }
   for (const { ask, heard_ms } of q.asks ?? []) {
     out.push({ key: `a:${ask.ask_id}`, kind: 'ask', since: heard_ms, owner: ask.place ?? title(ask.session_id), title: ask.question, sessionId: ask.session_id, expiresAt: ask.expires_ms, ask })
@@ -194,15 +183,14 @@ export const grantKey = (c: Pick<ConfirmRequest, 'grant_offer'>): 'a' | 'e' | nu
   !c.grant_offer ? null : c.grant_offer.kind === 'edits' || c.grant_offer.kind === 'mode' ? 'e' : 'a'
 
 export type Answer =
-  | { verb: 'approve' | 'approve_trust' | 'grant' }
+  | { verb: 'approve' | 'grant' }
   | { verb: 'decline'; note?: string }
   | { verb: 'choice'; n: number; note?: string }
-  | { verb: 'retry' | 'dismiss' | 'trust' | 'seal' | 'seal_dismiss' }
+  | { verb: 'retry' | 'dismiss' | 'seal' | 'seal_dismiss' }
   | { verb: 'thread_answer'; key: string }
 
 /** One answer to an item as the one protocol call that makes it, with the question to confirm first where the page
- *  asks one; null when the item has no such answer (a trust on a session that holds nothing, a retry of a
- *  conversation). Every question is `work.answer`, as every surface answers it. */
+ *  asks one; null when the item has no such answer (a retry of a conversation). Every question is `work.answer`, as every surface answers it. */
 export function answerOf(i: QueueItem, a: Answer): { method: string; params: Record<string, unknown>; ask?: string } | null {
   const qid = i.confirm?.correlation_id ?? i.proposal?.record.proposal?.card ?? i.view?.question?.id
   switch (a.verb) {
@@ -211,8 +199,6 @@ export function answerOf(i: QueueItem, a: Answer): { method: string; params: Rec
       const yes = i.confirm ? (i.confirm.options?.[0]?.id ?? (i.confirm.budget ? 'reset' : i.confirm.change ? 'accept' : i.confirm.tool === 'extend.ack' ? 'ack' : 'approve')) : 'accept'
       return { method: 'work.answer', params: { question_id: qid, option: yes } }
     }
-    case 'approve_trust':
-      return i.confirm?.external_text ? { method: 'work.answer', params: { question_id: qid, option: 'approve_trust' } } : null
     case 'grant':
       return i.confirm?.grant_offer ? { method: 'work.answer', params: { question_id: qid, option: 'approve_grant' } } : null
     case 'decline':
@@ -232,8 +218,6 @@ export function answerOf(i: QueueItem, a: Answer): { method: string; params: Rec
       const exe = i.view?.id ?? i.execution?.execution_id
       return i.kind === 'failure' && exe ? { method: 'execution.dismiss', params: { execution_id: exe } } : null
     }
-    case 'trust':
-      return i.hold ? { method: 'policy.trust', params: { session_id: i.hold.session_id }, ask: `Trust ${i.hold.title} again? Its calls that act stop waiting.` } : null
     case 'seal':
       return i.thread ? { method: 'thread.seal', params: { slug: i.thread.slug, reason: i.thread.seal_pending }, ask: `Seal ${i.thread.title}? Its notes stop reaching any other thread’s recall.` } : null
     case 'seal_dismiss':

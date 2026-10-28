@@ -12,10 +12,10 @@
 //!   unreachable` or `mail unreachable`; it never blocks the note.
 //! - **The reads are the note's own task's**, never the tick's: `morning_note`
 //!   runs on the runtime after the day is claimed.
-//! - **The brief is private text.** The note's model call is made inside
-//!   `private::scoped(true, …)` whenever a fact from here is in it, so the
-//!   provider floor refuses a model of restricted origin and the note goes out
-//!   as its template (`initiative_speak` never retries on another profile).
+//! - **The brief is private text.** The note's model call is made for no
+//!   session, which the provider floor refuses to a model of restricted origin,
+//!   and the note then goes out as its template (`initiative_speak` never
+//!   retries on another profile).
 
 use std::sync::Arc;
 
@@ -23,7 +23,6 @@ use serde_json::Value;
 use theseus_google::Request;
 
 use crate::google::calendar::{self, Brief};
-use crate::google::private::Level;
 use crate::google::{mail, mime, Google, Meta};
 use crate::rpc::Core;
 use crate::wake::local;
@@ -46,15 +45,6 @@ pub(crate) struct Day {
 }
 
 impl Day {
-    /// How the note's lines are held: what the model call is made as.
-    pub fn level(&self) -> Level {
-        match (self.sensitive, self.happened() + self.drafts) {
-            (true, _) => Level::Sensitive,
-            (false, 0) => Level::Open,
-            _ => Level::Private,
-        }
-    }
-
     /// What the day holds that counts as something happening: its meetings
     /// and the mail that matters.
     pub fn happened(&self) -> u64 {

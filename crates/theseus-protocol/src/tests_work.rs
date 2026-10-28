@@ -79,7 +79,6 @@ fn question(kind: QuestionKind) -> Question {
         may_answer: true,
         tool: Some("proc.run".into()),
         asked_at_ms: AT,
-        external_text: false,
         choices: Vec::new(),
     };
     q.options = answer_options(&q);
@@ -214,8 +213,7 @@ fn each_rule_has_its_label() {
     assert_eq!(label(conv(WorkState::Expired)), "expired");
 }
 
-/// Each kind of question's answers: the floor marks approve dangerous, and
-/// external text adds approve and trust.
+/// Each kind of question's answers: the floor marks approve dangerous.
 #[test]
 fn each_kind_of_question_has_its_answers() {
     let ids =
@@ -225,8 +223,6 @@ fn each_kind_of_question_has_its_answers() {
     let opts = answer_options(&q);
     assert_eq!(opts[0].style, Style::Primary);
     assert!(opts[1].takes_note, "a decline takes a note");
-    q.external_text = true;
-    assert_eq!(ids(&q), ["approve", "approve_trust", "decline"]);
     q.floor = true;
     let opts = answer_options(&q);
     assert_eq!(
@@ -234,7 +230,6 @@ fn each_kind_of_question_has_its_answers() {
         Style::Danger,
         "the floor's approve is dangerous"
     );
-    assert_eq!(opts[1].style, Style::Danger);
     assert_eq!(ids(&question(QuestionKind::Budget)), ["reset", "decline"]);
     assert_eq!(ids(&question(QuestionKind::Change)), ["accept", "decline"]);
     assert_eq!(ids(&question(QuestionKind::Extension)), ["ack", "decline"]);

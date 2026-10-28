@@ -1,7 +1,7 @@
 //! What a China-origin draft's view still bounds (theseus-9ymz0, narrowing the
 //! open view into `draft_view.rs`): a draft is a model of restricted origin
 //! reading a session, so it is offered no tool that starts or schedules work
-//! outside it, reads a transcript's file under §3.9's hold, and may change only
+//! outside it, reads a transcript's file only as outside text (§3.9), and may change only
 //! its own task's record. Ported from the open view's tests of the same
 //! behaviours, each against the draft's reach. Every name here is invented.
 
@@ -101,13 +101,13 @@ async fn a_draft_is_not_offered_the_tools_that_start_work() {
     );
 }
 
-/// theseus-mhqlm F2: a transcript file a draft reads is outside text (§3.9's
-/// hold), as a shared place's is. The draft's reach does not offer `file.read`
-/// at all, so the call is refused and nothing is read; the hold is the second
-/// guard if it ever is: whatever the gate says, the file's text never reaches a
-/// request unless the session holds it.
+/// theseus-mhqlm F2: a transcript file a draft reads is outside text (§3.9), as
+/// a shared place's is. The draft's reach does not offer `file.read` at all, so
+/// the call is refused and nothing is read; the marker is the second guard if it
+/// ever is: whatever the gate says, the file's text never reaches a request
+/// unless its result is marked.
 #[tokio::test]
-async fn a_drafts_transcript_read_takes_the_outside_text_hold() {
+async fn a_drafts_transcript_read_is_marked_outside_text() {
     const SAID: &str = "The widgetco quay ledger: 41 bollards, 3 cranes.";
     let r = rig(
         |req| match answers_a_call(req) {
@@ -142,10 +142,21 @@ async fn a_drafts_transcript_read_takes_the_outside_text_hold() {
         .to_string()
         .contains("file.read is not offered in an open request");
     assert!(read || refused, "the call failed otherwise: {result}");
-    let held = record(&r.core, &sid)
-        .external
-        .is_some_and(|h| h.url.starts_with("attachment:"));
-    assert!(!read || held, "read without the hold: {result}");
+    let marked = r
+        .core
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .iter()
+        .any(|(_, n)| match &n.body {
+            crate::node::Body::ToolResult {
+                tool,
+                external: Some(e),
+                ..
+            } => tool == "file.read" && e.url.starts_with("attachment:"),
+            _ => false,
+        });
+    assert!(!read || marked, "read without the marker: {result}");
 }
 
 /// theseus-ol8w0: a draft's `task.update` and `task.close` reach only its own

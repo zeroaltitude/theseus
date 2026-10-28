@@ -53,8 +53,8 @@ impl Conn<'_> {
     /// `sock#32`; theseus-qiy), and the surface and the binding's Discord ids
     /// decide (the place rule, theseus-zmgb).
     /// Every such method builds it here, so whatever judges an answer judges
-    /// the others the same way, and an approval's trust and `policy.trust`
-    /// name the same one.
+    /// the others the same way, and a content label's removal names the same
+    /// one.
     pub fn answerer(
         &self,
         author: Option<String>,
@@ -338,8 +338,6 @@ impl Core {
             method::WORK_ANSWER => route(params, |p| self.work_answer(p, conn)),
             method::POLICY_TIGHTEN => route(params, |p| self.policy_tighten(p, conn)),
             method::POLICY_UNTIGHTEN => route(params, |p| self.policy_untighten(p, conn)),
-            method::POLICY_TRUST => route(params, |p| self.policy_trust(p, conn)),
-            method::POLICY_NOTICE_SEEN => route(params, |p| self.policy_notice_seen(p, conn)),
             method::CONTENT_UNLABEL => route(params, |p| self.content_unlabel(p, conn)),
             method::PLACE_PUBLISH => route(params, |p| self.place_publish(p, conn)),
             method::TASK_START => route(params, |p| self.task_start_rpc(p, conn)),

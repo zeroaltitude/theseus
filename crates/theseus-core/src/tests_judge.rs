@@ -86,7 +86,7 @@ pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
     // ontology: these tests count the batch's questions and frames, so it is
     // off here and `tests_onto` turns it on.
     cfg.ontology.judge = false;
-    // content.v2 (theseus-9ymz0) judges every item that enters a session, so a
+    // content.v3 (theseus-9ymz0) judges every item that enters a session, so a
     // rig that counts Jev's calls would count its too: it is off here, and
     // `judge::tests_content` turns it on.
     cfg.judge
@@ -188,6 +188,16 @@ pub(crate) fn kinds(store: &Store, kind: &str) -> Vec<LedgerRow> {
         .collect()
 }
 
+/// The nodes the content pack has asked about and judged, in the order its
+/// `content.judged` rows were written: what a test holds an item's being
+/// asked about against (theseus-gyjyo.7; there is no mark to read).
+pub(crate) fn judged_nodes(store: &Store) -> Vec<String> {
+    kinds(store, "content.judged")
+        .into_iter()
+        .filter_map(|r| r.data["node"].as_str().map(str::to_string))
+        .collect()
+}
+
 /// A turn the baseline ends with no tool calls is judged once by `loop.v1`
 /// in shadow: its row is keyed by the judgment's id and scoped
 /// `judge:loop`, its state is in a blob written before it, and its cost is
@@ -276,7 +286,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
             "heard.v1: live",
             "people.v1: live",
             "people_seen.v1: live",
-            "content.v2: off"
+            "content.v3: off"
         ]
     );
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
@@ -477,7 +487,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
             "heard.v1: live",
             "people.v1: live",
             "people_seen.v1: live",
-            "content.v2: off"
+            "content.v3: off"
         ]
     );
 }

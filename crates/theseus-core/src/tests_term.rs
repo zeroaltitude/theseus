@@ -1,8 +1,8 @@
 //! Terminals through the whole core (theseus-n88g.4): the gate's decisions
 //! for `term.open` and `term.send` (judged as their program's run), a
-//! listed program's screen holding its session, and a terminal closed, with
-//! its row and no process left, at its session's end, a cancel, a `/stop`,
-//! and the daemon's stop.
+//! terminal's send running at its posture, and a terminal closed, with its
+//! row and no process left, at its session's end, a cancel, a `/stop`, and
+//! the daemon's stop.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -86,11 +86,7 @@ struct Rig {
     _dir: tempfile::TempDir,
 }
 
-fn rig(
-    external: &[&str],
-    driver: bool,
-    script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static,
-) -> Rig {
+fn rig(driver: bool, script: impl Fn(&ProviderRequest) -> Scripted + Send + Sync + 'static) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -99,7 +95,6 @@ fn rig(
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.policy.enforcement = Posture::Notify;
-    cfg.policy.external_programs = external.iter().map(|s| s.to_string()).collect();
     let store = Store::open(&dir.path().join("store")).unwrap();
     let core = Core::build(crate::rpc::Parts::for_tests(
         cfg,
@@ -168,10 +163,10 @@ fn the_gate_judges_a_terminal_as_its_programs_run() {
     let root = d.path().canonicalize().unwrap();
     let ctx = ToolCtx::for_tests(&root);
     let policy = policy_in(&root);
-    let terms = Arc::new(Terms::new(
-        vec![("PATH".into(), std::env::var("PATH").unwrap())],
-        vec![],
-    ));
+    let terms = Arc::new(Terms::new(vec![(
+        "PATH".into(),
+        std::env::var("PATH").unwrap(),
+    )]));
     let decide = |tool: &dyn Tool, input: Value| {
         let plan = tool.plan(&input, &ctx).unwrap();
         let d = policy.decide(tool, &plan);
@@ -262,13 +257,12 @@ fn the_gate_judges_a_terminal_as_its_programs_run() {
     rt.block_on(async { assert_eq!(terms.close_session("s1", term::BY_SESSION_END).len(), 2) });
 }
 
-/// A terminal whose program `[policy] external_programs` lists holds its
-/// session from its first screen (`via: program`): the next `term.send`
-/// waits for the operator, and a `term.read` keeps its posture. Its open and
-/// its health line are recorded.
+/// A terminal of any program runs at its posture: the `term.send` after its
+/// open is not held, and a `term.read` keeps its posture. Its open and its
+/// health line are recorded.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_listed_programs_screen_holds_its_session() {
-    let r = rig(&["cat"], false, |req| {
+async fn a_terminals_send_runs_at_its_posture_and_its_open_is_recorded() {
+    let r = rig(false, |req| {
         let (_, last, n) = asked(req);
         match (last.as_str(), n) {
             ("open cat", 0) => call("o1", term::OPEN, json!({"argv": ["cat"]})),
@@ -280,23 +274,8 @@ async fn a_listed_programs_screen_holds_its_session() {
     let core = &r.core;
     let sid = session(core);
     let res = turn(core, &sid, "open cat").await;
-    let corr = res
-        .awaiting_confirm
-        .clone()
-        .expect("the send waits after the screen");
-    let pending = core.pending_confirms(&sid).unwrap();
-    assert_eq!(pending[0].tool, term::SEND);
-    let held = core
-        .store
-        .get_session::<SessionRecord>(&sid)
-        .unwrap()
-        .unwrap()
-        .external
-        .expect("held");
-    assert_eq!(
-        (held.tool.as_str(), held.via.as_deref()),
-        (term::OPEN, Some(crate::external::VIA_PROGRAM))
-    );
+    assert!(res.awaiting_confirm.is_none(), "the send is not held");
+    assert!(core.pending_confirms(&sid).unwrap().is_empty());
     let opened = rows(core, "term.opened");
     assert_eq!(opened.len(), 1);
     assert_eq!(opened[0].0.as_deref(), Some(sid.as_str()));
@@ -309,54 +288,17 @@ async fn a_listed_programs_screen_holds_its_session() {
     );
     let health = core.health();
     assert_eq!(health.terminals.len(), 1);
-    assert_eq!(
-        (
-            health.terminals[0].id.as_str(),
-            health.terminals[0].external.as_deref()
-        ),
-        ("t1", Some("cat"))
-    );
-    core.confirm_action(&corr, false, Some("not now"), "test")
-        .unwrap();
-    core.continue_execution(res.execution_id.as_deref().unwrap())
-        .await
-        .unwrap();
+    assert_eq!(health.terminals[0].id.as_str(), "t1");
     let res = turn(core, &sid, "read it").await;
     assert!(res.awaiting_confirm.is_none(), "a read keeps its posture");
     core.finish_stop().await;
-}
-
-/// A terminal of a program no list names holds nothing: its send runs at
-/// its posture.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_terminal_of_an_unlisted_program_holds_nothing() {
-    let r = rig(&["gh"], false, |req| {
-        let (_, last, n) = asked(req);
-        match (last.as_str(), n) {
-            ("open cat", 0) => call("o1", term::OPEN, json!({"argv": ["cat"]})),
-            ("open cat", 1) => call("s1", term::SEND, json!({"terminal": "t1", "text": "hi\n"})),
-            _ => Scripted::text("Done."),
-        }
-    });
-    let sid = session(&r.core);
-    let res = turn(&r.core, &sid, "open cat").await;
-    assert!(res.awaiting_confirm.is_none());
-    assert!(r
-        .core
-        .store
-        .get_session::<SessionRecord>(&sid)
-        .unwrap()
-        .unwrap()
-        .external
-        .is_none());
-    r.core.finish_stop().await;
 }
 
 /// A cancel of its execution closes a session's terminal: its row says so,
 /// and its program is gone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cancel_closes_the_sessions_terminals() {
-    let r = rig(&[], false, opener);
+    let r = rig(false, opener);
     let sid = session(&r.core);
     let res = turn(&r.core, &sid, "open one").await;
     let (id, pid) = only_terminal(&r.core, &sid);
@@ -371,7 +313,7 @@ async fn a_cancel_closes_the_sessions_terminals() {
 /// A `/stop` halts its terminals' programs too.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stop_closes_the_sessions_terminals() {
-    let r = rig(&[], false, opener);
+    let r = rig(false, opener);
     let sid = session(&r.core);
     let res = turn(&r.core, &sid, "open one").await;
     let (id, pid) = only_terminal(&r.core, &sid);
@@ -385,7 +327,7 @@ async fn a_stop_closes_the_sessions_terminals() {
 /// The daemon's stop closes every terminal, each recorded in its session.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_daemons_stop_closes_every_terminal() {
-    let r = rig(&[], false, opener);
+    let r = rig(false, opener);
     let (a, b) = (session(&r.core), session(&r.core));
     turn(&r.core, &a, "open one").await;
     turn(&r.core, &b, "open one").await;
@@ -402,7 +344,7 @@ async fn the_daemons_stop_closes_every_terminal() {
 async fn a_tasks_terminal_closes_at_its_sessions_end() {
     // The ask the task's arrangement quotes (M5 27: a task needs one).
     const START: &str = "START a task that opens a terminal, please";
-    let r = rig(&[], true, |req| {
+    let r = rig(true, |req| {
         let (first, last, n) = asked(req);
         if first.contains("CHILD") {
             return match n {
@@ -508,7 +450,7 @@ async fn background_job_until(by: &'static str, bg: &str, fg: &str) {
     let run = format!("{:07}", std::process::id());
     let (bg, fg) = (format!("{bg}.{run}"), format!("{fg}.{run}"));
     let script = format!("set -m; sleep {bg} & exec sleep {fg}");
-    let r = rig(&[], true, move |req| {
+    let r = rig(true, move |req| {
         let (first, last, n) = asked(req);
         if first.contains("CHILD") {
             return match n {
@@ -612,7 +554,7 @@ async fn background_job_until(by: &'static str, bg: &str, fg: &str) {
 /// result's `reclaimed` into its row).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_open_that_reclaims_a_slot_records_the_reclaimed_close() {
-    let r = rig(&[], false, |req| {
+    let r = rig(false, |req| {
         let (_, last, n) = asked(req);
         match (last.as_str(), n) {
             ("open five", n) if n < 5 => call(
@@ -662,7 +604,7 @@ async fn the_configs_term_settings_reach_the_terminals() {
 /// review: nothing held the terminals' half of the flag).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stop_keeping_jobs_leaves_the_sessions_terminals_open() {
-    let r = rig(&[], false, opener);
+    let r = rig(false, opener);
     let sid = session(&r.core);
     let res = turn(&r.core, &sid, "open one").await;
     let (id, pid) = only_terminal(&r.core, &sid);

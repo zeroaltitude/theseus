@@ -16,9 +16,8 @@
 //!   last used is kept (`mcp.prompt_used.<server>`); a use whose definition
 //!   differs is `mcp.prompt_changed`, ledgered and narrated, with an
 //!   operator notice, and the use goes ahead.
-//! - **Outside text.** The messages are the server's words: a server with
-//!   `external = true` (the default) gives the session T1's hold, in the
-//!   frame of the input's own nodes (`PromptInput::hold`).
+//! - **Outside text.** The messages are the server's words; the content pack
+//!   asks of them what it asks of any item (a prompt holds nothing).
 
 use std::collections::BTreeMap;
 
@@ -165,15 +164,12 @@ pub struct PromptMessage {
     pub files: Vec<theseus_protocol::Attachment>,
 }
 
-/// A prompt as a turn's input: its messages, who wrote them, and whether the
-/// server's words hold the session.
+/// A prompt as a turn's input: its messages, and who wrote them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PromptInput {
     /// `prompt:<server>/<name>`.
     pub author: String,
     pub messages: Vec<PromptMessage>,
-    /// Outside text (`external = true`): the hold's source, `mcp:<server>/<name>`.
-    pub hold: Option<String>,
 }
 
 impl PromptInput {
@@ -401,7 +397,6 @@ impl McpBoard {
         Ok(PromptInput {
             author: format!("prompt:{}/{}", s.name, r.name),
             messages,
-            hold: s.cfg.external.then(|| format!("mcp:{}/{}", s.name, r.name)),
         })
     }
 

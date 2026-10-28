@@ -99,9 +99,6 @@ impl Core {
             floor: decision.floor,
             budget: None,
             task: crate::task::task_ref(session),
-            // The call waits because its session read external text
-            // (theseus-9bp): its card offers to trust the session again.
-            external_text: decision.external,
             change: crate::task_graph::tools::change_of(&self.store, tool, input),
             options: Vec::new(),
             may_answer: None,
@@ -157,7 +154,6 @@ impl Core {
                 lifetime_usd: session.cost_usd,
             }),
             task: crate::task::task_ref(session),
-            external_text: None,
             change: None,
             options: Vec::new(),
             may_answer: None,
@@ -306,16 +302,11 @@ impl Core {
         note: Option<&str>,
         by: impl Into<Answerer>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
-        self.confirm_action_with(correlation_id, approve, note, by, false, Rides::default())
+        self.confirm_action_with(correlation_id, approve, note, by, Rides::default())
     }
 
-    /// `confirm_action`, and with `trust`, trust the call's session again as
-    /// well (theseus-9bp): its hold on external text is cleared before the
-    /// approval wakes the execution, so the calls after this one run at their
-    /// postures. The answer's judgment covers the trust, which only goes with
-    /// an approval of a tool call. `extra`: records for a tool call's
+    /// `confirm_action`, with `rides`: `extra`, records for a tool call's
     /// answer's frame, a grant's row (theseus-drjs).
-    /// an approval of a tool call.
     ///
     /// For an `owner_ask`, `ask` is the answer that rides in the same frame
     /// (theseus-j7cje): the option's id and the META record holding the
@@ -327,7 +318,6 @@ impl Core {
         approve: bool,
         note: Option<&str>,
         by: impl Into<Answerer>,
-        trust: bool,
         rides: Rides<'_>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
         let Rides { extra, ask } = rides;
@@ -336,12 +326,6 @@ impl Core {
             .kernel
             .action(correlation_id)?
             .ok_or_else(|| anyhow::anyhow!("no action {correlation_id}"))?;
-        if trust && (!approve || a.tool == BUDGET_TOOL) {
-            anyhow::bail!(
-                "trust goes with an approval of a tool call: approve {correlation_id} to trust \
-                 its session, or use `policy.trust`"
-            );
-        }
         self.judge_act(
             &who,
             Act::Answer {
@@ -386,21 +370,17 @@ impl Core {
             return self.answer_promotion(&a, approve, note, by, &via);
         }
         // The answer is one frame, a kernel transaction (theseus-jj9f): the
-        // bind or the decline, an approval's trust, the answer's row, and the
-        // wake. So no surface sees the execution waiting on a question it no
-        // longer has, and the hold is cleared in the frame that wakes it. A
-        // trust takes the session's lock first: the session, then the
-        // execution.
+        // bind or the decline, the answer's row, and the wake. So no surface
+        // sees the execution waiting on a question it no longer has.
         let fact = fact::answer::CallAnswered {
             action: &a,
             approve,
             note,
             by,
             via: &via,
-            trust,
             option: Some(match &ask {
                 Some((option, _)) => option,
-                None => super::answer::option_id(kind, approve, trust),
+                None => super::answer::option_id(kind, approve),
             }),
         };
         let answered = fact::row(&fact, Some(&a.session_id), None)?;
@@ -416,71 +396,43 @@ impl Core {
             .flatten();
         let task_rec = self.session_rec(&a.session_id);
         let mut declined = None;
-        let mut answer = |hold: Option<SessionRecord>| {
-            self.kernel.frame(&[&a.execution_id], |k| {
-                if task_lock.is_some() {
-                    if let Some((records, c)) =
-                        crate::task_graph::tools::declined(&self.store, &task_rec, &a)?
-                    {
-                        k.stage(&records)?;
-                        declined = Some(c);
-                    }
+        let woke = self.kernel.frame(&[&a.execution_id], |k| {
+            if task_lock.is_some() {
+                if let Some((records, c)) =
+                    crate::task_graph::tools::declined(&self.store, &task_rec, &a)?
+                {
+                    k.stage(&records)?;
+                    declined = Some(c);
                 }
-                match &proposal {
-                    Some(p) => {
-                        k.bind_confirm(correlation_id, OPERATOR, p)?;
-                    }
-                    None => {
-                        k.decline_action(
-                            correlation_id,
-                            OPERATOR,
-                            note.unwrap_or("the operator declined"),
-                        )?;
-                    }
+            }
+            match &proposal {
+                Some(p) => {
+                    k.bind_confirm(correlation_id, OPERATOR, p)?;
                 }
-                let trusted = match hold {
-                    Some(rec) => super::trust::trusted(
-                        rec,
-                        &a.session_id,
-                        &who,
-                        theseus_protocol::method::ACTION_CONFIRM,
-                        Some(correlation_id),
-                    )?,
-                    None => None,
-                };
-                if let Some((_, frame)) = &trusted {
-                    k.stage(frame)?;
+                None => {
+                    k.decline_action(
+                        correlation_id,
+                        OPERATOR,
+                        note.unwrap_or("the operator declined"),
+                    )?;
                 }
-                k.stage(std::slice::from_ref(&answered))?;
-                k.stage(extra)?;
-                if let Some((_, record)) = &ask {
-                    k.stage(std::slice::from_ref(record))?;
-                }
-                // The wake is its own part: one that cannot happen (the
-                // execution ended) takes back nothing else.
-                let why = if approve { "confirmed" } else { "declined" };
-                let woke = k
-                    .frame(&[&a.execution_id], |k| k.wake(&a.execution_id, why))
-                    .is_ok();
-                Ok((woke, trusted.map(|(r, _)| r)))
-            })
-        };
-        let (woke, trusted) = match trust {
-            true => match self
-                .store
-                .with_session(&a.session_id, |rec| answer(Some(rec)))?
-            {
-                Some(done) => done,
-                None => answer(None)?,
-            },
-            false => answer(None)?,
-        };
+            }
+            k.stage(std::slice::from_ref(&answered))?;
+            k.stage(extra)?;
+            if let Some((_, record)) = &ask {
+                k.stage(std::slice::from_ref(record))?;
+            }
+            // The wake is its own part: one that cannot happen (the
+            // execution ended) takes back nothing else.
+            let why = if approve { "confirmed" } else { "declined" };
+            let woke = k
+                .frame(&[&a.execution_id], |k| k.wake(&a.execution_id, why))
+                .is_ok();
+            Ok(woke)
+        })?;
         drop(task_lock);
         if let Some(c) = &declined {
             crate::fact::task_graph::announce(&task_rec, "change_declined", c);
-        }
-        if let Some(r) = &trusted {
-            self.announce_trust(&a.session_id, r);
         }
         // Its row rode in the answer's frame; the rest is said now.
         let rec = self.session_rec(&a.session_id);
@@ -491,10 +443,9 @@ impl Core {
         self.card_closed(
             correlation_id,
             Closed {
-                note: match &ask {
-                    Some((option, _)) => Some(crate::ask::answered_line(&a, option, note)),
-                    None => trust.then(|| "and trusted the session again".to_string()),
-                },
+                note: ask
+                    .as_ref()
+                    .map(|(option, _)| crate::ask::answered_line(&a, option, note)),
                 ..Closed::new(
                     match (approve, ask.is_some()) {
                         (_, true) => "answered",
@@ -512,7 +463,6 @@ impl Core {
             session_id: a.session_id,
             execution_id: a.execution_id,
             resumes: true,
-            granted: None,
         })
     }
 
@@ -717,7 +667,7 @@ impl Core {
     /// changes.
     pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<()> {
         let verdict = match act {
-            Act::Tighten { .. } | Act::Earned { tightens: true, .. } => {
+            Act::Tighten { .. } => {
                 who.unknown().map_or(Ok(()), Err)
             }
             Act::SelfResume {
@@ -843,7 +793,6 @@ impl Core {
             option: Some(super::answer::option_id(
                 theseus_protocol::work::QuestionKind::Budget,
                 approve,
-                false,
             )),
         };
         let answered = fact::row(&fact, Some(&q.session_id), None)?;
@@ -888,7 +837,6 @@ impl Core {
             session_id: q.session_id.clone(),
             execution_id: q.execution_id.clone(),
             resumes: approve,
-            granted: None,
         })
     }
 }
@@ -959,9 +907,6 @@ pub(crate) enum Act<'a> {
     Tighten { tool: &'a str },
     /// The undo of a tightening, which returns the tool to the config.
     Untighten { tool: &'a str },
-    /// Trusting a session again (theseus-9bp): it no longer holds external
-    /// text, so its calls that act return to their postures.
-    Trust { session: &'a str },
     /// The owner's publish into a place (the place rule): it puts the owner's
     /// material where others read it.
     Publish { place: &'a str },
@@ -1005,16 +950,11 @@ pub(crate) enum Act<'a> {
     /// sessions could hide the owner's conversations from the default view.
     /// `what` names it: `the retirement of ses_…`.
     Session { method: &'static str, what: &'a str },
-    /// The owner's dismissal of a session's hold notice (theseus-g00vv,
-    /// `policy.notice_seen`): a session's own act, so its refusal is the
-    /// session's row, as a trust's is (theseus-tx1vj). `what` names it:
-    /// `Dismissing the notice of session ses_…`.
-    Dismiss { session: &'a str, what: &'a str },
     /// The owner's removal of a content label (theseus-9ymz0,
     /// `content.unlabel`): it lets a frozen session act again, or lets one
     /// that is off the China-origin models use them, so a job's process that
     /// could remove one would clear its own. A session's own act, so its
-    /// refusal is the session's row, as a trust's is. `what` names it:
+    /// refusal is the session's row. `what` names it:
     /// `Removing injection from session ses_…`.
     Unlabel { session: &'a str, what: &'a str },
     /// A standing record's addition or revoke (theseus-a7vi): the owner's
@@ -1064,15 +1004,6 @@ pub(crate) enum Act<'a> {
         what: &'a str,
         from_job: Option<&'a str>,
     },
-    /// Earned autonomy (theseus-uttu): a grant's yes or a group's pass (the
-    /// owner's, from a private place, since a yes loosens), a card posted
-    /// now, and a grant's revoke (`tightens`: anyone's, as "should have
-    /// asked" is). `what` names it: `the grant of ern_0a1b2c3d`.
-    Earned {
-        method: &'static str,
-        what: &'a str,
-        tightens: bool,
-    },
     /// The owner's start of a task with no model turn (theseus-7oq0w,
     /// `task.start`): it spends money and runs a session, so a job's process
     /// or a shared place that started one would spend the owner's budget.
@@ -1094,7 +1025,6 @@ impl Act<'_> {
             Act::Answer { .. } => theseus_protocol::method::ACTION_CONFIRM,
             Act::Tighten { .. } => theseus_protocol::method::POLICY_TIGHTEN,
             Act::Untighten { .. } => theseus_protocol::method::POLICY_UNTIGHTEN,
-            Act::Trust { .. } => theseus_protocol::method::POLICY_TRUST,
             Act::Publish { .. } => theseus_protocol::method::PLACE_PUBLISH,
             Act::Ontology { method, .. } => method,
             Act::Label { .. } => theseus_protocol::method::MEMORY_LABEL,
@@ -1105,7 +1035,6 @@ impl Act<'_> {
             Act::Ladder { method, .. } => method,
             Act::Import { method, .. } => method,
             Act::Session { method, .. } => method,
-            Act::Dismiss { .. } => theseus_protocol::method::POLICY_NOTICE_SEEN,
             Act::Unlabel { .. } => theseus_protocol::method::CONTENT_UNLABEL,
             Act::Standing { method, .. } => method,
             Act::Routine { method, .. } => method,
@@ -1115,7 +1044,6 @@ impl Act<'_> {
             Act::SelfBacklog { method, .. } => method,
             Act::SelfNarrow { method, .. } => method,
             Act::SelfRevert { .. } => theseus_protocol::method::SELF_REVERT,
-            Act::Earned { method, .. } => method,
             Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,
             Act::Task { .. } => theseus_protocol::method::TASK_START,
             Act::Stop { .. } => theseus_protocol::method::JOB_STOP,

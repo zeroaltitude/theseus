@@ -122,12 +122,13 @@ build.
     each row to the owner's table, each method to the protocol's, and each acting key of `keys.ts` to a verb (`KEY_VERB`). Every
     method is the protocol's (`job.stop` since p2f-ops-act); a job's Stop in the inspector arms on a first press and calls it on a
     second, and the toast says the answer's `words`.
-  - **The floor contract** (`ops/floor.ts`, `test/fixtures/profile_floor.json`): the daemon's refusal table (`data_mark::refusal_of`)
-    as data, one row per mark × origin × known. theseus-core's `tests_profile_floor.rs` holds the daemon to it and
-    `test/ops-floor.test.ts` holds `greyOf` (the menu's greying) to it; a change to the floor edits the file and both tests say so.
+  - **The floor contract** (`ops/floor.ts`, `test/fixtures/profile_floor.json`): the daemon's old refusal table (US origin only)
+    as data, one row per mark × origin × known. The daemon's half (`tests_profile_floor.rs`, `data_mark::refusal_of`) is gone
+    (theseus-gyjyo.5: labels keep off only `cn` and `unknown`), so the fixture and `test/ops-floor.test.ts` hold `greyOf` only to
+    themselves, and both are stale until the cockpit's floor words are rewritten.
   - **What the daemon clears, jobs, watches** (p2f-ops-act; theseus-dyukm, theseus-xzf71): the menu greys a profile by
-    `ProfileInfo.cleared`, the daemon's own floor answer (`data_mark::cleared`: US origin *and* a catalog row of `us`; a
-    provider's vouch alone clears nothing), never by `origin` alone; a missing `cleared` greys (fail closed), and the New task
+    `ProfileInfo.cleared`, the daemon's own floor answer (now "not of restricted origin": `cn` and `unknown` are not cleared, `us` and
+    `eu` are; it was US origin *and* a catalog row of `us` before theseus-gyjyo.5), never by `origin` alone; a missing `cleared` greys (fail closed), and the New task
     sheet's "US only" reads it too. The shared table has a second array, `vouched_uncatalogued`, for the case the origin gets
     wrong. `job.stop` is a method now (`JobStopParams`/`JobStopResult` in `job_follow.rs`, served beside `work.peek` under its
     place rule). A watch is a palette entity (`watchEntity`: its check, when it gives up, "failing"); choosing it opens the
@@ -275,7 +276,7 @@ build.
   `theseus_protocol::joinable` and `task_redirect_line` in TypeScript; keep their words identical), `test/taskpage.test.ts`.
 - `src/components/ConfirmCard.tsx` draws its buttons from the question's own `options` and hides them when it says
   `may_answer: false` (pure parts: `src/lib/answers.ts`, `test/answers.test.ts`); every answer is `work.answer`.
-- Content labels (theseus-9ymz0): a session's labels (`SessionInfo.labels`: `injection` freezes its writes, programs and sends; `secret`, `confidential` and `personal` keep it off China-origin models) show as chips in the session deck's header, `⚑ injection · node nod_e1`, the kind, source and confidence in the tooltip, `injection` in the warning tone and the others dimmer, each with a Remove that asks first and calls `content.unlabel` (verb `unlabel`, `theseus content remove`; the daemon judges it as it judges `policy.trust`). Pure half `src/lib/labels.ts` (`chipsOf`, `toneOf`, `unlabelCall`), tested by `test/labels.test.ts`. `rpc.ts` reads again on `session.labelled` and `session.unlabelled`; the Boundaries view reads the `content.labelled` and `content.removed` rows. Under the time machine the labels are the present's.
+- Content labels (theseus-9ymz0): a session's labels (`SessionInfo.labels`: `injection` freezes its writes, programs and sends; `secret`, `confidential` and `personal` keep it off China-origin models) show as chips in the session deck's header, `⚑ injection · node nod_e1`, the kind, source and confidence in the tooltip, `injection` in the warning tone and the others dimmer, each with a Remove that asks first and calls `content.unlabel` (verb `unlabel`, `theseus content remove`; Remove is the re-trust of the session, the only thing that lifts an `injection` stop). Pure half `src/lib/labels.ts` (`chipsOf`, `toneOf`, `unlabelCall`), tested by `test/labels.test.ts`. `rpc.ts` reads again on `session.labelled` and `session.unlabelled`; the Boundaries view reads the `content.labelled` and `content.removed` rows. Under the time machine the labels are the present's.
 - `src/components/Budgets.tsx` (Money's Budgets panel; its pure parts are `src/lib/budgets.ts`): `budget.list`'s tree,
   the burn per hour from the history's `provider.call` rows, recent resets, the judge's day and the AWS hands. The
   budget questions waiting (with `ConfirmCard`) are its `BudgetQuestions`, first on Money, above the river, only while

@@ -358,6 +358,60 @@ fn env(r: &Rig) -> Env<'_> {
     }
 }
 
+/// A run carries the labels of the session that made the routine, as that
+/// session has them when the run starts (theseus-gyjyo.5): the brief was
+/// written there and can quote what it read. A routine made by the owner has
+/// no such session, and its run carries none.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_carries_the_labels_of_the_session_that_made_the_routine() {
+    let r = rig();
+    made(&r.core, json!({})).await;
+    let now = r.core.kernel.now_ms();
+    let this_month = theseus_kernel::cron::month_key(&r.core.kernel.config().zone, now);
+    let (spec, due) = routine_and_due(&r, &this_month);
+    let run_record =
+        |spec: &theseus_protocol::routines::RoutineSpec| -> crate::session::SessionRecord {
+            let (p, _) = plan(&env(&r), spec, &due).unwrap();
+            let RoutinePlan::Run(run) = p else {
+                panic!("a routine within its month runs")
+            };
+            let rec = run
+                .records
+                .iter()
+                .find(|rec| rec.kind == theseus_store::kinds::SESSION)
+                .expect("the run's session record");
+            serde_json::from_slice(&rec.payload).unwrap()
+        };
+    assert!(
+        run_record(&spec).data.is_none(),
+        "made by the owner: no labels"
+    );
+    // Made in a session that read a calendar.
+    let maker = crate::tests_task_graph::session(&r.core);
+    crate::test_support::label_session(&r.core, &maker, crate::content::Flag::Personal);
+    let mut spec = spec.as_ref().clone();
+    spec.created_in = Some(maker.clone());
+    let data = run_record(&spec)
+        .data
+        .expect("the run carries its maker's labels");
+    assert_eq!(data.labels.len(), 1, "{:?}", data.labels);
+    assert_eq!(data.labels[0].flag, crate::content::Flag::Personal);
+    // The operator removes it there, and the next run starts without it.
+    r.core
+        .unlabel_session(
+            &maker,
+            "personal",
+            crate::approval::Answerer {
+                label: "the CLI".into(),
+                surface: Surface::Cli,
+                discord: None,
+                agent: None,
+            },
+        )
+        .unwrap();
+    assert!(run_record(&spec).data.is_none());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_spent_month_skips_and_says_so_once_and_the_first_starts_it_again() {
     let r = rig();

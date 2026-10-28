@@ -108,14 +108,12 @@ impl Core {
         // would let any task's report in.
         let mark = match session.as_deref() {
             None => DataMark::Open,
-            Some(s) => {
-                crate::data_mark::try_session_mark(&self.store, &self.cfg, s).map_err(|e| {
-                    anyhow::anyhow!(
-                        "the data mark of {home} cannot be read ({e}): a report never goes to a \
+            Some(s) => crate::content_wait::try_mark_of(&self.store, s).map_err(|e| {
+                anyhow::anyhow!(
+                    "the data mark of {home} cannot be read ({e}): a report never goes to a \
                          home whose mark is unknown"
-                    )
-                })?
-            }
+                )
+            })?,
         };
         let target = session
             .as_deref()
@@ -139,7 +137,7 @@ impl Core {
             anyhow::bail!("Task {} has ended ({}).", e.session_id, e.state.as_str());
         }
         let home = self.home_for(&p.home)?;
-        let mark = crate::data_mark::session_mark(&self.store, &self.cfg, &e.session_id);
+        let mark = crate::content_wait::mark_of(&self.store, &e.session_id);
         anyhow::ensure!(
             home.mark >= mark,
             "task {} is {mark:?} and {} is {:?}: a report never goes to a weaker home",

@@ -28,7 +28,6 @@ pub mod card;
 mod cockpit;
 pub mod content_based_security;
 mod data_floor;
-pub mod earned;
 pub(crate) mod import;
 mod judge;
 mod limits;
@@ -688,17 +687,6 @@ pub struct PolicyConfig {
     /// `"server/tool"` (one tool), for tools named `mcp:<server>/<tool>`.
     #[serde(default)]
     pub mcp: BTreeMap<String, crate::policy::Posture>,
-    /// After a session reads external text (theseus-9bp): `ask` makes a call
-    /// that acts wait for approval; `notify` runs it, telling the owner once
-    /// per hold. Either holds until the operator trusts the session. Unset,
-    /// it follows `enforcement` (`external_mode`).
-    #[serde(default)]
-    pub external_text: Option<crate::external::Mode>,
-    /// Programs whose output is outside text (theseus-b5cl): a `proc.run` of
-    /// one holds its session as a fetch does (`external::Listed`). `["gh"]`
-    /// by default: `gh issue view` prints a stranger's text.
-    #[serde(default = "default_external_programs")]
-    pub external_programs: Vec<String>,
     /// Programs that host an agent (theseus-5rvss): a CLI answer from a
     /// process under one, or from one with no controlling terminal, is
     /// recorded as that agent's (`peer_proc`), and an agent never answers a
@@ -716,9 +704,11 @@ pub struct PolicyConfig {
     /// then its class's (`read`), then `enforcement`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub aws: BTreeMap<String, crate::policy::Posture>,
-    /// `[policy.earned]` (theseus-uttu): the weekly loosening card.
-    #[serde(default)]
-    pub earned: earned::EarnedConfig,
+    /// `[policy.earned]`, retired: earned autonomy is gone. A config of an
+    /// earlier build still has the section; it is read, ignored, and warned
+    /// of (`Config::parse`), never written back.
+    #[serde(default, skip_serializing)]
+    pub earned: Option<toml::Table>,
 }
 
 fn argvs(v: &[&[&str]]) -> Vec<Vec<String>> {
@@ -745,40 +735,10 @@ fn default_approve_argv() -> Vec<Vec<String>> {
         &["reboot"],
     ])
 }
-fn default_external_programs() -> Vec<String> {
-    vec!["gh".into()]
-}
 fn default_agent_processes() -> Vec<String> {
     ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
         .map(String::from)
         .to_vec()
-}
-
-impl PolicyConfig {
-    /// The mode in force for a hold: `external_text` when set, else
-    /// `enforcement` (`approve` asks; `notify` and `open` notify, since a
-    /// hold never goes silent: its floor is the one notice).
-    pub fn external_mode(&self) -> crate::external::Mode {
-        self.external_text
-            .unwrap_or_else(|| self.enforcement.into())
-    }
-
-    /// The key that decided [`Self::external_mode`], for a notice's setting.
-    pub fn external_key(&self) -> &'static str {
-        if self.external_text.is_some() {
-            "external_text"
-        } else {
-            "enforcement"
-        }
-    }
-
-    /// [`Self::external_mode`] and the key that decided it, for the runtime.
-    pub fn external_rule(&self) -> crate::external::Rule {
-        crate::external::Rule {
-            mode: self.external_mode(),
-            key: self.external_key(),
-        }
-    }
 }
 
 impl Default for PolicyConfig {
@@ -789,11 +749,9 @@ impl Default for PolicyConfig {
             approve_argv: default_approve_argv(),
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
-            external_text: None,
-            external_programs: default_external_programs(),
             agent_processes: default_agent_processes(),
             private_addresses: Default::default(),
-            earned: Default::default(),
+            earned: None,
             aws: BTreeMap::new(),
         }
     }
@@ -1447,6 +1405,13 @@ impl Config {
         cfg.validate()?;
         let mut warnings = Vec::new();
         warnings.extend(cfg.persona_warnings());
+        if cfg.policy.earned.is_some() {
+            warnings.push(
+                "[policy.earned] is retired: earned autonomy and its weekly card are gone, so the \
+                 section does nothing; remove it"
+                    .into(),
+            );
+        }
         Ok((cfg, warnings))
     }
 
@@ -2021,7 +1986,7 @@ impl Config {
         crate::catalog::origin_of(&prov.api_base, prov.origin, &p.model, catalog.get(&p.model))
     }
 
-    /// Whether a profile may be sent the sensitive names (theseus-xs5ah), by
+    /// Whether a profile may be sent private data (theseus-xs5ah), by
     /// [`crate::catalog::cleared_for_sensitive`]; a profile or provider that
     /// does not resolve is not.
     pub fn profile_cleared_for_sensitive(

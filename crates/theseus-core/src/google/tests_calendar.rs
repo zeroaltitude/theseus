@@ -101,7 +101,7 @@ async fn inviting_attendees_asks_whatever_the_posture() {
     let sid = session(&r.core);
     // The plan names the authority, and with the posture and the lists all
     // `open` the decision is still Approve; the one question every loosening
-    // layer (an earned grant, a scoped grant, a mode, a routine's grant) asks
+    // layer (a mode, a routine's grant) asks
     // first is whether only the tool's posture decides, and here it does not.
     let tool = r.core.tools.registry.get("calendar.put").unwrap().clone();
     let plan = plan_of(&r, "calendar.put", invite.clone()).unwrap();
@@ -336,10 +336,9 @@ async fn an_invitation_from_a_stranger_is_external() {
         "{text}"
     );
     // One event the account does not organize makes the whole listing outside text,
-    // marked by that event, and the session holds.
+    // marked by that event.
     assert_eq!(external.as_deref(), Some("calendar:inv7"));
-    let rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
-    assert!(rec.external.is_some(), "the session holds");
+    assert!(crate::external::read_any(&r.core.store, &sid));
 }
 
 #[tokio::test]

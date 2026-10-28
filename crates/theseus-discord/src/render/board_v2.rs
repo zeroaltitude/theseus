@@ -569,7 +569,6 @@ mod tests {
             may_answer: false,
             tool: Some("fs.write".into()),
             asked_at_ms: NOW - 240_000,
-            external_text: false,
             choices: vec![],
         });
         v

@@ -186,12 +186,8 @@ export const ITEM_LOOK: Readonly<Record<QueueItem['kind'], { glyph: string; word
   question: { glyph: '?', word: 'question', tone: 'wait' },
   failure: { glyph: '✗', word: 'failure', tone: 'fault' },
   seal: { glyph: '🔒', word: 'seal', tone: 'think' },
-  hold: { glyph: '⚑', word: 'external text', tone: 'wait' },
   ask: { glyph: '↪', word: 'which thread', tone: 'live' },
 }
-
-/** A notice's look, apart from a needs-you hold's (⚑, amber): an outlined flag, no colour of its own. It asks nothing. */
-export const NOTICE_LOOK = { glyph: '⚐', word: 'notice', tone: 'idle' } as const
 
 export function itemFacts(i: QueueItem, now: number): ItemFacts {
   const asked = i.confirm?.requested_at_ms ?? i.since

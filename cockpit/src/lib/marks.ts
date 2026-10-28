@@ -36,7 +36,7 @@ export function marksOf(rows: LedgerEntry[]): Mark[] {
       case 'turn.failed': out.push({ at: r.at_unix_ms, kind: 'failed', label: `turn failed: ${clip(String(d.reason ?? ''), 80)}`, session: r.session_id }); break
       case 'tool.confirm_requested': out.push({ at: r.at_unix_ms, kind: 'ask', label: `asked: ${d.tool ?? 'a call'}`, session: r.session_id ?? d.session_id }); break
       case 'budget.asked': out.push({ at: r.at_unix_ms, kind: 'ask', label: 'asked: a spend reset', session: r.session_id }); break
-      case 'action.confirm_answered': out.push({ at: r.at_unix_ms, kind: 'answer', label: `${d.approved ? 'approved' : 'declined'} by ${d.by ?? 'someone'}${d.trust ? ' (and trusted)' : ''}`, session: r.session_id }); break
+      case 'action.confirm_answered': out.push({ at: r.at_unix_ms, kind: 'answer', label: `${d.approved ? 'approved' : 'declined'} by ${d.by ?? 'someone'}`, session: r.session_id }); break
       case 'action.cancel_verified': out.push({ at: r.at_unix_ms, kind: 'cancel', label: `cancel verified: ${d.tool ?? ''} (${d.verified_by ?? ''}${typeof d.killed === 'number' ? `, ${d.killed} processes` : ''})`, session: r.session_id }); break
       case 'action.cancel_uncertain': out.push({ at: r.at_unix_ms, kind: 'cancel', label: `cancel not verified: ${d.tool ?? ''}`, session: r.session_id }); break
       case 'action.cancel_unsupported': out.push({ at: r.at_unix_ms, kind: 'cancel', label: `cancel unsupported: ${d.tool ?? ''}`, session: r.session_id }); break

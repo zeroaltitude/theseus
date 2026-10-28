@@ -1,6 +1,6 @@
 //! The board's tests (M7 36b), with the fake MCP server in this process
 //! (`theseus_mcp::fake`, over pipes): a stand-in model calls
-//! `mcp__fake__echo` and gets a result node, a notice, and T1's hold; a
+//! `mcp__fake__echo` and gets a result node marked outside text, and a notice; a
 //! shared place's turn is offered no MCP tool and its call is refused; a
 //! stored list is offered before its server is up, and a call waits for its
 //! own server alone; a crash restarts after 1 s, then 5 s, then fails until
@@ -470,11 +470,11 @@ async fn until(what: &str, mut f: impl FnMut() -> bool) {
 }
 
 /// The brief's core test: a stand-in model calls `mcp__fake__echo` and gets
-/// a result node (outside text), a notice (the call ran at notify), and
-/// T1's hold on its session. The board's start and ready are ledgered, and
+/// a result node (outside text) and a notice (the call ran at notify); the
+/// marker holds nothing. The board's start and ready are ledgered, and
 /// health and `mcp.list` show the server and its tools.
 #[tokio::test]
-async fn a_model_calls_an_mcp_tool_and_gets_its_result_a_notice_and_the_hold() {
+async fn a_model_calls_an_mcp_tool_and_gets_its_result_and_a_notice() {
     let r = rig(Mode::Ok);
     r.core.mcp.start();
     let s = r.core.mcp.server("fake").unwrap().clone();
@@ -509,13 +509,9 @@ async fn a_model_calls_an_mcp_tool_and_gets_its_result_a_notice_and_the_hold() {
     let notified = ledgered(&r.core, "tool.notified");
     assert_eq!(notified.len(), 1, "{notified:?}");
     assert_eq!(notified[0]["tool"], "mcp:fake/echo");
-    // T1's hold.
-    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
-    let held = rec.external.expect("the session holds");
-    assert_eq!(
-        (held.tool.as_str(), held.url.as_str()),
-        ("mcp:fake/echo", "mcp:fake/echo")
-    );
+    // The marker is all there is: the session read outside text and no row says so.
+    assert!(crate::external::read_any(&r.core.store, &sid));
+    assert!(ledgered(&r.core, "session.external_read").is_empty());
     // The board's rows, health, and mcp.list.
     until("the ready row", || {
         !ledgered(&r.core, "mcp.ready").is_empty()
@@ -754,10 +750,9 @@ fn prompt_rig(external: bool) -> Rig {
 
 /// The brief's core test: a prompt's message is the turn's input node (user
 /// role, origin `mcp`, author `prompt:<server>/<name>`), the model reads its
-/// text, and the session holds external text from the very frame that wrote
-/// it, since the server is outside text by default.
+/// text, and writing it records no outside read.
 #[tokio::test]
-async fn a_prompt_is_the_turns_input_with_its_origin_its_author_and_the_hold() {
+async fn a_prompt_is_the_turns_input_with_its_origin_and_its_author() {
     let r = prompt_rig(true);
     r.core.mcp.start();
     r.core
@@ -792,51 +787,6 @@ async fn a_prompt_is_the_turns_input_with_its_origin_its_author_and_the_hold() {
         "{:?}",
         reqs[0].messages
     );
-    // T1's hold, begun by that node, in its own frame's row.
-    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
-    let held = rec.external.expect("the session holds the server's words");
-    let node_id = r
-        .core
-        .store
-        .session_nodes(&sid)
-        .unwrap()
-        .into_iter()
-        .find(|(_, n)| n.origin == crate::node::Origin::Mcp)
-        .map(|(_, n)| n.id)
-        .unwrap();
-    assert_eq!(
-        (held.tool.as_str(), held.url.as_str(), held.node_id.as_str()),
-        ("mcp.prompt", "mcp:fake/greet", node_id.as_str())
-    );
-    assert_eq!(ledgered(&r.core, "session.external_read").len(), 1);
-    r.core.mcp.stop();
-}
-
-/// `external = false` is the operator's word that a server's text is theirs:
-/// the prompt gives no hold.
-#[tokio::test]
-async fn a_prompt_of_a_server_that_is_not_external_gives_no_hold() {
-    let r = prompt_rig(false);
-    r.core.mcp.start();
-    r.core
-        .mcp
-        .server("fake")
-        .unwrap()
-        .client(Duration::from_secs(10))
-        .await
-        .map(|_| ())
-        .unwrap();
-    let sid = session(&r.core, None);
-    let out = rpc(
-        &r.core,
-        theseus_protocol::method::TURN_SUBMIT,
-        prompt_params(Some(&sid), "fake", "brief", &[("topic", "tides")]),
-    )
-    .await;
-    assert!(out.get("error").is_none(), "{out}");
-    assert_eq!(inputs(&r.core, &sid)[0].2, "Write a brief on tides.");
-    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
-    assert!(rec.external.is_none(), "{:?}", rec.external);
     assert!(ledgered(&r.core, "session.external_read").is_empty());
     r.core.mcp.stop();
 }

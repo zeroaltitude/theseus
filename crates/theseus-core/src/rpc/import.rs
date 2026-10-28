@@ -58,7 +58,6 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::ontology_kinds::ROUTE.contains(&name)
         || name == method::JUDGE_LATENCY
         || super::rsi::OWN.contains(&name)
-        || super::earned::OWN.contains(&name)
         || super::wake_owner::OWN.contains(&name)
         || super::routines::OWN.contains(&name)
         || super::watch::OWN.contains(&name)
@@ -126,9 +125,6 @@ impl Core {
         if super::rsi::OWN.contains(&name) {
             return self.rpc_self(name, params, conn);
         }
-        if super::earned::OWN.contains(&name) {
-            return self.rpc_earned(name, params, conn);
-        }
         if name.starts_with("standing.") {
             return self.rpc_standing(name, params, conn);
         }
@@ -192,7 +188,7 @@ impl Core {
         self.rpc_import(name, params, conn).await
     }
 
-    /// `import.episodes`: one batch, scrubbed as it is written (theseus-o73y).
+    /// `import.episodes`: one batch, written as it came.
     async fn import_episodes(
         self: Arc<Self>,
         params: Value,
@@ -204,7 +200,7 @@ impl Core {
         let core = self.clone();
         let b = blocking(move || {
             let stopping = || core.outbox.stopping();
-            write::import_batch_scrubbed(&core.store, &p, &by, stopping, &core.tools.scrubber)
+            write::import_batch_unless(&core.store, &p, &by, stopping)
         })
         .await?;
         if b.stopped {

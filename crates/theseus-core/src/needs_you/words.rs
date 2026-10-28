@@ -1,7 +1,7 @@
 //! What a needs-you card says (theseus-suvpe): three short lines from the
 //! request's structured fields, never its `reason` text. **What** it wants
 //! (the tool in words and its target), **why** it asks (who, and the rule
-//! that held it, from `floor`, `external_text`, `budget`, `change` and the
+//! that held it, from `floor`, `budget`, `change` and the
 //! tool), and **what yes does**. The Details press shows the full request.
 
 use serde_json::{json, Value};
@@ -130,16 +130,12 @@ pub fn words(asked: Option<String>, req: &ConfirmRequest, who: &str) -> (Questio
             }
         }
         QuestionKind::Extension | QuestionKind::Approval => {
-            let trust = req.external_text.is_some();
             let held = super::plain::held(req);
             Words::of(
                 what_of(&req.tool, &req.input),
                 format!("{who} asks: {}.", held.strip_suffix('.').unwrap_or(&held)),
-                match (kind, trust) {
-                    (QuestionKind::Extension, _) => "Yes loads it.".into(),
-                    (_, true) => {
-                        "Yes runs this one call. Trust also lets the session act again.".into()
-                    }
+                match kind {
+                    QuestionKind::Extension => "Yes loads it.".into(),
                     _ => "Yes runs this one call.".into(),
                 },
             )
@@ -149,7 +145,7 @@ pub fn words(asked: Option<String>, req: &ConfirmRequest, who: &str) -> (Questio
 }
 
 /// The `card` object of a post's body.
-pub fn card_of(kind: QuestionKind, w: &Words, trust: bool, nth: Option<(usize, usize)>) -> Value {
+pub fn card_of(kind: QuestionKind, w: &Words, nth: Option<(usize, usize)>) -> Value {
     json!({
         "kind": format!("{kind:?}").to_lowercase(),
         "what": w.what,
@@ -160,7 +156,6 @@ pub fn card_of(kind: QuestionKind, w: &Words, trust: bool, nth: Option<(usize, u
         "risk": w.risk,
         "held": w.held,
         "line": w.line,
-        "trust": trust,
         "n": nth.map(|(n, _)| n),
         "of": nth.map(|(_, of)| of),
     })
@@ -169,7 +164,7 @@ pub fn card_of(kind: QuestionKind, w: &Words, trust: bool, nth: Option<(usize, u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use theseus_protocol::{BudgetAsk, ExternalText};
+    use theseus_protocol::BudgetAsk;
 
     fn req(tool: &str, input: Value, reason: &str) -> ConfirmRequest {
         ConfirmRequest {
@@ -226,15 +221,10 @@ mod tests {
             assert!(!line.contains("enforcement"), "{line}");
             assert!(!line.contains("fa\n") && !line.ends_with("fa"), "{line}");
         }
-        // The floor and held web text are the rule when they are why.
-        let mut floor = edit.clone();
+        // The floor is the rule when it is why.
+        let mut floor = edit;
         floor.floor = true;
         assert!(words(None, &floor, "x").1.why.contains("always asks"));
-        let mut web = edit;
-        web.external_text = Some(ExternalText::default());
-        let (_, w) = words(None, &web, "x");
-        assert!(w.why.contains("read web text"), "{}", w.why);
-        assert!(w.yes.contains("Trust"), "{}", w.yes);
     }
 
     /// A request with plain words speaks them (theseus-cudar): who wants to
@@ -264,7 +254,7 @@ mod tests {
         ] {
             assert!(w.line.contains(must), "{must} in {}", w.line);
         }
-        let card = card_of(QuestionKind::Approval, &w, false, None);
+        let card = card_of(QuestionKind::Approval, &w, None);
         assert_eq!(card["risk"], "read-only");
         assert_eq!(card["who"], "Theseus's self-repair: fix the tides");
         assert_eq!(card["line"], json!(w.line));

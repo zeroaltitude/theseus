@@ -92,7 +92,7 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
     c.judge
         .packs
         .insert(crate::judge::rerank::RERANK_PACK.into(), off());
-    // content.v2 (theseus-9ymz0) judges every item a session takes in: `judge::tests_content` is its own.
+    // content.v3 (theseus-9ymz0) judges every item a session takes in: `judge::tests_content` is its own.
     c.judge
         .packs
         .insert(crate::judge::content::PACK.into(), off());
@@ -130,7 +130,7 @@ const INBOUND_ALONE: [&str; 24] = [
     "heard.v1: live",
     "people.v1: off",
     "people_seen.v1: off",
-    "content.v2: off",
+    "content.v3: off",
 ];
 
 /// A person's message is judged by both packs in one request: the fake

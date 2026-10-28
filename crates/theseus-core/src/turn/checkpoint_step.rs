@@ -142,9 +142,8 @@ struct Active {
     /// The plan as last read: each step's title and state.
     plan: Vec<(String, PlanState)>,
     brief: String,
-    /// The last compile's estimate, and whether its request names a sensitive name.
+    /// The last compile's estimate.
     est: u64,
-    sensitive: bool,
     /// The effort evidence the text carries (theseus-ujzuh): the level the
     /// last loop ran at and where a checkpoint raised it, and the count of
     /// checkpoints asked and of those in a row that found the work failing.
@@ -282,7 +281,6 @@ impl TurnRunner {
             plan: Self::plan_of(t),
             brief,
             est: 0,
-            sensitive: false,
             evidence: cp::Evidence::default(),
         }))
     }
@@ -379,7 +377,6 @@ impl TurnRunner {
             .drain(..a.loops.len().saturating_sub(cp::LOOP_LINES));
         a.est = e.compiled.est_tokens;
         a.note_effort(&e.compiled.request, e.index);
-        a.sensitive |= self.sensitive_request(&e.compiled.request);
         let window = self.cfg.routing.task_checkpoints.min_loops_between;
         // A flight a window old is given up: its late answer is dropped.
         if a.flight
@@ -445,7 +442,6 @@ impl TurnRunner {
                 persona: self.persona_ctx(sid, class),
                 capture: false,
                 data_names: self.cfg.privacy.data_names(),
-                private_source: crate::google::private::session(t.tc.store, &self.cfg, sid),
                 attachments: Vec::new(),
             },
         );
@@ -512,7 +508,6 @@ impl TurnRunner {
         a: &mut Active,
         (v, f, cost): (&Verdict, &Flight, u64),
     ) -> Result<Option<Failure>> {
-        t.route.sensitive |= a.sensitive;
         let d = self.checkpoint_decision(t, session, a, v);
         let d = match self.data_floor(t, Some(d)) {
             Ok(d) => d.expect("a decision"),

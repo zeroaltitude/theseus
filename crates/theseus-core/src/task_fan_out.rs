@@ -490,7 +490,7 @@ fn open_all(core: &Core, tc: &TurnCtx<'_>, call_id: &str, a: &Args) -> Result<Op
                 &core.tools.profiles,
                 (&core.tools.routines, &core.tools.projects),
             ),
-            (&core.tools.forecasts, &core.tools.google_cfg),
+            &core.tools.forecasts,
         );
         match done {
             Ok(d) => {

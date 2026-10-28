@@ -22,7 +22,7 @@ fn new_session(r: &Rig) -> String {
 }
 
 fn put(r: &Rig, sid: &str, mode: SessionMode) {
-    r.core.tools.earned.modes.set(sid, mode);
+    r.core.tools.modes.set(sid, mode);
 }
 
 /// The order on `tool`'s call, for a session, as the gate runs it: its
@@ -40,7 +40,6 @@ fn ordered(
     let mut ctx = rt.ctx.clone();
     ctx.cwd = dir.to_path_buf();
     let plan = tool.plan(&input, &ctx).unwrap();
-    let held = || Ok(None);
     let mcp = || None;
     let at = crate::toolrun::order::At {
         place: crate::ceiling::PlaceView {
@@ -49,7 +48,6 @@ fn ordered(
             voice: false,
             draft: None,
         },
-        held: &held,
         labels: &|| None,
         mcp: &mcp,
         glide: None,
@@ -73,7 +71,6 @@ fn refused(
     let mut ctx = rt.ctx.clone();
     ctx.cwd = dir.to_path_buf();
     let plan = tool.plan(&input, &ctx).unwrap();
-    let held = || Ok(None);
     let mcp = || None;
     let at = crate::toolrun::order::At {
         place: crate::ceiling::PlaceView {
@@ -82,7 +79,6 @@ fn refused(
             voice: false,
             draft: None,
         },
-        held: &held,
         labels: &|| None,
         mcp: &mcp,
         glide: None,
@@ -232,15 +228,22 @@ async fn auto_is_notify_for_what_only_the_posture_asked_and_the_floor_still_asks
             "an env",
             json!({"argv": ["echo", "hi"], "cwd": r.root, "env": {"A": "b"}}),
         ),
-        (
-            "an L1 job's egress",
-            json!({"argv": ["echo", "hi"], "cwd": r.root,
-                   "sandbox": {"egress": ["exfil.example:443"]}}),
-        ),
     ] {
         let d = ordered(&r, &sid, "proc.run", input, PlaceClass::Private, &dir);
         assert_eq!(d.posture, Posture::Approve, "{why}: {}", d.reason);
     }
+    // An L1 job's host beyond `[sandbox] egress` is a notice that names it, not a question (R6).
+    let d = ordered(
+        &r,
+        &sid,
+        "proc.run",
+        json!({"argv": ["echo", "hi"], "cwd": r.root,
+               "sandbox": {"egress": ["exfil.example:443"]}}),
+        PlaceClass::Private,
+        &dir,
+    );
+    assert_eq!(d.posture, Posture::Notify, "{}", d.reason);
+    assert!(d.reason.contains("exfil.example:443"), "{}", d.reason);
     let d = ordered(
         &r,
         &sid,
@@ -291,7 +294,7 @@ async fn plan_refuses_each_writer_and_proc_run_in_words_the_model_can_act_on() {
     let tool = r.core.tools.registry.get("proc.run").unwrap().clone();
     let mut ctx = r.core.tools.ctx.clone();
     ctx.cwd = dir.clone();
-    let (held, mcp) = (|| Ok(None), || None);
+    let mcp = || None;
     let at = crate::toolrun::order::At {
         place: crate::ceiling::PlaceView {
             class: PlaceClass::Private,
@@ -299,7 +302,6 @@ async fn plan_refuses_each_writer_and_proc_run_in_words_the_model_can_act_on() {
             voice: false,
             draft: None,
         },
-        held: &held,
         labels: &|| None,
         mcp: &mcp,
         glide: None,
@@ -410,7 +412,7 @@ async fn a_plan_is_presented_approved_and_followed_step_by_step() {
     let o = q.grant_offer.clone().expect("edits mode is the other yes");
     assert_eq!((o.kind.as_str(), o.key()), (KIND_MODE, 'e'));
     // Still in plan mode, and no plan items, until approved.
-    assert_eq!(r.core.tools.earned.modes.mode_of(&sid), SessionMode::Plan);
+    assert_eq!(r.core.tools.modes.mode_of(&sid), SessionMode::Plan);
     assert!(plan::view(&r.core.store, &sid).is_empty());
     r.core.confirm_action(&corr, true, None, "test").unwrap();
     r.core
@@ -418,7 +420,7 @@ async fn a_plan_is_presented_approved_and_followed_step_by_step() {
         .await
         .unwrap();
     assert_eq!(
-        r.core.tools.earned.modes.mode_of(&sid),
+        r.core.tools.modes.mode_of(&sid),
         SessionMode::Ask,
         "a plain yes moves to ask"
     );
@@ -608,7 +610,6 @@ async fn the_other_yes_on_a_plan_moves_to_edits_and_a_decline_stays_in_plan() {
             &corr,
             None,
             "test".into(),
-            false,
             &GrantAnswer {
                 pattern: "auto".into(),
             },
@@ -620,7 +621,6 @@ async fn the_other_yes_on_a_plan_moves_to_edits_and_a_decline_stays_in_plan() {
             &corr,
             None,
             "test".into(),
-            false,
             &GrantAnswer {
                 pattern: "edits".into(),
             },
@@ -630,7 +630,7 @@ async fn the_other_yes_on_a_plan_moves_to_edits_and_a_decline_stays_in_plan() {
         .continue_execution(&res.execution_id.unwrap())
         .await
         .unwrap();
-    assert_eq!(r.core.tools.earned.modes.mode_of(&sid), SessionMode::Edits);
+    assert_eq!(r.core.tools.modes.mode_of(&sid), SessionMode::Edits);
     assert!(
         ledgered(&r, "policy.granted").is_empty(),
         "a mode is no grant"
@@ -644,7 +644,7 @@ async fn the_other_yes_on_a_plan_moves_to_edits_and_a_decline_stays_in_plan() {
         .continue_execution(&res.execution_id.unwrap())
         .await
         .unwrap();
-    assert_eq!(r.core.tools.earned.modes.mode_of(&sid), SessionMode::Plan);
+    assert_eq!(r.core.tools.modes.mode_of(&sid), SessionMode::Plan);
 }
 
 #[tokio::test]
@@ -724,7 +724,7 @@ async fn session_mode_reads_and_sets_and_the_row_and_the_notice_follow() {
         (set["mode"].as_str(), set["previous"].as_str()),
         (Some("plan"), Some("ask"))
     );
-    assert_eq!(r.core.tools.earned.modes.mode_of(&sid), SessionMode::Plan);
+    assert_eq!(r.core.tools.modes.mode_of(&sid), SessionMode::Plan);
     let rows = ledgered(&r, "session.mode");
     assert_eq!((rows.len(), rows[0]["mode"].as_str()), (1, Some("plan")));
     // The same mode again writes nothing.
@@ -775,7 +775,7 @@ async fn edits_and_auto_are_the_owners_and_an_mcp_client_cannot_set_them() {
         .unwrap_err();
         assert_eq!(e.code, error_code::REFUSED, "{mode}: {e:?}");
     }
-    assert_eq!(r.core.tools.earned.modes.mode_of(&sid), SessionMode::Ask);
+    assert_eq!(r.core.tools.modes.mode_of(&sid), SessionMode::Ask);
     assert!(ledgered(&r, "session.mode").is_empty());
 }
 
@@ -807,7 +807,7 @@ async fn a_shared_place_has_no_mode_but_ask() {
     .await
     .unwrap();
     assert_eq!(ask["mode"], "ask");
-    assert!(!r.core.tools.earned.modes.any());
+    assert!(!r.core.tools.modes.any());
     // Nor is a shared place offered the plan's tools: it has no mode to plan in.
     for tool in ["plan.present", "plan.step"] {
         assert!(
@@ -842,17 +842,17 @@ async fn a_mode_survives_a_restart_and_never_a_new_conversation() {
     // A restart's read, into a board of its own.
     assert!(r.core.load_modes().unwrap());
     let fresh = new_session(&r);
-    assert_eq!(r.core.tools.earned.modes.mode_of(&fresh), SessionMode::Ask);
-    r.core.tools.earned.modes.set(&a, SessionMode::Ask);
-    r.core.tools.earned.modes.set(&b, SessionMode::Ask);
-    assert!(!r.core.tools.earned.modes.any());
+    assert_eq!(r.core.tools.modes.mode_of(&fresh), SessionMode::Ask);
+    r.core.tools.modes.set(&a, SessionMode::Ask);
+    r.core.tools.modes.set(&b, SessionMode::Ask);
+    assert!(!r.core.tools.modes.any());
     r.core.retire_session(&b, &"test".into()).unwrap();
     assert!(r.core.load_modes().unwrap());
-    assert_eq!(r.core.tools.earned.modes.mode_of(&a), SessionMode::Plan);
+    assert_eq!(r.core.tools.modes.mode_of(&a), SessionMode::Plan);
     assert_eq!(
-        r.core.tools.earned.modes.mode_of(&b),
+        r.core.tools.modes.mode_of(&b),
         SessionMode::Ask,
         "a retired conversation's mode is not read back"
     );
-    assert_eq!(r.core.tools.earned.modes.mode_of(&fresh), SessionMode::Ask);
+    assert_eq!(r.core.tools.modes.mode_of(&fresh), SessionMode::Ask);
 }

@@ -605,7 +605,7 @@ export class ShipEngine {
       // An overlay dims the vessels it does not name (16, as the shaders read it); a retired ship is laid up in
       // harbour, its hull and lamps low, whatever the overlay (theseus-emqx).
       const dim = (!!this.focus && !this.focus.vessels.has(v.id)) || (v.life === 'retired' && i !== this.selected)
-      const flags = (v.hold ? 1 : 0) + (i === this.selected ? 2 : 0) + (i === this.hovered ? 4 : 0) + (v.kind === 'task' ? 8 : 0) + (dim ? 16 : 0)
+      const flags = (i === this.selected ? 2 : 0) + (i === this.hovered ? 4 : 0) + (v.kind === 'task' ? 8 : 0) + (dim ? 16 : 0)
       this.vdata[this.texel(i, 1) + 2] = flags
     })
     if (this.vtex) this.vtex.needsUpdate = true

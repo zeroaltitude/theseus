@@ -23,7 +23,6 @@ mod cite;
 mod cmd;
 mod content_cmd;
 mod digest;
-mod earned;
 mod extend;
 mod follow;
 mod fork;
@@ -42,6 +41,7 @@ mod herdr_sync;
 mod herdr_up;
 mod import;
 mod import_sync;
+mod inspect_cmd;
 mod interactive;
 mod jobout;
 mod judge_correct;
@@ -266,6 +266,17 @@ enum Cmd {
         #[command(subcommand)]
         what: open::What,
     },
+    /// Which vault secrets a turn's requests carried, by name, and whether each was substituted.
+    ///
+    /// Per loop: the model, the compilation, the request's digest, and each request's secrets as
+    /// `request.redacted` wrote them. `theseus inspect [SESSION] [TURN]`: SESSION defaults to the
+    /// most recently active, TURN to its last. The cockpit's inspector (`theseus open turn`) shows
+    /// the same.
+    #[command(hide = true)]
+    Inspect {
+        session: Option<String>,
+        turn: Option<String>,
+    },
     /// Where a node went (node.reach): the compilations and loops of its own session whose
     /// context held it, then its copies in other sessions over derived_from (a task's report in
     /// its parent, a task's brief from the reply that started it), each with theirs. NODE is a
@@ -382,7 +393,7 @@ enum Cmd {
         /// as it is asked and answered (executions.watch).
         #[arg(long, conflicts_with = "session")]
         all: bool,
-        /// Answer from here: a question waiting asks `approve? [y/N/t/note]`, and any other line
+        /// Answer from here: a question waiting asks `approve? [y/N/note]`, and any other line
         /// is sent to the session as a message. Line mode, so it works in any terminal or pane.
         #[arg(long, conflicts_with = "all")]
         interactive: bool,
@@ -861,7 +872,7 @@ enum PolicyCmd {
     Untighten { tool: String },
     /// Why a call waits: each tool's result, layer by layer in the gate's order (the place and
     /// its ceiling, the class, the config's posture, a tightening, a granted secret, the
-    /// place's floor, T1's hold), and the conditions that depend on the call. For SESSION's
+    /// place's floor), and the conditions that depend on the call. For SESSION's
     /// place, or for the CLI and every bound place; with --tool, that tool in full.
     Explain {
         #[arg(long, value_name = "SESSION")]
@@ -869,43 +880,6 @@ enum PolicyCmd {
         /// A tool's canonical name (`proc.run`, `mcp:<server>/<tool>`).
         #[arg(long)]
         tool: Option<String>,
-    },
-    /// Trust SESSION again: it no longer holds the external text it read (a web page, a
-    /// search), so its calls that act run at their postures again. It loosens, so it counts
-    /// only where an approval would. SESSION is its id, or at least its last four characters.
-    Trust {
-        #[arg(value_name = "SESSION")]
-        session: String,
-    },
-    /// Dismiss the notice of SESSION's hold on external text: under `[policy] external_text =
-    /// "notify"` the hold has told you, and nothing waits on it. The hold and its record stay;
-    /// a later hold tells again. A hold that waits for you (ask mode) is answered or trusted
-    /// instead. Yours alone to run. SESSION is its id, or at least its last four characters.
-    Dismiss {
-        #[arg(value_name = "SESSION")]
-        session: String,
-    },
-    /// Earned autonomy: what you approved every time, with no decline, offered back once a week
-    /// as a grant (a notice instead of a question). With no subcommand, the number (interrupts
-    /// per active hour over four weeks, and what the grants would have saved), the grants and
-    /// the open card. `--propose-now` posts a card now; `accept ID`, `pass ID` and `show ID`
-    /// answer a candidate or print the record that earned it.
-    Earned {
-        #[command(subcommand)]
-        cmd: Option<earned::EarnedCmd>,
-        /// Post a card to your DM now, whatever the week's limit says. Yours alone to run.
-        #[arg(long)]
-        propose_now: bool,
-    },
-    /// End a grant: an earned one (`ern_…`: its command asks first again, and its group is not
-    /// proposed for 90 days), or a conversation's (`sgr_…`). Anyone may, as anyone may press
-    /// "should have asked".
-    Revoke { id: String },
-    /// The live grants: each conversation's "don't ask again" (`sgr_…`), then the earned ones.
-    Grants {
-        /// One conversation's alone: its id.
-        #[arg(long)]
-        session: Option<String>,
     },
 }
 
@@ -1479,6 +1453,7 @@ async fn run(cli: Cli) -> Result<()> {
         },
         cmd @ Cmd::Census { .. } => census::cmd(c, json, cmd).await,
         Cmd::Open { what } => open::open(c, json, what).await,
+        Cmd::Inspect { session, turn } => inspect_cmd::inspect(c, json, session, turn).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         cmd @ Cmd::Fork { .. } => fork::cmd(c, json, cmd).await,
         cmd @ Cmd::Rewind { .. } => rewind_cmd::cmd(c, json, cmd).await,

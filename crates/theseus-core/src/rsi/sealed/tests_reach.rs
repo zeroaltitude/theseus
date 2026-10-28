@@ -71,10 +71,8 @@ fn judge(core: &Core, tool: &dyn Tool, input: &Value) -> Result<String, String> 
     let plan = tool
         .plan(input, &rt.ctx)
         .map_err(|e| format!("invalid: {e}"))?;
-    let held = || Ok(None);
     let at = At {
         place: PlaceView::from(PlaceClass::Private),
-        held: &held,
         labels: &|| None,
         mcp: &|| None,
         glide: None,

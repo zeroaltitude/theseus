@@ -1,7 +1,7 @@
 //! A result's cap (theseus-46v), and what it keeps of what it cuts
 //! (theseus-v73m). A job's result (`proc.run`, a batch's step) and a
 //! terminal's screen (`term.read`) cut by `[tools] result_max_chars` keep
-//! their whole output, scrubbed, in the session's outputs
+//! their whole output, as printed, in the session's outputs
 //! (`crate::outputs`), and the cut line names the file and the lines it left
 //! out, counted in the whole output, with the `fs_read` that reads them. A
 //! tool with a cap of its own (`fs.read`, `Tool::result_max_chars`) is cut to
@@ -29,13 +29,13 @@ pub(super) struct Source {
 const READ_LINES: usize = 2000;
 
 impl ToolRuntime {
-    /// `scrubbed`, `r`'s text scrubbed, capped: the content, whether it was
-    /// cut, and the file it names when the whole output was kept.
+    /// `text`, `r`'s text, capped: the content, whether it was cut, and the
+    /// file it names when the whole output was kept.
     pub(super) fn capped(
         &self,
         session_id: &str,
         r: &ResultNode<'_>,
-        scrubbed: &str,
+        text: &str,
     ) -> (String, bool, Option<String>) {
         let tool = self.tool(r.tool);
         let rest = |left: &str| {
@@ -43,7 +43,7 @@ impl ToolRuntime {
                 .map_or_else(|| REST_NARROWER.into(), |t| t.rest(left))
         };
         if let Some(max) = tool.as_ref().and_then(|t| t.result_max_chars()) {
-            let (c, t) = head(scrubbed, max, rest);
+            let (c, t) = head(text, max, rest);
             return (c, t, None);
         }
         let max = self.result_max_chars;
@@ -53,23 +53,23 @@ impl ToolRuntime {
                 ..Source::default()
             })
         });
-        let Some(source) = source.filter(|_| scrubbed.chars().count() > max && max >= 64) else {
-            let (c, t) = cap(scrubbed, max, rest);
+        let Some(source) = source.filter(|_| text.chars().count() > max && max >= 64) else {
+            let (c, t) = cap(text, max, rest);
             return (c, t, None);
         };
-        let span = self.output_span(&r.text, &source, scrubbed);
-        match self.keep(session_id, r.tool_use_id, &source, span.as_ref(), scrubbed) {
+        let span = output_span(&r.text, &source);
+        match self.keep(session_id, r.tool_use_id, &source, span.as_ref(), text) {
             Ok((path, before)) => {
-                let (c, t) = cap(scrubbed, max, |left| {
-                    // `left` is a part of `scrubbed`: where it starts.
-                    let at = left.as_ptr() as usize - scrubbed.as_ptr() as usize;
-                    words(&path, span.as_ref(), scrubbed, at, left, before)
+                let (c, t) = cap(text, max, |left| {
+                    // `left` is a part of `text`: where it starts.
+                    let at = left.as_ptr() as usize - text.as_ptr() as usize;
+                    words(&path, span.as_ref(), text, at, left, before)
                 });
                 (c, t, Some(path))
             }
             Err(e) => {
                 tracing::warn!(error = %e, tool = r.tool, "a capped result's whole output was not kept");
-                let (c, t) = cap(scrubbed, max, |left| {
+                let (c, t) = cap(text, max, |left| {
                     format!("its whole output was not kept ({e}): {}", rest(left))
                 });
                 (c, t, None)
@@ -77,33 +77,15 @@ impl ToolRuntime {
         }
     }
 
-    /// The output's bytes in `scrubbed`: the text around it scrubbed alone,
-    /// found at either end. None when the scrub joined them.
-    fn output_span(
-        &self,
-        text: &str,
-        s: &Source,
-        scrubbed: &str,
-    ) -> Option<std::ops::Range<usize>> {
-        let start = text.len().checked_sub(s.from_end)?;
-        let end = text.len().checked_sub(s.after)?;
-        let (pre, post) = (text.get(..start)?, text.get(end..)?);
-        let (pre, post) = (self.scrubber.scrub(pre).0, self.scrubber.scrub(post).0);
-        let end = scrubbed.len().checked_sub(post.len())?;
-        (scrubbed.starts_with(&pre) && scrubbed.ends_with(&post) && pre.len() <= end)
-            .then_some(pre.len()..end)
-    }
-
-    /// The whole output kept: the job's raw file scrubbed again whole, or
-    /// the result's own output. Its path, and the lines before the result's
-    /// output begins.
+    /// The whole output kept: the job's raw file, or the result's own
+    /// output. Its path, and the lines before the result's output begins.
     fn keep(
         &self,
         session_id: &str,
         call: &str,
         s: &Source,
         span: Option<&std::ops::Range<usize>>,
-        scrubbed: &str,
+        text: &str,
     ) -> anyhow::Result<(String, u64)> {
         let to = self
             .outputs
@@ -111,19 +93,28 @@ impl ToolRuntime {
             .ok_or_else(|| anyhow::anyhow!("no outputs directory"))?;
         let before = match (&s.raw, span) {
             (Some(raw), _) => theseus_store::blocking(|| {
-                let scrub = |t: &str| self.scrubber.scrub(t).0;
                 let max = self.output_max_bytes.saturating_add(64 * 1024);
                 self.outputs
-                    .keep_file(std::path::Path::new(raw), &to, &scrub, s.unread, max)
+                    .keep_file(std::path::Path::new(raw), &to, s.unread, max)
             })?,
             (None, Some(span)) => {
-                theseus_store::blocking(|| self.outputs.keep_text(&scrubbed[span.clone()], &to))?;
+                theseus_store::blocking(|| self.outputs.keep_text(&text[span.clone()], &to))?;
                 0
             }
             (None, None) => anyhow::bail!("its output could not be told from its text"),
         };
         Ok((to.display().to_string(), before))
     }
+}
+
+/// Where the output is in the result's text: its last `from_end` bytes but
+/// its last `after`. None when the source says more than the text holds, or
+/// cuts it inside a character.
+fn output_span(text: &str, s: &Source) -> Option<std::ops::Range<usize>> {
+    let start = text.len().checked_sub(s.from_end)?;
+    let end = text.len().checked_sub(s.after)?;
+    (start <= end && text.is_char_boundary(start) && text.is_char_boundary(end))
+        .then_some(start..end)
 }
 
 /// The cut line's words for a kept output: the lines `left` (at byte `at`

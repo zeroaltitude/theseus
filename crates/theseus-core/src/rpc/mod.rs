@@ -53,7 +53,6 @@ mod card;
 mod card_stale;
 mod digest;
 mod digest_google;
-pub(crate) mod earned;
 mod forecast;
 mod grants;
 mod judge_latency;
@@ -117,7 +116,6 @@ mod work_board;
 #[cfg(test)]
 pub(crate) use server::write_item;
 pub(crate) mod content;
-mod notice_seen;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -226,7 +224,6 @@ mod tests_typing;
 mod tests_voice_pick;
 #[cfg(test)]
 mod tests_window;
-mod trust;
 mod typing;
 mod window;
 
@@ -277,6 +274,9 @@ pub struct Core {
     /// Each secret's state. The daemon serves before they resolve, and each
     /// consumer waits for its own (theseus-qa0).
     pub secrets: Arc<SecretBoard>,
+    /// The vault's values as the exits substitute them: the provider request,
+    /// the Discord courier (`[privacy] redact_outbound`, theseus-gyjyo R7b).
+    pub exits: Arc<crate::exits::Exits>,
     /// The last start's phases, for health and the Observatory.
     pub startup_log: Arc<StartupLog>,
     /// The export pipeline, once built after serving, when its headers
@@ -781,6 +781,9 @@ impl Core {
         // The data floor: every provider, behind one check (restricted
         // origin, the sensitive names).
         let gate_counter = crate::data_gate::Counter::default();
+        // Every provider sends the vault's values substituted, inside the floor.
+        let exits = crate::exits::Exits::new(secrets.clone(), cfg.privacy.redact_outbound);
+        let providers = crate::exits::wrap(providers, &exits, &store);
         let providers = crate::data_gate::guard(providers, &cfg, &catalog, &store, &gate_counter);
         for (name, p) in cfg.all_profiles() {
             if catalog.get(&p.model).is_none() {
@@ -833,10 +836,6 @@ impl Core {
             .tightened
             .load(&store)
             .context("reading the tool tightenings")?;
-        tools
-            .earned
-            .load(&store)
-            .context("reading the earned grants")?;
         tracing::info!(
             tools = tools.registry.len(),
             not_offered = ?tools.not_offered,
@@ -973,6 +972,7 @@ impl Core {
             tools,
             runner,
             secrets,
+            exits,
             startup_log,
             telemetry: telemetry_cell,
             gate_counter,
@@ -1037,9 +1037,41 @@ impl Core {
                 }
             });
         }
+        // What content.v3's state says about where an item sits: the operator's
+        // config (read once) and the session's place and directory (read from the
+        // core as each item is prepared). Same holder as the seam above: the judge
+        // service holds no core.
+        core.runner
+            .judge
+            .content_around(crate::content_scene::Around::from_config(&core.cfg));
+        {
+            let scene = Arc::downgrade(&core);
+            core.runner.judge.content_scene(move |session| {
+                scene.upgrade().map_or(
+                    crate::content_scene::Scene {
+                        place: None,
+                        dir: None,
+                    },
+                    |core| core.content_scene(session),
+                )
+            });
+        }
+        // Asks that failed twice are told to the owner, once, in the session's
+        // place (theseus-gyjyo.7): the row `content.unjudged` is the record,
+        // and this is the notice.
+        {
+            let told = Arc::downgrade(&core);
+            core.runner.judge.unjudged_told(move |session, text| {
+                if let Some(core) = told.upgrade() {
+                    if let Err(e) = core.tell_unjudged(session, text) {
+                        tracing::warn!(error = %format!("{e:#}"), "an unjudged notice was not told");
+                    }
+                }
+            });
+        }
         // And a turn bound for a model of restricted origin waits on the judge
         // for its session's items. Until this is set the handle is `Ready`,
-        // which answers at once, so such a turn would go to Claude without ever
+        // which answers at once, so such a turn would go on its labels without ever
         // waiting and `[content_based_security] wait_ms` would mean nothing.
         core.runner.verdicts.set(core.runner.judge.clone());
         // The judge's sink writes between turns, as the pass does.

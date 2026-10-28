@@ -14,6 +14,25 @@ use crate::session::SessionRecord;
 use crate::turn::TurnRequest;
 use crate::Core;
 
+/// `sid` carries a `flag` label, as a Google result's write site leaves it
+/// (source `google.call`), without a turn that read one.
+pub(crate) fn label_session(core: &Core, sid: &str, flag: crate::content::Flag) {
+    let mut f = crate::content::ContentFlags::default();
+    f.raise(crate::content::deterministic::label(
+        flag,
+        "nod_test",
+        crate::content::ItemKind::ToolResult,
+        "google.call".into(),
+        1,
+    ));
+    core.store
+        .update_session(sid, |rec| {
+            rec.data = Some(Box::new(f));
+            Ok(vec![])
+        })
+        .unwrap();
+}
+
 pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();

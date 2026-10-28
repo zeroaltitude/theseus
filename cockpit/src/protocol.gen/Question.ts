@@ -34,11 +34,6 @@ tool?: string,
  */
 asked_at_ms: number, 
 /**
- * The call waits because its session read external text: an approval
- * may trust the session again (`action.confirm`'s `trust`).
- */
-external_text?: boolean, 
-/**
  * An `ask`'s own choices, in order.
  */
 choices?: Array<string>, };

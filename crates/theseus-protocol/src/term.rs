@@ -20,11 +20,6 @@ pub struct TerminalInfo {
     pub opened_at_unix_ms: u64,
     /// Its program still runs.
     pub running: bool,
-    /// The listed program that makes its screen outside text, when one does
-    /// (`[policy] external_programs`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub external: Option<String>,
     /// Bytes its program wrote, and bytes typed into it.
     pub bytes_out: u64,
     pub bytes_in: u64,
@@ -77,12 +72,11 @@ fn ago(s: u64) -> String {
 }
 
 /// Health's line for a terminal: `terminal t1 (python3) · ses_… · pid 4242 ·
-/// 24x80 · running · open 3 min · 1,204 B out, 40 B in`, and its listed
-/// program when its screen is outside text.
+/// 24x80 · running · open 3 min · 1,204 B out, 40 B in`.
 pub fn health_line(t: &TerminalInfo, now_ms: u64) -> String {
     let open = ago(now_ms.saturating_sub(t.opened_at_unix_ms) / 1000);
     format!(
-        "terminal {} ({}) · {} · pid {} · {}x{} · {} · open {open} · {} B out, {} B in{}",
+        "terminal {} ({}) · {} · pid {} · {}x{} · {} · open {open} · {} B out, {} B in",
         t.id,
         t.program,
         t.session_id,
@@ -96,10 +90,6 @@ pub fn health_line(t: &TerminalInfo, now_ms: u64) -> String {
         },
         t.bytes_out,
         t.bytes_in,
-        t.external
-            .as_deref()
-            .map(|p| format!(" · outside text ({p} is listed)"))
-            .unwrap_or_default(),
     )
 }
 
@@ -183,7 +173,6 @@ mod tests {
             cols: 80,
             opened_at_unix_ms: 1_000,
             running: true,
-            external: Some("gh".into()),
             bytes_out: 1204,
             bytes_in: 40,
             last_output_unix_ms: 2_000,
@@ -191,11 +180,10 @@ mod tests {
         assert_eq!(
             super::health_line(&t, 181_000),
             "terminal t1 (python3) · ses_a · pid 4242 · 24x80 · running · open 3 min · 1204 B \
-             out, 40 B in · outside text (gh is listed)"
+             out, 40 B in"
         );
         let ended = super::TerminalInfo {
             running: false,
-            external: None,
             ..t
         };
         let left = super::TerminalLeft {

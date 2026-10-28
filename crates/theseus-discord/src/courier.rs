@@ -204,6 +204,22 @@ pub fn nonce(key: &str) -> String {
     u64::from_be_bytes(b).to_string()
 }
 
+/// `card` as it leaves: the vault's own values replaced by their names in its
+/// title, description and fields, as a message's text is (`Lane::write`).
+fn mask_card(exits: &theseus_core::exits::Exits, card: &NoticeCard) -> NoticeCard {
+    let mask = |s: &str| exits.text(s).0.into_owned();
+    NoticeCard {
+        title: mask(&card.title),
+        description: mask(&card.description),
+        fields: card
+            .fields
+            .iter()
+            .map(|(n, v)| (mask(n), mask(v)))
+            .collect(),
+        ..card.clone()
+    }
+}
+
 /// One message a post writes: created, or edited when its message is known.
 #[derive(Clone)]
 struct Write {
@@ -231,7 +247,6 @@ fn asks(w: &Write) -> bool {
         Buttons::Confirm(_)
             | Buttons::Card(..)
             | Buttons::Ask(..)
-            | Buttons::ConfirmTrust(_)
             | Buttons::ConfirmGrant(..)
             | Buttons::Accept(_)
     ) || w.key.starts_with("needs-you:")
@@ -932,10 +947,10 @@ impl Lane {
             // (theseus-pw1q.8), a self-join's card or notice (theseus-pw1q.9), a narrower policy for a
             // hand role and the red after its apply (theseus-pw1q.15), and Jev's privacy warning
             // (theseus-gasov), and a home past its size (theseus-jg1eg): the owner's DM alone.
-            "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
-            | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
-            | "self_narrow_red" | "initiative" | "standing_card" | "digest" | "privacy_warning"
-            | "onto_card" | "home_size" | "link_card" | "persona_soul" | "card_question" => {
+            "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "retraction"
+            | "self_keel" | "seal_card" | "self_join" | "self_narrow" | "self_narrow_red"
+            | "initiative" | "standing_card" | "digest" | "privacy_warning" | "onto_card"
+            | "home_size" | "link_card" | "persona_soul" | "card_question" => {
                 self.jev_post(a, &body).await
             }
             // The self-build halt's note, to the owner's DM alone, pinging (theseus-6s7ll).
@@ -1130,8 +1145,6 @@ impl Lane {
         let mut note = render::card_note(&route, &card.line, elsewhere);
         let key = key_of_card(&q);
         let note_key = format!("approval:{q}");
-        // A call that waits because its session read external text gets the
-        // third button, which trusts the session again (theseus-9bp).
         let mut buttons = ask::card_buttons(&req, &q);
         // The card as one V2 message (theseus-2j2ka) when the bot may send one.
         let v2 = self.shared.v2_cards() && !req.options.is_empty();
@@ -1482,13 +1495,6 @@ impl Lane {
                     Buttons::JevLabel(judgment.to_string()),
                 )
             }
-            // The week's earned-autonomy card (theseus-uttu): each candidate
-            // with its yes, its no and its record.
-            "earned_card" => (
-                body["text"].as_str().unwrap_or("").to_string(),
-                format!("earned:{}", a.correlation_id),
-                Buttons::Earned(crate::runtime::earned_candidates(body)),
-            ),
             // A proposed seal (theseus-f2g0): Seal this thread, Not needed.
             "seal_card" => (
                 body["text"].as_str().unwrap_or("").to_string(),
@@ -1670,6 +1676,17 @@ impl Lane {
         if w.content.trim().is_empty() {
             return Ok(None);
         }
+        // The vault's own values never leave in a message (`[privacy]
+        // redact_outbound`, theseus-gyjyo R7b): a post, an edit and a live
+        // stream's text all come through here. A shape is not a value.
+        let masked = match self.shared.core.exits.text(&w.content).0 {
+            std::borrow::Cow::Owned(content) => Some(Write {
+                content,
+                ..w.clone()
+            }),
+            std::borrow::Cow::Borrowed(_) => None,
+        };
+        let w = masked.as_ref().unwrap_or(w);
         // A persona's text is signed (theseus-sjzm).
         let signed = self.sign(w).await;
         let w = signed.as_ref().map_or(w, |s| &s.write);
@@ -1801,19 +1818,15 @@ impl Lane {
             body["flags"] = json!(policy::SUPPRESS_NOTIFICATIONS);
         }
         let comps = match buttons {
-            Buttons::Confirm(corr) => confirm_buttons(corr, false),
+            Buttons::Confirm(corr) => confirm_buttons(corr),
             Buttons::Ask(corr, choices) => crate::runtime::ask_buttons(corr, choices),
-            Buttons::Card(corr, choices, trust) => {
-                crate::runtime::card_buttons(corr, choices, *trust)
-            }
-            Buttons::ConfirmTrust(corr) => confirm_buttons(corr, true),
+            Buttons::Card(corr, choices) => crate::runtime::card_buttons(corr, choices),
             Buttons::ConfirmGrant(corr, o) => crate::runtime::grant::grant_buttons(corr, o),
             Buttons::Accept(corr) => crate::runtime::accept_buttons(corr),
             Buttons::ShouldHaveAsked(options) => asked_menu(options),
             Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
             Buttons::Reminder(wake) => crate::runtime::remind_buttons(wake),
             Buttons::Horizon(wake, answers) => crate::runtime::horizon_buttons(wake, answers),
-            Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
             Buttons::Link(h, o) => crate::runtime::seal::link::buttons(h, o),
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
@@ -1863,7 +1876,7 @@ impl Lane {
             LedgerKind::DiscordMessageOut,
             None,
             json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "ping": ping, "held": wants && !ping,
-                   "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::ConfirmTrust(_) | Buttons::Accept(_)),
+                   "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::Accept(_)),
                    "menu": matches!(buttons, Buttons::ShouldHaveAsked(_)), "mentions": mentioned}),
         );
         Ok((m.id.get(), m.content))
@@ -1881,19 +1894,15 @@ impl Lane {
         }
         let none = AllowedMentions::default();
         let comps = match buttons {
-            Buttons::Confirm(corr) => Some(confirm_buttons(corr, false)),
+            Buttons::Confirm(corr) => Some(confirm_buttons(corr)),
             Buttons::Ask(corr, choices) => Some(crate::runtime::ask_buttons(corr, choices)),
-            Buttons::Card(corr, choices, trust) => {
-                Some(crate::runtime::card_buttons(corr, choices, *trust))
-            }
-            Buttons::ConfirmTrust(corr) => Some(confirm_buttons(corr, true)),
+            Buttons::Card(corr, choices) => Some(crate::runtime::card_buttons(corr, choices)),
             Buttons::ConfirmGrant(corr, o) => Some(crate::runtime::grant::grant_buttons(corr, o)),
             Buttons::Accept(corr) => Some(crate::runtime::accept_buttons(corr)),
             Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
             Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),
             Buttons::Reminder(wake) => Some(crate::runtime::remind_buttons(wake)),
             Buttons::Horizon(wake, answers) => Some(crate::runtime::horizon_buttons(wake, answers)),
-            Buttons::Earned(c) => Some(crate::runtime::earned_buttons(c)),
             Buttons::Seal(slug) => Some(crate::runtime::seal_buttons(slug)),
             Buttons::Link(h, o) => Some(crate::runtime::seal::link::buttons(h, o)),
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),
@@ -2005,6 +2014,8 @@ impl Lane {
     /// A structured notice (a Discord embed, no mentions): live, when
     /// `[discord] notice_embeds` is on.
     async fn notice(&mut self, key: &str, card: &NoticeCard) -> Result<(), SendErr> {
+        // A notice names the call it is about, command line and paths included.
+        let card = &mask_card(&self.shared.core.exits, card);
         let channel = self.place_channel().await?;
         let mut b = twilight_util::builder::embed::EmbedBuilder::new()
             .title(card.title.clone())
@@ -2187,6 +2198,8 @@ pub(crate) fn mcp_note(body: &Value) -> String {
 mod tests_bound;
 #[cfg(test)]
 mod tests_catchup;
+#[cfg(test)]
+mod tests_exits;
 #[cfg(test)]
 mod tests_operator;
 #[cfg(test)]

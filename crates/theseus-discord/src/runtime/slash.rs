@@ -12,8 +12,8 @@ use super::{
 
 /// The slash commands every place answers, one effect each (the owner's rule):
 /// `/stop` halts this session's own work and keeps the conversation (W1),
-/// `/new` alone starts a fresh session, `/trust` clears its hold on web text
-/// (T1b), and `/cancel` names a task (DD7) or a pending wake (DD8), by one
+/// `/new` alone starts a fresh session, `/trust` removes its `injection` label
+/// and `/cancel` names a task (DD7) or a pending wake (DD8), by one
 /// option, `id`.
 pub(super) fn commands() -> Vec<twilight_model::application::command::Command> {
     let mut cmds: Vec<_> = [
@@ -39,7 +39,7 @@ pub(super) fn commands() -> Vec<twilight_model::application::command::Command> {
         ),
         (
             "trust",
-            "Trust this conversation again after it read web text: its calls that change things stop waiting",
+            "Remove the injection label: this conversation's calls that change things run again",
         ),
     ]
     .into_iter()

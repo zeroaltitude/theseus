@@ -1,5 +1,5 @@
 // The time machine (theseus-logs, round two): the state at any moment, folded from the ledger. Theseus's store only
-// grows, and every fact since C2 is one typed row with a time, so the sessions, executions, calls, questions, holds,
+// grows, and every fact since C2 is one typed row with a time, so the sessions, executions, calls, questions,
 // and gauges as they stood at 15:12:07 are the rows up to 15:12:07, folded in order.
 //
 // - The fold is pure: a step replaces what it changes and never mutates it, so a checkpoint is a set of shallow map
@@ -11,7 +11,7 @@
 //   server's own rules (`theseus_protocol::attention`) on what the ledger knows.
 import { create } from 'zustand'
 import type {
-  ActionInfo, Attention, CancelVerdict, ConfirmRequest, ExecutionInfo, ExternalText, ExternalTextInfo, LedgerEntry,
+  ActionInfo, Attention, CancelVerdict, ConfirmRequest, ExecutionInfo, LedgerEntry,
   SessionInfo, TaskInfo, Tightening, Usage,
 } from '@protocol'
 
@@ -40,7 +40,6 @@ interface SessAt {
   toolCalls: number
   lastActive: number
   execId?: string
-  hold?: ExternalText
   profile?: string
   model?: string
 }
@@ -294,7 +293,6 @@ function step(s: Snap, r: LedgerEntry): void {
         requested_at_ms: Number(d.requested_at_ms ?? at), expires_at_ms: Number(d.expires_at_ms ?? 0), floor: !!d.floor,
         ...(typeof d.resource === 'string' ? { resource: d.resource } : {}),
         ...(d.task ? { task: d.task } : {}),
-        ...(d.external_text ? { external_text: d.external_text } : {}),
       })
       return
     }
@@ -313,24 +311,6 @@ function step(s: Snap, r: LedgerEntry): void {
     case 'action.confirm_answered':
     case 'action.confirmed':
       s.asks.delete(String(d.correlation_id ?? ''))
-      return
-    case 'session.external_read':
-      if (sid) {
-        const ss = sessionOf(s, sid, at)
-        const hold: ExternalText = {
-          since_ms: Number(d.since_ms ?? at), tool: String(d.tool ?? ''), url: String(d.url ?? ''), node_id: String(d.node_id ?? ''),
-          ...(typeof d.from_session === 'string' ? { from_session: d.from_session } : {}),
-          ...(typeof d.via === 'string' ? { via: d.via } : {}),
-          ...(typeof d.query === 'string' ? { query: d.query } : {}),
-        }
-        s.sessions.set(sid, { ...ss, hold })
-      }
-      return
-    case 'session.trusted':
-      if (sid) {
-        const ss = s.sessions.get(sid)
-        if (ss) s.sessions.set(sid, { ...ss, hold: undefined })
-      }
       return
     case 'policy.tightened':
       if (typeof d.tool === 'string') {
@@ -493,7 +473,6 @@ export interface World {
   actions: ActionInfo[]
   confirms: ConfirmRequest[]
   tasks: TaskInfo[]
-  holds: ExternalTextInfo[]
   tightenings: Tightening[]
   jobsRunning: Set<string>
   l1: Set<string>
@@ -601,7 +580,6 @@ export function worldAt(f: Folder, t: number, live: { sessions: SessionInfo[]; t
   }
   const execById = new Map(executions.map((e) => [e.execution_id, e]))
   const sessions: SessionInfo[] = []
-  const holds: ExternalTextInfo[] = []
   for (const ls of live.sessions) {
     const fs = s.sessions.get(ls.session_id)
     const created = fs?.created ?? ls.created_at_unix_ms
@@ -619,11 +597,9 @@ export function worldAt(f: Folder, t: number, live: { sessions: SessionInfo[]; t
       pending_confirms: asks.length,
       execution_state: e?.state ?? 'waiting',
       attention: e?.attention,
-      external_text: fs?.hold,
       profile: fs?.profile,
       model: fs?.model,
     }
-    if (!fs?.hold) delete info.external_text
     if (!e?.attention) delete info.attention
     // Its state then (theseus-emqx): the fold's rows, derived with the window `session.list` names.
     const life = s.lives.get(ls.session_id) ?? {}
@@ -633,12 +609,7 @@ export function worldAt(f: Folder, t: number, live: { sessions: SessionInfo[]; t
     if (life.supersededBy) info.superseded_by = life.supersededBy; else delete info.superseded_by
     if (life.supersedes) info.supersedes = life.supersedes; else delete info.supersedes
     sessions.push(info)
-    if (fs?.hold) {
-      const task = live.tasks.find((x) => x.task_id === ls.session_id)
-      holds.push({ session_id: ls.session_id, held: fs.hold, ...(ls.title ? { title: ls.title } : {}), ...(task ? { task: task.short } : {}) })
-    }
   }
-  holds.sort((a, b) => a.held.since_ms - b.held.since_ms)
   const tasks: TaskInfo[] = []
   for (const lt of live.tasks) {
     const e = execById.get(lt.execution_id)
@@ -661,7 +632,7 @@ export function worldAt(f: Folder, t: number, live: { sessions: SessionInfo[]; t
     if (u) tpm += Number(u.input_tokens ?? 0) + Number(u.output_tokens ?? 0) + Number(u.cache_read_input_tokens ?? 0) + Number(u.cache_creation_input_tokens ?? 0)
   }
   return {
-    t, sessions, executions, actions, confirms: [...s.asks.values()], tasks, holds, tightenings: [...s.tight.values()],
+    t, sessions, executions, actions, confirms: [...s.asks.values()], tasks, tightenings: [...s.tight.values()],
     jobsRunning: s.jobs, l1: s.l1, reserved, judge: s.judge,
     gauges: {
       uptimeSecs: up, accepting: up !== null, running: executions.filter((e) => e.state === 'running').length, costTotal: s.costTotal,
