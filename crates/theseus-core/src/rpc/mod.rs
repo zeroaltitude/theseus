@@ -1056,6 +1056,19 @@ impl Core {
                 )
             });
         }
+        // Asks that failed twice are told to the owner, once, in the session's
+        // place (theseus-gyjyo.7): the row `content.unjudged` is the record,
+        // and this is the notice.
+        {
+            let told = Arc::downgrade(&core);
+            core.runner.judge.unjudged_told(move |session, text| {
+                if let Some(core) = told.upgrade() {
+                    if let Err(e) = core.tell_unjudged(session, text) {
+                        tracing::warn!(error = %format!("{e:#}"), "an unjudged notice was not told");
+                    }
+                }
+            });
+        }
         // And a turn bound for a model of restricted origin waits on the judge
         // for its session's items. Until this is set the handle is `Ready`,
         // which answers at once, so such a turn would go to Claude without ever

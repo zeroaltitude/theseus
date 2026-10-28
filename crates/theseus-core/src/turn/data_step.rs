@@ -39,11 +39,6 @@ use crate::routing::{Decision, HoldNext, Reason};
 /// The profile the `[model]` section builds.
 pub(crate) const DEFAULT_PROFILE: &str = "default";
 
-/// How many times a wait for the outstanding asks sweeps the session again: a
-/// landing that left a mark stuck (a failed batch) is re-asked once, and its
-/// answer is waited for in the same `wait_ms`. A bound on the reads, not on the
-/// wait, which `[content_based_security] wait_ms` is alone.
-const SETTLE_READS: u32 = 8;
 
 /// Where a turn stands on its session's labels, as the floor reads it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -183,29 +178,18 @@ impl TurnRunner {
     /// refuses it whatever lands, and `always` and `never` read no label, so
     /// neither waits. Only a request bound for a restricted profile asks.
     ///
-    /// **The sweep still runs here, for one more row** (theseus-gyjyo.6; R5b
-    /// deletes it with the mark): it queues what no write site offered and
-    /// re-asks, once a wait, a mark a failed batch left stuck, so a label an
-    /// ask failed to raise is asked for again rather than missed. What it
-    /// queues is an outstanding ask like any other and is waited for as one.
-    /// It reads the transcript on the turn's path; the chokepoint
-    /// (`data_gate.rs`) reads none.
+    /// The wait is a counter and nothing else (theseus-gyjyo.7): no transcript
+    /// is read and nothing is queued here. An item whose ask failed has been
+    /// asked once more inside its own open ask, so by the time the count is
+    /// zero the ask has either landed or been rowed and told; a session whose
+    /// ask failed twice goes on the labels it has.
     pub(super) async fn cn_wait(&self, t: &Turn<'_>) -> Cn {
         let cn = self.cn_read(t);
         if cn != Cn::Allowed || self.cfg.content_based_security.cn_models != CnModels::FollowFlags {
             return cn;
         }
-        let sid = t.tc.session_id;
-        let deadline =
-            Instant::now() + Duration::from_millis(self.cfg.content_based_security.wait_ms);
-        let mut reasked = false;
-        for _ in 0..SETTLE_READS {
-            reasked |= self.judge.ask_unsubmitted(sid, !reasked);
-            let left = deadline.saturating_duration_since(Instant::now());
-            if self.verdicts.outstanding(sid) == 0 || !self.verdicts.drained(sid, left).await {
-                break;
-            }
-        }
+        let wait = Duration::from_millis(self.cfg.content_based_security.wait_ms);
+        self.verdicts.drained(t.tc.session_id, wait).await;
         self.cn_read(t)
     }
 

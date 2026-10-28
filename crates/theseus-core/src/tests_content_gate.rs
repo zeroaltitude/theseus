@@ -77,20 +77,13 @@ fn label(flag: Flag) -> Label {
 }
 
 /// A session record holding `flags` (as JSON, whatever the record's `data` is
-/// typed as) and a user node for each of `said`, written to the store. With
-/// `judged`, the mark stands at the last node: every item was judged.
-fn session_with(r: &Rig, flags: Option<ContentFlags>, said: &[&str], judged: bool) -> String {
+/// typed as) and a user node for each of `said`, written to the store.
+fn session_with(r: &Rig, flags: Option<ContentFlags>, said: &[&str]) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     let nodes: Vec<Node> = said
         .iter()
         .map(|t| Node::user(&rec.session_id, Some("trn_1"), "cli", t))
         .collect();
-    let mut flags = flags;
-    if judged {
-        let mut f = flags.take().unwrap_or_default();
-        f.judged_through = nodes.last().map(|n| n.id.clone());
-        flags = Some(f);
-    }
     let mut v = serde_json::to_value(&rec).unwrap();
     if let Some(f) = &flags {
         v["data"] = serde_json::to_value(f).unwrap();
@@ -117,7 +110,7 @@ fn blocked(r: &Rig) -> Vec<Value> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_restricted_model_is_sent_a_session_with_no_label() {
     let r = rig(None, 1, |_| {});
-    let sid = session_with(&r, None, &[], false);
+    let sid = session_with(&r, None, &[]);
     let zai = &r.core.runner.providers["zai"];
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
@@ -134,13 +127,13 @@ async fn a_restricted_model_is_sent_a_session_with_no_label() {
 async fn a_restricted_model_is_sent_judged_or_not() {
     let r = rig(None, 1, |_| {});
     let zai = &r.core.runner.providers["zai"];
-    let sid = session_with(&r, None, &["Rename the call sites."], true);
+    let sid = session_with(&r, None, &["Rename the call sites."]);
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
         .expect("every item was judged");
     assert_eq!(r.zai.requests().len(), 1);
     // The same session, an item not yet judged.
-    let sid = session_with(&r, None, &["And the tests."], false);
+    let sid = session_with(&r, None, &["And the tests."]);
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
         .expect("an item nobody judged is no label");
@@ -158,7 +151,7 @@ async fn a_restricted_model_is_refused_a_session_with_a_cn_label() {
     for flag in [Flag::Secret, Flag::Confidential, Flag::Personal] {
         let mut f = ContentFlags::default();
         f.raise(label(flag));
-        let sid = session_with(&r, Some(f), &[], false);
+        let sid = session_with(&r, Some(f), &[]);
         let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
             .await
             .unwrap_err();
@@ -180,7 +173,7 @@ async fn an_injection_label_does_not_keep_a_restricted_model_off() {
     let r = rig(None, 1, |_| {});
     let mut f = ContentFlags::default();
     f.raise(label(Flag::Injection));
-    let sid = session_with(&r, Some(f), &[], false);
+    let sid = session_with(&r, Some(f), &[]);
     let zai = &r.core.runner.providers["zai"];
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
@@ -221,7 +214,7 @@ async fn a_names_hit_is_a_label() {
     let r = rig(None, 1, |c| {
         c.privacy.sensitive_names = vec!["Examplecorp".into()];
     });
-    let sid = session_with(&r, None, &[], false);
+    let sid = session_with(&r, None, &[]);
     let node = Node::user(&sid, Some("trn_1"), "cli", named);
     r.core.store.append(&[node.record().unwrap()]).unwrap();
     let item = crate::judge::content::ContentItem::of_message(
@@ -251,13 +244,12 @@ async fn a_names_hit_is_a_label() {
     assert!(said.contains("`confidential` label"), "{said}");
     assert!(!said.contains("sensitive_names"), "{said}");
     assert!(r.zai.requests().is_empty());
-    // The operator removes it (the mark stands: the item was judged).
+    // The operator removes it.
     r.core
         .store
         .update_session(&sid, |rec| {
             let mut f = rec.data.as_deref().cloned().unwrap_or_default();
             f.remove(Flag::Confidential, "owner", "test", 2);
-            f.judged_through = Some(node.id.clone());
             rec.data = Some(Box::new(f));
             Ok(vec![])
         })
@@ -268,7 +260,7 @@ async fn a_names_hit_is_a_label() {
     assert_eq!(r.zai.requests().len(), 1);
     // A request that names a word, in a session no item of which did, is not
     // stopped at the chokepoint: the accepted residual (the review's P1 trade).
-    let other = session_with(&r, None, &[], false);
+    let other = session_with(&r, None, &[]);
     send_for(zai, Some(&other), &request("glm-5.3", named))
         .await
         .expect("the request walk is gone");
@@ -285,7 +277,7 @@ async fn a_name_does_not_refuse_a_model_of_eu_origin() {
         c.privacy.sensitive_names = vec!["Examplecorp".into()];
         c.serve_default_from_eu();
     });
-    let sid = session_with(&r, None, &[], false);
+    let sid = session_with(&r, None, &[]);
     let claude = &r.core.runner.providers["anthropic"];
     send_for(claude, Some(&sid), &request("claude-sonnet-5-5", named))
         .await
@@ -300,7 +292,7 @@ async fn a_label_does_not_touch_a_us_model() {
     let mut f = ContentFlags::default();
     f.raise(label(Flag::Confidential));
     f.raise(label(Flag::Secret));
-    let sid = session_with(&r, Some(f), &[], false);
+    let sid = session_with(&r, Some(f), &[]);
     let claude = &r.core.runner.providers["anthropic"];
     send_for(claude, Some(&sid), &request("claude-sonnet-5-5", PLAIN))
         .await
@@ -322,10 +314,10 @@ async fn a_label_does_not_touch_a_us_model() {
 async fn the_chokepoint_reads_no_transcript() {
     let r = rig(None, 1, |_| {});
     let zai = &r.core.runner.providers["zai"];
-    let unjudged = session_with(&r, None, &["One.", "Two.", "Three."], false);
+    let unjudged = session_with(&r, None, &["One.", "Two.", "Three."]);
     let mut f = ContentFlags::default();
     f.raise(label(Flag::Secret));
-    let labelled = session_with(&r, Some(f), &["One.", "Two."], false);
+    let labelled = session_with(&r, Some(f), &["One.", "Two."]);
     let before = r.core.store.transcript_reads();
     send_for(zai, Some(&unjudged), &request("glm-5.3", PLAIN))
         .await
@@ -357,7 +349,7 @@ async fn cn_models_always_sends_a_labelled_session() {
     });
     let mut f = ContentFlags::default();
     f.raise(label(Flag::Confidential));
-    let sid = session_with(&r, Some(f), &["Synthetic words."], false);
+    let sid = session_with(&r, Some(f), &["Synthetic words."]);
     let zai = &r.core.runner.providers["zai"];
     send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
@@ -386,7 +378,7 @@ async fn cn_models_never_refuses_a_clean_session() {
     let r = rig(None, 1, |c| {
         c.content_based_security.cn_models = CnModels::Never;
     });
-    let sid = session_with(&r, None, &[], false);
+    let sid = session_with(&r, None, &[]);
     let zai = &r.core.runner.providers["zai"];
     let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
         .await
@@ -415,7 +407,7 @@ async fn with_session_flags_off_always_sends_and_never_refuses() {
             c.content_based_security.cn_models = mode;
             c.content_based_security.validate().unwrap();
         });
-        let sid = session_with(&r, None, &["Synthetic words."], false);
+        let sid = session_with(&r, None, &["Synthetic words."]);
         let zai = &r.core.runner.providers["zai"];
         let got = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN)).await;
         assert_eq!(got.is_ok(), sent, "{mode:?}: {got:?}");

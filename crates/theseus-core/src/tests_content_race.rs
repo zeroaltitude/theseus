@@ -1,67 +1,44 @@
-//! Two items of one session, judged in two batches: the mark must reach both
-//! (theseus-8qgwo). The rig is `tests_content_late`'s -- the **real** judge
-//! against the fake Jev, with `content.v3` live -- because the defects here
-//! live in `judge::content`'s own landing, which the floor's stand-in judge
+//! Two items of one session, asked in two batches (theseus-8qgwo; counter tests
+//! since theseus-gyjyo.7). The rig is `tests_content_late`'s -- the **real** judge
+//! against the fake Jev, with `content.v3` live -- because what these pin lives
+//! in `judge::content`'s own landing, which the floor's stand-in judge
 //! (`content_wait::judging`) replaces entirely and so cannot show.
 //!
-//! What this file is for. theseus-sh1n3 made the blocked set and the submitted
-//! set one set, so every item that enters a session is offered for judgment.
-//! It did not make a *landing* reach the mark in time. Cell 8's
-//! `c8c-deepseek-high-k1` then failed **39 of 89** trials at the data gate:
+//! **What this file was, and what it is.** Cell 8's `c8c-deepseek-high-k1` failed
+//! 25 of 89 trials at the data gate with `holds an item that has not been
+//! judged yet`, all on a **parallel tool-call group** whose first result was
+//! judged and a later one never was: a landing parked in `Turns::between` on
+//! the drain task's own path, stopping the whole session's queue, while the
+//! turn waited its whole `wait_ms` for a verdict nothing would ask for. The
+//! tests here were the race's tests: they held the session's *mark* to the
+//! end of the transcript (`settles`) and a turn to its restricted model.
 //!
-//! | 25 | `holds an item that has not been judged yet` | the defect |
-//! | 8  | `carries a 'secret' label` | the gate working |
-//! | 5  | `carries a 'confidential' label` | the gate working |
-//! | 1  | `No model cleared …` | the fallback hole |
+//! **The race is gone, and they pass for that reason.** There is no mark and
+//! no park (theseus-gyjyo.7): a landing writes at once, the floor waits on a
+//! counter, and a turn goes on its labels whatever lands. So each test is
+//! rewritten to say what is still true and still worth holding, **the
+//! counter**: the asks open for a session count every item queued and come
+//! back to zero, each item is asked about exactly once, and a failed ask is
+//! asked again inside its own open ask rather than after it.
 //!
-//! All 25 share one shape: the model emitted a **parallel tool-call group**
-//! (2 × 22, 3 × 2, 11 × 1), the first result was judged and a later one never
-//! was. Across the whole cell, 1,181 of 1,387 tool-call loops were single-call
-//! and **not one of those ever failed** — 83 of them ran inside the 25 failing
-//! trials themselves and survived. Every one of the 25 waited **30.007 to
-//! 30.014 s**, one uninterrupted `[content_based_security] wait_ms`, and in every one every
-//! judgment that exists reads `outcome: answered`. **Nothing failed. A verdict
-//! was simply never asked for.**
-//!
-//! Three defects, in the order they matter:
-//!
-//! 1. **The landing deadlock**, which is what cell 8 died of. `land` reads
-//!    `content_awaited` **once** and then parks in `Turns::between` waiting for
-//!    a quiet moment, on the drain task's own path — so the park stops the
-//!    whole session's queue. A group's first batch lands while the turn is
-//!    still running the rest of the group, so nothing is waiting yet and it
-//!    parks; the group's later results are never taken; the turn reaches the
-//!    floor and waits its whole `wait_ms` on a notify that cannot fire. The
-//!    landing waits for the turn and the turn waits for the landing. A
-//!    single-call loop cannot reach it, which is the fingerprint.
-//!    Tested by `a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landing`.
-//! 2. **The sweep stands down on a stuck mark.** `ask_unsubmitted` leaves a
-//!    node an earlier batch could not judge to `with_worklist`, which rides a
-//!    **new batch**; mid-turn there is none to ride. A latent wedge of the
-//!    same family, not cell 8's — no batch failed there.
-//!    Tested by `a_failed_content_call_mid_turn_is_asked_again_rather_than_wedging`.
-//! 3. **The floor's fallback does not read the fallback's origin.** A turn
-//!    refused for its content moves to the `[model]` default whatever that
-//!    model is; where the default is itself restricted — a pinned arm, which
-//!    is how every bench cell runs — "go to Claude" lands back on the same
-//!    model and the chokepoint fails the turn with `nothing was sent`. That is
-//!    the 1 `No model cleared` trial, and it is why the other 25 died hard.
-//!    Tested by `a_restricted_default_is_not_a_fallback_on_a_later_loop`.
-//!
-//! The two whole-group tests below are **regression cover, not evidence**:
-//! their results land inside one `COALESCE` window, so there is no second
-//! batch to strand and they pass on the unfixed tree.
+//! | test | what it tests now |
+//! |---|---|
+//! | `both_results_of_a_parallel_group_are_judged` | a group of two: every result is asked about once; the count ends at zero |
+//! | `every_result_of_a_group_of_three_is_judged` | the same for three |
+//! | `a_group_wider_than_the_coalesce_window_ends_the_count_at_zero` | two batches; both asked once; the turn did not wait out `wait_ms` |
+//! | `a_content_call_that_fails_mid_turn_is_asked_again_inside_the_wait` | the first ask fails, the second answers: judged, no `unjudged` row, the turn waited for it |
+//! | `a_content_call_that_fails_twice_leaves_the_session_on_its_model` | both fail: one `unjudged` row, the turn goes on glm |
+//! | `a_restricted_default_is_not_a_fallback_on_a_later_loop` | unchanged: a label on a later loop, with a restricted default |
+//! | `two_batches_of_one_session_are_each_asked_once` | no landing is lost, none is asked twice |
 
 use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
-use crate::content::ContentFlags;
 use crate::node::Body;
 use crate::policy::Posture;
 use crate::provider::Scripted;
-use crate::session::SessionRecord;
 use crate::tests_judge::{rig_on, Rig};
 use crate::tests_route::try_turn_attached;
 
@@ -90,56 +67,69 @@ fn rig(jev: &FakeJev, script: Vec<Scripted>) -> Rig {
     })
 }
 
-/// The session's flags, or the default.
-fn flags(r: &Rig, sid: &str) -> ContentFlags {
-    let rec: Option<SessionRecord> = r.core.store.get_session(sid).unwrap();
-    rec.and_then(|r| r.data.map(|b| *b)).unwrap_or_default()
-}
-
-/// Every item of the session the floor counts as unjudged: what would refuse
-/// the next request to a model of restricted origin, named rather than
-/// counted, so a failure says which node was lost.
-fn unjudged_items(r: &Rig, sid: &str) -> Vec<String> {
-    let nodes = r.core.store.transcript(sid).unwrap();
-    let f = flags(r, sid);
-    let through = f
-        .judged_through
-        .as_deref()
-        .and_then(|id| nodes.iter().position(|(_, n)| n.id == id));
-    let from = through.map_or(0, |at| at + 1);
-    nodes[from..]
+/// The items of the session no `content.judged` row names: what the judge has
+/// not asked about, named rather than counted so a failure says which node was
+/// lost.
+fn unasked(core: &std::sync::Arc<crate::rpc::Core>, sid: &str) -> Vec<String> {
+    let judged = crate::tests_judge::judged_nodes(&core.store);
+    core.store
+        .transcript(sid)
+        .unwrap()
         .iter()
-        .filter(|(_, n)| crate::content_wait::is_item(n))
+        .filter(|(_, n)| crate::content::item_text(n).is_some())
+        .filter(|(_, n)| !judged.contains(&n.id))
         .map(|(_, n)| format!("{} {:?}", n.id, n.kind))
         .collect()
 }
 
-/// Wait until the session has no unjudged item, or fail saying which is left.
-/// The judge lands asynchronously, so the wait is its own bound; 20 s against
-/// a fake Jev that answers in microseconds is a hang, not a slow answer.
-async fn settles(r: &Rig, sid: &str, what: &str) {
+/// Wait until every item of the session has been asked about **and the
+/// session's open count is back to zero**, or fail saying which is left. The
+/// judge lands asynchronously, so the wait is its own bound; 20 s against a
+/// fake Jev that answers in microseconds is a hang, not a slow answer.
+async fn settles(core: &std::sync::Arc<crate::rpc::Core>, sid: &str, what: &str) {
     let t0 = Instant::now();
     loop {
-        let left = unjudged_items(r, sid);
-        if left.is_empty() {
+        let left = unasked(core, sid);
+        let open = core.runner.verdicts.outstanding(sid);
+        if left.is_empty() && open == 0 {
             return;
         }
         assert!(
             t0.elapsed() < Duration::from_secs(20),
-            "{what}: these items were never judged, so this session can never \
-             again reach a model of restricted origin: {left:#?}\nmark: {:?}\n\
-             worklist: {:?}",
-            flags(r, sid).judged_through,
-            flags(r, sid).unjudged,
+            "{what}: asks never landed ({open} still open): {left:#?}"
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
+/// Wait until the session's open count is back to zero: for an item whose ask
+/// failed, which no `content.judged` row will ever name.
+async fn count_ends(core: &std::sync::Arc<crate::rpc::Core>, sid: &str, what: &str) {
+    let t0 = Instant::now();
+    while core.runner.verdicts.outstanding(sid) > 0 {
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "{what}: the count never came down"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// How many times the judge asked about `node`: its `content.judged` rows.
+fn asked_times(core: &std::sync::Arc<crate::rpc::Core>, node: &str) -> usize {
+    crate::tests_judge::judged_nodes(&core.store)
+        .iter()
+        .filter(|n| *n == node)
+        .count()
+}
+
 /// The result nodes of the session, in transcript order.
 fn results(r: &Rig, sid: &str) -> Vec<String> {
-    r.core
-        .store
+    results_core(&r.core, sid)
+}
+
+fn results_core(core: &std::sync::Arc<crate::rpc::Core>, sid: &str) -> Vec<String> {
+    core.store
         .session_nodes(sid)
         .unwrap()
         .iter()
@@ -148,16 +138,15 @@ fn results(r: &Rig, sid: &str) -> Vec<String> {
         .collect()
 }
 
-/// **The row's own repro** (theseus-8qgwo): a loop of two parallel tool calls
-/// writes two results, and *both* must be judged. On the build cell 8 ran
-/// (`69b373e8`, which carries sh1n3) a group's later result could go unjudged
-/// for the rest of its turn, which is enough to refuse every request of that
-/// turn to a model of restricted origin.
+/// **The row's own repro, as a counter test** (theseus-8qgwo,
+/// theseus-gyjyo.7): a loop of two parallel tool calls writes two results, and
+/// *both* are asked about, once each, with the session's open count back at
+/// zero. On the build cell 8 ran (`69b373e8`) a group's later result could go
+/// unasked for the rest of its turn. It passes now because the machinery that
+/// lost it (the mark, the park) is gone; what it holds is the counter.
 ///
-/// Two calls, not one, is the whole point: a single-call loop queues one item,
-/// its batch lands against the base it read, and the mark moves. The second
-/// call's result is queued while the first batch is in flight, so its own
-/// batch begins against a base the first has already moved past.
+/// Two calls, not one, is the point: the second call's result is queued while
+/// the first batch is in flight.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn both_results_of_a_parallel_group_are_judged() {
     let jev = FakeJev::start().unwrap();
@@ -187,7 +176,10 @@ async fn both_results_of_a_parallel_group_are_judged() {
         2,
         "the turn wrote both results of the group"
     );
-    settles(&r, &sid, "a parallel tool-call group").await;
+    settles(&r.core, &sid, "a parallel tool-call group").await;
+    for id in results(&r, &sid) {
+        assert_eq!(asked_times(&r.core, &id), 1, "{id} was asked about once");
+    }
 }
 
 /// The same, with a group of three: the bench's 11-call group says the shape
@@ -223,32 +215,32 @@ async fn every_result_of_a_group_of_three_is_judged() {
         .unwrap();
     let sid = first.session_id.clone();
     assert_eq!(results(&r, &sid).len(), 3, "all three results were written");
-    settles(&r, &sid, "a parallel tool-call group of three").await;
+    settles(&r.core, &sid, "a parallel tool-call group of three").await;
+    for id in results(&r, &sid) {
+        assert_eq!(asked_times(&r.core, &id), 1, "{id} was asked about once");
+    }
 }
 
-/// **The cell-8 deadlock itself** (theseus-8qgwo, the review's B1): a turn
-/// pinned to a model of restricted origin runs a parallel tool-call group
+/// **The cell-8 shape, as a counter test** (theseus-8qgwo, theseus-gyjyo.7): a
+/// turn pinned to a model of restricted origin runs a parallel tool-call group
 /// whose results are written **further apart than `COALESCE`**, so the group
-/// needs two batches. The first batch's `land` runs while the turn is still
-/// executing the rest of the group — no turn is waiting yet — so it parks in
-/// `Turns::between` on the drain task's own path and the second result is
-/// never taken from the queue. The turn then waits its whole `wait_ms` on a
-/// notify that cannot fire. The landing waits for the turn to end and the
-/// turn waits for the landing.
+/// needs two batches. The first batch lands while the turn is still running
+/// the rest of the group, with nothing waiting yet. On the build cell 8 ran
+/// that landing parked on the drain task's own path, stopped the session's
+/// queue, and the turn waited its whole `wait_ms` for a verdict nothing would
+/// ask for.
 ///
-/// Three knobs make it, and getting any of them wrong hides it:
-/// - **Jev must be fast.** A slow Jev is the one thing that *prevents* this:
-///   it delays the first landing until after the floor has begun waiting, so
-///   `awaited` is already true and the landing writes at once. An earlier
-///   version of this test set a 300 ms latency and passed on the broken tree.
-/// - **The results must straddle `COALESCE`** (50 ms). Two `echo`s land in
-///   one batch, there is no second batch to strand, and it passes.
-/// - **The profile must be restricted**, or the floor never waits at all.
+/// **That cannot happen now and the profile assertion below is true for that
+/// reason** (a turn goes on its labels at `wait_ms` whatever the judge does).
+/// What bites is the count: both results were asked about, once each, the
+/// session's open count is zero, and the turn **did not wait out `wait_ms`**:
+/// a count that never came down would have held it for the full five seconds.
 ///
-/// On the unfixed tree the mark stops short of the second result with
-/// `unjudged` empty — nothing failed; a verdict was simply never asked for.
+/// Jev must be fast and the results must straddle `COALESCE` (50 ms), or there
+/// is no second batch; the profile must be restricted, or the floor never
+/// waits at all.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landing() {
+async fn a_group_wider_than_the_coalesce_window_ends_the_count_at_zero() {
     use crate::tests_route::{rig_parts, try_turn_attached as route_turn};
     let jev = FakeJev::start().unwrap();
     clean(&jev);
@@ -260,8 +252,7 @@ async fn a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landin
             (
                 "t2",
                 "proc_run",
-                // Six times `COALESCE`, so this result misses the first
-                // batch and needs a second the parked drain cannot take.
+                // Six times `COALESCE`, so this result misses the first batch.
                 json!({"argv": ["bash", "-c", "sleep 0.3; echo p2"]}),
             ),
         ],
@@ -278,8 +269,6 @@ async fn a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landin
             // content.v3 live: the judge rigs turn it off.
             c.judge.packs.remove(crate::judge::content::PACK);
             c.judge.total_secs = 10;
-            // Generous, so a move to the default means the verdict never came
-            // rather than that the fake Jev was slow.
             c.content_based_security.wait_ms = 5_000;
             c.tools.proc_sync_secs = 5;
             c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
@@ -293,70 +282,44 @@ async fn a_group_wider_than_the_coalesce_window_does_not_deadlock_its_own_landin
             }
         },
     );
+    let t0 = Instant::now();
     let one = route_turn(&r.core, None, "run both of those", Some("glm"), vec![])
         .await
         .expect("the turn was refused outright");
+    let took = t0.elapsed();
     let sid = one.session_id.clone();
-    // The discriminating assertion. The landing deadlock shows here: the floor
-    // cannot settle inside `wait_ms`, so the turn leaves the model it was
-    // pinned to. `settles_on` below is a true invariant but does not
-    // discriminate — the park ends when the turn ends, so the verdict lands
-    // late either way.
-    assert_eq!(
-        one.profile, "glm",
-        "the turn left its pinned restricted model: {:?}",
-        one.route
+    assert_eq!(one.profile, "glm", "{:?}", one.route);
+    assert_eq!(crate::tests_dm_rig::blocked(&r.core), 0);
+    assert!(
+        took < Duration::from_millis(4_500),
+        "the turn waited out its wait_ms ({took:?}): the count did not come down"
     );
-    assert_eq!(
-        crate::tests_dm_rig::blocked(&r.core),
-        0,
-        "the chokepoint refused a request the floor should have settled"
-    );
-    settles_on(&r.core, &sid, "a pinned restricted turn's parallel group").await;
+    settles(&r.core, &sid, "a pinned restricted turn's parallel group").await;
+    let both = results_core(&r.core, &sid);
+    assert_eq!(both.len(), 2, "both results were written");
+    for id in both {
+        assert_eq!(asked_times(&r.core, &id), 1, "{id} was asked about once");
+    }
 }
 
-/// **The wedge itself** (theseus-8qgwo): a content batch that fails *mid-turn*
-/// puts its node on `ContentFlags::unjudged`, and from that moment nothing
-/// will ever ask for it again while the turn lasts -- so a turn pinned to a
-/// model of restricted origin waits its whole `[content_based_security] wait_ms` and is then
-/// refused, however healthy the judge has since become.
-///
-/// **This is not what cell 8 died of** — no content call failed there (every
-/// judgment reads `answered`). It is a latent wedge of the same family, found
-/// while chasing that one, and it is real: a shed or a refused reservation
-/// mid-turn costs the rest of the turn.
-///
-/// Why nothing asks again. `ask_unsubmitted` stands down when the first item
-/// past the mark is on the worklist, leaving the re-ask to `with_worklist`
-/// (the review of 2026-10-27, B3). But `with_worklist` rides a **new batch**,
-/// and between a tool's result and the next model call of the same turn there
-/// is no new item to queue, so no batch is ever made for it to ride. The
-/// session is off every model of restricted origin for the rest of that turn,
-/// and until something else queues an item.
-///
-/// Cell 8's profile sets `[content_based_security] wait_ms = 30000`, so a turn in this state
-/// burns a full thirty seconds waiting on a verdict nothing asked for.
-///
-/// The rig holds the result's own content call until the judge's own
-/// `total_secs` gives up on it, then lets later calls through. A build that
-/// re-asks the worklist finishes the turn on the restricted model; a build
-/// that leaves it to a batch that never comes does not.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_failed_content_call_mid_turn_is_asked_again_rather_than_wedging() {
-    use crate::tests_route::{rig_parts, try_turn_attached as route_turn};
-    const MARK: &str = "wedgemarker";
-    let jev = FakeJev::start().unwrap();
-    clean(&jev);
-    crate::tests_route::mode(&jev, "trivial", 0.95);
-    // Only the call whose state carries the result's own text waits; the
-    // route verdict and every other pack answer at once.
-    jev.hold_when(MARK);
+/// The rig for a restricted turn whose one tool result is held at Jev until
+/// `release`: the result's own content call (the only one whose state carries
+/// `MARK`) is the one that fails.
+fn held_rig(
+    jev: &FakeJev,
+    total_secs: u64,
+    mark: &str,
+) -> (
+    crate::tests_route::Rig,
+    std::sync::Arc<crate::provider::FakeProvider>,
+) {
+    use crate::tests_route::rig_parts;
     let one_call = Scripted::tools(
         "",
         &[(
             "t1",
             "proc_run",
-            json!({"argv": ["bash", "-c", format!("echo {MARK}")]}),
+            json!({"argv": ["bash", "-c", format!("echo {mark}")]}),
         )],
     );
     let mine = std::sync::Arc::new(crate::provider::FakeProvider::scripted(vec![
@@ -364,14 +327,13 @@ async fn a_failed_content_call_mid_turn_is_asked_again_rather_than_wedging() {
         Scripted::text("Ran it."),
     ]));
     let r = rig_parts(
-        Some(&jev),
+        Some(jev),
         2,
         |c| {
             crate::tests_route::restricted_placements(c);
             c.judge.packs.remove(crate::judge::content::PACK);
-            // The held call gives up here; the floor has far longer to notice
-            // and ask again, as cell 8's profile does.
-            c.judge.total_secs = 3;
+            // The held call gives up here.
+            c.judge.total_secs = total_secs;
             c.content_based_security.wait_ms = 30_000;
             c.tools.proc_sync_secs = 5;
             c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
@@ -385,34 +347,97 @@ async fn a_failed_content_call_mid_turn_is_asked_again_rather_than_wedging() {
             }
         },
     );
-    // The judge recovers while the floor is still waiting: every call held
-    // from here on answers, so a re-ask succeeds and only a build that never
-    // re-asks is still stuck.
+    (r, mine)
+}
+
+/// **The wedge, as a retry test** (theseus-8qgwo, theseus-gyjyo.7): a content
+/// call that fails *mid-turn*. It used to put its node on a worklist nothing
+/// read again while the turn lasted, so a turn pinned to a model of restricted
+/// origin waited its whole `wait_ms` and was refused. Now the failed ask is
+/// asked **once more inside the same open ask**, so the count stays up across
+/// the retry and the turn waits for the second answer.
+///
+/// Jev holds the result's call until the judge's own `total_secs` gives up on
+/// it (3 s), and answers from then on: the first ask fails, the second (after
+/// `REASK_PAUSE`) is released and answers. The result is judged, **no
+/// `content.unjudged` row is written**, and the turn ran on the restricted
+/// model having waited for it (more than the first ask's 3 s).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_content_call_that_fails_mid_turn_is_asked_again_inside_the_wait() {
+    use crate::tests_route::try_turn_attached as route_turn;
+    const MARK: &str = "wedgemarker";
+    let jev = FakeJev::start().unwrap();
+    clean(&jev);
+    crate::tests_route::mode(&jev, "trivial", 0.95);
+    jev.hold_when(MARK);
+    let (r, _) = held_rig(&jev, 3, MARK);
+    // The judge recovers once its first ask has given up (3 s): every call
+    // held from here on answers.
     let releasing = {
         let jev = jev.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_millis(3_100)).await;
             for _ in 0..100 {
                 jev.release();
-                tokio::time::sleep(Duration::from_millis(200)).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         })
     };
+    let t0 = Instant::now();
     let one = route_turn(&r.core, None, "run that one", Some("glm"), vec![])
         .await
         .expect("the turn was refused outright");
+    let took = t0.elapsed();
     releasing.abort();
-    assert_eq!(
-        one.profile, "glm",
-        "the turn left its pinned restricted model for an item nothing re-asked: {:?}",
-        one.route
+    assert_eq!(one.profile, "glm", "{:?}", one.route);
+    assert_eq!(crate::tests_dm_rig::blocked(&r.core), 0);
+    assert!(
+        took >= Duration::from_secs(3),
+        "the turn waited for the first ask to fail and the second to answer: {took:?}"
     );
-    assert_eq!(
-        crate::tests_dm_rig::blocked(&r.core),
-        0,
-        "the chokepoint refused a request whose item the floor could have re-asked"
+    settles(&r.core, &one.session_id, "a failed content call mid-turn").await;
+    let result = results_core(&r.core, &one.session_id);
+    assert_eq!(result.len(), 1);
+    assert_eq!(asked_times(&r.core, &result[0]), 1, "judged, on the retry");
+    let unjudged = crate::tests_judge::kinds(&r.core.store, "content.unjudged");
+    assert!(unjudged.is_empty(), "the retry answered: {unjudged:?}");
+}
+
+/// **The same call fails both times** (theseus-gyjyo.7): the owner's trade. The
+/// result's ask fails, is asked once more, fails again, and is rowed
+/// `content.unjudged` (`failed`); nothing is raised, so the session stays
+/// eligible, and the turn pinned to the restricted model **goes** on it, having
+/// waited for the two attempts and no longer. The chokepoint is never reached.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_content_call_that_fails_twice_leaves_the_session_on_its_model() {
+    use crate::tests_route::try_turn_attached as route_turn;
+    const MARK: &str = "failtwicemarker";
+    let jev = FakeJev::start().unwrap();
+    clean(&jev);
+    crate::tests_route::mode(&jev, "trivial", 0.95);
+    // Never released: both attempts are held until the judge gives up on them.
+    jev.hold_when(MARK);
+    let (r, mine) = held_rig(&jev, 2, MARK);
+    let t0 = Instant::now();
+    let one = route_turn(&r.core, None, "run that one", Some("glm"), vec![])
+        .await
+        .expect("the turn was refused outright");
+    let took = t0.elapsed();
+    assert_eq!(one.profile, "glm", "{:?}", one.route);
+    assert_eq!(mine.requests().len(), 2, "GLM was sent both loops");
+    assert_eq!(crate::tests_dm_rig::blocked(&r.core), 0);
+    assert!(
+        took >= Duration::from_secs(4),
+        "two attempts of 2 s were waited for: {took:?}"
     );
-    settles_on(&r.core, &one.session_id, "a failed content call mid-turn").await;
+    assert!(
+        took < Duration::from_secs(25),
+        "and no longer than that, with a wait_ms of 30 s: {took:?}"
+    );
+    count_ends(&r.core, &one.session_id, "a content call that failed twice").await;
+    let unjudged = crate::tests_judge::kinds(&r.core.store, "content.unjudged");
+    assert_eq!(unjudged.len(), 1, "{unjudged:?}");
+    assert_eq!(unjudged[0].data["why"], "failed");
 }
 
 /// **The fallback is not a model the floor refuses** (theseus-8qgwo). Where
@@ -504,54 +529,25 @@ async fn a_restricted_default_is_not_a_fallback_on_a_later_loop() {
     );
 }
 
-/// `settles`, against a `tests_route` core rather than a `tests_judge` rig.
-async fn settles_on(core: &std::sync::Arc<crate::rpc::Core>, sid: &str, what: &str) {
-    let t0 = Instant::now();
-    loop {
-        let nodes = core.store.transcript(sid).unwrap();
-        let rec: Option<SessionRecord> = core.store.get_session(sid).unwrap();
-        let f = rec.and_then(|r| r.data.map(|b| *b)).unwrap_or_default();
-        let through = f
-            .judged_through
-            .as_deref()
-            .and_then(|id| nodes.iter().position(|(_, n)| n.id == id));
-        let from = through.map_or(0, |at| at + 1);
-        let left: Vec<String> = nodes[from..]
-            .iter()
-            .filter(|(_, n)| crate::content_wait::is_item(n))
-            .map(|(_, n)| format!("{} {:?}", n.id, n.kind))
-            .collect();
-        if left.is_empty() {
-            return;
-        }
-        assert!(
-            t0.elapsed() < Duration::from_secs(25),
-            "{what}: never judged, so the session is off every model of \
-             restricted origin for good: {left:#?}\nmark: {:?}\nworklist: {:?}",
-            f.judged_through,
-            f.unjudged,
-        );
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-}
-
-/// A landing whose base has moved is **not lost**: `move_mark`'s compare-and-set
-/// may decline to move the mark, but the node it judged must still end up
-/// covered -- by this landing or by a later read -- never left silently behind.
-///
-/// This drives the landing directly rather than through a turn, so it fails on
-/// the defect itself rather than on whatever schedule a turn happens to
-/// produce. Two batches of one session, the second begun against the first's
-/// base: after both have landed, no item of the session is unjudged.
+/// **No landing is lost and none is asked twice** (theseus-8qgwo,
+/// theseus-gyjyo.7). Two batches of one session, the second begun while the
+/// first is in flight: it used to be that the second's base had moved and the
+/// mark's compare-and-set could decline it, leaving a node behind. With no mark
+/// there is nothing to decline: after both have landed every item has exactly
+/// one `content.judged` row, and the session's open count is zero.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_landing_whose_base_moved_is_not_lost() {
+async fn two_batches_of_one_session_are_each_asked_once() {
     let jev = FakeJev::start().unwrap();
     clean(&jev);
     let pair = Scripted::tools(
         "",
         &[
             ("t1", "proc_run", json!({"argv": ["bash", "-c", "echo a"]})),
-            ("t2", "proc_run", json!({"argv": ["bash", "-c", "echo b"]})),
+            (
+                "t2",
+                "proc_run",
+                json!({"argv": ["bash", "-c", "sleep 0.2; echo b"]}),
+            ),
         ],
     );
     let r = rig(&jev, vec![pair, Scripted::text("Ran.")]);
@@ -559,11 +555,11 @@ async fn a_landing_whose_base_moved_is_not_lost() {
         .await
         .unwrap();
     let sid = first.session_id.clone();
-    settles(&r, &sid, "two batches of one session").await;
-    let f = flags(&r, &sid);
-    assert!(
-        f.unjudged.is_empty(),
-        "a node was parked on the worklist and nothing will re-ask it: {:?}",
-        f.unjudged
-    );
+    settles(&r.core, &sid, "two batches of one session").await;
+    let both = results(&r, &sid);
+    assert_eq!(both.len(), 2);
+    for id in both {
+        assert_eq!(asked_times(&r.core, &id), 1, "{id} was asked about once");
+    }
+    assert_eq!(r.core.runner.verdicts.outstanding(&sid), 0);
 }

@@ -336,7 +336,6 @@ async fn a_plain_turn_keeps_the_sessions_labels() {
         at_ms: 1,
         judgment: String::new(),
     });
-    flags.judged_through = Some("nod_earlier".into());
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);
     rec.data = Some(Box::new(flags.clone()));
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
@@ -500,12 +499,13 @@ fn a_data_gate_failure_is_parked_never_retried() {
 // Every test above stands a judge behind `verdicts` that judges straight from
 // the transcript, so it lands a verdict for a node **no hook site ever
 // offered**. That is more generous than the running system, and it is why
-// theseus-9ymz0 shipped with a gap between the set the floor blocks on and
-// the set that is submitted: a node in the gap is unjudged for ever and takes
-// its session off every model of restricted origin for good, in silence.
+// theseus-9ymz0 shipped with a gap between the set the floor blocked on and
+// the set that is submitted. The floor blocks on nothing now (theseus-gyjyo.7:
+// it waits on a counter and goes on the labels), so a node in the gap no
+// longer wedges a session; it is **never asked about**, which is a label never
+// raised, and the guard on it is [`every_item_a_turn_writes_is_offered_for_judgment`].
 //
-// These use `Judging::faithful`, which judges only what a site submitted and
-// stops the mark at the first item none did — the real judge's behaviour.
+// These use `Judging::faithful`, which judges only what a site submitted.
 
 /// The judge of `r`, faithful to what the hook sites actually submit.
 fn faithful(r: &Rig) -> Arc<Judging> {
@@ -572,6 +572,11 @@ async fn turn_with_deadline(
 /// node, so the floor counted it; nothing submits a harness-appended node, so
 /// it was never judged, and the session never reached a model of restricted
 /// origin again. The clock's words are the harness's own and are no item.
+///
+/// **The first assertion passes for a different reason now**: the floor no
+/// longer counts items, so the session reaches the model whatever the clock
+/// node is. What still bites is the last: the clock line is not an item, so
+/// nothing offers it to the judge.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deadline_does_not_take_the_session_off_the_restricted_model() {
     let r = rig(None, 2, |c| c.content_based_security.wait_ms = 300);
@@ -584,13 +589,22 @@ async fn a_deadline_does_not_take_the_session_off_the_restricted_model() {
     );
     assert_eq!(r.zai.requests().len(), 1, "GLM was sent it");
     assert_eq!(blocked(&r.core), 0, "nothing met the chokepoint");
-    // And the clock's node really was written, so the test is not vacuous.
+    // And the clock's node really was written, so the test is not vacuous...
     let nodes = r.core.store.transcript(&with.session_id).unwrap();
+    let clock: Vec<&str> = nodes
+        .iter()
+        .filter(|(_, n)| n.author.as_deref() == Some(crate::turn::clock_step::CLOCK_AUTHOR))
+        .map(|(_, n)| n.id.as_str())
+        .collect();
     assert!(
-        nodes
-            .iter()
-            .any(|(_, n)| n.author.as_deref() == Some(crate::turn::clock_step::CLOCK_AUTHOR)),
+        !clock.is_empty(),
         "the turn wrote no clock line, so this proves nothing"
+    );
+    // ...and the harness's own words are never offered to the judge.
+    let submitted = r.core.runner.judge.content_submitted();
+    assert!(
+        clock.iter().all(|id| !submitted.iter().any(|s| s == id)),
+        "the clock line was offered for judgment: {submitted:?}"
     );
 }
 
@@ -602,46 +616,29 @@ async fn a_deadline_does_not_take_the_session_off_the_restricted_model() {
 /// floor counted it like any other result.
 ///
 /// Here the node is planted as that site wrote it — written, never offered —
-/// and the floor must still let the session reach the restricted model:
-/// `ask_unsubmitted` queues what the write sites did not, so a site added
-/// later that forgets costs a round trip rather than a session. The site
-/// itself is held to its queueing by
+/// and the session still reaches the restricted model, on `wait_ms` 300 and on
+/// zero. **It passes because nothing counts items now** (theseus-gyjyo.7): the
+/// sweep that used to queue the node is gone, so the other side is asserted
+/// too, and it is the price: the node is never asked about, and no row or
+/// label comes of it. The site itself is held to its queueing by
 /// [`every_item_a_turn_writes_is_offered_for_judgment`].
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_item_no_site_submitted_is_swept_up_rather_than_wedging_the_session() {
-    swept_not_wedged(300).await;
-}
-
-/// The same item, on `[content_based_security] wait_ms = 0` — a supported setting the config
-/// documents as "a cn request never waits" and a test of its own asserts
-/// (`config/content_based_security.rs`).
-///
-/// The sweep ran *inside* the settle loop at first, and that loop's first act
-/// is to break on a zero wait: so on this setting the one path that makes the
-/// blocked set and the submitted set equal by construction was never reached
-/// at all, and the whole defect class came back on a config the operator is
-/// entitled to choose (the review of 2026-10-27, B1).
-///
-/// What is asserted here is the **offer**, not the verdict: with a zero wait
-/// this turn goes on its labels without waiting, and the test judge
-/// lands only when a turn waits, so no mark can move inside this test. The
-/// offer is the whole of B1 — an item nobody offers is one no judge can ever
-/// reach, however many turns come later.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_zero_wait_still_offers_the_item_no_site_submitted() {
-    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 0);
-    faithful(&r);
-    let one = turn(&r.core, None, PLAIN, Some("glm")).await;
-    assert_eq!(one.profile, "glm", "a zero wait goes on the labels at once");
-    let node = planted_result(&one.session_id);
-    r.core.store.append(&[node.record().unwrap()]).unwrap();
-    let two = turn(&r.core, Some(&one.session_id), "And again.", Some("glm")).await;
-    assert_eq!(two.profile, "glm", "still no wait, and no label");
-    assert!(
-        r.core.runner.judge.content_swept().contains(&node.id),
-        "nothing offered the planted result, so nothing ever can: {:?}",
-        r.core.runner.judge.content_swept()
-    );
+async fn an_item_no_site_submitted_wedges_nothing_and_is_never_asked() {
+    for wait_ms in [300, 0] {
+        let r = rig(None, 2, |c| c.content_based_security.wait_ms = wait_ms);
+        faithful(&r);
+        let one = turn(&r.core, None, PLAIN, Some("glm")).await;
+        assert_eq!(one.profile, "glm", "{:?}", one.route);
+        let node = planted_result(&one.session_id);
+        r.core.store.append(&[node.record().unwrap()]).unwrap();
+        let two = turn(&r.core, Some(&one.session_id), "And again.", Some("glm")).await;
+        assert_eq!(two.profile, "glm", "wait_ms {wait_ms}: {:?}", two.route);
+        assert_eq!(r.zai.requests().len(), 2);
+        assert!(
+            !r.core.runner.judge.content_submitted().contains(&node.id),
+            "something offered the planted result: the sweep is back"
+        );
+    }
 }
 
 /// The node a harness tool's completion writes, as `harness_done` writes one
@@ -670,34 +667,11 @@ fn planted_result(session: &str) -> crate::node::Node {
     )
 }
 
-async fn swept_not_wedged(wait_ms: u64) {
-    let r = rig(None, 2, |c| c.content_based_security.wait_ms = wait_ms);
-    faithful(&r);
-    let one = turn(&r.core, None, PLAIN, Some("glm")).await;
-    assert_eq!(one.profile, "glm", "{:?}", one.route);
-    let node = planted_result(&one.session_id);
-    r.core.store.append(&[node.record().unwrap()]).unwrap();
-    let two = turn(&r.core, Some(&one.session_id), "And again.", Some("glm")).await;
-    assert_eq!(
-        two.profile, "glm",
-        "an item nobody submitted wedged the session: {:?}",
-        two.route
-    );
-    assert_eq!(r.zai.requests().len(), 2);
-    let flags = crate::content_wait::flags_of(&r.core.store, &one.session_id).unwrap();
-    let nodes = r.core.store.transcript(&one.session_id).unwrap();
-    let at = |id: &str| nodes.iter().position(|(_, n)| n.id == id);
-    assert!(
-        at(flags.judged_through.as_deref().unwrap_or("")) >= at(&node.id),
-        "the mark never reached the planted result: {:?}",
-        flags.judged_through
-    );
-}
-
 /// **The invariant, over a real turn** (theseus-sh1n3): every node a turn
-/// writes that the floor counts as an item is a node some hook site offered
-/// for judgment. Anything else is a node that can never be judged, and so a
-/// session that can never again reach a model of restricted origin.
+/// writes that is an item is a node some hook site offered for judgment.
+/// Anything else is a node that is **never asked about** (theseus-gyjyo.7: no
+/// sweep makes up for a site that forgets), and so a label never raised. This
+/// is now the only guard on that gap.
 ///
 /// The turn here calls `task.create`, a tool the **harness** runs itself
 /// (`ToolRuntime::harness_done`) — the site that wrote a result node and
@@ -727,26 +701,17 @@ async fn every_item_a_turn_writes_is_offered_for_judgment() {
     let sid = parent_session(&r.core);
     crate::test_support::turn(&r.core, &sid, ASK).await;
     let submitted = r.core.runner.judge.content_submitted();
-    // Or this proves the sweep and says it proved the sites: `submitted`
-    // counts what `ask_unsubmitted` offered too (the review of 2026-10-27,
-    // should-fix 3). This rig routes to no restricted profile, so the floor
-    // never waits and the sweep never runs — assert it, rather than rely on
-    // a default nobody will remember this test depends on.
-    assert!(
-        r.core.runner.judge.content_swept().is_empty(),
-        "the sweep ran: this test no longer holds the write sites to anything"
-    );
     let nodes = r.core.store.transcript(&sid).unwrap();
     let missed: Vec<String> = nodes
         .iter()
-        .filter(|(_, n)| crate::content_wait::is_item(n))
+        .filter(|(_, n)| crate::content::item_text(n).is_some())
         .filter(|(_, n)| !submitted.contains(&n.id))
         .map(|(_, n)| format!("{} {:?} {:?}", n.id, n.kind, n.author))
         .collect();
     assert!(
         missed.is_empty(),
-        "the floor counts these and no site submits them, so this session can \
-         never reach a model of restricted origin again: {missed:#?}"
+        "these are items and no site submits them, so nothing is ever asked \
+         about them and a label they earn is never raised: {missed:#?}"
     );
     // Not vacuous: the harness tool's result really is in the transcript.
     assert!(

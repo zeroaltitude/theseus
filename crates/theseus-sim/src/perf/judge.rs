@@ -91,9 +91,22 @@ pub fn judges(record: &str) -> bool {
 
 /// Whether a frame is the judge's alone. A frame that mixes the judge's
 /// records with others' is not: it is counted as the turn's, and its trace
-/// says whether it is.
+/// says whether it is. The one mixture that is: the content pack's landing
+/// (`content.*` rows and the session record they label, theseus-gyjyo.7),
+/// which writes at once and so falls inside the turn's window, where it used
+/// to be held to a quiet moment between turns.
 pub fn is_judges(f: &Frame) -> bool {
-    !f.records.is_empty() && f.records.iter().all(|r| judges(r))
+    !f.records.is_empty() && (f.records.iter().all(|r| judges(r)) || is_content_landing(f))
+}
+
+/// The content pack's landing: at least one `content.*` row, and nothing but
+/// those, the judge's own records and the session record they update.
+fn is_content_landing(f: &Frame) -> bool {
+    let content = |r: &String| r.starts_with("ledger:content.");
+    f.records.iter().any(content)
+        && f.records
+            .iter()
+            .all(|r| content(r) || judges(r) || r == "session")
 }
 
 /// Where the judge's frames landed, against the turns measured.
@@ -740,6 +753,22 @@ mod tests {
         ])));
         assert!(!is_judges(&frame(&["meta:session.x"])));
         assert!(!is_judges(&frame(&[])));
+        // The content pack's landing: its rows and the session they label.
+        assert!(is_judges(&frame(&["session", "ledger:content.judged"])));
+        assert!(is_judges(&frame(&[
+            "ledger:content.judged",
+            "ledger:content.labelled",
+            "session"
+        ])));
+        assert!(
+            !is_judges(&frame(&["session"])),
+            "a session write alone is the turn's"
+        );
+        assert!(!is_judges(&frame(&[
+            "session",
+            "ledger:content.judged",
+            "node"
+        ])));
         assert_eq!(
             short(&frame(&[
                 "ledger:judge.call",
