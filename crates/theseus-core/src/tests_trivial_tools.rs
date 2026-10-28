@@ -77,27 +77,31 @@ async fn a_quick_detour_keeps_its_tools() {
     }
 }
 
-/// route.v9's two detours (theseus-gezlj): a `run_tool`
-/// turn keeps its place's tools, the command tool among them, though its message
+/// route.v9's two detours (theseus-gezlj, theseus-tqomi): a `run_tool` turn
+/// keeps its place's tools, the command tool among them, though its message
 /// names none; a `commentary` one carries `tools_find` alone, as a trivial one
 /// does, and its row says so. The fake Jev answers from the acting pack's own
-/// options, so this proof runs once route.v9 acts: until then the acting pack has
-/// neither kind to answer, and the test says so and ends.
+/// options, so this proof needs route.v9 to be the acting pack. It is ignored
+/// until it is, and `--run-ignored all` shows it failing on route.v8: a proof
+/// that returned `Ok` without asserting anything was a pass by an empty set.
+///
+/// Beyond the offered tools it pins the two things that make them so: the
+/// `[routing.classes.run_tool]` table the rig resolved (Haiku, then Sonnet, the
+/// cn rubric's §7.4) and `BARE_DETOURS`' membership (`commentary` in it,
+/// `run_tool` out, or the turn would be offered `tools_find` alone).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "runs once route.v9 is the acting pack (theseus-tqomi)"]
 async fn a_run_tool_detour_keeps_its_tools_and_a_commentary_one_carries_tools_find() {
     let acting = theseus_judge::pack::by_name(crate::judge::inbound::ROUTE_PACK).unwrap();
-    let names = |kind: &str| {
-        acting
+    for kind in ["run_tool", "commentary"] {
+        let named = acting
             .question("mode")
-            .is_some_and(|q| q.options.iter().any(|o| o.id == kind))
-    };
-    if !(names("run_tool") && names("commentary")) {
-        eprintln!(
-            "skipped: the acting pack ({}) names no run_tool or commentary yet",
-            acting.name()
-        );
-        return;
+            .is_some_and(|q| q.options.iter().any(|o| o.id == kind));
+        assert!(named, "the acting pack ({}) names no {kind}", acting.name());
     }
+    assert!(crate::config::routing::is_bare_detour("commentary"));
+    assert!(!crate::config::routing::is_bare_detour("run_tool"));
+    assert!(crate::config::routing::is_detour("run_tool"));
     for (kind, message, bare) in [
         (
             "run_tool",
@@ -112,11 +116,22 @@ async fn a_run_tool_detour_keeps_its_tools_and_a_commentary_one_carries_tools_fi
     ] {
         let jev = FakeJev::start().unwrap();
         mode(&jev, kind, 0.95);
-        let (r, haiku) = rig_haiku(&jev, 1, |_| {});
+        let table = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = table.clone();
+        let (r, haiku) = rig_haiku(&jev, 1, move |c| {
+            *seen.lock().unwrap() = c.routing.classes.of(kind).to_vec();
+        });
+        let table = table.lock().unwrap().clone();
+        match bare {
+            false => assert_eq!(table, ["haiku", "sonnet"], "the {kind} table"),
+            true => assert_eq!(table, ["haiku"], "the {kind} table"),
+        }
         let res = turn(&r.core, None, message, None).await;
         assert_eq!(res.route.as_ref().unwrap().reason, "detour", "{kind}");
         assert_eq!(res.profile, "haiku", "{kind}");
-        let names = offered(&haiku.requests()[0]);
+        let requests = haiku.requests();
+        assert_eq!(requests.len(), 1, "{kind}: one request reached the model");
+        let names = offered(&requests[0]);
         match bare {
             true => assert_eq!(names, ["tools_find"], "{kind}"),
             false => {
