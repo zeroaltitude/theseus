@@ -419,8 +419,28 @@ mod tests {
         assert_eq!(got.author.as_deref(), Some("owner"));
         assert_eq!(got.place.as_deref(), Some("private"));
         assert_eq!(got.project.as_deref(), Some("~/projects/lantern"));
-        assert!(got.public);
+        // The operator's own message names no path, so it sits in no tree,
+        // whatever directory the session is in (theseus-gyjyo.11, the R9
+        // review's J1). A tool result that read the tree does.
+        assert!(!got.public);
         assert_eq!(got.context.as_deref(), Some("Now."));
+        let read = ContentInput {
+            text: "fn main() {}".into(),
+            kind: "tool_result".into(),
+            source: "fs.read src/main.rs".into(),
+            ..ContentInput::default()
+        };
+        let stored_read = prepare(&v2, &Input::Content(read), &NoScrub).unwrap();
+        let got_read = content_input(
+            &stored_read.state.json,
+            Some(Now {
+                around: &around,
+                scene: &scene,
+                paths: &[],
+            }),
+        )
+        .unwrap();
+        assert!(got_read.public, "a tool result read the listed tree");
         // A kind that is no item kind is refused with the reason, not guessed.
         assert!(content_input(
             r#"{"text":"x","kind":"carrier_pigeon"}"#,
