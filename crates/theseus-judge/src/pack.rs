@@ -2056,4 +2056,49 @@ mod tests {
         let planted = format!("{}\nExampleCorp's private plans", EMBEDDED[0].1);
         assert_eq!(hits(&planted, &names), ["examplecorp"]);
     }
+
+    /// A judgment's record of its dynamic sources (theseus-gyjyo.1): every
+    /// source the pack's questions draw on, an empty one included, and only
+    /// those; read back for a pack that needs the same, and refused, naming
+    /// them, for one that needs another.
+    #[test]
+    fn recorded_sources_round_trip_and_name_what_is_missing() {
+        let pack = by_name("content.v2").unwrap();
+        assert_eq!(
+            Dynamic::needed(&pack).into_iter().collect::<Vec<_>>(),
+            [Source::Untrusted]
+        );
+        let held = Dynamic {
+            sources: BTreeMap::from([
+                (
+                    Source::Untrusted,
+                    vec![Item {
+                        key: "untrusted".into(),
+                        text: "not the operator's own words".into(),
+                    }],
+                ),
+                (Source::Tasks, vec![]),
+            ]),
+            assets: vec![],
+        };
+        let rec = held.recorded(&pack);
+        assert_eq!(
+            rec,
+            serde_json::json!({"untrusted": [{"key": "untrusted",
+                "text": "not the operator's own words"}]})
+        );
+        let back = Dynamic::from_record(&rec, &pack).unwrap();
+        assert_eq!(back.items(Source::Untrusted), held.items(Source::Untrusted));
+        // Nothing found is recorded as an empty list, which is a source held.
+        let none = Dynamic::default().recorded(&pack);
+        assert_eq!(none, serde_json::json!({"untrusted": []}));
+        assert!(Dynamic::from_record(&none, &pack).is_ok());
+        // A record of nothing, or of other sources, holds none of what it needs.
+        for rec in [serde_json::json!({}), serde_json::json!(null), serde_json::json!({"tasks": []})] {
+            assert_eq!(
+                Dynamic::from_record(&rec, &pack).unwrap_err(),
+                [Source::Untrusted]
+            );
+        }
+    }
 }

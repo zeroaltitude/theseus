@@ -505,6 +505,22 @@ impl Core {
         Ok(())
     }
 
+    /// A judgment's state blob, its digest and its JSON, as the judge staged
+    /// it. `Err`: why the record cannot give it.
+    fn stored_blob(&self, j: &Judgment) -> Result<(String, String), String> {
+        let digest = j.context["blob"]
+            .as_str()
+            .ok_or("its judgment names no state blob")?;
+        let json = self
+            .store
+            .blobs()
+            .base64(digest)
+            .and_then(|b| crate::blobs::decode(&b).ok())
+            .and_then(|b| String::from_utf8(b).ok())
+            .ok_or_else(|| format!("its state's blob {digest} is missing"))?;
+        Ok((digest.to_string(), json))
+    }
+
     /// One judgment's state for the candidate: the stored one, or one
     /// rebuilt from its inputs; `Err`: why neither.
     fn replay_state(
@@ -518,32 +534,46 @@ impl Core {
         // items (a question only for them is not asked; a Choice drawing
         // options from them asks its own).
         let dynamic = !theseus_judge::propose::is_learned(cand.version)
-            && cand
-                .questions
-                .iter()
-                .any(|q| q.options_from.is_some() || q.per.is_some() || q.only_when.is_some());
-        if stored_state_differs(cand, &j.state).is_none() && !dynamic {
-            let digest = j.context["blob"]
-                .as_str()
-                .ok_or("its judgment names no state blob")?;
-            let json = self
-                .store
-                .blobs()
-                .base64(digest)
-                .and_then(|b| crate::blobs::decode(&b).ok())
-                .and_then(|b| String::from_utf8(b).ok())
-                .ok_or_else(|| format!("its state's blob {digest} is missing"))?;
-            let state = stored_state(json, &j.state)?;
-            let prepared = theseus_judge::Prepared {
-                state: Arc::new(state),
-                dynamic: Default::default(),
+            && !theseus_judge::pack::Dynamic::needed(cand).is_empty();
+        let mut why_not_stored = stored_state_differs(cand, &j.state);
+        if why_not_stored.is_none() {
+            // The sources the candidate's conditional questions resolve
+            // against are in the judgment's context beside its blob when the
+            // judge staged it (theseus-gyjyo.1); one made before that holds
+            // none, and its state is rebuilt below, its sources derived.
+            let sources = match j.context.get("dynamic") {
+                _ if !dynamic => Some(Default::default()),
+                Some(held) => Some(
+                    theseus_judge::pack::Dynamic::from_record(held, cand).map_err(|missing| {
+                        let names: Vec<String> = missing
+                            .iter()
+                            .map(|m| serde_json::to_string(m).unwrap_or_default().replace('"', ""))
+                            .collect();
+                        format!(
+                            "its judgment's record of the sources its questions draw on holds no \
+                             {}, which the candidate's questions need",
+                            names.join(", ")
+                        )
+                    })?,
+                ),
+                None => None,
             };
-            return Ok((prepared, digest.to_string(), "stored"));
+            if let Some(dynamic) = sources {
+                let (digest, json) = self.stored_blob(j)?;
+                let state = stored_state(json, &j.state)?;
+                let prepared = theseus_judge::Prepared {
+                    state: Arc::new(state),
+                    dynamic,
+                };
+                return Ok((prepared, digest, "stored"));
+            }
+            why_not_stored = Some(
+                "the candidate's questions draw on the builder's items, which the record does not \
+                 keep"
+                    .into(),
+            );
         }
-        let why_not_stored = stored_state_differs(cand, &j.state).unwrap_or_else(|| {
-            "the candidate's questions draw on the builder's items, which the record does not keep"
-                .into()
-        });
+        let why_not_stored = why_not_stored.unwrap_or_default();
         if let Some(why) = super::rebuild::unrebuildable(cand.builder) {
             return Err(format!("{why_not_stored}, and it can't be rebuilt: {why}"));
         }
@@ -552,7 +582,12 @@ impl Core {
                 .rebuild_loop(&j.context)
                 .map(Input::Loop)
                 .map_err(|e| format!("{why_not_stored}, and it can't be rebuilt: {e}"))?,
-            _ => unreachable!("only loop's input is rebuilt"),
+            theseus_judge::pack::Builder::Content => self
+                .stored_blob(j)
+                .and_then(|(_, json)| super::rebuild::content_input(&json))
+                .map(Input::Content)
+                .map_err(|e| format!("{why_not_stored}, and it can't be rebuilt: {e}"))?,
+            _ => unreachable!("only loop's and content's input is rebuilt"),
         };
         let svc = &self.runner.judge;
         let prepared =

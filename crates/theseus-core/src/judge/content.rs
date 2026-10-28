@@ -624,7 +624,7 @@ impl JudgeService {
                     "session": session, "purpose": "content", "node": item.node,
                     "kind": item.kind, "piece": [n, of], "batch": batch_id,
                     "batch_items": items.len(), "baseline": "none", "blob": blob,
-                    "on_path_ms": 0,
+                    "on_path_ms": 0, "dynamic": state.dynamic.recorded(&pack),
                 });
                 let mode = self.ask_mode(PACK, &mut context);
                 asks.push(((i, n, of), Ask::new(pack.clone(), &state, mode, context)));
