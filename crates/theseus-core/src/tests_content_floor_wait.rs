@@ -198,27 +198,13 @@ fn content_call_timings(core: &std::sync::Arc<crate::rpc::Core>) -> Vec<(u64, u6
         .collect()
 }
 
-/// **The mechanism, measured** (theseus-oc9n4). The row's hypothesis was that
-/// the landing defers past the floor's wait. It does not: `judge::content`'s
-/// `land` writes at once, and the between-turns park it used to do was taken
-/// out by theseus-gyjyo.7. What is left, and what this holds, is the **queue
-/// in front of the call**: every judge call takes one of the client's
-/// `[judge] max_in_flight` permits, a content call takes one like any other,
-/// and a turn's own calls are in that queue too. So a content ask queued at
-/// the top of a turn can be served only once the turns around it stop asking
-/// — which is why the live check saw the verdict land a fixed half-second
-/// after the turn **ended**, on turns of quite different lengths, rather than
-/// a fixed time after it was asked.
-///
-/// The rig puts six cn sessions against two permits with a Jev that answers
-/// in 400 ms, so the queue in front of a content call is longer than the
-/// floor's wait. A red prints each call's `(queued_ms, http_ms, total_ms)`:
-/// a large `queued_ms` beside a small `http_ms` is the permit queue and
-/// nothing else.
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn a_cn_turns_own_message_does_not_lose_the_floors_wait_to_the_permit_queue() {
+
+/// One arm of the A/B: six cn sessions at once against `permits` in-flight
+/// permits, with Jev answering in 400 ms. Returns how each turn went, and
+/// every `content.v3` call's timing once the sink has had a moment between
+/// turns to write its rows.
+async fn arm(permits: usize, wait: Duration) -> (Vec<Ran>, Vec<(u64, u64, u64)>) {
     const N: usize = 6;
-    const SHORT: Duration = Duration::from_millis(1_500);
     let jev = FakeJev::start().unwrap();
     clean(&jev);
     crate::tests_route::mode(&jev, "trivial", 0.95);
@@ -230,10 +216,8 @@ async fn a_cn_turns_own_message_does_not_lose_the_floors_wait_to_the_permit_queu
             crate::tests_route::restricted_placements(c);
             c.judge.packs.remove(crate::judge::content::PACK);
             c.judge.total_secs = 30;
-            // Two permits for six sessions: the contention the live check had
-            // with eight sessions and the default eight.
-            c.judge.max_in_flight = 2;
-            c.content_based_security.wait_ms = SHORT.as_millis() as u64;
+            c.judge.max_in_flight = permits;
+            c.content_based_security.wait_ms = wait.as_millis() as u64;
             c.model.retries.transient = 0;
         },
         |_| {},
@@ -249,20 +233,75 @@ async fn a_cn_turns_own_message_does_not_lose_the_floors_wait_to_the_permit_queu
     for t in turns {
         ran.push(t.await.expect("a cn turn's task panicked"));
     }
-    let timings = content_call_timings(&r.core);
-    let worst = timings.iter().map(|t| t.0).max().unwrap_or(0);
-    let table: Vec<String> = ran
-        .iter()
-        .map(|x| format!("  {:?} on {}", x.took, x.profile))
-        .collect();
-    let lost: Vec<&Ran> = ran.iter().filter(|x| x.took >= SHORT).collect();
-    assert!(
-        lost.is_empty(),
-        "{} of {N} cn turns spent their whole wait_ms ({SHORT:?}).\nturns:\n{}\n\
-         content.v3 calls (queued_ms, http_ms, total_ms): {timings:?}\n\
-         worst queued_ms {worst}: a large one beside a small http_ms is the \
-         in-flight permit queue, not a slow Jev.",
-        lost.len(),
-        table.join("\n")
+    // The sink writes its `judge.call` rows between turns, so its moment
+    // comes only once every turn above has ended (`memory_pass::QUIET`).
+    let t0 = Instant::now();
+    let mut timings = content_call_timings(&r.core);
+    while timings.is_empty() && t0.elapsed() < Duration::from_secs(10) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        timings = content_call_timings(&r.core);
+    }
+    (ran, timings)
+}
+
+/// A one-line summary of an arm, for the assertion that prints both.
+fn say(permits: usize, ran: &[Ran], timings: &[(u64, u64, u64)]) -> String {
+    let took: Vec<String> = ran.iter().map(|x| format!("{:?}", x.took)).collect();
+    let queued: Vec<u64> = timings.iter().map(|t| t.0).collect();
+    let http: Vec<u64> = timings.iter().map(|t| t.1).collect();
+    format!(
+        "  max_in_flight={permits}: turns [{}]\n    content.v3 queued_ms {queued:?}\n\
+         \x20   content.v3 http_ms   {http:?}",
+        took.join(", ")
+    )
+}
+
+/// **The mechanism, measured as an A/B on the one knob** (theseus-oc9n4).
+///
+/// The row's hypothesis was that the *landing* defers past the floor's wait.
+/// It does not: `judge::content`'s `land` writes at once, and the
+/// between-turns park it used to do was taken out by theseus-gyjyo.7. What is
+/// left, and what this holds, is the **queue in front of the call**: every
+/// judge call takes one of the client's `[judge] max_in_flight` permits, a
+/// content call takes one like any other, and the turns' own calls are in that
+/// queue too. A content ask queued at the top of a turn is then served only
+/// once the turns around it stop asking — which is why the live check saw the
+/// verdict land a fixed half-second after the turn **ended**, on turns of
+/// quite different lengths, rather than a fixed time after it was asked.
+///
+/// Two arms, identical but for the permit count: six cn sessions at once, Jev
+/// answering in 400 ms, a floor wait of 1.5 s. With permits to spare every
+/// turn's own message is judged inside the wait. With two permits for six
+/// sessions every turn spends the whole wait instead — **and that is the
+/// defect**: nothing was slow, nothing failed, and the one call the floor was
+/// waiting for simply never got to be made inside the window where its answer
+/// would have counted.
+///
+/// A red prints both arms with each content call's `queued_ms` beside its
+/// `http_ms`: a large `queued_ms` next to a small `http_ms` is the permit
+/// queue and nothing else.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn a_cn_turns_own_message_does_not_lose_the_floors_wait_to_the_permit_queue() {
+    const WAIT: Duration = Duration::from_millis(1_500);
+    let (roomy, roomy_t) = arm(64, WAIT).await;
+    let (tight, tight_t) = arm(2, WAIT).await;
+    let both = format!(
+        "{}\n{}",
+        say(64, &roomy, &roomy_t),
+        say(2, &tight, &tight_t)
+    );
+    // The control: with permits to spare, no turn spends its wait. A red here
+    // is the rig, not the defect.
+    let roomy_lost = roomy.iter().filter(|x| x.took >= WAIT).count();
+    assert_eq!(
+        roomy_lost, 0,
+        "the roomy arm lost {roomy_lost} turns: the rig, not the queue.\n{both}"
+    );
+    let tight_lost = tight.iter().filter(|x| x.took >= WAIT).count();
+    assert_eq!(
+        tight_lost, 0,
+        "{tight_lost} cn turns spent their whole wait_ms with the permits tight, \
+         and none did with them roomy: the floor's wait was lost to the in-flight \
+         permit queue, not to a slow or failing Jev.\n{both}"
     );
 }
