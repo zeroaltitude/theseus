@@ -312,3 +312,93 @@ async fn a_label_does_not_touch_a_us_model() {
         "an unrestricted model writes no row"
     );
 }
+
+/// The chokepoint reads labels and nothing else (theseus-gyjyo.6): a request
+/// to a model of restricted origin costs one read of the session's record and
+/// no read of its transcript, whether it is sent or refused. A session with an
+/// item nobody has judged is sent (the item's label, if it earns one, is what
+/// would refuse the next request), and the store's own counter of full
+/// transcript reads does not move.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_chokepoint_reads_no_transcript() {
+    let r = rig(None, 1, |_| {});
+    let zai = &r.core.runner.providers["zai"];
+    let unjudged = session_with(&r, None, &["One.", "Two.", "Three."], false);
+    let mut f = ContentFlags::default();
+    f.raise(label(Flag::Secret));
+    let labelled = session_with(&r, Some(f), &["One.", "Two."], false);
+    let before = r.core.store.transcript_reads();
+    send_for(zai, Some(&unjudged), &request("glm-5.3", PLAIN))
+        .await
+        .expect("an item nobody judged is no refusal: only a label is");
+    let (class, said) = send_for(zai, Some(&labelled), &request("glm-5.3", PLAIN))
+        .await
+        .unwrap_err();
+    assert_eq!(class, "data_gate", "{said}");
+    assert!(said.contains("`secret` label"), "{said}");
+    assert_eq!(
+        r.core.store.transcript_reads(),
+        before,
+        "the chokepoint read a transcript"
+    );
+    assert_eq!(r.zai.requests().len(), 1);
+    let rows = blocked(&r);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["why"], "secret");
+}
+
+/// `cn_models = "always"` sends a labelled session's request to a model of
+/// restricted origin: the operator said so, and the label is still on the
+/// session for the next time he changes his mind. Synthetic content only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cn_models_always_sends_a_labelled_session() {
+    use crate::config::content_based_security::CnModels;
+    let r = rig(None, 1, |c| {
+        c.content_based_security.cn_models = CnModels::Always;
+    });
+    let mut f = ContentFlags::default();
+    f.raise(label(Flag::Confidential));
+    let sid = session_with(&r, Some(f), &["Synthetic words."], false);
+    let zai = &r.core.runner.providers["zai"];
+    send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
+        .await
+        .expect("always sends, whatever the labels say");
+    assert_eq!(r.zai.requests().len(), 1);
+    assert!(blocked(&r).is_empty(), "{:?}", blocked(&r));
+    let rec = r
+        .core
+        .store
+        .get_session::<SessionRecord>(&sid)
+        .unwrap()
+        .unwrap();
+    assert!(rec
+        .data
+        .as_deref()
+        .is_some_and(|f| f.has(Flag::Confidential)));
+}
+
+/// `cn_models = "never"` refuses a model of restricted origin at the
+/// chokepoint as well as in the route, for every caller: a pin or a
+/// background call that gets past routing is stopped here, session clean or
+/// not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cn_models_never_refuses_a_clean_session() {
+    use crate::config::content_based_security::CnModels;
+    let r = rig(None, 1, |c| {
+        c.content_based_security.cn_models = CnModels::Never;
+    });
+    let sid = session_with(&r, None, &[], false);
+    let zai = &r.core.runner.providers["zai"];
+    let (class, said) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN))
+        .await
+        .unwrap_err();
+    assert_eq!(class, "data_gate", "{said}");
+    assert!(said.contains("cn_models"), "{said}");
+    assert!(r.zai.requests().is_empty());
+    assert_eq!(blocked(&r)[0]["why"], "never");
+    // A model that is not restricted is sent it all the same.
+    let claude = &r.core.runner.providers["anthropic"];
+    send_for(claude, Some(&sid), &request("claude-sonnet-5-5", PLAIN))
+        .await
+        .unwrap();
+}

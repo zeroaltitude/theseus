@@ -807,3 +807,83 @@ async fn every_item_a_turn_writes_is_offered_for_judgment() {
         "no task.create result was written"
     );
 }
+
+/// A turn pinned to GLM whose session has an ask still out waits `wait_ms` for
+/// it, and then **goes**: the label check at the end is the whole decision
+/// (theseus-gyjyo.6). Nothing says the session is clean, and nothing says it
+/// is not; no label is on it, so the request is sent. The route row says
+/// `allowed`, never `unjudged`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cn_turn_waits_for_the_outstanding_ask_then_goes() {
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 300);
+    let silent = Arc::new(Silent::default());
+    r.core.runner.verdicts.set(silent.clone());
+    let started = Instant::now();
+    let res = turn(&r.core, None, PLAIN, Some("glm")).await;
+    assert!(started.elapsed() >= Duration::from_millis(300), "it waited");
+    assert_eq!(res.profile, "glm", "{:?}", res.route);
+    assert_eq!(r.zai.requests().len(), 1, "GLM was sent it");
+    assert_eq!(blocked(&r.core), 0);
+    assert!(!silent.waits.lock().unwrap().is_empty());
+}
+
+/// `wait_ms = 0` never waits, and the turn goes on the labels it finds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_zero_wait_goes_on_the_labels_at_once() {
+    let r = rig(None, 2, |c| c.content_based_security.wait_ms = 0);
+    let silent = Arc::new(Silent::default());
+    r.core.runner.verdicts.set(silent.clone());
+    let res = turn(&r.core, None, PLAIN, Some("glm")).await;
+    assert_eq!(res.profile, "glm", "{:?}", res.route);
+    assert!(silent.waits.lock().unwrap().is_empty(), "it never waited");
+}
+
+/// `cn_models = "never"`: the route skips every profile of restricted origin
+/// whatever the session carries, so a pin of GLM runs on the `[model]` default
+/// with `data_gate`, and the chokepoint is never asked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cn_models_never_skips_the_restricted_profile_in_the_route() {
+    use crate::config::content_based_security::CnModels;
+    let r = rig(None, 2, |c| {
+        c.content_based_security.cn_models = CnModels::Never;
+    });
+    judging_with(&r, Judging::clean());
+    let res = turn(&r.core, None, PLAIN, Some("glm")).await;
+    assert_eq!(res.profile, "default", "{:?}", res.route);
+    let rows = decided(&r.core.store);
+    assert_eq!(rows.last().unwrap()["reason"], "data_gate", "{rows:?}");
+    assert_eq!(rows.last().unwrap()["data_gate"], "never", "{rows:?}");
+    assert!(r.zai.requests().is_empty());
+    assert_eq!(
+        blocked(&r.core),
+        0,
+        "the route skipped it; nothing met the chokepoint"
+    );
+}
+
+/// `cn_models = "always"`: a labelled session's turn runs on GLM. Synthetic
+/// content only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cn_models_always_runs_a_labelled_session_on_the_restricted_profile() {
+    use crate::config::content_based_security::CnModels;
+    let r = rig(None, 2, |c| {
+        c.content_based_security.cn_models = CnModels::Always;
+    });
+    let mut flags = ContentFlags::default();
+    flags.raise(crate::content::deterministic::label(
+        Flag::Confidential,
+        "nod_earlier",
+        crate::content::ItemKind::ToolResult,
+        "name: Examplecorp".into(),
+        1,
+    ));
+    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+    rec.data = Some(Box::new(flags));
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let res = turn(&r.core, Some(&rec.session_id), PLAIN, Some("glm")).await;
+    assert_eq!(res.profile, "glm", "{:?}", res.route);
+    assert_eq!(r.zai.requests().len(), 1);
+    assert_eq!(blocked(&r.core), 0);
+    let flags = crate::content_wait::flags_of(&r.core.store, &res.session_id).unwrap();
+    assert!(flags.has(Flag::Confidential), "the label stands");
+}
