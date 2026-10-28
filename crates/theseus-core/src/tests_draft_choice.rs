@@ -11,7 +11,7 @@ use serde_json::Value;
 use theseus_judge::fake::Scripted as Jev;
 
 use crate::tests_dm_rig::say;
-use crate::tests_draft::{draft_edit, load, rig_with, ASK};
+use crate::tests_draft::{draft_edit, load, load_keyed, rig_with, ASK};
 use crate::tests_route::decided;
 
 /// `tweak` for a rig whose operator lets Jev choose. Through the config's own
@@ -135,19 +135,6 @@ async fn a_cheap_answer_does_not_waive_the_labels() {
     assert_eq!(last_row(&d)["draft_skip"], "labelled");
 }
 
-/// The template with `keys` added to its `[routing]` table (a second `[routing]`
-/// header is a duplicate key), and `routing` appended, loaded as the daemon does.
-fn load_with_keys(keys: &str, routing: &str) -> Result<crate::Config, String> {
-    let extra = "[providers.deepseek]\napi_base = \"https://api.deepseek.com/anthropic\"\n\
-        api_key_secret = \"zai_api_key\"\n[profiles.dsflash]\nprovider = \"deepseek\"\n\
-        model = \"deepseek-flash\"\n";
-    let base =
-        crate::Config::EXAMPLE_TOML.replacen("\n[routing]\n", &format!("\n[routing]\n{keys}\n"), 1);
-    crate::Config::parse(&format!("{base}\n{extra}\n{routing}\n"))
-        .map(|(cfg, _)| cfg)
-        .map_err(|e| format!("{e:#}"))
-}
-
 /// The key's own checks at load: it chooses among drafts, so a config in which
 /// no class drafts is a mistake that says so; it is off by default, and the
 /// template documents it where an operator reads it, commented.
@@ -156,12 +143,12 @@ fn the_switch_ships_off_and_needs_a_class_that_drafts() {
     let off = load("").unwrap();
     let shown = toml::to_string(&off.routing).unwrap();
     assert!(!shown.contains("draft_by_jev"), "{shown}");
-    let e = load_with_keys("draft_by_jev = true", "").unwrap_err();
+    let e = load_keyed("draft_by_jev = true", "").unwrap_err();
     assert!(
         e.contains("routing.draft_by_jev") && e.contains("cn_draft"),
         "{e}"
     );
-    let ok = load_with_keys(
+    let ok = load_keyed(
         "draft_by_jev = true",
         "[routing.classes.routine_coding]\ncn_draft = \"dsflash\"\nfinal = [\"sonnet\"]",
     )
