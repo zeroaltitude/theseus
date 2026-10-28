@@ -45,9 +45,23 @@ test('every row prints trials and tasks, and a short row carries its chip, under
   // Theseus's newest high-tier row now covers all 89 tasks, so under either rule it carries no chip.
   const t = cardsOf(manifest, list, reports, 'newest').find((c) => c.id === 'terminal-bench@2.0:high')!.lines.find((l) => l.theseus)!
   assert.equal(t.chip, null)
-  // A short row still carries one: the max tier's Theseus retest ran 27 of the hard 30.
+  // The max tier's newest row now covers all 30 too: the frozen 1.0.3 cell of 10-27 (theseus-gauntlet-1025 c7)
+  // superseded the 10-23 retest that ran 27 of them, so it carries no chip either.
   const max = cardsOf(manifest, list, reports, 'newest').find((c) => c.id === 'terminal-bench@2.0:max')!.lines.find((l) => l.theseus)!
-  assert.equal(max.chip, '27 of 30 tasks')
+  assert.equal(max.row.tasks, 30)
+  assert.equal(max.chip, null)
+  // No published lead row is short any more, so the chip itself is covered on a constructed series rather than left
+  // untested: drop the 10-27 cell and the max lead falls back to the retest, which ran 27 of the hard 30.
+  const earlier = (s: (typeof manifest.series)[number]) => s.history.filter((r) => r.date < '2026-10-27')
+  const without = {
+    ...manifest,
+    series: manifest.series.map((s) =>
+      s.benchmark === 'terminal-bench@2.0' && s.tier === 'max' && s.arm === 'theseus'
+        ? { ...s, history: earlier(s), newest: earlier(s).at(-1)! }
+        : s),
+  }
+  const short = cardsOf(without, list, reports, 'newest').find((c) => c.id === 'terminal-bench@2.0:max')!.lines.find((l) => l.theseus)!
+  assert.equal(short.chip, '27 of 30 tasks')
 })
 
 test('every GitHub address names a report that exists, in the one shape', () => {
