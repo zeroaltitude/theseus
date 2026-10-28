@@ -750,6 +750,31 @@ async fn a_doubt_the_closing_message_names_sends_an_early_turn_back_once() {
     assert!(rows[0]["time_share"].as_f64().unwrap() < 0.4);
 }
 
+/// Where no share is measured (an interactive turn: no deadline, no spend
+/// limit) the gate is the phrase list alone, by design (theseus-6lpxx), and
+/// it is the same one loop: the turn goes on once and the second such message
+/// ends it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_with_no_deadline_and_no_limit_is_held_by_the_phrase_alone() {
+    let r = rig(|root| {
+        vec![
+            write(root, "w1"),
+            Scripted::text("Wrote tool.py. I haven't tested it, so it is over to you."),
+            Scripted::text("Still untested; I could not run it here."),
+            Scripted::text("Never reached."),
+        ]
+    });
+    let (sid, res) = r.turn(None).await;
+    assert_eq!((res.loops, res.stop_reason.as_str()), (3, "no_tool_calls"));
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "doubt");
+    assert!(
+        rows[0]["time_share"].is_null(),
+        "no deadline, no time share"
+    );
+}
+
 /// And not when the gate is shut: past 40% of the time, past 40% of the
 /// spend, a clean closing message, or a turn that did no work.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
