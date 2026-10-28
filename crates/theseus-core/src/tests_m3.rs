@@ -5390,7 +5390,6 @@ async fn answer_as(
         watch: false,
         author: discord.map(|_| "discord:zeroaltitude".to_string()),
         discord: origin(discord),
-        trust: false,
         grant: None,
     };
     rpc_as(
@@ -7616,26 +7615,31 @@ mod web {
         for (_, n) in r.core.store.session_nodes(&res.session_id).unwrap() {
             assert!(!serde_json::to_string(&n).unwrap().contains("tv-good"));
         }
-        // The session's hold names the query, not the request; the request
-        // stays on the node (above) and in the hold, for the record; health
-        // says when in local time (theseus-qiy).
-        let rec: SessionRecord = r.core.store.get_session(&res.session_id).unwrap().unwrap();
-        let held = rec.external.expect("the search holds its session");
-        assert_eq!(held.query.as_deref(), Some("rust ignore WalkParallel"));
-        assert!(held.url.contains("/search?q=rust+ignore+WalkParallel"));
-        assert!(crate::external::source(&held)
-            .starts_with("web.search \"rust ignore WalkParallel\", at "));
-        let listed = r.core.health().external_text;
-        assert_eq!(
-            listed[0].held.what(),
-            "web.search \"rust ignore WalkParallel\""
+        // The search's result is marked outside text, naming the request; the
+        // session holds nothing for it (R6, theseus-gyjyo.8).
+        let marked = r
+            .core
+            .store
+            .session_nodes(&res.session_id)
+            .unwrap()
+            .into_iter()
+            .find(|(_, n)| crate::external::is_outside(n))
+            .expect("the search's result is marked");
+        let Body::ToolResult {
+            external: Some(e),
+            tool,
+            ..
+        } = &marked.1.body
+        else {
+            panic!("a marked result")
+        };
+        assert_eq!(tool, "web.search");
+        assert!(
+            e.url.contains("/search?q=rust+ignore+WalkParallel"),
+            "{}",
+            e.url
         );
-        assert_eq!(
-            listed[0].since_local,
-            crate::wake::local(held.since_ms).hms()
-        );
-        let read = ledgered(&r, "session.external_read");
-        assert_eq!(read[0]["query"], "rust ignore WalkParallel");
+        assert!(ledgered(&r, "session.external_read").is_empty());
     }
 }
 

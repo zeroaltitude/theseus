@@ -364,11 +364,6 @@ pub struct ToolRuntime {
     /// The secret broker (theseus-dcy): what a job's program and a toollet
     /// are given from the board.
     pub broker: Arc<Broker>,
-    /// The hold's rule after external text (theseus-9bp, theseus-nsqqo).
-    pub external: crate::external::Rule,
-    /// Programs whose output is outside text (theseus-b5cl, `[policy]
-    /// external_programs`): a job that runs one marks its result external.
-    pub external_programs: Vec<String>,
     /// The most a job's raw output file keeps (theseus-102, `[tools]
     /// job_output_max_bytes`).
     pub output_max_bytes: u64,
@@ -569,8 +564,6 @@ impl ToolRuntime {
             modes: Default::default(),
             cpu: crate::cpu::CpuPool::for_host(),
             broker: Arc::new(Broker::empty()),
-            external: Default::default(),
-            external_programs: Vec::new(),
             output_max_bytes: theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES,
             disk: Arc::new(crate::disk::Disk::new(tmp.clone(), 0, 0)),
             aws: None,
@@ -592,7 +585,7 @@ impl ToolRuntime {
             outputs: crate::outputs::Outputs::off(),
             admission: crate::turn::admission::Admission::new(8, Duration::from_secs(600)),
             mcp: Default::default(),
-            terms: Arc::new(crate::term::Terms::new(Vec::new(), Vec::new())),
+            terms: Arc::new(crate::term::Terms::new(Vec::new())),
             lsp: None,
             judge: Default::default(),
             lookup: Default::default(),
@@ -871,20 +864,14 @@ impl ToolRuntime {
         self.write_result(tc, &self.result_node(tc, r))
     }
 
-    /// Write a result node on its own frame and announce it, with the hold
-    /// it brings its session in that frame when it is outside text (a job
-    /// that connected out of L1, 18c).
+    /// Write a result node on its own frame and announce it.
     fn write_result(&self, tc: &TurnCtx<'_>, node: &Node) -> Result<ResultStatus> {
         let status = match &node.body {
             Body::ToolResult { status, .. } => *status,
             _ => ResultStatus::Error,
         };
-        let (_, newly) =
-            crate::external::with_hold(tc.store, tc.session_id, Some(tc.turn_id), node, |f| {
-                tc.store.append(&f)
-            })?;
+        tc.store.append(&[node.record()?])?;
         Self::announce_end(tc, node);
-        self.held(tc, newly);
         self.queue_content(tc.session_id, std::slice::from_ref(node));
         Ok(status)
     }
@@ -1041,7 +1028,7 @@ impl ToolRuntime {
             return Vec::new();
         };
         let class = g.plan.class.unwrap_or(tool.class());
-        let holds = || matches!(crate::external::held(tc.store, tc.session_id), Ok(Some(_)));
+        let holds = || crate::external::read_any(tc.store, tc.session_id);
         if !crate::judge::gate::judged(class, tool.name(), holds) {
             return Vec::new();
         }
@@ -1060,7 +1047,6 @@ impl ToolRuntime {
             reason: d.reason.clone(),
             floor: d.floor,
             notified,
-            hold_raised: d.external.is_some(),
             input: call.input.clone(),
             plan: g.plan.clone(),
         };
@@ -1117,7 +1103,6 @@ impl ToolRuntime {
         let glide = (planned.is_ok() && crate::glide::is_glide(tool.name()))
             .then(|| crate::glide::resolve(tc, tool.name(), &call.input));
         // The order is `order.rs`, which `policy.explain` runs too (42a).
-        let held = || crate::external::held_untold(tc.store, tc.session_id, self.external.mode);
         let mcp = || mcp_floor(tc);
         // A routine's run: its grant, from the book in memory; any other
         // session pays one `Option` test (theseus-52tut).
@@ -1126,7 +1111,6 @@ impl ToolRuntime {
             .and_then(|t| self.routines.grant_for(tc.kernel, tc.store, t));
         let at = order::At {
             place: tc.place(),
-            held: &held,
             labels: &|| crate::content_wait::flags_of(tc.store, tc.session_id),
             mcp: &mcp,
             glide: glide.as_ref().and_then(|g| g.as_ref().ok()),
@@ -1324,7 +1308,6 @@ impl ToolRuntime {
                 let mut records = vec![node(a)?];
                 if let Some(p) = Self::notified(tc, call, tool.name(), &a.correlation_id, g) {
                     records.push(tc.rec().row(&fact::tool::ToolNotified { notice: &p })?);
-                    records.extend(crate::external::told_row(tc.session_id, &g.decision)?);
                 }
                 Ok(records)
             })
@@ -1363,7 +1346,6 @@ impl ToolRuntime {
                 short: crate::task::short(tc.session_id),
                 title: None,
             }),
-            external_text: g.decision.external,
             change: crate::task_graph::tools::change_of(tc.store, tool, &call.input),
             preview: self.preview(tc.dir, tool, &call.input),
             ..Default::default()
@@ -2275,7 +2257,7 @@ pub fn build_runtime(
     };
     // Terminals (theseus-n88g.4): each program gets the job environment.
     let terms = Arc::new(
-        crate::term::Terms::new(proc_env.clone(), cfg.policy.external_programs.clone())
+        crate::term::Terms::new(proc_env.clone())
             .configured(t.term.keep_background, t.proc_sync_secs),
     );
     if t.enabled {
@@ -2362,8 +2344,6 @@ pub fn build_runtime(
         modes: Default::default(),
         cpu,
         broker: Arc::new(broker),
-        external: cfg.policy.external_rule(),
-        external_programs: cfg.policy.external_programs.clone(),
         output_max_bytes: t.job_output_max_bytes,
         outputs: crate::outputs::Outputs::new(
             state.join("outputs"),

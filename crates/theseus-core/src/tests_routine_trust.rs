@@ -1,6 +1,7 @@
 //! A routine's trust through the whole core (theseus-52tut; the horizon
 //! report's §5.4 and the owner's D-H6): the tools its grant names run without
-//! asking even after the run reads a page, and everything else still waits;
+//! asking where their posture alone would ask (the rig sets `fs.write` and
+//! `fs.edit` to approve), and everything else still waits;
 //! a question nobody answers by the run's deadline ends the run `blocked`,
 //! naming the tool, in one Interrupt; "Try it now" is run 0; a failing routine
 //! pings once a local day with its streak; and the answers on its notice go
@@ -148,6 +149,12 @@ async fn rig_cfg(
     cfg.tools.projects_dir = Some(work.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.policy.enforcement = crate::policy::Posture::Notify;
+    // The writers ask by their own posture: a grant is what lets a routine's run past it.
+    for tool in ["fs.write", "fs.edit"] {
+        cfg.policy
+            .tools
+            .insert(tool.into(), crate::policy::Posture::Approve);
+    }
     cfg.kernel.min_repeat_minutes = 1;
     cfg.routines.run_deadline_secs = deadline_secs;
     tweak(&mut cfg);
@@ -297,21 +304,12 @@ async fn info(core: &Arc<Core>, id: &str) -> Value {
     rpc(core, "routine.runs", json!({"id": id})).await.unwrap()["routine"].clone()
 }
 
-fn external_of(core: &Core, task: &str) -> bool {
-    core.store
-        .get_session::<SessionRecord>(task)
-        .unwrap()
-        .unwrap()
-        .external
-        .is_some()
-}
-
-/// The tools a grant names run without asking after the run read a page: the
-/// run reads, writes the note (granted), and edits it (granted too here), and
+/// The tools a grant names run without asking, though their posture asks: the
+/// run reads a page, writes the note (granted), and edits it (granted too here), and
 /// finishes, with no question asked; its notices name the grant. It is "Try
 /// it now": run 0, not counted among the routine's runs.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_granted_tool_runs_unasked_after_the_run_reads_a_page() {
+async fn a_granted_tool_runs_unasked_though_its_posture_asks() {
     let r = rig(900).await;
     let made = make(&r.core, json!({"grant": ["fs.write", "fs.edit"]}))
         .await
@@ -338,7 +336,10 @@ async fn a_granted_tool_runs_unasked_after_the_run_reads_a_page() {
     .await;
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0]["run"], 0, "Try it now is run 0 in the log");
-    assert!(external_of(&r.core, &task), "the run did read outside text");
+    assert!(
+        crate::external::read_any(&r.core.store, &task),
+        "the run did read outside text"
+    );
     assert!(
         r.core.pending_confirms(&task).unwrap().is_empty(),
         "nothing asked"
@@ -353,9 +354,9 @@ async fn a_granted_tool_runs_unasked_after_the_run_reads_a_page() {
     assert_eq!(info(&r.core, &id).await["runs"], 0);
 }
 
-/// The control of the first: with no grant the same run asks for its write
-/// after the page, once, and a conversation's session with the same hold asks
-/// too (the grant is the routine's run's alone).
+/// The control of the first: with no grant the same run asks for its write,
+/// once, and a conversation's session asks too (the grant is the routine's
+/// run's alone).
 #[tokio::test(flavor = "multi_thread")]
 async fn without_a_grant_the_same_call_asks_and_so_does_any_other_session() {
     let r = rig(900).await;
@@ -374,7 +375,7 @@ async fn without_a_grant_the_same_call_asks_and_so_does_any_other_session() {
     assert_eq!(asked[0].tool, "fs.write");
     assert!(!std::path::Path::new(&r.note()).exists());
 
-    // An ordinary conversation that read the page asks too, for a routine
+    // An ordinary conversation asks too, for a routine
     // with a grant exists in the same core.
     make(&r.core, json!({"title": "Other", "grant": ["fs.write"]}))
         .await

@@ -40,27 +40,16 @@ impl ToolRuntime {
     /// between the two cannot lose it. Returns what was taken, and each late
     /// result written, for its span (theseus-8pei).
     pub fn absorb(&self, tc: &TurnCtx<'_>) -> Result<(Vec<Action>, Vec<LateCall>)> {
-        // A late result that is outside text (a job that connected out of
-        // L1, 18c) brings its session's hold in this frame too.
-        let (settled, late, outputs, newly) =
-            crate::external::under_hold(tc.store, tc.session_id, |hold| {
-                let (mut late, mut outputs, mut newly) = (Vec::new(), Vec::new(), None);
-                let settled = tc.kernel.take_results_with(tc.guard, |settled| {
-                    let (nodes, mut records, raw) = self.late_results(tc, settled)?;
-                    if let Some((h, more)) = hold.of(&nodes, Some(tc.turn_id))? {
-                        records.extend(more);
-                        newly = Some(h);
-                    }
-                    (late, outputs) = (nodes, raw);
-                    Ok(records)
-                })?;
-                Ok((settled, late, outputs, newly))
-            })?;
+        let (mut late, mut outputs) = (Vec::new(), Vec::new());
+        let settled = tc.kernel.take_results_with(tc.guard, |settled| {
+            let (nodes, records, raw) = self.late_results(tc, settled)?;
+            (late, outputs) = (nodes, raw);
+            Ok(records)
+        })?;
         for node in &late {
             egress::announce(&tc.rec(), &self.sandbox, node);
             Self::announce_end(tc, node);
         }
-        self.held(tc, newly);
         self.queue_content(tc.session_id, &late);
         // Their nodes are written, so the jobs' raw output goes, as for a
         // result read within a turn (`answer_job`, theseus-wz2), a stopped
@@ -219,8 +208,7 @@ impl ToolRuntime {
     /// the answers are read: the cancel's last verdicts (theseus-dwoj), so
     /// the calls they settle are answered in the frame that settles them.
     /// `also`: the other executions `first` writes, which the frame locks
-    /// too. `first` may run twice, the first time's frame not written, when
-    /// the answers bring outside text (`external::under_hold`).
+    /// too.
     pub(crate) fn answer_after_cancel_with<T>(
         &self,
         kernel: &Kernel,
@@ -235,27 +223,19 @@ impl ToolRuntime {
         ids.push(execution_id);
         ids.sort_unstable();
         ids.dedup();
-        // What a job brought from outside brings its hold in this frame (18c).
-        let t = crate::external::under_hold(store, session_id, |hold| {
-            kernel.frame(&ids, |k| {
-                let t = first(k)?;
-                let Some(e) = k.execution(execution_id)? else {
-                    return Ok(t);
-                };
-                if e.state != ExecState::Cancelled || k.holds_turn(execution_id) {
-                    return Ok(t);
-                }
-                let (nodes, raw) = self.cancelled_results(k, store, session_id, &e)?;
-                let mut records = nodes.iter().map(Node::record).collect::<Result<Vec<_>>>()?;
-                records.extend(
-                    hold.of(&nodes, None)?
-                        .map(|(_, more)| more)
-                        .unwrap_or_default(),
-                );
-                k.stage(&records)?;
-                (written, outputs) = (nodes, raw);
-                Ok(t)
-            })
+        let t = kernel.frame(&ids, |k| {
+            let t = first(k)?;
+            let Some(e) = k.execution(execution_id)? else {
+                return Ok(t);
+            };
+            if e.state != ExecState::Cancelled || k.holds_turn(execution_id) {
+                return Ok(t);
+            }
+            let (nodes, raw) = self.cancelled_results(k, store, session_id, &e)?;
+            let records = nodes.iter().map(Node::record).collect::<Result<Vec<_>>>()?;
+            k.stage(&records)?;
+            (written, outputs) = (nodes, raw);
+            Ok(t)
         })?;
         // The nodes are written, so the jobs' raw output goes, as for a
         // result read within a turn (`answer_job`, theseus-wz2).

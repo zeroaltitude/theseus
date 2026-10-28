@@ -209,13 +209,11 @@ pub fn rule_clause(reason: &str) -> Option<String> {
         .then(|| clause.to_string())
 }
 
-/// Why the gate holds the call, in words: the floor, outside text, the thread
+/// Why the gate holds the call, in words: the floor, the thread
 /// guard's doubt, the rule's own clause, else the tool's posture.
 fn held_of(req: &ConfirmRequest, clause: Option<&str>) -> String {
     if req.floor {
         "it touches Theseus's own state or a secret, which always asks".into()
-    } else if req.external_text.is_some() {
-        "the session read web text, so a call that acts waits for you".into()
     } else if clause.is_some_and(misroute::is_question) {
         "it may belong in another thread, so it waits for you".into()
     } else if let Some(c) = clause {
@@ -227,7 +225,6 @@ fn held_of(req: &ConfirmRequest, clause: Option<&str>) -> String {
 
 /// The words of an approval question.
 pub fn plain(req: &ConfirmRequest, g: &Gloss) -> PlainWords {
-    let trust = req.external_text.is_some();
     let clause = rule_clause(&req.reason);
     // The guard's question names both threads and the move; any other rule's
     // clause stands in when the model said nothing before the call.
@@ -241,10 +238,7 @@ pub fn plain(req: &ConfirmRequest, g: &Gloss) -> PlainWords {
         why: why.unwrap_or_default(),
         held: held_of(req, clause.as_deref()),
         risk: risk_of(req).into(),
-        yes: match trust {
-            true => "runs this one call; Trust also lets the session act again.".into(),
-            false => "runs this one call.".into(),
-        },
+        yes: "runs this one call.".into(),
         no: "refuses it; the session is told and carries on without it.".into(),
     }
 }

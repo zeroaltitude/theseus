@@ -435,46 +435,6 @@ fn a_policy_with_only_enforcement_loads_and_every_tool_inherits_it() {
     assert_eq!(policy_only("").unwrap().policy.enforcement, Posture::Open);
 }
 
-/// `[policy] external_text` (theseus-9bp, theseus-nsqqo): unset, it follows
-/// `enforcement` (`approve` asks; `notify` and `open` notify); set, it wins;
-/// anything but `ask` or `notify` fails, and the error names the two.
-#[test]
-fn an_unset_external_text_follows_enforcement() {
-    use crate::external::Mode;
-    for (enforcement, mode) in [
-        ("approve", Mode::Ask),
-        ("notify", Mode::Notify),
-        ("open", Mode::Notify),
-    ] {
-        let p = policy_only(&format!("enforcement = \"{enforcement}\""))
-            .unwrap()
-            .policy;
-        assert_eq!((p.external_mode(), p.external_key()), (mode, "enforcement"));
-        let set = policy_only(&format!(
-            "enforcement = \"{enforcement}\"\nexternal_text = \"ask\""
-        ))
-        .unwrap()
-        .policy;
-        assert_eq!(
-            (set.external_mode(), set.external_key()),
-            (Mode::Ask, "external_text")
-        );
-    }
-    let loose = policy_only("enforcement = \"open\"\nexternal_text = \"notify\"").unwrap();
-    assert_eq!(loose.policy.external_mode(), Mode::Notify);
-    let e = format!(
-        "{:#}",
-        policy_only("external_text = \"approve\"").unwrap_err()
-    );
-    assert!(e.contains("ask") && e.contains("notify"), "{e}");
-    let (t, _) = Config::parse(Config::EXAMPLE_TOML).unwrap();
-    assert_eq!(
-        t.policy.external_mode(),
-        Mode::Ask,
-        "the template shows ask"
-    );
-}
-
 /// The spellings the loader once accepted with a warning, which no
 /// deployment still uses (the owner's note checked by key name, 2026-09-29),
 /// now fail to load like any unknown key (theseus-0g4): the renamed lists,
@@ -1415,11 +1375,19 @@ fn max_wakes_defaults_to_twenty_everywhere() {
 /// replaced them. A document with neither loads, and so does the template.
 #[test]
 fn external_text_and_external_programs_fail_to_load_naming_the_injection_label() {
-    let doc = |line: &str| format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[policy]\n{line}\n");
-    for line in ["external_text = \"notify\"", "external_text = \"ask\"", "external_programs = [\"gh\"]"] {
+    let doc =
+        |line: &str| format!("[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n[policy]\n{line}\n");
+    for line in [
+        "external_text = \"notify\"",
+        "external_text = \"ask\"",
+        "external_programs = [\"gh\"]",
+    ] {
         let e = format!("{:#}", Config::parse(&doc(line)).unwrap_err());
         let key = line.split(' ').next().unwrap();
-        assert!(e.contains(key) && e.contains("`injection` label"), "{line}: {e}");
+        assert!(
+            e.contains(key) && e.contains("`injection` label"),
+            "{line}: {e}"
+        );
     }
     Config::parse(&doc("enforcement = \"notify\"")).unwrap();
     assert!(!Config::EXAMPLE_TOML.contains("external_text"));

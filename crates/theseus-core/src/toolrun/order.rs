@@ -9,11 +9,10 @@
 //! L0's floor, lists, and posture with its tightening), a granted secret's
 //! posture, a language server's start (by a call, L2, or an edit, L3), a
 //! shared place's word on a private address, the place's floor, a glide's
-//! place rule (38b), T1's hold, and an MCP client's floor (`order`). Each
+//! place rule (38b), and an MCP client's floor (`order`). Each
 //! after the first only raises the posture.
 
 use serde_json::Value;
-use theseus_protocol::ExternalText;
 use theseus_tools::{Plan, Tool};
 
 use super::ToolRuntime;
@@ -22,12 +21,10 @@ use crate::policy::{Decision, Posture};
 use crate::sandbox::Bound;
 
 /// What the gate reads of where a call runs, besides the call: its place,
-/// its session's hold (read only for a call that acts, so a read costs no
-/// record), an MCP client's floor (step 41b), and a glide's places (38b),
+/// an MCP client's floor (step 41b), and a glide's places (38b),
 /// resolved from its input; none for any other call.
 pub(crate) struct At<'a> {
     pub place: PlaceView,
-    pub held: &'a dyn Fn() -> Result<Option<ExternalText>, String>,
     /// The call's session's content labels (theseus-9ymz0), read only when
     /// the injection freeze is asked about: a call that is a read, and any
     /// call where `[content_based_security] injection` is `notify`, never reads the record.
@@ -66,8 +63,6 @@ pub(crate) enum Layer {
     Glide,
     /// A routine's grant (theseus-52tut): its named tools run unasked.
     Routine,
-    /// T1's hold after external text (theseus-9bp).
-    Hold,
     /// An MCP client's floor (step 41b).
     McpClient,
 }
@@ -153,7 +148,7 @@ impl ToolRuntime {
         // goes (theseus-94a6).
         let decision = crate::places::private_fetch(at.place.class, plan, decision);
         seen(Layer::SharedFetch, &decision);
-        // No looser than the place's floor (step 38a), before T1's hold.
+        // No looser than the place's floor (step 38a).
         let decision = match at.place.ceiling {
             Some(c) => c.floor(decision, tool.name(), &plan.summary),
             None => decision,
@@ -171,38 +166,14 @@ impl ToolRuntime {
             None => decision,
         };
         seen(Layer::Glide, &decision);
-        // A routine's run: the tools its grant names run without asking, the
-        // hold included (theseus-52tut).
-        let (decision, granted) =
+        // A routine's run: the tools its grant names run without asking
+        // (theseus-52tut).
+        let decision =
             crate::routine::grant::gate(self, at, tool, plan, input, bound.l1(), decision);
         seen(Layer::Routine, &decision);
-        // After the whole order (theseus-9bp): a call that acts in a
-        // session that read external text waits. A read and a one-shot
-        // `wake.at` keep their postures (T1b), and cost no record read; a
-        // repeating wake is persistence, and is held (37a).
         let class = plan.class.unwrap_or(tool.class());
-        // A task's own close is its own record's: the hold leaves it alone
-        // (theseus-ay0yx).
-        let own_close = at
-            .session
-            .is_some_and(|s| crate::task_graph::tools::is_own_close(tool.name(), input, s));
-        let held = if granted || own_close || crate::external::exempt(class, tool.name(), input) {
-            Ok(None)
-        } else {
-            (at.held)()
-        };
-        let decision = crate::external::gate(
-            decision,
-            class,
-            &held,
-            self.external,
-            tool.name(),
-            input,
-            &plan.summary,
-        );
         // A sealed thread's read asks the owner first (theseus-f2g0).
         let decision = crate::thread_read::gate(self, tool, input, decision);
-        seen(Layer::Hold, &decision);
         // An MCP client's session (step 41b): its calls that act wait.
         let decision =
             crate::mcp_server::floor(decision, class, (at.mcp)(), tool.name(), &plan.summary);

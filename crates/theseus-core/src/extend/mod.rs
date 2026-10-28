@@ -844,7 +844,6 @@ pub fn confirm_request(
         floor: false,
         budget: None,
         task: crate::task::task_ref(session),
-        external_text: None,
         change: None,
         options: Vec::new(),
         may_answer: None,

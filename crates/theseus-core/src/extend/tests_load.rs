@@ -406,9 +406,7 @@ async fn an_acked_extension_is_offered_from_the_next_turn_never_mid_turn() {
         now.setting
     );
     assert!(
-        crate::external::held(&r.core.store, &sid)
-            .unwrap()
-            .is_none(),
+        !crate::external::read_any(&r.core.store, &sid),
         "no network: not outside text"
     );
     // The surfaces.
@@ -665,7 +663,6 @@ async fn its_posture_is_the_policy_lines_and_its_loads_ceiling_floors_it() {
         notify: None,
         floor: false,
         granted: None,
-        external: None,
     };
     let held = floors.floor("mcp:ext-wordcount/echo", d.clone(), "echo");
     assert_eq!(held.posture, Posture::Approve);

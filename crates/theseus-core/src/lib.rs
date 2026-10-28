@@ -344,8 +344,6 @@ mod tests_engage;
 #[cfg(test)]
 mod tests_explain;
 #[cfg(test)]
-mod tests_external;
-#[cfg(test)]
 mod tests_failures;
 #[cfg(test)]
 mod tests_fallback;
@@ -420,6 +418,8 @@ mod tests_m3;
 #[cfg(test)]
 mod tests_manifest_harness;
 #[cfg(test)]
+mod tests_marker;
+#[cfg(test)]
 mod tests_mcp_memory;
 #[cfg(test)]
 mod tests_memory_arm;
@@ -465,8 +465,6 @@ mod tests_open_task;
 mod tests_output;
 #[cfg(test)]
 mod tests_outside_text;
-#[cfg(test)]
-mod tests_marker;
 #[cfg(test)]
 mod tests_overflow;
 #[cfg(test)]
@@ -700,7 +698,11 @@ mod tests_turn_reserve;
 #[cfg(test)]
 mod tests_turn_retry;
 #[cfg(test)]
+mod tests_unlabel;
+#[cfg(test)]
 mod tests_wait_cost;
+#[cfg(test)]
+mod tests_waiting_split;
 #[cfg(test)]
 mod tests_wakes;
 #[cfg(test)]

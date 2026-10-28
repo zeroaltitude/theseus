@@ -219,22 +219,14 @@ impl ToolRuntime {
             more.push(edge.record()?);
         }
         let c = completion(correlation_id, tool, &node, started, &meta, t0);
-        let (accepted, newly) = crate::external::with_hold(
-            tc.store,
-            tc.session_id,
-            Some(tc.turn_id),
-            &node,
-            |mut frame| {
-                frame.append(&mut more);
-                tc.kernel.accept_completion_with(&c, frame)
-            },
-        )?;
+        let mut frame = vec![node.record()?];
+        frame.append(&mut more);
+        let accepted = tc.kernel.accept_completion_with(&c, frame)?;
         if !written(&accepted) {
             return self.not_moved(tc, correlation_id, tool, call, "read");
         }
         tc.rec().announce(&read);
         Self::announce_end(tc, &node);
-        self.held(tc, newly);
         Ok(CallOutcome::Done {
             status: ResultStatus::Ok,
         })

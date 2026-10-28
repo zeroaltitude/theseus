@@ -378,7 +378,6 @@ fn l1_decision(
         notify: None,
         floor: false,
         granted: None,
-        external: None,
     }
 }
 
@@ -399,7 +398,6 @@ pub fn decision(tool: &str, why: &str, egress: &[String]) -> Decision {
         }),
         floor: false,
         granted: None,
-        external: None,
     }
 }
 

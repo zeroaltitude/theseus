@@ -1,11 +1,10 @@
 //! Egress for L1 jobs through the whole core (M4 18c): the gate's step for
-//! hosts beyond `[sandbox] egress`, the list a confirm binds, and a result
-//! whose job reached a host beyond that list as outside text (T1's hold, its
-//! label, its rows; theseus-gyin), on every path a job's result takes: read
-//! while the turn waits, read late by the next turn, and swept after a
-//! cancel. A job that reached only listed hosts holds nothing. A test
-//! launcher keeps each
-//! job's `WrapperArgs` and settles the job itself, as an L1 job's wrapper
+//! hosts beyond `[sandbox] egress` (a notice naming them, no wait), the list a
+//! confirm binds, and a result whose job reached a host beyond that list
+//! marked as outside text (its marker, its rows; theseus-gyin), on every path a
+//! job's result takes: read while the turn waits and read late by the next
+//! turn. A job that reached only listed hosts marks nothing. A test launcher
+//! keeps each job's `WrapperArgs` and settles the job itself, as an L1 job's wrapper
 //! does, with `detail.egress` as its proxy would record it: these tests are
 //! of the gate and of what the core makes of a completion, and the daemon's
 //! own (`theseusd/tests/sandbox.rs`) run real L1 jobs through a real proxy.
@@ -17,7 +16,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use theseus_kernel::job::WrapperArgs;
 use theseus_kernel::{Completion, Outcome, Spool};
-use theseus_protocol::{ExternalText, SessionKind, TurnSubmitResult};
+use theseus_protocol::{SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
 use crate::node::{Body, Node};
@@ -199,10 +198,6 @@ impl Rig {
             .unwrap()
     }
 
-    fn hold(&self, sid: &str) -> Option<ExternalText> {
-        crate::external::held(&self.core.store, sid).unwrap()
-    }
-
     /// Each job's egress list, as the wrapper was given it.
     fn lists(&self) -> Vec<Vec<String>> {
         let kept = self.kept.args.lock().unwrap();
@@ -264,36 +259,60 @@ fn now() -> Ran {
     }
 }
 
-/// The gate's step for hosts beyond the list (design §2.4): a call that
-/// names one waits, as a path outside the roots does, and its reason names
-/// it; one whose hosts the list covers runs at L1's notify. The job's whole
-/// list is in its proposal, so the digest a confirm binds covers it: the
-/// same call with another host is refused, and once approved the job gets
-/// the hosts its call named, and no other. What it brought back from the
-/// host beyond the list holds its session; a job that reached only listed
-/// hosts holds nothing (theseus-gyin).
+/// The gate's step for hosts beyond the list: a call that names one is not
+/// held, it runs at L1's notify with the list the operator wrote and the hosts
+/// the call named, and no other; one whose hosts the list covers runs with the
+/// operator's list alone. Both say so in the notice (rows, rule).
 #[tokio::test]
-async fn a_call_naming_a_host_beyond_the_list_waits_and_its_approval_reaches_it_alone() {
+async fn a_call_whose_hosts_the_list_covers_runs_with_the_operators_list() {
     let r = Rig::new(
         vec![
-            run(json!({"argv": ["true"], "sandbox": {"egress": ["pypi.test:443"]}})),
-            Scripted::text("Ran."),
             run(json!({"argv": ["true"], "sandbox": {"egress": ["index.crates.test:443"]}})),
             Scripted::text("Done."),
         ],
         now(),
         |_, _| {},
     );
+    let covered = r.turn(None, "covered").await;
+    assert_eq!(covered.stop_reason, "no_tool_calls", "{covered:?}");
+    assert_eq!(r.lists(), [["api.tides.test:443", "*.crates.test:443"]]);
+    let result = r.results(&covered.session_id).remove(0);
+    assert!(
+        !crate::external::is_outside(&result),
+        "a listed host is not outside text"
+    );
+    let notified = r.rows("tool.notified");
+    let rule = notified.last().unwrap()["rule"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        rule.contains("egress: api.tides.test:443, *.crates.test:443"),
+        "{rule}"
+    );
+}
+
+/// A call that already asks, by the operator's own word about the tool
+/// (`[policy.tools] "proc.run" = approve`), still waits: egress's step keeps an
+/// approve decision as it is. The job's whole list is in its proposal, so the
+/// digest a confirm binds covers it: the same call with another host is
+/// refused, and once approved the job gets the hosts its call named, and no
+/// other. What it brought back from the host beyond the list is marked
+/// outside text (theseus-gyin).
+#[tokio::test]
+async fn an_approved_call_naming_a_host_beyond_the_list_reaches_it_alone() {
+    let r = Rig::new(
+        vec![
+            run(json!({"argv": ["true"], "sandbox": {"egress": ["pypi.test:443"]}})),
+            Scripted::text("Ran."),
+        ],
+        now(),
+        |cfg, _| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Approve);
+        },
+    );
     let res = r.turn(None, "beyond the list").await;
     assert_eq!(res.stop_reason, "awaiting_confirm", "{res:?}");
-    let why = r.reasons(&res.session_id).remove(0);
-    assert!(
-        why.contains(
-            "it names hosts beyond [sandbox] egress: pypi.test:443; an approval lets \
-             this job reach them, and no other"
-        ),
-        "{why}"
-    );
     assert!(r.lists().is_empty(), "nothing runs before the approval");
     let corr = r.core.pending_confirms(&res.session_id).unwrap()[0]
         .correlation_id
@@ -324,42 +343,24 @@ async fn a_call_naming_a_host_beyond_the_list_waits_and_its_approval_reaches_it_
     let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
     assert_eq!(cont.output, "Ran.");
     assert_eq!(r.lists(), [list.to_vec()]);
-    let h = r
-        .hold(&res.session_id)
-        .expect("the host beyond the list holds its session");
+    let results = r.results(&res.session_id);
+    let Body::ToolResult { external, .. } = &results[0].body else {
+        unreachable!()
+    };
     assert_eq!(
-        (h.url.as_str(), h.via.as_deref()),
-        ("pypi.test:443", Some("egress"))
-    );
-    // A host the list covers: no wait, the list as the operator wrote it,
-    // and what the job brought back from it holds nothing.
-    *r.kept.ran.lock().unwrap() = Some(now());
-    let covered = r.turn(None, "covered").await;
-    assert_eq!(covered.stop_reason, "no_tool_calls", "{covered:?}");
-    assert_eq!(r.lists()[1], ["api.tides.test:443", "*.crates.test:443"]);
-    assert!(
-        r.hold(&covered.session_id).is_none(),
-        "a listed host is not outside text"
-    );
-    let notified = r.rows("tool.notified");
-    let rule = notified.last().unwrap()["rule"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(
-        rule.contains("egress: api.tides.test:443, *.crates.test:443"),
-        "{rule}"
+        external.as_ref().map(|e| e.url.as_str()),
+        Some("pypi.test:443"),
+        "the host beyond the list marks the result"
     );
 }
 
 /// A job that reached a host beyond the list returns outside text (T1): its
-/// session holds it, with the reason naming the egress, in the frame that
-/// writes the result; the result is untrusted, `via: egress`, and the
-/// owner's (note 3); and its `sandbox.egress` row rides in that frame too,
-/// so the turn writes no frame more than one whose job connected nowhere,
-/// which leaves its session clear and its result trusted.
+/// result is marked (`external`, naming the host) and is the owner's (note
+/// 3); and its `sandbox.egress` row rides in the frame that writes the
+/// result, so the turn writes no frame more than one whose job connected
+/// nowhere, whose result is not marked. Nothing holds the session either way.
 #[tokio::test]
-async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_it_clear() {
+async fn a_job_that_connected_out_marks_its_result_and_one_that_did_not_does_not() {
     let r = Rig::new(
         vec![
             run(json!({"argv": ["true"], "sandbox": true})),
@@ -374,29 +375,21 @@ async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_
     );
     let (out, connected) = r.counted("fetch the tides").await;
     assert_eq!(out.stop_reason, "no_tool_calls", "{out:?}");
-    let h = r
-        .hold(&out.session_id)
-        .expect("the session holds outside text");
-    assert_eq!(
-        (h.tool.as_str(), h.url.as_str(), h.via.as_deref()),
-        ("proc.run", "api.tides.test:443", Some("egress"))
-    );
-    let why = crate::external::why(&h, crate::external::Mode::Ask);
-    assert!(
-        why.starts_with(
-            "this session read external text (proc.run's egress to api.tides.test:443, at "
-        ),
-        "{why}"
-    );
     let result = r.results(&out.session_id).remove(0);
-    // DD5's marker: the result is outside text, which the latch reads.
+    // DD5's marker: the result is outside text.
     let Body::ToolResult {
         content, external, ..
     } = &result.body
     else {
         unreachable!()
     };
-    assert!(external.is_some(), "the job connected out: {external:?}");
+    assert_eq!(
+        external.as_ref().map(|e| e.url.as_str()),
+        Some("api.tides.test:443"),
+        "the job connected out"
+    );
+    assert!(crate::external::is_outside(&result));
+    assert!(crate::external::read_any(&r.core.store, &out.session_id));
     assert!(
         content.contains("[ran in L1, the sandbox: egress: api.tides.test:443, no secret; "),
         "{content}"
@@ -406,12 +399,7 @@ async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_
             .contains("[L1: it reached api.tides.test:443 (2 connections, 517 B up, 4.1 KB down)"),
         "{content}"
     );
-    let read = r.rows("session.external_read");
-    assert_eq!(
-        (read.len(), read[0]["via"].as_str()),
-        (1, Some("egress")),
-        "{read:?}"
-    );
+    assert!(r.rows("session.external_read").is_empty());
     let egress = r.rows("sandbox.egress");
     assert_eq!(egress.len(), 1, "{egress:?}");
     assert_eq!(
@@ -430,8 +418,8 @@ async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_
     });
     let (clear, refused) = r.counted("fetch, refused").await;
     assert!(
-        r.hold(&clear.session_id).is_none(),
-        "a job that connected nowhere holds nothing"
+        !crate::external::read_any(&r.core.store, &clear.session_id),
+        "a job that connected nowhere marks nothing"
     );
     let result = r.results(&clear.session_id).remove(0);
     let Body::ToolResult {
@@ -461,13 +449,13 @@ async fn a_job_that_connected_out_holds_its_session_and_one_that_did_not_leaves_
     assert_eq!(
         (connected, refused),
         (none, none),
-        "the hold and the rows ride in frames the turn writes anyway"
+        "the rows ride in frames the turn writes anyway"
     );
 }
 
 /// The operator chose `[sandbox] egress`'s hosts, so what a job brought back
 /// from them alone is not outside text (theseus-gyin, cut-list 4.1): its
-/// session holds nothing, its result is not marked, and its rows and
+/// result is not marked, nothing holds its session, and its rows and
 /// health's counts are written as for any job that connected out.
 #[tokio::test]
 async fn a_job_that_reached_only_listed_hosts_leaves_its_session_clear() {
@@ -481,53 +469,51 @@ async fn a_job_that_reached_only_listed_hosts_leaves_its_session_clear() {
     );
     let out = r.turn(None, "fetch the tides").await;
     assert_eq!(out.stop_reason, "no_tool_calls", "{out:?}");
-    assert!(
-        r.hold(&out.session_id).is_none(),
-        "a listed host is not outside text"
-    );
     let result = r.results(&out.session_id).remove(0);
     assert!(!crate::external::is_outside(&result), "{result:?}");
-    assert!(r.rows("session.external_read").is_empty());
+    assert!(!crate::external::read_any(&r.core.store, &out.session_id));
     assert_eq!(r.rows("sandbox.egress").len(), 1);
     assert_eq!(r.core.tools.sandbox.health().egress_connections, 2);
 }
 
-/// A session that already holds outside text holds an L1 call with egress
-/// too, whatever its list: 20a's exemption covers only jobs with no egress
-/// and no secret, and this keeps it honest.
+/// A session that read outside text holds nothing back: an L1 call with
+/// egress after it runs at its own posture (a notice naming a host beyond the
+/// list, or the operator's list as written), as it would in any session.
 #[tokio::test]
-async fn in_a_session_that_holds_outside_text_an_l1_call_with_egress_waits() {
+async fn in_a_session_that_read_outside_text_an_l1_call_with_egress_is_not_held() {
     let r = Rig::new(
         vec![
-            run(json!({"argv": ["true"], "sandbox": {"egress": ["api.tides.test:443"]}})),
             run(json!({"argv": ["true"], "sandbox": true})),
+            Scripted::text("Fetched."),
+            run(json!({"argv": ["true"], "sandbox": {"egress": ["api.tides.test:443"]}})),
+            Scripted::text("Ran."),
+            run(json!({"argv": ["true"], "sandbox": true})),
+            Scripted::text("Ran."),
         ],
         now(),
-        |_, _| {},
+        unlisted,
+    );
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    let read = r.turn(Some(rec.clone()), "read the tides").await;
+    assert_eq!(read.stop_reason, "no_tool_calls", "{read:?}");
+    assert!(
+        crate::external::read_any(&r.core.store, &rec.session_id),
+        "the job's result is marked outside text"
     );
     for input in ["with its own hosts", "with the operator's list"] {
-        let mut rec = SessionRecord::new(SessionKind::Conversation, None);
-        let page = crate::external::read("nod_page", "http.fetch", "https://tides.test/", None, 1);
-        rec.external = Some(page);
-        let res = r.turn(Some(rec), input).await;
-        assert_eq!(res.stop_reason, "awaiting_confirm", "{input}: {res:?}");
+        let res = r.turn(Some(rec.clone()), input).await;
+        assert_eq!(res.stop_reason, "no_tool_calls", "{input}: {res:?}");
         let why = r.reasons(&res.session_id).pop().unwrap();
-        assert!(
-            why.contains("this session read external text (http.fetch https://tides.test/"),
-            "{why}"
-        );
-        let corr = r.core.pending_confirms(&res.session_id).unwrap()[0]
-            .correlation_id
-            .clone();
-        r.core.confirm_action(&corr, false, None, "test").unwrap();
+        assert!(!why.contains("external text"), "{input}: {why}");
     }
-    assert!(r.lists().is_empty());
+    assert_eq!(r.lists().len(), 3, "every call ran");
+    assert!(r.core.pending_confirms(&rec.session_id).unwrap().is_empty());
 }
 
-/// A job read late, by the next turn (theseus-kol): its hold rides in the
+/// A job read late, by the next turn (theseus-kol): its marker rides in the
 /// frame that takes it, as its rows do.
 #[tokio::test]
-async fn a_late_result_that_connected_out_holds_its_session_in_the_frame_that_takes_it() {
+async fn a_late_result_that_connected_out_is_marked_in_the_frame_that_takes_it() {
     let r = Rig::new(
         vec![
             run(json!({"argv": ["true"], "sandbox": true})),
@@ -545,7 +531,10 @@ async fn a_late_result_that_connected_out_holds_its_session_in_the_frame_that_ta
     );
     let first = r.turn(None, "start it").await;
     assert_eq!(first.stop_reason, "no_tool_calls", "{first:?}");
-    assert!(r.hold(&first.session_id).is_none(), "nothing read yet");
+    assert!(
+        !crate::external::read_any(&r.core.store, &first.session_id),
+        "nothing read yet"
+    );
     let spool = Spool::open(r.core.tools.spool.as_ref().unwrap().dir()).unwrap();
     let corr = r.kept.args.lock().unwrap()[0].correlation_id.clone();
     let t0 = std::time::Instant::now();
@@ -561,10 +550,7 @@ async fn a_late_result_that_connected_out_holds_its_session_in_the_frame_that_ta
     let exec = first.execution_id.clone().unwrap();
     let cont = r.core.continue_execution(&exec).await.unwrap().unwrap();
     assert_eq!(cont.output, "Read it.");
-    let h = r
-        .hold(&first.session_id)
-        .expect("the late result holds the session");
-    assert_eq!(h.via.as_deref(), Some("egress"));
+    assert!(crate::external::read_any(&r.core.store, &first.session_id));
     let late = r.results(&first.session_id);
     assert!(late
         .iter()

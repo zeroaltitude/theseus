@@ -67,7 +67,6 @@ pub(crate) async fn run(
     r: &mut Rig,
     id: &Arc<Mutex<String>>,
     brief: &str,
-    outside: bool,
 ) -> (TaskStartResult, Option<String>) {
     r.model.hold.lock().unwrap().replace("Close first".into());
     let started = r
@@ -82,27 +81,6 @@ pub(crate) async fn run(
         .unwrap();
     *id.lock().unwrap() = crate::task_graph::of_session(&started.session_id);
     r.entered.recv().await.expect("the task's first call began");
-    if outside {
-        // The task has read text from outside before its close: its session
-        // holds it, so a call that acts waits for the owner.
-        let rec = r
-            .core
-            .store
-            .get_session::<crate::session::SessionRecord>(&started.session_id)
-            .unwrap()
-            .unwrap();
-        let hold = theseus_protocol::ExternalText {
-            since_ms: theseus_protocol::now_unix_ms(),
-            tool: "http.fetch".into(),
-            url: "https://example.test/page".into(),
-            node_id: "nod_outside".into(),
-            ..Default::default()
-        };
-        let records = crate::external::hold(rec, hold, None)
-            .unwrap()
-            .expect("it held none");
-        r.core.store.append(&records).unwrap();
-    }
     r.model.gate.add_permits(8);
     let eid = started.session_id.replacen("ses_", "exe_", 1);
     until("the task's end", || {
@@ -129,7 +107,7 @@ async fn a_task_closed_before_its_last_message_reports_that_message() {
     let id: Arc<Mutex<String>> = Arc::default();
     let evidence = json!([{"identity": "boats.txt", "note": "counted 14"}]);
     let mut r = closing(id.clone(), evidence, Some("Counted 14 boats."));
-    let (_, report) = run(&mut r, &id, "Close first, then count the boats", false).await;
+    let (_, report) = run(&mut r, &id, "Close first, then count the boats").await;
     assert_eq!(report.as_deref(), Some("Counted 14 boats."));
 }
 
@@ -138,7 +116,7 @@ async fn a_task_closed_with_no_message_reports_what_its_close_said() {
     let id: Arc<Mutex<String>> = Arc::default();
     let evidence = json!([{"identity": "boats.txt", "note": "counted 14"}]);
     let mut r = closing(id.clone(), evidence, None);
-    let (_, report) = run(&mut r, &id, "Close first, then count the boats", false).await;
+    let (_, report) = run(&mut r, &id, "Close first, then count the boats").await;
     let report = report.expect("a report");
     assert!(report.contains("counted 14"), "{report}");
     assert_ne!(report, "reported");

@@ -15,9 +15,8 @@
 //!   model call; a plain turn is untouched.
 //! - **A deferred start** (`start_at_ms`, `start_after_ms`, or `start_when`) opens
 //!   it asleep in `Waiting{DueAt}`, as `task.create { start_at }` does.
-//! - **Quotes** become the task's arrangement (role `context`) and are outside text:
-//!   the task's session holds them (`external::VIA_QUOTE`), so its calls that act
-//!   wait until the owner trusts it, as after web text.
+//! - **Quotes** become the task's arrangement (role `context`). They hold nothing:
+//!   the content pack asks of them what it asks of any item.
 //! - **Authority** is `judge_act(Act::Task)`: the owner, from a private place. A
 //!   shared place, an MCP client and a job's shell are refused, each told where
 //!   to start it instead.
@@ -129,13 +128,6 @@ impl Core {
         };
         let home_rec = self.rec(Some(&home_session));
         let created_row = crate::fact::task_graph::row_of(&home_rec, "created", &created)?;
-        let hold = hold_of(
-            &parent_rec,
-            arrangement.as_ref(),
-            (p, &who),
-            &home_session,
-            &brief_node.id,
-        );
         let (by, via) = (who.who(), who.via());
         let common = Common {
             title: &title,
@@ -160,7 +152,6 @@ impl Core {
             correlation_id: &correlation_id,
             reports_to: reports_to.as_deref(),
             arrangement: arrangement.as_ref(),
-            hold,
             brief_node: &brief_node,
             graph: &graph,
             created_row: &created_row,
@@ -325,7 +316,6 @@ struct Draft<'a> {
     correlation_id: &'a str,
     reports_to: Option<&'a str>,
     arrangement: Option<&'a Node>,
-    hold: Option<theseus_protocol::ExternalText>,
     brief_node: &'a Node,
     graph: &'a crate::task_graph::TaskRecord,
     created_row: &'a NewRecord,
@@ -339,7 +329,7 @@ struct Draft<'a> {
 
 impl Core {
     /// The records of the open's one frame, beside the kernel's own: the
-    /// task's session (holding external text when it must), its brief and
+    /// task's session, its brief and
     /// quotes, where it reports, its graph record, a deferred start, and the
     /// owner's row.
     fn owned_task_records(
@@ -366,14 +356,11 @@ impl Core {
             check: None,
             notify_done: false,
         });
-        let mut records = match d.hold {
-            Some(h) => crate::external::hold(rec, h, None)?.unwrap_or_default(),
-            None => vec![NewRecord::json(
-                kinds::SESSION,
-                Some(&rec.session_id),
-                &rec,
-            )?],
-        };
+        let mut records = vec![NewRecord::json(
+            kinds::SESSION,
+            Some(&rec.session_id),
+            &rec,
+        )?];
         records.push(d.brief_node.record()?);
         if d.private {
             let key = crate::google::private::meta_key(&task.session_id);
@@ -520,36 +507,6 @@ fn checked(p: &TaskStartParams) -> Result<&str, RpcFailure> {
         }
     }
     Ok(brief)
-}
-
-/// The external-text hold the task's session starts with: its parent's, else
-/// the quotes', unless they are the owner's own words: the act passed as the
-/// owner's, no agent made it, and the start did not say `outside_quotes`
-/// (theseus-nfhaf).
-fn hold_of(
-    parent_rec: &SessionRecord,
-    arrangement: Option<&Node>,
-    (p, who): (&TaskStartParams, &Answerer),
-    home_session: &str,
-    brief_id: &str,
-) -> Option<theseus_protocol::ExternalText> {
-    let now = theseus_protocol::now_unix_ms();
-    let owners_hand = who.agent.is_none() && !p.outside_quotes;
-    match (&parent_rec.external, arrangement) {
-        (Some(h), _) => Some(crate::external::taken(
-            h,
-            home_session,
-            crate::external::VIA_TASK,
-            brief_id,
-            now,
-        )),
-        (None, Some(a)) if !owners_hand => {
-            let mut h = crate::external::read(&a.id, "task.start", "quoted text", None, now);
-            h.via = Some(crate::external::VIA_QUOTE.into());
-            Some(h)
-        }
-        (None, _) => None,
-    }
 }
 
 impl Core {

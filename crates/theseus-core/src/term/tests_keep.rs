@@ -113,7 +113,7 @@ fn run_tag(n: u32) -> String {
 async fn a_session_end_and_a_daemon_stop_leave_the_background_running() {
     for (n, by) in [(1, BY_SESSION_END), (2, BY_DAEMON)] {
         let d = tempfile::tempdir().unwrap();
-        let terms = terms(&[]);
+        let terms = terms();
         assert!(terms.keep_background, "the default keeps");
         let run = run_tag(n);
         let sh = start(&terms, &run, d.path()).await;
@@ -206,12 +206,7 @@ async fn a_close_a_cancel_a_stop_and_keep_off_end_everything() {
         (7, BY_DAEMON, false),
     ] {
         let d = tempfile::tempdir().unwrap();
-        let terms = Arc::new(
-            Arc::try_unwrap(terms(&[]))
-                .ok()
-                .unwrap()
-                .configured(keep, 60),
-        );
+        let terms = Arc::new(Arc::try_unwrap(terms()).ok().unwrap().configured(keep, 60));
         let run = run_tag(n);
         start(&terms, &run, d.path()).await;
         let closed = tokio::task::spawn_blocking({
@@ -249,7 +244,7 @@ async fn a_close_a_cancel_a_stop_and_keep_off_end_everything() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nothing_in_the_background_closes_as_before() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let (o, _) = call(
         &terms,
         "s1",
@@ -297,7 +292,7 @@ async fn a_keeping_close_in_a_subreaper_does_not_wait_out_a_zombies_grace() {
     // SAFETY: marks this test's own process a child subreaper.
     unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let (o, _) = call(
         &terms,
         "s1",
@@ -355,7 +350,7 @@ async fn a_keeping_close_in_a_subreaper_does_not_wait_out_a_zombies_grace() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_end_stops_what_a_left_job_started_after_its_close() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let (o, _) = call(
         &terms,
         "s1",
@@ -428,7 +423,7 @@ async fn a_shell_that_ends_on_sigterm_gets_no_hang_up_and_its_job_is_kept() {
     // test as a process of its own).
     unsafe { libc::signal(libc::SIGHUP, libc::SIG_DFL) };
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let (o, _) = call(
         &terms,
         "s1",

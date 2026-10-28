@@ -1,14 +1,12 @@
-//! A Google write's own result is not outside text (theseus-e31an): the
-//! walkthrough's DM session was held for three days by the echo of a draft
-//! Theseus itself created. A created draft's id leaves the session unheld;
-//! an update's echo of someone else's object still holds.
+//! A Google write's own result is not outside text (theseus-e31an): the echo
+//! of a draft Theseus itself created is not marked, so the session has read
+//! nothing from outside; an update's echo of someone else's object is marked.
 
 use serde_json::json;
 
 use super::tests::*;
 use crate::policy::Posture;
 use crate::provider::Scripted;
-use crate::session::SessionRecord;
 use crate::test_support::turn;
 
 fn open(c: &mut crate::Config) {
@@ -17,7 +15,7 @@ fn open(c: &mut crate::Config) {
 }
 
 #[tokio::test]
-async fn a_created_drafts_result_leaves_the_session_unheld() {
+async fn a_created_drafts_result_is_not_marked_outside_text() {
     let draft = json!({"method": "gmail.users.drafts.create",
         "body": {"message": {"raw": "VG86IG93bmVyQGV4YW1wbGUudGVzdA"}}});
     let r = rig_with(
@@ -39,13 +37,12 @@ async fn a_created_drafts_result_leaves_the_session_unheld() {
         r.fake.log().iter().any(|l| l.path.ends_with("/drafts")),
         "the draft was created"
     );
-    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
-    assert!(rec.external.is_none(), "{:?}", rec.external);
+    assert!(!crate::external::read_any(&r.core.store, &sid));
     assert!(ledgered(&r.core, "session.external_read").is_empty());
 }
 
 #[tokio::test]
-async fn an_updates_echo_still_holds() {
+async fn an_updates_echo_is_still_marked_outside_text() {
     let patch = json!({"method": "calendar.events.patch",
         "params": {"calendarId": "primary", "eventId": "ev1"},
         "body": {"colorId": "5"}});
@@ -63,9 +60,8 @@ async fn an_updates_echo_still_holds() {
     );
     let sid = session(&r.core);
     let _ = turn(&r.core, &sid, "color it").await;
-    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     assert!(
-        rec.external.is_some(),
+        crate::external::read_any(&r.core.store, &sid),
         "an update's echo is someone's object"
     );
 }

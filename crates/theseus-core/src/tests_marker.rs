@@ -59,7 +59,10 @@ async fn a_fetched_page_keeps_its_marker_and_a_call_after_it_is_not_held() {
     let sid = rec.session_id;
 
     let res = turn(&core, &sid, "read it, then run").await;
-    assert!(res.awaiting_confirm.is_none(), "the run is not held: {res:?}");
+    assert!(
+        res.awaiting_confirm.is_none(),
+        "the run is not held: {res:?}"
+    );
 
     // The marker is on the fetch's result, with the URL it read.
     let nodes: Vec<_> = core
@@ -74,13 +77,22 @@ async fn a_fetched_page_keeps_its_marker_and_a_call_after_it_is_not_held() {
         .find(|n| matches!(&n.body, Body::ToolResult { tool, status: ResultStatus::Ok, .. } if tool == "http.fetch"))
         .expect("a fetch result");
     assert!(crate::external::is_outside(fetched));
-    let Body::ToolResult { external: Some(e), .. } = &fetched.body else {
+    let Body::ToolResult {
+        external: Some(e), ..
+    } = &fetched.body
+    else {
         panic!("the fetch's result is marked")
     };
     assert_eq!(e.url, url);
 
     // Reading it holds nothing: no row, no field on the record.
     assert!(ledgered(&core, "session.external_read").is_empty());
-    let rec = serde_json::to_value(core.store.get_session::<SessionRecord>(&sid).unwrap().unwrap()).unwrap();
+    let rec = serde_json::to_value(
+        core.store
+            .get_session::<SessionRecord>(&sid)
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
     assert!(rec.get("external").is_none_or(Value::is_null), "{rec}");
 }

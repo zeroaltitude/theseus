@@ -230,7 +230,7 @@ async fn the_client_secret_without_a_client_id_fails_the_check_and_never_echoes_
 }
 
 #[tokio::test]
-async fn a_google_read_runs_marks_its_session_private_and_holds_it_as_outside_text() {
+async fn a_google_read_runs_marks_its_session_private_and_its_result_as_outside_text() {
     let r = rig(vec![
         call(
             "c1",
@@ -270,9 +270,8 @@ async fn a_google_read_runs_marks_its_session_private_and_holds_it_as_outside_te
         result.2.expect("outside text").url,
         "google:drive.files.list"
     );
-    // The session holds it, and is private from then on.
-    let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
-    assert_eq!(rec.external.expect("a hold").tool, "google.call");
+    // The marker is all there is: no row, no hold. The session is private from then on.
+    assert!(ledgered(&r.core, "session.external_read").is_empty());
     assert!(super::private::session(&r.core.store, &r.core.cfg, &sid));
     // One row, with no content in it.
     let rows = ledgered(&r.core, "google.called");

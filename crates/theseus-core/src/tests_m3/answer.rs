@@ -49,9 +49,9 @@ fn confirm_rows(r: &Rig) -> Vec<Value> {
     ledgered(r, "action.confirm_answered")
 }
 
-/// An approval's three answers. `approve` runs the call; `decline` with a
-/// note does not, and the row keeps the note and the option; `approve_trust`
-/// is an answer a call offers.
+/// An approval's answers. `approve` runs the call; `decline` with a note does
+/// not, and the row keeps the note and the option; `approve_trust` (the answer
+/// that also trusted the session again, R6, theseus-gyjyo.8) is no answer at all.
 #[tokio::test]
 async fn an_approvals_options_run_it_or_decline_it() {
     let r = rig(write_script());
@@ -91,12 +91,14 @@ async fn an_approvals_options_run_it_or_decline_it() {
 
     let r = rig(write_script());
     let (_, exec, corr) = waiting_write(&r).await;
-    let done = cli_answer(&r, &corr, "approve_trust").await.unwrap();
-    assert_eq!(done["option"], "approve_trust");
-    assert_eq!(confirm_rows(&r)[0]["option"], "approve_trust");
-    assert_eq!(confirm_rows(&r)[0]["trust"], json!(true));
+    let e = cli_answer(&r, &corr, "approve_trust").await.unwrap_err();
+    assert!(
+        e.message.contains("is not an answer to this question"),
+        "{e:?}"
+    );
+    assert!(confirm_rows(&r).is_empty(), "the call keeps waiting");
     r.core.continue_execution(&exec).await.unwrap();
-    assert!(r.root.join("out.txt").exists());
+    assert!(!r.root.join("out.txt").exists());
 }
 
 /// A question names the turn whose call asks, so a chat that follows the
@@ -367,27 +369,11 @@ fn a_question_with_options_is_answered_by_choosing_one() {
         "{}",
         e.message
     );
-    assert_eq!(route(QuestionKind::Ask, "choice:0").unwrap(), (true, false));
-    assert_eq!(
-        route(QuestionKind::Approval, "approve").unwrap(),
-        (true, false)
-    );
-    assert_eq!(
-        route(QuestionKind::Approval, "approve_trust").unwrap(),
-        (true, true)
-    );
-    assert_eq!(
-        route(QuestionKind::Budget, "decline").unwrap(),
-        (false, false)
-    );
-    assert_eq!(
-        route(QuestionKind::Change, "accept").unwrap(),
-        (true, false)
-    );
-    assert_eq!(
-        route(QuestionKind::Extension, "ack").unwrap(),
-        (true, false)
-    );
+    assert!(route(QuestionKind::Ask, "choice:0").unwrap());
+    assert!(route(QuestionKind::Approval, "approve").unwrap());
+    assert!(!route(QuestionKind::Budget, "decline").unwrap());
+    assert!(route(QuestionKind::Change, "accept").unwrap());
+    assert!(route(QuestionKind::Extension, "ack").unwrap());
 }
 
 /// An id is named whole or by a unique end of four characters or more: an

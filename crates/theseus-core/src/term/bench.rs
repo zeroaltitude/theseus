@@ -15,10 +15,10 @@ use super::*;
 
 fn terms() -> Arc<Terms> {
     let path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into());
-    Arc::new(Terms::new(
-        vec![("PATH".into(), path), ("HOME".into(), "/tmp".into())],
-        Vec::new(),
-    ))
+    Arc::new(Terms::new(vec![
+        ("PATH".into(), path),
+        ("HOME".into(), "/tmp".into()),
+    ]))
 }
 
 async fn run(terms: &Arc<Terms>, tool: &str, input: serde_json::Value) -> String {

@@ -394,7 +394,6 @@ mod tests {
             notify: None,
             floor: false,
             granted: None,
-            external: None,
         };
         let d = notify.floor(open.clone(), "fs.read", "read a file");
         assert_eq!(d.posture, Posture::Notify);

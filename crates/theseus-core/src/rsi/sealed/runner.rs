@@ -329,7 +329,7 @@ pub fn scratch_config(
          [kernel]\nspend_limit_usd = {item_usd}\nspend_limit_mode = \"ask\"\n\
          [tools]\nprojects_dir = \"/tmp\"\nroots = [\"/tmp\"]\napprove_paths = []\n\
          [policy]\nenforcement = \"open\"\nallow_argv = []\napprove_argv = []\n\
-         external_text = \"notify\"\nexternal_programs = []\nprivate_addresses = \"open\"\n\
+         private_addresses = \"open\"\n\
          [sandbox]\ndefault = \"l0\"\n\
          [discord]\nenabled = false\n[web]\nenabled = false\n[index]\nenabled = false\n\
          [judge]\nenabled = false\n[memory]\nmode = \"off\"\n",

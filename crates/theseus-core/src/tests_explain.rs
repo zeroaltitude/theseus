@@ -1,19 +1,18 @@
 //! `policy.explain` (step 42a, theseus-ext.7) agrees with the gate: for
 //! every tool the template's config offers and one MCP tool, in the CLI, a
 //! private place with a floor, an owner's DM, and a shared place, with and
-//! without a tightening and a hold, each row's result is the decision the
+//! without a tightening, each row's result is the decision the
 //! gate's own functions make on a real call inside the roots; and through
 //! whole turns, the decision the gate recorded.
 
 use serde_json::{json, Map, Value};
 use std::path::Path;
-use theseus_protocol::{ExternalText, PlaceCeiling, PolicyExplainParams, ToolExplain};
+use theseus_protocol::{PlaceCeiling, PolicyExplainParams, ToolExplain};
 use theseus_tools::Tool;
 
 use crate::node::Body;
 use crate::places::BoundPlace;
 use crate::rpc::Core;
-use crate::session::SessionRecord;
 use crate::tests_places::{rig_setup, rig_with, session, turn, LAB, OWNER};
 use crate::toolrun::order::At;
 use crate::toolrun::Turned;
@@ -178,18 +177,16 @@ fn input_for(tool: &dyn Tool, open: &Path) -> Value {
 }
 
 /// The gate's decision on `input`, from the functions `gate` calls: the
-/// tool's own plan, the place's refusal, then the order, with the place and
-/// the hold read as the turn's gate reads them.
+/// tool's own plan, the place's refusal, then the order, with the place read
+/// as the turn's gate reads it.
 fn gated(core: &Core, sid: &str, tool: &dyn Tool, input: &Value) -> Option<(String, String)> {
     let rt = &core.tools;
     let plan = tool.plan(input, &rt.ctx).ok()?;
     let view = core.runner.view_of(sid);
-    let held = || crate::external::held(&core.store, sid);
     // A glide's other place is its call's (38b), which neither a probe nor
     // this input names: `policy.explain` gives the rule as a condition.
     let at = At {
         place: view,
-        held: &held,
         labels: &|| None,
         mcp: &|| None,
         glide: None,
@@ -271,8 +268,7 @@ fn every_tool_agrees(core: &Core, sessions: &[(&str, &str)], open: &Path) -> usi
 
 /// The table: every tool of the template's config and an MCP tool, in the
 /// CLI, a floored private place, the owner's DM, and a shared place; then
-/// with `proc.run` and `fs.write` tightened, and then with every session
-/// holding external text.
+/// with `proc.run` and `fs.write` tightened.
 #[tokio::test]
 async fn policy_explain_agrees_with_the_gate_for_every_tool_and_place() {
     let r = rig_setup(with_mcp, store_mcp_list);
@@ -340,32 +336,6 @@ async fn policy_explain_agrees_with_the_gate_for_every_tool_and_place() {
         t.raised && t.setting.as_deref() == Some("tightened by cli"),
         "{t:?}"
     );
-
-    // Held: every session read a page.
-    for (_, sid) in &sessions {
-        let mut rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-        rec.external = Some(ExternalText {
-            since_ms: 1_759_300_000_000,
-            tool: "http.fetch".into(),
-            url: "tides.example/today".into(),
-            ..Default::default()
-        });
-        core.store.put_session(sid, &rec).unwrap();
-    }
-    every_tool_agrees(&core, &sessions, &open);
-    let dm_rows = explained(&core, &dm);
-    for t in dm_rows.iter().filter(|t| t.class == "read") {
-        let hold = t.layers.iter().find(|l| l.layer == "hold").unwrap();
-        assert!(!hold.raised, "{t:?}");
-    }
-    let write = dm_rows.iter().find(|t| t.tool == "fs.write").unwrap();
-    assert_eq!(write.result, "approve");
-    let read = dm_rows.iter().find(|t| t.tool == "fs.read").unwrap();
-    let own = read.layers.iter().find(|l| l.layer == "posture").unwrap();
-    assert_eq!(
-        read.result, own.result,
-        "a read keeps its posture: {read:?}"
-    );
 }
 
 /// What the gate recorded for each call of `sid`'s turns: its tool and
@@ -392,7 +362,7 @@ fn recorded(core: &Core, sid: &str) -> Vec<(String, String)> {
 
 /// Through whole turns: each call the gate recorded agrees with the
 /// session's explanation of its tool, in a floored place, the owner's DM,
-/// and a shared place, before and after a tightening and a hold. The calls
+/// and a shared place, before and after a tightening. The calls
 /// are `proc.run` (`cat notes.md`) and two `fs.read`s; the one of
 /// `notes.md` in the shared place is outside its public paths, which
 /// explain lists as a condition, so it is left out there.
@@ -432,24 +402,6 @@ async fn each_call_a_turn_records_agrees_with_its_sessions_explanation() {
         recorded(&core, &cli)[0],
         ("proc.run".into(), "approve".into())
     );
-    // Held: a session that read a page, whose acting call waits (its turn
-    // waits with it; the table test holds the reads).
-    core.untighten("proc.run", "cli").unwrap();
-    let held = session(&core, None);
-    let mut rec: SessionRecord = core.store.get_session(&held).unwrap().unwrap();
-    rec.external = Some(ExternalText {
-        since_ms: 1_759_300_000_000,
-        tool: "http.fetch".into(),
-        url: "tides.example/today".into(),
-        ..Default::default()
-    });
-    core.store.put_session(&held, &rec).unwrap();
-    turn(&core, &held, "look around").await;
-    check(&held, false);
-    assert_eq!(
-        recorded(&core, &held)[0],
-        ("proc.run".into(), "approve".into())
-    );
 }
 
 /// A batch (`proc.run`'s `steps`, theseus-7gir.3) is judged as the gate
@@ -478,37 +430,4 @@ async fn a_batch_is_judged_as_its_strictest_step() {
         .find(|t| t.tool == "proc.run")
         .unwrap();
     assert!(row.conditions.iter().any(|c| c.layer == "steps"), "{row:?}");
-}
-
-/// A notify hold that has told the owner already lets its later calls run
-/// quietly, and the explanation says what the call does now: the gate's own
-/// reading of the hold (`held_untold`), not the hold itself (theseus-cuv2o).
-#[tokio::test]
-async fn explain_after_a_told_hold_predicts_no_raise() {
-    let r = rig_with(|c| c.policy.external_text = Some(crate::external::Mode::Notify));
-    let core = &r.core;
-    let quiet = session(core, None);
-    let sid = session(core, None);
-    let mut rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
-    let hold = ExternalText {
-        since_ms: 1_759_300_000_000,
-        tool: "http.fetch".into(),
-        url: "tides.example/today".into(),
-        ..Default::default()
-    };
-    rec.external = Some(hold.clone());
-    core.store.put_session(&sid, &rec).unwrap();
-    let results = |s: &str| -> Vec<(String, String)> {
-        explained(core, s)
-            .into_iter()
-            .map(|t| (t.tool, t.result))
-            .collect()
-    };
-    let baseline = results(&quiet);
-    let untold = results(&sid);
-    assert_ne!(untold, baseline, "an untold hold raises a call that acts");
-    core.store
-        .put_meta(&crate::external::told_key(&sid), &hold.since_ms)
-        .unwrap();
-    assert_eq!(results(&sid), baseline, "a told hold raises nothing");
 }

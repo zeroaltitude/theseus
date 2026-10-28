@@ -52,11 +52,6 @@ pub struct SessionRecord {
     /// it, and where it reports. Written once, when the task opens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<TaskOf>,
-    /// The session read external text (theseus-9bp, `external.rs`): written
-    /// in the frame that brings the text in, cleared only by the operator's
-    /// trust. A turn never writes it (`take_turns_fields`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external: Option<theseus_protocol::ExternalText>,
     /// The run of failed turns the session is in (theseus-ljr), which decides
     /// what the next failure does: retry with backoff, retry once, or wait on
     /// input. A turn whose model answers ends the run, and so does new input.
@@ -340,7 +335,6 @@ impl SessionRecord {
             title: None,
             pending_recompile: None,
             task: None,
-            external: None,
             failing: None,
             not_shown: Vec::new(),
             routed: None,
@@ -443,9 +437,6 @@ impl SessionRecord {
             pending_confirms: 0,
             parent_session_id: self.task.as_ref().map(|t| t.parent_session.clone()),
             limit_usd: None,
-            external_text: self.external.clone(),
-            external_waits: false,
-            external_told: false,
             attention: None,
             state: None,
             retired: self.retired.clone(),
@@ -496,18 +487,15 @@ mod tests {
         assert_eq!(r.failing, None);
         assert_eq!(r.turns, 3);
         assert_eq!(r.last_target.as_ref().unwrap().profile, "sonnet");
-        assert_eq!(r.external.as_ref().unwrap().tool, "http.fetch");
         let again = serde_json::to_value(&r).unwrap();
         assert!(again.get("failing").is_none(), "{again}");
+        // The hold it carries (`external`, T1) is gone from this build (theseus-gyjyo.8): it reads, and
+        // is written back without it.
+        let mut kept: serde_json::Value = serde_json::from_str(SCHEMA_2).unwrap();
+        assert!(kept.as_object_mut().unwrap().remove("external").is_some());
         assert_eq!(
-            again,
-            serde_json::from_str::<serde_json::Value>(SCHEMA_2).unwrap(),
-            "a record with no run of failures keeps its fields"
-        );
-        assert_eq!(
-            serde_json::to_string(&r).unwrap(),
-            SCHEMA_2,
-            "a record with no run of failures keeps its bytes"
+            again, kept,
+            "a record with no run of failures keeps its fields but the hold"
         );
     }
 
@@ -548,35 +536,6 @@ mod tests {
         stored.take_turns_fields(&turn);
         let kept: Vec<&str> = stored.not_shown.iter().map(|n| n.digest.as_str()).collect();
         assert_eq!(kept, ["a1", "b2"]);
-    }
-
-    /// A session record as 0s4's build wrote it (schema 4: an image not
-    /// shown, and a search's hold that names only the request), which this
-    /// build reads with no query, names by the request, and writes back as
-    /// it was (theseus-qiy's schema 5 keeps a search's query).
-    /// Literal bytes (theseus-djfj). Its source: the schema was written before
-    /// this repository's first commit (e85efb0), so the literal is the layout
-    /// by hand, and the test holds this build to it: the record reads, and
-    /// writes back with the field its schema added absent.
-    const SCHEMA_4: &str = r#"{"session_id":"ses_old4","kind":"conversation","label":"tide watch","created_at_unix_ms":1790000000000,"turns":1,"last_turn_id":"turn_e5","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"last_active_ms":1790000300000,"cost_usd":0.0,"tool_calls":1,"external":{"since_ms":1790000200000,"tool":"web.search","url":"search.example.invalid/res?q=tide+tables","node_id":"trs_old4"},"not_shown":[{"digest":"c3","why":"Could not process image","at_ms":1790000250000}]}"#;
-
-    #[test]
-    fn a_session_record_written_before_a_searchs_query_reads() {
-        let r: SessionRecord = serde_json::from_str(SCHEMA_4).unwrap();
-        let h = r.external.as_ref().unwrap();
-        assert_eq!(h.query, None);
-        assert_eq!(
-            h.what(),
-            "web.search search.example.invalid/res?q=tide+tables"
-        );
-        assert_eq!(r.not_shown[0].digest, "c3");
-        let again = serde_json::to_value(&r).unwrap();
-        assert!(again["external"].get("query").is_none(), "{again}");
-        assert_eq!(
-            again,
-            serde_json::from_str::<serde_json::Value>(SCHEMA_4).unwrap()
-        );
-        assert_eq!(serde_json::to_string(&r).unwrap(), SCHEMA_4);
     }
 
     /// The rule's answers, failure by failure: (class, transient, settled)

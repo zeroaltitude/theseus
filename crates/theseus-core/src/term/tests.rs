@@ -175,12 +175,12 @@ pub(super) fn ctx(root: &Path) -> ToolCtx {
 }
 
 /// A registry whose programs get a plain environment.
-pub(super) fn terms(external: &[&str]) -> Arc<Terms> {
+pub(super) fn terms() -> Arc<Terms> {
     let path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into());
-    Arc::new(Terms::new(
-        vec![("PATH".into(), path), ("HOME".into(), "/tmp".into())],
-        external.iter().map(|s| s.to_string()).collect(),
-    ))
+    Arc::new(Terms::new(vec![
+        ("PATH".into(), path),
+        ("HOME".into(), "/tmp".into()),
+    ]))
 }
 
 pub(super) async fn call(
@@ -351,7 +351,7 @@ async fn another_session_cannot_reach_it(terms: &Arc<Terms>, id: &str, dir: &Pat
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sh_runs_a_command_and_ctrl_c_interrupts_one() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let (o, ext) = call(
         &terms,
         "s1",
@@ -450,7 +450,7 @@ async fn sh_runs_a_command_and_ctrl_c_interrupts_one() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn python3s_repl_computes_on_the_screen() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let (o, _) = call(
         &terms,
         "s1",
@@ -558,21 +558,15 @@ async fn python3s_repl_computes_on_the_screen() {
     );
 }
 
-/// `cat` echoes what it is sent, and Ctrl-C ends it; a terminal whose
-/// program `[policy] external_programs` lists is outside text, every read
-/// marked, and one sent text that names a listed program becomes so.
+/// `cat` echoes what it is sent, and Ctrl-C ends it; no read of a terminal is
+/// marked outside text, whatever program it runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cat_echoes_and_a_listed_programs_screen_is_outside_text() {
+async fn cat_echoes_and_ctrl_c_ends_it() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&["cat", "gh"]);
+    let terms = terms();
     let (o, ext) = call(&terms, "s1", OPEN, json!({"argv": ["/bin/cat"]}), d.path()).await;
     let id = id_of(&o);
-    assert_eq!(
-        ext.map(|e| e.url),
-        Some("cat".to_string()),
-        "its open's screen is outside text"
-    );
-    assert_eq!(o.meta[crate::external::PROGRAM_KEY], "cat");
+    assert!(ext.is_none(), "its open's screen is not outside text");
     call(
         &terms,
         "s1",
@@ -581,17 +575,9 @@ async fn cat_echoes_and_a_listed_programs_screen_is_outside_text() {
         d.path(),
     )
     .await;
-    let text = read_until(&terms, "s1", &id, "hello there\nhello there", d.path()).await;
-    assert!(
-        text.starts_with("[it runs cat, which [policy] external_programs lists"),
-        "{text}"
-    );
+    read_until(&terms, "s1", &id, "hello there\nhello there", d.path()).await;
     let (_, ext) = call(&terms, "s1", READ, json!({"terminal": id}), d.path()).await;
-    assert!(ext.is_some(), "every read of it is marked");
-    assert_eq!(
-        terms.get(&id).unwrap().info().external.as_deref(),
-        Some("cat")
-    );
+    assert!(ext.is_none(), "no read of it is marked");
     call(
         &terms,
         "s1",
@@ -609,32 +595,7 @@ async fn cat_echoes_and_a_listed_programs_screen_is_outside_text() {
     )
     .await;
     assert!(o.text.contains("its program ended"), "{}", o.text);
-    // A shell is not listed, until it is sent a listed program's name.
-    let (o, ext) = call(&terms, "s1", OPEN, json!({"argv": ["sh"]}), d.path()).await;
-    let sh = id_of(&o);
-    assert!(ext.is_none());
-    call(
-        &terms,
-        "s1",
-        SEND,
-        json!({"terminal": sh, "text": "echo plain\n"}),
-        d.path(),
-    )
-    .await;
-    let (_, ext) = call(&terms, "s1", READ, json!({"terminal": sh}), d.path()).await;
-    assert!(ext.is_none());
-    call(
-        &terms,
-        "s1",
-        SEND,
-        json!({"terminal": sh, "text": "gh issue view 1 || true\n"}),
-        d.path(),
-    )
-    .await;
-    let (o, ext) = call(&terms, "s1", READ, json!({"terminal": sh}), d.path()).await;
-    assert!(ext.is_some(), "{}", o.text);
-    assert_eq!(o.meta[crate::external::PROGRAM_KEY], "gh");
-    assert_eq!(terms.close_session("s1", BY_SESSION_END).len(), 2);
+    assert_eq!(terms.close_session("s1", BY_SESSION_END).len(), 1);
 }
 
 /// At most four terminals a session; a fifth is refused with why, and
@@ -642,7 +603,7 @@ async fn cat_echoes_and_a_listed_programs_screen_is_outside_text() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_session_holds_four_terminals() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     for _ in 0..PER_SESSION {
         call(
             &terms,
@@ -706,7 +667,7 @@ async fn a_session_holds_four_terminals() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_close_leaves_no_child_behind() {
     let d = tempfile::tempdir().unwrap();
-    let terms = terms(&[]);
+    let terms = terms();
     let (o, _) = call(&terms, "s1", OPEN, json!({"argv": ["sh"]}), d.path()).await;
     let id = id_of(&o);
     // Seven digits, so no pid's marker holds another's.

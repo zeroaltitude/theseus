@@ -1,7 +1,7 @@
 //! The mail watch through the whole core (theseus-batvg.6): new mail matching
 //! a query, read from the account's history with no model, against the
 //! loopback fake. A stranger's mail only notices; a trusted sender's starts one
-//! held task; a restart resumes from the stored cursor; a deadline with no
+//! task; a restart resumes from the stored cursor; a deadline with no
 //! reply starts the owner's follow-up, whose send still asks.
 //!
 //! A look is run the way the driver's tick runs it (`tests_watch::look`), so a
@@ -224,11 +224,11 @@ async fn a_strangers_mail_never_starts_a_turn() {
     assert!(r.core.kernel.open_watches().unwrap().is_empty());
 }
 
-/// A trusted sender's mail starts the owner's brief as a task whose session
-/// holds the mail as outside text from its first turn: its first call that
-/// acts asks, though the posture alone would run it.
+/// A trusted sender's mail starts the owner's brief as a task whose session is
+/// private from the start; the mail holds nothing, so its first call that acts
+/// runs at the posture alone.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_trusted_senders_mail_starts_a_held_task() {
+async fn a_trusted_senders_mail_starts_a_private_task_that_is_not_held() {
     let dir = tempfile::tempdir().unwrap();
     let note = dir.path().join("work").join("note.txt");
     let script = vec![
@@ -268,19 +268,18 @@ async fn a_trusted_senders_mail_starts_a_held_task() {
         .as_str()
         .unwrap()
         .to_string();
-    let rec: crate::session::SessionRecord = r.core.store.get_session(&task).unwrap().unwrap();
-    assert!(rec.external.is_some(), "the mail holds the task's session");
+    assert!(rows(&r.core, "session.external_read").is_empty());
     assert!(
         crate::google::private::session(&r.core.store, &r.core.cfg, &task),
         "and it is private from the start"
     );
-    until("the held task's first write to ask", 20, || {
+    until("the task's first write to run", 20, || note.exists()).await;
+    assert!(
         ledgered(&r.core, "tool.confirm_requested")
             .iter()
-            .any(|q| q["tool"] == "fs.write")
-    })
-    .await;
-    assert!(!note.exists(), "nothing was written");
+            .all(|q| q["tool"] != "fs.write"),
+        "the write asked nothing"
+    );
     driver.abort();
 }
 
@@ -427,7 +426,7 @@ async fn a_poll_with_no_new_mail_makes_one_call() {
 // ------------------------------------------------------------------ the deadline
 
 /// The deadline passes with no reply: a task starts with the owner's brief,
-/// not held, and the notice says so in place of "gave up".
+/// and the notice says so in place of "gave up".
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reply_deadline_fires_the_follow_up() {
     let r = mail_rig(vec![], |_| {}).await;
@@ -459,8 +458,10 @@ async fn a_reply_deadline_fires_the_follow_up() {
         .as_str()
         .unwrap()
         .to_string();
-    let rec: crate::session::SessionRecord = r.core.store.get_session(&task).unwrap().unwrap();
-    assert!(rec.external.is_none(), "the owner's words: not held");
+    assert!(
+        !crate::external::read_any(&r.core.store, &task),
+        "the owner's words: nothing outside"
+    );
     assert_eq!(rows(&r.core, "watch.expired").len(), 1);
     assert_eq!(cursor_of(&r.core, &id).as_deref(), Some(""));
     // Without a follow-up the deadline only says it gave up.

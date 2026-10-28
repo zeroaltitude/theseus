@@ -851,7 +851,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   sweep (`Core::sweep_outputs`, with the spool's hourly sweep) deletes a retired session's copies, any past
   `[tools] outputs_keep_days`, and the oldest past `outputs_max_bytes`. `fs.read` has its own cap
   (`Tool::result_max_chars`, 100,000), cut as a contiguous head, never head and tail. Tests: `tests_kept.rs`. The gate's parts are
-  `policy.rs` (postures and the floor), `external.rs` (the hold after external text: `[policy] external_text` is optional and, unset, follows `enforcement` (`PolicyConfig::external_mode`; `open` notifies too); under notify a hold tells once, its first call that acts, marked by the META key `external.told.<session>` holding the hold's `since_ms`, written in that call's frame, so a restart does not tell twice and a new hold tells again; ask waits on every call; no expiry, an old hold still holds), `broker.rs` (granted
+  `policy.rs` (postures and the floor), `external.rs` (the `external` marker on a result node, and what reads it: `is_outside`, `first`, `read_any`; it holds nothing, R6, theseus-gyjyo.8), `broker.rs` (granted
   secrets), `approval.rs` (who answers, and from where), `peer.rs` (the web UI's other-uid check at accept), and `peer_proc.rs` (who is behind a CLI answer).
   A URL whose host is a private address waits for approval (`listed`) and only an approved fetch reaches it,
   unless `[policy] private_addresses = "open"` (theseus-7gir.20, the bench profile's), which lifts both
@@ -2860,7 +2860,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   ring or a compaction lists ids as any compilation does. `session.history` of a fork pages the same list (nodes keep
   their source's `session_id`: the CLI marks them). Authority: a caller on a surface that reads no private text may
   fork only a shared place's session, an MCP client only a conversation it opened (`Core::fork_allowed`), an imported
-  session never; the fork keeps the source's external-text hold and speaks in no place (the CLI's: private), so
+  session never; the fork speaks in no place (the CLI's: private), so
   nothing of it reaches a shared place. Cost: the fork reads the compilation chain back from the current one
   (`CHAIN` steps at most), never the source's nodes. Not here: files and `--worktree` (R20, theseus-23rk, which reads
   `forked_from` and the result's `not_restored`), and R21's surfaces (the TUI's `f`, Discord's "Fork from here", the
@@ -3251,7 +3251,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `toolrun/peek.rs`'s `newest` and `last_line`; `last_line` returns the last *complete* line, ended by a newline or a carriage return, so a sample never shows a line the job is still writing, while `peek` shows the live tail as it is). All read the job's output file, `results/<id>.out`, which its wrapper
   writes while it runs; nothing is timed on a turn's path and no frame is written. `work.peek` (a read, on the blocking
   pool): a stat and at most 64 KiB from the end, scrubbed, at most 20 lines, each cut to 1,000 characters.
-  `content.unlabel {session_id, flag}` (theseus-9ymz0, `rpc/content.rs`): removes one content label from a session as `policy.trust` clears a hold: `judge_act(Act::Unlabel)` (the owner, from a private
+  `content.unlabel {session_id, flag}` (theseus-9ymz0, `rpc/content.rs`): removes one content label from a session, which is what Discord's `/trust` does for `injection`: `judge_act(Act::Unlabel)` (the owner, from a private
   place, never a job's process; its refusal is the session's `approval.refused` row naming the method), then the record and the `content.removed` row in one frame under the session's lock,
   the removal kept in `ContentFlags::removed`, a narrative line and `session.unlabelled` to the session's watchers; a flag the session does not carry is an error and writes nothing.
   `Core::tell_label` is the one `content_label` outbox post when a label is raised (the Discord message and its Remove button). `fact/content.rs` holds the four rows (`content.judged`,
@@ -3416,13 +3416,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   waits on the network is `Backend::Async`, a future on the runtime. A verb over Theseus's own state is
   `Backend::Harness`. Never block a runtime worker on a sleep or a blocking wait.
 - **The gate never refuses** and never parses what a command does. The order is the floor, the approve lists, the
-  allow list, then the posture; a granted secret's posture and the external-text hold apply after it, and the
+  allow list, then the posture; a granted secret's posture applies after it, and the
   stricter wins. The whole order after the place's refusal is written once, in `toolrun/order.rs`, which the gate
   and `policy.explain` both run.
 - **An L1 call runs at notify** (the owner's decision, 2026-10-02): none of the L0 order applies, since the view hides
-  the floor, the approve list's paths, and the socket; the external-text hold still does, and so does the
-  operator's own word about the tool: a `[policy.tools]` line or a tightening that asks makes it wait
-  (theseus-jfs6), and so do hosts its call names beyond `[sandbox] egress` (18c), and a granted secret's posture,
+  the floor, the approve list's paths, and the socket; the operator's own word about the tool: a `[policy.tools]` line or a tightening that asks makes it wait
+  (theseus-jfs6), and so does a granted secret's posture; hosts its call names beyond `[sandbox] egress` (18c) are a notice that names them, and the job gets them,
   as at L0 (theseus-w5op). The inherited
   `[policy].enforcement` never does. Its proposal names its class, so a confirm binds it, and a confirmed call runs in the class its
   proposal names. Nothing falls back from L1 to L0.
@@ -3460,13 +3459,6 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   marker: an agent that hides its ancestry behind a pty reads as the owner's; L1 and the DM's card are the boundary. A
   test's connection says who is behind it with `Client::behind`. Tests: `tests_m3/agent_answers.rs`, `peer_proc::tests`,
   theseusd's `tests/agent_answers.rs`.
-- **A result that is outside text writes its session's hold in its own frame** (theseus-9bp): `external::with_hold`
-  for a result written alone, and `external::under_hold` for a frame that may carry one (a late result, the cancel's
-  sweep), which is built first without the session's lock and again under it only when it does. A job of a program
-  `[policy] external_programs` lists is outside text too (`external::Listed`, read from the call's input by every
-  `job_result`), and a session opened, or sent a turn, with `opened_from` a holding session takes its hold in the
-  frame that writes it (`external::from_job`; every job's `THESEUS_SESSION`). Both are light guards under default
-  trust, not boundaries: a job can strip its own environment (theseus-b5cl).
 - **Secrets**: no value in a log, a row, a node, a result, or an error. `scrub.rs` scrubs tool output: each board
   value verbatim, in base64, percent-encoded, and with any of its characters JSON-escaped (`scrub/escaped.rs`:
   the text decoded once where it holds a backslash, a match mapped back to the escaped span; theseus-ubp7), twice

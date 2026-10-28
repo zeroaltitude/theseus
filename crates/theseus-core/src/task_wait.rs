@@ -578,23 +578,16 @@ struct Delivered {
 #[derive(Default)]
 struct Wrote {
     delivered: Vec<Delivered>,
-    held: Option<theseus_protocol::ExternalText>,
 }
 
-/// One report as the parent's node: the node, the edge that says it was
-/// copied from the task's last message, and a hold when the task read
-/// external text (theseus-9bp), all as `read_reports` writes them.
+/// One report as the parent's node: the node, and the edge that says it was
+/// copied from the task's last message, as `read_reports` writes them.
 fn relay(
     core: &Core,
     session: &str,
     turn: &TurnRef,
     (mut r, per): (Report, usize),
-    rec: &mut Option<SessionRecord>,
-) -> anyhow::Result<(
-    Vec<NewRecord>,
-    Delivered,
-    Option<theseus_protocol::ExternalText>,
-)> {
+) -> anyhow::Result<(Vec<NewRecord>, Delivered)> {
     let (text, cut, outputs) = fit(core, session, &r, per);
     r.text = text;
     let node = Node::relayed(
@@ -610,22 +603,13 @@ fn relay(
         let edge = crate::graph::Edge::new(kind, &node.id, last, crate::graph::VIA_REPORT);
         records.push(edge.record()?);
     }
-    let mut held = None;
-    if let (Some(h), Some(before)) = (&r.external, rec.take()) {
-        let now = theseus_protocol::now_unix_ms();
-        let h = crate::external::taken(h, &r.task, crate::external::VIA_REPORT, &node.id, now);
-        if let Some(more) = crate::external::hold(before, h.clone(), Some(&turn.turn_id))? {
-            records.extend(more);
-            held = Some(h);
-        }
-    }
     let got = Delivered {
         report: r,
         node,
         cut,
         outputs,
     };
-    Ok((records, got, held))
+    Ok((records, got))
 }
 
 /// Take the reports of `ask.tasks` that have ended into the turn, in one
@@ -633,52 +617,42 @@ fn relay(
 fn take(core: &Core, session: &str, ask: &WaitAsk, total: usize) -> anyhow::Result<Wrote> {
     let turn = &ask.turn;
     let mut wrote = Wrote::default();
-    let mut once = |rec: Option<SessionRecord>| {
-        turn.kernel
-            .take_reports_in_turn(&turn.execution_id, turn.turn, &ask.tasks, |ids| {
-                let mut reports = Vec::new();
-                for id in ids {
-                    if let Some(mut r) = task::load_report(&turn.store, &turn.kernel, id)? {
-                        // A helper that reached its carve may have said nothing
-                        // as its last words: its findings so far are its report.
-                        let ended_by_budget = turn
-                            .kernel
-                            .execution(id)?
-                            .is_some_and(|e| state_of(&e) == "budget");
-                        r.text = match ended_by_budget {
-                            true => said_so_far(&turn.store, &r.task).or(r.text.take()),
-                            false => r.text.take().or_else(|| said_so_far(&turn.store, &r.task)),
-                        };
-                        reports.push(r);
-                    }
+    turn.kernel
+        .take_reports_in_turn(&turn.execution_id, turn.turn, &ask.tasks, |ids| {
+            let mut reports = Vec::new();
+            for id in ids {
+                if let Some(mut r) = task::load_report(&turn.store, &turn.kernel, id)? {
+                    // A helper that reached its carve may have said nothing
+                    // as its last words: its findings so far are its report.
+                    let ended_by_budget = turn
+                        .kernel
+                        .execution(id)?
+                        .is_some_and(|e| state_of(&e) == "budget");
+                    r.text = match ended_by_budget {
+                        true => said_so_far(&turn.store, &r.task).or(r.text.take()),
+                        false => r.text.take().or_else(|| said_so_far(&turn.store, &r.task)),
+                    };
+                    reports.push(r);
                 }
-                let per = shares(&reports, ask.report_chars, total);
-                let (mut records, mut rec) = (Vec::new(), rec);
-                for (r, per) in reports.into_iter().zip(per) {
-                    let (more, got, held) = relay(core, session, turn, (r, per), &mut rec)?;
-                    records.extend(more);
-                    wrote.held = held.or(wrote.held.take());
-                    wrote.delivered.push(got);
-                }
-                // Where the reply to them goes if the session posts nowhere by
-                // then, kept past this turn (theseus-4lx).
-                let target = wrote
-                    .delivered
-                    .iter()
-                    .find_map(|d| d.report.target.as_deref());
-                if let Some(target) = target {
-                    records.push(core.outbox.wake_target_record(session, target)?);
-                }
-                Ok(records)
-            })
-    };
-    if turn
-        .store
-        .with_session(session, |rec| once(Some(rec)))?
-        .is_none()
-    {
-        once(None)?;
-    }
+            }
+            let per = shares(&reports, ask.report_chars, total);
+            let mut records = Vec::new();
+            for (r, per) in reports.into_iter().zip(per) {
+                let (more, got) = relay(core, session, turn, (r, per))?;
+                records.extend(more);
+                wrote.delivered.push(got);
+            }
+            // Where the reply to them goes if the session posts nowhere by
+            // then, kept past this turn (theseus-4lx).
+            let target = wrote
+                .delivered
+                .iter()
+                .find_map(|d| d.report.target.as_deref());
+            if let Some(target) = target {
+                records.push(core.outbox.wake_target_record(session, target)?);
+            }
+            Ok(records)
+        })?;
     Ok(wrote)
 }
 
@@ -738,10 +712,6 @@ fn deliver(
         .collect();
     if !items.is_empty() {
         core.runner.judge.ask_content(session, items);
-    }
-    if let Some(hold) = &wrote.held {
-        let mode = core.tools.external.mode;
-        rec.record(&fact::tool::HoldTaken { hold, mode });
     }
     // The rows of the index, in the order the tasks were named; a task still
     // running gets a note of its findings so far, from what the delivered

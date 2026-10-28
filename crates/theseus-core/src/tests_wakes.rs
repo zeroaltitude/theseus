@@ -149,8 +149,6 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.policy.enforcement = Posture::Notify;
-    // These tests are about a hold that asks.
-    cfg.policy.external_text = Some(crate::external::Mode::Ask);
     cfg.kernel.max_wakes = 5; // these tests script the five-wake cap (the default is 20)
     cfg
 }
@@ -537,48 +535,11 @@ async fn the_cap_is_enforced_with_a_readable_refusal() {
     l.stop().await;
 }
 
-/// A repeating wake is persistence (37a): in a session holding external
-/// text it waits for the operator's approval, and is not set until then,
-/// where a one-shot wake keeps its posture and is set at once (T1b). In a
-/// session that read nothing, the series is set at once, one span from now,
-/// and its result says so.
+/// A repeating wake is set at once, one span from now, and its result says so.
 #[tokio::test]
-async fn a_repeating_wake_waits_in_a_session_holding_external_text_and_a_one_shot_does_not() {
+async fn a_repeating_wake_is_set_at_once_one_span_from_now() {
     let dir = tempfile::tempdir().unwrap();
     let l = life(dir.path(), false);
-    let sid = session(&l.core);
-    let mut rec: SessionRecord = l.core.store.get_session(&sid).unwrap().unwrap();
-    rec.external = Some(theseus_protocol::ExternalText {
-        since_ms: theseus_protocol::now_unix_ms(),
-        tool: "http.fetch".into(),
-        url: "https://example.invalid/tides".into(),
-        node_id: "trs_tides".into(),
-        from_session: None,
-        via: None,
-        query: None,
-    });
-    l.core.store.put_session(&sid, &rec).unwrap();
-
-    let once = turn(&l.core, &sid, "WAKE 1h: check the build").await;
-    assert!(once.awaiting_confirm.is_none(), "one-shot: {once:?}");
-    assert_eq!(exec_of(&l.core, &sid).wakes.len(), 1);
-
-    let series = turn(&l.core, &sid, "REPEAT 1d: write me a haiku").await;
-    assert!(series.awaiting_confirm.is_some(), "repeating: {series:?}");
-    let asked = l.core.confirm_list().unwrap();
-    assert_eq!(asked.len(), 1, "{asked:?}");
-    assert_eq!(asked[0].tool, "wake.at");
-    assert!(
-        asked[0]
-            .reason
-            .contains("this session read external text (http.fetch"),
-        "{}",
-        asked[0].reason
-    );
-    let e = exec_of(&l.core, &sid);
-    assert_eq!(e.wakes.len(), 1, "not set while it waits");
-    assert!(e.wakes[0].repeat.is_none());
-
     let clean = SessionRecord::new(SessionKind::Conversation, None);
     l.core.store.put_session(&clean.session_id, &clean).unwrap();
     let t0 = theseus_protocol::now_unix_ms();

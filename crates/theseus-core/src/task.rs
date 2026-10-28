@@ -614,13 +614,6 @@ pub fn create<'a>(
         crate::task_graph::tools::change(tc, &graph, None, json!({"session": task_session}));
     let created_row = crate::fact::task_graph::row_of(&tc.rec(), "created", &created)
         .map_err(|e| format!("Not started: {e:#}"))?;
-    // A task that a session holding external text starts holds it too, from
-    // its brief on, since the brief may carry that text (theseus-9bp).
-    let parent_hold = tc
-        .store
-        .get_session::<SessionRecord>(tc.session_id)
-        .map_err(|e| format!("Not started: {e:#}"))?
-        .and_then(|r| r.external);
     let opening = theseus_kernel::Opening {
         reports_to: target.clone(),
         wake_parent: i.wake_parent,
@@ -672,23 +665,11 @@ pub fn create<'a>(
                 notify_done: i.notify_done,
             });
             let brief = Node::relayed(&task.session_id, None, Origin::Agent, &author, &text);
-            let mut records = match &parent_hold {
-                Some(h) => {
-                    let taken = crate::external::taken(
-                        h,
-                        tc.session_id,
-                        crate::external::VIA_TASK,
-                        &brief.id,
-                        theseus_protocol::now_unix_ms(),
-                    );
-                    crate::external::hold(rec, taken, None)?.unwrap_or_default()
-                }
-                None => vec![NewRecord::json(
-                    kinds::SESSION,
-                    Some(&rec.session_id),
-                    &rec,
-                )?],
-            };
+            let mut records = vec![NewRecord::json(
+                kinds::SESSION,
+                Some(&rec.session_id),
+                &rec,
+            )?];
             records.push(brief.record()?);
             // A task of a private session is private from its first call, as
             // task.start's (theseus-a1wvq.10).
@@ -798,9 +779,6 @@ pub fn create<'a>(
             });
         }
         crate::fact::task_graph::announce(&tc.rec(), "created", &created);
-        if parent_hold.is_some() {
-            tc.record(&crate::fact::tool::TaskHoldsExternal { short: &s });
-        }
     }
     let capped = i.budget_usd.is_some() && want > limit;
     let budget = if capped && limit > opened.available_before {
@@ -1054,9 +1032,6 @@ pub struct Report {
     pub elapsed_ms: u64,
     /// Where it reports: where its parent posted when it started.
     pub target: Option<String>,
-    /// The task held external text when its report was read (theseus-9bp):
-    /// the parent that reads the report holds it too.
-    pub external: Option<theseus_protocol::ExternalText>,
     /// A check's basis, as its line (M5 28a): shown beside its report.
     pub check: Option<String>,
     /// The messages the owner joined it with (theseus-slmj1): the parent's
@@ -1176,7 +1151,6 @@ impl Report {
             turns: e.turns,
             elapsed_ms: e.updated_at_ms.saturating_sub(e.created_at_ms),
             target: None,
-            external: None,
             check: None,
             joined: 0,
         }
@@ -1288,14 +1262,12 @@ pub fn load_report(
         None
     };
     let target = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone());
-    let external = rec.as_ref().and_then(|r| r.external.clone());
     let check = check_line(rec.as_ref());
     let joined = store
         .get_meta::<u32>(&joined_key(&e.session_id))?
         .unwrap_or(0);
     Ok(Some(Report {
         target,
-        external,
         check,
         joined,
         ..Report::new(&e, rec.and_then(|r| r.title), last)

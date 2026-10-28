@@ -49,7 +49,6 @@ impl Core {
         correlation_id: &str,
         note: Option<&str>,
         who: Answerer,
-        trust: bool,
         answer: &GrantAnswer,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
         let a = self
@@ -78,8 +77,7 @@ impl Core {
         // conversation once the call runs (theseus-lyxy).
         let modes = &self.tools.modes;
         modes.pick(correlation_id, SessionMode::Edits);
-        let done =
-            self.confirm_action_with(correlation_id, true, note, who, trust, Default::default());
+        let done = self.confirm_action_with(correlation_id, true, note, who, Default::default());
         if done.is_err() {
             modes.unpick(correlation_id);
         }

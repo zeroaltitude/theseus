@@ -51,7 +51,6 @@ fn refusal(
     let plan = tool
         .plan(&input, &rt.ctx)
         .unwrap_or_else(|e| panic!("{}: {e:?}", tool.name()));
-    let held = || Ok(None);
     let mcp = || None;
     let labels = || {
         reads.set(reads.get() + 1);
@@ -64,7 +63,6 @@ fn refusal(
             voice: false,
             draft: None,
         },
-        held: &held,
         labels: &labels,
         mcp: &mcp,
         glide: None,
