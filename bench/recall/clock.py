@@ -39,6 +39,8 @@ LIB_PATHS = (
 # From 08:00, sixteen hours to midnight, less an hour's margin.
 MAX_RUN_S = 15 * 3600
 MODES = ("auto", "pin", "off")
+# A smoke pin nearer than this to the host's date cannot tell a pin that took from one that did nothing.
+MIN_GAP_DAYS = 7
 
 
 class ClockDrift(RuntimeError):
@@ -80,7 +82,7 @@ def _host_date() -> str:
 def smoke(pin: str, lib: str | None = None, workdir: Path | None = None,
           runner: Callable[[dict], str] | None = None, host: Callable[[], str] = _host_date) -> dict:
     """The pin at smoke level, with a control: read the date of a fresh process under the pin and of the
-    same process without it. `pin` (`YYYY-MM-DD`) must be at least a month from the host's date, so a pin
+    same process without it. `pin` (`YYYY-MM-DD`) must be at least MIN_GAP_DAYS from the host's date, so a pin
     that did nothing cannot read as one that worked. Raises `ClockDrift` when the pinned arm does not read
     the pin or the control does, and `ValueError` when the pin is too near the real date to tell."""
     lib = lib or find_lib()
@@ -88,8 +90,8 @@ def smoke(pin: str, lib: str | None = None, workdir: Path | None = None,
         raise SystemExit("smoke: no libfaketime found (set LIBFAKETIME_LIB or pass --faketime-lib)")
     runner = runner if runner is not None else machine_date
     real = host()
-    if abs((dt.date.fromisoformat(pin) - dt.date.fromisoformat(real)).days) < 30:
-        raise ValueError(f"the pin {pin} is within a month of the host's {real}: pick a date far from today")
+    if abs((dt.date.fromisoformat(pin) - dt.date.fromisoformat(real)).days) < MIN_GAP_DAYS:
+        raise ValueError(f"the pin {pin} is within {MIN_GAP_DAYS} days of the host's {real}: pick a date far from today")
     workdir = Path(workdir) if workdir else Path.cwd()
     workdir.mkdir(parents=True, exist_ok=True)
     spec = workdir / "smoke.faketime.spec"
@@ -169,8 +171,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--faketime-lib", default=None)
     a = ap.parse_args(argv)
     import tempfile
-    with tempfile.TemporaryDirectory() as t:
-        r = smoke(a.smoke, lib=find_lib(a.faketime_lib), workdir=Path(t))
+    try:
+        with tempfile.TemporaryDirectory() as t:
+            r = smoke(a.smoke, lib=find_lib(a.faketime_lib), workdir=Path(t))
+    except (ValueError, ClockDrift) as e:
+        print(f"smoke: {e}", file=sys.stderr)
+        return 1
     print(f"host    date: {r['host']}\ncontrol date: {r['control']}   (same path, no pin)\n"
           f"pinned  date: {r['pinned']}   (pin {r['pin']}, {r['lib']})\nproof: {r['proof']}")
     return 0 if r["proof"] else 1
