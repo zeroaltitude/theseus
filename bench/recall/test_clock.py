@@ -199,6 +199,8 @@ class DateProbesOfAnUnpinnedRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             d = Path(t) / "run"
             write_run(d, prog, "theseus", [], meta=meta)
+            (d / "delivered.json").write_text(json.dumps(
+                {f.id: {"delivered": True, "marker": f.marker, "turn": f.turn} for f in prog.facts}))
             run = score.load_run(d)
             rows = score.score_run(run)
         return prog, rows
@@ -212,15 +214,27 @@ class DateProbesOfAnUnpinnedRun(unittest.TestCase):
         self.assertEqual(score.summarize(rows)["clock_conflict"], len(dates))
 
     def test_a_pinned_run_scores_its_date_probes(self):
-        prog, rows = self.score({"clock": {"pinned": True}})
+        prog = smoke(2)
+        meta = {"clock": {"pinned": True, "sessions": [{"narrated": x.date, "machine": x.date}
+                                                       for x in prog.sessions]}}
+        prog, rows = self.score(meta)
         dates = [r for r in rows if r.value_kind == "date"]
         self.assertGreater(len(dates), 0)
         self.assertNotIn("clock_conflict", {r.status for r in dates})
         self.assertEqual(score.summarize(rows)["clock_conflict"], 0)
 
+    def test_a_run_that_says_pinned_but_read_back_another_date_is_not_pinned(self):
+        prog = smoke(2)
+        meta = {"clock": {"pinned": True, "sessions": [{"narrated": x.date, "machine": "2026-10-26"}
+                                                       for x in prog.sessions]}}
+        _, rows = self.score(meta)
+        self.assertEqual({r.status for r in rows if r.value_kind == "date"}, {"clock_conflict"})
+
     def test_an_unpinned_run_leaves_every_other_probe_alone(self):
         _, unpinned = self.score(None)
-        _, pinned = self.score({"clock": {"pinned": True}})
+        prog = smoke(2)
+        _, pinned = self.score({"clock": {"pinned": True, "sessions": [
+            {"narrated": x.date, "machine": x.date} for x in prog.sessions]}})
         other = lambda rows: [(r.probe, r.status, r.correct) for r in rows if r.value_kind != "date"]  # noqa: E731
         self.assertEqual(other(unpinned), other(pinned))
         self.assertGreater(len(other(pinned)), 0)

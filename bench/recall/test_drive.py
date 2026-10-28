@@ -17,6 +17,7 @@ import json
 import os
 import re
 import signal
+import shutil
 import socket
 import subprocess
 import sys
@@ -33,6 +34,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 
+import clock as ck  # noqa: E402
 import drive  # noqa: E402
 import generate  # noqa: E402
 import progression as pg  # noqa: E402
@@ -301,6 +303,82 @@ def run_pi(prog: pg.Progression, d: Path, argv: list[str] = (), overhead: int = 
             else:
                 os.environ[k] = v
     return rc, err.getvalue()
+
+
+class ClockPinned(unittest.TestCase):
+    """A run's arm reads the narrated date (theseus-kyrgn): the stand-in `claude` records the `date` its own
+    process sees, under the environment the driver gave it."""
+
+    DATED = STANDIN.replace('{"argv": args,', '{"date": subprocess.run(["date", "+%F"], capture_output=True, '
+                            'text=True).stdout.strip(), "argv": args,')
+
+    def run_cc(self, *clock_args: str):
+        prog = generate.build(2, "smoke", PLAN)  # seed 2's smoke carries two date probes
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        (d / "bin").mkdir()
+        (d / "bin" / "claude").write_text(self.DATED)
+        (d / "bin" / "claude").chmod(0o755)
+        prog.save(d / "gen")
+        (d / "answers.json").write_text(json.dumps(answers_for(prog)))
+        env = {"PATH": f"{d / 'bin'}:{os.environ['PATH']}", "STANDIN_LOG": str(d / "calls.jsonl"),
+               "STANDIN_ANSWERS": str(d / "answers.json"), "CLAUDECODE": "1"}
+        old = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                rc = drive.main(["--arm", "claude-code", "--progression", str(d / "gen"), "--out", str(d / "run"),
+                                 *clock_args])
+        finally:
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        calls = [json.loads(x) for x in (d / "calls.jsonl").read_text().splitlines()] \
+            if (d / "calls.jsonl").exists() else []
+        run = json.loads((d / "run" / "run.json").read_text())
+        return prog, rc, calls, run, d / "run"
+
+    def test_every_turn_of_a_pinned_run_sees_its_sessions_narrated_date(self):
+        lib = ck.find_lib()
+        if lib is None:
+            self.skipTest("no libfaketime on this machine (set LIBFAKETIME_LIB)")
+        prog, rc, calls, run, out = self.run_cc("--clock", "pin")
+        self.assertEqual(rc, 0)
+        turns = [c for c in calls if c["prompt"] != "/compact"]
+        self.assertEqual(len(turns), len(prog.turns))
+        for t, c in zip(prog.turns, turns):
+            self.assertEqual(c["date"], prog.sessions[t.session].date, f"turn {t.index}")
+        self.assertTrue(run["clock"]["pinned"])
+        self.assertEqual([x["machine"] for x in run["clock"]["sessions"]], [s.date for s in prog.sessions])
+        s = score.summarize(score.score_run(score.load_run(out)))
+        self.assertEqual(s["clock_conflict"], 0)
+        self.assertGreater(len([p for p in prog.probes if p.value_kind == "date"]), 0)
+
+    def test_an_unpinned_run_records_it_and_its_date_probes_are_set_aside(self):
+        prog, rc, calls, run, out = self.run_cc("--clock", "off")
+        self.assertEqual(rc, 0)
+        self.assertFalse(run["clock"]["pinned"])
+        real = time.strftime("%Y-%m-%d")
+        self.assertTrue(all(c["date"] == real for c in calls), "the arm read the machine's own date")
+        s = score.summarize(score.score_run(score.load_run(out)))
+        self.assertEqual(s["clock_conflict"], len([p for p in prog.probes if p.value_kind == "date"]))
+        self.assertGreater(s["clock_conflict"], 0)
+
+    def test_a_pinned_run_whose_machine_disagrees_stops_before_any_turn(self):
+        lib = ck.find_lib()
+        if lib is None:
+            self.skipTest("no libfaketime on this machine (set LIBFAKETIME_LIB)")
+        with mock.patch.object(ck, "machine_date", lambda env: "2026-10-26"):
+            prog, rc, calls, run, _ = self.run_cc("--clock", "pin")
+        self.assertEqual(rc, 3)
+        self.assertEqual(calls, [], "no turn was spent on a run whose clock contradicts its narration")
+
+    def test_pin_without_a_library_refuses_to_start(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cc("--clock", "pin", "--faketime-lib", "/nonexistent/libfaketime.so.1")
+        self.assertIn("libfaketime", str(cm.exception))
 
 
 class PiDriver(unittest.TestCase):
