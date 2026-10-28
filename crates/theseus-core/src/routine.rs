@@ -538,7 +538,10 @@ fn deliver_words(to: &str, speak: Speak) -> String {
 pub fn occurrences(parsed: &theseus_kernel::cron::Parsed, zone: &TimeZone, n: usize) -> Vec<u64> {
     let mut out = vec![parsed.first_ms];
     while out.len() < n {
-        match parsed.repeat.next_after(zone, *out.last().unwrap_or(&parsed.first_ms)) {
+        match parsed
+            .repeat
+            .next_after(zone, *out.last().unwrap_or(&parsed.first_ms))
+        {
             Some(t) => out.push(t),
             None => break,
         }
