@@ -20,16 +20,22 @@ const FILES: usize = 65;
 /// The system block, and each answer, in tokens.
 const SYSTEM: u64 = 7_500;
 const ANSWER: u64 = 450;
-/// Sonnet 5.5's prices, dollars per million tokens as they stood when the
-/// hunt was billed (fitted to its 207 per-call costs): cache read, cache
-/// write, output. The cache read stays at the $0.10 the catalog then held
-/// (it is $0.20 since 2026-10-25, theseus-rko44), because the figures this
-/// replay is held against, the 20-exchange rule's $17.67 and the owner's
-/// hunt's ~$16, were priced that way; at $0.20 the same replay costs $15.20
-/// and the `dollars` bound below would need a decision of its own.
-const READ: f64 = 0.10;
-const WRITE: f64 = 2.50;
-const OUT: f64 = 10.0;
+/// Sonnet 5.5's prices, dollars per million tokens, as the catalog holds them
+/// (theseus-vzzcz): cache read, cache write, output. The replay held its own
+/// copy ($0.10 a million for the read) until the catalog moved to $0.20
+/// (theseus-rko44) and the two disagreed. The figures it is held against, the
+/// 20-exchange rule's $17.67 and the owner's hunt's ~$16, were priced at
+/// $0.10; at $0.20 they are $23.91 (its 62,350,444 cache-read tokens add
+/// $6.24) and about $22 (a mean context of 318K against the rule's 321K).
+fn prices() -> (f64, f64, f64) {
+    let catalog = crate::catalog::Catalog::builtin();
+    let p = catalog.get("claude-sonnet-5-5").expect("a catalog row");
+    (
+        p.cache_read_per_mtok,
+        p.cache_write_per_mtok,
+        p.output_per_mtok,
+    )
+}
 
 /// A seeded stream: the same hunt every run.
 struct Rng(u64);
@@ -147,6 +153,7 @@ pub(super) fn replay_with(window: u64, lo: u64, span: u64, small_pct: u64) -> St
         Node::user("s", None, "web", "find and fix the bugs in this workspace").into(),
     )];
     let mut stats = Stats::default();
+    let (read_price, write_price, out_price) = prices();
     let (mut prev, mut sum, mut opened, mut id) = (0u64, 0u64, 0usize, 0usize);
     let mut current: Option<Compilation> = None;
     let mut sys = SYSTEM;
@@ -175,7 +182,9 @@ pub(super) fn replay_with(window: u64, lo: u64, span: u64, small_pct: u64) -> St
         }
         stats.read += read;
         stats.write += write;
-        stats.dollars += (read as f64 * READ + write as f64 * WRITE + ANSWER as f64 * OUT) / 1e6;
+        stats.dollars +=
+            (read as f64 * read_price + write as f64 * write_price + ANSWER as f64 * out_price)
+                / 1e6;
         stats.max = stats.max.max(est);
         sum += est;
         prev = est;
@@ -318,8 +327,11 @@ fn the_replays_low_grid() {
 /// The hunt's shape through the compiler: a pass at the token line, a small
 /// rewrite each, a mean context well under what the 20-exchange rule held.
 /// The same script at the 20-exchange rule (b69236c1): 9 passes, mean
-/// 321,508, max 433,338, rewrite 2,479,623, read 62,350,444, $17.67; the
-/// owner's hunt measured a mean of 318K and 7-8 passes of ~$16.
+/// 321,508, max 433,338, rewrite 2,479,623, read 62,350,444, $17.67 at $0.10 a
+/// million cache-read tokens ($23.91 at the catalog's $0.20); the owner's hunt
+/// measured a mean of 318K and 7-8 passes of ~$16 at $0.10 (about $22 at
+/// $0.20). The replay costs $15.20 at $0.20 ($11.88 at $0.10), and the bound
+/// keeps the headroom it had over that.
 #[test]
 fn the_bug_hunts_replay_holds_its_context_near_the_keep() {
     let s = replay(1_000_000);
@@ -332,5 +344,5 @@ fn the_bug_hunts_replay_holds_its_context_near_the_keep() {
         "a pass's rewrite {}",
         s.rewrite_max
     );
-    assert!(s.dollars < 14.0, "{s:?}: the 20-exchange rule cost $17.67");
+    assert!(s.dollars < 18.0, "{s:?}: the 20-exchange rule cost $23.91");
 }
