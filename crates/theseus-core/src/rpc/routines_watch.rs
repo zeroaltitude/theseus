@@ -237,6 +237,21 @@ impl Core {
             .cloned()
     }
 
+    /// A run that is over has no more questions to drop, so the tools it
+    /// dropped are no one's to read again: that META key ends with it
+    /// (theseus-1kw2v).
+    fn forget_dropped(&self, run_session: &str) {
+        let key = format!("{DROPPED_PREFIX}{run_session}");
+        let ended = match self.store.get_meta::<Vec<String>>(&key) {
+            Ok(Some(_)) => self.store.delete_meta(&key),
+            Ok(None) => Ok(()),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = ended {
+            tracing::warn!(error = %format!("{e:#}"), key, "a run's dropped tools could not be ended");
+        }
+    }
+
     /// One run that may have ended. `Ok(true)`: it is settled and leaves the
     /// open set; `Ok(false)`: still going.
     fn routine_settle(&self, task_exec: &str, routine: &str) -> Result<bool> {
@@ -246,6 +261,7 @@ impl Core {
         if !e.state.is_terminal() {
             return Ok(false);
         }
+        self.forget_dropped(&e.session_id);
         let book = &self.runner.tools.routines;
         let Some(spec) = book.held().and_then(|m| m.get(routine).cloned()) else {
             return Ok(true);

@@ -750,6 +750,22 @@ impl Store {
         Ok(())
     }
 
+    /// End META key `key` (theseus-1kw2v): it reads as never written, and a
+    /// write of it later starts it afresh.
+    pub fn delete_meta(&self, key: &str) -> Result<()> {
+        self.delete_meta_keys(&[key.to_string()])
+    }
+
+    /// End each of `keys`, in one frame.
+    pub fn delete_meta_keys(&self, keys: &[String]) -> Result<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let records: Vec<NewRecord> = keys.iter().map(|k| NewRecord::delete_meta(k)).collect();
+        self.commit(&records)?;
+        Ok(())
+    }
+
     pub fn get_meta<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         match self.inner.latest_by_key(kinds::META, key)? {
             Some(r) => Ok(Some(r.decode()?)),
