@@ -1,8 +1,9 @@
 //! A plan question's other yes on its card (theseus-lyxy): "Approve the plan
-//! + edits mode", between Approve and Decline, when the daemon offers it. A press approves and takes the
-//! offer: the answer echoes the pattern the daemon offers now, read again
-//! from the question, never from the button (whose id carries only the
-//! question), so a press can never ask for more than was offered.
+//! and edits mode", between Approve and Decline, when the daemon offers it.
+//! A press approves and takes the offer: the answer echoes the pattern the
+//! daemon offers now, read again from the question, never from the button
+//! (whose id carries only the question), so a press can never ask for more
+//! than was offered.
 
 use theseus_core::Core;
 use theseus_protocol::grants::{GrantAnswer, GrantOffer};

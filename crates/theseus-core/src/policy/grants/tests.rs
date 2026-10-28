@@ -102,6 +102,7 @@ fn the_view_canonicalises_a_plans_paths() {
                 path: raw,
                 access: Access::Write,
             }],
+            ..Default::default()
         };
         let (nargv, program, resources) = super::view(&plan);
         covers(
