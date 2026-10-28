@@ -707,20 +707,6 @@ agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
 # included: only for a run with no one to approve, such as the bench profile.
 # private_addresses = "ask"             # ask | open
 
-# Earned autonomy: it asks you less every week, and shows the record that earned
-# each "don't ask". Once a week a card in your DM offers what you approved every
-# time, and never declined, as a grant: the command (a prefix of its argv, such as
-# `cargo nextest run -p theseus-store`, or a file tool in a workspace root) then
-# runs with a notice instead of asking. Never silently: a grant is your yes, from
-# a private place. It never passes the floor, the approve lists, the roots, a
-# shared place, or the external-text hold. "Should have asked" on its notice, or
-# `theseus policy revoke <id>`, ends it. `theseus policy earned` shows the number.
-[policy.earned]
-enabled = true                          # propose grants from the record (built-in default: true)
-every_days = 7                          # at most one card in this many days
-min_approvals = 20                      # approved at least this often in the window, with no decline
-window_days = 7                         # the window the approvals are counted in
-
 # Per-tool postures, one line for every tool (keep it that way as tools are
 # added). A set line overrides enforcement; a commented one inherits it.
 [policy.tools]

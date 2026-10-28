@@ -479,7 +479,7 @@ mod tests {
         );
         assert_eq!(parse(&ids[2]), Some(("ask_0001".into(), "new".into())));
         assert_eq!(parse("thr:other:1"), None);
-        assert_eq!(parse("earned:yes:ern_1"), None);
+        assert_eq!(parse("other:yes:x"), None);
         let t = text(&ask());
         assert!(
             t.contains("Is this about the pr round or the security fix?"),

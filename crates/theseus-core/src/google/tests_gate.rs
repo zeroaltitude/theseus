@@ -57,7 +57,7 @@ async fn a_send_through_google_call_asks_at_every_posture_and_no_grant_loosens_i
     r.core.trust_session(&sid, "test").unwrap();
     // The plan names the authority, and the gate's decision is Approve with the
     // floor, the lists and the posture all `open`: the one thing every loosening
-    // layer (earned grants, scoped grants, modes, a routine's grant) asks first is
+    // layer (modes, a routine's grant) asks first is
     // whether only the tool's posture decides the call, and here it does not.
     let tool = r.core.tools.registry.get("google.call").unwrap().clone();
     let plan = plan_of(&r, send.clone()).unwrap();

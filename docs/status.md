@@ -236,11 +236,6 @@ follow.
   - Jev's per-message pick (the `persona` question of `route.v5` and `route.v6`) runs in shadow
     (`[threads] persona_engage = "shadow"`) until its holdout.
   - The personality exam (`bench/personality/`) is built and not yet published.
-- **Earned autonomy** (`theseus policy earned`). `[policy.earned]` is on by default, and it is on in the owner's
-  daemon.
-  - In four weeks there were 29 questions in 58 active hours, and no command reached 20 approvals in a week, so no
-    card has been posted yet.
-  - The CLI and the Discord card show it; the cockpit has no view of it yet.
 
 ## Working today
 

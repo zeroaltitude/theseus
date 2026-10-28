@@ -157,4 +157,34 @@ mod tests {
         assert_eq!(run(&["ledger"]), 0);
         assert_eq!(run(&["no-such"]), 2);
     }
+
+    /// Earned autonomy and scoped grants are gone: `policy` has no `earned`,
+    /// `revoke` or `grants`, and its help says nothing of either.
+    #[test]
+    fn policy_has_no_earned_autonomy_or_grants() {
+        use clap::Parser;
+        for line in [
+            "theseus policy earned",
+            "theseus policy earned accept ern_00000001",
+            "theseus policy earned --propose-now",
+            "theseus policy revoke sgr_0a1b2c3d",
+            "theseus policy grants",
+        ] {
+            assert!(
+                Cli::try_parse_from(line.split_whitespace()).is_err(),
+                "`{line}` still parses"
+            );
+        }
+        let mut root = Cli::command();
+        let policy = root.find_subcommand_mut("policy").expect("policy");
+        let names: Vec<&str> = policy.get_subcommands().map(|c| c.get_name()).collect();
+        assert!(
+            !names
+                .iter()
+                .any(|n| ["earned", "revoke", "grants"].contains(n)),
+            "{names:?}"
+        );
+        let help = policy.render_long_help().to_string();
+        assert!(!help.to_lowercase().contains("earned"), "{help}");
+    }
 }

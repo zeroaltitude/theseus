@@ -1,9 +1,9 @@
-//! A question's grant on its card (theseus-drjs): "Approve + this command
-//! for the conversation" (or "+ edits in this project"), between Approve and
-//! Decline, when the daemon offers one. A press approves and takes the
-//! offer: the answer echoes the pattern the daemon offers now, read again
-//! from the question, never from the button (whose id carries only the
-//! question), so a press can never ask for more than was offered.
+//! A plan question's other yes on its card (theseus-lyxy): "Approve the plan
+//! and edits mode", between Approve and Decline, when the daemon offers it.
+//! A press approves and takes the offer: the answer echoes the pattern the
+//! daemon offers now, read again from the question, never from the button
+//! (whose id carries only the question), so a press can never ask for more
+//! than was offered.
 
 use theseus_core::Core;
 use theseus_protocol::grants::{GrantAnswer, GrantOffer};
@@ -60,9 +60,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_grant_button_sits_between_approve_and_decline() {
-        let offer = GrantOffer::prefix(&["cargo".into(), "test".into()]);
-        let c = grant_buttons("act_9", &offer);
+    fn the_plans_button_sits_between_approve_and_decline() {
+        let c = grant_buttons("act_9", &GrantOffer::mode_edits());
         let Component::ActionRow(row) = &c[0] else {
             panic!()
         };
@@ -80,21 +79,10 @@ mod tests {
                 ("confirm:approve:act_9".into(), "Approve".into()),
                 (
                     "confirm:grant:act_9".into(),
-                    "Approve + this command for the conversation".into()
+                    "Approve the plan + edits mode".into()
                 ),
                 ("confirm:decline:act_9".into(), "Decline".into()),
             ]
-        );
-        let edits = GrantOffer::edits("/work/app");
-        let Component::ActionRow(row) = &grant_buttons("act_9", &edits)[0] else {
-            panic!()
-        };
-        let Component::Button(b) = &row.components[1] else {
-            panic!()
-        };
-        assert_eq!(
-            b.label.as_deref(),
-            Some("Approve + edits in this project for the conversation")
         );
     }
 }

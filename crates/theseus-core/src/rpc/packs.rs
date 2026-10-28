@@ -623,7 +623,6 @@ impl Core {
             session_id: a.session_id.clone(),
             execution_id: a.execution_id.clone(),
             resumes: false,
-            granted: None,
         })
     }
 }

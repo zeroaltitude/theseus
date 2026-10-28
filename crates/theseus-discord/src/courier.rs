@@ -924,10 +924,10 @@ impl Lane {
             // (theseus-pw1q.8), a self-join's card or notice (theseus-pw1q.9), a narrower policy for a
             // hand role and the red after its apply (theseus-pw1q.15), and Jev's privacy warning
             // (theseus-gasov), and a home past its size (theseus-jg1eg): the owner's DM alone.
-            "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "earned_card"
-            | "retraction" | "self_keel" | "seal_card" | "self_join" | "self_narrow"
-            | "self_narrow_red" | "initiative" | "standing_card" | "digest" | "privacy_warning"
-            | "onto_card" | "home_size" | "link_card" | "persona_soul" | "card_question" => {
+            "jev_notice" | "jev_paused" | "spend_ceiling" | "self_digest" | "retraction"
+            | "self_keel" | "seal_card" | "self_join" | "self_narrow" | "self_narrow_red"
+            | "initiative" | "standing_card" | "digest" | "privacy_warning" | "onto_card"
+            | "home_size" | "link_card" | "persona_soul" | "card_question" => {
                 self.jev_post(a, &body).await
             }
             // The self-build halt's note, to the owner's DM alone, pinging (theseus-6s7ll).
@@ -1474,13 +1474,6 @@ impl Lane {
                     Buttons::JevLabel(judgment.to_string()),
                 )
             }
-            // The week's earned-autonomy card (theseus-uttu): each candidate
-            // with its yes, its no and its record.
-            "earned_card" => (
-                body["text"].as_str().unwrap_or("").to_string(),
-                format!("earned:{}", a.correlation_id),
-                Buttons::Earned(crate::runtime::earned_candidates(body)),
-            ),
             // A proposed seal (theseus-f2g0): Seal this thread, Not needed.
             "seal_card" => (
                 body["text"].as_str().unwrap_or("").to_string(),
@@ -1805,7 +1798,6 @@ impl Lane {
             Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
             Buttons::Reminder(wake) => crate::runtime::remind_buttons(wake),
             Buttons::Horizon(wake, answers) => crate::runtime::horizon_buttons(wake, answers),
-            Buttons::Earned(c) => crate::runtime::earned_buttons(c),
             Buttons::Seal(slug) => crate::runtime::seal_buttons(slug),
             Buttons::Link(h, o) => crate::runtime::seal::link::buttons(h, o),
             Buttons::OntoUndo(write) => crate::runtime::onto_buttons(write),
@@ -1885,7 +1877,6 @@ impl Lane {
             Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),
             Buttons::Reminder(wake) => Some(crate::runtime::remind_buttons(wake)),
             Buttons::Horizon(wake, answers) => Some(crate::runtime::horizon_buttons(wake, answers)),
-            Buttons::Earned(c) => Some(crate::runtime::earned_buttons(c)),
             Buttons::Seal(slug) => Some(crate::runtime::seal_buttons(slug)),
             Buttons::Link(h, o) => Some(crate::runtime::seal::link::buttons(h, o)),
             Buttons::OntoUndo(write) => Some(crate::runtime::onto_buttons(write)),

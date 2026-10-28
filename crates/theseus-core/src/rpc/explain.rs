@@ -325,8 +325,7 @@ impl Core {
             Layer::Lsp
             | Layer::SharedFetch
             | Layer::Glide
-            | Layer::Earned
-            | Layer::Scoped
+            | Layer::Mode
             | Layer::Routine => {
                 return None
             }

@@ -172,7 +172,7 @@ fn helper_refusal(rt: &ToolRuntime, at: &At<'_>, tool: &dyn Tool) -> Option<Stri
 
 /// Plan mode's refusal, in words the model can act on.
 fn plan_refusal(rt: &ToolRuntime, at: &At<'_>, tool: &dyn Tool, plan: &Plan) -> Option<String> {
-    let modes = &rt.earned.modes;
+    let modes = &rt.modes;
     let session = at.session?;
     if !modes.any()
         || at.place.class != PlaceClass::Private
@@ -220,7 +220,7 @@ pub(crate) fn gate(
     l1: bool,
     d: Decision,
 ) -> Decision {
-    let modes = &rt.earned.modes;
+    let modes = &rt.modes;
     // The plan's tools are the harness's own: the question asks, and a
     // step's mark runs quietly, whatever `[policy]` says of tools it does
     // not list (an operator's tightening still holds).
@@ -262,7 +262,6 @@ pub(crate) fn gate(
             let held = SessionGrant {
                 kind: KIND_EDITS.into(),
                 root: Some(root.display().to_string()),
-                ..Default::default()
             };
             let inside = rt.ctx.roots.iter().any(|r| paths::within(&root, r));
             if !EDIT_TOOLS.contains(&tool.name()) || !inside || !grants::covers(&held, &call) {
@@ -489,7 +488,7 @@ impl ToolRuntime {
             return plan::step(tc, index, state);
         }
         let steps = steps_of(input)?;
-        let modes = &self.earned.modes;
+        let modes = &self.modes;
         let mode = modes.take_pick(correlation_id).unwrap_or(SessionMode::Ask);
         let words = format!("this conversation is in {} mode", mode.name());
         let (done, items) = plan::create(tc, &steps, correlation_id, &words)?;
@@ -520,7 +519,7 @@ impl ToolRuntime {
         let items = plan::view(tc.store, tc.session_id);
         tc.record(&crate::fact::modes::PlanMoved {
             session_id: tc.session_id,
-            mode: self.earned.modes.mode_of(tc.session_id),
+            mode: self.modes.mode_of(tc.session_id),
             plan: &items,
             by: "plan",
         });

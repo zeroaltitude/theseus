@@ -101,7 +101,7 @@ async fn inviting_attendees_asks_whatever_the_posture() {
     let sid = session(&r.core);
     // The plan names the authority, and with the posture and the lists all
     // `open` the decision is still Approve; the one question every loosening
-    // layer (an earned grant, a scoped grant, a mode, a routine's grant) asks
+    // layer (a mode, a routine's grant) asks
     // first is whether only the tool's posture decides, and here it does not.
     let tool = r.core.tools.registry.get("calendar.put").unwrap().clone();
     let plan = plan_of(&r, "calendar.put", invite.clone()).unwrap();

@@ -28,7 +28,6 @@ pub mod card;
 mod cockpit;
 pub mod content_based_security;
 mod data_floor;
-pub mod earned;
 pub(crate) mod import;
 mod judge;
 mod limits;
@@ -716,9 +715,11 @@ pub struct PolicyConfig {
     /// then its class's (`read`), then `enforcement`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub aws: BTreeMap<String, crate::policy::Posture>,
-    /// `[policy.earned]` (theseus-uttu): the weekly loosening card.
-    #[serde(default)]
-    pub earned: earned::EarnedConfig,
+    /// `[policy.earned]`, retired: earned autonomy is gone. A config of an
+    /// earlier build still has the section; it is read, ignored, and warned
+    /// of (`Config::parse`), never written back.
+    #[serde(default, skip_serializing)]
+    pub earned: Option<toml::Table>,
 }
 
 fn argvs(v: &[&[&str]]) -> Vec<Vec<String>> {
@@ -793,7 +794,7 @@ impl Default for PolicyConfig {
             external_programs: default_external_programs(),
             agent_processes: default_agent_processes(),
             private_addresses: Default::default(),
-            earned: Default::default(),
+            earned: None,
             aws: BTreeMap::new(),
         }
     }
@@ -1447,6 +1448,13 @@ impl Config {
         cfg.validate()?;
         let mut warnings = Vec::new();
         warnings.extend(cfg.persona_warnings());
+        if cfg.policy.earned.is_some() {
+            warnings.push(
+                "[policy.earned] is retired: earned autonomy and its weekly card are gone, so the \
+                 section does nothing; remove it"
+                    .into(),
+            );
+        }
         Ok((cfg, warnings))
     }
 

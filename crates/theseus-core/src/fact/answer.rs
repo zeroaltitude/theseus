@@ -210,7 +210,6 @@ impl ActRefused<'_> {
             | Act::SelfBacklog { .. }
             | Act::SelfNarrow { .. }
             | Act::SelfRevert { .. }
-            | Act::Earned { .. }
             | Act::Retract { .. }
             | Act::Task { .. }
             | Act::Stop { .. }
@@ -258,7 +257,6 @@ impl Fact for ActRefused<'_> {
             | Act::Ladder { what, .. }
             | Act::Import { what, .. }
             | Act::Session { what, .. }
-            | Act::Earned { what, .. }
             | Act::Standing { what, .. }
             | Act::Routine { what, .. }
             | Act::Watch { what, .. }
@@ -325,10 +323,6 @@ impl Fact for ActRefused<'_> {
             Act::Import { what, .. } => format!(
                 "The import's {what}, from {who} through {via}, did not count: {why}. Nothing \
                  was written."
-            ),
-            Act::Earned { what, .. } => format!(
-                "Earned autonomy, {what}, from {who} through {via}, did not count: {why}. \
-                 Nothing changed."
             ),
             Act::Session { what, .. } | Act::Dismiss { what, .. } | Act::Unlabel { what, .. } => {
                 format!(

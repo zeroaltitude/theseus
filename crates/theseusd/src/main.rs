@@ -1047,8 +1047,6 @@ fn warm_after_serving(core: &Arc<Core>) {
     core.warm_forecasts();
     core.warm_persona();
     core.warm_threads();
-    // The conversations' grants, from the ledger (theseus-drjs).
-    core.warm_grants();
     // The tool use the ledger holds, for the loaded sets (theseus-7m7w.2).
     core.warm_tools_use();
     // Their modes and plans, from the ledger (theseus-lyxy).
@@ -1139,8 +1137,6 @@ async fn after_serving(
     // The self-improvement tenders: the join's, the revert watch's, and the
     // pipeline's (theseus-pw1q.16), each idle unless `[self] mode` acts.
     core.self_after_serving();
-    // The weekly earned-autonomy card (theseus-uttu), at the same hour.
-    core.earned_after_serving();
     // People's nightly sweep (theseus-j8qb), at the same hour.
     core.people_sweep_after_serving();
     // The owner card's weekly proposals (theseus-slvl.6), at the same hour, until done.

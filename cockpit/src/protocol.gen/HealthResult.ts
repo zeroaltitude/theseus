@@ -11,7 +11,6 @@ import type { CrashStatus } from "./CrashStatus";
 import type { DayCeilingBudget } from "./DayCeilingBudget";
 import type { DeferHealth } from "./DeferHealth";
 import type { DiskStatus } from "./DiskStatus";
-import type { EarnedGrant } from "./EarnedGrant";
 import type { ExtendHealth } from "./ExtendHealth";
 import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { Features } from "./Features";
@@ -147,10 +146,6 @@ context: ContextStatus,
  * (theseus-sgh), oldest first. They are stored, not configured.
  */
 tightenings: Array<Tightening>, 
-/**
- * Earned grants (theseus-uttu), oldest first: what the owner accepted from the record.
- */
-earned?: Array<EarnedGrant>, 
 /**
  * The wakes conversations set with `wake.at` that have not run yet,
  * soonest first (DD8).

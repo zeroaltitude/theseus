@@ -93,7 +93,6 @@ impl Core {
             narrative: self.narrator.on(),
             context: self.context_status(),
             tightenings: self.tools.tightened.all(),
-            earned: Some(self.tools.earned.grants()).filter(|g| !g.is_empty()),
             wakes: self.wakes(None, None).unwrap_or_default(),
             external_text: crate::external::listed(
                 &totals.holding,

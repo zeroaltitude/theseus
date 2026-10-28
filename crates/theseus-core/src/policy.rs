@@ -45,7 +45,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use theseus_tools::{paths, Access, Plan, Tool};
 
-pub mod earned;
 pub mod grants;
 pub mod modes;
 
@@ -604,7 +603,7 @@ impl ToolPolicy {
 
     /// Whether only the tool's posture would decide this call: nothing the
     /// floor, a layer-1 change, the approve lists or an AWS rule asks for
-    /// comes first. An earned grant (`earned`) loosens that alone.
+    /// comes first. An edits mode (`modes`) loosens that alone.
     pub(crate) fn posture_only(&self, tool: &dyn Tool, plan: &Plan) -> bool {
         let (resources, nargv, args) = self.view(plan);
         self.preempted(tool, plan, &resources, &nargv, &args, None)

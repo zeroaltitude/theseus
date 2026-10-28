@@ -512,7 +512,6 @@ impl Core {
             session_id: a.session_id,
             execution_id: a.execution_id,
             resumes: true,
-            granted: None,
         })
     }
 
@@ -717,7 +716,7 @@ impl Core {
     /// changes.
     pub(crate) fn judge_act(&self, who: &Answerer, act: Act<'_>) -> Result<()> {
         let verdict = match act {
-            Act::Tighten { .. } | Act::Earned { tightens: true, .. } => {
+            Act::Tighten { .. } => {
                 who.unknown().map_or(Ok(()), Err)
             }
             Act::SelfResume {
@@ -888,7 +887,6 @@ impl Core {
             session_id: q.session_id.clone(),
             execution_id: q.execution_id.clone(),
             resumes: approve,
-            granted: None,
         })
     }
 }
@@ -1064,15 +1062,6 @@ pub(crate) enum Act<'a> {
         what: &'a str,
         from_job: Option<&'a str>,
     },
-    /// Earned autonomy (theseus-uttu): a grant's yes or a group's pass (the
-    /// owner's, from a private place, since a yes loosens), a card posted
-    /// now, and a grant's revoke (`tightens`: anyone's, as "should have
-    /// asked" is). `what` names it: `the grant of ern_0a1b2c3d`.
-    Earned {
-        method: &'static str,
-        what: &'a str,
-        tightens: bool,
-    },
     /// The owner's start of a task with no model turn (theseus-7oq0w,
     /// `task.start`): it spends money and runs a session, so a job's process
     /// or a shared place that started one would spend the owner's budget.
@@ -1115,7 +1104,6 @@ impl Act<'_> {
             Act::SelfBacklog { method, .. } => method,
             Act::SelfNarrow { method, .. } => method,
             Act::SelfRevert { .. } => theseus_protocol::method::SELF_REVERT,
-            Act::Earned { method, .. } => method,
             Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,
             Act::Task { .. } => theseus_protocol::method::TASK_START,
             Act::Stop { .. } => theseus_protocol::method::JOB_STOP,

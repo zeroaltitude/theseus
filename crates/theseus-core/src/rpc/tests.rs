@@ -2156,3 +2156,62 @@ async fn a_shutdown_wakes_the_serving_loops_only_once_its_answer_is_written() {
     assert_eq!(answer.result, Some(json!({"ok": true})));
     srv.abort();
 }
+
+/// A ledger of an older build holds rows of the kinds no one writes now
+/// (earned autonomy's and scoped grants'). Each still reads under its own
+/// name through `ledger.tail`, with its data as it was written, and the
+/// registry no longer names the kind.
+#[tokio::test]
+async fn rows_of_the_retired_policy_kinds_still_read() {
+    let core = test_core("ok");
+    let old = [
+        (
+            "policy.granted",
+            json!({"id": "sgr_0a1b2c3d", "session_id": "ses_a", "scope": "session",
+                   "kind": "prefix", "pattern": "cargo test", "prefix": ["cargo", "test"],
+                   "program": "cargo", "correlation_id": "act_1", "by": "operator",
+                   "who": "operator", "via": "cli", "at_ms": 1_760_000_000_000u64}),
+        ),
+        (
+            "policy.grant_ended",
+            json!({"id": "sgr_0a1b2c3d", "session_id": "ses_a", "why": "revoked", "by": "operator"}),
+        ),
+        (
+            "policy.earned_proposed",
+            json!({"proposed_ms": 1_760_000_000_000u64, "candidates": [{"id": "ern_00000001",
+                   "tool": "proc.run", "prefix": ["cargo", "test"], "label": "cargo test",
+                   "open_ended": true, "record": {"approvals": 21, "first_ms": 1, "last_ms": 2}}]}),
+        ),
+        (
+            "policy.earned_granted",
+            json!({"group": {"id": "ern_00000001", "tool": "proc.run", "prefix": ["cargo", "test"]},
+                   "by": "operator", "who": "operator", "via": "discord", "at_ms": 1_760_000_000_001u64}),
+        ),
+        (
+            "policy.earned_passed",
+            json!({"id": "ern_00000001", "until_ms": 9}),
+        ),
+        (
+            "policy.earned_revoked",
+            json!({"id": "ern_00000001", "why": "revoked"}),
+        ),
+    ];
+    for (i, (kind, data)) in old.iter().enumerate() {
+        let row = json!({"at_unix_ms": 1_760_000_000_000u64 + i as u64, "kind": kind,
+                         "session_id": "ses_a", "data": data});
+        core.store.append_ledger(&row).unwrap();
+    }
+    for (kind, data) in &old {
+        let page = core
+            .ledger_tail(LedgerTailParams {
+                n: Some(10),
+                kind: Some((*kind).to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(page.rows.len(), 1, "{kind}");
+        assert_eq!(page.rows[0].kind, *kind);
+        assert_eq!(&page.rows[0].data, data, "{kind}");
+        assert_eq!(theseus_protocol::LedgerKind::parse(kind), None, "{kind}");
+    }
+}

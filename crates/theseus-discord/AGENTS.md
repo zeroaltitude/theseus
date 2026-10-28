@@ -78,10 +78,6 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   each a `judge.label` with the presser's `DiscordOrigin`, which the core judges (the owner, from a private place).
   A refused press tells the presser alone; a counted one comes back as the core's `jev_labeled` post, which edits
   the notice and clears its buttons. `judge.noticed` draws nothing in a place.
-  The earned-autonomy card (`runtime/earned.rs`, theseus-uttu): the core's weekly `earned_card` post goes to the owner's
-  DM alone, as a Jev notice does, a row of Yes with a notice / Not this one / Show the record for each candidate
-  (`earned:<yes|no|show>:<id>`); a yes or a no is `policy.earned.answer` as the presser, which the core judges (the
-  owner, from a private place), the record is read and shown to the presser alone. Tests: `tests_gateway/earned.rs`.
 - **A proposed seal's card** (theseus-f2g0, `runtime/seal.rs`): the core's `seal_card` post ("🔒 This looks embargoed: <reason>")
   goes to the owner's DM alone (`jev_post`) with **Seal this thread** and **Not needed** (`seal:<yes|no>:<slug>`,
   `Buttons::Seal`); a press is `thread.seal` or `thread.seal_dismiss` as the presser, with the place it came from, so the
@@ -113,7 +109,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   write hook), so after a restart a reply to an older card is an ordinary message. Tests: `tests_gateway/ask.rs`,
   `tests_gateway/cards.rs`, `runtime/reply/answer.rs`.
   Capture's cards (`runtime/capture_card.rs`, theseus-slvl.5): the core's `standing_card` post goes to the owner's DM
-  alone, as the earned card does (`Buttons::Standing`): a record `directive.v1` kept, with **Undo**
+  alone, as the seal card does (`Buttons::Standing`): a record `directive.v1` kept, with **Undo**
   (`standing:undo:<std id>`, `standing.revoke`), or an ask with **Keep**, **Keep everywhere** (when it would hold
   narrower) and **Not this** (`standing:<keep|everywhere|not>:<ask id>`, `standing.answer`), each as the presser with
   their `DiscordOrigin`, which the core judges. Only a Discord-origin message makes a card; the CLI and the web UI hear
@@ -494,8 +490,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   intents (not privileged).
 - **👎 on a task that started itself is `task.not_this`** (theseus-o1h3f.2, `runtime/task_react.rs`, `Verb::NotThis`; the
   reaction-side of notify-work-feedback). It is the one control of that module's reactions that is a verdict and not a
-  command, and it is **not** the card, standing or earned "Not this" above (those are buttons answering a proposal or an ask,
-  `card:not:`, `standing:not:`, `earned:no:`): it is `task.not_this` on a *task*, which cancels it, keeps the one rolling
+  command, and it is **not** the card or standing "Not this" above (those are buttons answering a proposal or an ask,
+  `card:not:`, `standing:not:`): it is `task.not_this` on a *task*, which cancels it, keeps the one rolling
   preference against work like it and labels the offer (the core's `task.not_this` entry). `on_reaction` (`runtime/route.rs`)
   asks `task_reaction` first. A 👎 (U+1F44E; not ⬇️, which is `route.correct`) counts only on a message that carries a task
   (`task_of_message`: a message in a task's thread or channel, a Follow mirror, a task's first message or its report line)

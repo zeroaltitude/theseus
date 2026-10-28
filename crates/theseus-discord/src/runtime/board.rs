@@ -105,7 +105,7 @@ impl Place {
             &records,
             &self.session_id,
             now,
-            core.tools.earned.modes.mode_of(&self.session_id),
+            core.tools.modes.mode_of(&self.session_id),
         ) {
             let _ = lane.send(LaneMsg::Live(Op::Upsert {
                 key: render::BOARD_KEY.into(),

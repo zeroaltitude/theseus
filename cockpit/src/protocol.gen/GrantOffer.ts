@@ -9,12 +9,11 @@ export type GrantOffer = {
  */
 scope: string, 
 /**
- * `prefix` (a command's prefix) or `edits` (edits in the project).
+ * `mode` (a plan's edits mode).
  */
 kind: string, 
 /**
- * What it covers: the prefix's words (`python3 -m unittest`), or the
- * project's directory, canonical. An answer echoes it.
+ * What it covers; an answer echoes it.
  */
 pattern: string, 
 /**

@@ -288,11 +288,12 @@ async fn may_answer_is_false_for_a_shared_bindings_connection() {
         false
     );
     // The options ride the request itself, worded once: a posture's ask in
-    // a private place offers its grant after the plain yes (theseus-drjs).
+    // a private place is the plain yes and the no (it offered a "don't ask
+    // again" between them until scoped grants went, theseus-gyjyo.10).
     let q = r.core.confirm_list().unwrap().remove(0);
     assert_eq!(
         q.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
-        ["approve", "approve_grant", "decline"]
+        ["approve", "decline"]
     );
 }
 

@@ -841,11 +841,6 @@ pub async fn policy(conn: &mut Conn, json: bool, cmd: PolicyCmd) -> Result<()> {
                 Ok(())
             })
         }
-        PolicyCmd::Earned { cmd, propose_now } => {
-            crate::earned::earned(conn, json, cmd, propose_now).await
-        }
-        PolicyCmd::Revoke { id } => crate::earned::revoke(conn, json, id).await,
-        PolicyCmd::Grants { session } => crate::earned::grants(conn, json, session).await,
         PolicyCmd::Dismiss { session } => {
             let h: HealthResult =
                 serde_json::from_value(conn.request(method::HEALTH, Value::Null).await?)?;
@@ -895,20 +890,14 @@ async fn policy_list(conn: &mut Conn, json: bool) -> Result<()> {
     let tools = conn.request(method::TOOL_LIST, Value::Null).await?;
     let health = conn.request(method::HEALTH, Value::Null).await?;
     if json {
-        let mut out =
+        let out =
             serde_json::json!({"tools": tools["tools"], "tightenings": health["tightenings"]});
-        if !health["earned"].is_null() {
-            out["earned"] = health["earned"].clone();
-        }
         println!("{out}");
         return Ok(());
     }
     let l: ToolListResult = serde_json::from_value(tools)?;
     let h: HealthResult = serde_json::from_value(health)?;
     print!("{}", render::policy_list(&l, &h.tightenings));
-    for g in h.earned.iter().flatten() {
-        println!("earned grant: {}", crate::earned::grant_line(g));
-    }
     for why in &h.tools_not_offered {
         println!("{why}");
     }

@@ -1,6 +1,6 @@
 //! The cards of capture (theseus-slvl.5): what `directive.v1` kept from the
 //! owner's words, and what it asks about. The core's `standing_card` post goes
-//! to the owner's DM alone (as the earned card does), a kept record with
+//! to the owner's DM alone (as the seal card does), a kept record with
 //! **Undo** and a question with **Keep**, **Keep everywhere** (when it would
 //! hold narrower) and **Not this**. A press is `standing.revoke` or
 //! `standing.answer` as the presser, with the place it came from, so the core
@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(parse("standing:undo:ask_1"), None);
         assert_eq!(parse("standing:keep:std_1"), None);
         assert_eq!(parse("standing:maybe:ask_1"), None);
-        assert_eq!(parse("earned:yes:ern_1"), None);
+        assert_eq!(parse("other:yes:x"), None);
         assert_eq!(parse("standing"), None);
     }
 

@@ -25,6 +25,6 @@ discord?: DiscordOrigin,
  */
 trust?: boolean, 
 /**
- * Approve, and take the question's grant offer (theseus-drjs).
+ * Approve, and take the question's offer (a plan's edits mode).
  */
 grant?: GrantAnswer, };

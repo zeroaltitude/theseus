@@ -29,7 +29,6 @@ pub mod cred;
 pub mod defer;
 pub mod diff;
 pub mod digest_google;
-pub mod earned;
 mod events;
 mod exec_list;
 mod explain;
@@ -426,8 +425,6 @@ pub mod method {
         /// Revoke a loaded extension (43b, `extend::ExtensionRevokeParams`). The operator's.
         EXTENSION_REVOKE = "extension.revoke",
         /// Self-improvement (theseus-pw1q; `rsi`): the kill switch, anyone's halt and the owner's resume, the log, the digest.
-        /// Earned autonomy (theseus-uttu, `earned`): the number and the card, the owner's answer, a grant's revoke.
-        POLICY_EARNED = "policy.earned", POLICY_EARNED_ANSWER = "policy.earned.answer", POLICY_REVOKE = "policy.revoke", POLICY_GRANTS = "policy.grants",
         SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
         SELF_BACKLOG = "self.backlog", SELF_DROP = "self.drop", SELF_MOVE = "self.move", SELF_RETRY = "self.retry", SELF_BRANCHES = "self.branches",
         SELF_EXAMS = "self.exams", SELF_REVERT = "self.revert", SELF_PIPELINE = "self.pipeline", SELF_PATTERNS = "self.patterns",
@@ -749,10 +746,6 @@ pub struct HealthResult {
     /// (theseus-sgh), oldest first. They are stored, not configured.
     #[serde(default)]
     pub tightenings: Vec<Tightening>,
-    /// Earned grants (theseus-uttu), oldest first: what the owner accepted from the record.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub earned: Option<Vec<earned::EarnedGrant>>,
     /// The wakes conversations set with `wake.at` that have not run yet,
     /// soonest first (DD8).
     #[serde(default)]
@@ -2377,7 +2370,8 @@ pub struct ConfirmRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub preview: Option<ConfirmPreview>,
-    /// "Yes, and don't ask again" for this conversation (theseus-drjs).
+    /// A plan question's other yes: approve, and move the conversation to
+    /// edits mode (theseus-lyxy).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub grant_offer: Option<grants::GrantOffer>,
@@ -2436,7 +2430,7 @@ pub struct ActionConfirmParams {
     /// with `approve`; the answer's judgment covers it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trust: bool,
-    /// Approve, and take the question's grant offer (theseus-drjs).
+    /// Approve, and take the question's offer (a plan's edits mode).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub grant: Option<grants::GrantAnswer>,
@@ -2454,10 +2448,6 @@ pub struct ActionConfirmResult {
     /// next message asks again.
     #[serde(default = "yes")]
     pub resumes: bool,
-    /// The grant the answer made, when it took the offer (theseus-drjs).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub granted: Option<grants::SessionGrant>,
 }
 
 fn yes() -> bool {

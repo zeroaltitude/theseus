@@ -20,16 +20,59 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use theseus_protocol::modes::{PlanItem, SessionMode, SessionModeParams, SessionModeResult};
 use theseus_protocol::{method, PlaceClass};
+use theseus_store::pages::ledger_kind;
+use theseus_store::{kinds, Page};
 
 use super::server::{Conn, RpcFailure};
 use super::sessions::refused;
 use super::{Act, Core};
 use crate::compiler::Recompile;
 use crate::fact::modes::ModeChanged;
+use crate::ledger::LedgerRow;
 use crate::session::SessionRecord;
 
 /// How long the read after serving waits for the ledger's index, at most.
 const LOAD_TRIES: u32 = 300;
+
+/// The most rows of one kind a read takes (a bound, said when it cuts).
+const ROWS_MAX: usize = 400_000;
+
+/// The rows of `kind` from `since_ms` on, oldest first, and whether the cap
+/// cut them. `None` while the ledger's index is being built.
+fn rows_of(core: &Core, kind: &str, since_ms: u64) -> Result<Option<(Vec<LedgerRow>, bool)>> {
+    let mut out: Vec<LedgerRow> = Vec::new();
+    let mut before = None;
+    loop {
+        let page = Page {
+            kind: kinds::LEDGER,
+            tags: vec![ledger_kind(kind)],
+            after: None,
+            before,
+            since_ms: Some(since_ms),
+            until_ms: None,
+            limit: 512,
+        };
+        let Some(got) = core.store.ledger_page(&page)? else {
+            return Ok(None);
+        };
+        out.extend(
+            got.records
+                .iter()
+                .filter_map(|r| r.decode::<LedgerRow>().ok())
+                .filter(|r| r.at_unix_ms >= since_ms),
+        );
+        if out.len() >= ROWS_MAX {
+            out.sort_by_key(|r| r.at_unix_ms);
+            return Ok(Some((out, true)));
+        }
+        match (got.more, got.first) {
+            (true, Some(first)) => before = Some(first),
+            _ => break,
+        }
+    }
+    out.sort_by_key(|r| r.at_unix_ms);
+    Ok(Some((out, false)))
+}
 
 impl Core {
     /// `session.mode`: with a mode, set it; without, read it.
@@ -45,7 +88,7 @@ impl Core {
         {
             return Err(RpcFailure::invalid(anyhow!("no session {}", p.session_id)));
         }
-        let modes = &self.tools.earned.modes;
+        let modes = &self.tools.modes;
         let was = modes.mode_of(&p.session_id);
         let plan = crate::task_graph::plan::view(&self.store, &p.session_id);
         let Some(mode) = p.mode.filter(|m| *m != was) else {
@@ -93,7 +136,7 @@ impl Core {
     /// `session.mode` row, for a session that is there and not retired.
     /// False while the ledger's index is being built.
     pub fn load_modes(&self) -> Result<bool> {
-        let Some((rows, _)) = super::earned::rows_of(self, "session.mode", 0)? else {
+        let Some((rows, _)) = rows_of(self, "session.mode", 0)? else {
             return Ok(false);
         };
         let mut newest = std::collections::BTreeMap::new();
@@ -112,7 +155,7 @@ impl Core {
                 .and_then(SessionMode::parse)
                 .unwrap_or_default();
             if live {
-                self.tools.earned.modes.set(&session, mode);
+                self.tools.modes.set(&session, mode);
             }
         }
         Ok(true)

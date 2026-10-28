@@ -2549,49 +2549,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   - **The layer-1 question's change** (39b): `ConfirmRequest.change` (`tools::change_of`: the task, its title, the
     field, before and after), worded once by `TaskChange::question` for the Discord card, `theseus answer`, and
     the cockpit.
-- **Earned autonomy** (theseus-uttu, the killer-features plan's row R18): the loosening that comes from the record,
-  proposed and never silent. `policy/earned/find.rs` is a pure function over ledger rows (`tool.confirm_requested`,
-  `action.confirmed`, `action.declined`, `policy.tightened`): `proc.run` approvals go into a trie of their argv's words
-  (the program by base name), and a node is a candidate when the approvals reaching it and no narrower candidate hold at
-  least `[policy.earned] min_approvals` (20) in `window_days` (7), with no decline, no "should have asked", no floor call
-  under it, and each approval asked by the tool's posture alone (`by_posture`: a reason ending `approve (enforcement =`
-  or a `[policy.*]` line; the approve lists, the roots, the hold and a tightening are no evidence); file tools group by
-  tool and workspace root. A prefix is never shorter than the program and one argument, never a shell or a program that
-  runs what it is given, never an interpreter with an inline-code option (`prefix_ok`, asked again of every stored grant).
-  `policy/earned.rs` holds the grants, the groups passed on (90 days; a "should have asked" revoke is for good) and the
-  open card in one META record, `policy.earned`, written with its ledger row in one frame (`policy.earned_proposed`,
-  `_granted`, `_passed`, `_revoked`) as tightenings are, read when the core starts. The gate's step is `earned::gate`
-  in `toolrun/order.rs`, after the call's own policy and before the broker's: a call the tool's posture alone makes wait
-  (`ToolPolicy::posture_only`: nothing the floor, a layer-1 change, the lists or an AWS rule asks), in a private place,
-  with no `env`, for a tool no one tightened, that a grant covers, runs at `notify` (never `open`), its notice's setting
-  `earned grant <id>`; every later layer still raises it. `rpc/earned.rs`: `policy.earned` (the number, the grants, the
-  card; `propose_now` and the answers are `judge_act(Act::Earned)`, the owner from a private place), `policy.earned.answer`,
-  `policy.revoke` (anyone's, as a press is), and the card's tender after serving (`earned_after_serving`, once a day at
-  `[judge] learning_hour`, a card at most every `every_days`, its work on a thread at nice 19). "Should have asked" on a
-  grant's notice (`tighten_by_earned`: the notice's row names the grant) ends the grant and tightens nothing.
-  `policy/earned/measure.rs` is the number: questions per active hour over four weeks, and what the grants would have
-  saved. Not built: M5's Jev decision on the approval ladder (a judgment before the card, beside `earned::gate`).
-  Tests: `policy/earned/tests_find.rs`, `tests_measure.rs`, `tests_m3/earned.rs`, the daemon's `tests/earned.rs`.
-- **Scoped grants** (theseus-drjs; `policy/grants.rs`, `rpc/grants.rs`, wire `theseus_protocol::grants`): one answer's
-  "yes, and don't ask again", for its conversation alone. The offer (`ConfirmRequest.grant_offer`, and the option
-  `approve_grant` beside the plain yes) is computed when the question is asked (`grants::offered`, from the call's
-  gate) and again from the stored gate record by `confirm.list` and a card (`grant_offer_of`), one rule (`offer`):
-  only where the posture alone asked (no later layer changed the policy's reason), in a private place, outside L1, no
-  `env`, no steps, no tightening; `proc.run` by `prefix_of` (the program and its subcommand, `python3 -m <module>`, a
-  launcher's program too; never a shell, a wrapper, inline code, a relative program path or an option first) or the
-  edit tools under the session's directory (`edits`; never `/` or the home). An answer takes it by `action.confirm
-  { grant }` (its pattern must equal the daemon's own offer) or `work.answer`'s `approve_grant` (no pattern at all);
-  the grant is the daemon's offer, its `policy.granted` row in the answer's frame (`confirm_action_full`'s `extra`).
-  The gate's step is `grants::gate` in `toolrun/order.rs`, right after `earned::gate` and with its conditions: a
-  covered call (`grants::covers`, the one rule modes calls: the normalised prefix and the program as written, no URL
-  after it; or every resource canonical under the root) runs at `notify`, its notice's setting `ran under your grant: <what>, this conversation, sgr_…`. In memory
-  per session (`Earned::scoped`, one lookup a call); `policy.grants` lists them, `policy.revoke sgr_…` ends one
-  (`policy.grant_ended`), a retire or a supersession ends a session's in its frame, and `load_grants` reads them
-  back after serving (`warm_grants`). No store format change: new ledger kinds only. Tests: `policy/grants/tests.rs`,
-  `tests_m3/grants.rs`.
+- **Earned autonomy and scoped grants: gone** (the principles lane's R8, theseus-gyjyo.10). Neither could fire under
+  `enforcement = notify` (the owner's daemon: `theseus policy earned` said "No grants", the weekly card "0 of 86
+  questions"), so `policy/earned/*`, the weekly card, `policy.earned`/`policy.earned.answer`/`policy.revoke`/
+  `policy.grants`, one answer's "yes, and don't ask again" and `theseus policy earned|revoke|grants` are deleted. If the
+  owner ever moves to `approve`, the weekly card (`git log -- crates/theseus-core/src/policy/earned`) is the first thing
+  to want back. What is kept: `policy/grants.rs` is `covers` (an edits root, the one rule `modes` calls), `Call`,
+  `root_ok`, `view`, and `plan_offer` (a plan question's other yes, edits mode: `rpc/grants.rs`'s `grant_offer_of` and
+  `confirm_granting`, wire `theseus_protocol::grants`). Old ledgers keep `policy.granted`, `policy.grant_ended` and
+  `policy.earned_*` rows: they read as a kind of an older build (`ledger.tail` by name); the `LedgerKind` registry no
+  longer names them. A `[policy.earned]` section loads, is ignored and is warned of (`Config::parse`); a `policy.earned`
+  META record in an old store is inert. Tests: `tests_m3/no_grants.rs`, `rpc/tests.rs`'s
+  `rows_of_the_retired_policy_kinds_still_read`, `policy/grants/tests.rs`.
 - **Modes** (theseus-lyxy; no store format change; `policy/modes.rs`, `rpc/modes.rs`, `fact/modes.rs`, `task_graph/plan.rs`, wire
   `theseus_protocol::modes`): `ask`, `edits`, `plan` and `auto`, an overlay on the config's postures for one conversation,
-  never written into the config. `Earned::modes` (`Modes`) is the board in memory, one atomic while no session has a
+  never written into the config. `ToolRuntime::modes` (`Modes`) is the board in memory, one atomic while no session has a
   mode and one read-lock lookup after; a session no one moved has no entry, so a new conversation (a new session) is
   `ask`. `session.mode {session_id, mode?}` sets or reads (`rpc/modes.rs`): `ask` and `plan` tighten, so are anyone's;
   `edits` and `auto` loosen, so are `judge_act(Act::Session)` (the owner, from a private place; the CLI refuses it in a
@@ -2599,7 +2571,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   mode alone (`ModeChanged`, which is also the `session.mode` notification), read back once after serving
   (`Core::warm_modes`, `load_modes`: each session's newest row, a retired session's none; an older row's `steps` is
   ignored). The gate's step is
-  `modes::gate`, run inside `Layer::Scoped` right after `grants::gate` and under its conditions (a call the tool's posture
+  `modes::gate`, run inside `Layer::Mode` right after the policy's step and under its conditions (a call the tool's posture
   alone made wait, private place, no L1, no floor, no `env`, no tightening, `args_within_roots`): `edits` runs `fs.edit`,
   `fs.write` and `fs.patch` whose every canonical resource is under the session's directory at `notify` (it asks
   `grants::covers` with an edits grant it holds for the call), `auto` runs any such call at `notify`; the notice says
