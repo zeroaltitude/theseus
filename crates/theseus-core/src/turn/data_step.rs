@@ -2,17 +2,19 @@
 //! theseus-9ymz0).
 //!
 //! - **Restricted origin**: a profile whose model is of restricted origin
-//!   (`cn` or `unknown`, `Config::profile_origin`) runs only for a session
-//!   whose labels allow it (`RouteState.cn`): none that disqualifies such a
-//!   model (`ContentFlags::disqualifies_cn`), and every item in it judged
-//!   (`content_wait::unjudged`). Nothing is proved per request; the session
-//!   carries a label or it does not.
+//!   (`cn` or `unknown`, `Config::profile_origin`) runs only where
+//!   `[content_based_security] cn_models` allows it: `never` skips it in the
+//!   route; `always` runs it; `follow_flags` (the default) runs it for a
+//!   session that carries no label that disqualifies such a model
+//!   (`ContentFlags::disqualifies_cn`) (`RouteState.cn`). The session's record
+//!   is read, nothing else: no transcript, no proof that an item was judged
+//!   (theseus-gyjyo.6).
 //! - **Waiting** (design §4.3): a turn bound for a restricted profile whose
-//!   session has items not yet judged waits for their verdicts, at most
-//!   `[content_based_security] wait_ms`, on the judge's per-session notify
-//!   (`TurnRunner::verdicts`), then **goes to Claude**: the turn is never
-//!   blocked and never fails for want of a verdict. A turn bound for Claude
-//!   never waits.
+//!   session has content asks still outstanding waits for them to land, at
+//!   most `[content_based_security] wait_ms`, on the judge's counter
+//!   (`TurnRunner::verdicts`), then **goes either way** on the labels it
+//!   reads: the turn is never blocked and never fails for want of a verdict. A
+//!   turn bound for Claude never waits.
 //! - **Private content**: a session that read private content (Google's
 //!   marker) runs only on a profile of US origin
 //!   (`ModelOrigin::cleared_for_sensitive`); theseus-gyjyo.5 replaces it with a label.
@@ -31,6 +33,7 @@
 //! for every other caller.
 
 use super::*;
+use crate::config::content_based_security::CnModels;
 use crate::content::ContentFlags;
 use crate::provider::Provider;
 use crate::routing::{Decision, HoldNext, Reason};
@@ -41,16 +44,10 @@ pub(crate) const DEFAULT_PROFILE: &str = "default";
 pub(super) const REFUSED: &str =
     "this session read private content, and no profile of US origin is configured for it";
 
-/// How many times a wait for verdicts reads the record again: a wake-up that
-/// judged only some of the items leaves the rest to the next one, and a notify
-/// that answers at once (the stand-in's) must not spin.
-///
-/// It bounds the *wait* as well as the reads, which `[content_based_security] wait_ms` is
-/// supposed to do alone: every landing wakes the loop, so eight failing ones
-/// end the wait early. That mattered before the sweep re-asked a stuck mark
-/// (theseus-8qgwo) and does not now — the first sweep queues the stuck item,
-/// so each read waits on real work. Left as it is rather than changed on an
-/// argument no test could hold to.
+/// How many times a wait for the outstanding asks sweeps the session again: a
+/// landing that left a mark stuck (a failed batch) is re-asked once, and its
+/// answer is waited for in the same `wait_ms`. A bound on the reads, not on the
+/// wait, which `[content_based_security] wait_ms` is alone.
 const SETTLE_READS: u32 = 8;
 
 /// Where a turn stands on its session's labels, as the floor reads it.
@@ -59,13 +56,11 @@ pub(crate) enum Cn {
     /// Not read yet: fail closed.
     #[default]
     Unchecked,
-    /// No label keeps the session off a restricted model and every item was
-    /// judged.
+    /// Sent: `cn_models` is `always`, or it follows the flags and none keeps
+    /// the session off a restricted model.
     Allowed,
-    /// Items are not yet judged; a turn bound for a restricted profile waits.
-    Pending,
-    /// Refused, and the word for it: a flag's (`confidential`), `unjudged` when
-    /// the wait ran out, `no_record` when the session did not read.
+    /// Refused, and the word for it: a flag's (`confidential`), `never` when
+    /// `cn_models` says so, `no_record` when the session did not read.
     No(&'static str),
 }
 
@@ -75,7 +70,6 @@ impl Cn {
         match self {
             Cn::Allowed => "allowed",
             Cn::Unchecked => "unchecked",
-            Cn::Pending => "pending",
             Cn::No(w) => w,
         }
     }
@@ -168,88 +162,56 @@ impl TurnRunner {
         (floor.sensitive && self.uncleared_profile(profile)).then(|| REFUSED.to_string())
     }
 
-    /// The session's labels as the store holds them now, and whether its items
-    /// are judged: read from the record, never the turn's copy of it, which a
-    /// label raised while the turn ran is not in. No wait.
-    pub(super) fn cn_read(t: &Turn<'_>) -> Cn {
-        let sid = t.tc.session_id;
-        let Ok(Some(rec)) = t.tc.store.get_session::<SessionRecord>(sid) else {
+    /// Where the session stands on a restricted model, as the store holds it
+    /// now: read from the record, never the turn's copy of it, which a label
+    /// raised while the turn ran is not in. One read of the record under
+    /// `follow_flags`, none under `always` or `never`. No wait.
+    pub(super) fn cn_read(&self, t: &Turn<'_>) -> Cn {
+        match self.cfg.content_based_security.cn_models {
+            CnModels::Always => return Cn::Allowed,
+            CnModels::Never => return Cn::No("never"),
+            CnModels::FollowFlags => {}
+        }
+        let Ok(Some(rec)) = t.tc.store.get_session::<SessionRecord>(t.tc.session_id) else {
             return Cn::No("no_record");
         };
-        let flags: Option<&ContentFlags> = rec.data.as_deref();
-        if let Some(flag) = flags.and_then(ContentFlags::disqualifies_cn) {
-            return Cn::No(flag.as_str());
-        }
-        match t.tc.store.transcript(sid) {
-            Ok(nodes) if crate::content_wait::unjudged(&nodes, flags) => Cn::Pending,
-            Ok(_) => Cn::Allowed,
-            Err(_) => Cn::No("no_record"),
+        match rec.data.as_deref().and_then(ContentFlags::disqualifies_cn) {
+            Some(flag) => Cn::No(flag.as_str()),
+            None => Cn::Allowed,
         }
     }
 
-    /// `cn_read`, and when items are not yet judged, a wait for their verdicts
-    /// of at most `[content_based_security] wait_ms`; what is still pending then is refused
-    /// (`unjudged`). Only a request bound for a restricted profile asks.
+    /// `cn_read`, and when the labels allow a restricted profile, a wait of at
+    /// most `[content_based_security] wait_ms` for the content asks still out
+    /// for the session to land, then `cn_read` again: **the turn goes either
+    /// way on what the labels say then**. A label already on the session
+    /// refuses it whatever lands, and `always` and `never` read no label, so
+    /// neither waits. Only a request bound for a restricted profile asks.
+    ///
+    /// **The sweep still runs here, for one more row** (theseus-gyjyo.6; R5b
+    /// deletes it with the mark): it queues what no write site offered and
+    /// re-asks, once a wait, a mark a failed batch left stuck, so a label an
+    /// ask failed to raise is asked for again rather than missed. What it
+    /// queues is an outstanding ask like any other and is waited for as one.
+    /// It reads the transcript on the turn's path; the chokepoint
+    /// (`data_gate.rs`) reads none.
     pub(super) async fn cn_wait(&self, t: &Turn<'_>) -> Cn {
+        let cn = self.cn_read(t);
+        if cn != Cn::Allowed || self.cfg.content_based_security.cn_models != CnModels::FollowFlags {
+            return cn;
+        }
         let sid = t.tc.session_id;
         let deadline =
             Instant::now() + Duration::from_millis(self.cfg.content_based_security.wait_ms);
-        let mut cn = Self::cn_read(t);
-        let mut swept = false;
         let mut reasked = false;
         for _ in 0..SETTLE_READS {
-            let left = deadline.saturating_duration_since(Instant::now());
-            if cn != Cn::Pending || left.is_zero() {
-                break;
-            }
-            // Interest first, so a verdict that lands between the read and the
-            // wait is not slept through — and **before the sweep**, which
-            // reads the record and the whole transcript: a landing while that
-            // ran would be deferred to after this turn, and the wait below
-            // would then be for nothing.
-            let woken = self.verdicts.settled(sid);
-            // An item that nothing queued would never land, however long this
-            // waited, and its session would be off every model of restricted
-            // origin until something else queued an item (theseus-sh1n3). The
-            // floor's own reading of the transcript queues what a write site
-            // did not.
-            //
-            // The re-ask of a mark a failed batch left stuck is **once a
-            // wait** (theseus-8qgwo): it costs a real decision point and a
-            // reservation, `cn_move` runs this on every loop after every tool
-            // result, and a stuck item that failed once in this wait will not
-            // answer differently on the next read of it. It is spent on the
-            // read that finds the mark stuck, not on the first read: a batch
-            // fails partway through a wait, so those are rarely the same
-            // read. The ordinary sweep still runs on every read.
             reasked |= self.judge.ask_unsubmitted(sid, !reasked);
-            swept = true;
-            cn = Self::cn_read(t);
-            if cn != Cn::Pending {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if self.verdicts.outstanding(sid) == 0 || !self.verdicts.drained(sid, left).await {
                 break;
             }
-            let _ = tokio::time::timeout(left, woken).await;
-            cn = Self::cn_read(t);
         }
-        // The loop may not have run its body at all: `wait_ms = 0` is a
-        // supported setting meaning "a cn request never waits", and the
-        // loop's first act is to break on it. Sweeping only inside would put
-        // the one path that makes the blocked set and the submitted set equal
-        // by construction behind a config the operator is entitled to choose,
-        // and the whole defect class would be back on it (the review of
-        // 2026-10-27, B1). This request goes to Claude either way; what the
-        // sweep buys is that the next one need not.
-        //
-        // No stuck re-ask here: this request never waits, so a verdict it
-        // paid for could not help it, and the stuck node is picked up by
-        // `with_worklist` on the next batch the session queues.
-        if cn == Cn::Pending && !swept {
-            let _ = self.judge.ask_unsubmitted(sid, false);
-        }
-        match cn {
-            Cn::Pending => Cn::No("unjudged"),
-            cn => cn,
-        }
+        self.cn_read(t)
     }
 
     /// `cn_wait`, kept on the turn for the floor and its route row.

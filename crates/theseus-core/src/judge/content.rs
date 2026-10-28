@@ -529,10 +529,10 @@ impl JudgeService {
 }
 
 /// The judge standing behind the turn's wait (theseus-9ymz0, the join's seam).
-/// `content_wait::Ready` answers at once, so until this is set a turn bound for
-/// a model of restricted origin with unjudged items goes to Claude without
-/// waiting — safe, but it would make `[content_based_security] wait_ms` dead and every cn turn
-/// a Claude turn. `Core::build` sets it.
+/// `content_wait::Ready` answers at once (no ask is ever out), so until this is
+/// set a turn bound for a model of restricted origin goes on its labels without
+/// waiting — it would make `[content_based_security] wait_ms` dead.
+/// `Core::build` sets it.
 ///
 /// It honours the trait's contract: the wake-up is enabled **before** the
 /// pending check, so a verdict that lands between the caller taking this future
@@ -555,6 +555,12 @@ impl Drop for Waiting {
 }
 
 impl crate::content_wait::Verdicts for JudgeService {
+    /// The session's open asks: the items queued or being judged, not yet
+    /// landed (`Slot::open`). This is the counter a turn's wait reads.
+    fn outstanding(&self, session: &str) -> usize {
+        self.content.slots().get(session).map_or(0, |s| s.open)
+    }
+
     fn settled(
         &self,
         session: &str,

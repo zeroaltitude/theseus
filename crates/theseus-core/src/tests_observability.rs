@@ -72,8 +72,8 @@ async fn route_decided_records_cn_gate_provider_model_origin() {
 }
 
 /// A plain Claude turn whose mode lists no restricted profile gains the
-/// provider, model and origin, a `cn` word, and no `data_gate`: its items
-/// were not yet judged, which it never waited for.
+/// provider, model and origin, a `cn` word, and no `data_gate`: no label
+/// keeps its session off a restricted model, and it never waited for any.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_plain_turns_route_row_gains_only_where_it_ran() {
     let jev = FakeJev::start().unwrap();
@@ -84,18 +84,18 @@ async fn a_plain_turns_route_row_gains_only_where_it_ran() {
     assert_eq!(d["origin"], "us", "{d}");
     assert_eq!(d["model"], res.model.as_str(), "{d}");
     assert_eq!(d["provider"], res.provider.as_str(), "{d}");
-    assert_eq!(d["cn"], "pending", "{d}");
+    assert_eq!(d["cn"], "allowed", "{d}");
     assert!(d.get("data_gate").is_none(), "{d}");
     let t = res.route.unwrap().data.expect("data");
     assert_eq!(
         (t.origin.as_str(), t.gate, t.cn.as_str()),
-        ("us", None, "pending")
+        ("us", None, "allowed")
     );
 }
 
 /// The floor moving a turn off its restricted base writes the why as
-/// `data_gate`: a flag's word for a session labelled, `unjudged` for one whose
-/// items the judge never reached in time.
+/// `data_gate`: a flag's word for a session labelled. A session whose ask never
+/// lands in time is not moved: it goes on the labels it has (theseus-gyjyo.6).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_floor_move_names_its_why() {
     let jev = jev(&[]);
@@ -117,12 +117,9 @@ async fn the_floor_move_names_its_why() {
         .set(std::sync::Arc::new(Silent::default()));
     say(&r.core, &dm(&r.core), OPEN_A, None).await;
     let d = decided(&r.core.store).pop().unwrap();
-    assert_eq!(
-        (d["reason"].as_str(), d["data_gate"].as_str()),
-        (Some("data_gate"), Some("unjudged")),
-        "{d}"
-    );
-    assert!(zai.requests().is_empty());
+    assert!(d.get("data_gate").is_none(), "no label, no move: {d}");
+    assert_eq!(d["cn"], "allowed", "{d}");
+    assert_eq!(zai.requests().len(), 1, "it waited 50 ms, then went");
 }
 
 /// A DM request's call says it went to a `cn` model; a Claude call says its
@@ -278,7 +275,7 @@ async fn a_us_model_that_wins_anyway_shows_no_data_gate() {
     let res = say(&r.core, &dm(&r.core), PRIVATE, None).await;
     let d = &decided(&r.core.store)[0];
     assert_eq!(res.profile, "haiku", "{d}");
-    assert_eq!(d["cn"], "pending", "the judge was never waited for: {d}");
+    assert_eq!(d["cn"], "allowed", "the judge was never waited for: {d}");
     assert!(d.get("data_gate").is_none(), "{d}");
     let data = res.route.unwrap().data.expect("data");
     assert_eq!((data.gate.clone(), data.footer()), (None, None));

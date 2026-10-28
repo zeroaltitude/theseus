@@ -438,10 +438,20 @@ async fn a_restricted_default_is_not_a_fallback_on_a_later_loop() {
     let jev = FakeJev::start().unwrap();
     clean(&jev);
     crate::tests_route::mode(&jev, "trivial", 0.95);
-    // The result's own content call never answers, so the later loop reaches
-    // `cn_move` with the session unjudged -- a state the floor could not
-    // settle, which is exactly when it needs somewhere to go.
-    jev.hold_when(MARK);
+    // The result's own content call finds a secret in it (and nothing else
+    // does), so the later loop reaches `cn_move` with the session labelled --
+    // the state in which the floor needs somewhere to go. (It was a call that
+    // never answered until theseus-gyjyo.6: an unanswered ask is no refusal
+    // now, only a label is.)
+    jev.script_when(
+        MARK,
+        None,
+        "secret",
+        Jev::Choice {
+            option: "yes".into(),
+            confidence: 0.95,
+        },
+    );
     let one_call = Scripted::tools(
         "",
         &[(
@@ -464,7 +474,7 @@ async fn a_restricted_default_is_not_a_fallback_on_a_later_loop() {
             c.copy_profile("default", "glm");
             c.judge.packs.remove(crate::judge::content::PACK);
             c.judge.total_secs = 2;
-            c.content_based_security.wait_ms = 1_000;
+            c.content_based_security.wait_ms = 5_000;
             c.tools.proc_sync_secs = 5;
             c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
             c.model.retries.transient = 0;
