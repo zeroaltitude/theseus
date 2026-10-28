@@ -152,6 +152,9 @@ mod tests {
             "It scores 0.6263, only about 0.6 points over the target. The private set may land a little either way.",
             "I would trust it, but I haven't tried a bigger variant.",
             "Please confirm it on the leaderboard before you rely on it.",
+            "The fit is good, though the private set could land a little higher or lower.",
+            "I wrote the timer and never ran it.",
+            "I\u{2019}ve never run it against the real queue.",
         ] {
             assert!(names_a_gap(said), "{said}");
         }
@@ -163,6 +166,48 @@ mod tests {
             "",
         ] {
             assert!(!names_a_gap(said), "{said}");
+        }
+    }
+
+    /// Plain prose that only shares words with the list (theseus-6lpxx): a
+    /// release date, a fact about a timer, a sandbox without a library.
+    #[test]
+    fn ordinary_prose_that_shares_a_phrase_names_no_gap() {
+        for said in [
+            "The fix may land in 1.0.4, after the release is tagged.",
+            "The reminder could land on Friday; I checked the schedule.",
+            "The timer has never run on this host, which is why the log is empty.",
+            "There is no torch in this sandbox, so I used numpy, and the check passes.",
+            "The score is on the private test set; I ran the public one and it passes.",
+        ] {
+            assert!(!names_a_gap(said), "{said}");
+        }
+    }
+
+    /// Output the message quotes is not the model's own voice: a fenced block,
+    /// a block quote, an inline code span and a quoted string are cut before
+    /// the list is read, and an unmatched marker cuts nothing.
+    #[test]
+    fn quoted_output_is_not_the_models_own_doubt() {
+        for said in [
+            "The build passed. The log ends:\n```\nwarning: optimistic locking is not installed\n```\nAll green.",
+            "The build passed.\n> error: torch is not installed\nThat is the old log; it now passes.",
+            "The build passed; the old error was `pip: not installed`, now gone.",
+            "The status page shows \"unverified\" for the three old files, and the new one passes.",
+            "The status page shows \u{201c}not verified\u{201d} for the old files; the new one passes.",
+        ] {
+            assert!(!names_a_gap(said), "{said}");
+        }
+        // The model's own doubt beside a quote still counts, and so does one
+        // after a stray marker (it cuts nothing).
+        for said in [
+            "The log says \"ok\", but I haven't tested the second path.",
+            "```\nok\n```\nI haven't run the migration.",
+            "It builds (the `check` target is fine). I haven't tested it on Windows` and ever.",
+            "```\nnever closed\nI have not tested this.",
+            "It says \"ok. I did not check the date.",
+        ] {
+            assert!(names_a_gap(said), "{said}");
         }
     }
 }
