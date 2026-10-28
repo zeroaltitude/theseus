@@ -200,6 +200,64 @@ fn the_floors_own_settings_are_checked_at_load() {
     assert!(err.contains("coding_floor.profile"), "{err}");
 }
 
+/// An off floor (the shipped default) is not checked at load: its
+/// `min_confidence` default must not refuse a legal `switch_confidence`
+/// (theseus-mn5dr, review H-1a).
+#[test]
+fn an_off_floor_never_refuses_a_legal_config() {
+    let ok = |c: &RoutingConfig| c.validate(|_| false);
+    let eager: RoutingConfig = toml::from_str("switch_confidence = 0.25\n").unwrap();
+    assert!(eager.coding_floor.is_off());
+    assert!(ok(&eager).is_ok(), "{:?}", ok(&eager));
+    // Nor does a floor's own setting matter while no profile is named.
+    let silent: RoutingConfig = toml::from_str("[coding_floor]\nmin_confidence = 0.9\n").unwrap();
+    assert!(ok(&silent).is_ok(), "{:?}", ok(&silent));
+}
+
+/// The floor fires in `[min_confidence, the class's own bar)`, so the load
+/// reads the bars `decide` reads (`confidence_for`), not the section's alone
+/// (theseus-mn5dr, review H-1b). It is refused only when no coding class has
+/// room: one with room still has a floor that fires.
+#[test]
+fn the_floors_window_is_the_coding_classes_own_bars() {
+    let ok = |c: &RoutingConfig| c.validate(|_| false);
+    let with = |t: &str| -> RoutingConfig {
+        toml::from_str(&format!("[coding_floor]\nprofile = \"sonnethi\"\n{t}")).unwrap()
+    };
+    // Both coding classes' own bars under the floor's 0.30: it never fires.
+    let both = "[classes.routine_coding]\nswitch_confidence = 0.25\n\
+                [classes.deep_coding]\nswitch_confidence = 0.25\n";
+    let err = ok(&with(both)).unwrap_err().to_string();
+    assert!(
+        err.contains("coding_floor.min_confidence") && err.contains("never fires"),
+        "{err}"
+    );
+    // The boundary is the bar itself: a bar equal to the floor is an empty window.
+    let at = "[classes.routine_coding]\nswitch_confidence = 0.30\n\
+              [classes.deep_coding]\nswitch_confidence = 0.30\n";
+    assert!(ok(&with(at)).is_err(), "a bar equal to the floor never fires");
+    let over = "[classes.routine_coding]\nswitch_confidence = 0.30\n\
+                [classes.deep_coding]\nswitch_confidence = 0.31\n";
+    assert!(ok(&with(over)).is_ok(), "{:?}", ok(&with(over)));
+    // One coding class with room is a working floor, whatever the other says.
+    let one = "[classes.deep_coding]\nswitch_confidence = 0.25\n";
+    assert!(ok(&with(one)).is_ok(), "{:?}", ok(&with(one)));
+    // A low section bar with classes that set their own is judged on theirs.
+    let own: RoutingConfig = toml::from_str(
+        "switch_confidence = 0.25\n\
+         [classes.routine_coding]\nswitch_confidence = 0.5\n\
+         [classes.deep_coding]\nswitch_confidence = 0.5\n\
+         [coding_floor]\nprofile = \"sonnethi\"\n",
+    )
+    .unwrap();
+    assert!(ok(&own).is_ok(), "{:?}", ok(&own));
+    // With no class of its own, the section's bar is the window's top.
+    let low: RoutingConfig =
+        toml::from_str("switch_confidence = 0.25\n[coding_floor]\nprofile = \"sonnethi\"\n")
+            .unwrap();
+    assert!(ok(&low).is_err(), "the section's 0.25 is under the floor's 0.30");
+}
+
 #[test]
 fn a_floor_lifts_a_session_and_never_lowers_one() {
     let cfg = floored("");
