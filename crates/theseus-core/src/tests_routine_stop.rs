@@ -65,6 +65,10 @@ async fn a_run_count_stop_opens_that_many_runs_and_then_holds_the_series() {
     })
     .await;
     assert_eq!(runs(&r.core, &id).await.len(), 2, "no third run");
+    until("the series held", 30, || {
+        routine_wake(&r, &id).paused_at_ms.is_some()
+    })
+    .await;
     let listed = rpc(&r.core, "routine.list", json!({})).await.unwrap();
     let one = &listed["routines"][0];
     assert_eq!(one["runs"], 2);
@@ -99,8 +103,8 @@ async fn a_date_stop_is_the_series_until_and_a_stop_before_the_first_run_is_refu
     let err = rpc(
         &r.core,
         "routine.create",
-        json!({"title": "Nothing", "schedule": "weekdays 08:00", "brief": "x",
-               "stop": "in 10m"}),
+        json!({"title": "Nothing", "schedule": "every 1h", "brief": "x",
+               "start": "in 5h", "stop": "in 10m"}),
     )
     .await
     .unwrap_err();
@@ -123,7 +127,9 @@ async fn a_start_moves_the_first_occurrence_and_the_series_follows_it() {
         "the first run is at or after the start: {next} vs {now}"
     );
     assert!(next < now + 3 * 3_600_000, "and not far past it: {next}");
-    assert_eq!(info["start_ms"].as_u64(), Some(next), "{info}");
+    let start = info["start_ms"].as_u64().expect("the start as asked for");
+    assert!(next >= start, "{info}");
+    assert!(start >= now + 2 * 3_600_000 - 60_000, "{info}");
 }
 
 /// What makes "watch X" different from "run X hourly": run N is given the whole
@@ -216,6 +222,7 @@ fn the_creation_card_names_the_start_and_the_stop() {
         zone: theseus_kernel::TimeZone::UTC,
         cfg: cfg.routines.clone(),
         floor_ms: 60_000,
+        max_ahead_ms: 400 * 86_400_000,
     };
     let ctx = theseus_tools::ToolCtx::default();
     let plan = theseus_tools::Tool::plan(

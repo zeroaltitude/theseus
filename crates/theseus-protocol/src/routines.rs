@@ -94,6 +94,67 @@ impl Speak {
     }
 }
 
+/// What a run is given of the run before it (theseus-97b8c). The daemon reads
+/// it and writes it into the run's brief; the model does not re-derive it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum Carry {
+    /// The whole of the last run's report, so run N reports what changed.
+    #[default]
+    LastReport,
+    /// Nothing but the one-line clause every run's header has.
+    None,
+}
+
+impl Carry {
+    pub fn parse(s: &str) -> Option<Carry> {
+        match s.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+            "last_report" | "report" | "" => Some(Carry::LastReport),
+            "none" | "nothing" => Some(Carry::None),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Carry::LastReport => "last_report",
+            Carry::None => "none",
+        }
+    }
+}
+
+/// Where a routine ends (theseus-97b8c; the owner's "optional stop"). It is a
+/// fact the daemon keeps, not a memory: a run count it counts, or a time the
+/// kernel's own `until` ends the series at. A routine with no stop runs until
+/// it is paused.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RoutineStop {
+    /// As it was asked for (`after 3 runs`, `fri 17:00`).
+    pub text: String,
+    /// The series ends once this many runs have been opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub after_runs: Option<u32>,
+    /// The series ends at this time: the wake's `until`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub at_ms: Option<u64>,
+}
+
+impl RoutineStop {
+    /// `stops after 3 runs`, for the card and the lists.
+    pub fn words(&self) -> String {
+        format!("stops {}", self.text.trim())
+    }
+
+    /// Whether `runs` runs have used it up.
+    pub fn spent_after(&self, runs: u32) -> bool {
+        self.after_runs.is_some_and(|n| runs >= n)
+    }
+}
+
 /// A routine's record: what the owner (or the model, behind a card) asked for,
 /// and what the runs have done to it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -116,6 +177,21 @@ pub struct RoutineSpec {
     pub catch_up: CatchUp,
     #[serde(default)]
     pub speak: Speak,
+    /// What each run is given of the run before it.
+    #[serde(default)]
+    pub carry: Carry,
+    /// The time the first occurrence was moved to, when one was asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub start_ms: Option<u64>,
+    /// Where the series ends, when it ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stop: Option<RoutineStop>,
+    /// The stop tripped at this time: the series is held from then on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stopped_ms: Option<u64>,
     /// Where reports go: `dm` (the owner's DM, the default), `none`, or a
     /// place (`discord:channel:<id>`).
     pub deliver_to: String,
@@ -230,6 +306,24 @@ pub struct RoutineInfo {
     pub deliver_to: String,
     pub catch_up: String,
     pub speak: String,
+    /// What each run is given of the run before it (`last_report`, `none`).
+    pub carry: String,
+    /// Where the series ends, as it was asked for (`after 3 runs`), and as a
+    /// time when it is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stop: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stop_ms: Option<u64>,
+    /// The stop that has tripped: the series is held and runs no more.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stopped: Option<String>,
+    /// The time the first occurrence was moved to, when one was asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub start_ms: Option<u64>,
     pub runs: u32,
     /// The tools its runs use without asking, as written (`gog.gmail.search`,
     /// `channel.post #digest`).
@@ -274,6 +368,20 @@ pub struct RoutineCreateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub speak: Option<String>,
+    /// The first occurrence is the first at or after this time (`mon 9:00`,
+    /// `in 2h`); without one it is the first after now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub start: Option<String>,
+    /// Where the series ends: `after N runs`, or a time (`fri 17:00`).
+    /// Without one it runs until it is paused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub stop: Option<String>,
+    /// `last_report` (default) or `none`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub carry: Option<String>,
     /// The tools its runs use without asking, even after reading outside
     /// text: `gog.gmail.search`, or a posting tool with its place,
     /// `channel.post #digest`. Everything else still waits.

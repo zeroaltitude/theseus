@@ -46,6 +46,12 @@ struct Input {
     #[serde(default)]
     speak: Option<String>,
     #[serde(default)]
+    start: Option<String>,
+    #[serde(default)]
+    stop: Option<String>,
+    #[serde(default)]
+    carry: Option<String>,
+    #[serde(default)]
     grant: Vec<String>,
 }
 
@@ -60,6 +66,9 @@ impl Input {
             deliver_to: self.deliver_to,
             catch_up: None,
             speak: self.speak,
+            start: self.start,
+            stop: self.stop,
+            carry: self.carry,
             grant: self.grant,
         }
     }
@@ -70,6 +79,8 @@ pub struct RoutineCreate {
     pub zone: TimeZone,
     pub cfg: RoutinesConfig,
     pub floor_ms: u64,
+    /// How far ahead a start or a stop may be, as a wake's bound.
+    pub max_ahead_ms: u64,
 }
 
 impl Tool for RoutineCreate {
@@ -78,11 +89,18 @@ impl Tool for RoutineCreate {
     }
 
     fn description(&self) -> &'static str {
-        "Set up recurring work: a routine runs `brief` on `schedule` (`weekdays 08:00`, `every \
-         30m`, `monthly 09:00`, or cron), each run a fresh task that does not see this \
-         conversation, reporting to the owner's DM. It waits for the owner's yes on one card. A \
-         run may spend `budget_usd` (default $0.50), the routine `month_usd` a month (default \
-         $10); a spent month skips runs."
+        "Set up recurring, deferred or standing work. Reach for it on the shape of what is \
+         asked, not on any one word: watch this, keep an eye on that, remind me, check it \
+         hourly, every morning tell me, at 3 today, each Monday until Friday, keep me posted. A \
+         routine runs `brief` on `schedule` (`weekdays 08:00`, `every 30m`, `monthly 09:00`, or \
+         cron), each run a fresh task that does not see this conversation, reporting to the \
+         owner's DM. `start` moves the first run (`mon 9:00`, `in 2h`); `stop` ends the series \
+         (`after 3 runs`, or a time such as `fri 17:00`), and with no stop it runs until the \
+         owner pauses it. Each run is given the whole of the last run's report, so a brief that \
+         says what to look at reports what changed rather than the state again (`carry: none` \
+         turns that off). It waits for the owner's yes on one card. A run may spend `budget_usd` \
+         (default $0.50), the routine `month_usd` a month (default $10); a spent month skips \
+         runs. To wait on one thing a command can check, with no model and no money, use `watch`."
     }
 
     fn input_schema(&self) -> Value {
@@ -96,6 +114,9 @@ impl Tool for RoutineCreate {
                 "month_usd": {"type": "number", "exclusiveMinimum": 0},
                 "deliver_to": {"type": "string", "description": "`dm` (default), `none`, or a place."},
                 "speak": {"type": "string", "enum": ["always", "when_notable"], "description": "`when_notable`: a report ending NOTHING NEW is not posted."},
+                "start": {"type": "string", "description": "The first run is at or after this time (`mon 9:00`, `in 2h`, `2026-11-03 08:00`). Without one it is the schedule's next time."},
+                "stop": {"type": "string", "description": "Where the series ends: `after 3 runs`, or a time (`fri 17:00`). Without one it runs until the owner pauses it."},
+                "carry": {"type": "string", "enum": ["last_report", "none"], "description": "What each run is given of the one before it. `last_report` (default): the whole of its report, so this run reports the change."},
                 "grant": {"type": "array", "items": {"type": "string"}}
             },
             "required": ["title", "schedule", "brief"],
@@ -123,10 +144,34 @@ impl Tool for RoutineCreate {
         // here, before a card is raised; the tools it names exist is checked
         // when the owner's yes lets the call run.
         new.grant = crate::routine::grant::check(&new.grant, &|_| true)?;
-        // A schedule that does not read fails here, before a card is raised.
+        // A schedule, a start or a stop that does not read fails here, before a
+        // card is raised; the card then says where the series ends, which is
+        // what the owner's yes is really about (theseus-97b8c).
         let now = theseus_protocol::now_unix_ms();
-        let parsed =
-            theseus_kernel::cron::parse_schedule(&new.schedule, &self.zone, now, self.floor_ms)?;
+        let ahead = self.max_ahead_ms;
+        let start_ms = match new.start.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(s) => Some(crate::wake_when::parse_when(s, now, &self.zone, ahead)?),
+            None => None,
+        };
+        let mut parsed = theseus_kernel::cron::parse_schedule(
+            &new.schedule,
+            &self.zone,
+            start_ms.unwrap_or(now),
+            self.floor_ms,
+        )?;
+        let stop = match new.stop.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(s) => Some(crate::routine::parse_stop(s, now, &self.zone, ahead)?),
+            None => None,
+        };
+        if let Some(at) = stop.as_ref().and_then(|s| s.at_ms) {
+            if at < parsed.first_ms {
+                return Err("the stop comes before the first run: nothing would run".into());
+            }
+            parsed.repeat.until_ms = Some(at);
+        }
+        if let Some(c) = &new.carry {
+            theseus_protocol::routines::Carry::parse(c).ok_or("carry is last_report or none")?;
+        }
         let mut next = vec![parsed.first_ms];
         while next.len() < 3 {
             match parsed
@@ -144,8 +189,16 @@ impl Tool for RoutineCreate {
                 "a run's budget (${run}) must be above 0 and no more than the month's (${month})"
             ));
         }
-        let card =
-            crate::routine::Prepared::words(&new, &parsed.repeat, &next, run, month, &self.zone);
+        let card = crate::routine::Prepared::words(
+            &new,
+            &parsed.repeat,
+            &next,
+            run,
+            month,
+            &self.zone,
+            stop.as_ref(),
+            start_ms,
+        );
         Ok(Plan {
             summary: card,
             authority: Some(ASKS.into()),
