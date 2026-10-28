@@ -57,11 +57,6 @@ fn wire(name: &str, got: &str) {
 
 // ------------------------------------------------- values the senders hold
 
-fn external() -> Value {
-    json!({"since_ms": 1_759_300_000_000u64, "tool": "http.fetch", "url": "notes.example/today",
-           "node_id": "nod_e1", "via": "fs.read"})
-}
-
 fn plan(argv: bool) -> Value {
     let mut p =
         json!({"resources": [{"path": "/w/notes", "access": "read"}], "summary": "list notes"});
@@ -143,7 +138,7 @@ fn tool_proposed() {
                 json!({"gate": "needs_confirm", "by": "operator"}),
                 Some(
                     json!({"posture": "approve", "reason": "write outside the roots: fs.write — approve",
-                    "floor": true, "external": external()}),
+                    "floor": true}),
                 ),
                 Some(plan(false)),
                 proposal("fs.write"),
@@ -459,8 +454,7 @@ fn confirm(budget: bool) -> ConfirmRequest {
                "tool": "fs.write", "input": {"path": "/srv/motd", "text": "hello"},
                "resource": "/srv/motd", "reason": "write outside the roots (/w)",
                "by": "operator", "requested_at_ms": 1_759_300_100_000u64,
-               "expires_at_ms": 1_759_301_000_000u64, "floor": true,
-               "external_text": external()})
+               "expires_at_ms": 1_759_301_000_000u64, "floor": true})
     })
     .unwrap()
 }
@@ -481,7 +475,7 @@ fn confirm_requested_and_resolved() {
         "confirm_resolved_answer",
         &line(
             notify::CONFIRM_RESOLVED,
-            json!({"session_id": S, "correlation_id": corr, "approved": true, "by": by, "trust": true}),
+            json!({"session_id": S, "correlation_id": corr, "approved": true, "by": by}),
         ),
     );
     wire(
@@ -531,7 +525,7 @@ fn confirm_requested_and_resolved() {
     );
 }
 
-// ---------------------------------------------- policy, trust, refusals
+// ---------------------------------------------- policy, labels, refusals
 
 fn tighten_result(changed: bool) -> TightenResult {
     TightenResult {
@@ -558,7 +552,7 @@ fn tighten_result(changed: bool) -> TightenResult {
 }
 
 #[test]
-fn policy_and_trust() {
+fn policy_and_labels() {
     wire(
         "policy_tightened",
         &line(notify::POLICY_TIGHTENED, tighten_result(true)),
@@ -567,11 +561,6 @@ fn policy_and_trust() {
         "policy_untightened",
         &line(notify::POLICY_UNTIGHTENED, tighten_result(false)),
     );
-    let trusted: TrustResult = serde_json::from_value(json!({"session_id": S, "by": "the CLI",
-        "who": "sock#3", "via": "cli", "how": "approval", "correlation_id": "act_k4",
-        "at_ms": 1_759_300_400_000u64, "held": external(), "since_local": "14:02"}))
-    .unwrap();
-    wire("session_trusted", &line(notify::SESSION_TRUSTED, trusted));
     let label = json!({"flag": "injection", "node": "nod_e1", "kind": "fetched_page",
         "source": "http.fetch notes.example/today", "confidence": 0.93, "band": "act",
         "at_ms": 1_759_300_300_000u64});
@@ -731,17 +720,6 @@ fn typed(name: &str, e: Event) {
     wire(name, &serde_json::to_string(&Message::from(e)).unwrap());
 }
 
-fn external_typed() -> ExternalText {
-    ExternalText {
-        since_ms: 1_759_300_000_000,
-        tool: "http.fetch".into(),
-        url: "notes.example/today".into(),
-        node_id: "nod_e1".into(),
-        via: Some("fs.read".into()),
-        ..Default::default()
-    }
-}
-
 fn plan_typed(argv: bool) -> Plan {
     Plan {
         resources: vec![Resource {
@@ -836,7 +814,6 @@ fn typed_tool_proposed() {
                     posture: Some("approve".into()),
                     reason: "write outside the roots: fs.write — approve".into(),
                     floor: true,
-                    external: Some(external_typed()),
                     ..Default::default()
                 }),
                 plan: Some(plan_typed(false)),
@@ -1156,7 +1133,6 @@ fn typed_policy_notified_and_resolved() {
             "confirm_resolved_answer",
             ConfirmResolved {
                 approved: true,
-                trust: Some(true),
                 ..resolved("act_k4", Some("the CLI"))
             },
         ),
@@ -1330,7 +1306,7 @@ fn every_fixture_decodes_as_an_event_and_writes_the_same_bytes() {
         assert_eq!(again, line, "{}", path.display());
         n += 1;
     }
-    assert_eq!(n, 48);
+    assert_eq!(n, 47);
 }
 
 /// Every line of a real daemon's capture (`theseus --json watch`, its path in

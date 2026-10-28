@@ -68,14 +68,13 @@ pub struct TaskStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub start_when: Option<String>,
-    /// Text the task should read verbatim (a message, a pasted log). The
-    /// task's session holds it as web text only when `outside_quotes` says it
-    /// is not the owner's own.
+    /// Text the task should read verbatim (a message, a pasted log).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quotes: Vec<String>,
     /// The quotes are not the starter's own words: an email, another person's
-    /// message (theseus-nfhaf). Without it a start by the owner's own hand
-    /// marks nothing; with it the task's session holds them as outside text.
+    /// message (theseus-nfhaf). Accepted and ignored since the external-text
+    /// hold went (theseus-gyjyo.8): it chose whether the task's session held
+    /// its quotes as web text, and a quote is an item like any other now.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub outside_quotes: bool,

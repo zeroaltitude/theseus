@@ -74,7 +74,6 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
         may_answer: true,
         tool: Some("fs.write".into()),
         asked_at_ms: AT,
-        external_text: true,
         choices: Vec::new(),
     };
     question.options = answer_options(&question);
@@ -282,7 +281,7 @@ fn an_older_peers_view_decodes() {
         "asked_by": {"id": "exe_1", "kind": "task"}, "prompt": "budget.reset", "options": [],
         "floor": false, "may_answer": false}))
     .unwrap();
-    assert_eq!((q.tool, q.asked_at_ms, q.external_text), (None, 0, false));
+    assert_eq!((q.tool, q.asked_at_ms), (None, 0));
 }
 
 // ------------------------------------------------------------- work.watch

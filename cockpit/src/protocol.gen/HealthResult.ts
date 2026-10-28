@@ -12,7 +12,6 @@ import type { DayCeilingBudget } from "./DayCeilingBudget";
 import type { DeferHealth } from "./DeferHealth";
 import type { DiskStatus } from "./DiskStatus";
 import type { ExtendHealth } from "./ExtendHealth";
-import type { ExternalTextInfo } from "./ExternalTextInfo";
 import type { Features } from "./Features";
 import type { GoogleStatus } from "./GoogleStatus";
 import type { GrantStatus } from "./GrantStatus";
@@ -151,18 +150,6 @@ tightenings: Array<Tightening>,
  * soonest first (DD8).
  */
 wakes: Array<WakeInfo>, 
-/**
- * The sessions that hold external text (theseus-9bp), the longest-held
- * first, those whose execution has not ended (theseus-g00vv): under `ask`
- * a call that acts waits for approval until the operator trusts it
- * again; under `notify` the first one tells the owner.
- */
-external_text: Array<ExternalTextInfo>, 
-/**
- * What a hold does: `ask` or `notify` (`[policy] external_text`). Empty
- * from a daemon before it.
- */
-external_text_mode?: string, 
 /**
  * The web UI's refusals since the daemon's image started (theseus-70f).
  */

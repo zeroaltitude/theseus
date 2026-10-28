@@ -2,7 +2,6 @@
 import type { AnswerOption } from "./AnswerOption";
 import type { BudgetAsk } from "./BudgetAsk";
 import type { ConfirmPreview } from "./ConfirmPreview";
-import type { ExternalText } from "./ExternalText";
 import type { GrantOffer } from "./GrantOffer";
 import type { PlainWords } from "./PlainWords";
 import type { TaskChange } from "./TaskChange";
@@ -41,11 +40,6 @@ budget?: BudgetAsk,
  * The task that asks, when a task does (DD7).
  */
 task?: TaskRef, 
-/**
- * The call waits because its session read external text (theseus-9bp):
- * what it read. An approval with `trust` clears that as well.
- */
-external_text?: ExternalText, 
 /**
  * The layer-1 task change the call asks for, when it is one (39b).
  */
