@@ -122,6 +122,12 @@ impl Carry {
             Carry::None => "none",
         }
     }
+
+    /// The default, which a record written before theseus-97b8c has by
+    /// absence: it is left out, so an older routine's record is unchanged.
+    pub fn is_last_report(&self) -> bool {
+        matches!(self, Carry::LastReport)
+    }
 }
 
 /// Where a routine ends (theseus-97b8c; the owner's "optional stop"). It is a
@@ -178,7 +184,7 @@ pub struct RoutineSpec {
     #[serde(default)]
     pub speak: Speak,
     /// What each run is given of the run before it.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Carry::is_last_report")]
     pub carry: Carry,
     /// The time the first occurrence was moved to, when one was asked for.
     #[serde(default, skip_serializing_if = "Option::is_none")]

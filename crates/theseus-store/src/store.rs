@@ -696,7 +696,7 @@ const BULK: usize = 4096;
 /// the mark or its worklist, the two fields a session's content labels carried beside `labels` and
 /// `removed`. A record from before reads both ignored, which is no change to what it says (a
 /// session is not treated as partly judged: nothing asks), and the next write leaves them out.
-const MANIFEST_FORMAT: u32 = 54;
+const MANIFEST_FORMAT: u32 = 55;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
