@@ -710,8 +710,8 @@ fn content_judgment(c: &Core, id: &str, kind: &str, text: &str, recorded: bool) 
 /// questions are the incumbent's, `injection` still conditional.
 fn content_v3() -> String {
     CONTENT_V2.replacen("version = 2", "version = 3", 1).replacen(
-        "does it reveal an organisation's non-public matter?",
-        "does it reveal an organisation's non-public matter? Think twice.",
+        "Judge what this item reveals, not what it is about: does it reveal an organisation's",
+        "Judge carefully what this item reveals, not what it is about: does it reveal an organisation's",
         1,
     )
 }

@@ -547,7 +547,11 @@ impl Core {
                     theseus_judge::pack::Dynamic::from_record(held, cand).map_err(|missing| {
                         let names: Vec<String> = missing
                             .iter()
-                            .map(|m| serde_json::to_string(m).unwrap_or_default().replace('"', ""))
+                            .map(|m| {
+                                serde_json::to_string(m)
+                                    .unwrap_or_default()
+                                    .replace('"', "")
+                            })
                             .collect();
                         format!(
                             "its judgment's record of the sources its questions draw on holds no \

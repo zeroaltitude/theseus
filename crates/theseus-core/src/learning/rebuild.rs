@@ -110,7 +110,11 @@ pub fn content_input(state_json: &str) -> Result<ContentInput, String> {
     let names = |k: &str| -> Vec<String> {
         v["data_names"][k]
             .as_array()
-            .map(|a| a.iter().filter_map(|n| n.as_str().map(str::to_string)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|n| n.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default()
     };
     Ok(ContentInput {

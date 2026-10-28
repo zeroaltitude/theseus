@@ -236,19 +236,32 @@ async fn a_judgment_records_the_sources_its_conditional_question_resolved_agains
     r.core.runner.judge.ask_content(
         &sid,
         vec![
-            item_in(&r, &sid, "n1", ItemKind::OperatorMessage, "count the herons"),
+            item_in(
+                &r,
+                &sid,
+                "n1",
+                ItemKind::OperatorMessage,
+                "count the herons",
+            ),
             item_in(&r, &sid, "n2", ItemKind::ToolResult, "ordinary text"),
         ],
     );
     until(&r, "content.judged", 2).await;
-    let calls: Vec<Value> = r
-        .core
-        .store
-        .scope_after("judge:content", 0)
-        .unwrap()
-        .into_iter()
-        .map(|rec| rec.decode::<crate::ledger::LedgerRow>().unwrap().data)
-        .collect();
+    let t0 = Instant::now();
+    let calls = loop {
+        let found: Vec<Value> = r
+            .core
+            .store
+            .scope_after("judge:content", 0)
+            .unwrap()
+            .into_iter()
+            .map(|rec| rec.decode::<crate::ledger::LedgerRow>().unwrap().data)
+            .collect();
+        if found.len() >= 2 || t0.elapsed() > Duration::from_secs(20) {
+            break found;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
     let dynamic = |node: &str| {
         calls
             .iter()
