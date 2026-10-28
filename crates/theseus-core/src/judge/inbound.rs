@@ -620,9 +620,6 @@ impl JudgeService {
         // (one state, one request), `route.v6` never does, and with
         // `request = "own"` only `onto.v1` does (theseus-xzxqv).
         let core = self.core();
-        // route.v9 asks `draft` only when the operator lets Jev choose
-        // (theseus-kqeih); a service with no core attached asks nothing more.
-        input.draft_choice = core.as_ref().is_some_and(|c| c.cfg.routing.draft_by_jev);
         let onto = packs.iter().any(|(p, _, _)| is_onto(p))
             && core
                 .as_ref()
@@ -741,7 +738,16 @@ impl JudgeService {
             .map(|(_, n)| n)
             .collect();
         let live_tasks = self.live_tasks(&msg.kernel, &msg.execution_id);
-        Some(input(&nodes, msg, live_tasks))
+        Some(InboundInput {
+            draft_choice: self.draft_choice(),
+            ..input(&nodes, msg, live_tasks)
+        })
+    }
+
+    /// route.v9 asks `draft` only when the operator lets Jev choose
+    /// (theseus-kqeih); a service with no core attached asks nothing more.
+    fn draft_choice(&self) -> bool {
+        self.core().is_some_and(|c| c.cfg.routing.draft_by_jev)
     }
 
     /// The session's live tasks, oldest first: each one's id, its brief's
