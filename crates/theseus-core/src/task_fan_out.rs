@@ -310,16 +310,30 @@ fn wrapped(h: &HelperArg) -> String {
 
 /// The message of this turn that asked for the work, the objective each helper
 /// quotes by id: the operator's, or, in a turn a wake or a report started, the
-/// message that started it. Never an earlier exchange's.
+/// message that started it. Never an earlier exchange's, so a turn with no
+/// message of its own (a retry, a late result's continuation) is refused: a
+/// helper's objective is an arrangement piece, which `task.create` resolves to
+/// a node of the transcript and will not start without, so `objective` and
+/// `because` have no node to stand in as. Fan-out is unavailable on such a
+/// turn, and the refusal says to start the helpers with `task_create`.
 fn input_node(tc: &TurnCtx<'_>) -> Result<String, String> {
     let nodes = tc
         .store
         .transcript(tc.session_id)
         .map_err(|e| format!("Not started: {e:#}"))?;
+    pick_input(&nodes, tc.turn_id)
+}
+
+/// The message `input_node` names, from a session's `nodes`: the operator's
+/// message of turn `turn_id`, else the last user-role message that turn holds.
+pub(crate) fn pick_input(
+    nodes: &[(u64, crate::stub::Stub)],
+    turn_id: &str,
+) -> Result<String, String> {
     let here: Vec<_> = nodes
         .iter()
         .filter(|(_, n)| {
-            n.turn_id.as_deref() == Some(tc.turn_id) && matches!(n.body, Body::UserMessage { .. })
+            n.turn_id.as_deref() == Some(turn_id) && matches!(n.body, Body::UserMessage { .. })
         })
         .collect();
     here.iter()

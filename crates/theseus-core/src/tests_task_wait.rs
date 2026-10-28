@@ -777,3 +777,243 @@ mod warm {
         );
     }
 }
+
+/// An assistant message's body, with the text `said`.
+fn said(text: &str) -> Body {
+    Body::AssistantMessage {
+        blocks: vec![json!({"type": "text", "text": text})],
+        model: "claude-sonnet-5-5".into(),
+        provider: "anthropic".into(),
+        stop_reason: Some("end_turn".into()),
+        usage: theseus_protocol::Usage::default(),
+        cost_usd: None,
+        catalog_version: None,
+        request_id: None,
+        correlation_id: None,
+        compilation_id: None,
+        request_digest: None,
+        effort: None,
+    }
+}
+
+/// The running notes draw from the same fan-in bound as the reports (the stack
+/// review's N5), through a real wait: four tasks that have each said some 1,500
+/// characters and not ended, in a fan-in of 2,500. The room holds two notes at
+/// the least a text keeps; the other two arrive as a pointer to the task's
+/// session, so the notes together stay inside the bound. Before, every note
+/// took `report_chars` whatever the bound said.
+#[tokio::test]
+async fn running_notes_share_the_fan_in_bound_and_those_past_it_arrive_as_pointers() {
+    let mut r = rig(
+        |req| {
+            if first_user(req).contains("CHILD:") {
+                return Scripted::text("held at the gate, never answered");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started.");
+            }
+            starts(&["CHILD: a", "CHILD: b", "CHILD: c", "CHILD: d"])
+        },
+        |c| c.tools.fan_in_chars = 2_500,
+    );
+    *r.model.hold.lock().unwrap() = Some("CHILD:".into());
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let tasks = tasks_of(&r.core, &parent);
+    assert_eq!(tasks.len(), 4);
+    // Each task is past its compile and held in its model call, so what is
+    // written into its session now is read by nothing that checks it.
+    for _ in 0..4 {
+        let entered = tokio::time::timeout(Duration::from_secs(20), r.entered.recv()).await;
+        assert!(entered.is_ok(), "a task never reached its model call");
+    }
+    let text: String = (0..30)
+        .map(|i| format!("src/m{i}.rs:{i} — f{i} — the problem {i} — the fix {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for t in &tasks {
+        let message = Node::assistant(&t.session_id, "trn_said", 0, said(&text));
+        r.core.store.append(&[message.record().unwrap()]).unwrap();
+    }
+    let ask = WaitAsk {
+        tasks: tasks.iter().map(|t| t.id.clone()).collect(),
+        timeout: Duration::from_secs(1),
+        report_chars: 6000,
+        fan_out: None,
+        turn: TurnRef::for_exec(&r.core, &parent_exec(&r.core, &parent)),
+    };
+    let out = crate::task_wait::wait_on_tasks(r.core.clone(), parent.clone(), ask)
+        .await
+        .expect("a wait that times out still answers");
+    assert!(
+        out.0.text.starts_with("0 of 4 tasks reported, 4 still running"),
+        "{}",
+        out.0.text
+    );
+    assert_eq!(out.0.meta["fan_in"]["chars"], 2_500);
+    let notes: Vec<String> = reports_in(&r.core, &parent).iter().map(text_of).collect();
+    assert_eq!(notes.len(), 4, "{notes:?}");
+    let pointers = notes
+        .iter()
+        .filter(|n| n.contains("the room for notes is used; read them in task"))
+        .count();
+    let inline = notes.iter().filter(|n| n.contains("the problem")).count();
+    assert_eq!((inline, pointers), (2, 2), "two fit the room: {notes:?}");
+    let chars: usize = notes.iter().map(|n| n.chars().count()).sum();
+    assert!(
+        chars < 2_500 + 4 * 120,
+        "the notes took {chars} characters of a 2,500 bound"
+    );
+}
+
+/// A wait names its turn by number, so a wait that outlived its turn takes no
+/// report and writes no node into a turn that is over (the stack review's N7):
+/// the finished task's report stays on the parent for the next turn.
+#[tokio::test]
+async fn a_wait_that_outlived_its_turn_brings_in_no_report_and_writes_no_node() {
+    let r = rig(
+        |req| {
+            if first_user(req).contains("CHILD:") {
+                return Scripted::text("a.rs:1 — f — bug — fix");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started.");
+            }
+            starts(&["CHILD: one"])
+        },
+        |_| {},
+    );
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let child = tasks_of(&r.core, &parent).remove(0);
+    until("the child ended", || exec(&r.core, &child.id).state.is_terminal()).await;
+    let before = parent_exec(&r.core, &parent);
+    assert_eq!(before.reports, vec![child.id.clone()], "its report waits");
+    // The turn this wait names is not the one the execution is running.
+    let mut stale = before.clone();
+    stale.turns += 1;
+    let ask = WaitAsk {
+        tasks: vec![child.id.clone()],
+        timeout: Duration::from_secs(2),
+        report_chars: 6000,
+        fan_out: None,
+        turn: TurnRef::for_exec(&r.core, &stale),
+    };
+    let out = crate::task_wait::wait_on_tasks(r.core.clone(), parent.clone(), ask).await;
+    assert!(out.is_err(), "a wait that outlived its turn takes nothing");
+    assert!(reports_in(&r.core, &parent).is_empty(), "and binds no node");
+    assert_eq!(
+        parent_exec(&r.core, &parent).reports,
+        vec![child.id.clone()],
+        "the report stays for the next turn"
+    );
+}
+
+/// A wait whose parent holds no slot to lend (its turn ended, so the queue
+/// does not hold it) asks to lend once, then naps a `LOOK` at a time. The retry
+/// that asked again on every pass, with its nap clamped to 1 ms, looked at the
+/// tasks hundreds of times in the second after `LEND_AFTER`; the wait looks
+/// about once a second.
+#[tokio::test]
+async fn a_wait_with_no_slot_to_lend_asks_once_and_does_not_spin() {
+    let r = rig(
+        |req| {
+            if first_user(req).contains("CHILD:") {
+                return Scripted::text("never answered");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started.");
+            }
+            starts(&["CHILD: stuck"])
+        },
+        |_| {},
+    );
+    *r.model.hold.lock().unwrap() = Some("CHILD: stuck".into());
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let ask = WaitAsk {
+        tasks: tasks_of(&r.core, &parent).iter().map(|t| t.id.clone()).collect(),
+        timeout: crate::turn::admission::LEND_AFTER + Duration::from_secs(1),
+        report_chars: 6000,
+        fan_out: None,
+        turn: TurnRef::for_exec(&r.core, &parent_exec(&r.core, &parent)),
+    };
+    let before = r.core.tools.job_waits.looks();
+    let _ = crate::task_wait::wait_on_tasks(r.core.clone(), parent.clone(), ask).await;
+    let looks = r.core.tools.job_waits.looks() - before;
+    assert!(
+        (2..=20).contains(&looks),
+        "the wait looked at its tasks {looks} times in {:?}",
+        crate::turn::admission::LEND_AFTER + Duration::from_secs(1)
+    );
+}
+
+/// One turn of `sid` with a deadline of `secs`, set the way `turn.submit` sets
+/// it: the turn takes it at its first loop and it is in force while the turn
+/// runs.
+async fn turn_with_deadline(
+    core: &Arc<Core>,
+    sid: &str,
+    input: &str,
+    secs: u64,
+) -> theseus_protocol::TurnSubmitResult {
+    let rec: crate::session::SessionRecord = core.store.get_session(sid).unwrap().unwrap();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    let arrived = Instant::now();
+    crate::turn::clock_step::set_deadline(sid, arrived, Some(secs));
+    core.runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            surface: None,
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink: crate::bus::EventSink::new(core.bus.clone(), sid, None),
+            author: "test".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: Some(arrived),
+            reply_to: None,
+            answer_at: None,
+        })
+        .await
+        .unwrap()
+}
+
+/// A turn's end leaves nothing of its wait behind (the stack review's N10): the
+/// deadline it had in force is dropped, so a later wait of the session never
+/// clamps to it, and the room its wait recorded is forgotten, so the session's
+/// entry does not outlive its turn. Both are set while the turn waits and gone
+/// once it has ended.
+#[tokio::test]
+async fn a_turns_end_leaves_no_deadline_in_force_and_no_room_recorded() {
+    let wait: WaitCall = Arc::new(Mutex::new(json!({})));
+    let r = waiting_rig(
+        &["CHILD: one"],
+        wait,
+        |_| Scripted::text("a.rs:1 — f — bug — fix"),
+        |_| {},
+    );
+    *r.model.hold.lock().unwrap() = Some("CHILD: one".into());
+    let parent = parent_session(&r.core);
+    let (core, p) = (r.core.clone(), parent.clone());
+    let run = tokio::spawn(async move { turn_with_deadline(&core, &p, ASK, 3_600).await });
+    until("the deadline and the room are in force while it waits", || {
+        r.core.runner.keep_warm.room(&parent).is_some()
+            && crate::turn::clock_step::left_in_force(&parent).is_some()
+    })
+    .await;
+    r.model.gate.add_permits(1);
+    run.await.unwrap();
+    assert_eq!(
+        r.core.runner.keep_warm.room(&parent),
+        None,
+        "the turn's end forgets the room its wait recorded"
+    );
+    assert_eq!(
+        crate::turn::clock_step::left_in_force(&parent),
+        None,
+        "the turn's end drops the deadline it had in force"
+    );
+}

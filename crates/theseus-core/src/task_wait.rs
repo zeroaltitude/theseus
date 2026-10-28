@@ -438,6 +438,7 @@ pub(crate) async fn wait_on_tasks(
         tokio::pin!(settled);
         settled.as_mut().enable();
         let open = unended(&core, &ask.tasks);
+        rt.job_waits.looked();
         if open == 0 {
             break;
         }
