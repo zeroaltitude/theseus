@@ -91,7 +91,9 @@ impl TurnRunner {
         // The request just answered, if it was a retry, ends the retry.
         let was_retry = std::mem::take(&mut t.again.pending);
         if resp.stop_reason.as_deref() != Some("refusal") {
-            if was_retry {
+            // Not while latched: a retry cut at its whole-call bound fell to
+            // the fallback, and the fallback's request names it.
+            if was_retry && !on_fallback(t) {
                 spec.fallback = None;
             }
             return false;
@@ -197,6 +199,9 @@ impl TurnRunner {
         else {
             return false;
         };
+        // A switch ends any retry in flight: the answer that follows is the
+        // fallback's, not the retry's.
+        t.again.pending = false;
         // Set once; a later switch finds the same target (the routed target's
         // clamp is the same each time).
         let target = slot.get_or_init(|| Target {
