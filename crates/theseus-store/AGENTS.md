@@ -75,6 +75,18 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   its build wrote, to theseus-core's `tests_layouts` when the layout is on disk somewhere. A new record kind needs no
   table. The number itself is assigned when the step lands on `main`, never in a lane: a lane that adds a field says
   so in its report.
+- **A META key ends with a tombstone** (theseus-1kw2v). `NewRecord::delete_meta(key)` is a `kinds::TOMBSTONE` record
+  whose key is the META key it ends and whose payload is empty; appended in a frame with other records, it takes the
+  key out of `bykey`, `born`, `bybirth` and `keycounts` as the index applies it, so `latest_by_key`,
+  `latest_of_kind`, `latest_with_prefix`, `keys_ending`, `count_keys` and the newest keys by birth no longer answer
+  it, and a write of it later starts it afresh, its birth the new record's. The records it held stay in the log, in
+  a scan by position or kind, and the tombstone is itself a record of its kind (never keyed in the index). META only:
+  nothing projects it, so no terms or sums need undoing. An index applies a batch that holds a tombstone in position
+  order, a transaction for the records up to it and one for the key it ends (`RedbIndex::apply`); a long replay that
+  holds one skips the bulk build for the same order (`apply_bulk`), and the build of the shape after serving does not
+  birth a key the index no longer has, and takes back a birth it gave one before the tombstone (`put_built`). A build
+  older than this one reads a store with tombstones as a store with one more kind of record, and brings the keys
+  back, so a build that writes tombstones needs the format number bumped when it lands on `main`.
 - **A record's header schema is frozen**: `NewRecord` has none, the WAL writes `FROZEN_SCHEMA` (0), and nothing reads
   the field. Records from before one store format keep their kind's old number there.
 - **Old layouts are read in place.** An open writes no manifest. The writer's first frame into a store an older
