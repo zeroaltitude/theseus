@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, FakeMode, Scripted as Jev};
 
 use super::content::{ContentItem, PACK};
@@ -220,6 +220,46 @@ async fn the_operators_message_is_asked_three_questions_and_a_tool_result_four()
     assert_eq!(
         asked(&seen[1].body),
         ["confidential", "injection", "personal", "secret"]
+    );
+}
+
+/// What the conditional question resolved against is recorded beside the
+/// state's blob (theseus-gyjyo.1), so a replay can serve the stored state:
+/// the `untrusted` source holds its item for a tool result and is an empty
+/// list, still recorded, for the operator's own words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_judgment_records_the_sources_its_conditional_question_resolved_against() {
+    let jev = FakeJev::start().unwrap();
+    no(&jev);
+    let r = rig(&jev, |_| {});
+    let sid = session(&r);
+    r.core.runner.judge.ask_content(
+        &sid,
+        vec![
+            item_in(&r, &sid, "n1", ItemKind::OperatorMessage, "count the herons"),
+            item_in(&r, &sid, "n2", ItemKind::ToolResult, "ordinary text"),
+        ],
+    );
+    until(&r, "content.judged", 2).await;
+    let calls: Vec<Value> = r
+        .core
+        .store
+        .scope_after("judge:content", 0)
+        .unwrap()
+        .into_iter()
+        .map(|rec| rec.decode::<crate::ledger::LedgerRow>().unwrap().data)
+        .collect();
+    let dynamic = |node: &str| {
+        calls
+            .iter()
+            .find(|d| d["context"]["node"] == node)
+            .map(|d| d["context"]["dynamic"].clone())
+    };
+    assert_eq!(dynamic("n1"), Some(json!({"untrusted": []})));
+    assert_eq!(
+        dynamic("n2"),
+        Some(json!({"untrusted": [{"key": "untrusted",
+            "text": "not the operator's own words"}]}))
     );
 }
 

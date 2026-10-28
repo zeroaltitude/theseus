@@ -703,10 +703,14 @@ fn content_judgment(c: &Core, id: &str, kind: &str, text: &str, recorded: bool) 
     j
 }
 
+/// The candidate: `content.v2`'s own text as the next version, which is how a
+/// hand-written candidate is made (a replay refuses the wired version, and the
+/// incumbent itself). Its questions are the incumbent's, `injection` still
+/// conditional.
 async fn replay_content(c: &Arc<Core>, ids: &[&str]) -> JudgeReplayResult {
     c.judge_replay(
         JudgeReplayParams {
-            pack_text: Some(CONTENT_V2.into()),
+            pack_text: Some(CONTENT_V2.replacen("version = 2", "version = 3", 1)),
             judgments: ids.iter().map(|s| s.to_string()).collect(),
             ..Default::default()
         },
@@ -743,8 +747,8 @@ async fn a_stored_content_judgment_is_served_from_the_store() {
             .filter(|s| s.body["state"].to_string().contains(text))
             .flat_map(|s| {
                 s.body["questions"]
-                    .as_array()
-                    .map(|a| a.iter().map(|q| q["id"].to_string()).collect::<Vec<_>>())
+                    .as_object()
+                    .map(|q| q.keys().cloned().collect::<Vec<_>>())
                     .unwrap_or_default()
             })
             .collect()
