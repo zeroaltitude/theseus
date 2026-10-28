@@ -410,6 +410,18 @@ pub struct Built {
     pub during_wait: bool,
 }
 
+/// A keep-warm read's call, under its session, so its `request.redacted` row
+/// names it: a read resends the whole transcript every few minutes.
+fn read_call<'a>(
+    sid: &str,
+    provider: &'a dyn crate::provider::Provider,
+    request: &'a crate::provider::ProviderRequest,
+    quiet: crate::provider::DeltaSink<'a>,
+) -> crate::provider::ProviderFuture<'a> {
+    let call = crate::exits::Call::of_session("keep_warm", sid);
+    crate::exits::for_call(call, || provider.stream_message(request, quiet))
+}
+
 impl TurnRunner {
     /// The request a keep-warm read of `session_id` sends: the session's
     /// next compile up to its last message, then `LINE`, at `MAX_TOKENS`.
@@ -667,20 +679,16 @@ impl TurnRunner {
         }
         let started = std::time::Instant::now();
         let mut quiet = |_: crate::provider::Delta<'_>| {};
-        let call = crate::exits::Call::of_session("keep_warm", sid);
-        let resp =
-            match crate::exits::for_call(call, || provider.stream_message(&b.request, &mut quiet))
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    drop(hold);
-                    return stop(format!(
-                        "its call failed after {} ms: {e:#}",
-                        started.elapsed().as_millis()
-                    ));
-                }
-            };
+        let resp = match read_call(sid, provider.as_ref(), &b.request, &mut quiet).await {
+            Ok(r) => r,
+            Err(e) => {
+                drop(hold);
+                return stop(format!(
+                    "its call failed after {} ms: {e:#}",
+                    started.elapsed().as_millis()
+                ));
+            }
+        };
         let cost = self.priced(&resp, &b.target.model, need);
         let u = &resp.usage;
         let mut data = json!({
