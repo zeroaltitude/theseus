@@ -31,9 +31,27 @@ fn rig() -> Rig {
     rig_full(vec![], false, false)
 }
 
+/// `rig`, its core's scrubber knowing `values` (each value, then the secret's
+/// name), as the daemon's does the vault's.
+fn rig_seeing(values: Vec<(String, String)>) -> Rig {
+    rig_built(
+        vec![],
+        (false, false),
+        Some(crate::scrub::Scrubber::with_values(values)),
+    )
+}
+
 /// A rig whose model answers `script`, then text; with `approve`, every call
 /// that acts waits for the operator; with `unsynced`, no frame is synced.
 fn rig_full(script: Vec<Scripted>, approve: bool, unsynced: bool) -> Rig {
+    rig_built(script, (approve, unsynced), None)
+}
+
+fn rig_built(
+    script: Vec<Scripted>,
+    (approve, unsynced): (bool, bool),
+    scrubber: Option<crate::scrub::Scrubber>,
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -49,12 +67,12 @@ fn rig_full(script: Vec<Scripted>, approve: bool, unsynced: bool) -> Rig {
     } else {
         Store::open(&dir.path().join("store")).unwrap()
     };
-    let core = Core::build(crate::rpc::Parts::for_tests(
-        cfg,
-        Arc::new(FakeProvider::scripted(script)),
-        store,
-    ))
-    .unwrap();
+    let mut parts =
+        crate::rpc::Parts::for_tests(cfg, Arc::new(FakeProvider::scripted(script)), store);
+    if let Some(s) = scrubber {
+        parts.scrubber = Arc::new(s);
+    }
+    let core = Core::build(parts).unwrap();
     Rig { core, _dir: dir }
 }
 

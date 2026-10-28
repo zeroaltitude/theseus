@@ -22,7 +22,6 @@ use super::tests::{call, import, index_of, lines, live, sessions_of};
 use super::write;
 use super::{session_id_of, Integrity};
 use crate::node::Body;
-use crate::scrub::Scrubber;
 use crate::session::SessionRecord;
 use crate::tests_recall::{dropped_for, recalls, session, turn, PIER};
 
@@ -187,8 +186,7 @@ async fn a_vault_value_is_stored_in_every_encoding_as_it_came() {
         }],
         ..Default::default()
     };
-    let s = Scrubber::with_values(vec![(secret.into(), "reef_key".into())]);
-    let b = write::import_batch_scrubbed(&c.store, &p, "cli", || false, &s).unwrap();
+    let b = write::import_batch_unless(&c.store, &p, "cli", || false).unwrap();
     assert_eq!(b.result.imported, 1, "{:?}", b.result);
     let sid = session_id_of(e["episode_id"].as_str().unwrap());
     let all = serde_json::to_string(
@@ -203,7 +201,10 @@ async fn a_vault_value_is_stored_in_every_encoding_as_it_came() {
     for needle in [secret, b64.as_str(), enc.as_str()] {
         assert!(all.contains(needle), "{needle} not in {all}");
     }
-    assert!(all.contains("plain marsh-kelp-vault-value-77 here"), "{all}");
+    assert!(
+        all.contains("plain marsh-kelp-vault-value-77 here"),
+        "{all}"
+    );
     assert!(!all.contains("[redacted:"), "{all}");
 }
 

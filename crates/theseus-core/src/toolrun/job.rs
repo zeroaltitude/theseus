@@ -531,7 +531,6 @@ impl ToolRuntime {
             granted: granted.as_deref(),
             withheld: &withheld,
             bound_ms: bound.as_millis() as u64,
-            scrubber: &self.scrubber,
             class,
         });
         for g in &brokered.granted {

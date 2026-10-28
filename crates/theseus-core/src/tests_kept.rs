@@ -26,7 +26,7 @@ use crate::{Config, Core};
 /// The value the job prints, which the scrubber knows: the record is raw, so
 /// it is in the kept file and in the node as the job printed it (the exits
 /// substitute it, the store does not).
-const PLANTED: &str = "invented-secret-0f9a8b7c6d5e4f3a";
+const PLANTED: &str = "invented-secret-0f9a8b7c";
 
 struct Rig {
     core: Arc<Core>,
@@ -227,7 +227,10 @@ async fn a_capped_command_keeps_its_whole_raw_output_and_fs_read_reads_the_middl
         })
     };
     assert!(held(&state_outputs(&r)), "the kept file holds the value");
-    assert!(held(&r.state.join("store")), "the store holds the node's value");
+    assert!(
+        held(&r.state.join("store")),
+        "the store holds the node's value"
+    );
     assert!(
         !whole.contains("[redacted:"),
         "nothing in the whole output was masked"
@@ -529,5 +532,8 @@ async fn a_task_reports_kept_copy_is_the_report_as_written() {
     let (_, cut, kept) = crate::task_wait::fit(&r.core, &sid, &report, 200);
     assert!(cut);
     let whole = std::fs::read_to_string(kept.expect("kept")).unwrap();
-    assert!(whole.contains(&format!("found the key {PLANTED}")), "{whole}");
+    assert!(
+        whole.contains(&format!("found the key {PLANTED}")),
+        "{whole}"
+    );
 }

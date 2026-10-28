@@ -13,7 +13,6 @@ use theseus_sandbox::egress::{Reached, Refused};
 use super::{Fact, Say};
 use crate::narrative;
 use crate::sandbox::Sandbox;
-use crate::scrub::Scrubber;
 
 /// A job started in L1 (`sandbox.started`): its limits, its read-only
 /// paths, and its egress list (18c; empty for no network). Its
@@ -26,8 +25,6 @@ pub struct SandboxStarted<'a> {
     pub cwd: &'a Path,
     pub view: &'a L1,
     pub sandbox: &'a Sandbox,
-    /// For the narrative's subject, which may name a secret's value.
-    pub scrubber: &'a Scrubber,
     /// The variables its grants gave it at its launch, names only.
     pub given: &'a [&'a str],
 }
@@ -51,7 +48,7 @@ impl Fact for SandboxStarted<'_> {
             format!(
                 "{} runs in L1, the sandbox: {reach}, {}, {}; what it writes goes to scratch, \
                  and is discarded.",
-                self.scrubber.scrub(&subject).0,
+                subject,
                 crate::sandbox::given(self.given),
                 self.sandbox.limits_line()
             ),

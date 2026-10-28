@@ -630,7 +630,10 @@ fn a_granted_program_in_l1_gets_its_grant_at_launch() {
     let l0 = r.turn("gh at L0", vec![gh(false)]);
     assert_eq!(said(&l0[0], "token"), "yes", "{}", l0[0]);
     let state = holding(&r.path("projects/state"));
-    assert!(!state.is_empty(), "the store holds the value the job printed");
+    assert!(
+        !state.is_empty(),
+        "the store holds the value the job printed"
+    );
     let log = std::fs::read_to_string(r.path("theseusd.log")).unwrap();
     assert!(!log.contains(VALUE), "the value is in the daemon's log");
 }

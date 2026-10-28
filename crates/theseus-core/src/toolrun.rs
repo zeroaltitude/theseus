@@ -808,7 +808,7 @@ impl ToolRuntime {
             .or_default() += 1;
     }
 
-    /// The node for a result, its text scrubbed of secret values and capped.
+    /// The node for a result, its text as the tool printed it, capped.
     fn result_node(&self, tc: &TurnCtx<'_>, r: ResultNode<'_>) -> Node {
         self.result_node_in(tc.session_id, Some(tc.turn_id), tc.loop_index, r)
     }
@@ -823,9 +823,8 @@ impl ToolRuntime {
         r: ResultNode<'_>,
     ) -> Node {
         let r = self.fit_noted(r);
-        let (scrubbed, redactions) = self.scrubber.scrub(&r.text);
         // What the cap leaves out: kept, or the tool's to say (theseus-v73m).
-        let (content, truncated, full_ref) = self.capped(session_id, &r, &scrubbed);
+        let (content, truncated, full_ref) = self.capped(session_id, &r, &r.text);
         // A job of the daemon's own CLI names the native call that does it,
         // after the cap so no cut takes it (theseus-8c8s).
         let content = match &r.hint {
@@ -838,10 +837,6 @@ impl ToolRuntime {
             Some(line) if !r.late => format!("{content}\n{line}"),
             _ => content,
         };
-        let mut meta = crate::tool_words::scrub_diff(&self.scrubber, r.meta);
-        if redactions > 0 {
-            meta["redactions"] = json!(redactions);
-        }
         Node::tool_result(
             session_id,
             turn_id,
@@ -855,11 +850,11 @@ impl ToolRuntime {
                 correlation_id: r.correlation_id.map(str::to_string),
                 bytes_total: r.bytes_total.unwrap_or(r.text.len() as u64),
                 truncated,
-                // The scrubbed whole output a cut result keeps (theseus-v73m).
+                // The whole output a cut result keeps (theseus-v73m).
                 full_ref,
                 duration_ms: r.duration_ms,
                 late: r.late,
-                meta,
+                meta: r.meta,
                 image: r.image,
                 external: r.external,
             },

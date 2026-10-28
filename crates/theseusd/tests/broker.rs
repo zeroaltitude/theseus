@@ -513,6 +513,10 @@ fn a_program_that_prints_its_granted_secret_leaves_it_in_the_record_as_printed()
         want,
         "the spool file, while the job runs: what the job printed"
     );
+    eprintln!(
+        "evidence: spool file while the job runs: {:?}",
+        String::from_utf8_lossy(&out)
+    );
     std::fs::write(&release, "").unwrap();
     let session = turn.join().unwrap();
     let text = r.wait("the job's result", || {
@@ -523,6 +527,7 @@ fn a_program_that_prints_its_granted_secret_leaves_it_in_the_record_as_printed()
         text.contains(&format!("the token: {value}, done")),
         "the node, read back out of the store: {text}"
     );
+    eprintln!("evidence: result node, read back out of the store (session.results): {text:?}");
     // The result's node keeps the job's report, which counts nothing withheld.
     let nodes = r
         .call(
@@ -541,11 +546,18 @@ fn a_program_that_prints_its_granted_secret_leaves_it_in_the_record_as_printed()
         holding(&r.path("theseusd.log"), value.as_bytes()),
         Vec::<PathBuf>::new()
     );
+    eprintln!(
+        "evidence: store files holding the value: {:?}",
+        holding(&r.path("state"), value.as_bytes())
+    );
     let history = r
         .call("session.history", json!({"session_id": session}))
         .unwrap()
         .to_string();
-    assert!(history.contains(&value), "the session shows what was printed");
+    assert!(
+        history.contains(&value),
+        "the session shows what was printed"
+    );
     let health = r.call("health", Value::Null).unwrap().to_string();
     assert!(!health.contains(&value), "health holds no value");
 }

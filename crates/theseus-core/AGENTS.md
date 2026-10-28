@@ -584,10 +584,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   sample and format-32 store test in `tests_layouts.rs`.
 - **What a question and a finished edit show** (theseus-z6au; `tool_words.rs`): `ToolRuntime::preview` makes a
   `confirm.requested`'s `preview` (an edit's, write's or patch's diff from theseus-tools' `change`, a `proc.run` as a
-  shell line with its directory), scrubbed as the model's copy is; the asking call (`toolrun::ask`) and `confirm.list`
-  (`rpc/confirms.rs`, which reads the files as they are then) both make it. `scrub_diff` scrubs a result's `meta["diff"]`
-  as `result_node_in` writes it, and `fact::tool::ToolEnded` pushes it as `tool.ended`'s `diff`. Tests:
-  `tests_tool_words.rs` (a preview equals the run's diff; a planted secret is in neither).
+  shell line with its directory), its body scrubbed of vault values (it is a question, an exit); the asking call
+  (`toolrun::ask`) and `confirm.list` (`rpc/confirms.rs`, which reads the files as they are then) both make it. A
+  result's `meta["diff"]` is the node's, as written (the record is raw), and `fact::tool::ToolEnded` pushes it as
+  `tool.ended`'s `diff`. Tests: `tests_tool_words.rs` (a preview equals the run's diff; a planted secret is in no
+  question).
   **On Discord** (theseus-sjzm; `rpc/thread_surface.rs`, `turn/reply_step.rs`): `ThreadInfo.surfaces` is edited whole by
   `thread.edit { surfaces }` (a person, judged) and one at a time by `Core::thread_surfaces` (the Discord binding's own act: a
   Discord thread it made, a channel the config binds; an edit row whose `who` is `discord`/`config`). Every thread fact
@@ -995,7 +996,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the L1 decision (`sandbox::unbrokered`) through `ToolRuntime::brokered` (decision 15: the stricter of the call's
   posture and the secret's, so any approval comes before the launch), and `sandbox::for_job` asks
   `Broker::for_job`. The value rides in the job's environment over
-  the spec's pipe, the wrapper withholds it from the job's output (`redact`), and the result's head names what the
+  the spec's pipe, the wrapper keeps its output as printed (`redact`: the cap only), and the result's head names what the
   job was given (`given GH_TOKEN`, names only, from the wrapper's `detail.sandbox.granted`). Tests:
   `tests_grants.rs`, and the daemon's `tests/sandbox.rs` with a real L1 job. 18d's run-time socket
   (`theseus-cred get`) is gone; a stored `cred.request` action and its ledger rows still read.
@@ -2424,10 +2425,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   **Harness history** (theseus-o73y): `theseus import claude-code|codex` (the CLI's `harness/`) makes the episodes of
   those tools' session files, sources `claude-code` and `codex` (`episode::HARNESS_SOURCES`, apart from the
   pipeline's `SOURCES`), a `cli` place named by the project directory and its id the git branch, the tool results
-  outside text. `write::import_batch_scrubbed` scrubs every message, summary and place name of a harness episode
-  with the daemon's own scrubber as it writes (`write::scrubbed`; the CLI holds no vault value), after the episode's
-  hash was checked over what the CLI sent, so the hash stays the idempotency key and the stored `sha256` is the
-  stored text's. Tests: `import/tests_harness.rs`.
+  outside text. `write::import_batch_unless` stores every message, summary and place name of a harness episode
+  as it came (the record is raw), after the episode's hash was checked over what the CLI sent, so the hash stays the
+  idempotency key; the daemon computes each message's `sha256` over the stored text (`write::digested`,
+  `episode::DIGESTED_SOURCES`). Tests: `import/tests_harness.rs`.
   **A session that grew** (theseus-pjmj7; `import/append.rs`, no store format change): the same episode id with another
   hash whose messages begin with the stored ones appends only the new nodes (`node_id_of(session, idx)`, each at its own
   time), with the session's record (hash, message count, `as_of.end_ms`, `last_active_ms`; tag, place, labels and `file`
@@ -2440,7 +2441,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   **The OpenClaw sync** (theseus-pjmj7; `import/sync.rs`, `rpc/import_sync.rs`, `judge/people/sync.rs`;
   `[import.openclaw]` in `config/import.rs`: `state_dir`, `owner_ids`, `agents`, off while `state_dir` is unset):
   `theseus import sync` runs `scripts/openclaw-export.py` on OpenClaw's own stores and sends the episodes (source
-  `openclaw-sync`, scrubbed like a harness source: `episode::SCRUBBED_SOURCES`) through `import.episodes`; the daemon's
+  `openclaw-sync`, stored as a harness source is: `episode::DIGESTED_SOURCES`) through `import.episodes`; the daemon's
   half is `import.sync.plan` (config, cursor, the first run's start: the newest `as_of` end of the `openclaw-store`
   sessions) and `import.sync.record`, which writes META `import.sync.state` (the exporter's cursor, the run's counts,
   the people list) with the `import.synced` row in one frame, then makes the touched tags' people (`import::people`),
@@ -3492,19 +3493,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `job_result`), and a session opened, or sent a turn, with `opened_from` a holding session takes its hold in the
   frame that writes it (`external::from_job`; every job's `THESEUS_SESSION`). Both are light guards under default
   trust, not boundaries: a job can strip its own environment (theseus-b5cl).
-- **Secrets**: no value in a log, a row, a node, a result, or an error. `scrub.rs` scrubs tool output: each board
-  value verbatim, in base64, percent-encoded, and with any of its characters JSON-escaped (`scrub/escaped.rs`:
-  the text decoded once where it holds a backslash, a match mapped back to the escaped span; theseus-ubp7), twice
-  for JSON inside a JSON string, YAML's and Python repr's escapes among them (a run of `\xNN` that is one character's
-  UTF-8 read as that character; theseus-nlvx), and base64 in a decoded text where an escape joins it (`\n` every 60
-  characters in a JSON string; theseus-cjyt), and
-  the shapes of secrets never resolved here (`scrub/shapes.rs`: token prefixes, OpenAI, Stripe and Google keys among
-  them, AWS keys, private-key blocks, JWTs, and a URL's password, the password alone), as written and inside base64,
-  percent-escapes, and the escapes (`scrub/decoded.rs`, theseus-oyrt); YAML's folded line break is an escape that decodes
-  to nothing (theseus-d80h). A new shape lands with its row in `scrub/corpus.rs`, the planted-secret corpus that
-  `scrub/tests_corpus.rs` and theseusd's `tests/planted_secrets.rs` (a daemon, every sink grepped) hold to zero leaks,
-  and the clean corpus to zero false positives. Build test secrets from parts: GitHub refuses a push holding one
-  whole. The broker hands a value only to the program it is granted to, run by its
+- **Secrets**: no value in a log or an error; **the stored record is raw** (R7a, owner 2026-10-27: "the session must
+  be the true record of what actually happened"), so a node, a kept output, an imported episode, a watch's row and the
+  job's spool file hold what the tool printed, a value the vault gave it included. `scrub.rs` is exact-value
+  substitution and nothing else: each board value verbatim, in base64, percent-encoded, and with any of its
+  characters JSON-escaped (`scrub/escaped.rs`: the text decoded once where it holds a backslash, a match mapped back to
+  the escaped span; theseus-ubp7), twice for JSON inside a JSON string, YAML's and Python repr's escapes among them
+  (a run of `\xNN` that is one character's UTF-8 read as that character; theseus-nlvx), and base64 in a decoded text
+  where an escape joins it (`\n` every 60 characters in a JSON string; theseus-cjyt; YAML's folded line break decodes
+  to nothing, theseus-d80h). It runs on copies that leave the machine and on the push guard, never on the record.
+  There are no shape finders: a token the vault never gave is text. `scripts/scrub.sh` keeps its own shapes. Build
+  test secrets from parts: GitHub refuses a push holding one whole. The broker hands a value only to the program it is granted to, run by its
   own argv, and never to one the call could make it run (`broker::launches`: the call's own environment, gh's
   aliases and extensions, git's aliases, `-c`, and the programs its options and URLs name), in L1 as at L0.
 - **The AWS keys and the providers' keys are harness-only** (theseus-gh7): Theseus's own tools read them from the

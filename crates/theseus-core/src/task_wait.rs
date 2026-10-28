@@ -901,10 +901,7 @@ pub(crate) fn fit(
         .tools
         .outputs
         .path_for(session, &format!("task-{}", r.short))
-        .and_then(|to| {
-            let whole = core.tools.scrubber.scrub(text).0;
-            core.tools.outputs.keep_text(&whole, &to).ok().map(|()| to)
-        })
+        .and_then(|to| core.tools.outputs.keep_text(text, &to).ok().map(|()| to))
         .map(|p| p.display().to_string());
     if per == 0 {
         let n = text.lines().filter(|l| !l.trim().is_empty()).count();
