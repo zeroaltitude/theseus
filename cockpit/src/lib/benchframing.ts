@@ -23,6 +23,7 @@ export const FRAMING_WORDS: Record<Framing, string> = { A: 'Same model, harness 
  *  versioned key (`theseus-68`), the dataset's model line saying Theseus itself is Jev-routed. A model line that only
  *  describes the routed arm as the thing compared against ("the routed arm: Jev's pick…") does not make a fixed-model
  *  or refused-commands variant routed. The one test the legend (`framingOf`) and the card (`framingOfRow`) share. */
+// `family`, not `sameArm`, on purpose: the framing vocabulary belongs to theseus-ieq1w, which names it; this row leaves it.
 const routed = (key: string, modelLine?: string | null) =>
   family(key) === 'theseus' && (/routed/.test(key) || (key !== 'theseus' && /Jev-routed/.test(modelLine ?? '')))
 
