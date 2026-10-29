@@ -98,7 +98,7 @@ pub fn tier_of(seen: Seen<'_>, cfg: &Config) -> (Tier, Option<&'static str>) {
         return (Tier::Ordinary, Some("unsure"));
     }
     let tier = match v.mode.as_str() {
-        "trivial" => Tier::Small,
+        "trivial" | "commentary" => Tier::Small,
         "sophisticated" | "deep_coding" | "review" => Tier::Deep,
         _ => Tier::Ordinary,
     };
@@ -287,6 +287,7 @@ mod tests {
             persona: None,
             seal: None,
             personal: None,
+            draft: None,
         }
     }
 
@@ -295,6 +296,8 @@ mod tests {
         let cfg = Config::example();
         for (mode, tier) in [
             ("trivial", Tier::Small),
+            ("commentary", Tier::Small),
+            ("run_tool", Tier::Ordinary),
             ("quick", Tier::Ordinary),
             ("chat", Tier::Ordinary),
             ("routine_coding", Tier::Ordinary),

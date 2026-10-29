@@ -131,6 +131,7 @@ impl Core {
             }),
             parent: e.parent.clone(),
             carve_held_usd: carve_held.map(usd),
+            fan_out: e.helper_of().map(str::to_string),
             tasks: Vec::new(),
         })
     }

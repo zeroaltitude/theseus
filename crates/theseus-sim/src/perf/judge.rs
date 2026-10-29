@@ -6,7 +6,7 @@
 //!   theseus-judge's fake Jev, started in this process as `scratch` starts
 //!   the stand-in model, with the inbound point's packs off, as theseusd's
 //!   judge test runs it), and `packs` (every pack as this build wires it:
-//!   `route.v8` live, so each person's message waits beside its first
+//!   `route.v9` live, so each person's message waits beside its first
 //!   compile for the fake's verdict, scripted to a confident `chat`).
 //! - **Each frame by what it holds**: the judge's (every record a
 //!   `judge.*` or `pack.*` row, or a `judge.*` META record: the sink's
@@ -66,7 +66,7 @@ impl Arm {
         match self {
             Arm::Off => "the judge off",
             Arm::Loop => "the judge on, classify, role and route off",
-            Arm::Packs => "the judge on, every pack as wired (route.v8 live)",
+            Arm::Packs => "the judge on, every pack as wired (route.v9 live)",
         }
     }
 
@@ -310,7 +310,7 @@ pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
     j.insert("total_secs".into(), 5.into());
     if arm == Arm::Loop {
         let packs = table(j, "packs")?;
-        for p in ["classify.v4", "role.v1", "route.v8", "directive.v1"] {
+        for p in ["classify.v4", "role.v1", "route.v9", "directive.v1"] {
             let mut off = toml::Table::new();
             off.insert("rung".into(), "off".into());
             packs.insert(p.into(), off.into());
@@ -319,14 +319,14 @@ pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
     Ok(())
 }
 
-/// The fake Jev's answers: a confident `chat` for `route.v8` (a switch to
+/// The fake Jev's answers: a confident `chat` for `route.v9` (a switch to
 /// chat's profile, which the bench points at the stand-in too), `none` for
 /// `directive.v1` (a plain message carries no standing order, so the turn
 /// writes no capture's frames beside its own four), and the bench's `true`
 /// sure to be harmless, so no notice is posted.
 pub(super) fn scripted(jev: &FakeJev) {
     jev.script(
-        "route.v8/mode",
+        "route.v9/mode",
         Scripted::Choice {
             option: "chat".into(),
             confidence: 0.95,

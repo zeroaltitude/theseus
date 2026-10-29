@@ -938,6 +938,23 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   of its carve it is told once to report (`helper_step::helper_note`); at its carve under a limit that asks it ends with the
   reason `budget` and no question (`helper_step::at_carve`, `join_step::task_end`). Under the default, a limit that notifies,
   a carve is a notice and nothing ends a helper until the kernel's hard stop. Tests: `tests_task_fan_out.rs`.
+  **A waited fan-out also bounds its helpers' time** (theseus-z9mze; `task_fan_out::set_helper_deadlines`, `clock_step::set_helper_deadline`):
+  each gets a deadline of the wait's timeout less a minute (none when that leaves under 30 s, or with `wait: false`), read by
+  `take_deadline` for every turn of the helper's session. The clock line counts down to it and the progress check's stop asks for
+  the report at 85 % of it; the steer does not nag read-only work since theseus-ikr75. **In-turn fan-out is refused on a turn with no
+  message of its own** (`input_node`: a helper's objective is a node of the transcript, quoted by id, and nothing stands in for one):
+  start the helpers with `task_create`, which can quote an earlier message. That is the owner-visible limit review C (theseus-ui8dx)
+  accepted; a synthetic arrangement piece was weighed and left out (a piece is testimony of what a person said, so one the model
+  writes would launder its own words as theirs).
+  **Ops reads a fan-out from the kernel's marks** (theseus-z9mze.6): `TaskInfo.fan_out` and `BudgetRow.fan_out` are `Execution::helper_of`
+  (one field: a helper is a task with it set), the wait writes `task.wait.started` and `task.wait.ended` (`fact/fan_out.rs`), and the
+  cockpit's Money tree draws one header per call from the rows it is sent (`lib/budgets.ts`: `fanOutHeaders`, `waitingOn`).
+  Tests: `tests_fan_out_ops.rs`, `cockpit/test/budgets.test.ts`.
+  **`split.v1` asks, in shadow, whether a message's work divides by area** (theseus-z9mze.5; `packs/split.v1.toml`,
+  `judge/inbound.rs::SPLIT_PACK`): one question in the inbound batch (no request of its own), acting on nothing. The static cue
+  (`turn/route_step/fan_out_cue.rs`) still decides; the answer is a `judge.call` row and the cue is a `fan_out.cue` row, and they
+  share `turn_id`: read the 2x3 table of `fired` against the answer from that join. A pack of its own, not a route version
+  (`route.v9` belongs to theseus-gezlj). Tests: `tests_split_shadow.rs`.
   **A silent job's wait returns at a beat** (theseus-53ujg.6; `[tools] job_wait_beat_secs`, 600, 0 off, else at
   most 3600 and tied to neither `proc_sync_secs` nor the cap, since the bench profile's 900 s foreground wait keeps it; `toolrun/jobs_tools/wait_facts.rs`): a job whose spool output file has not
   grown for that long in this wait (each look stats it; growth restarts the window) returns the wait early, with
@@ -1915,8 +1932,37 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     name). `ModelOrigin::cleared_for_sensitive` (theseus-xs5ah, "such data must be routed to us-based models") has one reader
     now, a private motif's model (`rsi::mint::data_rule`); whether that rule stays is the owner's. Tests:
     `judge/tests_content.rs`, `tests_content_gate.rs`, `data_gate.rs`'s own.
-    **route.v8** (theseus-f9qa8) is the acting route pack; its `data` question is asked and read by nothing since
-    theseus-9ymz0 (the labels on a session replaced it; route.v9 drops it, theseus-gezlj).
+    **route.v9** (theseus-gezlj, theseus-tqomi; the owner's labels of 2026-10-26) is the acting route pack (`ROUTE_PACK`; the
+    ladder adopts it on the first start that finds it, `ladder::adopt::ADOPTED`), v8 but for the `mode` question's two
+    new kinds, `run_tool` (a command, script or tool to run and its result reported) and `commentary` (a remark that asks for
+    nothing), both listed before the kinds that swallowed their turns; one sentence added to `sophisticated` (comparing things
+    on their merits, or asking open-endedly whether something is good, distinctive or solid, belongs there: the owner's rule
+    for the Opus class, items 19, 23 and 27); `reply_effort`'s `leave` in place of `unclear`; and no `data` question, which
+    nothing has read since theseus-9ymz0. Both kinds are
+    detours (`config::routing::DETOURS`): a command run or a remark never moves the session's profile. A `run_tool`
+    detour carries the place's real tools; a `commentary` one carries `tools_find` alone, as `trivial` does
+    (`BARE_DETOURS`, `is_bare_detour`). The class tables default as the cn rubric's §7.4 has them: `run_tool = [haiku,
+    sonnet]`, `commentary = [haiku]`, `review = [opus, sonnethi]`, `sophisticated = [opushi, opus, sonnethi]`; both new
+    classes take the section's 0.6 bar. `leave` is read as `unclear` was (the profile's own effort stands) and the row says
+    `leave` (`routing::effort::EffortReason::Leave`). No China-origin model is named for either new class: a `run_tool` turn
+    reads tool output, which waits on theseus-ouqru's content screen. The end-to-end proof,
+    `tests_trivial_tools::a_run_tool_detour_keeps_its_tools_and_a_commentary_one_carries_tools_find`, pins the class table, the
+    `BARE_DETOURS` membership and the offered tools. A correction recorded under route.v8 no longer steers (`SAME_MODE`
+    names no route.v8 under v9: the `mode` question's words differ).
+    **Two more rows ride route.v9 (theseus-kqeih, theseus-mn5dr; both ship OFF).** `[routing] draft_by_jev` adds a `draft`
+    question to the route request (`only_when` the `DraftChoice` source, which the core supplies from the switch alone, so
+    the request with it off is the one that was measured): its instructions and its two options (`cheap`, `strong`, no-match
+    `strong`) are the owner's standing orders of 2026-10-27 23:05 and 23:15 (strong points, what the cheaper model is not
+    for, "not the default for code", the cold-handoff cost), written in words that name no vendor or model. The verdict
+    carries it (`Verdict.draft`, `routing::draft_choice`); `draft_step::draft_check` gates on it before it opens a tree (only
+    a sure `cheap`; the `draft_skip` words `jev_unasked`, `jev_declined`, `jev_unsure`) and the route row's `draft_choice`
+    says what Jev answered. The labels and every other condition still apply after it, so a `cheap` answer waives no data
+    rule; the load refuses the switch when no class has a `cn_draft`. Proof: `tests_draft_choice.rs`,
+    `theseus-judge`'s `tests_route_draft.rs`. `[routing.coding_floor]` (`profile`, `min_confidence` 0.30) makes a
+    `routine_coding` or `deep_coding` verdict under its bar hold that profile instead of the session's base, at the
+    profile's own effort (route reason `floor`): a floor only lifts a session, stays under the place's cap, never names a
+    restricted-origin profile (refused at load too), and keeps the cache's rule (`routing::switch_to`). Its A/B is owed to
+    the benchmarks after 1.0.4 (`routing/tests_floor.rs`; the flip sentence is in `theseus.example.toml`).
   - **Content flags and the restricted-origin floor** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17;
     `content.rs`, `content_wait.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/content_based_security.rs`, `fact/data.rs`): every item that
     enters a session (an operator's message, a tool result, a brief, a report) is classified once, by itself, and what is
@@ -2058,7 +2104,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     at that top; the ask is the turn's own message) open a draft instead of a model call: a task session on the `cn_draft` profile in a
     worktree at `<drafts_dir>/<short>` on branch `draft/<short>` (`[server] drafts_dir`, default `~/.cache/theseus/drafts`: outside the state dir and every approve-list entry, refused at load otherwise, and a root of the workspace while a class drafts, so the review's runs there take the tool's posture; a draft made before keeps its tree under `<state>/drafts` where `tree_of` finds it; theseus-iilre), which is its roots alone (never the owner's directory,
     and never a path through `.git`), briefed by the core with the turn's own message. Each failed condition is the route row's
-    `draft_skip` (`labelled`, `in_task`, `wake`, `not_git`, `draft_unusable`, `no_reviewer`). `DraftReach::offers` withholds programs from a draft, and where the floor would move it its turn ends
+    `draft_skip` (`labelled`, `in_task`, `wake`, `not_git`, `draft_unusable`, `no_reviewer`; with `draft_by_jev` on, first `jev_unasked`, `jev_declined`, `jev_unsure`). `DraftReach::offers` withholds programs from a draft, and where the floor would move it its turn ends
     (`draft_stopped`: `draft_not_admitted` for a brief whose session the labels did not allow a restricted model, `draft_stopped` for a label that landed after). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
     check on a `final` profile in the tree, the draft's claim, a correlation id from the draft's), whose end commits,
     applies `git diff <base>..<final>` with `git apply --check` first and never `--index` or `--3way`, removes the
@@ -3156,7 +3202,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and the next loop is the last (stop reason `progress_stop`, which the nudge and the end note leave alone). **The stop
   counts apart from the steer** (`since_check`): it moves as it did before reading counted, one more for every loop that
   was not a passing command, reset only by one, so a turn that only reads, or opens new files after its edit, is still
-  stopped at its deadline (the deadline's stop is the only thing that enforces it). Each is a harness node
+  stopped at its deadline (the deadline's stop is the only thing that enforces it; a build that runs is the one carve-out,
+  below). Each is a harness node
   (`harness:progress`) and a `turn.progress` row (the shares, `since_pass`, `since_check`, `failing`, the times and spend;
   `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
   is at its ceiling), begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
@@ -3177,11 +3224,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   from the loop after the turn's first answered file edit, one tail block (`close_out_step::DELIVERABLE_HINT`, through
   `Self::attach_hint`, which `coding_hint` also uses) says to call what was built once, the way the task spells it; a turn
   that wrote no file, or only ran commands, carries none (the DM task flow's golden and the keep-warm tests read such
-  tails). **The doubt** (rqu7j): at a would-end whose closing message `names_a_gap` (a phrase list over its lowercased
+  tails), and neither does a chat turn that writes one (theseus-uy5ts): it rides a `deep_coding` turn and a headless or
+  task turn (`close_out_step::deliverable_here`), not an owner's DM, channel or CLI turn whose tier was not coding. A
+  `deep_coding` turn that edits carries both tails, 724 bytes or about 242 estimated tokens a request after its first
+  edit (`CODING_HINT` 396 plus the hint's 328); a non-coding chat turn that edits is 110 estimated tokens a request lighter
+  than it was. **The doubt** (rqu7j): at a would-end whose closing message `names_a_gap` (a phrase list over its lowercased
   text, cut on 764 earlier closing messages: it matches 21% of the solved ones and 49% of the failed), in a turn that edited or ran a command, with under `CLOSE_OUT_SHARE` (0.4) of its time and of its spend used,
   once, outside a shared place and a strict loop cap, with no job of the turn running, one harness node
   (`DOUBT_TEXT`) and one more loop, after the stop nudge and the end note (it does not yield to them); a `turn.progress`
-  row with decision `doubt`. It builds and installs nothing. Tests: `tests_turn_progress.rs`, `tests_end_note.rs`,
+  row with decision `doubt`. It builds and installs nothing. **Where no share is measured** (an interactive turn: no
+  deadline, cents against a large spend line) the gate is the phrase list alone, by design: the guard bites on a bench
+  or `turn.submit` deadline or a spend limit, and costs an owner turn at most the one loop (theseus-6lpxx). **What the
+  list reads** is the model's own words (`own_words`): a fenced block, a block quote's lines, an inline code span and a
+  double-quoted string are cut first (a pasted log is not a doubt), an unmatched marker cuts nothing, and the entries
+  that fired on plain prose are the doubt itself (`never ran it`, `may land a little`), with the two task-specific
+  strings (`no torch`, `private test set`) gone. The doubt can follow the stop nudge and the end note, so a turn can go
+  on three times past a natural end, each once. Tests: `tests_turn_progress.rs`, `tests_end_note.rs`,
   `turn::progress_step::tests`, `turn::close_out_step::tests`.
 - **Limits that notify** (theseus-usei; the owner, 2026-10-07: for tasks and tokens, notify, not restrict):
   `turn/budget_step.rs`. With `[kernel] spend_limit_mode = "notify"` (the default) a provider call past the

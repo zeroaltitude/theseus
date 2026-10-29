@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { burnPerHour, dayCeilingView, flatten, handsLines, HOUR_MS, limitWords, questionsWaiting, recentResets, sessionsOf, sums } from '../src/lib/budgets.ts'
+import { burnPerHour, dayCeilingView, fanOutHeaders, flatten, groupLine, handsLines, HOUR_MS, limitWords, questionsWaiting, recentResets, sessionsOf, sums, waitingOn, waitingWords } from '../src/lib/budgets.ts'
 
 const row = (id: string, o: Record<string, unknown> = {}) => ({
   execution_id: `exe_${id}`, session_id: `ses_${id}`, kind: 'conversation', state: 'waiting', limit_usd: 10, limit_from: 'config',
@@ -125,4 +125,39 @@ test('under notify the ceiling is a warning that says the work goes on, and the 
   assert.equal(stopped.stopped, true)
   assert.match(stopped.text, /^stopped: today’s model spend reached the \$2000\.00 daily runaway line/)
   assert.match(stopped.detail, /raise \[kernel\] daily_runaway_usd/)
+})
+
+// theseus-z9mze.6: a fan-out's helpers draw under one header, which is a sum over the rows the daemon sent.
+const helper = (id: string, call: string, o: Record<string, unknown> = {}) => row(id, { kind: 'task', limit_from: 'carve', limit_by: 'ses_p', parent: 'exe_p', limit_usd: 4, fan_out: call, ...o })
+const fan = row('p', { state: 'running', tasks: [
+  helper('h1', 'act_x', { spent_usd: 2.5, state: 'complete' }),
+  helper('h2', 'act_x', { spent_usd: 1, state: 'running' }),
+  helper('h3', 'act_x', { spent_usd: 4, state: 'budget_exhausted' }),
+  helper('h4', 'act_x', { spent_usd: 0.5, state: 'failed' }),
+  row('lone', { kind: 'task', limit_from: 'carve', parent: 'exe_p', limit_usd: 1, spent_usd: 0.2, state: 'running' }),
+  helper('g1', 'act_y', { limit_usd: 2, spent_usd: 0, state: 'queued' }),
+] })
+
+test('a fan-out gets one header over its first helper, summed from its rows, and a lone task none', () => {
+  const heads = fanOutHeaders(flatten([fan]))
+  assert.deepEqual([...heads.keys()], ['exe_h1', 'exe_g1'], 'the header of each call sits on its first helper')
+  const x = heads.get('exe_h1')!
+  assert.deepEqual([x.helpers, x.carved, x.spent, x.done], [4, 16, 8, 3])
+  assert.equal(groupLine(x), '4 helpers · $16.00 carved · $8.00 spent · 3 done')
+  assert.equal(groupLine(heads.get('exe_g1')!), '1 helper · $2.00 carved · $0.00 spent · 0 done')
+  assert.equal(fanOutHeaders(flatten(tree)).size, 0, 'no helper, no header')
+})
+
+test('a wait is open from its started row to its ended one, per session', () => {
+  const at = (kind: string, session: string, data: Record<string, unknown>) => ({ position: 1, at_unix_ms: 1, kind, session_id: session, data }) as any
+  const open = waitingOn([
+    at('task.wait.started', 'ses_p', { tasks: 4, fan_out: 'act_x', timeout_s: 900 }),
+    at('task.wait.started', 'ses_q', { tasks: 2, fan_out: null, timeout_s: 60 }),
+    at('task.wait.ended', 'ses_q', { tasks: 2 }),
+    at('turn.started', 'ses_p', {}),
+  ])
+  assert.deepEqual([...open.keys()], ['ses_p'])
+  assert.equal(open.get('ses_p')!.tasks, 4)
+  assert.equal(waitingWords(open.get('ses_p')!, fan), 'waiting on 4 tasks (3 done)')
+  assert.equal(waitingWords({ tasks: 1 }, row('z')), 'waiting on 1 task (0 done)')
 })

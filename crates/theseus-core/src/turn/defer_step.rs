@@ -66,8 +66,9 @@ impl TurnRunner {
         let counted = sent.as_ref().unwrap_or(&*spec);
         let jev = t.route.families.relevant.as_deref().unwrap_or_default();
         // A trivial detour carries `tools_find` and what its message names, and the prompt's
-        // tier sets how far admitted families may raise it (theseus-d9je7).
-        let bare = sent.is_some() && t.route.detour_kind == "trivial";
+        // tier sets how far admitted families may raise it (theseus-d9je7). A commentary one
+        // does too (route.v9); a run_tool one carries the real tools (theseus-gezlj).
+        let bare = sent.is_some() && crate::config::routing::is_bare_detour(&t.route.detour_kind);
         let said = Said {
             ask: &t.route.ask,
             jev,

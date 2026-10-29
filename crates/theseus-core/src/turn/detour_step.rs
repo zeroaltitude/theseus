@@ -30,12 +30,15 @@ pub(super) fn detour_spec(spec: &RequestSpec) -> RequestSpec {
     detour
 }
 
-/// What a detour's tools part is called: a trivial one's request holds `tools_find` alone
-/// (theseus-d9je7), and the row says so.
+/// What a detour's tools part is called: a trivial or commentary one's request holds
+/// `tools_find` alone (theseus-d9je7, theseus-gezlj), and the row says so.
 fn tools_name(tools: &[serde_json::Value], kind: &str) -> String {
     match tools {
-        [one] if kind == "trivial" && one["name"] == crate::tools_defer::FIND => {
-            "trivial: tools_find only".into()
+        [one]
+            if crate::config::routing::is_bare_detour(kind)
+                && one["name"] == crate::tools_defer::FIND =>
+        {
+            format!("{kind}: tools_find only")
         }
         _ => format!("{} tools", tools.len()),
     }

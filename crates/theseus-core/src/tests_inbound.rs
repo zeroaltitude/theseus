@@ -50,6 +50,23 @@ async fn until_inbound(store: &Store, n: usize) -> (Vec<LedgerRow>, Vec<LedgerRo
     }
 }
 
+/// Wait until `scope` has `n` rows, and return them.
+async fn until_scoped(store: &Store, scope: &str, n: usize) -> Vec<LedgerRow> {
+    let t0 = Instant::now();
+    loop {
+        let rows = scoped(store, scope);
+        if rows.len() >= n {
+            return rows.into_iter().map(|(_, r)| r).collect();
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "{} of {n} {scope} rows",
+            rows.len()
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// The turn's `judge` marks, from its trace's root.
 fn marks(trace: &Option<Span>) -> Vec<Value> {
     trace
@@ -106,12 +123,13 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
 /// Health's lines once the turn's judged point has read the ladder: the
 /// three packs the owner put live stand as his adoption, under the
 /// config's ceiling (26a).
-const INBOUND_ALONE: [&str; 24] = [
+const INBOUND_ALONE: [&str; 26] = [
     "loop.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v4: live",
     "role.v1: shadow",
-    "route.v8: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-23))",
+    "split.v1: shadow",
+    "route.v9: off (the config's ceiling; on the ladder: live (owner: the owner's labels of 2026-10-26, theseus-tqomi))",
     "directive.v1: live",
     "onto.v1: off",
     "same_thing.v1: live",
@@ -132,6 +150,29 @@ const INBOUND_ALONE: [&str; 24] = [
     "people_seen.v1: off",
     "content.v3: off",
 ];
+
+/// A judgment row's answer to question `q`.
+fn choice_of(d: &Value, q: &str) -> Value {
+    d["answers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["question"] == q)
+        .unwrap()["answer"]["choice"]
+        .clone()
+}
+
+/// `split.v1` (theseus-z9mze.5) rides the batch of `classify.v4` and `role.v1`: its row, in shadow,
+/// in the same call.
+async fn split_in_the_batch(store: &Store, c: &Value) -> LedgerRow {
+    let sp = until_scoped(store, "judge:split", 1).await.remove(0);
+    assert_eq!(
+        (sp.data["pack"].as_str(), sp.data["mode"].as_str()),
+        (Some("split.v1"), Some("shadow"))
+    );
+    assert_eq!(sp.data["call"]["id"], c["call"]["id"]);
+    sp
+}
 
 /// A person's message is judged by both packs in one request: the fake
 /// counts one call, the two rows (scoped `judge:classify` and `judge:role`,
@@ -187,37 +228,34 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
         assert_eq!(row.turn_id.as_deref(), Some(res.turn_id.as_str()));
     }
     assert_ne!(c["id"], ro["id"], "each judgment its own id");
-    let answer = |d: &Value, q: &str| {
-        d["answers"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|a| a["question"] == q)
-            .unwrap()["answer"]["choice"]
-            .clone()
-    };
-    assert_eq!(answer(c, "kind"), "new_ask");
-    assert_eq!(answer(ro, "role"), "coder");
+    assert_eq!(choice_of(c, "kind"), "new_ask");
+    assert_eq!(choice_of(ro, "role"), "coder");
     // One blob, one call.
     let digest = c["state"]["sha256"].as_str().unwrap();
     assert_eq!(ro["state"]["sha256"].as_str(), Some(digest));
     assert_eq!(c["context"]["blob"].as_str(), Some(digest));
     assert_eq!(ro["context"]["blob"].as_str(), Some(digest));
     assert_eq!(c["call"]["id"], ro["call"]["id"]);
-    assert_eq!(c["call"]["packs"], 2);
-    let (qc, qr) = (
+    // `split.v1` (theseus-z9mze.5) rides the same call, in shadow: three packs, eight questions.
+    let split = split_in_the_batch(&r.core.store, c).await;
+    let sp = &split.data;
+    assert_eq!(c["call"]["packs"], 3);
+    let (qc, qr, qs) = (
         c["questions"].as_u64().unwrap() as usize,
         ro["questions"].as_u64().unwrap() as usize,
+        sp["questions"].as_u64().unwrap() as usize,
     );
-    assert_eq!((qc, qr), (6, 1));
-    assert_eq!(c["call"]["questions"].as_u64(), Some((qc + qr) as u64));
+    assert_eq!((qc, qr, qs), (6, 1, 1));
+    assert_eq!(c["call"]["questions"].as_u64(), Some((qc + qr + qs) as u64));
     // The call's cost, split by question count.
-    let (cc, cr) = (
+    let (cc, cr, cs) = (
         c["cost_micros"].as_u64().unwrap(),
         ro["cost_micros"].as_u64().unwrap(),
+        sp["cost_micros"].as_u64().unwrap(),
     );
-    assert!(cc > cr && cr > 0, "{cc} {cr}");
-    assert_eq!(theseus_judge::batch::shares(cc + cr, &[qc, qr]), [cc, cr]);
+    assert!(cc > cr && cr > 0 && cs > 0, "{cc} {cr} {cs}");
+    let shares = theseus_judge::batch::shares(cc + cr + cs, &[qc, qr, qs]);
+    assert_eq!(shares, [cc, cr, cs]);
     // The state: the message, from a private place's operator, no role yet.
     let state = std::fs::read_to_string(r.core.store.blobs().path(digest)).unwrap();
     let state: Value = serde_json::from_str(&state).unwrap();
@@ -227,8 +265,12 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     assert_eq!(state["current_role"], "none");
     // Each judgment marked on the turn's trace with its row's id.
     let marked = marks(&res.trace);
-    assert_eq!(marked.len(), 2, "{marked:?}");
-    for ((m, d), mode) in marked.iter().zip([c, ro]).zip(["live", "shadow"]) {
+    assert_eq!(marked.len(), 3, "{marked:?}");
+    for ((m, d), mode) in marked
+        .iter()
+        .zip([c, ro, sp])
+        .zip(["live", "shadow", "shadow"])
+    {
         assert_eq!(m["pack"], d["pack"]);
         assert_eq!(m["judgment"], d["id"]);
         assert_eq!(
@@ -243,7 +285,7 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
     assert_eq!(
         h.spend_today_usd,
-        theseus_judge::price::micros_to_usd(cc + cr)
+        theseus_judge::price::micros_to_usd(cc + cr + cs)
     );
 }
 
@@ -275,7 +317,7 @@ async fn the_next_messages_state_reads_the_previous_message_and_the_reply() {
 }
 
 /// The operator's names (`[privacy] sensitive_names`) ride Jev's state as
-/// `data_names` (route.v8's `data` question, theseus-a1wvq.2); with none configured the
+/// `data_names` (route.v9's `data` question, theseus-a1wvq.2); with none configured the
 /// state has no such key, so it is the one before, byte for byte.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_operators_names_ride_the_state_only_when_configured() {
@@ -389,8 +431,8 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     assert_eq!(res.loops, 1);
     assert_eq!(
         marks(&res.trace).len(),
-        4,
-        "judged: the inbound point's three marks (route.v8's, 25e), and loop.v1's at the turn's end (23b)"
+        5,
+        "judged: the inbound point's four marks (classify, role, split and route.v9's, 25e), and loop.v1's at the turn's end (23b)"
     );
     let own = res.trace.as_ref().unwrap().attrs["frames"].as_u64();
     assert_eq!(own, Some(4), "the turn's own frames");

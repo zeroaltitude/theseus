@@ -499,14 +499,23 @@ mod tests {
         );
         assert_eq!(r.label.as_deref(), Some("not:chat"));
         assert_eq!(r.steer, Some(Steer::Profile("fable".into())));
-        // sophisticated leads to opus, then fable: the mode was right.
+        // sophisticated leads to opushi, opus, then sonnethi: a move to one of
+        // them means the mode was right, a move to `fable` (no longer in the
+        // list since theseus-tqomi's cn rubric tables) that it was not.
+        let r = resolve(
+            &To::Profile("opus".into()),
+            &last(Some("sophisticated"), "sonnet"),
+            &cfg,
+            &ps,
+        );
+        assert_eq!(r.label, None);
         let r = resolve(
             &To::Profile("fable".into()),
             &last(Some("sophisticated"), "opus"),
             &cfg,
             &ps,
         );
-        assert_eq!(r.label, None);
+        assert_eq!(r.label.as_deref(), Some("not:sophisticated"));
         let r = resolve(
             &To::Mode("deep_coding".into()),
             &last(Some("quick"), "haiku"),

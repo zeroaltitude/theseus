@@ -1,7 +1,8 @@
 //! The effort a turn runs at (route.v3, theseus-qe3v; the owner's decision of
 //! 2026-10-07: "jev should also set effort level, not just model"). route.v3
 //! asks, in the same request as the mode, how much effort the reply needs
-//! (`reply_effort`: low, medium, high, xhigh, max, or `unclear`), and this
+//! (`reply_effort`: low, medium, high, xhigh, max, or `unclear`; `leave` in its
+//! place since route.v9, theseus-gezlj), and this
 //! module decides, purely, what the turn's request carries:
 //!
 //! - **Jev's answer wins** over the profile's own `effort`, unless the profile
@@ -48,6 +49,11 @@
 //!   floor and the bounds as a sure one does; the row says `applied_unsure`
 //!   only where the answer's own level ran, and the gate's, the floor's and
 //!   the bounds' reasons win where one of them moved it.
+//! - **`leave` is `unclear`'s successor** (route.v9; the owner, 2026-10-26:
+//!   "unclear as an effort is weird; it can leave it, or set it, but there's no
+//!   such effort as this"): the answer names an action, not a level, so the
+//!   profile's own effort stands, as it did for `unclear`, and the row says
+//!   `leave`. `unclear` stays readable, for the rows of route.v5 to v8.
 //! - **Under `[routing] effort_floor_confidence` an answer applies nothing**
 //!   (theseus-l7i9k, regress R4; unset is off, and it ships off). The turn
 //!   runs at the profile's own effort and the row says `gated`, the answered
@@ -67,10 +73,14 @@ use crate::config::Effort;
 /// route.v3's effort question, by its id in the pack.
 pub const QUESTION: &str = "reply_effort";
 
+/// route.v9's `reply_effort` option that names no level: keep the effort the
+/// session's profile already has.
+pub const LEAVE: &str = "leave";
+
 /// route.v3's answer about the reply's effort, as the turn reads it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffortAnswer {
-    /// The option Jev chose: a level, or `unclear`.
+    /// The option Jev chose: a level, or `unclear` (`leave` since route.v9).
     pub level: String,
     pub confidence: f64,
     /// Its band reached the question's `confirm` bar (act or confirm).
@@ -99,6 +109,8 @@ pub enum EffortReason {
     AppliedUnsure,
     /// Jev answered `unclear`.
     Unclear,
+    /// Jev answered `leave` (route.v9): keep the profile's own effort.
+    Leave,
     /// The profile fixes its effort (`effort_fixed`).
     Fixed,
     /// The turn's model takes no effort.
@@ -136,6 +148,7 @@ impl EffortReason {
             EffortReason::Unsure => "unsure",
             EffortReason::AppliedUnsure => "applied_unsure",
             EffortReason::Unclear => "unclear",
+            EffortReason::Leave => "leave",
             EffortReason::Fixed => "fixed",
             EffortReason::NoEffort => "no_effort",
             EffortReason::Carried => "carried",
@@ -204,7 +217,7 @@ pub fn name(e: Effort) -> &'static str {
     }
 }
 
-/// A level from its name; none for `unclear` or any other option.
+/// A level from its name; none for `unclear`, `leave` or any other option.
 pub fn parse(level: &str) -> Option<Effort> {
     [
         Effort::Low,
@@ -254,7 +267,10 @@ pub fn decide(
         return stand(EffortReason::Carried);
     }
     let Some(level) = parse(&answer.level) else {
-        return stand(EffortReason::Unclear);
+        return stand(match answer.level == LEAVE {
+            true => EffortReason::Leave,
+            false => EffortReason::Unclear,
+        });
     };
     if !answer.sure && answer.confidence < bars.effort {
         return stand(EffortReason::Unsure);
@@ -400,6 +416,7 @@ mod tests {
         );
         assert_eq!(d.ran, Some(Effort::High), "over the model's default");
         assert_eq!(parse("unclear"), None);
+        assert_eq!(parse(LEAVE), None, "`leave` names no level");
     }
 
     /// The bounds clamp to the nearer one, and say so.
@@ -420,7 +437,7 @@ mod tests {
         }
     }
 
-    /// Below the bar, `unclear`, a fixed profile, a model without effort, a
+    /// Below the bar, `unclear` or `leave`, a fixed profile, a model without effort, a
     /// carried late verdict, and shadow: the profile's own stands (none for
     /// a model that takes no effort).
     #[test]
@@ -442,6 +459,22 @@ mod tests {
                 false,
                 EffortReason::Unclear,
                 low,
+            ),
+            (
+                a("leave", true),
+                runs(low, false, true),
+                true,
+                false,
+                EffortReason::Leave,
+                low,
+            ),
+            (
+                a("leave", true),
+                runs(None, false, true),
+                true,
+                false,
+                EffortReason::Leave,
+                None,
             ),
             (
                 a("max", true),
@@ -530,6 +563,7 @@ mod tests {
             EffortReason::Unsure,
             EffortReason::AppliedUnsure,
             EffortReason::Unclear,
+            EffortReason::Leave,
             EffortReason::Fixed,
             EffortReason::NoEffort,
             EffortReason::Carried,

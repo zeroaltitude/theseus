@@ -128,7 +128,7 @@ async fn a_routed_panes_p_profile_comes_back_once_routing_stops() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v8".into(),
+                pack: "route.v9".into(),
                 why: None,
                 off: false,
             },

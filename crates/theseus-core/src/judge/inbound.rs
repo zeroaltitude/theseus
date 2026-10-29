@@ -61,23 +61,31 @@ pub const OFFER_QUESTION: &str = "offer_task";
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.
-/// The acting route pack: `route.v8` since theseus-f9qa8 (2026-10-23), v7's
-/// questions with the `data` question's `open` and `unclear` options reworded
-/// (v7 itself since theseus-a1wvq, 2026-10-19), live at once with route.v1's
-/// rollback rules; `route.v7` to `route.v5` stay embedded for their history,
-/// and the ladder never runs them again.
-pub const ROUTE_PACK: &str = "route.v8";
+/// The acting route pack: `route.v9` since theseus-tqomi (2026-10-28), v8's
+/// questions but for `data` (nothing has read its answer since theseus-9ymz0),
+/// with the `run_tool` and `commentary` kinds (theseus-gezlj), `sophisticated`
+/// extended to open-ended comparison, and `leave` for `unclear`. Live at once
+/// with route.v1's rollback rules; `route.v8` to `route.v5` stay embedded for
+/// their history, and the ladder never runs them again.
+pub const ROUTE_PACK: &str = "route.v9";
 /// DIRECTIVE (theseus-slvl.5), at `inbound`, batched with `classify.v1` and
 /// `role.v1` (no request of its own), live: asked only for the owner's own
 /// message in a place only the owner writes in (`Inbound.capture`).
 pub const DIRECTIVE_PACK: &str = crate::capture::PACK;
+/// SPLIT (theseus-z9mze.5), at `inbound`, batched with `classify` and `role`
+/// (no request of its own), in shadow: whether the work a message asks for
+/// divides by area. It decides nothing; the static fan-out cue
+/// (`turn/route_step/fan_out_cue.rs`) does, and the two are read against each
+/// other by the turn their rows share.
+pub const SPLIT_PACK: &str = "split.v1";
 /// The packs asked at `inbound`, in the order they are asked.
-pub const PACKS: [&str; 5] = [
+pub const PACKS: [&str; 6] = [
     CLASSIFY_PACK,
     ROLE_PACK,
     ROUTE_PACK,
     DIRECTIVE_PACK,
     ONTO_PACK,
+    SPLIT_PACK,
 ];
 
 /// Whether `pack` is `onto.v1` or a learned version standing in its place.
@@ -384,6 +392,8 @@ impl JudgeService {
             .filter(|(m, _, _)| *m != PackMode::Off)
             .filter(|(_, _, root)| *root != DIRECTIVE_PACK || msg.capture)
             .filter(|(_, _, root)| *root != ONTO_PACK || (!route_only && self.onto_wanted(&msg)))
+            // A task's message is its parent's brief, never a person's ask to divide.
+            .filter(|(_, _, root)| *root != SPLIT_PACK || !msg.task)
             .filter(|(_, _, root)| !route_only || *root == ROUTE_PACK)
             .filter_map(|(m, p, root)| Some((self.pack(&p)?, m, root)))
             .filter(|(p, _, root)| sampled(&msg.turn_id, self.cfg.sample_of(root, p.sample)))
@@ -734,7 +744,16 @@ impl JudgeService {
             .map(|(_, n)| n)
             .collect();
         let live_tasks = self.live_tasks(&msg.kernel, &msg.execution_id);
-        Some(input(&nodes, msg, live_tasks))
+        Some(InboundInput {
+            draft_choice: self.draft_choice(),
+            ..input(&nodes, msg, live_tasks)
+        })
+    }
+
+    /// route.v9 asks `draft` only when the operator lets Jev choose
+    /// (theseus-kqeih); a service with no core attached asks nothing more.
+    fn draft_choice(&self) -> bool {
+        self.core().is_some_and(|c| c.cfg.routing.draft_by_jev)
     }
 
     /// The session's live tasks, oldest first: each one's id, its brief's
@@ -826,6 +845,7 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         personas: msg.persona.personas.clone(),
         speaker: msg.persona.speaker.clone(),
         categories: msg.persona.categories.clone(),
+        draft_choice: false,
         thread_now: msg.persona.thread.as_ref().map(|h| ThreadNow {
             title: h.title.clone(),
             goal: h.goal.clone(),
@@ -905,6 +925,13 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
         seal: crate::engage::seal_answer(j).map(Box::new),
         personal: choice(crate::routing::personal::QUESTION).map(|(choice, confidence, band)| {
             Box::new(crate::routing::PersonalAnswer {
+                choice,
+                confidence,
+                band,
+            })
+        }),
+        draft: choice(crate::routing::draft_choice::QUESTION).map(|(choice, confidence, band)| {
+            Box::new(crate::routing::draft_choice::DraftAnswer {
                 choice,
                 confidence,
                 band,

@@ -71,6 +71,12 @@ parent?: string,
  */
 carve_held_usd?: number, 
 /**
+ * The fan-out call that opened this task as one of its helpers
+ * (theseus-z9mze.6), which groups a call's helpers in the Money tree. The
+ * only marker of a helper: a helper is a task with this set.
+ */
+fan_out?: string, 
+/**
  * Its open tasks, oldest first.
  */
 tasks?: Array<BudgetRow>, };

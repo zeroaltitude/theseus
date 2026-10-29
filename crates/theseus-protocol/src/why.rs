@@ -322,6 +322,7 @@ fn reason_words(r: &str) -> &str {
         "no_verdict" => "no verdict was read",
         "pinned" => "the profile is pinned",
         "shadow" => "routing only watched",
+        "floor" => "a coding turn held at the floor profile",
         other => other,
     }
 }

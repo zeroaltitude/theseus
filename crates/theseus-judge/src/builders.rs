@@ -290,6 +290,12 @@ pub struct InboundInput {
     /// out when there are none, or when the question is not asked.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub categories: Vec<String>,
+    /// The operator lets Jev choose which coding turns a cheaper drafting
+    /// model makes the first pass of (`[routing] draft_by_jev`; `route.v9`'s
+    /// `draft`, theseus-kqeih): the question is asked only then. It is not part
+    /// of the state, so a request without it is byte for byte the one before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub draft_choice: bool,
     #[serde(default)]
     pub current_role: Option<String>,
     /// The roles table, for `role.v1`'s options.
@@ -969,6 +975,7 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     );
     threads_dynamic(&mut dynamic, i, threads, &clip);
     persona::dynamic(&mut dynamic, i, &clip, in_thread);
+    draft_choice_dynamic(&mut dynamic, i);
     onto::dynamic(&mut dynamic, i, &clip);
     dynamic.sources.insert(
         Source::Roles,
@@ -984,6 +991,20 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     Prepared {
         state: Arc::new(b.build()),
         dynamic,
+    }
+}
+
+/// `route.v9`'s `draft` question is asked only when the operator lets Jev
+/// choose (theseus-kqeih): one item, or none.
+fn draft_choice_dynamic(dynamic: &mut Dynamic, i: &InboundInput) {
+    if i.draft_choice {
+        dynamic.sources.insert(
+            Source::DraftChoice,
+            vec![Item {
+                key: "draft".into(),
+                text: "The operator lets Jev choose which coding requests a cheaper drafting model makes the first pass of.".into(),
+            }],
+        );
     }
 }
 
@@ -1326,9 +1347,11 @@ pub(crate) mod tests {
     #[test]
     fn each_pack_asks_its_golden_request() {
         for p in embedded().as_ref().unwrap() {
-            // route.v6 to v8 ask about the operator's names, so their goldens have some.
+            // route.v6 to v9 ask about the operator's names, so their goldens have some.
             let (_, prepared) = match p.name().as_str() {
-                "route.v6" | "route.v7" | "route.v8" => prepared_from(p, &names_fixture()),
+                "route.v6" | "route.v7" | "route.v8" | "route.v9" => {
+                    prepared_from(p, &names_fixture())
+                }
                 "onto.v1" => prepared_from(p, &onto_fixture()),
                 // classify.v4's `scope` is asked only with live threads.
                 "classify.v4" => prepared_from(p, &threads_fixture()),
@@ -1381,6 +1404,7 @@ pub(crate) mod tests {
             "route.v6",
             "route.v7",
             "route.v8",
+            "route.v9",
             "directive.v1",
         ] {
             let (rp, ro) = prepared(route);
@@ -1631,6 +1655,7 @@ pub(crate) mod tests {
                     speaker: None,
                     thread_now: None,
                     categories: Vec::new(),
+                    draft_choice: false,
                     data_names: DataNames::default(),
                     onto: None,
                     current_role: Some(big.clone()),

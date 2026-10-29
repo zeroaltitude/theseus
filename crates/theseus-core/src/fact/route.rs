@@ -75,6 +75,9 @@ pub struct RouteData<'a> {
     pub gate: Option<&'a str>,
     /// Why a class with `cn_draft` did not draft (theseus-a1wvq.13).
     pub draft_skip: Option<&'a str>,
+    /// What Jev answered to `draft`, when the operator lets Jev choose
+    /// (theseus-kqeih).
+    pub draft_choice: Option<&'a str>,
 }
 
 /// What a task checkpoint's `route.decided` row adds to the turn's own.
@@ -113,6 +116,9 @@ impl Fact for RouteDecided<'_> {
             }
             if let Some(w) = d.draft_skip {
                 row["draft_skip"] = json!(w);
+            }
+            if let Some(w) = d.draft_choice {
+                row["draft_choice"] = json!(w);
             }
         }
         if let Some(s) = self.effort_sent {

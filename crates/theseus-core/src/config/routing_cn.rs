@@ -18,6 +18,25 @@ pub(super) fn validate(cfg: &Config, catalog: &Catalog) -> Result<()> {
         (cfg.all_profiles().contains_key(p) && origin.restricted()).then_some(origin)
     };
     drafts_dir(cfg)?;
+    if let Some(p) = cfg.routing.coding_floor.profile.as_deref() {
+        if let Some(origin) = restricted(p) {
+            bail!(
+                "routing.coding_floor.profile: {p} is of restricted origin ({}): a China-origin \
+                 model never answers a coding turn; it drafts one through `cn_draft`",
+                format!("{origin:?}").to_lowercase()
+            );
+        }
+    }
+    if cfg.routing.draft_by_jev
+        && !DRAFTING
+            .iter()
+            .any(|m| cfg.routing.classes.table(m).cn_draft.is_some())
+    {
+        bail!(
+            "routing.draft_by_jev: Jev chooses among drafts, and no class has a cn_draft \
+             (routine_coding or deep_coding): name one, or leave it off"
+        );
+    }
     for m in MODES {
         let t = cfg.routing.classes.table(m);
         for p in t.profiles.iter().filter(|p| *p != CHEAPEST) {
@@ -249,7 +268,11 @@ mod tests {
         let ok = "[routing.classes.trivial]\nprofiles = [\"haiku\", \"cheapest\"]\ncn_profiles = [\"glm\"]\ncn_after = \"haiku\"";
         let cfg = load("", ok).unwrap();
         assert_eq!(cfg.routing.classes.trivial.cn_profiles, ["glm"]);
+        // route.v9's two classes included: a China-origin model on a run_tool
+        // turn would read tool output, which waits on theseus-ouqru's screen.
         for m in [
+            "run_tool",
+            "commentary",
             "quick",
             "chat",
             "sophisticated",

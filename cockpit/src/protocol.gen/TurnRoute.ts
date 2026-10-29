@@ -8,8 +8,8 @@ import type { TurnData } from "./TurnData";
 export type TurnRoute = { 
 /**
  * The task class the route pack answered (`trivial`, `quick` since route.v2,
- * `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `review`, `other`),
- * when a verdict was read.
+ * `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `review`, `other`;
+ * `run_tool` and `commentary` since route.v9), when a verdict was read.
  */
 mode?: string, 
 /**
@@ -32,7 +32,8 @@ from: string,
 source?: string, 
 /**
  * route.v3's answer about the reply's effort (`low`, `medium`, `high`,
- * `xhigh`, `max`, or `unclear`), when a verdict was read (theseus-qe3v).
+ * `xhigh`, `max`, or `unclear`; `leave` in its place since route.v9), when a
+ * verdict was read (theseus-qe3v).
  */
 effort?: string, 
 /**
@@ -40,7 +41,8 @@ effort?: string,
  * (to `[routing] effort_bounds`), `held_high` (an `xhigh` or `max` at or
  * under `high_effort_confidence`, run at `high`), `held_high_unsure` (the
  * same, for an answer under its confirm bar), `unsure`, `applied_unsure`
- * (under the confirm bar, at or above `effort_confidence`), `unclear`,
+ * (under the confirm bar, at or above `effort_confidence`), `unclear` (`leave`
+ * since route.v9: the answer names no level, so the profile's own stands),
  * `fixed` (the profile's `effort_fixed`), `no_effort` (its model takes
  * none), `carried` (a late verdict's), `recorded` (shadow, or a pin),
  * `sticky` (a one-step change held at the previous request's level to

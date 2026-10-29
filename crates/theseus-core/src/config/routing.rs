@@ -85,6 +85,63 @@ pub struct RoutingConfig {
     /// A running task's model ranges (theseus-ypnxt.9).
     #[serde(default)]
     pub task_checkpoints: TaskCheckpoints,
+    /// The coding floor (theseus-mn5dr): off unless it names a profile.
+    #[serde(default, skip_serializing_if = "CodingFloor::is_off")]
+    pub coding_floor: CodingFloor,
+    /// Jev chooses which coding turns a China-origin draft is made for
+    /// (theseus-kqeih): route.v9 asks its `draft` question, the owner's
+    /// standing orders in its words, and a class with a `cn_draft` drafts only
+    /// on a sure `cheap`. Off: a class with a `cn_draft` drafts whenever it is
+    /// eligible, as before, and Jev is not asked. Needs a class that drafts.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub draft_by_jev: bool,
+}
+
+/// `[routing.coding_floor]` (theseus-mn5dr, the TB-hard report's fix 5): a
+/// coding verdict (`routine_coding`, `deep_coding`) under its bar routes
+/// nothing, so the turn runs on the session's base profile at the base's
+/// effort. On the owner's benchmark trials the failing ones sat on the base
+/// profile 48% of the time against 9% of the solving ones, and ran at medium
+/// 33% against 9% (69 decisions against 162). That is an association and a
+/// confounded one: the hard tasks are both harder and more often unsure. With
+/// `profile` named, such a verdict holds that profile instead, at its own
+/// effort (a routed profile's effort is its floor, theseus-53ujg.3), and the
+/// route row says `floor`. **It ships off**: the A/B that would justify
+/// defaulting it on is owed to the benchmarks after 1.0.4, and the row's own
+/// text says "A/B first".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodingFloor {
+    /// The profile a coding verdict under its bar holds, `sonnethi` as the
+    /// report names it. Unset: nothing is held, which is today's rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// The lowest confidence that still holds it. Under it the verdict says
+    /// too little about the turn to move a session at all. Above zero and
+    /// under a coding class's own bar (`[routing] switch_confidence` unless
+    /// the class sets one), or the floor never fires; checked only with
+    /// `profile` named.
+    #[serde(default = "floor_confidence")]
+    pub min_confidence: f64,
+}
+
+impl Default for CodingFloor {
+    fn default() -> Self {
+        Self {
+            profile: None,
+            min_confidence: floor_confidence(),
+        }
+    }
+}
+
+impl CodingFloor {
+    pub fn is_off(&self) -> bool {
+        self.profile.is_none()
+    }
+}
+
+fn floor_confidence() -> f64 {
+    0.30
 }
 
 /// `[routing.corrections]` (theseus-q31l): the owner's corrections in a
@@ -126,10 +183,19 @@ pub enum RoutingMode {
 }
 
 /// `[routing.classes.<class>]`, one per mode the route pack answers (`other`
-/// is routed as `chat`; `quick` is route.v2's, theseus-3okf).
+/// is routed as `chat`; `quick` is route.v2's, theseus-3okf; `run_tool` and
+/// `commentary` are route.v9's, theseus-gezlj).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoutingClasses {
+    /// route.v9's `run_tool` (theseus-gezlj): a command, script or tool to run
+    /// and its result to report. A detour, and one that carries the tools.
+    #[serde(default = "run_tool")]
+    pub run_tool: ClassProfiles,
+    /// route.v9's `commentary` (theseus-gezlj): a remark that asks for nothing.
+    /// A detour that carries `tools_find` alone, as `trivial`'s does.
+    #[serde(default = "commentary")]
+    pub commentary: ClassProfiles,
     #[serde(default = "trivial")]
     pub trivial: ClassProfiles,
     #[serde(default = "quick")]
@@ -190,8 +256,11 @@ pub struct ClassProfiles {
 /// the trivial profile, for that turn alone.
 pub const TRIVIAL_CONFIDENCE: f64 = 0.4;
 
-/// The classes, in the pack's order.
-pub const MODES: [&str; 7] = [
+/// The classes, in the pack's order (route.v9's `run_tool` and `commentary`
+/// first, as the pack lists them).
+pub const MODES: [&str; 9] = [
+    "run_tool",
+    "commentary",
     "trivial",
     "quick",
     "chat",
@@ -202,15 +271,28 @@ pub const MODES: [&str; 7] = [
 ];
 
 /// The classes whose turn is a detour (theseus-3okf; `trivial` alone before
-/// it): that turn alone runs on the mode's profile, with the last
-/// `trivial_context_turns` exchanges, and the session stays where it was, its
-/// cache warm. A late verdict of one of them applies to no message
-/// (`routing::carries`). Every other mode switches the session.
-pub const DETOURS: [&str; 2] = ["trivial", "quick"];
+/// it; `run_tool` and `commentary` since route.v9, theseus-gezlj): that turn
+/// alone runs on the mode's profile, with the last `trivial_context_turns`
+/// exchanges, and the session stays where it was, its cache warm. A late
+/// verdict of one of them applies to no message (`routing::carries`). Every
+/// other mode switches the session: a run-the-script turn must not move the
+/// session's profile and leave its cache cold for one command.
+pub const DETOURS: [&str; 4] = ["trivial", "quick", "run_tool", "commentary"];
 
 /// Whether `mode`'s turn is a detour ([`DETOURS`]).
 pub fn is_detour(mode: &str) -> bool {
     DETOURS.contains(&mode)
+}
+
+/// The detours whose request carries `tools_find` and what its message names,
+/// not the whole tool set (theseus-d9je7; `commentary` since theseus-gezlj): a
+/// greeting or a remark asks for no tool. `run_tool` is not one of them, since
+/// the real tools are what its turn is for, and neither is `quick`.
+pub const BARE_DETOURS: [&str; 2] = ["trivial", "commentary"];
+
+/// Whether `mode`'s detour carries `tools_find` alone ([`BARE_DETOURS`]).
+pub fn is_bare_detour(mode: &str) -> bool {
+    BARE_DETOURS.contains(&mode)
 }
 
 /// The detours whose request carries the turn's recall (theseus-pa1xx): a
@@ -278,8 +360,28 @@ fn trivial() -> ClassProfiles {
 fn quick() -> ClassProfiles {
     list(&["haiku"])
 }
+/// Haiku 5.5, then Sonnet 5.5 (theseus-gezlj, theseus-tqomi; the owner,
+/// 2026-10-26: "does haiku do tools?"): it runs a command with the real tool
+/// set, and a config without either runs the turn on the session's own
+/// profile. The China-origin models the owner suggested for such turns are not
+/// named here: they wait on `theseus-ouqru`'s content screen for any tool
+/// output (`cn_profiles` can express it once it lands).
+fn run_tool() -> ClassProfiles {
+    list(&["haiku", "sonnet"])
+}
+/// Haiku 5.5 alone (theseus-gezlj): a remark needs no more than a trivial
+/// turn does.
+fn commentary() -> ClassProfiles {
+    list(&["haiku"])
+}
+/// Opus 5.5 at high effort, then Opus, then Sonnet 5.5 at high effort
+/// (theseus-tqomi; the cn rubric's §7.4; the owner, 2026-10-26: "i'd move to
+/// opus high -- i want real thought for comparative analysis"): a config
+/// without `opushi` runs on `opus`, and without that on `sonnethi`. The class
+/// selects the model; Jev's own `reply_effort` still sets the effort, within
+/// `effort_bounds`.
 fn sophisticated() -> ClassProfiles {
-    list(&["opus", "fable"])
+    list(&["opushi", "opus", "sonnethi"])
 }
 fn deep_coding() -> ClassProfiles {
     list(&["opus", "sonnet"])
@@ -290,15 +392,18 @@ fn deep_coding() -> ClassProfiles {
 fn routine_coding() -> ClassProfiles {
     list(&["haikuhi", "sonnet"])
 }
-/// Opus 5.5 at high effort, then Fable 5.1 (theseus-p8dy): a config without
-/// `opushi` reviews on `fable`, or the session's own.
+/// Opus 5.5, then Sonnet 5.5 at high effort (theseus-p8dy, then theseus-tqomi's
+/// cn rubric §7.4; the owner, 2026-10-26 07:33): a config without either
+/// reviews on the session's own.
 fn review() -> ClassProfiles {
-    list(&["opushi", "fable"])
+    list(&["opus", "sonnethi"])
 }
 
 impl Default for RoutingClasses {
     fn default() -> Self {
         Self {
+            run_tool: run_tool(),
+            commentary: commentary(),
             trivial: trivial(),
             quick: quick(),
             chat: ClassProfiles::default(),
@@ -314,6 +419,8 @@ impl RoutingClasses {
     /// A mode's table; `other` and any unknown mode are `chat`'s.
     pub fn table(&self, mode: &str) -> &ClassProfiles {
         match mode {
+            "run_tool" => &self.run_tool,
+            "commentary" => &self.commentary,
             "trivial" => &self.trivial,
             "quick" => &self.quick,
             "sophisticated" => &self.sophisticated,
@@ -365,6 +472,8 @@ impl Default for RoutingConfig {
             classes: RoutingClasses::default(),
             corrections: CorrectionsConfig::default(),
             task_checkpoints: TaskCheckpoints::default(),
+            coding_floor: CodingFloor::default(),
+            draft_by_jev: false,
         }
     }
 }
@@ -432,6 +541,29 @@ impl RoutingConfig {
             }
         }
         self.task_checkpoints.validate()?;
+        let f = &self.coding_floor;
+        if f.profile.as_deref().is_some_and(|p| p.trim().is_empty()) {
+            anyhow::bail!("routing.coding_floor.profile has an empty name");
+        }
+        if !f.is_off() {
+            // The floor fires in [min_confidence, a coding class's own bar), the
+            // bar `decide` reads (`confidence_for`). It never fires only when no
+            // coding class has room, so the top of the two is the window's top.
+            // An off floor is not checked: its default must not refuse a legal
+            // `switch_confidence`.
+            let bar = crate::routing::CODING
+                .iter()
+                .map(|m| self.confidence_for(m))
+                .fold(f64::NEG_INFINITY, f64::max);
+            if !(f.min_confidence > 0.0 && f.min_confidence < bar) {
+                anyhow::bail!(
+                    "routing.coding_floor.min_confidence must be above 0 and under the \
+                     bar of a coding class (routing.switch_confidence, or its \
+                     routing.classes.<class>.switch_confidence): at or over every one \
+                     the floor never fires"
+                );
+            }
+        }
         let c = &self.corrections;
         if !(c.similarity > 0.0 && c.similarity <= 1.0) {
             anyhow::bail!("routing.corrections.similarity must be above 0 and at most 1");
@@ -541,10 +673,15 @@ mod tests {
         assert_eq!(d.classes.of("quick"), ["haiku"]);
         assert!(d.classes.of("chat").is_empty());
         assert_eq!(d.classes.of("other"), d.classes.of("chat"));
-        assert_eq!(d.classes.of("sophisticated"), ["opus", "fable"]);
+        assert_eq!(d.classes.of("run_tool"), ["haiku", "sonnet"]);
+        assert_eq!(d.classes.of("commentary"), ["haiku"]);
+        assert_eq!(
+            d.classes.of("sophisticated"),
+            ["opushi", "opus", "sonnethi"]
+        );
         assert_eq!(d.classes.of("deep_coding"), ["opus", "sonnet"]);
         assert_eq!(d.classes.of("routine_coding"), ["haikuhi", "sonnet"]);
-        assert_eq!(d.classes.of("review"), ["opushi", "fable"]);
+        assert_eq!(d.classes.of("review"), ["opus", "sonnethi"]);
         d.validate(|_| false).unwrap();
         assert_eq!(
             (
@@ -569,7 +706,10 @@ mod tests {
     fn one_mode_set_keeps_the_others_defaults() {
         let c = cfg("[classes.chat]\nprofiles = [\"sonnet\"]").unwrap();
         assert_eq!(c.classes.of("chat"), ["sonnet"]);
-        assert_eq!(c.classes.of("sophisticated"), ["opus", "fable"]);
+        assert_eq!(
+            c.classes.of("sophisticated"),
+            ["opushi", "opus", "sonnethi"]
+        );
         assert!(
             cfg("[classes.poetry]\nprofiles = []").is_err(),
             "no such mode"
@@ -617,6 +757,8 @@ mod tests {
         let d = cfg("").unwrap();
         assert_eq!(d.confidence_for("trivial"), 0.4);
         for m in [
+            "run_tool",
+            "commentary",
             "quick",
             "chat",
             "sophisticated",
@@ -648,14 +790,15 @@ mod tests {
         );
     }
 
-    /// The detours (theseus-3okf): `trivial` and `quick`, each its own
-    /// message's; every other mode, `other` and an unknown one included,
-    /// switches. `quick` takes its own table.
+    /// The detours (theseus-3okf; route.v9's two, theseus-gezlj): `trivial`,
+    /// `quick`, `run_tool` and `commentary`, each its own message's; every
+    /// other mode, `other` and an unknown one included, switches. `quick`
+    /// takes its own table.
     #[test]
-    fn trivial_and_quick_are_the_detours() {
+    fn trivial_quick_run_tool_and_commentary_are_the_detours() {
         assert_eq!(
             MODES.iter().filter(|m| is_detour(m)).collect::<Vec<_>>(),
-            [&"trivial", &"quick"]
+            [&"run_tool", &"commentary", &"trivial", &"quick"]
         );
         for m in ["chat", "other", "sophisticated", "routine_coding", "poetry"] {
             assert!(!is_detour(m), "{m}");
@@ -668,12 +811,50 @@ mod tests {
     }
 
     /// A quick detour carries the turn's recall, a trivial one none
-    /// (theseus-pa1xx); every recalling mode is a detour.
+    /// (theseus-pa1xx); every recalling mode is a detour. A run_tool turn
+    /// carries no recall (its message is the command), and neither does a
+    /// remark.
     #[test]
     fn a_quick_detour_recalls_and_a_trivial_one_does_not() {
         assert!(detour_recalls("quick"));
-        assert!(!detour_recalls("trivial"));
+        for m in ["trivial", "run_tool", "commentary"] {
+            assert!(!detour_recalls(m), "{m}");
+        }
         assert!(RECALLING_DETOURS.iter().all(|m| is_detour(m)));
+    }
+
+    /// Which detours carry `tools_find` alone (theseus-gezlj): a greeting and
+    /// a remark do, a command to run does not, since the real tools are what
+    /// its turn is for. Every bare mode is a detour.
+    #[test]
+    fn a_run_tool_detour_carries_the_real_tools_and_a_remark_carries_none() {
+        for m in ["trivial", "commentary"] {
+            assert!(is_bare_detour(m), "{m}");
+        }
+        for m in ["run_tool", "quick", "chat", "sophisticated", "poetry"] {
+            assert!(!is_bare_detour(m), "{m}");
+        }
+        assert!(BARE_DETOURS.iter().all(|m| is_detour(m)));
+        assert!(is_detour("run_tool"));
+    }
+
+    /// The v9 classes take their own tables and bars, and a table naming
+    /// none is Haiku's (theseus-gezlj).
+    #[test]
+    fn the_v9_classes_take_their_own_tables_and_bars() {
+        let c = cfg(
+            "[classes.run_tool]\nprofiles = [\"haikuhi\"]\nswitch_confidence = 0.4\n[classes.commentary]\nprofiles = []",
+        )
+        .unwrap();
+        assert_eq!(c.classes.of("run_tool"), ["haikuhi"]);
+        assert_eq!(c.confidence_for("run_tool"), 0.4);
+        assert!(c.classes.of("commentary").is_empty());
+        assert_eq!(c.confidence_for("commentary"), 0.6);
+        assert_eq!(c.classes.of("quick"), ["haiku"], "the others are untouched");
+        c.validate(|_| false).unwrap();
+        let e = cfg("[classes.run_tool]\nswitch_confidence = 0.0").unwrap();
+        let e = e.validate(|_| false).unwrap_err();
+        assert!(format!("{e:#}").contains("routing.classes.run_tool.switch_confidence"));
     }
 
     /// `effort_bounds` (route.v3, theseus-qe3v): the full range by default,

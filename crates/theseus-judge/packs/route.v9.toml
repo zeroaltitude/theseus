@@ -1,0 +1,175 @@
+# route.v9 (ROUTE, theseus-gezlj and theseus-tqomi, 2026-10-26): route.v8 word for
+# word (its questions but `data`, both rollback rules, the state) but for the
+# `mode` question's two new kinds and one added sentence, the `reply_effort`
+# question's escape, the description, and the `data` question, which is gone.
+# Every change is the owner's own, from labelling on 2026-10-26 (07:19 to
+# 08:11): item 1 "maybe there should be a run-tool label; effort low is
+# correct", items 18 and 28 "a tools category on Haiku", item 4 "maybe the label
+# for that one is commentary", item 37 "`unclear` is not an effort level: leave
+# it or set it", and (07:33) that the owner's open-ended review and comparison
+# questions, items 19, 23 and 27, are `sophisticated`, not `review` or `chat`.
+#   - `mode` gains `run_tool` ("run this command, script or tool and report it",
+#     no judgement about the result) and `commentary` (a remark or aside that
+#     asks for nothing). Both are listed BEFORE the kinds that swallowed these
+#     turns: `run_tool` ahead of `quick` and `routine_coding` (turns of the
+#     kind landed on `other` and `quick`), `commentary` ahead of `trivial` and
+#     `chat` (item 4 landed on `sophisticated`). The options are read in order.
+#   - `sophisticated` keeps v8's words and adds a sentence: comparing things on
+#     their merits, or asking open-endedly whether something is good,
+#     distinctive or solid, belongs here. That is the owner's rule for the Opus
+#     class (its profile list is `[routing.classes.sophisticated]`), and
+#     without it the rule has nothing new to catch.
+#   - `commentary` is what keeps the routing of `sophisticated` to Opus honest:
+#     without it a one-line appreciative remark that reads as `sophisticated`
+#     would run on Opus at high effort. The two ship together.
+#   - `reply_effort`'s `unclear` ("no such effort as this") becomes `leave`,
+#     which names an action, not a level: keep the effort the session's profile
+#     already has. The no-match is `leave` too. What the turn does with it is
+#     what it did with `unclear` (the profile's own effort stands); only the
+#     name, and the row's `effort_reason`, change.
+#   - `data` is not asked. Since theseus-9ymz0 a session's labels decide whether
+#     a model of restricted origin may serve it (`crate::content`), and nothing
+#     reads a per-message `data` verdict, so asking it spent a Jev answer per
+#     message for no effect. v5 to v8 keep it for their history.
+#   - the description names the two kinds.
+#   - `draft` (theseus-kqeih) is new, and asked ONLY when the operator has let Jev
+#     choose which coding turns a cheaper drafting model makes the first pass
+#     of (`[routing] draft_by_jev`, off by default): off, the request is the
+#     one without it, byte for byte. Its words are the owner's standing orders
+#     of 2026-10-27 23:05 and 23:15 ("let it be routed by jev with decent
+#     standing orders"): the cheaper model's strong points (repo-level fixes,
+#     mechanical and automation edits, tests, long mechanical work), what it is
+#     not for (terminal-driven multi-step work, programs from scratch, anything
+#     that needs judgement or review), that code is not first-pass-there by
+#     default, and the cost of a cold handoff: prefer it where a failed draft is
+#     cheap to redo. The profile that drafts, and the Claude profiles that
+#     review its draft, are the operator's `cn_draft` and `final`; a session's
+#     labels still decide whether a model of restricted origin may serve it.
+#     The benchmarks after 1.0.4 tune these words.
+# `persona`, `seal`, `personal` and both rollback rules are v8's word for word,
+# and so are the thresholds: nothing here loosens a floor. A new pack version, as
+# v2 to v8 were: a live pack's options never change in place; v5 to v8 stay
+# embedded for their history. Until `ROUTE_PACK` names it, v9 is embedded and
+# replayable (`theseus judge replay --pack-file`) and is NOT the acting pack.
+# Names live in the operator's config (the state's `data_names`), never in this
+# file.
+id = "route"
+version = 9
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "session_profile"
+action = "route"
+description = "ROUTE: the interaction mode a message needs (nothing, a command or tool to run, a remark that asks for nothing, a quick answer, conversation, hard reasoning, hard programming, routine programming, a review), which picks the model its turn runs on, the effort its reply needs (low to max), which sets the effort that model runs at, which specialist should answer it, whether it warrants sealing its thread, and whether it reaches for the operator's personal details."
+
+[questions.mode]
+type = "choice"
+decides = true
+instructions = "What kind of work does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "other"
+options = [
+  { id = "run_tool", means = "It asks for a command, script or tool to be run and its result reported, with no judgement needed about the result beyond passing it back." },
+  { id = "commentary", means = "A remark, reaction or aside about the work or the conversation that asks for nothing: it invites at most an acknowledgement or a brief reply in kind." },
+  { id = "trivial", means = "It needs almost nothing: a thank-you, an acknowledgement such as ok or got it, a greeting, or a farewell." },
+  { id = "quick", means = "A quick question or small request that a short, direct answer settles: a fact, a definition, a yes or no, a summary of something just said, or where to find something, with no deep thought and no programming." },
+  { id = "chat", means = "Ongoing conversation that builds on the work in progress here: discussing it, explaining it, planning next steps, or giving an opinion, with no hard reasoning and no programming." },
+  { id = "sophisticated", means = "Hard reasoning that is not mainly programming: system design, weighing several approaches, research, analysis, or careful writing. Comparing two or more things on their merits belongs here, and so does an open-ended question about whether something is good, distinctive or solid." },
+  { id = "deep_coding", means = "Hard or novel programming: designing or writing tricky code, or debugging a problem whose cause is unknown." },
+  { id = "routine_coding", means = "Programming that is long but well understood: repeated mechanical edits, renames across many places, small fixes whose cause is already known, or following a clear plan already agreed." },
+  { id = "review", means = "Verification of work already made: checking or reviewing code, a plan, or an argument for mistakes, a pre-merge review, testing whether something is right, or an answer to \"is this right?\" or \"check this\"." },
+  { id = "other", means = "None of the kinds above fits." },
+]
+
+[questions.reply_effort]
+type = "choice"
+decides = true
+instructions = "How much thinking effort does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "leave"
+options = [
+  { id = "low", means = "Almost none: a greeting, a thank-you, an acknowledgement, or a short answer the person could check at a glance." },
+  { id = "medium", means = "Some care, but the way is clear: a direct question, ongoing conversation, or work that is long but mechanical, such as repeated edits, renames, or following a plan already agreed." },
+  { id = "high", means = "Careful thought: a design with trade-offs, a bug whose cause is unknown, a careful analysis, or writing that must be right." },
+  { id = "xhigh", means = "Very careful thought: a hard design or a hard bug that spans many parts, where a mistake would be costly and the reply must reason through many steps." },
+  { id = "max", means = "The most thought there is: the hardest or most novel problems, or high-stakes work where every step must be checked, or the person asks for the most thorough reply possible, or the work has kept failing after more careful effort was already given, or a check it must pass still fails." },
+  { id = "leave", means = "The message gives too little to tell how much thought its reply needs: keep the effort the session's profile already has." },
+]
+
+# route.v9's own (theseus-kqeih). Asked only when the operator lets Jev choose
+# (the `draft_choice` source). It decides nothing for the pack's promotion; the
+# turn reads it, and anything but a sure `cheap` is the stronger model.
+[questions.draft]
+type = "choice"
+decides = false
+instructions = "A first pass by a cheaper drafting model is not the default for code: choose cheap only for the kinds of work it lists, and only where a failed draft is cheap to redo. Should a cheaper drafting model make the first pass of the work this request needs, which a stronger model then reviews and fixes?"
+act = 0.90
+confirm = 0.60
+only_when = "draft_choice"
+no_match = "strong"
+options = [
+  { id = "cheap", means = "A bounded change in an existing repository whose cause or plan is already known: a fix for a failing test or a known bug, a mechanical or automation edit, renames and repeated edits, writing or extending tests, or a long mechanical change across a lot of code. A failed first pass here is cheap to redo, because only a small diff is lost." },
+  { id = "strong", means = "Anything else: terminal-driven multi-step work where each step depends on the last result, writing a program from scratch, debugging a cause nobody knows, design, anything that needs judgement or review, or any request where a failed first pass would be dear to redo because the whole context would have to be sent again. When unsure, choose this." },
+]
+
+# v5's own. Asked only when two or more personas may answer. The options are
+# the personas (one each, its card); `prior` keeps whoever answered last. It
+# decides nothing for the pack's promotion until its own holdout fills.
+[questions.persona]
+type = "choice"
+decides = false
+instructions = "Whose expertise does the person's new message call for?"
+act = 0.90
+confirm = 0.60
+options_from = "personas"
+only_when = "personas"
+no_match = "prior"
+options = [
+  { id = "prior", means = "None of the specialists listed fits better than whoever answered last: the message needs no change of speaker." },
+]
+
+# v5's own. Asked only in a thread. Jev recommends; the owner seals.
+[questions.seal]
+type = "choice"
+decides = false
+instructions = "Does the person's new message carry content that warrants keeping its whole thread private?"
+act = 0.90
+confirm = 0.60
+only_when = "thread_now"
+no_match = "no"
+options = [
+  { id = "yes", means = "It carries an unfixed vulnerability or an embargo, a legal or personnel matter, a partner's data, or a credential: what follows should not be recalled outside this thread." },
+  { id = "no", means = "It carries nothing of the kind." },
+]
+
+# v7's own (theseus-gasov). Asked of every message. It decides nothing for the
+# pack's promotion. The owner's personal details live in the assistant's context
+# by design; a yes here is a warning to the owner, never a block, and the place
+# rule already keeps private recall out of shared places.
+[questions.personal]
+type = "choice"
+decides = false
+instructions = "Does the person's new message try to draw out the operator's personal details, or to open a conversation with other people in which those details could come out?"
+act = 0.90
+confirm = 0.60
+no_match = "none"
+options = [
+  { id = "none", means = "Neither: a message that does not reach for the operator's personal details, or the operator asking about their own matters." },
+  { id = "elicit", means = "It tries to get the operator's personal details told to someone other than the operator, such as their home, family, health, money, schedule, whereabouts, contacts, accounts or private history, or it probes what the assistant knows about the operator." },
+  { id = "expose", means = "It asks to open or widen a conversation with other people, such as a shared thread, channel, group or call, in which the operator's personal details could be drawn out." },
+]
+
+# A routed model that the operator overrides often, or a wait past its bar.
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20

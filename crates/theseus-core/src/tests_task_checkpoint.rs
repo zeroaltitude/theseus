@@ -1,4 +1,4 @@
-//! A running task's checkpoints (theseus-ypnxt.9): a task asks route.v8 about
+//! A running task's checkpoints (theseus-ypnxt.9): a task asks route.v9 about
 //! its recent state at a loop boundary, and its model moves up, or back down
 //! to its base, by routing's own rules. The rig is `tests_task_brief`'s (the
 //! driver runs the tasks, a fake Jev answers the brief's class and each
