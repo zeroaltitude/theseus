@@ -39,6 +39,12 @@ pub mod kinds {
     /// 34): one record for each file an `fs.edit`, `fs.write` or `fs.patch`
     /// changed, scoped `rewind:<session>`, its blob in the store's blobs.
     pub const PRE_IMAGE: RecordKind = 13;
+    /// A META key's end (theseus-1kw2v): the record's key is the META key it
+    /// removes, its payload empty. The index drops that key from its key
+    /// tables and counts as the record is indexed, replayed, or built, so a
+    /// key a thing's life made is gone with the thing. The records the key
+    /// held stay in the log, and in a scan by position or kind.
+    pub const TOMBSTONE: RecordKind = 14;
 
     pub fn name(k: RecordKind) -> &'static str {
         match k {
@@ -54,6 +60,7 @@ pub mod kinds {
             OUTBOX => "outbox",
             TASK => "task",
             PRE_IMAGE => "pre_image",
+            TOMBSTONE => "tombstone",
             _ => "unknown",
         }
     }
@@ -94,6 +101,13 @@ impl NewRecord {
     ) -> anyhow::Result<Self> {
         Ok(Self::bytes(kind, key, serde_json::to_vec(value)?))
     }
+    /// The end of META key `key` (`kinds::TOMBSTONE`): read afterwards,
+    /// `latest_by_key` finds no record for it, and a write of it later
+    /// starts it afresh.
+    pub fn delete_meta(key: &str) -> Self {
+        Self::bytes(kinds::TOMBSTONE, Some(key), Vec::new())
+    }
+
     pub fn bytes(kind: RecordKind, key: Option<&str>, payload: Vec<u8>) -> Self {
         Self {
             kind,

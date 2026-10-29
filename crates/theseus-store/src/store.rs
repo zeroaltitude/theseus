@@ -2043,3 +2043,5 @@ mod tests_frame_times;
 mod tests_keyed;
 #[cfg(test)]
 mod tests_pages;
+#[cfg(test)]
+mod tests_tombstone;

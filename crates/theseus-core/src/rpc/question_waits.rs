@@ -13,7 +13,9 @@
 //! the notice's own frame: a restart does not tell a life twice, and a sweep
 //! that finds several lives past (the daemon was down) tells the latest once.
 //! Ended by what always ended a question: the owner's answer, a stop or
-//! cancel of its execution, or its session's end.
+//! cancel of its execution, or its session's end. The record ends with it
+//! (theseus-1kw2v): the sweep that reads the pending questions ends the count
+//! of every question no longer among them, whichever way it ended.
 //!
 //! Not here, and as they were: a budget question holds until it is answered
 //! (`expire_questions` never reads it); an `owner_ask` applies its default at
@@ -24,7 +26,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use theseus_kernel::Action;
-use theseus_store::{kinds, NewRecord};
+use theseus_store::{kinds, NewRecord, Store as _};
 
 use super::Core;
 
@@ -62,6 +64,38 @@ pub(crate) fn waited_words(ms: u64) -> String {
 }
 
 impl Core {
+    /// End the notice count of every question that is not in `pending`
+    /// (theseus-1kw2v): an answered, stopped, or cancelled question's, and a
+    /// retired session's. A question's count is written only after it was
+    /// pending, so one that is not pending now never needs it again.
+    pub(crate) fn forget_noticed(&self, pending: &[Action]) {
+        match self.end_noticed(pending) {
+            Ok(0) => {}
+            Ok(n) => tracing::debug!(
+                ended = n,
+                "question notice counts ended with their questions"
+            ),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "question notice counts could not be ended")
+            }
+        }
+    }
+
+    fn end_noticed(&self, pending: &[Action]) -> Result<usize> {
+        let live: std::collections::HashSet<&str> =
+            pending.iter().map(|a| a.correlation_id.as_str()).collect();
+        let ended: Vec<String> = self
+            .store
+            .inner()
+            .latest_with_prefix(kinds::META, NOTICED_PREFIX)?
+            .into_iter()
+            .filter_map(|r| r.key)
+            .filter(|k| !live.contains(&k[NOTICED_PREFIX.len()..]))
+            .collect();
+        self.store.delete_meta_keys(&ended)?;
+        Ok(ended.len())
+    }
+
     /// `question_waits`, or a minute from now when it could not be told.
     pub(crate) fn question_waits_or_soon(&self, a: &Action, ttl_ms: u64, now: u64) -> u64 {
         self.question_waits(a, ttl_ms, now).unwrap_or_else(|e| {
