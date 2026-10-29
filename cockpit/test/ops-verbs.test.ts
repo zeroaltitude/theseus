@@ -10,7 +10,7 @@ import { KEY_VERB, VERBS, verbById, verbsOn } from '../src/ops/verbs.ts'
 const EXPECT: Record<string, string> = {
   open: 'nav|do', inspect: 'session.history node.list turn.inspect work.peek thread.show task.list|do', join: 'turn.submit|do', steer: 'turn.submit|do', queue: 'turn.submit|do',
   task_pause: 'task.pause task.resume|do', thread_pause: 'thread.pause thread.resume thread.done thread.reopen|do', routine_pause: 'routine.pause routine.resume|do',
-  routine_run: 'routine.run_now|ask', routine_delete: 'routine.delete|ask', wake_snooze: 'wake.snooze|do', wake_pause: 'wake.pause wake.resume|do', wake_cancel: 'wake.cancel|ask',
+  routine_run: 'routine.run_now|ask', routine_skip: 'routine.skip|ask', routine_delete: 'routine.delete|ask', wake_snooze: 'wake.snooze|do', wake_pause: 'wake.pause wake.resume|do', wake_cancel: 'wake.cancel|ask',
   watch_cancel: 'wake.cancel|ask', stop: 'execution.stop|arm', stop_all: 'execution.stop|ask', cancel: 'task.cancel|arm', not_this: 'task.not_this|arm', job_stop: 'job.stop|arm', answer: 'work.answer|floor',
   unlabel: 'content.unlabel|ask', retry: 'task.retry|do', dismiss: 'execution.dismiss|do', new_task: 'task.start|do', thread_new: 'thread.new|do', thread_edit: 'thread.edit|do',
   thread_seal: 'thread.seal thread.unseal|ask', thread_merge: 'thread.merge thread.split|ask', thread_link: 'thread.link|do', thread_move: 'thread.move|do', attach: 'project.attach|do',

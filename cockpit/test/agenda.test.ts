@@ -112,7 +112,10 @@ test('each mark carries the verbs of its kind, and each verb is one protocol cal
   assert.deepEqual(verbsFor(m({ paused: true })).map((v) => v.method).filter((x) => x.startsWith('wake.p') || x === 'wake.resume'), ['wake.resume'])
   assert.deepEqual(verbsFor(m({ kind: 'check' })).at(-1)?.method, 'wake.cancel')
   const routine = verbsFor(m({ kind: 'run', title: 'Morning digest', session_id: 'ses_routine' }))
-  assert.deepEqual(routine.map((v) => [v.label, v.method]), [['Run now', 'routine.run_now'], ['Pause', 'routine.pause'], ['Resume', 'routine.resume'], ['Cancel', 'routine.delete']])
+  assert.deepEqual(routine.map((v) => [v.label, v.method]), [['Run now', 'routine.run_now'], ['Pause', 'routine.pause'], ['Resume', 'routine.resume'], ['Skip next', 'routine.skip'], ['Cancel', 'routine.delete']])
+  const skip = routine.find((v) => v.key === 'skip')
+  assert.deepEqual(skip?.params, { id: 'ses_routine' })
+  assert.ok(skip?.ask, 'Skip asks first: it drops one run and cannot be undone')
   assert.ok(routine.every((v) => (v.params as { id: string }).id === 'ses_routine'))
   assert.deepEqual(verbsFor(m({ kind: 'watch' })).map((v) => v.method), ['wake.cancel'])
   assert.deepEqual(verbsFor(m({ kind: 'start', id: 'exe_task' })).map((v) => [v.method, v.params]), [['task.cancel', { task: 'exe_task' }]])
@@ -120,7 +123,8 @@ test('each mark carries the verbs of its kind, and each verb is one protocol cal
   assert.deepEqual(verbsFor(m({ kind: 'past' })), [])
   // A routine's row offers Pause when it runs and Resume when it is held, never both.
   const row = { title: 'Morning digest', session_id: 'ses_routine', id: 'wak_r' }
-  assert.deepEqual(routineVerbs({ ...row, paused: false }).map((v) => v.key), ['run_now', 'pause', 'cancel'])
+  assert.deepEqual(routineVerbs({ ...row, paused: false }).map((v) => v.key), ['run_now', 'pause', 'skip', 'cancel'])
+  // A held series has no next run to skip: the daemon refuses it, so the row does not offer it.
   assert.deepEqual(routineVerbs({ ...row, paused: true }).map((v) => v.key), ['run_now', 'resume', 'cancel'])
 })
 
