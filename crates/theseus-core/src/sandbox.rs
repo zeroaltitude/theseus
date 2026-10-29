@@ -26,7 +26,7 @@
 //!   whom Linux exempts from it, gets no L1 job at all (theseus-pv6i).
 
 mod self_build;
-pub use self_build::{env as self_build_env, supply_chain, SelfBuild};
+pub use self_build::{env as self_build_env, supply_chain, SelfBuild, NODE_PIN};
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};

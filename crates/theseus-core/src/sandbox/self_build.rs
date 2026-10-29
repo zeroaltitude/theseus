@@ -39,6 +39,11 @@ const BUILD_OUTPUT_MB: u64 = 16 * 1024;
 /// Each of `/tmp`, `/dev/shm` and HOME, and scratch, for a build.
 const BUILD_TMP_MB: u64 = 4 * 1024;
 
+/// The node release the cockpit phase of a self build's gate runs on, one exact
+/// version as `rust-toolchain.toml` pins Rust's (theseus-selom). It is found at
+/// `~/.nvm/versions/node/v<NODE_PIN>` (`nvm install <NODE_PIN>`).
+pub const NODE_PIN: &str = "24.18.0";
+
 /// Where a self build runs.
 #[derive(Debug, Clone)]
 pub struct SelfBuild<'a> {

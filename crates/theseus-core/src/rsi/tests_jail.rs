@@ -74,6 +74,54 @@ fn the_self_build_view_binds_exactly_the_tree_and_its_target_read_write() {
     assert_eq!(jobs.limits.pids, 512);
 }
 
+/// The cockpit phase of the gate needs node and npm (`cockpit_modules`, then
+/// `npm run test`), and the host's own are a node 12 and no npm: the pinned
+/// toolchain is bound read-only at its own path, and only that one version's
+/// directory, not the operator's whole `~/.nvm` (theseus-selom). It adds no
+/// writable bind and no network.
+#[test]
+fn the_view_binds_the_pinned_node_toolchain_read_only_and_nothing_more_of_nvm() {
+    let sb = sandbox();
+    let gate = PathBuf::from("/state/self/gates/gate-abc.sh");
+    let ro = [gate];
+    let view = sb.self_build_view(&build(&ro, Path::new("/home/op")));
+    let node = PathBuf::from(format!(
+        "/home/op/.nvm/versions/node/v{}",
+        crate::sandbox::NODE_PIN
+    ));
+    assert!(view.ro_paths.contains(&node), "{:?}", view.ro_paths);
+    let nvm: Vec<&PathBuf> = view
+        .ro_paths
+        .iter()
+        .chain(&view.workspace)
+        .chain(&view.rw)
+        .filter(|p| p.starts_with("/home/op/.nvm"))
+        .collect();
+    assert_eq!(nvm, [&node], "one version of nvm's, and read-only");
+    assert!(view.egress.is_empty(), "still no network");
+    assert_eq!(
+        view.rw,
+        [
+            PathBuf::from("/state/self/trees/t"),
+            PathBuf::from("/state/self/target/t")
+        ],
+        "nothing writable was gained"
+    );
+}
+
+/// The pinned toolchain's `bin` comes before the system's: the host's own
+/// `/usr/bin/node` is old enough that the cockpit's tests do not run on it.
+#[test]
+fn the_pinned_node_comes_first_on_a_self_builds_path() {
+    let env = crate::sandbox::self_build_env(Path::new("/home/op"), Path::new("/t/target"));
+    let path = env.iter().find(|(n, _)| n == "PATH").map(|(_, v)| v.as_str());
+    let want = format!(
+        "/home/op/.nvm/versions/node/v{}/bin:",
+        crate::sandbox::NODE_PIN
+    );
+    assert!(path.unwrap().starts_with(&want), "{path:?}");
+}
+
 /// The approve list names the whole state directory (`~/.theseus`), which
 /// also holds the gate's copy, the tree and the build tree. A mask over it
 /// would cover those binds and the gate would find no script (exit 127, every
@@ -236,7 +284,7 @@ fn a_self_builds_environment_is_its_own_and_offline() {
     assert_eq!(get("CARGO_TARGET_DIR"), Some("/t/target"));
     assert_eq!(get("RUSTC_WRAPPER"), Some(""));
     assert_eq!(get("HOME"), Some("/home/op"));
-    assert!(get("PATH").unwrap().starts_with("/home/op/.cargo/bin:"));
+    assert!(get("PATH").unwrap().contains("/home/op/.cargo/bin:"));
     let names: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
     assert!(
         names
