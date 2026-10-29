@@ -28,8 +28,14 @@ use crate::rsi::tree::{self, Place, Tree, Verdict};
 pub enum Done {
     /// The revert commit is on main.
     Reverted(String),
-    /// It stopped before main, and why; the owner's card says so.
-    Held { phase: String, why: String },
+    /// It stopped before main, and why. With a `card` the owner's card says so
+    /// and the revert is theirs; without one (a halt, a lock that stayed held,
+    /// a gate that did not run) nothing was decided and it may be tried again.
+    Held {
+        phase: String,
+        why: String,
+        card: bool,
+    },
 }
 
 /// A revert made in its tree: the tree, the main it is on, its commit.
@@ -128,7 +134,12 @@ impl Core {
                 return Ok(held);
             }
             let run = match tree::gate_with_benches(place, &made.t).await {
-                Ok(r) => r,
+                Ok(tree::Gated::Ran(r)) => r,
+                Ok(tree::Gated::Stopped(why)) => {
+                    closing(&made.t);
+                    let why = format!("stopped while main's gate on the revert waited: {why}");
+                    return Ok(self.revert_held(j, "gate", &why, false));
+                }
                 Err(e) => {
                     closing(&made.t);
                     let why = format!("main's gate on the revert did not run: {e:#}");
@@ -223,6 +234,7 @@ impl Core {
         Done::Held {
             phase: phase.into(),
             why: why.into(),
+            card,
         }
     }
 
@@ -313,6 +325,27 @@ fn make(p: &Place, remote: &str, j: &Joined) -> Result<std::result::Result<Made,
     let on_main = p.git(&p.repo, &["merge-base", "--is-ancestor", &j.merge, &base])?;
     if !on_main.status.success() {
         return Ok(Err(format!("{} is not on main", short(&j.merge))));
+    }
+    // A revert whose row was never written (a crash after its push) must not be
+    // made again: its message names the join it undoes.
+    let undone = p.git_ok(
+        &p.repo,
+        &[
+            "log",
+            "-1",
+            "--format=%H",
+            "--fixed-strings",
+            &format!("--grep=undoes the self-join {}", j.merge),
+            &base,
+        ],
+    )?;
+    if !undone.trim().is_empty() {
+        return Ok(Err(format!(
+            "{} is already reverted on main by {}, though no row says so: check main, and do \
+             not revert it again",
+            short(&j.merge),
+            short(undone.trim())
+        )));
     }
     let t = git::detached(p, "revert", &j.branch, &base)?;
     let who = p.ident_args();

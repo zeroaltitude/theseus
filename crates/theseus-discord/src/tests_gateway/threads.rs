@@ -94,10 +94,15 @@ fn turns(r: &Rig, sid: &str) -> u32 {
         .turns as u32
 }
 
-/// Wait for the session's books to show `n` turns. A turn's reply is posted
-/// to the place before the turn ends, and the turn counts itself into the
-/// session record in its last frame, so a reply seen in Discord does not yet
-/// mean a turn booked.
+/// Wait for the session's books to show `n` turns. On the x86 host a reply
+/// seen in Discord was read with `turns` still 0 (theseus-b8c7c: 35 of 45
+/// runs of three of these tests, before this wait). That was not reproduced
+/// on the M1 Max, and no ordering of the code was found that posts a turn's
+/// reply before its books: the post and the session's count ride one frame,
+/// `end_turn`'s (theseus-xcsi7: a planted 400 ms delay before that frame and
+/// one after it, this wait switched off, reds nothing). So this pins the
+/// count eventually, up to 20 s, which is weaker than at the instant the
+/// reply is seen.
 async fn booked(r: &Rig, sid: &str, n: u32) {
     r.until("the turn booked in its session", || turns(r, sid) == n)
         .await;

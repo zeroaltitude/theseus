@@ -9,7 +9,8 @@ use theseus_protocol::routines::RoutineInfo;
 use theseus_protocol::usd;
 use theseus_protocol::watches::WatchInfo;
 use theseus_protocol::work::horizon::{AgendaLine, AgendaWhat};
-use theseus_protocol::work::WorkView;
+use theseus_protocol::work::progress_line::progress_line;
+use theseus_protocol::work::{WorkKind, WorkState, WorkView};
 
 use super::clip;
 use super::v2::{button, row, text, Look};
@@ -23,6 +24,8 @@ pub const COMING: usize = 5;
 pub const ROUTINES: usize = 3;
 /// How many projects the board tries first.
 pub const PROJECTS: usize = 3;
+/// How many tasks going `/agenda` names before it folds the rest.
+pub const GOING: usize = 6;
 
 /// What the board's future sections are drawn from.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -85,6 +88,39 @@ pub fn next_lines(lines: &[AgendaLine], n: usize) -> Vec<AgendaLine> {
     v.sort_by_key(|l| (l.at_ms, l.id.clone()));
     v.truncate(n);
     v
+}
+
+/// The tasks going now (theseus-1t4q8): a task that has started and not ended, with no start time still ahead of it (a
+/// deferred task is an occurrence, `AgendaWhat::Starts`, and a routine's run is a task of its own), longest-running
+/// first. A task waiting on the owner is going: it holds a place on the timeline until it ends.
+pub fn going(views: &[WorkView]) -> Vec<WorkView> {
+    let mut v: Vec<WorkView> = views
+        .iter()
+        .filter(|v| {
+            v.kind == WorkKind::Task
+                && !v.state.ended()
+                && v.state != WorkState::Queued
+                && v.started_at_ms > 0
+                && v.next_at_ms.is_none()
+        })
+        .cloned()
+        .collect();
+    v.sort_by_key(|v| (v.started_at_ms, v.id.clone()));
+    v
+}
+
+/// One line of a task going: `▶ title · since <t:…:R> · $0.40 of $2`, the daemon's own progress line after it.
+pub fn going_line(v: &WorkView, now_ms: u64) -> String {
+    let mut s = format!(
+        "▶ {} · since <t:{}:R>",
+        clip(&v.title.replace('\n', " "), 50),
+        v.started_at_ms / 1000
+    );
+    if let Some(p) = progress_line(v, now_ms) {
+        s.push_str(" · ");
+        s.push_str(&clip(&p, 60));
+    }
+    s
 }
 
 /// `$0.86 of $10`.
@@ -254,6 +290,7 @@ pub fn agenda_text(
     routines: &[RoutineInfo],
     watches: &[WatchInfo],
     projects: &[WorkView],
+    going_now: &[WorkView],
 ) -> String {
     let horizon = match span {
         Span::Today => now_ms + 24 * 3_600_000,
@@ -273,8 +310,16 @@ pub fn agenda_text(
     };
     out.push(format!("**📅 Agenda** · {head}"));
     out.push("**⏰ Coming up**".into());
-    if coming.is_empty() {
+    if coming.is_empty() && going_now.is_empty() {
         out.push("nothing dated".into());
+    }
+    // New lines, ahead of what is coming (theseus-1t4q8): the tasks going now.
+    out.extend(going_now.iter().take(GOING).map(|v| going_line(v, now_ms)));
+    if going_now.len() > GOING {
+        out.push(format!(
+            "-# +{} more going · /task",
+            going_now.len() - GOING
+        ));
     }
     out.extend(coming.iter().take(15).map(|l| coming_line(l, now_ms)));
     if coming.len() > 15 {
@@ -467,14 +512,158 @@ pub(crate) mod tests {
         let routines: Vec<RoutineInfo> = (0..12)
             .map(|i| routine(&format!("Routine {i}"), false, "complete"))
             .collect();
-        let t = agenda_text(Span::All, NOW, &lines, &routines, &[], &[]);
+        let t = agenda_text(Span::All, NOW, &lines, &routines, &[], &[], &[]);
         assert!(
             t.contains("**⏰ Coming up**") && t.contains("**🔁 Routines**"),
             "{t}"
         );
         assert!(t.chars().count() <= 2000, "{}", t.chars().count());
-        let today = agenda_text(Span::Today, NOW, &lines, &[], &[], &[]);
+        let today = agenda_text(Span::Today, NOW, &lines, &[], &[], &[], &[]);
         assert!(today.contains("today"));
         assert!(!today.contains("Routines"));
+    }
+
+    fn task(id: &str, state: theseus_protocol::work::WorkState, started: u64) -> WorkView {
+        use theseus_protocol::work::Rollup;
+        use theseus_protocol::{Attention, Level};
+        WorkView {
+            moved_to: None,
+            id: id.into(),
+            kind: WorkKind::Task,
+            position: 1,
+            at_ms: NOW,
+            parent: None,
+            root: "exe_chat".into(),
+            session_id: Some(format!("ses_{id}")),
+            title: format!("the task {id}"),
+            place: None,
+            state,
+            previous: None,
+            attention: Attention {
+                level: Level::Working,
+                label: String::new(),
+                since_ms: NOW,
+            },
+            started_at_ms: started,
+            state_since_ms: started,
+            ended_at_ms: state.ended().then_some(NOW - 1_000),
+            doing: None,
+            progress: None,
+            question: None,
+            cost: None,
+            eta: None,
+            below: Some(Rollup::default()),
+            why: None,
+            report: None,
+            woke: None,
+            expect: None,
+            flagged: false,
+            dismissed: false,
+            retry_of: None,
+            forecast: None,
+            thread: None,
+            purpose: None,
+            next_at_ms: None,
+            series: None,
+            paused: false,
+            routine: None,
+            watch: None,
+            project: None,
+            data: None,
+        }
+    }
+
+    #[test]
+    fn a_task_going_is_one_new_line_in_coming_up_and_nothing_else_moves() {
+        use theseus_protocol::work::WorkState;
+        let lines = vec![line(
+            NOW + 3_600_000,
+            "stretch",
+            AgendaWhat::Due,
+            Some("remind"),
+        )];
+        let before = agenda_text(Span::All, NOW, &lines, &[], &[], &[], &[]);
+        let mut live = task("tsk_live", WorkState::Running, NOW - 600_000);
+        live.cost = Some(theseus_protocol::work::Cost {
+            spent_usd: 0.4,
+            limit_usd: 2.0,
+            turn_usd: None,
+        });
+        let after = agenda_text(Span::All, NOW, &lines, &[], &[], &[], &[live]);
+        let mut extra: Vec<&str> = after.lines().collect();
+        let said: Vec<&str> = before.lines().collect();
+        let line_going = extra
+            .iter()
+            .position(|l| l.starts_with("▶ "))
+            .unwrap_or_else(|| panic!("no going line: {after}"));
+        let going = extra.remove(line_going);
+        assert_eq!(extra, said, "every existing line is as it was: {after}");
+        assert!(going.contains("the task tsk_live"), "{going}");
+        assert!(
+            going.contains(&format!("<t:{}:R>", (NOW - 600_000) / 1000)),
+            "{going}"
+        );
+        assert!(going.contains("$0.40 of $2"), "{going}");
+        assert!(
+            line_going > after.lines().position(|l| l.contains("Coming up")).unwrap(),
+            "it is in the Coming up section: {after}"
+        );
+        assert!(
+            line_going
+                < after
+                    .lines()
+                    .position(|l| l.contains("stretch"))
+                    .unwrap_or(usize::MAX),
+            "tasks going first, then what is coming: {after}"
+        );
+    }
+
+    #[test]
+    fn only_a_started_unfinished_task_is_going() {
+        use theseus_protocol::work::WorkState;
+        let mut deferred = task("tsk_later", WorkState::Waiting, NOW - 60_000);
+        deferred.next_at_ms = Some(NOW + 3_600_000);
+        let mut routine = task("wak_r", WorkState::Running, NOW - 60_000);
+        routine.kind = WorkKind::Routine;
+        let views = vec![
+            task("tsk_run", WorkState::Running, NOW - 60_000),
+            task("tsk_needs", WorkState::NeedsYou, NOW - 120_000),
+            task("tsk_done", WorkState::Done, NOW - 180_000),
+            task("tsk_failed", WorkState::Failed, NOW - 180_000),
+            task("tsk_queued", WorkState::Queued, 0),
+            deferred,
+            routine,
+        ];
+        let ids: Vec<String> = going(&views).into_iter().map(|v| v.id).collect();
+        assert_eq!(ids, ["tsk_needs", "tsk_run"], "oldest start first");
+        let t = agenda_text(Span::All, NOW, &[], &[], &[], &[], &going(&views));
+        assert!(
+            !t.contains("nothing dated"),
+            "a task going is something: {t}"
+        );
+        assert_eq!(t.lines().filter(|l| l.starts_with("▶ ")).count(), 2, "{t}");
+        let none = agenda_text(Span::All, NOW, &[], &[], &[], &[], &[]);
+        assert!(none.contains("nothing dated"), "{none}");
+    }
+
+    #[test]
+    fn the_going_lines_are_capped_and_the_text_stays_in_two_thousand() {
+        use theseus_protocol::work::WorkState;
+        let many: Vec<WorkView> = (0..40)
+            .map(|i| {
+                task(
+                    &format!("tsk_{i:02}"),
+                    WorkState::Running,
+                    NOW - 60_000 * (i + 1),
+                )
+            })
+            .collect();
+        let t = agenda_text(Span::All, NOW, &[], &[], &[], &[], &going(&many));
+        assert!(t.chars().count() <= 2000, "{}", t.chars().count());
+        assert!(
+            t.lines().filter(|l| l.starts_with("▶ ")).count() <= 8,
+            "{t}"
+        );
+        assert!(t.contains("-# +"), "the rest is named, not dropped: {t}");
     }
 }

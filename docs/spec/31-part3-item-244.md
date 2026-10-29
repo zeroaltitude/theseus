@@ -584,6 +584,45 @@ lock for card proposal writes (theseus-kxb8d), a no-expiry read for the Edit mod
 three morning questions should buzz once each or one per pacer window are follow-ups; `owner.ask` (theseus-mqret) and
 the learning bench (theseus-92q5b) are 1.0.3.
 
+### Item 258. "Not this" on a task: `task.not_this` cancels it, keeps one rolling preference against work like it and labels the offer; one tap each on the CLI, the cockpit and Discord (theseus-o1h3f.2; the feedback leg of notify-work-feedback; the cloud row p3t-not-this of 2026-10-27, cc8bb400, 283cf70b, b6c7257b and 24a1f573, joined at 79a5f2d7; applied to the spec by theseus-cqngz)
+
+**Why.** The owner's model for tasks is notify, work, feedback. A task that started itself (theseus-o1h3f.1: a turn with no owner
+input, which must say why it started it, `because`) had no cheap way to be told "I did not want that": the owner could stop it, and
+the next such turn would start another like it. This is the feedback leg: one tap that stops the task and leaves a sentence
+for the model to read next time. It is a **preference, not a limit**: the owner's standing decision is that there is no fixed helper
+cap, only slots and spend, and nothing here counts, caps or refuses a start.
+
+**What landed.**
+
+- `task.not_this { task, reason?, author?, discord? }` (`rpc/task_not_this.rs`, `theseus_protocol::task_not_this`; the wire types are
+  one definition, their TypeScript generated; routed with `task.cancel` by `task_stop`). It is the owner's act, judged first as
+  `Act::Standing`, which takes `judge_act`'s default arm: the owner, from a private place (the arm `task.rehome` takes as
+  `Act::Task`). A refusal leaves the task running and nothing written; the CLI refuses it inside a job. Then three things: **it
+  cancels the task with `task.cancel`'s own `task_cancel_by`**, so it releases exactly what Stop releases (a task that had ended is
+  answered as it was, not refused; an unknown task is not found); **it writes the one rolling preference**, a `Preference` for
+  everywhere whose source is `task.not_this` and which `replaces` the last live one, so a second "not this" ends the first and there
+  is one, never a list (the same words again leave the one record); and **it labels the offer**, best effort (a task carries no link
+  to the offer that produced it): the newest acting `offer_task` judgment of the task's origin session in the last 2,000 ledger
+  rows is labelled false, and the answer's `labeled` names it, or is empty. The preference's text is one line of prose, the task's
+  shape (its `because`, else its title) and the owner's reason, which the standing block carries in the header layer like any
+  other record for everywhere; the model reads it. No store format change (a standing record and a label that already exist).
+- Three surfaces, one tap each: `theseus task not-this ID [REASON]` (in `client::OPERATORS`, printing what it did in words);
+  the cockpit's Ops page, `u` pressed twice on a task; and, in Discord, a 👎 reaction on a task that started itself
+  (`runtime/task_react.rs`), honoured only on such a task (on any other it is the reply rating's, as before), only from the owner in a
+  private place, answered with ✅ or one quiet line. The CLI and the cockpit take any task.
+
+**How it was proven.** The core's `rpc/tests_task_not_this.rs` (the cancel and the preference with the reason; two calls leave one,
+the second's, with `replaced` naming the first; an ended task answered and the same words leaving one record; a stranger's call
+cancels nothing and writes nothing; an unknown task writes nothing; the text is one line), the CLI's
+`not_this_names_the_task_the_preference_and_what_it_replaced`, the cockpit's verb-table row, and the Discord crate's two reaction
+tests (a self-started task is cancelled and one preference is kept; a task the owner asked for is left running and no preference is
+written). The code half was gated green and reviewed with no blocking findings. No live check of the reaction is recorded here.
+
+**Left open.** The reaction is never pre-added to a task's message, so the owner finds it by hand; offering it (and offering the
+CLI's and the cockpit's verbs on the card) is not built. A task carries no link to its offer, so the label is the newest
+acting `offer_task` judgment of the origin session, not the one that made it. The reaction sends no `reason`. A guest's or a
+shared place's 👎 on a self-started task is taken (a debug line) and never reaches the reply rating, as every other control's does.
+The Discord guide's entry for `task_react.rs`'s other controls is theseus-cqngz's.
 ### Item 259. The principles migration: four labels, two deterministic sources, one switch, and a record that is raw (theseus-gyjyo, rows R0 to R10; the owner's decisions of 2026-10-27 22:02 to 22:47; v1 patch3's `integ/principles` lane; R0, R1 and R2 joined `main` 2026-10-28 and installed as #98, `3ef994dd`; R8, R3, R7, R5a, R4, R9 and R6 joined the lane, which merges once, after a gate of the merged tree)
 
 **Why.** The principles review of 2026-10-27 (measured on `209f9c52`, with every number counted on the tree) put the owner's
