@@ -1,6 +1,192 @@
 {
  "version": 1,
  "about": "One row per measured arm of each published benchmark dataset in docs/benchmarks/, written by bench/report/manifest.py (draft.py appends a run's rows). A row with comparison or carried_from is not a new measurement. Sorted by date, report, variant.",
+ "dataset_ui": {
+  "2026-09-30-memory-exam-headroom": null,
+  "2026-09-30-memory-exam-v2": null,
+  "2026-10-01-context-token-estimate": null,
+  "2026-10-01-gate-bench-opt-level-2": null,
+  "2026-10-01-retrieval-embedding-engines": null,
+  "2026-10-01-retrieval-fusion": null,
+  "2026-10-02-gate-bench-install-builds": null,
+  "2026-10-02-gate-bench-start-path-10k": null,
+  "2026-10-03-gate-bench-ledger-reads": null,
+  "2026-10-03-harbor-worth-spike": null,
+  "2026-10-04-gate-bench-one-sync-per-job": null,
+  "2026-10-04-memory-exam-arms": null,
+  "2026-10-04-terminal-bench-first-full-run": null,
+  "2026-10-05-gate-bench-speed-io-stalls": null,
+  "2026-10-05-recall-smokes": null,
+  "2026-10-06-async-smokes": null,
+  "2026-10-06-gate-bench-fast-history": null,
+  "2026-10-06-harbor-efficiency-checks": null,
+  "2026-10-07-terminal-bench-harness-arms": null,
+  "2026-10-10-terminal-bench-theseus-rerun": null,
+  "2026-10-12-async-kill-family": null,
+  "2026-10-12-async-six-families": null,
+  "2026-10-12-asyncbench-parallel-calls": null,
+  "2026-10-12-context-token-estimate": null,
+  "2026-10-12-f10-first-live-run": null,
+  "2026-10-12-gate-bench-fast-history": null,
+  "2026-10-12-gate-bench-stop-point": null,
+  "2026-10-12-harbor-efficiency": null,
+  "2026-10-12-head-to-head-speed": null,
+  "2026-10-12-memory-exam-arms": null,
+  "2026-10-12-recall-full-run": null,
+  "2026-10-12-retrieval-fusion": null,
+  "2026-10-12-scale": null,
+  "2026-10-13-terminal-bench-harness-arms": null,
+  "2026-10-13-terminal-bench-r0": null,
+  "2026-10-13-terminal-bench-r1": null,
+  "2026-10-18-async-kill-family": null,
+  "2026-10-18-gate-bench-v1": null,
+  "2026-10-18-head-to-head-speed": null,
+  "2026-10-18-recall-full-run": null,
+  "2026-10-18-terminal-bench-v1-high": {
+   "set_id": "tb-v1-high",
+   "label": "Terminal-Bench 2.0 at the v1 freeze, HIGH tier: all 89 tasks × 3, every harness at high effort",
+   "short": "v1 · high · 89 tasks",
+   "about": "The v1 freeze, HIGH tier: Theseus as shipped (Jev routing each message's model and effort, capped at high) against Claude Code, OpenCode and Pi at high effort, on every task, three attempts an arm.",
+   "default_axes": [
+    "usd",
+    "pass"
+   ],
+   "conditions": [
+    {
+     "text": "Effort is not one setting: Theseus's Jev picked each message's effort within bounds of low to high, while each rival was set to high.",
+     "quote": "effort bounds `low` to `high`"
+    },
+    {
+     "text": "The caps are of different kinds: the rivals ran at $2 and 200 turns a trial; Theseus ran with a $20 spend limit that reserves each call's price first.",
+     "quote": "a $20 spend limit (reservations) and a 60 s command wait"
+    },
+    {
+     "text": "Theseus's Jev routed across Anthropic profiles; the three rivals ran Claude Sonnet 5.5 alone.",
+     "quote": "the three rivals on Claude Sonnet 5.5"
+    }
+   ],
+   "versions": {
+    "theseus-routed": {
+     "*": {
+      "text": "the frozen v1 build, 351159fc",
+      "quote": "the frozen build `351159fc`"
+     }
+    },
+    "claude-code": {
+     "*": {
+      "text": "2.1.290",
+      "quote": "Claude Code 2.1.290"
+     }
+    },
+    "opencode": {
+     "*": {
+      "text": "1.18.35",
+      "quote": "OpenCode 1.18.35"
+     }
+    },
+    "pi": {
+     "*": {
+      "text": "1.0.4",
+      "quote": "Pi 1.0.4"
+     }
+    }
+   },
+   "notes": {},
+   "effort": {
+    "theseus-routed": {
+     "text": "chosen per message by Jev, bounds low to high",
+     "quote": "effort bounds `low` to `high`"
+    },
+    "claude-code": {
+     "text": "high",
+     "quote": "(`reasoning_effort` high)"
+    },
+    "opencode": {
+     "text": "high",
+     "quote": "(`variant` high)"
+    },
+    "pi": {
+     "text": "high",
+     "quote": "(`thinking` high)"
+    }
+   }
+  },
+  "2026-10-18-terminal-bench-v1-max": {
+   "set_id": "tb-v1-max",
+   "label": "Terminal-Bench 2.0 at the v1 freeze, MAX tier: the 30 hard tasks × 3, every harness at its top effort",
+   "short": "v1 · max · 30 hard tasks",
+   "about": "The v1 freeze, MAX tier: the 30 hard tasks, three attempts an arm, every harness at its top effort, regardless of cost.",
+   "default_axes": [
+    "usd",
+    "pass"
+   ],
+   "conditions": [
+    {
+     "text": "Each harness's top effort differs in name: Claude Code and OpenCode at max, Pi at xhigh, Theseus free to choose up to max.",
+     "quote": "Claude Code at `max`, OpenCode at `max`, and Pi at `xhigh`"
+    },
+    {
+     "text": "The caps were $5 and 300 turns a trial, and OpenCode's did not hold: its harness does not stop at the cap.",
+     "quote": "its harness does not stop at the cap"
+    },
+    {
+     "text": "Only the 30 hard tasks ran, where effort can matter.",
+     "quote": "through Harbor 0.23, its 30 hard tasks"
+    }
+   ],
+   "versions": {
+    "theseus-routed": {
+     "*": {
+      "text": "the frozen v1 build, 351159fc",
+      "quote": "`TheseusRouted`, `351159fc`"
+     }
+    },
+    "claude-code": {
+     "*": {
+      "text": "2.1.290",
+      "quote": "Claude Code 2.1.290"
+     }
+    },
+    "opencode": {
+     "*": {
+      "text": "1.18.35",
+      "quote": "OpenCode 1.18.35"
+     }
+    },
+    "pi": {
+     "*": {
+      "text": "1.0.4",
+      "quote": "Pi 1.0.4"
+     }
+    }
+   },
+   "notes": {},
+   "effort": {
+    "theseus-routed": {
+     "text": "chosen per message by Jev, bounds low to max",
+     "quote": "Theseus ran as shipped, with Jev free to choose up to `max`."
+    },
+    "claude-code": {
+     "text": "max",
+     "quote": "(`reasoning_effort` max)"
+    },
+    "opencode": {
+     "text": "max",
+     "quote": "(`variant` max)"
+    },
+    "pi": {
+     "text": "xhigh",
+     "quote": "(`thinking` xhigh)"
+    }
+   }
+  },
+  "2026-10-21-terminal-bench-rerun-high": null,
+  "2026-10-21-terminal-bench-rerun-max": null,
+  "2026-10-23-terminal-bench-retest-high-timeouts": null,
+  "2026-10-23-terminal-bench-retest-max": null,
+  "2026-10-25-terminal-bench-codex-high": null,
+  "omnibus": null
+ },
  "runs": [
   {
    "report": "2026-10-07-terminal-bench-harness-arms",

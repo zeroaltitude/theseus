@@ -1017,12 +1017,21 @@ async fn a_guess_placed_program_from_the_session_directory_is_not_held() {
         let res = submit(c, &dm, "does the migration need a flag").await;
         let held = rows(c, "thread.misroute_held");
         assert_eq!(held.len(), held_rows, "{target}: {res:?}");
-        assert_eq!(
-            res.awaiting_confirm.is_none(),
-            held_rows <= 1,
-            "{target}: the write runs"
-        );
-        assert_eq!(file.exists(), held_rows <= 1, "{target}: the write went on");
+        // Below the act bar the guard notifies and the write goes on
+        // (theseus-g85jy), so both rows write; what the table tells apart is
+        // whether the guard spoke: a held fact and its notice line for the
+        // vault, neither for tidewatch.
+        assert!(res.awaiting_confirm.is_none(), "{target}: the write runs");
+        assert!(file.exists(), "{target}: the write went on");
+        let told = rows(c, "tool.notified")
+            .iter()
+            .filter(|r| {
+                r.data["rule"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("Undo: files.restore"))
+            })
+            .count();
+        assert_eq!(told, held_rows, "{target}: the guard's notice");
         if let Some(h) = held.first() {
             assert!(h.data["path"]
                 .as_str()

@@ -98,8 +98,8 @@ class Build(Fixture):
         (self.dir / manifest.INDEX).write_text(first)
         self.assertEqual(manifest.build(self.dir, log=lambda m: None), first, "the manifest itself is not read back as a dataset")
         # Another input order, the same bytes.
-        rows = json.loads(first)["runs"]
-        self.assertEqual(manifest.render(list(reversed(rows))), first)
+        doc = json.loads(first)
+        self.assertEqual(manifest.render(list(reversed(doc["runs"])), doc["dataset_ui"]), first)
 
     def test_a_row_repeating_an_earlier_rows_figures_is_marked_carried(self):
         self.put("2026-03-07-fixture-d", flat("2026-03-07-fixture-d", "2026-03-07", "high", {"alpha": (6, 9), "gamma": (1, 3)}))
@@ -367,6 +367,72 @@ class Published(unittest.TestCase):
         self.assertGreater(checked, 200, "the published datasets stopped reaching this check")
 
 
+class DatasetUi(Fixture):
+    """The manifest carries each dataset's `ui` block, so the page need not fetch every dataset for two keys (theseus-2w02d)."""
+
+    UI = {"set_id": "fixture-set", "label": "A fixture", "short": "fixture", "about": "x"}
+
+    def test_build_lists_every_readable_dataset_with_its_block_or_null_and_never_the_manifest(self):
+        self.put("2026-03-01-with-ui", {**flat("2026-03-01-with-ui", "2026-03-01", "high", {"alpha": (6, 9)}), "ui": self.UI})
+        self.put("2026-03-02-without", flat("2026-03-02-without", "2026-03-02", "high", {"alpha": (5, 9)}))
+        self.put("2026-03-03-gate", {"suite": "gate-bench", "date": "2026-03-03", "summary": {"cold": {"p50": 20.1}}, "ui": "not a block"})
+        self.put("2026-03-04-broken", "{not json")
+        (self.dir / manifest.INDEX).write_text(manifest.build(self.dir, log=lambda m: None))
+        doc, _ = self.build()
+        self.assertEqual(doc["dataset_ui"], {"2026-03-01-with-ui": self.UI, "2026-03-02-without": None, "2026-03-03-gate": None},
+                         "a dataset with no rows is listed too; an unreadable one and the manifest itself are not")
+        self.assertEqual(list(doc), ["version", "about", "dataset_ui", "runs"])
+        self.assertEqual(list(doc["dataset_ui"]), sorted(doc["dataset_ui"]), "sorted, so a build is byte-identical")
+
+    def test_append_lists_its_dataset_replaces_it_and_leaves_the_others(self):
+        index = self.dir / manifest.INDEX
+        a = self.put("2026-03-01-a", {**flat("2026-03-01-a", "2026-03-01", "high", {"alpha": (6, 9)}), "ui": self.UI})
+        b = self.put("2026-03-02-b", flat("2026-03-02-b", "2026-03-02", "high", {"alpha": (5, 9)}))
+        manifest.append(a, index)
+        manifest.append(b, index)
+        self.assertEqual(json.loads(index.read_text())["dataset_ui"], {"2026-03-01-a": self.UI, "2026-03-02-b": None})
+        a.write_text(json.dumps({**json.loads(a.read_text()), "ui": {**self.UI, "label": "Edited"}}))
+        manifest.append(a, index)
+        self.assertEqual(json.loads(index.read_text())["dataset_ui"]["2026-03-01-a"]["label"], "Edited")
+        self.assertEqual(json.loads(index.read_text())["dataset_ui"]["2026-03-02-b"], None)
+
+    def test_a_manifest_from_before_the_key_is_appended_to_without_losing_a_row_and_lists_only_the_new_dataset(self):
+        index = self.dir / manifest.INDEX
+        old = self.put("2026-03-01-old", flat("2026-03-01-old", "2026-03-01", "high", {"alpha": (6, 9)}))
+        manifest.append(old, index)
+        doc = json.loads(index.read_text())
+        del doc["dataset_ui"]
+        index.write_text(json.dumps(doc, indent=1) + "\n")
+        new = self.put("2026-03-02-new", {**flat("2026-03-02-new", "2026-03-02", "high", {"alpha": (5, 9)}), "ui": self.UI})
+        manifest.append(new, index)
+        got = json.loads(index.read_text())
+        self.assertEqual([r["report"] for r in got["runs"]], ["2026-03-01-old", "2026-03-02-new"])
+        self.assertEqual(got["dataset_ui"], {"2026-03-02-new": self.UI}, "the old dataset is unlisted, so the page reads it in full")
+
+    def test_a_dataset_with_no_pass_rate_is_not_listed_by_append(self):
+        index = self.dir / manifest.INDEX
+        gate = self.put("2026-03-02-gate", {"suite": "gate-bench", "date": "2026-03-02", "summary": {"cold": {"p50": 1.0}}, "ui": self.UI})
+        self.assertEqual(manifest.append(gate, index, log=lambda m: None), 0)
+        self.assertFalse(index.exists())
+
+    def test_render_without_a_block_leaves_the_key_out(self):
+        self.assertNotIn("dataset_ui", json.loads(manifest.render([])))
+        self.assertEqual(json.loads(manifest.render([], {}))["dataset_ui"], {})
+
+
+class PublishedUi(unittest.TestCase):
+    def test_what_the_committed_manifest_lists_is_what_each_dataset_says(self):
+        """A stale entry would show the page a set its dataset no longer carries: a hand-edited `ui` needs `build` again.
+        Datasets the manifest does not list are not checked (a newer run is read in full until the next build)."""
+        listed = json.loads((DOCS / manifest.INDEX).read_text())[manifest.UI_KEY]
+        self.assertGreater(len(listed), 40)
+        for name, ui in listed.items():
+            path = DOCS / f"{name}.json"
+            if path.exists():
+                self.assertEqual(ui, manifest.ui_of(json.loads(path.read_text())), name)
+        self.assertEqual(listed["2026-10-18-terminal-bench-v1-high"]["set_id"], "tb-v1-high")
+
+
 class DraftHook(unittest.TestCase):
     def test_a_drafted_run_writes_its_manifest_row(self):
         import contextlib
@@ -385,6 +451,7 @@ class DraftHook(unittest.TestCase):
             runs = json.loads((out / "index.json").read_text())["runs"]
             self.assertEqual([(r["report"], r["arm"], r["metrics"]["pass_rate"]["k"]) for r in runs],
                              [("2026-03-01-fixture-a", "alpha", 6)])
+            self.assertEqual(json.loads((out / "index.json").read_text())["dataset_ui"], {"2026-03-01-fixture-a": None})
             # A speed bench has no pass rate: it drafts, and the manifest is not touched.
             gate = {"report": "2026-03-02-gate", "suite": "gate-bench", "date": "2026-03-02", "summary": {"cold": {"p50": 1.0}},
                     "figures": []}

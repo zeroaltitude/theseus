@@ -11,6 +11,10 @@ rust-version.workspace = true
 name = "theseusd"
 path = "src/main.rs"
 
+[[test]]
+name = "jail_stop"
+harness = false
+
 [dependencies]
 theseus-core.workspace = true
 theseus-protocol.workspace = true

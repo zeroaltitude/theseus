@@ -166,3 +166,36 @@ export function leadRow(s: Series, rule: LeadRule, largest: number = groupTasks(
   for (let i = s.history.length - 1; i >= 0; i--) if ((s.history[i].tasks ?? 0) === largest) return s.history[i]
   return s.newest
 }
+
+// ---------------------------------------------------------------- the datasets' ui blocks (theseus-tyv41, theseus-2w02d)
+
+/** A dataset's name with the `ui` block it carries, if any: what `setsFrom` takes. */
+export type UiDataset = { report: string; ui?: unknown }
+
+/** The `ui` blocks the manifest states, by dataset name (`dataset_ui`, which `bench/report/manifest.py` writes): a block
+ *  is an object, `null` says the dataset has none, and the name is absent when the manifest has not read that dataset.
+ *  A manifest from before the key, one of another version, or one that cannot be read lists nothing; an entry that is
+ *  neither an object nor null is not trusted, so that dataset is read. The map holds `undefined` for a listed null. */
+export function readUiBlocks(text: string | null | undefined): Map<string, unknown> {
+  const out = new Map<string, unknown>()
+  if (!text) return out
+  let doc: unknown
+  try { doc = JSON.parse(text) } catch { return out }
+  if (!isObj(doc) || doc.version !== 1 || !isObj(doc.dataset_ui)) return out
+  for (const [report, ui] of Object.entries(doc.dataset_ui)) if (ui === null || isObj(ui)) out.set(report, ui ?? undefined)
+  return out
+}
+
+/** Every dataset's `ui` block (theseus-2w02d): from the manifest for a dataset it lists, and for any other, the dataset
+ *  read in full and its key taken (importing only `ui` through a Vite glob fails the build for a dataset with none, so
+ *  a dataset a newer run wrote, or one an older `bench/report` did, still needs the whole read). The manifest is not a
+ *  dataset; the names keep their order. */
+export async function datasetsUi(
+  names: readonly string[], manifestText: string | null | undefined, read: (name: string) => Promise<string | undefined>,
+): Promise<UiDataset[]> {
+  const listed = readUiBlocks(manifestText)
+  return Promise.all(names.filter((n) => n !== 'index').map(async (report): Promise<UiDataset> => {
+    if (listed.has(report)) return { report, ui: listed.get(report) }
+    try { return { report, ui: (JSON.parse((await read(report)) ?? 'null') as { ui?: unknown } | null)?.ui } } catch { return { report } }
+  }))
+}

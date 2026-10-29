@@ -134,6 +134,11 @@ impl Notify {
         self
     }
 
+    /// Send one inform notice, the quiet kind; the halt has `send_halt`.
+    pub(crate) fn send(&self, text: String) {
+        (self.0)(text);
+    }
+
     /// Send the halt notice.
     pub(crate) fn send_halt(&self, text: String) {
         (self.1.as_ref().unwrap_or(&self.0))(text);
@@ -467,7 +472,7 @@ fn refresh_main(p: &Place, repo: &Path) {
                 "self door: fetch of {DOOR_REMOTE} failed, cutting from the base it has: {e:#}"
             );
             if let Some(n) = &p.notify {
-                (n.0)(format!(
+                n.send(format!(
                     "The self door could not reach {DOOR_REMOTE}: this tree is cut from the base the \
                      repo already had, which may be behind main, and it will be judged by that base's \
                      gate script. The next cut tries again. ({e:#})"
@@ -817,7 +822,7 @@ pub(super) async fn may_build_paced(
                 let reason = std::fs::read_to_string(&log).unwrap_or_default();
                 let (n, text) = (n.clone(), wait_notice(&tree.slug, waited, &reason));
                 // The sink writes a frame: the disk, not a runtime worker.
-                let _ = tokio::task::spawn_blocking(move || (n.0)(text)).await;
+                let _ = tokio::task::spawn_blocking(move || n.send(text)).await;
             }
         }
         clock.sleep(every).await;
@@ -850,13 +855,20 @@ pub(super) fn wait_notice_for_test(slug: &str, log: &str) -> String {
     wait_notice(slug, Duration::from_secs(1800), log)
 }
 
-/// The phase a gate log was last in: its last `gate: ` line.
-fn last_phase(log: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(log).ok()?;
-    text.lines()
-        .rev()
-        .find(|l| l.starts_with("gate: "))
-        .map(|l| l.chars().take(200).collect())
+/// The phase a gate log was last in, as a stop says it: its last `gate: `
+/// line, or that the log has none yet. The stop at L0 and the stop in a
+/// daemon's jail say it the same way.
+pub(super) fn phase_note(log: &Path) -> String {
+    let last = std::fs::read_to_string(log).ok().and_then(|text| {
+        text.lines()
+            .rev()
+            .find(|l| l.starts_with("gate: "))
+            .map(|l| l.chars().take(200).collect::<String>())
+    });
+    last.map_or_else(
+        || "no `gate: ` line in its log yet".to_string(),
+        |l| format!("`{l}`"),
+    )
 }
 
 /// How a niced run is bounded (theseus-x1zz8, and its join review).
@@ -951,10 +963,7 @@ pub(super) async fn run_niced(
                     unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
                 }
                 let _ = child.wait().await;
-                let phase = last_phase(log).map_or_else(
-                    || "no `gate: ` line in its log yet".to_string(),
-                    |l| format!("`{l}`"),
-                );
+                let phase = phase_note(log);
                 let why = match cut {
                     Cut::Ceiling(_) => format!(
                         "was still printing at its ceiling, {} minutes,",
