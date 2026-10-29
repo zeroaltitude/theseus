@@ -70,7 +70,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`nudge_step::may_continue` is the condition both share). The result's `files` (changed, left, the note and whether
   the model acted) is `harness_lines`' `Files:` line and rides `turn.ended`'s row; a turn's maps drop with it
   (`end_note_step::Held`). A command running beside another in one directory may be credited with the other's files.
-  Tests: `tests_end_note.rs`, `beside::tests`, `tests_stop_nudge.rs`.
+  **Build residue is not a leftover** (theseus-pp5hi): a command's new file whose own name is on a closed list
+  (`end_note_step::RESIDUE_*`: `__pycache__`, `.pytest_cache`, `.venv`, `build`, `a.out`, `*.so`, `*.pyc`) does not
+  count toward the note, unless the task's words (the session's non-harness user messages) name it (its name as a
+  token, `.so` for the extension; the bare word `build` only beside a `/`). A turn whose every leftover is residue
+  ends; its result's `files` still names them, and edits no command ran since are never residue. The list is closed:
+  widen it only on evidence, never by guessing what a task wanted. Tests: `tests_end_note.rs`, `end_note_step::tests`,
+  `beside::tests`, `tests_stop_nudge.rs`.
   **Task turns leave a slot free** (theseus-o1h3f.4; `turn/admission.rs`): task-class turns hold at most `ceiling - 1`
   slots (`Admission::task_limit`; a ceiling of 1 keeps its one for tasks), so a person's message always finds one
   — except between a lend and its retake, which the limit never refuses, where the count can briefly reach the
