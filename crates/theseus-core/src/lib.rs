@@ -334,6 +334,8 @@ mod tests_draft_reach;
 #[cfg(test)]
 mod tests_effort_beta;
 #[cfg(test)]
+mod tests_effort_gate;
+#[cfg(test)]
 mod tests_effort_lapse;
 #[cfg(test)]
 mod tests_effort_sticky;
