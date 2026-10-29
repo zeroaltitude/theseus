@@ -62,7 +62,10 @@ async fn with_dm_cards_off_the_one_line_post_is_on_time_and_silent_when_closed()
     r.core.outbox.pacer.took(due - 5 * 60_000);
     let took = r.core.outbox.pacer.last_ms();
     assert_eq!(r.core.escalate_questions(due), 1);
-    let req = r.core.confirm_list().unwrap().remove(0);
+    // The request is read as the poster reads it (`pending_confirms`), not
+    // from `confirm_list`: the list shows a held call's deadline as none,
+    // while the post, whose card footer reads the time, keeps the real one.
+    let req = r.core.pending_confirms(&res.session_id).unwrap().remove(0);
     let who = r.core.asker_name(&req);
     let mut want = crate::needs_you::body_of(&a, &req, &who);
     want["silent"] = json!(true);

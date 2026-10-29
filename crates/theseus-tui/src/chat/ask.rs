@@ -97,7 +97,7 @@ impl Chat {
     /// When the question that has the keys expires, if it does.
     pub(super) fn asked_expiry(&self) -> Option<u64> {
         match self.current()? {
-            Asked::Own(q) => (q.expires_at_ms > 0).then_some(q.expires_at_ms),
+            Asked::Own(q) => Some(crate::held::deadline_of(&q)).filter(|e| *e > 0),
             Asked::Task(t) => t.expires_at_ms,
         }
     }
@@ -361,8 +361,12 @@ fn change_words(q: &ConfirmRequest) -> Option<String> {
     })
 }
 
-/// How long until it expires, or that it did.
+/// How long until it expires, or that it did; for a question held past its
+/// life, how long it has waited (`held`).
 fn expiry(q: &ConfirmRequest, now_ms: u64) -> Option<String> {
+    if let Some(waited) = crate::held::waited_label(q, now_ms) {
+        return Some(waited);
+    }
     (q.expires_at_ms > 0).then(|| {
         if q.expires_at_ms > now_ms {
             format!("expires in {}", elapsed(q.expires_at_ms - now_ms))

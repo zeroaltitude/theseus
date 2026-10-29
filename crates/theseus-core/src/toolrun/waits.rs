@@ -26,8 +26,8 @@ use steer::Steers;
 pub const LOOK: Duration = Duration::from_secs(1);
 
 /// The jobs turns wait on, each with its turn's wake, and how many times a
-/// turn has looked at its job: about twice a job, where a look every 50 ms
-/// was 1,200 a minute.
+/// turn has looked at its job (or, in a `task.wait`, at its tasks): about
+/// twice a job, where a look every 50 ms was 1,200 a minute.
 #[derive(Default)]
 pub struct JobWaits {
     waiting: Mutex<HashMap<String, Arc<Notify>>>,
@@ -57,8 +57,8 @@ impl JobWaits {
         self.looks.load(Ordering::Relaxed)
     }
 
-    /// A turn looks at its job.
-    pub(super) fn looked(&self) {
+    /// A turn looks at its job, or a `task.wait` at its tasks.
+    pub(crate) fn looked(&self) {
         self.looks.fetch_add(1, Ordering::Relaxed);
     }
 

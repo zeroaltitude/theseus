@@ -15,6 +15,7 @@ mod chat;
 mod detail;
 mod follow;
 mod glyph;
+mod held;
 mod horizon;
 mod new_task;
 mod notice;

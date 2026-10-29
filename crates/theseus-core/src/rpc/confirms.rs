@@ -278,10 +278,17 @@ impl Core {
             } else {
                 vec![]
             };
-            out.extend(
-                asks.into_iter()
-                    .filter_map(|a| self.confirm_request(a, &rec, &nodes)),
-            );
+            out.extend(asks.into_iter().filter_map(|a| {
+                let mut req = self.confirm_request(a, &rec, &nodes)?;
+                // A call's question never expires, it is held past its life
+                // (theseus-v2dnc), so the list says no deadline, as a budget
+                // question's does. Only here: `confirm_request` also feeds
+                // the Discord card, whose footer reads the time.
+                if super::question_waits::held_past_life(a) {
+                    req.expires_at_ms = 0;
+                }
+                Some(req)
+            }));
         }
         Ok(out)
     }
@@ -530,7 +537,10 @@ impl Core {
             // A call's question is told about and held, never declined
             // (theseus-v2dnc): the next notice is a life later.
             if super::question_waits::held_past_life(a) {
-                next = next.min(self.question_waits_or_soon(a, ttl, now));
+                match self.held_question(a, ttl, now) {
+                    None => expired += 1,
+                    Some(when) => next = next.min(when),
+                }
                 continue;
             }
             match self.expire_question(a, ttl) {
@@ -543,6 +553,25 @@ impl Core {
         }
         self.tools.question_due.fetch_min(next, SeqCst);
         expired
+    }
+
+    /// A question already past its first life, which `v2dnc` holds rather
+    /// than declines. Its session being retired is the one thing that ends
+    /// it (theseus-x29x3): no one is left to answer it, and the decline that
+    /// ends it is also what releases any reservation it holds. Any other is
+    /// told about again a life later. `None` when it ended and was counted;
+    /// `Some(when)` is when to look at it again.
+    fn held_question(&self, a: &Action, ttl: u64, now: u64) -> Option<u64> {
+        if !self.session_retired(&a.session_id) {
+            return Some(self.question_waits_or_soon(a, ttl, now));
+        }
+        match self.decline_expired(a, ttl, "its session was retired") {
+            Ok(()) => None,
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), correlation_id = %a.correlation_id, "a retired session's question could not end");
+                Some(now + 60_000)
+            }
+        }
     }
 
     /// One question's expiry: the decline, its row, and the wake in one

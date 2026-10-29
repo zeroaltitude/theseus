@@ -361,6 +361,38 @@ async fn an_approval_pings_too_and_a_second_read_of_the_outbox_posts_none_again(
     assert_eq!(r.core.escalate_questions(t0 + 700_000), 0);
 }
 
+/// theseus-5d6tp: a call's question nobody carded in its first life (the
+/// daemon was down, or the DM unbound) is held, not expired, so it is carded
+/// when it is next seen, however long it has waited; and an `owner_ask` past
+/// its life is not, for it applies its default or says no one answered.
+/// Before, `escalate_questions` stopped at the first life for every kind.
+#[tokio::test]
+async fn a_held_question_past_its_first_life_is_carded_and_an_expired_ask_is_not() {
+    let r = owned_rig(write_script(), false);
+    let res = turn(&r.core, None, "write out.txt").await;
+    let corr = res.awaiting_confirm.unwrap();
+    let t0 = r.core.kernel.action(&corr).unwrap().unwrap().planned_at_ms;
+    let ttl = r.core.kernel.config().confirm_ttl_ms;
+    assert_eq!(
+        r.core.escalate_questions(t0 + 2 * ttl),
+        1,
+        "held past its first life: carded"
+    );
+    assert!(r.core.outbox.pinged(&corr));
+    assert_eq!(needs_you_posts(&r).len(), 1);
+
+    let r = owned_rig(asking(2, json!({})), false);
+    let (_, _, ask) = asked(&r).await;
+    let t0 = r.core.kernel.action(&ask).unwrap().unwrap().planned_at_ms;
+    assert_eq!(
+        r.core.escalate_questions(t0 + 31 * 60_000),
+        0,
+        "an ask past its 30 minutes expires: it says so itself"
+    );
+    assert!(!r.core.outbox.pinged(&ask));
+    assert!(needs_you_posts(&r).is_empty());
+}
+
 /// Half-way to a question's expiry the work board reminds once (rule 2 of the
 /// notification policy): the driver's tick calls `remind_questions`, which
 /// reads nothing before the reminder is due and makes it once.

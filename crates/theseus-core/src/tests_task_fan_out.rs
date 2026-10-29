@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use theseus_kernel::{ExecState, Execution};
 use theseus_protocol::Usage;
 
-use crate::node::{Body, Node};
+use crate::node::{Body, Node, Origin};
 use crate::provider::{ProviderRequest, Scripted};
 use crate::task_wait::{TurnRef, WaitAsk};
 use crate::tests_tasks::{
@@ -945,4 +945,48 @@ async fn a_fan_out_a_wake_makes_says_why_and_each_helper_carries_it() {
         );
     }
     the_objective_is_the_report_that_started_the_turn(&r2.core, &p2);
+}
+
+/// Which message a fan-out's helpers quote is the turn's own: the operator's,
+/// else the last user-role message the turn holds. A turn with none (a retry,
+/// a late result's continuation) is refused, in words that point at
+/// `task_create`, and is never given an earlier exchange's message: a helper's
+/// objective is an arrangement piece, `task.create` resolves a piece to a node
+/// of the transcript and will not start without one, so `objective` and
+/// `because` cannot stand in for it. Fan-out is unavailable on such a turn; the
+/// stack review's N6 asked for a fallback and this is the decision instead.
+#[test]
+fn a_fan_out_quotes_the_turns_own_message_and_a_turn_with_none_is_refused() {
+    use crate::stub::Stub;
+    let user = |turn: &str, text: &str| Node::user("ses_n6", Some(turn), "owner", text);
+    let report = |turn: &str| {
+        let author = "task:ab12";
+        Node::relayed(
+            "ses_n6",
+            Some(turn),
+            Origin::Harness,
+            author,
+            "[Report from task ab12]",
+        )
+    };
+    let transcript = |nodes: Vec<Node>| -> Vec<(u64, Stub)> {
+        let at = |(i, n): (usize, Node)| (i as u64, Stub::from(n));
+        nodes.into_iter().enumerate().map(at).collect()
+    };
+    let pick = |nodes: Vec<Node>| crate::task_fan_out::pick_input(&transcript(nodes), "trn_2");
+
+    // No message of its own: refused, though an earlier exchange has one.
+    let earlier = user("trn_1", "survey the repository");
+    let refused = pick(vec![earlier.clone()]).unwrap_err();
+    assert!(refused.contains("task_create"), "{refused}");
+    // A report started the turn: it is the objective, not the earlier ask.
+    let woken = report("trn_2");
+    assert_eq!(
+        pick(vec![earlier.clone(), woken.clone()]),
+        Ok(woken.id.clone())
+    );
+    // Both in one turn: the operator's wins over the report beside it.
+    let asked = user("trn_2", "fan it out");
+    let both = pick(vec![earlier, asked.clone(), woken]);
+    assert_eq!(both, Ok(asked.id));
 }

@@ -108,8 +108,23 @@ fn lines_of(r: &Rig) -> Vec<String> {
     r.screen()
 }
 
+/// A call's question waits past the life it would have had, held rather than
+/// expired (theseus-lrc3m): the dock says how long it has waited, as the board's
+/// card does, and never "expires" or "expired".
 #[tokio::test(start_paused = true)]
-async fn a_question_shows_the_hunk_numbered_with_who_asks_and_when_it_expires() {
+async fn a_held_questions_dock_says_how_long_it_waited_not_that_it_expired() {
+    let mut r = Rig::with(120, 30, script()).await;
+    r.ready().await;
+    asked(&mut r, edit_question(UNIFIED)).await;
+    assert!(r.text().contains("waiting 0 s"), "{}", r.text());
+    r.advance(20 * 60_000).await;
+    let text = r.text();
+    assert!(text.contains("Theseus asks · waiting 20 min"), "{text}");
+    assert!(!text.contains("expire"), "{text}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_question_shows_the_hunk_numbered_with_who_asks_and_how_long_it_waited() {
     for width in [80, 120] {
         let mut r = Rig::with(width, 30, script()).await;
         r.ready().await;
@@ -122,7 +137,7 @@ async fn a_question_shows_the_hunk_numbered_with_who_asks_and_when_it_expires() 
             "48       highest = max(heights)",
             "49 -     return round(lowest - highest, 2)",
             "49 +     return round(highest - lowest, 2)",
-            "Theseus asks · expires in 5:00",
+            "Theseus asks · waiting 0 s",
             "y yes · n no, say what instead · v whole call · esc type",
         ] {
             assert!(
