@@ -467,17 +467,24 @@ impl JudgeService {
     }
 
     /// The client, the breaker, and the sink's task, on the first judgment.
+    /// The client's config: `[judge]`'s, with the share of permits kept back
+    /// for awaited calls (`Urgency::Awaited`).
+    fn client_config(&self) -> ClientConfig {
+        ClientConfig {
+            api_base: self.cfg.api_base.clone(),
+            connect: Duration::from_secs(self.cfg.connect_secs),
+            total: Duration::from_secs(self.cfg.total_secs),
+            max_in_flight: self.cfg.max_in_flight,
+            reserved: None,
+        }
+    }
+
     fn built(&self) -> anyhow::Result<Arc<Built>> {
         if let Some(b) = self.built.get() {
             return Ok(b.clone());
         }
         let client = JevClient::new(
-            ClientConfig {
-                api_base: self.cfg.api_base.clone(),
-                connect: Duration::from_secs(self.cfg.connect_secs),
-                total: Duration::from_secs(self.cfg.total_secs),
-                max_in_flight: self.cfg.max_in_flight,
-            },
+            self.client_config(),
             Arc::new(BoardKey {
                 secrets: self.secrets.clone(),
                 name: self.cfg.key_secret.clone(),

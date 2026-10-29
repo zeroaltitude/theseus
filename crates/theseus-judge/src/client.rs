@@ -819,6 +819,14 @@ pub struct ClientConfig {
     pub connect: Duration,
     pub total: Duration,
     pub max_in_flight: usize,
+    /// The permits kept back for [`Urgency::Awaited`] calls, out of
+    /// `max_in_flight`. `None` is the default share ([`reserved_of`]);
+    /// `Some(0)` keeps none, so a deployment that makes no awaited call
+    /// (`[content_based_security] session_flags = false`) leaves every permit
+    /// to the ordinary pool (theseus-oc9n4). Never all of them: a count of
+    /// `max_in_flight` or more keeps all but one.
+    #[serde(default)]
+    pub reserved: Option<usize>,
 }
 
 impl Default for ClientConfig {
@@ -829,6 +837,7 @@ impl Default for ClientConfig {
             connect: Duration::from_secs(2),
             total: Duration::from_secs(5),
             max_in_flight: 8,
+            reserved: None,
         }
     }
 }
@@ -1409,6 +1418,45 @@ mod tests_permits {
                 "max_in_flight {n}"
             );
             assert_eq!(c.in_flight(), 0, "max_in_flight {n}: none in flight yet");
+        }
+    }
+
+    /// **A client told to keep none back leaves every permit to the ordinary
+    /// pool** (review I-4): with `session_flags` off nothing takes a reserved
+    /// permit, so the share must not be held idle against `Live` and `Shadow`.
+    /// `None` is still the default share, and a count is never all of them.
+    #[test]
+    fn a_client_told_to_keep_none_back_has_one_pool() {
+        struct NoKey;
+        impl KeySource for NoKey {
+            fn key(&self) -> Option<Zeroizing<String>> {
+                None
+            }
+        }
+        for (n, reserved, ordinary, kept) in [
+            (8usize, Some(0usize), 8usize, 0usize),
+            (2, Some(0), 2, 0),
+            (8, None, 6, 2),
+            (2, None, 1, 1),
+            (8, Some(3), 5, 3),
+            (4, Some(40), 1, 3),
+            (1, Some(1), 1, 0),
+        ] {
+            let c = JevClient::new(
+                ClientConfig {
+                    max_in_flight: n,
+                    reserved,
+                    ..ClientConfig::default()
+                },
+                Arc::new(NoKey),
+            )
+            .unwrap();
+            assert_eq!(
+                (c.permits.available_permits(), c.reserved.available_permits()),
+                (ordinary, kept),
+                "max_in_flight {n}, reserved {reserved:?}"
+            );
+            assert_eq!(c.in_flight(), 0, "max_in_flight {n}, reserved {reserved:?}");
         }
     }
 }

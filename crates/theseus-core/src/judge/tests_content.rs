@@ -1788,3 +1788,26 @@ async fn an_ask_that_fails_once_and_then_answers_is_judged_and_not_told() {
     assert!(notices(&r).is_empty(), "nothing to tell");
     assert!(flags(&r, &sid).has(Flag::Confidential), "and it was judged");
 }
+
+/// **With `session_flags` off no permit is kept back** (review I-4): no content
+/// call is made, so nothing would ever take a reserved permit, and the share
+/// would sit idle against every `Live` and `Shadow` call. On, the default
+/// share stands.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_client_keeps_no_permit_back_when_content_judging_is_off() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |_| {});
+    let judge = &r.core.runner.judge;
+    let names = || theseus_judge::builders::DataNames {
+        open: vec![],
+        private: vec![],
+    };
+    judge.content_from(names(), true, 3);
+    assert_eq!(judge.client_config().reserved, None, "on: the default share");
+    judge.content_from(names(), false, 3);
+    assert_eq!(
+        judge.client_config().reserved,
+        Some(0),
+        "off: nothing awaits a content call"
+    );
+}

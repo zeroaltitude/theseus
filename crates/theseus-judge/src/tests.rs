@@ -327,6 +327,7 @@ fn client_for(fake: &FakeJev, total_ms: u64, in_flight: usize) -> JevClient {
             connect: Duration::from_secs(2),
             total: Duration::from_millis(total_ms),
             max_in_flight: in_flight,
+            reserved: None,
         },
         Arc::new(StaticKey::new(KEY.into())),
     )
@@ -565,6 +566,7 @@ async fn a_failed_connect_marks_jev_unreachable_until_it_answers() {
             connect: Duration::from_secs(1),
             total: Duration::from_secs(1),
             max_in_flight: 2,
+            reserved: None,
         },
         Arc::new(StaticKey::new(KEY.into())),
     )

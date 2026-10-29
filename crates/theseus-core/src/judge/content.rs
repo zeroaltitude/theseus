@@ -255,6 +255,11 @@ impl JudgeService {
         self.content.max_pieces.store(max_pieces, Ordering::Relaxed);
     }
 
+    /// `[content_based_security] session_flags = false`: no content call is made.
+    pub(crate) fn content_is_off(&self) -> bool {
+        self.content.off.load(Ordering::Relaxed)
+    }
+
     /// The operator's config as the pack reads it, set once as the core is
     /// built.
     pub fn content_around(&self, around: crate::content_scene::Around) {
