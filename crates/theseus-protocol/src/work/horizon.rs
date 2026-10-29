@@ -464,6 +464,7 @@ pub fn digest_line(
                 "overlap" => "a run was still going",
                 "budget" => "the month's budget was spent",
                 "catch_up" => "the daemon was down and it catches up on none",
+                "owner" => "the owner declined it",
                 other => other,
             };
             Some(format!("🔁 {title} skipped at {due}: {why}"))
