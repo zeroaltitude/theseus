@@ -558,12 +558,35 @@ npm_step() {
   tail -n 40 "$log" | sed 's/^/  /'
   return 1
 }
+# The cockpit's node, pinned (theseus-selom, `NODE_PIN` in self_build.rs). The L1 self-build jail
+# binds exactly that one version read-only, but `/usr` is always bound too, so on a host whose
+# system node is new enough for `command -v npm` to pass, the phase used to run on whatever node
+# happened to be first on PATH and say nothing about it: a green gate on the wrong toolchain
+# (review L, L-2). The pin is only a pin if every gate checks it, not only the jail's.
+cockpit_node_pin() {
+  local pin
+  pin=$(sed -n 's/^pub const NODE_PIN: &str = "\(.*\)";/\1/p' crates/theseus-core/src/sandbox/self_build.rs)
+  if [ -z "$pin" ]; then
+    echo "gate: could not read NODE_PIN out of crates/theseus-core/src/sandbox/self_build.rs"
+    return 1
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    echo "gate: no \`node\` on PATH; the cockpit is pinned to v$pin: nvm install $pin"
+    return 1
+  fi
+  local running
+  running=$(node -v)
+  if [ "$running" != "v$pin" ]; then
+    echo "gate: node is $running on PATH, but the cockpit is pinned to v$pin: nvm install $pin, then rerun the gate"
+    return 1
+  fi
+}
 # The cockpit (theseus-45n5), the web UI at / since the Observatory retired (theseus-vm3n.6): lint, its pure
 # modules' tests (node's own runner, theseus-9o5n), type-check, and build. Its build is not committed (several MB,
 # new with each edit); the install builds it before the release build, and a binary without it says so at /. It runs
 # before the compiles, so the suite's tests of / read this build: a debug theseusd reads it as it serves.
 cockpit() {
-  cockpit_modules && npm_step cockpit lint && npm_step cockpit test && npm_step cockpit build && cockpit_built
+  cockpit_node_pin && cockpit_modules && npm_step cockpit lint && npm_step cockpit test && npm_step cockpit build && cockpit_built
 }
 # The cockpit's modules (theseus-i5xo). Without them the phase used to skip, and the daemon's tests of / then took
 # their not-built branch and passed, so a gate could pass never having served the real shell. Now a missing
