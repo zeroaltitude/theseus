@@ -226,7 +226,7 @@ export interface Verb { key: string; label: string; method: string; params: Reco
 export const SNOOZES: readonly string[] = ['10m', '1h', 'tomorrow 9:00']
 
 /** The verbs a mark carries, each one call. Reminders and check-ins snooze, move, pause and cancel; a routine runs now,
- *  pauses or resumes, and is cancelled; a watch is only cancelled (nothing edits one); a deferred task is cancelled;
+ *  pauses or resumes, skips its next run, and is cancelled; a watch is only cancelled (nothing edits one); a deferred task is cancelled;
  *  a milestone and a past run carry none (a past run opens its session instead). */
 export function verbsFor(m: Mark): Verb[] {
   const wake = (label: string, key: string, method: string, extra: Record<string, unknown> = {}, tone: Verb['tone'] = 'live', ask?: string): Verb =>
@@ -246,6 +246,7 @@ export function verbsFor(m: Mark): Verb[] {
         { key: 'run_now', label: 'Run now', method: 'routine.run_now', params: { id }, tone: 'ok', ask: `Run “${m.title}” now?` },
         { key: 'pause', label: 'Pause', method: 'routine.pause', params: { id }, tone: 'wait' },
         { key: 'resume', label: 'Resume', method: 'routine.resume', params: { id }, tone: 'ok' },
+        { key: 'skip', label: 'Skip next', method: 'routine.skip', params: { id }, tone: 'wait', ask: `Skip the next run of “${m.title}”? The series goes on after it.` },
         { key: 'cancel', label: 'Cancel', method: 'routine.delete', params: { id }, tone: 'fault', ask: `Cancel the routine “${m.title}” for good? Its runs stay as a record.` },
       ]
     }
@@ -256,10 +257,11 @@ export function verbsFor(m: Mark): Verb[] {
   }
 }
 
-/** The routine's own verbs by state (the table's row), where a mark would carry them all: Pause when it runs, Resume when held. */
+/** The routine's own verbs by state (the table's row), where a mark would carry them all: Pause when it runs, Resume when
+ *  held; Skip only while it runs, since a held series has no next run to drop. */
 export function routineVerbs(v: Pick<WorkView, 'title' | 'session_id' | 'paused' | 'id'>): Verb[] {
   const mark: Mark = { key: v.id, kind: 'run', at_ms: 0, title: v.title, id: v.id, session_id: v.session_id }
-  return verbsFor(mark).filter((x) => (x.key === 'pause' ? !v.paused : x.key === 'resume' ? !!v.paused : true))
+  return verbsFor(mark).filter((x) => (x.key === 'pause' || x.key === 'skip' ? !v.paused : x.key === 'resume' ? !!v.paused : true))
 }
 
 // ---------------------------------------------------------------- the Routines table

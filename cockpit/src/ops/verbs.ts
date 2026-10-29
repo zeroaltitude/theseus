@@ -35,6 +35,7 @@ export const VERBS: readonly VerbDef[] = [
   { id: 'task_pause', label: 'Pause or resume the task', on: ['task'], methods: ['task.pause', 'task.resume'], posture: 'do', undo: true },
   { id: 'thread_pause', label: 'Pause, resume, done or reopen the thread', on: ['thread'], methods: ['thread.pause', 'thread.resume', 'thread.done', 'thread.reopen'], posture: 'do' },
   { id: 'routine_pause', label: 'Pause or resume the routine', on: ['routine'], methods: ['routine.pause', 'routine.resume'], posture: 'do' },
+  { id: 'routine_skip', label: 'Skip the routine’s next run', on: ['routine'], methods: ['routine.skip'], posture: 'ask' },
   { id: 'routine_run', label: 'Run the routine now', on: ['routine'], methods: ['routine.run_now'], posture: 'ask' },
   { id: 'routine_delete', label: 'Delete the routine', on: ['routine'], methods: ['routine.delete'], posture: 'ask' },
   { id: 'wake_snooze', label: 'Snooze or move the wake', on: ['wake'], methods: ['wake.snooze'], posture: 'do', undo: true },

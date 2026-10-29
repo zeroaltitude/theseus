@@ -395,6 +395,31 @@ async fn a_failed_run_needs_you_until_the_next_run_goes_well() {
     .await;
 }
 
+/// The owner's own `routine.skip` does not count toward the routine's 30-day
+/// skipped tally: that count is for skips the routine made for cause (an
+/// overlapping run, a spent month, catching up), not a skip the owner asked
+/// for (theseus-0oldh, review L-1).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_own_skip_does_not_count_toward_the_skipped_tally() {
+    let r = rig();
+    r.core.push.ensure(&r.core).await.unwrap();
+    let info = made_routine(&r.core, "every 1m").await;
+    let id = info["id"].as_str().unwrap().to_string();
+    rpc(&r.core, "routine.skip", json!({"id": id}))
+        .await
+        .unwrap();
+    board_caught_up(&r.core, &id).await;
+    let routine = snapshot(&r.core)
+        .into_iter()
+        .find(|v| v.kind == WorkKind::Routine)
+        .unwrap();
+    assert_eq!(
+        routine.routine.as_ref().unwrap().runs_30d.skipped,
+        0,
+        "a skip the owner asked for is not a skip for cause"
+    );
+}
+
 /// A met watch ends done with its last value; `status.short` counts what is
 /// ahead and what failed.
 #[tokio::test(flavor = "multi_thread")]

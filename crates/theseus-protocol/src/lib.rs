@@ -306,7 +306,7 @@ pub mod method {
         /// The owner's verbs on wakes, with no model turn (theseus-8ux6x): set a reminder, snooze one, hold and resume a series, settle a fired one.
         WAKE_CREATE = "wake.create", WAKE_SNOOZE = "wake.snooze", WAKE_PAUSE = "wake.pause", WAKE_RESUME = "wake.resume", WAKE_DONE = "wake.done",
         /// Routines (theseus-pvm5c, `routines.rs`): recurring work, every run a fresh task.
-        ROUTINE_CREATE = "routine.create", ROUTINE_LIST = "routine.list", ROUTINE_RUNS = "routine.runs", ROUTINE_PAUSE = "routine.pause", ROUTINE_RESUME = "routine.resume", ROUTINE_RUN_NOW = "routine.run_now", ROUTINE_TRY = "routine.try", ROUTINE_UPDATE = "routine.update", ROUTINE_DELETE = "routine.delete",
+        ROUTINE_CREATE = "routine.create", ROUTINE_LIST = "routine.list", ROUTINE_RUNS = "routine.runs", ROUTINE_PAUSE = "routine.pause", ROUTINE_RESUME = "routine.resume", ROUTINE_RUN_NOW = "routine.run_now", ROUTINE_SKIP = "routine.skip", ROUTINE_TRY = "routine.try", ROUTINE_UPDATE = "routine.update", ROUTINE_DELETE = "routine.delete",
         /// Watches (theseus-f2r2b): a check with no model until it holds; a cancel is `wake.cancel`'s.
         WATCH_CREATE = "watch.create", WATCH_LIST = "watch.list",
         /// Projects (theseus-n5ui2, `projects.rs`): long-term work on the task graph, with milestones, a weekly

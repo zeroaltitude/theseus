@@ -450,6 +450,75 @@ impl Kernel {
             list: e.wakes,
         }))
     }
+
+    /// Drop a series' next occurrence (theseus-0oldh), in one frame with the
+    /// row `wake.skipped { why: "owner" }`: the series goes on at the
+    /// occurrence after it, numbered by its place, and nothing else of it
+    /// changes. The occurrence dropped is the next one ahead: one that fell
+    /// due while nothing scanned is passed over, counted, as a pause's `until`
+    /// counts them. A skip opens no run, so a count of runs does not move.
+    /// `None` when it is not pending; refused (nothing written) for a held
+    /// series, a watch, a wake with no series, and a series whose next
+    /// occurrence is its last: that one is a cancel.
+    pub fn skip_wake(
+        &self,
+        execution_id: &str,
+        wake_id: &str,
+        by: &str,
+    ) -> Result<Option<WakeMoved>> {
+        self.require_accepting()?;
+        let _w = self.lock(&[execution_id]);
+        let mut e = self
+            .execution(execution_id)?
+            .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
+        let Some(i) = e.wakes.iter().position(|w| w.id == wake_id) else {
+            return Ok(None);
+        };
+        let from = e.wakes[i].clone();
+        anyhow::ensure!(
+            from.probe().is_none(),
+            "a watch has no occurrence to skip: it checks on its own interval. Cancel it instead"
+        );
+        anyhow::ensure!(
+            from.paused_at_ms.is_none(),
+            "the series is paused: nothing runs until it is resumed, so there is no next \
+             occurrence to skip. Resume it first"
+        );
+        let Some(r) = from.repeat.clone() else {
+            anyhow::bail!(
+                "a wake that does not repeat has no next occurrence to skip: cancel it instead"
+            );
+        };
+        let now = self.now_ms();
+        let zone = &self.config().zone;
+        let at = from.due_at_ms.max(now);
+        let Some(next) = r.next_after(zone, at) else {
+            anyhow::bail!(
+                "the next occurrence is the last of the series: skipping it would end the series; \
+                 cancel it instead"
+            );
+        };
+        let passed = u32::try_from(r.between(zone, from.due_at_ms, at)).unwrap_or(u32::MAX);
+        let w = &mut e.wakes[i];
+        w.occurrence = w.occurrence.saturating_add(1).saturating_add(passed);
+        w.due_at_ms = next;
+        let wake = w.clone();
+        sort(&mut e.wakes);
+        e.updated_at_ms = now;
+        let row = self.ledger(
+            LedgerKind::WakeSkipped,
+            Some(&e.session_id),
+            json!({"execution_id": e.id, "wake_id": wake.id, "due_at_ms": from.due_at_ms,
+                   "occurrence": from.occurrence, "next_due_at_ms": wake.due_at_ms,
+                   "why": "owner", "by": by, "purpose": wake.purpose.noun()}),
+        )?;
+        self.commit(&[exec_record(&e)?, row])?;
+        Ok(Some(WakeMoved {
+            from,
+            wake,
+            list: e.wakes,
+        }))
+    }
 }
 
 fn wake_id_of(correlation_id: &str) -> String {

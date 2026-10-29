@@ -708,3 +708,47 @@ async fn update_changes_the_series_and_the_limits_and_delete_ends_it_all() {
         "created, updated, deleted"
     );
 }
+
+/// `routine.skip` (theseus-0oldh): the next occurrence is dropped and the next
+/// time moves one period, but a skip opens no run, so the routine's count of
+/// runs (the number a stop of `after N runs` reads) does not move, and the
+/// run that comes next is run 1. A held routine has none to skip.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_skip_spends_no_run_and_moves_the_next_time_one_period() {
+    let r = rig();
+    let info = made(&r.core, json!({})).await;
+    let id = info["id"].as_str().unwrap().to_string();
+    let next = info["next_ms"].as_u64().unwrap();
+    let skipped = rpc(&r.core, "routine.skip", json!({"id": id}))
+        .await
+        .unwrap();
+    let after = &skipped["routine"];
+    assert_eq!(after["next_ms"].as_u64(), Some(next + 60_000), "{after}");
+    assert_eq!(after["paused"], false, "the series is still running");
+    assert_eq!(after["runs"], 0, "a skip spends no run");
+    assert!(runs(&r.core, &id).await.is_empty(), "nothing ran");
+    let dropped = rows(&r.core, "wake.skipped");
+    assert_eq!(dropped.len(), 1);
+    assert_eq!(dropped[0]["why"], "owner");
+    assert_eq!(dropped[0]["due_at_ms"].as_u64(), Some(next));
+    // The next run is run 1: the skipped occurrence took no number from it.
+    let ran = rpc(&r.core, "routine.run_now", json!({"id": id}))
+        .await
+        .unwrap();
+    assert_eq!(ran["routine"]["runs"], 1, "{ran}");
+    until("its report", 30, || reports(&r.core).len() == 1).await;
+    assert_eq!(runs(&r.core, &id).await[0]["run"], 1);
+    // Held, there is no next run to drop, and it is said in words.
+    rpc(&r.core, "routine.pause", json!({"id": id}))
+        .await
+        .unwrap();
+    let held = rpc(&r.core, "routine.skip", json!({"id": id}))
+        .await
+        .unwrap_err();
+    assert!(held.contains("paused"), "{held}");
+    assert_eq!(
+        rows(&r.core, "wake.skipped").len(),
+        1,
+        "a refusal writes no row"
+    );
+}
