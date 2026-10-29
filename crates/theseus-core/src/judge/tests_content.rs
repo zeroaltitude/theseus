@@ -1815,3 +1815,23 @@ async fn the_client_keeps_no_permit_back_when_content_judging_is_off() {
         "off: nothing awaits a content call"
     );
 }
+
+/// **With `session_flags` on but the pack itself off, no permit is kept back
+/// either** (review K's K-5): `submit` also returns early when `content.v3`
+/// is not on (`content.rs`'s second guard), so a share reserved against
+/// `Urgency::Awaited` content calls would sit idle there too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_client_keeps_no_permit_back_when_the_pack_itself_is_off() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, |c| {
+        c.judge
+            .packs
+            .insert(PACK.to_string(), crate::tests_judge::off());
+    });
+    let judge = &r.core.runner.judge;
+    assert_eq!(
+        judge.client_config().reserved,
+        Some(0),
+        "session_flags on, pack off: still nothing awaits a content call"
+    );
+}

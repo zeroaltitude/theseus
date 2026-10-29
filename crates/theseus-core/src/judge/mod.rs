@@ -475,9 +475,10 @@ impl JudgeService {
             connect: Duration::from_secs(self.cfg.connect_secs),
             total: Duration::from_secs(self.cfg.total_secs),
             max_in_flight: self.cfg.max_in_flight,
-            // With content judging off nothing makes an awaited call, so a
-            // share kept back would sit idle against every other call.
-            reserved: self.content_is_off().then_some(0),
+            // With content judging off, or the pack itself off, nothing
+            // makes an awaited call, so a share kept back would sit idle
+            // against every other call (theseus-prejoin-k, review K's K-5).
+            reserved: (self.content_is_off() || !self.pack_on(content::PACK)).then_some(0),
         }
     }
 
