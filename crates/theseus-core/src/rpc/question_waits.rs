@@ -119,6 +119,20 @@ mod tests {
     /// The clients' shared list of expiring tools is the core's own three: a
     /// new operator question kind that must expire is added to both, or this
     /// fails (theseus-lrc3m, review C's F3).
+    /// The board reminds a held question by the life it would have had, and
+    /// that life is `[kernel] confirm_ttl_secs`'s default: one constant, in
+    /// `theseus-protocol`, which the core's default derives from
+    /// (theseus-lrc3m, review G's G6). Raising one raises the other, so the
+    /// doc comment on `Rules::held_life_ms` cannot go stale.
+    #[test]
+    fn a_held_questions_reminder_life_is_the_confirm_ttl_default() {
+        assert_eq!(
+            theseus_protocol::notices::Rules::default().held_life_ms,
+            crate::config::KernelSection::default().confirm_ttl_secs * 1000,
+            "the held reminder's life and the confirm TTL default are one constant"
+        );
+    }
+
     #[test]
     fn the_protocols_expiring_tools_are_the_cores() {
         assert_eq!(
