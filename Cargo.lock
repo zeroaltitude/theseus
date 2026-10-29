@@ -6580,7 +6580,7 @@ dependencies = [
 
 [[package]]
 name = "theseus"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -6599,7 +6599,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-aws"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aws-credential-types",
  "aws-sigv4",
@@ -6623,7 +6623,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-aws-catalog"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "brotli",
  "brotli-decompressor 5.0.3",
@@ -6635,7 +6635,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-aws-guard"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -6647,7 +6647,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-core"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -6693,7 +6693,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-discord"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "hex",
@@ -6722,7 +6722,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-exam"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -6742,7 +6742,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-files"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -6755,7 +6755,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-follow"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "libc",
  "serde",
@@ -6767,7 +6767,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-google"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "base64 0.22.1",
  "percent-encoding",
@@ -6784,7 +6784,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-index"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -6814,7 +6814,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-judge"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -6835,7 +6835,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-kernel"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "hex",
@@ -6856,7 +6856,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-lsp"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "libc",
  "serde",
@@ -6871,7 +6871,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-mcp"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "axum",
  "futures-util",
@@ -6891,14 +6891,14 @@ dependencies = [
 
 [[package]]
 name = "theseus-memory"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "theseus-ontology"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "hex",
  "proptest",
@@ -6910,7 +6910,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-protocol"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -6919,7 +6919,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-sandbox"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "libc",
  "serde",
@@ -6930,7 +6930,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-sim"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -6954,7 +6954,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-store"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "crc32fast",
@@ -6973,7 +6973,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-tools"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "diffy",
@@ -6996,7 +6996,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-tui"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -7014,7 +7014,7 @@ dependencies = [
 
 [[package]]
 name = "theseus-voice"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -7039,7 +7039,7 @@ dependencies = [
 
 [[package]]
 name = "theseusd"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "axum",

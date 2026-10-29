@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 1.0.2" src="https://img.shields.io/badge/version-1.0.2-d6a548?style=flat-square">
+  <img alt="Version 1.0.3" src="https://img.shields.io/badge/version-1.0.3-d6a548?style=flat-square">
   <img alt="Rust 1.98 or later" src="https://img.shields.io/badge/rust-1.98%2B-13314d?style=flat-square">
   <img alt="Runs on Linux" src="https://img.shields.io/badge/runs%20on-Linux-13314d?style=flat-square">
   <img alt="License: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-13314d?style=flat-square">
@@ -177,10 +177,9 @@ These hold whatever the model does:
 
 ## Where it stands
 
-Theseus is at v1 patch2 (version 1.0.2), runs on Linux, and has one daily user. Version 1.0.3 is being closed out
-this week: its last rows are the trusted-environment lane above, and it tags when they join. Version 1.0.4, the
-build meant as a daily driver, is due by the end of this week with the cost fix, the scheduling tool and tasks on
-the agenda; the benchmarks run again after it. **[The status page](docs/status.md)** says what works today, what is
+Theseus is at v1 patch3 (version 1.0.3), runs on Linux, and has one daily user. Version 1.0.4, the build meant as
+a daily driver, is being closed out this week and is due stable by Friday, 2026-10-30, with the cost fix, the
+scheduling tool and tasks on the agenda; the benchmarks run again after it. **[The status page](docs/status.md)** says what works today, what is
 still rough, and what comes next, and [the benchmarks](docs/benchmarks/omnibus.md) say where it loses. Those pages
 change with every step; this one doesn't.
 

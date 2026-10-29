@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-28 10:15 MST. Version 1.0.2 (v1 patch2); v1 patch3, the principles migration, is under way (its section is first); the design document is at v0.92._
+_Updated 2026-10-28 21:27 MST. Version 1.0.3 (v1 patch3), tag `release-1.0.3`; v1 patch4 (version 1.0.4) is under way; the design document is at v0.92._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -19,7 +19,7 @@ full record of each step (what it built, how it was proven, and where it diverge
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and
 for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
 
-## v1 patch3: trust, privacy and content (under way)
+## v1 patch3: trust, privacy and content
 
 **v1 patch3 (version 1.0.3)** is the principles migration: the review of 2026-10-27 held the trust, privacy and content
 machinery against four of the owner's principles (a trusted machine, so notify and block only the irreversible; the
@@ -61,11 +61,13 @@ divergence from the plan. What it changes:
   refuses to start. The owner's config needs the `external_text` line under `[policy]` removed before this installs, and
   his own `open_source_paths` and `context`, which `content.v3` uses when he writes them.
 
-Where it stands: R0, R1 and R2 reached `main` on 2026-10-28 and are installed (#98); the other rows joined the
-principles lane, which merges to `main` once after a gate of the merged tree. What the owner still decides is listed
+Where it stands: R0, R1 and R2 reached `main` on 2026-10-28 and were installed (#98); the other rows joined the
+principles lane, which merged to `main` the same day after a gate of the merged tree. What the owner still decides is listed
 at the end of Item 259 (Google content and a model of EU origin; the two exits the substitution cannot see; a locked
 approval card and the DM golden's `/trust` line; an AWS L1 job and the egress list; whether a Remove of a names
 label holds against the next item naming the word).
+
+Next is **v1 patch4** (tag `release-1.0.4`).
 
 ## v1 patch2
 
