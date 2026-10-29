@@ -156,3 +156,31 @@ fn the_halt_takes_the_halt_sink_and_a_plain_sink_takes_it_too() {
     Notify::new(move |t| o.lock().unwrap().push(t)).send_halt("h".into());
     assert_eq!(*only.lock().unwrap(), ["h"]);
 }
+
+/// The one link between the writer and the reader (review J-2, theseus-if2na):
+/// the numbers `built` writes are the ones `of_row` reads, so a gate that
+/// could not run reads back as infrastructure, whatever it did to the key.
+#[test]
+fn a_row_built_for_an_unrunnable_gate_reads_back_as_infrastructure() {
+    use crate::rsi::infra::Outcome;
+    use crate::rsi::pr::built_numbers;
+    use crate::rsi::tree::{GateRun, Verdict};
+
+    let gate = |unrunnable| GateRun {
+        verdict: Verdict::Red,
+        exit: Some(1),
+        blob: String::new(),
+        log: PathBuf::new(),
+        secs: 90,
+        tail: String::new(),
+        unrunnable,
+    };
+    let read = |g: &GateRun| {
+        of_row(&json!({
+            "gate": "red", "branch": "self/b", "item": "x1",
+            "numbers": built_numbers(Some(g), (1, 2, 3), true),
+        }))
+    };
+    assert_eq!(read(&gate(true)), Some(Outcome::Infrastructure));
+    assert_eq!(read(&gate(false)), Some(Outcome::Red));
+}

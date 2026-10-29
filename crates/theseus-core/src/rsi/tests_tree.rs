@@ -232,6 +232,28 @@ async fn a_keel_failure_is_the_keels_verdict() {
     );
 }
 
+/// The gate's own words that a tool it needs is missing (gate.sh's
+/// `cockpit_modules`) mark a run that could not run a phase; nothing else does:
+/// not a failed suite, and not a test's output that quotes the words.
+#[test]
+fn only_the_gates_own_missing_tool_line_is_a_phase_it_could_not_run() {
+    let missing = "gate: cockpit/node_modules is missing, and there is no npm to install it: \
+                   install Node.js and npm, then\n\
+                   gate: rerun the gate (the cockpit is built before the suite)\n\
+                   gate: FAILED in cockpit\n";
+    assert!(tree::could_not_run(missing));
+    assert!(tree::could_not_run(&format!(
+        "gate: phase cockpit\n{missing}"
+    )));
+    assert!(!tree::could_not_run(
+        "test result: FAILED. 1311 passed; 1 failed\ngate: FAILED in suite\n"
+    ));
+    assert!(!tree::could_not_run(
+        "  left: \"gate: x is missing, and there is no npm to install it\"\n"
+    ));
+    assert!(!tree::could_not_run(""));
+}
+
 /// A green branch pushes to refs/heads/self/* on the remote, and nothing
 /// else moves there; main is refused by name, and so is any name outside
 /// self/.

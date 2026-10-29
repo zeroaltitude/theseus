@@ -175,7 +175,9 @@ impl Verdict {
 }
 
 /// One run of the gate: its verdict, its exit, the blob of main's gate that
-/// judged, the log kept, its seconds, and the log's last lines.
+/// judged, the log kept, its seconds, the log's last lines, and whether the
+/// gate stopped at a phase it could not run (a tool it needs is not there), so
+/// that it judged nothing about the code.
 #[derive(Debug, Clone)]
 pub struct GateRun {
     pub verdict: Verdict,
@@ -184,6 +186,7 @@ pub struct GateRun {
     pub log: PathBuf,
     pub secs: u64,
     pub tail: String,
+    pub unrunnable: bool,
 }
 
 /// How long a gate run may print nothing before it is stopped (theseus-x1zz8):
@@ -207,6 +210,20 @@ const MAY_BUILD_EVERY: Duration = Duration::from_secs(60);
 const RULE_LIMIT: Duration = Duration::from_secs(120);
 /// How the gate says the keel stopped it (gate.sh's `phase` names).
 const KEEL_FAILED: &[&str] = &["gate: FAILED in keel", "gate: FAILED in door"];
+/// How the gate says a tool it needs is missing, so that a phase could not run
+/// (gate.sh's `cockpit_modules`: no npm to install `cockpit/node_modules`). The
+/// words are the gate's own and are matched whole; this is not a list of every
+/// phase, and a phase that fails for another reason is the code's to answer for.
+const TOOL_MISSING: &[&str] = &["and there is no npm to install it"];
+
+/// Whether the gate said, in a line of its own (they begin `gate: `), that a
+/// tool it needs is missing. A line of a test's output that quotes the words
+/// does not count.
+pub(super) fn could_not_run(text: &str) -> bool {
+    text.lines()
+        .filter(|l| l.starts_with("gate: "))
+        .any(|l| TOOL_MISSING.iter().any(|m| l.contains(m)))
+}
 
 impl Place {
     /// L1 for the branch's code. A place with none runs a stand-in at L0
@@ -680,6 +697,7 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
         log,
         secs: t0.elapsed().as_secs(),
         tail,
+        unrunnable: verdict != Verdict::Green && could_not_run(&text),
     })
 }
 
