@@ -80,14 +80,15 @@ impl TurnRunner {
 
     /// The brief of the task this reply offers (theseus-bh3t.5): `classify.v3`
     /// found the owner's message to be work for later, at the act bar, and
-    /// the batch had landed by now. Not on a trivial or quick turn, a task's
+    /// the batch had landed by now. Not on a detour (trivial, quick, run_tool or commentary), a task's
     /// turn, a message not alone with the owner, or a turn that made a task
     /// itself.
     fn offer_for(&self, t: &Turn<'_>, result: &TurnSubmitResult, target: &str) -> Option<String> {
-        let detour = matches!(
-            result.route.as_ref().and_then(|r| r.mode.as_deref()),
-            Some("trivial" | "quick")
-        );
+        let detour = result
+            .route
+            .as_ref()
+            .and_then(|r| r.mode.as_deref())
+            .is_some_and(crate::config::routing::is_detour);
         if detour || t.tc.task.is_some() || !crate::capture::owner_alone(t.tc.class, Some(target)) {
             return None;
         }

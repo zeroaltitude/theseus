@@ -110,7 +110,7 @@ model = "claude-sonnet-5-5"
 # max_output_tokens = 64000             # omitted: the catalog ceiling (128000 for Sonnet 5.5)
 # system = ""
 # effort = "xhigh"                      # the recommended level for coding and agentic work
-# effort_fixed = false                  # true: effort stands whatever route.v8 answers ([routing])
+# effort_fixed = false                  # true: effort stands whatever route.v9 answers ([routing])
 thinking_display = "summarized"
 max_loops = 40
 refusal_fallbacks = true
@@ -156,13 +156,13 @@ effort = "high"
 thinking_display = "summarized"
 max_loops = 40
 
-# Sonnet 5.5 at high effort: deep_coding's first reviewer when its China-origin draft is turned on
-# (see the routing classes below). Commented, so a config without a draft carries no new profile.
-# [profiles.sonnethi]
-# provider = "anthropic"
-# model = "claude-sonnet-5-5"
-# effort = "high"
-# thinking_display = "summarized"
+# Sonnet 5.5 at high effort: the last profile of sophisticated and review (theseus-tqomi), and
+# deep_coding's first reviewer when its China-origin draft is turned on (see the routing classes below).
+[profiles.sonnethi]
+provider = "anthropic"
+model = "claude-sonnet-5-5"
+effort = "high"
+thinking_display = "summarized"
 
 # In no class list: GLM-5.3 costs more per coding task than Sonnet 5.5 ($0.34-0.47 against $0.30 a trial).
 [profiles.glm53]
@@ -1668,7 +1668,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 # tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
 
 # ---------------------------------------------------------------- routing
-# Jev's model per task class (M5 25e). While [judge] is on, route.v8 asks at each
+# Jev's model per task class (M5 25e). While [judge] is on, route.v9 asks at each
 # message you send which task class it needs (beside classify.v4 and role.v1), and
 # the turn runs on that class's first usable profile: configured, its key settled, its
 # model priced, and able to read the turn's images; else the next; else the session's
@@ -1679,7 +1679,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 # messages in a row agree (a switch leaves the cache cold). A turn whose profile, provider
 # or model you chose (`theseus ask -P/-p/-m`, the cockpit's picker) is never routed, and
 # a place's profile (its ceiling) is its cap: nothing routes to a dearer model there.
-# In the same request route.v8 asks the effort the reply needs (low, medium, high, xhigh,
+# In the same request route.v9 asks the effort the reply needs (low, medium, high, xhigh,
 # max), and the turn's model runs at it when its catalog row takes effort, over the
 # profile's own effort unless the profile sets effort_fixed = true, and clamped to
 # effort_bounds. An answer below its confirm bar still applies at effort_confidence or
@@ -1718,7 +1718,7 @@ effort_confidence = 0.35                # an effort answer under its confirm bar
 # effort_floor_confidence = 0.6         # unset = off; an effort answer under this applies nothing (above effort_confidence, at most 1; 1.0 gates every answer)
 dear_tier_max_tokens = 200000           # over this much context, sophisticated and review skip a profile dearer (per input token) than the next usable one
 # A running task's model ranges (theseus-ypnxt.9). A task you started with no profile asks
-# route.v8 about its recent state at a loop boundary when it fails, stalls, changes phase or
+# route.v9 about its recent state at a loop boundary when it fails, stalls, changes phase or
 # is about to report, and moves up to the class's profile (only Jev elevates) or back down
 # to its own base after two agreeing verdicts, never below it. A task started with a profile
 # is pinned. One verdict per min_loops_between loops; at most max_switches moves, and a step
@@ -1735,8 +1735,8 @@ max_switches = 2                        # moves per task, up or down
 # Each task class's profiles, in order: the first usable wins. Empty: the session's own. A
 # class's switch_confidence is its own bar; unset, it is the one above, except trivial's,
 # 0.4: a wrong trivial call is cheap, since its detour carries a few exchanges for one turn.
-# A verdict that comes after the wait applies to the next message alone, and a trivial
-# or quick one to none. A profile a class names that this config lacks is passed over. A
+# A verdict that comes after the wait applies to the next message alone, and a detour's (trivial,
+# quick, run_tool, commentary) to none. A profile a class names that this config lacks is passed over. A
 # session Jev moved up from its own profile goes back to it after two verdicts in a row
 # whose class is its own profile or cheaper (chat, routine_coding); you moving it is yours.
 # [routing.classes.trivial]
@@ -1748,10 +1748,19 @@ max_switches = 2                        # moves per task, up or down
 # switch_confidence = 0.4
 # [routing.classes.quick]                 # a quick question a short, direct answer settles
 # profiles = ["haiku"]
+# route.v9's two kinds (not the acting pack yet; the tables are read the day it is): both are
+# detours, so a command run or a remark never moves the session's profile. A run_tool turn
+# carries the place's real tools; a commentary one carries tools_find alone, as trivial does.
+# No China-origin model is named for either: a run_tool turn reads tool output, which waits on
+# the content screen (theseus-ouqru).
+# [routing.classes.run_tool]              # a command, script or tool to run, its result reported
+# profiles = ["haiku", "sonnet"]
+# [routing.classes.commentary]            # a remark or aside that asks for nothing
+# profiles = ["haiku"]
 # [routing.classes.chat]                  # conversation building on the work: the session's own
 # profiles = []
-# [routing.classes.sophisticated]
-# profiles = ["opus", "fable"]
+# [routing.classes.sophisticated]         # hard reasoning, and an open-ended comparison or "is it any good?" (route.v9)
+# profiles = ["opushi", "opus", "sonnethi"]
 # [routing.classes.deep_coding]
 # profiles = ["opus", "sonnet"]
 # Debugging with an unknown cause, and design, stay on Claude: vendor Terminal-Bench 4.0 has
@@ -1771,7 +1780,7 @@ max_switches = 2                        # moves per task, up or down
 # final = ["sonnet"]                    # a Claude profile; the first usable one reviews
 # first_pass = "dsflashmax"            # optional: a restricted-origin profile reads the draft's diff for bugs first; its findings go to the Claude review only
 # [routing.classes.review]                # verification: "check this", a pre-merge review, "is this right?"
-# profiles = ["opushi", "fable"]
+# profiles = ["opus", "sonnethi"]
 # Your corrections (theseus-q31l): in a private place, "that should have been on fable",
 # "use opus for that", "that needed more effort" or "rerun that on opus" labels the last
 # turn's route judgment as yours and moves the session there at once; so does a reaction

@@ -76,14 +76,14 @@ fn recorded(r: &crate::tests_route::Rig, session: &str) -> Vec<Option<Effort>> {
 async fn a_turn_at_jevs_effort_repeats_the_cached_prefix() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
-    effort(&jev, "unclear", 0.95);
+    effort(&jev, "leave", 0.95);
     let r = rig(Some(&jev), 3, |c| c.model.live = "fable".into());
     let one = turn(&r.core, None, "Where do the herons nest?", None).await;
     assert_eq!(one.profile, "fable");
     effort(&jev, "low", 0.95);
     let two = turn(&r.core, Some(&one.session_id), "And the egrets?", None).await;
     assert_eq!(two.route.unwrap().effort_applied.as_deref(), Some("low"));
-    effort(&jev, "unclear", 0.95);
+    effort(&jev, "leave", 0.95);
     turn(&r.core, Some(&one.session_id), "Thanks.", None).await;
     let reqs = r.claude.requests();
     assert_eq!(reqs.len(), 3);
@@ -154,7 +154,7 @@ async fn the_historys_messages_follow_the_records() {
     effort(&jev, "low", 0.95);
     let r = rig(Some(&jev), 4, |c| c.model.live = "fable".into());
     let one = turn(&r.core, None, "Where do the herons nest?", None).await;
-    effort(&jev, "unclear", 0.95);
+    effort(&jev, "leave", 0.95);
     let sid = one.session_id.clone();
     assert_eq!(
         turn(&r.core, Some(&sid), "And now?", None).await.profile,

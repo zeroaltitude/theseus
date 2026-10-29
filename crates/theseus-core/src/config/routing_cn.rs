@@ -249,7 +249,11 @@ mod tests {
         let ok = "[routing.classes.trivial]\nprofiles = [\"haiku\", \"cheapest\"]\ncn_profiles = [\"glm\"]\ncn_after = \"haiku\"";
         let cfg = load("", ok).unwrap();
         assert_eq!(cfg.routing.classes.trivial.cn_profiles, ["glm"]);
+        // route.v9's two classes included: a China-origin model on a run_tool
+        // turn would read tool output, which waits on theseus-ouqru's screen.
         for m in [
+            "run_tool",
+            "commentary",
             "quick",
             "chat",
             "sophisticated",
