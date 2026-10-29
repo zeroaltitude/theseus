@@ -143,6 +143,7 @@ mod tests {
                 connect: Duration::from_secs(2),
                 total: Duration::from_secs(5),
                 max_in_flight: 4,
+                reserved: None,
             },
             Arc::new(StaticKey::new(
                 "apik-test-0123456789-abcdefghijklmnop".into(),
