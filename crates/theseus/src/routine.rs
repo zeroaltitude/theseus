@@ -69,6 +69,8 @@ pub enum RoutineCmd {
     },
     /// Let a paused routine go on at its next time.
     Resume { id: String },
+    /// Drop the next occurrence and go on at the one after it; the series keeps running.
+    Skip { id: String },
     /// Run it once now, whether paused or not; the schedule is untouched.
     Run { id: String },
     /// Try it now: occurrence 0 at once, recorded as run 0, while you watch. A call outside the
@@ -176,6 +178,17 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
             output(json, v, |r: RoutineEditResult| {
                 println!(
                     "routine {} goes on: next {}",
+                    r.routine.short,
+                    next_of(&r.routine)
+                );
+                Ok(())
+            })
+        }
+        RoutineCmd::Skip { id } => {
+            let v = conn.request(method::ROUTINE_SKIP, named(id)).await?;
+            output(json, v, |r: RoutineEditResult| {
+                println!(
+                    "routine {} skips its next run: next {}",
                     r.routine.short,
                     next_of(&r.routine)
                 );

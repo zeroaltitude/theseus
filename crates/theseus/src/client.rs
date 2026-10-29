@@ -395,6 +395,7 @@ pub const OPERATORS: [(&str, &str); 108] = [
     (method::ROUTINE_CREATE, "theseus routine add"),
     (method::ROUTINE_PAUSE, "theseus routine pause"),
     (method::ROUTINE_RESUME, "theseus routine resume"),
+    (method::ROUTINE_SKIP, "theseus routine skip"),
     (method::ROUTINE_RUN_NOW, "theseus routine run"),
     (method::ROUTINE_TRY, "theseus routine try"),
     (method::ROUTINE_UPDATE, "theseus routine update"),

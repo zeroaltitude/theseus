@@ -1,5 +1,5 @@
 //! The routines' verbs and their firing (theseus-pvm5c): `routine.create`,
-//! `.list`, `.runs`, `.pause`, `.resume`, `.run_now`, `.update` and `.delete`.
+//! `.list`, `.runs`, `.pause`, `.resume`, `.skip`, `.run_now`, `.update` and `.delete`.
 //! The verbs are the owner's, acted at once (`judge_act(Act::Routine)`: the
 //! owner, from a private place; the CLI refuses them inside a job), and each is
 //! one kernel frame with its row. The model's `routine.create` tool
@@ -27,12 +27,13 @@ use crate::routine::{self, Env, NewRoutine};
 use crate::wake_when::parse_when;
 
 /// The routines' methods, routed by `rpc_prefixed`.
-pub(super) const OWN: [&str; 9] = [
+pub(super) const OWN: [&str; 10] = [
     method::ROUTINE_CREATE,
     method::ROUTINE_LIST,
     method::ROUTINE_RUNS,
     method::ROUTINE_PAUSE,
     method::ROUTINE_RESUME,
+    method::ROUTINE_SKIP,
     method::ROUTINE_RUN_NOW,
     method::ROUTINE_TRY,
     method::ROUTINE_UPDATE,
@@ -83,6 +84,10 @@ impl Core {
             method::ROUTINE_RESUME => route(params, |p: RoutineNameParams| {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 self.routine_resume(&p, who)
+            }),
+            method::ROUTINE_SKIP => route(params, |p: RoutineNameParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.routine_skip(&p, who)
             }),
             method::ROUTINE_RUN_NOW => route(params, |p: RoutineNameParams| {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
@@ -264,6 +269,30 @@ impl Core {
         )?;
         self.kernel
             .resume_wake(&spec.execution_id, &spec.wake_id, &who.label)
+            .map_err(RpcFailure::invalid)?
+            .ok_or_else(|| {
+                RpcFailure::new(error_code::NOT_FOUND, "the routine has no schedule left")
+            })?;
+        self.routine_edited(&spec, None)
+    }
+
+    /// `routine.skip` (theseus-0oldh): the next occurrence is dropped and the
+    /// series goes on at the one after it. No run is opened, so a skip spends
+    /// none of a run-count stop, and the routine's `runs` does not move.
+    pub fn routine_skip(
+        &self,
+        p: &RoutineNameParams,
+        who: impl Into<Answerer>,
+    ) -> Result<RoutineEditResult, RpcFailure> {
+        let who = who.into();
+        let spec = self.named(&p.id)?;
+        self.judge_routine(
+            &who,
+            method::ROUTINE_SKIP,
+            &format!("the skip of routine {}", routine::short(&spec.session_id)),
+        )?;
+        self.kernel
+            .skip_wake(&spec.execution_id, &spec.wake_id, &who.label)
             .map_err(RpcFailure::invalid)?
             .ok_or_else(|| {
                 RpcFailure::new(error_code::NOT_FOUND, "the routine has no schedule left")
