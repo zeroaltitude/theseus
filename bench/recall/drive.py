@@ -108,7 +108,14 @@ CC_AUTOCOMPACT_MIN = 100_000
 # bound on what the limit does not count (the memory pass, Jev).
 DAY_CEILING_PER_LIMIT = 2.0
 STOP_WAIT = 20.0
-SERVE_WAIT = 60.0
+# How long a freshly started daemon is given to answer its first health. Alone on an idle host it
+# serves in a second or two; inside the gate, behind a build that has just thrashed the page cache
+# and with writeback still draining, it has been measured well past 60 s, which failed three of the
+# 1.0.4 join's gates with "theseusd did not serve in time" on a daemon that was starting normally.
+# This is a wait, not a budget anything is held to: a daemon that is genuinely stuck still fails,
+# four minutes later. (Raised 60 -> 240 at the 1.0.4 join; owner's standing permission of
+# 2026-10-25 20:22 on dev guardrails, quoted in this commit's Keel trailer.)
+SERVE_WAIT = 240.0
 LEDGER_PAGE = 1000  # `ledger.tail`'s page: the daemon clamps `n` to this (rpc/methods.rs), so a longer read must page
 LEDGER_MAX = 64_000  # the ceiling a run's own ledger cannot reach (a threads arm writes ~1.7k judge.call rows)
 LEDGER_TAIL = "ledger.tail"  # the daemon clamps its `n` to LEDGER_PAGE, so a long read pages on its `before` cursor
