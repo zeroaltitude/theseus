@@ -485,7 +485,9 @@ impl Kernel {
              occurrence to skip. Resume it first"
         );
         let Some(r) = from.repeat.clone() else {
-            anyhow::bail!("a wake that does not repeat has no next occurrence to skip: cancel it instead");
+            anyhow::bail!(
+                "a wake that does not repeat has no next occurrence to skip: cancel it instead"
+            );
         };
         let now = self.now_ms();
         let zone = &self.config().zone;

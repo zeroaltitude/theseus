@@ -416,14 +416,24 @@ fn a_skip_drops_the_next_occurrence_and_the_one_after_it_runs() {
     let w = world_with(cfg());
     let (e, wake) = routine(&w);
     let first = e.wakes[0].due_at_ms;
-    let moved = w.kernel.skip_wake(&e.id, &wake, "the CLI").unwrap().unwrap();
+    let moved = w
+        .kernel
+        .skip_wake(&e.id, &wake, "the CLI")
+        .unwrap()
+        .unwrap();
     assert_eq!(moved.from.due_at_ms, first);
     assert_eq!(moved.wake.due_at_ms, first + MIN, "the next one is dropped");
-    assert_eq!(moved.wake.occurrence, 2, "and the one after it is numbered by its place");
+    assert_eq!(
+        moved.wake.occurrence, 2,
+        "and the one after it is numbered by its place"
+    );
     // The dropped occurrence's minute passes: nothing runs.
     w.clock.advance(MIN);
     assert!(fire(&w, &e.id, |_| run(false)).is_empty());
-    assert!(w.kernel.tasks(Some(&e.id)).unwrap().is_empty(), "it did not run");
+    assert!(
+        w.kernel.tasks(Some(&e.id)).unwrap().is_empty(),
+        "it did not run"
+    );
     // The one after it does.
     w.clock.advance(MIN);
     let out = fire(&w, &e.id, |_| run(false));
@@ -452,7 +462,11 @@ fn a_skip_of_an_overdue_series_drops_the_next_ahead_and_counts_the_passed() {
     let first = e.wakes[0].due_at_ms;
     w.clock.advance(3 * MIN + MIN / 2);
     let before = theseus_store::frames_written_here();
-    let moved = w.kernel.skip_wake(&e.id, &wake, "the CLI").unwrap().unwrap();
+    let moved = w
+        .kernel
+        .skip_wake(&e.id, &wake, "the CLI")
+        .unwrap()
+        .unwrap();
     assert_eq!(theseus_store::frames_written_here() - before, 1);
     assert_eq!(moved.wake.due_at_ms, first + 3 * MIN);
     assert_eq!(moved.wake.occurrence, 4);
@@ -512,10 +526,16 @@ fn a_skip_is_refused_for_a_held_series_a_one_shot_and_the_last_occurrence() {
         (e, set.wake.id)
     };
     // Two occurrences, the second is the last: skipping the first is fine.
-    assert!(w.kernel.skip_wake(&ending.0.id, &ending.1, "the CLI").is_ok());
+    assert!(w
+        .kernel
+        .skip_wake(&ending.0.id, &ending.1, "the CLI")
+        .is_ok());
     let at = w.kernel.store().last_position();
     // Now the last one is next: dropping it would end the series.
-    let err = w.kernel.skip_wake(&ending.0.id, &ending.1, "the CLI").unwrap_err();
+    let err = w
+        .kernel
+        .skip_wake(&ending.0.id, &ending.1, "the CLI")
+        .unwrap_err();
     assert!(format!("{err:#}").contains("last"), "{err:#}");
     assert_eq!(w.kernel.store().last_position(), at);
 }

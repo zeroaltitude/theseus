@@ -746,5 +746,9 @@ async fn a_skip_spends_no_run_and_moves_the_next_time_one_period() {
         .await
         .unwrap_err();
     assert!(held.contains("paused"), "{held}");
-    assert_eq!(rows(&r.core, "wake.skipped").len(), 1, "a refusal writes no row");
+    assert_eq!(
+        rows(&r.core, "wake.skipped").len(),
+        1,
+        "a refusal writes no row"
+    );
 }
