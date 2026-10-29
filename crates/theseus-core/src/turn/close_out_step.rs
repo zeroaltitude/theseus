@@ -279,7 +279,7 @@ mod tests {
             "The reminder could land on Friday; I checked the schedule.",
             "The timer has never run on this host, which is why the log is empty.",
             "There is no torch in this sandbox, so I used numpy, and the check passes.",
-            "The score is on the private test set; I ran the public one and it passes.",
+            "The leaderboard keeps a private score and a public one; the test for both ran clean.",
         ] {
             assert!(!names_a_gap(said), "{said}");
         }
