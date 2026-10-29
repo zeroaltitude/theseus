@@ -450,6 +450,27 @@ impl Kernel {
             list: e.wakes,
         }))
     }
+
+    /// Skip a routine's next occurrence (theseus-0oldh): not yet written.
+    pub fn skip_wake(
+        &self,
+        execution_id: &str,
+        wake_id: &str,
+        _by: &str,
+    ) -> Result<Option<WakeMoved>> {
+        self.require_accepting()?;
+        let e = self
+            .execution(execution_id)?
+            .ok_or_else(|| KernelError::UnknownExecution(execution_id.into()))?;
+        let Some(w) = e.wakes.iter().find(|w| w.id == wake_id).cloned() else {
+            return Ok(None);
+        };
+        Ok(Some(WakeMoved {
+            from: w.clone(),
+            wake: w,
+            list: e.wakes,
+        }))
+    }
 }
 
 fn wake_id_of(correlation_id: &str) -> String {

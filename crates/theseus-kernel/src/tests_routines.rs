@@ -408,3 +408,114 @@ fn a_routine_fired_below_the_limit_opens_and_at_it_refuses() {
     assert!(w.kernel.tasks(Some(&two[0].id)).unwrap().is_empty());
     drop(g);
 }
+
+/// A skip drops exactly the next occurrence (theseus-0oldh): that one does not
+/// run, the one after it does, and the series stays on the list, running.
+#[test]
+fn a_skip_drops_the_next_occurrence_and_the_one_after_it_runs() {
+    let w = world_with(cfg());
+    let (e, wake) = routine(&w);
+    let first = e.wakes[0].due_at_ms;
+    let moved = w.kernel.skip_wake(&e.id, &wake, "the CLI").unwrap().unwrap();
+    assert_eq!(moved.from.due_at_ms, first);
+    assert_eq!(moved.wake.due_at_ms, first + MIN, "the next one is dropped");
+    assert_eq!(moved.wake.occurrence, 2, "and the one after it is numbered by its place");
+    // The dropped occurrence's minute passes: nothing runs.
+    w.clock.advance(MIN);
+    assert!(fire(&w, &e.id, |_| run(false)).is_empty());
+    assert!(w.kernel.tasks(Some(&e.id)).unwrap().is_empty(), "it did not run");
+    // The one after it does.
+    w.clock.advance(MIN);
+    let out = fire(&w, &e.id, |_| run(false));
+    assert_eq!(out.len(), 1, "the one after it runs");
+    assert_eq!(out[0].wake.wake.occurrence, 2);
+    assert_eq!(w.kernel.tasks(Some(&e.id)).unwrap().len(), 1);
+    // The series is still running: pending, not held, with its next time.
+    let now = exec(&w, &e.id);
+    assert_eq!(now.wakes.len(), 1);
+    assert_eq!(now.wakes[0].paused_at_ms, None);
+    assert!(now.wakes[0].repeat.is_some());
+    assert_eq!(now.wakes[0].due_at_ms, first + 2 * MIN);
+    let rows = rows(&w, &e.session_id, "wake.skipped");
+    assert_eq!(rows.len(), 1, "one row says what was dropped");
+    assert_eq!(rows[0]["why"], "owner");
+    assert_eq!(rows[0]["due_at_ms"], first);
+}
+
+/// A skip is one frame, and it drops the occurrence due next, not one that
+/// came due while nothing scanned: a series overdue by two minutes skips the
+/// first still ahead, so the catch-up does not run what was just dropped.
+#[test]
+fn a_skip_of_an_overdue_series_drops_the_next_ahead_and_counts_the_passed() {
+    let w = world_with(cfg());
+    let (e, wake) = routine(&w);
+    let first = e.wakes[0].due_at_ms;
+    w.clock.advance(3 * MIN + MIN / 2);
+    let before = theseus_store::frames_written_here();
+    let moved = w.kernel.skip_wake(&e.id, &wake, "the CLI").unwrap().unwrap();
+    assert_eq!(theseus_store::frames_written_here() - before, 1);
+    assert_eq!(moved.wake.due_at_ms, first + 3 * MIN);
+    assert_eq!(moved.wake.occurrence, 4);
+    assert!(fire(&w, &e.id, |_| run(false)).is_empty());
+}
+
+/// What has no next occurrence to drop is refused in words, and nothing is
+/// written: a held series, a one-shot, and a series whose last one is next.
+#[test]
+fn a_skip_is_refused_for_a_held_series_a_one_shot_and_the_last_occurrence() {
+    let w = world_with(cfg());
+    let (e, wake) = routine(&w);
+    w.kernel.pause_wake(&e.id, &wake, None, "the CLI").unwrap();
+    let at = w.kernel.store().last_position();
+    let err = w.kernel.skip_wake(&e.id, &wake, "the CLI").unwrap_err();
+    assert!(format!("{err:#}").contains("paused"), "{err:#}");
+    assert_eq!(w.kernel.store().last_position(), at);
+
+    let ending = {
+        let e = w
+            .kernel
+            .open_execution(
+                &new_id("ses"),
+                SessionKind::Conversation,
+                auth(),
+                Some(MONTH),
+                None,
+            )
+            .unwrap();
+        let first = w.kernel.now_ms() + MIN;
+        let set = w
+            .kernel
+            .create_wake(
+                &e.id,
+                None,
+                NewWake {
+                    due_at_ms: first,
+                    note: "ends".into(),
+                    repeat: Some(Repeat {
+                        every: Every::parse("1m").unwrap(),
+                        first_ms: first,
+                        days: vec![],
+                        until_ms: Some(first + MIN),
+                        cron: None,
+                    }),
+                    purpose: Purpose::Routine,
+                    run: WakeRun::Task(TaskRun {
+                        brief: "b".into(),
+                        limit_micros: RUN,
+                        tools: vec![],
+                    }),
+                    ..Default::default()
+                },
+                "the CLI",
+            )
+            .unwrap();
+        (e, set.wake.id)
+    };
+    // Two occurrences, the second is the last: skipping the first is fine.
+    assert!(w.kernel.skip_wake(&ending.0.id, &ending.1, "the CLI").is_ok());
+    let at = w.kernel.store().last_position();
+    // Now the last one is next: dropping it would end the series.
+    let err = w.kernel.skip_wake(&ending.0.id, &ending.1, "the CLI").unwrap_err();
+    assert!(format!("{err:#}").contains("last"), "{err:#}");
+    assert_eq!(w.kernel.store().last_position(), at);
+}
