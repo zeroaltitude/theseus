@@ -123,6 +123,43 @@ test('a routine’s occurrences are recurring blocks across the window; its runs
   })
 })
 
+test('an occurrence is drawn as long as its routine’s last run took, held between a quarter hour and six hours', () => {
+  withZone('America/Phoenix', () => {
+    const now = local(2026, 10, 21, 12)
+    const routine = (id: string, took: number) => view(id, {
+      kind: 'routine', state: 'waiting', title: id, session_id: `ses_${id}`,
+      routine: { schedule: 'weekdays 08:00', runs_30d: { ok: 3, failed: 0, skipped: 0 }, month: { spent_usd: 1, limit_usd: 10 }, deliver_to: 'dm', last: { outcome: 'ok', at_ms: local(2026, 10, 21, 8), duration_ms: took, cost_usd: 0.3 } },
+      series: { cron: '0 8 * * 1-5', occurrence: 4, missed_last: 0 },
+    } as Partial<WorkView>)
+    const views = [routine('wak_quick', 2 * MIN), routine('wak_day', 24 * 60 * MIN)]
+    const marks = ['wak_quick', 'wak_day'].map((id) => mark(`run:${id}:a`, 'run', local(2026, 10, 22, 8), { id, title: id }))
+    const a = taskBlocks(views, {}, marks, now)
+    const span = (key: string) => by(a, key)!.to_ms - by(a, key)!.from_ms
+    assert.equal(span('run:wak_quick:a'), 15 * MIN, 'a two-minute run still leaves a block you can see: the smallest is a quarter hour')
+    assert.equal(span('run:wak_day:a'), 6 * 60 * MIN, 'a run that took a day is not a day-long block: the longest is six hours')
+  })
+})
+
+test('a block says how long a finished task took and which run an occurrence is; a held task is waiting, a requeued one is not drawn; the blocks come by start', () => {
+  withZone('America/Phoenix', () => {
+    const now = local(2026, 10, 21, 12)
+    const start = local(2026, 10, 21, 9)
+    const done = view('tsk_done', { state: 'done', started_at_ms: start, ended_at_ms: start + 12 * MIN })
+    const held = view('tsk_held', { started_at_ms: local(2026, 10, 21, 10), paused: true })
+    const requeued = view('tsk_again', { state: 'queued', started_at_ms: local(2026, 10, 21, 8) })
+    const nonroutine = view('wak_other', { state: 'waiting', paused: true })
+    const marks = [mark('run:wak_r:late', 'run', local(2026, 10, 23, 8), { id: 'wak_r', occurrence: 6 }), mark('run:wak_r:soon', 'run', local(2026, 10, 22, 8), { id: 'wak_r', occurrence: 5 }), mark('run:wak_other:a', 'run', local(2026, 10, 22, 9), { id: 'wak_other' })]
+    const a = taskBlocks([held, requeued, nonroutine, done], {}, marks, now)
+    assert.match(taskLine(by(a, 'task:tsk_done')!, now), /took 12m/, 'how long it took, in its line')
+    assert.match(taskLine(by(a, 'run:wak_r:soon')!, now), /run 5/, 'which occurrence it is')
+    assert.equal(by(a, 'task:tsk_held')!.tone, 'wait', 'a held task is waiting, not live')
+    assert.equal(by(a, 'task:tsk_again'), undefined, 'a queued task has not run, whatever its start says')
+    assert.ok(by(a, 'run:wak_other:a'), 'a held task view of a wake does not vanish its occurrence: only a routine does')
+    const starts = a.map((b) => b.from_ms)
+    assert.deepEqual(starts, [...starts].sort((x, y) => x - y), 'the blocks come by start')
+  })
+})
+
 test('a routine run in flight is a live recurring block, a finished one its real span; the task view of the same run is not drawn twice', () => {
   withZone('America/Phoenix', () => {
     const now = local(2026, 10, 21, 12)
