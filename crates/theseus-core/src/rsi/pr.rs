@@ -617,13 +617,19 @@ fn built(tc: &TurnCtx<'_>, a: &Attempt<'_>) {
         cost_usd: cost_usd(tc),
         stopped_at: a.stopped_at,
         why: &a.i.why,
-        numbers: json!({
-            "gate_secs": g.map(|g| g.secs), "exit": g.and_then(|g| g.exit),
-            "unrunnable": g.is_some_and(|g| g.unrunnable),
-            "files": a.diff.0, "added": a.diff.1, "removed": a.diff.2,
-            "pushed": a.pushed.is_some(),
-        }),
+        numbers: built_numbers(g, a.diff, a.pushed.is_some()),
     });
+}
+
+/// A `self.branch.built` row's numbers. `infra::of_row` reads `exit`,
+/// `gate_secs` and `unrunnable` back out of them by these key names.
+pub(super) fn built_numbers(g: Option<&GateRun>, diff: (u64, u64, u64), pushed: bool) -> Value {
+    json!({
+        "gate_secs": g.map(|g| g.secs), "exit": g.and_then(|g| g.exit),
+        "unrunnable": g.is_some_and(|g| g.unrunnable),
+        "files": diff.0, "added": diff.1, "removed": diff.2,
+        "pushed": pushed,
+    })
 }
 
 /// The self session's model spend so far.
