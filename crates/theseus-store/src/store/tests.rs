@@ -1765,3 +1765,16 @@ fn a_batch_whose_sync_fails_is_answered_failed_and_never_comes_back() {
     );
     assert!(s.latest_by_key(kinds::META, "one").unwrap().is_none());
 }
+
+/// The number a build writes has its line in the doc list above it, which is
+/// where the next step to bump it reads which number is free (theseus-97b8c,
+/// review H-3): two layouts must not ship under one number.
+#[test]
+fn the_format_number_has_its_doc_line() {
+    let src = include_str!("../store.rs");
+    let line = format!("/// {MANIFEST_FORMAT} = ");
+    assert!(
+        src.lines().any(|l| l.starts_with(&line)),
+        "no `{line}...` line above MANIFEST_FORMAT: say what format {MANIFEST_FORMAT} added"
+    );
+}
