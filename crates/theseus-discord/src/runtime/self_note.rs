@@ -101,7 +101,8 @@ fn row(components: Vec<Component>) -> Component {
 }
 
 /// The note's buttons: a Drop for each of the newest [`MAX_DROPS`] items, five to a row, then
-/// Halt on a row of its own.
+/// Halt on a row of its own. Halt is grey like the Drops, not red: the note is an FYI, and a
+/// red button on every nightly note read as an alarm (owner, 2026-10-28; theseus-1ss4g).
 pub(crate) fn buttons(items: &[(String, String)]) -> Vec<Component> {
     let from = items.len().saturating_sub(MAX_DROPS);
     let drops: Vec<Component> = items[from..]
@@ -119,7 +120,7 @@ pub(crate) fn buttons(items: &[(String, String)]) -> Vec<Component> {
     rows.push(row(vec![button(
         format!("{PREFIX}:halt"),
         "Halt self-improvement".into(),
-        ButtonStyle::Danger,
+        ButtonStyle::Secondary,
     )]));
     rows
 }
