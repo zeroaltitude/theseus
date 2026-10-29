@@ -47,7 +47,7 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -77,7 +77,7 @@ class Scored:
     carrier: str  # how its fact was said (an abstention's: its distractor's)
     planned: str
     bucket: str
-    status: str  # scored | undelivered | failed
+    status: str  # scored | undelivered | failed | clock_conflict
     correct: bool | None
     confident_wrong: bool | None
     stale: bool | None
@@ -415,6 +415,29 @@ def abstained_as(reply: str, p: pg.Probe, facts: list[pg.Fact]) -> str:
     return "neighbours"
 
 
+def clock_pinned(meta: dict, prog: pg.Progression) -> bool:
+    """Did the run's machine read each session's narrated date? Only a run whose `clock` record says
+    it was pinned, and read every session's date back as the narrated one, was. A run from before the
+    pin (no record) was not: its tools and its system prompt carried the machine's own date, which the
+    narration contradicted (theseus-kyrgn)."""
+    c = (meta or {}).get("clock") or {}
+    seen = c.get("sessions") or []
+    return bool(c.get("pinned")) and len(seen) == len(prog.sessions) \
+        and all(x.get("machine") == x.get("narrated") for x in seen)
+
+
+_BLANK = dict(correct=None, confident_wrong=None, stale=None, hedged=None, cites_where=None, cites_when=None,
+              old_named=None, abstained_as=None)
+
+
+def set_aside_dates(rows: list[Scored]) -> list[Scored]:
+    """A date probe asks for a date the narration gave and the machine's clock may have contradicted,
+    so in a run whose clock was not pinned it measures the conflict, not recall. It is set aside: counted
+    (`clock_conflict`), never scored, as an undelivered probe is. The other probes are untouched."""
+    return [replace(r, status="clock_conflict", **_BLANK) if r.status == "scored" and r.value_kind == "date" else r
+            for r in rows]
+
+
 def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
     prog = run.prog
     facts = prog.facts_by_id()
@@ -431,6 +454,8 @@ def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
         return Scored(status="undelivered", **base, **blank)
     if rec is None or rec.get("exit") not in (0,) or not (rec.get("reply") or "").strip():
         return Scored(status="failed", **base, **blank)
+    if p.value_kind == "date" and not clock_pinned(run.meta, prog):
+        return Scored(status="clock_conflict", **base, **blank)
     reply = rec.get("reply") or ""
     root = run.dir / "workspace"
     correct = checks.passes(check_of(p), reply, root)
@@ -557,6 +582,7 @@ def summarize(rows: list[Scored]) -> dict:
         "scored": len(scored),
         "undelivered": sum(1 for r in rows if r.status == "undelivered"),
         "failed": sum(1 for r in rows if r.status == "failed"),
+        "clock_conflict": sum(1 for r in rows if r.status == "clock_conflict"),
         "recall_accuracy": rate(recall, lambda r: r.correct),
         "abstention_accuracy": rate(abst, lambda r: r.correct),
         "abstention_by_shape": {k: sum(1 for r in abst if r.abstained_as == k) for k in ABSTENTION_SHAPES},
@@ -579,6 +605,19 @@ def summarize(rows: list[Scored]) -> dict:
         "abstention_curves": {s: curve(rows, s, ("abstention",)) for s in pg.SALIENCES},
         "half_life": {s: half_lives(curve(rows, s)) for s in pg.SALIENCES},
     }
+
+
+def rescore_clock(scores: dict) -> dict:
+    """A saved `scores.json` rescored under the date rule: every scored date probe is set aside
+    and every arm's summary is recomputed from its rows. $0: it reads the saved probes, not a model.
+    What the scorer does not derive from rows (`compactions_by_outcome`, `overhead`) is carried over."""
+    rows = [Scored(**p) for p in scores["probes"]]
+    out = {**scores, "clock_rule": "unpinned-date-probes-set-aside", "arms": {}}
+    kept = set_aside_dates(rows)
+    for label, old in scores["arms"].items():
+        out["arms"][label] = {**old, **summarize([r for r in kept if r.arm == label])}
+    out["probes"] = [asdict(r) for r in kept]
+    return out
 
 
 # ---- the report
@@ -705,6 +744,9 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
               "- Days are dated text: each session opens with its date, and neither arm's clock moves. A memory "
               "that weighs real elapsed time (retention) sees minutes, not days.",
               "- Excluded probes (undelivered, failed) are counted above and scored nowhere.",
+              "- Date probes of a run whose clock was not pinned to its narrated dates are set aside as "
+              "`clock_conflict`: the arm's own date contradicted the narration, so they measure that, not recall. "
+              + "; ".join(f"{r.label}: {sums[r.label]['clock_conflict']}" for r in runs) + ".",
               ""]
     return "\n".join(lines)
 
@@ -765,12 +807,26 @@ def _esc(s: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("runs", nargs="+", type=Path)
+    ap.add_argument("runs", nargs="*", type=Path)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--rescore-clock", type=Path, default=None, metavar="SCORES_JSON",
+                    help="instead of scoring runs: rescore a saved scores.json with every date probe set aside, "
+                         "and write it to --out/scores.json ($0; the saved probes, no model)")
     ap.add_argument("--stale", choices=STALE_RULES, default="strict",
                     help="strict: a superseded value named anywhere is stale (the default); retracted: not where "
                          "the reply retracts it")
     a = ap.parse_args(argv)
+    if a.rescore_clock is not None:
+        out = rescore_clock(json.loads(a.rescore_clock.read_text()))
+        a.out.mkdir(parents=True, exist_ok=True)
+        (a.out / "scores.json").write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
+        for label, s in out["arms"].items():
+            print(f"{label}: recall {_pct(s['recall_accuracy'])}, abstention {_pct(s['abstention_accuracy'])}, "
+                  f"{s['scored']} scored, {s['clock_conflict']} clock-conflict, "
+                  f"{s['confident_wrong']} confident-wrong")
+        return 0
+    if not a.runs:
+        ap.error("name the runs to score, or --rescore-clock <scores.json>")
     runs = [load_run(d) for d in a.runs]
     digests = {r.prog.digest() for r in runs}
     if len(digests) != 1:

@@ -40,6 +40,7 @@ Standard library only.
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import os
@@ -340,11 +341,46 @@ class Invalid(ValueError):
     pass
 
 
+# The time of day the runner pins each session's clock to (theseus-kyrgn). The date is the
+# session's narrated one; the morning leaves the day's whole afternoon before the clock,
+# which ticks from the pin, would roll past midnight.
+CLOCK_TIME = "08:00:00"
+_OPENER = re.compile(r"^It's (\w+), (\d{4}-\d{2}-\d{2})\.")
+
+
+def clock_plan(prog: Progression) -> list[str]:
+    """Each session's clock, `YYYY-MM-DD HH:MM:SS`: the date its first turn narrates.
+    The plan reads the progression's own dates, so it adds nothing to the format and
+    no digest moves: the 10-18 and 10-26 progressions carry what it needs."""
+    return [f"{s.date} {CLOCK_TIME}" for s in prog.sessions]
+
+
+def _check_calendar(prog: Progression) -> None:
+    """A session's opener narrates the session's own date, and its weekday is that date's:
+    the narration the model reads and the date the runner pins are one fact."""
+    openers = {t.session: t for t in prog.turns if t.role == "opener"}
+    for i, s in enumerate(prog.sessions):
+        try:
+            day = dt.date.fromisoformat(s.date)
+        except ValueError:
+            raise Invalid(f"session {i}: date {s.date!r} is not YYYY-MM-DD") from None
+        if day.strftime("%A") != s.weekday:
+            raise Invalid(f"session {i}: {s.date} is a {day.strftime('%A')}, not a {s.weekday}")
+        t = openers.get(i)
+        if t is None:
+            raise Invalid(f"session {i} has no opener turn to narrate {s.date}")
+        m = _OPENER.match(t.text)
+        if m is None or (m.group(1), m.group(2)) != (s.weekday, s.date):
+            raise Invalid(f"session {i}: its opener narrates {m.groups() if m else t.text[:40]!r}, "
+                          f"not {s.weekday} {s.date}")
+
+
 def validate(prog: Progression) -> None:
     """The format's rules: each fact before its probe and probed once, every
     check parses, a value appears in no turn but its own (and no probe), an
     abstention's subject is never stated, and each probe's planned bucket is
     what the marks say."""
+    _check_calendar(prog)
     facts = prog.facts_by_id()
     if len(facts) != len(prog.facts):
         raise Invalid("two facts share an id")
