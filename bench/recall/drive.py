@@ -602,9 +602,16 @@ class Theseus:
         while True:
             if self.proc.poll() is not None:
                 raise RuntimeError(f"theseusd exited ({self.proc.returncode}) before serving: see raw/theseusd.log")
-            r = self.cli("health", timeout=10)
-            if r.returncode == 0:
-                return
+            try:
+                r = self.cli("health", timeout=10)
+                if r.returncode == 0:
+                    return
+            except subprocess.TimeoutExpired:
+                # One slow answer is not a verdict. A debug daemon on a loaded host - a gate runs ten
+                # jobs beside this one - can take longer than the per-call bound to answer its first
+                # health. `SERVE_WAIT` is the budget meant to decide, so a timed-out call counts as
+                # "not serving yet" and the loop asks again, as `stop()` already does for shutdown.
+                pass
             if time.monotonic() - t0 > SERVE_WAIT:
                 raise RuntimeError("theseusd did not serve in time: see raw/theseusd.log")
             time.sleep(0.05)
@@ -686,8 +693,13 @@ class Theseus:
                 ms = int((time.monotonic() - t0) * 1000)
                 if code is None:
                     # The turn goes on in the daemon without its client: stop
-                    # it, as /stop does, so the next turn starts clean.
-                    self.cli("stop", sid, timeout=60)
+                    # it, as /stop does, so the next turn starts clean. Best
+                    # effort: a stop that outlasts its bound under load must
+                    # not end the run, and the daemon is torn down regardless.
+                    try:
+                        self.cli("stop", sid, timeout=60)
+                    except subprocess.TimeoutExpired:
+                        pass
                 (run.raw / f"t{t.index:04d}.json").write_text(out)
                 try:
                     v = json.loads(out) if out.strip() else {}
