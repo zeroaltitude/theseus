@@ -110,7 +110,9 @@ pub struct CodingFloor {
     pub profile: Option<String>,
     /// The lowest confidence that still holds it. Under it the verdict says
     /// too little about the turn to move a session at all. Above zero and
-    /// under `[routing] switch_confidence`, or the floor never fires.
+    /// under a coding class's own bar (`[routing] switch_confidence` unless
+    /// the class sets one), or the floor never fires; checked only with
+    /// `profile` named.
     #[serde(default = "floor_confidence")]
     pub min_confidence: f64,
 }
@@ -527,11 +529,24 @@ impl RoutingConfig {
         if f.profile.as_deref().is_some_and(|p| p.trim().is_empty()) {
             anyhow::bail!("routing.coding_floor.profile has an empty name");
         }
-        if !(f.min_confidence > 0.0 && f.min_confidence < self.switch_confidence) {
-            anyhow::bail!(
-                "routing.coding_floor.min_confidence must be above 0 and under \
-                 routing.switch_confidence: at or over it the floor never fires"
-            );
+        if !f.is_off() {
+            // The floor fires in [min_confidence, a coding class's own bar), the
+            // bar `decide` reads (`confidence_for`). It never fires only when no
+            // coding class has room, so the top of the two is the window's top.
+            // An off floor is not checked: its default must not refuse a legal
+            // `switch_confidence`.
+            let bar = crate::routing::CODING
+                .iter()
+                .map(|m| self.confidence_for(m))
+                .fold(f64::NEG_INFINITY, f64::max);
+            if !(f.min_confidence > 0.0 && f.min_confidence < bar) {
+                anyhow::bail!(
+                    "routing.coding_floor.min_confidence must be above 0 and under the \
+                     bar of a coding class (routing.switch_confidence, or its \
+                     routing.classes.<class>.switch_confidence): at or over every one \
+                     the floor never fires"
+                );
+            }
         }
         let c = &self.corrections;
         if !(c.similarity > 0.0 && c.similarity <= 1.0) {

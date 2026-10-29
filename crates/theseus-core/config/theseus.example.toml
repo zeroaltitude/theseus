@@ -1762,7 +1762,7 @@ max_switches = 2                        # moves per task, up or down
 # one and a half times the cost per trial.
 # [routing.coding_floor]
 # profile = "sonnethi"                  # unset: off
-# min_confidence = 0.30                 # the lowest verdict that holds it; above 0 and under switch_confidence
+# min_confidence = 0.30                 # the lowest verdict that holds it; the floor holds a coding verdict in [min_confidence, its class's bar), so with the default bars a 30% sure verdict lifts the session; above 0 and under a coding class's bar
 # No China-origin model is named for chat, quick, sophisticated or review: Haiku 5.5 is two to
 # three times cheaper per short turn and has no forced thinking, and review and judgment stay on
 # Claude. A first-pass bug review by DeepSeek Flash is a later key (theseus-a1wvq.17), not yet here.
