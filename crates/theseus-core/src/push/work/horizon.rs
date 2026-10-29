@@ -121,7 +121,14 @@ impl WorkBoard {
                 self.routines.entry(wake.clone()).or_default().missed_last = missed;
                 d.wakes.insert(wake);
             }
-            "wake.skipped" if r.data["purpose"].as_str() == Some("routine") => {
+            // An owner's own `routine.skip` opens the ledger row on the same kind a skip for
+            // cause does (overlap, a spent month, catching up), but it is not one: it does not
+            // belong in the 30-day tally that reads as the routine's reliability (theseus-0oldh,
+            // review L-1).
+            "wake.skipped"
+                if r.data["purpose"].as_str() == Some("routine")
+                    && r.data["why"].as_str() != Some("owner") =>
+            {
                 let ri = self.routines.entry(wake.clone()).or_default();
                 if ri.skipped.len() == SKIPS_KEPT {
                     ri.skipped.pop_front();
