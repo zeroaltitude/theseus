@@ -419,6 +419,19 @@ pub(crate) async fn wait_on_tasks(
     let t0 = Instant::now();
     let until = t0 + ask.timeout;
     let steer = rt.job_waits.steers.watch(&session_id);
+    // Ops says "waiting on n tasks" from this row until the matching `ended` (theseus-z9mze.6).
+    fact::Rec {
+        narrator: &core.narrator,
+        session: Some(&session_id),
+        turn: Some(&ask.turn.turn_id),
+        to: To::Session(&core.bus, &session_id),
+        store: &ask.turn.store,
+    }
+    .record(&fact::fan_out::TaskWaitStarted {
+        tasks: ask.tasks.len() as u32,
+        fan_out: ask.fan_out.as_deref(),
+        timeout_s: ask.timeout.as_secs(),
+    });
     let warmth = core.runner.keep_warm.warmth(&session_id);
     let mut reading: Option<
         Pin<Box<dyn std::future::Future<Output = crate::keep_warm::Outcome> + Send + '_>>,
@@ -765,6 +778,7 @@ fn deliver(
             });
         }
     }
+    record_ended(&rec, ask, &rows, (wrote.delivered.len(), waited));
     let figures = (total, bound, room);
     Ok(index(
         ask,
@@ -773,6 +787,27 @@ fn deliver(
         (warm_reads, interrupted),
         figures,
     ))
+}
+
+/// The wait's `task.wait.ended` row (theseus-z9mze.6): how its tasks stood when it ended.
+fn record_ended(
+    rec: &fact::Rec<'_>,
+    ask: &WaitAsk,
+    rows: &[Row],
+    (delivered, waited): (usize, Duration),
+) {
+    let count = |s: &str| rows.iter().filter(|r| r.state == s).count() as u32;
+    rec.record(&fact::fan_out::TaskWaitEnded {
+        tasks: rows.len() as u32,
+        delivered: delivered as u32,
+        running: count(RUNNING),
+        failed: count("failed"),
+        cancelled: count("cancelled"),
+        budget: count("budget"),
+        waited_ms: waited.as_millis() as u64,
+        cut: rows.iter().any(|r| r.cut),
+        fan_out: ask.fan_out.as_deref(),
+    });
 }
 
 impl Row {

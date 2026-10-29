@@ -1658,6 +1658,12 @@ pub struct TaskInfo {
     /// (theseus-tecj5). Absent (0) from a daemon before it.
     #[serde(default, skip_serializing_if = "is_zero_depth")]
     pub depth: u32,
+    /// The fan-out call that opened this task as one of its helpers
+    /// (theseus-z9mze.6): the call's correlation id, which groups a call's
+    /// helpers. Absent for any other task, and from a daemon before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub fan_out: Option<String>,
 }
 
 fn is_zero_depth(d: &u32) -> bool {
