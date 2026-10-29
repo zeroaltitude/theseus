@@ -30,6 +30,20 @@ catch_up?: string,
  */
 speak?: string, 
 /**
+ * The first occurrence is the first at or after this time (`mon 9:00`,
+ * `in 2h`); without one it is the first after now.
+ */
+start?: string, 
+/**
+ * Where the series ends: `after N runs`, or a time (`fri 17:00`).
+ * Without one it runs until it is paused.
+ */
+stop?: string, 
+/**
+ * `last_report` (default) or `none`.
+ */
+carry?: string, 
+/**
  * The tools its runs use without asking, even after reading outside
  * text: `gog.gmail.search`, or a posting tool with its place,
  * `channel.post #digest`. Everything else still waits.

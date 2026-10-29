@@ -742,6 +742,22 @@ impl Store {
         Ok(())
     }
 
+    /// End META key `key` (theseus-1kw2v): it reads as never written, and a
+    /// write of it later starts it afresh.
+    pub fn delete_meta(&self, key: &str) -> Result<()> {
+        self.delete_meta_keys(&[key.to_string()])
+    }
+
+    /// End each of `keys`, in one frame.
+    pub fn delete_meta_keys(&self, keys: &[String]) -> Result<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let records: Vec<NewRecord> = keys.iter().map(|k| NewRecord::delete_meta(k)).collect();
+        self.commit(&records)?;
+        Ok(())
+    }
+
     pub fn get_meta<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         match self.inner.latest_by_key(kinds::META, key)? {
             Some(r) => Ok(Some(r.decode()?)),
@@ -1466,7 +1482,7 @@ pub(crate) mod tests {
         let m: serde_json::Value =
             serde_json::from_slice(&std::fs::read(d.path().join("MANIFEST.json")).unwrap())
                 .unwrap();
-        assert_eq!(m["format"], 54, "the write moved it: {m}");
+        assert_eq!(m["format"], 55, "the write moved it: {m}");
         let store = Store::open(d.path()).unwrap();
         let into = store.scope_after("in:msg_first", 0).unwrap();
         assert_eq!(into.len(), 1);

@@ -1638,6 +1638,8 @@ mod admission;
 mod modes;
 /// What is left once earned autonomy and scoped grants are gone.
 mod no_grants;
+/// A question's notice count ends with the question (theseus-1kw2v).
+mod question_ends;
 /// A question that waits past its life is noticed, not declined (theseus-v2dnc).
 mod question_waits;
 /// A `/stop` before a turn's admission, and a question's expiry (theseus-hmwv,

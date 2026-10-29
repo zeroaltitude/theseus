@@ -46,6 +46,12 @@ struct Input {
     #[serde(default)]
     speak: Option<String>,
     #[serde(default)]
+    start: Option<String>,
+    #[serde(default)]
+    stop: Option<String>,
+    #[serde(default)]
+    carry: Option<String>,
+    #[serde(default)]
     grant: Vec<String>,
 }
 
@@ -60,6 +66,9 @@ impl Input {
             deliver_to: self.deliver_to,
             catch_up: None,
             speak: self.speak,
+            start: self.start,
+            stop: self.stop,
+            carry: self.carry,
             grant: self.grant,
         }
     }
@@ -70,6 +79,8 @@ pub struct RoutineCreate {
     pub zone: TimeZone,
     pub cfg: RoutinesConfig,
     pub floor_ms: u64,
+    /// How far ahead a start or a stop may be, as a wake's bound.
+    pub max_ahead_ms: u64,
 }
 
 impl Tool for RoutineCreate {
@@ -78,11 +89,16 @@ impl Tool for RoutineCreate {
     }
 
     fn description(&self) -> &'static str {
-        "Set up recurring work: a routine runs `brief` on `schedule` (`weekdays 08:00`, `every \
-         30m`, `monthly 09:00`, or cron), each run a fresh task that does not see this \
-         conversation, reporting to the owner's DM. It waits for the owner's yes on one card. A \
-         run may spend `budget_usd` (default $0.50), the routine `month_usd` a month (default \
-         $10); a spent month skips runs."
+        "Recurring or deferred work, reached for on the shape of the asking, not a keyword: \
+         watch this, keep an eye on it, remind me, check hourly, every morning tell me, at 3 \
+         today, until Friday, keep me posted. A routine runs `brief` on `schedule` (`weekdays \
+         08:00`, `every 30m`, `monthly 09:00`, or cron), each run a fresh task that does not see \
+         this conversation, reporting to the owner's DM. `start` moves the first run; `stop` \
+         (`after 3 runs`, or a time) ends the series, and with none it runs until paused. Each \
+         run is given the whole of the last run's report, so it reports the change. It waits for \
+         the owner's yes on one card. A run may spend `budget_usd` (default $0.50), the routine \
+         `month_usd` a month (default $10); a spent month skips runs. For a condition a command \
+         can check, with no model, use `watch`."
     }
 
     fn input_schema(&self) -> Value {
@@ -96,6 +112,9 @@ impl Tool for RoutineCreate {
                 "month_usd": {"type": "number", "exclusiveMinimum": 0},
                 "deliver_to": {"type": "string", "description": "`dm` (default), `none`, or a place."},
                 "speak": {"type": "string", "enum": ["always", "when_notable"], "description": "`when_notable`: a report ending NOTHING NEW is not posted."},
+                "start": {"type": "string", "description": "The first run is at or after this (`mon 9:00`, `in 2h`)."},
+                "stop": {"type": "string", "description": "Where it ends: `after 3 runs`, or a time (`fri 17:00`)."},
+                "carry": {"type": "string", "enum": ["last_report", "none"], "description": "`none`: a run is not given the last run's report."},
                 "grant": {"type": "array", "items": {"type": "string"}}
             },
             "required": ["title", "schedule", "brief"],
@@ -123,20 +142,27 @@ impl Tool for RoutineCreate {
         // here, before a card is raised; the tools it names exist is checked
         // when the owner's yes lets the call run.
         new.grant = crate::routine::grant::check(&new.grant, &|_| true)?;
-        // A schedule that does not read fails here, before a card is raised.
+        // A schedule, a start or a stop that does not read fails here, before a
+        // card is raised; the card then says where the series ends, which is
+        // what the owner's yes is really about (theseus-97b8c).
         let now = theseus_protocol::now_unix_ms();
-        let parsed =
-            theseus_kernel::cron::parse_schedule(&new.schedule, &self.zone, now, self.floor_ms)?;
-        let mut next = vec![parsed.first_ms];
-        while next.len() < 3 {
-            match parsed
-                .repeat
-                .next_after(&self.zone, *next.last().unwrap_or(&now))
-            {
-                Some(t) => next.push(t),
-                None => break,
-            }
+        let ahead = self.max_ahead_ms;
+        let start_ms = crate::routine::start_of(&new, &self.zone, now, ahead)?;
+        let mut parsed = theseus_kernel::cron::parse_schedule(
+            &new.schedule,
+            &self.zone,
+            start_ms.unwrap_or(now),
+            self.floor_ms,
+        )?;
+        let bounds = crate::routine::Bounds {
+            start_ms,
+            stop: crate::routine::stop_of(&new, &self.zone, now, ahead, parsed.first_ms)?,
+        };
+        parsed.repeat.until_ms = bounds.stop.as_ref().and_then(|s| s.at_ms);
+        if let Some(c) = &new.carry {
+            theseus_protocol::routines::Carry::parse(c).ok_or("carry is last_report or none")?;
         }
+        let next = crate::routine::occurrences(&parsed, &self.zone, 3);
         let run = new.budget_usd.unwrap_or(self.cfg.default_run_usd);
         let month = new.month_usd.unwrap_or(self.cfg.default_month_usd);
         if !(usd_ok(run) && usd_ok(month)) || run > month {
@@ -144,8 +170,15 @@ impl Tool for RoutineCreate {
                 "a run's budget (${run}) must be above 0 and no more than the month's (${month})"
             ));
         }
-        let card =
-            crate::routine::Prepared::words(&new, &parsed.repeat, &next, run, month, &self.zone);
+        let card = crate::routine::Prepared::words(
+            &new,
+            &parsed.repeat,
+            &next,
+            run,
+            month,
+            &self.zone,
+            &bounds,
+        );
         Ok(Plan {
             summary: card,
             authority: Some(ASKS.into()),

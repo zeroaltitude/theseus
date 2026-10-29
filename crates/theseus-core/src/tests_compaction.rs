@@ -49,7 +49,12 @@ use crate::{Config, Core};
 /// And 48,000 until `task_fan_out` joined the catalog (theseus-z9mze.3): its definition grows the tools
 /// block by about 500 tokens. 48,250 and up hold (to 52,000, the sweep's end) for this suite, and 48,500 and up for the
 /// others in this family of tests; 49,000 is the middle of the near end of that band.
-const WINDOW: u64 = 49_000;
+/// And 49,000 until `routine.create` took a start, a stop and a carry
+/// (theseus-97b8c), which grows the tools block again: a sweep at its join over
+/// the family (compaction, commitments, tiering, standing_ring, private_view,
+/// situation, home_size, route_keep, projects) rang one more test at 49,000 and
+/// none from 49,500 to 52,000, the sweep's end. 50,000 is inside that band.
+const WINDOW: u64 = 50_000;
 /// The window of the session-summary rig (`session_rig`): its override test's
 /// probe and its glm turn must ring at the same turn, which holds in a band
 /// that moves with the tools block. 48,000 was in it until `routine.create`

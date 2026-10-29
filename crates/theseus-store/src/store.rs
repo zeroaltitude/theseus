@@ -696,7 +696,17 @@ const BULK: usize = 4096;
 /// the mark or its worklist, the two fields a session's content labels carried beside `labels` and
 /// `removed`. A record from before reads both ignored, which is no change to what it says (a
 /// session is not treated as partly judged: nothing asks), and the next write leaves them out.
-const MANIFEST_FORMAT: u32 = 54;
+/// 55 = a routine's start, its optional stop and what a run carries (theseus-97b8c): a
+/// `routine:<session>` META record's `start_ms`, `stop` (`RoutineStop`: `after_runs` or `at_ms`),
+/// `stopped_ms` and `carry`. A record from before reads with every one of them at its default,
+/// `carry` as `last_report`, and writes back byte for byte; the sample is
+/// `tests_layouts::ROUTINE_AT_54`.
+/// 56 = a META key ends with a tombstone (theseus-1kw2v): `kinds::TOMBSTONE`, a record kind whose
+/// key is the META key it removes and whose payload is empty, so the index drops that key from
+/// `bykey`, `born`, `bybirth` and `keycounts` as the record is applied. A new record kind needs no
+/// layout table (`tests_layouts`): a build older than this one reads a store with tombstones as a
+/// store with one more kind of record it does not index, and the keys they ended come back.
+const MANIFEST_FORMAT: u32 = 56;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
@@ -2038,3 +2048,5 @@ mod tests_frame_times;
 mod tests_keyed;
 #[cfg(test)]
 mod tests_pages;
+#[cfg(test)]
+mod tests_tombstone;
