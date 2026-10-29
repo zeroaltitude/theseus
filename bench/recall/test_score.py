@@ -523,6 +523,10 @@ class Scoring(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertIn("theseus: recall 60%", out.getvalue())
             md = (d / "rep" / "report.md").read_text()
+            # The headline quotes both abstention figures and says which is which (review J-6).
+            head = next(ln for ln in md.splitlines() if ln.startswith("| Arm | Model |"))
+            self.assertIn("| Abstention (whole reply) | Abstention (in answer) |", head)
+            self.assertNotIn("| Abstention |", head)
             self.assertIn("| theseus | m | 12 |", md)
             self.assertIn("| claude-code | m | never |", md)
             # The overhead the arm was measured at is in every report (theseus-cs8k).

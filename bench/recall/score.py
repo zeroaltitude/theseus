@@ -653,16 +653,17 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
         f"Progression `{prog.size}`, seed {prog.seed}, digest `{prog.digest()[:16]}`: {len(prog.turns)} turns, "
         f"{len(prog.facts)} facts, {len(prog.probes)} probes. {stale_words}",
         "",
-        "| Arm | Model | Compacted at | Delivered | Scored | Undelivered | Failed | Recall | Abstention | "
-        "Confident-wrong | Stale | Cites where | Cites when | $/probe | ms/probe |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Arm | Model | Compacted at | Delivered | Scored | Undelivered | Failed | Recall | Abstention (whole reply) | "
+        "Abstention (in answer) | Confident-wrong | Stale | Cites where | Cites when | $/probe | ms/probe |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in runs:
         s = sums[r.label]
         lines.append(
             f"| {r.label} | {r.meta.get('model')} | {_compacted_at(r.meta)} | "
             f"{r.meta.get('delivered')}/{r.meta.get('facts')} | {s['scored']} | {s['undelivered']} | {s['failed']} | "
-            f"{_pct(s['recall_accuracy'])} | {_pct(s['abstention_accuracy'])} | {s['confident_wrong']} | "
+            f"{_pct(s['recall_accuracy'])} | {_pct(s['abstention_accuracy'])} | {_pct(s['abstention_in_answer'])} | "
+            f"{s['confident_wrong']} | "
             f"{s['stale']}/{s['stale_of']} | {_pct(s['cites_where'])} | {_pct(s['cites_when'])} | "
             f"{_num(s['cost_usd_per_probe'], '{:.4f}')} | {_num(s['latency_ms_per_probe'])} |"
         )
