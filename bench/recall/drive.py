@@ -468,8 +468,13 @@ def measure_theseus(a) -> dict:
         root = Path(tmp)
         (root / "workspace").mkdir()
         (root / "raw").mkdir()
+        # The probe measures cost, not dated recall, and its stand-in progression narrates no sessions,
+        # so its clock is an unpinned one: `env` hands back the environment it was given, as `Clock.env`
+        # does with `pinned` false. A real `ck.Clock` cannot be built here (`pg.clock_plan` wants a
+        # progression, not this stand-in), and a pinned date would mean nothing to an overhead probe.
         scratch = types.SimpleNamespace(out=root, workspace=root / "workspace", raw=root / "raw",
-                                        prog=types.SimpleNamespace(context_window=a.context_window or PROBE_WINDOW))
+                                        prog=types.SimpleNamespace(context_window=a.context_window or PROBE_WINDOW),
+                                        clock=types.SimpleNamespace(env=dict))
         d = Theseus(a, scratch)
         log = ""
         try:
