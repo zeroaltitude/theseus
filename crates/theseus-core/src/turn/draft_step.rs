@@ -15,6 +15,11 @@
 //!   labels allow it;
 //! - `no_reviewer`: a `final` profile is usable.
 //!
+//! With `[routing] draft_by_jev` on, Jev's `draft` answer comes before all of
+//! these (theseus-kqeih): `jev_unasked`, `jev_declined` or `jev_unsure` keep the
+//! turn off a draft before a tree is opened, a sure `cheap` waives none of them,
+//! and `draft_choice` on the route row says what Jev answered.
+//!
 //! A drafting turn makes no model call: its first compile is dropped, the
 //! draft opens in the turn's own frame (`Kernel::open_task_at`, the carve,
 //! the depth rule and the rows), and the turn ends with one line, posted as a
@@ -55,6 +60,17 @@ impl TurnRunner {
     ) -> Option<Drafting> {
         let table = self.cfg.routing.classes.table(&verdict?.mode);
         let name = table.cn_draft.clone()?;
+        if self.cfg.routing.draft_by_jev {
+            // Jev's say comes before a tree is opened: declining costs nothing,
+            // opening one does (theseus-kqeih). The labels and the rest of the
+            // rule still come after it, so a `cheap` answer waives none of them.
+            let answer = verdict?.draft.as_deref();
+            t.route.draft_choice = answer.map(crate::routing::draft_choice::DraftAnswer::word);
+            if let Err(word) = crate::routing::draft_choice::allows(answer) {
+                t.route.draft_skip = Some(word);
+                return None;
+            }
+        }
         match self.draft_ready(t, session, &name, table).await {
             Ok(d) => Some(d),
             Err(word) => {

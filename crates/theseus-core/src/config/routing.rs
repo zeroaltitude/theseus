@@ -85,6 +85,63 @@ pub struct RoutingConfig {
     /// A running task's model ranges (theseus-ypnxt.9).
     #[serde(default)]
     pub task_checkpoints: TaskCheckpoints,
+    /// The coding floor (theseus-mn5dr): off unless it names a profile.
+    #[serde(default, skip_serializing_if = "CodingFloor::is_off")]
+    pub coding_floor: CodingFloor,
+    /// Jev chooses which coding turns a China-origin draft is made for
+    /// (theseus-kqeih): route.v9 asks its `draft` question, the owner's
+    /// standing orders in its words, and a class with a `cn_draft` drafts only
+    /// on a sure `cheap`. Off: a class with a `cn_draft` drafts whenever it is
+    /// eligible, as before, and Jev is not asked. Needs a class that drafts.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub draft_by_jev: bool,
+}
+
+/// `[routing.coding_floor]` (theseus-mn5dr, the TB-hard report's fix 5): a
+/// coding verdict (`routine_coding`, `deep_coding`) under its bar routes
+/// nothing, so the turn runs on the session's base profile at the base's
+/// effort. On the owner's benchmark trials the failing ones sat on the base
+/// profile 48% of the time against 9% of the solving ones, and ran at medium
+/// 33% against 9% (69 decisions against 162). That is an association and a
+/// confounded one: the hard tasks are both harder and more often unsure. With
+/// `profile` named, such a verdict holds that profile instead, at its own
+/// effort (a routed profile's effort is its floor, theseus-53ujg.3), and the
+/// route row says `floor`. **It ships off**: the A/B that would justify
+/// defaulting it on is owed to the benchmarks after 1.0.4, and the row's own
+/// text says "A/B first".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodingFloor {
+    /// The profile a coding verdict under its bar holds, `sonnethi` as the
+    /// report names it. Unset: nothing is held, which is today's rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// The lowest confidence that still holds it. Under it the verdict says
+    /// too little about the turn to move a session at all. Above zero and
+    /// under a coding class's own bar (`[routing] switch_confidence` unless
+    /// the class sets one), or the floor never fires; checked only with
+    /// `profile` named.
+    #[serde(default = "floor_confidence")]
+    pub min_confidence: f64,
+}
+
+impl Default for CodingFloor {
+    fn default() -> Self {
+        Self {
+            profile: None,
+            min_confidence: floor_confidence(),
+        }
+    }
+}
+
+impl CodingFloor {
+    pub fn is_off(&self) -> bool {
+        self.profile.is_none()
+    }
+}
+
+fn floor_confidence() -> f64 {
+    0.30
 }
 
 /// `[routing.corrections]` (theseus-q31l): the owner's corrections in a
@@ -415,6 +472,8 @@ impl Default for RoutingConfig {
             classes: RoutingClasses::default(),
             corrections: CorrectionsConfig::default(),
             task_checkpoints: TaskCheckpoints::default(),
+            coding_floor: CodingFloor::default(),
+            draft_by_jev: false,
         }
     }
 }
@@ -482,6 +541,29 @@ impl RoutingConfig {
             }
         }
         self.task_checkpoints.validate()?;
+        let f = &self.coding_floor;
+        if f.profile.as_deref().is_some_and(|p| p.trim().is_empty()) {
+            anyhow::bail!("routing.coding_floor.profile has an empty name");
+        }
+        if !f.is_off() {
+            // The floor fires in [min_confidence, a coding class's own bar), the
+            // bar `decide` reads (`confidence_for`). It never fires only when no
+            // coding class has room, so the top of the two is the window's top.
+            // An off floor is not checked: its default must not refuse a legal
+            // `switch_confidence`.
+            let bar = crate::routing::CODING
+                .iter()
+                .map(|m| self.confidence_for(m))
+                .fold(f64::NEG_INFINITY, f64::max);
+            if !(f.min_confidence > 0.0 && f.min_confidence < bar) {
+                anyhow::bail!(
+                    "routing.coding_floor.min_confidence must be above 0 and under the \
+                     bar of a coding class (routing.switch_confidence, or its \
+                     routing.classes.<class>.switch_confidence): at or over every one \
+                     the floor never fires"
+                );
+            }
+        }
         let c = &self.corrections;
         if !(c.similarity > 0.0 && c.similarity <= 1.0) {
             anyhow::bail!("routing.corrections.similarity must be above 0 and at most 1");

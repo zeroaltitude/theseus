@@ -68,6 +68,8 @@ mod tests_public_names;
 #[cfg(test)]
 mod tests_replay_onto;
 #[cfg(test)]
+mod tests_route_draft;
+#[cfg(test)]
 mod tests_route_v5;
 #[cfg(test)]
 mod tests_threads;
