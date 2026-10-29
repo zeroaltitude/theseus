@@ -550,10 +550,15 @@ keel_tests() {
 }
 
 # One npm script of the cockpit, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
-# the log's last 40 lines, where the phase table alone said only "cockpit <- failed here".
+# the log's last 40 lines, where the phase table alone said only "cockpit <- failed here". A passing `test` tees
+# node's own summary (`ℹ tests N`, `ℹ pass N`, ...) into the gate's own output, which `arm.sh tail` keeps even
+# after the lane that ran it is gone (review L, L-3: a bare rc cannot tell 918 from any other silent shortening).
 npm_step() {
   local app=$1 script=$2 log="$gate_tmp/$1-$2.log"
-  if (cd "$app" && npm run -s "$script") >"$log" 2>&1; then return 0; fi
+  if (cd "$app" && npm run -s "$script") >"$log" 2>&1; then
+    [ "$script" = test ] && grep '^ℹ ' "$log" | sed "s/^/gate: $app $script: /"
+    return 0
+  fi
   echo "gate: \`npm run $script\` failed in $app/; the last 40 lines of its output:"
   tail -n 40 "$log" | sed 's/^/  /'
   return 1
