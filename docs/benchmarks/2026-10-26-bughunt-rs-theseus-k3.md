@@ -34,11 +34,13 @@
 > `bench/report/test_manifest.py` now holds every published dataset to the agreement (theseus-sjf5q).
 
 **The answer first.** The 1.0.3 behaviour build does **less work for less money and fixes no more bugs**. Over three
-trials it fixed **3.33 of 13** a trial at **$7.59** a trial, against round 1's 1.0.1 build at **4.33 of 13** and
-**$15.72**. Cost fell **52% as billed and 65% like for like** (the price-basis note above), model calls
+trials it fixed **3.33 of 13** a trial at **$7.59** a trial on today's price table, against round 1's 1.0.1 build at
+**4.33 of 13** and **$21.66** on the same table (**$15.72** as billed, on the older one). Cost fell **65% like for
+like** (the price-basis note above; the 52% first published crossed two price tables), model calls
 **22%**, tool calls **29%** and wall time **24%**; the bug count fell by
 one, which three trials a side cannot separate from noise (4, 4, 5 against 4, 2, 4; Wilson over the 39 bug-trials
-25.6% [14.6, 41.1] against 33.3% [20.6, 49.0]). **Cost per bug improved, from $3.63 to $2.28.**
+25.6% [14.6, 41.1] against 33.3% [20.6, 49.0]). **Cost per bug improved, from $5.00 to $2.28** on today's table
+(55%; the $3.63 first published was round 1 on its older table).
 
 That was the hypothesis this cell was built to test, and it comes back negative in a useful way. Round 1's
 post-mortem found that at half its spend limit the progress check told Theseus to *"take the smallest step that can
@@ -152,7 +154,7 @@ Claude-model arm in both runs — only Codex ever fixes `r9` — which is worth 
 
 ## Analysis
 
-**Where the money went, and why less of it is not obviously good.** Cost fell 65% like for like (52% as billed)
+**Where the money went, and why less of it is not obviously good.** Cost fell 65% like for like
 while model calls fell only 22%, so the cost *per call* fell from **$0.110 to $0.050** on one basis — a **55%**
 drop. The earlier reading of this line, "$0.080 to $0.050, a 38% drop with the same price table", was wrong in
 its premise: **the price table is not the same across the two rounds** (the price-basis note at the top), and
