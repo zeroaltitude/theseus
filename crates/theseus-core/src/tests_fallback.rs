@@ -57,6 +57,12 @@ fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     }
 }
 
+/// The retry off (theseus-keuap): the tests that pin the fallback's own path
+/// script a refusal the fallback answers at once.
+fn no_retry(c: &mut Config) {
+    c.model.retries.refusal_retry = false;
+}
+
 /// A conversation bound to a place, so that its reply is an outbox post.
 fn bound_session(core: &Core) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
@@ -411,18 +417,21 @@ async fn after_a_call_the_fallbacks_requests_keep_both_models_thinking_and_exten
 /// next request goes back to the routed model.
 #[tokio::test]
 async fn a_refusal_sends_one_request_to_the_fallback_and_the_next_goes_back() {
-    let r = rig(vec![
-        Scripted::tools(
-            "Opening the archive.",
-            &[("toolu_a", "fs_read", json!({"path": "harbor.txt"}))],
-        ),
-        refused("reasoning_extraction"),
-        Scripted::tools(
-            "Reading it again.",
-            &[("toolu_b", "fs_read", json!({"path": "harbor.txt"}))],
-        ),
-        Scripted::text("Four."),
-    ]);
+    let r = rig_with(
+        vec![
+            Scripted::tools(
+                "Opening the archive.",
+                &[("toolu_a", "fs_read", json!({"path": "harbor.txt"}))],
+            ),
+            refused("reasoning_extraction"),
+            Scripted::tools(
+                "Reading it again.",
+                &[("toolu_b", "fs_read", json!({"path": "harbor.txt"}))],
+            ),
+            Scripted::text("Four."),
+        ],
+        no_retry,
+    );
     let sid = bound_session(&r.core);
     let res = turn(&r.core, &sid, None).await;
     assert!(res.output.ends_with("Four."), "{}", res.output);
@@ -459,16 +468,19 @@ const FALLBACK: &str = "claude-sonnet-5";
 /// third keeps the turn on the fallback, for the rest of it.
 #[tokio::test]
 async fn three_refusals_in_a_row_latch_the_turn_on_the_fallback() {
-    let r = rig(vec![
-        read("toolu_a"),
-        refused("reasoning_extraction"),
-        read("toolu_b"),
-        refused("reasoning_extraction"),
-        read("toolu_c"),
-        refused("reasoning_extraction"),
-        read("toolu_d"),
-        Scripted::text("Four."),
-    ]);
+    let r = rig_with(
+        vec![
+            read("toolu_a"),
+            refused("reasoning_extraction"),
+            read("toolu_b"),
+            refused("reasoning_extraction"),
+            read("toolu_c"),
+            refused("reasoning_extraction"),
+            read("toolu_d"),
+            Scripted::text("Four."),
+        ],
+        no_retry,
+    );
     let sid = bound_session(&r.core);
     let res = turn(&r.core, &sid, None).await;
     assert_eq!(res.loops, 8, "{res:?}");
@@ -497,17 +509,20 @@ async fn three_refusals_in_a_row_latch_the_turn_on_the_fallback() {
 /// refuse, answer, refuse never stays on the fallback.
 #[tokio::test]
 async fn a_routed_answer_between_refusals_resets_the_count() {
-    let r = rig(vec![
-        read("toolu_a"),
-        refused("reasoning_extraction"),
-        read("toolu_b"),
-        read("toolu_c"),
-        refused("reasoning_extraction"),
-        read("toolu_d"),
-        read("toolu_e"),
-        refused("reasoning_extraction"),
-        Scripted::text("Four."),
-    ]);
+    let r = rig_with(
+        vec![
+            read("toolu_a"),
+            refused("reasoning_extraction"),
+            read("toolu_b"),
+            read("toolu_c"),
+            refused("reasoning_extraction"),
+            read("toolu_d"),
+            read("toolu_e"),
+            refused("reasoning_extraction"),
+            Scripted::text("Four."),
+        ],
+        no_retry,
+    );
     let sid = bound_session(&r.core);
     let res = turn(&r.core, &sid, None).await;
     assert_eq!(res.loops, 9, "{res:?}");
@@ -558,7 +573,10 @@ async fn a_hard_decline_category_latches_at_once() {
             read("toolu_b"),
             Scripted::text("Four."),
         ],
-        |c| c.model.retries.hard_decline_categories = vec![],
+        |c| {
+            c.model.retries.hard_decline_categories = vec![];
+            no_retry(c);
+        },
     );
     let sid = bound_session(&r.core);
     let res = turn(&r.core, &sid, None).await;
@@ -596,6 +614,7 @@ async fn the_return_keeps_the_cached_prefix_and_the_routed_output_cap() {
                     ..Default::default()
                 },
             );
+            no_retry(c);
         },
     );
     let sid = bound_session(&r.core);
@@ -637,13 +656,16 @@ async fn the_return_keeps_the_cached_prefix_and_the_routed_output_cap() {
 /// counts, so the ledger needs no join.
 #[tokio::test]
 async fn the_ledger_rows_say_each_fallback_answer() {
-    let r = rig(vec![
-        read("toolu_a"),
-        refused("reasoning_extraction"),
-        read("toolu_b"),
-        refused("reasoning_extraction"),
-        Scripted::text("Four."),
-    ]);
+    let r = rig_with(
+        vec![
+            read("toolu_a"),
+            refused("reasoning_extraction"),
+            read("toolu_b"),
+            refused("reasoning_extraction"),
+            Scripted::text("Four."),
+        ],
+        no_retry,
+    );
     let sid = bound_session(&r.core);
     let res = turn(&r.core, &sid, None).await;
     assert_eq!(models(&r), [ROUTED, ROUTED, FALLBACK, ROUTED, FALLBACK]);
@@ -759,3 +781,211 @@ fn a_fallback_must_be_another_model_the_same_provider_serves() {
 }
 
 mod timeout;
+
+// ---- the same-model retry (theseus-keuap) ----------------------------------
+//
+// A refusal of a category that is not a genuine decline is made once more on
+// the routed model before the fallback answers: at most one retry per refused
+// request, three per turn, never for a hard decline.
+
+/// The retry is the refused request again, on the same model, the refused
+/// answer left out; it answers, and nothing falls back.
+#[tokio::test]
+async fn a_refusal_is_retried_on_the_same_model_and_the_retry_answering_ends_it() {
+    let r = rig(vec![
+        refused("reasoning_extraction"),
+        Scripted::text("The archive says four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert!(res.output.ends_with("The archive says four."), "{res:?}");
+    assert_eq!(models(&r), [ROUTED, ROUTED]);
+    let reqs = r.fake.requests();
+    assert_eq!(body(&reqs[1]), body(&reqs[0]), "the request, once more");
+    let sent = serde_json::to_string(&reqs[1].messages).unwrap();
+    assert!(!sent.contains("toolu_refused"), "{sent}");
+    // No fallback, no change of target, one row for the retry.
+    assert!(res.fallback.is_none(), "{res:?}");
+    assert_eq!(res.model, ROUTED);
+    assert!(rows(&r.core, &sid, "provider.fallback").is_empty());
+    assert!(rows(&r.core, &sid, "provider.routed_back").is_empty());
+    let retries = rows(&r.core, &sid, "provider.refusal_retry");
+    assert_eq!(retries.len(), 1, "{retries:?}");
+    assert_eq!(retries[0]["model"], ROUTED);
+    assert_eq!(retries[0]["category"], "reasoning_extraction");
+    assert_eq!(
+        (retries[0]["loop"].as_u64(), retries[0]["n"].as_u64()),
+        (Some(0), Some(1))
+    );
+    // The retry is a call as any other: both are the turn's spend and each
+    // reserved its own worst case.
+    let calls = rows(&r.core, &sid, "provider.call");
+    assert_eq!(calls.len(), 2);
+    let usage = |i: usize| serde_json::from_value(calls[i]["usage"].clone()).unwrap();
+    let want = priced(&r.core, ROUTED, &usage(0)) + priced(&r.core, ROUTED, &usage(1));
+    let e = execution(&r.core, &sid);
+    assert!(
+        (micros_to_usd(e.budget.spent_micros) - want).abs() < 1e-6,
+        "{:?}",
+        e.budget
+    );
+    let planned = rows(&r.core, &sid, "action.planned")
+        .iter()
+        .filter(|p| p["tool"] == "provider.messages")
+        .count();
+    assert_eq!(planned, 2);
+}
+
+/// The retry refusing too is the refusal of the fallback's path, unchanged:
+/// the fallback answers that request and the next goes back to the routed
+/// model. One retry per refused request, never two.
+#[tokio::test]
+async fn a_retry_that_refuses_too_falls_back_as_before() {
+    let r = rig(vec![
+        read("toolu_a"),
+        refused("reasoning_extraction"),
+        refused("reasoning_extraction"),
+        read("toolu_b"),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!(models(&r), [ROUTED, ROUTED, ROUTED, FALLBACK, ROUTED]);
+    assert!(res.output.ends_with("Four."), "{res:?}");
+    assert_eq!(rows(&r.core, &sid, "provider.refusal_retry").len(), 1);
+    let switches = rows(&r.core, &sid, "provider.fallback");
+    assert_eq!(switches.len(), 1, "{switches:?}");
+    assert_eq!(switches[0]["category"], "reasoning_extraction");
+    assert_eq!(switches[0]["latched"], false);
+    // The fallback's request leaves out both refused answers.
+    let reqs = r.fake.requests();
+    let sent = serde_json::to_string(&reqs[3].messages).unwrap();
+    assert!(!sent.contains("toolu_refused"), "{sent}");
+    assert_eq!(rows(&r.core, &sid, "provider.routed_back").len(), 1);
+    let fell = res.fallback.as_ref().expect("it fell back");
+    assert_eq!(
+        (fell.refusals, fell.answers, fell.latched),
+        (1, 1, false),
+        "{fell:?}"
+    );
+}
+
+/// A retry is not a routed refusal toward the latch: the streak counts the
+/// refusals the fallback had to answer, and a retry that answers ends the run.
+#[tokio::test]
+async fn a_retry_adds_nothing_to_the_refusal_streak() {
+    let r = rig(vec![
+        read("toolu_a"),
+        // One refusal, its retry refused: the fallback answers (streak 1).
+        refused("reasoning_extraction"),
+        refused("reasoning_extraction"),
+        read("toolu_b"),
+        // A second the same way (streak 2).
+        refused("reasoning_extraction"),
+        refused("reasoning_extraction"),
+        read("toolu_c"),
+        // A third whose retry answers: the routed model answered, the run ends.
+        refused("reasoning_extraction"),
+        read("toolu_d"),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!(
+        models(&r),
+        [ROUTED, ROUTED, ROUTED, FALLBACK, ROUTED, ROUTED, FALLBACK, ROUTED, ROUTED, ROUTED]
+    );
+    let fell = res.fallback.as_ref().expect("it fell back");
+    assert_eq!((fell.refusals, fell.latched), (2, false), "{fell:?}");
+    assert_eq!(rows(&r.core, &sid, "provider.refusal_retry").len(), 3);
+    assert_eq!(rows(&r.core, &sid, "provider.fallback").len(), 2);
+}
+
+/// A genuine decline is never retried: it goes straight to the fallback and
+/// the turn stays there, as before.
+#[tokio::test]
+async fn a_hard_decline_is_not_retried() {
+    for category in ["cyber", "bio", "general_harms"] {
+        let r = rig(vec![refused(category), Scripted::text("Four.")]);
+        let sid = bound_session(&r.core);
+        let res = turn(&r.core, &sid, None).await;
+        assert_eq!(models(&r), [ROUTED, FALLBACK], "{category}");
+        assert!(rows(&r.core, &sid, "provider.refusal_retry").is_empty());
+        assert_eq!(
+            rows(&r.core, &sid, "provider.fallback").len(),
+            1,
+            "{category}"
+        );
+        assert!(res.fallback.as_ref().unwrap().latched, "{category}");
+    }
+}
+
+/// The bounds: one retry per refused request (the second refusal of a
+/// request goes to the fallback), and three per turn (a fourth refusal goes
+/// straight to it).
+#[tokio::test]
+async fn a_turn_makes_at_most_three_retries_and_one_per_request() {
+    let r = rig(vec![
+        refused("reasoning_extraction"),
+        read("toolu_a"),
+        refused("reasoning_extraction"),
+        read("toolu_b"),
+        refused("reasoning_extraction"),
+        read("toolu_c"),
+        // The turn's fourth refusal: no retry is left.
+        refused("reasoning_extraction"),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!(
+        models(&r),
+        [ROUTED, ROUTED, ROUTED, ROUTED, ROUTED, ROUTED, ROUTED, FALLBACK]
+    );
+    assert_eq!(rows(&r.core, &sid, "provider.refusal_retry").len(), 3);
+    let switches = rows(&r.core, &sid, "provider.fallback");
+    assert_eq!(switches.len(), 1, "{switches:?}");
+    assert_eq!(switches[0]["loop"], 6);
+    assert!(res.output.ends_with("Four."), "{res:?}");
+}
+
+/// The latch under the default: three refusal episodes, each retried and each
+/// retry refusing too, still count as three, so the third stays on the
+/// fallback (theseus-keuap). The latch is the only thing that stops a genuine
+/// decline bouncing back to the model that declined it.
+#[tokio::test]
+async fn three_retried_refusal_episodes_still_latch_the_turn() {
+    let r = rig(vec![
+        read("toolu_a"),
+        refused("reasoning_extraction"),
+        refused("reasoning_extraction"),
+        read("toolu_b"),
+        refused("reasoning_extraction"),
+        refused("reasoning_extraction"),
+        read("toolu_c"),
+        refused("reasoning_extraction"),
+        refused("reasoning_extraction"),
+        read("toolu_d"),
+        Scripted::text("Four."),
+    ]);
+    let sid = bound_session(&r.core);
+    let res = turn(&r.core, &sid, None).await;
+    assert_eq!(
+        models(&r),
+        [
+            ROUTED, ROUTED, ROUTED, FALLBACK, ROUTED, ROUTED, FALLBACK, ROUTED, ROUTED, FALLBACK,
+            FALLBACK
+        ]
+    );
+    assert_eq!(rows(&r.core, &sid, "provider.refusal_retry").len(), 3);
+    let switches = rows(&r.core, &sid, "provider.fallback");
+    let flags: Vec<(u64, bool)> = switches
+        .iter()
+        .map(|w| (w["n"].as_u64().unwrap(), w["latched"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(flags, [(1, false), (2, false), (3, true)], "{switches:?}");
+    assert_eq!(rows(&r.core, &sid, "provider.routed_back").len(), 2);
+    let fell = res.fallback.as_ref().expect("it fell back");
+    assert_eq!((fell.refusals, fell.latched), (3, true), "{fell:?}");
+    assert_eq!(res.model, FALLBACK);
+}

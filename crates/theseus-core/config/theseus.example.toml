@@ -93,6 +93,10 @@ backoff_max_ms = 30000                  # the longest one wait
 # fallback answers that request and the next goes back to the model, and the reply
 # says so. A refusal there ends the turn.
 refusal = true                          # false: a refusal ends its turn
+# A refusal whose category is not a genuine decline (below) is made once more
+# on the same model first, at most once per request and three per turn; only
+# its second refusal goes to the fallback.
+refusal_retry = true                    # false: the fallback answers at the first
 # The turn stays on the fallback from a refusal of one of these categories, or
 # from the third refusal in a row; a refusal of any other category goes back.
 hard_decline_categories = ["cyber", "bio", "general_harms"]
