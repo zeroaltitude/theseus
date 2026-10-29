@@ -106,6 +106,19 @@ pub enum RoutineCmd {
     Rm { id: String },
 }
 
+/// `routine skip`: the next run is dropped, the series goes on after it.
+async fn skip(conn: &mut Conn, json: bool, id: String) -> Result<()> {
+    let v = conn.request(method::ROUTINE_SKIP, named(id)).await?;
+    output(json, v, |r: RoutineEditResult| {
+        println!(
+            "routine {} skips its next run: next {}",
+            r.routine.short,
+            next_of(&r.routine)
+        );
+        Ok(())
+    })
+}
+
 /// A title from a brief's first words.
 fn title_of(brief: &str) -> String {
     let first = brief
@@ -184,17 +197,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
                 Ok(())
             })
         }
-        RoutineCmd::Skip { id } => {
-            let v = conn.request(method::ROUTINE_SKIP, named(id)).await?;
-            output(json, v, |r: RoutineEditResult| {
-                println!(
-                    "routine {} skips its next run: next {}",
-                    r.routine.short,
-                    next_of(&r.routine)
-                );
-                Ok(())
-            })
-        }
+        RoutineCmd::Skip { id } => skip(conn, json, id).await,
         RoutineCmd::Run { id } => {
             let v = conn.request(method::ROUTINE_RUN_NOW, named(id)).await?;
             output(json, v, |r: RoutineEditResult| {
