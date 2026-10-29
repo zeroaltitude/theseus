@@ -81,7 +81,14 @@ build.
     each run in a 3 px left gutter (`ranBars`), Theseus's marks in the right gutter; the night folds (`nightFold`: a
     meeting or one-off mark holds its hour open, a series' ticks are counted inside); clashes (`clashes`: a mark inside a
     meeting, or two meetings that overlap; all-day and declined events never) are a ◆ and the command bar's two
-    Timeline-only counters; `?day=` is the Day zoom (`d`/`w`, which beat the counter filters in the lens), `,`/`.` the
+    Timeline-only counters; **task blocks** (theseus-1t4q8, `ops/taskblocks.ts`): a lane at each day's right, beside the
+    events and left of the marks: a task going is a live block from its start to now (the minute tick grows it) with the
+    one progress line, a finished one keeps its real span, a deferred task is a dashed future block as long as its forecast
+    (`WorkView.forecast`), a routine's occurrences are dashed recurring `↻` blocks as long as its last run, its runs recurring
+    blocks that happened, and a held, ended or over series (`series.until_ms`) draws none; a block that derives from a mark
+    carries the mark's key (selection, keys, verbs reach it through the mark), a task with no mark has `task:<id>`, a
+    `TaskDetail` (Open, Pause or Resume, Stop), a table row and a step in `j`/`k`; the ticks, the ran bars and the watch bars
+    stay (a block hides nothing). No per-occurrence Skip: the daemon has no such verb yet. `?day=` is the Day zoom (`d`/`w`, which beat the counter filters in the lens), `,`/`.` the
     week, and on a focused mark the TUI's Horizon keys (`ops/timelinekeys.ts`). **The materials rule**: colour is for
     state; a calendar is drawn in its own `color` (the daemon's hull materials, never a signal tone), a sensitive one
     hatched with a lock, a free/busy block hatched; a calendar's state (`stateOf`: ok, busy_only, not_found with the
