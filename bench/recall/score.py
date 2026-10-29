@@ -29,6 +29,12 @@ progression) and writes `scores.json`, `report.md` and `curve.svg` into
   interpolated linearly between the two buckets around it, in turns and in
   tokens since the fact; `not reached` if it never does, `undefined` when
   the nearest bucket recalls nothing.
+- **An abstention's two reads**: `correct` (and `abstention_accuracy`) is
+  the shipped one, the check's `lacks` clause over the whole reply;
+  `abstained_in_answer` (and `abstention_in_answer`) is the same clause over
+  the reply's first sentence alone, which is what the 2026-10-26 recall-seeds
+  report adopted when it withdrew its abstention row. Both are written;
+  a report that quotes either says which.
 - **Confident-wrong**: a wrong answer that gives a value of the asked kind
   (an abstention's: any value) and does not hedge. **Stale**: a superseded
   value given; with `--stale retracted`, not where a retracting phrase
@@ -93,6 +99,10 @@ class Scored:
     old_named: bool | None = None
     # An abstention's shape: clean | neighbours | misleading (`abstained_as`).
     abstained_as: str | None = None
+    # An abstention read in its answer alone (`abstained_in_answer`): the
+    # admission present, and no value of the asked kind in the first
+    # sentence. Beside `correct`, never in place of it.
+    abstained_in_answer: bool | None = None
 
 
 @dataclass
@@ -388,6 +398,25 @@ def _subject_words(subject: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", checks.normalize(subject))) - _PLAIN
 
 
+def abstained_in_answer(reply: str, p: pg.Probe) -> bool:
+    """Whether an abstention reply abstains in its *answer*: the admission
+    somewhere in it, and no value of the asked kind in its first sentence
+    (theseus-r2w2n).
+
+    The shipped rule (`correct`) reads the check's `lacks` clause over the
+    whole reply, so an arm that admits and then says what it does hold about
+    another subject — "I don't know where the veery indexer keeps its cache
+    index. The quail indexer's is /srv/quail/indexer/cache-43.idx" — scores
+    as though it had answered. On the 2026-10-26 seeds that one scope is the
+    whole of the "abstention is poor" result: 9 and 4 of 60 by the shipped
+    rule, 60 and 60 read in the answer. Both are recorded, and a report that
+    quotes either says which."""
+    if re.search(pg.ADMIT, checks.fold(reply), re.I) is None:
+        return False
+    answer = sentences(reply)
+    return not pg.find_values(p.value_kind, answer[0] if answer else "")
+
+
 def abstained_as(reply: str, p: pg.Probe, facts: list[pg.Fact]) -> str:
     """How an abstention reply stands. `clean`: it admits and gives no value
     of the kind. `neighbours`: it admits, and every value it gives sits in a
@@ -502,11 +531,13 @@ def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
             where = src in n or src.removesuffix(".sh") in n
         s = prog.sessions[prog.turns[f.turn].session]
         when = any(checks.has_word(n, x) for x in _date_forms(s.date, s.weekday)) or re.search(WHEN, n) is not None
-    shape = None
+    shape = in_answer = None
     if p.kind == "abstention":
         shape = "clean" if correct else abstained_as(reply, p, prog.facts)
+        in_answer = abstained_in_answer(reply, p)
     return Scored(status="scored", correct=correct, confident_wrong=cw, stale=stale, hedged=hedged,
-                  cites_where=where, cites_when=when, old_named=old_named, abstained_as=shape, **base)
+                  cites_where=where, cites_when=when, old_named=old_named, abstained_as=shape,
+                  abstained_in_answer=in_answer, **base)
 
 
 def score_run(run: ArmRun, stale_rule: str = "strict") -> list[Scored]:
@@ -587,6 +618,7 @@ def summarize(rows: list[Scored]) -> dict:
         "abstention_accuracy": rate(abst, lambda r: r.correct),
         "abstention_by_shape": {k: sum(1 for r in abst if r.abstained_as == k) for k in ABSTENTION_SHAPES},
         "abstention_not_misleading": rate(abst, lambda r: r.abstained_as != "misleading"),
+        "abstention_in_answer": rate(abst, lambda r: r.abstained_in_answer),
         "by_kind": {k: rate([r for r in scored if r.kind == k], lambda r: r.correct) for k in pg.PROBE_KINDS},
         "by_carrier": {c: rate([r for r in recall if r.carrier == c], lambda r: r.correct) for c in pg.CARRIERS},
         "by_value_kind": {k: rate([r for r in recall if r.value_kind == k], lambda r: r.correct)
@@ -660,16 +692,17 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
         f"Progression `{prog.size}`, seed {prog.seed}, digest `{prog.digest()[:16]}`: {len(prog.turns)} turns, "
         f"{len(prog.facts)} facts, {len(prog.probes)} probes. {stale_words}",
         "",
-        "| Arm | Model | Compacted at | Delivered | Scored | Undelivered | Failed | Recall | Abstention | "
-        "Confident-wrong | Stale | Cites where | Cites when | $/probe | ms/probe |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Arm | Model | Compacted at | Delivered | Scored | Undelivered | Failed | Recall | Abstention (whole reply) | "
+        "Abstention (in answer) | Confident-wrong | Stale | Cites where | Cites when | $/probe | ms/probe |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in runs:
         s = sums[r.label]
         lines.append(
             f"| {r.label} | {r.meta.get('model')} | {_compacted_at(r.meta)} | "
             f"{r.meta.get('delivered')}/{r.meta.get('facts')} | {s['scored']} | {s['undelivered']} | {s['failed']} | "
-            f"{_pct(s['recall_accuracy'])} | {_pct(s['abstention_accuracy'])} | {s['confident_wrong']} | "
+            f"{_pct(s['recall_accuracy'])} | {_pct(s['abstention_accuracy'])} | {_pct(s['abstention_in_answer'])} | "
+            f"{s['confident_wrong']} | "
             f"{s['stale']}/{s['stale_of']} | {_pct(s['cites_where'])} | {_pct(s['cites_when'])} | "
             f"{_num(s['cost_usd_per_probe'], '{:.4f}')} | {_num(s['latency_ms_per_probe'])} |"
         )
@@ -698,14 +731,20 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
             for b in sums[r.label]["abstention_curves"][s]:
                 cells.append(f"{_pct(b['accuracy'])} ({b['correct']}/{b['n']})" if b["n"] else "—")
         lines.append(f"| {r.label} | " + " | ".join(cells) + " |")
-    lines += ["", "| Arm | clean | neighbours | misleading | not misleading |", "|---|---|---|---|---|"]
+    lines += ["", "| Arm | clean | neighbours | misleading | not misleading | abstained in its answer |",
+              "|---|---|---|---|---|---|"]
     for r in runs:
         s = sums[r.label]
         lines.append(f"| {r.label} | " + " | ".join(str(s["abstention_by_shape"][k]) for k in ABSTENTION_SHAPES)
-                     + f" | {_pct(s['abstention_not_misleading'])} |")
+                     + f" | {_pct(s['abstention_not_misleading'])} | {_pct(s['abstention_in_answer'])} |")
     lines += ["", "*clean*: it admits and gives no value of the kind. *neighbours*: it admits, and each value it gives "
               "sits beside another fact's subject, never the asked one's. *misleading*: any other failure. "
               "Abstention accuracy above counts only *clean*.",
+              "", "*abstained in its answer*: the admission present, and no value of the asked kind in the reply's "
+              "**first sentence**, whatever a later sentence attributes to another subject. Abstention accuracy "
+              "above reads the same `lacks` clause over the **whole reply**, so a reply that admits and then says "
+              "what it does hold about a different component counts there as an answer. The two differ by the scope "
+              "of one clause and by nothing else; quote whichever, and say which.",
               "", "## By probe kind, and by how the fact was said", "",
               "Recall accuracy (direct and indirect) by the fact's carrier: a tool's output, an error message, an "
               "aside, a side remark, or the topic of the moment.", "",

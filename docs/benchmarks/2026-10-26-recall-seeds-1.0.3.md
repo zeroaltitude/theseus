@@ -159,8 +159,9 @@ same build:
   of the messages a compaction cut. This build does not need the correction, and its rate needs no asterisk.
 - ~~**Abstention is worse.** 51 and 56 of 60 gave a value where seed 7 gave 38 of 60.~~ **WITHDRAWN** — it is
   the grader, not the build. See "Rescored abstention" below; on the corrected rule it is 60 of 60 at both
-  seeds. Abstention is named as weak in both prior reports, so the same clause very likely cost seed 7 too;
-  its raw replies are not on this machine and that cannot be checked here.
+  seeds. Abstention is named as weak in both prior reports, and the same clause did cost seed 7: its run
+  directories survive on the build host and it has been rescored there (see the note under "Rescored
+  abstention"); that figure is not published on this page.
 - **Supersession is the weakest bucket at both seeds** — 29% and 42% — and the failure mode is naming the
   superseded value rather than refusing: the strict stale rule counts a stale value named anywhere as wrong.
   **This is the same clause as the abstention artefact**, applied to a population where naming the superseded
@@ -211,18 +212,20 @@ reply has   /<abstention-phrase regex: don't know | no record | not mentioned | 
 | | seed 11 | seed 13 | 10-18 seed 7 |
 |---|---|---|---|
 | abstention probes | 60 | 60 | 60 |
-| contain an explicit abstention phrase | **60** | **60** | not checkable here * |
+| contain an explicit abstention phrase | **60** | **60** | not published here * |
 | **as shipped** — `lacks` over the whole reply | 9 correct | 4 correct | 22 correct (38 "gave a value") |
-| **corrected** — `lacks` over the first sentence | **60** | **60** | not checkable here * |
+| **corrected** — `lacks` over the first sentence | **60** | **60** | not published here * |
 | variant — `lacks` over the first paragraph | 58 | 60 | — |
 | probes that flip wrong → right | **51** | **56** | — |
 
-\* **Seed 7 cannot be rescored and this is a real limit of the correction, not a formality.** Its published
-data file carries scores and usage but **no replies**, and no run directory for it survives on either host, so
-there is nothing to apply a corrected grader to. Its 38-of-60 figure is on the uncorrected rule. The two 10-26
-seeds are therefore compared with a seed-7 number the correction could not reach, and **the honest reading is
-that the abstention comparison across builds is not available at all**, rather than that it favours either
-build. Abstention was named as weak in both prior reports, so the same clause plausibly cost seed 7 as well.
+\* **Seed 7 has been rescored; its figures are not published here.** An earlier version of this note said
+seed 7 could not be rescored because no run directory for it survived. That was wrong: the seed-7 run
+directories (all three arms, 600 replies each) survive on the build host, and the corrected grader has been
+applied to them, independently of the branch that wrote it, with the result recorded in `theseus-r2w2n`. The
+rescore stands: the whole-reply rule cost seed 7 as it cost the two 10-26 seeds, so the abstention comparison
+across builds is available and **does not favour either build**. What this page's data file still lacks is the
+replies themselves, so a reader cannot reproduce the seed-7 figures from the repository, which is why they are
+held back. The 38-of-60 figure in the table is on the uncorrected rule.
 
 **What the correction does *not* change.** The 144 non-abstention probes are untouched: recall stays **99/144**
 at seed 11 and **112/144** at seed 13, and every bucket, carrier and cross-session figure on this page stands.
