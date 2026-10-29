@@ -279,6 +279,86 @@ mod tests {
         assert_eq!(of_attempt("halted", None), None);
     }
 
+    /// The gate's own words when `cockpit/node_modules` is missing and there is
+    /// no npm to install it (`scripts/gate.sh`, `cockpit_modules`): the last
+    /// lines of the six self builds that stopped there.
+    const NO_NPM_TAIL: &str = "\
+gate: cockpit/node_modules is missing, and there is no npm to install it: \
+install Node.js and npm, then\n\
+gate: rerun the gate (the cockpit is built before the suite, \
+whose tests of / read its build)\n\
+gate: FAILED in cockpit";
+
+    /// What a real failure's tail looks like: a test that failed, and no word
+    /// of a missing tool.
+    const TEST_FAILED_TAIL: &str = "\
+test rsi::tree::tests::a_tree_is_cut_from_main ... FAILED
+test result: FAILED. 1311 passed; 1 failed; 0 ignored
+gate: FAILED in suite";
+
+    /// A `self.branch.built` row of a gate run that said whether it could run
+    /// every phase it reached.
+    fn row_that_could_not_run(unrunnable: bool) -> Value {
+        let mut d = row("red", json!(1), json!(545));
+        d["numbers"]["unrunnable"] = json!(unrunnable);
+        d
+    }
+
+    #[test]
+    fn a_gate_that_stopped_at_a_phase_it_could_not_run_is_infrastructure() {
+        // The cockpit case as the ledger holds it: red, exit 1, 545 seconds, and
+        // the fact that the gate stopped for want of npm.
+        assert_eq!(
+            of_row(&row_that_could_not_run(true)),
+            Some(Outcome::Infrastructure)
+        );
+    }
+
+    #[test]
+    fn an_attempt_whose_gate_printed_that_a_tool_is_missing_is_infrastructure() {
+        use crate::rsi::tree::Verdict;
+        let run = |tail: &str| GateRun {
+            verdict: Verdict::Red,
+            exit: Some(1),
+            blob: String::new(),
+            log: std::path::PathBuf::new(),
+            secs: 545,
+            tail: tail.to_string(),
+        };
+        assert_eq!(
+            of_attempt("red", Some(&run(NO_NPM_TAIL))),
+            Some(Outcome::Infrastructure)
+        );
+        // an ordinary red of the same length is still the code's
+        assert_eq!(
+            of_attempt("red", Some(&run(TEST_FAILED_TAIL))),
+            Some(Outcome::Red)
+        );
+    }
+
+    #[test]
+    fn an_ordinary_red_is_still_red() {
+        // the fact absent (every row written before it existed), false, and the
+        // exit and seconds of the cockpit case with nothing missing
+        assert_eq!(of("red", json!(1), json!(340)), Some(Outcome::Red));
+        assert_eq!(of_row(&row_that_could_not_run(false)), Some(Outcome::Red));
+    }
+
+    #[test]
+    fn the_cockpit_case_counts_in_the_streak_and_names_its_item() {
+        let cockpit = |branch: &str, item: &str| {
+            let mut d = row_that_could_not_run(true);
+            d["branch"] = json!(branch);
+            d["item"] = json!(item);
+            LedgerRow::named("self.branch.built", None, None, d)
+        };
+        let rows = vec![cockpit("self/a", "x1"), cockpit("self/b", "x2")];
+        assert_eq!(streak(&rows, HALT_AFTER).len(), HALT_AFTER);
+        let mut got: Vec<String> = unjudged_items(&rows).into_iter().collect();
+        got.sort();
+        assert_eq!(got, ["x1", "x2"]);
+    }
+
     fn built(gate: &str, exit: Value, secs: Value, branch: &str, item: &str) -> LedgerRow {
         let mut d = row(gate, exit, secs);
         d["branch"] = json!(branch);
