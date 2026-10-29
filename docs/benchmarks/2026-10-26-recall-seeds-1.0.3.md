@@ -220,12 +220,12 @@ reply has   /<abstention-phrase regex: don't know | no record | not mentioned | 
 
 \* **Seed 7 has been rescored; its figures are not published here.** An earlier version of this note said
 seed 7 could not be rescored because no run directory for it survived. That was wrong: the seed-7 run
-directories (all three arms, 600 replies each) survive on the build host, and the corrected grader has been
-applied to them, independently of the branch that wrote it, with the result recorded in `theseus-r2w2n`. The
-rescore stands: the whole-reply rule cost seed 7 as it cost the two 10-26 seeds, so the abstention comparison
-across builds is available and **does not favour either build**. What this page's data file still lacks is the
-replies themselves, so a reader cannot reproduce the seed-7 figures from the repository, which is why they are
-held back. The 38-of-60 figure in the table is on the uncorrected rule.
+directories (all three arms, 600 replies each) survive on the build host, and the corrected grader — the
+same `first_sentence` change shown above, in `bench/recall/score.py` — has been applied to them,
+independently of the branch that wrote it. What this page cannot assert is the rescore's outcome: the
+seed-7 replies themselves are not in this page's data file, so a reader has no way to check a comparative
+claim about them from the repository, and none is made here. The 38-of-60 figure in the table is on the
+uncorrected rule.
 
 **What the correction does *not* change.** The 144 non-abstention probes are untouched: recall stays **99/144**
 at seed 11 and **112/144** at seed 13, and every bucket, carrier and cross-session figure on this page stands.
