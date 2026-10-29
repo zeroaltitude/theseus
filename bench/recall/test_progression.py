@@ -90,7 +90,9 @@ def tiny() -> pg.Progression:
     turns = []
     roles = ["opener", "fact", "filler", "filler", "filler", "probe",
              "opener", "fact", "probe", "filler", "filler", "probe"]
-    texts = {1: "Run ./scripts/check-alder-relay.sh: did the build pass?",
+    texts = {0: "It's Monday, 2026-11-02. turn 0",
+             6: "It's Thursday, 2026-11-05. turn 6",
+             1: "Run ./scripts/check-alder-relay.sh: did the build pass?",
              7: "Side note: the birch mailer is on port 31555 these days."}
     for i, r in enumerate(roles):
         turns.append(pg.Turn(index=i, session=i // 6, block=i // 3, topic="t", text=texts.get(i, f"turn {i}"),

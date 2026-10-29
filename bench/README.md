@@ -403,6 +403,7 @@ directory, a directory of jobs, or a quoted glob.
 python3 -m unittest discover -s bench/harbor                 # the standard library: Harbor's checks skip
 .venv/bin/python -m unittest discover -s bench/harbor         # with Harbor: the ATIF checks and the agents' load
 python3 -m unittest discover -s bench/report                 # the reports: efficiency, the drafting tool, the charts, the statistics
+python3 -m unittest discover -s bench/gauntlet               # the cell reports' cost guard: a ratio refuses to cross two price tables
 python3 -m unittest discover -s bench/async                  # the async bench's driver and scorer
 python3 -m unittest discover -s bench/self                   # the self bench's driver, scorer and branch judge
 ASYNC_HARBOR=1 .venv/bin/python -m unittest discover -s bench/async   # with Harbor: the async arms' runs

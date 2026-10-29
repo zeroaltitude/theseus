@@ -29,6 +29,12 @@ progression) and writes `scores.json`, `report.md` and `curve.svg` into
   interpolated linearly between the two buckets around it, in turns and in
   tokens since the fact; `not reached` if it never does, `undefined` when
   the nearest bucket recalls nothing.
+- **An abstention's two reads**: `correct` (and `abstention_accuracy`) is
+  the shipped one, the check's `lacks` clause over the whole reply;
+  `abstained_in_answer` (and `abstention_in_answer`) is the same clause over
+  the reply's first sentence alone, which is what the 2026-10-26 recall-seeds
+  report adopted when it withdrew its abstention row. Both are written;
+  a report that quotes either says which.
 - **Confident-wrong**: a wrong answer that gives a value of the asked kind
   (an abstention's: any value) and does not hedge. **Stale**: a superseded
   value given; with `--stale retracted`, not where a retracting phrase
@@ -47,7 +53,7 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -77,7 +83,7 @@ class Scored:
     carrier: str  # how its fact was said (an abstention's: its distractor's)
     planned: str
     bucket: str
-    status: str  # scored | undelivered | failed
+    status: str  # scored | undelivered | failed | clock_conflict
     correct: bool | None
     confident_wrong: bool | None
     stale: bool | None
@@ -93,6 +99,10 @@ class Scored:
     old_named: bool | None = None
     # An abstention's shape: clean | neighbours | misleading (`abstained_as`).
     abstained_as: str | None = None
+    # An abstention read in its answer alone (`abstained_in_answer`): the
+    # admission present, and no value of the asked kind in the first
+    # sentence. Beside `correct`, never in place of it.
+    abstained_in_answer: bool | None = None
 
 
 @dataclass
@@ -388,6 +398,25 @@ def _subject_words(subject: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", checks.normalize(subject))) - _PLAIN
 
 
+def abstained_in_answer(reply: str, p: pg.Probe) -> bool:
+    """Whether an abstention reply abstains in its *answer*: the admission
+    somewhere in it, and no value of the asked kind in its first sentence
+    (theseus-r2w2n).
+
+    The shipped rule (`correct`) reads the check's `lacks` clause over the
+    whole reply, so an arm that admits and then says what it does hold about
+    another subject — "I don't know where the veery indexer keeps its cache
+    index. The quail indexer's is /srv/quail/indexer/cache-43.idx" — scores
+    as though it had answered. On the 2026-10-26 seeds that one scope is the
+    whole of the "abstention is poor" result: 9 and 4 of 60 by the shipped
+    rule, 60 and 60 read in the answer. Both are recorded, and a report that
+    quotes either says which."""
+    if re.search(pg.ADMIT, checks.fold(reply), re.I) is None:
+        return False
+    answer = sentences(reply)
+    return not pg.find_values(p.value_kind, answer[0] if answer else "")
+
+
 def abstained_as(reply: str, p: pg.Probe, facts: list[pg.Fact]) -> str:
     """How an abstention reply stands. `clean`: it admits and gives no value
     of the kind. `neighbours`: it admits, and every value it gives sits in a
@@ -415,6 +444,29 @@ def abstained_as(reply: str, p: pg.Probe, facts: list[pg.Fact]) -> str:
     return "neighbours"
 
 
+def clock_pinned(meta: dict, prog: pg.Progression) -> bool:
+    """Did the run's machine read each session's narrated date? Only a run whose `clock` record says
+    it was pinned, and read every session's date back as the narrated one, was. A run from before the
+    pin (no record) was not: its tools and its system prompt carried the machine's own date, which the
+    narration contradicted (theseus-kyrgn)."""
+    c = (meta or {}).get("clock") or {}
+    seen = c.get("sessions") or []
+    return bool(c.get("pinned")) and len(seen) == len(prog.sessions) \
+        and all(x.get("machine") == x.get("narrated") for x in seen)
+
+
+_BLANK = dict(correct=None, confident_wrong=None, stale=None, hedged=None, cites_where=None, cites_when=None,
+              old_named=None, abstained_as=None)
+
+
+def set_aside_dates(rows: list[Scored]) -> list[Scored]:
+    """A date probe asks for a date the narration gave and the machine's clock may have contradicted,
+    so in a run whose clock was not pinned it measures the conflict, not recall. It is set aside: counted
+    (`clock_conflict`), never scored, as an undelivered probe is. The other probes are untouched."""
+    return [replace(r, status="clock_conflict", **_BLANK) if r.status == "scored" and r.value_kind == "date" else r
+            for r in rows]
+
+
 def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
     prog = run.prog
     facts = prog.facts_by_id()
@@ -431,6 +483,8 @@ def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
         return Scored(status="undelivered", **base, **blank)
     if rec is None or rec.get("exit") not in (0,) or not (rec.get("reply") or "").strip():
         return Scored(status="failed", **base, **blank)
+    if p.value_kind == "date" and not clock_pinned(run.meta, prog):
+        return Scored(status="clock_conflict", **base, **blank)
     reply = rec.get("reply") or ""
     root = run.dir / "workspace"
     correct = checks.passes(check_of(p), reply, root)
@@ -477,11 +531,13 @@ def score_probe(run: ArmRun, p: pg.Probe, stale_rule: str = "strict") -> Scored:
             where = src in n or src.removesuffix(".sh") in n
         s = prog.sessions[prog.turns[f.turn].session]
         when = any(checks.has_word(n, x) for x in _date_forms(s.date, s.weekday)) or re.search(WHEN, n) is not None
-    shape = None
+    shape = in_answer = None
     if p.kind == "abstention":
         shape = "clean" if correct else abstained_as(reply, p, prog.facts)
+        in_answer = abstained_in_answer(reply, p)
     return Scored(status="scored", correct=correct, confident_wrong=cw, stale=stale, hedged=hedged,
-                  cites_where=where, cites_when=when, old_named=old_named, abstained_as=shape, **base)
+                  cites_where=where, cites_when=when, old_named=old_named, abstained_as=shape,
+                  abstained_in_answer=in_answer, **base)
 
 
 def score_run(run: ArmRun, stale_rule: str = "strict") -> list[Scored]:
@@ -557,10 +613,12 @@ def summarize(rows: list[Scored]) -> dict:
         "scored": len(scored),
         "undelivered": sum(1 for r in rows if r.status == "undelivered"),
         "failed": sum(1 for r in rows if r.status == "failed"),
+        "clock_conflict": sum(1 for r in rows if r.status == "clock_conflict"),
         "recall_accuracy": rate(recall, lambda r: r.correct),
         "abstention_accuracy": rate(abst, lambda r: r.correct),
         "abstention_by_shape": {k: sum(1 for r in abst if r.abstained_as == k) for k in ABSTENTION_SHAPES},
         "abstention_not_misleading": rate(abst, lambda r: r.abstained_as != "misleading"),
+        "abstention_in_answer": rate(abst, lambda r: r.abstained_in_answer),
         "by_kind": {k: rate([r for r in scored if r.kind == k], lambda r: r.correct) for k in pg.PROBE_KINDS},
         "by_carrier": {c: rate([r for r in recall if r.carrier == c], lambda r: r.correct) for c in pg.CARRIERS},
         "by_value_kind": {k: rate([r for r in recall if r.value_kind == k], lambda r: r.correct)
@@ -579,6 +637,19 @@ def summarize(rows: list[Scored]) -> dict:
         "abstention_curves": {s: curve(rows, s, ("abstention",)) for s in pg.SALIENCES},
         "half_life": {s: half_lives(curve(rows, s)) for s in pg.SALIENCES},
     }
+
+
+def rescore_clock(scores: dict) -> dict:
+    """A saved `scores.json` rescored under the date rule: every scored date probe is set aside
+    and every arm's summary is recomputed from its rows. $0: it reads the saved probes, not a model.
+    What the scorer does not derive from rows (`compactions_by_outcome`, `overhead`) is carried over."""
+    rows = [Scored(**p) for p in scores["probes"]]
+    out = {**scores, "clock_rule": "unpinned-date-probes-set-aside", "arms": {}}
+    kept = set_aside_dates(rows)
+    for label, old in scores["arms"].items():
+        out["arms"][label] = {**old, **summarize([r for r in kept if r.arm == label])}
+    out["probes"] = [asdict(r) for r in kept]
+    return out
 
 
 # ---- the report
@@ -621,16 +692,17 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
         f"Progression `{prog.size}`, seed {prog.seed}, digest `{prog.digest()[:16]}`: {len(prog.turns)} turns, "
         f"{len(prog.facts)} facts, {len(prog.probes)} probes. {stale_words}",
         "",
-        "| Arm | Model | Compacted at | Delivered | Scored | Undelivered | Failed | Recall | Abstention | "
-        "Confident-wrong | Stale | Cites where | Cites when | $/probe | ms/probe |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Arm | Model | Compacted at | Delivered | Scored | Undelivered | Failed | Recall | Abstention (whole reply) | "
+        "Abstention (in answer) | Confident-wrong | Stale | Cites where | Cites when | $/probe | ms/probe |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in runs:
         s = sums[r.label]
         lines.append(
             f"| {r.label} | {r.meta.get('model')} | {_compacted_at(r.meta)} | "
             f"{r.meta.get('delivered')}/{r.meta.get('facts')} | {s['scored']} | {s['undelivered']} | {s['failed']} | "
-            f"{_pct(s['recall_accuracy'])} | {_pct(s['abstention_accuracy'])} | {s['confident_wrong']} | "
+            f"{_pct(s['recall_accuracy'])} | {_pct(s['abstention_accuracy'])} | {_pct(s['abstention_in_answer'])} | "
+            f"{s['confident_wrong']} | "
             f"{s['stale']}/{s['stale_of']} | {_pct(s['cites_where'])} | {_pct(s['cites_when'])} | "
             f"{_num(s['cost_usd_per_probe'], '{:.4f}')} | {_num(s['latency_ms_per_probe'])} |"
         )
@@ -659,14 +731,20 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
             for b in sums[r.label]["abstention_curves"][s]:
                 cells.append(f"{_pct(b['accuracy'])} ({b['correct']}/{b['n']})" if b["n"] else "—")
         lines.append(f"| {r.label} | " + " | ".join(cells) + " |")
-    lines += ["", "| Arm | clean | neighbours | misleading | not misleading |", "|---|---|---|---|---|"]
+    lines += ["", "| Arm | clean | neighbours | misleading | not misleading | abstained in its answer |",
+              "|---|---|---|---|---|---|"]
     for r in runs:
         s = sums[r.label]
         lines.append(f"| {r.label} | " + " | ".join(str(s["abstention_by_shape"][k]) for k in ABSTENTION_SHAPES)
-                     + f" | {_pct(s['abstention_not_misleading'])} |")
+                     + f" | {_pct(s['abstention_not_misleading'])} | {_pct(s['abstention_in_answer'])} |")
     lines += ["", "*clean*: it admits and gives no value of the kind. *neighbours*: it admits, and each value it gives "
               "sits beside another fact's subject, never the asked one's. *misleading*: any other failure. "
               "Abstention accuracy above counts only *clean*.",
+              "", "*abstained in its answer*: the admission present, and no value of the asked kind in the reply's "
+              "**first sentence**, whatever a later sentence attributes to another subject. Abstention accuracy "
+              "above reads the same `lacks` clause over the **whole reply**, so a reply that admits and then says "
+              "what it does hold about a different component counts there as an answer. The two differ by the scope "
+              "of one clause and by nothing else; quote whichever, and say which.",
               "", "## By probe kind, and by how the fact was said", "",
               "Recall accuracy (direct and indirect) by the fact's carrier: a tool's output, an error message, an "
               "aside, a side remark, or the topic of the moment.", "",
@@ -705,6 +783,9 @@ def report(runs: list[ArmRun], sums: dict[str, dict], stale_rule: str = "strict"
               "- Days are dated text: each session opens with its date, and neither arm's clock moves. A memory "
               "that weighs real elapsed time (retention) sees minutes, not days.",
               "- Excluded probes (undelivered, failed) are counted above and scored nowhere.",
+              "- Date probes of a run whose clock was not pinned to its narrated dates are set aside as "
+              "`clock_conflict`: the arm's own date contradicted the narration, so they measure that, not recall. "
+              + "; ".join(f"{r.label}: {sums[r.label]['clock_conflict']}" for r in runs) + ".",
               ""]
     return "\n".join(lines)
 
@@ -765,12 +846,26 @@ def _esc(s: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("runs", nargs="+", type=Path)
+    ap.add_argument("runs", nargs="*", type=Path)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--rescore-clock", type=Path, default=None, metavar="SCORES_JSON",
+                    help="instead of scoring runs: rescore a saved scores.json with every date probe set aside, "
+                         "and write it to --out/scores.json ($0; the saved probes, no model)")
     ap.add_argument("--stale", choices=STALE_RULES, default="strict",
                     help="strict: a superseded value named anywhere is stale (the default); retracted: not where "
                          "the reply retracts it")
     a = ap.parse_args(argv)
+    if a.rescore_clock is not None:
+        out = rescore_clock(json.loads(a.rescore_clock.read_text()))
+        a.out.mkdir(parents=True, exist_ok=True)
+        (a.out / "scores.json").write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
+        for label, s in out["arms"].items():
+            print(f"{label}: recall {_pct(s['recall_accuracy'])}, abstention {_pct(s['abstention_accuracy'])}, "
+                  f"{s['scored']} scored, {s['clock_conflict']} clock-conflict, "
+                  f"{s['confident_wrong']} confident-wrong")
+        return 0
+    if not a.runs:
+        ap.error("name the runs to score, or --rescore-clock <scores.json>")
     runs = [load_run(d) for d in a.runs]
     digests = {r.prog.digest() for r in runs}
     if len(digests) != 1:

@@ -36,7 +36,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and again as it parks), its turn's connection watches the session, and `wake.at` says a wake due past the bound
   will not fire here; no other daemon reads it. The ask's own turn fixes the run's end, and a wake fires in the run
   when it is due by the end the run had when it was set, less `FIRE_MARGIN_MS` for the driver's tick (`OneShot::fires`):
-  the words and the result's `fires`, which the CLI follows, are one rule however long the turn ran. A refused request goes once to its model's fallback, the catalog's
+  the words and the result's `fires`, which the CLI follows, are one rule however long the turn ran. A refused request is first made once more on the model that
+  refused it (`[model.retries] refusal_retry`, on by default; at most one retry per request and three per turn, a `provider.refusal_retry` row each; theseus-keuap),
+  and only a refusal that survives that goes to its model's fallback, the catalog's
   `refusal_fallback_model` (Sonnet 5.5's: Sonnet 5), and the fallback answers that request, the next going back to the routed model unless the turn stays (a
   `[model.retries] hard_decline_categories` refusal, a timeout, or the third routed refusal in a row; theseus-wf482)
   (`turn/fallback_step.rs`,
@@ -68,7 +70,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`nudge_step::may_continue` is the condition both share). The result's `files` (changed, left, the note and whether
   the model acted) is `harness_lines`' `Files:` line and rides `turn.ended`'s row; a turn's maps drop with it
   (`end_note_step::Held`). A command running beside another in one directory may be credited with the other's files.
-  Tests: `tests_end_note.rs`, `beside::tests`, `tests_stop_nudge.rs`.
+  **Build residue is not a leftover** (theseus-pp5hi): a command's new file whose own name is on a closed list
+  (`end_note_step::RESIDUE_*`: `__pycache__`, `.pytest_cache`, `.venv`, `build`, `a.out`, `*.so`, `*.pyc`) does not
+  count toward the note, unless the task's words (the session's non-harness user messages) name it (its name as a
+  token, `.so` for the extension; the bare word `build` only beside a `/`). A turn whose every leftover is residue
+  ends; its result's `files` still names them, and edits no command ran since are never residue. The list is closed:
+  widen it only on evidence, never by guessing what a task wanted. Tests: `tests_end_note.rs`, `end_note_step::tests`,
+  `beside::tests`, `tests_stop_nudge.rs`.
   **Task turns leave a slot free** (theseus-o1h3f.4; `turn/admission.rs`): task-class turns hold at most `ceiling - 1`
   slots (`Admission::task_limit`; a ceiling of 1 keeps its one for tasks), so a person's message always finds one
   — except between a lend and its retake, which the limit never refuses, where the count can briefly reach the
@@ -1822,7 +1830,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `[routing] effort_bounds`, only for a model whose catalog row takes effort; an answer below the question's confirm
     band still applies at `[routing] effort_confidence` (0.35) or more, as `applied_unsure` (theseus-7pm8t: an effort
     is not held to the model switch's bar); under it, `unclear`, a pin, shadow, or a late (carried) verdict leave the
-    profile's own. `apply_effort` sets it on the spec
+    profile's own. **`[routing] effort_floor_confidence`** (theseus-l7i9k, regress R4; unset = off, ships off): an answer
+    under it applies nothing, the profile's own effort stands, `effort_reason` is `gated`; it comes after `fixed` and
+    `no_effort` and stops `floored`, `applied_unsure` and `held_high_unsure` together (a gated `floored` runs at the same
+    level: the floor is the routed profile's own effort). The flip condition is in the template beside the knob. `apply_effort` sets it on the spec
     and the first compile's request (`compiler::output_config`), and takes that request's digest again, which the
     turn records and the overflow retry compares. `route.decided`'s `effort_*` fields and `TurnRoute`
     say which. Tests: `tests_route_effort.rs`, `routing::effort::tests`.

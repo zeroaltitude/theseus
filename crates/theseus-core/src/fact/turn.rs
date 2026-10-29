@@ -1190,6 +1190,37 @@ impl Fact for FellBack<'_> {
     }
 }
 
+/// A refused request is made once more on the model that refused it
+/// (`provider.refusal_retry`, theseus-keuap): the model, the refusal's
+/// category, the refused answer, which the retry leaves out, the loop it was,
+/// and which retry of the turn this is (`n`, from 1).
+pub struct RefusalRetried<'a> {
+    pub model: &'a str,
+    pub category: Option<&'a str>,
+    pub loop_index: Option<u32>,
+    pub refused: &'a str,
+    pub n: u32,
+}
+
+impl Fact for RefusalRetried<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ProviderRefusalRetry);
+
+    fn row(&self) -> Value {
+        json!({"model": self.model, "category": self.category, "loop": self.loop_index, "refused": self.refused,
+               "n": self.n})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Model,
+            format!(
+                "{} refused; the request is made once more on it ([model.retries] refusal_retry).",
+                self.model
+            ),
+        );
+    }
+}
+
 /// The fallback answered and the turn is back on the model it was routed to
 /// (`provider.routed_back`, theseus-wf482): the routed model, the loop whose
 /// answer it was, and the fallback it was.

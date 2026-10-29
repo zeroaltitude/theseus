@@ -245,10 +245,23 @@ default is then high, where Claude Code and Pi send medium by their own defaults
 config's `profiles.bench.effort` (a Harbor run's level is its own, in `bench/theseus-bench.toml`), passes Claude Code
 `--effort` and Pi `--thinking`.
 
-**Days are dated text.** No arm's CLI takes a clock, so each session opens with its date. What this measures is
-recall of what was said on a dated day, across the arm's session boundaries and compactions. It can't measure the
-effect of time itself. Theseus and Claude Code see the real date in their system prompts too (Pi 1.0.4's has
-none), and a memory that weighs elapsed time (retention) sees the minutes the run took, not the script's days.
+**Days are dated text, and the clock agrees with them.** No arm's CLI takes a clock, so each session opens with its
+date, and by itself that is a contradiction: the arm's system prompt and its tools' `date` read the machine's own, and
+the model, which notices, says so and is graded confident-wrong for believing the machine (22 of the 32 confident-wrong
+probes of the 10-26 seeds, `date` recall 0.367; theseus-kyrgn). So the driver pins the clock (`--clock auto|pin|off`):
+libfaketime is preloaded into every process an arm starts and reads `@YYYY-MM-DD 08:00:00` from a file the driver
+rewrites at each session (`progression.clock_plan`: the dates the progression already carries, so no digest moves), and
+the driver reads the date back from a fresh process and stops the run before a turn if the machine disagrees
+(`ClockDrift`). `pin` requires the library (`--faketime-lib`, `$LIBFAKETIME_LIB`, or the distribution's); `auto` pins when
+it is found and otherwise runs unpinned, recorded in `run.json`'s `clock`, and the scorer then sets that run's date
+probes aside as `clock_conflict` (counted, scored nowhere); `score.py --rescore-clock <scores.json>` applies the same
+rule to a saved run ($0). The clock ticks from the pin, so a run past 15 hours is refused rather than roll past midnight.
+What this measures is still recall of what was said on a dated day, and a memory that weighs elapsed time (retention) now
+sees the script's days where it saw minutes. Untested live: whether the model API's TLS validation accepts a clock this
+far from the real one; a first pinned run should prove it on a smoke before a full run is spent.
+`python3 bench/recall/clock.py --smoke 2021-03-04` is the $0 proof that the pin takes on a host: it prints the host's
+date, a control arm's (the same path without the pin) and the pinned arm's, and exits 1 unless the pinned arm reads the
+pin and the control does not. It refuses a pin within a week of today, so a pin that did nothing cannot pass for one that worked.
 
 **Delivery.** Every fact's marker is looked for in the arm's transcript (Theseus's history, Claude Code's and Pi's
 session logs). A probe whose fact never reached the arm (it didn't run the script, say) is excluded and counted, never

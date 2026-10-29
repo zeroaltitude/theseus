@@ -30,7 +30,15 @@
 //!   waits on a counter, the asks open for its session
 //!   ([`crate::content_wait::Verdicts::outstanding`]), which a landing brings
 //!   down and wakes. The retry happens **inside** the open ask, so the count
-//!   stays up across it.
+//!   stays up across it. Because a turn may be blocked on it, every content
+//!   call goes out as [`theseus_judge::Urgency::Awaited`] (theseus-oc9n4),
+//!   whether or not a floor is waiting on its session: it may take one of the
+//!   in-flight permits the client keeps back for content, rather than
+//!   queueing behind ordinary judge work. With the permits saturated and a
+//!   content call taking an ordinary one, the floor spent its whole `wait_ms`
+//!   on the queue and the turn fell off its model with the verdict landing
+//!   just after it ended. The client keeps no share back when
+//!   `session_flags` is off, as no content call is then made.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -247,6 +255,11 @@ impl JudgeService {
         let _ = self.content.names.set(names);
         self.content.off.store(!enabled, Ordering::Relaxed);
         self.content.max_pieces.store(max_pieces, Ordering::Relaxed);
+    }
+
+    /// `[content_based_security] session_flags = false`: no content call is made.
+    pub(crate) fn content_is_off(&self) -> bool {
+        self.content.off.load(Ordering::Relaxed)
     }
 
     /// The operator's config as the pack reads it, set once as the core is
@@ -946,7 +959,16 @@ async fn ask_once(
             .judge
             .judge(DecisionPoint {
                 asks: asks.iter().map(|(_, a)| a.clone()).collect(),
-                urgency: Urgency::live(total),
+                // Every content call goes out so, whether or not a floor is
+                // waiting on this session: the drain judges each item that
+                // enters each session, and nothing here knows a turn is at
+                // its floor. A cn turn may be, though: the floor waits on
+                // the session's open count and then goes on the labels it
+                // has (theseus-oc9n4). So the call may take one of the
+                // permits kept back for content, rather than queueing behind
+                // ordinary judge work, and a call no one waits on may hold
+                // one a waiting floor needs.
+                urgency: Urgency::awaited(total),
             })
             .await;
         settle(me, &today, need, &judgments);
