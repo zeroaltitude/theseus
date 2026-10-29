@@ -2705,7 +2705,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the intents it is for (watch this, remind me, check it hourly, every morning tell me, at 3 today, until Friday, keep me
   posted) rather than any keyword, and points at `watch` (`watch_tool.rs`) for a condition a command can check with no model.
   The card names the start and the stop; `RoutineInfo` carries `start_ms`, `stop`, `stop_ms`, `stopped` and `carry` for the
-  cockpit and the agenda. CLI: `theseus routine add --start --stop --carry`.
+  cockpit and the agenda. CLI: `theseus routine add --start --stop --carry`. A run-count stop is the daemon's to keep on
+  every surface: `work.agenda` serves a routine's occurrences only up to the stop's runs less the runs opened
+  (`push/work/horizon.rs`, `runs_left`), so a client draws exactly what will run and invents nothing; and a stop that has
+  come tells the owner the series has ended (`routine_stopped`, `routines_watch.rs`), not that a run was skipped.
   Tests: `tests_routines.rs` (a minute routine runs three times as three fresh tasks reporting to the DM; overlap; pause and run
   now; a spent month and its reset; the catch-up's words; the model's card; `when_notable`; update and delete),
   `tests_routine_stop.rs` (the start, the two stops, the carry and the card), the kernel's
