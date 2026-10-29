@@ -90,6 +90,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import checks  # noqa: E402
+import clock as ck  # noqa: E402
 import generate  # noqa: E402
 import progression as pg  # noqa: E402
 import tokens as tk  # noqa: E402
@@ -504,8 +505,12 @@ class Run:
         self.raw.mkdir()
         pg.materialize(prog, self.workspace)
         (out / "progression.json").write_text(json.dumps(prog.to_json(), indent=1, sort_keys=True) + "\n")
+        # The clock every arm's processes read (theseus-kyrgn): pinned to each session's narrated date, or
+        # unpinned and recorded so. Set by main from --clock; a run built without one (a test) is unpinned.
+        self.clock = ck.Clock(prog, mode="off", workdir=out)
         self.meta = {"arm": arm, "digest": prog.digest(), "size": prog.size, "seed": prog.seed, **meta,
-                     "started_unix": int(time.time()), "compactions": [], "killed": [], "turns": 0}
+                     "started_unix": int(time.time()), "compactions": [], "killed": [], "turns": 0,
+                     "clock": self.clock.meta}
         self.turns_f = (out / "turns.jsonl").open("w")
         self.save()
 
@@ -568,7 +573,8 @@ class Theseus:
             day_ceiling=a.day_ceiling,
         )
         self.cfg.write_text(toml_dumps(cfg))
-        self.env = _env_without(("THESEUS_CONFIG", "THESEUS_STATE_DIR", "THESEUS_SOCKET", "THESEUS_SESSION"))
+        self.env = run.clock.env(_env_without(("THESEUS_CONFIG", "THESEUS_STATE_DIR", "THESEUS_SOCKET",
+                                               "THESEUS_SESSION")))
         if a.api_base and not self.env.get("ANTHROPIC_API_KEY"):
             self.env["ANTHROPIC_API_KEY"] = "stand-in"  # the stand-in model reads none
 
@@ -662,6 +668,7 @@ class Theseus:
             for t in prog.turns:
                 if t.session != session:
                     session = t.session
+                    run.clock.enter(session)
                     if session not in opened:
                         opened[session] = self.open_session(f"recall {prog.sessions[session].label}")
                         sids.append(opened[session])
@@ -738,7 +745,7 @@ class ClaudeCode:
         self.claude = a.claude
         self.config = (run.out / "claude-config").resolve()
         self.config.mkdir()
-        self.env = _env_without(CC_PARENT_ENV)
+        self.env = run.clock.env(_env_without(CC_PARENT_ENV))
         self.env["CLAUDE_CONFIG_DIR"] = str(self.config)
         self.window = a.context_window or run.prog.context_window
         mode = a.cc_compact
@@ -784,6 +791,7 @@ class ClaudeCode:
         for t in prog.turns:
             if t.session != session:
                 session = t.session
+                run.clock.enter(session)
                 if session in slot:
                     sid, first = sids[slot[session]], False
                 else:
@@ -969,7 +977,7 @@ class Pi:
         if not self.model:
             self.provider, self.model = "anthropic", a.model
         self.window = a.context_window or run.prog.context_window
-        self.env = _env_without(PI_PARENT_ENV + CC_PARENT_ENV)
+        self.env = run.clock.env(_env_without(PI_PARENT_ENV + CC_PARENT_ENV))
         self.env.update({"PI_CODING_AGENT_DIR": str(self.config), "PI_SKIP_VERSION_CHECK": "1",
                          "PI_TELEMETRY": "0", "PI_OFFLINE": "1"})
 
@@ -1063,6 +1071,7 @@ class Pi:
         for t in prog.turns:
             if t.session != session:
                 session, sid = t.session, f"recall-{uuid.uuid4()}"
+                run.clock.enter(session)
                 sids.append(sid)
             pg.apply_before(t, run.workspace)
             v, out, code, ms = self.call(t.text, sid, a.turn_timeout)
@@ -1165,6 +1174,14 @@ def main(argv: list[str] | None = None) -> int:
                          "holds beyond Pi's, and a pinned value is refused when the probe finds Pi more than the "
                          "cushion off it")
     pa.add_argument("--pi-arg", action="append", default=[], help="an extra argument for pi (repeatable)")
+    ck_ = ap.add_argument_group("clock")
+    ck_.add_argument("--clock", choices=ck.MODES, default="auto",
+                     help="pin every arm's clock to each session's narrated date (libfaketime; the narration is the "
+                          "thing under test and the machine's own date contradicts it): pin requires the library, "
+                          "off never pins, auto pins when it is found and otherwise runs unpinned, recorded in "
+                          "run.json, with the date probes set aside by the scorer")
+    ck_.add_argument("--faketime-lib", default=None, help=f"libfaketime.so.1 (default: ${ck.LIB_ENV}, then the "
+                                                          "distribution's)")
     a = ap.parse_args(argv)
     given = a.progression is not None
     generated = a.seed is not None or a.size is not None
@@ -1201,6 +1218,9 @@ def main(argv: list[str] | None = None) -> int:
     if a.arm == "theseus":
         meta["memory_arm"] = a.memory_arm
     run = Run(a.out, prog, a.arm, meta)
+    run.clock = ck.Clock(prog, mode=a.clock, lib=ck.find_lib(a.faketime_lib), workdir=run.out)
+    run.meta["clock"] = run.clock.meta
+    run.save()
     if probe is not None:
         (run.raw / "probe-theseusd.log").write_text(probe["log"])
         run.meta["overhead"] = rec = {**overhead_record(planned, probe["measured"], a.allow_overhead, pinned),
@@ -1215,6 +1235,11 @@ def main(argv: list[str] | None = None) -> int:
         transcript = driver.drive()
     except OverheadPastPlan as e:
         print(f"drive: {e}", file=sys.stderr)
+        run.turns_f.close()
+        return 3
+    except ck.ClockDrift as e:
+        print(f"drive: {e}", file=sys.stderr)
+        run.save()
         run.turns_f.close()
         return 3
     run.finish(transcript)

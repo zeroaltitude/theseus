@@ -209,5 +209,56 @@
    "note": "recomputed from the published CSV on this report's grouping; see the comment in recall_report.py"
   },
   "note": "rivals not rerun: Claude Code 0 of 48 and Pi 1 of 48 across sessions on seed 7, a structural fact about harnesses that carry nothing between sessions"
+ },
+ "clock_rescore": {
+  "rule": "a date probe of a run whose clock was not pinned to its narrated dates is set aside (status clock_conflict), counted and scored nowhere; every other probe is untouched",
+  "ticket": "theseus-kyrgn",
+  "cost_usd": 0,
+  "model_calls": 0,
+  "note": "all three runs predate the clock pin: the arm's own date contradicted the narrated calendar. A rescore cannot raise date recall; it stops counting the conflict. The rise needs a pinned rerun.",
+  "arms": {
+   "seed7": {
+    "run": "2026-10-18",
+    "recall_right": 95,
+    "recall_n": 129,
+    "recall_accuracy": 0.7364,
+    "confident_wrong": 2,
+    "confident_wrong_n": 189,
+    "date_set_aside": 5,
+    "date_undelivered": 9,
+    "all_scored_recall": [
+     98,
+     134
+    ]
+   },
+   "seed11": {
+    "run": "2026-10-26",
+    "recall_right": 88,
+    "recall_n": 114,
+    "recall_accuracy": 0.7719,
+    "confident_wrong": 4,
+    "confident_wrong_n": 174,
+    "date_set_aside": 30,
+    "date_confident_wrong": 17,
+    "all_scored_recall": [
+     99,
+     144
+    ]
+   },
+   "seed13": {
+    "run": "2026-10-26",
+    "recall_right": 100,
+    "recall_n": 124,
+    "recall_accuracy": 0.8065,
+    "confident_wrong": 5,
+    "confident_wrong_n": 184,
+    "date_set_aside": 20,
+    "date_confident_wrong": 6,
+    "all_scored_recall": [
+     112,
+     144
+    ]
+   }
+  }
  }
 }

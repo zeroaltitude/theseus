@@ -526,6 +526,7 @@ impl TurnRunner {
         let bars = effort::Bars {
             effort: r.effort_confidence,
             high: r.high_effort_confidence,
+            floor: r.effort_floor_confidence,
         };
         let decided = effort::decide(bounds, bars, answer, runs, at.acts, carried);
         Some(self.stick(t, spec, decided, answer, (model, tokens), at.checkpoint))

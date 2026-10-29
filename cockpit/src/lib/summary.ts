@@ -28,6 +28,8 @@ export function summarize(r: LedgerEntry): string {
     }
     case 'provider.routed_back':
       return `${s('after')} answered · back to ${s('to')}`
+    case 'provider.refusal_retry':
+      return `${s('model')} refused${d.category ? ` (${s('category')})` : ''} · the request is made once more on it (retry ${s('n')} of 3)`
     case 'turn.nudged':
       return `nudged once: the reply said more work would follow (${s('by')} ${Number(d.p ?? 0).toFixed(2)}) · ${s('judgment')}`
     case 'loop.ended':

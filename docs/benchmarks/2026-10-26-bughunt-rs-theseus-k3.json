@@ -97,7 +97,9 @@
      "fallback_category": "reasoning_extraction",
      "fallback_to": "claude-sonnet-5"
     }
-   ]
+   ],
+   "price_digest": "8414028cd0f7",
+   "price_basis": "measured"
   },
   {
    "arm": "theseus-1.0.1",
@@ -196,7 +198,9 @@
      "fallback_category": null,
      "fallback_to": null
     }
-   ]
+   ],
+   "price_digest": "dc6b41397353",
+   "price_basis": "measured"
   },
   {
    "arm": "claude-code",
@@ -321,7 +325,9 @@
      "fallback_category": null,
      "fallback_to": null
     }
-   ]
+   ],
+   "price_digest": null,
+   "price_basis": "unmeasured"
   },
   {
    "arm": "opencode",
@@ -451,7 +457,9 @@
      "fallback_to": null,
      "cost_usd_root_only": 2.612684
     }
-   ]
+   ],
+   "price_digest": null,
+   "price_basis": "unmeasured"
   },
   {
    "arm": "codex",
@@ -567,7 +575,9 @@
      "fallback_category": null,
      "fallback_to": null
     }
-   ]
+   ],
+   "price_digest": null,
+   "price_basis": "unmeasured"
   }
  ],
  "figures": [
@@ -706,5 +716,35 @@
   "host_load1_max": 11.8,
   "mem_available_min_gb": 15.0,
   "samples": 225
+ },
+ "price_basis": {
+  "note": "Round 1 (1.0.1, 2026-10-24) and round 2 (1.0.3, 2026-10-26) were billed on different price tables: theseus-rko44 moved the Sonnet 5.5 cache-read price $0.10 -> $0.20/Mtok on 2026-10-25. Each digest is MEASURED from the round's own per-call records (round 1: all 563 calls that carry a cache read fit the old table and none the new; round 2: all 455 fit the new), never from its date. The rivals bill on their own tables and are unmeasured. A ratio between the two rounds is only valid on one table (theseus-0j5k5).",
+  "tables": {
+   "8414028cd0f7": "list-2026-10-25",
+   "dc6b41397353": "list-pre-rko44"
+  },
+  "cost_per_trial_like_for_like": {
+   "basis_old_table": {
+    "round1_usd": 15.71,
+    "round2_usd": 5.47,
+    "ratio": 0.348,
+    "cheaper_by_pct": 65.2
+   },
+   "basis_new_table": {
+    "round1_usd": 21.66,
+    "round2_usd": 7.58,
+    "ratio": 0.35,
+    "cheaper_by_pct": 65.0
+   },
+   "as_billed_mixed": {
+    "round1_usd": 15.71,
+    "round2_usd": 7.58,
+    "ratio": 0.483,
+    "cheaper_by_pct": 51.7,
+    "valid": false,
+    "why": "crosses two price tables: a price change added to a behaviour change"
+   }
+  },
+  "published_cost_change": "65% cheaper, like for like"
  }
 }

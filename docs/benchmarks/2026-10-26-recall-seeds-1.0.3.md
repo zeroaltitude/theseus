@@ -55,7 +55,7 @@ in a tool's output were recalled 22% of the time at seed 11 and 64% at seed 13.
   *different* component's path named in the explanation after the abstention. Confident-wrong is a separate
   population and survives, smaller: 17 of 21 and 6 of 11 are date-valued probes in which the model preferred
   the machine clock to the bench's narrated calendar and said so. Ex-date it is **4 of 114 and 5 of 124**
-  against seed 7's 2 of 134 — real, and too small to interval.
+  against seed 7's 2 of 129 on the same rule — real, and too small to interval.
 - **It costs about 2.0× more like for like, not 3.2×** (correction 1 at the top). The whole 600-turn
   progression cost **$37.17** and **$35.10** as billed, against **$11.44** on 10-18 — but on 10-18's own price
   table the two seeds are **$23.15** and **$22.55**. The planned context window also moved 88,000 → 183,000
@@ -159,8 +159,9 @@ same build:
   of the messages a compaction cut. This build does not need the correction, and its rate needs no asterisk.
 - ~~**Abstention is worse.** 51 and 56 of 60 gave a value where seed 7 gave 38 of 60.~~ **WITHDRAWN** — it is
   the grader, not the build. See "Rescored abstention" below; on the corrected rule it is 60 of 60 at both
-  seeds. Abstention is named as weak in both prior reports, so the same clause very likely cost seed 7 too;
-  its raw replies are not on this machine and that cannot be checked here.
+  seeds. Abstention is named as weak in both prior reports, and the same clause did cost seed 7: its run
+  directories survive on the build host and it has been rescored there (see the note under "Rescored
+  abstention"); that figure is not published on this page.
 - **Supersession is the weakest bucket at both seeds** — 29% and 42% — and the failure mode is naming the
   superseded value rather than refusing: the strict stale rule counts a stale value named anywhere as wrong.
   **This is the same clause as the abstention artefact**, applied to a population where naming the superseded
@@ -171,7 +172,7 @@ same build:
   the 21 and 6 of the 11 are date-valued probes** where the bench narrates a simulated calendar, the build
   surfaces the real machine date, and the model says which it used (*"Your first message said the date was
   2026-11-24, but the machine date is 2026-10-26, and I used the machine's"*). **Ex-date the rise is 4 of 114
-  and 5 of 124 against 2 of 134** — real, small, and on counts too low to interval.
+  and 5 of 124 against 2 of 129** — real, small, and on counts too low to interval.
 - **Cost is up about 2.0× on the whole run** at both seeds on one price table (3.2× as billed, across two),
   on an unchanged prompt and with the planned context window 2.08× larger. See correction 1 at the top.
 
@@ -211,18 +212,20 @@ reply has   /<abstention-phrase regex: don't know | no record | not mentioned | 
 | | seed 11 | seed 13 | 10-18 seed 7 |
 |---|---|---|---|
 | abstention probes | 60 | 60 | 60 |
-| contain an explicit abstention phrase | **60** | **60** | not checkable here * |
+| contain an explicit abstention phrase | **60** | **60** | not published here * |
 | **as shipped** — `lacks` over the whole reply | 9 correct | 4 correct | 22 correct (38 "gave a value") |
-| **corrected** — `lacks` over the first sentence | **60** | **60** | not checkable here * |
+| **corrected** — `lacks` over the first sentence | **60** | **60** | not published here * |
 | variant — `lacks` over the first paragraph | 58 | 60 | — |
 | probes that flip wrong → right | **51** | **56** | — |
 
-\* **Seed 7 cannot be rescored and this is a real limit of the correction, not a formality.** Its published
-data file carries scores and usage but **no replies**, and no run directory for it survives on either host, so
-there is nothing to apply a corrected grader to. Its 38-of-60 figure is on the uncorrected rule. The two 10-26
-seeds are therefore compared with a seed-7 number the correction could not reach, and **the honest reading is
-that the abstention comparison across builds is not available at all**, rather than that it favours either
-build. Abstention was named as weak in both prior reports, so the same clause plausibly cost seed 7 as well.
+\* **Seed 7 has been rescored; its figures are not published here.** An earlier version of this note said
+seed 7 could not be rescored because no run directory for it survived. That was wrong: the seed-7 run
+directories (all three arms, 600 replies each) survive on the build host, and the corrected grader has been
+applied to them, independently of the branch that wrote it, with the result recorded in `theseus-r2w2n`. The
+rescore stands: the whole-reply rule cost seed 7 as it cost the two 10-26 seeds, so the abstention comparison
+across builds is available and **does not favour either build**. What this page's data file still lacks is the
+replies themselves, so a reader cannot reproduce the seed-7 figures from the repository, which is why they are
+held back. The 38-of-60 figure in the table is on the uncorrected rule.
 
 **What the correction does *not* change.** The 144 non-abstention probes are untouched: recall stays **99/144**
 at seed 11 and **112/144** at seed 13, and every bucket, carrier and cross-session figure on this page stands.
@@ -233,13 +236,22 @@ All four rows below are over the **144 non-abstention probes** — the same popu
 `recall, all probes` row. (The 10.3% / 5.4% rates quoted earlier on this page are the same counts over all
 204 probes; the counts, not the denominators, are what the date split moves.)
 
-| | seed 11 | seed 13 |
-|---|---|---|
-| confident-wrong | 21 | 11 |
-| of those, date-valued | **17** | **6** |
-| confident-wrong, ex-date | **4 of 114** | **5 of 124** |
-| recall, ex-date | 88/114 = 77.2% | 100/124 = 80.6% |
-| recall, all 144 (unchanged) | 99/144 = 68.8% | 112/144 = 77.8% |
+| | seed 11 | seed 13 | seed 7 (10-18, rescored) |
+|---|---|---|---|
+| confident-wrong | 21 | 11 | 2 |
+| of those, date-valued | **17** | **6** | 0 |
+| confident-wrong, ex-date | **4 of 114** | **5 of 124** | **2 of 129** |
+| recall, ex-date | 88/114 = 77.2% | 100/124 = 80.6% | 95/129 = 73.6% |
+| recall, all scored (unchanged) | 99/144 = 68.8% | 112/144 = 77.8% | 98/134 = 73.1% |
+
+Seed 7's column is the **same rule over its own saved scores**, not the estimate this page's source report
+gave as a range: its 14 date probes are 9 undelivered and 5 scored (3 right, 0 confident-wrong), and setting
+those 5 aside leaves 95/129. Its 134 is the scored recall probes (10 of 204 were undelivered); a new seed's
+denominator is 144. The three columns are read by one grader and one rule — the rule being that **a date
+probe of a run whose clock was not pinned to its narrated dates is set aside, counted as `clock_conflict`
+and scored nowhere** (`theseus-kyrgn`; all three runs predate the pin). Nothing here shows a rise in date recall:
+the replies are on disk and say what they say, so a rescore can only stop counting the conflict. **The rise
+needs a pinned rerun** (`drive.py --clock pin`), which makes model calls and is not run in 1.0.4.
 
 Reproduce with `driver/recall_rescore.py` (prints both columns and the flipped probes) over
 `seed{11,13}-turns.jsonl`, `seed{11,13}-prog.json` and this cell's own `seed{11,13}-scores.json`. The

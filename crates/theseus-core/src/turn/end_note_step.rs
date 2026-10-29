@@ -5,6 +5,12 @@
 //! never what to do. The stop nudge's shape (`nudge_step.rs`): one harness
 //! node and its `turn.end_noted` row in one frame, `stop_reason` cleared.
 //!
+//! What a build leaves is not what was left (theseus-pp5hi): a closed list of
+//! residue names (`RESIDUE_DIRS`, `RESIDUE_FILES`, `RESIDUE_EXTS`) is not
+//! counted toward the note, unless the task's own words name that path. A turn
+//! whose every leftover is residue ends; the result's `files` still names them.
+//! Edits no command ran since are never residue.
+//!
 //! Never in a shared place, with `[model] end_note` off, in a turn the stop
 //! nudge already continued, while a job of the turn runs, at a strict loop
 //! cap, in a turn that wrote nothing, or twice in one turn. The turn's result
@@ -52,6 +58,80 @@ impl Drop for Held {
 struct Facts {
     left: Vec<PathBuf>,
     unrun: Vec<PathBuf>,
+}
+
+/// Directories a build or a test run leaves, by name.
+const RESIDUE_DIRS: &[&str] = &["__pycache__", ".pytest_cache", ".venv", "build"];
+/// Files a build leaves, by name.
+const RESIDUE_FILES: &[&str] = &["a.out"];
+/// Files a build leaves, by extension.
+const RESIDUE_EXTS: &[&str] = &["so", "pyc"];
+
+/// Whether `path` is on the closed residue list. Its own name only: a
+/// listing's entries are the leftovers, and a residue-named directory above
+/// the project says nothing about them.
+fn is_residue(path: &Path) -> bool {
+    let Some(file) = path.file_name().map(|f| f.to_string_lossy().into_owned()) else {
+        return false;
+    };
+    RESIDUE_DIRS.contains(&file.as_str())
+        || RESIDUE_FILES.contains(&file.as_str())
+        || path
+            .extension()
+            .is_some_and(|e| RESIDUE_EXTS.contains(&e.to_string_lossy().as_ref()))
+}
+
+/// Whether `word` stands in `text` as its own token: not inside a longer name.
+/// A bare word like `build` must touch a `/`, or any sentence would name it.
+fn mentions(text: &str, word: &str) -> bool {
+    let bare = word.chars().all(|c| c.is_ascii_alphabetic());
+    let ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    text.match_indices(word).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + word.len()..].chars().next();
+        !before.is_some_and(ident)
+            && !after.is_some_and(ident)
+            && (!bare || before == Some('/') || after == Some('/'))
+    })
+}
+
+/// Whether the task's own words name `path`: its name, or (for an extension)
+/// the extension itself.
+fn named_by_task(prompt: &str, path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|f| mentions(prompt, &f.to_string_lossy()))
+        || path.extension().is_some_and(|e| {
+            let e = e.to_string_lossy();
+            RESIDUE_EXTS.contains(&e.as_ref()) && mentions(prompt, &format!(".{e}"))
+        })
+}
+
+/// The words the person and the parent said to this session, which name
+/// what the task asked for.
+fn task_words(t: &Turn<'_>) -> String {
+    let store = t.tc.store;
+    let nodes = store.session_nodes(t.tc.session_id).unwrap_or_default();
+    nodes
+        .into_iter()
+        .filter(|(_, n)| n.origin != crate::node::Origin::Harness)
+        .filter_map(|(_, n)| match n.body {
+            Body::UserMessage { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// What the turn left that a task would want kept: everything but the
+/// closed list of build residue, and residue the task names.
+fn kept(t: &Turn<'_>, left: Vec<PathBuf>) -> Vec<PathBuf> {
+    if !left.iter().any(|p| is_residue(p)) {
+        return left;
+    }
+    let words = task_words(t);
+    left.into_iter()
+        .filter(|p| !is_residue(p) || named_by_task(&words, p))
+        .collect()
 }
 
 /// New files the turn's commands left that still exist in a directory its
@@ -112,7 +192,8 @@ impl TurnRunner {
         {
             return Ok(false);
         }
-        let facts = facts_of(t.tc.execution_id);
+        let mut facts = facts_of(t.tc.execution_id);
+        facts.left = kept(t, facts.left);
         if (facts.left.is_empty() && facts.unrun.is_empty()) || !self.may_continue(t)? {
             return Ok(false);
         }
@@ -180,5 +261,74 @@ impl TurnRunner {
             dir: t.tc.dir.map(|d| self.tools.scrubber.scrub(d).0),
         };
         (!files.is_empty() || files.end_note.is_some()).then_some(files)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The closed list, by a leftover's own name; a project directory called
+    /// `build` above it changes nothing.
+    #[test]
+    fn residue_is_a_closed_list_of_names() {
+        for p in [
+            "/w/src/__pycache__",
+            "/w/src/.pytest_cache",
+            "/w/src/.venv",
+            "/w/src/build",
+            "/w/src/a.out",
+            "/w/src/libx.so",
+            "/w/src/mod.pyc",
+        ] {
+            assert!(is_residue(Path::new(p)), "{p}");
+        }
+        for p in [
+            "/w/src/main",
+            "/w/src/results.csv",
+            "/w/src/model.bin",
+            "/w/src/solver.o",
+            "/w/build/proj/main",
+            "/w/src/builder",
+            "/w/src/libx.so.1",
+        ] {
+            assert!(!is_residue(Path::new(p)), "{p}");
+        }
+    }
+
+    /// A task names a path as a token, never inside a longer name, and the
+    /// bare word `build` only beside a slash.
+    #[test]
+    fn the_task_names_a_path_as_a_token() {
+        assert!(named_by_task("Produce ./a.out.", Path::new("/w/a.out")));
+        assert!(named_by_task(
+            "Build src/libfoo.so, then test.",
+            Path::new("/w/libfoo.so")
+        ));
+        assert!(named_by_task(
+            "Ship any .so you need.",
+            Path::new("/w/libbar.so")
+        ));
+        assert!(named_by_task(
+            "Output goes in build/.",
+            Path::new("/w/build")
+        ));
+        assert!(named_by_task(
+            "Put it under src/build",
+            Path::new("/w/build")
+        ));
+        assert!(!named_by_task(
+            "Build the project and run it.",
+            Path::new("/w/build")
+        ));
+        assert!(!named_by_task("Produce libfoo.so.", Path::new("/w/foo.so")));
+        assert!(!named_by_task(
+            "Use the .sock path.",
+            Path::new("/w/libbar.so")
+        ));
+        assert!(!named_by_task(
+            "Write main.py.",
+            Path::new("/w/__pycache__")
+        ));
     }
 }

@@ -10,6 +10,16 @@
 //! (`compiler::server_fallbacks`), it is used instead, and `[model.retries]
 //! refusal = false` turns this one off.
 //!
+//! Before it, a refusal whose category is not a genuine decline is made once
+//! more on the routed model (theseus-keuap, `[model.retries] refusal_retry`):
+//! the request is the same, the refused answer left out as the fallback's
+//! leaves it out. It answers, and the turn goes on as if the refusal had not
+//! been; it refuses, and the fallback takes the request as above. A retry is
+//! one more provider call, reserved, settled and ledgered as any, and it is
+//! not a routed refusal toward `STAYS_AT`: that counts the refusals the
+//! fallback had to answer. At most one retry per refused request and
+//! `RETRIES_PER_TURN` per turn; a hard decline is never retried.
+//!
 //! The turn stays on the fallback (`latched`) when the refusal's category is
 //! one of `[model.retries] hard_decline_categories`, when a call was cut at its
 //! whole-call bound (the same request would run as long again), or at the
@@ -30,6 +40,18 @@ use theseus_protocol::route::TurnFallback;
 /// The routed refusals in a row, counted from the routed model's last answer,
 /// at which a turn stays on the fallback.
 const STAYS_AT: u32 = 3;
+
+/// The same-model retries a turn makes, in all.
+const RETRIES_PER_TURN: u32 = 3;
+
+/// A turn's same-model retries of refusals.
+#[derive(Default)]
+pub(super) struct Again {
+    /// Retries made so far.
+    used: u32,
+    /// The request in flight is a retry: its refusal goes to the fallback.
+    pending: bool,
+}
 
 /// A turn's moves to its model's fallback: what its result says, where the
 /// session ran before the first, which its record keeps, and the target the
@@ -66,7 +88,17 @@ impl TurnRunner {
         (resp, refused): (&ModelResponse, &Node),
         said_before: (usize, usize),
     ) -> bool {
-        if resp.stop_reason.as_deref() != Some("refusal") || !self.cfg.model.retries.refusal {
+        // The request just answered, if it was a retry, ends the retry.
+        let was_retry = std::mem::take(&mut t.again.pending);
+        if resp.stop_reason.as_deref() != Some("refusal") {
+            // Not while latched: a retry cut at its whole-call bound fell to
+            // the fallback, and the fallback's request names it.
+            if was_retry && !on_fallback(t) {
+                spec.fallback = None;
+            }
+            return false;
+        }
+        if !self.cfg.model.retries.refusal {
             return false;
         }
         let category = resp
@@ -77,17 +109,55 @@ impl TurnRunner {
             let hard = &self.cfg.model.retries.hard_decline_categories;
             hard.iter().any(|h| h == c)
         });
-        let fell = self.switch_model(
-            (t, spec, slot),
-            category,
-            Some((refused.loop_index, &refused.id)),
-            hard,
-        );
+        let refused_at = (refused.loop_index, refused.id.as_str());
+        let fell = (!hard && !was_retry && self.retry_same(t, spec, category, refused_at))
+            || self.switch_model((t, spec, slot), category, Some(refused_at), hard);
         if fell {
             t.output.truncate(said_before.0);
             t.said.truncate(said_before.1);
         }
         fell
+    }
+
+    /// Whether the refused request is made once more on the routed model:
+    /// the switch is on, the turn is on its routed model, the turn has a
+    /// retry left, and the refusal would otherwise go to a fallback the
+    /// catalog names (one the provider's own fallback covers is not ours to
+    /// precede). The request is the fallback's shape on the routed model: it
+    /// names the model and leaves the refused answer out. Counts no refusal
+    /// toward `STAYS_AT` and makes no `FellBack`.
+    fn retry_same(
+        &self,
+        t: &mut Turn<'_>,
+        spec: &mut RequestSpec,
+        category: Option<&str>,
+        (loop_index, refused): (Option<u32>, &str),
+    ) -> bool {
+        let routed = t.target;
+        let entry = self.catalog.get(&routed.model);
+        let has_fallback = entry
+            .and_then(|e| e.refusal_fallback_model.as_deref())
+            .is_some_and(|to| self.catalog.get(to).is_some());
+        if !self.cfg.model.retries.refusal_retry
+            || on_fallback(t)
+            || t.again.used >= RETRIES_PER_TURN
+            || !has_fallback
+            || crate::compiler::server_fallbacks(spec, entry)
+        {
+            return false;
+        }
+        t.again.used += 1;
+        t.again.pending = true;
+        let n = t.again.used;
+        t.record(&fact::turn::RefusalRetried {
+            model: &routed.model,
+            category,
+            loop_index,
+            refused,
+            n,
+        });
+        spec.fallback = Some((routed.model.clone(), Some(refused.to_string())));
+        true
     }
 
     /// Whether a call cut at its whole-call bound goes to the model's
@@ -129,6 +199,9 @@ impl TurnRunner {
         else {
             return false;
         };
+        // A switch ends any retry in flight: the answer that follows is the
+        // fallback's, not the retry's.
+        t.again.pending = false;
         // Set once; a later switch finds the same target (the routed target's
         // clamp is the same each time).
         let target = slot.get_or_init(|| Target {

@@ -62,6 +62,14 @@ pub struct RoutingConfig {
     /// not held to the model switch's bar. At most `high_effort_confidence`.
     #[serde(default = "effort_confidence")]
     pub effort_confidence: f64,
+    /// The bar under which an effort answer applies nothing, so the turn runs
+    /// at its profile's own effort and the row says `gated` (theseus-l7i9k,
+    /// regress R4). Unset (the default) is off: `floored`, `applied_unsure`
+    /// and `held_high_unsure` apply as they do. Above `effort_confidence`,
+    /// at most 1. Off because its own verification is a pass-rate comparison
+    /// no bench has run; the template says what would turn it on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_floor_confidence: Option<f64>,
     /// The dear tier's context guard (theseus-p8dy): at a compile of more
     /// estimated tokens than this, a `sophisticated` or `review` verdict skips
     /// a profile whose input price is above the next usable one's in the
@@ -352,6 +360,7 @@ impl Default for RoutingConfig {
             effort_bounds: effort_bounds(),
             high_effort_confidence: high_effort_confidence(),
             effort_confidence: effort_confidence(),
+            effort_floor_confidence: None,
             dear_tier_max_tokens: dear_tier_max_tokens(),
             classes: RoutingClasses::default(),
             corrections: CorrectionsConfig::default(),
@@ -396,6 +405,13 @@ impl RoutingConfig {
             anyhow::bail!(
                 "routing.effort_confidence must be above 0 and at most routing.high_effort_confidence"
             );
+        }
+        if let Some(f) = self.effort_floor_confidence {
+            if !(f > e && f <= 1.0) {
+                anyhow::bail!(
+                    "routing.effort_floor_confidence must be above routing.effort_confidence and at most 1"
+                );
+            }
         }
         if self.dear_tier_max_tokens == 0 {
             anyhow::bail!("routing.dear_tier_max_tokens must be at least 1");
@@ -717,6 +733,38 @@ mod tests {
             .unwrap()
             .validate(|_| false)
             .unwrap();
+    }
+
+    /// `effort_floor_confidence` (theseus-l7i9k): unset (off) by default and
+    /// never written out unset; set, it is above `effort_confidence` and at
+    /// most 1, and the error says so.
+    #[test]
+    fn the_effort_floor_bar_is_off_unless_set_and_sits_above_the_effort_bar() {
+        let off = cfg("").unwrap();
+        assert!(!toml::to_string(&off)
+            .unwrap()
+            .contains("effort_floor_confidence"));
+        cfg("effort_floor_confidence = 0.6")
+            .unwrap()
+            .validate(|_| false)
+            .unwrap();
+        cfg("effort_floor_confidence = 1.0")
+            .unwrap()
+            .validate(|_| false)
+            .unwrap();
+        for bad in [
+            "effort_floor_confidence = 0.35",
+            "effort_floor_confidence = 0.2",
+            "effort_floor_confidence = 1.1",
+        ] {
+            let e = cfg(bad).unwrap().validate(|_| false);
+            assert!(
+                format!("{:#}", e.unwrap_err()).contains(
+                    "routing.effort_floor_confidence must be above routing.effort_confidence"
+                ),
+                "{bad}"
+            );
+        }
     }
 
     /// `dear_tier_max_tokens` (theseus-p8dy): 200,000 by default, at least 1.

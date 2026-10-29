@@ -286,6 +286,8 @@ mod tests_content_cut;
 #[cfg(test)]
 mod tests_content_floor;
 #[cfg(test)]
+mod tests_content_floor_wait;
+#[cfg(test)]
 mod tests_content_freeze;
 #[cfg(test)]
 mod tests_content_gate;
@@ -333,6 +335,8 @@ mod tests_draft_home;
 mod tests_draft_reach;
 #[cfg(test)]
 mod tests_effort_beta;
+#[cfg(test)]
+mod tests_effort_gate;
 #[cfg(test)]
 mod tests_effort_lapse;
 #[cfg(test)]

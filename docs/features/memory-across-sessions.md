@@ -52,7 +52,13 @@ day one.
 ## The limits today
 
 - Dates are the weak kind: 36.7% right on one 2026-10-26 seed, against 91.3% for paths and 81.8% for hosts.
-- Abstention is poor: asked something it was never told, it gave a value 51 of 60 times on that seed.
+- Asked something it was never told, it says so and then says what it *does* hold about a neighbouring
+  component. The "it gave a value 51 of 60 times" that stood here was **withdrawn by its own report**
+  ([2026-10-26](../benchmarks/2026-10-26-recall-seeds-1.0.3.md), correction 2): the grader read the check
+  over the whole reply, so the neighbour named in the explanation counted as an answer. Read over the
+  answer itself it abstained 60 of 60 on both 2026-10-26 seeds. The scorer now records both reads
+  (`abstention_accuracy` and `abstention_in_answer`), and what the explanation after an abstention should
+  carry is still open.
 - Recall is on by default but its vector half has a 250 ms deadline it does not always meet on a large store.
 - The head-to-head is one run per harness; the seed study is Theseus alone.
 

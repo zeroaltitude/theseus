@@ -306,6 +306,117 @@ async fn the_time_line_is_history_and_the_cached_prefix_holds() {
     assert!(!messages(&reqs[3]).contains("left of this turn"));
 }
 
+/// A command in `root` that prints about 2.7 KB (a tool result of the size
+/// the bench's median call writes to the cache) after sleeping `secs`.
+fn bulky(root: &Path, id: &str, secs: u64) -> Scripted {
+    let script = format!("sleep {secs}; head -c 2700 /dev/zero | tr '\\0' x");
+    let input = json!({"argv": ["sh", "-c", script], "cwd": root.display().to_string()});
+    Scripted::tools("Running the check.", &[(id, "proc_run", input)])
+}
+
+/// A request's messages as one serialized string per content block.
+fn blocks(r: &ProviderRequest) -> Vec<String> {
+    r.messages
+        .iter()
+        .flat_map(|m| {
+            let role = m["role"].as_str().unwrap_or_default().to_string();
+            m["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(move |b| format!("{role}:{b}"))
+        })
+        .collect()
+}
+
+/// The bytes a request adds to the one before it.
+fn growth(prev: &ProviderRequest, next: &ProviderRequest) -> usize {
+    let size = |r: &ProviderRequest| blocks(r).iter().map(String::len).sum::<usize>();
+    size(next) - size(prev)
+}
+
+/// theseus-tfl5p. The bench read a call that follows a clock line as writing
+/// twice the cache of other calls (1,412 tokens against 674). The line is
+/// appended history, so the next request must be the last one plus what is
+/// new, block for block, and the line must be all the clock adds: a call that
+/// follows one writes within 20% of a call that does not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_call_after_a_mid_turn_clock_line_writes_what_other_calls_write() {
+    let r = rig(|root| {
+        vec![
+            bulky(root, "c1", 5),
+            bulky(root, "c2", 0),
+            bulky(root, "c3", 0),
+            Scripted::text("Done."),
+        ]
+    });
+    // 15 minutes, 56 s used: the first loop sees 14 minutes left, and the
+    // 5 s command carries the turn across a whole-minute boundary.
+    let (_, _) = r.turn(Some((900, 56))).await;
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 4);
+    let lines = |i: usize| {
+        messages(&reqs[i])
+            .matches("minutes left of this turn's")
+            .count()
+    };
+    assert_eq!(
+        (lines(0), lines(1), lines(2), lines(3)),
+        (1, 2, 2, 2),
+        "a second line after the slow command, none after the fast ones"
+    );
+    // Every request keeps the one before it, block for block.
+    for pair in reqs.windows(2) {
+        let (a, b) = (blocks(&pair[0]), blocks(&pair[1]));
+        assert!(
+            a.len() <= b.len() && a[..] == b[..a.len()],
+            "{a:#?}\n{b:#?}"
+        );
+        assert_eq!(
+            serde_json::to_string(&(&pair[0].system, &pair[0].tools)).unwrap(),
+            serde_json::to_string(&(&pair[1].system, &pair[1].tools)).unwrap(),
+            "the clock never touches the cached prefix"
+        );
+    }
+    let after_clock = growth(&reqs[0], &reqs[1]);
+    let plain = growth(&reqs[1], &reqs[2]);
+    assert!(
+        (after_clock as f64) <= plain as f64 * 1.2,
+        "the call after the clock line adds {after_clock} bytes, another adds {plain}"
+    );
+}
+
+/// The turn keeps its sense of time (theseus-tfl5p must not remove the
+/// clock): one that begins near its deadline reads how near, and one with
+/// minutes to spare reads them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_near_its_deadline_still_reads_the_time_it_has_left() {
+    let r = rig(|root| {
+        vec![
+            command(root, "c1", 0),
+            Scripted::text("Done."),
+            command(root, "c2", 0),
+            Scripted::text("Done."),
+        ]
+    });
+    // 10 minutes, 570 s used: 30 s left.
+    let (_, _) = r.turn(Some((600, 570))).await;
+    let reqs = r.requests();
+    assert!(
+        messages(&reqs[0]).contains("[The harness: less than a minute left of this turn's 10.]"),
+        "{}",
+        messages(&reqs[0])
+    );
+    // 10 minutes, 335 s used: 4 minutes 25 s left.
+    let (_, _) = r.turn(Some((600, 335))).await;
+    let reqs = r.requests();
+    assert!(
+        messages(&reqs[2]).contains("[The harness: 4 minutes left of this turn's 10.]"),
+        "{}",
+        messages(&reqs[2])
+    );
+}
+
 /// A command that passes beside a read that fails, every loop: the check is
 /// the command's, so the turn is a passing one and is told nothing
 /// (theseus-rmjqr).
