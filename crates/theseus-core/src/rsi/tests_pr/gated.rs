@@ -74,6 +74,7 @@ fn a_gate_that_ran_goes_on() {
         log: PathBuf::from("/nowhere/log"),
         secs: 3,
         tail: String::new(),
+        unrunnable: false,
     };
     let got = gate_ran(&mut a, Ok(tree::Gated::Ran(run))).expect("the run goes on");
     assert_eq!((got.verdict, got.exit), (Verdict::Red, Some(1)));
