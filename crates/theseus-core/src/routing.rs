@@ -686,11 +686,13 @@ mod tests {
         );
         assert_eq!(pick(&list("chat"), &ps, false, None, false), Picked::Own);
         assert_eq!(pick(&list("other"), &ps, false, None, false), Picked::Own);
-        // The first unusable: the next.
+        // The first unusable: the next. `sophisticated` is `opushi`, `opus`,
+        // `sonnethi` (the cn rubric's §7.4): of these five only `opus`
+        // exists, so without it the turn stays on the session's own.
         ps.get_mut("opus").unwrap().unusable = Some("key");
         assert_eq!(
             pick(&list("sophisticated"), &ps, false, None, false),
-            Picked::Profile("fable".into())
+            Picked::Fallback
         );
         assert_eq!(
             pick(&list("deep_coding"), &ps, false, None, false),
@@ -866,13 +868,80 @@ mod tests {
         assert_eq!((d.profile.as_str(), d.switch), ("sonnet", true));
     }
 
+    /// route.v9's two kinds (theseus-gezlj): a `run_tool` and a `commentary`
+    /// message each detour to `haiku` for their turn alone, holding nothing, at
+    /// any estimate, so a command run never moves the session's profile nor
+    /// leaves its cache cold; each takes the section's 0.6 bar (the owner's
+    /// words set no other). A config without Haiku runs them on the session's
+    /// own profile, as `quick` does.
+    #[test]
+    fn run_tool_and_commentary_detour_to_haiku_and_hold_nothing() {
+        let cfg = RoutingConfig::default();
+        let ps = seven();
+        for m in ["run_tool", "commentary"] {
+            let d = decide(&cfg, &ps, &ask(&verdict(m, 0.9), "sonnet", 200_000));
+            assert_eq!(
+                d,
+                Decision {
+                    profile: "haiku".into(),
+                    reason: Reason::Detour,
+                    detour: true,
+                    switch: false,
+                    hold: HoldNext::Keep
+                },
+                "{m}"
+            );
+            let d = decide(&cfg, &ps, &ask(&verdict(m, 0.5), "sonnet", 10));
+            assert_eq!((d.reason, d.detour), (Reason::Unsure, false), "{m}: 0.6");
+            // Without Haiku, `run_tool`'s second profile is Sonnet (the cn
+            // rubric's §7.4): the session already on it stays; one on
+            // another profile runs that turn on Sonnet. `commentary` names
+            // Haiku alone, so it stays on the session's own.
+            let d = decide(&cfg, &five(), &ask(&verdict(m, 0.9), "sonnet", 10));
+            assert_eq!(
+                (d.profile.as_str(), d.reason, d.detour, d.switch),
+                (
+                    "sonnet",
+                    if m == "run_tool" {
+                        Reason::Verdict
+                    } else {
+                        Reason::Fallback
+                    },
+                    false,
+                    false
+                ),
+                "{m}: without Haiku, on Sonnet"
+            );
+            let d = decide(&cfg, &five(), &ask(&verdict(m, 0.9), "fable", 10));
+            assert_eq!(
+                (d.profile.as_str(), d.reason, d.detour, d.switch),
+                match m {
+                    "run_tool" => ("sonnet", Reason::Detour, true, false),
+                    _ => ("fable", Reason::Fallback, false, false),
+                },
+                "{m}: without Haiku, on Fable"
+            );
+        }
+        // A class table of its own takes its own bar and list.
+        let mut own = RoutingConfig::default();
+        own.classes.run_tool.switch_confidence = Some(0.3);
+        own.classes.run_tool.profiles = vec!["haikuhi".into()];
+        let d = decide(&own, &ps, &ask(&verdict("run_tool", 0.35), "sonnet", 10));
+        assert_eq!(
+            (d.profile.as_str(), d.reason, d.detour),
+            ("haikuhi", Reason::Detour, true)
+        );
+    }
+
     /// A late verdict carries to the next message, but a detour's never
     /// does: its detour is its own message's alone (theseus-6n5j; `quick`
-    /// since theseus-3okf).
+    /// since theseus-3okf; `run_tool` and `commentary` since theseus-gezlj).
     #[test]
     fn a_late_detour_verdict_never_carries() {
         assert!(!carries(&verdict("trivial", 0.99)));
         assert!(!carries(&verdict("quick", 0.99)));
+        assert!(!carries(&verdict("run_tool", 0.99)));
+        assert!(!carries(&verdict("commentary", 0.99)));
         for m in [
             "chat",
             "sophisticated",
@@ -1274,34 +1343,34 @@ mod tests {
         );
     }
 
-    /// route.v4's `review` (theseus-p8dy): a verification switches the
-    /// session, at the section's bar, to `opushi`, then `fable` when `opushi`
-    /// is unusable, then the session's own; it is no detour and its late
-    /// verdict carries.
+    /// route.v4's `review` (theseus-p8dy, its table moved by theseus-tqomi): a
+    /// verification switches the session, at the section's bar, to `opus`,
+    /// then `sonnethi` when `opus` is unusable, then the session's own; it is
+    /// no detour and its late verdict carries.
     #[test]
-    fn a_review_verdict_routes_to_opushi_then_fable() {
+    fn a_review_verdict_routes_to_opus_then_sonnethi() {
         let cfg = RoutingConfig::default();
-        assert_eq!(cfg.classes.of("review"), ["opushi", "fable"]);
+        assert_eq!(cfg.classes.of("review"), ["opus", "sonnethi"]);
         let mut ps = five();
         let c = crate::catalog::Catalog::builtin();
-        let e = c.get("claude-opus-5-5").unwrap();
+        let e = c.get("claude-sonnet-5-5").unwrap();
         ps.insert(
-            "opushi".into(),
-            p("anthropic", "claude-opus-5-5", short_cost(e), e.vision),
+            "sonnethi".into(),
+            p("anthropic", "claude-sonnet-5-5", short_cost(e), e.vision),
         );
         let v = verdict("review", 0.9);
         let d = decide(&cfg, &ps, &ask(&v, "sonnet", 10));
         assert_eq!(
             (d.profile.as_str(), d.reason, d.switch, d.detour),
-            ("opushi", Reason::Verdict, true, false)
+            ("opus", Reason::Verdict, true, false)
         );
-        ps.get_mut("opushi").unwrap().unusable = Some("key");
-        let d = decide(&cfg, &ps, &ask(&v, "sonnet", 10));
+        ps.get_mut("opus").unwrap().unusable = Some("key");
+        let d = decide(&cfg, &ps, &ask(&v, "fable", 10));
         assert_eq!(
             (d.profile.as_str(), d.reason, d.switch),
-            ("fable", Reason::Verdict, true)
+            ("sonnethi", Reason::Verdict, true)
         );
-        ps.get_mut("fable").unwrap().unusable = Some("key");
+        ps.get_mut("sonnethi").unwrap().unusable = Some("key");
         let d = decide(&cfg, &ps, &ask(&v, "sonnet", 10));
         assert_eq!(
             (d.profile.as_str(), d.reason, d.switch),

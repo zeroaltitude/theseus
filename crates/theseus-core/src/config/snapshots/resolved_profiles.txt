@@ -404,6 +404,27 @@ ProfileConfig {
         24.0,
     ),
 }
+-- sonnethi
+ProfileConfig {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    max_output_tokens: None,
+    system: None,
+    effort: Some(
+        High,
+    ),
+    effort_fixed: false,
+    thinking_display: Summarized,
+    max_loops: 40,
+    on_max_loops: Notify,
+    refusal_fallbacks: true,
+    cache_ttl: Some(
+        FiveMinutes,
+    ),
+    keep_warm_hours: Some(
+        24.0,
+    ),
+}
 == bench
 -- bench
 ProfileConfig {

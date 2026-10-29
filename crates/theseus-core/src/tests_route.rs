@@ -47,6 +47,18 @@ fn routing_only(c: &mut Config) {
     ] {
         c.judge.packs.insert(p.into(), off());
     }
+    before_the_cn_rubric_tables(c);
+}
+
+/// The class tables before the cn rubric's §7.4 (theseus-tqomi): `sophisticated`
+/// on plain `opus` and `review` on `opushi`, which the tests of the route's
+/// machinery (the switch, the base, the effort, the hold) were written
+/// against: they want a larger model whose profile pins no effort. The defaults
+/// themselves are `config::routing`'s tests and
+/// `tests_route_down::the_default_tables_run_sophisticated_on_opushi_and_review_on_opus`.
+pub(crate) fn before_the_cn_rubric_tables(c: &mut Config) {
+    c.routing.classes.sophisticated.profiles = vec!["opus".into(), "fable".into()];
+    c.routing.classes.review.profiles = vec!["opushi".into(), "fable".into()];
 }
 
 /// The placements before Haiku 5.5 (theseus-3okf): a trivial detour to GLM
@@ -331,7 +343,7 @@ async fn two_calls_ask_three_packs_and_a_hard_question_goes_to_opus() {
         .iter()
         .map(|s| s.body["questions"].clone())
         .collect();
-    for id in ["classify.v4/kind", "role.v1/role", "route.v8/mode"] {
+    for id in ["classify.v4/kind", "role.v1/role", "route.v9/mode"] {
         let n = asked.iter().filter(|q| q.get(id).is_some()).count();
         assert_eq!(n, 1, "{id}: {asked:?}");
     }
@@ -429,7 +441,7 @@ async fn a_quick_question_detours_to_haiku_and_the_next_prefix_is_byte_identical
     jev.script(
         "reply_effort",
         Jev::Choice {
-            option: "unclear".into(),
+            option: "leave".into(),
             confidence: 0.95,
         },
     );
@@ -770,7 +782,7 @@ async fn a_message_warms_jevs_connections_once_while_they_stay_warm() {
     assert_eq!(
         jev.connections(),
         2,
-        "and two calls: route.v8's and the batch"
+        "and two calls: route.v9's and the batch"
     );
     turn(&r.core, Some(&one.session_id), "And where is it?", None).await;
     assert_eq!(jev.warmups(), 2, "warm: no second warm-up");
@@ -931,7 +943,7 @@ async fn a_ladder_rollback_of_route_stops_it_routing() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v8".into(),
+                pack: "route.v9".into(),
                 why: None,
                 off: false,
             },
@@ -953,7 +965,7 @@ async fn a_ladder_rollback_of_route_stops_it_routing() {
     let h = r.core.health().judge.unwrap();
     assert!(
         h.packs
-            .contains(&"route.v8: rolled back (owner: the owner rolled it back)".to_string()),
+            .contains(&"route.v9: rolled back (owner: the owner rolled it back)".to_string()),
         "{:?}",
         h.packs
     );
@@ -1102,7 +1114,7 @@ async fn a_ladder_rollback_returns_a_routed_session_to_its_own_profile() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v8".into(),
+                pack: "route.v9".into(),
                 why: None,
                 off: false,
             },
@@ -1121,7 +1133,7 @@ async fn a_ladder_rollback_returns_a_routed_session_to_its_own_profile() {
     r.core
         .pack_promote(
             &theseus_protocol::packs::PackPromoteParams {
-                pack: "route.v8".into(),
+                pack: "route.v9".into(),
                 to: "live".into(),
                 share: None,
                 report: None,
@@ -1237,7 +1249,7 @@ async fn the_panes_carried_routed_profile_runs_only_while_routing_acts() {
     r.core
         .pack_rollback(
             &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v8".into(),
+                pack: "route.v9".into(),
                 why: None,
                 off: false,
             },

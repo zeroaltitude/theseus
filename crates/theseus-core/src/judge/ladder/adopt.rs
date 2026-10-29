@@ -35,7 +35,7 @@ pub struct Adopted {
 /// the route versions that went live at once in place of the one before: each
 /// the owner's word, its rollback rules guarding it (`route.v5` in place of
 /// `route.v4`, theseus-c1uz; `route.v6` in place of `route.v5`,
-/// theseus-a1wvq.2; `route.v7` in place of `route.v6`, theseus-a1wvq; `route.v8` in place of `route.v7`, theseus-f9qa8). The earlier route versions (`route.v1` to `route.v4`) were
+/// theseus-a1wvq.2; `route.v7` in place of `route.v6`, theseus-a1wvq; `route.v8` in place of `route.v7`, theseus-f9qa8; `route.v9` in place of `route.v8`, theseus-tqomi). The earlier route versions (`route.v1` to `route.v4`) were
 /// adopted the same way; their rows are in the store, and the build no longer
 /// embeds them.
 pub const ADOPTED: &[Adopted] = &[
@@ -54,6 +54,10 @@ pub const ADOPTED: &[Adopted] = &[
     Adopted {
         pack: "route.v8",
         why: WHY_ROUTE_V8,
+    },
+    Adopted {
+        pack: "route.v9",
+        why: WHY_ROUTE_V9,
     },
     Adopted {
         pack: "rerank.v1",
@@ -84,6 +88,12 @@ pub const WHY_ROUTE_V7: &str = "the owner's decision of 2026-10-19";
 /// question's `open` and `unclear` options, which decides nothing for its
 /// promotion (theseus-f9qa8, v1 patch2).
 pub const WHY_ROUTE_V8: &str = "the owner's decision of 2026-10-23";
+
+/// `route.v9`'s adoption row's reason: route.v8 but for two new kinds, one
+/// sentence added to `sophisticated`, `leave` for `unclear`, and no `data`
+/// question, each the owner's own from the owner's labelling of 2026-10-26
+/// (theseus-gezlj, theseus-tqomi).
+pub const WHY_ROUTE_V9: &str = "the owner's labels of 2026-10-26, theseus-tqomi";
 
 /// The rules adoption gives a pack id (every version of it):
 /// - `route`: the owner pins another profile on 3 routed turns in a local
