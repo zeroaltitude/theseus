@@ -273,6 +273,10 @@ struct Input {
     why: String,
 }
 
+#[cfg(test)]
+#[path = "tests_pr/gated.rs"]
+mod tests_gated;
+
 fn input_of(v: &Value) -> Result<Input, String> {
     let i: Input = serde_json::from_value(v.clone()).map_err(|e| format!("invalid input: {e}"))?;
     if i.item.trim().is_empty() || i.why.trim().is_empty() {
@@ -468,15 +472,9 @@ async fn attempt(
     if let Some(why) = stopped(core) {
         return halted(a, GATE, &why);
     }
-    let run = match tree::gate(place, &a.tree).await {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(tree::GateStopped(why)) = e.downcast_ref() {
-                return halted(a, GATE, why);
-            }
-            a.verdict = "failed";
-            return Err(format!("The gate did not run: {e:#}"));
-        }
+    let run = match gate_ran(a, tree::gate(place, &a.tree).await) {
+        Ok(run) => run,
+        Err(out) => return out,
     };
     a.verdict = run.verdict.name();
     a.gate = Some(run.clone());
@@ -525,6 +523,24 @@ fn subject(i: &Input) -> String {
     let first = i.why.trim().lines().next().unwrap_or("").trim();
     let first: String = first.chars().take(64).collect();
     format!("self: {} ({})", first.trim_end_matches('.'), i.item.trim())
+}
+
+/// What the attempt does with the gate's outcome: go on with the run, or end
+/// with the way out. A stop is a value of its own, `Gated::Stopped`, so no
+/// error layer on the way out of the gate can turn a stopped build into a
+/// failed one (theseus-tsfkm); the compiler holds this arm.
+fn gate_ran(
+    a: &mut Attempt<'_>,
+    gated: anyhow::Result<tree::Gated>,
+) -> Result<GateRun, Result<(String, Value), String>> {
+    match gated {
+        Ok(tree::Gated::Ran(run)) => Ok(run),
+        Ok(tree::Gated::Stopped(why)) => Err(halted(a, GATE, &why)),
+        Err(e) => {
+            a.verdict = "failed";
+            Err(Err(format!("The gate did not run: {e:#}")))
+        }
+    }
 }
 
 /// A halt between phases: the row says where.

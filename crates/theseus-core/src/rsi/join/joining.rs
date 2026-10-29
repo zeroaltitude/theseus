@@ -351,8 +351,13 @@ impl Run<'_> {
             return None;
         }
         let r = match tree::gate_with_benches(&self.place, t).await {
-            Ok(r) if r.verdict == Verdict::Green => return Some(r),
-            Ok(r) => r,
+            Ok(tree::Gated::Ran(r)) if r.verdict == Verdict::Green => return Some(r),
+            Ok(tree::Gated::Ran(r)) => r,
+            Ok(tree::Gated::Stopped(why)) => {
+                let why = format!("stopped while main's gate on the merge waited: {why}");
+                self.stop("gate", &why, Value::Null);
+                return None;
+            }
             Err(e) => {
                 let why = format!("main's gate on the merge did not run: {e:#}");
                 self.stop("gate", &why, Value::Null);
