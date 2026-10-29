@@ -114,8 +114,14 @@ STOP_WAIT = 20.0
 # 1.0.4 join's gates with "theseusd did not serve in time" on a daemon that was starting normally.
 # This is a wait, not a budget anything is held to: a daemon that is genuinely stuck still fails,
 # four minutes later. (Raised 60 -> 240 at the 1.0.4 join; owner's standing permission of
-# 2026-10-25 20:22 on dev guardrails, quoted in this commit's Keel trailer.)
+# 2026-10-25 20:22 on dev guardrails, quoted in that commit's Keel trailer.)
 SERVE_WAIT = 240.0
+# Every `Theseus.cli` bound is multiplied by this. The bounds written at the call sites are what the
+# call costs on a quiet machine; inside the gate the same calls have been measured many times longer,
+# and the 1.0.4 join lost four gates discovering that one site at a time - health, then stop, then
+# `ledger.tail` - because each was raised on its own as it surfaced. The relative sizes at the call
+# sites are the real information and they are kept; this constant carries the machine.
+CLI_WAIT_SCALE = 4.0
 LEDGER_PAGE = 1000  # `ledger.tail`'s page: the daemon clamps `n` to this (rpc/methods.rs), so a longer read must page
 LEDGER_MAX = 64_000  # the ceiling a run's own ledger cannot reach (a threads arm writes ~1.7k judge.call rows)
 LEDGER_TAIL = "ledger.tail"  # the daemon clamps its `n` to LEDGER_PAGE, so a long read pages on its `before` cursor
@@ -592,9 +598,11 @@ class Theseus:
 
     def cli(self, *args: str, input: str | None = None, timeout: float = 60.0) -> subprocess.CompletedProcess:
         # `history` records what it showed in the CLI's seen file (theseus-yus0): the run's own, never the machine's.
+        # Every bound below is scaled by CLI_WAIT_SCALE: the call sites keep their relative sizes, and one constant
+        # carries what a loaded host costs, rather than each site being discovered and raised on its own.
         return subprocess.run(
             [str(self.theseus), "--socket", str(self.sock), *args],
-            input=input, capture_output=True, text=True, timeout=timeout,
+            input=input, capture_output=True, text=True, timeout=timeout * CLI_WAIT_SCALE,
             env={**self.env, "XDG_STATE_HOME": str(self.dir / "xdg-state")},
         )
 
