@@ -3,7 +3,6 @@
 //! acts on it. A stand-in `git` ahead of the real one fails `fetch` while a
 //! flag file exists, so none of it needs a network.
 
-use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -11,8 +10,8 @@ use super::*;
 
 /// A place `PATH` whose `git` fails the next `fetch` after `fail_next` is
 /// called, once, and is the real one for everything else.
-struct Flaky {
-    flag: PathBuf,
+pub(super) struct Flaky {
+    pub(super) flag: PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -22,7 +21,7 @@ impl Flaky {
     }
 }
 
-fn flaky_git(r: &Rig) -> Flaky {
+pub(super) fn flaky_git(r: &Rig) -> Flaky {
     let dir = crate::scratch::tempdir();
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -70,7 +69,7 @@ async fn a_red_whose_fetch_failed_is_acted_on_by_the_next_pass() {
     let r = rig(SelfMode::Act);
     let flaky = flaky_git(&r);
     outer_red(&r);
-    let mut known = HashSet::new();
+    let mut known = Known::new();
     flaky.fail_next();
     let first = r.core.self_revert_pass(&r.seams(), &mut known).await;
     let e = first.expect_err("the fetch failed, so the pass did");
@@ -95,7 +94,7 @@ async fn a_red_already_acted_on_is_still_skipped() {
     let r = rig(SelfMode::Act);
     let flaky = flaky_git(&r);
     outer_red(&r);
-    let mut known = HashSet::new();
+    let mut known = Known::new();
     let first = r
         .core
         .self_revert_pass(&r.seams(), &mut known)
@@ -127,7 +126,7 @@ async fn a_failed_fetch_loses_none_of_the_batch() {
     let flaky = flaky_git(&r);
     let outer = outer_red(&r);
     r.red("bench", &outer);
-    let mut known = HashSet::new();
+    let mut known = Known::new();
     flaky.fail_next();
     assert!(r
         .core

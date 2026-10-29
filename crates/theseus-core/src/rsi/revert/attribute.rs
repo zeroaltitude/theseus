@@ -67,7 +67,9 @@ impl Prober for MainsGate {
                 tree::gate(p, &t).await
             };
             let _ = tree::close(p, &t);
-            Ok(run?.verdict != Verdict::Green)
+            // A probe a stop cut short says nothing about the commit: an error,
+            // so the watch records nothing and the red is looked at again.
+            Ok(run?.ran()?.verdict != Verdict::Green)
         })
     }
 }

@@ -1363,7 +1363,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   nothing; nice 19 and `ionice -c 3`, `THESEUS_GATE_NO_BENCH=1`, no compiler wrapper, no `THESEUS_*`; main's
   `scripts/may-build.sh` asked first when main has one, and waited on for as long as it says no, one quiet FYI notice
   to the owner every 30 minutes carrying the rule's last line — `MAY_BUILD_WAIT` is that notice's interval, not a
-  deadline, and neither a stop nor a halt lands until the wait ends, `theseus-rexxp`; a gate stopped at `GATE_SILENCE`
+  deadline, and neither a stop nor a halt lands until the wait ends, `theseus-rexxp`; a stop that lands in the wait ends the
+  gate as `Gated::Stopped`, a value and not an error (a rewrap such as `anyhow!("{e:#}")` loses an error's type, theseus-tsfkm), and each
+  caller of `tree::gate` says what a stop means to it (`pr.rs`'s `gate_ran`: a halt; a revert or a join: a stop with no card; a probe: `.ran()`, an error); a gate stopped at `GATE_SILENCE`
   names the phase it was in, which at L0 is its log's last `gate: ` line), `push` (`refs/heads/self/*` only, never forced, after the
   daemon's scrubber over every added line and message, and main's `scripts/scrub.sh` when there is one), `close`.
   `self.propose_change { item, issue, why }` is registered only under `[self] mode = "act"`, runs only for an
@@ -1467,8 +1469,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   history and the ledger's error rows against the hour before the first join) reports a `Red`; `revert/attribute.rs`
   says whose it is by bisecting main's first-parent commits with main's gate on a tree at each (`Prober`, `MainsGate`):
   red at the parent of the earliest join is `Before`, the first red commit being no self-join's is `Outer`, else the
-  join; a health red is the newest join before it unless an outer commit came between. A red judged is remembered (a
-  `known` set) and not tested again. `revert/doing.rs` reverts under the self-join's lock (`git revert -m 1` in a
+  join; a health red is the newest join before it unless an outer commit came between. A red is remembered in `revert/known.rs`
+  (`Known`, theseus-8p1oi): *settled* once acted on (reverted, left alone, or held with the owner's card) and not tested
+  again, *attempted* when its revert halted, held with no card or errored, which the next pass tries again, three tries in
+  all and then said once as given up on; `doing::make` refuses a merge whose revert already stands on main, so a retry
+  never reverts twice. `revert/doing.rs` reverts under the self-join's lock (`git revert -m 1` in a
   detached tree off main, `tree::gate_with_benches` through the door, `git::sign`, `git::push_main`, never forced, the
   install by `join::install`), writes `self.reverted` or `self.vetoed` and the owner's `self_join` notice in one frame;
   a conflict, a red or keel gate, no key or a lost race posts the owner's card and writes `self.join.stopped` (branch

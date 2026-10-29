@@ -189,7 +189,7 @@ async fn the_gate_is_mains_copy_even_when_the_tree_edits_its_own() {
     tree::commit(&f.place, &t, "self: weaken the gate (weak-gate)", "body")
         .unwrap()
         .unwrap();
-    let run = tree::gate(&f.place, &t).await.unwrap();
+    let run = tree::gate(&f.place, &t).await.unwrap().ran().unwrap();
     assert_eq!(run.verdict, Verdict::Red, "{}", run.tail);
     let log = std::fs::read_to_string(&run.log).unwrap();
     assert!(log.contains("gate: FAILED in suite"), "{log}");
@@ -214,7 +214,12 @@ async fn the_gate_is_mains_copy_even_when_the_tree_edits_its_own() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        tree::gate(&f.place, &t).await.unwrap().verdict,
+        tree::gate(&f.place, &t)
+            .await
+            .unwrap()
+            .ran()
+            .unwrap()
+            .verdict,
         Verdict::Green
     );
 }
@@ -227,7 +232,12 @@ async fn a_keel_failure_is_the_keels_verdict() {
     std::fs::write(t.dir.join("keel.txt"), "a loosened test\n").unwrap();
     tree::commit(&f.place, &t, "self: loosen (loosen)", "body").unwrap();
     assert_eq!(
-        tree::gate(&f.place, &t).await.unwrap().verdict,
+        tree::gate(&f.place, &t)
+            .await
+            .unwrap()
+            .ran()
+            .unwrap()
+            .verdict,
         Verdict::Keel
     );
 }
@@ -379,7 +389,7 @@ async fn close_removes_the_tree_and_its_target_and_keeps_the_branch() {
     let head = tree::commit(&f.place, &t, "self: a (close-me)", "b")
         .unwrap()
         .unwrap();
-    tree::gate(&f.place, &t).await.unwrap();
+    tree::gate(&f.place, &t).await.unwrap().ran().unwrap();
     std::fs::write(t.target.join("built"), "x").unwrap();
     tree::close(&f.place, &t).unwrap();
     assert!(!t.dir.exists() && !t.target.exists());
@@ -640,7 +650,7 @@ async fn the_gate_blob_follows_main() {
     let want = git(&f.upstream, &["rev-parse", "main:scripts/gate.sh"]);
     assert_ne!(want, old_blob);
     let t = tree::open(&f.place, "new gate", NOW).unwrap();
-    let run = tree::gate(&f.place, &t).await.unwrap();
+    let run = tree::gate(&f.place, &t).await.unwrap().ran().unwrap();
     assert_eq!(run.blob, want, "judged by the old gate blob");
     let log = std::fs::read_to_string(&run.log).unwrap();
     assert!(log.contains("gate: ok (newer)"), "{log}");
@@ -758,4 +768,31 @@ async fn a_wait_with_no_stop_check_waits_for_the_rule() {
     let (r, runs, reads) = waited_with_stop(None, 90).await;
     assert_eq!(r.unwrap(), tree::Waited::Yes);
     assert_eq!((runs, reads), (91, 0));
+}
+
+/// A stop that lands before main's may-build rule has said yes ends the gate as
+/// `Gated::Stopped` (theseus-tsfkm): a value, not an error whose type a rewrap
+/// loses, and the gate's own script never ran. A `.ran()` caller gets the stop as its error.
+#[tokio::test]
+async fn a_stop_through_a_real_gate_is_a_stopped_outcome_not_an_error() {
+    let f = fixture_full(GATE, Some("#!/bin/bash\nexit 1\n"));
+    let mut place = f.place.clone();
+    place.stop = Some(tree::Stop::new(|| Some("the owner's stop".to_string())));
+    let t = tree::open(&place, "stop item", NOW).unwrap();
+    let g = tree::gate(&place, &t)
+        .await
+        .expect("a stop is not an error");
+    match &g {
+        tree::Gated::Stopped(why) => assert_eq!(why, "the owner's stop"),
+        tree::Gated::Ran(r) => panic!("the gate ran on a stop: {r:?}"),
+    }
+    assert!(
+        !place
+            .gates()
+            .join(format!("{}.log", t.branch.replace('/', "-")))
+            .exists(),
+        "the gate's script never started"
+    );
+    let e = g.ran().expect_err("a caller with no halt gets an error");
+    assert!(format!("{e:#}").contains("the owner's stop"), "{e:#}");
 }

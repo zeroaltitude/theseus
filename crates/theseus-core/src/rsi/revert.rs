@@ -29,6 +29,7 @@
 
 pub mod attribute;
 pub(crate) mod doing;
+pub mod known;
 pub mod signals;
 mod tender;
 #[cfg(test)]
@@ -42,6 +43,7 @@ use anyhow::{anyhow, Result};
 use theseus_protocol::rsi::{SelfRevertParams, SelfRevertResult};
 
 use self::attribute::{Blame, Joined, MainsGate, Prober};
+use self::known::Known;
 use self::signals::{Files, Signals};
 use super::join::install::{self, Installer};
 use super::join::{blocking, git, remote_of, rows_of};
@@ -125,6 +127,22 @@ impl std::fmt::Display for BadMerge {
 
 impl std::error::Error for BadMerge {}
 
+/// A red tried and not acted on: remembered as attempted, and said as given up
+/// on when this was its last try.
+fn unspent(pass: &mut Pass, known: &mut Known, key: String, signal: &str, why: String) {
+    if known.attempt(key, why.clone()) {
+        // The caller may be the error arm, which drops `pass` on its way out
+        // (`return Err(e)`), so the line below is the only thing that survives
+        // a give-up reached through an error. Say it here, where every path
+        // passes, rather than only in what `pass` carries.
+        tracing::warn!(signal, tries = known::TRIES, why = %why, "gave up on a red");
+        pass.left.push((
+            signal.into(),
+            format!("gave up after {} tries: {why}", known::TRIES),
+        ));
+    }
+}
+
 /// What the ledger holds of the joins and their reverts.
 struct Seen {
     joined: Vec<Joined>,
@@ -177,11 +195,12 @@ fn seen(core: &Core) -> Result<Option<Seen>> {
 
 impl Core {
     /// One pass of the watch: the module's doc. `known` holds the reds already
-    /// judged, so a red left alone is not tested again.
+    /// looked at: one acted on is not tested again, one tried and stopped is
+    /// tried again ([`known`]).
     pub async fn self_revert_pass(
         self: &Arc<Self>,
         seams: &Seams,
-        known: &mut HashSet<String>,
+        known: &mut Known,
     ) -> Result<Pass> {
         let mut pass = Pass::default();
         let g = super::gate(&self.self_ctx());
@@ -220,7 +239,7 @@ impl Core {
             let key = format!("{}:{}:{:?}", red.signal, red.at_ms, red.commit);
             // Recorded once the red has been looked at, not before: a fetch or a
             // probe that errors returns early, and the next pass must see it again.
-            if known.contains(&key) {
+            if known.skips(&key) {
                 continue;
             }
             let (p, r) = (place.clone(), remote.clone());
@@ -230,12 +249,12 @@ impl Core {
             })
             .await?;
             let blame = attribute::blame(&place, &*seams.prober, &main, &watched, &red).await?;
-            known.insert(key);
             let why = match blame {
                 Blame::Join(j, tested) => {
                     if let Some(why) = super::join::refused(self) {
-                        pass.stopped
-                            .push((j.merge.clone(), format!("halted: {why}")));
+                        let why = format!("halted: {why}");
+                        pass.stopped.push((j.merge.clone(), why.clone()));
+                        unspent(&mut pass, known, key, red.signal, why);
                         break;
                     }
                     let cause = Cause::Auto {
@@ -243,9 +262,28 @@ impl Core {
                         detail: red.detail.clone(),
                         tested,
                     };
-                    match self.revert_join(seams, &j, &cause).await? {
-                        Done::Reverted(_) => pass.reverted.push((j.merge, red.signal.into())),
-                        Done::Held { phase, .. } => pass.stopped.push((j.merge, phase)),
+                    match self.revert_join(seams, &j, &cause).await {
+                        // An error may come from anywhere in the revert: the red
+                        // is not spent, and the retry cannot revert twice.
+                        Err(e) => {
+                            unspent(&mut pass, known, key, red.signal, format!("{e:#}"));
+                            return Err(e);
+                        }
+                        Ok(Done::Reverted(_)) => {
+                            known.settle(key);
+                            pass.reverted.push((j.merge, red.signal.into()))
+                        }
+                        // A held revert with a card is the owner's now.
+                        Ok(Done::Held {
+                            phase, card: true, ..
+                        }) => {
+                            known.settle(key);
+                            pass.stopped.push((j.merge, phase))
+                        }
+                        Ok(Done::Held { phase, why, .. }) => {
+                            pass.stopped.push((j.merge, phase));
+                            unspent(&mut pass, known, key, red.signal, why);
+                        }
                     }
                     break;
                 }
@@ -255,6 +293,7 @@ impl Core {
                 Blame::Before => "it was red before the earliest join".into(),
                 Blame::Unknown(why) => why,
             };
+            known.settle(key);
             pass.left.push((red.signal.into(), why));
         }
         Ok(pass)
@@ -351,7 +390,7 @@ impl Core {
                 item: Some(j.item),
                 changed: true,
             }),
-            Done::Held { phase, why } => Err(anyhow!(
+            Done::Held { phase, why, .. } => Err(anyhow!(
                 "the revert of {} stopped at the {phase}: {why}. The owner's card says the same; \
                  the change is still on main",
                 &j.merge[..j.merge.len().min(12)]

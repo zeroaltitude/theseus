@@ -5,7 +5,6 @@
 //! "world", that lands merges on upstream's main: a self-join is a merge with
 //! a `self.joined` row, an outer-loop join one without.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -15,6 +14,7 @@ use serde_json::Value;
 use theseus_protocol::rsi::{SelfHaltParams, SelfMode, SelfResumeParams, SelfRevertParams};
 
 use super::attribute::{MainsGate, ProbeFut, Prober};
+use super::known::Known;
 use super::signals::{Red, Signals};
 use super::Seams;
 use crate::approval::Answerer;
@@ -28,6 +28,7 @@ use crate::store::Store;
 use crate::{Config, Core};
 
 mod fetch_retry;
+mod unspent;
 
 const FAKE_GPG: &str = "#!/bin/bash\n\
 echo '[GNUPG:] KEY_CONSIDERED FIXTURE 0' >&2\n\
@@ -246,7 +247,7 @@ impl Rig {
 
     async fn pass(&self) -> super::Pass {
         self.core
-            .self_revert_pass(&self.seams(), &mut HashSet::new())
+            .self_revert_pass(&self.seams(), &mut Known::new())
             .await
             .unwrap()
     }
@@ -386,7 +387,7 @@ async fn an_outer_loop_join_is_never_reverted() {
     assert!(r.file_on_main("deck.txt") && r.file_on_main("broken.txt"));
     assert!(r.rows("self.reverted").is_empty());
     // The same red is judged once: a second pass with the same memory is silent.
-    let mut known = HashSet::new();
+    let mut known = Known::new();
     let _ = r
         .core
         .self_revert_pass(&r.seams(), &mut known)
@@ -580,7 +581,7 @@ async fn a_join_past_the_window_is_not_watched() {
     seams.now_ms = Some(theseus_protocol::now_unix_ms() + 25 * 3_600_000);
     let pass = r
         .core
-        .self_revert_pass(&seams, &mut HashSet::new())
+        .self_revert_pass(&seams, &mut Known::new())
         .await
         .unwrap();
     assert_eq!(pass.watched, 0, "{pass:?}");

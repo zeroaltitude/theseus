@@ -42,7 +42,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use theseus_kernel::children::{self, Kind};
 use theseus_kernel::patience::{Cut, Patience};
 
@@ -91,19 +91,30 @@ impl std::fmt::Debug for Stop {
     }
 }
 
-/// A gate that did not run because the owner's stop landed while it waited
-/// for may-build. An error of its own, so a caller tells it from a gate that
-/// failed, and nothing reads it as a verdict.
+/// How main's gate on a tree ended: it ran, or the owner's stop landed while
+/// it waited for may-build and it never started. A value of its own, not an
+/// error: an error's type is recovered by a downcast, which any layer that
+/// re-renders the error (`anyhow!("{e:#}")`, a `format!`) loses, and a stopped
+/// build then reads as a failed one (theseus-tsfkm). Nothing reads a stop as a
+/// verdict, and every caller has to say what a stop means to it.
 #[derive(Debug)]
-pub struct GateStopped(pub String);
-
-impl std::fmt::Display for GateStopped {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "stopped while waiting for may-build: {}", self.0)
-    }
+pub enum Gated {
+    /// The gate ran, and this is what it said.
+    Ran(GateRun),
+    /// It did not run: the stop's reason.
+    Stopped(String),
 }
 
-impl std::error::Error for GateStopped {}
+impl Gated {
+    /// The run, for a caller with no halt of its own to make: a stop is its
+    /// error, saying why.
+    pub fn ran(self) -> Result<GateRun> {
+        match self {
+            Self::Ran(run) => Ok(run),
+            Self::Stopped(why) => Err(anyhow!("stopped while waiting for may-build: {why}")),
+        }
+    }
+}
 
 /// How a wait for may-build ended.
 #[derive(Debug, PartialEq, Eq)]
@@ -605,17 +616,17 @@ pub fn diffstat(p: &Place, tree: &Tree) -> Result<(u64, u64, u64)> {
 }
 
 /// Run main's gate on the tree (the door), at the background priority.
-pub async fn gate(p: &Place, tree: &Tree) -> Result<GateRun> {
+pub async fn gate(p: &Place, tree: &Tree) -> Result<Gated> {
     gate_with(p, tree, false).await
 }
 
 /// Main's gate on the tree with the benches too (`THESEUS_GATE_NO_BENCH`
 /// unset): the self-join's gate on the merge (theseus-pw1q.9).
-pub async fn gate_with_benches(p: &Place, tree: &Tree) -> Result<GateRun> {
+pub async fn gate_with_benches(p: &Place, tree: &Tree) -> Result<Gated> {
     gate_with(p, tree, true).await
 }
 
-async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
+async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
     let (pc, t) = (p.clone(), tree.clone());
     let (script, may) = tokio::task::spawn_blocking(move || -> Result<_> {
         let script = pc
@@ -638,7 +649,7 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
         .to_string();
     if let Some(may) = may {
         if let Waited::Stopped(why) = may_build(p, tree, &may).await? {
-            return Err(GateStopped(why).into());
+            return Ok(Gated::Stopped(why));
         }
     }
     std::fs::create_dir_all(p.gates())?;
@@ -673,14 +684,14 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<GateRun> {
     if let Some(why) = crate::sandbox::supply_chain(&text).filter(|_| verdict != Verdict::Green) {
         tail = format!("{why}\n{tail}");
     }
-    Ok(GateRun {
+    Ok(Gated::Ran(GateRun {
         verdict,
         exit: status,
         blob,
         log,
         secs: t0.elapsed().as_secs(),
         tail,
-    })
+    }))
 }
 
 /// Main's gate in L1: the same command line as `run_niced`'s, over the
