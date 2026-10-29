@@ -443,6 +443,14 @@ fn the_digest_tells_the_futures_rows() {
         "🔁 Morning digest skipped at 14:13: the month's budget was spent"
     );
     assert_eq!(
+        line(
+            "wake.skipped",
+            json!({"due_at_ms": 1_790_000_000_000u64, "why": "owner"})
+        )
+        .unwrap(),
+        "🔁 Morning digest skipped at 14:13: the owner declined it"
+    );
+    assert_eq!(
         line("watch.met", json!({"value": "MERGED"})).unwrap(),
         "👁 Morning digest met: MERGED"
     );
