@@ -454,7 +454,11 @@ async fn a_keel_finding_stops_at_the_owners_card_and_is_never_retried() {
 #[tokio::test]
 async fn a_places_own_notice_sink_posts_a_quiet_notice_to_the_owner() {
     let r = rig(SelfMode::Act, None);
-    let place = r.core.tools.self_pr.place(&r.f.place.repo.to_string_lossy());
+    let place = r
+        .core
+        .tools
+        .self_pr
+        .place(&r.f.place.repo.to_string_lossy());
     let sink = place.notify.expect("an attached board's place has a sink");
     let text = "The gate has waited 30 minutes for may-build: busy (theseus-ccik8).";
     sink.send(text.to_string());
@@ -468,9 +472,15 @@ async fn a_places_own_notice_sink_posts_a_quiet_notice_to_the_owner() {
         .filter(|a| crate::outbox::body_of(a)["text"] == text)
         .collect();
     assert_eq!(sent.len(), 1, "one notice staged: {sent:?}");
-    assert_eq!(crate::outbox::target_of(&sent[0]), crate::outbox::OPERATOR_TARGET);
+    assert_eq!(
+        crate::outbox::target_of(&sent[0]),
+        crate::outbox::OPERATOR_TARGET
+    );
     let body = crate::outbox::body_of(&sent[0]);
-    assert_eq!(body["quiet"], true, "inform: a badge and the digest, never a ping");
+    assert_eq!(
+        body["quiet"], true,
+        "inform: a badge and the digest, never a ping"
+    );
 }
 
 fn propose() -> Value {
