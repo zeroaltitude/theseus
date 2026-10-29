@@ -1698,6 +1698,17 @@ effort_bounds = ["low", "max"]          # the lowest and highest effort Jev's an
 high_effort_confidence = 0.40           # an xhigh or max answer applies only above this confidence; else the turn runs high
 effort_confidence = 0.35                # an effort answer under its confirm bar applies at this confidence or more (at most high_effort_confidence)
 dear_tier_max_tokens = 200000           # over this much context, sophisticated and review skip a profile dearer (per input token) than the next usable one
+# Jev chooses which coding turns a China-origin draft is made for (theseus-kqeih; off). With a class's
+# cn_draft and final named below, a turn of that class drafts whenever it is eligible. Turned on,
+# route.v9 asks Jev one more question, `draft`, whose words are the owner's standing orders: the cheaper
+# model's strong points (repo-level fixes, mechanical and automation edits, tests, long mechanical
+# work), what it is not for (terminal-driven multi-step work, programs from scratch, anything that
+# needs judgement or review), that a first pass there is not the default for code, and that a
+# failed draft is cheap to redo only where the whole context is not sent again. Only a sure `cheap`
+# drafts; the labels and the rest of the draft rule still apply, and the route row says what Jev
+# answered (`draft_choice`) and, when it did not draft, why (`draft_skip`: jev_declined, jev_unsure,
+# jev_unasked). It needs a class with a cn_draft. The benchmarks after 1.0.4 tune the words.
+# draft_by_jev = true
 # A running task's model ranges (theseus-ypnxt.9). A task you started with no profile asks
 # route.v9 about its recent state at a loop boundary when it fails, stalls, changes phase or
 # is about to report, and moves up to the class's profile (only Jev elevates) or back down
@@ -1710,6 +1721,20 @@ failing_streak = 3                      # loops in a row that each had a failed 
 quiet_loops = 8                         # loops in a row with no progress signal
 min_loops_between = 4                   # at most one verdict per this many loops
 max_switches = 2                        # moves per task, up or down
+# The coding floor (theseus-mn5dr; off, and it stays off until a benchmark arm shows it earns its
+# cost): a routine_coding or deep_coding verdict under its bar normally routes nothing, so the turn
+# runs on the session's own profile at that profile's effort. With a profile named here such a
+# verdict holds that profile instead, at its own effort, and the route row says `floor`. A floor
+# only lifts a session (a base as dear as it is left alone), stays inside the place's cap, never
+# takes a profile of restricted origin, and keeps the cache rule for a switch. On the owner's
+# benchmark trials the failing ones sat on the base profile 48% of the time against 9% of the
+# solving ones, an association the hard tasks confound: the A/B is owed to the benchmarks after
+# 1.0.4, and it flips the default only if the floor arm solves at least two more trials than its
+# control across caffe-cifar-10, mteb-leaderboard and compile-compcert (k=3 each) at no more than
+# one and a half times the cost per trial.
+# [routing.coding_floor]
+# profile = "sonnethi"                  # unset: off
+# min_confidence = 0.30                 # the lowest verdict that holds it; the floor holds a coding verdict in [min_confidence, its class's bar), so with the default bars a 30% sure verdict lifts the session; above 0 and under a coding class's bar
 # No China-origin model is named for chat, quick, sophisticated or review: Haiku 5.5 is two to
 # three times cheaper per short turn and has no forced thinking, and review and judgment stay on
 # Claude. A first-pass bug review by DeepSeek Flash is a later key (theseus-a1wvq.17), not yet here.

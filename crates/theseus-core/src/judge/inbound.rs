@@ -735,7 +735,16 @@ impl JudgeService {
             .map(|(_, n)| n)
             .collect();
         let live_tasks = self.live_tasks(&msg.kernel, &msg.execution_id);
-        Some(input(&nodes, msg, live_tasks))
+        Some(InboundInput {
+            draft_choice: self.draft_choice(),
+            ..input(&nodes, msg, live_tasks)
+        })
+    }
+
+    /// route.v9 asks `draft` only when the operator lets Jev choose
+    /// (theseus-kqeih); a service with no core attached asks nothing more.
+    fn draft_choice(&self) -> bool {
+        self.core().is_some_and(|c| c.cfg.routing.draft_by_jev)
     }
 
     /// The session's live tasks, oldest first: each one's id, its brief's
@@ -827,6 +836,7 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         personas: msg.persona.personas.clone(),
         speaker: msg.persona.speaker.clone(),
         categories: msg.persona.categories.clone(),
+        draft_choice: false,
         thread_now: msg.persona.thread.as_ref().map(|h| ThreadNow {
             title: h.title.clone(),
             goal: h.goal.clone(),
@@ -906,6 +916,13 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
         seal: crate::engage::seal_answer(j).map(Box::new),
         personal: choice(crate::routing::personal::QUESTION).map(|(choice, confidence, band)| {
             Box::new(crate::routing::PersonalAnswer {
+                choice,
+                confidence,
+                band,
+            })
+        }),
+        draft: choice(crate::routing::draft_choice::QUESTION).map(|(choice, confidence, band)| {
+            Box::new(crate::routing::draft_choice::DraftAnswer {
                 choice,
                 confidence,
                 band,

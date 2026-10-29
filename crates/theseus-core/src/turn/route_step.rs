@@ -136,6 +136,9 @@ pub(super) struct RouteState {
     /// route row; and the line of a turn that opened a draft instead of a
     /// model call (`draft_step.rs`).
     pub(super) draft_skip: Option<&'static str>,
+    /// What Jev answered to `draft` (`cheap` or `strong`), when the operator
+    /// lets Jev choose (theseus-kqeih).
+    pub(super) draft_choice: Option<&'static str>,
     pub(super) drafted: Option<String>,
     /// The static fan-out cue fired for this turn (theseus-z9mze.4), so its tail line rides.
     pub(super) fan_out: bool,
@@ -942,6 +945,7 @@ impl TurnRunner {
                 cn,
                 gate,
                 draft_skip: t.route.draft_skip,
+                draft_choice: t.route.draft_choice,
             }),
         });
         let prior = t.route.result.take();
@@ -1268,6 +1272,7 @@ mod tests {
             persona: None,
             seal: None,
             personal: None,
+            draft: None,
         }
     }
 

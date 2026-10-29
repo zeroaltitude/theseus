@@ -1921,6 +1921,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `tests_trivial_tools::a_run_tool_detour_keeps_its_tools_and_a_commentary_one_carries_tools_find`, pins the class table, the
     `BARE_DETOURS` membership and the offered tools. A correction recorded under route.v8 no longer steers (`SAME_MODE`
     names no route.v8 under v9: the `mode` question's words differ).
+    **Two more rows ride route.v9 (theseus-kqeih, theseus-mn5dr; both ship OFF).** `[routing] draft_by_jev` adds a `draft`
+    question to the route request (`only_when` the `DraftChoice` source, which the core supplies from the switch alone, so
+    the request with it off is the one that was measured): its instructions and its two options (`cheap`, `strong`, no-match
+    `strong`) are the owner's standing orders of 2026-10-27 23:05 and 23:15 (strong points, what the cheaper model is not
+    for, "not the default for code", the cold-handoff cost), written in words that name no vendor or model. The verdict
+    carries it (`Verdict.draft`, `routing::draft_choice`); `draft_step::draft_check` gates on it before it opens a tree (only
+    a sure `cheap`; the `draft_skip` words `jev_unasked`, `jev_declined`, `jev_unsure`) and the route row's `draft_choice`
+    says what Jev answered. The labels and every other condition still apply after it, so a `cheap` answer waives no data
+    rule; the load refuses the switch when no class has a `cn_draft`. Proof: `tests_draft_choice.rs`,
+    `theseus-judge`'s `tests_route_draft.rs`. `[routing.coding_floor]` (`profile`, `min_confidence` 0.30) makes a
+    `routine_coding` or `deep_coding` verdict under its bar hold that profile instead of the session's base, at the
+    profile's own effort (route reason `floor`): a floor only lifts a session, stays under the place's cap, never names a
+    restricted-origin profile (refused at load too), and keeps the cache's rule (`routing::switch_to`). Its A/B is owed to
+    the benchmarks after 1.0.4 (`routing/tests_floor.rs`; the flip sentence is in `theseus.example.toml`).
   - **Content flags and the restricted-origin floor** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17;
     `content.rs`, `content_wait.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/content_based_security.rs`, `fact/data.rs`): every item that
     enters a session (an operator's message, a tool result, a brief, a report) is classified once, by itself, and what is
@@ -2062,7 +2076,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     at that top; the ask is the turn's own message) open a draft instead of a model call: a task session on the `cn_draft` profile in a
     worktree at `<drafts_dir>/<short>` on branch `draft/<short>` (`[server] drafts_dir`, default `~/.cache/theseus/drafts`: outside the state dir and every approve-list entry, refused at load otherwise, and a root of the workspace while a class drafts, so the review's runs there take the tool's posture; a draft made before keeps its tree under `<state>/drafts` where `tree_of` finds it; theseus-iilre), which is its roots alone (never the owner's directory,
     and never a path through `.git`), briefed by the core with the turn's own message. Each failed condition is the route row's
-    `draft_skip` (`labelled`, `in_task`, `wake`, `not_git`, `draft_unusable`, `no_reviewer`). `DraftReach::offers` withholds programs from a draft, and where the floor would move it its turn ends
+    `draft_skip` (`labelled`, `in_task`, `wake`, `not_git`, `draft_unusable`, `no_reviewer`; with `draft_by_jev` on, first `jev_unasked`, `jev_declined`, `jev_unsure`). `DraftReach::offers` withholds programs from a draft, and where the floor would move it its turn ends
     (`draft_stopped`: `draft_not_admitted` for a brief whose session the labels did not allow a restricted model, `draft_stopped` for a label that landed after). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
     check on a `final` profile in the tree, the draft's claim, a correlation id from the draft's), whose end commits,
     applies `git diff <base>..<final>` with `git apply --check` first and never `--index` or `--3way`, removes the
