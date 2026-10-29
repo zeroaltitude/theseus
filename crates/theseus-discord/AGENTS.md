@@ -300,7 +300,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     components until 40 components and 4,000 characters; a routine is four components) as `+N more · /routine list`.
     A place with only a future is not idle, so a DM with a reminder gets its board.
   - **Commands** (`runtime/horizon_cmds.rs`): `/agenda [when: today|week|all]` (ephemeral, the sections of `theseus
-    agenda`, a live read), `/routine add|list|pause|resume|run` (`add` is a modal: name, schedule, brief, `0.50 / 10`,
+    agenda`, a live read; the tasks going now are new `▶` lines at the head of its Coming up, `horizon::going`, theseus-1t4q8: the 📋 board's own Coming up is unchanged, the DM task flow being locked), `/routine add|list|pause|resume|run` (`add` is a modal: name, schedule, brief, `0.50 / 10`,
     where it posts; `list` is ephemeral with Run now and Pause or Resume per routine, drawn again after a press),
     `/snooze wake: when:` (`wake.snooze`), `/watch add|list` (`add` is a modal: question, target, condition, every, for;
     **a command check is the owner's, from the DM only, shown with its command and approved once** by `hw:ok:<token>`,

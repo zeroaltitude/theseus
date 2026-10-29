@@ -311,6 +311,12 @@ impl Tasks {
             .collect()
     }
 
+    /// The tasks going now under the place whose conversation is `session_id`
+    /// (`render::horizon::going`): what `/agenda` lists beside what is coming.
+    pub fn going_in(&self, session_id: &str) -> Vec<WorkView> {
+        crate::render::horizon::going(&self.in_place(session_id))
+    }
+
     /// The view `id` if it is under the place's root: a command never opens
     /// another place's task by naming its id.
     pub fn view_in_place(&self, session_id: &str, id: &str) -> Option<WorkView> {
