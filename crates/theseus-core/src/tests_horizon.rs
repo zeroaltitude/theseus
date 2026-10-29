@@ -479,6 +479,48 @@ async fn a_met_watch_ends_done_and_status_short_counts_the_future() {
     assert!(!snapshot(&r.core).iter().any(|v| v.kind == WorkKind::Watch));
 }
 
+/// A run-count stop is a fact the daemon keeps, so the agenda serves only the
+/// occurrences that will run: the stop's runs less the runs opened, however the
+/// window sits (theseus-97b8c, review H-4). A client draws what it is served.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agenda_serves_no_occurrence_past_a_run_count_stop() {
+    let r = rig();
+    let now = theseus_protocol::now_unix_ms();
+    let made = rpc(
+        &r.core,
+        "routine.create",
+        json!({"title": "Tide check", "schedule": "every 1h", "brief": BRIEF,
+               "stop": "after 3 runs"}),
+    )
+    .await
+    .unwrap()["routine"]
+        .clone();
+    assert_eq!(made["stop"], "after 3 runs", "{made}");
+    let routine_lines = |a: &AgendaResult| -> Vec<(u64, Option<u32>)> {
+        a.lines
+            .iter()
+            .filter(|l| l.kind == WorkKind::Routine)
+            .map(|l| (l.at_ms, l.occurrence))
+            .collect()
+    };
+    // A day of hourly runs, and three of them are all that will ever run.
+    let a = agenda(&r.core, now, now + 24 * HOUR).await;
+    let all = routine_lines(&a);
+    assert_eq!(all.len(), 3, "three runs and no more: {all:?}");
+    assert!(!a.more);
+    // A window that opens after the first is still cut at the stop, not at the
+    // window: the occurrences it skips over used the runs up.
+    let later = agenda(&r.core, now + HOUR + HOUR / 2, now + 24 * HOUR).await;
+    assert_eq!(
+        routine_lines(&later),
+        all[1..].to_vec(),
+        "the second and the third, which are what is left"
+    );
+    // And past the last there is nothing.
+    let after = agenda(&r.core, all[2].0 + 1, now + 24 * HOUR).await;
+    assert!(routine_lines(&after).is_empty(), "{after:?}");
+}
+
 /// `work.agenda`: a weekday series is only on weekdays and numbered; a pause
 /// takes its occurrences out; a minute series is cut at 200 lines and says so;
 /// a window of nothing, or backwards, is refused.

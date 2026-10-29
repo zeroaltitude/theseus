@@ -20,7 +20,24 @@ next_ms?: number, next?: string, run_usd: number, month_usd: number,
 /**
  * The month's spend so far (zero once the month has turned).
  */
-month_spent_usd: number, deliver_to: string, catch_up: string, speak: string, runs: number, 
+month_spent_usd: number, deliver_to: string, catch_up: string, speak: string, 
+/**
+ * What each run is given of the run before it (`last_report`, `none`).
+ */
+carry: string, 
+/**
+ * Where the series ends, as it was asked for (`after 3 runs`), and as a
+ * time when it is one.
+ */
+stop?: string, stop_ms?: number, 
+/**
+ * The stop that has tripped: the series is held and runs no more.
+ */
+stopped?: string, 
+/**
+ * The time the first occurrence was moved to, when one was asked for.
+ */
+start_ms?: number, runs: number, 
 /**
  * The tools its runs use without asking, as written (`gog.gmail.search`,
  * `channel.post #digest`).

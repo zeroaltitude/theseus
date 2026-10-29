@@ -49,6 +49,18 @@ pub enum RoutineCmd {
         /// `always` (default), or `when-notable`: a report ending in NOTHING NEW only logs.
         #[arg(long)]
         speak: Option<String>,
+        /// The first run is at or after this time (`mon 9:00`, `in 2h`, `2026-11-03 08:00`);
+        /// without it, the schedule's next time.
+        #[arg(long)]
+        start: Option<String>,
+        /// Where the series ends: `after 3 runs`, or a time (`fri 17:00`). Without it the
+        /// routine runs until it is paused.
+        #[arg(long)]
+        stop: Option<String>,
+        /// What each run is given of the one before it: `last-report` (default), the whole of
+        /// its report so this run reports the change, or `none`.
+        #[arg(long)]
+        carry: Option<String>,
         /// The tools its runs use without asking, comma-separated
         /// (`gog.gmail.search,web.fetch`; a post names its place: `"channel.post #digest"`). Any
         /// other call asks, and a run nobody answers by its deadline ends blocked, naming it.
@@ -243,6 +255,16 @@ fn print_all(lines: &[String]) {
     }
 }
 
+/// `, stops after 3 runs` for a routine that ends, and nothing for one that
+/// runs until it is paused (theseus-97b8c).
+fn stop_of(i: &RoutineInfo) -> String {
+    match (&i.stopped, &i.stop) {
+        (Some(s), _) => format!(", stopped: {s}"),
+        (None, Some(s)) => format!(", stops {s}"),
+        (None, None) => String::new(),
+    }
+}
+
 fn next_of(i: &RoutineInfo) -> &str {
     i.next.as_deref().unwrap_or("-")
 }
@@ -259,6 +281,9 @@ async fn write(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
             to,
             catch_up,
             speak,
+            start,
+            stop,
+            carry,
             grant,
         } => {
             let brief = brief.join(" ");
@@ -271,6 +296,9 @@ async fn write(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
                 deliver_to: to,
                 catch_up,
                 speak: speak.map(|s| s.replace('-', "_")),
+                start,
+                stop,
+                carry: carry.map(|c| c.replace('-', "_")),
                 grant,
                 ..Default::default()
             };
@@ -278,12 +306,13 @@ async fn write(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
             output(json, v, |r: RoutineEditResult| {
                 let i = &r.routine;
                 println!(
-                    "routine {} ({}) made: {}, next {}; up to {} a run and {} a month; \
+                    "routine {} ({}) made: {}, next {}{}; up to {} a run and {} a month; \
                      `theseus routine runs {}`",
                     i.short,
                     i.title,
                     i.series,
                     next_of(i),
+                    stop_of(i),
                     usd(i.run_usd),
                     usd(i.month_usd),
                     i.short
@@ -440,6 +469,11 @@ mod tests {
             deliver_to: "dm".into(),
             catch_up: "auto".into(),
             speak: "always".into(),
+            carry: "last_report".into(),
+            stop: None,
+            stop_ms: None,
+            stopped: None,
+            start_ms: None,
             runs: 3,
             grant: vec![],
             streak: 0,

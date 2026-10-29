@@ -696,7 +696,12 @@ const BULK: usize = 4096;
 /// the mark or its worklist, the two fields a session's content labels carried beside `labels` and
 /// `removed`. A record from before reads both ignored, which is no change to what it says (a
 /// session is not treated as partly judged: nothing asks), and the next write leaves them out.
-const MANIFEST_FORMAT: u32 = 54;
+/// 55 = a routine's start, its optional stop and what a run carries (theseus-97b8c): a
+/// `routine:<session>` META record's `start_ms`, `stop` (`RoutineStop`: `after_runs` or `at_ms`),
+/// `stopped_ms` and `carry`. A record from before reads with every one of them at its default,
+/// `carry` as `last_report`, and writes back byte for byte; the sample is
+/// `tests_layouts::ROUTINE_AT_54`.
+const MANIFEST_FORMAT: u32 = 55;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

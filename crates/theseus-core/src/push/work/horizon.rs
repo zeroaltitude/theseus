@@ -413,7 +413,12 @@ impl WorkBoard {
                         .map_or_else(|| line(&w.note), |s| line(&s.title)),
                     _ => line(&w.note),
                 };
-                let mut occ = Occurrences::of(w, p, zone);
+                let end_n = (w.purpose == Purpose::Routine)
+                    .then(|| self.routines.get(&w.id).and_then(|r| r.spec.as_ref()))
+                    .flatten()
+                    .and_then(runs_left)
+                    .map(|left| w.occurrence.max(1).saturating_add(left));
+                let mut occ = Occurrences::of(w, p, zone, end_n);
                 if let Some((at_ms, occurrence)) = occ.next() {
                     streams.push((head_of(w, &ei.x.session_id, title, at_ms, occurrence), occ));
                 }
@@ -444,6 +449,14 @@ impl WorkBoard {
             more,
         }
     }
+}
+
+/// How many runs a routine's run-count stop has left, when it has one: the
+/// daemon counts the runs it opened and skips the occurrence past the count, so
+/// the agenda serves no more than this many (theseus-97b8c, review H-4).
+fn runs_left(spec: &RoutineSpec) -> Option<u32> {
+    let after = spec.stop.as_ref()?.after_runs?;
+    Some(after.saturating_sub(spec.runs))
 }
 
 /// A stream's line at one of its times.
@@ -537,11 +550,16 @@ enum OccKind {
         at: u64,
         n: u32,
         to: u64,
+        /// The occurrence number a run-count stop ends the series before: a
+        /// routine's occurrences past it will never run (theseus-97b8c).
+        end_n: Option<u32>,
     },
 }
 
 impl Occurrences {
-    fn of(w: &PendingWake, p: &AgendaParams, zone: &TimeZone) -> Self {
+    /// `end_n`: for a routine whose stop is a run count, the number of the
+    /// occurrence the stop ends the series before (see [`runs_left`]).
+    fn of(w: &PendingWake, p: &AgendaParams, zone: &TimeZone, end_n: Option<u32>) -> Self {
         let inside = |t: u64| (p.from_ms..p.to_ms).contains(&t);
         let kind = if w.purpose == Purpose::Watch {
             // A watch is not a series of events: it gives up once.
@@ -572,6 +590,7 @@ impl Occurrences {
                     at,
                     n,
                     to: p.to_ms,
+                    end_n,
                 }
             } else {
                 OccKind::None
@@ -596,8 +615,9 @@ impl Iterator for Occurrences {
                 at,
                 n,
                 to,
+                end_n,
             } => {
-                if *at >= *to {
+                if *at >= *to || end_n.is_some_and(|e| *n >= e) {
                     return None;
                 }
                 let out = (*at, Some(*n));
@@ -615,14 +635,16 @@ impl Iterator for Occurrences {
 }
 
 /// A wake's agenda lines in a window as (time, occurrence), and whether the
-/// cap cut them, for the tests beside this module.
+/// cap cut them, for the tests beside this module. `end_n` is the run-count
+/// stop's end, as the production call passes it (`None`: no run-count stop).
 #[cfg(test)]
 pub(super) fn lines_for_tests(
     w: &PendingWake,
     p: &AgendaParams,
     zone: &TimeZone,
+    end_n: Option<u32>,
 ) -> (Vec<(u64, u32)>, bool) {
-    let occ = Occurrences::of(w, p, zone);
+    let occ = Occurrences::of(w, p, zone, end_n);
     let (mut out, mut more) = (Vec::new(), false);
     for (at, n) in occ {
         if out.len() == AGENDA_MAX {
