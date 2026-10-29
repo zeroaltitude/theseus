@@ -825,6 +825,7 @@ fn a_routines_runs_ping_by_the_entry_they_come_to() {
         "routine_reported",
         "routine_skipped",
         "routine_missed",
+        "routine_stopped",
         "routine",
     ] {
         assert_eq!(wake_urgency(p), Urgency::Inform, "{p}");
@@ -912,6 +913,33 @@ fn a_routines_notice_is_its_line_and_its_answers() {
         &|ms| utc_hm(ms),
     );
     assert_eq!(inform.urgency, Urgency::Inform);
+}
+
+/// A routine's stop notice (`routine_stopped`, theseus-97b8c) is a routine
+/// entry: its own line stands, with no reminder icon and no "late" suffix,
+/// even when it was told long after its due time.
+#[test]
+fn a_routines_stop_notice_is_its_line_not_a_reminder() {
+    let n = WakeNoticed {
+        wake_id: "wak_s".into(),
+        short: "s".into(),
+        session_id: "ses_r".into(),
+        execution_id: "exe_r".into(),
+        purpose: "routine_stopped".into(),
+        note: "🔁 Tide check: its stop has come (after 3 runs); the series runs no more".into(),
+        due_at_ms: AT,
+        late_ms: 7 * MIN,
+        while_down: false,
+        every: None,
+        occurrence: None,
+        posted_to: None,
+        home: false,
+        answers: vec![],
+    };
+    assert!(routine_urgency(&n.purpose).is_some());
+    let notice = reminder_notice(&n, &|ms| utc_hm(ms));
+    assert_eq!(notice.urgency, Urgency::Inform);
+    assert_eq!(notice.line, n.note);
 }
 
 /// The ping rule reads the persona's initiative through `Rules` and nowhere
