@@ -120,10 +120,13 @@ mod tests {
     /// new operator question kind that must expire is added to both, or this
     /// fails (theseus-lrc3m, review C's F3).
     /// The board reminds a held question by the life it would have had, and
-    /// that life is `[kernel] confirm_ttl_secs`'s default: one constant, in
+    /// that life is `[kernel] confirm_ttl_secs`'s *default*: one constant, in
     /// `theseus-protocol`, which the core's default derives from
-    /// (theseus-lrc3m, review G's G6). Raising one raises the other, so the
-    /// doc comment on `Rules::held_life_ms` cannot go stale.
+    /// (theseus-lrc3m, review G's G6). Raising the default raises the other,
+    /// so the doc comment on `Rules::held_life_ms` cannot go stale. A
+    /// configured `confirm_ttl_secs` does not move the board's reminder
+    /// life; `notices::Rules` is always its `Default`
+    /// (theseus-prejoin-k, review K's K-1).
     #[test]
     fn a_held_questions_reminder_life_is_the_confirm_ttl_default() {
         assert_eq!(

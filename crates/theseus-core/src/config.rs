@@ -888,8 +888,10 @@ fn default_deadline_secs() -> u64 {
     600
 }
 /// 15 minutes, as `theseus_protocol::notices::HELD_LIFE_MS` says in ms: the
-/// board reminds a held question by that same life, so the two are one
-/// constant and cannot drift (theseus-lrc3m, review G's G6).
+/// board reminds a held question by that same default life, so the two
+/// defaults are one constant and cannot drift (theseus-lrc3m, review G's G6).
+/// A configured `confirm_ttl_secs` does not move the board's reminder life;
+/// `notices::Rules` is always its `Default` (theseus-prejoin-k, review K's K-1).
 fn default_confirm_ttl_secs() -> u64 {
     theseus_protocol::notices::HELD_LIFE_MS / 1000
 }
