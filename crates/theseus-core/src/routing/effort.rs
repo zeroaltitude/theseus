@@ -538,6 +538,7 @@ mod tests {
             EffortReason::StickyUnsure,
             EffortReason::StickyReverted,
             EffortReason::Floored,
+            EffortReason::Gated,
         ] {
             let word = format!("`{}`", r.as_str());
             let i = doc[at..].find(&word);
