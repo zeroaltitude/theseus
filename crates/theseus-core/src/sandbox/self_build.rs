@@ -15,8 +15,12 @@
 //!   objects and the worktree's admin files; `~/.cargo`, so cargo's package
 //!   cache lock and index writes succeed; `~/.npm`, for npm's cache; and
 //!   `~/.cache/theseus`, where the merge gate reads the bench history.
-//! - **read-only**: `~/.rustup`, main's copy of the gate, and the operator's
-//!   `[sandbox] ro_paths`.
+//! - **read-only**: `~/.rustup`, the pinned node (`~/.nvm/versions/node/v`
+//!   [`NODE_PIN`], that one directory: the cockpit phase of the gate runs its
+//!   lint, tests and build on it, theseus-selom), main's copy of the gate, and
+//!   the operator's `[sandbox] ro_paths`. The cockpit's `node_modules` are not
+//!   bound: the gate's `npm ci --offline` makes them in the tree from `~/.npm`'s
+//!   overlay, and a package that cache lacks is refused ([`supply_chain`]).
 //! - **no network**: an empty egress list, so no route at all. Cargo is told
 //!   `--offline` (`CARGO_NET_OFFLINE`), so a branch that adds a crate the
 //!   cache lacks fails its gate at once, saying so ([`supply_chain`]):
@@ -38,6 +42,18 @@ pub const BUILD_PIDS: u64 = 8192;
 const BUILD_OUTPUT_MB: u64 = 16 * 1024;
 /// Each of `/tmp`, `/dev/shm` and HOME, and scratch, for a build.
 const BUILD_TMP_MB: u64 = 4 * 1024;
+
+/// The node release the cockpit phase of a self build's gate runs on, one exact
+/// version as `rust-toolchain.toml` pins Rust's (theseus-selom). It is found at
+/// `~/.nvm/versions/node/v<NODE_PIN>` (`nvm install <NODE_PIN>`); the view binds
+/// that one directory read-only, so the daemon's own `PATH` and the operator's
+/// other node versions never decide what a self build's cockpit tests run on.
+pub const NODE_PIN: &str = "24.18.0";
+
+/// Where the pinned node lives under `home`.
+pub fn node_home(home: &Path) -> PathBuf {
+    home.join(".nvm/versions/node").join(format!("v{NODE_PIN}"))
+}
 
 /// Where a self build runs.
 #[derive(Debug, Clone)]
@@ -68,7 +84,8 @@ impl Sandbox {
         ];
         // The view's own read-only binds, apart from the operator's
         // `[sandbox] ro_paths`, which the mask filter below must not see.
-        let own_ro: Vec<PathBuf> = std::iter::once(home(".rustup"))
+        let own_ro: Vec<PathBuf> = [home(".rustup"), node_home(b.home)]
+            .into_iter()
             .chain(b.ro.iter().cloned())
             .collect();
         let ro_paths: Vec<PathBuf> = own_ro
@@ -113,14 +130,19 @@ impl Sandbox {
 }
 
 /// The environment of a self build's command, the whole of it: the
-/// operator's `HOME` (an empty tmpfs in the view), a `PATH` that finds
-/// cargo's shims, the build tree, and cargo told it has no network.
+/// operator's `HOME` (an empty tmpfs in the view), a `PATH` that finds the
+/// pinned node and cargo's shims, the build tree, and cargo told it has no
+/// network.
 pub fn env(home: &Path, target: &Path) -> Vec<(String, String)> {
     let var = |k: &str, v: String| (k.to_string(), v);
     vec![
         var(
             "PATH",
-            format!("{}/.cargo/bin:/usr/local/bin:/usr/bin:/bin", home.display()),
+            format!(
+                "{}/bin:{}/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
+                node_home(home).display(),
+                home.display()
+            ),
         ),
         var("HOME", home.display().to_string()),
         var("LANG", "C.UTF-8".into()),

@@ -1394,7 +1394,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `sandbox/self_build.rs`): the branch's gate, the planted revert's test runs, the merge gate with its benches,
   auto-revert's gate and the install's build go through `Jail`, over `Sandbox::self_build_view`: the tree and its build
   tree the only read-write binds (`L1.rw`, set nowhere else, so no model input reaches it), the repo, `~/.cargo`,
-  `~/.npm` and `~/.cache/theseus` overlays whose writes vanish, `~/.rustup` and main's gate copy read-only, no network
+  `~/.npm` and `~/.cache/theseus` overlays whose writes vanish, `~/.rustup`, the pinned node (`NODE_PIN`, one directory of `~/.nvm`, on `PATH` first: the gate's cockpit phase, which makes `cockpit/node_modules` by `npm ci --offline` from the `~/.npm` overlay; theseus-selom) and main's gate copy read-only, no network
   (cargo runs `--offline`, so a branch that adds a crate the cache lacks fails its gate with the supply-chain reason,
   `sandbox::supply_chain`), 8,192 processes (`BUILD_PIDS`; the job default of 512 stays), and the floor and the sealed
   sets hidden as in every view. A `Place` carries its `Jail`: a daemon's always (`Board::place`), a unit test's none

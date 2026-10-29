@@ -398,6 +398,44 @@ fn a_tiny_crates_gate_passes_in_the_self_build_view() {
     );
 }
 
+/// The cockpit phase's tools (theseus-selom): the view carries the pinned node
+/// and its npm, read-only, so the gate's `npm ci --offline` and `npm run test`
+/// can run. The host's own node is not the pin's, and a host without the pinned
+/// toolchain has nothing to check.
+#[test]
+fn the_pinned_node_and_its_npm_run_in_the_self_build_view() {
+    if refused_as_root() {
+        return;
+    }
+    let pinned = theseus_core::config::expand(&format!(
+        "~/.nvm/versions/node/v{}",
+        theseus_core::sandbox::NODE_PIN
+    ));
+    if !pinned.join("bin/node").is_file() {
+        eprintln!("skipped: no pinned node at {}", pinned.display());
+        return;
+    }
+    let r = Rig::new();
+    let d = r.run(&[
+        "sh",
+        "-c",
+        "node -v > node.out 2>&1; npm -v >> node.out 2>&1",
+    ]);
+    assert_eq!(d["exit_code"], 0, "{d}");
+    let out = r.read("tree/node.out");
+    let first = out.lines().next().unwrap_or("");
+    assert_eq!(
+        first,
+        format!("v{}", theseus_core::sandbox::NODE_PIN),
+        "{out}"
+    );
+    let npm = out.lines().nth(1).unwrap_or("");
+    assert!(
+        npm.chars().next().is_some_and(|c| c.is_ascii_digit()),
+        "{out}"
+    );
+}
+
 /// The live check on a real checkout (ignored: it builds a workspace). Names a
 /// git checkout in `THESEUS_SELF_BUILD_TREE` (its files are written, so a
 /// clone, not a tree in use) and a command in `THESEUS_SELF_BUILD_CMD`
