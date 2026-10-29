@@ -829,6 +829,16 @@ pub struct ClientConfig {
     pub reserved: Option<usize>,
 }
 
+impl ClientConfig {
+    /// The permits kept back for awaited calls: the configured count, or the
+    /// default share ([`reserved_of`]), and never all of `max_in_flight`.
+    fn reserved_permits(&self) -> usize {
+        self.reserved
+            .unwrap_or_else(|| reserved_of(self.max_in_flight))
+            .min(self.max_in_flight.saturating_sub(1))
+    }
+}
+
 impl Default for ClientConfig {
     /// Connect 2 s, total 5 s, eight in flight (design §2.2 and §2.15).
     fn default() -> Self {
@@ -850,17 +860,23 @@ pub enum Urgency {
     Shadow,
     /// Waits for a permit up to the deadline, which also bounds the call.
     Live { deadline_ms: u64 },
-    /// [`Urgency::Live`], and **a turn is blocked on the answer**: it may
-    /// take one of the permits kept back for such calls ([`RESERVED_SHARE`])
-    /// as well as an ordinary one, whichever frees first (theseus-oc9n4).
+    /// [`Urgency::Live`], for a call **a turn may be blocked on**: it may take
+    /// one of the permits kept back for such calls ([`RESERVED_SHARE`]) as
+    /// well as an ordinary one, whichever frees first (theseus-oc9n4).
     ///
-    /// The cn floor is the caller this exists for. It waits at most
+    /// Every content call goes out so (`content.v3`'s `ask_once`), and the
+    /// cn floor is the reader it is for: it waits at most
     /// `[content_based_security] wait_ms` for the content asks out for its
     /// session and then goes on the labels it has, so a content call that
     /// has not been *made* by the end of that window is a window spent for
     /// nothing and a turn moved off its model. Without a share kept back,
-    /// that call queues behind every ordinary judge call, including ones no
-    /// one is waiting on.
+    /// that call queues behind every ordinary judge call.
+    ///
+    /// The variant does not know whether a floor is waiting: the per-session
+    /// drain judges every item that enters every session, and each of those
+    /// calls takes the reserve alike, so one nobody waits on can hold a
+    /// reserved permit another session's floor needs. A call that is told
+    /// apart by a waiter is a later change.
     Awaited { deadline_ms: u64 },
 }
 
@@ -871,7 +887,7 @@ impl Urgency {
         }
     }
 
-    /// [`Urgency::Awaited`]: live, and a turn is blocked on the answer.
+    /// [`Urgency::Awaited`]: live, and a turn may be blocked on the answer.
     pub fn awaited(deadline: Duration) -> Self {
         Urgency::Awaited {
             deadline_ms: deadline.as_millis() as u64,
@@ -889,10 +905,13 @@ impl Urgency {
     }
 }
 
-/// One in `RESERVED_SHARE` of the in-flight permits is kept for the calls a
-/// turn is blocked on ([`Urgency::Awaited`]), rounded down but never to
-/// none, and never all of them: a client of one permit keeps none back and
-/// behaves as it always did.
+/// One in `RESERVED_SHARE` of the in-flight permits is kept for content calls
+/// ([`Urgency::Awaited`]), which a turn may be blocked on, rounded down but
+/// never to none, and never all of them: a client of one permit keeps none
+/// back and behaves as it always did. A client built with
+/// [`ClientConfig::reserved`] of `Some(0)` keeps none either: the ordinary
+/// pool is `max_in_flight` less the share, so a deployment that makes no
+/// awaited call and kept it would run that many fewer concurrent calls.
 const RESERVED_SHARE: usize = 4;
 
 /// The permits kept back for awaited calls, out of `max_in_flight`.
@@ -960,7 +979,8 @@ pub struct JevClient {
     /// share.
     permits: Arc<Semaphore>,
     /// The permits only an [`Urgency::Awaited`] call may take
-    /// ([`reserved_of`]). Empty on a client of one permit. The two together
+    /// ([`reserved_of`]). Empty on a client of one permit, and on one built with
+    /// [`ClientConfig::reserved`] of `Some(0)`. The two together
     /// are `max_in_flight`, so the ceiling is what it always was: this
     /// divides the permits, it does not add any.
     reserved: Arc<Semaphore>,
@@ -1018,13 +1038,12 @@ impl JevClient {
             .connect_timeout(config.connect)
             .pool_idle_timeout(POOL_IDLE)
             .build()?;
+        let kept = config.reserved_permits();
         Ok(Self {
             http,
             url: format!("{}{PATH}", config.api_base.trim_end_matches('/')),
-            permits: Arc::new(Semaphore::new(
-                config.max_in_flight - reserved_of(config.max_in_flight),
-            )),
-            reserved: Arc::new(Semaphore::new(reserved_of(config.max_in_flight))),
+            permits: Arc::new(Semaphore::new(config.max_in_flight - kept)),
+            reserved: Arc::new(Semaphore::new(kept)),
             config,
             key,
             shed: ShedMeter::default(),
@@ -1146,7 +1165,7 @@ impl JevClient {
                     })),
                 }
             }
-            // A turn is blocked on this answer: it waits on the reserved
+            // A turn may be blocked on this answer: it waits on the reserved
             // pool and the ordinary one together and takes whichever frees
             // first, so the longest it can wait for a permit is one
             // reserved call's length and not the whole ordinary queue's.
