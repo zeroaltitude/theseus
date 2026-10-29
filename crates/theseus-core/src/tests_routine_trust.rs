@@ -714,6 +714,7 @@ async fn the_creation_card_shows_the_grant() {
         zone: r.core.kernel.config().zone.clone(),
         cfg: Default::default(),
         floor_ms: 60_000,
+        max_ahead_ms: 400 * 86_400_000,
     };
     let input = |grant: Value| json!({"title": "Digest", "schedule": "weekdays 08:00", "brief": "Summarize", "grant": grant});
     let plan = tool

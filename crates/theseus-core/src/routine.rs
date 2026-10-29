@@ -37,8 +37,8 @@ use theseus_kernel::{
     RoutineDue, RoutinePlan, RunPlan, SessionKind, TaskRun, WakeRun,
 };
 use theseus_protocol::routines::{
-    CatchUp, RoutineBlocked, RoutineInfo, RoutineSpec, RunMark, RunRow, Speak, BLOCKED_PREFIX,
-    KEY_PREFIX, NOTHING_NEW, RUN_PREFIX,
+    Carry, CatchUp, RoutineBlocked, RoutineInfo, RoutineSpec, RoutineStop, RunMark, RunRow, Speak,
+    BLOCKED_PREFIX, KEY_PREFIX, NOTHING_NEW, RUN_PREFIX,
 };
 use theseus_protocol::LedgerKind;
 use theseus_store::{kinds, NewRecord, Store as _};
@@ -52,6 +52,11 @@ use crate::store::Store;
 /// A title is a line, and a brief is not a document.
 const MAX_TITLE: usize = 120;
 const MAX_BRIEF: usize = 8_000;
+
+/// The most of the last run's report a run is given (theseus-97b8c). It is
+/// there so run N reports the change, not so it reads a transcript: a report
+/// longer than this is carried head and tail with the middle left out.
+const MAX_CARRY: usize = 2_000;
 
 /// The live routines by session id.
 type Specs = BTreeMap<String, Arc<RoutineSpec>>;
@@ -304,8 +309,113 @@ pub struct NewRoutine {
     pub deliver_to: Option<String>,
     pub catch_up: Option<String>,
     pub speak: Option<String>,
+    /// The first occurrence is the first at or after this time, as a person
+    /// writes one (`mon 9:00`, `in 2h`).
+    pub start: Option<String>,
+    /// Where the series ends: `after N runs`, or a time.
+    pub stop: Option<String>,
+    /// What each run is given of the run before it.
+    pub carry: Option<String>,
     /// The tools its runs use without asking (`grant::check` has read them).
     pub grant: Vec<String>,
+}
+
+/// Read a stop: `after 3 runs` (or `3 runs`), else a time as `parse_when`
+/// reads one. Nothing else: a condition to check on a timer is a `watch`
+/// (`watch_tool.rs`), which already evaluates one with no model.
+pub fn parse_stop(
+    text: &str,
+    now_ms: u64,
+    zone: &TimeZone,
+    max_ahead_ms: u64,
+) -> Result<RoutineStop, String> {
+    let lower = text.trim().to_ascii_lowercase();
+    let body = lower.strip_prefix("after ").unwrap_or(&lower).trim();
+    let count = body
+        .strip_suffix("runs")
+        .or_else(|| body.strip_suffix("run"))
+        .unwrap_or(body)
+        .trim();
+    if let Ok(n) = count.parse::<u32>() {
+        if n == 0 {
+            return Err("a stop of `after N runs` needs at least one run".into());
+        }
+        return Ok(RoutineStop {
+            text: format!("after {n} run{}", if n == 1 { "" } else { "s" }),
+            after_runs: Some(n),
+            at_ms: None,
+        });
+    }
+    let at_ms = crate::wake_when::parse_when(text.trim(), now_ms, zone, max_ahead_ms)?;
+    Ok(RoutineStop {
+        text: local(zone, at_ms, "%Y-%m-%d %H:%M"),
+        after_runs: None,
+        at_ms: Some(at_ms),
+    })
+}
+
+/// Whether a stop has been used up: its runs are done, or its time has come.
+pub fn stop_spent(stop: &RoutineStop, runs: u32, now_ms: u64) -> bool {
+    stop.spent_after(runs) || stop.at_ms.is_some_and(|t| now_ms >= t)
+}
+
+/// Where a request's series begins and ends (theseus-97b8c), read and checked
+/// once so the owner's verb, the model's tool and the card all say the same.
+#[derive(Debug, Clone, Default)]
+pub struct Bounds {
+    /// The start: the first occurrence is the first at or after it.
+    pub start_ms: Option<u64>,
+    pub stop: Option<RoutineStop>,
+}
+
+/// The start a request asks for, before its schedule is read: the schedule is
+/// then read from there rather than from now.
+pub fn start_of(
+    n: &NewRoutine,
+    zone: &TimeZone,
+    now_ms: u64,
+    max_ahead_ms: u64,
+) -> Result<Option<u64>, String> {
+    match n.start.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => Ok(Some(crate::wake_when::parse_when(
+            s,
+            now_ms,
+            zone,
+            max_ahead_ms,
+        )?)),
+        None => Ok(None),
+    }
+}
+
+/// The stop a request asks for, once its first occurrence is known: a stop
+/// that comes before it would run nothing, and says so.
+pub fn stop_of(
+    n: &NewRoutine,
+    zone: &TimeZone,
+    now_ms: u64,
+    max_ahead_ms: u64,
+    first_ms: u64,
+) -> Result<Option<RoutineStop>, String> {
+    let Some(text) = n.stop.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let stop = parse_stop(text, now_ms, zone, max_ahead_ms)?;
+    if stop.at_ms.is_some_and(|at| at < first_ms) {
+        return Err(format!(
+            "the stop ({}) comes before the first run ({}): nothing would run",
+            stop.text,
+            when(zone, first_ms)
+        ));
+    }
+    Ok(Some(stop))
+}
+
+/// The stop as the card and the lists word it.
+fn stop_words(stop: Option<&RoutineStop>) -> String {
+    match stop {
+        Some(s) => s.words(),
+        None => "it runs until it is paused".to_string(),
+    }
 }
 
 /// A request read and checked, nothing written: what the card says.
@@ -318,6 +428,8 @@ pub struct Prepared {
     pub next: Vec<u64>,
     /// The grant, checked, as the wake will carry it.
     pub grant: Vec<String>,
+    /// The series' `until`, when the stop is a time: the wake carries it.
+    pub until_ms: Option<u64>,
 }
 
 /// A dollar figure a person may name: finite and above zero.
@@ -342,15 +454,20 @@ impl Prepared {
         run_usd: f64,
         month_usd: f64,
         zone: &TimeZone,
+        bounds: &Bounds,
     ) -> String {
         let speak = Speak::parse(n.speak.as_deref().unwrap_or("")).unwrap_or_default();
         let to = n.deliver_to.as_deref().unwrap_or("dm");
         let next: Vec<String> = next.iter().map(|m| when(zone, *m)).collect();
         format!(
-            "Create routine \"{}\": {} (next: {}) · up to {} a run, {} a month · {} · {}",
+            "Create routine \"{}\": {}{} (next: {}) · {} · up to {} a run, {} a month · {} · {}",
             n.title.trim(),
             at_words(&describe(repeat, zone)),
+            bounds
+                .start_ms
+                .map_or(String::new(), |m| format!(" from {}", when(zone, m))),
             next.join(", "),
+            stop_words(bounds.stop.as_ref()),
             dollars(run_usd),
             dollars(month_usd),
             deliver_words(to, speak),
@@ -364,10 +481,13 @@ impl Prepared {
         let s = &self.spec;
         let next: Vec<String> = self.next.iter().map(|m| when(zone, *m)).collect();
         format!(
-            "Create routine \"{}\": {} (next: {}) · up to {} a run, {} a month · {} · {}",
+            "Create routine \"{}\": {}{} (next: {}) · {} · up to {} a run, {} a month · {} · {}",
             s.title,
             at_words(&describe(&self.repeat, zone)),
+            s.start_ms
+                .map_or(String::new(), |m| format!(" from {}", when(zone, m))),
             next.join(", "),
+            stop_words(s.stop.as_ref()),
             dollars(micros_to_usd(s.run_micros)),
             dollars(micros_to_usd(s.month_micros)),
             deliver_words(&s.deliver_to, s.speak),
@@ -413,6 +533,40 @@ fn deliver_words(to: &str, speak: Speak) -> String {
     }
 }
 
+/// The first `n` occurrences of a read schedule, for the card: fewer when the
+/// series ends (a stop that is a time) before there are `n` of them.
+pub fn occurrences(parsed: &theseus_kernel::cron::Parsed, zone: &TimeZone, n: usize) -> Vec<u64> {
+    let mut out = vec![parsed.first_ms];
+    while out.len() < n {
+        match parsed
+            .repeat
+            .next_after(zone, *out.last().unwrap_or(&parsed.first_ms))
+        {
+            Some(t) => out.push(t),
+            None => break,
+        }
+    }
+    out
+}
+
+/// A schedule's shortest gap over its next few occurrences, which
+/// `catch_up: auto` reads; its nominal span when it has only one.
+fn period_of(parsed: &theseus_kernel::cron::Parsed, zone: &TimeZone) -> u64 {
+    let mut gap = u64::MAX;
+    let mut prev = parsed.first_ms;
+    for _ in 0..8 {
+        let Some(next) = parsed.repeat.next_after(zone, prev) else {
+            break;
+        };
+        gap = gap.min(next - prev);
+        prev = next;
+    }
+    match gap {
+        u64::MAX => parsed.repeat.every.nominal_ms(),
+        g => g,
+    }
+}
+
 /// Read and check a request. `by` and `created_in` go in the record.
 pub fn prepare(
     kernel: &Kernel,
@@ -436,7 +590,23 @@ pub fn prepare(
     }
     let kc = kernel.config();
     let now = kernel.now_ms();
-    let parsed = parse_schedule(&n.schedule, &kc.zone, now, kc.min_repeat_ms)?;
+    // The start moves the first occurrence, so the series is read from there
+    // rather than from now; a stop that is a time becomes the series' own
+    // `until`, which the kernel already ends a series at (theseus-97b8c).
+    let ahead = kc.wakes.max_ahead_ms;
+    let start_ms = start_of(n, &kc.zone, now, ahead)?;
+    let mut parsed = parse_schedule(
+        &n.schedule,
+        &kc.zone,
+        start_ms.unwrap_or(now),
+        kc.min_repeat_ms,
+    )?;
+    let stop = stop_of(n, &kc.zone, now, ahead, parsed.first_ms)?;
+    parsed.repeat.until_ms = stop.as_ref().and_then(|s| s.at_ms);
+    let carry = match &n.carry {
+        Some(c) => Carry::parse(c).ok_or("carry is last_report or none")?,
+        None => Carry::LastReport,
+    };
     let run_usd = n.budget_usd.unwrap_or(cfg.default_run_usd);
     let month_usd = n.month_usd.unwrap_or(cfg.default_month_usd);
     if !(usd_ok(run_usd) && usd_ok(month_usd)) || run_usd > month_usd {
@@ -462,35 +632,7 @@ pub fn prepare(
             ))
         }
     };
-    let period_ms = {
-        let mut gap = u64::MAX;
-        let mut prev = parsed.first_ms;
-        for _ in 0..8 {
-            match parsed.repeat.next_after(&kc.zone, prev) {
-                Some(next) => {
-                    gap = gap.min(next - prev);
-                    prev = next;
-                }
-                None => break,
-            }
-        }
-        if gap == u64::MAX {
-            parsed.repeat.every.nominal_ms()
-        } else {
-            gap
-        }
-    };
-    let mut next = vec![parsed.first_ms];
-    let mut prev = parsed.first_ms;
-    while next.len() < 3 {
-        match parsed.repeat.next_after(&kc.zone, prev) {
-            Some(t) => {
-                next.push(t);
-                prev = t;
-            }
-            None => break,
-        }
-    }
+    let next = occurrences(&parsed, &kc.zone, 3);
     let spec = RoutineSpec {
         title: title.to_string(),
         schedule: n.schedule.trim().to_string(),
@@ -499,8 +641,11 @@ pub fn prepare(
         month_micros: usd_to_micros(month_usd),
         catch_up,
         speak,
+        carry,
+        start_ms,
+        stop,
         deliver_to,
-        period_ms,
+        period_ms: period_of(&parsed, &kc.zone),
         created_ms: now,
         created_by: by.to_string(),
         created_in: created_in.map(str::to_string),
@@ -510,6 +655,7 @@ pub fn prepare(
     Ok(Prepared {
         spec,
         first_ms: parsed.first_ms,
+        until_ms: parsed.repeat.until_ms,
         repeat: parsed.repeat,
         next,
         grant: n.grant.clone(),
@@ -699,6 +845,13 @@ pub fn info_of(env: &Env<'_>, spec: &RoutineSpec) -> Result<RoutineInfo> {
         deliver_to: spec.deliver_to.clone(),
         catch_up: spec.catch_up.as_str().to_string(),
         speak: spec.speak.as_str().to_string(),
+        carry: spec.carry.as_str().to_string(),
+        stop: spec.stop.as_ref().map(|s| s.text.clone()),
+        stop_ms: spec.stop.as_ref().and_then(|s| s.at_ms),
+        stopped: spec
+            .stopped_ms
+            .and(spec.stop.as_ref().map(|s| s.text.clone())),
+        start_ms: spec.start_ms,
         runs: spec.runs,
         grant: e.as_ref().and_then(written_grant).unwrap_or_default(),
         streak: watch::streak(env, spec),
@@ -745,6 +898,19 @@ pub fn plan_trial(env: &Env<'_>, spec: &RoutineSpec, due: &RoutineDue) -> Result
 }
 
 fn plan_as(env: &Env<'_>, spec: &RoutineSpec, due: &RoutineDue, trial: bool) -> Result<Planned> {
+    // The stop is a fact the daemon keeps, not a memory: once it is used up
+    // the series runs nothing, whether or not anything is awake to notice
+    // (theseus-97b8c). The occurrence that finds it spent records the time and
+    // is skipped `stopped`; the core then holds the series, so there is one
+    // such skip and not one an occurrence for ever. A run asked for by hand
+    // still runs: the stop ends the schedule, not the owner's own verb.
+    if let Some(stop) = spec.stop.as_ref().filter(|_| !trial && !due.manual) {
+        if stop_spent(stop, spec.runs, due.now_ms) {
+            let mut next = spec.clone();
+            next.stopped_ms = Some(next.stopped_ms.unwrap_or(due.now_ms));
+            return skipped("stopped", None, next);
+        }
+    }
     let month = month_key(&env.kernel.config().zone, due.now_ms);
     let reset = spec.month != month;
     match held_back(env, spec, due, reset)? {
@@ -942,9 +1108,51 @@ fn header(env: &Env<'_>, spec: &RoutineSpec, due: &RoutineDue, run_no: u32) -> R
                 Some(line) => format!("; the last run ended: {line}"),
                 None => format!("; the last run is {}", r.state),
             });
+            if r.state == "complete" {
+                out.push_str(&carried(env, spec, last)?);
+            }
         }
     }
     Ok(out)
+}
+
+/// What the last run saw, for the run that follows it (theseus-97b8c): the
+/// whole of its report, clipped, and the one line that says what to do with it.
+/// This is what makes a routine that watches something different from one that
+/// runs the same brief on a timer: run N reports the change, not the state.
+/// The daemon reads it from the run's own report; nothing is re-derived, and a
+/// report whose whole text is the first line the clause already carries adds
+/// nothing, so it is left out.
+fn carried(env: &Env<'_>, spec: &RoutineSpec, last_task: &str) -> Result<String> {
+    if spec.carry == Carry::None {
+        return Ok(String::new());
+    }
+    let Some(text) = crate::task::load_report(env.store, env.kernel, last_task)?
+        .filter(|r| r.outcome == "complete")
+        .and_then(|r| r.text)
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty() && *t != first_line(t))
+    else {
+        return Ok(String::new());
+    };
+    Ok(format!(
+        "\n\nWhat the last run reported, in full, so that you can report what has changed \
+         since rather than saying it again:\n---\n{}\n---",
+        clip(&text, MAX_CARRY)
+    ))
+}
+
+/// A text at most `max` characters, its head and its tail kept.
+fn clip(text: &str, max: usize) -> String {
+    let n = text.chars().count();
+    if n <= max {
+        return text.to_string();
+    }
+    let head = max * 2 / 3;
+    let from = (n - max / 3).max(head);
+    let out: String = text.chars().take(head).collect();
+    let tail: String = text.chars().skip(from).collect();
+    format!("{out}\n[… {} characters left out …]\n{tail}", from - head)
 }
 
 /// Whether a finished run's report is not posted: its routine speaks only when

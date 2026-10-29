@@ -178,6 +178,9 @@ impl Core {
             deliver_to: p.deliver_to.clone(),
             catch_up: p.catch_up.clone(),
             speak: p.speak.clone(),
+            start: p.start.clone(),
+            stop: p.stop.clone(),
+            carry: p.carry.clone(),
             grant: self.checked_grant(&p.grant)?,
         };
         let by = who.label;
@@ -564,6 +567,23 @@ impl Core {
         })?;
         self.routine_skips_told(&spec, &fired);
         for (f, next) in fired.iter().zip(updated) {
+            // The stop has tripped: hold the series, so there is one `stopped`
+            // skip and not one an occurrence for ever (theseus-97b8c). The
+            // record the frame wrote already says when it tripped.
+            if f.skipped == Some("stopped") {
+                if let Err(err) = self.kernel.pause_wake(
+                    &spec.execution_id,
+                    &spec.wake_id,
+                    None,
+                    &format!(
+                        "its stop ({})",
+                        next.stop.as_ref().map_or("", |s| s.text.as_str())
+                    ),
+                ) {
+                    tracing::warn!(routine = %routine::short(&spec.session_id),
+                        error = %format!("{err:#}"), "a stopped routine could not be held");
+                }
+            }
             self.routine_opened(&f.task, &target, &next);
             if let Some(a) = &f.post {
                 self.outbox.posted(a);

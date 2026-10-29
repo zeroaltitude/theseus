@@ -512,12 +512,14 @@ pub fn wake_urgency(purpose: &str) -> Urgency {
 /// | `routine_blocked` | is blocked: a call outside its grant went unanswered | Interrupt, once per routine per local day |
 /// | `routine_skipped` | is skipped (overlap, a spent month, no catch-up) | Inform |
 /// | `routine_missed` | was missed while the daemon was down | Inform, once at the start |
-pub const ROUTINE_PURPOSES: [&str; 5] = [
+/// | `routine_stopped` | is the one its stop condition ended: the series runs no more | Inform |
+pub const ROUTINE_PURPOSES: [&str; 6] = [
     "routine_reported",
     "routine_failed",
     "routine_blocked",
     "routine_skipped",
     "routine_missed",
+    "routine_stopped",
 ];
 
 /// How urgent a routine entry is; none for a purpose that is not one.

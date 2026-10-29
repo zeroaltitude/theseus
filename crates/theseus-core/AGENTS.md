@@ -2678,7 +2678,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`config/wake_limits.rs`). The commitments block says `remind:` and `(paused)`. Tests: `tests_reminders.rs` (a real
   core, the driver, the real clock), the kernel's `tests_wake_owner.rs`, theseusd's `tests/wakes.rs` (a stop across the
   due time), theseus-discord's `tests_gateway/remind.rs`.
-- **Routines** (theseus-pvm5c; horizon HZ4; store format 34): recurring work done right. A routine is a conversation's execution of
+- **Routines** (theseus-pvm5c; horizon HZ4; store format 34, and 55 for a start, a stop and a carry, theseus-97b8c): recurring work done right. A routine is a conversation's execution of
   its own (limit = its month, `[routines] default_month_usd`, pinned) with one pending wake (`Purpose::Routine`, `WakeRun::Task`) and
   a record, `theseus_protocol::routines::RoutineSpec`, as the META key `routine:<session id>` (no stored field of the session's
   own); `routine.rs` holds the pure and shared parts (`Book`: the records in memory, read once on the driver's first tick;
@@ -2699,9 +2699,31 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   its card reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · up to $0.50 a
   run, $10 a month · posts to your DM`. A conversation's commitments block lists the routines it made (`🔁 a41d04 weekdays 08:00
   Morning digest (next Fri)`, from `Book::made_in`, memory only). `[kernel] max_routines` moved to `[routines] max_routines`.
+  **A start, an optional stop, and what a run carries** (theseus-97b8c; the owner 2026-10-28, "start, optional stop, interval,
+  etc ... a super smart cron but internally treats it as a long term task", and "further bringing task stuff under deterministic
+  control"): the model decides what and when, and from the tool call onward the machinery is the daemon's. `start` (`RoutineSpec
+  .start_ms`) moves the first occurrence: `prepare` reads the schedule from it rather than from now. `stop` (`RoutineStop`:
+  `after N runs`, or a time) is a fact, not a memory. A time becomes the series' own `until` (`Repeat.until_ms`), so nothing is
+  due past it and the kernel's `wake.ended { why: "until" }` says so; a stop before the first occurrence is refused in words. A
+  run count is counted by the daemon: `plan_as` checks it first, and the occurrence that finds it spent is skipped `stopped`
+  with `RoutineSpec.stopped_ms` recorded, after which `fire_routine_of` pauses the wake, so there is one such skip and not one
+  an occurrence for ever. A run asked for by hand (`run_now`, `try`) still runs: the stop ends the schedule, not the owner's own
+  verb. `carry` (`Carry::LastReport` by default, or `None`) is what run N is given of run N-1: the whole of its report, clipped
+  head and tail at `MAX_CARRY` (2,000 characters) under "What the last run reported, in full, so that you can report what has
+  changed since rather than saying it again", which is what makes a routine that watches something different from one that runs
+  a brief on a timer. The daemon reads it from the run's own report (`task::load_report`); nothing is re-derived, and a report
+  with nothing past the first line the header's clause already carries adds no block. The tool's description names the shape of
+  the intents it is for (watch this, remind me, check it hourly, every morning tell me, at 3 today, until Friday, keep me
+  posted) rather than any keyword, and points at `watch` (`watch_tool.rs`) for a condition a command can check with no model.
+  The card names the start and the stop; `RoutineInfo` carries `start_ms`, `stop`, `stop_ms`, `stopped` and `carry` for the
+  cockpit and the agenda. CLI: `theseus routine add --start --stop --carry`. A run-count stop is the daemon's to keep on
+  every surface: `work.agenda` serves a routine's occurrences only up to the stop's runs less the runs opened
+  (`push/work/horizon.rs`, `runs_left`), so a client draws exactly what will run and invents nothing; and a stop that has
+  come tells the owner the series has ended (`routine_stopped`, `routines_watch.rs`), not that a run was skipped.
   Tests: `tests_routines.rs` (a minute routine runs three times as three fresh tasks reporting to the DM; overlap; pause and run
-  now; a spent month and its reset; the catch-up's words; the model's card; `when_notable`; update and delete), the kernel's
-  `tests_routines.rs` and `tests_cron.rs`, and `tests_layouts.rs`' format-33 wake.
+  now; a spent month and its reset; the catch-up's words; the model's card; `when_notable`; update and delete),
+  `tests_routine_stop.rs` (the start, the two stops, the carry and the card), the kernel's
+  `tests_routines.rs` and `tests_cron.rs`, and `tests_layouts.rs`' format-33 wake and format-54 routine.
 - **A routine's trust** (theseus-52tut; horizon §5.4, D-H6 "a routine's named tools run without asking, even after the run reads
   outside text; everything else still waits"): `routine/grant.rs`, `routine/watch.rs`, `rpc/routines_watch.rs`. The **grant** is the
   routine's wake's `TaskRun.tools` (no new stored field; `RoutineInfo.grant`): tool names, and for `channel.post` its place
