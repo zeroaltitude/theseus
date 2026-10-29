@@ -355,6 +355,17 @@ impl Core {
                         spec.title
                     ),
                 ),
+                // A stop that has come ends the series (it is held, there is no
+                // next run): not the transient skip an overlap or a spent
+                // month is (theseus-97b8c, review H-2).
+                (Some("stopped"), _) => (
+                    "routine_stopped",
+                    format!(
+                        "🔁 {}: its stop has come ({}); the series runs no more",
+                        spec.title,
+                        spec.stop.as_ref().map_or("", |s| s.text.as_str())
+                    ),
+                ),
                 (Some(why), _) => (
                     "routine_skipped",
                     format!(
