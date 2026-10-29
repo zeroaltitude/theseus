@@ -114,7 +114,10 @@ fn the_view_binds_the_pinned_node_toolchain_read_only_and_nothing_more_of_nvm() 
 #[test]
 fn the_pinned_node_comes_first_on_a_self_builds_path() {
     let env = crate::sandbox::self_build_env(Path::new("/home/op"), Path::new("/t/target"));
-    let path = env.iter().find(|(n, _)| n == "PATH").map(|(_, v)| v.as_str());
+    let path = env
+        .iter()
+        .find(|(n, _)| n == "PATH")
+        .map(|(_, v)| v.as_str());
     let want = format!(
         "/home/op/.nvm/versions/node/v{}/bin:",
         crate::sandbox::NODE_PIN

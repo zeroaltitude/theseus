@@ -416,13 +416,24 @@ fn the_pinned_node_and_its_npm_run_in_the_self_build_view() {
         return;
     }
     let r = Rig::new();
-    let d = r.run(&["sh", "-c", "node -v > node.out 2>&1; npm -v >> node.out 2>&1"]);
+    let d = r.run(&[
+        "sh",
+        "-c",
+        "node -v > node.out 2>&1; npm -v >> node.out 2>&1",
+    ]);
     assert_eq!(d["exit_code"], 0, "{d}");
     let out = r.read("tree/node.out");
     let first = out.lines().next().unwrap_or("");
-    assert_eq!(first, format!("v{}", theseus_core::sandbox::NODE_PIN), "{out}");
+    assert_eq!(
+        first,
+        format!("v{}", theseus_core::sandbox::NODE_PIN),
+        "{out}"
+    );
     let npm = out.lines().nth(1).unwrap_or("");
-    assert!(npm.chars().next().is_some_and(|c| c.is_ascii_digit()), "{out}");
+    assert!(
+        npm.chars().next().is_some_and(|c| c.is_ascii_digit()),
+        "{out}"
+    );
 }
 
 /// The live check on a real checkout (ignored: it builds a workspace). Names a
