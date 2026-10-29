@@ -628,14 +628,16 @@ impl Iterator for Occurrences {
 }
 
 /// A wake's agenda lines in a window as (time, occurrence), and whether the
-/// cap cut them, for the tests beside this module.
+/// cap cut them, for the tests beside this module. `end_n` is the run-count
+/// stop's end, as the production call passes it (`None`: no run-count stop).
 #[cfg(test)]
 pub(super) fn lines_for_tests(
     w: &PendingWake,
     p: &AgendaParams,
     zone: &TimeZone,
+    end_n: Option<u32>,
 ) -> (Vec<(u64, u32)>, bool) {
-    let occ = Occurrences::of(w, p, zone, None);
+    let occ = Occurrences::of(w, p, zone, end_n);
     let (mut out, mut more) = (Vec::new(), false);
     for (at, n) in occ {
         if out.len() == AGENDA_MAX {
