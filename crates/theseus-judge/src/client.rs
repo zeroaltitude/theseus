@@ -1471,7 +1471,10 @@ mod tests_permits {
             )
             .unwrap();
             assert_eq!(
-                (c.permits.available_permits(), c.reserved.available_permits()),
+                (
+                    c.permits.available_permits(),
+                    c.reserved.available_permits()
+                ),
                 (ordinary, kept),
                 "max_in_flight {n}, reserved {reserved:?}"
             );

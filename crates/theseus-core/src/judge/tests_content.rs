@@ -1803,7 +1803,11 @@ async fn the_client_keeps_no_permit_back_when_content_judging_is_off() {
         private: vec![],
     };
     judge.content_from(names(), true, 3);
-    assert_eq!(judge.client_config().reserved, None, "on: the default share");
+    assert_eq!(
+        judge.client_config().reserved,
+        None,
+        "on: the default share"
+    );
     judge.content_from(names(), false, 3);
     assert_eq!(
         judge.client_config().reserved,
