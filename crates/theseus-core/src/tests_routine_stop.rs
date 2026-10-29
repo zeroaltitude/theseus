@@ -249,3 +249,53 @@ fn the_creation_card_names_the_start_and_the_stop() {
         plan.summary
     );
 }
+
+/// The one moment a stop produces an owner-visible event, it says the series is
+/// over and names the stop. It must not read as the transient skip an overlap or
+/// a spent month is, which are each followed by a next run (theseus-97b8c,
+/// review H-2).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tripped_stop_tells_the_owner_the_series_has_ended_and_names_the_stop() {
+    let r = rig();
+    let (tx, mut events) = tokio::sync::mpsc::unbounded_channel();
+    *r.core.bus.tap.lock().unwrap() = Some(tx);
+    let info = made(&r.core, json!({"stop": "after 1 run"})).await;
+    let id = info["id"].as_str().unwrap().to_string();
+    due_soon(&r.core).await;
+    until("run 1's report", 30, || reports(&r.core).len() == 1).await;
+    due_soon(&r.core).await;
+    until("the stop", 30, || {
+        crate::test_support::rows(&r.core, "wake.skipped")
+            .iter()
+            .any(|s| s["why"] == "stopped")
+    })
+    .await;
+    assert_eq!(runs(&r.core, &id).await.len(), 1);
+    let mut told: Vec<theseus_protocol::WakeNoticed> = vec![];
+    until("the owner is told", 30, || {
+        while let Ok(m) = events.try_recv() {
+            if let theseus_protocol::Message::Notification(n) = m {
+                if n.method == "wake.noticed" {
+                    told.push(serde_json::from_value(n.params).unwrap());
+                }
+            }
+        }
+        told.iter().any(|n| n.purpose.starts_with("routine_s"))
+    })
+    .await;
+    let n = told
+        .iter()
+        .find(|n| n.purpose.starts_with("routine_s"))
+        .unwrap();
+    assert!(
+        n.note.contains("after 1 run"),
+        "the notice names the stop: {}",
+        n.note
+    );
+    assert!(
+        !n.note.contains("skipped"),
+        "a series that ended is not a skipped run: {}",
+        n.note
+    );
+    assert_eq!(n.purpose, "routine_stopped", "{}", n.note);
+}
