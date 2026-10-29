@@ -235,7 +235,10 @@ fn the_floors_window_is_the_coding_classes_own_bars() {
     // The boundary is the bar itself: a bar equal to the floor is an empty window.
     let at = "[classes.routine_coding]\nswitch_confidence = 0.30\n\
               [classes.deep_coding]\nswitch_confidence = 0.30\n";
-    assert!(ok(&with(at)).is_err(), "a bar equal to the floor never fires");
+    assert!(
+        ok(&with(at)).is_err(),
+        "a bar equal to the floor never fires"
+    );
     let over = "[classes.routine_coding]\nswitch_confidence = 0.30\n\
                 [classes.deep_coding]\nswitch_confidence = 0.31\n";
     assert!(ok(&with(over)).is_ok(), "{:?}", ok(&with(over)));
@@ -255,7 +258,10 @@ fn the_floors_window_is_the_coding_classes_own_bars() {
     let low: RoutingConfig =
         toml::from_str("switch_confidence = 0.25\n[coding_floor]\nprofile = \"sonnethi\"\n")
             .unwrap();
-    assert!(ok(&low).is_err(), "the section's 0.25 is under the floor's 0.30");
+    assert!(
+        ok(&low).is_err(),
+        "the section's 0.25 is under the floor's 0.30"
+    );
 }
 
 #[test]
