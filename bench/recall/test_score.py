@@ -159,6 +159,55 @@ class AbstentionShapes(unittest.TestCase):
         self.assertAlmostEqual(s["abstention_accuracy"], 0.25)
 
 
+class AbstainedInTheAnswer(unittest.TestCase):
+    """`abstained_in_answer`: the admission present, and no value of the asked
+    kind in the reply's FIRST SENTENCE — the answer — however many a later
+    sentence attributes to other subjects (theseus-r2w2n).
+
+    It is recorded beside `correct`, never in place of it: `correct` keeps the
+    shipped rule, which reads `lacks` over the whole reply. The two differ by
+    the scope of one clause, and on seed 7 and on the two 10-26 seeds that
+    scope is the whole of the published `abstention is poor` result. The
+    2026-10-26 recall-seeds report withdrew its own abstention row on this
+    ground and had to rescore outside the bench to do it; this field is that
+    rescore, in the instrument."""
+
+    PROBE = pg.Probe(id="p1", fact=None, kind="abstention", bucket="near", salience="incidental", value_kind="port",
+                     turn=9, text="", check="", anchor="f1", subject="the cedar relay's port", distractors=["f1"])
+
+    def answered(self, reply):
+        return score.abstained_in_answer(reply, self.PROBE)
+
+    def test_an_admission_alone_abstains_in_its_answer(self):
+        self.assertTrue(self.answered("I don't have any record of that."))
+
+    def test_a_later_sentences_attributed_value_leaves_the_answer_an_abstention(self):
+        """Seed 7's shape: every one of its 60 abstention replies admits in its
+        first sentence, and 38 of them name another subject's value after it."""
+        self.assertTrue(self.answered(
+            "I don't know. The alder relay is on 44320, which is a different component."))
+        self.assertTrue(self.answered(
+            "I don't know.\n\nThe only relay port I hold is the alder's, 44320."))
+
+    def test_a_value_in_the_answer_is_not_an_abstention(self):
+        self.assertFalse(self.answered("The cedar relay is on 44320."))
+        self.assertFalse(self.answered("I'm not sure, but it is on 44320."))
+
+    def test_no_admission_anywhere_is_not_an_abstention(self):
+        self.assertFalse(self.answered("It is somewhere else."))
+
+    def test_an_answer_cut_at_a_line_break_as_sentences_are(self):
+        self.assertTrue(self.answered("I don't know\n44320 is the alder relay's."))
+
+    def test_the_summary_counts_it_beside_the_shipped_rule(self):
+        rows = [row("near", ok, 2, 100, kind="abstention") for ok in (True, False, False, False)]
+        for r, in_answer in zip(rows, (True, True, True, False)):
+            r.abstained_in_answer = in_answer
+        s = score.summarize(rows + [row("near", True, 2, 100)])
+        self.assertAlmostEqual(s["abstention_accuracy"], 0.25, msg="the shipped rule is untouched")
+        self.assertAlmostEqual(s["abstention_in_answer"], 0.75)
+
+
 class Scoring(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
