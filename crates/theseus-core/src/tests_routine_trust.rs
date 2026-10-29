@@ -14,6 +14,8 @@ use serde_json::{json, Value};
 use theseus_protocol::{Message, Request};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+use theseus_store::Store as _;
+
 use crate::approval::{Client, Surface};
 use crate::config::WebToolsConfig;
 use crate::provider::{
@@ -447,6 +449,29 @@ async fn an_ungranted_tool_asks_once_and_the_run_ends_blocked_naming_it() {
     let listed = runs(&r.core, &id).await;
     assert_eq!(listed[0]["state"], "complete", "{listed:?}");
     assert_eq!(listed[0]["blocked"], Value::Null, "{listed:?}");
+    // What the run dropped was written, and ended with the run
+    // (theseus-1kw2v): the key is no one's to read again.
+    const DROPPED: &str = "routine.dropped.";
+    let written = r
+        .core
+        .store
+        .inner()
+        .scan(0, None, usize::MAX)
+        .unwrap()
+        .iter()
+        .filter(|x| x.kind == theseus_store::kinds::META)
+        .filter(|x| x.key.as_deref().is_some_and(|k| k.starts_with(DROPPED)))
+        .count();
+    assert_eq!(written, 1, "the run's dropped tools were written once");
+    until("the dropped tools to end with their run", 30, || {
+        r.core
+            .store
+            .inner()
+            .latest_with_prefix(theseus_store::kinds::META, DROPPED)
+            .unwrap()
+            .is_empty()
+    })
+    .await;
     // It asked once; the call was dropped, and the model went on without it.
     assert_eq!(rows(&r.core, "tool.confirm_requested").len(), 1);
     assert_eq!(rows(&r.core, "action.expired").len(), 1);
