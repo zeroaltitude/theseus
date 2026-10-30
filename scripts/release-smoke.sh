@@ -6,7 +6,7 @@
 #   tb      Terminal-Bench 2.0's smoke slice (bench/smoke/tb-slice.toml): 8 stable tasks and 2 controls, k=1 at HIGH,
 #           4 at once, through the Harbor driver (bench/harbor/run.py), on the candidate's static binaries
 #   route   `theseus judge replay --cases` over route.v10's cases, three runs: 54 of 60 on the model, every must;
-#           "n/a until the flip" on a daemon that still routes with another pack (its newest route judgment's)
+#           "n/a until the flip" on a daemon whose ladder routes with another pack (`theseus packs`)
 #   recall  scripts/recall-tests.sh, as the gate runs it
 #   resume  bench/smoke/resume.py: a scratch daemon SIGKILLed mid-tool three times, at $0
 #   dm      bench/smoke/dm.py: five scripted turns through the live daemon's CLI, in a fresh session of their own
@@ -142,10 +142,11 @@ part_route() {
     smoke fail "$run" route "this binary has no \`judge replay --cases\` (it came with 1.0.4's wave 3')"
     return
   fi
-  # The pack the daemon routes with now, from its newest route judgment ("" when it has none: held to the bar).
-  live="$("$bin/theseus" ${sock[@]+"${sock[@]}"} --json judge log -n 1 --pack route 2> /dev/null \
-    | "$py" -c 'import json, sys; j = json.load(sys.stdin)["judgments"]; print(j[-1]["data"]["pack"] if j else "")' \
-      2> /dev/null)" || live=
+  # The route packs the daemon's ladder acts with now, live or canary ("" when unread: held to the bar).
+  live="$("$bin/theseus" ${sock[@]+"${sock[@]}"} --json packs 2> /dev/null | "$py" -c '
+import json, sys
+print(",".join(p["pack"] for p in json.load(sys.stdin)["packs"]
+               if p["pack"].startswith("route.") and p.get("acts") in ("live", "canary")))' 2> /dev/null)" || live=
   for i in 1 2 3; do
     t0=$(now)
     rc=0

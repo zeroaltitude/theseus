@@ -1,4 +1,4 @@
-# PASS
+# PASS (route n/a until the flip)
 
 Release smoke of `75012080769b14b4cdfa45d97d49107771ce85bc` on 2026-10-30 (candidate 75012080769b, theseusd 1.0.3; tb's static build 2777771ffbc6 (dirty tree)). Not reportable: a release check against the floor in `bench/smoke/floor.json`.
 
@@ -12,7 +12,7 @@ Release smoke of `75012080769b14b4cdfa45d97d49107771ce85bc` on 2026-10-30 (candi
 
 **Cost: $0.70** (price table `8414028cd0f7`), **wall: 22.3 min** (the parts' own clocks).
 
-Corrected 2026-10-30 at 12:50, on the same install: route is re-judged from the same three replays with the pack the daemon routed with (route.v8), and dm is the corrected design's rerun (`runs/2026-10-30-75012080-125047`): a fresh session working in `~/projects/theseus`, every turn marked as the smoke's, 0 approvals asked. The first design's dm ran from a lane outside the workspace, asked the owner once, and is superseded.
+Corrected 2026-10-30 at 12:50, on the same install: route is re-judged from the same three replays with the pack the daemon's ladder routed with (route.v8), and dm is the corrected design's rerun (`runs/2026-10-30-75012080-125047`): a fresh session working in `~/projects/theseus`, every turn marked as the smoke's, 0 approvals asked. The first design's dm ran from a lane outside the workspace, asked the owner once, and is superseded.
 
 ## TB2 slice, per task
 

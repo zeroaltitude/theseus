@@ -5,7 +5,7 @@
   "parts": [
    "tb"
   ],
-  "verdict": "PASS"
+  "verdict": "PASS (route n/a until the flip)"
  },
  "tb": {
   "cost_per_solved_usd": 0.085108,

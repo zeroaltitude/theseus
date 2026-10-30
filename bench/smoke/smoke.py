@@ -28,6 +28,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 import sys
 import tomllib
 import unittest
@@ -209,11 +210,11 @@ def route_run(raw: dict[str, Any], wall_s: float) -> dict[str, Any]:
 def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None = None) -> dict[str, Any]:
     """Three replays of the route cases: each run 54 of 60 on the model, every must.
 
-    `live` is the pack the daemon routes with (its newest route judgment's). The
-    cases are written for one pack (route.v10): on a daemon that still routes
-    with another, the bar does not apply, and three answered runs are "n/a until
-    the flip", their reading kept for the record, never a FAIL and never a floor.
-    An unknown `live` is held to the bar."""
+    `live` is the route packs the daemon's ladder acts with (live or canary),
+    comma-separated. The cases are written for one pack (route.v10): on a daemon
+    whose ladder does not act with it, the bar does not apply, and three answered
+    runs are "n/a until the flip", their reading kept for the record, never a
+    FAIL and never a floor. An unknown or unreadable `live` is held to the bar."""
     problems = []
     real = [r for r in runs if r["cases"] and r["answered"]]
     if len(real) < RUNS_WANTED:
@@ -230,11 +231,15 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None 
         problems.append(f"slowest run's wall {wall:.0f} s > {SLACK:.0%} of the floor's {fl['wall_s']:.0f} s")
     met = sum(1 for r in real if r["bar"])
     cases_pack = next((r["pack"] for r in real if r.get("pack")), None)
-    if live and cases_pack and live != cases_pack and len(real) >= RUNS_WANTED:
+    acting = (live or "").split(",") if live else []
+    if not acting or not all(re.fullmatch(r"route\.v\d+", p) for p in acting):
+        acting = []
+    if acting and cases_pack and cases_pack not in acting and len(real) >= RUNS_WANTED:
         musts = min((f"{r['musts_held']}/{r['musts']}" for r in real), key=lambda m: int(m.split("/")[0]))
         return {"part": "route", "ok": True, "na": True, "count": len(real), "number": worst,
                 "unit": "worst model/60", "floor": None, "delta": None,
-                "note": f"n/a until the flip: the daemon routes with {live}, the cases are {cases_pack}'s; "
+                "note": f"n/a until the flip: the daemon routes with {', '.join(acting)}, "
+                        f"the cases are {cases_pack}'s; "
                         f"read {worst:.0f}/60 on the model and {musts} musts at worst, for the record",
                 "cost_usd": round(sum(r["cost_usd"] for r in real), 4),
                 "wall_s": round(sum(r["wall_s"] for r in real), 1), "slowest_s": wall, "runs": runs}
@@ -351,7 +356,8 @@ def verdict(parts: list[dict[str, Any]]) -> str:
     missing = [n for n in PARTS if n not in seen]
     failed = [n for n in PARTS if n in seen and not seen[n]["ok"]]
     if not missing and not failed:
-        return "PASS"
+        na = [n for n in PARTS if seen[n].get("na")]
+        return "PASS" + (f" ({', '.join(na)} n/a until the flip)" if na else "")
     bits = failed + ([", ".join(missing) + ": did not run"] if missing else [])
     return f"FAIL ({', '.join(bits)})"
 
@@ -479,7 +485,7 @@ def main(argv: list[str]) -> int:
                 return 1
             FLOOR_FILE.write_text(json.dumps(f, indent=1) + "\n")
             print(f"smoke: floor written to {FLOOR_FILE} from {', '.join(f['written']['parts'])}")
-        return 0 if v == "PASS" else 1
+        return 0 if v.startswith("PASS") else 1
     print(f"smoke.py: unknown command {cmd!r}", file=sys.stderr)
     return 2
 

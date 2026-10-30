@@ -251,7 +251,7 @@ class RoutePart(unittest.TestCase):
         self.assertIn("route.v8", p["note"])
         self.assertIn("39/60", p["note"])
         parts = [part(n, True) for n in smoke.PARTS if n != "route"] + [p]
-        self.assertEqual(smoke.verdict(parts), "PASS")
+        self.assertEqual(smoke.verdict(parts), "PASS (route n/a until the flip)")
         md = smoke.report_md(parts, run={"sha": "75012080", "date": "2026-10-30", "binary": "x"})
         self.assertIn("| route | n/a until the flip", md)
         tb, _ = Floor.passing(Floor())
@@ -265,6 +265,26 @@ class RoutePart(unittest.TestCase):
             self.assertFalse(p["ok"], live)
             self.assertFalse(p.get("na"), live)
             self.assertIn("39/60 on the model < 54", p["note"])
+
+    def test_a_canary_of_the_cases_pack_or_an_unreadable_ladder_is_held_to_the_bar(self):
+        for live in ("route.v8,route.v10", "None", "route.v8,", ""):
+            p = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9)] * 3), None, live=live)
+            self.assertFalse(p["ok"], live)
+
+    def test_a_replay_that_names_no_pack_is_held_to_the_bar(self):
+        raw = replay(model_ok=37, must_ok=9)
+        del raw["cases"]["pack"]
+        self.assertFalse(smoke.route_part(self.runs(*[raw] * 3), None, live="route.v8")["ok"])
+
+    def test_the_command_line_takes_an_empty_live_as_unknown(self):
+        with tempfile.TemporaryDirectory() as t:
+            r = Path(t) / "r.json"
+            r.write_text(json.dumps(replay(model_ok=37, must_ok=9)))
+            args = ["route", t, "--live", "", str(r), "1", str(r), "1", str(r), "1"]
+            self.assertEqual(smoke.main(args), 1)
+            self.assertFalse(json.loads((Path(t) / "parts" / "route.json").read_text()).get("na"))
+            self.assertEqual(smoke.main(["route", t, "--live", "route.v8"] + args[4:]), 0)
+            self.assertTrue(json.loads((Path(t) / "parts" / "route.json").read_text())["na"])
 
     def test_n_a_needs_the_runs_themselves_to_have_answered(self):
         p = smoke.route_part(self.runs(replay(), replay()), None, live="route.v8")

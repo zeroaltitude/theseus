@@ -1,5 +1,7 @@
 # FAIL (tb, route, recall, resume: did not run)
 
+The dm-only rerun of the corrected design (the other parts were not asked for); the baseline `runs/2026-10-30-75012080/report.md` takes its dm part from here.
+
 Release smoke of `75012080769b14b4cdfa45d97d49107771ce85bc` on 2026-10-30 (candidate 75012080769b, theseusd 1.0.3; tb's static build unknown). Not reportable: a release check against the floor in `bench/smoke/floor.json`.
 
 | part | result | number | floor | delta |

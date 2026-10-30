@@ -11,7 +11,7 @@ session (no `-s`, no THESEUS_SESSION), and a session that shows more turns than
 the smoke's is a FAIL. The session works in SMOKE_DM_DIR (default
 ~/projects/theseus), which must sit inside the daemon's workspace
 ([tools].projects_dir or roots): from outside it, even a file read asks the
-owner, and that card lands on his surfaces (2026-10-30, from ~/lanes/smoke).
+owner, and that card lands on the owner's surfaces (2026-10-30, from ~/lanes/smoke).
 Every turn's text starts with MARK, so it reads as the smoke's wherever it shows.
 
 Each turn is timed from the ask to its reply, and its footer is the CLI's
