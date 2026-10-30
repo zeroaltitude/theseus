@@ -2740,10 +2740,15 @@ impl TurnRunner {
         i: u32,
     ) -> Result<Node> {
         let target = t.target;
+        // A call is priced at the rate in force when it was made: a provider's
+        // off-peak hours are cheaper (DeepSeek's, `catalog::price_period_at`).
         let call_cost = self
             .catalog
-            .cost_usd(&resp.model, &resp.usage)
-            .or_else(|| self.catalog.cost_usd(&target.model, &resp.usage));
+            .cost_usd_at(&resp.model, &resp.usage, started_ms)
+            .or_else(|| {
+                self.catalog
+                    .cost_usd_at(&target.model, &resp.usage, started_ms)
+            });
         t.cost = match (t.cost, call_cost) {
             (Some(a), Some(b)) => Some(a + b),
             _ => None,
@@ -2773,7 +2778,9 @@ impl TurnRunner {
             .catalog
             .get(&resp.model)
             .or_else(|| self.catalog.get(&target.model))
-            .map_or(action.reserved_micros, |e| e.cost_micros(&resp.usage));
+            .map_or(action.reserved_micros, |e| {
+                e.cost_micros_at(&resp.usage, started_ms)
+            });
         // The call's usage joins the turn's books with its cost, before its
         // frame is written: a turn that faults on that frame still books
         // what the provider charged (R1).

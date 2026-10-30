@@ -87,9 +87,9 @@ fn the_price_period_comes_from_the_instant_given() {
     assert_eq!(at(TUE_0200_PHOENIX + 10 * 3_600_000), PricePeriod::OffPeak);
 }
 
-/// Nothing the daemon runs today asks `model`, so no live pack reads the facts.
+/// The gate is the question: today's packs ask `mode`, and route.v10's will ask `model`.
 #[test]
-fn no_embedded_pack_asks_model_yet() {
+fn only_a_pack_that_asks_model_reads_the_facts() {
     for p in theseus_judge::pack::embedded().as_ref().unwrap() {
         let has = p.questions.iter().any(|q| q.id == "model");
         assert_eq!(asks_model(p), has, "{}", p.name());
@@ -98,5 +98,40 @@ fn no_embedded_pack_asks_model_yet() {
             "{}",
             p.name()
         );
+    }
+}
+
+/// Row 2 is inert: the live route pack is route.v8, which asks `mode`, so the
+/// state a turn sends it is the one it always was, with none of the facts. The
+/// daemon computes them for every ask, and the pack gate keeps them off.
+#[tokio::test]
+async fn the_live_route_packs_state_carries_no_facts_yet() {
+    use crate::tests_route::{mode, rig, turn, until_calls, until_route_rows};
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    mode(&jev, "sophisticated", 0.95);
+    let r = rig(Some(&jev), 1, |_| {});
+    turn(
+        &r.core,
+        None,
+        "Weigh two designs for a crash-safe write-ahead log.",
+        None,
+    )
+    .await;
+    until_calls(&jev, 2).await;
+    let rows = until_route_rows(&r.core.store, 1).await;
+    let digest = rows[0].data["context"]["blob"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let state = std::fs::read_to_string(r.core.store.blobs().path(&digest)).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state).unwrap();
+    assert!(state["message"].is_string(), "{state}");
+    for k in [
+        "price_period",
+        "restricted_models",
+        "last_reply_model",
+        "task_models",
+    ] {
+        assert!(state.get(k).is_none(), "{k} in route.v8's state: {state}");
     }
 }

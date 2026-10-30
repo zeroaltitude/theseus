@@ -32,10 +32,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_judge::builders::{
-    DataNames, InboundInput, PersonaInput, RestrictedModels, RoleInput, RouteFacts, TaskInput,
-    ThreadInput, ThreadNow, TurnInput,
+    DataNames, InboundInput, PersonaInput, RestrictedModels, RoleInput, TaskInput, ThreadInput,
+    ThreadNow, TurnInput,
 };
-use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
+use theseus_judge::{Ask, DecisionPoint, Judge, Mode, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
 
 use super::onto::ONTO_PACK;
@@ -630,24 +630,23 @@ impl JudgeService {
             _ => serde_json::Value::Null,
         };
         let own = onto && self.onto_own();
-        let plain = Input::Inbound(InboundInput {
-            onto: None,
-            ..input.clone()
-        });
-        let shared = Input::Inbound(input);
+        // The route facts ride only a pack that asks `model` (route.v10's):
+        // every other pack's state is the one it always was.
+        let carried = super::route_facts::Carried::of(input);
+        let (plain, shared) = (&carried.plain, &carried.shared);
         let mut asks = Vec::with_capacity(packs.len());
         for (pack, id, mode) in packs {
             if is_onto(&pack) && !onto {
                 continue;
             }
             let carries = match (is_onto(&pack), pack.name() == ROUTE_PACK) {
-                (true, _) => &shared,
-                (false, true) => &plain,
+                (true, _) => shared,
+                (false, true) => carried.for_route(&pack),
                 (false, false) => {
                     if own {
-                        &plain
+                        plain
                     } else {
-                        &shared
+                        shared
                     }
                 }
             };
@@ -739,7 +738,20 @@ impl JudgeService {
             .map(|(_, n)| n)
             .collect();
         let live_tasks = self.live_tasks(&msg.kernel, &msg.execution_id);
-        Some(input(&nodes, msg, live_tasks))
+        let mut input = input(&nodes, msg, live_tasks);
+        // The route facts: the clock and the labels' rule are the daemon's,
+        // the models are the session's own record (theseus-9f72b).
+        let before = nodes
+            .iter()
+            .position(|n| n.id == msg.node_id)
+            .map_or(&nodes[..], |i| &nodes[..i]);
+        input.route = Some(super::route_facts::facts_of(
+            before,
+            msg.task,
+            msg.restricted,
+            theseus_protocol::now_unix_ms(),
+        ));
+        Some(input)
     }
 
     /// The session's live tasks, oldest first: each one's id, its brief's

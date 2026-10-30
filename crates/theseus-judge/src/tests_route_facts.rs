@@ -95,7 +95,7 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
     let mut i = input();
     i.message = big.clone();
     i.previous_human_message = Some(big.clone());
-    i.last_reply = Some(big.clone());
+    i.last_reply = Some(big);
     i.live_tasks = (0..2_000)
         .map(|n| crate::builders::TaskInput {
             id: format!("t{n}"),

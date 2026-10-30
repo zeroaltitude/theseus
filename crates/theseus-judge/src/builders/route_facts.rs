@@ -14,6 +14,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use serde_json::json;
+
 use super::{Clipper, InboundInput};
 use crate::state::StateBuilder;
 
@@ -84,5 +86,27 @@ pub struct RouteFacts {
     pub task_models: Vec<String>,
 }
 
-/// The facts in the inbound state, when the input carries them.
-pub(super) fn state(_b: &mut StateBuilder, _c: &Clipper, _i: &InboundInput) {}
+/// The facts in the inbound state, when the input carries them. Every one is
+/// a scalar, which the state keeps until everything else is gone, and each is
+/// bounded here: two enum words, one model id and at most [`TASK_MODELS`] more.
+pub(super) fn state(b: &mut StateBuilder, c: &Clipper, i: &InboundInput) {
+    let Some(f) = &i.route else {
+        return;
+    };
+    b.scalar("price_period", f.price_period.as_str());
+    b.scalar("restricted_models", f.restricted_models.as_str());
+    if let Some(m) = &f.last_reply_model {
+        b.scalar("last_reply_model", c.clip(m, MODEL_CHARS))
+            .cut_if("last_reply_model", c.cut());
+    }
+    if !f.task_models.is_empty() {
+        let models: Vec<String> = f
+            .task_models
+            .iter()
+            .take(TASK_MODELS)
+            .map(|m| c.clip(m, MODEL_CHARS))
+            .collect();
+        b.scalar("task_models", json!(models))
+            .cut_if("task_models", c.cut());
+    }
+}

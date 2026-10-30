@@ -2039,8 +2039,11 @@ impl Config {
     /// `theseus why` prints (`deepseek: no key`), or `None` when the provider
     /// is declared and its secret is named under `[secrets]`. Whether the
     /// secret resolves is the secret board's, at the call.
-    pub fn provider_without_key(&self, _provider: &str) -> Option<String> {
-        None
+    pub fn provider_without_key(&self, provider: &str) -> Option<String> {
+        match self.all_providers().get(provider) {
+            Some(p) if self.secrets.contains_key(&p.api_key_secret) => None,
+            _ => Some(format!("{provider}: no key")),
+        }
     }
 
     pub fn state_dir(&self) -> PathBuf {

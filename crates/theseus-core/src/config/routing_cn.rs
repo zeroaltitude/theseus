@@ -191,11 +191,9 @@ mod tests {
         cfg.validate().map(|()| cfg).map_err(|e| format!("{e:#}"))
     }
 
-    /// Providers borrow the template's `zai_api_key` entry: the checks read
-    /// endpoints and origins, not keys.
-    const DEEPSEEK: &str =
-        "[providers.deepseek]\napi_base = \"https://api.deepseek.com/anthropic\"\n\
-        api_key_secret = \"zai_api_key\"\n[profiles.dsflash]\nprovider = \"deepseek\"\n\
+    /// The deepseek provider and its key are the template's own; the profile is
+    /// added here. The checks read endpoints and origins, not keys.
+    const DEEPSEEK: &str = "[profiles.dsflash]\nprovider = \"deepseek\"\n\
         model = \"deepseek-flash\"\n";
     const ODD: &str = "[providers.odd]\napi_base = \"https://llm.widgetco.test/v1\"\n\
         api_key_secret = \"zai_api_key\"\n[profiles.oddball]\nprovider = \"odd\"\n\

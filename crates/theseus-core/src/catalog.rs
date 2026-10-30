@@ -35,10 +35,18 @@
 //! its token counts (the same as Sonnet 5.5's on prose, Rust and JSON), and its
 //! caching minimum (a 498-token prefix was not cached, a 542-token one was).
 //! It is the first model priced in tiers: see [`LongPrompt`].
+//!
+//! `off_peak` (theseus-9f72b) is a provider's cheaper hours (DeepSeek's: half of
+//! input, output and cache read outside 01:00 to 04:00 and 06:00 to 10:00 UTC on
+//! weekdays, [`price_period_at`]). A row's own prices stay the peak ones, which
+//! every reserve and budget uses; only the ledger's `cost_*_at` reads the hour a
+//! call was made. `default_effort` is the effort a model runs at when Jev leaves
+//! it to the model.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use theseus_judge::builders::PricePeriod;
 use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
@@ -47,7 +55,7 @@ use crate::config::Effort;
 mod peak;
 pub use peak::price_period_at;
 
-pub const BUILTIN_VERSION: &str = "2026-10-25.2";
+pub const BUILTIN_VERSION: &str = "2026-10-29.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -406,29 +414,32 @@ impl Default for TokenRates {
 impl CatalogEntry {
     /// Dollars for one call's usage. Input fields are disjoint in the API's
     /// accounting: `input_tokens` is the uncached remainder.
+    ///
+    /// At the row's own prices, which are the peak ones where the model has an
+    /// off-peak row: what a reserve and a budget count (the safe direction).
     pub fn cost_usd(&self, u: &Usage) -> f64 {
-        self.terms(u)
-            .iter()
-            .map(|&(tokens, per_mtok)| tokens as f64 * per_mtok)
-            .sum::<f64>()
-            / 1_000_000.0
+        sum_usd(&self.terms_at(u, None))
     }
 
     /// What a call's usage costs in micro-dollars, the budget's unit: input,
     /// output, cache reads, and cache writes each at its own price, rounded
-    /// up to the next micro-dollar (theseus-0sg).
+    /// up to the next micro-dollar (theseus-0sg). At the row's own prices, as
+    /// [`cost_usd`](Self::cost_usd).
     pub fn cost_micros(&self, u: &Usage) -> Micros {
-        micros_of(&self.terms(u))
+        micros_of(&self.terms_at(u, None))
     }
 
-    /// [`cost_usd`](Self::cost_usd) at the rate in force at `at_ms`.
-    pub fn cost_usd_at(&self, u: &Usage, _at_ms: u64) -> f64 {
-        self.cost_usd(u)
+    /// [`cost_usd`](Self::cost_usd) at the rate in force at `at_ms` (Unix
+    /// milliseconds): a model with an off-peak row pays it in the provider's
+    /// off-peak hours ([`price_period_at`]), every other the row's prices.
+    pub fn cost_usd_at(&self, u: &Usage, at_ms: u64) -> f64 {
+        sum_usd(&self.terms_at(u, Some(at_ms)))
     }
 
-    /// [`cost_micros`](Self::cost_micros) at the rate in force at `at_ms`.
-    pub fn cost_micros_at(&self, u: &Usage, _at_ms: u64) -> Micros {
-        self.cost_micros(u)
+    /// [`cost_micros`](Self::cost_micros) at the rate in force at `at_ms`: what
+    /// the ledger charges a call made then.
+    pub fn cost_micros_at(&self, u: &Usage, at_ms: u64) -> Micros {
+        micros_of(&self.terms_at(u, Some(at_ms)))
     }
 
     /// The prices a call with a prompt of `prompt_tokens` pays: the long
@@ -452,16 +463,41 @@ impl CatalogEntry {
         }
     }
 
+    /// The prices a call pays in a provider's off-peak hours: `off`'s three,
+    /// and the cache writes at the same share of their price that the off-peak
+    /// input price is of the row's (DeepSeek bills a write as input).
+    fn off_peak_tier(&self, t: Tier, off: OffPeak) -> Tier {
+        let share = if self.input_per_mtok > 0.0 {
+            off.input_per_mtok / self.input_per_mtok
+        } else {
+            1.0
+        };
+        Tier {
+            input: off.input_per_mtok,
+            output: off.output_per_mtok,
+            cache_read: off.cache_read_per_mtok,
+            cache_write: t.cache_write * share,
+            cache_write_1h: t.cache_write_1h * share,
+        }
+    }
+
     /// Each token class of a usage with its price, at the tier its prompt
-    /// (input, cache reads and cache writes: [`LongPrompt`]) picks. The
-    /// writes are split by TTL: those of `cache_creation_1h_input_tokens` at
-    /// the 1-hour price, the rest at the 5-minute one (theseus-ev1).
-    fn terms(&self, u: &Usage) -> [(u64, f64); 5] {
+    /// (input, cache reads and cache writes: [`LongPrompt`]) picks, and, with
+    /// `at_ms` in a provider's off-peak hours, the off-peak prices of a model
+    /// that has them. The writes are split by TTL: those of
+    /// `cache_creation_1h_input_tokens` at the 1-hour price, the rest at the
+    /// 5-minute one (theseus-ev1).
+    fn terms_at(&self, u: &Usage, at_ms: Option<u64>) -> [(u64, f64); 5] {
         let w1h = u
             .cache_creation_1h_input_tokens
             .min(u.cache_creation_input_tokens);
         let prompt = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens;
-        let t = self.tier(prompt);
+        let mut t = self.tier(prompt);
+        if let (Some(off), Some(at)) = (self.off_peak, at_ms) {
+            if price_period_at(at) == PricePeriod::OffPeak {
+                t = self.off_peak_tier(t, off);
+            }
+        }
         [
             (u.input_tokens, t.input),
             (u.output_tokens, t.output),
@@ -492,6 +528,15 @@ impl CatalogEntry {
             micros_of(&[(input_estimate, t.input)]),
         )
     }
+}
+
+/// Σ tokens × price, in dollars.
+fn sum_usd(terms: &[(u64, f64)]) -> f64 {
+    terms
+        .iter()
+        .map(|&(tokens, per_mtok)| tokens as f64 * per_mtok)
+        .sum::<f64>()
+        / 1_000_000.0
 }
 
 /// Σ tokens × price, rounded up to the next micro-dollar. A price in dollars
@@ -829,7 +874,13 @@ fn deepseek(input: f64, output: f64, cache_read: f64, vision: bool, served: &str
         bytes_per_token: TokenRates::of("deepseek-"),
         origin: ModelOrigin::Cn,
         default_effort: None,
-        off_peak: None,
+        // Half of each of input, output and cache read, outside the peak hours
+        // (`price_period_at`); the prices above stay the peak ones.
+        off_peak: Some(OffPeak {
+            input_per_mtok: input / 2.0,
+            output_per_mtok: output / 2.0,
+            cache_read_per_mtok: cache_read / 2.0,
+        }),
     }
 }
 
@@ -904,6 +955,27 @@ fn deepseek_rows(e: &mut BTreeMap<String, CatalogEntry>) {
         "deepseek-v4-pro".into(),
         deepseek(1.32, 3.96, 0.044, false, "served by DeepSeek-V4-Pro-0813"),
     );
+}
+
+/// Each option model's own default effort (theseus-9f72b, design §1.4 step 5),
+/// what a turn runs at when Jev answers `default` or is under the confirm bar.
+/// The four Claude figures are each vendor's own model notes (the claude-api
+/// reference, cached 2026-10-06): Haiku 5.5 medium, Sonnet 5.5 high, Opus 5.5
+/// medium, Fable 5.1 high. Flash's low is an inference, `[I]` in the design:
+/// the cheapest forced think, as DeepSeek names no default. The older rows
+/// name none: no choice reaches them but a pin, and a pin sets its own effort.
+fn default_efforts(e: &mut BTreeMap<String, CatalogEntry>) {
+    for (id, effort) in [
+        ("claude-haiku-5-5", Effort::Medium),
+        ("claude-sonnet-5-5", Effort::High),
+        ("claude-opus-5-5", Effort::Medium),
+        ("claude-fable-5-1", Effort::High),
+        ("deepseek-flash", Effort::Low),
+    ] {
+        if let Some(row) = e.get_mut(id) {
+            row.default_effort = Some(effort);
+        }
+    }
 }
 
 impl Catalog {
@@ -1053,6 +1125,7 @@ impl Catalog {
         );
         deepseek_rows(&mut e);
         kimi_rows(&mut e);
+        default_efforts(&mut e);
         Self {
             version: BUILTIN_VERSION.into(),
             entries: e,
@@ -1734,7 +1807,7 @@ mod tests {
         assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
         assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
         assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
-        assert_eq!(c.version, "2026-10-25.2");
+        assert_eq!(c.version, "2026-10-29.1");
         // Sonnet 5.5's cache read is $0.20, as Sonnet 5's is.
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
