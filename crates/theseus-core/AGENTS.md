@@ -1786,6 +1786,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `[model] live`, source `config`"), the same frame as the `SWITCHED` time, a `profile.changed` row and the
     notification. With no runtime profile it answers the live profile as both `previous` and `live` and writes nothing.
     Tests: `rpc/tests_live_release.rs`, the `profile_release*` goldens.
+  - **A pack's own rollback rules win over adoption's** (theseus-ervz9; `ladder/rules.rs::rules_of`): the file's rules,
+    then the adoption table's for the pack id that its file does not already declare (the same name, and for a label
+    count the same label). route.v10 declares 5 pins a day, so adoption's 3 for every route version no longer arms
+    beside it; route.v5 to v8 name no pins rule and keep 3. Tests: `tests_ladder_route_v10.rs`.
   - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v5` since
     theseus-c1uz, route.v4's `mode` (with its `review`) and `reply_effort` word for word and two questions that decide
     nothing for its promotion, `persona` and `seal` (below), live at once in place of `route.v4`, `route.v3`, `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside

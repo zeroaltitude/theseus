@@ -8,8 +8,11 @@
 //! a build that has it.
 //!
 //! Their rules come from this table, keyed by pack id so a later version
-//! keeps them, read beside each file's own (`rules::rules_of`). Each is a
-//! day's brake: its rollback lapses at the next local midnight.
+//! keeps them, read beside each file's own (`rules::rules_of`); a rule a
+//! pack's file declares itself wins over the table's of the same kind, so
+//! the table's number is the one for a version whose file names none
+//! (route.v10 names its own 5 pins a day). Each is a day's brake: its
+//! rollback lapses at the next local midnight.
 
 use theseus_judge::learn::RollbackRule;
 use theseus_protocol::packs::PackModeRow;
@@ -87,7 +90,7 @@ pub const WHY_ROUTE_V8: &str = "the owner's decision of 2026-10-23";
 
 /// The rules adoption gives a pack id (every version of it):
 /// - `route`: the owner pins another profile on 3 routed turns in a local
-///   day;
+///   day (a pack that declares its own count, route.v10's 5, keeps it);
 /// - `rerank`: its own breaker opens twice in a local day;
 /// - `security`: the notices' own rule (design §2.7): more than 30 notices,
 ///   or 3 judgments labeled `noise`, in a day.

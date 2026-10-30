@@ -156,5 +156,5 @@ async fn pack_list_shows_the_three_rules_and_health_a_rollback() {
         .into_iter()
         .find(|l| l.starts_with(V10))
         .expect("a health line");
-    assert_eq!(line, "route.v10: rolled back (pins_per_day)");
+    assert_eq!(line, "route.v10: rolled back until 00:00 (pins_per_day)");
 }
