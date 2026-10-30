@@ -636,7 +636,7 @@ enum Cmd {
     /// made wait runs with a notice). With no MODE, says the current one and the plan's checklist.
     #[command(hide = true)]
     Mode(mode_cmd::ModeArgs),
-    /// Model profiles: list, or switch the live one (`theseus profile use glm`).
+    /// Model profiles: list, switch the live one (`theseus profile use glm`), or release the switch.
     #[command(display_order = 18)]
     Profile {
         #[command(subcommand)]
@@ -1239,8 +1239,12 @@ enum JudgeCmd {
 enum ProfileCmd {
     /// List profiles; `*` marks the live one and where the choice came from (default).
     List,
-    /// Make NAME the live profile (persists across restarts).
+    /// Make NAME the live profile (persists across restarts). Under route.v10 it is also your pin:
+    /// a turn that names nothing runs on it and Jev is not asked the model.
     Use { name: String },
+    /// End that pin: the live profile is the config's `[model] live` again, and Jev chooses the
+    /// model for a turn that names none (persists across restarts).
+    Release,
 }
 
 #[derive(Subcommand, Debug)]

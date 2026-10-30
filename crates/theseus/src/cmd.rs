@@ -1598,7 +1598,7 @@ pub async fn cancel(conn: &mut Conn, json: bool, name: String) -> Result<()> {
     })
 }
 
-/// `theseus profile`: list, or switch the live one.
+/// `theseus profile`: list, switch the live one, or release the switch.
 pub async fn profile(conn: &mut Conn, json: bool, cmd: ProfileCmd) -> Result<()> {
     match cmd {
         ProfileCmd::List => {
@@ -1629,6 +1629,18 @@ pub async fn profile(conn: &mut Conn, json: bool, cmd: ProfileCmd) -> Result<()>
                     v.get("live").and_then(Value::as_str).unwrap_or("?"),
                     v.get("previous").and_then(Value::as_str).unwrap_or("?")
                 );
+                Ok(())
+            })
+        }
+        ProfileCmd::Release => {
+            let v = conn.request(method::PROFILE_RELEASE, Value::Null).await?;
+            output(json, v, |v: Value| {
+                let word = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("?").to_string();
+                let (live, previous) = (word("live"), word("previous"));
+                match live == previous {
+                    true => println!("live profile: {live} (from config; nothing to release)"),
+                    false => println!("live profile: {live} (from config; was {previous})"),
+                }
                 Ok(())
             })
         }

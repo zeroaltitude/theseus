@@ -73,7 +73,7 @@ theseus shutdown
 Exit codes: `0` ok, `1` server or provider error, `2` usage, `3` cannot connect.
 
 Profiles and providers: a `[profiles.<name>]` entry is provider + model + max_tokens + system; exactly
-one is **live** (`[model].live` at startup, `theseus profile use <name>` at runtime, persisted across
+one is **live** (`[model].live` at startup, `theseus profile use <name>` at runtime, `theseus profile release` to give it back, persisted across
 restarts, also a selector in the web UI). `theseus ask -P glm "…"` runs one turn under another
 profile without switching. Any endpoint that speaks the Anthropic Messages API is a
 `[providers.<name>]` entry (`api_base`, `api_key_secret`, optional `timeouts`); Z.ai's GLM models

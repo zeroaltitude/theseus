@@ -1780,6 +1780,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     asked, need, at_ms)` takes the call's start, as the turn's own calls do (`cost_micros_at`), so a DeepSeek call in its
     off-peak hours books at half; every site passes the clock it read just before its request, and the reserve it holds
     (`audit_reserve`) stays at the peak price. Tests: `tests_priced_off_peak.rs`.
+  - **The live profile is a pin once route.v10 acts, and `profile.release` ends it** (theseus-ervz9; `rpc/methods.rs`,
+    `theseus profile release`): `profile.use` writes META `live_profile` and the source `runtime`, which `live_pin` reads
+    as the operator's word for a model; `profile.release` writes an empty word there (read at start as "the config's
+    `[model] live`, source `config`"), the same frame as the `SWITCHED` time, a `profile.changed` row and the
+    notification. With no runtime profile it answers the live profile as both `previous` and `live` and writes nothing.
+    Tests: `rpc/tests_live_release.rs`, the `profile_release*` goldens.
   - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v5` since
     theseus-c1uz, route.v4's `mode` (with its `review`) and `reply_effort` word for word and two questions that decide
     nothing for its promotion, `persona` and `seal` (below), live at once in place of `route.v4`, `route.v3`, `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside
@@ -1808,7 +1814,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     profile caps it (`tests_route_cap.rs`). `routed` holds only while route.v1
     acts live for the session (theseus-9yyr, `route_base`): routing off or in shadow, the ladder's rollback, the
     judge off, or Jev unreachable (`JudgeService::reachable`) clear it at the next turn, in the turn's own session
-    write, and so does a `profile.use` after the session's last turn began (META `live_profile.switched_ms`
+    write, and so does a `profile.use` (or `profile.release`) after the session's last turn began (META `live_profile.switched_ms`
     against the turn id's time, `crate::id_ms`). A move keeps its base, `Routed.from` (the profile's name it was
     first moved from, format 21, theseus-0j2.17): once route.v1 stops acting the turn runs there, and a turn whose
     base is another (the live profile or a place's changed) clears the move (`same_base`). The pane's carried

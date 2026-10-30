@@ -150,7 +150,7 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 
 ## Models
 
-- **`profile`**: model profiles: list, or switch the live one. `theseus profile use glm`.
+- **`profile`**: model profiles: list, switch the live one, or release the switch. `theseus profile use glm`, `theseus profile release`. Under route.v10 a `use` is also your pin (Jev is not asked the model); `release` ends it and Jev chooses again.
 - **`model`**: models and what they cost, one group:
   - `model catalog`: the model catalog: context windows, output limits, prices per million tokens.
     `theseus model catalog`.
