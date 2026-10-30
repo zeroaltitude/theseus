@@ -1,30 +1,54 @@
 //! A task's base from its brief (theseus-ypnxt.7). A task starts with no
-//! message of its own, so the verdict the route pack gives its brief (the
-//! brief is the message) picks the model it runs on: by [`decide`]'s rule with
-//! nothing to keep warm and nothing held. A task started with a profile is a
-//! pin and never comes here (`turn::brief_step::marked`).
+//! message of its own, so the verdict the route pack gives its brief picks the model
+//! it runs on: the class's first usable profile under the place's cap, by
+//! [`decide`]'s rule with nothing to keep warm and nothing held.
 //!
-//! The pick is the task's starting model, not a move from its parent's: it is
-//! kept as the session's target and routing's `from` is left empty. A
-//! detour's class (`trivial`, `quick`) is a base here too: a task has no
-//! "next message" to leave the model for. Nothing here is fixed to a profile
-//! (theseus-ej6bj: `CODING_BASE` is gone): its checkpoints move a task up or
-//! down as Jev decides.
+//! The pick is the task's base, not a move from its parent's model: it is
+//! kept as the session's target and routing's `from` is left empty, so only
+//! Jev elevates the task from it and a step back down never goes below it.
+//! A detour's class (`trivial`, `quick`) is a base here too: a task has no
+//! "next message" to leave the model for.
+//!
+//! A `routine_coding` brief starts on Haiku at high effort ([`CODING_BASE`],
+//! `haikuhi`), and its checkpoints move it up when it fails or stalls
+//! (theseus-ypnxt.9; the owner, 2026-10-18: start cheap, escalate). A `trivial`
+//! brief runs on Haiku.
 
 use super::{decide, Ask, Decision, HoldNext, Profiles, Reason};
 use crate::config::RoutingConfig;
 
+/// The profile a `routine_coding` brief tries first, before the class's own
+/// list (a config without it falls through to that list).
+pub const CODING_BASE: &str = "haikuhi";
+
 /// The rule's answer for the brief `a.verdict` judged, `a.base` being the
 /// model the task would otherwise run on (its parent's). `switch` says the
-/// task's base is another profile.
-pub fn brief_base(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision {
+/// task's base is another profile. `open` (the acting route pack asks
+/// `model`, theseus-ej6bj): nothing is fixed to a profile, so a
+/// `routine_coding` brief starts where the class sends it; closed, it starts
+/// on [`CODING_BASE`] as it did (until the row that retires the class rule).
+pub fn brief_base(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>, open: bool) -> Decision {
     let fresh = Ask {
         est_tokens: 0,
         hold: None,
         from: None,
         ..a.clone()
     };
-    let mut d = decide(cfg, profiles, &fresh);
+    let mut d = match fresh.verdict.mode.as_str() {
+        "routine_coding" if !open => {
+            let mut c = cfg.clone();
+            c.classes
+                .routine_coding
+                .profiles
+                .retain(|p| p != CODING_BASE);
+            c.classes
+                .routine_coding
+                .profiles
+                .insert(0, CODING_BASE.to_string());
+            decide(&c, profiles, &fresh)
+        }
+        _ => decide(cfg, profiles, &fresh),
+    };
     if d.detour {
         let reason = match d.reason {
             Reason::Capped => Reason::Capped,
@@ -56,6 +80,7 @@ mod tests {
                 cap,
                 ..ask(&v, from, 1_000_000)
             },
+            false,
         )
     }
 
@@ -70,13 +95,11 @@ mod tests {
         );
     }
 
-    /// A routine-coding brief starts on the class's first usable profile,
-    /// which is `haikuhi` in the default list, and its checkpoints move it up
-    /// (theseus-31pgz, theseus-ypnxt.9); a trivial one runs on Haiku. Nothing
-    /// but the class decides it: a config that moved `haikuhi` aside does not
-    /// get it back (theseus-ej6bj: `CODING_BASE` is gone).
+    /// A routine-coding brief starts on `haikuhi` even when a config moved it
+    /// aside, and its checkpoints move it up (theseus-31pgz, theseus-ypnxt.9);
+    /// a trivial one runs on Haiku.
     #[test]
-    fn a_routine_coding_brief_runs_on_the_classs_profile_and_only_a_trivial_one_on_haiku() {
+    fn a_routine_coding_brief_runs_on_sonnet_and_only_a_trivial_one_on_haiku() {
         let cfg = RoutingConfig::default();
         let mut ps = five();
         for (name, model) in [
@@ -102,17 +125,17 @@ mod tests {
         }
         let on = |mode: &str| {
             let v = verdict(mode, 0.9);
-            brief_base(&cfg, &ps, &ask(&v, "fable", 0)).profile
+            brief_base(&cfg, &ps, &ask(&v, "fable", 0), false).profile
         };
         assert_eq!(on("routine_coding"), "haikuhi");
         assert_eq!(on("trivial"), "haiku");
-        // A config that moved haikuhi aside does not get it back.
+        // A config that moved haikuhi aside still gets it first.
         let mut moved = RoutingConfig::default();
         moved.classes.routine_coding.profiles = vec!["sonnet".into()];
         let v = verdict("routine_coding", 0.9);
         assert_eq!(
-            brief_base(&moved, &ps, &ask(&v, "fable", 0)).profile,
-            "sonnet"
+            brief_base(&moved, &ps, &ask(&v, "fable", 0), false).profile,
+            "haikuhi"
         );
     }
 
@@ -147,5 +170,17 @@ mod tests {
         assert_eq!(d.profile, "sonnet");
         assert_eq!(d.reason, Reason::Capped);
         assert!(!d.switch);
+    }
+
+    /// Open (theseus-ej6bj): nothing is fixed to a profile, and a config that
+    /// moved `haikuhi` out of the class list does not get it back.
+    #[test]
+    fn an_open_brief_starts_where_its_class_sends_it() {
+        let ps = five();
+        let mut moved = RoutingConfig::default();
+        moved.classes.routine_coding.profiles = vec!["sonnet".into()];
+        let v = verdict("routine_coding", 0.9);
+        let d = brief_base(&moved, &ps, &ask(&v, "fable", 0), true);
+        assert_eq!(d.profile, "sonnet");
     }
 }

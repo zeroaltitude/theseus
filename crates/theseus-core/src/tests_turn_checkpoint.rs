@@ -41,19 +41,15 @@ pub(crate) static READS: Mutex<BTreeMap<String, usize>> = Mutex::new(BTreeMap::n
 fn routed(tweak: impl FnOnce(&mut crate::Config)) -> (Rig, Arc<FakeProvider>, FakeJev) {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
-    // Both asks of the turn read deep (theseus-ej6bj: a routine verdict at the
-    // second moves the turn back down at once, and nothing holds it up).
-    for ask in ["failing: 3 failed", "failing: 7 failed"] {
-        jev.script_when(
-            ask,
-            None,
-            "mode",
-            Jev::Choice {
-                option: "deep_coding".into(),
-                confidence: 0.95,
-            },
-        );
-    }
+    jev.script_when(
+        "failing: 3 failed",
+        None,
+        "mode",
+        Jev::Choice {
+            option: "deep_coding".into(),
+            confidence: 0.95,
+        },
+    );
     let claude = Arc::new(FakeProvider {
         delay_ms: 60,
         ..FakeProvider::scripted(loops(8))

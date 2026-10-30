@@ -1754,8 +1754,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     material lists `not_allowed` and goes only to a model the catalog lists as of US origin, whatever the caller says) or
     a provider with no key all run on `live`. **While the acting route pack asks no `model`** (every pack before
     route.v10) an unset key runs the profile it always did (`config::legacy`) and asks nothing, so the row changes no live
-    decision until the pack flips. A task's checkpoint has no base, no `max_switches` and no step down (the cache hold is
-    its one hysteresis), and a task's brief has no fixed first profile. Tests: `tests_job_ask.rs` (the rule),
+    decision until the pack flips. **The same gate holds for a task's checkpoints and brief** (`CheckpointAsk::open`, the
+    brief's `open`, both `JudgeService::asks_jev()`): closed, the class rule is today's (`max_switches`, the base and
+    step down, no detours, `CODING_BASE`); open, a checkpoint has no base, no `max_switches` and no step down (the cache
+    hold is its one hysteresis), and a brief has no fixed first profile. Tests: `tests_job_ask.rs` (the rule),
     `tests_job_sites.rs` (each site), `tests_compaction.rs`, `rsi/join/tests.rs`, `tests_task_checkpoint.rs`.
   - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v5` since
     theseus-c1uz, route.v4's `mode` (with its `review`) and `reply_effort` word for word and two questions that decide
