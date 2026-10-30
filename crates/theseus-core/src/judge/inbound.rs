@@ -32,9 +32,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_judge::builders::{
-    DataNames, InboundInput, PersonaInput, RoleInput, TaskInput, ThreadInput, ThreadNow, TurnInput,
+    DataNames, InboundInput, PersonaInput, RestrictedModels, RoleInput, TaskInput, ThreadInput,
+    ThreadNow, TurnInput,
 };
-use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
+use theseus_judge::{Ask, DecisionPoint, Judge, Mode, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
 
 use super::onto::ONTO_PACK;
@@ -71,13 +72,20 @@ pub const ROUTE_PACK: &str = "route.v8";
 /// `role.v1` (no request of its own), live: asked only for the owner's own
 /// message in a place only the owner writes in (`Inbound.capture`).
 pub const DIRECTIVE_PACK: &str = crate::capture::PACK;
+/// SPLIT (theseus-z9mze.5), at `inbound`, batched with `classify` and `role`
+/// (no request of its own), in shadow: whether the work a message asks for
+/// divides by area. It decides nothing; the static fan-out cue
+/// (`turn/route_step/fan_out_cue.rs`) does, and the two are read against each
+/// other by the turn their rows share.
+pub const SPLIT_PACK: &str = "split.v1";
 /// The packs asked at `inbound`, in the order they are asked.
-pub const PACKS: [&str; 5] = [
+pub const PACKS: [&str; 6] = [
     CLASSIFY_PACK,
     ROLE_PACK,
     ROUTE_PACK,
     DIRECTIVE_PACK,
     ONTO_PACK,
+    SPLIT_PACK,
 ];
 
 /// Whether `pack` is `onto.v1` or a learned version standing in its place.
@@ -270,6 +278,10 @@ pub struct Inbound {
     /// ones' first characters (theseus-p6zgq). Only a turn that has its
     /// node carries them.
     pub attachments: Vec<crate::node::Attachment>,
+    /// Whether the session's labels let a model of restricted origin read the
+    /// turn (`data_step::cn_read`), for route.v10's `restricted_models`
+    /// (theseus-9f72b). Fail-closed where no turn read the labels.
+    pub restricted: RestrictedModels,
 }
 
 /// The workload class (§2.2) an inbound judgment records. The turn has not
@@ -384,6 +396,8 @@ impl JudgeService {
             .filter(|(m, _, _)| *m != PackMode::Off)
             .filter(|(_, _, root)| *root != DIRECTIVE_PACK || msg.capture)
             .filter(|(_, _, root)| *root != ONTO_PACK || (!route_only && self.onto_wanted(&msg)))
+            // A task's message is its parent's brief, never a person's ask to divide.
+            .filter(|(_, _, root)| *root != SPLIT_PACK || !msg.task)
             .filter(|(_, _, root)| !route_only || *root == ROUTE_PACK)
             .filter_map(|(m, p, root)| Some((self.pack(&p)?, m, root)))
             .filter(|(p, _, root)| sampled(&msg.turn_id, self.cfg.sample_of(root, p.sample)))
@@ -625,24 +639,23 @@ impl JudgeService {
             _ => serde_json::Value::Null,
         };
         let own = onto && self.onto_own();
-        let plain = Input::Inbound(InboundInput {
-            onto: None,
-            ..input.clone()
-        });
-        let shared = Input::Inbound(input);
+        // The route facts ride only a pack that asks `model` (route.v10's):
+        // every other pack's state is the one it always was.
+        let carried = super::route_facts::Carried::of(input);
+        let (plain, shared) = (&carried.plain, &carried.shared);
         let mut asks = Vec::with_capacity(packs.len());
         for (pack, id, mode) in packs {
             if is_onto(&pack) && !onto {
                 continue;
             }
             let carries = match (is_onto(&pack), pack.name() == ROUTE_PACK) {
-                (true, _) => &shared,
-                (false, true) => &plain,
+                (true, _) => shared,
+                (false, true) => carried.for_route(&pack),
                 (false, false) => {
                     if own {
-                        &plain
+                        plain
                     } else {
-                        &shared
+                        shared
                     }
                 }
             };
@@ -699,7 +712,9 @@ impl JudgeService {
                 (true, _) => Mode::Shadow,
                 (false, _) => laddered,
             };
+            let pinned = pack.name() == ROUTE_PACK && msg.chosen.is_some();
             let mut ask = Ask::new(pack, &state, jmode, context);
+            unasked_when_pinned(&mut ask, pinned);
             ask.id = Some(id);
             asks.push(ask);
         }
@@ -734,7 +749,20 @@ impl JudgeService {
             .map(|(_, n)| n)
             .collect();
         let live_tasks = self.live_tasks(&msg.kernel, &msg.execution_id);
-        Some(input(&nodes, msg, live_tasks))
+        let mut input = input(&nodes, msg, live_tasks);
+        // The route facts: the clock and the labels' rule are the daemon's,
+        // the models are the session's own record (theseus-9f72b).
+        let before = nodes
+            .iter()
+            .position(|n| n.id == msg.node_id)
+            .map_or(&nodes[..], |i| &nodes[..i]);
+        input.route = Some(super::route_facts::facts_of(
+            before,
+            msg.task,
+            msg.restricted,
+            theseus_protocol::now_unix_ms(),
+        ));
+        Some(input)
     }
 
     /// The session's live tasks, oldest first: each one's id, its brief's
@@ -848,6 +876,7 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         current_role: None,
         data_names: msg.data_names.clone(),
         onto: None,
+        route: None,
         roles: SEED_ROLES
             .iter()
             .map(|(id, stance)| RoleInput {
@@ -867,10 +896,23 @@ struct Ready {
     beside: super::Beside,
 }
 
+/// The operator named the model, and with it the effort, so route.v10 does not
+/// ask Jev either (theseus-h66v4, design §1.4 step 1); `context`, `persona`,
+/// `seal` and `personal` still ask. A pack that asks no `model` is untouched.
+fn unasked_when_pinned(ask: &mut Ask, pinned: bool) {
+    if pinned && super::route_facts::asks_model(&ask.pack) {
+        ask.asked
+            .retain(|a| !matches!(a.def.as_str(), "model" | "effort"));
+    }
+}
+
 /// The route pack's verdict from its judgment: its `mode` answer, when it
 /// was answered by the model the pack pins, and route.v3's `reply_effort`
 /// answer beside it, sure when its band reached the question's confirm bar
-/// (theseus-qe3v).
+/// (theseus-qe3v). route.v10 answers `model`, `effort` and `context` instead
+/// of `mode` and `reply_effort` (theseus-h66v4): the verdict then carries those
+/// answers, the pick standing as its `mode` word, and a pinned turn (not asked
+/// the model or the effort) carries its `context` alone.
 ///
 /// The pack's `data` question is not read: whether a session may use a model
 /// of restricted origin is decided by the labels on it (`crate::content`),
@@ -889,11 +931,33 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
             _ => None,
         }
     };
-    let (mode, confidence, _) = choice("mode")?;
-    let effort = choice(QUESTION).map(|(level, confidence, band)| EffortAnswer {
+    let sure = |band| band != theseus_judge::band::Band::Escalate;
+    let pick = |q: &str| {
+        choice(q).map(|(choice, confidence, band)| {
+            Box::new(crate::routing::Pick {
+                choice,
+                confidence,
+                sure: sure(band),
+            })
+        })
+    };
+    let (model, context) = (pick("model"), pick("context"));
+    let (mode, confidence) = match (choice("mode"), &model, &context) {
+        (Some((mode, confidence, _)), _, _) => (mode, confidence),
+        (None, Some(m), _) => (m.choice.clone(), m.confidence),
+        (None, None, Some(c)) => (String::new(), c.confidence),
+        (None, None, None) => return None,
+    };
+    let open = model.is_some() || context.is_some();
+    let question = if open {
+        crate::routing::effort::OPEN_QUESTION
+    } else {
+        QUESTION
+    };
+    let effort = choice(question).map(|(level, confidence, band)| EffortAnswer {
         level,
         confidence,
-        sure: band != theseus_judge::band::Band::Escalate,
+        sure: sure(band),
     });
     Some(crate::routing::Verdict {
         mode,
@@ -910,6 +974,8 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
                 band,
             })
         }),
+        model,
+        context,
     })
 }
 

@@ -73,4 +73,10 @@ check?: TaskCheck,
  * Task levels above it and including it: 1 for a conversation's task
  * (theseus-tecj5). Absent (0) from a daemon before it.
  */
-depth?: number, };
+depth?: number, 
+/**
+ * The fan-out call that opened this task as one of its helpers
+ * (theseus-z9mze.6): the call's correlation id, which groups a call's
+ * helpers. Absent for any other task, and from a daemon before it.
+ */
+fan_out?: string, };

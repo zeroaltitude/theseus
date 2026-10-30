@@ -62,12 +62,49 @@ fn on_trigger(jev: &FakeJev, trigger: &str, class: &str) {
     );
 }
 
+/// The same, for a pack that asks `model` (the acting pack once the unified
+/// switch is open, `JudgeService::route_open`): the verdict is Jev's pick of an
+/// option, not a class.
+fn on_trigger_pick(jev: &FakeJev, trigger: &str, option: &str) {
+    jev.script_when(
+        trigger,
+        None,
+        "model",
+        Jev::Choice {
+            option: option.into(),
+            confidence: 0.95,
+        },
+    );
+}
+
+/// Jev's pick of `option` for every ask that has no trigger of its own.
+fn pick_baseline(jev: &FakeJev, option: &str) {
+    jev.script(
+        "model",
+        Jev::Choice {
+            option: option.into(),
+            confidence: 0.95,
+        },
+    );
+}
+
 struct Task {
     rig: Rig,
     claude: Arc<FakeProvider>,
     jev: FakeJev,
     id: String,
     rec: SessionRecord,
+}
+
+/// [`task_with`] with the acting route pack asking `model` (theseus-ej6bj): Jev
+/// decides each checkpoint, with no cap, base or step down.
+async fn task_with_open(
+    script: Vec<Scripted>,
+    profile: Option<&str>,
+    tweak: impl FnOnce(&mut crate::Config),
+    verdicts: impl FnOnce(&FakeJev),
+) -> Task {
+    task_gated(true, script, profile, tweak, verdicts).await
 }
 
 /// A task from a Fable conversation whose brief is judged routine coding (the
@@ -78,14 +115,43 @@ async fn task_with(
     tweak: impl FnOnce(&mut crate::Config),
     verdicts: impl FnOnce(&FakeJev),
 ) -> Task {
+    task_gated(false, script, profile, tweak, verdicts).await
+}
+
+async fn task_gated(
+    open: bool,
+    script: Vec<Scripted>,
+    profile: Option<&str>,
+    tweak: impl FnOnce(&mut crate::Config),
+    verdicts: impl FnOnce(&FakeJev),
+) -> Task {
     let jev = FakeJev::start().unwrap();
-    mode(&jev, "routine_coding", 0.95);
+    // Open, the pack asks `model` and a verdict is a pick: the baseline is the
+    // cheap one a routine brief starts on, as the class's was.
+    match open {
+        true => pick_baseline(&jev, "haiku"),
+        false => mode(&jev, "routine_coding", 0.95),
+    }
     verdicts(&jev);
     let claude = Arc::new(FakeProvider {
         delay_ms: 60,
         ..FakeProvider::scripted(script)
     });
-    let rig = task_rig(&jev, claude.clone(), tweak).await;
+    // A pick runs only where the provider's key is named (a placeholder is no
+    // key, `Config::provider_without_key`): the open rule's picks must be able to run.
+    let rig = task_rig(&jev, claude.clone(), |c| {
+        if open {
+            c.name_every_provider_key();
+        }
+        tweak(c);
+    })
+    .await;
+    if open {
+        rig.core
+            .runner
+            .judge
+            .job_pack_with(crate::tests_job_ask::model_pack());
+    }
     task_run(rig, jev, claude, profile).await
 }
 
@@ -372,6 +438,95 @@ async fn a_cheap_verdict_never_takes_a_task_below_its_base() {
             .all(|d| d["profile"] == "sonnet" && d["switch"] == false),
         "{rows:?}"
     );
+}
+
+/// Jev decides at each trigger (theseus-ej6bj, the owner: "I categorically
+/// disagree with caps"): a task that recovers follows a cheaper verdict down at
+/// once, as a dearer one took it up. There is no base to step back to, and no
+/// second agreeing verdict to wait for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_task_follows_a_cheaper_verdict_down_at_once() {
+    let t = task_with_open(
+        loops(12, 0),
+        None,
+        |_| {},
+        |j| {
+            on_trigger_pick(j, "failing: 3 failed", "sonnet");
+            on_trigger_pick(j, "failing: 7 failed", "haiku");
+        },
+    )
+    .await;
+    let rows = t.checkpoints();
+    let seen: Vec<_> = rows
+        .iter()
+        .map(|d| {
+            (
+                d["reason"].as_str().unwrap().to_string(),
+                d["switch"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        &seen[..2],
+        [("verdict".to_string(), true), ("verdict".to_string(), true)],
+        "{rows:?}"
+    );
+    let models = t.models();
+    let up = models.iter().position(|m| *m == "sonnet").expect("up");
+    let down = models.iter().rposition(|m| *m == "sonnet").expect("up") + 1;
+    assert!(models[down..].iter().all(|m| *m == "haiku"), "{models:?}");
+    assert!(down - up >= 3, "up for the loops between: {models:?}");
+}
+
+/// Nothing is a floor: a trivial verdict takes a task whose brief picked
+/// Sonnet below it, to the profile the verdict names.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_cheap_verdict_takes_a_task_below_where_it_started() {
+    let t = task_with_open(
+        loops(8, 0),
+        None,
+        |_| {},
+        |j| {
+            pick_baseline(j, "sonnet");
+            on_trigger_pick(j, "failing: ", "haiku");
+        },
+    )
+    .await;
+    let models = t.models();
+    assert_eq!(models[0], "sonnet", "the brief's pick: {models:?}");
+    assert_eq!(models.last(), Some(&"haiku"), "{models:?}");
+    let rows = t.checkpoints();
+    assert_eq!(
+        (rows[0]["profile"].as_str(), rows[0]["switch"].as_bool()),
+        (Some("haiku"), Some(true)),
+        "{rows:?}"
+    );
+}
+
+/// There is no cap on moves: `max_switches` is still a key the loader reads
+/// (row 6 retires it), and the checkpoint no longer looks at it. Four verdicts
+/// that each name another profile make four moves, up and down.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_task_has_no_cap_on_moves() {
+    let t = task_with_open(
+        loops(16, 0),
+        None,
+        |c| c.routing.task_checkpoints.max_switches = 1,
+        |j| {
+            on_trigger_pick(j, "failing: 3 failed", "sonnet");
+            on_trigger_pick(j, "failing: 7 failed", "opus");
+            on_trigger_pick(j, "failing: 11 failed", "haiku");
+            on_trigger_pick(j, "failing: 15 failed", "sonnet");
+        },
+    )
+    .await;
+    let rows = t.checkpoints();
+    let reasons: Vec<_> = rows.iter().map(|d| d["reason"].as_str().unwrap()).collect();
+    assert_eq!(reasons, ["verdict"; 4], "{rows:?}");
+    let models = t.models();
+    assert!(models.contains(&"opus"), "{models:?}");
+    assert!(models.contains(&"haiku"), "{models:?}");
+    assert_eq!(models.last(), Some(&"sonnet"), "{models:?}");
 }
 
 /// At an estimate over `cold_switch_tokens` the first agreeing verdict holds

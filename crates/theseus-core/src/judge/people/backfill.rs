@@ -124,7 +124,7 @@ impl Core {
         }
         let cap = usd_to_micros(cap_usd);
         let key = format!("{MARK_PREFIX}{}", p.tag);
-        let (target, _) = self.people_extractor().map_err(anyhow::Error::msg)?;
+        let (target, _) = self.people_priced_on().map_err(anyhow::Error::msg)?;
         let price = self
             .runner
             .catalog

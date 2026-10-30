@@ -235,8 +235,39 @@ pub fn is_placed(rung: Rung, has_row: bool) -> bool {
 impl super::JudgeService {
     /// A pack version by name: compiled in, else learned.
     pub fn pack(&self, name: &str) -> Option<Arc<Pack>> {
+        #[cfg(test)]
+        if let Some(p) = self.stand_ins.lock().unwrap().get(name) {
+            return Some(p.clone());
+        }
         theseus_judge::pack::by_name(name)
             .or_else(|| self.lineage.get(&self.store, name).map(|l| l.pack))
+    }
+
+    /// route.v10 acts: the acting route pack asks the `model` question, so
+    /// Jev chooses the model (theseus-h66v4). While `ROUTE_PACK` names an
+    /// earlier pack, false, and every decision is the class walk's.
+    ///
+    /// The one switch: a turn's routing, a task's checkpoints and brief, the
+    /// background sites' unset keys and a job's ask all read this and
+    /// [`Self::route_pack`], so no path can be open while another is not.
+    pub fn route_open(&self) -> bool {
+        self.route_pack().is_some()
+    }
+
+    /// The acting route pack when it asks `model`: what `route_open` is the
+    /// presence of, and the pack a background job is asked on.
+    pub(crate) fn route_pack(&self) -> Option<Arc<Pack>> {
+        self.pack(super::inbound::ROUTE_PACK)
+            .filter(|p| super::route_facts::asks_model(p))
+    }
+
+    /// A test's `pack` asked in `name`'s place, from the next ask on.
+    #[cfg(test)]
+    pub(crate) fn stand_in(&self, name: &str, pack: Pack) {
+        self.stand_ins
+            .lock()
+            .unwrap()
+            .insert(name.to_string(), Arc::new(pack));
     }
 
     /// The compiled-in version at the head of `name`'s lineage (itself for

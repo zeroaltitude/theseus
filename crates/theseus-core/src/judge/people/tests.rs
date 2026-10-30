@@ -609,7 +609,7 @@ async fn on_a_sonnet_profile_the_people_extraction_is_not_forced() {
     jev.script("unlisted", Jev::Noul(0.9));
     let r = rig(Some(&jev), EVERY, |c| {
         people_on(c);
-        c.people.extract_profile = "sonnet".into();
+        c.people.extract_profile = Some("sonnet".into());
     });
     r.fake.script.lock().unwrap().push_back(Scripted::Blocks {
         blocks: vec![json!({"type": "tool_use", "id": "t", "name": "propose_people", "input": {}})],

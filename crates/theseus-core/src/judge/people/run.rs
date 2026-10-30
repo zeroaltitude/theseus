@@ -48,22 +48,60 @@ pub struct Pass {
 }
 
 impl Core {
-    /// The extractor: `[people] extract_profile`'s target and provider.
-    pub(crate) fn people_extractor(
+    /// The extractor for a pass over `lines` lines: `[people] extract_profile`
+    /// when it is set (a pin), else Jev's choice for the job (route.v10,
+    /// theseus-ej6bj).
+    pub(crate) async fn people_extractor(
+        &self,
+        lines: u32,
+    ) -> Result<(crate::turn::Target, Arc<dyn Provider>), String> {
+        let (live, _) = self.live_profile();
+        let site = crate::job_model::Site {
+            name: "people",
+            pin: self.runner.cfg.people.extract_profile.as_deref(),
+            legacy: Some(crate::config::legacy::CHEAP),
+            job: theseus_judge::builders::JobKind::People { lines },
+            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
+        };
+        let (target, _) = self
+            .runner
+            .job_target(&live, site)
+            .await
+            .map_err(|e| format!("[people] extract_profile {e}"))?;
+        self.people_provider(target)
+    }
+
+    /// The model a plan prices its passes on before any is asked: the pin, or
+    /// the profile the extraction always ran on. Each pass asks for its own
+    /// model, and is priced and held on that.
+    pub(crate) fn people_priced_on(
         &self,
     ) -> Result<(crate::turn::Target, Arc<dyn Provider>), String> {
-        let profile = self.runner.cfg.people.extract_profile.clone();
+        let profile = self
+            .runner
+            .cfg
+            .people
+            .extract_profile
+            .as_deref()
+            .unwrap_or(crate::config::legacy::CHEAP);
         let (live, _) = self.live_profile();
         let target = self
             .runner
-            .resolve_target(&live, Some(&profile), None, None)
+            .resolve_target(&live, Some(profile), None, None)
             .map_err(|e| format!("[people] extract_profile {profile:?} does not resolve: {e:#}"))?;
+        self.people_provider(target)
+    }
+
+    fn people_provider(
+        &self,
+        target: crate::turn::Target,
+    ) -> Result<(crate::turn::Target, Arc<dyn Provider>), String> {
         let provider = self
             .runner
             .providers
             .get(&target.provider)
             .cloned()
-            .ok_or_else(|| format!("no provider {:?} for {profile}", target.provider))?;
+            .ok_or_else(|| format!("no provider {:?} for {}", target.provider, target.profile))?;
         Ok((target, provider))
     }
 
@@ -125,7 +163,7 @@ impl Core {
     /// no price, the day's ceiling); a failed call is a pass that failed,
     /// its row written.
     pub(crate) async fn propose_people(&self, s: Session<'_>) -> Result<Pass, String> {
-        let (target, provider) = self.people_extractor()?;
+        let (target, provider) = self.people_extractor(s.lines.len() as u32).await?;
         // The lines are this session's: its labels hold the call.
         let provider = crate::data_gate::bound(provider, s.sid);
         let request = self.people_request(&target.model, s.title, &s.lines);

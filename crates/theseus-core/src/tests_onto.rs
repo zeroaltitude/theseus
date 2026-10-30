@@ -40,7 +40,7 @@ fn rig_with(jev: FakeJev, namer: Vec<Scripted>, more: impl FnOnce(&mut Config)) 
     cfg.ontology.judge = true;
     // The namer is only a second provider here; it reads the session's text,
     // so it runs an unrestricted model (theseus-a1wvq.3).
-    cfg.ontology.name_profile = "glm".into();
+    cfg.ontology.name_profile = Some("glm".into());
     cfg.serve_glm_unrestricted();
     more(&mut cfg);
     cfg.validate().unwrap();

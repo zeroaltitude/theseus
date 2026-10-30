@@ -515,7 +515,7 @@ async fn a_card_cut_at_its_cap_says_so_and_thinks_off() {
 #[tokio::test]
 async fn on_a_sonnet_profile_the_thread_card_call_is_not_forced() {
     let r = rig(vec![card_for(json!([]))], |c| {
-        c.threads.import_profile = "sonnet".into()
+        c.threads.import_profile = Some("sonnet".into())
     });
     import_export(&r.core).await;
     run(&r.core, &params(Some(&["boat-ops"]))).await;

@@ -140,8 +140,8 @@ pub struct ThreadsConfig {
     pub discord_channel: Option<String>,
     #[serde(default = "default_import_day_usd")]
     pub import_day_usd: f64,
-    #[serde(default = "default_import_profile")]
-    pub import_profile: String,
+    #[serde(default)]
+    pub import_profile: Option<String>,
     #[serde(default = "default_penalty")]
     pub cross_recall_penalty: f64,
     #[serde(default = "default_bar")]
@@ -208,9 +208,6 @@ fn default_max_live() -> u32 {
 fn default_import_day_usd() -> f64 {
     2.0
 }
-fn default_import_profile() -> String {
-    "haiku".into()
-}
 fn default_penalty() -> f64 {
     0.35
 }
@@ -258,7 +255,7 @@ impl Default for ThreadsConfig {
             max_live: default_max_live(),
             discord_channel: None,
             import_day_usd: default_import_day_usd(),
-            import_profile: default_import_profile(),
+            import_profile: None,
             cross_recall_penalty: default_penalty(),
             cross_recall_bar: default_bar(),
             cross_recall_beats_own: true,
@@ -308,7 +305,11 @@ impl ThreadsConfig {
         if !self.import_day_usd.is_finite() || self.import_day_usd < 0.0 {
             bail!("threads.import_day_usd is not a dollar amount of 0 or more");
         }
-        if self.import_profile.trim().is_empty() {
+        if self
+            .import_profile
+            .as_deref()
+            .is_some_and(|p| p.trim().is_empty())
+        {
             bail!("threads.import_profile names no profile");
         }
         for (key, v) in [
@@ -380,7 +381,7 @@ mod tests {
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
         assert!(crate::Config::parse(&format!("{secrets}\n[threads]\nmax_live = 0\n")).is_err());
         assert_eq!(cfg.threads.import_day_usd, 2.0);
-        assert_eq!(cfg.threads.import_profile, "haiku");
+        assert_eq!(cfg.threads.import_profile, None);
         assert!(crate::Config::EXAMPLE_TOML.contains("# import_day_usd = 2.0"));
         let pricey = crate::Config::from_toml("[threads]\nimport_day_usd = 0.5\n").unwrap();
         assert_eq!(pricey.threads.import_day_usd, 0.5);

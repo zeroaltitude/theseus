@@ -141,6 +141,8 @@ mod tests_ledger_verify;
 #[cfg(test)]
 mod tests_lists;
 #[cfg(test)]
+mod tests_live_pin;
+#[cfg(test)]
 mod tests_named_by_reply;
 #[cfg(test)]
 mod tests_node_names;

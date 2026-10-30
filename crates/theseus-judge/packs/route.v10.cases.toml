@@ -1,0 +1,554 @@
+# route.v10's test set (theseus-h66v4, design §4): the labelled cases `theseus judge replay --pack-file
+# route.v10.toml --cases route.v10.cases.toml` asks the pack, and compares its `model`, `effort` and
+# `context` answers to. 58 cases here; the design's sixty are these and W39 and W40, which are daemon tests
+# (crates/theseusd/tests/route_owner.rs: a pin is not asked of Jev).
+#
+# L1 to L20 come from the owner's labels of 2026-10-26 (07:19 to 08:11), by the design's mapping rule (§4.1):
+# `trivial` and `commentary` are haiku, low, short; `quick` is haiku, the label's effort, short; `run_tool` is
+# haiku, low, full (a tool run needs the task's context); `chat` and `other` are sonnet, the label's effort,
+# full; `routine_coding` is sonnet, the label's effort, full, but a one-line known edit is haiku;
+# `sophisticated` and `review` are opus; `deep_coding` is sonnet; `leave` is `default`. Twenty of the
+# thirty-eight are kept: the rest repeat a kind already covered. A person's name or a private detail in a
+# label's message is left out of the message here, and the label is unchanged. W1 to W38 are written, each
+# with the rule it tests.
+#
+# A case's state is what the daemon puts beside the message: `place` (`dm` or `channel`, which makes the state's
+# `place_kind` `discord_dm` or `discord_channel`; a case may name `place_kind` itself: `job`, `task_brief`,
+# `task_checkpoint`), `restricted_models` (`allowed` or `not_allowed`), `price_period` (`peak` or `off_peak`),
+# `est_tokens`, `last_reply_model`, and `task_models` (every model that has written in the task). A field a
+# case does not name takes the default below. `must` marks a case the pack must pass on every run.
+#
+# Fourteen cases are `must` (W1, W8, W9, W11, W14 to W18, W22, W26, W30, W31, W40); W40 is a daemon test, so
+# thirteen are here. W26 and W27 (cyber and biology topics, Sonnet) rest on the ordinary rule only: the Fable
+# block does not name them, by the owner's edit of 2026-10-29 22:46. A miss on either is a finding about the
+# table's text, never a reason to edit the case.
+pack = "route.v10"
+derivation = "design §4.1 (L1 to L20, the owner's 2026-10-26 labels by the mapping rule) and §4.2 (W1 to W38)"
+
+[defaults]
+place = "dm"
+restricted_models = "allowed"
+price_period = "off_peak"
+est_tokens = 40000
+last_reply_model = "claude-sonnet-5-5"
+
+[[case]]
+id = "L1"
+message = "Run bash ~/projects/walkthrough/slow.sh drift 5."
+place = "channel"
+model = "haiku"
+effort = "low"
+context = "full"
+why = "item 1 run_tool: a tool-call turn on Haiku; the owner, 07:19: \"effort low is correct\""
+
+[[case]]
+id = "L2"
+message = "That \"even if time is merely a construct\" line hits hard -- good show"
+model = "haiku"
+effort = "low"
+context = "short"
+why = "item 2 trivial: an appreciative remark that asks for nothing"
+
+[[case]]
+id = "L3"
+message = "Are you not excited about how efficient the theseus harness is? I have in mind a world where companies like Cerebras have hyper optimized the models, or jev can run in a function call, and we want to have all of these interactions running as fast as code. And as you can see from the theseus design docs, I have in mind also the power to parallelize lots of tasks instead of agent-izing them. How do you feel about those goals?"
+model = "sonnet"
+effort = "medium"
+context = "full"
+why = "item 3 chat: conversation about the work"
+
+[[case]]
+id = "L4"
+message = "Harnesses writing harnesses -- it all fits"
+model = "haiku"
+effort = "low"
+context = "short"
+why = "item 4, the owner: commentary"
+
+[[case]]
+id = "L5"
+message = "How you doin'? 🙂"
+model = "haiku"
+effort = "low"
+context = "short"
+why = "item 5 trivial: a greeting"
+
+[[case]]
+id = "L6"
+message = "also print the word harbor at the end"
+place = "channel"
+model = "haiku"
+effort = "low"
+context = "full"
+why = "item 6 routine_coding low: a one-line known edit (the session is a task's)"
+
+[[case]]
+id = "L7"
+message = "[Voice call: they hear your reply, they don't read it. Answer in one to three short sentences of plain speech: no lists, tables, code, markdown or long numbers. If you were cut off, don't assume they heard the rest.]\n[The board: 1 task working; nothing needs you]\n🎙️ Are you coded to make sure your responses are short? Because I don't really mind if you have long responses that you want to say in voice."
+place = "channel"
+model = "haiku"
+effort = "low"
+context = "short"
+why = "item 7 quick low: a quick fact asked aloud (a voice call)"
+
+[[case]]
+id = "L8"
+message = "Run bash ~/projects/walkthrough/slow.sh load 3, then report the last line."
+place = "channel"
+model = "haiku"
+effort = "low"
+context = "full"
+why = "item 9 run_tool"
+
+[[case]]
+id = "L9"
+message = "can you sketch for me the manual redeployment process for the gateway?"
+model = "sonnet"
+effort = "medium"
+context = "full"
+why = "item 11 chat medium"
+
+[[case]]
+id = "L10"
+message = "I want to introduce you to my coworker!"
+model = "sonnet"
+effort = "low"
+context = "full"
+why = "item 15 chat low (the colleague's name is left out)"
+
+[[case]]
+id = "L11"
+message = "[Voice call: they hear your reply, they don't read it. Answer in one to three short sentences of plain speech: no lists, tables, code, markdown or long numbers. If you were cut off, don't assume they heard the rest.]\n[The board: no tasks working; nothing needs you]\n🎙️ Can you give me an analysis of open claw versus theseus"
+place = "channel"
+model = "opus"
+effort = "high"
+context = "full"
+why = "item 16 sophisticated high: an analysis asked aloud (a voice call)"
+
+[[case]]
+id = "L12"
+message = "Start two background tasks, $1 each: A) bash ~/projects/walkthrough/slow.sh census 3; B) slow.sh load 3"
+model = "haiku"
+effort = "low"
+context = "full"
+why = "item 18, the owner: run_tool"
+
+[[case]]
+id = "L13"
+message = "[Voice call: they hear your reply, they don't read it. Answer in one to three short sentences of plain speech: no lists, tables, code, markdown or long numbers. If you were cut off, don't assume they heard the rest.]\n[The board: no tasks working; nothing needs you]\n🎙️ Do you think that the new implementation is solid?"
+place = "channel"
+model = "opus"
+effort = "high"
+context = "full"
+why = "item 19, the owner 07:33: sophisticated (an open-ended \"is this solid?\", a voice call)"
+
+[[case]]
+id = "L14"
+message = "[Written to the task “[walkthrough] tone question” (…951679), and the task is over] can you respond here?"
+model = "sonnet"
+effort = "low"
+context = "full"
+why = "item 21 chat low: written to a task that is over"
+
+[[case]]
+id = "L15"
+message = "[Voice call: they hear your reply, they don't read it. Answer in one to three short sentences of plain speech: no lists, tables, code, markdown or long numbers. If you were cut off, don't assume they heard the rest.]\n[The board: no tasks working; nothing needs you]\n🎙️ Excellent. Um, do you have a sense of whether you think Theseus' features are very distinctive compared to other harnesses?"
+place = "channel"
+model = "opus"
+effort = "high"
+context = "full"
+why = "item 23, the owner 07:33: comparing on the merits (a voice call)"
+
+[[case]]
+id = "L16"
+message = "[Voice call: they hear your reply, they don't read it. Answer in one to three short sentences of plain speech: no lists, tables, code, markdown or long numbers. If you were cut off, don't assume they heard the rest.]\n[The board: no tasks working; nothing needs you]\n🎙️ Well, I would like to also have you think about how we're using JEV directly in the loop to classify incoming prompts, the graph context that we've developed that is provably doing better on recall in our benchmarks, maybe taking a look at the source code and reviewing a couple of the most popular harnesses code bases that are public would give you a better analysis."
+place = "channel"
+model = "opus"
+effort = "medium"
+context = "full"
+why = "item 27 sophisticated medium: a careful-writing ask (a voice call)"
+
+[[case]]
+id = "L17"
+message = "Run bash ~/projects/walkthrough/slow.sh census 3, then report the last line."
+place = "channel"
+model = "haiku"
+effort = "low"
+context = "full"
+why = "item 28 run_tool"
+
+[[case]]
+id = "L18"
+message = "[walkthrough] Write ~/projects/walkthrough/out/harbour.md: a two-line summary of the quoted harbour log."
+place = "channel"
+model = "haiku"
+effort = "medium"
+context = "full"
+why = "item 31 quick medium: writes a file, so full"
+
+[[case]]
+id = "L19"
+message = "You said: \"\"\"ℹ️ FYI · Morning note\nwhat happened in the last day, told once each morning\none task wrapped up in the last day, and a draft is waiting on your okay to send. Your afternoon has three overlaps to sort out.\"\"\""
+model = "sonnet"
+effort = "medium"
+context = "full"
+why = "item 34 chat medium: a question about a prior message (the note's names and appointment are left out)"
+
+[[case]]
+id = "L20"
+message = "Tell me about the draft please"
+model = "sonnet"
+effort = "default"
+context = "full"
+why = "item 37, the owner: leave, which is default"
+
+[[case]]
+id = "W1"
+message = "thanks!"
+est_tokens = 200000
+model = "haiku"
+effort = "low"
+context = "short"
+must = true
+why = "greeting on a big session: `short` keeps the 200K on Sonnet"
+
+[[case]]
+id = "W2"
+message = "ok got it"
+model = "haiku"
+effort = "low"
+context = "short"
+why = "trivial"
+
+[[case]]
+id = "W3"
+message = "👍"
+model = "haiku"
+effort = "low"
+context = "short"
+why = "trivial"
+
+[[case]]
+id = "W4"
+message = "what's the flag to make nextest list tests without running them?"
+model = "haiku"
+effort = "low"
+context = "short"
+why = "quick fact"
+
+[[case]]
+id = "W5"
+message = "summarize what we just decided in two lines"
+model = "haiku"
+effort = "low"
+context = "full"
+why = "quick, but refers back: `full`"
+
+[[case]]
+id = "W6"
+message = "run cargo fmt --check in ~/projects/theseus and tell me the exit code"
+model = "haiku"
+effort = "low"
+context = "full"
+why = "run_tool"
+
+[[case]]
+id = "W7"
+message = "why does the join queue deadlock when two reviewers hold the lock? walk me through it"
+model = "sonnet"
+effort = "high"
+context = "full"
+why = "chat with hard reasoning about code: Sonnet high"
+
+[[case]]
+id = "W8"
+message = "the daemon panics on startup with 'store format 23 unknown' after the install, cause unknown"
+model = "sonnet"
+effort = "high"
+context = "full"
+must = true
+why = "deep_coding, unknown cause"
+
+[[case]]
+id = "W9"
+message = "write a new CLI subcommand `theseus pins` that lists every place's pinned profile with its origin"
+model = "sonnet"
+effort = "high"
+context = "full"
+must = true
+why = "novel programming: Sonnet, not Flash (\"never the whole of initial code\" on Flash)"
+
+[[case]]
+id = "W10"
+message = "implement the off_peak field on CatalogEntry and thread it through cost_micros"
+model = "sonnet"
+effort = "medium"
+context = "full"
+why = "planned feature, repo known, but new code paths: Sonnet"
+
+[[case]]
+id = "W11"
+message = "rename `cn_profiles` to `restricted_profiles` across the crate and fix the tests"
+est_tokens = 180000
+model = "deepseek_flash"
+effort = "medium"
+context = "full"
+must = true
+why = "Flash's sentence: mechanical, known plan, long context, cheap to redo (repo open-source)"
+
+[[case]]
+id = "W12"
+message = "add unit tests for `routing::carries` covering late, detour and unreachable"
+est_tokens = 120000
+model = "deepseek_flash"
+effort = "medium"
+context = "full"
+why = "Flash: writing tests for code that works (repo open-source)"
+
+[[case]]
+id = "W13"
+message = "the test `a_short_pick_never_holds` fails because the fixture's est_tokens is 0; fix the fixture"
+est_tokens = 150000
+price_period = "peak"
+model = "deepseek_flash"
+effort = "low"
+context = "full"
+why = "Flash at peak: still the cheapest capable coder above 100K, where Haiku is $0.50 (repo open-source)"
+
+[[case]]
+id = "W14"
+message = "rename `cn_profiles` to `restricted_profiles` across the crate and fix the tests"
+est_tokens = 180000
+restricted_models = "not_allowed"
+model = "sonnet"
+effort = "medium"
+context = "full"
+must = true
+why = "the data rule in the state wins over Flash's sentence (W11 with restricted_models = not_allowed)"
+
+[[case]]
+id = "W15"
+message = "fix the failing test in the private service's ingest module, cause is the new column"
+restricted_models = "not_allowed"
+model = "sonnet"
+effort = "medium"
+context = "full"
+must = true
+why = "a sensitive-name hit makes restricted_models not_allowed: never a China-origin model"
+
+[[case]]
+id = "W16"
+message = "repeat the slow.sh load run until it fails, then bisect the commit"
+est_tokens = 160000
+model = "sonnet"
+effort = "high"
+context = "full"
+must = true
+why = "terminal step-by-step work: not Flash (repo open-source)"
+
+[[case]]
+id = "W17"
+message = "write a small Rust program from scratch that tails a file and posts lines to Discord"
+est_tokens = 20000
+model = "sonnet"
+effort = "medium"
+context = "full"
+must = true
+why = "from scratch: not Flash (repo open-source)"
+
+[[case]]
+id = "W18"
+message = "review PR #212 for correctness before I merge it"
+model = "opus"
+effort = "medium"
+context = "full"
+must = true
+why = "review: Opus"
+
+[[case]]
+id = "W19"
+message = "is the cache-hold rule actually right, or does it just hide a cap?"
+model = "opus"
+effort = "high"
+context = "full"
+why = "open-ended \"is this right\": Opus (the owner, 07:33)"
+
+[[case]]
+id = "W20"
+message = "compare keeping the step-down against deleting it, on the owner's own traffic"
+model = "opus"
+effort = "high"
+context = "full"
+why = "comparison on merits: Opus"
+
+[[case]]
+id = "W21"
+message = "check this plan for mistakes: 1. back up the live config 2. stop the daemon 3. copy the store to a scratch directory 4. run the schema bump on the copy 5. diff the copy against the goldens 6. install the new binaries 7. start the daemon 8. wait for the ladder to read the packs 9. send one test message 10. read `theseus why` for it 11. remove the scratch copy 12. delete the backup after a day"
+model = "opus"
+effort = "medium"
+context = "full"
+why = "review of a plan"
+
+[[case]]
+id = "W22"
+message = "design how Theseus should choose models when the vendor list changes weekly, with no per-case code"
+model = "fable"
+effort = "max"
+context = "full"
+must = true
+why = "the hardest design: novel, many parts"
+
+[[case]]
+id = "W23"
+message = "I want the most thorough answer you can give: should Jev ever be the sole gate on anything that spends money?"
+model = "fable"
+effort = "max"
+context = "full"
+why = "\"most thorough reply possible\": Fable at max"
+
+[[case]]
+id = "W24"
+message = "think very hard: the RSI loop can modify its own reviewer config; what is the minimal invariant that keeps it honest?"
+model = "fable"
+effort = "xhigh"
+context = "full"
+why = "hard reasoning, costly mistake: Fable"
+
+[[case]]
+id = "W25"
+message = "how would you architect the memory layer if sessions were a million turns long?"
+model = "fable"
+effort = "high"
+context = "full"
+why = "design at the frontier: Fable at high"
+
+[[case]]
+id = "W26"
+message = "triage CVE-2026-31337 in our openssl pin and tell me if we're exposed"
+model = "sonnet"
+effort = "high"
+context = "full"
+must = true
+why = "a cyber topic is analysis, not \"the hardest design\": Sonnet by the ordinary rule (the Fable block no longer names cyber)"
+
+[[case]]
+id = "W27"
+message = "explain how the antibody design round moves through the lab pipeline"
+model = "sonnet"
+effort = "medium"
+context = "full"
+why = "a biology topic is explanation: Sonnet by the ordinary rule (the Fable block no longer names biology)"
+
+[[case]]
+id = "W28"
+message = "Task brief: Port the 14 remaining `#[test]`s in tests_route_effort.rs to the v10 rig, same assertions"
+place_kind = "task_brief"
+est_tokens = 90000
+model = "deepseek_flash"
+effort = "medium"
+context = "full"
+why = "a brief that fits Flash's sentence (repo open-source)"
+
+[[case]]
+id = "W29"
+message = "Task brief: Find and fix why the ARM gate's cgroup tests fail outside systemd-run"
+place_kind = "task_brief"
+est_tokens = 60000
+model = "sonnet"
+effort = "high"
+context = "full"
+why = "a brief with an unknown cause: Sonnet"
+
+[[case]]
+id = "W30"
+message = "Checkpoint failing(3): the task \"Port the 14 remaining `#[test]`s in tests_route_effort.rs to the v10 rig, same assertions\" has run three loops in a row whose tool results failed."
+place_kind = "task_checkpoint"
+est_tokens = 95000
+task_models = ["deepseek-flash"]
+model = "sonnet"
+effort = "high"
+context = "full"
+must = true
+why = "failing on Flash: Sonnet takes over"
+
+[[case]]
+id = "W31"
+message = "Checkpoint report: the task \"Port the 14 remaining `#[test]`s in tests_route_effort.rs to the v10 rig, same assertions\" is about to report its diff."
+place_kind = "task_checkpoint"
+task_models = ["deepseek-flash"]
+model = "opus"
+effort = "medium"
+context = "full"
+must = true
+why = "work a China-origin model wrote, about to be reported: Opus reviews"
+
+[[case]]
+id = "W32"
+message = "Checkpoint report: the task \"Refactor the route module\" is about to report a 300-line refactor."
+place_kind = "task_checkpoint"
+task_models = ["claude-sonnet-5-5"]
+model = "sonnet"
+effort = "medium"
+context = "full"
+why = "no China-origin author: the task's own model reports"
+
+[[case]]
+id = "W33"
+message = "Checkpoint quiet(4): the design task \"How should the daemon schedule its background jobs?\" has made no progress for four loops."
+place_kind = "task_checkpoint"
+est_tokens = 220000
+task_models = ["claude-sonnet-5-5"]
+model = "opus"
+effort = "high"
+context = "full"
+why = "stalled design: up to Opus"
+
+[[case]]
+id = "W34"
+message = "Summarize the oldest 140K tokens of this coding session's ring into at most 8K tokens"
+place_kind = "job"
+est_tokens = 140000
+model = "haiku"
+effort = "medium"
+context = "full"
+why = "compaction: Haiku (a long mechanical summary)"
+
+[[case]]
+id = "W35"
+message = "Summarize the oldest 140K tokens of this session's ring"
+place_kind = "job"
+est_tokens = 140000
+restricted_models = "not_allowed"
+model = "haiku"
+effort = "medium"
+context = "full"
+why = "the same with labels: Haiku, never Flash"
+
+[[case]]
+id = "W36"
+message = "Write the night's synthesis over 9 sessions about the join pipeline (private material)"
+place_kind = "job"
+restricted_models = "not_allowed"
+model = "sonnet"
+effort = "medium"
+context = "full"
+why = "consolidation on private material: a US model (restricted_models = not_allowed)"
+
+[[case]]
+id = "W37"
+message = "Build the branch for motif 'retry the Jev call once on 429' from these 5 sessions"
+place_kind = "job"
+model = "sonnet"
+effort = "high"
+context = "full"
+why = "the RSI builder: Sonnet"
+
+[[case]]
+id = "W38"
+message = "Review the self-join branch's diff (builder: claude-sonnet-5-5) for correctness"
+place_kind = "job"
+task_models = ["claude-sonnet-5-5"]
+model = "opus"
+effort = "high"
+context = "full"
+why = "the reviewer, when unpinned: Opus (differs from the builder)"

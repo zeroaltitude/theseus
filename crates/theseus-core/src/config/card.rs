@@ -31,8 +31,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CardConfig {
-    #[serde(default = "default_profile")]
-    pub profile: String,
+    #[serde(default)]
+    pub profile: Option<String>,
     #[serde(default = "default_day_usd")]
     pub day_usd: f64,
     #[serde(default = "default_max_open")]
@@ -53,9 +53,6 @@ pub struct CardConfig {
     pub dm_per_day: u32,
 }
 
-fn default_profile() -> String {
-    "haiku".into()
-}
 fn default_day_usd() -> f64 {
     2.0
 }
@@ -87,7 +84,7 @@ fn default_dm_per_day() -> u32 {
 impl Default for CardConfig {
     fn default() -> Self {
         Self {
-            profile: default_profile(),
+            profile: None,
             day_usd: default_day_usd(),
             max_open: default_max_open(),
             ask_days: default_ask_days(),
@@ -144,7 +141,7 @@ impl CardConfig {
         if self.dm_per_day > 10 {
             bail!("[card] dm_per_day is 0 to 10, not {}", self.dm_per_day);
         }
-        if self.profile.trim().is_empty() {
+        if self.profile.as_deref().is_some_and(|p| p.trim().is_empty()) {
             bail!("[card] profile names no profile");
         }
         Ok(())

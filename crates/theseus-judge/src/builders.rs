@@ -238,17 +238,23 @@ pub struct ThreadInput {
     pub entities: Vec<String>,
 }
 
+mod route_facts;
+pub use route_facts::{
+    route_input, PricePeriod, RestrictedModels, RouteFacts, ROUTE_STATE_KEYS, TASK_MODELS,
+};
 mod onto;
 pub use onto::{
     OntoInput, OntoItem, OntoKind, OntoTable, OntoText, Picked, CANDIDATES as ONTO_CANDIDATES,
     EXCERPT_CHARS as ONTO_EXCERPT_CHARS, KINDS as ONTO_KINDS,
 };
+mod job;
+pub use job::{job, job_input, JobInput, JobKind};
 mod persona;
 pub use persona::{PersonaInput, ThreadNow, TurnInput, PERSONAS as PERSONA_OPTIONS};
 
 /// The `inbound` state's input, shared by `classify.v1`, `classify.v2` and
 /// `role.v1`, so their states are byte-identical and they ride one request.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InboundInput {
     pub message: String,
@@ -305,6 +311,12 @@ pub struct InboundInput {
     /// byte for byte the one before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub onto: Option<Box<OntoInput>>,
+    /// What the daemon knows and Jev is not asked to work out (route.v10,
+    /// theseus-9f72b): the price period, whether a restricted model is
+    /// allowed, the model of the last reply, a task's models. Left out when
+    /// none, so a state without them is byte for byte the one before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<RouteFacts>,
 }
 
 /// The topics the operator names as open (work that may go to any model
@@ -951,6 +963,7 @@ pub fn inbound(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     b.scalar("current_role", role)
         .cut_if("current_role", c.cut());
     onto::state(&mut b, &c, cap, i);
+    route_facts::state(&mut b, &c, i);
     let mut dynamic = Dynamic::default();
     dynamic.sources.insert(
         Source::Tasks,
@@ -1633,6 +1646,7 @@ pub(crate) mod tests {
                     categories: Vec::new(),
                     data_names: DataNames::default(),
                     onto: None,
+                    route: None,
                     current_role: Some(big.clone()),
                     roles: (0..2_000)
                         .map(|i| RoleInput {

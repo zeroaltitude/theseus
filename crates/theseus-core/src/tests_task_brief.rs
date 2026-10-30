@@ -175,6 +175,44 @@ async fn a_task_runs_on_its_parents_model_with_jev_off() {
     assert!(decided(&r.core.store).is_empty());
 }
 
+/// Closed (the acting pack asks no `model`), a routine-coding brief starts on
+/// `haikuhi` even when a config moved it out of the class list, as it always
+/// did: the row changes nothing until the pack flips.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_closed_routine_brief_still_starts_on_haikuhi() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "routine_coding", 0.95);
+    let r = rig_from(Some(&jev), "fable", |c| {
+        c.routing.classes.routine_coding.profiles = vec!["sonnet".into()];
+    });
+    let (_, rec) = run(&r, &params(BRIEF, None)).await;
+    assert_eq!(ran_on(&r), "claude-haiku-5-5");
+    assert_eq!(rec.last_target.unwrap().profile, "haikuhi");
+}
+
+/// Open (theseus-ej6bj: the acting pack asks `model`, `CODING_BASE` no longer
+/// stands): a brief starts on the model Jev picks, and a config that moved
+/// `haikuhi` out of the class list does not get it back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_routine_brief_starts_where_its_class_sends_it() {
+    let jev = FakeJev::start().unwrap();
+    // Open, the verdict is Jev's pick of an option (the unified switch,
+    // `route_open`): the class list no longer decides, and a config that moved
+    // `haikuhi` out of it changes nothing.
+    crate::tests_job_ask::pick(&jev, "sonnet", 0.95);
+    let r = rig_from(Some(&jev), "fable", |c| {
+        c.name_every_provider_key();
+        c.routing.classes.routine_coding.profiles = vec!["haiku".into()];
+    });
+    r.core
+        .runner
+        .judge
+        .job_pack_with(crate::tests_job_ask::model_pack());
+    let (_, rec) = run(&r, &params(BRIEF, None)).await;
+    assert_eq!(ran_on(&r), "claude-sonnet-5-5");
+    assert_eq!(rec.last_target.unwrap().profile, "sonnet");
+}
+
 /// A verdict under its class's bar: the parent's model.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_verdict_under_its_bar_leaves_the_parents_model() {

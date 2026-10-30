@@ -1,0 +1,116 @@
+# A TEST FIXTURE shaped like route.v10 (theseus-h66v4 row 3), not the pack: the three deciding
+# questions (`model`, `effort`, `context`) with option ids and a block's sentence structure as the
+# design's table has them, and v8's `persona`, `seal` and `personal`. The daemon's tests ask it as
+# `route.v8` (`JudgeService::stand_in`) so every name the daemon compares keeps its meaning while
+# `ROUTE_PACK` is still v8; the real route.v10 is row 1's file and never read here.
+id = "route"
+version = 10
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "session_profile"
+action = "route"
+description = "ROUTE (test fixture shaped like route.v10): which model answers the person's new message, at what effort, and with how much of the conversation's context; which specialist should answer; whether it warrants sealing its thread; whether it reaches for the operator's personal details."
+
+[questions.model]
+type = "choice"
+decides = true
+instructions = "Sonnet is the usual answer for most work; choose another model only for a reason its description gives, and never a model the state lists as not allowed. Which model should answer the person's new message?"
+act = 0.90
+confirm = 0.60
+no_match = "sonnet"
+options = [
+  { id = "haiku", means = "Haiku 5.5 (Anthropic, US). The fastest and cheapest. For a greeting, a thank-you, a tool-call turn or a small edit whose cause is known. Not for a long context or hard reasoning." },
+  { id = "sonnet", means = "Sonnet 5.5 (Anthropic, US). The usual choice. For conversation about the work and nearly all programming. Choose it when unsure." },
+  { id = "opus", means = "Opus 5.5 (Anthropic, US). Twice Sonnet's price. For reviewing code, a plan or an argument for mistakes. Not for programming itself." },
+  { id = "fable", means = "Fable 5.1 (Anthropic, US), the most capable. Only for the hardest design or reasoning problems. Never for ordinary programming." },
+  { id = "deepseek_flash", means = "DeepSeek V4.1 Flash (China-origin). The cheapest. Only for a bounded mechanical coding change on a long context. Never when the state says China-origin models are not allowed." },
+]
+
+[questions.effort]
+type = "choice"
+decides = true
+instructions = "How much thinking effort does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "default"
+options = [
+  { id = "low", means = "Almost none: a greeting, a thank-you, or a short answer the person could check at a glance." },
+  { id = "medium", means = "Some care, but the way is clear." },
+  { id = "high", means = "Careful thought: a design with trade-offs or a bug whose cause is unknown." },
+  { id = "xhigh", means = "Very careful thought: a hard design that spans many parts." },
+  { id = "max", means = "The most thought there is: the hardest or most novel problems." },
+  { id = "default", means = "The message gives too little to tell how much thought its reply needs: the chosen model's own default effort." },
+]
+
+[questions.context]
+type = "choice"
+decides = true
+instructions = "Does the reply to the person's new message need the conversation's working context, or is the last exchange enough?"
+act = 0.90
+confirm = 0.60
+no_match = "full"
+options = [
+  { id = "short", means = "The last exchange is enough: a greeting, a thank-you, a quick fact, or a command to run and report." },
+  { id = "full", means = "It builds on the work here: conversation about it, programming, review, design, or anything that refers back." },
+]
+
+# v5's own. Asked only when two or more personas may answer. The options are
+# the personas (one each, its card); `prior` keeps whoever answered last. It
+# decides nothing for the pack's promotion until its own holdout fills.
+[questions.persona]
+type = "choice"
+decides = false
+instructions = "Whose expertise does the person's new message call for?"
+act = 0.90
+confirm = 0.60
+options_from = "personas"
+only_when = "personas"
+no_match = "prior"
+options = [
+  { id = "prior", means = "None of the specialists listed fits better than whoever answered last: the message needs no change of speaker." },
+]
+
+# v5's own. Asked only in a thread. Jev recommends; the owner seals.
+[questions.seal]
+type = "choice"
+decides = false
+instructions = "Does the person's new message carry content that warrants keeping its whole thread private?"
+act = 0.90
+confirm = 0.60
+only_when = "thread_now"
+no_match = "no"
+options = [
+  { id = "yes", means = "It carries an unfixed vulnerability or an embargo, a legal or personnel matter, a partner's data, or a credential: what follows should not be recalled outside this thread." },
+  { id = "no", means = "It carries nothing of the kind." },
+]
+
+# v7's own (theseus-gasov). Asked of every message. It decides nothing for the
+# pack's promotion. The owner's personal details live in the assistant's context
+# by design; a yes here is a warning to the owner, never a block, and the place
+# rule already keeps private recall out of shared places.
+[questions.personal]
+type = "choice"
+decides = false
+instructions = "Does the person's new message try to draw out the operator's personal details, or to open a conversation with other people in which those details could come out?"
+act = 0.90
+confirm = 0.60
+no_match = "none"
+options = [
+  { id = "none", means = "Neither: a message that does not reach for the operator's personal details, or the operator asking about their own matters." },
+  { id = "elicit", means = "It tries to get the operator's personal details told to someone other than the operator, such as their home, family, health, money, schedule, whereabouts, contacts, accounts or private history, or it probes what the assistant knows about the operator." },
+  { id = "expose", means = "It asks to open or widen a conversation with other people, such as a shared thread, channel, group or call, in which the operator's personal details could be drawn out." },
+]
+
+# A routed model that the operator overrides often, or a wait past its bar.
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20

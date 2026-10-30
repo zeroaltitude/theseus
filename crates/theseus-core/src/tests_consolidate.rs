@@ -1024,7 +1024,7 @@ fn blocked_rows(core: &Core) -> usize {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_restricted_synthesis_falls_back() {
     for word in ["session", "glm"] {
-        let (r, zai) = rig_zai(|c| c.memory.synth_profile = word.into());
+        let (r, zai) = rig_zai(|c| c.memory.synth_profile = Some(word.into()));
         let c = &r.core;
         let facts = kestrel(c).await;
         for s in &facts {
@@ -1084,7 +1084,7 @@ async fn a_restricted_synthesis_falls_back() {
                 ..Default::default()
             },
         );
-        c.memory.synth_profile = "dsflash".into();
+        c.memory.synth_profile = Some("dsflash".into());
     });
     let c = &r.core;
     crate::tests_route::call(c, "profile.use", serde_json::json!({"name": "glm"})).await;

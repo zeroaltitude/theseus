@@ -221,7 +221,10 @@ impl Core {
             out.stopped = Some(format!("full: {open} proposals are waiting"));
             return Ok(out);
         }
-        let (target, provider) = self.card_model().map_err(|e| anyhow::anyhow!(e))?;
+        let (target, provider) = self
+            .card_model(fresh.len() as u32)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
         let mut texts: Vec<String> = {
             let board = self.runner.standing.all(&self.store)?;
             standing::live(&board, None, now)
@@ -389,9 +392,12 @@ impl Core {
         Ok(true)
     }
 
-    /// `[card] profile`'s target and provider.
-    pub(super) fn card_model(
+    /// The card's model and provider: `[card] profile` when it is set (a
+    /// pin), else Jev's choice for a job over `clusters` clusters of the
+    /// owner's activity (route.v10, theseus-ej6bj).
+    pub(crate) async fn card_model(
         &self,
+        clusters: u32,
     ) -> Result<
         (
             crate::turn::Target,
@@ -399,18 +405,41 @@ impl Core {
         ),
         String,
     > {
-        let profile = self.cfg.card.profile.clone();
+        self.card_model_for(theseus_judge::builders::JobKind::Card { clusters })
+            .await
+    }
+
+    /// [`Self::card_model`] for the job `job` (the observation call's is its
+    /// own, over lines the owner wrote).
+    pub(crate) async fn card_model_for(
+        &self,
+        job: theseus_judge::builders::JobKind,
+    ) -> Result<
+        (
+            crate::turn::Target,
+            std::sync::Arc<dyn crate::provider::Provider>,
+        ),
+        String,
+    > {
         let (live, _) = self.live_profile();
-        let target = self
+        let site = crate::job_model::Site {
+            name: "card",
+            pin: self.cfg.card.profile.as_deref(),
+            legacy: Some(crate::config::legacy::CHEAP),
+            job,
+            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
+        };
+        let (target, _) = self
             .runner
-            .resolve_target(&live, Some(&profile), None, None)
-            .map_err(|e| format!("[card] profile {profile:?} does not resolve: {e:#}"))?;
+            .job_target(&live, site)
+            .await
+            .map_err(|e| format!("[card] profile {e}"))?;
         let provider = self
             .runner
             .providers
             .get(&target.provider)
             .cloned()
-            .ok_or_else(|| format!("no provider {:?} for {profile}", target.provider))?;
+            .ok_or_else(|| format!("no provider {:?} for {}", target.provider, target.profile))?;
         Ok((target, provider))
     }
 }

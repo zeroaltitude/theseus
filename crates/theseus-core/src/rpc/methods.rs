@@ -969,7 +969,7 @@ impl Core {
             .runner
             .resolve_target(&live, named, p.provider.as_deref(), p.model.as_deref())
             .map_err(RpcFailure::invalid)?;
-        target.chosen = crate::routing::chosen(&p);
+        target.chosen = crate::routing::chosen(&p).or_else(|| self.live_pin(&target, &live));
         let (t_profile, t_provider, t_model) = (
             target.profile.clone(),
             target.provider.clone(),
@@ -1104,6 +1104,19 @@ impl Core {
         self.store
             .get_session::<SessionRecord>(id)?
             .ok_or_else(|| RpcFailure::new(error_code::NOT_FOUND, format!("no session {id}")))
+    }
+
+    /// `theseus profile use` is the operator's word for a model, as `-P` is, when
+    /// route.v10 acts (theseus-h66v4): a turn that names nothing and runs on the
+    /// live profile the operator set (not the config's, and not a place's own
+    /// profile) is pinned to it. The config's `[model] live` is only the default
+    /// a turn runs on when Jev gives no answer. Under an earlier pack the live
+    /// profile stays the baseline Jev routes from.
+    fn live_pin(&self, target: &crate::turn::Target, live: &str) -> Option<String> {
+        let (name, source) = self.live_profile();
+        let pinned = source == "runtime" && live == name && target.profile == name;
+        (pinned && self.runner.judge.route_open())
+            .then(|| format!("{}{name}", crate::routing::LIVE_PIN))
     }
 
     pub fn profile_list(&self) -> ProfileListResult {

@@ -171,7 +171,7 @@ async fn labels_are_respected_before_any_call() {
 /// Haiku at the call site.)
 #[tokio::test]
 async fn on_a_sonnet_profile_the_card_call_is_not_forced() {
-    let r = rig(vec![two()], |c| c.card.profile = "sonnet".into());
+    let r = rig(vec![two()], |c| c.card.profile = Some("sonnet".into()));
     archive(&r).await;
     propose(&r).await;
     let sent = r.fake.requests();
@@ -864,7 +864,7 @@ async fn a_full_card_does_not_rerun_within_its_interval() {
 /// A run that fails writes no state; it is not due again at once either.
 #[tokio::test(start_paused = true)]
 async fn a_failed_card_run_is_not_due_again_at_once() {
-    let r = rig(vec![], |c| c.card.profile = "no-such-profile".into());
+    let r = rig(vec![], |c| c.card.profile = Some("no-such-profile".into()));
     let log = Log::default();
     let _g = tracing::subscriber::set_default(
         tracing_subscriber::fmt()

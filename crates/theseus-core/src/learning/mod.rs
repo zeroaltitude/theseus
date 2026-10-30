@@ -30,11 +30,14 @@ pub mod propose;
 pub mod prove;
 pub mod rebuild;
 pub mod replay;
+pub(crate) mod replay_cases;
 pub(crate) mod replay_onto;
 pub mod report;
 pub mod rerank;
 pub mod system;
 pub mod tender;
+#[cfg(test)]
+mod tests_replay_cases;
 #[cfg(test)]
 mod tests_replay_onto;
 #[cfg(test)]

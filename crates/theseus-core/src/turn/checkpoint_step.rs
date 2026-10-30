@@ -53,10 +53,13 @@ pub const SOURCE: &str = "task checkpoint";
 /// The `source` of a routed turn's checkpoint's row (theseus-a1wvq).
 pub const TURN_SOURCE: &str = "turn checkpoint";
 
-/// The slots a turn holds for its checkpoints' moves: at most
-/// `max_switches` moves and the step back down past the cap, which
-/// `TaskCheckpoints::validate` keeps within.
-pub(super) const SLOTS: usize = 8;
+/// The slots a turn holds for its checkpoints' moves, one each. With the
+/// class rule, at most `max_switches` moves and the step back down past the
+/// cap, which `TaskCheckpoints::validate` keeps within. With Jev deciding
+/// (theseus-ej6bj) there is no policy cap, and the slots are a structural
+/// bound past any real turn: a move past them is recorded as the verdict and
+/// not applied.
+pub(super) const SLOTS: usize = 32;
 pub(super) type Slots = [OnceLock<Target>; SLOTS];
 
 /// A turn's slots.
@@ -423,6 +426,9 @@ impl TurnRunner {
         let class = t.tc.class;
         let place = self.outbox.try_target(sid).ok().flatten();
         let route = self.route_mode(t.target, sid);
+        let restricted = theseus_judge::builders::RestrictedModels::allowed_if(
+            self.cn_read(t) == super::data_step::Cn::Allowed,
+        );
         let rx = self.judge.at_checkpoint(
             &mut t.trace,
             Inbound {
@@ -443,6 +449,7 @@ impl TurnRunner {
                 capture: false,
                 data_names: self.cfg.privacy.data_names(),
                 attachments: Vec::new(),
+                restricted,
             },
         );
         a.flight = rx.map(|rx| Flight {
@@ -641,6 +648,10 @@ impl TurnRunner {
                     images: t.route.images,
                     cap,
                     moves: a.moves,
+                    // Jev decides each trigger only once the acting route pack
+                    // asks `model` (theseus-ej6bj); until then the class rule
+                    // (cap, base, step down) is today's.
+                    open: self.judge.route_open(),
                 },
             )
         };
@@ -715,6 +726,7 @@ impl TurnRunner {
             injection: None,
             ran: self.ran_of(profile),
             data: None,
+            open: None,
         });
     }
 }

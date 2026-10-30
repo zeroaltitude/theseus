@@ -187,7 +187,7 @@ fn messages(tag: &str) -> Vec<String> {
 async fn a_cn_sessions_compaction_goes_to_its_own_model() {
     let messages = messages("cn");
     let jev = jev();
-    let r = rig(&jev, |c| c.memory.summary_profile = "session".into());
+    let r = rig(&jev, |c| c.memory.summary_profile = Some("session".into()));
     judging_with(&r, Judging::clean());
     let sid = session_on(&r, "dsflash").await;
     let res = until_rang(&r, &sid, &messages).await;
@@ -236,7 +236,7 @@ async fn a_cn_sessions_compaction_goes_to_its_own_model() {
 async fn a_restricted_summary_profile_in_a_labelled_session_falls_back() {
     let messages = messages("dm");
     let jev = jev();
-    let r = rig(&jev, |c| c.memory.summary_profile = "glm".into());
+    let r = rig(&jev, |c| c.memory.summary_profile = Some("glm".into()));
     judging_with(&r, Judging::with(|_, _| vec![Flag::Confidential]));
     call(&r.core, "profile.use", json!({"name": "sonnet"})).await;
     let sid = dm(&r.core);
@@ -272,7 +272,7 @@ async fn the_background_refusals_are_counted() {
     let jev = jev();
     let r = rig_with(
         &jev,
-        |c| c.memory.summary_profile = "glm".into(),
+        |c| c.memory.summary_profile = Some("glm".into()),
         move |p| p.telemetry = Some(tel),
     );
     judging_with(&r, Judging::with(|_, _| vec![Flag::Confidential]));

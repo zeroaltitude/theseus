@@ -72,16 +72,23 @@ fn the_templates_moonshot_block_uncommented_parses_and_is_cn() {
 #[test]
 fn the_moonshot_host_and_rows_cannot_be_loosened_to_us() {
     for loose in [ModelOrigin::Us, ModelOrigin::Eu, ModelOrigin::Unknown] {
-        let toml = with_moonshot().replace(
-            "origin = \"cn\"",
-            &format!(
-                "origin = \"{}\"",
-                match loose {
-                    ModelOrigin::Us => "us",
-                    ModelOrigin::Eu => "eu",
-                    _ => "unknown",
-                }
-            ),
+        // Only the moonshot block's word: the template's deepseek block has its own.
+        let full = with_moonshot();
+        let (head, moonshot) = full.split_once("[providers.moonshot]").unwrap();
+        let toml = format!(
+            "{head}[providers.moonshot]{}",
+            moonshot.replacen(
+                "origin = \"cn\"",
+                &format!(
+                    "origin = \"{}\"",
+                    match loose {
+                        ModelOrigin::Us => "us",
+                        ModelOrigin::Eu => "eu",
+                        _ => "unknown",
+                    }
+                ),
+                1,
+            )
         );
         let cfg = Config::from_toml(&toml).unwrap();
         let e = format!("{:#}", cfg.validate().unwrap_err());

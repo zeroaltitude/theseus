@@ -66,6 +66,7 @@ pub mod graph;
 pub mod harness;
 pub mod import;
 pub mod initiative;
+pub(crate) mod job_model;
 pub mod judge;
 pub mod keep_warm;
 pub mod keep_warm_threads;
@@ -358,6 +359,8 @@ mod tests_families;
 #[cfg(test)]
 mod tests_fan_out_cue;
 #[cfg(test)]
+mod tests_fan_out_ops;
+#[cfg(test)]
 mod tests_find_sticks;
 #[cfg(test)]
 mod tests_first_request;
@@ -388,7 +391,11 @@ mod tests_initiative;
 #[cfg(test)]
 mod tests_injection_tiers;
 #[cfg(test)]
+mod tests_job_ask;
+#[cfg(test)]
 mod tests_job_handles;
+#[cfg(test)]
+mod tests_job_sites;
 #[cfg(test)]
 mod tests_jobs;
 #[cfg(test)]
@@ -574,6 +581,8 @@ mod tests_route_measure;
 #[cfg(test)]
 mod tests_route_model;
 #[cfg(test)]
+mod tests_route_open;
+#[cfg(test)]
 mod tests_route_rows;
 #[cfg(test)]
 mod tests_route_vocab;
@@ -617,6 +626,8 @@ mod tests_sink_flush;
 mod tests_sink_off_turn;
 #[cfg(test)]
 mod tests_situation;
+#[cfg(test)]
+mod tests_split_shadow;
 #[cfg(test)]
 mod tests_stack;
 #[cfg(test)]

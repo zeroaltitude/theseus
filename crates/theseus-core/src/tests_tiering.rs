@@ -91,7 +91,7 @@ const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook
 /// 46,400 to 50,000 hold: a sweep at its join).
 fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
     c.memory.node_cache_mb = mb;
-    c.memory.summary_profile = summary.into();
+    c.memory.summary_profile = Some(summary.into());
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {

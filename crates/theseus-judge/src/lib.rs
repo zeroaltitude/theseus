@@ -21,6 +21,7 @@
 //!   rollback rules), pure functions;
 //! - [`replay`]: what a candidate changes beside its incumbent, and a
 //!   thresholds-only candidate re-banded (M5 25d);
+//! - [`route_cases`]: `route.v10`'s labelled cases, their asks and their grade (`judge replay --cases`);
 //! - [`prove`]: the exit report, a pure generator over plain task records
 //!   (`theseus-judge prove`);
 //! - [`fake`] (feature `fake`): a fake Jev on 127.0.0.1.
@@ -46,6 +47,7 @@ pub mod price;
 pub mod propose;
 pub mod prove;
 pub mod replay;
+pub mod route_cases;
 pub mod score;
 pub mod state;
 
@@ -58,6 +60,8 @@ pub mod probe;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_job_sites;
+#[cfg(test)]
 mod tests_onto;
 #[cfg(test)]
 mod tests_pic;
@@ -67,6 +71,12 @@ mod tests_prove;
 mod tests_public_names;
 #[cfg(test)]
 mod tests_replay_onto;
+#[cfg(test)]
+mod tests_route_facts;
+#[cfg(test)]
+mod tests_route_state;
+#[cfg(test)]
+mod tests_route_v10;
 #[cfg(test)]
 mod tests_route_v5;
 #[cfg(test)]
