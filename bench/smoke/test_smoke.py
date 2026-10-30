@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import dm
 import smoke
 
 HERE = Path(__file__).resolve().parent
@@ -201,11 +202,12 @@ class TbPart(unittest.TestCase):
         self.assertIn("price table", p["note"])
 
 
-def replay(model_ok=53, must_ok=13, must_total=13, answered=58, held=2, bar=True, cost=0.01):
+def replay(model_ok=53, must_ok=13, must_total=13, answered=58, held=2, bar=True, cost=0.01, pack="route.v10"):
     """`theseus --json judge replay --cases`'s result, the fields the part reads."""
     return {"set": "cases", "cost_usd": cost,
             "cases": {"cases": [{}] * 58, "answered": answered, "model_ok": model_ok, "held_elsewhere": held,
-                      "must_total": must_total, "must_ok": must_ok, "must_under_confirm": 0, "bar": bar}}
+                      "must_total": must_total, "must_ok": must_ok, "must_under_confirm": 0, "bar": bar,
+                      "pack": pack}}
 
 
 class RoutePart(unittest.TestCase):
@@ -240,6 +242,34 @@ class RoutePart(unittest.TestCase):
         p = smoke.route_part(self.runs(*[replay(bar=False)] * 3), None)
         self.assertTrue(p["ok"])
         self.assertIn("whole bar met 0/3", p["note"])
+
+    def test_a_daemon_that_routes_with_an_older_pack_is_na_until_the_flip_not_a_fail(self):
+        # Main before 1.0.4 dispatches route.v8; the cases are route.v10's. Their reading is kept, never judged.
+        p = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9)] * 3), None, live="route.v8")
+        self.assertTrue(p["na"])
+        self.assertIn("n/a until the flip", p["note"])
+        self.assertIn("route.v8", p["note"])
+        self.assertIn("39/60", p["note"])
+        parts = [part(n, True) for n in smoke.PARTS if n != "route"] + [p]
+        self.assertEqual(smoke.verdict(parts), "PASS")
+        md = smoke.report_md(parts, run={"sha": "75012080", "date": "2026-10-30", "binary": "x"})
+        self.assertIn("| route | n/a until the flip", md)
+        tb, _ = Floor.passing(Floor())
+        f = smoke.floor_from([tb, p], sha="x", date="d")
+        self.assertEqual(f["written"]["parts"], ["tb"])
+        self.assertNotIn("route", f)
+
+    def test_a_daemon_on_the_cases_pack_or_an_unknown_one_is_held_to_the_bar(self):
+        for live in ("route.v10", None):
+            p = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9)] * 3), None, live=live)
+            self.assertFalse(p["ok"], live)
+            self.assertFalse(p.get("na"), live)
+            self.assertIn("39/60 on the model < 54", p["note"])
+
+    def test_n_a_needs_the_runs_themselves_to_have_answered(self):
+        p = smoke.route_part(self.runs(replay(), replay()), None, live="route.v8")
+        self.assertFalse(p["ok"])
+        self.assertFalse(p.get("na"))
 
     def test_a_part_that_could_not_run_is_a_fail_that_says_why(self):
         p = smoke.unavailable("route", "this binary has no `judge replay --cases`")
@@ -295,6 +325,22 @@ class OtherParts(unittest.TestCase):
         self.assertTrue(smoke.dm_part(good, alarms=0, turns_ended=5, unread=[])["ok"])
         self.assertFalse(smoke.dm_part(good, alarms=0, turns_ended=0, unread=[])["ok"])
         self.assertFalse(smoke.dm_part(good, alarms=0, turns_ended=5, unread=["ses_x"])["ok"])
+
+    def test_dm_runs_in_a_fresh_session_so_more_turns_than_its_own_is_a_fail(self):
+        good = [{"turn": n, "seconds": 8.0, "footer": True, "expected": True} for n in range(5)]
+        reused = smoke.dm_part(good, alarms=0, turns_ended=9, unread=[])
+        self.assertFalse(reused["ok"])
+        self.assertIn("not a fresh session", reused["note"])
+
+
+class DmTurns(unittest.TestCase):
+    def test_every_turn_says_it_is_the_release_smoke(self):
+        for name, prompt, _ in dm.turns(REPO / "Cargo.toml"):
+            self.assertTrue(prompt.startswith(dm.MARK), name)
+
+    def test_the_tool_turns_read_a_file_under_the_session_directory(self):
+        with tempfile.TemporaryDirectory() as t:
+            self.assertEqual(dm.dm_file(Path(t)), Path(t) / "Cargo.toml")
 
 
 def part(name, ok, cost=0.0, wall=1.0):
