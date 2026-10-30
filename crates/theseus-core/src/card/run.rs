@@ -405,12 +405,28 @@ impl Core {
         ),
         String,
     > {
+        self.card_model_for(theseus_judge::builders::JobKind::Card { clusters })
+            .await
+    }
+
+    /// [`Self::card_model`] for the job `job` (the observation call's is its
+    /// own, over lines the owner wrote).
+    pub(crate) async fn card_model_for(
+        &self,
+        job: theseus_judge::builders::JobKind,
+    ) -> Result<
+        (
+            crate::turn::Target,
+            std::sync::Arc<dyn crate::provider::Provider>,
+        ),
+        String,
+    > {
         let (live, _) = self.live_profile();
         let site = crate::job_model::Site {
             name: "card",
             pin: self.cfg.card.profile.as_deref(),
             legacy: Some(crate::config::legacy::CHEAP),
-            job: theseus_judge::builders::JobKind::Card { clusters },
+            job,
             restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
         let (target, _) = self

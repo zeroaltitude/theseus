@@ -44,6 +44,11 @@ pub enum JobKind {
     Card {
         clusters: u32,
     },
+    /// The card's observation of what the owner wrote in a session
+    /// (`card/observe.rs`): short observations about how the owner works.
+    CardObserve {
+        lines: u32,
+    },
     /// A message the assistant speaks first, in its own voice
     /// (`initiative/speak.rs`).
     Initiative {
@@ -136,6 +141,10 @@ impl JobKind {
                  what it shows about how the owner works, as short statements for the owner's \
                  card."
             ),
+            JobKind::CardObserve { lines } => format!(
+                "Read {lines} lines the owner wrote in one conversation and note what they \
+                 show about how the owner works, as short observations for the owner's card."
+            ),
             JobKind::Initiative { kind } => format!(
                 "Write a short message in the assistant's own voice, speaking first to the \
                  owner, about {}.",
@@ -173,6 +182,7 @@ impl JobKind {
             // Each of these reads the owner's own material (the keys of
             // `config::data_floor::owner_material_profiles`).
             JobKind::Card { .. }
+            | JobKind::CardObserve { .. }
             | JobKind::Initiative { .. }
             | JobKind::People { .. }
             | JobKind::Threads { .. }

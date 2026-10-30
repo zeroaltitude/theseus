@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 
-use super::Config;
+use super::{legacy, Config};
 use crate::catalog::{origin_of, Catalog, ModelOrigin};
 
 impl Config {
@@ -17,29 +17,55 @@ impl Config {
     /// not: a compaction in an open request may use a restricted model with
     /// a pass of its own (`turn/compaction/gate.rs`), and falls back
     /// otherwise.
+    ///
+    /// An unset key asks Jev (route.v10, theseus-ej6bj) and, while the acting
+    /// route pack asks no `model`, runs the profile it always did
+    /// (`config::legacy`): the floor checks that profile, so it keeps covering
+    /// what the site really runs on. `synth_profile`'s legacy is `session`
+    /// and `[initiative] profile`'s the live profile, neither a profile to
+    /// check here. A model Jev picks is refused by the job rule at the ask.
     fn owner_material_profiles(&self) -> [(&'static str, Option<&str>); 8] {
         [
             (
                 "[people] extract_profile",
-                self.people.extract_profile.as_deref(),
+                self.people
+                    .extract_profile
+                    .as_deref()
+                    .or(Some(legacy::CHEAP)),
             ),
-            ("[card] profile", self.card.profile.as_deref()),
+            (
+                "[card] profile",
+                self.card.profile.as_deref().or(Some(legacy::CHEAP)),
+            ),
             (
                 "[threads] import_profile",
-                self.threads.import_profile.as_deref(),
+                self.threads
+                    .import_profile
+                    .as_deref()
+                    .or(Some(legacy::CHEAP)),
             ),
             (
                 "[judge.learn] writer_profile",
-                self.judge.learn.writer_profile.as_deref(),
+                self.judge
+                    .learn
+                    .writer_profile
+                    .as_deref()
+                    .or(Some(legacy::LEARN_WRITER)),
             ),
             (
                 "[self] reviewer_profile",
-                self.self_improve.reviewer_profile.as_deref(),
+                self.self_improve
+                    .reviewer_profile
+                    .as_deref()
+                    .or(Some(legacy::SELF_REVIEWER)),
             ),
             ("[initiative] profile", self.initiative.profile.as_deref()),
             (
                 "[ontology] name_profile",
-                self.ontology.name_profile.as_deref(),
+                self.ontology
+                    .name_profile
+                    .as_deref()
+                    .or(Some(legacy::CHEAP)),
             ),
             (
                 "[memory] synth_profile",
@@ -130,6 +156,63 @@ mod tests {
         let mut c = Config::example();
         c.judge.api_base = "https://jev.example.com/v1".into();
         c.validate().unwrap();
+    }
+
+    /// The floor covers what an unset key really runs on: while the acting
+    /// pack asks no `model`, the profile it always did (`config::legacy`). A
+    /// restricted profile of that name is refused at load as a pinned one is.
+    #[test]
+    fn the_floor_covers_the_legacy_profile_of_an_unset_key() {
+        for (key, set, legacy_name) in [
+            (
+                "[card] profile",
+                (|c: &mut Config| c.card.profile = None) as fn(&mut Config),
+                "haiku",
+            ),
+            (
+                "[people] extract_profile",
+                |c| c.people.extract_profile = None,
+                "haiku",
+            ),
+            (
+                "[threads] import_profile",
+                |c| c.threads.import_profile = None,
+                "haiku",
+            ),
+            (
+                "[ontology] name_profile",
+                |c| c.ontology.name_profile = None,
+                "haiku",
+            ),
+            (
+                "[judge.learn] writer_profile",
+                |c| c.judge.learn.writer_profile = None,
+                "opus",
+            ),
+            (
+                "[self] reviewer_profile",
+                |c| c.self_improve.reviewer_profile = None,
+                "fable",
+            ),
+        ] {
+            let mut c = Config::example();
+            set(&mut c);
+            c.validate().unwrap_or_else(|e| panic!("{key}: {e:#}"));
+            // The profile the key would run on becomes a restricted one.
+            let p = c
+                .resolved
+                .profiles
+                .get_mut(legacy_name)
+                .expect("the template's profile");
+            (p.provider, p.model) = ("zai".into(), "glm-5.3-flash".into());
+            let e = c.validate().unwrap_err().to_string();
+            // (Keys sharing a profile are named in load order: the first says it.)
+            assert!(
+                e.contains("may not name a profile of restricted origin")
+                    && e.contains(&format!("`{legacy_name}`")),
+                "{key}: {e}"
+            );
+        }
     }
 
     /// A restricted `[memory] summary_profile` still loads: a compaction in

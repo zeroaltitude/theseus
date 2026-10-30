@@ -178,7 +178,7 @@ impl Core {
     /// is set (a pin), else Jev's choice for a call over the owner's `lines`
     /// (route.v10, theseus-ej6bj). (`run.rs` has the same steps for the
     /// proposals' call; the join may fold them.)
-    async fn observe_model(
+    pub(crate) async fn observe_model(
         &self,
         lines: u32,
     ) -> Result<(
@@ -186,7 +186,10 @@ impl Core {
         Arc<dyn crate::provider::Provider>,
         String,
     )> {
-        let (target, provider) = self.card_model(lines).await.map_err(|e| anyhow!(e))?;
+        let (target, provider) = self
+            .card_model_for(theseus_judge::builders::JobKind::CardObserve { lines })
+            .await
+            .map_err(|e| anyhow!(e))?;
         let profile = target.profile.clone();
         Ok((target, provider, profile))
     }

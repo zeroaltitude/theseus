@@ -247,6 +247,21 @@ site!(
     }
 );
 
+// The card's observation call is its own job (lines the owner wrote), under
+// the same key as the proposals' call.
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_card_observation_asks_about_lines_not_clusters() {
+    let jev = FakeJev::start().unwrap();
+    pick(&jev, "fable", 0.95);
+    let r = rig_job(&jev, |c| c.card.profile = None);
+    let (t, _, _) = r.core.observe_model(11).await.unwrap();
+    assert_eq!(t.model, "claude-fable-5-1");
+    let state = jev.seen()[0].body["state"].to_string();
+    assert!(state.contains("11 lines"), "{state}");
+    assert!(!state.contains("clusters"), "{state}");
+}
+
 // Row 7: consolidation's syntheses. The plan decides at its own point (a
 // named profile, or none when Jev will be asked), and the cluster's call
 // settles it.

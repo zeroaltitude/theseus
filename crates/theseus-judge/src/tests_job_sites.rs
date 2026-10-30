@@ -18,6 +18,7 @@ fn facts(r: RestrictedModels) -> RouteFacts {
 fn owner_kinds() -> Vec<(JobKind, &'static str)> {
     vec![
         (JobKind::Card { clusters: 7 }, "7 clusters"),
+        (JobKind::CardObserve { lines: 11 }, "11 lines"),
         (
             JobKind::Initiative {
                 kind: "the morning note".into(),

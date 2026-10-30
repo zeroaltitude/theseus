@@ -216,9 +216,13 @@ async fn judge_job(
         })
         .await;
     // An answer the call did not give (a failure, a skip) is no answer: the
-    // sender drops, and the job runs on `live` at once.
-    if let Some(j) = judgments.first().filter(|j| j.outcome == Outcome::Answered) {
-        let _ = tx.send(picked(j));
+    // sender is dropped here, before the reservation settles below, so the
+    // waiting job runs on `live` at once and not when this task ends.
+    match judgments.first().filter(|j| j.outcome == Outcome::Answered) {
+        Some(j) => {
+            let _ = tx.send(picked(j));
+        }
+        None => drop(tx),
     }
     if let Some(w) = wrote {
         let _ = w.await;
