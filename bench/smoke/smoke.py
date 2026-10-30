@@ -162,6 +162,11 @@ def tb_part(rows: list[dict[str, Any]], s: dict[str, Any], floor: dict | None, w
     passed_controls = [t for t in s["controls"] if t in by_task and by_task[t]["passed"]]
     if passed_controls:
         problems.append("control passed: " + ", ".join(passed_controls))
+    # A trial whose environment never came up (Docker, the grader) is the host's failure, not Theseus's: say so.
+    errored = sorted({r["exception"] for r in by_task.values() if r["exception"] and r["turns"] is None})
+    if errored:
+        n = sum(1 for r in by_task.values() if r["exception"] and r["turns"] is None)
+        problems.append(f"{n} trials errored before the agent ran ({', '.join(errored)}): the host, not the candidate")
     unpriced = [t for t, r in by_task.items() if r["cost_usd"] is None]
     if unpriced:
         problems.append("no price for: " + ", ".join(unpriced))
@@ -274,7 +279,7 @@ def resume_part(r: dict[str, Any]) -> dict[str, Any]:
     else:
         if ledger["interrupted_rows"] != kills:
             problems.append(f"{ledger['interrupted_rows']} execution.interrupted rows for {kills} kills")
-        if not ledger["turn_ended"] or ledger["turn_failed"]:
+        if ledger["turn_ended"] < 2 or ledger["turn_failed"]:  # the opening "hello" turn's and the task's
             problems.append(f"the turn ended {ledger['turn_ended']} times and failed {ledger['turn_failed']}")
         if ledger["unknown_rows"]:
             problems.append(f"{ledger['unknown_rows']} calls answered 'outcome unknown' after a restart")
@@ -372,26 +377,22 @@ def report_md(parts: list[dict[str, Any]], run: dict[str, Any]) -> str:
 
 def floor_from(parts: list[dict[str, Any]], sha: str, date: str, previous: dict | None = None) -> dict[str, Any]:
     """The floor after this run: each part's entry from this run when the part
-    passed, else the previous floor's (a failed part's reading is never a floor),
-    and never higher than the previous one. Nothing passed that a floor reads
+    passed, else the previous floor's (a failed part's reading is never a floor).
+    Nothing passed that a floor reads
     (tb, route): no floor at all."""
     f: dict[str, Any] = {k: v for k, v in (previous or {}).items() if k in ("tb", "route")}
     wrote = []
     for p in parts:
         if not p["ok"]:
             continue
-        # A reading within the slack but over the floor does not raise it: the floor only moves down, so +30% is
-        # never compounded release on release (a new price table re-bases dollars, by hand or by its digest).
+        # The floor is this release's passing reading, for the next release to be held to. The slack can compound
+        # over releases; each tag's commit of floor.json shows the move, and a re-base is a hand edit.
         if p["part"] == "tb":
-            old = f.get("tb") if (f.get("tb") or {}).get("price_digest") == p["price_digest"] else None
-            f["tb"] = {"cost_per_solved_usd": round(min(p["number"], old["cost_per_solved_usd"] if old else math.inf), 6),
-                       "wall_s": min(p["wall_s"], (f.get("tb") or {}).get("wall_s", math.inf)),
+            f["tb"] = {"cost_per_solved_usd": round(p["number"], 6), "wall_s": p["wall_s"],
                        "price_digest": p["price_digest"], "sha": sha, "date": date}
             wrote.append("tb")
         elif p["part"] == "route":
-            old = f.get("route") or {}
-            f["route"] = {"wall_s": min(p["slowest_s"], old.get("wall_s", math.inf)),
-                          "model_worst": max(p["number"], old.get("model_worst", 0)), "sha": sha, "date": date}
+            f["route"] = {"wall_s": p["slowest_s"], "model_worst": p["number"], "sha": sha, "date": date}
             wrote.append("route")
     if not wrote:
         raise SmokeError("no part a floor reads passed, so no floor is written: " + verdict(parts))
@@ -447,7 +448,11 @@ def main(argv: list[str]) -> int:
         v = verdict(parts)
         print(f"smoke: {v}; report {run_dir / 'report.md'}")
         if "--write-floor" in rest:
-            f = floor_from(parts, sha, date, load_floor())
+            try:
+                f = floor_from(parts, sha, date, load_floor())
+            except SmokeError as e:
+                print(f"smoke: {e}")
+                return 1
             FLOOR_FILE.write_text(json.dumps(f, indent=1) + "\n")
             print(f"smoke: floor written to {FLOOR_FILE} from {', '.join(f['written']['parts'])}")
         return 0 if v == "PASS" else 1

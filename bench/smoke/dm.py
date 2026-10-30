@@ -28,7 +28,6 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
-import datetime
 import json
 import os
 import re
@@ -38,14 +37,15 @@ import time
 from pathlib import Path
 from typing import Any
 
-YEAR = str(datetime.date.today().year)
+# The commands are `ls`, which the shipped policy runs without asking (`[policy] allow_argv`): any other command
+# parks the turn on an approval for the owner (seen in the first baseline, 2026-10-30), which a smoke must never do.
 TURNS = [
     ("greeting", "Hello! This is the release smoke checking in; reply with one short sentence.", None),
     ("quick fact", "Quick fact, one word: what is the capital of France?", "paris"),
-    ("tool call", "Run `uname -s` with a shell command and tell me exactly what it printed.", "linux"),
-    ("task start", "Release smoke: please start a task that runs `date -u +%Y` and reports the year it printed. "
+    ("tool call", "Run `ls -d /usr` and tell me exactly what it printed.", "/usr"),
+    ("task start", "Release smoke: please start a task that runs `ls -d /etc` and reports exactly what it printed. "
                    "Nothing else; it needs no answer from me.", None),
-    ("task answer", "What year did that release-smoke task report?", YEAR),
+    ("task answer", "What did that release-smoke task report that `ls -d /etc` printed?", "/etc"),
 ]
 FOOTER = re.compile(r"^\[.+ · session (ses_[0-9a-f]+).*\]$")
 # The ledger's kinds that say a turn went wrong, read per session: there is no "notice" or "alarm" kind as such,
@@ -84,6 +84,7 @@ def turn(cli: Cli, n: int, name: str, prompt: str, want: str | None, session: st
     seconds = round(time.monotonic() - t0, 2)
     footer = next((m for m in (FOOTER.match(x.strip()) for x in err.splitlines()) if m), None)
     calls = re.search(r"· (\d+) tool call", err)
+    # Exit 0 only: 6 is a turn parked on the owner's approval, which a smoke must never leave behind.
     expected = code == 0 and bool(out.strip()) and (want is None or want in out.lower())
     if name in ("tool call", "task start"):
         expected = expected and bool(calls)

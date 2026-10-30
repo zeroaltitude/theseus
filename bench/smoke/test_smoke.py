@@ -158,6 +158,13 @@ class TbPart(unittest.TestCase):
         rows = tb_rows(self.ok_passes())[:-1]
         self.assertFalse(smoke.tb_part(rows, SLICE, floor=None, wall_s=600)["ok"])
 
+    def test_trials_that_never_reached_the_agent_are_named_as_the_hosts(self):
+        rows = tb_rows(self.ok_passes())
+        rows[0].update(passed=False, exception="RuntimeError", turns=None, cost_usd=None)
+        p = smoke.tb_part(rows, SLICE, floor=None, wall_s=600)
+        self.assertFalse(p["ok"])
+        self.assertIn("1 trials errored before the agent ran (RuntimeError)", p["note"])
+
     def test_a_stable_task_that_fails_is_a_fail_and_named(self):
         ps = self.ok_passes()
         ps["s3"] = False
@@ -252,7 +259,7 @@ class OtherParts(unittest.TestCase):
     def test_resume_needs_three_kills_three_resumes_and_no_repeated_effect(self):
         good = {"kills": 3, "resumed": 3, "effects": [1, 2, 3, 4, 5, 6], "starts": [1, 2, 3, 4, 5, 6],
                 "steps": 6, "settled": True, "wall_s": 30.0, "interrupted_rows": 3, "notes": [],
-                "turn_ended": 1, "turn_failed": 0, "unknown_rows": 0, "succeeded_rows": 6, "seen": [1, 2, 3, 4, 5, 6]}
+                "turn_ended": 2, "turn_failed": 0, "unknown_rows": 0, "succeeded_rows": 6, "seen": [1, 2, 3, 4, 5, 6]}
         self.assertTrue(smoke.resume_part(good)["ok"])
         self.assertFalse(smoke.resume_part({**good, "kills": 2, "resumed": 2})["ok"])
         self.assertFalse(smoke.resume_part({**good, "resumed": 2})["ok"])
@@ -260,7 +267,7 @@ class OtherParts(unittest.TestCase):
         self.assertFalse(smoke.resume_part({**good, "interrupted_rows": 2})["ok"])
         self.assertFalse(smoke.resume_part({**good, "interrupted_rows": None})["ok"])
         self.assertFalse(smoke.resume_part({**good, "turn_failed": 1})["ok"])
-        self.assertFalse(smoke.resume_part({**good, "turn_ended": 0})["ok"])
+        self.assertFalse(smoke.resume_part({**good, "turn_ended": 1})["ok"])  # only the opening "hello" ended
         self.assertFalse(smoke.resume_part({**good, "succeeded_rows": 5})["ok"])
         unknown = smoke.resume_part({**good, "unknown_rows": 1, "seen": [1, 2, 3, 5, 6]})
         self.assertFalse(unknown["ok"])
@@ -358,17 +365,13 @@ class Floor(unittest.TestCase):
         self.assertEqual(f["tb"]["sha"], "new")
         self.assertIn("FAIL", f["written"]["verdict"])
 
-    def test_the_floor_only_moves_down(self):
+    def test_the_floor_is_this_releases_passing_reading(self):
         tb, route = self.passing()
         previous = {"tb": {"cost_per_solved_usd": 0.10, "wall_s": 500, "price_digest": smoke.price_digest()},
                     "route": {"wall_s": 10.0, "model_worst": 57.0}}
         f = smoke.floor_from([tb, route], sha="new", date="d1", previous=previous)
-        self.assertEqual((f["tb"]["cost_per_solved_usd"], f["tb"]["wall_s"]), (0.10, 500))
-        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (10.0, 57.0))
-        # A floor on another price table is re-based on this run's dollars.
-        previous["tb"]["price_digest"] = "000000000000"
-        f = smoke.floor_from([tb, route], sha="new", date="d1", previous=previous)
-        self.assertAlmostEqual(f["tb"]["cost_per_solved_usd"], 0.125)
+        self.assertEqual((f["tb"]["cost_per_solved_usd"], f["tb"]["wall_s"]), (0.125, 600))
+        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, 55.0))
 
     def test_no_floor_when_nothing_a_floor_reads_passed(self):
         bad = smoke.tb_part([], SLICE, floor=None, wall_s=0)

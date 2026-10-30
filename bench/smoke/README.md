@@ -16,7 +16,7 @@ scripts/release-smoke.sh --write-floor        # at a tag: the floor is each pass
 | `route` | `theseus judge replay --cases` over route.v10's 58 cases, three runs, on the live daemon | 3 runs answered; each 54 of 60 on the model (the two pin tests, W39 and W40, counted as met, as the design's 60 does) and every must; the slowest run within +30% of the floor | about $0.02 |
 | `recall` | `scripts/recall-tests.sh`, as the gate runs it, with the candidate's binaries for the driver tests | it ran tests (a "skipped" exit 0 is a FAIL) and they passed | $0 |
 | `resume` | `resume.py`: a scratch daemon on the stand-in model runs a six-step tool task and is SIGKILLed mid-tool at steps 2, 4 and 6; each job finishes while the daemon is down | 3 kills, 3 resumes, 3 `execution.interrupted` rows, each step's effect on disk exactly once, every job's own output seen by the model after the restart, 6 jobs succeeded and no "outcome unknown", the turn ended | $0 |
-| `dm` | `dm.py`: five turns through the live daemon's CLI (a greeting, a quick fact, a tool call, a task start, the task's answer) | 5 replies, each within 60 s, with its footer and the reply it should have; a task really started and ended; the session's `turn.ended` rows read, and no alarm rows in its or the task's ledger | cents |
+| `dm` | `dm.py`: five turns through the live daemon's CLI (a greeting, a quick fact, a tool call, a task start, the task's answer); its commands are `ls`, which the shipped policy runs without asking, so no turn parks on the owner's approval | 5 replies, each within 60 s, with its footer and the reply it should have; a task really started and ended; the session's `turn.ended` rows read, and no alarm rows in its or the task's ledger | cents |
 
 Every PASS needs a positive count first (10 trials, 3 runs, tests found, 3 kills, 5 replies): an empty set meets
 every "no failures" bar, so it never counts as one.
@@ -27,10 +27,14 @@ tasks x 3) of 1.0.3 as shipped, and is not re-picked per release: `tb-slice.toml
 Theseus learned the task; either way the slice is read again before the release is called.
 
 **The floor** (`floor.json`) is written only by `--write-floor`, and only from parts that passed: a part that failed
-keeps the previous floor's entry. A passing reading never raises the floor either (cost, wall: the lower; route's
-worst model score: the higher), so the +30% slack is never compounded release on release. Dollars are compared only
-on one price table (`bench/harbor/price_basis.py`); a floor on another is said, not compared, and the next floor
-re-bases them.
+keeps the previous floor's entry. A passing part's reading becomes the floor the next release is held to, so the
++30% slack can compound across releases: each tag's commit of `floor.json` shows every move, and a re-base is a hand
+edit. Dollars are compared only on one price table (`bench/harbor/price_basis.py`); a floor on another is said, not
+compared.
+
+**The host**: each trial is a Docker compose project with its own network, and leftover networks from earlier runs
+exhaust Docker's address pools, so every trial fails before its agent starts. The tb part probes a network first,
+and names any trial that errored before its agent ran as the host's failure, not the candidate's.
 
 **The candidate** is named by its commit: `SMOKE_SHA`, else the install directory's name
 (`/usr/local/lib/theseus/<sha>`). The tb part fails when the static build it uploads (`bench/bin/build-commit`) has

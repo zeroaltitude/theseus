@@ -54,7 +54,7 @@ done
 bin="${SMOKE_BIN_DIR:-$(dirname "$(command -v theseusd 2> /dev/null || echo target/release/theseusd)")}"
 sha="${SMOKE_SHA:-}"
 if [ -z "$sha" ]; then
-  sha="$(basename "$(realpath "$bin")")"
+  sha="$(basename "$(dirname "$(realpath "$bin/theseusd")")")"
   [[ "$sha" =~ ^[0-9a-f]{8,40}$ ]] && git cat-file -e "$sha^{commit}" 2> /dev/null || sha="$(git rev-parse HEAD)"
 fi
 sha="$(git rev-parse "$sha^{commit}")" || { echo "release-smoke: $sha is no commit here" >&2; exit 2; }
@@ -70,7 +70,8 @@ sock=()
 [ -z "${SMOKE_SOCKET:-}" ] || sock=(--socket "$SMOKE_SOCKET")
 musl="${THESEUS_BENCH_BIN_DIR:-$PWD/bench/bin}"
 # The candidate's own static build for tb: its Rust sources must be the candidate's, whatever commit built them.
-build="$(sed 's/-dirty$//' "$musl/build-commit" 2> /dev/null)" || build=unknown
+build_line="$(cat "$musl/build-commit" 2> /dev/null)" || build_line=unknown
+build="${build_line%-dirty}"
 smoke() { PYTHONDONTWRITEBYTECODE=1 "$py" bench/smoke/smoke.py "$@"; }
 now() { date +%s; }
 echo "release-smoke: $run (candidate $bin, tb's static binaries $musl, sim ${sim:-none})"
@@ -89,6 +90,13 @@ part_tb() {
     smoke fail "$run" tb "the static build ($build) is not the candidate's sources (${sha:0:12}): run bench/build.sh"
     return
   fi
+  # Each trial is a compose project with its own network; leftover networks exhaust Docker's address pools and every
+  # trial then fails before its agent starts (2026-10-30). Probe one first.
+  if ! docker network create "smoke-probe-$$" > /dev/null 2>&1; then
+    smoke fail "$run" tb "Docker cannot create a network (address pools full? \`docker network prune\`)"
+    return
+  fi
+  docker network rm "smoke-probe-$$" > /dev/null 2>&1
   local line=("$py" bench/harbor/run.py --plan bench/plans/smoke-tb10.json -- harbor run -d terminal-bench@2.0
     --agent-setup-timeout-multiplier 3 -a theseus_agent:TheseusRouted -m anthropic/claude-sonnet-5-5 -n 4
     --job-name smoke-tb10 -o "$jobs")
@@ -112,11 +120,15 @@ part_tb() {
     spent="$(smoke spent "$jobs" 2> /dev/null)" || spent=unread
     if [ "$spent" = unread ] || "$py" -c "import sys; sys.exit(float('$spent') < float('${SMOKE_TB_STOP_USD:-6}'))"; then
       echo "release-smoke: tb stopped at $spent dollars of finished trials" >> "$run/tb.log"
-      kill -INT -- "-$pid" 2> /dev/null
+      # SIGTERM, not SIGINT: a background job of a script starts with SIGINT ignored, and run.py and Harbor
+      # inherit that. Harbor takes SIGTERM as an interrupt and cancels its trials.
+      kill -TERM -- "-$pid" 2> /dev/null
     fi
     sleep 30
   done
   wait "$pid" || rc=$?
+  # The leader can go before its group: wait for the rest (Harbor's trials) so no trial outlives the part.
+  while pgrep -g "$pid" > /dev/null 2>&1; do sleep 5; done
   echo "release-smoke: tb's run exited $rc" >> "$run/tb.log"
   smoke tb "$run" "$jobs" "$(($(now) - t0))"
 }
@@ -180,5 +192,5 @@ for p in $parts; do
     *) echo "release-smoke: no part $p" >&2; exit 2 ;;
   esac
 done
-smoke report "$run" "$sha" "candidate ${sha:0:12}, $("$bin/theseusd" --version 2>&1 | head -1); tb's static build ${build:0:12}" \
+smoke report "$run" "$sha" "candidate ${sha:0:12}, $("$bin/theseusd" --version 2>&1 | head -1); tb's static build ${build:0:12}$([ "$build" = "$build_line" ] || echo ' (dirty tree)')" \
   $write_floor

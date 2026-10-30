@@ -66,7 +66,8 @@ def rules(work: Path) -> list[dict[str, Any]]:
     for k in range(1, STEPS + 1):
         gate = (f"n=0; while [ ! -e {work}/go-{k} ] && [ $n -lt {GATE_TICKS} ]; do sleep 0.05; n=$((n+1)); done; "
                 if k in KILLED else "")
-        script = f"echo {k} >> {work}/starts; {gate}echo {k} >> {work}/effects; echo done-{k}"
+        # `printf 'done-%d'`: the marker is in the job's output only, never in the command every later request quotes.
+        script = f"echo {k} >> {work}/starts; {gate}echo {k} >> {work}/effects; printf 'done-%d\\n' {k}"
         steps.append({"calls": [{"name": "proc_run", "input": {"argv": ["sh", "-c", script], "timeout_secs": 600}}]})
     steps.append({"text": "All six steps done."})
     return [{"when": PROMPT, "steps": steps}, {"when": "hello", "text": "Hello."}]
@@ -207,7 +208,8 @@ def run(bin_dir: Path, sim: Path, work: Path) -> dict[str, Any]:
             if k < STEPS:
                 went_on = lambda: k + 1 in lines(starts)  # noqa: E731
             else:
-                went_on = lambda: bool(count(d, session, "turn.ended"))  # noqa: E731
+                # Two: the opening "hello" turn's and this one's.
+                went_on = lambda: (count(d, session, "turn.ended") or 0) >= 2  # noqa: E731
             if until(went_on):
                 rec["resumed"] += 1
             else:
