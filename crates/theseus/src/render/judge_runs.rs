@@ -338,6 +338,28 @@ mod tests {
             confidence,
             agrees: want == got,
             close,
+            raw: got.into(),
+            confirm: 0.6,
+            sub_confirm: false,
+            raw_agrees: want == got,
+            raw_close: close,
+        }
+    }
+
+    /// A question whose band fell under `confirm`: Jev said `raw` at
+    /// `confidence`, and the graded answer is the question's `no_match`.
+    fn fell(want: &str, raw: &str, no_match: &str, confidence: f64) -> ReplayCheck {
+        ReplayCheck {
+            want: want.into(),
+            got: no_match.into(),
+            confidence,
+            agrees: want == no_match,
+            close: want == no_match,
+            raw: raw.into(),
+            confirm: 0.6,
+            sub_confirm: true,
+            raw_agrees: want == raw,
+            raw_close: want == raw,
         }
     }
 
@@ -421,6 +443,10 @@ mod tests {
                 must_total: 2,
                 must_ok: 0,
                 must_under_confirm: 0,
+                raw_model_ok: 3,
+                raw_effort_exact: 2,
+                raw_effort_close: 3,
+                raw_context_ok: 3,
                 held_elsewhere: 2,
                 bar: Some(false),
             }),
@@ -437,6 +463,8 @@ mod tests {
                 "W5   MISS effort low→max 0.90, context full→short 0.88",
                 "W9   [must] NO ANSWER (no judgment came back)",
                 "model 3/5 · effort 2/5 exact, 3/5 within one rung · context 3/5 · answered 4/5",
+                "under the confirm bar, graded as the question's no_match: model 0, effort 0, context 0",
+                "raw top picks, no bar applied: model 3/5 · effort 2/5 exact, 3/5 within one rung · context 3/5",
                 "must 0/2, 0 under the confirm bar",
                 "bar (model 54, effort within one rung 50, context 56 of 60, every must case, none under the confirm bar; the 2 pin tests W39 and W40 counted as met): NOT met",
                 "  left out W9: the run reached [judge] replay_limit_usd",
@@ -453,6 +481,78 @@ mod tests {
         assert!(judge_replay_lines(&other)
             .iter()
             .any(|l| l.starts_with("bar: not judged")));
+    }
+
+    /// A pick under the confirm bar says so: the line names the question, what
+    /// Jev said and at what confidence, the bar and the `no_match` that was
+    /// graded, whether the case is a miss or an `ok` that changed. The totals
+    /// count the questions that fell, and the raw picks beside them
+    /// (theseus-mir9c).
+    #[test]
+    fn a_pick_under_the_confirm_bar_is_named_not_reported_as_a_different_answer() {
+        let right = || check("full", "full", 0.9, true);
+        let cases = vec![
+            // Right pick under the bar: the daemon runs sonnet, a miss.
+            case(
+                "W18",
+                true,
+                fell("opus", "opus", "sonnet", 0.55),
+                check("medium", "medium", 0.9, true),
+                right(),
+            ),
+            // `short` under the bar compiles `full`, which the case wants: ok.
+            case(
+                "L3",
+                false,
+                check("sonnet", "sonnet", 0.9, true),
+                check("medium", "medium", 0.9, true),
+                fell("full", "short", "full", 0.55),
+            ),
+            // A miss, a fell-and-right, and an effort that fell: all named.
+            case(
+                "L11",
+                false,
+                fell("opus", "opus", "sonnet", 0.50),
+                fell("default", "high", "default", 0.40),
+                fell("full", "short", "full", 0.45),
+            ),
+        ];
+        let r = JudgeReplayResult {
+            id: "rpl_2".into(),
+            candidate: "route.v10".into(),
+            candidate_sha256: "abcdef0123456789".into(),
+            cases: Some(ReplayCases {
+                pack: "route.v10".into(),
+                cases,
+                answered: 3,
+                model_ok: 1,
+                effort_exact: 3,
+                effort_close: 3,
+                context_ok: 3,
+                must_total: 1,
+                must_ok: 0,
+                must_under_confirm: 1,
+                raw_model_ok: 3,
+                raw_effort_exact: 2,
+                raw_effort_close: 2,
+                raw_context_ok: 1,
+                held_elsewhere: 2,
+                bar: None,
+            }),
+            ..Default::default()
+        };
+        let lines = judge_replay_lines(&r);
+        assert_eq!(
+            &lines[1..7],
+            [
+                "W18  [must] MISS model opus→sonnet 0.55 (under confirm 0.60: Jev said opus, graded as no_match sonnet)",
+                "L3   ok (context fell under confirm 0.60: Jev said short at 0.55, graded as no_match full)",
+                "L11  MISS model opus→sonnet 0.50 (under confirm 0.60: Jev said opus, graded as no_match sonnet) · also effort fell under confirm 0.60: Jev said high at 0.40, graded as no_match default; context fell under confirm 0.60: Jev said short at 0.45, graded as no_match full",
+                "model 1/3 · effort 3/3 exact, 3/3 within one rung · context 3/3 · answered 3/3",
+                "under the confirm bar, graded as the question's no_match: model 2, effort 1, context 2",
+                "raw top picks, no bar applied: model 3/3 · effort 2/3 exact, 2/3 within one rung · context 1/3",
+            ]
+        );
     }
 
     /// `judge replay --onto` prints the Markdown the +onto report quotes,

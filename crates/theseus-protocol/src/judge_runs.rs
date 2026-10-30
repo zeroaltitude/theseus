@@ -185,14 +185,33 @@ pub struct JudgeReplayResult {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ReplayCheck {
     pub want: String,
-    /// The candidate's top option; empty when it did not answer.
+    /// The answer graded: the candidate's top option when its band reached
+    /// the question's `confirm` bar, else the question's `no_match`, as
+    /// routing reads it (theseus-mir9c); empty when it did not answer.
     pub got: String,
+    /// The top option's confidence.
     pub confidence: f64,
-    /// The top option is the label.
+    /// `got` is the label.
     pub agrees: bool,
     /// Within one rung of the label (`effort` only: `low` to `max` in order;
     /// `default` is on no rung); for the other questions, as `agrees`.
     pub close: bool,
+    /// The candidate's own top option, before the bar; empty when it did
+    /// not answer.
+    #[serde(default)]
+    pub raw: String,
+    /// The question's `confirm` bar, read from the pack replayed.
+    #[serde(default)]
+    pub confirm: f64,
+    /// The band did not reach `confirm`: `got` is the question's `no_match`.
+    #[serde(default)]
+    pub sub_confirm: bool,
+    /// `raw` is the label, and `raw` is within one rung of it: the grade
+    /// before the bar (how `--cases` graded until theseus-mir9c).
+    #[serde(default)]
+    pub raw_agrees: bool,
+    #[serde(default)]
+    pub raw_close: bool,
 }
 
 /// One case of a `--cases` run.
@@ -227,6 +246,16 @@ pub struct ReplayCases {
     pub must_total: u32,
     pub must_ok: u32,
     pub must_under_confirm: u32,
+    /// The same counts for the raw top pick, before the confirm bar and
+    /// `no_match` (how `--cases` graded until theseus-mir9c).
+    #[serde(default)]
+    pub raw_model_ok: u32,
+    #[serde(default)]
+    pub raw_effort_exact: u32,
+    #[serde(default)]
+    pub raw_effort_close: u32,
+    #[serde(default)]
+    pub raw_context_ok: u32,
     /// Cases the daemon's own tests hold instead (W39 and W40, the pins),
     /// counted as met in `bar`.
     pub held_elsewhere: u32,
@@ -628,7 +657,18 @@ mod tests {
             confidence: 0.71,
             agrees: false,
             close: false,
+            raw: "opus".into(),
+            confirm: 0.6,
+            sub_confirm: true,
+            raw_agrees: true,
+            raw_close: true,
         };
+        // A check written before the bar was applied reads, as not under it.
+        let old: ReplayCheck = serde_json::from_str(
+            r#"{"want":"opus","got":"opus","confidence":0.9,"agrees":true,"close":true}"#,
+        )
+        .unwrap();
+        assert!(!old.sub_confirm && old.raw.is_empty());
         let r = JudgeReplayResult {
             cases: Some(ReplayCases {
                 pack: "route.v10".into(),

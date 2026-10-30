@@ -68,6 +68,11 @@ fn check(c: &Check) -> ReplayCheck {
         confidence: c.confidence,
         agrees: c.agrees,
         close: c.close,
+        raw: c.raw.clone(),
+        confirm: c.confirm,
+        sub_confirm: c.sub_confirm,
+        raw_agrees: c.raw_agrees,
+        raw_close: c.raw_close,
     }
 }
 
@@ -95,6 +100,10 @@ fn report(pack: &str, graded: &[Graded]) -> ReplayCases {
         must_total: t.must_total,
         must_ok: t.must_ok,
         must_under_confirm: t.must_under_confirm,
+        raw_model_ok: t.raw_model_ok,
+        raw_effort_exact: t.raw_effort_exact,
+        raw_effort_close: t.raw_effort_close,
+        raw_context_ok: t.raw_context_ok,
         held_elsewhere: route_cases::PINNED,
         bar: t.bar,
     }

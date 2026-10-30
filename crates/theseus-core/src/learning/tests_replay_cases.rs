@@ -160,6 +160,118 @@ async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_fails_th
     assert_eq!(cases.must_under_confirm, 0);
 }
 
+/// Every case answered as labelled at 0.9, except where `tweak` gives a
+/// case's three answers (option and confidence, for `model`, `effort` and
+/// `context`).
+fn script_each(jev: &FakeJev, tweak: impl Fn(&str) -> Option<[(&'static str, f64); 3]>) {
+    let (set, pack) = set();
+    for c in &set.cases {
+        let state = route_cases::state(c, pack.state_cap_tokens, &theseus_judge::NoScrub).value();
+        let state = state.to_string();
+        let picks: [(String, f64); 3] = match tweak(&c.id) {
+            Some(p) => p.map(|(option, conf)| (option.to_string(), conf)),
+            None => [
+                (c.want.model.clone(), 0.9),
+                (c.want.effort.clone(), 0.9),
+                (c.want.context.clone(), 0.9),
+            ],
+        };
+        for (q, (option, confidence)) in ["model", "effort", "context"].into_iter().zip(picks) {
+            jev.script_when(
+                &state,
+                None,
+                &format!("route.v10/{q}"),
+                Scripted::Choice { option, confidence },
+            );
+        }
+    }
+}
+
+/// theseus-mir9c: the replay grades what routing decides. A pick under a
+/// question's `confirm` bar is that question's `no_match` (route.v10's:
+/// `sonnet`, `default`, `full`), the way the daemon's `sure` and
+/// `Verdict::short` read it; the raw picks are counted beside.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
+    let jev = FakeJev::start().unwrap();
+    let r = cases_rig(&jev);
+    script_each(&jev, |id| match id {
+        // W18 wants opus, medium, full: a right opus under the bar runs sonnet.
+        "W18" => Some([("opus", 0.55), ("medium", 0.9), ("full", 0.9)]),
+        // L3 wants sonnet, medium, full: a `short` under the bar compiles `full`.
+        "L3" => Some([("sonnet", 0.9), ("medium", 0.9), ("short", 0.55)]),
+        // L11 wants opus, high, full: a right `high` under the bar is `default`.
+        "L11" => Some([("opus", 0.9), ("high", 0.55), ("full", 0.9)]),
+        // L2 wants haiku, low, short: haiku at the bar (0.60) stands.
+        "L2" => Some([("haiku", 0.60), ("low", 0.9), ("short", 0.9)]),
+        _ => None,
+    });
+    let out = r.core.judge_replay(params(), "cli").await.unwrap();
+    let cases = out.cases.unwrap();
+    let get = |id: &str| cases.cases.iter().find(|c| c.id == id).unwrap();
+    let w18 = get("W18");
+    assert_eq!(
+        (
+            w18.model.raw.as_str(),
+            w18.model.got.as_str(),
+            w18.model.sub_confirm,
+            w18.model.confirm,
+            w18.model.confidence
+        ),
+        ("opus", "sonnet", true, 0.60, 0.55)
+    );
+    assert!(!w18.model.agrees && w18.model.raw_agrees);
+    let l3 = get("L3");
+    assert_eq!(
+        (
+            l3.context.raw.as_str(),
+            l3.context.got.as_str(),
+            l3.context.sub_confirm
+        ),
+        ("short", "full", true)
+    );
+    assert!(l3.context.agrees && !l3.context.raw_agrees);
+    let l11 = get("L11");
+    assert_eq!(
+        (
+            l11.effort.raw.as_str(),
+            l11.effort.got.as_str(),
+            l11.effort.sub_confirm
+        ),
+        ("high", "default", true)
+    );
+    assert!(!l11.effort.agrees && !l11.effort.close && l11.effort.raw_close);
+    // At the bar, nothing changes.
+    let l2 = get("L2");
+    assert!(!l2.model.sub_confirm && l2.model.agrees);
+    // The totals: model and effort lose one each, context gains one; the raw
+    // picks are as they were.
+    assert_eq!(
+        (
+            cases.model_ok,
+            cases.effort_exact,
+            cases.effort_close,
+            cases.context_ok
+        ),
+        (57, 57, 57, 58)
+    );
+    assert_eq!(
+        (
+            cases.raw_model_ok,
+            cases.raw_effort_exact,
+            cases.raw_effort_close,
+            cases.raw_context_ok
+        ),
+        (58, 58, 58, 57)
+    );
+    // W18 is a `must` case: its model fell, so a must case is wrong and under the bar.
+    assert_eq!(
+        (cases.must_ok, cases.must_total, cases.must_under_confirm),
+        (12, 13, 1)
+    );
+    assert_eq!(cases.bar, Some(false));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_refusals_send_nothing() {
     let jev = FakeJev::start().unwrap();

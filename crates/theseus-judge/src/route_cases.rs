@@ -340,12 +340,28 @@ pub fn ask(pack: &Arc<Pack>, case: &Case, context: &Value) -> Ask {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Check {
     pub want: String,
-    /// Jev's top option; empty when it did not answer.
+    /// The answer graded: Jev's top option when its band reached the
+    /// question's `confirm` bar, else the question's `no_match`, as routing
+    /// reads it (theseus-mir9c). Empty when Jev did not answer.
     pub got: String,
+    /// The top option's confidence.
     pub confidence: f64,
+    /// `got` is the label.
     pub agrees: bool,
     /// Within one rung (`effort`); as `agrees` for the others.
     pub close: bool,
+    /// Jev's own top option, before the bar; empty when it did not answer.
+    pub raw: String,
+    /// The question's `confirm` bar, read from the pack.
+    pub confirm: f64,
+    /// The band did not reach `confirm`, so `got` is the question's
+    /// `no_match` and `raw` is what Jev said.
+    pub sub_confirm: bool,
+    /// `raw` is the label: the grade before the bar was applied.
+    pub raw_agrees: bool,
+    /// `raw` is within one rung of the label (`effort`); as `raw_agrees`
+    /// for the others.
+    pub raw_close: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -364,7 +380,7 @@ fn rung(effort: &str) -> Option<usize> {
     RUNGS.iter().position(|r| *r == effort)
 }
 
-fn check(want: &str, j: Option<&Judgment>, q: &str) -> Check {
+fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str) -> Check {
     let top = j.and_then(|j| j.answer(q)).and_then(|a| match &a.answer {
         Answer::Choice {
             choice, confidence, ..
@@ -380,10 +396,15 @@ fn check(want: &str, j: Option<&Judgment>, q: &str) -> Check {
         };
     Check {
         want: want.to_string(),
+        raw: got.clone(),
         got,
         confidence,
         agrees,
         close,
+        confirm: pack.question(q).map_or(0.0, |d| d.thresholds.confirm),
+        sub_confirm: false,
+        raw_agrees: agrees,
+        raw_close: close,
     }
 }
 
@@ -391,7 +412,7 @@ fn check(want: &str, j: Option<&Judgment>, q: &str) -> Check {
 /// answer, grades every question a miss).
 pub fn grade(pack: &Pack, case: &Case, j: Option<&Judgment>) -> Graded {
     let j = j.filter(|j| j.actionable());
-    let model = check(&case.want.model, j, "model");
+    let model = check(&case.want.model, j, pack, "model");
     let confirm = pack.question("model").map_or(0.0, |q| q.thresholds.confirm);
     Graded {
         id: case.id.clone(),
@@ -399,8 +420,8 @@ pub fn grade(pack: &Pack, case: &Case, j: Option<&Judgment>) -> Graded {
         answered: j.is_some(),
         under_confirm: j.is_some() && model.confidence < confirm,
         model,
-        effort: check(&case.want.effort, j, "effort"),
-        context: check(&case.want.context, j, "context"),
+        effort: check(&case.want.effort, j, pack, "effort"),
+        context: check(&case.want.context, j, pack, "context"),
     }
 }
 
@@ -415,6 +436,12 @@ pub struct Totals {
     pub must_total: u32,
     pub must_ok: u32,
     pub must_under_confirm: u32,
+    /// The same counts for Jev's raw top pick, before the confirm bar and
+    /// `no_match` (how `--cases` graded until theseus-mir9c).
+    pub raw_model_ok: u32,
+    pub raw_effort_exact: u32,
+    pub raw_effort_close: u32,
+    pub raw_context_ok: u32,
     /// The design's bar met, counting [`PINNED`] as met; none unless the run
     /// is the file's whole set (`DESIGN_TOTAL - PINNED` cases).
     pub bar: Option<bool>,
@@ -431,6 +458,10 @@ pub fn totals(graded: &[Graded]) -> Totals {
         must_total: count(&|g| g.must),
         must_ok: count(&|g| g.must && g.model.agrees),
         must_under_confirm: count(&|g| g.must && g.under_confirm),
+        raw_model_ok: count(&|g| g.model.raw_agrees),
+        raw_effort_exact: count(&|g| g.effort.raw_agrees),
+        raw_effort_close: count(&|g| g.effort.raw_close),
+        raw_context_ok: count(&|g| g.context.raw_agrees),
         bar: None,
     };
     if graded.len() as u32 == DESIGN_TOTAL - PINNED {

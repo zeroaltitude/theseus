@@ -6,15 +6,39 @@
  */
 export type ReplayCheck = { want: string, 
 /**
- * The candidate's top option; empty when it did not answer.
+ * The answer graded: the candidate's top option when its band reached
+ * the question's `confirm` bar, else the question's `no_match`, as
+ * routing reads it (theseus-mir9c); empty when it did not answer.
  */
-got: string, confidence: number, 
+got: string, 
 /**
- * The top option is the label.
+ * The top option's confidence.
+ */
+confidence: number, 
+/**
+ * `got` is the label.
  */
 agrees: boolean, 
 /**
  * Within one rung of the label (`effort` only: `low` to `max` in order;
  * `default` is on no rung); for the other questions, as `agrees`.
  */
-close: boolean, };
+close: boolean, 
+/**
+ * The candidate's own top option, before the bar; empty when it did
+ * not answer.
+ */
+raw: string, 
+/**
+ * The question's `confirm` bar, read from the pack replayed.
+ */
+confirm: number, 
+/**
+ * The band did not reach `confirm`: `got` is the question's `no_match`.
+ */
+sub_confirm: boolean, 
+/**
+ * `raw` is the label, and `raw` is within one rung of it: the grade
+ * before the bar (how `--cases` graded until theseus-mir9c).
+ */
+raw_agrees: boolean, raw_close: boolean, };

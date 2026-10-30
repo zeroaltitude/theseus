@@ -382,7 +382,8 @@ fn a_judgment_is_graded_on_model_effort_and_context_apart() {
         ],
     );
     assert!(grade(&p, l20, Some(&same)).effort.agrees);
-    // A model answer under the confirm bar is counted apart from its agreement.
+    // A model answer under the confirm bar is graded as the question's
+    // `no_match`, not as Jev's pick (theseus-mir9c), and counted apart.
     let shy = judged(
         case("W18"),
         &[
@@ -392,7 +393,11 @@ fn a_judgment_is_graded_on_model_effort_and_context_apart() {
         ],
     );
     let g = grade(&p, case("W18"), Some(&shy));
-    assert!(g.model.agrees && g.under_confirm);
+    assert!(!g.model.agrees && g.model.raw_agrees && g.under_confirm);
+    assert_eq!(
+        (g.model.raw.as_str(), g.model.got.as_str()),
+        ("opus", "sonnet")
+    );
     // No judgment, no answer: every question a miss.
     let g = grade(&p, case("W18"), None);
     assert!(!g.answered && !g.model.agrees && !g.effort.close && !g.context.agrees);
@@ -405,6 +410,11 @@ fn graded(model: bool, effort_close: bool, context: bool, must: bool, under: boo
         confidence: 0.9,
         agrees,
         close,
+        raw: "g".into(),
+        confirm: 0.6,
+        sub_confirm: false,
+        raw_agrees: agrees,
+        raw_close: close,
     };
     Graded {
         id: "X".into(),
@@ -469,4 +479,284 @@ fn every_cases_state_is_the_daemons_shape() {
         assert_eq!(keys, want, "{}", c.id);
         assert_eq!(v["est_tokens"], c.state.est_tokens, "{}", c.id);
     }
+}
+
+/// The case by id.
+fn by_id<'a>(s: &'a CaseSet, id: &str) -> &'a crate::route_cases::Case {
+    s.cases.iter().find(|c| c.id == id).unwrap()
+}
+
+/// What `grade` makes of one question: its graded answer, whether it fell
+/// to the `no_match`, and the raw pick.
+fn graded_q(g: &Graded, q: &str) -> (String, bool, String, bool) {
+    let c = match q {
+        "model" => &g.model,
+        "effort" => &g.effort,
+        _ => &g.context,
+    };
+    (c.got.clone(), c.sub_confirm, c.raw.clone(), c.agrees)
+}
+
+/// theseus-mir9c: the daemon applies each question's `confirm` bar and, under
+/// it, takes the question's `no_match` (`inbound::verdict`'s `sure`,
+/// `Verdict::short`). `--cases` graded the raw pick; it now grades what
+/// routing would decide. `model`: a correct pick under the bar is the
+/// `no_match` (`sonnet`), a wrong one under the bar is right when the label
+/// is the `no_match`; at or above the bar nothing changes.
+#[test]
+fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
+    let (p, s) = (pack(), set());
+    let ask = |id: &str, pick: &str, conf: f64| {
+        let c = by_id(&s, id);
+        let j = judged(
+            c,
+            &[
+                ("model", pick, conf),
+                ("effort", &c.want.effort, 0.9),
+                ("context", &c.want.context, 0.9),
+            ],
+        );
+        grade(&p, c, Some(&j))
+    };
+    // W18 wants opus. Opus at 0.55 is a right pick the daemon would not act
+    // on: it runs `sonnet`, a miss.
+    assert_eq!(by_id(&s, "W18").want.model, "opus");
+    let g = ask("W18", "opus", 0.55);
+    assert_eq!(
+        graded_q(&g, "model"),
+        ("sonnet".into(), true, "opus".into(), false)
+    );
+    assert!(g.model.raw_agrees && g.under_confirm);
+    // At the bar (0.60) the band is confirm, which routing acts on; below it
+    // by a hair, it is not.
+    let g = ask("W18", "opus", 0.60);
+    assert_eq!(
+        graded_q(&g, "model"),
+        ("opus".into(), false, "opus".into(), true)
+    );
+    assert!(!g.under_confirm);
+    assert!(!ask("W18", "opus", 0.59).model.agrees);
+    // Above the bar, a wrong pick stays wrong.
+    let g = ask("W18", "sonnet", 0.95);
+    assert_eq!(
+        graded_q(&g, "model"),
+        ("sonnet".into(), false, "sonnet".into(), false)
+    );
+    // L3 wants sonnet: a pick of haiku under the bar runs `sonnet`, a hit that
+    // the raw grade called a miss; sonnet itself under the bar is still a hit.
+    assert_eq!(by_id(&s, "L3").want.model, "sonnet");
+    let g = ask("L3", "haiku", 0.55);
+    assert_eq!(
+        graded_q(&g, "model"),
+        ("sonnet".into(), true, "haiku".into(), true)
+    );
+    assert!(!g.model.raw_agrees);
+    assert!(ask("L3", "sonnet", 0.55).model.agrees);
+    // The grade is the bar's: a case whose model fell, effort and context at
+    // 0.9, grades those two as asked.
+    let g = ask("W18", "opus", 0.55);
+    assert!(g.effort.agrees && g.context.agrees);
+}
+
+/// `effort`: under its bar the answer is the question's `no_match`,
+/// `default`, which is on no rung.
+#[test]
+fn an_effort_pick_under_the_bar_is_graded_as_default() {
+    let (p, s) = (pack(), set());
+    let ask = |id: &str, pick: &str, conf: f64| {
+        let c = by_id(&s, id);
+        let j = judged(
+            c,
+            &[
+                ("model", &c.want.model, 0.9),
+                ("effort", pick, conf),
+                ("context", &c.want.context, 0.9),
+            ],
+        );
+        grade(&p, c, Some(&j))
+    };
+    // L11 wants high. A right `high` at 0.55 is `default` to the daemon: a
+    // miss, and not within a rung of `high` either.
+    assert_eq!(by_id(&s, "L11").want.effort, "high");
+    let g = ask("L11", "high", 0.55);
+    assert_eq!(
+        graded_q(&g, "effort"),
+        ("default".into(), true, "high".into(), false)
+    );
+    assert!(g.effort.raw_agrees && g.effort.raw_close && !g.effort.close);
+    // At the bar it stands; one rung off above the bar is close, not exact.
+    let g = ask("L11", "high", 0.60);
+    assert_eq!(
+        graded_q(&g, "effort"),
+        ("high".into(), false, "high".into(), true)
+    );
+    let g = ask("L11", "medium", 0.9);
+    assert_eq!(
+        (g.effort.agrees, g.effort.close, g.effort.sub_confirm),
+        (false, true, false)
+    );
+    // L20 wants `default`: any pick under the bar is a hit; the same pick
+    // above it is a miss.
+    assert_eq!(by_id(&s, "L20").want.effort, "default");
+    let g = ask("L20", "medium", 0.5);
+    assert_eq!(
+        graded_q(&g, "effort"),
+        ("default".into(), true, "medium".into(), true)
+    );
+    assert!(!g.effort.raw_agrees);
+    assert!(!ask("L20", "medium", 0.9).effort.agrees);
+}
+
+/// `context`: under its bar the answer is `full`, so a `short` the daemon
+/// would not act on is `full`, which the case wants, and a right `short`
+/// under the bar is a miss.
+#[test]
+fn a_context_pick_under_the_bar_is_graded_as_full() {
+    let (p, s) = (pack(), set());
+    let ask = |id: &str, pick: &str, conf: f64| {
+        let c = by_id(&s, id);
+        let j = judged(
+            c,
+            &[
+                ("model", &c.want.model, 0.9),
+                ("effort", &c.want.effort, 0.9),
+                ("context", pick, conf),
+            ],
+        );
+        grade(&p, c, Some(&j))
+    };
+    // L3 wants full: a `short` at 0.55 compiles `full`: a hit.
+    assert_eq!(by_id(&s, "L3").want.context, "full");
+    let g = ask("L3", "short", 0.55);
+    assert_eq!(
+        graded_q(&g, "context"),
+        ("full".into(), true, "short".into(), true)
+    );
+    assert!(!g.context.raw_agrees);
+    // A confident `short` stays `short`, and misses.
+    let g = ask("L3", "short", 0.8);
+    assert_eq!(
+        graded_q(&g, "context"),
+        ("short".into(), false, "short".into(), false)
+    );
+    // L2 wants short: a right `short` under the bar is `full`, a miss; at
+    // the bar, a hit.
+    assert_eq!(by_id(&s, "L2").want.context, "short");
+    let g = ask("L2", "short", 0.55);
+    assert_eq!(
+        graded_q(&g, "context"),
+        ("full".into(), true, "short".into(), false)
+    );
+    assert!(g.context.raw_agrees);
+    assert!(ask("L2", "short", 0.60).context.agrees);
+}
+
+/// The bar and the `no_match` come from the pack replayed, never from this
+/// code: a pack with other bars and other `no_match`s grades by its own.
+#[test]
+fn the_bar_and_the_no_match_are_the_replayed_packs_own() {
+    let text = include_str!("../packs/route.v10.toml")
+        .replacen(
+            "confirm = 0.60\nno_match = \"sonnet\"",
+            "confirm = 0.80\nno_match = \"opus\"",
+            1,
+        )
+        .replacen(
+            "confirm = 0.60\nno_match = \"default\"",
+            "confirm = 0.75\nno_match = \"medium\"",
+            1,
+        )
+        .replacen(
+            "act = 0.90\nconfirm = 0.60\nno_match = \"full\"",
+            "act = 0.97\nconfirm = 0.95\nno_match = \"short\"",
+            1,
+        );
+    let p = Pack::parse(&text).unwrap();
+    let s = CaseSet::parse(V10, &p).unwrap();
+    let ask = |id: &str, m: (&str, f64), e: (&str, f64), c: (&str, f64)| {
+        let case = by_id(&s, id);
+        let j = judged(
+            case,
+            &[
+                ("model", m.0, m.1),
+                ("effort", e.0, e.1),
+                ("context", c.0, c.1),
+            ],
+        );
+        grade(&p, case, Some(&j))
+    };
+    // W18 wants opus, medium, full. Sonnet at 0.70 is under this model bar
+    // (0.80): the `no_match` is opus, a hit. Medium at 0.70 is under 0.75:
+    // `medium`, a hit. Full at 0.90 is under 0.95: `short`, a miss.
+    let g = ask("W18", ("sonnet", 0.70), ("high", 0.70), ("full", 0.90));
+    assert_eq!(
+        graded_q(&g, "model"),
+        ("opus".into(), true, "sonnet".into(), true)
+    );
+    assert_eq!(
+        graded_q(&g, "effort"),
+        ("medium".into(), true, "high".into(), true)
+    );
+    assert_eq!(
+        graded_q(&g, "context"),
+        ("short".into(), true, "full".into(), false)
+    );
+    assert_eq!(
+        (g.model.confirm, g.effort.confirm, g.context.confirm),
+        (0.80, 0.75, 0.95)
+    );
+    // The same answers sit above the stock bars (0.60) and are graded as given.
+    let (stock, stock_set) = (pack(), set());
+    let c = by_id(&stock_set, "W18");
+    let j = judged(
+        c,
+        &[
+            ("model", "sonnet", 0.70),
+            ("effort", "high", 0.70),
+            ("context", "full", 0.90),
+        ],
+    );
+    let g = grade(&stock, c, Some(&j));
+    assert!(!g.model.sub_confirm && !g.effort.sub_confirm && !g.context.sub_confirm);
+}
+
+/// The totals count the graded answer and, beside it, the raw pick: the
+/// change the fix makes, on the same judgments.
+#[test]
+fn the_totals_count_the_graded_answer_and_the_raw_pick_apart() {
+    let (p, s) = (pack(), set());
+    let all: Vec<Graded> = s
+        .cases
+        .iter()
+        .map(|c| {
+            // Every case answered as labelled at 0.9, but L11 (opus, high,
+            // full) at 0.5 on all three.
+            let conf = if c.id == "L11" { 0.5 } else { 0.9 };
+            let j = judged(
+                c,
+                &[
+                    ("model", &c.want.model, conf),
+                    ("effort", &c.want.effort, conf),
+                    ("context", &c.want.context, conf),
+                ],
+            );
+            grade(&p, c, Some(&j))
+        })
+        .collect();
+    let t = totals(&all);
+    // Model and effort fell (opus to sonnet, high to default); context fell to
+    // `full`, which L11 wants.
+    assert_eq!(
+        (t.model_ok, t.effort_exact, t.effort_close, t.context_ok),
+        (57, 57, 57, 58)
+    );
+    assert_eq!(
+        (
+            t.raw_model_ok,
+            t.raw_effort_exact,
+            t.raw_effort_close,
+            t.raw_context_ok
+        ),
+        (58, 58, 58, 58)
+    );
 }
