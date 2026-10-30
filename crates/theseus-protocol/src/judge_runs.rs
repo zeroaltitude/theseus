@@ -61,6 +61,12 @@ pub struct JudgeReplayParams {
     /// With `onto`: at most this many sessions, newest first (50).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// `--cases`: a labelled case file's text (`route.v10.cases.toml`). The
+    /// candidate is asked each case's message and state, and its `model`,
+    /// `effort` and `context` answers are compared to the case's labels. No
+    /// recorded judgment is read; the daemon opens no path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cases: Option<String>,
 }
 
 /// A judgment the replay could not ask, and why.
@@ -168,6 +174,65 @@ pub struct JudgeReplayResult {
     /// An `onto` run's numbers against the import's labels.
     #[serde(default)]
     pub onto: Option<OntoReplayReport>,
+    /// A `--cases` run's numbers against the case file's labels.
+    #[serde(default)]
+    pub cases: Option<ReplayCases>,
+}
+
+/// One question of one case: what the case's label wants, what the candidate
+/// answered and how sure it was, and whether they agree.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ReplayCheck {
+    pub want: String,
+    /// The candidate's top option; empty when it did not answer.
+    pub got: String,
+    pub confidence: f64,
+    /// The top option is the label.
+    pub agrees: bool,
+    /// Within one rung of the label (`effort` only: `low` to `max` in order;
+    /// `default` is on no rung); for the other questions, as `agrees`.
+    pub close: bool,
+}
+
+/// One case of a `--cases` run.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ReplayCase {
+    pub id: String,
+    /// A case the pack must pass on every run.
+    pub must: bool,
+    /// The candidate's judgment answered; false when it failed or the run's
+    /// limit stopped before it.
+    pub answered: bool,
+    pub model: ReplayCheck,
+    pub effort: ReplayCheck,
+    pub context: ReplayCheck,
+}
+
+/// `judge.replay --cases`' numbers: each case, the totals, and the bar.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ReplayCases {
+    pub pack: String,
+    pub cases: Vec<ReplayCase>,
+    /// Cases whose judgment answered.
+    pub answered: u32,
+    pub model_ok: u32,
+    pub effort_exact: u32,
+    pub effort_close: u32,
+    pub context_ok: u32,
+    /// Cases marked `must`, those whose `model` is right, and those whose
+    /// `model` answer sits under the pack's confirm bar.
+    pub must_total: u32,
+    pub must_ok: u32,
+    pub must_under_confirm: u32,
+    /// Cases the daemon's own tests hold instead (W39 and W40, the pins),
+    /// counted as met in `bar`.
+    pub held_elsewhere: u32,
+    /// The design's bar met by this run (its numbers, over all sixty with the
+    /// pin tests counted); none when the file is not the sixty's 58.
+    pub bar: Option<bool>,
 }
 
 /// One kind's precision and recall against the import's labels.
@@ -539,5 +604,56 @@ mod tests {
         v.as_object_mut().unwrap().remove("onto");
         let old: JudgeReplayResult = serde_json::from_value(v).unwrap();
         assert!(old.onto.is_none());
+    }
+
+    /// `--cases` rides the params (and is left out when absent, so params
+    /// written before it still read); the result carries each case's grade.
+    #[test]
+    fn the_cases_replay_round_trips() {
+        let p = JudgeReplayParams {
+            pack_text: Some("pack".into()),
+            cases: Some("pack = \"route.v10\"".into()),
+            ..Default::default()
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        let back: JudgeReplayParams = serde_json::from_value(v).unwrap();
+        assert_eq!(back, p);
+        let plain = serde_json::to_value(JudgeReplayParams::default()).unwrap();
+        assert!(plain.get("cases").is_none(), "{plain}");
+        let old: JudgeReplayParams = serde_json::from_str(r#"{"candidate": "loop.v2"}"#).unwrap();
+        assert!(old.cases.is_none());
+        let check = ReplayCheck {
+            want: "opus".into(),
+            got: "sonnet".into(),
+            confidence: 0.71,
+            agrees: false,
+            close: false,
+        };
+        let r = JudgeReplayResult {
+            cases: Some(ReplayCases {
+                pack: "route.v10".into(),
+                cases: vec![ReplayCase {
+                    id: "W18".into(),
+                    must: true,
+                    answered: true,
+                    model: check,
+                    ..Default::default()
+                }],
+                answered: 1,
+                must_total: 1,
+                held_elsewhere: 2,
+                bar: Some(false),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let back: JudgeReplayResult =
+            serde_json::from_value(serde_json::to_value(&r).unwrap()).unwrap();
+        assert_eq!(back, r);
+        // A result written before it has no `cases`.
+        let mut v = serde_json::to_value(JudgeReplayResult::default()).unwrap();
+        v.as_object_mut().unwrap().remove("cases");
+        let old: JudgeReplayResult = serde_json::from_value(v).unwrap();
+        assert!(old.cases.is_none());
     }
 }

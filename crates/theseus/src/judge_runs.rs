@@ -44,6 +44,12 @@ pub struct ReplayArgs {
     /// With `--onto`: at most this many sessions, newest first (50).
     #[arg(long, requires = "onto")]
     limit: Option<u32>,
+    /// A labelled case file (`route.v10.cases.toml`): its text is sent, and the
+    /// candidate (`--pack-file`, a name, or the file's own pack) is asked each
+    /// case and graded against its labels. No recorded judgment is read, so a
+    /// report's or ids' flags are refused.
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["report", "split", "errors", "judgments", "onto"])]
+    cases: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -76,23 +82,27 @@ fn print(lines: Vec<String>) {
     }
 }
 
-pub async fn replay(conn: &mut Conn, json: bool, a: ReplayArgs) -> Result<()> {
-    let pack_text = match &a.pack_file {
-        Some(path) => Some(
-            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?,
-        ),
-        None => None,
+/// The params a `judge replay` sends: the pack file's text and the cases
+/// file's, read here, since the daemon opens no path.
+fn replay_params(a: ReplayArgs) -> Result<JudgeReplayParams> {
+    let read = |path: &PathBuf| {
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))
     };
-    let p = JudgeReplayParams {
+    Ok(JudgeReplayParams {
+        pack_text: a.pack_file.as_ref().map(read).transpose()?,
+        cases: a.cases.as_ref().map(read).transpose()?,
         candidate: a.candidate,
-        pack_text,
         report: a.report,
         split: a.split,
         errors: a.errors,
         judgments: a.judgments,
         onto: a.onto,
         limit: a.limit,
-    };
+    })
+}
+
+pub async fn replay(conn: &mut Conn, json: bool, a: ReplayArgs) -> Result<()> {
+    let p = replay_params(a)?;
     let v = conn
         .request(method::JUDGE_REPLAY, serde_json::to_value(&p)?)
         .await?;
@@ -271,5 +281,62 @@ mod tests {
         assert_eq!(a.limit, Some(5));
         // What the onto run honours: the candidate.
         assert!(parse(&["onto.v1", "--onto"]).unwrap().onto);
+    }
+
+    /// `--cases` asks a cases file's own labels, so the flags that name a
+    /// recorded set are refused at the parse; the candidate it honours.
+    #[test]
+    fn cases_refuses_the_flags_of_a_recorded_set() {
+        for args in [
+            &["--cases", "c.toml", "--split", "train"][..],
+            &["--cases", "c.toml", "--errors"],
+            &["--cases", "c.toml", "--judgments", "jdg_a"],
+            &["--cases", "c.toml", "--report", "rpt_2026-10-04_route.v8"],
+            &["--cases", "c.toml", "--onto"],
+        ] {
+            let e = parse(args)
+                .err()
+                .unwrap_or_else(|| panic!("{args:?} parsed"));
+            assert_eq!(
+                e.kind(),
+                clap::error::ErrorKind::ArgumentConflict,
+                "{args:?}"
+            );
+            assert!(e.to_string().contains("--cases"), "{e}");
+        }
+        let a = parse(&["--pack-file", "p.toml", "--cases", "c.toml"]).unwrap();
+        assert_eq!(a.cases.as_deref(), Some(std::path::Path::new("c.toml")));
+        assert!(parse(&["route.v10", "--cases", "c.toml"])
+            .unwrap()
+            .cases
+            .is_some());
+    }
+
+    /// The cases file's text rides in the params beside the pack file's, and
+    /// a file that cannot be read is named.
+    #[test]
+    fn the_cases_text_is_read_and_sent() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pack, cases) = (dir.path().join("p.toml"), dir.path().join("c.toml"));
+        std::fs::write(&pack, "pack text").unwrap();
+        std::fs::write(&cases, "cases text").unwrap();
+        let p = super::replay_params(
+            parse(&[
+                "--pack-file",
+                pack.to_str().unwrap(),
+                "--cases",
+                cases.to_str().unwrap(),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(p.pack_text.as_deref(), Some("pack text"));
+        assert_eq!(p.cases.as_deref(), Some("cases text"));
+        assert!(p.report.is_none() && !p.onto);
+        let none = super::replay_params(parse(&["loop.v2"]).unwrap()).unwrap();
+        assert!(none.cases.is_none());
+        let e =
+            super::replay_params(parse(&["--cases", "/nonexistent/c.toml"]).unwrap()).unwrap_err();
+        assert!(e.to_string().contains("/nonexistent/c.toml"), "{e}");
     }
 }

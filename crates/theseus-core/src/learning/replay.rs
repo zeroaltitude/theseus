@@ -345,6 +345,9 @@ impl Core {
         if !self.cfg.judge.enabled {
             bail!("the judge is off ([judge] enabled = false): nothing is replayed");
         }
+        if p.cases.is_some() {
+            return self.cases_replay_run(p, who).await;
+        }
         if p.onto {
             if let Some(why) = super::replay_onto::ignored_with_onto(&p) {
                 bail!("{why}");
@@ -1027,7 +1030,7 @@ fn replay_result(
         broken,
         fell,
         eval,
-        onto: None,
+        ..JudgeReplayResult::default()
     }
 }
 
