@@ -91,11 +91,13 @@ mod tests {
         );
     }
 
-    /// A routine-coding brief starts on `haikuhi` even when a config moved it
-    /// aside, and its checkpoints move it up (theseus-31pgz, theseus-ypnxt.9);
-    /// a trivial one runs on Haiku.
+    /// A routine-coding brief starts on the class's first usable profile,
+    /// which is `haikuhi` in the default list, and its checkpoints move it up
+    /// (theseus-31pgz, theseus-ypnxt.9); a trivial one runs on Haiku. Nothing
+    /// but the class decides it: a config that moved `haikuhi` aside does not
+    /// get it back (theseus-ej6bj: `CODING_BASE` is gone).
     #[test]
-    fn a_routine_coding_brief_runs_on_sonnet_and_only_a_trivial_one_on_haiku() {
+    fn a_routine_coding_brief_runs_on_the_classs_profile_and_only_a_trivial_one_on_haiku() {
         let cfg = RoutingConfig::default();
         let mut ps = five();
         for (name, model) in [
@@ -125,13 +127,13 @@ mod tests {
         };
         assert_eq!(on("routine_coding"), "haikuhi");
         assert_eq!(on("trivial"), "haiku");
-        // A config that moved haikuhi aside still gets it first.
+        // A config that moved haikuhi aside does not get it back.
         let mut moved = RoutingConfig::default();
         moved.classes.routine_coding.profiles = vec!["sonnet".into()];
         let v = verdict("routine_coding", 0.9);
         assert_eq!(
             brief_base(&moved, &ps, &ask(&v, "fable", 0)).profile,
-            "haikuhi"
+            "sonnet"
         );
     }
 

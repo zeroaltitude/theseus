@@ -331,8 +331,6 @@ fn render(
 #[derive(Debug, Clone)]
 pub struct CheckpointAsk<'a> {
     pub verdict: &'a Verdict,
-    /// The task's base: its brief's pick or its parent's.
-    pub base: &'a str,
     /// The profile the task runs on now.
     pub current: &'a str,
     /// The last compile's estimate, less the warm prefix on the target model.
@@ -341,13 +339,15 @@ pub struct CheckpointAsk<'a> {
     pub hold: Option<&'a Hold>,
     pub images: bool,
     pub cap: Option<f64>,
-    /// Moves the task has made, up or down.
-    pub moves: u32,
 }
 
 /// The rule's answer for a checkpoint verdict. `switch` says the task moves
 /// to `profile`; a stay names `current`.
 pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -> Decision {
+    // Row 4 (red): the rule still reads `base` and `moves`; with no base but
+    // the task's own profile and no count, only the cap's and the step down's
+    // inputs are gone.
+    let (base, moves) = (a.current, 0u32);
     let stay = |reason, hold| Decision {
         profile: a.current.to_string(),
         reason,
@@ -369,7 +369,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
         profiles,
         &Ask {
             verdict: a.verdict,
-            base: a.base,
+            base,
             est_tokens: a.est_tokens,
             hold: None,
             from: None,
@@ -384,20 +384,20 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
         _ => return stay(d.reason, HoldNext::Clear),
     };
     let cost = |p: &str| profiles.get(p).and_then(|p| p.short_cost);
-    let (Some(target_cost), Some(base_cost)) = (cost(&target), cost(a.base)) else {
+    let (Some(target_cost), Some(base_cost)) = (cost(&target), cost(base)) else {
         return stay(Reason::Fallback, HoldNext::Clear);
     };
     if target_cost <= base_cost + 1e-12 {
         // The pick is the base or cheaper: it counts toward the way back down.
-        if a.current == a.base {
+        if a.current == base {
             return stay(Reason::Verdict, HoldNext::Clear);
         }
         let held = a
             .hold
-            .is_some_and(|h| h.mode == super::STEP_DOWN && h.profile == a.base);
+            .is_some_and(|h| h.mode == super::STEP_DOWN && h.profile == base);
         return match held {
             true => Decision {
-                profile: a.base.to_string(),
+                profile: base.to_string(),
                 reason: Reason::StepDown,
                 detour: false,
                 switch: true,
@@ -407,7 +407,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
                 Reason::CacheHold,
                 HoldNext::Set(Hold {
                     mode: super::STEP_DOWN.into(),
-                    profile: a.base.to_string(),
+                    profile: base.to_string(),
                     turn: a.verdict.turn.clone(),
                 }),
             ),
@@ -417,7 +417,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
     if d.detour || target == a.current {
         return stay(Reason::Verdict, HoldNext::Clear);
     }
-    if a.moves >= cfg.task_checkpoints.max_switches {
+    if moves >= cfg.task_checkpoints.max_switches {
         return stay(Reason::SwitchCap, HoldNext::Clear);
     }
     let agreed = a.hold.is_some_and(|h| h.profile == target);
@@ -449,26 +449,18 @@ mod tests {
         RoutingConfig::default()
     }
 
-    fn go(
-        mode: &str,
-        (base, current): (&str, &str),
-        est: u64,
-        hold: Option<&Hold>,
-        moves: u32,
-    ) -> Decision {
+    fn go(mode: &str, current: &str, est: u64, hold: Option<&Hold>) -> Decision {
         let (ps, v) = (five(), verdict(mode, 0.9));
         decide(
             &cfg(),
             &ps,
             &CheckpointAsk {
                 verdict: &v,
-                base,
                 current,
                 est_tokens: est,
                 hold,
                 images: false,
                 cap: None,
-                moves,
             },
         )
     }
@@ -477,82 +469,84 @@ mod tests {
         (d.profile.as_str(), d.reason, d.switch)
     }
 
-    /// A class that picks a dearer profile than the base moves the task up.
+    /// A class that picks a dearer profile moves the task up.
     #[test]
-    fn a_dearer_pick_moves_a_task_up_from_its_base() {
-        let d = go("sophisticated", ("glm", "glm"), 1_000, None, 0);
+    fn a_dearer_pick_moves_a_task_up() {
+        let d = go("sophisticated", "glm", 1_000, None);
         assert_eq!(up(&d), ("opus", Reason::Verdict, true));
     }
 
-    /// Two agreeing verdicts step back down to the base; one then a different
-    /// one leaves the task up.
+    /// Jev decides at each trigger (theseus-ej6bj): a cheaper pick moves the
+    /// task down at once, as a dearer one moves it up. There is no base to go
+    /// back to, no step down, and no hold toward one.
     #[test]
-    fn it_steps_back_to_the_base_after_two_agreeing_verdicts() {
-        let first = go("routine_coding", ("sonnet", "opus"), 1_000, None, 1);
-        assert_eq!(up(&first), ("opus", Reason::CacheHold, false));
+    fn a_cheaper_pick_moves_a_task_down_at_once() {
+        let d = go("routine_coding", "opus", 1_000, None);
+        assert_eq!(up(&d), ("sonnet", Reason::Verdict, true));
+        assert_eq!(d.hold, HoldNext::Clear);
+        // Below where the task started is no different: nothing is a floor.
+        let d = go("trivial", "sonnet", 1_000, None);
+        assert_eq!(up(&d), ("glm", Reason::Verdict, true));
+    }
+
+    /// The cache hold is the one hysteresis, and it is about money, so it
+    /// holds a cold move either way: the first agreeing verdict waits, the
+    /// second moves.
+    #[test]
+    fn a_cold_move_either_way_waits_for_a_second_agreeing_verdict() {
+        for (mode, from, to) in [
+            ("sophisticated", "glm", "opus"),
+            ("routine_coding", "opus", "sonnet"),
+        ] {
+            let first = go(mode, from, 100_000, None);
+            assert_eq!(up(&first), (from, Reason::CacheHold, false), "{mode}");
+            let HoldNext::Set(h) = &first.hold else {
+                panic!("a hold")
+            };
+            assert_eq!((h.mode.as_str(), h.profile.as_str()), (mode, to));
+            let second = go(mode, from, 100_000, Some(h));
+            assert_eq!(up(&second), (to, Reason::Verdict, true), "{mode}");
+        }
+    }
+
+    /// A hold toward one pick does not carry a different one: the row breaks.
+    #[test]
+    fn a_hold_toward_another_profile_does_not_move_the_task() {
+        let first = go("sophisticated", "glm", 100_000, None);
         let HoldNext::Set(h) = &first.hold else {
             panic!("a hold")
         };
-        assert_eq!(
-            (h.mode.as_str(), h.profile.as_str()),
-            ("step_down", "sonnet")
-        );
-        let second = go("routine_coding", ("sonnet", "opus"), 1_000, Some(h), 1);
-        assert_eq!(up(&second), ("sonnet", Reason::StepDown, true));
-        // A verdict that picks another class between them breaks the row.
-        let broken = go("sophisticated", ("sonnet", "opus"), 1_000, Some(h), 1);
-        assert_eq!(broken.hold, HoldNext::Clear);
-        assert!(!broken.switch);
+        let other = go("routine_coding", "glm", 100_000, Some(h));
+        assert!(!other.switch, "{other:?}");
+        assert_eq!(other.reason, Reason::CacheHold);
     }
 
-    /// Never below the base: a trivial verdict on a Sonnet task leaves Sonnet.
+    /// A verdict that picks the profile the task is on moves nothing and
+    /// clears the hold.
     #[test]
-    fn a_cheap_pick_never_goes_below_the_base() {
-        let d = go("trivial", ("sonnet", "sonnet"), 1_000, None, 0);
+    fn the_tasks_own_pick_stays_and_clears_the_hold() {
+        let d = go("routine_coding", "sonnet", 100_000, None);
         assert_eq!(up(&d), ("sonnet", Reason::Verdict, false));
-        // Above the base, a cheaper pick steps down to the base, no further.
-        let first = go("trivial", ("sonnet", "opus"), 1_000, None, 1);
-        let HoldNext::Set(h) = &first.hold else {
-            panic!("a hold")
-        };
-        let second = go("trivial", ("sonnet", "opus"), 1_000, Some(h), 1);
-        assert_eq!(up(&second), ("sonnet", Reason::StepDown, true));
+        assert_eq!(d.hold, HoldNext::Clear);
     }
 
-    /// A detour's class moves a task nowhere on its own: a quick verdict from a
-    /// task on glm picks haiku-or-cheaper, never a dearer detour.
+    /// A detour's class is a pick like another for a task: a quick verdict
+    /// from a task on opus moves it to the cheap profile Jev named.
     #[test]
-    fn a_detour_class_moves_nothing_up() {
-        let d = go("quick", ("glm", "glm"), 1_000, None, 0);
-        assert!(!d.switch && !d.detour, "{d:?}");
+    fn a_detour_class_is_a_pick_like_another() {
+        let d = go("quick", "opus", 1_000, None);
+        assert!(d.switch && d.profile != "opus", "{d:?}");
+        assert!(!d.detour, "{d:?}");
     }
 
-    /// At an estimate over `cold_switch_tokens` the first agreeing verdict
-    /// holds and the second switches.
+    /// No count of moves is an input: the same verdict answers the same at
+    /// any point in a task's life (there is no `max_switches`).
     #[test]
-    fn a_cold_switch_up_waits_for_a_second_verdict() {
-        let first = go("sophisticated", ("glm", "glm"), 100_000, None, 0);
-        assert_eq!(up(&first), ("glm", Reason::CacheHold, false));
-        let HoldNext::Set(h) = &first.hold else {
-            panic!("a hold")
-        };
-        assert_eq!(h.profile, "opus");
-        let second = go("sophisticated", ("glm", "glm"), 100_000, Some(h), 0);
-        assert_eq!(up(&second), ("opus", Reason::Verdict, true));
-    }
-
-    /// After `max_switches` moves a further elevating verdict moves nothing,
-    /// and the step back down still works.
-    #[test]
-    fn the_cap_stops_moves_up_and_not_the_way_down() {
-        let d = go("sophisticated", ("sonnet", "sonnet"), 1_000, None, 2);
-        assert_eq!(up(&d), ("sonnet", Reason::SwitchCap, false));
-        let down = go("routine_coding", ("sonnet", "opus"), 1_000, None, 2);
-        let HoldNext::Set(h) = &down.hold else {
-            panic!("a hold")
-        };
-        let down = go("routine_coding", ("sonnet", "opus"), 1_000, Some(h), 2);
-        assert_eq!(up(&down), ("sonnet", Reason::StepDown, true));
+    fn the_rule_has_no_cap_on_moves() {
+        for _ in 0..5 {
+            let d = go("sophisticated", "glm", 1_000, None);
+            assert_eq!(up(&d), ("opus", Reason::Verdict, true));
+        }
     }
 
     #[test]
@@ -563,13 +557,11 @@ mod tests {
             &ps,
             &CheckpointAsk {
                 verdict: &v,
-                base: "glm",
                 current: "glm",
                 est_tokens: 0,
                 hold: None,
                 images: false,
                 cap: None,
-                moves: 0,
             },
         );
         assert_eq!(

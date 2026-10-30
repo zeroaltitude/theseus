@@ -130,8 +130,8 @@ pub struct LearnConfig {
     pub enabled: bool,
     /// The profile that writes the next version's text (a key of
     /// `[profiles]`).
-    #[serde(default = "writer_profile")]
-    pub writer_profile: String,
+    #[serde(default)]
+    pub writer_profile: Option<String>,
     /// What the writer may spend in a local day, in dollars: a proposal
     /// that would pass it is skipped and reported.
     #[serde(default = "writer_limit")]
@@ -157,7 +157,7 @@ impl Default for LearnConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            writer_profile: writer_profile(),
+            writer_profile: None,
             writer_limit_usd_per_day: writer_limit(),
             min_errors: min_errors(),
             min_holdout: min_holdout(),
@@ -169,9 +169,6 @@ impl Default for LearnConfig {
 
 fn yes() -> bool {
     true
-}
-fn writer_profile() -> String {
-    "opus".into()
 }
 fn writer_limit() -> f64 {
     2.0

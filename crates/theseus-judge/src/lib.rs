@@ -58,6 +58,8 @@ pub mod probe;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_job_sites;
+#[cfg(test)]
 mod tests_onto;
 #[cfg(test)]
 mod tests_pic;

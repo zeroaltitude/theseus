@@ -155,6 +155,25 @@ impl Core {
             .fold(0, Micros::saturating_add)
     }
 
+    /// The model a note of `kind` is written on: `[initiative] profile` when
+    /// it is set (a pin), else Jev's choice for the note (route.v10,
+    /// theseus-ej6bj), and the live profile when Jev cannot be used. A note is
+    /// written from the owner's own calendar and mail: US options only.
+    pub(crate) async fn initiative_target(
+        &self,
+        kind: &str,
+    ) -> Result<crate::turn::Target, crate::job_model::Unresolved> {
+        let (live, _) = self.live_profile();
+        let site = crate::job_model::Site {
+            name: "initiative",
+            pin: self.cfg.initiative.profile.as_deref(),
+            legacy: None,
+            job: theseus_judge::builders::JobKind::Initiative { kind: kind.into() },
+            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
+        };
+        self.runner.job_target(&live, site).await.map(|(t, _)| t)
+    }
+
     /// Write `facts` as the persona in play: by a model within the day's
     /// line, else by the template. Never a turn's path, and never a cut-off
     /// answer: one stopped on `max_tokens` is asked once more with more room,
@@ -175,12 +194,7 @@ impl Core {
         if line == 0 {
             return template(0, None, None);
         }
-        let (live, _) = self.live_profile();
-        let profile = self.cfg.initiative.profile.clone();
-        let Ok(target) = self
-            .runner
-            .resolve_target(&live, profile.as_deref(), None, None)
-        else {
+        let Ok(target) = self.initiative_target(facts.kind).await else {
             return template(0, None, None);
         };
         let Some(provider) = self.runner.providers.get(&target.provider).cloned() else {

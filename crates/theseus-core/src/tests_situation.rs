@@ -446,7 +446,7 @@ fn compacting(dir: &Path, model: Arc<FakeProvider>, glm: Arc<FakeProvider>) -> A
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.memory.mode = MemoryMode::Live;
-    cfg.memory.summary_profile = "glm".into();
+    cfg.memory.summary_profile = Some("glm".into());
     // glm only summarizes here: an unrestricted model (theseus-a1wvq.3).
     cfg.serve_glm_unrestricted();
     cfg.catalog.insert(

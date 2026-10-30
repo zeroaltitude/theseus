@@ -175,6 +175,21 @@ async fn a_task_runs_on_its_parents_model_with_jev_off() {
     assert!(decided(&r.core.store).is_empty());
 }
 
+/// No profile is the brief's own (theseus-ej6bj, `CODING_BASE` is gone): a
+/// routine-coding brief starts where the class's list sends it, and a config
+/// that moved `haikuhi` out of that list does not get it back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_routine_brief_starts_where_its_class_sends_it_not_on_a_fixed_profile() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "routine_coding", 0.95);
+    let r = rig_from(Some(&jev), "fable", |c| {
+        c.routing.classes.routine_coding.profiles = vec!["sonnet".into()];
+    });
+    let (_, rec) = run(&r, &params(BRIEF, None)).await;
+    assert_eq!(ran_on(&r), "claude-sonnet-5-5");
+    assert_eq!(rec.last_target.unwrap().profile, "sonnet");
+}
+
 /// A verdict under its class's bar: the parent's model.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_verdict_under_its_bar_leaves_the_parents_model() {

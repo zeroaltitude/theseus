@@ -124,14 +124,12 @@ impl TurnRunner {
         {
             return Ok(ring);
         }
-        let Some(word) = self.memory.cfg().summary_profile().map(str::to_string) else {
+        // `session`: the turn's own profile, provider and model, so the range
+        // goes nowhere the session's turns don't. The row, the node and its
+        // header name that profile. Unset: Jev chooses (`summary_pick`).
+        let Some((profile, own)) = self.summary_pick(t, &ring).await else {
             return Ok(ring);
         };
-        // `session`, the default: the turn's own profile, provider and model,
-        // so the range goes nowhere the session's turns don't. The row, the
-        // node and its header name that profile.
-        let own = (word == SUMMARY_SESSION).then(|| t.target.clone());
-        let profile = own.as_ref().map_or(word, |o| o.profile.clone());
         let t0 = t.trace.now_us();
         // A restricted summary profile gets the range only if the session's
         // labels allow it (theseus-a1wvq.10, `gate.rs`).

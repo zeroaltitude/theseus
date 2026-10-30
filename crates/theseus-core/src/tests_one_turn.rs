@@ -37,7 +37,7 @@ fn config(root: &Path, state: &Path, window: u64, working: Option<u64>) -> Confi
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.memory.summary_profile = "glm".into();
+    cfg.memory.summary_profile = Some("glm".into());
     // glm only summarizes here: an unrestricted model (theseus-a1wvq.3).
     cfg.serve_glm_unrestricted();
     cfg.context.working_window_tokens = working;

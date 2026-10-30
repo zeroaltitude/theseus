@@ -76,7 +76,7 @@ fn config(root: &Path, state: &Path, summary: &str) -> Config {
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.memory.summary_profile = summary.into();
+    cfg.memory.summary_profile = Some(summary.into());
     // The summarizer is only a second provider here; it reads the session,
     // so it runs an unrestricted model (theseus-a1wvq.3).
     cfg.serve_glm_unrestricted();
@@ -663,7 +663,8 @@ async fn summary_profile_off_keeps_the_ring() {
 async fn summary_profile_session_summarizes_on_the_sessions_own_model() {
     assert_eq!(
         crate::config::MemoryConfig::default().summary_profile,
-        SUMMARY_SESSION
+        None,
+        "unset asks Jev; while the pack asks no `model` that runs as `session`"
     );
     let r = rig_with(SUMMARY_SESSION, vec![], vec![]);
     let sid = session(&r.core);
@@ -1312,4 +1313,175 @@ async fn a_style_request_survives_a_compaction_in_the_operators_words() {
         !text_of(q).contains("Chart the tides"),
         "the message itself was summarized away"
     );
+}
+
+// Route.v10 row 4 (theseus-ej6bj): `[memory] summary_profile` is a pin when
+// set, and with it unset Jev chooses the model each summary is written on.
+// `session` keeps its meaning (the pin tests above hold it).
+
+/// A rig with the fake Jev, whose route pack is `mode: chat` (no move) for the
+/// turns and whose job pack asks `model`.
+fn rig_jev(
+    jev: &theseus_judge::fake::FakeJev,
+    summary: Option<&str>,
+    ask_model: bool,
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(FakeProvider::scripted(vec![]));
+    let glm = Arc::new(FakeProvider::scripted(vec![summary_for_glm()]));
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut cfg = config(&root.canonicalize().unwrap(), dir.path(), "session");
+    cfg.memory.summary_profile = summary.map(str::to_string);
+    cfg.judge.enabled = true;
+    cfg.judge.api_base = jev.base();
+    cfg.judge.connect_secs = 1;
+    cfg.judge.total_secs = 30;
+    cfg.routing.max_wait_ms = 300;
+    tweak(&mut cfg);
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    parts.providers.insert("zai".into(), glm.clone());
+    // DeepSeek's provider is there, so a Flash pick is refused by the data
+    // rule and not for want of somewhere to go.
+    parts
+        .providers
+        .insert("deepseek".into(), Arc::new(FakeProvider::default()));
+    parts.secrets = crate::tests_judge::board();
+    let core = Core::build(parts).unwrap();
+    if ask_model {
+        core.runner
+            .judge
+            .job_pack_with(crate::tests_job_ask::model_pack());
+    }
+    Rig {
+        core,
+        model,
+        glm,
+        dir,
+    }
+}
+
+fn summary_for_glm() -> Scripted {
+    summary("The keeper logged six tides.", 9_000, 120)
+}
+
+fn jev_chat(jev: &theseus_judge::fake::FakeJev) {
+    crate::tests_route::mode(jev, "chat", 0.95);
+}
+
+/// The one request Jev saw that was the summary's ask.
+fn summary_asks(jev: &theseus_judge::fake::FakeJev) -> Vec<String> {
+    jev.seen()
+        .iter()
+        .map(|s| s.body["state"].to_string())
+        .filter(|s| s.contains("Summarize the oldest"))
+        .collect()
+}
+
+/// The models of the requests the session's provider got.
+fn models_asked(r: &Rig) -> Vec<String> {
+    r.model.requests().into_iter().map(|q| q.model).collect()
+}
+
+/// Unset, with a pack that asks `model`: Jev names Opus, and the summary is
+/// written there: the request, the node, and the row say so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unset_summary_profile_asks_jev_and_writes_on_its_pick() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    jev_chat(&jev);
+    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    let r = rig_jev(&jev, None, true, |_| {});
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    let asks = summary_asks(&jev);
+    assert!(!asks.is_empty(), "Jev was asked about the summary");
+    assert!(asks[0].contains("job"), "{}", asks[0]);
+    assert!(models_asked(&r).contains(&"claude-opus-5-5".to_string()));
+    let nodes = r.core.store.transcript(&sid).unwrap();
+    let model = nodes.iter().find_map(|(_, n)| match &n.body {
+        Body::Summary { model, .. } => Some(model.clone()),
+        _ => None,
+    });
+    assert_eq!(model.as_deref(), Some("claude-opus-5-5"));
+    assert!(r.glm.requests().is_empty(), "glm was not asked");
+}
+
+/// A set key is a pin: Jev is asked nothing about the summary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_set_summary_profile_asks_jev_nothing() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    jev_chat(&jev);
+    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    let r = rig_jev(&jev, Some("glm"), true, |_| {});
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    assert!(summary_asks(&jev).is_empty());
+    assert!(!models_asked(&r).contains(&"claude-opus-5-5".to_string()));
+    assert!(!r.glm.requests().is_empty(), "glm wrote the summary");
+}
+
+/// While the acting pack asks no `model`, an unset key is `session`, as it
+/// was: the turn's own model summarizes, and Jev is asked nothing about it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unset_summary_profile_is_session_while_the_pack_asks_no_model() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    jev_chat(&jev);
+    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    let r = rig_jev(&jev, None, false, |_| {});
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    assert!(summary_asks(&jev).is_empty());
+    assert!(!models_asked(&r).contains(&"claude-opus-5-5".to_string()));
+    assert!(r.glm.requests().is_empty());
+}
+
+/// A slow Jev never holds a compaction: past `max_wait_ms` the summary is
+/// written on the turn's own model, and the turn goes on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_slow_jev_does_not_hold_a_compaction() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    jev_chat(&jev);
+    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    jev.set_mode(theseus_judge::fake::FakeMode::Held);
+    let r = rig_jev(&jev, None, true, |_| {});
+    let sid = session(&r.core);
+    let t0 = std::time::Instant::now();
+    until_recompiled(&r, &sid, 6_000).await;
+    assert!(
+        t0.elapsed() < std::time::Duration::from_secs(60),
+        "the turns went on"
+    );
+    assert!(
+        !summary_asks(&jev).is_empty(),
+        "Jev was asked about the summary, and held its answer"
+    );
+    assert!(!models_asked(&r).contains(&"claude-opus-5-5".to_string()));
+    let nodes = r.core.store.transcript(&sid).unwrap();
+    assert!(
+        nodes
+            .iter()
+            .any(|(_, n)| matches!(n.body, Body::Summary { .. })),
+        "the summary was written"
+    );
+    jev.release();
+}
+
+/// The owner-material floor is the labels': a session with a label that keeps
+/// restricted models off is told `not_allowed`, and a pick of Flash is refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_labelled_session_is_told_not_allowed_and_never_summarized_on_flash() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    jev_chat(&jev);
+    crate::tests_job_ask::pick(&jev, "deepseek_flash", 0.97);
+    // `cn_models = never`: no model of restricted origin reads any session.
+    let r = rig_jev(&jev, None, true, |c| {
+        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
+    });
+    let sid = session(&r.core);
+    until_recompiled(&r, &sid, 6_000).await;
+    let asks = summary_asks(&jev);
+    assert!(!asks.is_empty());
+    assert!(!models_asked(&r).contains(&"deepseek-flash".to_string()));
 }

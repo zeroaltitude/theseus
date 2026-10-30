@@ -397,7 +397,7 @@ async fn a_cold_thread_resumes_small_and_a_warm_one_is_untouched() {
         files(dir.path(), c);
         c.threads.working_tokens = Some(22_000);
         c.threads.resume_keep_turns = 1;
-        c.memory.summary_profile = "off".into();
+        c.memory.summary_profile = Some("off".into());
     });
     let (cold, warm) = (thread(&core, "cold"), thread(&core, "warm"));
     let n = long_thread(&core, &fake, &cold, 6, HOUR_PLUS).await;
@@ -441,7 +441,7 @@ async fn a_cold_resume_keeps_twenty_turns() {
     let (core, fake) = build(dir.path(), script, |c| {
         files(dir.path(), c);
         c.threads.working_tokens = Some(90_000);
-        c.memory.summary_profile = "off".into();
+        c.memory.summary_profile = Some("off".into());
     });
     let cold = thread(&core, "cold");
     long_thread(&core, &fake, &cold, 30, HOUR_PLUS).await;
@@ -471,7 +471,7 @@ async fn a_cold_resume_works_to_a_share_of_the_window() {
     let (core, fake) = build(dir.path(), script, |c| {
         files(dir.path(), c);
         c.threads.working_percent = 1;
-        c.memory.summary_profile = "off".into();
+        c.memory.summary_profile = Some("off".into());
     });
     let cold = thread(&core, "cold");
     long_thread(&core, &fake, &cold, 30, HOUR_PLUS).await;
@@ -499,7 +499,7 @@ async fn an_unthreaded_session_is_not_resumed_small() {
     let (core, fake) = build(dir.path(), script, |c| {
         files(dir.path(), c);
         c.threads.working_tokens = Some(22_000);
-        c.memory.summary_profile = "off".into();
+        c.memory.summary_profile = Some("off".into());
     });
     let (sid, first) = turn(&core, "question 0").await;
     first.unwrap();

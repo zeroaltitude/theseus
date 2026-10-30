@@ -174,27 +174,20 @@ impl Core {
         crate::capture::owner_alone(class, place.as_deref())
     }
 
-    /// `[card] profile`'s target and provider. (`run.rs` has the same two
-    /// steps privately; the join may fold them.)
-    fn observe_model(
+    /// The observation call's target and provider: `[card] profile` when it
+    /// is set (a pin), else Jev's choice for a call over the owner's `lines`
+    /// (route.v10, theseus-ej6bj). (`run.rs` has the same steps for the
+    /// proposals' call; the join may fold them.)
+    async fn observe_model(
         &self,
+        lines: u32,
     ) -> Result<(
         crate::turn::Target,
         Arc<dyn crate::provider::Provider>,
         String,
     )> {
-        let profile = self.cfg.card.profile.clone();
-        let (live, _) = self.live_profile();
-        let target = self
-            .runner
-            .resolve_target(&live, Some(&profile), None, None)
-            .map_err(|e| anyhow!("[card] profile {profile:?} does not resolve: {e:#}"))?;
-        let provider = self
-            .runner
-            .providers
-            .get(&target.provider)
-            .cloned()
-            .ok_or_else(|| anyhow!("no provider {:?} for {profile}", target.provider))?;
+        let (target, provider) = self.card_model(lines).await.map_err(|e| anyhow!(e))?;
+        let profile = target.profile.clone();
         Ok((target, provider, profile))
     }
 
@@ -376,7 +369,7 @@ impl Core {
         records: &[Shown],
         now: u64,
     ) -> Result<Asked> {
-        let (target, provider, _) = self.observe_model()?;
+        let (target, provider, _) = self.observe_model(lines.len() as u32).await?;
         let provider = crate::data_gate::bound(provider, sid);
         let scrubber = self.tools.scrubber.clone();
         let how = self.runner.catalog.forcing(&target.model);

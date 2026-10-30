@@ -56,6 +56,8 @@ struct Carded {
     lines: Vec<String>,
     cited: Vec<Value>,
     dropped: u32,
+    /// The profile the call ran on (empty when none was resolved).
+    profile: String,
     model: String,
     cost: Micros,
     input_tokens: u64,
@@ -226,7 +228,10 @@ impl Core {
                 who.clone(),
             )
         });
-        let profile = self.cfg.threads.import_profile.clone();
+        let profile = match carded.profile.as_str() {
+            "" => self.cfg.threads.import_profile.clone().unwrap_or_default(),
+            p => p.to_string(),
+        };
         let f = crate::fact::thread_import::ThreadImported {
             slug: &c.slug,
             from,
@@ -264,6 +269,24 @@ impl Core {
         })
     }
 
+    /// The model a card over `episodes` episodes is written on: `[threads]
+    /// import_profile` when it is set (a pin), else Jev's choice for a job over
+    /// the owner's conversations (route.v10, theseus-ej6bj).
+    pub(crate) async fn import_model(&self, episodes: u32) -> Result<crate::turn::Target, String> {
+        let (live, _) = self.live_profile();
+        let site = crate::job_model::Site {
+            name: "threads",
+            pin: self.cfg.threads.import_profile.as_deref(),
+            legacy: Some(crate::config::legacy::CHEAP),
+            job: theseus_judge::builders::JobKind::Threads { episodes },
+            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
+        };
+        match self.runner.job_target(&live, site).await {
+            Ok((t, _)) => Ok(t),
+            Err(e) => Err(format!("[threads] import_profile {e}")),
+        }
+    }
+
     /// The card's one model call, under the day's import line and the
     /// daemon's day ceiling.
     async fn import_card(
@@ -276,19 +299,11 @@ impl Core {
             failed: Some(why),
             ..Carded::default()
         };
-        let profile = self.cfg.threads.import_profile.clone();
-        let (live, _) = self.live_profile();
-        let target = match self
-            .runner
-            .resolve_target(&live, Some(&profile), None, None)
-        {
+        let target = match self.import_model(episodes.len() as u32).await {
             Ok(t) => t,
-            Err(e) => {
-                return fail(format!(
-                    "[threads] import_profile {profile:?} does not resolve: {e:#}"
-                ))
-            }
+            Err(why) => return fail(why),
         };
+        let profile = target.profile.clone();
         let Some(provider) = self.runner.providers.get(&target.provider).cloned() else {
             return fail(format!("no provider {:?} for {profile}", target.provider));
         };
@@ -319,6 +334,7 @@ impl Core {
             .map_or(need, |r| self.runner.priced(r, &target.model, need));
         hold.settle(cost);
         let mut out = Carded {
+            profile: profile.clone(),
             model: target.model.clone(),
             cost,
             ..Carded::default()

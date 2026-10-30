@@ -44,7 +44,7 @@ use crate::config::PackMode;
 use crate::judge::inbound::{author_of, place_kind, Inbound, RouteWait};
 use crate::routing::checkpoint::{self as cp, CheckpointAsk, LoopLine, Seen, Tally, Trigger};
 use crate::routing::effort::{self, EffortDecision};
-use crate::routing::{self, Decision, Hold, HoldNext, Reason, Verdict};
+use crate::routing::{Decision, Hold, HoldNext, Reason, Verdict};
 use theseus_protocol::modes::PlanState;
 use theseus_protocol::route::TurnRoute;
 
@@ -129,8 +129,6 @@ struct Active {
     /// its route put it.
     base: String,
     tally: Tally,
-    /// Moves made, up or down.
-    moves: u32,
     /// Slots used.
     used: usize,
     /// What the last checkpoint's verdict left held.
@@ -272,7 +270,6 @@ impl TurnRunner {
             task,
             base,
             tally: Tally::default(),
-            moves: 0,
             used: 0,
             hold: None,
             flight: None,
@@ -581,7 +578,6 @@ impl TurnRunner {
                 spec.effort = e.sent.or(e.ran);
             }
         }
-        a.moves += u32::from(d.switch);
         Self::checkpoint_routed(t, a, (v, f), &d, from, (effort.as_ref(), applied));
         Ok(None)
     }
@@ -638,13 +634,11 @@ impl TurnRunner {
                 &profiles,
                 &CheckpointAsk {
                     verdict: v,
-                    base: &a.base,
                     current: &t.target.profile,
                     est_tokens,
                     hold: a.hold.as_ref(),
                     images: t.route.images,
                     cap,
-                    moves: a.moves,
                 },
             )
         };
@@ -652,9 +646,6 @@ impl TurnRunner {
         let (Reason::CacheHold, HoldNext::Set(h)) = (d.reason, &d.hold) else {
             return d;
         };
-        if h.mode == routing::STEP_DOWN {
-            return d;
-        }
         let warm = self
             .resolve_target(&t.target.profile, Some(&h.profile), None, None)
             .map_or(0, |to| self.warm_of(t, session, &to));

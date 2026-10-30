@@ -56,7 +56,7 @@ async fn the_block_survives_three_compactions() {
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.memory.summary_profile = "glm".into();
+    cfg.memory.summary_profile = Some("glm".into());
     // glm only summarizes here: an unrestricted model (theseus-a1wvq.3).
     cfg.serve_glm_unrestricted();
     cfg.catalog.insert(

@@ -22,10 +22,13 @@ struct Reviewer {
 }
 
 impl Run<'_> {
-    /// The reviewer's target against the builder's model.
-    fn reviewer(&self) -> Reviewer {
+    /// The reviewer's target against the builder's model: `[self]
+    /// reviewer_profile` when it is set (a pin), else Jev's choice for the
+    /// review, told the builder's model (route.v10, theseus-ej6bj). Review
+    /// independence holds either way: a reviewer on the builder's model is
+    /// refused, as it always was, and the rule is not a cap.
+    async fn reviewer(&self) -> Reviewer {
         let core = self.core;
-        let profile = &core.cfg.self_improve.reviewer_profile;
         let builder = self
             .b
             .session
@@ -38,13 +41,27 @@ impl Run<'_> {
             })
             .and_then(|r| r.last_target)
             .map(|t| t.model);
-        let target = core
-            .runner
-            .resolve_target(&core.live_profile().0, Some(profile), None, None);
+        let live = core.live_profile().0;
+        let site = crate::job_model::Site {
+            name: "self reviewer",
+            pin: core.cfg.self_improve.reviewer_profile.as_deref(),
+            legacy: Some(crate::config::legacy::SELF_REVIEWER),
+            job: theseus_judge::builders::JobKind::SelfReviewer {
+                diff_summary: self.b.why.clone(),
+                builder_model: builder.clone(),
+                // The change is the assistant's own code, written from the
+                // owner's sessions: owner material, US options only.
+                private: true,
+            },
+            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
+        };
+        let target = core.runner.job_target(&live, site).await.map(|(t, _)| t);
+        let profile = match &target {
+            Ok(t) => t.profile.clone(),
+            Err(e) => e.profile.clone(),
+        };
         let refusal = match (&target, &builder) {
-            (Err(e), _) => Some(format!(
-                "[self] reviewer_profile {profile:?} does not resolve: {e:#}"
-            )),
+            (Err(e), _) => Some(format!("[self] reviewer_profile {e}")),
             (_, None) => Some(
                 "the builder's model is not known, so no review can be shown independent of it"
                     .into(),
@@ -68,7 +85,7 @@ impl Run<'_> {
 
     /// The review: the verdict written, or none when a halt stopped it.
     pub(super) async fn review(&mut self) -> Result<Option<String>> {
-        let who = self.reviewer();
+        let who = self.reviewer().await;
         let said = |verdict, planted, reasons, cost_usd| Said {
             reviewer: who.name.clone(),
             model: who.model.clone(),

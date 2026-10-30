@@ -39,6 +39,32 @@ pub enum JobKind {
         builder_model: Option<String>,
         private: bool,
     },
+    /// The owner's card: statements about how the owner works, from clusters
+    /// of recent activity (`card/run.rs`).
+    Card {
+        clusters: u32,
+    },
+    /// A message the assistant speaks first, in its own voice
+    /// (`initiative/speak.rs`).
+    Initiative {
+        kind: String,
+    },
+    /// The names of the people a conversation mentions (`[people]`).
+    People {
+        lines: u32,
+    },
+    /// The card of an imported conversation (`[threads] import_profile`).
+    Threads {
+        episodes: u32,
+    },
+    /// A rewrite of one judge pack's wording (`[judge.learn]`).
+    Learn {
+        pack: String,
+    },
+    /// The name of a new ontology category (`[ontology] name_profile`).
+    OntologyName {
+        kind: String,
+    },
 }
 
 /// A job and the facts to ask it with.
@@ -105,17 +131,31 @@ impl JobKind {
                 "Review this change to the assistant's own code before it merges: {}",
                 part(diff_summary, PART_CHARS)
             ),
+            // Row 4 stub: the §13 kinds have no paragraph yet.
+            JobKind::Card { .. }
+            | JobKind::Initiative { .. }
+            | JobKind::People { .. }
+            | JobKind::Threads { .. }
+            | JobKind::Learn { .. }
+            | JobKind::OntologyName { .. } => String::new(),
         }
     }
 
     /// The job works on private material: only US options may be listed.
-    fn private(&self) -> bool {
+    pub fn private(&self) -> bool {
         match self {
             JobKind::Compaction { .. } => false,
             JobKind::Synthesis { owner_material, .. } => *owner_material,
             JobKind::SelfBuilder { private, .. } | JobKind::SelfReviewer { private, .. } => {
                 *private
             }
+            // Row 4 stub: the §13 kinds are not floored yet.
+            JobKind::Card { .. }
+            | JobKind::Initiative { .. }
+            | JobKind::People { .. }
+            | JobKind::Threads { .. }
+            | JobKind::Learn { .. }
+            | JobKind::OntologyName { .. } => false,
         }
     }
 }

@@ -39,6 +39,7 @@ pub mod families;
 pub mod gate;
 pub mod heard;
 pub mod inbound;
+pub(crate) mod job;
 pub mod ladder;
 pub mod lineage;
 pub mod loop_end;
@@ -264,6 +265,10 @@ pub struct JudgeService {
     /// A test's shorter bounds for the sink's waits.
     #[cfg(test)]
     pub(crate) sink_timing: OnceLock<crate::memory_pass::Timing>,
+    /// A test's route pack that asks `model`, in the place of the acting one
+    /// (route.v10's pack is not the acting pack until its row flips it).
+    #[cfg(test)]
+    job_pack: OnceLock<Arc<Pack>>,
 }
 
 impl JudgeService {
@@ -334,6 +339,8 @@ impl JudgeService {
             queue: Arc::default(),
             #[cfg(test)]
             sink_timing: OnceLock::new(),
+            #[cfg(test)]
+            job_pack: OnceLock::new(),
         })
     }
 

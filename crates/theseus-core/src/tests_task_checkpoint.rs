@@ -1,6 +1,6 @@
 //! A running task's checkpoints (theseus-ypnxt.9): a task asks route.v8 about
-//! its recent state at a loop boundary, and its model moves up, or back down
-//! to its base, by routing's own rules. The rig is `tests_task_brief`'s (the
+//! its recent state at a loop boundary, and its model moves to what the
+//! verdict names, up or down, by routing's own rules and the cache hold. The rig is `tests_task_brief`'s (the
 //! driver runs the tasks, a fake Jev answers the brief's class and each
 //! checkpoint's, by the trigger line the checkpoint's text ends with), with a
 //! provider that answers a script of loops, a little slowly, so a verdict
@@ -277,22 +277,23 @@ async fn a_task_whose_loops_fail_moves_to_sonnet_at_a_later_loop() {
     assert_eq!(
         (routed.profile.as_deref(), routed.from.as_deref()),
         (Some("sonnet"), Some("haikuhi")),
-        "the base is kept for the way back down"
+        "where the task started stays in its record"
     );
 }
 
-/// A task that recovers steps back to its base only after two agreeing
-/// verdicts.
+/// Jev decides at each trigger (theseus-ej6bj, the owner: "I categorically
+/// disagree with caps"): a task that recovers follows a cheaper verdict down at
+/// once, as a dearer one took it up. There is no base to step back to, and no
+/// second agreeing verdict to wait for.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_task_steps_back_to_its_base_after_two_agreeing_verdicts() {
+async fn a_task_follows_a_cheaper_verdict_down_at_once() {
     let t = task_with(
-        loops(16, 0),
+        loops(12, 0),
         None,
         |_| {},
         |j| {
             on_trigger(j, "failing: 3 failed", "deep_coding");
             on_trigger(j, "failing: 7 failed", "routine_coding");
-            on_trigger(j, "failing: 11 failed", "routine_coding");
         },
     )
     .await;
@@ -307,53 +308,21 @@ async fn a_task_steps_back_to_its_base_after_two_agreeing_verdicts() {
         })
         .collect();
     assert_eq!(
-        &seen[..3],
-        [
-            ("verdict".to_string(), true),
-            ("cache_hold".to_string(), false),
-            ("step_down".to_string(), true)
-        ],
+        &seen[..2],
+        [("verdict".to_string(), true), ("verdict".to_string(), true)],
         "{rows:?}"
     );
     let models = t.models();
     let up = models.iter().position(|m| *m == "sonnet").expect("up");
     let down = models.iter().rposition(|m| *m == "sonnet").expect("up") + 1;
     assert!(models[down..].iter().all(|m| *m == "haiku"), "{models:?}");
-    assert!(
-        down - up >= 4,
-        "up for the loops between the verdicts: {models:?}"
-    );
+    assert!(down - up >= 3, "up for the loops between: {models:?}");
 }
 
-/// One agreeing verdict, then one that disagrees, leaves the task up.
+/// Nothing is a floor: a trivial verdict takes a task whose brief picked
+/// Sonnet below it, to the profile the verdict names.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn one_agreeing_verdict_then_a_disagreeing_one_leaves_it_up() {
-    let t = task_with(
-        loops(12, 0),
-        None,
-        |_| {},
-        |j| {
-            on_trigger(j, "failing: 3 failed", "deep_coding");
-            on_trigger(j, "failing: 7 failed", "routine_coding");
-            on_trigger(j, "failing: 11 failed", "deep_coding");
-        },
-    )
-    .await;
-    let reasons: Vec<_> = t
-        .checkpoints()
-        .iter()
-        .map(|d| d["reason"].as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(reasons[..3], ["verdict", "cache_hold", "verdict"]);
-    let models = t.models();
-    assert_eq!(models.last(), Some(&"sonnet"), "{models:?}");
-    assert!(!models[models.iter().position(|m| *m == "sonnet").unwrap()..].contains(&"haiku"));
-}
-
-/// Never below the base: a trivial verdict on a task whose base is Sonnet (a
-/// deep-coding brief) leaves it on Sonnet.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_cheap_verdict_never_takes_a_task_below_its_base() {
+async fn a_cheap_verdict_takes_a_task_below_where_it_started() {
     let t = task_with(
         loops(8, 0),
         None,
@@ -364,12 +333,13 @@ async fn a_cheap_verdict_never_takes_a_task_below_its_base() {
         },
     )
     .await;
-    assert_eq!(t.models(), ["sonnet"; 9]);
+    let models = t.models();
+    assert_eq!(models[0], "sonnet", "the brief's pick: {models:?}");
+    assert_eq!(models.last(), Some(&"haiku"), "{models:?}");
     let rows = t.checkpoints();
-    assert!(!rows.is_empty());
-    assert!(
-        rows.iter()
-            .all(|d| d["profile"] == "sonnet" && d["switch"] == false),
+    assert_eq!(
+        (rows[0]["profile"].as_str(), rows[0]["switch"].as_bool()),
+        (Some("haiku"), Some(true)),
         "{rows:?}"
     );
 }
@@ -401,10 +371,11 @@ async fn a_cold_switch_waits_for_a_second_agreeing_verdict() {
     );
 }
 
-/// After `max_switches` moves up a further elevating verdict moves nothing,
-/// and a step back down still works.
+/// There is no cap on moves: `max_switches` is still a key the loader reads
+/// (row 6 retires it), and the checkpoint no longer looks at it. Four verdicts
+/// that each name another profile make four moves, up and down.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_cap_stops_moves_up_and_not_the_way_down() {
+async fn no_cap_stops_a_move_in_either_direction() {
     let t = task_with(
         loops(16, 0),
         None,
@@ -413,24 +384,17 @@ async fn the_cap_stops_moves_up_and_not_the_way_down() {
             on_trigger(j, "failing: 3 failed", "deep_coding");
             on_trigger(j, "failing: 7 failed", "sophisticated");
             on_trigger(j, "failing: 11 failed", "routine_coding");
-            on_trigger(j, "failing: 15 failed", "routine_coding");
+            on_trigger(j, "failing: 15 failed", "deep_coding");
         },
     )
     .await;
     let rows = t.checkpoints();
     let reasons: Vec<_> = rows.iter().map(|d| d["reason"].as_str().unwrap()).collect();
-    assert_eq!(
-        reasons,
-        ["verdict", "switch_cap", "cache_hold", "step_down"],
-        "{rows:?}"
-    );
-    assert!(!t.models().contains(&"opus"), "{:?}", t.models());
+    assert_eq!(reasons, ["verdict"; 4], "{rows:?}");
     let models = t.models();
-    assert_eq!(
-        models.last(),
-        Some(&"haiku"),
-        "back at its base: {models:?}"
-    );
+    assert!(models.contains(&"opus"), "{models:?}");
+    assert!(models.contains(&"haiku"), "{models:?}");
+    assert_eq!(models.last(), Some(&"sonnet"), "{models:?}");
 }
 
 /// At most one verdict per `min_loops_between` loops: a task failing for 12

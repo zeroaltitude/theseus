@@ -21,24 +21,30 @@ impl Config {
         [
             (
                 "[people] extract_profile",
-                Some(&self.people.extract_profile),
+                self.people.extract_profile.as_deref(),
             ),
-            ("[card] profile", Some(&self.card.profile)),
+            ("[card] profile", self.card.profile.as_deref()),
             (
                 "[threads] import_profile",
-                Some(&self.threads.import_profile),
+                self.threads.import_profile.as_deref(),
             ),
             (
                 "[judge.learn] writer_profile",
-                Some(&self.judge.learn.writer_profile),
+                self.judge.learn.writer_profile.as_deref(),
             ),
             (
                 "[self] reviewer_profile",
-                Some(&self.self_improve.reviewer_profile),
+                self.self_improve.reviewer_profile.as_deref(),
             ),
             ("[initiative] profile", self.initiative.profile.as_deref()),
-            ("[ontology] name_profile", Some(&self.ontology.name_profile)),
-            ("[memory] synth_profile", Some(&self.memory.synth_profile)),
+            (
+                "[ontology] name_profile",
+                self.ontology.name_profile.as_deref(),
+            ),
+            (
+                "[memory] synth_profile",
+                self.memory.synth_profile.as_deref(),
+            ),
         ]
     }
 
@@ -78,26 +84,26 @@ mod tests {
     /// Each key of a call over the owner's material, and how a test sets it.
     const KEYS: [(&str, Set); 8] = [
         ("[people] extract_profile", |c, p| {
-            c.people.extract_profile = p.into()
+            c.people.extract_profile = Some(p.into())
         }),
-        ("[card] profile", |c, p| c.card.profile = p.into()),
+        ("[card] profile", |c, p| c.card.profile = Some(p.into())),
         ("[threads] import_profile", |c, p| {
-            c.threads.import_profile = p.into()
+            c.threads.import_profile = Some(p.into())
         }),
         ("[judge.learn] writer_profile", |c, p| {
-            c.judge.learn.writer_profile = p.into()
+            c.judge.learn.writer_profile = Some(p.into())
         }),
         ("[self] reviewer_profile", |c, p| {
-            c.self_improve.reviewer_profile = p.into()
+            c.self_improve.reviewer_profile = Some(p.into())
         }),
         ("[initiative] profile", |c, p| {
             c.initiative.profile = Some(p.into())
         }),
         ("[ontology] name_profile", |c, p| {
-            c.ontology.name_profile = p.into()
+            c.ontology.name_profile = Some(p.into())
         }),
         ("[memory] synth_profile", |c, p| {
-            c.memory.synth_profile = p.into()
+            c.memory.synth_profile = Some(p.into())
         }),
     ];
 
@@ -133,10 +139,10 @@ mod tests {
     #[test]
     fn a_restricted_summary_profile_still_loads() {
         let mut c = Config::example();
-        c.memory.summary_profile = "glm".into();
+        c.memory.summary_profile = Some("glm".into());
         c.validate().unwrap_or_else(|e| panic!("{e:#}"));
         let mut c = Config::example();
-        c.memory.synth_profile = crate::config::memory::SUMMARY_SESSION.into();
+        c.memory.synth_profile = Some(crate::config::memory::SUMMARY_SESSION.into());
         c.validate().unwrap_or_else(|e| panic!("{e:#}"));
     }
 }

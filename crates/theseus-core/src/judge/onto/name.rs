@@ -163,6 +163,35 @@ pub(super) fn name_when_due(core: &Arc<Core>, session: &str, kind: &str, said: &
 }
 
 impl Core {
+    /// The naming call's model and provider: `[ontology] name_profile` when it
+    /// is set (a pin), else Jev's choice for a job over what the session said
+    /// (route.v10, theseus-ej6bj), which is the owner's material.
+    pub(crate) async fn onto_model(
+        &self,
+        kind: &str,
+    ) -> Result<(crate::turn::Target, Arc<dyn crate::provider::Provider>), String> {
+        let (live, _) = self.live_profile();
+        let site = crate::job_model::Site {
+            name: "ontology",
+            pin: self.cfg.ontology.name_profile.as_deref(),
+            legacy: Some(crate::config::legacy::CHEAP),
+            job: theseus_judge::builders::JobKind::OntologyName { kind: kind.into() },
+            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
+        };
+        let (target, _) = self
+            .runner
+            .job_target(&live, site)
+            .await
+            .map_err(|e| format!("[ontology] name_profile {e}"))?;
+        let provider = self
+            .runner
+            .providers
+            .get(&target.provider)
+            .cloned()
+            .ok_or_else(|| format!("no provider {:?} for {}", target.provider, target.profile))?;
+        Ok((target, provider))
+    }
+
     /// The naming call for `kind` in `session`, once a day: `Err` says why it
     /// was not made (already today, the day's ceiling, no price); a failed
     /// call is made, its row written.
@@ -176,18 +205,7 @@ impl Core {
         if held.is_some_and(|n| n.day == today) {
             return Err(format!("{kind} was named for this session today"));
         }
-        let profile = self.cfg.ontology.name_profile.clone();
-        let (live, _) = self.live_profile();
-        let target = self
-            .runner
-            .resolve_target(&live, Some(&profile), None, None)
-            .map_err(|e| format!("[ontology] name_profile {profile:?} does not resolve: {e:#}"))?;
-        let provider = self
-            .runner
-            .providers
-            .get(&target.provider)
-            .cloned()
-            .ok_or_else(|| format!("no provider {:?} for {profile}", target.provider))?;
+        let (target, provider) = self.onto_model(kind).await?;
         // What the session said is sent: its labels hold the call.
         let provider = crate::data_gate::bound(provider, session);
         let scrubber = self.runner.judge.scrubber.clone();

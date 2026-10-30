@@ -95,8 +95,8 @@ pub struct SelfImproveConfig {
     #[serde(default = "default_graduate_window_days")]
     pub graduate_window_days: u32,
     /// The self-join's reviewer (theseus-pw1q.9).
-    #[serde(default = "default_reviewer_profile")]
-    pub reviewer_profile: String,
+    #[serde(default)]
+    pub reviewer_profile: Option<String>,
     /// The self-join's lock directory; none: `<state>/self/join.lock`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub join_lock: Option<String>,
@@ -171,10 +171,6 @@ fn default_exams_day_max() -> u32 {
     EXAMS_DAY_MAX
 }
 
-fn default_reviewer_profile() -> String {
-    "fable".into()
-}
-
 fn default_backlog_max_open() -> u32 {
     20
 }
@@ -194,7 +190,7 @@ impl Default for SelfImproveConfig {
             exams_day_max: EXAMS_DAY_MAX,
             graduate_min_calls: GRADUATE_MIN_CALLS,
             graduate_window_days: GRADUATE_WINDOW_DAYS,
-            reviewer_profile: default_reviewer_profile(),
+            reviewer_profile: None,
             join_lock: None,
             install: false,
             narrow_every_days: default_narrow_every_days(),
@@ -596,7 +592,9 @@ mod tests {
     #[test]
     fn the_join_keys_default_to_fable_the_state_dirs_lock_and_no_install() {
         let none = Config::from_toml("").unwrap().self_improve;
-        assert_eq!(none.reviewer_profile, "fable");
+        // Unset asks Jev (route.v10, theseus-ej6bj); the template shows the
+        // profile it ran on before, as the pin an owner may keep.
+        assert_eq!(none.reviewer_profile, None);
         assert_eq!(none.join_lock, None);
         assert!(!none.install);
         let t = Config::EXAMPLE_TOML;
@@ -611,7 +609,7 @@ mod tests {
         )
         .unwrap()
         .self_improve;
-        assert_eq!(cfg.reviewer_profile, "opus");
+        assert_eq!(cfg.reviewer_profile.as_deref(), Some("opus"));
         assert_eq!(cfg.join_lock.as_deref(), Some("/srv/joins.lock"));
         assert!(cfg.install);
     }

@@ -30,6 +30,7 @@ pub mod content_based_security;
 mod data_floor;
 pub(crate) mod import;
 mod judge;
+pub mod legacy;
 mod limits;
 mod lookup;
 pub(crate) mod lsp;

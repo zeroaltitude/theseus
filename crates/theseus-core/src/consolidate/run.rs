@@ -86,7 +86,7 @@ struct Mark<'a> {
 }
 
 /// One cluster's sources, read.
-struct Source {
+pub(crate) struct Source {
     node: Arc<Node>,
     header: String,
     text: String,
@@ -265,9 +265,18 @@ impl Core {
         &self,
         sessions: &[&str],
     ) -> Result<String, (&'static str, String)> {
-        let word = &self.runner.memory.cfg().synth_profile;
+        // Unset reads as `session` here: where Jev is not asked (the dream's
+        // guidance; a cluster's plan while the pack asks no `model`), the
+        // key's old default stands.
+        let word = self
+            .runner
+            .memory
+            .cfg()
+            .synth_profile
+            .clone()
+            .unwrap_or_else(|| crate::config::legacy::SESSION.to_string());
         if word != SUMMARY_SESSION {
-            return Ok(word.clone());
+            return Ok(word);
         }
         let mut seen = BTreeSet::new();
         for session_id in sessions {
@@ -299,6 +308,44 @@ impl Core {
                 ),
             )),
         }
+    }
+
+    /// Whether an unset `synth_profile` asks Jev: the key is unset and the
+    /// acting route pack asks the `model` question (route.v10).
+    pub(crate) fn synth_asks_jev(&self) -> bool {
+        self.runner.memory.cfg().synth_profile.is_none() && self.runner.judge.asks_jev()
+    }
+
+    /// A cluster's target: the profile planned for it, or with none (the key
+    /// unset), Jev's choice for a synthesis over the cluster's sources, which
+    /// are the owner's material: US options only (route.v10, theseus-ej6bj).
+    pub(crate) async fn synth_target(
+        &self,
+        sources: &[Source],
+        profile: &str,
+    ) -> Result<crate::turn::Target, crate::job_model::Unresolved> {
+        let (live, _) = self.live_profile();
+        if !profile.is_empty() {
+            return self.runner.choice_target(
+                &live,
+                &crate::job_model::Choice::Profile(profile.to_string()),
+            );
+        }
+        let site = crate::job_model::Site {
+            name: "consolidation",
+            pin: None,
+            legacy: None,
+            job: theseus_judge::builders::JobKind::Synthesis {
+                subject: sources
+                    .first()
+                    .map(|s| s.text.chars().take(200).collect())
+                    .unwrap_or_default(),
+                sources: sources.len() as u32,
+                owner_material: true,
+            },
+            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
+        };
+        self.runner.job_target(&live, site).await.map(|(t, _)| t)
     }
 
     /// Restricted consolidation always falls back (theseus-a1wvq.10): one
@@ -408,17 +455,24 @@ impl Core {
                 }),
                 ..SynthesisReport::default()
             };
-            let profile = match self.synth_profile(&sources) {
-                Ok(p) => p,
-                Err((why, words)) => {
-                    skip(&mut r, why);
-                    tracing::debug!(cluster = %c.digest, why = %words, "consolidation: a cluster waits");
+            // An unset key with a pack that asks `model`: Jev chooses the
+            // model when the cluster is written, so no profile is named yet.
+            let profile = if self.synth_asks_jev() {
+                String::new()
+            } else {
+                let profile = match self.synth_profile(&sources) {
+                    Ok(p) => p,
+                    Err((why, words)) => {
+                        skip(&mut r, why);
+                        tracing::debug!(cluster = %c.digest, why = %words, "consolidation: a cluster waits");
+                        continue;
+                    }
+                };
+                let Some(profile) = self.unrestricted(profile, &mut report) else {
+                    skip(&mut r, "restricted_origin");
                     continue;
-                }
-            };
-            let Some(profile) = self.unrestricted(profile, &mut report) else {
-                skip(&mut r, "restricted_origin");
-                continue;
+                };
+                profile
             };
             report.profile.clone_from(&profile);
             if dry {
@@ -504,14 +558,15 @@ impl Core {
         mark: &Mark<'_>,
         rows: &[RecallManifest],
     ) -> anyhow::Result<Step> {
-        let (live, _) = self.live_profile();
-        let target = match self.runner.resolve_target(&live, Some(profile), None, None) {
+        let target = match self.synth_target(sources, profile).await {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!(profile, error = %format!("{e:#}"), "consolidation: the profile does not resolve");
                 return Ok(Step::Skip("profile_unresolved"));
             }
         };
+        let profile = target.profile.as_str();
+        report.profile = target.profile.clone();
         let Some(provider) = self.runner.providers.get(&target.provider).cloned() else {
             return Ok(Step::Skip("no_provider"));
         };
