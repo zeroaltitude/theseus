@@ -42,7 +42,7 @@ fn config(root: &Path, state: &Path) -> Config {
     // The ring's suite. Compaction (30c), on by default with the session's
     // own model, would summarize with this rig's scripted model;
     // tests_compaction covers it.
-    cfg.memory.summary_profile = crate::config::memory::SUMMARY_OFF.into();
+    cfg.memory.summary_profile = Some(crate::config::memory::SUMMARY_OFF.into());
     cfg
 }
 

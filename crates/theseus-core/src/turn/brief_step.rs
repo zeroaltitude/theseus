@@ -107,6 +107,9 @@ impl TurnRunner {
                 cap,
                 cleared: t.route.floor().cn_ok,
             },
+            // Nothing is fixed to a profile once the acting pack asks `model`
+            // (theseus-ej6bj); until then `CODING_BASE` stands.
+            self.judge.route_open(),
         )
     }
 

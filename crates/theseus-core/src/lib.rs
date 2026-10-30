@@ -66,6 +66,7 @@ pub mod graph;
 pub mod harness;
 pub mod import;
 pub mod initiative;
+pub(crate) mod job_model;
 pub mod judge;
 pub mod keep_warm;
 pub mod keep_warm_threads;
@@ -390,7 +391,11 @@ mod tests_initiative;
 #[cfg(test)]
 mod tests_injection_tiers;
 #[cfg(test)]
+mod tests_job_ask;
+#[cfg(test)]
 mod tests_job_handles;
+#[cfg(test)]
+mod tests_job_sites;
 #[cfg(test)]
 mod tests_jobs;
 #[cfg(test)]

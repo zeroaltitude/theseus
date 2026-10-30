@@ -371,7 +371,10 @@ impl Core {
         let cfg = &self.cfg.card;
         let (clusters, asks, picked) = plan(&sub.episodes, cfg.pattern_sessions as usize);
         if room > 0 && !picked.is_empty() {
-            let (target, provider) = self.card_model().map_err(|e| anyhow::anyhow!(e))?;
+            let (target, provider) = self
+                .card_model(picked.len() as u32)
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
             let scan = Scan {
                 episodes: sub.episodes,
                 ..Scan::default()
@@ -427,7 +430,12 @@ impl Core {
         let ids: Vec<String> = made.iter().map(|p| p.id.clone()).collect();
         let f = CardProposed {
             run,
-            profile: &self.cfg.card.profile,
+            profile: self
+                .cfg
+                .card
+                .profile
+                .as_deref()
+                .unwrap_or(crate::config::legacy::CHEAP),
             model: "",
             cost_usd: 0.0,
             input_tokens: 0,

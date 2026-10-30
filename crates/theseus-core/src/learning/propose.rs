@@ -660,6 +660,29 @@ impl Core {
         }))
     }
 
+    /// The writer's target: `[judge.learn] writer_profile` when it is set (a
+    /// pin), else Jev's choice for the rewrite (route.v10, theseus-ej6bj),
+    /// whose pack text is the owner's material: US options only. The ask is a
+    /// task of the runtime's own; this thread only waits for its answer.
+    pub(crate) fn writer_target(
+        &self,
+        rt: &tokio::runtime::Handle,
+        pack: &str,
+    ) -> anyhow::Result<crate::turn::Target> {
+        let (live, _) = self.live_profile();
+        let site = crate::job_model::Site {
+            name: "learn",
+            pin: self.cfg.judge.learn.writer_profile.as_deref(),
+            legacy: Some(crate::config::legacy::LEARN_WRITER),
+            job: theseus_judge::builders::JobKind::Learn { pack: pack.into() },
+            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
+        };
+        let (target, _) = rt
+            .block_on(self.runner.job_target(&live, site))
+            .map_err(|e| anyhow::anyhow!("the writer's profile {e}"))?;
+        Ok(target)
+    }
+
     /// The writer's candidate: priced inside the day's limit, its reply
     /// through `candidate_from_reply`; none when the run ends here (a skip
     /// or a refusal, written).
@@ -675,16 +698,7 @@ impl Core {
         let lc = &self.cfg.judge.learn;
         let (parent, parent_name, parent_text, cases) =
             (&g.parent, &g.parent_name, &g.parent_text, &g.cases);
-        let (live, _) = self.live_profile();
-        let target = self
-            .runner
-            .resolve_target(&live, Some(&lc.writer_profile), None, None)
-            .with_context(|| {
-                format!(
-                    "the writer's profile {:?} does not resolve",
-                    lc.writer_profile
-                )
-            })?;
+        let target = self.writer_target(rt, parent_name)?;
         prop.writer_model = Some(target.model.clone());
         let request = ProviderRequest {
             model: target.model.clone(),

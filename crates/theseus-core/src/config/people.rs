@@ -28,8 +28,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PeopleConfig {
-    #[serde(default = "default_extract_profile")]
-    pub extract_profile: String,
+    #[serde(default)]
+    pub extract_profile: Option<String>,
     #[serde(default)]
     pub not_people: Vec<String>,
     #[serde(default = "default_act")]
@@ -44,9 +44,6 @@ pub struct PeopleConfig {
     pub sweep_usd_per_day: f64,
 }
 
-fn default_extract_profile() -> String {
-    "haiku".into()
-}
 fn default_act() -> f64 {
     0.9
 }
@@ -66,7 +63,7 @@ fn default_sweep_usd_per_day() -> f64 {
 impl Default for PeopleConfig {
     fn default() -> Self {
         Self {
-            extract_profile: default_extract_profile(),
+            extract_profile: None,
             not_people: Vec::new(),
             act: default_act(),
             confirm: default_confirm(),
@@ -99,7 +96,11 @@ impl PeopleConfig {
                 self.sweep_usd_per_day
             );
         }
-        if self.extract_profile.trim().is_empty() {
+        if self
+            .extract_profile
+            .as_deref()
+            .is_some_and(|p| p.trim().is_empty())
+        {
             bail!("[people] extract_profile names no profile");
         }
         Ok(())

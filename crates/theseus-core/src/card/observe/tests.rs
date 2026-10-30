@@ -382,8 +382,12 @@ async fn a_china_origin_profile_is_refused_at_the_chokepoint() {
     use crate::approval::Surface;
     // The load refuses a restricted `[card] profile`, so it goes in after the
     // check: the chokepoint still holds.
-    let r =
-        crate::tests_route::rig_parts(None, EVERY, |_| {}, |p| p.cfg.card.profile = "glm".into());
+    let r = crate::tests_route::rig_parts(
+        None,
+        EVERY,
+        |_| {},
+        |p| p.cfg.card.profile = Some("glm".into()),
+    );
     // The session carries a label: only a label keeps a session off a model of
     // restricted origin (theseus-gyjyo.6).
     let mut flags = crate::content::ContentFlags::default();

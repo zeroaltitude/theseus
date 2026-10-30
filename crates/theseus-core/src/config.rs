@@ -30,6 +30,7 @@ pub mod content_based_security;
 mod data_floor;
 pub(crate) mod import;
 mod judge;
+pub mod legacy;
 mod limits;
 mod lookup;
 pub(crate) mod lsp;
@@ -1907,6 +1908,15 @@ impl Config {
         let p = self.resolved.profiles.get_mut("dsflash").expect("copied");
         p.provider = "deepseek".into();
         p.model = "deepseek-flash".into();
+        self.name_every_provider_key();
+    }
+
+    /// A test's providers' keys named by real-looking `op://` references: the
+    /// template's are placeholders, and `provider_without_key` reads a
+    /// placeholder as no key, so a pick on one is a fallback. A test that
+    /// expects a pick to run (a job's, a reviewer's) calls this.
+    #[cfg(test)]
+    pub(crate) fn name_every_provider_key(&mut self) {
         for k in ["anthropic_api_key", "zai_api_key", "deepseek_api_key"] {
             self.secrets
                 .insert(k.into(), "op://test-vault/item/notesPlain".into());

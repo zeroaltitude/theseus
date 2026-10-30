@@ -205,7 +205,7 @@ impl Core {
         out: &mut Swept,
     ) -> anyhow::Result<()> {
         out.due = plan.len() as u64;
-        let (target, _) = match self.people_extractor() {
+        let (target, _) = match self.people_priced_on() {
             Ok(t) => t,
             Err(why) => {
                 out.stopped = Some(why);

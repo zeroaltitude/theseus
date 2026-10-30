@@ -1,0 +1,34 @@
+# A route pack that asks the `model` question, for the tests of the background
+# sites (theseus-ej6bj). route.v10 is not the acting route pack until its row
+# flips it, so a test installs this one in its place (`JudgeService::job_pack_with`).
+# It is route.v10's `model` question with short blocks, and nothing else.
+id = "route"
+version = 10
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "session_profile"
+action = "route"
+description = "ROUTE: which model answers, for a test."
+
+[questions.model]
+type = "choice"
+decides = true
+instructions = "Sonnet is the usual answer; choose another model only for a reason its description gives, and never a model the state lists as not allowed. Which model should do the work?"
+act = 0.90
+confirm = 0.60
+no_match = "sonnet"
+options = [
+  { id = "haiku", means = "Haiku 5.5 (Anthropic, US). The fastest and cheapest. For a greeting or a small mechanical job." },
+  { id = "sonnet", means = "Sonnet 5.5 (Anthropic, US). The usual choice for most work." },
+  { id = "opus", means = "Opus 5.5 (Anthropic, US). For reviewing and for careful analysis." },
+  { id = "fable", means = "Fable 5.1 (Anthropic, US). Only for the hardest design or reasoning problems." },
+  { id = "deepseek_flash", means = "DeepSeek V4.1 Flash (China-origin). Only for a bounded mechanical coding change whose plan is known." },
+]
+
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3

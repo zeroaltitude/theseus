@@ -1762,6 +1762,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     mark's `cut_ms` is where the next run cuts: the run's clock, never past the newest judgment it read, so a clock
     that read ahead closes no open window (theseus-gf8j); a mark without it walks everything once.
     Tests: `tests_learning.rs`, `learning::*::tests`.
+  - **A background job's model** (route.v10 row 4, theseus-ej6bj; `job_model.rs`, `judge/job.rs`; design §2 rows 4 to 9
+    and 13 in `~/reports/theseus-jev-chooses/design.md`): at every site that is no turn (compaction's summary,
+    consolidation's syntheses, the self builder and reviewer, the card, initiative, people, threads, the learn writer,
+    the ontology's naming) **a configured profile key is a pin and an unset key asks Jev**, through `builders::job`: one
+    paragraph, the place `job`, the route facts. `TurnRunner::job_choice(live, Site)` settles it and never waits past
+    `[routing] max_wait_ms`: no answer, an answer under the pack's confirm bar, a pick the data rule refuses (private
+    material lists `not_allowed` and goes only to a model the catalog lists as of US origin, whatever the caller says) or
+    a provider with no key all run on `live`. **While the acting route pack asks no `model`** (every pack before
+    route.v10) an unset key runs the profile it always did (`config::legacy`) and asks nothing, so the row changes no live
+    decision until the pack flips. **The same gate holds for a task's checkpoints and brief** (`CheckpointAsk::open`, the
+    brief's `open`, both `JudgeService::asks_jev()`): closed, the class rule is today's (`max_switches`, the base and
+    step down, no detours, `CODING_BASE`); open, a checkpoint has no base, no `max_switches` and no step down (the cache
+    hold is its one hysteresis), and a brief has no fixed first profile. Tests: `tests_job_ask.rs` (the rule),
+    `tests_job_sites.rs` (each site), `tests_compaction.rs`, `rsi/join/tests.rs`, `tests_task_checkpoint.rs`.
   - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v5` since
     theseus-c1uz, route.v4's `mode` (with its `review`) and `reply_effort` word for word and two questions that decide
     nothing for its promotion, `persona` and `seal` (below), live at once in place of `route.v4`, `route.v3`, `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside

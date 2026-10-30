@@ -13,13 +13,13 @@ fn the_defaults_are_the_documented_ones() {
     let c = &cfg.card;
     assert_eq!(
         (
-            c.profile.as_str(),
+            c.profile.as_deref(),
             c.day_usd,
             c.max_open,
             c.ask_days,
             c.every_days
         ),
-        ("haiku", 2.0, 30, 14, 7)
+        (None, 2.0, 30, 14, 7)
     );
     assert!(c.is_default());
 }
@@ -33,9 +33,9 @@ fn a_key_is_read_and_a_bad_one_is_refused_with_its_name() {
             cfg.card.max_open,
             cfg.card.ask_days,
             cfg.card.every_days,
-            cfg.card.profile.as_str()
+            cfg.card.profile.as_deref()
         ),
-        (0.5, 10, 3, 0, "sonnet")
+        (0.5, 10, 3, 0, Some("sonnet"))
     );
     for (bad, word) in [
         ("day_usd = -1", "day_usd"),

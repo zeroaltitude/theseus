@@ -165,6 +165,15 @@ pub(crate) fn rig(mode: SelfMode) -> Rig {
 
 /// [`rig`] with `edit` applied to the config before the core is built.
 pub(crate) fn rig_with(mode: SelfMode, edit: impl FnOnce(&mut Config)) -> Rig {
+    rig_parts(mode, edit, |_| {})
+}
+
+/// [`rig_with`], with `parts` edited before the core is built.
+pub(crate) fn rig_parts(
+    mode: SelfMode,
+    edit: impl FnOnce(&mut Config),
+    parts: impl FnOnce(&mut crate::rpc::Parts),
+) -> Rig {
     let f = fixture();
     let root = f.place.state.parent().unwrap().to_path_buf();
     let gpg = root.join("fake-gpg.sh");
@@ -191,7 +200,9 @@ pub(crate) fn rig_with(mode: SelfMode, edit: impl FnOnce(&mut Config)) -> Rig {
         text: "The test fails without the fix and the diff is small.\nVERDICT: accept\n- its planted revert fails as it should".into(),
         requests: Mutex::default(),
     });
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, says.clone(), store)).unwrap();
+    let mut p = crate::rpc::Parts::for_tests(cfg, says.clone(), store);
+    parts(&mut p);
+    let core = Core::build(p).unwrap();
     core.tools.self_pr.set_env(hermetic());
     core.self_resume(&SelfResumeParams::default(), &Answerer::from("the CLI"))
         .unwrap();
@@ -770,4 +781,204 @@ async fn mode_off_does_nothing() {
     assert!(!super::lock_dir(&r.core.cfg).exists());
     assert!(!r.f.place.trees().exists());
     assert_eq!(r.core.self_installed_as("anything").unwrap(), None);
+}
+
+// Route.v10 row 4 (theseus-ej6bj): `[self] reviewer_profile` is a pin when set;
+// unset, Jev chooses the reviewer, told the builder's model and that the
+// change is the owner's material (US options only). The independence rule
+// stays a hard rule either way: it is review independence, not a cap.
+
+/// A rig whose Jev is the fake, with the model pack acting and `reviewer_profile`
+/// as the test says.
+fn rig_jev(jev: &theseus_judge::fake::FakeJev, reviewer: Option<&str>) -> Rig {
+    let reviewer = reviewer.map(str::to_string);
+    let r = rig_parts(
+        SelfMode::Act,
+        move |c| {
+            c.self_improve.reviewer_profile = reviewer;
+            c.judge.enabled = true;
+            c.judge.api_base = jev.base();
+            c.judge.connect_secs = 1;
+            c.judge.total_secs = 30;
+            c.routing.max_wait_ms = 300;
+            c.name_every_provider_key();
+        },
+        |p| {
+            p.secrets = crate::tests_judge::board();
+            p.providers
+                .insert("deepseek".into(), Arc::new(FakeProvider::default()));
+        },
+    );
+    r.core
+        .runner
+        .judge
+        .job_pack_with(crate::tests_job_ask::model_pack());
+    crate::tests_judge::warm(&r.core);
+    r
+}
+
+fn reviewer_asks(jev: &theseus_judge::fake::FakeJev) -> Vec<String> {
+    jev.seen()
+        .iter()
+        .map(|s| s.body["state"].to_string())
+        .filter(|s| s.contains("Review this change"))
+        .collect()
+}
+
+#[tokio::test]
+async fn an_unset_reviewer_profile_asks_jev_and_reviews_on_its_pick() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    let r = rig_jev(&jev, None);
+    r.seed("trim-the-sails", PROVED, SONNET);
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.reviewed[0].1, "accept", "{pass:?}");
+    let v = &r.rows("self.review.verdict")[0];
+    assert_eq!(v["model"], "claude-opus-5-5", "{v}");
+    let asks = reviewer_asks(&jev);
+    assert_eq!(asks.len(), 1, "one ask");
+    // The state names the builder's model, and the change as the owner's
+    // material: US options only.
+    assert!(asks[0].contains("claude-sonnet-5-5"), "{}", asks[0]);
+    assert!(asks[0].contains("not_allowed"), "{}", asks[0]);
+    assert!(asks[0].contains("job"), "{}", asks[0]);
+}
+
+#[tokio::test]
+async fn a_set_reviewer_profile_asks_jev_nothing() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "haiku", 0.95);
+    let r = rig_jev(&jev, Some("opus"));
+    r.seed("trim-the-sails", PROVED, SONNET);
+    r.core.self_join_pass(&r.seams()).await.unwrap();
+    let v = &r.rows("self.review.verdict")[0];
+    assert_eq!(v["model"], "claude-opus-5-5", "{v}");
+    assert!(reviewer_asks(&jev).is_empty());
+}
+
+/// Review independence is a hard rule, not a cap: when Jev, asked, names the
+/// builder's own model, no review runs.
+#[tokio::test]
+async fn the_independence_rule_refuses_a_jev_pick_that_is_the_builders_model() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "sonnet", 0.95);
+    let r = rig_jev(&jev, None);
+    let (branch, _) = r.seed("trim-the-sails", PROVED, SONNET);
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.reviewed, [(branch, "refused".to_string())]);
+    let v = &r.rows("self.review.verdict")[0];
+    assert!(
+        v["reasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("the model that built the branch"),
+        "{v}"
+    );
+    assert!(
+        r.stand.asks.lock().unwrap().is_empty(),
+        "no reviewer was asked"
+    );
+}
+
+/// Both sides Jev-chosen: the builder ran on Opus because Jev named it (its
+/// session's model says so), and the reviewer, asked, names Opus too. The rule
+/// is about the models, not about who chose them, so no review runs.
+#[tokio::test]
+async fn the_independence_rule_holds_when_both_sides_are_jevs_picks() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    let r = rig_jev(&jev, None);
+    let (branch, _) = r.seed("trim-the-sails", PROVED, "claude-opus-5-5");
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.reviewed, [(branch, "refused".to_string())]);
+    let v = &r.rows("self.review.verdict")[0];
+    assert_eq!(v["model"], "claude-opus-5-5", "{v}");
+    assert!(
+        v["reasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("the model that built the branch"),
+        "{v}"
+    );
+    assert_eq!(reviewer_asks(&jev).len(), 1, "Jev named the reviewer");
+    assert!(
+        r.stand.asks.lock().unwrap().is_empty(),
+        "no reviewer was asked"
+    );
+}
+
+/// A Jev that is slow never holds the review: past `max_wait_ms` the reviewer
+/// is the live profile.
+#[tokio::test]
+async fn a_slow_jev_does_not_hold_the_review() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    jev.set_mode(theseus_judge::fake::FakeMode::Held);
+    let r = rig_jev(&jev, None);
+    // Built on Fable: the live profile (Sonnet) is another model, so it reviews.
+    r.seed("trim-the-sails", PROVED, "claude-fable-5-1");
+    let t0 = std::time::Instant::now();
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.reviewed[0].1, "accept", "{pass:?}");
+    assert_eq!(
+        reviewer_asks(&jev).len(),
+        1,
+        "Jev was asked, and held its answer"
+    );
+    assert!(t0.elapsed() < Duration::from_secs(30), "{:?}", t0.elapsed());
+    let v = &r.rows("self.review.verdict")[0];
+    assert_eq!(v["model"], SONNET, "the live profile reviewed: {v}");
+    jev.release();
+}
+
+/// The independence rule holds of the live profile as of any: built on the
+/// model that is live, and with Jev slow, the review is refused, not hung.
+#[tokio::test]
+async fn a_slow_jev_and_a_live_profile_that_built_the_branch_is_refused_not_hung() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    jev.set_mode(theseus_judge::fake::FakeMode::Held);
+    let r = rig_jev(&jev, None);
+    r.seed("mend-the-nets", PROVED, SONNET);
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.reviewed[0].1, "refused", "{pass:?}");
+    assert_eq!(reviewer_asks(&jev).len(), 1, "Jev was asked");
+    jev.release();
+}
+
+/// The change is the owner's material: a pick of Flash is refused by the data
+/// rule, and the review runs on the live profile.
+#[tokio::test]
+async fn the_reviewer_is_never_a_china_origin_model() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "deepseek_flash", 0.97);
+    let r = rig_jev(&jev, None);
+    r.seed("trim-the-sails", PROVED, "claude-fable-5-1");
+    r.core.self_join_pass(&r.seams()).await.unwrap();
+    let v = &r.rows("self.review.verdict")[0];
+    assert_eq!(v["model"], SONNET, "{v}");
+    assert!(reviewer_asks(&jev)[0].contains("not_allowed"));
+}
+
+/// While the acting pack asks no `model`, an unset key reviews on the profile
+/// it always did (fable) and asks Jev nothing.
+#[tokio::test]
+async fn an_unset_reviewer_profile_is_fable_while_the_pack_asks_no_model() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "haiku", 0.95);
+    let r = rig_parts(
+        SelfMode::Act,
+        |c| {
+            c.self_improve.reviewer_profile = None;
+            c.judge.enabled = true;
+            c.judge.api_base = jev.base();
+            c.routing.max_wait_ms = 300;
+        },
+        |p| p.secrets = crate::tests_judge::board(),
+    );
+    r.seed("trim-the-sails", PROVED, SONNET);
+    r.core.self_join_pass(&r.seams()).await.unwrap();
+    let v = &r.rows("self.review.verdict")[0];
+    assert_eq!(v["model"], "claude-fable-5-1", "{v}");
+    assert!(reviewer_asks(&jev).is_empty());
 }

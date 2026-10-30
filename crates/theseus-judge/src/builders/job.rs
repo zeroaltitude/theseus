@@ -39,6 +39,37 @@ pub enum JobKind {
         builder_model: Option<String>,
         private: bool,
     },
+    /// The owner's card: statements about how the owner works, from clusters
+    /// of recent activity (`card/run.rs`).
+    Card {
+        clusters: u32,
+    },
+    /// The card's observation of what the owner wrote in a session
+    /// (`card/observe.rs`): short observations about how the owner works.
+    CardObserve {
+        lines: u32,
+    },
+    /// A message the assistant speaks first, in its own voice
+    /// (`initiative/speak.rs`).
+    Initiative {
+        kind: String,
+    },
+    /// The names of the people a conversation mentions (`[people]`).
+    People {
+        lines: u32,
+    },
+    /// The card of an imported conversation (`[threads] import_profile`).
+    Threads {
+        episodes: u32,
+    },
+    /// A rewrite of one judge pack's wording (`[judge.learn]`).
+    Learn {
+        pack: String,
+    },
+    /// The name of a new ontology category (`[ontology] name_profile`).
+    OntologyName {
+        kind: String,
+    },
 }
 
 /// A job and the facts to ask it with.
@@ -105,17 +136,58 @@ impl JobKind {
                 "Review this change to the assistant's own code before it merges: {}",
                 part(diff_summary, PART_CHARS)
             ),
+            JobKind::Card { clusters } => format!(
+                "Read {clusters} clusters of the owner's recent activity and state, for each, \
+                 what it shows about how the owner works, as short statements for the owner's \
+                 card."
+            ),
+            JobKind::CardObserve { lines } => format!(
+                "Read {lines} lines the owner wrote in one conversation and note what they \
+                 show about how the owner works, as short observations for the owner's card."
+            ),
+            JobKind::Initiative { kind } => format!(
+                "Write a short message in the assistant's own voice, speaking first to the \
+                 owner, about {}.",
+                part(kind, PART_CHARS)
+            ),
+            JobKind::People { lines } => format!(
+                "Read {lines} lines of one conversation and list the names of the people it \
+                 mentions, each with the line that names it."
+            ),
+            JobKind::Threads { episodes } => format!(
+                "Write the card of an imported conversation from {episodes} episodes of it: a \
+                 few short lines, each citing the episode it rests on."
+            ),
+            JobKind::Learn { pack } => format!(
+                "Rewrite the wording of the judge's pack {} so the mistakes the owner labelled \
+                 are not repeated, keeping every id, option and threshold.",
+                part(pack, PART_CHARS)
+            ),
+            JobKind::OntologyName { kind } => format!(
+                "Name a new category of {} for the owner's ontology: three names and a line \
+                 that says what it holds.",
+                part(kind, PART_CHARS)
+            ),
         }
     }
 
     /// The job works on private material: only US options may be listed.
-    fn private(&self) -> bool {
+    pub fn private(&self) -> bool {
         match self {
             JobKind::Compaction { .. } => false,
             JobKind::Synthesis { owner_material, .. } => *owner_material,
             JobKind::SelfBuilder { private, .. } | JobKind::SelfReviewer { private, .. } => {
                 *private
             }
+            // Each of these reads the owner's own material (the keys of
+            // `config::data_floor::owner_material_profiles`).
+            JobKind::Card { .. }
+            | JobKind::CardObserve { .. }
+            | JobKind::Initiative { .. }
+            | JobKind::People { .. }
+            | JobKind::Threads { .. }
+            | JobKind::Learn { .. }
+            | JobKind::OntologyName { .. } => true,
         }
     }
 }

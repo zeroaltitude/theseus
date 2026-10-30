@@ -184,7 +184,7 @@ impl Core {
             let pending = self.mint_pending(&placeholder)?;
             self.mint_profile_ok(&pending.motif)
                 .map_err(|e| anyhow!(e))?;
-            let reply = self.mint_writer_turn(&s).await?;
+            let reply = self.mint_writer_turn(&s, &pending).await?;
             // A Rust mint is the writer's `self.propose_change` and the self-join's:
             // its item carries `mint:<id>` and closes at the join, not here.
             if pending.kind == Kind::Rust {
@@ -274,17 +274,53 @@ impl Core {
             .is_file()
     }
 
+    /// The writer's target: Jev's choice for the motif's brief (route.v10,
+    /// theseus-ej6bj; there is no key to pin it), listing US options only when
+    /// the motif is drawn from private sessions; the live profile (as the
+    /// session last ran) when Jev is not asked or cannot be used.
+    pub(crate) async fn mint_writer_target(
+        &self,
+        session: &crate::session::SessionRecord,
+        pending: &Pending,
+    ) -> Result<crate::turn::Target> {
+        use crate::job_model::{How, Site};
+        use theseus_judge::builders::{JobKind, RestrictedModels};
+        let (live, _) = self.live_profile();
+        let own = self.runner.target_for_session(session, &live)?;
+        let brief =
+            std::fs::read_to_string(self.mint_root().join(&pending.placeholder).join(BRIEF))
+                .unwrap_or_default();
+        let private = super::private(&pending.motif);
+        let site = Site {
+            name: "self builder",
+            pin: None,
+            legacy: None,
+            job: JobKind::SelfBuilder { brief, private },
+            restricted: RestrictedModels::allowed_if(!private),
+        };
+        let (choice, how) = self.runner.job_choice(&live, site).await;
+        if !matches!(how, How::Jev { .. }) {
+            return Ok(own);
+        }
+        let picked = self.runner.choice_target(&live, &choice)?;
+        Ok(crate::turn::Target {
+            persona: own.persona,
+            engages: own.engages,
+            ..picked
+        })
+    }
+
     /// The writer's one turn, in its own `"self"` session; its reply.
     async fn mint_writer_turn(
         self: &Arc<Self>,
         s: &crate::rsi::backlog::Started,
+        pending: &Pending,
     ) -> Result<String> {
         let session = self
             .store
             .get_session::<crate::session::SessionRecord>(&s.session_id)?
             .ok_or_else(|| anyhow!("session {} is gone", s.session_id))?;
-        let (live, _) = self.live_profile();
-        let target = self.runner.target_for_session(&session, &live)?;
+        let target = self.mint_writer_target(&session, pending).await?;
         let sink = crate::bus::EventSink::new(self.bus.clone(), &session.session_id, None);
         let done = self
             .runner

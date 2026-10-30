@@ -55,8 +55,8 @@ pub struct OntologyConfig {
     pub act: f64,
     #[serde(default = "default_confirm")]
     pub confirm: f64,
-    #[serde(default = "default_name_profile")]
-    pub name_profile: String,
+    #[serde(default)]
+    pub name_profile: Option<String>,
     #[serde(default)]
     pub request: Request,
     #[serde(default = "default_recall_boost")]
@@ -105,9 +105,6 @@ fn default_confirm() -> f64 {
 fn default_recall_boost() -> f64 {
     0.25
 }
-fn default_name_profile() -> String {
-    "haiku".into()
-}
 
 impl Default for OntologyConfig {
     fn default() -> Self {
@@ -115,7 +112,7 @@ impl Default for OntologyConfig {
             judge: default_judge(),
             act: default_act(),
             confirm: default_confirm(),
-            name_profile: default_name_profile(),
+            name_profile: None,
             request: Request::default(),
             recall_boost: default_recall_boost(),
             private_mark: false,
@@ -153,7 +150,11 @@ impl OntologyConfig {
                 self.sweep_usd_per_day
             );
         }
-        if self.name_profile.trim().is_empty() {
+        if self
+            .name_profile
+            .as_deref()
+            .is_some_and(|p| p.trim().is_empty())
+        {
             bail!("[ontology] name_profile names no profile");
         }
         Ok(())

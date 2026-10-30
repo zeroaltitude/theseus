@@ -174,23 +174,26 @@ pub struct MemoryConfig {
     #[serde(default)]
     pub include_external: bool,
     /// The profile that summarizes what the ring would drop (step 30c):
-    /// compaction. `session`, the default, is the turn's own profile,
-    /// provider and model, so the range goes nowhere the session's turns
-    /// don't. A key of `[profiles]` sends it to that profile's provider,
-    /// which may not be the session's. `off` keeps the ring.
-    #[serde(default = "default_summary_profile")]
-    pub summary_profile: String,
+    /// compaction. A configured key is a pin (route.v10, theseus-ej6bj):
+    /// `session` is the turn's own profile, provider and model, so the range
+    /// goes nowhere the session's turns don't; a key of `[profiles]` sends it
+    /// to that profile's provider, which may not be the session's; `off`
+    /// keeps the ring. Unset: Jev chooses the model for each summary.
+    #[serde(default)]
+    pub summary_profile: Option<String>,
     /// The tokens of the recall section an assembled prefix carries (30c):
     /// a task's first compile, and a compaction.
     #[serde(default = "default_assembled_budget")]
     pub assembled_budget_tokens: u64,
-    /// The profile consolidation writes its syntheses with (31b).
-    /// `session`, the default, is the profile every source's session last
-    /// used (the owner's call at 30c: no second provider reads a session's
-    /// text by default); a cluster whose sources disagree waits. A key of
-    /// `[profiles]` is the operator's choice.
-    #[serde(default = "default_synth_profile")]
-    pub synth_profile: String,
+    /// The profile consolidation writes its syntheses with (31b). A
+    /// configured key is a pin (route.v10, theseus-ej6bj): `session` is the
+    /// profile every source's session last used (the owner's call at 30c: no
+    /// second provider reads a session's text by default; a cluster whose
+    /// sources disagree waits), and a key of `[profiles]` is the operator's
+    /// choice. Unset: Jev chooses the model for each cluster, from US options
+    /// only (a synthesis reads the owner's material).
+    #[serde(default)]
+    pub synth_profile: Option<String>,
     /// What consolidation may spend in a local day, read from its rows.
     #[serde(default = "default_synth_limit")]
     pub synth_limit_usd_per_day: f64,
@@ -241,14 +244,8 @@ fn default_experiment() -> String {
 fn default_session_cap() -> u64 {
     64_000
 }
-fn default_summary_profile() -> String {
-    SUMMARY_SESSION.into()
-}
 fn default_assembled_budget() -> u64 {
     4_000
-}
-fn default_synth_profile() -> String {
-    SUMMARY_SESSION.into()
 }
 fn default_synth_limit() -> f64 {
     0.50
@@ -267,9 +264,26 @@ pub const MAX_NODE_CACHE_MB: u64 = 16_384;
 pub const SUMMARY_OFF: &str = "off";
 
 /// `summary_profile`'s word for the turn's own profile, provider and model:
-/// the default until Jev routes the summary (the owner's call at 30c's join,
-/// 2026-10-04: no second provider reads a session's text by default).
+/// what an unset key meant until Jev chose the summary's model (the owner's
+/// call at 30c's join, 2026-10-04: no second provider reads a session's text
+/// by default), and the pin that keeps it.
 pub const SUMMARY_SESSION: &str = "session";
+
+/// A key that is set to nothing: an error (an unset key is `None`).
+fn blank(p: Option<&str>) -> bool {
+    p.is_some_and(|p| p.trim().is_empty())
+}
+
+/// What `[memory] summary_profile` says to do (route.v10, theseus-ej6bj).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Summary<'a> {
+    /// `off`: the ring drops leading turns.
+    Off,
+    /// A configured key (a pin): a key of `[profiles]`, or `session`.
+    Pin(&'a str),
+    /// Unset: Jev chooses the model for each summary.
+    Jev,
+}
 
 /// The longest a recall may wait for the index.
 pub const MAX_RECALL_DEADLINE_MS: u64 = 5_000;
@@ -300,9 +314,9 @@ impl Default for MemoryConfig {
             recall_floor: default_recall_floor(),
             recall_subject_bar: 0.0,
             include_external: false,
-            summary_profile: default_summary_profile(),
+            summary_profile: None,
             assembled_budget_tokens: default_assembled_budget(),
-            synth_profile: default_synth_profile(),
+            synth_profile: None,
             synth_limit_usd_per_day: default_synth_limit(),
             consolidate_hour: default_consolidate_hour(),
             node_cache_mb: default_node_cache_mb(),
@@ -319,9 +333,14 @@ impl MemoryConfig {
         self.mode != MemoryMode::Off
     }
 
-    /// The profile compaction summarizes with, unless it is `off`.
-    pub fn summary_profile(&self) -> Option<&str> {
-        Some(self.summary_profile.as_str()).filter(|p| *p != SUMMARY_OFF)
+    /// What compaction does for its summary: nothing (`off`), the pinned
+    /// profile (a key, or `session`), or ask Jev (the key is unset).
+    pub fn summary(&self) -> Summary<'_> {
+        match self.summary_profile.as_deref() {
+            None => Summary::Jev,
+            Some(SUMMARY_OFF) => Summary::Off,
+            Some(p) => Summary::Pin(p),
+        }
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
@@ -357,7 +376,7 @@ impl MemoryConfig {
                 bail!("memory.{key} = {items} is outside 1 to {MAX_RECALL_ITEMS}");
             }
         }
-        if self.summary_profile.trim().is_empty() {
+        if blank(self.summary_profile.as_deref()) {
             bail!("memory.summary_profile is empty: name a profile, or \"off\" to keep the ring");
         }
         if self.assembled_budget_tokens == 0 {
@@ -384,7 +403,7 @@ impl MemoryConfig {
                 self.recall_vector_tokens
             );
         }
-        if self.synth_profile.trim().is_empty() {
+        if blank(self.synth_profile.as_deref()) {
             bail!("memory.synth_profile is empty: name a profile, or \"session\"");
         }
         if !(0.0..=100.0).contains(&self.synth_limit_usd_per_day) {
@@ -480,7 +499,15 @@ pub fn bucket(session_id: &str, experiment: &str) -> f64 {
 #[cfg(test)]
 pub(crate) fn the_templates_memory_section(m: &MemoryConfig) {
     assert_eq!(m.mode, MemoryMode::Live);
-    assert_eq!(*m, MemoryConfig::default());
+    // Un-commented, the two profile lines pin `session`, the word an unset key
+    // meant before Jev chose (theseus-ej6bj); everything else is the default.
+    let pinned = MemoryConfig {
+        summary_profile: Some(SUMMARY_SESSION.into()),
+        synth_profile: Some(SUMMARY_SESSION.into()),
+        ..MemoryConfig::default()
+    };
+    assert_eq!(*m, pinned);
+    // As written, with its lines commented, the template is the default.
     assert_eq!(crate::Config::example().memory, MemoryConfig::default());
 }
 

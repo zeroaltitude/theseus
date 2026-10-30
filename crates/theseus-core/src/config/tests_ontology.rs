@@ -16,10 +16,10 @@ fn the_defaults_are_the_documented_ones() {
             c.judge,
             c.act,
             c.confirm,
-            c.name_profile.as_str(),
+            c.name_profile.as_deref(),
             c.request
         ),
-        (true, 0.80, 0.55, "haiku", Request::Batch)
+        (true, 0.80, 0.55, None, Request::Batch)
     );
     assert_eq!(c.recall_boost, 0.25);
     assert!(c.is_default());
@@ -55,10 +55,10 @@ fn a_key_is_read_and_a_bad_one_is_refused_with_its_name() {
             c.judge,
             c.act,
             c.confirm,
-            c.name_profile.as_str(),
+            c.name_profile.as_deref(),
             c.request
         ),
-        (false, 0.9, 0.6, "sonnet", Request::Own)
+        (false, 0.9, 0.6, Some("sonnet"), Request::Own)
     );
     for (bad, word) in [
         ("confirm = 0.9\nact = 0.8", "confirm"),

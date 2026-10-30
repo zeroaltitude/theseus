@@ -23,8 +23,11 @@ pub const CODING_BASE: &str = "haikuhi";
 
 /// The rule's answer for the brief `a.verdict` judged, `a.base` being the
 /// model the task would otherwise run on (its parent's). `switch` says the
-/// task's base is another profile.
-pub fn brief_base(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision {
+/// task's base is another profile. `open` (the acting route pack asks
+/// `model`, theseus-ej6bj): nothing is fixed to a profile, so a
+/// `routine_coding` brief starts where the class sends it; closed, it starts
+/// on [`CODING_BASE`] as it did (until the row that retires the class rule).
+pub fn brief_base(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>, open: bool) -> Decision {
     let fresh = Ask {
         est_tokens: 0,
         hold: None,
@@ -32,7 +35,7 @@ pub fn brief_base(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Deci
         ..a.clone()
     };
     let mut d = match fresh.verdict.mode.as_str() {
-        "routine_coding" => {
+        "routine_coding" if !open => {
             let mut c = cfg.clone();
             c.classes
                 .routine_coding
@@ -77,6 +80,7 @@ mod tests {
                 cap,
                 ..ask(&v, from, 1_000_000)
             },
+            false,
         )
     }
 
@@ -121,7 +125,7 @@ mod tests {
         }
         let on = |mode: &str| {
             let v = verdict(mode, 0.9);
-            brief_base(&cfg, &ps, &ask(&v, "fable", 0)).profile
+            brief_base(&cfg, &ps, &ask(&v, "fable", 0), false).profile
         };
         assert_eq!(on("routine_coding"), "haikuhi");
         assert_eq!(on("trivial"), "haiku");
@@ -130,7 +134,7 @@ mod tests {
         moved.classes.routine_coding.profiles = vec!["sonnet".into()];
         let v = verdict("routine_coding", 0.9);
         assert_eq!(
-            brief_base(&moved, &ps, &ask(&v, "fable", 0)).profile,
+            brief_base(&moved, &ps, &ask(&v, "fable", 0), false).profile,
             "haikuhi"
         );
     }
@@ -166,5 +170,17 @@ mod tests {
         assert_eq!(d.profile, "sonnet");
         assert_eq!(d.reason, Reason::Capped);
         assert!(!d.switch);
+    }
+
+    /// Open (theseus-ej6bj): nothing is fixed to a profile, and a config that
+    /// moved `haikuhi` out of the class list does not get it back.
+    #[test]
+    fn an_open_brief_starts_where_its_class_sends_it() {
+        let ps = five();
+        let mut moved = RoutingConfig::default();
+        moved.classes.routine_coding.profiles = vec!["sonnet".into()];
+        let v = verdict("routine_coding", 0.9);
+        let d = brief_base(&moved, &ps, &ask(&v, "fable", 0), true);
+        assert_eq!(d.profile, "sonnet");
     }
 }

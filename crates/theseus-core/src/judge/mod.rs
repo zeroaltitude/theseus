@@ -39,6 +39,7 @@ pub mod families;
 pub mod gate;
 pub mod heard;
 pub mod inbound;
+pub(crate) mod job;
 pub mod ladder;
 pub mod lineage;
 pub mod loop_end;
