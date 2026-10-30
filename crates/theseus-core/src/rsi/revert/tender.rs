@@ -4,12 +4,12 @@
 //! a pass the gate refuses (a halt) reads the cached switch and nothing else,
 //! and one with no join in the window reads the ledger's few `self.*` rows.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 use theseus_protocol::rsi::SelfMode;
 
+use super::known::Known;
 use super::Seams;
 use crate::rpc::Core;
 
@@ -28,7 +28,7 @@ impl Core {
         tokio::spawn(async move {
             tokio::time::sleep(FIRST).await;
             let seams = Seams::default();
-            let mut known = HashSet::new();
+            let mut known = Known::new();
             loop {
                 let Some(c) = core.upgrade() else { return };
                 match c.self_revert_pass(&seams, &mut known).await {

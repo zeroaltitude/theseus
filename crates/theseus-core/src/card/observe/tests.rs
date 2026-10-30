@@ -54,6 +54,14 @@ fn rig_with(turns: usize, tweak: impl FnOnce(&mut crate::Config)) -> Rig {
     r
 }
 
+/// [`rig_with`] for a test that counts the store's frames: the memory pass
+/// writes a frame of its own for the turns' nodes, `QUIET` after the last
+/// turn, so on a slow run it lands between two counts and passes for the
+/// observer's (theseus-n2ig3). Off, the observer's frames are the only ones.
+fn rig_counting(turns: usize) -> Rig {
+    rig_with(turns, |c| c.memory.mode = crate::config::MemoryMode::Off)
+}
+
 /// What the observer's tool answers with `items`.
 fn answers(items: Value) -> Scripted {
     Scripted::tools(
@@ -351,7 +359,7 @@ async fn a_restatement_of_a_live_record_is_counted_and_writes_nothing() {
 // moves in memory alone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_due_point_with_none_of_the_owners_lines_writes_no_frame() {
-    let r = rig_with(EVERY, |_| {});
+    let r = rig_counting(EVERY);
     let sid = session(&r.core, Some(&dm()));
     // Ten messages no one noted as the owner's (a job's, say).
     for i in 0..EVERY {
@@ -435,7 +443,7 @@ async fn no_day_line_or_observe_off_gives_no_call() {
 // mark and the row in one frame.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_call_writes_nothing_and_a_good_one_writes_one_frame() {
-    let r = rig_with(EVERY, |_| {});
+    let r = rig_counting(EVERY);
     let sid = session(&r.core, Some(&dm()));
     script(
         &r,
