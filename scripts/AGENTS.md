@@ -512,6 +512,18 @@ state dir, and kills it at the end.
 - **Its web check probes `WEB_PORT`, by default 7433: the operator's daemon.** Run it only with a scratch config
   whose `[web]` is off or on a port of its own, and `WEB_PORT` set to match.
 
+## release-smoke.sh
+
+The release smoke (theseus-yf6pj; `bench/smoke/README.md`): five parts, each PASS or FAIL against
+`bench/smoke/floor.json`, the verdict the first heading of `bench/smoke/runs/<date>-<sha8>/report.md`. Run it on the
+candidate before a release is called, and with `--write-floor` at the tag.
+
+- **It spends real dollars** (about $1, under $8): the TB2 slice needs `ANTHROPIC_API_KEY` and `TYPESAFE_API_KEY` in
+  the environment and Docker, and stops once its finished trials pass `SMOKE_TB_STOP_USD` (6). `route` and `dm` talk
+  to the live daemon (`SMOKE_SOCKET`, else the CLI's own); `recall` and `resume` cost nothing.
+- **It waits for a quiet host** (`bench/harbor/run.py`'s refusal: the gate's lock, CPU pressure) up to
+  `SMOKE_QUIET_WAIT_S`, then fails the part. Do not run it beside a gate.
+
 ## This machine
 
 Theseus is built on one WSL2 machine, beside the operator's own running daemon and other agents' work.
