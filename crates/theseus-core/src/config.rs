@@ -1899,6 +1899,26 @@ impl Config {
         self.resolved.profiles.insert(name.into(), p);
     }
 
+    /// A test's `dsflash` profile: Flash on the `deepseek` provider, whose key
+    /// is a real-looking `op://` reference (the template's is a placeholder).
+    #[cfg(test)]
+    pub(crate) fn serve_deepseek_flash(&mut self) {
+        self.copy_profile("dsflash", "sonnet");
+        let p = self.resolved.profiles.get_mut("dsflash").expect("copied");
+        p.provider = "deepseek".into();
+        p.model = "deepseek-flash".into();
+        for k in ["anthropic_api_key", "zai_api_key", "deepseek_api_key"] {
+            self.secrets
+                .insert(k.into(), "op://test-vault/item/notesPlain".into());
+        }
+    }
+
+    /// A test's config without profile `name`.
+    #[cfg(test)]
+    pub(crate) fn remove_profile(&mut self, name: &str) {
+        self.resolved.profiles.remove(name);
+    }
+
     /// A test's `glm` profile on `model` (US origin, on the `zai` fake), a
     /// second provider with a model of its own (theseus-a1wvq.10).
     #[cfg(test)]
@@ -2037,11 +2057,20 @@ impl Config {
 
     /// Why a pick on `provider` cannot run for want of a key, in the words
     /// `theseus why` prints (`deepseek: no key`), or `None` when the provider
-    /// is declared and its secret is named under `[secrets]`. Whether the
-    /// secret resolves is the secret board's, at the call.
+    /// is declared and its secret names a reference that could resolve. A
+    /// reference still holding the template's placeholder (`<your vault>`) names
+    /// no item and is no key: a pick on it is a fallback at pick time, not a call
+    /// that fails at dispatch. A structural check only: no vault is asked, and
+    /// whether a real reference resolves is the secret board's (`route_profiles`
+    /// reads its state). The words carry no reference.
     pub fn provider_without_key(&self, provider: &str) -> Option<String> {
+        let named = |secret: &str| {
+            self.secrets
+                .get(secret)
+                .is_some_and(|r| !r.contains(['<', '>']))
+        };
         match self.all_providers().get(provider) {
-            Some(p) if self.secrets.contains_key(&p.api_key_secret) => None,
+            Some(p) if named(&p.api_key_secret) => None,
             _ => Some(format!("{provider}: no key")),
         }
     }

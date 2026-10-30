@@ -56,6 +56,24 @@ pub struct RouteDecided<'a> {
     pub ran: Ran<'a>,
     /// The data rule's part: absent on a checkpoint's row.
     pub data: Option<RouteData<'a>>,
+    /// What route.v10 adds (theseus-h66v4): absent while another pack acts, so
+    /// the row is byte for byte what it was.
+    pub open: Option<RouteOpen>,
+}
+
+/// route.v10's part of a `route.decided` row: the acting pack, what Jev picked
+/// and how sure, the first sentences of the block it picked, the context it
+/// named, and the words that qualify the reason (`-P fable`,
+/// `restricted_models=not_allowed`, `deepseek: no key`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RouteOpen {
+    pub pack: String,
+    pub pick: Option<String>,
+    pub pick_confidence: Option<f64>,
+    pub block: Option<String>,
+    pub context: Option<String>,
+    pub context_confidence: Option<f64>,
+    pub detail: Option<String>,
 }
 
 /// The provider, model and origin of the profile the row's turn runs on: a
@@ -117,6 +135,21 @@ impl Fact for RouteDecided<'_> {
         }
         if let Some(s) = self.effort_sent {
             row["effort_sent"] = json!(s);
+        }
+        if let Some(o) = &self.open {
+            row["pack"] = json!(o.pack);
+            for (k, v) in [
+                ("pick", o.pick.as_ref().map(|s| json!(s))),
+                ("pick_confidence", o.pick_confidence.map(|c| json!(c))),
+                ("block", o.block.as_ref().map(|s| json!(s))),
+                ("context", o.context.as_ref().map(|s| json!(s))),
+                ("context_confidence", o.context_confidence.map(|c| json!(c))),
+                ("detail", o.detail.as_ref().map(|s| json!(s))),
+            ] {
+                if let Some(v) = v {
+                    row[k] = v;
+                }
+            }
         }
         if let Some(i) = &self.injection {
             row["injection"] = i.clone();
@@ -318,6 +351,7 @@ mod tests {
                 origin: "unknown",
             },
             data: None,
+            open: None,
         });
         let lines = narrator.tail();
         assert_eq!(lines.len(), 1);

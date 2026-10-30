@@ -719,6 +719,7 @@ impl TurnRunner {
             injection: None,
             ran: self.ran_of(profile),
             data: None,
+            open: None,
         });
     }
 }

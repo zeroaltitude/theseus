@@ -84,6 +84,43 @@ pub struct RouteFacts {
     /// outside a task.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub task_models: Vec<String>,
+    /// How many tokens the conversation holds, as far as the daemon knows at
+    /// the ask (its last request's prompt, else its text): the number the
+    /// table's "a long context" and "above 100K" are read against. Left out
+    /// where there is none (a job).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub est_tokens: Option<u64>,
+}
+
+/// The fields of a route ask's state beyond a message's own dynamic ones
+/// (`previous_human_message`, `last_reply`, `minutes_since_last_message`),
+/// for a plain message in a conversation that has had a reply and is no
+/// task: the one list the daemon's state and a replay case's state are both
+/// held to (`tests_route_state`).
+pub const ROUTE_STATE_KEYS: [&str; 9] = [
+    "author",
+    "current_role",
+    "est_tokens",
+    "last_reply_model",
+    "live_tasks",
+    "message",
+    "place_kind",
+    "price_period",
+    "restricted_models",
+];
+
+/// A replay case's input: the message and the facts, as the daemon would send
+/// them for a plain message in `place_kind`, and nothing else. A replay builds
+/// its state with [`super::inbound`] over this, never beside it, so what Jev is
+/// shown in a replay is what the daemon shows it.
+pub fn route_input(message: &str, place_kind: &str, facts: RouteFacts) -> InboundInput {
+    InboundInput {
+        message: message.into(),
+        author: "operator".into(),
+        place_kind: place_kind.into(),
+        route: Some(facts),
+        ..InboundInput::default()
+    }
 }
 
 /// The facts in the inbound state, when the input carries them. Every one is
@@ -95,6 +132,9 @@ pub(super) fn state(b: &mut StateBuilder, c: &Clipper, i: &InboundInput) {
     };
     b.scalar("price_period", f.price_period.as_str());
     b.scalar("restricted_models", f.restricted_models.as_str());
+    if let Some(n) = f.est_tokens {
+        b.scalar("est_tokens", n);
+    }
     if let Some(m) = &f.last_reply_model {
         b.scalar("last_reply_model", c.clip(m, MODEL_CHARS))
             .cut_if("last_reply_model", c.cut());

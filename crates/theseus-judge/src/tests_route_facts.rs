@@ -21,6 +21,7 @@ fn facts() -> RouteFacts {
         restricted_models: RestrictedModels::Allowed,
         last_reply_model: Some("claude-sonnet-5-5".into()),
         task_models: vec!["claude-sonnet-5-5".into(), "deepseek-flash".into()],
+        est_tokens: None,
     }
 }
 
@@ -66,6 +67,7 @@ fn the_last_reply_and_the_task_models_are_left_out_when_there_are_none() {
         task_models: Vec::new(),
         restricted_models: RestrictedModels::NotAllowed,
         price_period: PricePeriod::Peak,
+        est_tokens: None,
     });
     let (v, _, _) = state_of(i);
     assert_eq!(v["price_period"], "peak");
@@ -110,6 +112,7 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
         task_models: (0..500)
             .map(|n| format!("{n}-{}", "model".repeat(400)))
             .collect(),
+        est_tokens: Some(u64::MAX),
     });
     let p = by_name("route.v8").unwrap();
     assert_eq!(p.state_cap_tokens, 3000);

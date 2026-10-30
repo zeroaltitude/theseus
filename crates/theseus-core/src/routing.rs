@@ -59,9 +59,14 @@ use crate::config::RoutingConfig;
 pub mod brief;
 pub mod checkpoint;
 pub mod effort;
+pub mod model;
 pub mod personal;
 #[cfg(test)]
 mod tests_cn;
+#[cfg(test)]
+mod tests_effort_open;
+#[cfg(test)]
+mod tests_model;
 pub use personal::PersonalAnswer;
 
 /// A short turn's uncached input, in tokens, for `cheapest` and the cap.
@@ -189,6 +194,40 @@ pub struct Verdict {
     /// route.v7's `personal` answer (theseus-gasov): a reach for the
     /// operator's personal details warns the owner.
     pub personal: Option<Box<PersonalAnswer>>,
+    /// route.v10's `model` answer (theseus-h66v4): the option Jev chose, and
+    /// whether its band reached the question's `confirm` bar. A verdict that
+    /// carries one is decided by [`model::decide`], never by the class walk.
+    pub model: Option<Box<Pick>>,
+    /// route.v10's `context` answer: `short` or `full`.
+    pub context: Option<Box<Pick>>,
+}
+
+/// One of route.v10's choice answers (`model`, `context`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pick {
+    /// The option Jev chose.
+    pub choice: String,
+    pub confidence: f64,
+    /// Its band reached the question's `confirm` bar (act or confirm): what
+    /// the pack's own bar calls an answer to act on.
+    pub sure: bool,
+}
+
+impl Verdict {
+    /// The verdict is route.v10's: it answers `model` or `context`, and says
+    /// no `mode`.
+    pub fn open(&self) -> bool {
+        self.model.is_some() || self.context.is_some()
+    }
+
+    /// Jev said `short` and its band reached the bar: this message alone is
+    /// answered from the persona, the last exchanges and the recall (the
+    /// detour compile), never from the session's compilation.
+    pub fn short(&self) -> bool {
+        self.context
+            .as_ref()
+            .is_some_and(|c| c.choice == model::SHORT && c.sure)
+    }
 }
 
 /// One configured profile, as routing weighs it.
@@ -226,6 +265,26 @@ pub fn chosen(p: &theseus_protocol::TurnSubmitParams) -> Option<String> {
             .join(", "),
         ),
     }
+}
+
+/// What `theseus profile use` pins, as [`chosen`]'s words say it
+/// (`live profile haiku`): a pin of the live profile, not of a turn's own.
+pub const LIVE_PIN: &str = "live profile ";
+
+/// A pin as `theseus why` words it: `-P fable`, `-p zai`, `-m glm-5.3`,
+/// `profile use haiku`, from [`chosen`]'s own words.
+pub fn pin_words(chosen: &str) -> String {
+    chosen
+        .split(", ")
+        .map(|part| match part.split_once(' ') {
+            _ if part.starts_with(LIVE_PIN) => format!("profile use {}", &part[LIVE_PIN.len()..]),
+            Some(("profile", x)) => format!("-P {x}"),
+            Some(("provider", x)) => format!("-p {x}"),
+            Some(("model", x)) => format!("-m {x}"),
+            _ => part.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// A short turn's cost at a catalog row's prices, in dollars.
@@ -462,8 +521,12 @@ fn step_down(profiles: &Profiles, a: &Ask<'_>, picked: &Picked) -> Option<Decisi
     })
 }
 
-/// The switch rule.
+/// The switch rule: route.v10's `model` answer when the verdict carries one
+/// ([`model::decide`]), else the mode's class walk.
 pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision {
+    if a.verdict.open() {
+        return model::decide(cfg, profiles, a);
+    }
     let detour = is_detour(&a.verdict.mode);
     let stay = |reason, hold| Decision {
         profile: a.base.to_string(),
@@ -598,7 +661,11 @@ pub fn steer_to(
 /// it on?"), and its detour is that turn's alone, so a late verdict of
 /// `trivial` or `quick` never applies to another message (theseus-3okf).
 pub fn carries(v: &Verdict) -> bool {
-    !is_detour(&v.mode)
+    match v.open() {
+        // route.v10: a `short` pick is its message's alone, as a detour's mode was.
+        true => !v.short(),
+        false => !is_detour(&v.mode),
+    }
 }
 
 #[cfg(test)]
@@ -650,6 +717,8 @@ mod tests {
             persona: None,
             seal: None,
             personal: None,
+            model: None,
+            context: None,
         }
     }
 

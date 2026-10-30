@@ -60,6 +60,8 @@ pub mod probe;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_job_sites;
+#[cfg(test)]
 mod tests_onto;
 #[cfg(test)]
 mod tests_pic;
@@ -71,6 +73,8 @@ mod tests_public_names;
 mod tests_replay_onto;
 #[cfg(test)]
 mod tests_route_facts;
+#[cfg(test)]
+mod tests_route_state;
 #[cfg(test)]
 mod tests_route_v10;
 #[cfg(test)]
