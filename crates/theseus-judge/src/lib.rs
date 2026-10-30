@@ -70,6 +70,8 @@ mod tests_public_names;
 #[cfg(test)]
 mod tests_replay_onto;
 #[cfg(test)]
+mod tests_route_facts;
+#[cfg(test)]
 mod tests_route_v10;
 #[cfg(test)]
 mod tests_route_v5;

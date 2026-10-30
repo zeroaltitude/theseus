@@ -470,11 +470,11 @@ impl TurnRunner {
         let (range, messages, target, price) = (&p.range, p.messages, &p.target, &p.price);
         let cost_usd = self
             .catalog
-            .cost_usd(&resp.model, &resp.usage)
-            .or_else(|| Some(price.cost_usd(&resp.usage)));
+            .cost_usd_at(&resp.model, &resp.usage, started_ms)
+            .or_else(|| Some(price.cost_usd_at(&resp.usage, started_ms)));
         let cost = self.catalog.get(&resp.model).map_or_else(
-            || price.cost_micros(&resp.usage),
-            |e| e.cost_micros(&resp.usage),
+            || price.cost_micros_at(&resp.usage, started_ms),
+            |e| e.cost_micros_at(&resp.usage, started_ms),
         );
         // What it cost joins the turn's books, written or not (R1).
         t.cost = t.cost.map(|c| c + micros_to_usd(cost));

@@ -59,6 +59,9 @@ impl TurnRunner {
             return;
         };
         let place = self.outbox.try_target(sid).ok().flatten();
+        let restricted = theseus_judge::builders::RestrictedModels::allowed_if(
+            self.cn_read(t) == super::data_step::Cn::Allowed,
+        );
         let wait = self.judge.at_brief(
             &mut t.trace,
             Inbound {
@@ -79,6 +82,7 @@ impl TurnRunner {
                 capture: false,
                 data_names: self.cfg.privacy.data_names(),
                 attachments: Vec::new(),
+                restricted,
             },
         );
         t.route.brief = wait.is_some();

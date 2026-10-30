@@ -276,6 +276,7 @@ impl Core {
             capture: false,
             data_names: Default::default(),
             attachments: Vec::new(),
+            restricted: Default::default(),
         };
         let mut input = inbound::input(&upto, &msg, Vec::new());
         let mut onto = crate::judge::onto::onto_input(self, o, &msg);

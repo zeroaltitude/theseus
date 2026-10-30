@@ -322,12 +322,14 @@ kind = "anthropic_messages"             # the only wire protocol today
 # stream_idle_secs = 60
 # total_secs = 600                      # a call before its stream begins; a live stream may run to 3x this
 
-# DeepSeek's Anthropic-compatible endpoint. Add its key to the secrets table before un-commenting.
-# [providers.deepseek]
-# api_base = "https://api.deepseek.com/anthropic"
-# api_key_secret = "deepseek_api_key"
-# kind = "anthropic_messages"
-# origin = "cn"                         # a China-origin host is "cn" whatever is written here; for an unknown host, the operator's word
+# DeepSeek's Anthropic-compatible endpoint, a China-origin provider: Jev may pick its model where the
+# session's labels allow one (the data rule). Put its key in the vault and name the item under [secrets]
+# (deepseek_api_key). Where the key cannot be read, a pick on this provider runs the live model instead.
+[providers.deepseek]
+api_base = "https://api.deepseek.com/anthropic"
+api_key_secret = "deepseek_api_key"
+kind = "anthropic_messages"
+origin = "cn"                           # a China-origin host is "cn" whatever is written here; for an unknown host, the operator's word
 
 # Moonshot AI's Kimi, on its Anthropic-compatible endpoint. Add its key to the secrets table before un-commenting.
 # [providers.moonshot]
@@ -361,7 +363,7 @@ kind = "anthropic_messages"             # the only wire protocol today
 [secrets]
 anthropic_api_key = "op://<your vault>/<Anthropic API key item>/notesPlain"
 zai_api_key = "op://<your vault>/<Z.ai API key item>/notesPlain"
-# deepseek_api_key = "op://<your vault>/<DeepSeek API key item>/notesPlain"   # the deepseek provider's key: add the item first
+deepseek_api_key = "op://<your vault>/<DeepSeek API key item>/notesPlain"   # the deepseek provider's key
 # moonshot_api_key = "op://<your vault>/<Moonshot API key item>/notesPlain"   # the moonshot provider's key: add the item first
 jev_api_key = "op://<your vault>/<Jev API key item>/notesPlain"
 github_token = "op://<your vault>/<GitHub token item>/notesPlain"

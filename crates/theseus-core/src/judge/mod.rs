@@ -49,6 +49,7 @@ pub mod offer;
 pub mod onto;
 pub mod people;
 pub mod rerank;
+pub(crate) mod route_facts;
 mod seal;
 pub mod sink;
 pub mod small_talk;
@@ -64,6 +65,8 @@ mod tests_heard;
 mod tests_quotes;
 #[cfg(test)]
 mod tests_reserve;
+#[cfg(test)]
+mod tests_route_facts;
 pub mod warm;
 
 use std::collections::{BTreeMap, HashSet};

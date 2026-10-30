@@ -423,6 +423,9 @@ impl TurnRunner {
         let class = t.tc.class;
         let place = self.outbox.try_target(sid).ok().flatten();
         let route = self.route_mode(t.target, sid);
+        let restricted = theseus_judge::builders::RestrictedModels::allowed_if(
+            self.cn_read(t) == super::data_step::Cn::Allowed,
+        );
         let rx = self.judge.at_checkpoint(
             &mut t.trace,
             Inbound {
@@ -443,6 +446,7 @@ impl TurnRunner {
                 capture: false,
                 data_names: self.cfg.privacy.data_names(),
                 attachments: Vec::new(),
+                restricted,
             },
         );
         a.flight = rx.map(|rx| Flight {
