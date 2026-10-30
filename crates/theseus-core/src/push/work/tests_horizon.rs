@@ -46,7 +46,7 @@ fn window(from: u64, to: u64) -> AgendaParams {
 }
 
 fn expand_for_tests(w: &PendingWake, p: &AgendaParams, z: &TimeZone) -> Vec<(u64, u32)> {
-    lines_for_tests(w, p, z).0
+    lines_for_tests(w, p, z, None).0
 }
 
 fn wall(ms: u64) -> String {
@@ -125,7 +125,7 @@ fn the_end_of_a_series_and_the_cap_hold() {
         r.every = Every::parse("1m").unwrap();
         r.days.clear();
     }
-    let (lines, more) = lines_for_tests(&m, &window(FIRST, FIRST + 2 * DAY), &zone());
+    let (lines, more) = lines_for_tests(&m, &window(FIRST, FIRST + 2 * DAY), &zone(), None);
     assert_eq!(lines.len(), AGENDA_MAX);
     assert!(more);
 }

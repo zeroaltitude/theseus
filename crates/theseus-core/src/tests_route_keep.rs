@@ -78,7 +78,12 @@ const BILLED: u64 = 42_600;
 /// definitions in the request, it estimated 30,098, 98 over the line, and no
 /// WINDOW or BILLED rang less (a 13 x 15 sweep, every cell). 410 repeats put it
 /// back under with room for the next row's sentence.
-const FILLER: usize = 410;
+/// And 410 until `routine.create` took a start, a stop and a carry
+/// (theseus-97b8c): its description and schema grew the tools block, which put
+/// the first compile back over the line and all three requests on sonnet. A
+/// sweep at its join: 410 fails, and 395, 380, 365, 350, 335 and 320 all hold.
+/// 380 is inside that band with room for the next row's sentence again.
+const FILLER: usize = 380;
 
 /// The tiers of what a compilation's budget report dropped.
 fn tiers(c: &Compilation) -> Vec<String> {

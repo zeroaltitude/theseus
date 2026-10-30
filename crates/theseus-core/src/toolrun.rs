@@ -1980,6 +1980,7 @@ pub fn build_runtime(
             zone: cfg.kernel.to_kernel_config().zone,
             cfg: cfg.routines.clone(),
             floor_ms: cfg.kernel.min_repeat_minutes.max(1) * 60_000,
+            max_ahead_ms: cfg.kernel.to_kernel_config().wakes.max_ahead_ms,
         }));
         r.register(Arc::new(crate::watch_tool::WatchTool));
         r.register(Arc::new(crate::thread_context::ThreadNote));
